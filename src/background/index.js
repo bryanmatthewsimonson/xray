@@ -232,17 +232,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 const [injection] = await chrome.scripting.executeScript({
                     target: { tabId },
                     world: 'MAIN',
-                    // func is serialized to a string and re-parsed in the
-                    // page context, so it must be self-contained — no
-                    // closure references.
+                    // Tries multiple URL variants and returns a breakdown
+                    // so we can see which (if any) produce content. YouTube
+                    // has been tightening the timedtext endpoint with
+                    // PO-token gating since mid-2024; the signed baseUrl
+                    // from ytInitialPlayerResponse is no longer always
+                    // honoured even from the page's own JS context.
                     func: async (fetchUrl) => {
-                        try {
-                            const r = await fetch(fetchUrl, { credentials: 'include' });
-                            const body = await r.text();
-                            return { ok: true, status: r.status, body };
-                        } catch (err) {
-                            return { ok: false, error: err && err.message ? err.message : String(err) };
+                        const variants = {
+                            json3:    fetchUrl,
+                            xml:      fetchUrl.replace(/(\?|&)fmt=json3/, ''),
+                            srv3:     fetchUrl.replace(/(\?|&)fmt=json3/, '$1fmt=srv3'),
+                            vtt:      fetchUrl.replace(/(\?|&)fmt=json3/, '$1fmt=vtt')
+                        };
+                        const out = {};
+                        for (const [label, u] of Object.entries(variants)) {
+                            try {
+                                const r = await fetch(u, { credentials: 'include' });
+                                const body = await r.text();
+                                out[label] = {
+                                    status: r.status, ok: r.ok,
+                                    bodyLen: body.length,
+                                    bodyStart: body.slice(0, 80)
+                                };
+                                // If one variant returns content, stop and
+                                // deliver that.
+                                if (r.ok && body.length > 8) {
+                                    out.winner = label;
+                                    out.body = body;
+                                    out.status = r.status;
+                                    return { ok: true, ...out };
+                                }
+                            } catch (err) {
+                                out[label] = { error: err && err.message ? err.message : String(err) };
+                            }
                         }
+                        // Every variant came back empty (or threw). Include
+                        // the full breakdown so the caller can surface a
+                        // specific error.
+                        return { ok: false, variants: out, error: 'All transcript URL variants returned empty (PO-token gating)' };
                     },
                     args: [url]
                 });
@@ -252,15 +280,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     return;
                 }
                 console.error('[X-Ray SW] fetchTranscript response:', {
-                    status: result.status, ok: result.ok,
+                    ok: result.ok,
+                    winner: result.winner,
+                    status: result.status,
                     bodyLen: result.body ? result.body.length : 0,
                     bodyStart: result.body ? result.body.slice(0, 120) : null,
+                    variants: result.variants,
                     error: result.error
                 });
-                if (!result.ok) {
-                    sendResponse({ ok: false, error: result.error || 'page-world fetch failed' });
+                if (result.ok) {
+                    sendResponse({ ok: true, status: result.status, body: result.body, winner: result.winner });
                 } else {
-                    sendResponse({ ok: true, status: result.status, body: result.body });
+                    sendResponse({ ok: false, error: result.error, variants: result.variants });
                 }
             } catch (err) {
                 console.error('[X-Ray SW] executeScript threw:', err);
