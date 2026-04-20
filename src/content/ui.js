@@ -13,7 +13,6 @@ import { Utils } from '../shared/utils.js';
 import { Storage } from '../shared/storage.js';
 import { ContentProcessor } from '../shared/content-processor.js';
 import { EventBuilder } from '../shared/event-builder.js';
-import { NostrClient } from '../shared/nostr-client.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
 import { NIP07Client } from './nip07-client.js';
 
@@ -731,7 +730,18 @@ export const UI = {
       Utils.log('Event pubkey:', signedEvent.pubkey);
       Utils.log('Event sig:', signedEvent.sig ? signedEvent.sig.substring(0, 20) + '...' : 'MISSING');
 
-      const results = await NostrClient.publishToRelays(selectedRelays, signedEvent);
+      // Relay client lives in the service worker so that WebSocket
+      // connections survive tab lifecycle events and are not subject to
+      // page CSP. We message the SW and await the result.
+      const resp = await chrome.runtime.sendMessage({
+        type: 'xray:relay:publish',
+        relays: selectedRelays,
+        event: signedEvent
+      });
+      if (!resp || !resp.ok) {
+        throw new Error('Relay publish failed: ' + (resp?.error || 'no response from service worker'));
+      }
+      const results = resp.results;
       Utils.log('Publish results:', results);
 
       if (results.successful > 0) {

@@ -8,10 +8,18 @@
 //   - Bridge xray:notify → chrome.notifications.
 //   - Handle the keyboard-shortcut `command` (`Ctrl/Cmd+Shift+X`) by
 //     dispatching `xray:toggle` to the active tab.
+//   - **Publish signed events to NOSTR relays** on behalf of the content
+//     script. Moving the WebSocket pool here matters because:
+//       (a) relay connections survive tab navigations and can be kept
+//           warm across publishes;
+//       (b) the SW is not subject to page CSP, so relay connections work
+//           on Facebook / Instagram / TikTok / YouTube where the page's
+//           `connect-src` policy would block them from content scripts.
 //
-// Phase 1 (crypto) and Phase 2 (capture) add imports from ../shared/*.
-// Phase 3+ moves the relay client and more heavy lifting here. For now,
-// this worker is a thin dispatcher.
+// Phase 1 (real crypto) and Phase 2 (capture parity) add more shared
+// imports. Phase 3+ moves query subscriptions here alongside publish.
+
+import { NostrClient } from '../shared/nostr-client.js';
 
 const MENU_IDS = {
     OPEN_CAPTURE: 'xray:open-capture',
@@ -97,6 +105,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 .catch(err => sendResponse({ ok: false, error: err && err.message }));
         });
         return true; // async sendResponse
+    }
+
+    // Content script → worker: publish a signed event to relays.
+    if (message.type === 'xray:relay:publish') {
+        const relays = Array.isArray(message.relays) ? message.relays : [];
+        const event = message.event;
+        if (!event || !event.id || !event.pubkey || !event.sig) {
+            sendResponse({ ok: false, error: 'missing or unsigned event' });
+            return false;
+        }
+        if (relays.length === 0) {
+            sendResponse({ ok: false, error: 'no relays configured' });
+            return false;
+        }
+        NostrClient.publishToRelays(relays, event)
+            .then((results) => sendResponse({ ok: true, results }))
+            .catch((err) => sendResponse({ ok: false, error: err && err.message }));
+        return true; // async
     }
 
     // Content script → worker: surface a desktop notification.
