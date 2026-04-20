@@ -216,6 +216,20 @@ export async function fetchSubstackComments(apiOrigin, postId) {
     const shaped = payload.comments.map(shapeComment).filter(Boolean);
     const total = countTree(shaped);
     const deletedCount = countTree(shaped, (c) => c.deleted);
+
+    // One-line debug breadcrumb so the next shape-shift is easy to spot
+    // when a fresh capture comes back with mostly-deleted bodies.
+    // eslint-disable-next-line no-console
+    console.log('[X-Ray Substack] comments:', {
+        total, deletedCount,
+        sample: payload.comments[0] ? {
+            hasBody: typeof payload.comments[0].body === 'string',
+            hasBodyJson: !!payload.comments[0].body_json,
+            status: payload.comments[0].status,
+            deleted: payload.comments[0].deleted
+        } : null
+    });
+
     return { comments: shaped, total, deletedCount };
 }
 
@@ -253,8 +267,23 @@ function shapeComment(raw) {
     const ancestorIds = ancestors.split('/').filter(Boolean).map((s) => parseInt(s, 10)).filter(Number.isFinite);
     const parentId = ancestorIds.length ? ancestorIds[ancestorIds.length - 1] : null;
 
-    const body = typeof raw.body === 'string' ? raw.body : '';
-    const deleted = raw.deleted === true || !body || (raw.status && raw.status !== 'ok');
+    // Body resolution: Substack has been migrating toward body_json
+    // (a Tiptap doc) and often leaves `body` null. Try body first
+    // (cheap, plaintext), then extract text from body_json if needed.
+    let body = typeof raw.body === 'string' ? raw.body : '';
+    const bodyJson = (raw.body_json && typeof raw.body_json === 'object') ? raw.body_json : null;
+    if (!body && bodyJson) {
+        body = extractTextFromTiptap(bodyJson);
+    }
+
+    // A comment is "deleted" when it's genuinely gone (explicit flag,
+    // or no body AND no body_json at all). A non-'ok' status alone is
+    // not sufficient — Substack uses 'flagged' for community-reported
+    // comments whose bodies are still visible to the reporter and to
+    // paid subscribers.
+    const deleted = raw.deleted === true ||
+                    raw.status === 'deleted' ||
+                    (!body && !bodyJson);
 
     const author = {
         handle: typeof raw.handle === 'string' ? raw.handle : null,
@@ -272,8 +301,11 @@ function shapeComment(raw) {
         id: raw.id,
         parentId,
         body,
+        bodyJson,        // preserved for richer future rendering
+        bodyHtml: null,  // reserved — future commit may walk bodyJson → HTML
         date: typeof raw.date === 'string' ? raw.date : null,
         editedAt: typeof raw.edited_at === 'string' ? raw.edited_at : null,
+        status: typeof raw.status === 'string' ? raw.status : null,
         deleted,
         author,
         reactionCount: Number.isFinite(raw.reaction_count) ? raw.reaction_count : 0,
@@ -281,6 +313,42 @@ function shapeComment(raw) {
         restacks: Number.isFinite(raw.restacks) ? raw.restacks : 0,
         children
     };
+}
+
+/**
+ * Walk a Tiptap document and join its text leaves into a single plain
+ * string. Used as a fallback when Substack omits the plain `body`
+ * field and only ships `body_json`.
+ *
+ * Tiptap docs are nested `{ type, content: [...] }` trees. Text nodes
+ * carry `{ type: 'text', text: '...' }`. Block-level nodes (paragraph,
+ * heading, blockquote, bulletList, etc.) get a trailing newline so the
+ * output isn't one run-on line.
+ */
+function extractTextFromTiptap(doc) {
+    if (!doc || typeof doc !== 'object') return '';
+    const BLOCK_TYPES = new Set([
+        'paragraph', 'heading', 'blockquote',
+        'bulletList', 'orderedList', 'listItem',
+        'codeBlock', 'horizontalRule'
+    ]);
+    let out = '';
+    const walk = (node) => {
+        if (!node || typeof node !== 'object') return;
+        if (node.type === 'text' && typeof node.text === 'string') {
+            out += node.text;
+            return;
+        }
+        if (node.type === 'hardBreak') { out += '\n'; return; }
+        if (Array.isArray(node.content)) {
+            for (const child of node.content) walk(child);
+        }
+        if (BLOCK_TYPES.has(node.type) && out.length && !out.endsWith('\n\n')) {
+            out += out.endsWith('\n') ? '\n' : '\n\n';
+        }
+    };
+    walk(doc);
+    return out.trim();
 }
 
 /**
