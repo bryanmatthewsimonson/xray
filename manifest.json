@@ -28,6 +28,7 @@
 
   "background": {
     "service_worker": "src/background/service-worker.js",
+    "scripts": ["src/background/service-worker.js"],
     "type": "module"
   },
 
@@ -86,7 +87,10 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "xray@nostr-article-capture",
-      "strict_min_version": "128.0"
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
     }
   }
 }
