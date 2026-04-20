@@ -20,6 +20,7 @@
 // imports. Phase 3+ moves query subscriptions here alongside publish.
 
 import { NostrClient } from '../shared/nostr-client.js';
+import { fetchSubstackComments } from '../shared/platforms/substack-comments.js';
 
 const MENU_IDS = {
     OPEN_CAPTURE: 'xray:open-capture',
@@ -173,6 +174,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             (err) => sendResponse({ ok: false, error: err && err.message })
         );
         return true; // async sendResponse
+    }
+
+    // Content script OR reader page → worker: fetch Substack comments.
+    // SW-side fetch bypasses page CORS + connect-src policies.
+    if (message.type === 'xray:substack:fetchComments') {
+        const { apiOrigin, postId } = message;
+        fetchSubstackComments(apiOrigin, postId)
+            .then((result) => sendResponse({ ok: true, ...result }))
+            .catch((err) => sendResponse({ ok: false, error: err && err.message }));
+        return true; // async
     }
 
     // Content script → worker: publish a signed event to relays.
