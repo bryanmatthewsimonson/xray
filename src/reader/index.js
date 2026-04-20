@@ -98,9 +98,23 @@ async function loadArticle() {
         throw new Error('Article not found. The reader tab may have been reopened after the source tab was closed.');
     }
 
-    state.article = stored;
-    state.markdownDraft = stored.markdown || stored.content || '';
-    state.htmlDraft = stored.content || ContentExtractor.markdownToHtml(state.markdownDraft);
+    // The SW stores `{ article, sourceTabId, createdAt }` — unwrap the
+    // article payload. Tolerate the pre-v0.2.1 flat shape in case anyone
+    // has a stale session record open from before this fix.
+    const article = (stored && typeof stored === 'object' && stored.article)
+        ? stored.article
+        : stored;
+    if (!article || typeof article !== 'object' || !article.title && !article.content) {
+        throw new Error(
+            'The stored article has no content. ' +
+            'This likely means Readability could not extract a body from the source page. ' +
+            'Try reloading the source tab and capturing again.'
+        );
+    }
+
+    state.article = article;
+    state.markdownDraft = article.markdown || article.content || '';
+    state.htmlDraft = article.content || ContentExtractor.markdownToHtml(state.markdownDraft);
 }
 
 // ------------------------------------------------------------------
