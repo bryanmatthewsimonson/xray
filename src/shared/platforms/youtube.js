@@ -184,10 +184,19 @@ export async function fetchTranscript(baseUrl) {
         const url = new URL(baseUrl, window.location.origin);
         url.searchParams.set('fmt', 'json3');
 
+        // Diagnostic breadcrumb — confirms the SW-routed code path is
+        // live. If a user reports "fetch failed" without this log
+        // appearing in the YouTube tab console, the tab is still
+        // running the pre-73e75af bundle and needs a hard reload.
+        console.error('[X-Ray YouTube] fetchTranscript via SW:', url.toString());
+
         const resp = await chrome.runtime.sendMessage({
             type: 'xray:youtube:fetchTranscript',
             url: url.toString()
         });
+
+        console.error('[X-Ray YouTube] SW response:',
+            resp ? { ok: resp.ok, status: resp.status, bodyLen: resp.body?.length || 0, error: resp.error } : null);
 
         if (!resp || !resp.ok) {
             const reason = (resp && resp.error) || 'no response from service worker';

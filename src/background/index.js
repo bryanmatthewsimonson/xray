@@ -218,6 +218,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             return false;
         }
         (async () => {
+            console.error('[X-Ray SW] fetchTranscript GET', url);
             try {
                 const res = await fetch(url, {
                     method: 'GET',
@@ -226,8 +227,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     signal: AbortSignal.timeout(15000)
                 });
                 const body = await res.text();
+                console.error('[X-Ray SW] fetchTranscript response:',
+                    { status: res.status, ok: res.ok, bodyLen: body.length, bodyStart: body.slice(0, 120) });
                 sendResponse({ ok: true, status: res.status, body });
             } catch (err) {
+                console.error('[X-Ray SW] fetchTranscript threw:', err);
                 sendResponse({ ok: false, error: err && err.message ? err.message : String(err) });
             }
         })();
