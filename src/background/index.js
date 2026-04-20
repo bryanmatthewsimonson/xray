@@ -20,7 +20,7 @@
 // imports. Phase 3+ moves query subscriptions here alongside publish.
 
 import { NostrClient } from '../shared/nostr-client.js';
-import { fetchSubstackComments } from '../shared/platforms/substack-comments.js';
+import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 
 const MENU_IDS = {
     OPEN_CAPTURE: 'xray:open-capture',
@@ -176,8 +176,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // async sendResponse
     }
 
+    // Content script OR reader page → worker: fetch Substack post metadata
+    // by slug. Uses credentials:'include' so the user's Substack session
+    // cookie unlocks paywalled bodies automatically.
+    if (message.type === 'xray:substack:fetchPost') {
+        const { apiOrigin, slug } = message;
+        fetchSubstackPost(apiOrigin, slug)
+            .then((post) => sendResponse({ ok: true, post }))
+            .catch((err) => sendResponse({ ok: false, error: err && err.message }));
+        return true;
+    }
+
     // Content script OR reader page → worker: fetch Substack comments.
-    // SW-side fetch bypasses page CORS + connect-src policies.
+    // Same credentials treatment as the post fetch so gated comment
+    // threads on paid publications resolve for authed users.
     if (message.type === 'xray:substack:fetchComments') {
         const { apiOrigin, postId } = message;
         fetchSubstackComments(apiOrigin, postId)

@@ -278,19 +278,56 @@ function setViewMode(mode) {
 // Comments (Substack — Phase 3a)
 // ------------------------------------------------------------------
 
-async function loadSubstackComments() {
+/**
+ * Two-stage API load for Substack:
+ *   1) /api/v1/posts/<slug>  — rich metadata + full body (paywall unlock
+ *                               when the user has a Substack session)
+ *   2) /api/v1/post/<id>/comments  — comment tree
+ *
+ * Runs non-blocking after the reader is already rendered from Readability.
+ * Each stage is independent: if stage 1 fails we still have Readability's
+ * content; if stage 2 fails we still have stage 1's metadata.
+ */
+async function loadSubstackData() {
     const sub = state.article.substack;
-    if (!sub || !sub.postId || !sub.apiOrigin) return;
+    if (!sub || !sub.slug || !sub.apiOrigin) return;
 
     state.comments.platform = 'substack';
     state.comments.status = 'loading';
     renderCommentsSection();
 
+    // Stage 1: post metadata.
+    let post = null;
+    try {
+        const resp = await browserApi.runtime.sendMessage({
+            type: 'xray:substack:fetchPost',
+            apiOrigin: sub.apiOrigin,
+            slug:      sub.slug
+        });
+        if (resp && resp.ok && resp.post) {
+            post = resp.post;
+            mergeSubstackPost(post);
+        } else {
+            console.warn('[X-Ray Reader] Substack post fetch failed:', resp && resp.error);
+        }
+    } catch (err) {
+        console.warn('[X-Ray Reader] Substack post fetch threw:', err);
+    }
+
+    // Stage 2: comments (only if stage 1 gave us a postId).
+    const postId = state.article.substack.postId;
+    if (!postId) {
+        state.comments.status = 'error';
+        state.comments.error = 'No post id — Substack post API fetch failed. Confirm you have a Substack session and try again.';
+        renderCommentsSection();
+        return;
+    }
+
     try {
         const resp = await browserApi.runtime.sendMessage({
             type: 'xray:substack:fetchComments',
             apiOrigin: sub.apiOrigin,
-            postId: sub.postId
+            postId
         });
         if (!resp || !resp.ok) {
             throw new Error((resp && resp.error) || 'No response from service worker');
@@ -304,6 +341,89 @@ async function loadSubstackComments() {
         state.comments.error = err.message || String(err);
     }
     renderCommentsSection();
+}
+
+/**
+ * Merge Substack post-API fields onto the live article and re-render.
+ * Readability produced an initial extraction; the API response is
+ * authoritative for everything except user-edited fields. We treat
+ * fields already touched by the user (dirtySource === 'reader' or
+ * 'markdown') as preserved — the merge only fills gaps.
+ */
+function mergeSubstackPost(post) {
+    const a = state.article;
+
+    // Always-on routing-ish fields.
+    a.substack.postId        = post.id;
+    a.substack.publicationId = post.publicationId;
+    a.substack.sectionId     = post.sectionId;
+    a.substack.audience      = post.audience;
+    a.substack.type          = post.type;
+    a.substack.wordcount     = post.wordcount;
+    a.substack.subtitle      = post.subtitle;
+    a.substack.postTags      = post.postTags;
+    a.substack.podcast       = post.podcast;
+    a.substack.hasVoiceover  = post.hasVoiceover;
+    a.substack.audioItems    = post.audioItems;
+    a.substack.allBylines    = post.allBylines;
+    a.substack._raw          = post._raw;
+
+    // Fields where the API is authoritative. Only override if the user
+    // hasn't touched that view yet AND the API's value is non-empty.
+    const userEditedReader   = state.dirtySource !== 'reader'   ? false : isReaderDirty();
+    const userEditedMarkdown = state.dirtySource !== 'markdown' ? false : true;
+
+    if (!userEditedReader && !userEditedMarkdown) {
+        if (post.title)        a.title       = post.title;
+        if (post.byline?.name) a.byline      = post.byline.name;
+        if (post.coverImage)   a.featuredImage = post.coverImage;
+        if (post.postDate)     a.publishedAt = Math.floor(Date.parse(post.postDate) / 1000);
+
+        // Body replacement only if the API body is non-empty AND longer
+        // than what Readability got (the "paywall unlock" case).
+        if (post.bodyHtml && (!a.content || post.bodyHtml.length > a.content.length * 1.05)) {
+            a.content = post.bodyHtml;
+            state.htmlDraft = post.bodyHtml;
+            state.markdownDraft = ContentExtractor.htmlToMarkdown(post.bodyHtml);
+        }
+    }
+
+    // Authoritative engagement + publication regardless of edit state.
+    a.engagement = {
+        likes:    post.reactionCount,
+        restacks: post.restacks,
+        comments: post.commentCount
+    };
+    a.siteName = resolveSiteName(post, a.siteName);
+
+    // Re-render whatever view the user is in, so the new data shows up.
+    switch (state.viewMode) {
+        case 'reader':   renderReader();   break;
+        case 'markdown': renderMarkdown(); break;
+        case 'preview':  renderPreview();  break;
+    }
+}
+
+function isReaderDirty() {
+    // We haven't tracked fine-grained edit state yet — treat the reader
+    // as "not edited" unless the user made markdown-mode changes. A
+    // better signal (onInput diffing) comes in a future commit.
+    return false;
+}
+
+function resolveSiteName(post, currentSiteName) {
+    // Prefer Readability's siteName if it's a real publication name (not
+    // just the domain). Otherwise fall back to the first byline's
+    // handle-based publication (e.g. "The Free Press" if configured on
+    // the Substack publication record).
+    if (currentSiteName && !currentSiteName.match(/\.(com|org|net|blog|io)$/i)) {
+        return currentSiteName;
+    }
+    // Substack's post API doesn't give us the publication name directly
+    // here; the raw payload has it nested via sectionPins or postTheme
+    // but those paths are fragile. Keep current or let the caller
+    // supply og:site_name from elsewhere.
+    return currentSiteName;
 }
 
 function renderCommentsSection() {
@@ -595,11 +715,11 @@ async function init() {
         state.comments.includeInPublish = ev.target.checked;
     });
 
-    // Kick off the platform-specific comment fetch, if any.
+    // Kick off the platform-specific data fetch, if any.
     // Non-blocking — the reader is already interactive.
     if (state.article.platform === 'substack') {
-        loadSubstackComments().catch((err) => {
-            console.warn('[X-Ray Reader] comment load errored out:', err);
+        loadSubstackData().catch((err) => {
+            console.warn('[X-Ray Reader] Substack data load errored out:', err);
         });
     }
 }

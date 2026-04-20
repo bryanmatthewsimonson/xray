@@ -1,19 +1,19 @@
-// Substack platform handler — article-level enrichment.
+// Substack platform handler — runs in the content script after
+// ContentExtractor.extractArticle has produced its Readability output.
 //
-// Runs in the content script (needs DOM access for selector queries
-// + access to the `post_id` that Substack embeds in preloaded state).
-// Called by UI.openReader *after* ContentExtractor.extractArticle so we
-// get Readability's clean output and can enrich rather than compete.
+// Responsibilities (this file):
+//   - Detect Substack (subdomain OR custom-domain)
+//   - Extract the three things we need to talk to Substack's public API:
+//       * slug        — from the URL path (/p/<slug>)
+//       * handle      — null on custom-domain, else the subdomain
+//       * apiOrigin   — prefers <link rel="canonical"> origin
 //
-// Scope of this module (Tier 1): publication name, author bio,
-// engagement counts, author handle, post ID, canonical API origin.
-//
-// Comment fetching (Tier 2) lives in `./substack-comments.js` and runs
-// in the background service worker to bypass CORS. The reader page is
-// what actually consumes + renders comments.
-//
-// See docs: https://github.com/bryanmatthewsimonson/xray/issues/14
-// and the Substack investigation report in conversation #2026-04-20.
+// Everything else (post metadata, body, engagement, comments) now comes
+// from Substack's /api/v1/posts/<slug> endpoint. See substack-api.js.
+// That's a strict upgrade over DOM scraping: richer data, works on both
+// subdomain and custom-domain publications, and — most importantly —
+// fetching with credentials:'include' automatically unlocks full content
+// for paywalled posts when the user is logged into Substack.
 
 // ------------------------------------------------------------------
 // Detection
@@ -21,10 +21,10 @@
 
 export function isSubstackPage() {
     const host = window.location.hostname;
-    // .substack.com subdomain is unambiguous.
     if (host.endsWith('.substack.com') || host === 'substack.com') return true;
-    // Custom domains: sniff DOM signals. Substack publications on custom
-    // domains still ship the same bundle + meta tags.
+    // Custom-domain signals. Any one of these is diagnostic on its own —
+    // no real-site publisher uses Substack's CDN unless they're hosted
+    // on Substack.
     if (document.querySelector('meta[name="generator"][content*="Substack"]')) return true;
     if (document.querySelector('link[rel="stylesheet"][href*="substackcdn.com"]')) return true;
     if (document.querySelector('script[src*="substackcdn.com"]')) return true;
@@ -32,38 +32,33 @@ export function isSubstackPage() {
 }
 
 // ------------------------------------------------------------------
-// Post ID + API origin extraction
+// URL / origin extraction
 // ------------------------------------------------------------------
 
 /**
- * Substack embeds the current post's numeric id inside a preloaded-state
- * JSON blob. We scan the document's raw HTML for the first match — this
- * is stable across Substack's UI refactors because the preload shape is
- * what the client bundle consumes on hydration.
- *
- * @returns {number|null} the numeric post id, or null if not found.
+ * Parse the Substack post slug from the current URL. Substack post URLs
+ * have the shape `/p/<slug>` (sometimes `/i/<id>/<slug>` on legacy paths).
+ * Returns null on pages that aren't post-shaped (e.g. the home feed).
  */
-export function extractPostId() {
-    // The blob has escaped quotes inside a <script>, so match on the
-    // escaped form: "post_id":165417845
-    const html = document.documentElement.outerHTML;
-    const m = html.match(/"post_id"\s*:\s*(\d+)/);
-    if (m) return parseInt(m[1], 10);
-    // Fallback: unescaped, in case Substack ever serves a non-escaped state.
-    const m2 = html.match(/\bpost_id\b\s*[:=]\s*(\d+)/);
-    return m2 ? parseInt(m2[1], 10) : null;
+export function extractSlug() {
+    const path = window.location.pathname;
+    // Standard: /p/<slug>
+    let m = path.match(/^\/p\/([^/?#]+)/);
+    if (m) return m[1];
+    // Legacy: /i/<id>/<slug>
+    m = path.match(/^\/i\/\d+\/([^/?#]+)/);
+    if (m) return m[1];
+    return null;
 }
 
 /**
  * Substack's public read API is served from the publication's canonical
- * origin. For custom-domain Substacks (e.g. slowboring.com) both the
- * custom origin *and* the `<subdomain>.substack.com` variant typically
- * work; we prefer the canonical one the page advertises because that's
- * what the page's own client talks to.
- *
- * @returns {string} origin URL like "https://garymarcus.substack.com"
+ * origin. For custom-domain Substacks (e.g. thefp.com) both the custom
+ * origin and the <subdomain>.substack.com variant typically work; we
+ * prefer the canonical origin advertised by the page because that's
+ * what the page's own client talks to — saves a CORS hop.
  */
-export function getCanonicalOrigin() {
+export function getApiOrigin() {
     const canonLink = document.querySelector('link[rel="canonical"]');
     if (canonLink && canonLink.href) {
         try { return new URL(canonLink.href).origin; } catch (_) { /* fallthrough */ }
@@ -72,11 +67,11 @@ export function getCanonicalOrigin() {
 }
 
 /**
- * Author handle for subdomain Substacks: `garymarcus` from
- * `garymarcus.substack.com`. Custom-domain publications have no equivalent
- * handle — this returns null for them.
+ * Author handle for subdomain Substacks. Returns null for custom-domain
+ * publications — the only "handle" there is the publication id, which
+ * comes back from the API.
  */
-export function extractAuthorHandle() {
+export function extractSubdomainHandle() {
     const host = window.location.hostname;
     if (host.endsWith('.substack.com') && host !== 'substack.com') {
         return host.replace(/\.substack\.com$/, '');
@@ -85,106 +80,35 @@ export function extractAuthorHandle() {
 }
 
 // ------------------------------------------------------------------
-// DOM metadata extraction
-// ------------------------------------------------------------------
-
-function firstText(selectors) {
-    for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el && el.textContent) {
-            const t = el.textContent.trim();
-            if (t) return t;
-        }
-    }
-    return null;
-}
-
-function firstIntText(selectors) {
-    const raw = firstText(selectors);
-    if (!raw) return 0;
-    // Substack sometimes renders counts as "1.2k" / "3.4M"; handle those.
-    const m = raw.match(/^(\d+(?:\.\d+)?)\s*([kmb]?)/i);
-    if (!m) return 0;
-    const n = parseFloat(m[1]);
-    const suffix = m[2].toLowerCase();
-    const mul = suffix === 'k' ? 1_000 : suffix === 'm' ? 1_000_000 : suffix === 'b' ? 1_000_000_000 : 1;
-    return Math.round(n * mul);
-}
-
-function extractPublicationName() {
-    return firstText([
-        '.publication-name',
-        '[class*="PublicationName"]',
-        '.navbar-title',
-        'meta[property="og:site_name"]'
-    ]) || document.querySelector('meta[property="og:site_name"]')?.content?.trim() || null;
-}
-
-function extractAuthorBio() {
-    // Substack author subtitle lives on the post page as the "tagline"
-    // style element. Not every post has one; we tolerate nulls.
-    return firstText([
-        '.author-bio',
-        '[class*="AuthorBio"]',
-        '.subtitle'
-    ]);
-}
-
-function extractEngagement() {
-    return {
-        likes:    firstIntText(['[class*="like-count"]',    '[class*="LikeCount"]']),
-        restacks: firstIntText(['[class*="restack-count"]', '[class*="RestackCount"]']),
-        comments: firstIntText(['[class*="comment-count"]', '[class*="CommentCount"]'])
-    };
-}
-
-// ------------------------------------------------------------------
 // Main enricher
 // ------------------------------------------------------------------
 
 /**
- * Given an article already extracted by the generic Readability
- * pipeline, layer Substack-specific fields on top. Never throws —
- * every enrichment is defensive so a selector regression degrades
- * to missing data, not a broken capture.
+ * Layer Substack-specific routing hints onto a Readability-extracted
+ * article. The actual content upgrade (full body, accurate engagement,
+ * etc.) happens in the reader once the API fetch resolves — see
+ * reader/index.js `loadSubstackData`.
  *
- * Adds:
- *   article.platform           'substack'
- *   article.substack.postId    (number)
- *   article.substack.handle    (string|null)
- *   article.substack.apiOrigin (string) — where to fetch comments
- *   article.substack.authorBio (string|null)
- *   article.substack.publicationName  (string|null — replaces siteName if richer)
- *   article.engagement         { likes, restacks, comments }  (numbers)
- *
- * Does NOT fetch comments here — that's the SW's job (see substack-comments.js).
+ * Never throws — missing fields degrade to null, the original article
+ * still makes it to the reader.
  */
 export function enrichArticle(article) {
     if (!article) return article;
 
     article.platform = 'substack';
-
-    const substack = {
-        postId: null,
-        handle: null,
-        apiOrigin: null,
-        authorBio: null,
-        publicationName: null
+    article.substack = {
+        slug:      safe(extractSlug),
+        handle:    safe(extractSubdomainHandle),
+        apiOrigin: safe(getApiOrigin),
+        // Populated by the reader when the /api/v1/posts/<slug> fetch
+        // resolves. Kept here so downstream event-builder code that
+        // expects article.substack.postId still has a known location.
+        postId: null
     };
 
-    try { substack.postId = extractPostId(); } catch (_) {}
-    try { substack.handle = extractAuthorHandle(); } catch (_) {}
-    try { substack.apiOrigin = getCanonicalOrigin(); } catch (_) {}
-    try { substack.authorBio = extractAuthorBio(); } catch (_) {}
-    try { substack.publicationName = extractPublicationName(); } catch (_) {}
-
-    article.substack = substack;
-
-    if (substack.publicationName && (!article.siteName || article.siteName === new URL(article.url).hostname)) {
-        article.siteName = substack.publicationName;
-    }
-
-    try { article.engagement = extractEngagement(); } catch (_) {}
-
     return article;
+}
+
+function safe(fn) {
+    try { return fn(); } catch (_) { return null; }
 }
