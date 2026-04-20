@@ -286,75 +286,145 @@ function shapeTranscript(raw) {
 
 export async function scrapeVisibleTranscript() {
     try {
-        // 1. If segments are already rendered, skip the button-click.
-        let segments = document.querySelectorAll('ytd-transcript-segment-renderer');
-
-        // 2. Otherwise try to open the panel. YouTube's "Show transcript"
-        //    button lives in the expanded description; the button text
-        //    is locale-dependent, so match on aria-label + visible text.
-        if (segments.length === 0) {
-            const button = findTranscriptButton();
-            if (!button) {
-                return {
-                    events: null,
-                    error: 'YouTube\'s "Show transcript" button not found. Try opening the transcript in YouTube\'s UI manually, then recapture.'
-                };
-            }
-            try { button.click(); }
-            catch (err) { return { events: null, error: 'Could not click "Show transcript" button: ' + (err && err.message) }; }
-
-            await waitForSegments(5000);
-            segments = document.querySelectorAll('ytd-transcript-segment-renderer');
+        // Primary strategy: intercept YouTube's own get_transcript POST
+        // and parse its JSON response. Falls through to DOM scraping if
+        // the intercept didn't catch anything (e.g. the transcript panel
+        // was already open before we loaded).
+        const intercepted = await captureTranscriptViaFetchHook();
+        if (intercepted && intercepted.events && intercepted.events.length > 0) {
+            return intercepted;
         }
 
-        if (segments.length === 0) {
-            return { events: null, error: 'Transcript panel did not populate. The video may not have captions.' };
-        }
-
-        // 3. Extract cues.
-        const events = [];
-        segments.forEach((seg) => {
-            const tsEl  = seg.querySelector('#segment-timestamp, .segment-timestamp');
-            const txtEl = seg.querySelector('yt-formatted-string.segment-text, #segment-text, .segment-text');
-            if (!tsEl || !txtEl) return;
-
-            // tsEl.textContent can include accessibility text like "9 seconds"
-            // appended to "0:09" — grab just the leading M:SS[:SS] token.
-            const raw = (tsEl.textContent || '').trim();
-            const m = raw.match(/^(\d+):(\d{1,2})(?::(\d{2}))?/);
-            if (!m) return;
-            const h = m[3] !== undefined ? parseInt(m[1], 10) : 0;
-            const mm = m[3] !== undefined ? parseInt(m[2], 10) : parseInt(m[1], 10);
-            const ss = m[3] !== undefined ? parseInt(m[3], 10) : parseInt(m[2], 10);
-            const startMs = (h * 3600 + mm * 60 + ss) * 1000;
-
-            const text = (txtEl.textContent || '').trim();
-            if (text) events.push({ startMs, durationMs: 0, text });
-        });
-
-        // Infer per-cue durations from the next cue's start; default the
-        // last cue to 3s since we can't measure it.
-        for (let i = 0; i < events.length - 1; i++) {
-            events[i].durationMs = Math.max(0, events[i + 1].startMs - events[i].startMs);
-        }
-        if (events.length > 0) events[events.length - 1].durationMs = 3000;
-
-        // Track metadata: try to read the language dropdown in the panel footer.
-        const footerText = (() => {
-            const el = document.querySelector('ytd-transcript-footer-renderer');
-            return el ? (el.textContent || '').trim() : '';
-        })();
-
-        return {
-            events,
-            error: null,
-            source: 'dom-scrape',
-            footerText
-        };
+        // Secondary strategy: scrape DOM once the panel is open.
+        return await scrapeDomTranscript();
     } catch (err) {
         console.warn('[X-Ray YouTube] scrapeVisibleTranscript exception:', err);
         return { events: null, error: (err && err.message) || String(err) };
     }
+}
+
+/**
+ * Inject a fetch/XHR proxy into the page's MAIN world that captures
+ * YouTube's own `/youtubei/v1/get_transcript` response when it fires,
+ * then click "Show transcript" to trigger it. The response is the
+ * structured InnerTube JSON used by YouTube's own UI — cleaner than
+ * scraping the rendered DOM and immune to CSS-selector churn.
+ */
+async function captureTranscriptViaFetchHook() {
+    if (!chrome?.runtime?.sendMessage) return null;
+    const resp = await chrome.runtime.sendMessage({
+        type: 'xray:youtube:captureTranscriptViaHook',
+        tabId: null // SW picks up from sender.tab.id
+    });
+    if (resp && resp.ok && resp.events) {
+        return { events: resp.events, error: null, source: 'fetch-hook', footerText: resp.label || '' };
+    }
+    if (resp && resp.events === null) {
+        console.warn('[X-Ray YouTube] fetch-hook returned no events:', resp.error);
+    }
+    return null;
+}
+
+/**
+ * DOM scrape fallback. Logs aggressive diagnostics so that when
+ * YouTube renames its custom elements (periodically happens), we can
+ * diagnose from a user's paste.
+ */
+async function scrapeDomTranscript() {
+    // Broad probe: what transcript-shaped elements are in the DOM right now?
+    const probe = () => {
+        const all = document.querySelectorAll('*');
+        const buckets = {};
+        all.forEach((el) => {
+            const t = (el.tagName || '').toLowerCase();
+            if (t.includes('transcript')) buckets[t] = (buckets[t] || 0) + 1;
+        });
+        return buckets;
+    };
+
+    console.error('[X-Ray YouTube] DOM probe before click:', probe());
+
+    let segments = pickTranscriptSegments();
+
+    if (segments.length === 0) {
+        const button = findTranscriptButton();
+        if (!button) {
+            return {
+                events: null,
+                error: 'YouTube\'s "Show transcript" button not found in the description. Expand the description ("…more") and try again.'
+            };
+        }
+        try { button.click(); }
+        catch (err) { return { events: null, error: 'Could not click "Show transcript" button: ' + (err && err.message) }; }
+
+        // Wait up to 8 seconds for the panel to populate. YouTube's
+        // get_panel POST can take a couple seconds on cold cache.
+        await waitForSegments(8000);
+        console.error('[X-Ray YouTube] DOM probe after click + wait:', probe());
+        segments = pickTranscriptSegments();
+    }
+
+    if (segments.length === 0) {
+        // One last snapshot so we can see what IS in the panel.
+        const panel = document.querySelector('ytd-engagement-panel-section-list-renderer, ytd-transcript-renderer, [target-id*="transcript" i]');
+        const panelSnippet = panel ? panel.outerHTML.slice(0, 600) : '(no transcript panel element found)';
+        console.error('[X-Ray YouTube] panel snippet:', panelSnippet);
+        return {
+            events: null,
+            error: 'Transcript panel did not populate with segments. YouTube may have renamed its custom elements; selectors need updating.'
+        };
+    }
+
+    console.error('[X-Ray YouTube] found', segments.length, 'transcript segments');
+
+    // Extract cues.
+    const events = [];
+    segments.forEach((seg) => {
+        const tsEl  = seg.querySelector('#segment-timestamp, .segment-timestamp, [class*="timestamp" i]');
+        const txtEl = seg.querySelector('yt-formatted-string.segment-text, #segment-text, .segment-text, [class*="segment-text" i]');
+        if (!tsEl || !txtEl) return;
+
+        const raw = (tsEl.textContent || '').trim();
+        const m = raw.match(/^(\d+):(\d{1,2})(?::(\d{2}))?/);
+        if (!m) return;
+        const h = m[3] !== undefined ? parseInt(m[1], 10) : 0;
+        const mm = m[3] !== undefined ? parseInt(m[2], 10) : parseInt(m[1], 10);
+        const ss = m[3] !== undefined ? parseInt(m[3], 10) : parseInt(m[2], 10);
+        const startMs = (h * 3600 + mm * 60 + ss) * 1000;
+
+        const text = (txtEl.textContent || '').trim();
+        if (text) events.push({ startMs, durationMs: 0, text });
+    });
+
+    for (let i = 0; i < events.length - 1; i++) {
+        events[i].durationMs = Math.max(0, events[i + 1].startMs - events[i].startMs);
+    }
+    if (events.length > 0) events[events.length - 1].durationMs = 3000;
+
+    const footerText = (() => {
+        const el = document.querySelector('ytd-transcript-footer-renderer');
+        return el ? (el.textContent || '').trim() : '';
+    })();
+
+    return { events, error: null, source: 'dom-scrape', footerText };
+}
+
+/**
+ * Try several selectors for the transcript segments. YouTube has
+ * changed these over time — handling a few variants keeps the scraper
+ * alive across updates.
+ */
+function pickTranscriptSegments() {
+    const selectors = [
+        'ytd-transcript-segment-renderer',
+        'ytd-transcript-body-renderer ytd-transcript-segment-renderer',
+        '[class*="transcript-segment" i]'
+    ];
+    for (const sel of selectors) {
+        const list = document.querySelectorAll(sel);
+        if (list.length > 0) return list;
+    }
+    return document.querySelectorAll('ytd-transcript-segment-renderer'); // empty list
 }
 
 function findTranscriptButton() {

@@ -301,6 +301,47 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
 
+    // Content script → worker: intercept YouTube's own InnerTube
+    // `/youtubei/v1/get_transcript` POST response by patching
+    // `window.fetch` in the page's MAIN world, then programmatically
+    // clicking YouTube's "Show transcript" button to trigger the call.
+    //
+    // This is our primary transcript path since mid-2024: the signed
+    // baseUrl from ytInitialPlayerResponse silently returns HTTP 200
+    // with 0-byte bodies under PO-token gating even from the page's
+    // own JS, so we piggyback on the request YouTube makes for its own
+    // transcript panel. The response is structured InnerTube JSON —
+    // cleaner than scraping the rendered DOM and immune to CSS-selector
+    // churn.
+    if (message.type === 'xray:youtube:captureTranscriptViaHook') {
+        const tabId = sender && sender.tab && sender.tab.id;
+        if (!tabId) { sendResponse({ ok: false, error: 'missing tabId' }); return false; }
+        (async () => {
+            console.error('[X-Ray SW] captureTranscriptViaHook, tab', tabId);
+            try {
+                const [injection] = await chrome.scripting.executeScript({
+                    target: { tabId },
+                    world: 'MAIN',
+                    func: captureTranscriptInPage
+                });
+                const result = injection && injection.result;
+                if (!result) { sendResponse({ ok: false, error: 'no result from page-world injection' }); return; }
+                console.error('[X-Ray SW] captureTranscriptViaHook result:', {
+                    ok: result.ok,
+                    source: result.source,
+                    eventCount: result.events ? result.events.length : 0,
+                    error: result.error,
+                    diag: result.diag
+                });
+                sendResponse(result);
+            } catch (err) {
+                console.error('[X-Ray SW] captureTranscriptViaHook executeScript threw:', err);
+                sendResponse({ ok: false, error: err && err.message ? err.message : String(err) });
+            }
+        })();
+        return true;
+    }
+
     // Content script OR reader page → worker: fetch Substack post metadata
     // by slug. Uses credentials:'include' so the user's Substack session
     // cookie unlocks paywalled bodies automatically.
@@ -377,6 +418,270 @@ chrome.commands?.onCommand.addListener((command) => {
 // ------------------------------------------------------------------
 // Reader → sign → publish orchestration
 // ------------------------------------------------------------------
+
+// ------------------------------------------------------------------
+// Page-world transcript capture (injected via chrome.scripting)
+// ------------------------------------------------------------------
+//
+// Runs INSIDE the YouTube tab's MAIN world — not the SW, not the
+// content-script isolated world. It must be fully self-contained: no
+// closures over outer scope, no imports, no references to `chrome.*`.
+// Everything needed at runtime has to live inside the function body.
+//
+// Strategy:
+//   1. Monkey-patch window.fetch once per tab (idempotent). The patch
+//      captures any `/youtubei/v1/get_transcript` or `/get_panel`
+//      response and stores the parsed JSON on a global hook object.
+//   2. Locate the "Show transcript" button (expanding the description
+//      first if it's collapsed) and programmatically click it. This
+//      triggers YouTube's own get_transcript POST, which the fetch
+//      patch intercepts.
+//   3. Await the first captured response (8-second timeout).
+//   4. Parse the InnerTube JSON into [{ startMs, durationMs, text }]
+//      events.
+//
+// Returns the same shape the content script expects:
+//   { ok: true,  events, source }     on success
+//   { ok: false, error, diag }        on failure (diag aids debugging)
+
+async function captureTranscriptInPage() {
+    // ---- 1. Install the fetch hook (once per tab) ------------------
+    if (!window.__xrayTranscriptHook) {
+        const hook = {
+            responses: [],                 // [{ url, json }]
+            pendingResolvers: [],          // functions waiting for the next response
+            installedAt: Date.now()
+        };
+        window.__xrayTranscriptHook = hook;
+
+        const origFetch = window.fetch;
+        window.fetch = async function (...args) {
+            const resp = await origFetch.apply(this, args);
+            try {
+                const input = args[0];
+                const url = typeof input === 'string'
+                    ? input
+                    : (input && (input.url || String(input))) || '';
+                if (url && /\/youtubei\/v1\/(get_transcript|get_panel)\b/.test(url)) {
+                    const clone = resp.clone();
+                    clone.text().then((body) => {
+                        try {
+                            const json = JSON.parse(body);
+                            hook.responses.push({ url, json, at: Date.now() });
+                            const resolvers = hook.pendingResolvers.splice(0);
+                            resolvers.forEach((r) => { try { r(json); } catch (_) {} });
+                        } catch (_) { /* not JSON, ignore */ }
+                    }).catch(() => { /* read failure, ignore */ });
+                }
+            } catch (_) { /* never let the hook break the page */ }
+            return resp;
+        };
+    }
+    const hook = window.__xrayTranscriptHook;
+
+    // ---- Helpers ---------------------------------------------------
+
+    // Walk InnerTube JSON for the transcript segments. YouTube has two
+    // shipped shapes; support both.
+    const extractEvents = (json) => {
+        const events = [];
+
+        // Unwrap a text node: either { simpleText } or { runs: [{ text }] }.
+        const textOf = (node) => {
+            if (!node) return '';
+            if (typeof node.simpleText === 'string') return node.simpleText;
+            if (Array.isArray(node.runs)) {
+                return node.runs.map((r) => (r && r.text) || '').join('');
+            }
+            return '';
+        };
+
+        // Newer shape: initialSegments[].transcriptSegmentRenderer
+        //   { startMs, endMs, snippet: { runs | simpleText } }
+        const pushNew = (segments) => {
+            if (!Array.isArray(segments)) return;
+            for (const seg of segments) {
+                const r = seg && seg.transcriptSegmentRenderer;
+                if (!r) continue;
+                const startMs = parseInt(r.startMs, 10);
+                const endMs   = parseInt(r.endMs, 10);
+                const text = textOf(r.snippet).trim();
+                if (!text) continue;
+                events.push({
+                    startMs: Number.isFinite(startMs) ? startMs : 0,
+                    durationMs: Number.isFinite(endMs) && Number.isFinite(startMs)
+                        ? Math.max(0, endMs - startMs)
+                        : 0,
+                    text
+                });
+            }
+        };
+
+        // Older shape: body.transcriptBodyRenderer.cueGroups[]
+        //   .transcriptCueGroupRenderer.cues[].transcriptCueRenderer
+        //     { startOffsetMs, durationMs, cue: { simpleText } }
+        const pushOld = (groups) => {
+            if (!Array.isArray(groups)) return;
+            for (const g of groups) {
+                const gr = g && g.transcriptCueGroupRenderer;
+                if (!gr || !Array.isArray(gr.cues)) continue;
+                for (const c of gr.cues) {
+                    const cr = c && c.transcriptCueRenderer;
+                    if (!cr) continue;
+                    const startMs = parseInt(cr.startOffsetMs, 10) || 0;
+                    const durationMs = parseInt(cr.durationMs, 10) || 0;
+                    const text = textOf(cr.cue).trim();
+                    if (!text) continue;
+                    events.push({ startMs, durationMs, text });
+                }
+            }
+        };
+
+        // Try both known paths. Support updateEngagementPanelAction
+        // (get_panel / get_transcript) and the bare transcriptRenderer
+        // (direct get_transcript at top level).
+        const visit = (renderer) => {
+            if (!renderer) return;
+            const body = renderer.content
+                && renderer.content.transcriptSearchPanelRenderer
+                && renderer.content.transcriptSearchPanelRenderer.body;
+            if (body && body.transcriptSegmentListRenderer) {
+                pushNew(body.transcriptSegmentListRenderer.initialSegments);
+            }
+            const legacy = renderer.body && renderer.body.transcriptBodyRenderer;
+            if (legacy) pushOld(legacy.cueGroups);
+        };
+
+        try {
+            const actions = Array.isArray(json && json.actions) ? json.actions : [];
+            for (const a of actions) {
+                const up = a && a.updateEngagementPanelAction;
+                if (up && up.content && up.content.transcriptRenderer) {
+                    visit(up.content.transcriptRenderer);
+                }
+            }
+            if (json && json.content && json.content.transcriptRenderer) {
+                visit(json.content.transcriptRenderer);
+            }
+            if (json && json.transcriptRenderer) visit(json.transcriptRenderer);
+        } catch (_) { /* ignore */ }
+
+        return events;
+    };
+
+    const findEventsInCache = () => {
+        for (const rec of hook.responses) {
+            const evs = extractEvents(rec.json);
+            if (evs && evs.length > 0) return { events: evs, url: rec.url };
+        }
+        return null;
+    };
+
+    // Locate and click "Show transcript". Returns one of:
+    //   'clicked' | 'no-button' | 'click-failed'
+    const clickShowTranscript = () => {
+        const candidates = document.querySelectorAll(
+            'button, yt-button-shape, tp-yt-paper-button, ytd-button-renderer, ytd-menu-service-item-renderer'
+        );
+        for (const el of candidates) {
+            const aria = (el.getAttribute && el.getAttribute('aria-label')) || '';
+            const txt = (el.textContent || '').trim();
+            if (/show\s+transcript/i.test(aria) || /show\s+transcript/i.test(txt)) {
+                try { el.click(); return 'clicked'; }
+                catch (_) { return 'click-failed'; }
+            }
+        }
+        return 'no-button';
+    };
+
+    // Try to expand the description so "Show transcript" is rendered.
+    const expandDescription = () => {
+        const sel = [
+            'tp-yt-paper-button#expand',
+            '#expand',
+            'ytd-text-inline-expander #expand',
+            'ytd-watch-metadata #expand'
+        ];
+        for (const s of sel) {
+            const el = document.querySelector(s);
+            if (el) { try { el.click(); return true; } catch (_) {} }
+        }
+        return false;
+    };
+
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    // ---- 2. Check if a prior fetch already landed ------------------
+
+    let cached = findEventsInCache();
+    if (cached) {
+        return { ok: true, events: cached.events, source: 'fetch-hook-cached',
+                 diag: { hookAgeMs: Date.now() - hook.installedAt, responseCount: hook.responses.length } };
+    }
+
+    // ---- 3. Arm a waiter, then click Show transcript ---------------
+
+    const waitForNext = new Promise((resolve) => {
+        hook.pendingResolvers.push(resolve);
+    });
+
+    const expanded = expandDescription();
+    let clickResult = clickShowTranscript();
+    if (clickResult === 'no-button') {
+        // Description may not have rendered its transcript button yet.
+        await sleep(400);
+        clickResult = clickShowTranscript();
+    }
+
+    // ---- 4. Wait for the hook to fire ------------------------------
+
+    const timedJson = await Promise.race([
+        waitForNext,
+        sleep(8000).then(() => null)
+    ]);
+
+    if (timedJson) {
+        const events = extractEvents(timedJson);
+        if (events.length > 0) {
+            return { ok: true, events, source: 'fetch-hook',
+                     diag: { expanded, clickResult, responseCount: hook.responses.length } };
+        }
+    }
+
+    // Final sweep — a response may have arrived after the race resolved,
+    // or before our waiter was registered.
+    cached = findEventsInCache();
+    if (cached) {
+        return { ok: true, events: cached.events, source: 'fetch-hook-postwait',
+                 diag: { expanded, clickResult, responseCount: hook.responses.length } };
+    }
+
+    // ---- 5. Report what we saw so the caller can diagnose ----------
+
+    const responseSummary = hook.responses.map((rec) => ({
+        url: rec.url,
+        topKeys: rec.json && typeof rec.json === 'object' ? Object.keys(rec.json).slice(0, 8) : null,
+        hasActions: !!(rec.json && Array.isArray(rec.json.actions))
+    }));
+
+    let error;
+    if (clickResult === 'no-button') {
+        error = '"Show transcript" button not found in the page. Videos without captions will not expose one; otherwise try manually clicking "…more" to expand the description, then re-run X-Ray.';
+    } else if (clickResult === 'click-failed') {
+        error = 'Found "Show transcript" button but click() threw (possibly disabled). Try clicking it manually, then re-run X-Ray.';
+    } else if (hook.responses.length === 0) {
+        error = 'Clicked "Show transcript" but YouTube did not fire a get_transcript fetch within 8s. Transcript panel may be cached from a prior open; close the panel and retry.';
+    } else {
+        error = 'Intercepted ' + hook.responses.length + ' InnerTube response(s) but none contained transcript segments. YouTube may have changed the JSON schema.';
+    }
+
+    return {
+        ok: false,
+        events: null,
+        error,
+        diag: { expanded, clickResult, responseCount: hook.responses.length, responseSummary }
+    };
+}
 
 async function handleCapturePublish(id, unsignedEvent) {
     // 1. Pull the source-tab id from the session-storage record the FAB
