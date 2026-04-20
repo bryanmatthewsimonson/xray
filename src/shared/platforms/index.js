@@ -1,42 +1,71 @@
 // Platform handler dispatch.
 //
-// Given an article extracted by the generic pipeline and a platform
-// identifier from ContentDetector, layer platform-specific enrichments
-// on top before handing off to the reader. Each platform is a small
-// module exporting `enrichArticle(article)` — we avoid the userscript's
-// registry indirection because, in X-Ray, the set of platforms is
-// compile-time fixed and auto-dispatched.
+// Each platform registers a handler object with up to two methods:
 //
-// Currently supported:
-//   substack   ✓ Phase 3a (#14)
-//   youtube    ☐ Phase 3b
+//   synthesize() → article   for platforms where the page isn't
+//                            article-shaped and Readability returns
+//                            garbage (YouTube, Twitter, etc.). Builds
+//                            the article object from scratch — often
+//                            from an embedded preloaded-state JSON
+//                            and/or the platform's public API.
+//
+//   enrich(article) → article for platforms where Readability does a
+//                            decent baseline job and the handler just
+//                            layers platform-specific fields on top
+//                            (Substack).
+//
+// UI.openReader calls `captureForPlatform(platform)` first. If that
+// returns an article, we ship it. Otherwise we fall back to
+// Readability + `enrichArticleForPlatform(article, platform)`.
+//
+// Currently registered:
+//   substack   ✓ Phase 3a (#14)   — enrich-only
+//   youtube    ✓ Phase 3b (#14)   — synthesize-only
 //   twitter    ☐ Phase 3c
-//   facebook/instagram/tiktok ☐ Phase 8 (anti-obfuscation stack)
-//
-// Unknown / unsupported platforms pass the article through untouched
-// so the generic Readability extraction stands on its own.
+//   facebook/instagram/tiktok ☐ Phase 8
 
-import { enrichArticle as enrichSubstack, isSubstackPage } from './substack.js';
+import * as substack from './substack.js';
+import * as youtube  from './youtube.js';
 
+/** @typedef {{ synthesize?: () => Promise<object|null>, enrich?: (article: object) => Promise<object|null> | object|null }} PlatformHandler */
+
+/** @type {Record<string, PlatformHandler>} */
 const HANDLERS = {
-    substack: enrichSubstack
+    substack: {
+        enrich: (article) => substack.enrichArticle(article)
+    },
+    youtube: {
+        synthesize: () => youtube.synthesizeArticle()
+    }
 };
 
 /**
- * Apply the platform-specific enricher, if we have one, to a
- * generically-extracted article. Safe to call with any platform id —
- * unknown platforms return the article unchanged.
- *
- * @param {object}  article  Output of ContentExtractor.extractArticle()
- * @param {string=} platform Platform id from ContentDetector.detect()
- * @returns {Promise<object>} the (possibly enriched) article
+ * Try to build an article from scratch via the platform's handler.
+ * Returns null if there's no handler, no synthesize method, or the
+ * method declined (e.g. not a recognized page shape on that platform).
+ */
+export async function captureForPlatform(platform) {
+    if (!platform) return null;
+    const h = HANDLERS[platform];
+    if (!h || typeof h.synthesize !== 'function') return null;
+    try {
+        return (await h.synthesize()) || null;
+    } catch (err) {
+        console.warn('[X-Ray] Platform synthesize failed for', platform, err);
+        return null;
+    }
+}
+
+/**
+ * Layer platform-specific enrichment onto an already-extracted article.
+ * Unknown platforms pass the article through unchanged.
  */
 export async function enrichArticleForPlatform(article, platform) {
     if (!article || !platform) return article;
-    const fn = HANDLERS[platform];
-    if (!fn) return article;
+    const h = HANDLERS[platform];
+    if (!h || typeof h.enrich !== 'function') return article;
     try {
-        const enriched = await fn(article);
+        const enriched = await h.enrich(article);
         return enriched || article;
     } catch (err) {
         console.warn('[X-Ray] Platform enrichment failed for', platform, err);
@@ -46,11 +75,11 @@ export async function enrichArticleForPlatform(article, platform) {
 
 /**
  * DOM-based platform detection as a fallback when ContentDetector's
- * URL-only pass can't decide. Called by the content script if
- * ContentDetector returns platform: null.
+ * URL-only pass can't decide (e.g. custom-domain Substacks).
  */
 export function detectPlatformFromDom() {
-    if (isSubstackPage()) return 'substack';
+    if (substack.isSubstackPage()) return 'substack';
+    if (youtube.isYouTubeVideoPage()) return 'youtube';
     return null;
 }
 

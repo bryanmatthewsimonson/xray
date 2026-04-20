@@ -13,7 +13,7 @@ import { Utils } from '../shared/utils.js';
 import { Storage } from '../shared/storage.js';
 import { ContentExtractor } from '../shared/content-extractor.js';
 import { ContentDetector } from '../shared/content-detector.js';
-import { enrichArticleForPlatform, detectPlatformFromDom } from '../shared/platforms/index.js';
+import { captureForPlatform, enrichArticleForPlatform, detectPlatformFromDom } from '../shared/platforms/index.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
 import { NIP07Client } from './nip07-client.js';
@@ -65,18 +65,24 @@ export const UI = {
   // (UI.toggle) as the primary capture entry point.
   openReader: async () => {
     try {
-      // 1. Generic extraction via Readability.
-      const article = ContentExtractor.extractArticle();
-      if (!article) {
-        UI.showToast('Could not extract an article from this page.', 'error');
-        return;
-      }
-
-      // 2. Auto-dispatch to a platform-specific enricher based on URL
-      //    + DOM signals. Unknown platforms pass through untouched.
+      // 1. Platform detection first — some platforms (YouTube, later
+      //    Twitter) aren't article-shaped and need to be synthesized
+      //    from scratch rather than run through Readability.
       const detection = ContentDetector.detect();
       const platform = detection?.platform || detectPlatformFromDom();
-      const enriched = await enrichArticleForPlatform(article, platform);
+
+      let enriched = await captureForPlatform(platform);
+
+      // 2. If no synthesizer handled the page, fall back to Readability
+      //    + platform-specific enrichment (Substack's path).
+      if (!enriched) {
+        const article = ContentExtractor.extractArticle();
+        if (!article) {
+          UI.showToast('Could not extract an article from this page.', 'error');
+          return;
+        }
+        enriched = await enrichArticleForPlatform(article, platform);
+      }
 
       // 3. Hand off to the reader via the background SW.
       const id = (crypto.randomUUID && crypto.randomUUID()) ||
