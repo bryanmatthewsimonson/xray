@@ -107,6 +107,74 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // async sendResponse
     }
 
+    // Content script → worker: open the reader page in a new tab,
+    // with the extracted article pre-loaded via session storage.
+    if (message.type === 'xray:reader:open') {
+        const { id, article } = message;
+        if (!id || !article) {
+            sendResponse({ ok: false, error: 'missing id or article' });
+            return false;
+        }
+        // Track the source tab so the reader's publish flow can route
+        // NIP-07 signing back through a tab that has the content script
+        // + MAIN-world bridge loaded.
+        const sourceTabId = sender && sender.tab && sender.tab.id;
+        const record = { article, sourceTabId, createdAt: Date.now() };
+        const area = chrome.storage.session || chrome.storage.local;
+        area.set({ ['xray:article:' + id]: record }, () => {
+            const url = chrome.runtime.getURL('src/reader/index.html') + '?id=' + encodeURIComponent(id);
+            chrome.tabs.create({ url }).then(
+                () => sendResponse({ ok: true }),
+                (err) => sendResponse({ ok: false, error: err && err.message })
+            );
+        });
+        return true; // async sendResponse
+    }
+
+    // Reader page → worker: fetch the NIP-07 pubkey from the source tab.
+    // Used to stamp the unsigned event with the correct author before
+    // the round-trip sign call.
+    if (message.type === 'xray:capture:getPubkey') {
+        const id = message.id;
+        (async () => {
+            const area = chrome.storage.session || chrome.storage.local;
+            const record = await new Promise((r) => {
+                area.get(['xray:article:' + id], (res) => r(res && res['xray:article:' + id]));
+            });
+            if (!record) return sendResponse({ ok: false, error: 'Session record missing' });
+            try {
+                const resp = await chrome.tabs.sendMessage(record.sourceTabId, { type: 'xray:getPubkey' });
+                if (!resp || !resp.ok) {
+                    return sendResponse({ ok: false, error: (resp && resp.error) || 'Source tab refused' });
+                }
+                sendResponse({ ok: true, pubkey: resp.pubkey });
+            } catch (err) {
+                sendResponse({ ok: false, error: 'Source tab unreachable (likely closed)' });
+            }
+        })();
+        return true;
+    }
+
+    // Reader page → worker: sign + publish a capture event.
+    //
+    // Orchestrates:
+    //   1. Look up the source tab id from the session-storage record.
+    //   2. Ask that tab's content script to sign the event via NIP-07.
+    //   3. Publish the signed event through NostrClient.
+    //   4. Respond to the reader with the aggregated per-relay results.
+    if (message.type === 'xray:capture:publish') {
+        const { id, event } = message;
+        if (!id || !event) {
+            sendResponse({ ok: false, error: 'missing id or event' });
+            return false;
+        }
+        handleCapturePublish(id, event).then(
+            (result) => sendResponse(result),
+            (err) => sendResponse({ ok: false, error: err && err.message })
+        );
+        return true; // async sendResponse
+    }
+
     // Content script → worker: publish a signed event to relays.
     if (message.type === 'xray:relay:publish') {
         const relays = Array.isArray(message.relays) ? message.relays : [];
@@ -157,3 +225,69 @@ chrome.commands?.onCommand.addListener((command) => {
         });
     });
 });
+
+// ------------------------------------------------------------------
+// Reader → sign → publish orchestration
+// ------------------------------------------------------------------
+
+async function handleCapturePublish(id, unsignedEvent) {
+    // 1. Pull the source-tab id from the session-storage record the FAB
+    //    click saved. That's where the content script + NIP-07 bridge live.
+    const area = chrome.storage.session || chrome.storage.local;
+    const record = await new Promise((resolve) => {
+        area.get(['xray:article:' + id], (res) => resolve(res && res['xray:article:' + id]));
+    });
+    if (!record) {
+        return { ok: false, error: 'Session record missing (reader opened without a source tab)' };
+    }
+    const sourceTabId = record.sourceTabId;
+
+    // 2. Ask that tab to sign via its NIP-07 bridge.
+    let signed;
+    try {
+        signed = await chrome.tabs.sendMessage(sourceTabId, {
+            type: 'xray:sign',
+            event: unsignedEvent
+        });
+    } catch (err) {
+        return {
+            ok: false,
+            error: 'Source tab unreachable (likely closed). Keep the article tab open while publishing.'
+        };
+    }
+    if (!signed || !signed.ok || !signed.event) {
+        return { ok: false, error: (signed && signed.error) || 'Signing failed' };
+    }
+
+    // 3. Collect the configured relay list.
+    const prefs = await new Promise((resolve) => {
+        (chrome.storage.local).get(['preferences'], (res) => {
+            const raw = res && res.preferences;
+            try { resolve(typeof raw === 'string' ? JSON.parse(raw) : (raw || {})); }
+            catch (_) { resolve({}); }
+        });
+    });
+    const relays = Array.isArray(prefs.default_relays) && prefs.default_relays.length > 0
+        ? prefs.default_relays
+        : ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.nostr.band'];
+
+    // 4. Publish.
+    let results;
+    try {
+        results = await NostrClient.publishToRelays(relays, signed.event);
+    } catch (err) {
+        return { ok: false, error: 'Relay publish failed: ' + (err && err.message) };
+    }
+
+    // 5. Surface a native notification in addition to the reader toast.
+    try {
+        chrome.notifications.create({
+            type: 'basic',
+            iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
+            title: 'X-Ray — Published',
+            message: `Event ${signed.event.id.slice(0, 8)}… published to ${results.successful}/${results.total} relays.`
+        });
+    } catch (_) { /* notifications permission may be declined */ }
+
+    return { ok: true, signedEvent: signed.event, results };
+}

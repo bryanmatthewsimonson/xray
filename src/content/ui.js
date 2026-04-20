@@ -52,10 +52,36 @@ export const UI = {
     const fab = document.createElement('button');
     fab.className = 'nac-fab nac-reset';
     fab.innerHTML = UI.icons.book;
-    fab.title = 'X-Ray — Article Capture';
-    fab.addEventListener('click', () => UI.toggle());
+    fab.title = 'X-Ray — Capture in reader';
+    fab.addEventListener('click', () => UI.openReader());
     document.body.appendChild(fab);
     UI.elements.fab = fab;
+  },
+
+  // Extract the current page, hand off to the background SW, and let
+  // it open the reader as a new tab. Replaces the v1 in-page panel
+  // (UI.toggle) as the primary capture entry point.
+  openReader: async () => {
+    try {
+      const article = ContentExtractor.extractArticle();
+      if (!article) {
+        UI.showToast('Could not extract an article from this page.', 'error');
+        return;
+      }
+      const id = (crypto.randomUUID && crypto.randomUUID()) ||
+                 (Date.now().toString(36) + Math.random().toString(36).slice(2));
+      const resp = await chrome.runtime.sendMessage({
+        type: 'xray:reader:open',
+        id,
+        article
+      });
+      if (!resp || !resp.ok) {
+        throw new Error(resp?.error || 'Service worker did not acknowledge');
+      }
+    } catch (err) {
+      Utils.error('openReader failed:', err);
+      UI.showToast('Could not open reader: ' + (err.message || err), 'error');
+    }
   },
 
   createOverlay: () => {

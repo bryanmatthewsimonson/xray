@@ -254,19 +254,59 @@ function setViewMode(mode) {
 // ------------------------------------------------------------------
 
 async function publish() {
-    // Collect the canonical content before building the event.
-    if (state.dirtySource === 'reader') {
-        state.markdownDraft = ContentExtractor.htmlToMarkdown(state.htmlDraft);
+    const btn = $('#xr-publish');
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+
+    try {
+        // Collect the canonical content before building the event.
+        if (state.dirtySource === 'reader') {
+            state.markdownDraft = ContentExtractor.htmlToMarkdown(state.htmlDraft);
+        }
+
+        btn.textContent = 'Signing…';
+        toast('Approving signature in your NOSTR extension…', 'warning');
+
+        // Step 1: ask the source tab for its NIP-07 pubkey so we can
+        // stamp the unsigned event correctly. The SW forwards this to
+        // the content script which calls NIP07Client.getPublicKey().
+        const pubResp = await browserApi.runtime.sendMessage({
+            type: 'xray:capture:getPubkey',
+            id: state.id
+        });
+        if (!pubResp || !pubResp.ok) {
+            throw new Error((pubResp && pubResp.error) || 'Could not fetch signing public key');
+        }
+        const userPubkey = pubResp.pubkey;
+
+        // Step 2: build the unsigned kind-30023 event.
+        const article = { ...state.article, content: state.markdownDraft, markdown: state.markdownDraft };
+        const unsigned = await EventBuilder.buildArticleEvent(article, [], userPubkey, []);
+
+        // Step 3: ship it. The SW orchestrates sign (via source tab's
+        // NIP-07 bridge) then publish (via its own relay pool).
+        btn.textContent = 'Publishing…';
+        const resp = await browserApi.runtime.sendMessage({
+            type: 'xray:capture:publish',
+            id: state.id,
+            event: unsigned
+        });
+        if (!resp || !resp.ok) {
+            throw new Error((resp && resp.error) || 'No response from background worker');
+        }
+        const r = resp.results;
+        if (r.successful > 0) {
+            toast(`Published to ${r.successful}/${r.total} relays.`, 'success', 5000);
+        } else {
+            toast('No relays accepted the event. Check the Options page.', 'error', 7000);
+        }
+    } catch (err) {
+        console.error('[X-Ray Reader] publish failed:', err);
+        toast('Publish failed: ' + (err.message || err), 'error', 7000);
+    } finally {
+        btn.textContent = originalLabel;
+        btn.disabled = false;
     }
-
-    // Build an unsigned event so we can show the user what's about to
-    // go out. Real sign + publish lands in Phase 2 C3.
-    const article = { ...state.article, content: state.markdownDraft, markdown: state.markdownDraft };
-    const userPubkey = '0'.repeat(64); // placeholder — C3 resolves via signing path
-    const event = await EventBuilder.buildArticleEvent(article, [], userPubkey, []);
-
-    console.log('[X-Ray Reader] Would publish event:', event);
-    toast('Publish pipeline lands in the next commit — event built and logged to the console.', 'warning', 6000);
 }
 
 // ------------------------------------------------------------------
