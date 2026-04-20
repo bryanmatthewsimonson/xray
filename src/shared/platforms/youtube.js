@@ -268,6 +268,134 @@ function shapeTranscript(raw) {
 }
 
 // ------------------------------------------------------------------
+// DOM-scrape fallback: YouTube's own transcript panel
+// ------------------------------------------------------------------
+//
+// Since YouTube tightened /api/timedtext with PO-token gating in 2024,
+// the signed baseUrls from ytInitialPlayerResponse return HTTP 200 with
+// 0-byte bodies — including from the page's own JS context. But the
+// transcript data is accessible through YouTube's own UI panel: the
+// "Show transcript" button under the video description opens a side
+// panel populated with `<ytd-transcript-segment-renderer>` elements
+// (current shape as of late 2025; YouTube iterates on this).
+//
+// This function programmatically opens the panel, waits for segments
+// to render, and reads them out. Falls back to whatever's already in
+// the DOM if the panel is already open. Returns null if the panel
+// can't be found or doesn't populate within the timeout.
+
+export async function scrapeVisibleTranscript() {
+    try {
+        // 1. If segments are already rendered, skip the button-click.
+        let segments = document.querySelectorAll('ytd-transcript-segment-renderer');
+
+        // 2. Otherwise try to open the panel. YouTube's "Show transcript"
+        //    button lives in the expanded description; the button text
+        //    is locale-dependent, so match on aria-label + visible text.
+        if (segments.length === 0) {
+            const button = findTranscriptButton();
+            if (!button) {
+                return {
+                    events: null,
+                    error: 'YouTube\'s "Show transcript" button not found. Try opening the transcript in YouTube\'s UI manually, then recapture.'
+                };
+            }
+            try { button.click(); }
+            catch (err) { return { events: null, error: 'Could not click "Show transcript" button: ' + (err && err.message) }; }
+
+            await waitForSegments(5000);
+            segments = document.querySelectorAll('ytd-transcript-segment-renderer');
+        }
+
+        if (segments.length === 0) {
+            return { events: null, error: 'Transcript panel did not populate. The video may not have captions.' };
+        }
+
+        // 3. Extract cues.
+        const events = [];
+        segments.forEach((seg) => {
+            const tsEl  = seg.querySelector('#segment-timestamp, .segment-timestamp');
+            const txtEl = seg.querySelector('yt-formatted-string.segment-text, #segment-text, .segment-text');
+            if (!tsEl || !txtEl) return;
+
+            // tsEl.textContent can include accessibility text like "9 seconds"
+            // appended to "0:09" — grab just the leading M:SS[:SS] token.
+            const raw = (tsEl.textContent || '').trim();
+            const m = raw.match(/^(\d+):(\d{1,2})(?::(\d{2}))?/);
+            if (!m) return;
+            const h = m[3] !== undefined ? parseInt(m[1], 10) : 0;
+            const mm = m[3] !== undefined ? parseInt(m[2], 10) : parseInt(m[1], 10);
+            const ss = m[3] !== undefined ? parseInt(m[3], 10) : parseInt(m[2], 10);
+            const startMs = (h * 3600 + mm * 60 + ss) * 1000;
+
+            const text = (txtEl.textContent || '').trim();
+            if (text) events.push({ startMs, durationMs: 0, text });
+        });
+
+        // Infer per-cue durations from the next cue's start; default the
+        // last cue to 3s since we can't measure it.
+        for (let i = 0; i < events.length - 1; i++) {
+            events[i].durationMs = Math.max(0, events[i + 1].startMs - events[i].startMs);
+        }
+        if (events.length > 0) events[events.length - 1].durationMs = 3000;
+
+        // Track metadata: try to read the language dropdown in the panel footer.
+        const footerText = (() => {
+            const el = document.querySelector('ytd-transcript-footer-renderer');
+            return el ? (el.textContent || '').trim() : '';
+        })();
+
+        return {
+            events,
+            error: null,
+            source: 'dom-scrape',
+            footerText
+        };
+    } catch (err) {
+        console.warn('[X-Ray YouTube] scrapeVisibleTranscript exception:', err);
+        return { events: null, error: (err && err.message) || String(err) };
+    }
+}
+
+function findTranscriptButton() {
+    // 1. Typical placement: inside the description's "Show transcript"
+    //    button. Locale-agnostic via aria-label if present.
+    let btn = document.querySelector(
+        'button[aria-label*="transcript" i], button[aria-label*="Transcript"]'
+    );
+    if (btn) return btn;
+
+    // 2. Fallback: match visible text on any button.
+    const all = document.querySelectorAll('button, yt-button-shape, tp-yt-paper-button');
+    for (const el of all) {
+        const txt = (el.textContent || '').trim();
+        const label = (el.getAttribute && el.getAttribute('aria-label')) || '';
+        if (/show\s+transcript/i.test(txt) || /show\s+transcript/i.test(label)) return el;
+    }
+
+    // 3. Last resort: the "more actions" button → then the transcript
+    //    item in its menu. Requires two clicks; we bail rather than
+    //    automate that now (user can click "Show transcript" once).
+    return null;
+}
+
+function waitForSegments(timeoutMs) {
+    return new Promise((resolve) => {
+        if (document.querySelector('ytd-transcript-segment-renderer')) return resolve();
+        const start = Date.now();
+        const obs = new MutationObserver(() => {
+            if (document.querySelector('ytd-transcript-segment-renderer')) {
+                obs.disconnect(); resolve();
+            } else if (Date.now() - start > timeoutMs) {
+                obs.disconnect(); resolve();
+            }
+        });
+        obs.observe(document.body, { childList: true, subtree: true });
+        setTimeout(() => { obs.disconnect(); resolve(); }, timeoutMs);
+    });
+}
+
+// ------------------------------------------------------------------
 // Article synthesis
 // ------------------------------------------------------------------
 
@@ -296,7 +424,7 @@ export async function synthesizeArticle() {
 
     // Fetch each selected track's timestamped events. Parallel since
     // they're independent same-origin GETs.
-    const transcripts = await Promise.all(
+    let transcripts = await Promise.all(
         selected.map(async (t) => {
             const data = await fetchTranscript(t.baseUrl);
             return {
@@ -310,6 +438,43 @@ export async function synthesizeArticle() {
             };
         })
     );
+
+    // Fallback: if every /api/timedtext fetch came back empty (the PO-token
+    // case), scrape YouTube's own transcript panel out of the DOM. It
+    // only yields one track — whichever language is currently selected
+    // in the panel — but the content is ground-truth: this is what
+    // YouTube's UI shows a human viewer.
+    const allEmpty = transcripts.length > 0 &&
+                     transcripts.every((t) => !t.events || t.events.length === 0);
+    if (allEmpty) {
+        console.warn('[X-Ray YouTube] All signed-URL fetches returned empty. Falling back to DOM scrape.');
+        const scraped = await scrapeVisibleTranscript();
+        if (scraped && Array.isArray(scraped.events) && scraped.events.length > 0) {
+            // The scraped track replaces the failed signed-URL entries.
+            // Label it honestly — we don't know exactly which caption
+            // track YouTube's UI had selected, but the footer text
+            // often indicates it.
+            transcripts = [{
+                kind:         'scraped',
+                languageCode: originLang,
+                displayName:  scraped.footerText
+                    ? `YouTube panel (${scraped.footerText.slice(0, 60)})`
+                    : 'YouTube panel',
+                role:         'origin-scraped',
+                events:       scraped.events,
+                error:        null,
+                source:       'dom-scrape'
+            }];
+        } else {
+            // Scrape also failed. Leave the originals in place so the
+            // reader surfaces the PO-token error message.
+            if (scraped && scraped.error) {
+                for (const t of transcripts) {
+                    t.error = t.error + ' | DOM fallback: ' + scraped.error;
+                }
+            }
+        }
+    }
 
     const thumbnails = (vd.thumbnail && Array.isArray(vd.thumbnail.thumbnails))
         ? vd.thumbnail.thumbnails.slice() : [];
