@@ -13,10 +13,16 @@ import { NIP07Client } from './nip07-client.js';
 import { UI } from './ui.js';
 
 async function init() {
-    Utils.log('Starting X-Ray content script v' + CONFIG.version);
-
     // Initialize storage (migrates from any legacy GM storage if present).
     await Storage.initialize();
+
+    // Apply runtime debug preference — off by default; opt-in via options page.
+    try {
+        const prefs = await Storage.get('preferences', {});
+        if (prefs && typeof prefs.debug === 'boolean') Utils.setDebug(prefs.debug);
+    } catch (_) { /* preferences may not exist on first run */ }
+
+    Utils.log('Starting X-Ray content script v' + CONFIG.version);
 
     // Initialize local key manager.
     await LocalKeyManager.init();

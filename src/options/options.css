@@ -88,6 +88,18 @@ html, body {
   margin-bottom: 14px;
 }
 
+.xr-opt__field--inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.xr-opt__field--inline input[type="checkbox"] {
+  width: auto;
+  accent-color: var(--xr-primary);
+}
+
 .xr-opt__label {
   display: block;
   font-size: 12px;

@@ -210,12 +210,14 @@ async function loadAdvanced() {
     const prefs = (await storageGet('preferences')) || {};
     document.getElementById('pref-theme').value = prefs.theme || 'dark';
     document.getElementById('pref-media').value = prefs.media_handling || 'embed';
+    document.getElementById('pref-debug').checked = prefs.debug === true;
 }
 
 async function saveAdvanced() {
     const prefs = (await storageGet('preferences')) || {};
     prefs.theme = document.getElementById('pref-theme').value;
     prefs.media_handling = document.getElementById('pref-media').value;
+    prefs.debug = document.getElementById('pref-debug').checked;
     await storageSet('preferences', prefs);
     flash(document.getElementById('advanced-status'), 'Saved.');
 }

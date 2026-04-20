@@ -531,6 +531,11 @@ function fmtCommentDate(iso) {
 // Publish — C3 full flow
 // ------------------------------------------------------------------
 
+// Inter-event delay when publishing a batch. Some relays rate-limit
+// bursty writes (nostr.oxtr.dev in particular); a small pause keeps
+// them happy without meaningfully slowing the batch.
+const BATCH_PUBLISH_DELAY_MS = 200;
+
 async function publish() {
     const btn = $('#xr-publish');
     const originalLabel = btn.textContent;
@@ -540,6 +545,26 @@ async function publish() {
     const commentList = includeComments ? flattenCommentTree(state.comments.tree) : [];
     const totalEvents = 1 + commentList.length;
 
+    // Per-relay rollup across the entire batch.
+    const relayStats = new Map(); // url → { ok, fail, lastError }
+    const recordRelayResults = (results) => {
+        if (!results || !Array.isArray(results.results)) return;
+        for (const r of results.results) {
+            const stat = relayStats.get(r.url) || { ok: 0, fail: 0, lastError: null };
+            if (r.success) stat.ok++;
+            else          { stat.fail++; if (r.error) stat.lastError = r.error; }
+            relayStats.set(r.url, stat);
+        }
+    };
+
+    const setProgress = (current, total) => {
+        const bar = $('#xr-progress-bar');
+        const wrap = $('#xr-progress');
+        if (!bar || !wrap) return;
+        wrap.hidden = total <= 1;
+        bar.style.width = total > 0 ? `${Math.min(100, (current / total) * 100)}%` : '0%';
+    };
+
     try {
         if (state.dirtySource === 'reader') {
             state.markdownDraft = ContentExtractor.htmlToMarkdown(state.htmlDraft);
@@ -547,8 +572,10 @@ async function publish() {
 
         btn.textContent = 'Signing…';
         toast(totalEvents > 1
-            ? `Signing ${totalEvents} events — approve each in your NOSTR extension.`
-            : 'Approving signature in your NOSTR extension…', 'warning');
+            ? `Publishing ${totalEvents} events (article + ${commentList.length} comments)…`
+            : 'Approving signature in your NOSTR extension…', 'warning', 5000);
+
+        setProgress(0, totalEvents);
 
         // Resolve the signing pubkey once.
         const pubResp = await browserApi.runtime.sendMessage({
@@ -564,7 +591,7 @@ async function publish() {
         const article = { ...state.article, content: state.markdownDraft, markdown: state.markdownDraft };
         const unsignedArticle = await EventBuilder.buildArticleEvent(article, [], userPubkey, []);
 
-        btn.textContent = totalEvents > 1 ? `Publishing article (1/${totalEvents})…` : 'Publishing…';
+        btn.textContent = totalEvents > 1 ? `Publishing (1/${totalEvents})…` : 'Publishing…';
         const articleResp = await browserApi.runtime.sendMessage({
             type: 'xray:capture:publish',
             id: state.id,
@@ -573,24 +600,24 @@ async function publish() {
         if (!articleResp || !articleResp.ok) {
             throw new Error((articleResp && articleResp.error) || 'No response from background worker');
         }
+        recordRelayResults(articleResp.results);
         const articleResults = articleResp.results;
+        setProgress(1, totalEvents);
 
         // Comment events — only if the user opted in.
-        const commentResults = { ok: 0, fail: 0, errors: [] };
+        const commentResults = { ok: 0, fail: 0, skipped: 0, errors: [] };
         if (includeComments) {
             const articleUrl = article.url;
             const articleTitle = article.title || 'Untitled';
 
-            // Map Substack comment id → the `d`-tag value we use on NOSTR,
-            // so children can reference parents that were published earlier
-            // in this same run.
+            // Map comment id → its `d`-tag so replies can reference
+            // parents that were just published in this run.
             const idToDTag = new Map();
 
             for (let i = 0; i < commentList.length; i++) {
                 const c = commentList[i];
-                btn.textContent = `Publishing comments (${i + 2}/${totalEvents})…`;
 
-                if (c.deleted || !c.body) continue;
+                if (c.deleted || !c.body) { commentResults.skipped++; continue; }
 
                 const dTag = makeCommentDTag(state.comments.platform, c.id);
                 idToDTag.set(c.id, dTag);
@@ -609,14 +636,21 @@ async function publish() {
                     restacks:      c.restacks
                 }, articleUrl, articleTitle, userPubkey);
 
+                btn.textContent = `Publishing (${i + 2}/${totalEvents})…`;
+
                 try {
                     const resp = await browserApi.runtime.sendMessage({
                         type: 'xray:capture:publish',
                         id: state.id,
                         event: unsignedComment
                     });
-                    if (resp && resp.ok && resp.results.successful > 0) {
-                        commentResults.ok++;
+                    if (resp && resp.ok && resp.results) {
+                        recordRelayResults(resp.results);
+                        if (resp.results.successful > 0) {
+                            commentResults.ok++;
+                        } else {
+                            commentResults.fail++;
+                        }
                     } else {
                         commentResults.fail++;
                         commentResults.errors.push((resp && resp.error) || 'unknown');
@@ -625,28 +659,85 @@ async function publish() {
                     commentResults.fail++;
                     commentResults.errors.push(err.message || String(err));
                 }
+
+                setProgress(i + 2, totalEvents);
+
+                // Pause briefly between events — keeps bursty-unfriendly
+                // relays like nostr.oxtr.dev from rate-limiting our writes.
+                if (i < commentList.length - 1) {
+                    await sleep(BATCH_PUBLISH_DELAY_MS);
+                }
             }
         }
 
-        // Surface an aggregated result.
-        if (includeComments) {
-            const msg = `Article: ${articleResults.successful}/${articleResults.total} relays. ` +
-                        `Comments: ${commentResults.ok} published, ${commentResults.fail} failed.`;
-            toast(msg, commentResults.fail === 0 ? 'success' : 'warning', 8000);
-        } else {
-            if (articleResults.successful > 0) {
-                toast(`Published to ${articleResults.successful}/${articleResults.total} relays.`, 'success', 5000);
-            } else {
-                toast('No relays accepted the event. Check the Options page.', 'error', 7000);
-            }
-        }
+        // Build + surface the end-of-batch summary.
+        showPublishSummary({
+            includeComments,
+            totalEvents,
+            articleResults,
+            commentResults,
+            relayStats
+        });
     } catch (err) {
         console.error('[X-Ray Reader] publish failed:', err);
         toast('Publish failed: ' + (err.message || err), 'error', 7000);
     } finally {
         btn.textContent = originalLabel;
         btn.disabled = false;
+        // Leave the progress bar at 100% briefly so the user sees completion.
+        setTimeout(() => { const w = $('#xr-progress'); if (w) w.hidden = true; }, 1200);
     }
+}
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+/**
+ * Compose a per-relay rollup toast and log a detailed breakdown to the
+ * console. Consistently-failing relays are called out by name so the
+ * user knows which ones to consider removing.
+ */
+function showPublishSummary({ includeComments, totalEvents, articleResults, commentResults, relayStats }) {
+    // Console breakdown (always useful for debugging)
+    console.group('[X-Ray Reader] publish summary');
+    console.log('total events:', totalEvents);
+    if (includeComments) {
+        console.log('comments:', commentResults);
+    }
+    console.log('per relay:', Object.fromEntries(relayStats));
+    console.groupEnd();
+
+    // Identify dead relays — ones that rejected 100% of our events.
+    const dead = [];
+    for (const [url, s] of relayStats) {
+        if (s.ok === 0 && s.fail > 0) dead.push({ url, fail: s.fail, reason: s.lastError });
+    }
+
+    // Primary line.
+    const landed = totalEvents - (commentResults.fail || 0) - (articleResults.successful === 0 ? 1 : 0);
+    let line = includeComments
+        ? `Published article + ${commentResults.ok}/${commentResults.ok + commentResults.fail} comments.`
+        : (articleResults.successful > 0
+            ? `Published to ${articleResults.successful}/${articleResults.total} relays.`
+            : 'No relays accepted the event.');
+
+    // Per-relay aggregate: "N relays accepted all events, M relays failed".
+    const acceptedAll = [...relayStats.values()].filter((s) => s.fail === 0 && s.ok > 0).length;
+    const anyFail    = [...relayStats.values()].filter((s) => s.fail > 0).length;
+    if (relayStats.size > 0) {
+        line += ` ${acceptedAll}/${relayStats.size} relays accepted everything.`;
+    }
+
+    // Call out consistently-failing relays with a hint to remove them.
+    if (dead.length > 0) {
+        const names = dead.map((d) => d.url.replace(/^wss?:\/\//, '')).join(', ');
+        line += ` Rejected by ${names} — consider removing in Options.`;
+    }
+
+    const level = (dead.length > 0 || commentResults.fail > 0 || articleResults.successful === 0)
+        ? (articleResults.successful > 0 ? 'warning' : 'error')
+        : 'success';
+    toast(line, level, 9000);
+    return landed;
 }
 
 /**

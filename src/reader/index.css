@@ -140,6 +140,27 @@ body {
   border-color: transparent;
 }
 
+/* ---------------- progress bar (batch publish) ---------------- */
+
+.xr-reader__progress {
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: transparent;
+  overflow: hidden;
+}
+
+.xr-reader__progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--xr-primary), var(--xr-accent));
+  transition: width 120ms linear;
+}
+
+.xr-reader__chrome { position: sticky; }
+
 /* ---------------- main content area ---------------- */
 
 .xr-reader__main {

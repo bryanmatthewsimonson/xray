@@ -67,6 +67,7 @@ export const Storage = (() => {
           default_relays: CONFIG.relays.filter(r => r.enabled).map(r => r.url),
           media_handling: 'embed',
           theme: 'dark',
+          debug: false,
           nsecbunker_url: CONFIG.nsecbunker.defaultUrl
         },
         recent_publications: []
@@ -75,7 +76,36 @@ export const Storage = (() => {
         const existing = await Store.get(key);
         if (existing === null) await Store.set(key, value);
       }
+      await Store._runMigrations();
       Utils.log('Storage initialized');
+    },
+
+    // Run idempotent data migrations. Each migration declares a key in
+    // `preferences._migrations` so it only runs once per profile.
+    _runMigrations: async () => {
+      const prefs = await Store.get('preferences', {});
+      const applied = prefs._migrations || {};
+      let changed = false;
+
+      // 2026-04-20 — wss://offchain.pub is a WoT-gated relay that rejects
+      // every event from pubkeys outside the operators' trust set. Users
+      // who had it in their default list were seeing 100% publish failure
+      // on that relay. Drop it; they can re-add if they're in the set.
+      if (!applied.drop_offchain_pub && Array.isArray(prefs.default_relays)) {
+        const filtered = prefs.default_relays.filter((u) => !/offchain\.pub/i.test(String(u)));
+        if (filtered.length !== prefs.default_relays.length) {
+          prefs.default_relays = filtered;
+          changed = true;
+          Utils.log('[migration] dropped wss://offchain.pub from saved relay list');
+        }
+        applied.drop_offchain_pub = true;
+        changed = true;
+      }
+
+      if (changed) {
+        prefs._migrations = applied;
+        await Store.set('preferences', prefs);
+      }
     },
 
     publications: {

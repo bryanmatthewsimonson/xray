@@ -115,6 +115,12 @@ export const Utils = {
         } catch (_) { /* background may be asleep — ignore */ }
     },
 
-    log:   (...args) => { if (CONFIG.debug) console.log('[X-Ray]', ...args); },
+    // Runtime debug flag. Seeded from CONFIG.debug at bundle time;
+    // content/index.js and background/index.js override it on startup
+    // from `preferences.debug` so the options toggle takes effect
+    // without a rebuild. Errors always print.
+    _debug: CONFIG.debug,
+    setDebug: (v) => { Utils._debug = !!v; },
+    log:   (...args) => { if (Utils._debug) console.log('[X-Ray]', ...args); },
     error: (...args) => { console.error('[X-Ray]', ...args); }
 };

@@ -4,7 +4,9 @@
 
 export const CONFIG = {
     version: '0.2.0',
-    debug: true,
+    // Off by default — users who want noise can flip
+    // `preferences.debug` in the options page Advanced tab.
+    debug: false,
 
     nsecbunker: {
         defaultUrl: 'ws://localhost:5454',

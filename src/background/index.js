@@ -19,8 +19,31 @@
 // Phase 1 (real crypto) and Phase 2 (capture parity) add more shared
 // imports. Phase 3+ moves query subscriptions here alongside publish.
 
+import { Utils } from '../shared/utils.js';
 import { NostrClient } from '../shared/nostr-client.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
+
+// Pull the debug preference on SW startup. MV3 service workers sleep
+// and wake, so this runs each time the SW reloads. A chrome.storage
+// onChanged listener below keeps it current across changes.
+(function applyDebugPreference() {
+    try {
+        chrome.storage.local.get(['preferences'], (res) => {
+            const raw = res && res.preferences;
+            const prefs = typeof raw === 'string' ? safeParse(raw) : (raw || {});
+            if (prefs && typeof prefs.debug === 'boolean') Utils.setDebug(prefs.debug);
+        });
+    } catch (_) { /* best-effort */ }
+})();
+
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes.preferences) return;
+    const raw = changes.preferences.newValue;
+    const prefs = typeof raw === 'string' ? safeParse(raw) : (raw || {});
+    if (prefs && typeof prefs.debug === 'boolean') Utils.setDebug(prefs.debug);
+});
+
+function safeParse(s) { try { return JSON.parse(s); } catch (_) { return null; } }
 
 const MENU_IDS = {
     OPEN_CAPTURE: 'xray:open-capture',

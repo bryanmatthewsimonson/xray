@@ -121,6 +121,16 @@
         </select>
       </label>
 
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-debug" />
+        <span>Enable debug logging in the console</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Off by default. Turning this on produces ~15 lines per event in the
+        browser console — useful for diagnosing publish failures, noisy for
+        everyday use.
+      </p>
+
       <div class="xr-opt__actions">
         <button class="xr-opt__btn xr-opt__btn--primary" id="advanced-save">Save</button>
         <span class="xr-opt__status" id="advanced-status"></span>
