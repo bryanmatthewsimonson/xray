@@ -223,7 +223,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 const res = await fetch(url, {
                     method: 'GET',
                     credentials: 'include',
-                    headers: { Accept: 'application/json,*/*' },
+                    headers: {
+                        'Accept': 'application/json,*/*',
+                        // Identify as the WEB client. Without these two
+                        // headers, YouTube's timedtext endpoint replies
+                        // HTTP 200 with a 0-byte body — the "unknown
+                        // caller" signal. yt-dlp et al. spoof the same
+                        // pair. Client-version is the current public
+                        // client build; YouTube accepts nearby versions
+                        // without complaining, and we refresh the literal
+                        // when it starts to fail.
+                        'X-YouTube-Client-Name': '1',
+                        'X-YouTube-Client-Version': message.clientVersion || '2.20260416.01.00'
+                    },
                     signal: AbortSignal.timeout(15000)
                 });
                 const body = await res.text();

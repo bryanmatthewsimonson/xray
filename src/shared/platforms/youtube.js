@@ -82,6 +82,20 @@ export function parsePlayerResponse() {
 }
 
 // ------------------------------------------------------------------
+// InnerTube client version — extracted from the page's embedded
+// INNERTUBE_CONTEXT_CLIENT_VERSION string. YouTube's timedtext
+// endpoint rejects requests that don't identify as a known WEB
+// client; the version we send as X-YouTube-Client-Version must be
+// a plausible current build or the request silently drops.
+// ------------------------------------------------------------------
+
+export function extractClientVersion() {
+    const html = document.documentElement.outerHTML;
+    const m = html.match(/"INNERTUBE_CONTEXT_CLIENT_VERSION"\s*:\s*"([^"]+)"/);
+    return m ? m[1] : null;
+}
+
+// ------------------------------------------------------------------
 // Language detection
 // ------------------------------------------------------------------
 
@@ -184,15 +198,19 @@ export async function fetchTranscript(baseUrl) {
         const url = new URL(baseUrl, window.location.origin);
         url.searchParams.set('fmt', 'json3');
 
+        const clientVersion = extractClientVersion();
+
         // Diagnostic breadcrumb — confirms the SW-routed code path is
         // live. If a user reports "fetch failed" without this log
         // appearing in the YouTube tab console, the tab is still
         // running the pre-73e75af bundle and needs a hard reload.
-        console.error('[X-Ray YouTube] fetchTranscript via SW:', url.toString());
+        console.error('[X-Ray YouTube] fetchTranscript via SW:', url.toString(),
+            'client-version:', clientVersion);
 
         const resp = await chrome.runtime.sendMessage({
             type: 'xray:youtube:fetchTranscript',
-            url: url.toString()
+            url: url.toString(),
+            clientVersion
         });
 
         console.error('[X-Ray YouTube] SW response:',
