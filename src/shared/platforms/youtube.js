@@ -21,6 +21,8 @@
 // + cookie requirements satisfied automatically. No CORS, no Referer
 // rewriting needed for this path.
 
+import { ContentExtractor } from '../content-extractor.js';
+
 // ------------------------------------------------------------------
 // Detection
 // ------------------------------------------------------------------
@@ -587,20 +589,27 @@ export async function synthesizeArticle() {
     const title = vd.title || 'Untitled YouTube Video';
     const channelName = vd.author || mf.ownerChannelName || '';
 
+    const durationSeconds = parseInt(vd.lengthSeconds, 10) || null;
+    const viewCount       = parseInt(vd.viewCount, 10) || null;
+    const keywords        = Array.isArray(vd.keywords) ? vd.keywords : [];
+
     // Compose the markdown body that becomes the kind-30023 content.
     // Faithfulness-first: every captured transcript gets its own
-    // labeled section with language + kind + role clearly marked.
+    // labeled section with language + kind + role clearly marked, and
+    // every timestamp is a clickable `&t=Ns` deep link back to the
+    // exact second in the source video — so any downstream NOSTR
+    // client can jump a reader straight to the cited moment.
     const bodyMarkdown = composeMarkdownBody({
         title,
         channelName,
         canonicalUrl,
         videoId,
-        durationSeconds: parseInt(vd.lengthSeconds, 10) || null,
-        viewCount:       parseInt(vd.viewCount, 10) || null,
+        durationSeconds,
+        viewCount,
         publishDate:     mf.publishDate || null,
         category:        mf.category || null,
         description:     vd.shortDescription || '',
-        keywords:        Array.isArray(vd.keywords) ? vd.keywords : [],
+        keywords,
         transcripts
     });
 
@@ -613,23 +622,47 @@ export async function synthesizeArticle() {
         publishedAt: publishedAtUnix,
         extractedAt: Math.floor(Date.now() / 1000),
         featuredImage: bestThumb,
-        content: markdownToBasicHtml(bodyMarkdown),  // gives the reader something to render
+
+        // Proper markdown renderer so transcript `[link](url)` anchors
+        // render as real `<a>` elements in the reader view — not as
+        // escaped literal brackets. The reader's publish-time
+        // htmlToMarkdown roundtrip (via Turndown) preserves `<a>` tags,
+        // so the timestamp links survive through to the relay.
+        content:  ContentExtractor.markdownToHtml(bodyMarkdown),
         markdown: bodyMarkdown,
+
         excerpt: (vd.shortDescription || '').slice(0, 500),
         contentType: 'video',
         platform: 'youtube',
-        engagement: {
-            views: parseInt(vd.viewCount, 10) || 0
+
+        // Top-level keywords so the event-builder's generic `t` tag loop
+        // (for `if (article.keywords?.length)`) picks them up — same as
+        // any other article's tags.
+        keywords,
+
+        // Back-compat shape consumed by the event-builder's legacy
+        // `article.videoMeta` block. Duplicates a few of the richer
+        // `article.youtube` fields but costs basically nothing and keeps
+        // pre-C2 tooling working.
+        videoMeta: {
+            videoId,
+            duration: durationSeconds != null ? String(durationSeconds) : '',
+            channelName
         },
+
+        engagement: {
+            views: viewCount || 0
+        },
+
         youtube: {
             videoId,
             channel: {
                 name: channelName,
                 channelId: vd.channelId || null
             },
-            durationSeconds: parseInt(vd.lengthSeconds, 10) || null,
-            viewCount:       parseInt(vd.viewCount, 10) || null,
-            keywords:        Array.isArray(vd.keywords) ? vd.keywords : [],
+            durationSeconds,
+            viewCount,
+            keywords,
             category:        mf.category || null,
             publishDate:     mf.publishDate || null,
             uploadDate:      mf.uploadDate || null,
@@ -696,11 +729,16 @@ function composeMarkdownBody(opts) {
                 : `*No transcript content.*\n`);
             continue;
         }
-        // One line per event with [M:SS] timestamp. Readable and
-        // preserves the timeline for any downstream consumer.
-        const lines = t.events.map((ev) =>
-            `\`[${formatTimestamp(ev.startMs)}]\` ${ev.text.replace(/\n+/g, ' ')}`
-        );
+        // One line per event. Timestamps are rendered as clickable
+        // markdown links to the exact second in the source video
+        // (`youtube.com/watch?v=<id>&t=<s>s`) so NOSTR clients and the
+        // reader view both let you jump straight to the cited moment.
+        const lines = t.events.map((ev) => {
+            const stamp = formatTimestamp(ev.startMs);
+            const secs  = Math.max(0, Math.floor((ev.startMs || 0) / 1000));
+            const jumpUrl = `${canonicalUrl}&t=${secs}s`;
+            return `[\`${stamp}\`](${jumpUrl}) ${ev.text.replace(/\n+/g, ' ')}`;
+        });
         parts.push(lines.join('\n') + '\n');
     }
 
@@ -735,25 +773,7 @@ function formatTimestamp(ms) {
     return `${m}:${String(sec).padStart(2, '0')}`;
 }
 
-/**
- * Rudimentary markdown → HTML for the reader's initial render. The
- * proper round-trip (via ContentExtractor.markdownToHtml) happens
- * when the user toggles Preview; this just gives the reader a
- * starting point in Reader mode that looks reasonable.
- */
-function markdownToBasicHtml(md) {
-    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    return md
-        .split(/\n{2,}/)
-        .map((block) => {
-            if (block.startsWith('## ')) {
-                return `<h2>${esc(block.slice(3).trim())}</h2>`;
-            }
-            if (block.startsWith('---') || block === '---') {
-                return `<hr />`;
-            }
-            // Paragraph with line breaks preserved
-            return `<p>${esc(block).replace(/\n/g, '<br>')}</p>`;
-        })
-        .join('\n');
-}
+// The rudimentary `markdownToBasicHtml` helper used here pre-C2 has
+// been replaced by `ContentExtractor.markdownToHtml`, which renders
+// the link syntax `[…](url)` as real `<a>` tags — essential for our
+// clickable transcript timestamps.

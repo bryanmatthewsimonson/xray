@@ -175,6 +175,45 @@ export const EventBuilder = {
       if (article.description) tags.push(['has_description', 'true']);
     }
 
+    // Add YouTube-specific tags (Phase 3b — C2).
+    //
+    // We emit a richer set than the generic videoMeta block above so that
+    // downstream relay consumers can filter / index on the full video
+    // shape without having to re-parse the markdown body. Faithfulness-
+    // first: every field that came from ytInitialPlayerResponse and
+    // survived the synthesis step gets its own tag with a stable name.
+    //
+    // Also emits one `transcript_lang` tag per captured track, with
+    // language + kind + role encoded so consumers can tell human vs. ASR
+    // and origin-language vs. user-language at a glance without reading
+    // content.
+    if (article.youtube) {
+      const y = article.youtube;
+      if (y.videoId)         tags.push(['video_id',        y.videoId]);
+      if (y.durationSeconds) tags.push(['duration',        String(y.durationSeconds)]);
+      if (y.channel?.name)   tags.push(['channel',         y.channel.name]);
+      if (y.channel?.channelId) tags.push(['channel_id',   y.channel.channelId]);
+      if (y.category)        tags.push(['category',        y.category]);
+      if (y.viewCount)       tags.push(['view_count',      String(y.viewCount)]);
+      if (y.originLanguage)  tags.push(['origin_language', y.originLanguage]);
+      if (y.userLanguage)    tags.push(['user_language',   y.userLanguage]);
+      if (y.isLive === true) tags.push(['is_live',         'true']);
+      if (y.uploadDate)      tags.push(['upload_date',     y.uploadDate]);
+
+      // One row per captured transcript with non-empty events. Encoded
+      // as "<lang>:<kind>:<role>" so filters like `transcript_lang` =
+      // `en:asr:origin-asr` or startsWith("en:") work cleanly.
+      if (Array.isArray(y.transcripts)) {
+        for (const t of y.transcripts) {
+          if (!t || !Array.isArray(t.events) || t.events.length === 0) continue;
+          const lang = t.languageCode || '';
+          const kind = t.kind || 'human';
+          const role = t.role || '';
+          tags.push(['transcript_lang', `${lang}:${kind}:${role}`]);
+        }
+      }
+    }
+
     // Add Twitter/X-specific tags (Phase 6)
     if (article.tweetMeta) {
       if (article.tweetMeta.tweetId) tags.push(['tweet_id', article.tweetMeta.tweetId]);
@@ -528,6 +567,33 @@ export const EventBuilder = {
     // Video-specific
     if (tags['video_id']) {
       article.videoMeta = { videoId: tags['video_id'], duration: tags['duration'] || '', channelName: tags['channel'] || '' };
+    }
+
+    // YouTube-specific reconstruction. Mirrors the buildArticleEvent
+    // block above so `article.youtube` round-trips through the relay.
+    // Transcripts themselves live in the markdown body (they'd blow the
+    // event size budget as tags); we only restore the language manifest
+    // here so consumers know what was captured.
+    if (article.platform === 'youtube' || tags['video_id']) {
+      const transcriptLangs = (tagArrays['transcript_lang'] || []).map((v) => {
+        const [lang, kind, role] = String(v[0] || '').split(':');
+        return { languageCode: lang || '', kind: kind || 'human', role: role || '' };
+      });
+      article.youtube = {
+        videoId:         tags['video_id']        || null,
+        durationSeconds: tags['duration'] ? parseInt(tags['duration'], 10) : null,
+        channel: {
+          name:      tags['channel']    || '',
+          channelId: tags['channel_id'] || null
+        },
+        category:       tags['category']        || null,
+        viewCount:      tags['view_count'] ? parseInt(tags['view_count'], 10) : null,
+        originLanguage: tags['origin_language'] || null,
+        userLanguage:   tags['user_language']   || null,
+        isLive:         tags['is_live'] === 'true',
+        uploadDate:     tags['upload_date']     || null,
+        transcripts:    transcriptLangs   // manifest only; bodies live in content
+      };
     }
 
     // Tweet-specific

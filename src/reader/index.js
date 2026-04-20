@@ -135,7 +135,8 @@ function renderReader() {
             ${field('URL',         'url',         a.url)}
           </div>
         </header>
-        ${a.featuredImage ? `<img class="xr-article__featured" src="${escapeHtml(a.featuredImage)}" alt="" loading="lazy" />` : ''}
+        ${renderYouTubeHeader(a)}
+        ${a.featuredImage && !isYouTubeArticle(a) ? `<img class="xr-article__featured" src="${escapeHtml(a.featuredImage)}" alt="" loading="lazy" />` : ''}
         <div class="xr-article__body" contenteditable="true" spellcheck="true" data-field="content"></div>
       </article>
     `;
@@ -148,6 +149,95 @@ function renderReader() {
         el.addEventListener('input', onReaderFieldInput);
         el.addEventListener('blur', onReaderFieldBlur);
     });
+}
+
+// ------------------------------------------------------------------
+// YouTube-specific header (Phase 3b — C2)
+// ------------------------------------------------------------------
+
+function isYouTubeArticle(article) {
+    return article && article.platform === 'youtube' && article.youtube;
+}
+
+/**
+ * Render a video-shaped header block for YouTube captures: the
+ * thumbnail becomes a click-through to the source video, with a duration
+ * badge overlaid on it (matching YouTube's own UI pattern), and a row
+ * of meta chips — channel, views, category, and captured-language
+ * indicators — sits beneath.
+ *
+ * For non-YouTube articles, returns an empty string so nothing renders.
+ */
+function renderYouTubeHeader(article) {
+    if (!isYouTubeArticle(article)) return '';
+    const y = article.youtube;
+
+    const durationLabel = y.durationSeconds != null
+        ? formatDurationForChip(y.durationSeconds)
+        : null;
+
+    const viewsLabel = Number.isFinite(y.viewCount) && y.viewCount > 0
+        ? `${y.viewCount.toLocaleString()} views`
+        : null;
+
+    const chips = [];
+    if (y.channel?.name) {
+        const channelUrl = y.channel.channelId
+            ? `https://www.youtube.com/channel/${encodeURIComponent(y.channel.channelId)}`
+            : null;
+        chips.push(channelUrl
+            ? `<a class="xr-video__chip xr-video__chip--channel" href="${escapeHtml(channelUrl)}" target="_blank" rel="noopener">${escapeHtml(y.channel.name)}</a>`
+            : `<span class="xr-video__chip xr-video__chip--channel">${escapeHtml(y.channel.name)}</span>`
+        );
+    }
+    if (viewsLabel)     chips.push(`<span class="xr-video__chip">${escapeHtml(viewsLabel)}</span>`);
+    if (y.category)     chips.push(`<span class="xr-video__chip">${escapeHtml(y.category)}</span>`);
+    if (y.isLive)       chips.push(`<span class="xr-video__chip xr-video__chip--live">LIVE</span>`);
+
+    // Captured-transcript manifest — one chip per language/kind that
+    // actually has events. Honest about what's in the body: a
+    // human-authored track is labelled differently from an ASR one, and
+    // an origin-language track gets the "origin" accent.
+    if (Array.isArray(y.transcripts)) {
+        for (const t of y.transcripts) {
+            if (!t || !Array.isArray(t.events) || t.events.length === 0) continue;
+            const kindMark = t.kind === 'asr' ? 'auto' : 'human';
+            const isOrigin = t.role && t.role.startsWith('origin');
+            const label = `${t.displayName || t.languageCode || 'transcript'} · ${kindMark}`;
+            const cls = isOrigin
+                ? 'xr-video__chip xr-video__chip--transcript xr-video__chip--origin'
+                : 'xr-video__chip xr-video__chip--transcript';
+            chips.push(`<span class="${cls}" title="${escapeHtml(t.events.length + ' cues')}">${escapeHtml(label)}</span>`);
+        }
+    }
+
+    const thumb = article.featuredImage;
+    const watchUrl = article.url;
+    const thumbHtml = thumb
+        ? `
+          <a class="xr-video__thumb" href="${escapeHtml(watchUrl)}" target="_blank" rel="noopener"
+             title="Watch on YouTube">
+            <img src="${escapeHtml(thumb)}" alt="" loading="lazy" />
+            <span class="xr-video__play" aria-hidden="true">▶</span>
+            ${durationLabel ? `<span class="xr-video__duration">${escapeHtml(durationLabel)}</span>` : ''}
+          </a>`
+        : '';
+
+    return `
+      <section class="xr-video">
+        ${thumbHtml}
+        ${chips.length > 0 ? `<div class="xr-video__chips">${chips.join('')}</div>` : ''}
+      </section>
+    `;
+}
+
+function formatDurationForChip(seconds) {
+    const s = Math.max(0, Math.floor(seconds || 0));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const ss = s % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+    return `${m}:${String(ss).padStart(2, '0')}`;
 }
 
 function field(label, key, value) {
