@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-build:
+    name: web-ext lint + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install web-ext
+        run: npm install --global web-ext@latest
+
+      - name: Show versions
+        run: |
+          node --version
+          web-ext --version
+
+      - name: Syntax-check every JS file
+        # Defence-in-depth: caches any accidental syntax regression before
+        # the more expensive web-ext run.
+        run: |
+          set -e
+          fail=0
+          while IFS= read -r f; do
+            node --check "$f" || fail=1
+          done < <(find src -name '*.js' -type f)
+          exit "$fail"
+
+      - name: web-ext lint
+        # Uses defaults: warnings are non-fatal, errors fail the job.
+        run: web-ext lint --source-dir . --self-hosted
+
+      - name: web-ext build
+        run: web-ext build --source-dir . --artifacts-dir web-ext-artifacts --overwrite-dest
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xray-unpacked-${{ github.sha }}
+          path: web-ext-artifacts/*.zip
+          if-no-files-found: error
+          retention-days: 14

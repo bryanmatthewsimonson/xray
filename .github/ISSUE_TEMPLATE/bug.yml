@@ -1,0 +1,68 @@
+name: Bug report
+description: Something broke — FAB doesn't show, publish fails, metadata doesn't load, etc.
+title: "bug: "
+labels: ["bug", "triage"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A short description is fine. If you have a URL where this reproduces, include it.
+      placeholder: "On https://example.com, the Capture panel opened but the Markdown tab was empty."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to …
+        2. Click …
+        3. See …
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser + version
+      placeholder: "Chrome 133 / Firefox 131 / Brave …"
+    validations:
+      required: true
+
+  - type: input
+    id: xray-version
+    attributes:
+      label: X-Ray version
+      description: From `manifest.json` or `chrome://extensions` → details.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: signing
+    attributes:
+      label: Signing method in use
+      options:
+        - NIP-07 (browser extension — nos2x, Alby, …)
+        - NSecBunker
+        - None (just reading metadata)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Console output (if any)
+      description: Open DevTools on the page. Errors prefixed `[X-Ray]` are especially relevant. **Do not paste nsec/private-key material.**
+      render: shell
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Checklist
+      options:
+        - label: I've confirmed I'm not sharing any private keys.
+          required: true

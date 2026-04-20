@@ -1,0 +1,9 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question or discussion
+    url: https://github.com/bryanmatthewsimonson/xray/discussions
+    about: For open-ended questions, design discussions, or "how do I…"
+  - name: Upstream userscript
+    url: https://github.com/bryanmatthewsimonson/nostr-article-capture
+    about: X-Ray was ported from this userscript. File there if the
+      issue reproduces in the userscript too.

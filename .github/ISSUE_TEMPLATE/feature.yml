@@ -1,0 +1,42 @@
+name: Feature request
+description: Propose a new capability or UX change.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do? The underlying need matters more than the specific solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What would you like X-Ray to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: Workarounds, other tools, adjacent NIPs, etc.
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      description: Rough guess at where this fits.
+      options:
+        - Content-script UI (capture panel / metadata panel)
+        - Popup or options page
+        - Event builder / NOSTR wire format
+        - Relay handling
+        - Storage / preferences
+        - Documentation
+        - Other / not sure
+    validations:
+      required: true
