@@ -384,7 +384,15 @@ async function scrapeDomTranscript() {
     // / .segment-text children) and the current `transcript-segment-view-model`
     // shape, whose internals have different class names but the same visible
     // pattern: one text node is a timestamp, the rest is caption text.
+    //
+    // Aria-label duration strings like "9 seconds" or "1 minute, 5 seconds"
+    // are screen-reader hints YouTube attaches to each segment — they look
+    // like part of the caption when you text-walk the element, but they
+    // are NOT part of the spoken content. Filter them out so the faithful
+    // transcript contains only what was actually said.
     const TS_RE = /\b(\d{1,2}):(\d{2})(?::(\d{2}))?\b/;
+    const A11Y_DURATION_RE =
+        /^\d+\s+(hour|minute|second)s?(,\s*\d+\s+(hour|minute|second)s?)*\.?$/i;
     const events = [];
     segments.forEach((seg) => {
         // 1. Try the legacy named selectors first — cheap and exact.
@@ -399,12 +407,31 @@ async function scrapeDomTranscript() {
             // 2. Fallback: walk text nodes. The first node whose trimmed
             //    content matches a mm:ss (or h:mm:ss) timestamp is the
             //    timestamp; everything else concatenated is the caption.
+            //    Text nodes inside an aria-hidden ancestor, or whose text
+            //    is a standalone duration label ("9 seconds", "1 minute,
+            //    5 seconds"), are treated as accessibility fluff and
+            //    dropped.
             const walker = document.createTreeWalker(seg, NodeFilter.SHOW_TEXT);
             const parts = [];
             let node;
             while ((node = walker.nextNode())) {
                 const t = (node.nodeValue || '').trim();
                 if (!t) continue;
+
+                // Drop screen-reader duration annotations.
+                if (A11Y_DURATION_RE.test(t)) continue;
+
+                // Drop anything inside an aria-hidden subtree (YouTube
+                // sometimes uses this for visual-only chrome it doesn't
+                // want announced — and text-walking hits both).
+                let p = node.parentElement;
+                let hidden = false;
+                while (p && p !== seg) {
+                    if (p.getAttribute && p.getAttribute('aria-hidden') === 'true') { hidden = true; break; }
+                    p = p.parentElement;
+                }
+                if (hidden) continue;
+
                 if (!tsText && /^\d{1,2}:\d{2}(:\d{2})?$/.test(t)) {
                     tsText = t;
                     continue;
@@ -729,20 +756,92 @@ function composeMarkdownBody(opts) {
                 : `*No transcript content.*\n`);
             continue;
         }
-        // One line per event. Timestamps are rendered as clickable
-        // markdown links to the exact second in the source video
-        // (`youtube.com/watch?v=<id>&t=<s>s`) so NOSTR clients and the
-        // reader view both let you jump straight to the cited moment.
-        const lines = t.events.map((ev) => {
-            const stamp = formatTimestamp(ev.startMs);
-            const secs  = Math.max(0, Math.floor((ev.startMs || 0) / 1000));
-            const jumpUrl = `${canonicalUrl}&t=${secs}s`;
-            return `[\`${stamp}\`](${jumpUrl}) ${ev.text.replace(/\n+/g, ' ')}`;
-        });
-        parts.push(lines.join('\n') + '\n');
+        // Prose paragraphs, one timestamp per paragraph.
+        //
+        // YouTube's ASR emits a new cue every ~3–5 seconds, which is fine
+        // for caption display but awful for reading: the old "one line
+        // per cue" format scattered a clickable timestamp through every
+        // sentence, making quoting practically impossible. Here we
+        // coalesce consecutive cues into prose paragraphs that break at
+        // sentence boundaries once they've accumulated roughly one
+        // visual paragraph of text. Each paragraph is anchored with a
+        // single `&t=<s>s` link at its start — the time of its first
+        // cue — so readers can still jump into the video at the start
+        // of any passage they care about.
+        //
+        // Per-cue timing is not lost, just not rendered in the body:
+        // the source video carries authoritative timestamps, and the
+        // relay event carries a `transcript_lang` manifest.
+        parts.push(coalesceCuesIntoParagraphs(t.events, canonicalUrl) + '\n');
     }
 
     return parts.join('\n');
+}
+
+/**
+ * Group cue-level events into reading-friendly paragraphs.
+ *
+ * Strategy: concatenate cue text with single-space joins, then break
+ * paragraphs when:
+ *   - the accumulated text is at least MIN_PARA_CHARS (~320), AND
+ *   - we're at a sentence boundary (line ends in `.`, `!`, `?`), OR
+ *   - the accumulated text has exceeded MAX_PARA_CHARS (~700), as a
+ *     hard fallback for streams that lack punctuation altogether (some
+ *     auto-transcriptions emit pure lowercase with no stops).
+ *
+ * Every paragraph is prefixed with a single `[0:05](…&t=5s)` link
+ * whose timestamp is the first cue that contributed to the paragraph
+ * — so any reader can jump into the source video at the start of a
+ * passage they care about. Per-cue timing inside a paragraph is
+ * elided from the body (faithfulness lives in the source video +
+ * the `transcript_lang` metadata tags on the relay event).
+ */
+function coalesceCuesIntoParagraphs(events, canonicalUrl) {
+    // Target paragraph size — tuned so paragraphs read like prose
+    // chunks, not caption fragments, while still breaking often enough
+    // that each timestamp link drops you within ~30–60 seconds of the
+    // quote you want to verify.
+    const MIN_PARA_CHARS = 380;
+    const MAX_PARA_CHARS = 900;
+
+    // Note: we deliberately don't break on cue-to-cue gaps. YouTube ASR
+    // emits a cue every ~3–5 seconds by design; a 9s gap between cue
+    // STARTS is just a long cue, not a pause, and we don't have reliable
+    // cue END times after DOM scraping. Length + sentence boundary is
+    // enough signal.
+
+    const paragraphs = [];
+    let para = { startMs: null, text: '' };
+
+    const endsAtSentence = (s) => /[.!?](?:["')\]]*)\s*$/.test(s);
+
+    const flush = () => {
+        if (!para.text) return;
+        paragraphs.push(para);
+        para = { startMs: null, text: '' };
+    };
+
+    for (const ev of events) {
+        const cue = (ev && ev.text) ? ev.text.replace(/\s+/g, ' ').trim() : '';
+        if (!cue) continue;
+
+        if (para.startMs == null) para.startMs = ev.startMs;
+        para.text = para.text ? `${para.text} ${cue}` : cue;
+
+        const soft = para.text.length >= MIN_PARA_CHARS && endsAtSentence(para.text);
+        const hard = para.text.length >= MAX_PARA_CHARS;
+        if (soft || hard) flush();
+    }
+    flush();
+
+    if (paragraphs.length === 0) return '';
+
+    return paragraphs.map((p) => {
+        const stamp   = formatTimestamp(p.startMs);
+        const secs    = Math.max(0, Math.floor((p.startMs || 0) / 1000));
+        const jumpUrl = `${canonicalUrl}&t=${secs}s`;
+        return `[\`${stamp}\`](${jumpUrl}) ${p.text}`;
+    }).join('\n\n');
 }
 
 function roleToLabel(role) {
