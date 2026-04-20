@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>X-Ray — Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <header class="xr-opt__header">
+    <h1 class="xr-opt__title">X-Ray Settings</h1>
+    <nav class="xr-opt__tabs">
+      <button class="xr-opt__tab xr-opt__tab--active" data-tab="relays">Relays</button>
+      <button class="xr-opt__tab" data-tab="signing">Signing</button>
+      <button class="xr-opt__tab" data-tab="entities">Entities</button>
+      <button class="xr-opt__tab" data-tab="keypairs">Keypair Registry</button>
+      <button class="xr-opt__tab" data-tab="advanced">Advanced</button>
+    </nav>
+  </header>
+
+  <main class="xr-opt__main">
+    <!-- ====== RELAYS ====== -->
+    <section class="xr-opt__section xr-opt__section--active" data-section="relays">
+      <h2>Default Relays</h2>
+      <p class="xr-opt__hint">
+        Events are published to these relays. One WebSocket URL per line (<code>wss://…</code>).
+      </p>
+      <textarea id="relays-input" rows="10" spellcheck="false"
+                placeholder="wss://relay.damus.io&#10;wss://relay.nostr.band"></textarea>
+      <div class="xr-opt__actions">
+        <button class="xr-opt__btn xr-opt__btn--primary" id="relays-save">Save</button>
+        <button class="xr-opt__btn" id="relays-reset">Reset to defaults</button>
+        <span class="xr-opt__status" id="relays-status"></span>
+      </div>
+    </section>
+
+    <!-- ====== SIGNING ====== -->
+    <section class="xr-opt__section" data-section="signing">
+      <h2>Signing</h2>
+      <p class="xr-opt__hint">
+        X-Ray signs events with a NIP-07 browser extension when one is
+        installed. Otherwise it falls back to NSecBunker (remote signer)
+        over WebSocket.
+      </p>
+
+      <label class="xr-opt__field">
+        <span class="xr-opt__label">NSecBunker URL</span>
+        <input type="text" id="bunker-url" placeholder="wss://bunker.example.com" spellcheck="false" />
+      </label>
+
+      <div class="xr-opt__actions">
+        <button class="xr-opt__btn xr-opt__btn--primary" id="signing-save">Save</button>
+        <span class="xr-opt__status" id="signing-status"></span>
+      </div>
+    </section>
+
+    <!-- ====== ENTITIES ====== -->
+    <section class="xr-opt__section" data-section="entities">
+      <h2>Entities</h2>
+      <p class="xr-opt__hint">
+        Publications, people and organizations referenced when building
+        metadata events. Edit as JSON; each is an object keyed by entity id.
+      </p>
+
+      <div class="xr-opt__field">
+        <span class="xr-opt__label">Publications</span>
+        <textarea id="entities-publications" rows="6" spellcheck="false"></textarea>
+      </div>
+      <div class="xr-opt__field">
+        <span class="xr-opt__label">People</span>
+        <textarea id="entities-people" rows="6" spellcheck="false"></textarea>
+      </div>
+      <div class="xr-opt__field">
+        <span class="xr-opt__label">Organizations</span>
+        <textarea id="entities-organizations" rows="6" spellcheck="false"></textarea>
+      </div>
+
+      <div class="xr-opt__actions">
+        <button class="xr-opt__btn xr-opt__btn--primary" id="entities-save">Save</button>
+        <span class="xr-opt__status" id="entities-status"></span>
+      </div>
+    </section>
+
+    <!-- ====== KEYPAIRS ====== -->
+    <section class="xr-opt__section" data-section="keypairs">
+      <h2>Keypair Registry</h2>
+      <p class="xr-opt__hint">
+        X-Ray keeps a registry of entity keypairs it has used to sign.
+        Export a backup, or import one from another device.
+        <strong>Private keys are included in the export — handle with care.</strong>
+      </p>
+
+      <div class="xr-opt__actions">
+        <button class="xr-opt__btn" id="keypairs-view">View</button>
+        <button class="xr-opt__btn" id="keypairs-export">Export JSON</button>
+        <button class="xr-opt__btn" id="keypairs-import">Import JSON…</button>
+        <input type="file" id="keypairs-file" accept="application/json" style="display:none" />
+        <span class="xr-opt__status" id="keypairs-status"></span>
+      </div>
+
+      <pre class="xr-opt__pre" id="keypairs-preview" style="display:none"></pre>
+    </section>
+
+    <!-- ====== ADVANCED ====== -->
+    <section class="xr-opt__section" data-section="advanced">
+      <h2>Advanced</h2>
+
+      <label class="xr-opt__field">
+        <span class="xr-opt__label">Theme</span>
+        <select id="pref-theme">
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select>
+      </label>
+
+      <label class="xr-opt__field">
+        <span class="xr-opt__label">Media handling</span>
+        <select id="pref-media">
+          <option value="embed">Embed</option>
+          <option value="link">Link only</option>
+          <option value="skip">Skip</option>
+        </select>
+      </label>
+
+      <div class="xr-opt__actions">
+        <button class="xr-opt__btn xr-opt__btn--primary" id="advanced-save">Save</button>
+        <span class="xr-opt__status" id="advanced-status"></span>
+      </div>
+
+      <hr />
+
+      <h3 class="xr-opt__subhead">Danger zone</h3>
+      <div class="xr-opt__actions">
+        <button class="xr-opt__btn xr-opt__btn--danger" id="clear-all">Clear all X-Ray storage</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="options.js"></script>
+</body>
+</html>

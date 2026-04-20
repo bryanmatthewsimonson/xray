@@ -1,0 +1,263 @@
+// Options page. Talks directly to chrome.storage.local — the same
+// backing store the content-script Storage wrapper uses.
+//
+// Values written by the Storage wrapper are JSON-stringified, so we
+// match that here: parse on read, stringify on write.
+
+const browserApi = (typeof browser !== 'undefined' && browser.runtime) ? browser : chrome;
+
+const DEFAULT_RELAYS = [
+    'wss://relay.damus.io',
+    'wss://relay.nostr.band',
+    'wss://nos.lol',
+    'wss://relay.snort.social'
+];
+
+const DEFAULT_BUNKER_URL = 'wss://bunker.nsec.app';
+
+// ------------------------------------------------------------------
+// Storage helpers (mirror Storage wrapper semantics)
+// ------------------------------------------------------------------
+
+function storageGet(key) {
+    return new Promise((resolve) => {
+        browserApi.storage.local.get([key], (res) => {
+            const raw = res ? res[key] : undefined;
+            if (raw === undefined || raw === null) return resolve(null);
+            if (typeof raw === 'string') {
+                try { return resolve(JSON.parse(raw)); } catch (_) { return resolve(raw); }
+            }
+            return resolve(raw);
+        });
+    });
+}
+
+function storageSet(key, value) {
+    return new Promise((resolve) => {
+        browserApi.storage.local.set({ [key]: JSON.stringify(value) }, () => resolve());
+    });
+}
+
+function storageClearExtension() {
+    const keys = [
+        'publications', 'people', 'organizations',
+        'preferences', 'keypair_registry', 'recent_publications',
+        'xr_signing_state'
+    ];
+    return new Promise((resolve) => {
+        browserApi.storage.local.remove(keys, () => resolve());
+    });
+}
+
+// ------------------------------------------------------------------
+// Tabs
+// ------------------------------------------------------------------
+
+function wireTabs() {
+    const tabs = document.querySelectorAll('.xr-opt__tab');
+    const sections = document.querySelectorAll('.xr-opt__section');
+
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const target = tab.dataset.tab;
+            tabs.forEach(t => t.classList.toggle('xr-opt__tab--active', t === tab));
+            sections.forEach(s => s.classList.toggle('xr-opt__section--active', s.dataset.section === target));
+        });
+    });
+}
+
+function flash(el, msg, ok = true) {
+    el.textContent = msg;
+    el.classList.toggle('xr-opt__status--ok', ok);
+    el.classList.toggle('xr-opt__status--err', !ok);
+    setTimeout(() => {
+        el.textContent = '';
+        el.classList.remove('xr-opt__status--ok', 'xr-opt__status--err');
+    }, 3000);
+}
+
+// ------------------------------------------------------------------
+// Relays
+// ------------------------------------------------------------------
+
+async function loadRelays() {
+    const prefs = (await storageGet('preferences')) || {};
+    const relays = Array.isArray(prefs.default_relays) ? prefs.default_relays : DEFAULT_RELAYS;
+    document.getElementById('relays-input').value = relays.join('\n');
+}
+
+async function saveRelays() {
+    const raw = document.getElementById('relays-input').value;
+    const lines = raw.split('\n').map(s => s.trim()).filter(Boolean);
+    const invalid = lines.find(u => !/^wss?:\/\//i.test(u));
+    const status = document.getElementById('relays-status');
+    if (invalid) {
+        flash(status, `Not a ws/wss URL: ${invalid}`, false);
+        return;
+    }
+    const prefs = (await storageGet('preferences')) || {};
+    prefs.default_relays = lines;
+    await storageSet('preferences', prefs);
+    flash(status, 'Saved.');
+}
+
+async function resetRelays() {
+    document.getElementById('relays-input').value = DEFAULT_RELAYS.join('\n');
+}
+
+// ------------------------------------------------------------------
+// Signing
+// ------------------------------------------------------------------
+
+async function loadSigning() {
+    const prefs = (await storageGet('preferences')) || {};
+    document.getElementById('bunker-url').value = prefs.nsecbunker_url || DEFAULT_BUNKER_URL;
+}
+
+async function saveSigning() {
+    const url = document.getElementById('bunker-url').value.trim();
+    const status = document.getElementById('signing-status');
+    if (url && !/^wss?:\/\//i.test(url)) {
+        flash(status, 'NSecBunker URL must start with ws:// or wss://', false);
+        return;
+    }
+    const prefs = (await storageGet('preferences')) || {};
+    prefs.nsecbunker_url = url;
+    await storageSet('preferences', prefs);
+    flash(status, 'Saved.');
+}
+
+// ------------------------------------------------------------------
+// Entities
+// ------------------------------------------------------------------
+
+async function loadEntities() {
+    const pubs = (await storageGet('publications')) || {};
+    const people = (await storageGet('people')) || {};
+    const orgs = (await storageGet('organizations')) || {};
+    document.getElementById('entities-publications').value = JSON.stringify(pubs, null, 2);
+    document.getElementById('entities-people').value = JSON.stringify(people, null, 2);
+    document.getElementById('entities-organizations').value = JSON.stringify(orgs, null, 2);
+}
+
+async function saveEntities() {
+    const status = document.getElementById('entities-status');
+    try {
+        const pubs = JSON.parse(document.getElementById('entities-publications').value || '{}');
+        const people = JSON.parse(document.getElementById('entities-people').value || '{}');
+        const orgs = JSON.parse(document.getElementById('entities-organizations').value || '{}');
+        if (typeof pubs !== 'object' || Array.isArray(pubs) ||
+            typeof people !== 'object' || Array.isArray(people) ||
+            typeof orgs !== 'object' || Array.isArray(orgs)) {
+            throw new Error('Each entity collection must be a JSON object keyed by id');
+        }
+        await storageSet('publications', pubs);
+        await storageSet('people', people);
+        await storageSet('organizations', orgs);
+        flash(status, 'Saved.');
+    } catch (e) {
+        flash(status, 'Invalid JSON: ' + (e && e.message), false);
+    }
+}
+
+// ------------------------------------------------------------------
+// Keypair registry
+// ------------------------------------------------------------------
+
+async function viewKeypairs() {
+    const registry = (await storageGet('keypair_registry')) || {};
+    const pre = document.getElementById('keypairs-preview');
+    pre.textContent = JSON.stringify(registry, null, 2);
+    pre.style.display = 'block';
+}
+
+async function exportKeypairs() {
+    const registry = (await storageGet('keypair_registry')) || {};
+    const blob = new Blob([JSON.stringify(registry, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `xray-keypairs-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    flash(document.getElementById('keypairs-status'), 'Exported.');
+}
+
+async function importKeypairsFromFile(file) {
+    const status = document.getElementById('keypairs-status');
+    try {
+        const text = await file.text();
+        const imported = JSON.parse(text);
+        if (typeof imported !== 'object' || Array.isArray(imported)) {
+            throw new Error('Top-level JSON must be an object keyed by entity id');
+        }
+        const existing = (await storageGet('keypair_registry')) || {};
+        await storageSet('keypair_registry', { ...existing, ...imported });
+        flash(status, `Imported ${Object.keys(imported).length} keypairs.`);
+        viewKeypairs();
+    } catch (e) {
+        flash(status, 'Import failed: ' + (e && e.message), false);
+    }
+}
+
+// ------------------------------------------------------------------
+// Advanced
+// ------------------------------------------------------------------
+
+async function loadAdvanced() {
+    const prefs = (await storageGet('preferences')) || {};
+    document.getElementById('pref-theme').value = prefs.theme || 'dark';
+    document.getElementById('pref-media').value = prefs.media_handling || 'embed';
+}
+
+async function saveAdvanced() {
+    const prefs = (await storageGet('preferences')) || {};
+    prefs.theme = document.getElementById('pref-theme').value;
+    prefs.media_handling = document.getElementById('pref-media').value;
+    await storageSet('preferences', prefs);
+    flash(document.getElementById('advanced-status'), 'Saved.');
+}
+
+async function clearAll() {
+    if (!confirm('Erase all X-Ray settings, entities, and the keypair registry? This cannot be undone.')) return;
+    await storageClearExtension();
+    await Promise.all([loadRelays(), loadSigning(), loadEntities(), loadAdvanced()]);
+    document.getElementById('keypairs-preview').style.display = 'none';
+}
+
+// ------------------------------------------------------------------
+// Wire-up
+// ------------------------------------------------------------------
+
+document.addEventListener('DOMContentLoaded', async () => {
+    wireTabs();
+    await Promise.all([
+        loadRelays(),
+        loadSigning(),
+        loadEntities(),
+        loadAdvanced()
+    ]);
+
+    document.getElementById('relays-save').addEventListener('click', saveRelays);
+    document.getElementById('relays-reset').addEventListener('click', resetRelays);
+
+    document.getElementById('signing-save').addEventListener('click', saveSigning);
+
+    document.getElementById('entities-save').addEventListener('click', saveEntities);
+
+    document.getElementById('keypairs-view').addEventListener('click', viewKeypairs);
+    document.getElementById('keypairs-export').addEventListener('click', exportKeypairs);
+    document.getElementById('keypairs-import').addEventListener('click', () => {
+        document.getElementById('keypairs-file').click();
+    });
+    document.getElementById('keypairs-file').addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (file) importKeypairsFromFile(file);
+        e.target.value = '';
+    });
+
+    document.getElementById('advanced-save').addEventListener('click', saveAdvanced);
+    document.getElementById('clear-all').addEventListener('click', clearAll);
+});

@@ -1,0 +1,92 @@
+{
+  "manifest_version": 3,
+  "name": "X-Ray — NOSTR URL Metadata & Article Capture",
+  "version": "0.1.0",
+  "description": "See NOSTR-sourced metadata for any URL — annotations, fact-checks, ratings, comments, headline corrections. Capture articles as Markdown and publish back to NOSTR.",
+  "author": "Decentralized News Network",
+
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+
+  "action": {
+    "default_title": "X-Ray",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    },
+    "default_popup": "src/popup/popup.html"
+  },
+
+  "options_ui": {
+    "page": "src/options/options.html",
+    "open_in_tab": true
+  },
+
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+
+  "permissions": [
+    "storage",
+    "notifications",
+    "scripting",
+    "activeTab",
+    "contextMenus"
+  ],
+
+  "host_permissions": [
+    "<all_urls>"
+  ],
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false,
+      "js": ["src/page/nip07-bridge.js"]
+    },
+    {
+      "matches": ["<all_urls>"],
+      "run_at": "document_idle",
+      "all_frames": false,
+      "js": [
+        "src/content/01-config.js",
+        "src/content/02-utils.js",
+        "src/content/03-storage.js",
+        "src/content/04-readability.js",
+        "src/content/05-turndown.js",
+        "src/content/06-content-processor.js",
+        "src/content/07-nostr-crypto.js",
+        "src/content/08-nostr-client.js",
+        "src/content/09-nsecbunker-client.js",
+        "src/content/10-nip07-client.js",
+        "src/content/11-event-builder.js",
+        "src/content/12-url-metadata-service.js",
+        "src/content/13-ui.js",
+        "src/content/14-metadata-ui.js",
+        "src/content/15-init.js"
+      ],
+      "css": ["src/content/content.css"]
+    }
+  ],
+
+  "web_accessible_resources": [
+    {
+      "resources": ["src/page/nip07-bridge.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "xray@nostr-article-capture",
+      "strict_min_version": "128.0"
+    }
+  }
+}

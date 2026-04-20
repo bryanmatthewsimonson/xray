@@ -1,0 +1,122 @@
+:root {
+  --xr-bg: #1a1a1a;
+  --xr-surface: #242424;
+  --xr-surface-2: #2e2e2e;
+  --xr-text: #e6e6e6;
+  --xr-text-dim: #9a9a9a;
+  --xr-primary: #8b5cf6;
+  --xr-primary-hover: #7c3aed;
+  --xr-border: #333;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--xr-bg);
+  color: var(--xr-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  min-width: 280px;
+  width: 280px;
+}
+
+.xr-popup__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--xr-border);
+}
+
+.xr-popup__logo {
+  font-size: 24px;
+}
+
+.xr-popup__name {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.xr-popup__tagline {
+  font-size: 11px;
+  color: var(--xr-text-dim);
+}
+
+.xr-popup__status {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--xr-border);
+  background: var(--xr-surface);
+}
+
+.xr-popup__status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 0;
+}
+
+.xr-popup__status-label {
+  color: var(--xr-text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.xr-popup__status-value {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.xr-popup__status-value--ok { color: #34d399; }
+.xr-popup__status-value--warn { color: #fbbf24; }
+.xr-popup__status-value--err { color: #f87171; }
+
+.xr-popup__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+}
+
+.xr-popup__btn {
+  appearance: none;
+  border: 1px solid var(--xr-border);
+  background: var(--xr-surface-2);
+  color: var(--xr-text);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.xr-popup__btn:hover {
+  background: #363636;
+}
+
+.xr-popup__btn--primary {
+  background: var(--xr-primary);
+  border-color: var(--xr-primary);
+  color: #fff;
+  font-weight: 600;
+  text-align: center;
+}
+
+.xr-popup__btn--primary:hover {
+  background: var(--xr-primary-hover);
+  border-color: var(--xr-primary-hover);
+}
+
+.xr-popup__btn--ghost {
+  background: transparent;
+  color: var(--xr-text-dim);
+}
+
+.xr-popup__footer {
+  padding: 8px 14px;
+  border-top: 1px solid var(--xr-border);
+  font-size: 10px;
+  color: var(--xr-text-dim);
+  text-align: center;
+}

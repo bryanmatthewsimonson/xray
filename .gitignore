@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node (in case we add tooling later)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Web-ext build artefacts
+web-ext-artifacts/
+*.xpi
+*.zip
+
+# Local notes / scratch
+.notes/
+scratch/
+
+# Claude Code session state (if this dir is ever opened as a project root)
+.claude/
