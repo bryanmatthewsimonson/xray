@@ -1,31 +1,66 @@
 # X-Ray — NOSTR URL Metadata & Article Capture
 
-Chrome / Firefox WebExtension that shows **NOSTR-sourced metadata** for
-any URL you're viewing (annotations, fact-checks, ratings, comments,
-headline corrections) and lets you **capture the page as Markdown** and
-publish it back to NOSTR. It's the MV3 port of the
-`nostr-article-capture` userscript (v1.8.0), taken as the feature-parity
-starting point.
+Chrome / Firefox WebExtension that captures the page you're looking at
+— article, Substack post, YouTube video with transcripts — as
+Markdown, and publishes it to NOSTR as a NIP-23 (`kind: 30023`) event.
+The MV3 port of the `nostr-article-capture` userscript, in a
+multi-phase catch-up to userscript v4.2.
 
 *"X-Ray" — because it lets you see through a page to what the network
 has already said about it.*
 
-## Features
+## Status
 
-- Reader-mode article extraction (Mozilla Readability) + HTML→Markdown
-  (Turndown)
-- Publish long-form articles as NIP-23 (`kind: 30023`) events
-- URL-scoped metadata events (`kind: 32123` annotation, `32124` fact
-  check, `32125` headline correction, `32126` reaction, `32127` related,
-  `32128` rating, `32140` comment, plus organizations / publications at
-  `32141`/`32142`)
-- NIP-07 signing via installed browser extension (nos2x, Alby,
-  nostr-connect, …)
-- Fallback remote signing via **NSecBunker** over WebSocket
-- Per-URL metadata badge: trust score, annotation count, fact-check
-  verdict, inline text highlights and headline-correction indicators,
-  link badges on outbound links
-- Keypair registry (per-entity) with export / import
+The project is a multi-phase port. Phases 0-2 (infrastructure + real
+crypto + article capture) are complete. Phase 3 (platform handlers)
+is in progress — Substack and YouTube are shipped, Twitter/X and the
+generic comment extractor are next. Entity / claims / archive /
+hard-tier platforms follow.
+
+The [**migration roadmap**](docs/ROADMAP.md) is the source of truth
+for what's landed and what's pending.
+
+## Features (currently working)
+
+- **Reader-mode article extraction** — Mozilla Readability + Turndown
+  produces clean markdown from article-shaped pages.
+- **Long-form publishing** — articles land as NIP-23 (`kind: 30023`)
+  events with a rich tag set (`title`, `author`, `published_at`,
+  `summary`, `image`, `word_count`, `lang`, `t` topic tags, etc.).
+- **Substack handler** — paywalled-body unlock when the user is
+  signed in, rich author / publication metadata, comment tree
+  captured as opt-in kind-30041 events with proper reply-to
+  threading.
+- **YouTube handler** — `ytInitialPlayerResponse`-derived metadata,
+  origin + user language transcripts (human and auto-generated),
+  clickable `&t=Ns` timestamps on every transcript paragraph,
+  video-shaped reader layout (thumbnail, duration badge, chips for
+  channel / views / category / captured languages), rich structured
+  event tags (`video_id`, `channel_id`, `duration`, `category`,
+  `view_count`, `origin_language`, `transcript_lang`, …).
+- **NIP-07 signing** via installed browser extension (nos2x, Alby,
+  nostr-connect, …).
+- **Fallback remote signing** via NSecBunker over WebSocket.
+- **Background service-worker relay pool** — WebSockets survive tab
+  navigation and aren't subject to page CSP.
+- **Real NOSTR crypto** — secp256k1 / BIP-340 / bech32 / NIP-44 v2,
+  unit-tested against the BIP-340 vectors.
+
+## Features (in progress / planned)
+
+See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full breakdown.
+Next up:
+
+- **Twitter/X handler** — tweet + thread capture, engagement tags.
+- **Generic comment extractor** — Disqus / WordPress heuristic walker.
+- **Entity system** — per-entity keypairs, alias resolution, side
+  panel browser, text-selection tagger.
+- **Claims + evidence linking** — structured claim events
+  (`kind: 30040`) with evidence-link relationships.
+- **Archive reader** — local IndexedDB cache + paywall detection +
+  relay-backed reconstruction.
+- **Facebook / Instagram / TikTok** — deferred; requires the
+  anti-obfuscation stack (API interception, React Fiber traversal).
 
 ## Install (Chrome / Chromium / Brave / Edge)
 
@@ -68,44 +103,67 @@ Tabs:
 - **Relays** — default WebSocket relays, one URL per line.
 - **Signing** — NSecBunker URL (used if no NIP-07 extension is
   detected).
-- **Entities** — publications, people, organizations as JSON (keyed by
-  id).
 - **Keypair Registry** — view, export (JSON), import.
 - **Advanced** — theme, media handling, full storage reset.
 
+Entity / claims / archive settings land with their respective phases
+(see [`docs/ROADMAP.md`](docs/ROADMAP.md)).
+
 ## Layout
+
+ES modules bundled by esbuild per entry point (`npm run build`
+produces `dist/*.bundle.js`, which the manifest loads).
 
 ```
 .
-├── manifest.json              MV3 manifest (Chrome + Firefox via
-│                              browser_specific_settings.gecko)
-├── icons/                     icon-16.png, icon-48.png, icon-128.png
+├── manifest.json                  MV3 manifest (Chrome + Firefox)
+├── icons/                         16 / 48 / 128 px
+├── rules/
+│   └── csp-strip.json             declarativeNetRequest: strip
+│                                  content-security-policy + rewrite
+│                                  referer for youtube.com/api/timedtext
+├── esbuild.config.mjs             bundle entry points → dist/
 ├── src/
-│   ├── background/
-│   │   └── service-worker.js  context menus, message relay, native
-│   │                          notifications
-│   ├── page/
-│   │   └── nip07-bridge.js    runs in MAIN world; exposes
-│   │                          window.nostr via postMessage
-│   ├── popup/                 toolbar action UI
-│   ├── options/               settings page
-│   └── content/               ISOLATED-world content scripts
-│       ├── 01-config.js       configuration + default relays
-│       ├── 02-utils.js        logging, URL normalization, escape
-│       ├── 03-storage.js      chrome.storage.local wrapper
-│       ├── 04-readability.js  Readability (bundled)
-│       ├── 05-turndown.js     Turndown (bundled)
-│       ├── 06-content-processor.js
-│       ├── 07-nostr-crypto.js
-│       ├── 08-nostr-client.js        relay pool
-│       ├── 09-nsecbunker-client.js   remote signer
-│       ├── 10-nip07-client.js        postMessage to page bridge
-│       ├── 11-event-builder.js       NIP-01/23/custom event builders
-│       ├── 12-url-metadata-service.js
-│       ├── 13-ui.js                  FAB + capture panel
-│       ├── 14-metadata-ui.js         metadata badge + overlay
-│       ├── 15-init.js                bootstrap + chrome.runtime wire
-│       └── content.css               all content-script styles
+│   ├── background/index.js        SW: context menus, message relay,
+│   │                              relay pool, youtube transcript
+│   │                              fetch + page-world injection
+│   ├── page/nip07-bridge.js       MAIN world: window.nostr via
+│   │                              postMessage envelope
+│   ├── content/
+│   │   ├── index.js               bootstrap + chrome.runtime wire
+│   │   ├── ui.js                  FAB + capture pipeline (openReader)
+│   │   └── nip07-client.js        postMessage client to the MAIN
+│   │                              bridge
+│   ├── reader/                    extension-page reader
+│   │   ├── index.html
+│   │   ├── index.css
+│   │   └── index.js               Reader / Markdown / Preview tabs,
+│   │                              publish flow, comment tree render
+│   ├── popup/                     toolbar action UI
+│   ├── options/                   settings page
+│   ├── sidepanel/                 (entity browser — Phase 4)
+│   └── shared/
+│       ├── config.js              defaults
+│       ├── utils.js               logging, URL normalization, escape
+│       ├── storage.js             chrome.storage wrapper
+│       ├── crypto.js              secp256k1 / BIP-340 / bech32 /
+│       │                          NIP-44 v2
+│       ├── content-detector.js    URL + DOM platform detection
+│       ├── content-extractor.js   Readability + Turndown +
+│       │                          markdown→HTML
+│       ├── event-builder.js       NIP-23/30040/30041/30043/32125
+│       │                          event builders + archive-reader
+│       │                          inverse
+│       ├── nostr-client.js        relay pool (used from background)
+│       ├── nsecbunker-client.js   remote signer
+│       ├── local-key-manager.js   in-browser keypair registry
+│       └── platforms/
+│           ├── index.js           handler dispatch
+│           ├── substack.js        enrich (Readability fallback)
+│           ├── substack-api.js    /api/v1/posts + comments
+│           └── youtube.js         synthesize (ytInitialPlayerResponse
+│                                  + transcript scrape)
+└── tests/                         node --test suite (18 passing)
 ```
 
 ## Permissions
@@ -120,20 +178,26 @@ Tabs:
 
 ## Development notes
 
-- The content scripts are loaded in order by the manifest and share
-  the ISOLATED-world globals (each file declares top-level `var`
-  symbols). There is no bundler and no build step.
-- `src/page/nip07-bridge.js` is injected into the **MAIN** world and
-  exposes the page's `window.nostr` to the content script via
-  `window.postMessage` with an X-Ray-tagged envelope.
-- Storage values are JSON-stringified to match the shape the userscript
-  stored under `GM_setValue`. Exports from the userscript are
-  drop-in importable in **Settings → Keypair Registry → Import JSON**.
-- `chrome.storage.local` is the canonical source of truth. The options
-  page writes it directly, and the content script's `Storage` wrapper
-  reads it on demand, so settings take effect on the next page load
-  (or the next `Storage.get` call) without a round-trip through the
-  worker.
+- **Build:** `npm install`, then `npm run build` to produce
+  `dist/*.bundle.js` and `dist/*.bundle.js.map`. esbuild handles all
+  bundling; no transpile step. Load the repo root as an unpacked
+  extension.
+- **Tests:** `npm test` runs the `node --test` suite under
+  `tests/*.test.mjs`. 18 tests today, covering crypto primitives
+  (Phase 1).
+- **MAIN-world bridge** — `src/page/nip07-bridge.js` is injected into
+  the page's main world (declared via `content_scripts[0].world: "MAIN"`
+  in the manifest) and exposes the page's `window.nostr` to the
+  extension via a `window.postMessage` envelope tagged with an X-Ray
+  nonce.
+- **Session handoff** — the capture pipeline (FAB click) stashes the
+  extracted article in `chrome.storage.session` keyed by a UUID, then
+  opens the reader with `?id=<uuid>`. The reader's publish flow routes
+  signing back through the source tab so the user's NIP-07 extension
+  approves the sign in-context.
+- **Storage:** `chrome.storage.local` is the canonical source of
+  truth. Exports from the userscript are drop-in importable in
+  **Settings → Keypair Registry → Import JSON**.
 
 ## Related
 

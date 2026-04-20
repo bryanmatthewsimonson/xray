@@ -5,28 +5,40 @@ codebase — here's what you need to know.
 
 ## Project shape
 
-- **No build step.** Content scripts load directly in the order listed
-  in `manifest.json`. There's no bundler, no TypeScript, no transpile
-  step. Keep it that way unless we hit a concrete wall.
-- **Flat repo root.** `manifest.json` sits at the root so `Load
-  unpacked` points at the clone directly.
-- **One file per module.** Each content script declares its module as a
-  top-level `var Foo = { ... }` so later files in the list can see it.
-  (We use `var` instead of `const` because each `<script>` the browser
-  injects gets its own lexical scope, but `var` leaks to the shared
-  script-global.)
+- **esbuild bundle, ES modules.** Phase 0 replaced the original
+  ordered-script-tag layout with per-entry-point bundles. The
+  manifest loads `dist/*.bundle.js`. No TypeScript, no transpile, no
+  framework.
+- **Flat repo root.** `manifest.json` sits at the root so
+  `Load unpacked` points at the clone directly.
+- **Phase tracker.** Before starting non-trivial work, check
+  [`docs/ROADMAP.md`](docs/ROADMAP.md) and the relevant phase issue.
+  Sub-phase progress belongs as comments on the phase issue, not as
+  orphan branches.
+- **Shared modules** live at `src/shared/`. Platform handlers live at
+  `src/shared/platforms/`; they run in the content script and return
+  plain data objects (no DOM mutation, no UI).
 
 ## Dev setup
 
-1. Clone the repo.
-2. Chrome/Chromium/Brave/Edge: `chrome://extensions` → Developer mode →
-   Load unpacked → point at the clone.
-3. Firefox: `about:debugging#/runtime/this-firefox` → Load Temporary
-   Add-on → pick `manifest.json`.
-4. Edit, hit reload on the extension card (or `web-ext run` if you
-   prefer hot-reload; see below).
+```sh
+npm install            # installs esbuild + readability + turndown + dev deps
+npm run build          # produces dist/*.bundle.js
+npm test               # node --test over tests/*.test.mjs
+```
 
-Optional but nice:
+Then:
+
+1. Chrome/Chromium/Brave/Edge: `chrome://extensions` → Developer mode
+   → Load unpacked → point at the clone.
+2. Firefox: `about:debugging#/runtime/this-firefox` → Load Temporary
+   Add-on → pick `manifest.json`.
+3. Rebuild after edits (`npm run build` or `npm run watch`), then
+   click the reload icon on the extension card. **Content scripts
+   don't re-inject on extension reload** — you also have to reload
+   (or navigate) any tab you're testing in.
+
+Optional:
 
 ```sh
 npm i -g web-ext
@@ -37,33 +49,31 @@ web-ext build          # produces a .zip in web-ext-artifacts/
 
 ## Code conventions
 
-- **Indentation:** 4 spaces in JS files authored here; 2 spaces in files
-  ported verbatim from the userscript (preserved on purpose so diffs
-  against the userscript stay readable).
+- **Indentation:** 4 spaces in JS authored here; 2 spaces in files
+  ported verbatim from the userscript (preserved so diffs against the
+  userscript stay readable).
 - **CSS class prefixes:**
-  - `nac-*` — content-script capture UI (from the userscript)
-  - `nmd-*` — content-script metadata UI (from the userscript)
-  - `xr-*` — extension-chrome UI (popup, options)
-- **Logging:** use `Utils.log` / `Utils.error` in content scripts.
-  They're no-ops when `CONFIG.debug` is false.
-- **User-visible strings** use "X-Ray" (the product name, with a hyphen).
-  Avoid emoji in code unless it's genuinely part of the UI (badges,
-  status indicators).
-- **Commit messages:** imperative present tense, one short subject line,
-  wrap body at ~72 cols. We're not strictly
-  [Conventional Commits](https://www.conventionalcommits.org/), but
-  prefixes like `fix:`, `feat:`, `chore:`, `docs:`, `ci:` are welcome
-  and make changelogs easier.
+  - `xr-*` — extension-chrome UI (popup, options, reader, side panel).
+  - `nac-*` / `nmd-*` — legacy userscript prefixes; avoid in new
+    files.
+- **Logging:** use `Utils.log` / `Utils.error`. They're no-ops when
+  `CONFIG.debug` is false.
+- **User-visible strings** use "X-Ray" (with a hyphen). Avoid emoji
+  in code unless it's genuinely part of the UI.
+- **Commit messages:** imperative present tense, prefixes like
+  `fix:`, `feat:`, `chore:`, `docs:`, `ci:` welcome. Scope in
+  parens when useful (`fix(youtube): …`).
 
 ## Testing before you submit
 
-- Load in Chrome and verify the FAB appears, the panel opens, all three
-  tabs render, and at least the Markdown copy/download path works end
-  to end.
-- Load in Firefox and repeat. Firefox catches different edge cases than
-  Chrome, especially around `chrome.runtime` timing and strict CSP.
-- If you touched anything relay-adjacent: verify publishing to a real
-  relay succeeds, not just that the event is built correctly.
+- `npm test` green.
+- `npm run build` green (no errors, no new warnings).
+- Load in Chrome and smoke-test whatever path you touched end to
+  end. For platform handlers: capture + publish on a live page, not
+  just a static fixture.
+- Load in Firefox and repeat. Firefox catches different edge cases
+  than Chrome, especially around `chrome.runtime` timing and strict
+  CSP.
 
 `web-ext lint` must pass. CI runs it on every push and PR.
 

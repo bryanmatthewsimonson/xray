@@ -1,0 +1,527 @@
+# X-Ray — Migration Roadmap (v4.2 parity)
+
+X-Ray is a Chrome/Firefox MV3 WebExtension port of the
+`nostr-article-capture` userscript. The original port started from
+userscript **v1.8.0**; the userscript has since been rewritten twice
+and is now at **v4.2.0**. This document is the single source of truth
+for what has landed in the extension and what remains — organized by
+the phase structure laid out in [issue #20](https://github.com/bryanmatthewsimonson/xray/issues/20).
+
+Per-phase GitHub issues are the working trackers:
+
+| Phase | Issue | Title |
+|---|---|---|
+| 0 | [#11](https://github.com/bryanmatthewsimonson/xray/issues/11) | Teardown + infrastructure rebuild |
+| 1 | [#12](https://github.com/bryanmatthewsimonson/xray/issues/12) | Real NOSTR crypto (secp256k1 / BIP-340 / bech32 / NIP-44) |
+| 2 | [#13](https://github.com/bryanmatthewsimonson/xray/issues/13) | Capture parity for article-shaped content |
+| 3 | [#14](https://github.com/bryanmatthewsimonson/xray/issues/14) | Easy-tier platform handlers (Substack, YouTube, Twitter/X, generic) |
+| 4 | [#15](https://github.com/bryanmatthewsimonson/xray/issues/15) | Entity system (types, tagger, browser, aliases, kind-0 profiles) |
+| 5 | [#16](https://github.com/bryanmatthewsimonson/xray/issues/16) | Claims + evidence linking |
+| 6 | [#17](https://github.com/bryanmatthewsimonson/xray/issues/17) | Entity sync over NIP-78 with NIP-44 v2 encryption |
+| 7 | [#18](https://github.com/bryanmatthewsimonson/xray/issues/18) | Archive reader (IndexedDB cache + paywall detection + relay reconstruction) |
+| 8 | [#19](https://github.com/bryanmatthewsimonson/xray/issues/19) | Hard-tier platforms (Facebook / Instagram / TikTok) |
+
+Ordering rationale and non-goals live in the roadmap issue; this doc
+focuses on *what is done, what's next, and what is deliberately out of
+scope for a given phase*.
+
+---
+
+## Status snapshot
+
+```
+Phase 0  ████████████████████  complete
+Phase 1  ████████████████████  complete
+Phase 2  ████████████████████  complete
+Phase 3  ██████████░░░░░░░░░░  in progress — Substack + YouTube done, Twitter + generic pending
+Phase 4  ░░░░░░░░░░░░░░░░░░░░  next up
+Phase 5  ░░░░░░░░░░░░░░░░░░░░  blocked on Phase 4
+Phase 6  ░░░░░░░░░░░░░░░░░░░░  blocked on Phase 4
+Phase 7  ░░░░░░░░░░░░░░░░░░░░  opportunistic (independent)
+Phase 8  ░░░░░░░░░░░░░░░░░░░░  deferred — split into sub-issues when started
+```
+
+---
+
+## Phase 0 — Teardown + infrastructure rebuild ✅
+
+**Status:** complete. Commits `52ed35c`, `b85791b`, `0dd1cc7`.
+
+Landed:
+
+- Removed the v1 URL-metadata UI (trust badges, annotation highlights,
+  `kind 32123..32144` machinery) — explicit decision to skip
+  forward to the v4.2 data model rather than port v1 features
+  piecemeal.
+- esbuild bundling with ES modules, `src/` restructured into
+  `content/`, `background/`, `reader/`, `popup/`, `options/`,
+  `sidepanel/`, `shared/`, `page/`.
+- Relay client lives in the background service worker (`src/background/index.js`)
+  — relay WebSockets survive tab navigation and aren't subject to
+  page CSP.
+- Content scripts split into MAIN-world (`nip07-bridge.js`) and
+  ISOLATED-world bundles.
+- Firefox compatibility via `browser_specific_settings.gecko`.
+
+Not done under this phase (tracked separately):
+
+- End-to-end smoke test in Chrome and Firefox — [#1](https://github.com/bryanmatthewsimonson/xray/issues/1).
+- Replace placeholder icons — [#6](https://github.com/bryanmatthewsimonson/xray/issues/6).
+
+---
+
+## Phase 1 — Real NOSTR crypto ✅
+
+**Status:** complete. Commit `e179346`.
+
+Landed under `src/shared/crypto.js`:
+
+- secp256k1 / BIP-340 Schnorr signatures, verified against the BIP-340
+  test vectors.
+- NIP-01 event hashing.
+- bech32 encoding / decoding with tampering-reject tests for npub /
+  nsec.
+- NIP-44 v2 encryption: HKDF conversation key, symmetric Alice↔Bob,
+  HMAC tamper detection, wrong-version-byte rejection.
+- ECDH shared secret derivation.
+
+The previous v1 stub had unconditional-true signature verification and
+fake bech32 — all of that is gone.
+
+Tests: `tests/*.test.mjs`, 18 passing, runs on `npm test`.
+
+---
+
+## Phase 2 — Capture parity for article-shaped content ✅
+
+**Status:** complete. Commits `b69596c`, `5eab5a9`, `864c307`.
+
+Landed:
+
+- **`content-detector.js`** — URL + DOM-based platform detection,
+  exports a platform id consumed by the handler registry.
+- **`content-extractor.js`** — Mozilla Readability + Turndown, plus
+  a lightweight `markdownToHtml()` forward renderer for preview and
+  the initial reader view.
+- **`event-builder.js`** — `buildArticleEvent()` (kind 30023),
+  `buildCommentEvent()` (kind 30041), `buildClaimEvent()` (kind
+  30040), `buildEntitySyncEvent()` (kind 30078 stub),
+  `buildEntityRelationshipEvent()` (kind 32125 stub),
+  `buildEvidenceLinkEvent()` (kind 30043 stub),
+  `buildPlatformAccountEvent()` (kind 32126).
+- **Reader page** (`src/reader/`) — full extension-page reader with
+  Reader / Markdown / Preview tabs, contenteditable metadata fields,
+  publish button.
+- **FAB → reader round-trip** — content script extracts, stashes the
+  article in `chrome.storage.session` keyed by a UUID, opens the
+  reader with `?id=<uuid>`. Publish flow:
+  1. Reader requests NIP-07 pubkey from source tab via SW.
+  2. Source tab signs unsigned event via its `window.nostr` bridge.
+  3. SW publishes signed event to configured relays with a 200ms
+     inter-event throttle.
+  4. Reader shows per-relay rollup toast + progress bar.
+- **Archive-reader inverse function** — `reconstructArticleFromEvent()`
+  already stubbed for Phase 7.
+
+---
+
+## Phase 3 — Easy-tier platform handlers 🟡
+
+**Issue:** [#14](https://github.com/bryanmatthewsimonson/xray/issues/14). Substack and YouTube are done; Twitter/X
+and the generic comment extractor are next.
+
+### 3a — Substack handler ✅
+
+Commits `2e6531a`, `03c3516`, `219d0a4`, `8ce5646`, `0f7ee49`, `22abdc9`.
+
+Landed:
+
+- **`platforms/substack.js`** — `enrichArticle()` layers Substack
+  metadata onto Readability's extraction (`article.substack.{postId,
+  handle, apiOrigin, authorBio, publicationName}`, `article.engagement.{likes,
+  restacks, comments}`).
+- **`platforms/substack-api.js`** — API-based capture (`/api/v1/posts/<slug>`,
+  `/api/v1/post/<id>/comments`) via background SW with
+  `credentials: 'include'` so the user's Substack session unlocks
+  paywalled bodies automatically.
+- **Custom-domain Substacks** — slug-based endpoint works for
+  `thefp.com` and similar where there's no `post_id` in the HTML.
+- **`body_json` comments fallback** — Substack migrated from `body`
+  to a tiptap doc; `extractTextFromTiptap()` handles both shapes.
+- **Reader UI** — comment tree below the article, opt-in "Include
+  all N in publish" toggle, each non-deleted comment publishes as
+  kind-30041 with `d: cmt:substack:<id>`, reply-to threading
+  resolved during sequential publish.
+
+Deferred (not blocking Phase 4):
+
+- Substack Notes (different URL shape + data model).
+- Podcast episodes.
+- Per-comment inclusion toggle.
+- Batch-signing UX — one NIP-07 prompt per comment today; will
+  leverage `LocalKeyManager` once Phase 4 lands entity keypair UX.
+
+### 3b — YouTube handler ✅
+
+Commits `bbc7ac3` → `c8a07e9` (12 commits covering the multi-round
+diagnosis and ship of C1, C2, C3).
+
+Landed under `src/shared/platforms/youtube.js` + reader/event-builder
+extensions:
+
+- **Detection** — matches `(www|m).youtube.com/watch?v=…`.
+- **Metadata synthesis** — parses the in-page
+  `ytInitialPlayerResponse` blob for `videoDetails` (title,
+  channel, duration, view count, keywords, thumbnails) and
+  `microformat` (publishDate, category, uploadDate, isLive).
+- **Language selection rule** — capture **origin language ∪ user
+  language** × **both kinds (human + ASR)**. Origin detected via
+  the ASR track's own `languageCode`.
+- **Transcript acquisition** — cascades three strategies:
+  1. Signed `/api/timedtext` URL via SW → page-world fetch injection.
+     *Expected to fail* since mid-2024 — YouTube returns HTTP 200
+     with 0-byte body under PO-token gating.
+  2. Fetch-hook into `/youtubei/v1/get_transcript` POST response —
+     catches YouTube's own InnerTube call when it fires.
+  3. **DOM scrape of `transcript-segment-view-model` elements** —
+     the reliable primary path as of late 2025. Text-walk handles
+     the element-rename from `ytd-transcript-segment-renderer`,
+     plus filters out screen-reader duration fluff (`9 seconds`,
+     `1 minute, 5 seconds`) without dropping the visible timestamp
+     (which lives inside `aria-hidden="true"` for a11y reasons).
+- **Kind-30023 tags** — full structured emission:
+  `video_id`, `duration`, `channel`, `channel_id`, `category`,
+  `view_count`, `origin_language`, `user_language`, `is_live`,
+  `upload_date`, one `transcript_lang` row per captured track
+  (encoded as `<lang>:<kind>:<role>`). Legacy `videoMeta` shape
+  also populated for back-compat with pre-C2 tooling.
+- **Reader layout** — dedicated `<section class="xr-video">`
+  between the byline row and the body: 16:9 thumbnail → YouTube
+  click-through with play-triangle overlay and duration badge,
+  plus chip row (channel, views, category, LIVE, one chip per
+  captured transcript language with human/auto marker — origin
+  language gets an accent pill).
+- **Clickable transcript timestamps** — each paragraph begins
+  with a `[0:05](…&t=5s)` markdown link. NOSTR clients render it
+  as a real `<a>` so readers can jump into the source video at
+  any cited passage. Turndown preserves the anchors through the
+  reader's HTML→Markdown publish roundtrip.
+- **Prose paragraph coalescing** — `coalesceCuesIntoParagraphs()`
+  groups consecutive cues into paragraphs of ~380–900 characters,
+  breaking at sentence boundaries. Per-cue data is preserved on
+  `article.youtube.transcripts[].events` (in-memory structure);
+  only the rendered markdown body uses paragraph form.
+
+Deferred (revisit after Phase 4 / 7):
+
+- Per-cue timestamp archival in the relay event itself (would
+  inflate tag count unsustainably for long videos; either a
+  sibling event kind or a collapsed block inside content).
+- Livestream chat replay capture.
+- Short-form (`/shorts/…`) URL shape.
+- Channel-page and playlist captures.
+
+### 3c — Twitter/X handler ⏳
+
+Not started. Scope (from the userscript's `platforms/twitter.js`,
+~265 LOC):
+
+- Tweet + thread extraction via `data-testid` selectors — resilient
+  to the intermittent X UI rewrites.
+- Author handle, engagement (likes / replies / retweets / views),
+  tweet timestamp.
+- Thread detection — multi-tweet chains by the same author become
+  a single kind-30023 event. Reply conversations optionally become
+  kind-30041 comments.
+- SPA navigation support (`yt-navigate-finish`-equivalent for X).
+- Back-compat: v4 emits `author_handle`, `tweet_id`,
+  `thread`, `thread_length` tags. Legacy `article.tweetMeta` shape
+  already wired in `event-builder.js`.
+
+### 3d — Generic comment extractor ⏳
+
+Not started. Scope (from `comment-extractor.js`, ~153 LOC):
+
+- Heuristic DOM walker for native, Disqus, and WordPress comment
+  threads. Platform handlers above invoke it as a fallback.
+- Emits `Comment` objects matching the data model in
+  `project-history-and-migration.md` §2.5.
+- Each comment becomes a kind-30041 event (`d: cmt:<platform>:<id>`).
+
+### Phase 3 exit criteria
+
+- Twitter thread capture produces a kind-30023 event with all
+  thread tweets concatenated, `thread: true`, `thread_length: N`.
+- Generic comment extraction picks up at least Disqus threads in a
+  smoke-test corpus.
+
+---
+
+## Phase 4 — Entity system ⏳
+
+**Issue:** [#15](https://github.com/bryanmatthewsimonson/xray/issues/15). Blocked on: none (deps Phase 1 + 2 both done).
+
+### Data model
+
+Per `project-history-and-migration.md` §2.1:
+
+- Four entity types: `person` 👤, `organization` 🏢, `place` 📍, `thing` 🔷.
+- Each entity gets its own secp256k1 keypair (uses the Phase 1
+  `shared/crypto.js`).
+- `canonical_id` field for alias relationships (per-entity
+  `refers_to` tag on the kind-0 event).
+- Storage key: `entity_registry` in `chrome.storage.local`.
+
+### Modules to port
+
+- [ ] `shared/entity-model.js` — CRUD, validation, alias resolution,
+      hash-based ID generation.
+- [ ] `shared/entity-migration.js` — schema v1 → v2 migration
+      (aliases array → separate entities with `canonical_id`).
+- [ ] `reader/entity-tagger.js` — text-selection popover in the
+      reader. Select text → popover with four type icons + search →
+      save.
+- [ ] `sidepanel/entity-browser.js` — side panel, not injected
+      overlay. Search / create / edit / merge / alias-link.
+- [ ] `shared/entity-auto-suggest.js` — scans extracted article
+      content, ranks entity suggestions by name-match frequency.
+
+### Event publishing
+
+- [ ] Kind 0 profile events per entity, signed with the entity's
+      keypair (not the user's).
+- [ ] Alias entities include `["refers_to", canonical_npub]` in
+      kind-0 tags.
+- [ ] Kind-30023 article publishes add `["p", entity_pubkey, "",
+      "author" | "mentioned"]` tags. Alias entities auto-include
+      their canonical's pubkey alongside.
+- [ ] The existing `buildArticleEvent()` in `event-builder.js`
+      already has the entity-tag loop; Phase 4's work is mostly in
+      the entity layer itself, plus making the reader invoke it.
+
+### Exit criteria
+
+Per issue #15:
+
+- Creating a new Person entity via the tagger generates a valid
+  keypair (real secp256k1, validated by Phase 1 tests).
+- Tagging that entity on an article and publishing produces the
+  right `p`/`person` tags plus the entity's kind-0 event.
+- Setting entity A as alias of entity B → A's kind-0 includes
+  `refers_to` → B's npub; tagging A on an article also p-tags B.
+- Side panel Entity Browser lists all entities with type filters
+  + search.
+
+---
+
+## Phase 5 — Claims + evidence linking ⏳
+
+**Issue:** [#16](https://github.com/bryanmatthewsimonson/xray/issues/16). Blocked on: Phase 4.
+
+Structured factual claims with cross-content relationships. Claims
+reference entity pubkeys, so Phase 4 has to land first.
+
+### Data model
+
+- **Claim** — `id = claim_<sha256(source_url + text)>`, fields
+  `text / type / is_crux / confidence / claimant_entity_id /
+  subject_entity_ids[] / subject_text / object_entity_ids[] /
+  object_text / predicate / quote_date / attribution / source_url /
+  context`.
+- **Evidence link** — `{ source_claim_id, target_claim_id,
+  relationship ∈ {supports, contradicts, contextualizes}, note }`.
+- Storage keys: `article_claims`, `evidence_links`.
+
+### Modules + events
+
+- [ ] `shared/claim-model.js` — CRUD + hash-based IDs.
+- [ ] `reader/claim-extractor.js` (~809 LOC in the userscript) —
+      text-selection UI, four classification buttons (Factual /
+      Causal / Evaluative / Predictive), crux marking with
+      confidence slider, subject/predicate/object triple form,
+      attribution dropdown.
+- [ ] `shared/evidence-linker.js` — create evidence links; fetch
+      others' claims for the same URL via the SW relay pool.
+- [ ] **Kind 30040** — claim event. `buildClaimEvent()` already
+      stubbed in event-builder.
+- [ ] **Kind 30043** — evidence link event.
+  `buildEvidenceLinkEvent()` already stubbed.
+- [ ] **Kind 32125** — entity relationship event.
+  `buildEntityRelationshipEvent()` already stubbed.
+
+### UI
+
+- [ ] Claims bar below the reader body (compact chip list).
+- [ ] 🌐 "View others' claims" button queries relays for kind-30040
+      filtered by the article URL.
+
+---
+
+## Phase 6 — Entity sync over NIP-78 + NIP-44 v2 ⏳
+
+**Issue:** [#17](https://github.com/bryanmatthewsimonson/xray/issues/17). Blocked on: Phase 4.
+
+Cross-device sync of entities (including private keys) via encrypted
+NOSTR events.
+
+### Mechanism
+
+- **Kind 30078** (NIP-78 app-specific data), `d: <entity-id>`.
+- Content = NIP-44 v2 encrypted payload of the full entity object
+  (including private key).
+- Encryption: encrypt-to-self. `conversation_key =
+  HKDF-extract(salt="nip44-v2", ikm=ECDH(user_privkey, user_pubkey).x)`.
+- Tags: `["entity-type", …]`, `["L", "nac/entity-sync"]`,
+  `["l", "v1", "nac/entity-sync"]`.
+
+### Modules
+
+- [ ] `shared/entity-sync.js` (~226 LOC) — push all entities as
+      kind-30078 events, pull for the user's pubkey, decrypt,
+      validate, merge.
+- [ ] NIP-04 fallback read path for older sync events produced by
+      pre-NIP-44 userscript versions.
+
+### UI
+
+- [ ] Side panel settings section: **Push** / **Pull** / **Clear
+      remote** buttons.
+- [ ] Export nsec as bech32 string.
+- [ ] Import nsec flow — accept bech32, derive pubkey, run pull.
+
+### Exit criteria
+
+- Push → pull same device is idempotent.
+- Export on A, import on B, pull: B has the same registry as A.
+- Malformed event rejected cleanly.
+- NIP-04-encrypted legacy events decrypt successfully.
+
+---
+
+## Phase 7 — Archive reader ⏳
+
+**Issue:** [#18](https://github.com/bryanmatthewsimonson/xray/issues/18). Opportunistic — can slot in anywhere after
+Phase 2.
+
+Local cache of captured articles with relay-backed retrieval as a
+paywall-bypass fallback.
+
+### Storage
+
+- [ ] `shared/idb.js` helper — open DB, stores: `articles`, `index`.
+- [ ] Per-article records keyed by
+  `urlHash = sha256(normalizedUrl).slice(0, 16)`.
+- [ ] LRU eviction with 100MB budget (unlimitedStorage permission).
+      Published articles evicted first (relay is backup).
+
+### Paywall detection (port from userscript)
+
+- [ ] JSON-LD `isAccessibleForFree: false`.
+- [ ] DOM selectors: `.paywall`, `.subscriber`, Piano, Tinypass,
+      registration walls, gradient-overlay patterns.
+- [ ] Truncation-ratio analysis: extracted words < 40% of
+      estimated total → suspect paywall.
+
+### Fallback flow
+
+1. User visits URL.
+2. Content detector runs. Paywall detected OR extraction truncated:
+3. Query local IDB cache first.
+4. If not cached, query relays (SW relay pool does a kind-30023
+   query filtered by `#r: <url>`), pick most recent, reconstruct
+   via `event-builder.reconstructArticleFromEvent()`.
+5. Open reader view; show 📦 Archive badge with source ("Your
+   cache" / "From relay: <npub>…").
+
+`reconstructArticleFromEvent()` already exists in event-builder from
+Phase 2; Phase 7 work is the cache + paywall detection + query
+orchestration.
+
+---
+
+## Phase 8 — Hard-tier platforms ⏳
+
+**Issue:** [#19](https://github.com/bryanmatthewsimonson/xray/issues/19). Deferred. Will split into sub-issues when
+actual work begins. Blocked on: Phase 3 (handler-registry pattern).
+
+Facebook / Instagram / TikTok — high-maintenance. Class names are
+randomized, APIs change, React fiber is the only stable path in some
+cases. The userscript spends ~1,629 LOC on the three platforms plus
+~800 LOC of anti-obfuscation infrastructure.
+
+### Anti-obfuscation infrastructure
+
+- [ ] `shared/api-interceptor.js` (~595 LOC) — MAIN-world fetch +
+      XHR hook, captures GraphQL responses by
+      `fb_api_req_friendly_name` / `doc_id`.
+- [ ] React Fiber traversal helper — walks `__reactFiber$*` props
+      on DOM elements.
+- [ ] `shared/module-hook.js` (~121 LOC) — probes Facebook's
+      internal `__d()` module registry.
+- [ ] Click-to-select overlay — user clicks the post to capture,
+      DOM walker scores candidates by visual characteristic.
+
+### Per-platform
+
+- [ ] Facebook (~240 LOC) — ARIA roles, API interception, React
+      fiber fallback.
+- [ ] Instagram (~964 LOC — the largest handler) — ARIA + React
+      fiber, API interception for comment threads, hashtag
+      extraction.
+- [ ] TikTok (~425 LOC) — `__NEXT_DATA__` JSON parse with DOM
+      fallback.
+
+### Platform-review gate
+
+Before starting Phase 8, confirm FB/IG/TikTok obfuscation patterns
+haven't shifted enough since v4.2's userscript version to invalidate
+the existing code. Fresh recon is cheaper than porting stale code.
+
+### Extension-native wins worth exploiting
+
+- `declarativeNetRequest` can inspect GraphQL responses at the network
+  layer without patching page `fetch`.
+- `chrome.debugger` API is a cheat code for especially-hostile
+  targets; high-friction auth prompt though, so only a last resort.
+
+---
+
+## Cross-cutting issues (not phase-scoped)
+
+See the [full issue list](https://github.com/bryanmatthewsimonson/xray/issues) for up-to-date state. Headline open items:
+
+| Issue | Priority | What |
+|---|---|---|
+| [#1](https://github.com/bryanmatthewsimonson/xray/issues/1) | P0 | End-to-end smoke test in Chrome and Firefox |
+| [#2](https://github.com/bryanmatthewsimonson/xray/issues/2) | P1 | Content script never writes `xr_signing_state` — popup always shows "not detected" |
+| [#3](https://github.com/bryanmatthewsimonson/xray/issues/3) | P1 | Publish success/failure as native OS notifications |
+| [#6](https://github.com/bryanmatthewsimonson/xray/issues/6) | P2 | Replace placeholder icons with real branding |
+| [#7](https://github.com/bryanmatthewsimonson/xray/issues/7) | P2 | Opt-in migration from nostr-article-capture userscript storage |
+| [#8](https://github.com/bryanmatthewsimonson/xray/issues/8) | P3 | Release pipeline: CHANGELOG, version bump, tagged releases |
+| [#9](https://github.com/bryanmatthewsimonson/xray/issues/9) | P3 | Basic unit tests for EventBuilder and Utils.normalizeUrl |
+| [#10](https://github.com/bryanmatthewsimonson/xray/issues/10) | P3 | Verify `browser_specific_settings.gecko.strict_min_version` |
+
+---
+
+## Abandonment criteria
+
+From issue #20 — bears repeating. At any phase boundary, if the cost
+to continue exceeds the marginal value of reaching parity (for
+example, if the platforms we care about simply don't use NOSTR at
+all and nothing we build sees users), it's reasonable to stop.
+Nothing about this roadmap is a commitment to shipping all phases —
+it's a commitment to doing them in this order *when* we do them.
+
+---
+
+## Keeping this doc current
+
+When a sub-phase lands:
+
+1. Flip its checkbox in the phase section.
+2. Append the commit hashes to the "Landed" list.
+3. Move any deferred items into the "Deferred" subsection with a
+   note on why.
+4. Update the status snapshot progress bar at the top.
+5. Mirror the same update on the corresponding GitHub issue (phase
+   issue + the master roadmap #20).
