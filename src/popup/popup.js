@@ -64,10 +64,6 @@ function wireButtons() {
         await forwardToActiveTab('xray:open');
         window.close();
     });
-    document.getElementById('btn-open-metadata').addEventListener('click', async () => {
-        await forwardToActiveTab('xray:openMetadata');
-        window.close();
-    });
     document.getElementById('btn-view-keypairs').addEventListener('click', async () => {
         await forwardToActiveTab('xray:viewKeypairs');
         window.close();

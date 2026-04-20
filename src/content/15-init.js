@@ -1,13 +1,6 @@
-// ============================================
-// SECTION 14: INITIALIZATION
-// ============================================
-//
-// Ported from nostr-article-capture.user.js lines 7744-7801.
-//
-// Additions for the MV3 extension:
-//   - `chrome.runtime.onMessage` listener so the background service worker
-//     can trigger UI actions when the user clicks the extension icon or
-//     uses a context-menu item.
+// Content-script bootstrap. Part of the v4.2 parity push — v1 URL-metadata
+// display (MetadataUI, URLMetadataService, kinds 32123–32144) has been
+// removed from this init path; see roadmap: #20, Phase 0: #11.
 
 (async function initXRayContent() {
     async function init() {
@@ -21,9 +14,6 @@
 
         // Initialize Article Capture UI (FAB and panel).
         UI.init();
-
-        // Initialize URL Metadata Display UI (badge, panel, banner).
-        MetadataUI.init();
 
         // Check for NIP-07 extension availability.
         // NIP-07 lives on the page's `window.nostr`, which the isolated
@@ -49,14 +39,6 @@
             });
         }
 
-        // Load URL metadata for the current page (async, non-blocking).
-        // This queries NOSTR relays for existing metadata about this URL.
-        setTimeout(() => {
-            MetadataUI.loadCurrentPageMetadata().catch(e => {
-                Utils.log('Failed to load URL metadata:', e.message);
-            });
-        }, 1000); // Delay 1s to let page settle
-
         Utils.log('Initialization complete');
     }
 
@@ -66,7 +48,6 @@
     //   { type: 'xray:toggle' }         — toggle the capture panel
     //   { type: 'xray:exportKeypairs' } — export keypair registry
     //   { type: 'xray:viewKeypairs' }   — view keypair registry
-    //   { type: 'xray:openMetadata' }   — open the URL-metadata panel
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
         chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
             try {
@@ -85,10 +66,6 @@
                         break;
                     case 'xray:viewKeypairs':
                         UI.viewKeypairs();
-                        sendResponse({ ok: true });
-                        break;
-                    case 'xray:openMetadata':
-                        MetadataUI.openPanel();
                         sendResponse({ ok: true });
                         break;
                     default:

@@ -15,8 +15,7 @@
 const MENU_IDS = {
     OPEN_CAPTURE: 'xray:open-capture',
     EXPORT_KEYPAIRS: 'xray:export-keypairs',
-    VIEW_KEYPAIRS: 'xray:view-keypairs',
-    OPEN_METADATA: 'xray:open-metadata'
+    VIEW_KEYPAIRS: 'xray:view-keypairs'
 };
 
 // ------------------------------------------------------------------
@@ -29,11 +28,6 @@ function registerContextMenus() {
         chrome.contextMenus.create({
             id: MENU_IDS.OPEN_CAPTURE,
             title: 'Open Article Capture',
-            contexts: ['page', 'action']
-        });
-        chrome.contextMenus.create({
-            id: MENU_IDS.OPEN_METADATA,
-            title: 'Show URL Metadata',
             contexts: ['page', 'action']
         });
         chrome.contextMenus.create({
@@ -64,7 +58,6 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
     const messageForMenuId = {
         [MENU_IDS.OPEN_CAPTURE]: { type: 'xray:open' },
-        [MENU_IDS.OPEN_METADATA]: { type: 'xray:openMetadata' },
         [MENU_IDS.EXPORT_KEYPAIRS]: { type: 'xray:exportKeypairs' },
         [MENU_IDS.VIEW_KEYPAIRS]: { type: 'xray:viewKeypairs' }
     };
