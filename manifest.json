@@ -67,6 +67,7 @@
         "src/content/08-nostr-client.js",
         "src/content/09-nsecbunker-client.js",
         "src/content/10-nip07-client.js",
+        "src/content/10b-local-key-manager.js",
         "src/content/11-event-builder.js",
         "src/content/12-url-metadata-service.js",
         "src/content/13-ui.js",
