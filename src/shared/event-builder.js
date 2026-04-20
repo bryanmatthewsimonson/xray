@@ -1,267 +1,526 @@
-// Builders for every NOSTR event kind the userscript publishes. Identical
-// event/tag shape to the userscript so existing relays/consumers continue
-// to parse what X-Ray emits.
+// Ported from the nostr-article-capture userscript (v4.2.0, src/event-builder.js).
+// See roadmap: #20, Phase 2: #13.
+//
+// Adaptation from upstream:
+//   - The userscript imports `RelayClient` for queryArticleFromRelays /
+//     getArchivedArticle. X-Ray's relay client lives in the background
+//     service worker (Phase 0), so those two methods route through a
+//     SW message instead of calling RelayClient directly.
+//   - Currently the archive-query paths are stubs (Phase 7: #18). The
+//     method signatures are preserved so callers don't change.
 
-import { NostrCrypto } from './crypto.js';
-import { ContentProcessor } from './content-processor.js';
-import { Utils } from './utils.js';
+import { Storage } from './storage.js';
+import { Crypto } from './crypto.js';
+import { ContentExtractor } from './content-extractor.js';
 
 export const EventBuilder = {
-  // NIP-23 long-form article (kind 30023).
-  buildArticleEvent: async (article, options = {}) => {
-    const {
-      pubkey,
-      authorPubkey,
-      tags: additionalTags = [],
-      mediaHandling = 'reference'
-    } = options;
-
-    if (!pubkey) throw new Error('Publication pubkey is required');
-
-    const urlHash = await Utils.sha256(article.url);
-    const dTag = urlHash.substring(0, 16);
-
-    let content = article.markdown || ContentProcessor.htmlToMarkdown(article.content);
-
-    if (mediaHandling === 'reference') {
-      Utils.log('Using reference URLs for images');
-    } else if (mediaHandling === 'embed') {
-      Utils.log('Embedding images as base64...');
-      content = await ContentProcessor.embedImagesInMarkdown(content, (current, total) => {
-        Utils.log(`Embedding image ${current}/${total}...`);
-      });
-      Utils.log('Image embedding complete');
+  // Build NIP-23 article event (kind 30023)
+  buildArticleEvent: async (article, entities, userPubkey, claims = []) => {
+    // Convert content to markdown, preserving formatting and images
+    let markdownContent = article.content || '';
+    if (markdownContent && markdownContent.includes('<')) {
+      markdownContent = ContentExtractor.htmlToMarkdown(markdownContent);
     }
 
+    // Build metadata header for published content
+    let metadataHeader = '---\n';
+    metadataHeader += `**Source**: [${article.title}](${article.url})\n`;
+
+    // For video content, use "Channel" instead of "Author"
+    if (article.contentType === 'video' && article.byline) {
+      metadataHeader += `**Channel**: ${article.byline}\n`;
+    } else {
+      const metaParts = [];
+      if (article.siteName) metaParts.push(`**Publisher**: ${article.siteName}`);
+      if (article.byline) metaParts.push(`**Author**: ${article.byline}`);
+      if (metaParts.length) metadataHeader += metaParts.join(' | ') + '\n';
+    }
+
+    const dateParts = [];
+    if (article.publishedAt) {
+      dateParts.push(`**Published**: ${new Date(article.publishedAt * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`);
+    }
+    dateParts.push(`**Archived**: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`);
+    metadataHeader += dateParts.join(' | ') + '\n';
+
+    metadataHeader += '---\n\n';
+
+    // For video content, include description and transcript as separate sections
+    if (article.contentType === 'video') {
+      // Include description section
+      if (article.description) {
+        markdownContent += '\n\n## Description\n\n' + article.description;
+      }
+
+      // Include clean transcript text as formatted markdown paragraphs
+      if (article.transcript) {
+        markdownContent += '\n\n## Transcript\n\n';
+        // Break into paragraphs (every ~3 sentences) for readable markdown
+        const sentences = article.transcript.match(/[^.!?]+[.!?]+\s*/g) || [article.transcript];
+        let paragraph = '';
+        let count = 0;
+        for (const sentence of sentences) {
+          paragraph += sentence;
+          count++;
+          if (count >= 3) {
+            markdownContent += paragraph.trim() + '\n\n';
+            paragraph = '';
+            count = 0;
+          }
+        }
+        if (paragraph.trim()) {
+          markdownContent += paragraph.trim() + '\n\n';
+        }
+      }
+    } else {
+      // Append transcript for non-video content (legacy format)
+      if (article.transcript) {
+        markdownContent += '\n\n---\n\n## Transcript\n\n```\n' + article.transcript + '\n```';
+      }
+    }
+
+    // Prepend metadata header to content
+    const content = metadataHeader + markdownContent;
+
+    // Note: Images are kept as original URLs to avoid exceeding relay event size limits
+    // (base64 embedding can inflate events to megabytes, causing universal relay rejection).
+    // The original absolute URLs are preserved by Turndown's image rule.
+    
+    // Build tags
     const tags = [
-      ['d', dTag],
-      ['title', article.title],
-      ['published_at', String(article.publishedAt || article.extractedAt)],
+      ['d', await EventBuilder.generateDTag(article.url)],
+      ['title', article.title || 'Untitled'],
+      ['published_at', String(article.publishedAt || Math.floor(Date.now() / 1000))],
+      ['r', article.url],
       ['client', 'nostr-article-capture']
     ];
-    if (article.excerpt)       tags.push(['summary', article.excerpt.substring(0, 500)]);
-    if (article.featuredImage) tags.push(['image', article.featuredImage]);
-    tags.push(['r', article.url]);
-    if (authorPubkey) tags.push(['p', authorPubkey, '', 'author']);
-    if (article.byline) tags.push(['author', article.byline]);
-    tags.push(['t', 'article']);
-    tags.push(['t', article.domain.replace(/\./g, '-')]);
+    
+    if (article.excerpt) {
+      tags.push(['summary', article.excerpt.substring(0, 500)]);
+    }
+    
+    if (article.featuredImage) {
+      tags.push(['image', article.featuredImage]);
+    }
+    
+    if (article.byline) {
+      tags.push(['author', article.byline]);
+    }
+    
+    // Add entity tags
+    const taggedPubkeys = new Set();
+    for (const entityRef of entities) {
+      const entity = await Storage.entities.get(entityRef.entity_id);
+      if (entity && entity.keypair) {
+        // Add pubkey reference
+        tags.push(['p', entity.keypair.pubkey, '', entityRef.context]);
+        taggedPubkeys.add(entity.keypair.pubkey);
+        
+        // Add name tag for clients that don't resolve pubkeys
+        const tagType = entity.type === 'person' ? 'person' : entity.type === 'organization' ? 'org' : entity.type === 'thing' ? 'thing' : 'place';
+        tags.push([tagType, entity.name, entityRef.context]);
 
-    for (const tag of additionalTags) {
-      if (typeof tag === 'string')      tags.push(['t', tag.toLowerCase()]);
-      else if (Array.isArray(tag))      tags.push(tag);
+        // If this entity is an alias, also tag the canonical entity
+        if (entity.canonical_id) {
+          const canonical = await Storage.entities.get(entity.canonical_id);
+          if (canonical && canonical.keypair && !taggedPubkeys.has(canonical.keypair.pubkey)) {
+            tags.push(['p', canonical.keypair.pubkey, '', entityRef.context]);
+            taggedPubkeys.add(canonical.keypair.pubkey);
+            const canonTagType = canonical.type === 'person' ? 'person' : canonical.type === 'organization' ? 'org' : canonical.type === 'thing' ? 'thing' : 'place';
+            tags.push([canonTagType, canonical.name, entityRef.context]);
+          }
+        }
+      }
+    }
+    
+    // Add publication branding tags
+    if (article.siteName) {
+      tags.push(['site_name', article.siteName]);
+    }
+    if (article.publicationIcon) {
+      tags.push(['icon', article.publicationIcon]);
+    }
+    
+    // Add claim tags
+    if (Array.isArray(claims)) {
+      for (const claim of claims) {
+        if (claim.is_crux) {
+          tags.push(['claim', claim.text, claim.type, 'crux']);
+        } else {
+          tags.push(['claim', claim.text, claim.type]);
+        }
+      }
     }
 
+    // Add enhanced metadata tags (Phase 1)
+    if (article.wordCount) tags.push(['word_count', String(article.wordCount)]);
+    if (article.section) tags.push(['section', article.section]);
+    if (article.keywords?.length) article.keywords.forEach(kw => tags.push(['t', kw.toLowerCase()]));
+    if (article.language) tags.push(['lang', article.language]);
+    if (article.dateModified) tags.push(['modified_at', String(Math.floor(new Date(article.dateModified).getTime() / 1000))]);
+    if (article.isPaywalled) tags.push(['paywalled', 'true']);
+    if (article.structuredData?.type) tags.push(['content_type', article.structuredData.type]);
+
+    // Add content detection tags (Phase 2)
+    if (article.contentType) tags.push(['content_format', article.contentType]);
+    if (article.platform) tags.push(['platform', article.platform]);
+
+    // Add video-specific tags (Phase 5)
+    if (article.contentType === 'video' && article.videoMeta) {
+      if (article.videoMeta.videoId) tags.push(['video_id', article.videoMeta.videoId]);
+      if (article.videoMeta.duration) tags.push(['duration', article.videoMeta.duration]);
+      if (article.byline) tags.push(['channel', article.byline]);
+      if (article.transcript) tags.push(['transcript', 'true']);
+      if (article.transcriptTimestamped) tags.push(['transcript_timestamped', 'true']);
+      if (article.description) tags.push(['has_description', 'true']);
+    }
+
+    // Add Twitter/X-specific tags (Phase 6)
+    if (article.tweetMeta) {
+      if (article.tweetMeta.tweetId) tags.push(['tweet_id', article.tweetMeta.tweetId]);
+      if (article.tweetMeta.authorHandle) tags.push(['author_handle', '@' + article.tweetMeta.authorHandle]);
+      if (article.tweetMeta.isThread) tags.push(['thread', 'true']);
+      if (article.tweetMeta.threadLength > 1) tags.push(['thread_length', String(article.tweetMeta.threadLength)]);
+    }
+
+    // Add engagement metrics tags (Phase 4)
+    if (article.engagement) {
+      if (article.engagement.likes) tags.push(['engagement_likes', String(article.engagement.likes)]);
+      if (article.engagement.shares) tags.push(['engagement_shares', String(article.engagement.shares)]);
+      if (article.engagement.comments) tags.push(['engagement_comments', String(article.engagement.comments)]);
+    }
+
+    // Add topic tags
+    tags.push(['t', 'article']);
+    if (article.domain) {
+      tags.push(['t', article.domain.replace(/\./g, '-')]);
+    }
+    
+    // Build event
     const event = {
       kind: 30023,
-      pubkey,
+      pubkey: userPubkey || '',
       created_at: Math.floor(Date.now() / 1000),
       tags,
       content
     };
-    event.id = await NostrCrypto.getEventHash(event);
+    
     return event;
   },
 
-  // Kind 0 profile metadata.
-  buildProfileEvent: async (pubkey, profile) => {
-    const content = JSON.stringify({
-      name: profile.name,
-      display_name: profile.displayName || profile.name,
-      about: profile.about || '',
-      picture: profile.picture || '',
-      banner: profile.banner || '',
-      website: profile.website || '',
-      nip05: profile.nip05 || '',
-      lud16: profile.lud16 || ''
-    });
-    const event = { kind: 0, pubkey, created_at: Math.floor(Date.now() / 1000), tags: [], content };
-    event.id = await NostrCrypto.getEventHash(event);
-    return event;
+  // Generate d-tag from URL (16 chars)
+  generateDTag: async (url) => {
+    const hash = await Crypto.sha256(url);
+    return hash.substring(0, 16);
   },
 
-  // Kind 1 short note.
-  buildNoteEvent: async (pubkey, text, options = {}) => {
-    const { replyTo, mentions = [], tags: additionalTags = [] } = options;
+  // Build kind 0 profile event for entity
+  buildProfileEvent: (entity, canonicalNpub) => {
     const tags = [];
-    if (replyTo) {
-      tags.push(['e', replyTo.id, '', 'reply']);
-      if (replyTo.pubkey) tags.push(['p', replyTo.pubkey]);
+    if (canonicalNpub) {
+      tags.push(['refers_to', canonicalNpub]);
     }
-    for (const mention of mentions)         tags.push(['p', mention]);
-    for (const tag of additionalTags)       tags.push(tag);
-
-    const event = { kind: 1, pubkey, created_at: Math.floor(Date.now() / 1000), tags, content: text };
-    event.id = await NostrCrypto.getEventHash(event);
-    return event;
+    return {
+      kind: 0,
+      pubkey: entity.keypair.pubkey,
+      created_at: Math.floor(Date.now() / 1000),
+      tags,
+      content: JSON.stringify({
+        name: entity.name,
+        about: `${entity.type} entity created by nostr-article-capture`,
+        nip05: entity.nip05 || undefined
+      })
+    };
   },
 
-  // URL Annotation (kind 32123).
-  buildAnnotationEvent: async (url, data, pubkey) => {
-    const normalizedUrl = Utils.normalizeUrl(url);
-    const urlHash = await Utils.sha256(normalizedUrl);
-    const dTag = urlHash.substring(0, 16);
-
+  // Build kind 30040 claim event
+  buildClaimEvent: (claim, articleUrl, articleTitle, userPubkey, entities) => {
     const tags = [
-      ['d', dTag],
-      ['r', normalizedUrl],
-      ['annotation-type', data.type],
-      ['confidence', String(Math.round(data.confidence) / 100).substring(0, 4)],
-      ['client', 'nostr-article-capture']
+      ['d', claim.id],
+      ['r', articleUrl],
+      ['claim-text', claim.text],
+      ['claim-type', claim.type],
+      ['title', articleTitle],
     ];
-    if (data.evidenceUrl && data.evidenceUrl.trim()) {
-      tags.push(['evidence', data.evidenceUrl.trim()]);
-    }
-
-    const event = { kind: 32123, pubkey, created_at: Math.floor(Date.now() / 1000), tags, content: data.content };
-    event.id = await NostrCrypto.getEventHash(event);
-    return event;
-  },
-
-  // Fact-Check (kind 32127).
-  buildFactCheckEvent: async (url, data, pubkey) => {
-    const normalizedUrl = Utils.normalizeUrl(url);
-    const urlHash = await Utils.sha256(normalizedUrl);
-    const dTag = urlHash.substring(0, 16);
-
-    const tags = [
-      ['d', dTag],
-      ['r', normalizedUrl],
-      ['claim', data.claim.substring(0, 200)],
-      ['verdict', data.verdict],
-      ['client', 'nostr-article-capture']
-    ];
-    if (data.evidenceSources && data.evidenceSources.length > 0) {
-      data.evidenceSources.forEach(source => {
-        if (source.url && source.url.trim()) {
-          tags.push(['evidence', source.url.trim(), source.type || 'other']);
-        }
-      });
-    }
-
-    const event = { kind: 32127, pubkey, created_at: Math.floor(Date.now() / 1000), tags, content: data.explanation };
-    event.id = await NostrCrypto.getEventHash(event);
-    return event;
-  },
-
-  // Headline Correction (kind 32129).
-  buildHeadlineCorrectionEvent: async (url, data, pubkey) => {
-    const normalizedUrl = Utils.normalizeUrl(url);
-    const urlHash = await Utils.sha256(normalizedUrl);
-    const dTag = urlHash.substring(0, 16);
-
-    const tags = [
-      ['d', dTag],
-      ['r', normalizedUrl],
-      ['original-headline', data.original],
-      ['suggested-headline', data.suggested],
-      ['client', 'nostr-article-capture']
-    ];
-    const event = { kind: 32129, pubkey, created_at: Math.floor(Date.now() / 1000), tags, content: data.reason };
-    event.id = await NostrCrypto.getEventHash(event);
-    return event;
-  },
-
-  // URL Reaction (kind 32132).
-  buildReactionEvent: async (url, data, pubkey) => {
-    const normalizedUrl = Utils.normalizeUrl(url);
-    const urlHash = await Utils.sha256(normalizedUrl);
-    const dTag = urlHash.substring(0, 16);
-
-    const tags = [
-      ['d', dTag],
-      ['r', normalizedUrl],
-      ['reaction', data.emoji],
-      ['client', 'nostr-article-capture']
-    ];
-    if (data.aspect) tags.push(['aspect', data.aspect]);
-    if (data.reason) tags.push(['reason', data.reason]);
-
-    const event = { kind: 32132, pubkey, created_at: Math.floor(Date.now() / 1000), tags, content: data.content || '' };
-    event.id = await NostrCrypto.getEventHash(event);
-    return event;
-  },
-
-  // Related Content (kind 32131).
-  buildRelatedContentEvent: async (url, data, pubkey) => {
-    const normalizedUrl = Utils.normalizeUrl(url);
-    const urlHash = await Utils.sha256(normalizedUrl);
-    const dTag = urlHash.substring(0, 16);
-
-    const tags = [
-      ['d', dTag],
-      ['r', normalizedUrl],
-      ['related-url', data.relatedUrl],
-      ['relation-type', data.relationType],
-      ['client', 'nostr-article-capture']
-    ];
-    if (data.title) tags.push(['related-title', data.title]);
-    tags.push(['relevance', data.relevance.toString()]);
-
-    const event = { kind: 32131, pubkey, created_at: Math.floor(Date.now() / 1000), tags, content: data.description || '' };
-    event.id = await NostrCrypto.getEventHash(event);
-    return event;
-  },
-
-  // Content Rating (kind 32124). Eight rating dimensions.
-  buildRatingEvent: async (url, data, pubkey) => {
-    const normalizedUrl = Utils.normalizeUrl(url);
-    const urlHash = await Utils.sha256(normalizedUrl);
-    const dTag = urlHash.substring(0, 16);
-
-    const tags = [
-      ['d', dTag],
-      ['r', normalizedUrl],
-      ['url-hash', urlHash],
-      ['client', 'nostr-article-capture']
-    ];
-
-    const dimensions = ['accuracy', 'quality', 'depth', 'clarity', 'bias', 'sources', 'relevance', 'originality'];
-    let totalScore = 0, ratedDimensions = 0;
-    dimensions.forEach(dim => {
-      if (data.ratings && data.ratings[dim] !== undefined && data.ratings[dim] !== null) {
-        const score = Math.min(10, Math.max(0, parseInt(data.ratings[dim], 10)));
-        tags.push(['rating', dim, score.toString(), '10']);
-        totalScore += score;
-        ratedDimensions++;
+    if (claim.is_crux) tags.push(['crux', 'true']);
+    if (claim.confidence != null) tags.push(['confidence', String(claim.confidence)]);
+    // Attribution tag
+    tags.push(['attribution', claim.attribution || 'editorial']);
+    // Claimant entity
+    if (claim.claimant_entity_id && entities) {
+      const claimant = entities[claim.claimant_entity_id];
+      if (claimant && claimant.keypair) {
+        tags.push(['p', claimant.keypair.pubkey, '', 'claimant']);
+        tags.push(['claimant', claimant.name]);
       }
-    });
-    if (ratedDimensions > 0) {
-      const overallScore = (totalScore / ratedDimensions).toFixed(1);
-      tags.push(['overall', overallScore, '10']);
     }
-    tags.push(['methodology', data.methodology || 'manual-review']);
-    if (data.confidence !== undefined) {
-      const confidence = Math.min(100, Math.max(0, parseInt(data.confidence, 10)));
-      tags.push(['confidence', confidence.toString()]);
+    // Subject entities or freetext
+    if (Array.isArray(claim.subject_entity_ids) && claim.subject_entity_ids.length > 0 && entities) {
+      for (const sid of claim.subject_entity_ids) {
+        const subject = entities[sid];
+        if (subject && subject.keypair) {
+          tags.push(['p', subject.keypair.pubkey, '', 'subject']);
+          tags.push(['subject', subject.name]);
+        }
+      }
+    } else if (claim.subject_text) {
+      tags.push(['subject', claim.subject_text]);
     }
-
-    const event = { kind: 32124, pubkey, created_at: Math.floor(Date.now() / 1000), tags, content: data.review || '' };
-    event.id = await NostrCrypto.getEventHash(event);
-    return event;
+    // Object entities or freetext
+    if (Array.isArray(claim.object_entity_ids) && claim.object_entity_ids.length > 0 && entities) {
+      for (const oid of claim.object_entity_ids) {
+        const obj = entities[oid];
+        if (obj && obj.keypair) {
+          tags.push(['p', obj.keypair.pubkey, '', 'object']);
+          tags.push(['object', obj.name]);
+        }
+      }
+    } else if (claim.object_text) {
+      tags.push(['object', claim.object_text]);
+    }
+    // Predicate
+    if (claim.predicate) {
+      tags.push(['predicate', claim.predicate]);
+    }
+    // Quote date
+    if (claim.quote_date) {
+      tags.push(['quote-date', claim.quote_date]);
+    }
+    return {
+      kind: 30040,
+      pubkey: userPubkey,
+      created_at: Math.floor(Date.now() / 1000),
+      tags,
+      content: claim.context || ''
+    };
   },
 
-  // Threaded Comment (kind 32123, annotation-type=comment).
-  buildCommentEvent: async (url, data, pubkey) => {
-    const normalizedUrl = Utils.normalizeUrl(url);
-    const urlHash = await Utils.sha256(normalizedUrl);
-    const dTag = urlHash.substring(0, 16);
+  // Build kind 30078 entity sync event (NIP-78 application-specific data)
+  buildEntitySyncEvent: (entityId, encryptedContent, entityType, userPubkey) => {
+    return {
+      kind: 30078,
+      pubkey: userPubkey,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ['d', entityId],
+        ['client', 'nostr-article-capture'],
+        ['entity-type', entityType],
+        ['L', 'nac/entity-sync'],
+        ['l', 'v1', 'nac/entity-sync']
+      ],
+      content: encryptedContent
+    };
+  },
+
+  // Build kind 32125 entity relationship event
+  buildEntityRelationshipEvent: (entity, articleUrl, relationshipType, userPubkey, claimId) => {
+    return {
+      kind: 32125,
+      pubkey: userPubkey,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ['d', `${entity.id}:${articleUrl}:${relationshipType}`],
+        ['r', articleUrl],
+        ['p', entity.keypair.pubkey, '', relationshipType],
+        ['entity-name', entity.name],
+        ['entity-type', entity.type],
+        ['relationship', relationshipType],
+        ['client', 'nostr-article-capture'],
+        ...(claimId ? [['claim-ref', claimId]] : [])
+      ],
+      content: ''
+    };
+  },
+
+  // Build kind 30041 comment event
+  buildCommentEvent: (comment, articleUrl, articleTitle, userPubkey, accountPubkey) => {
+    return {
+      kind: 30041,
+      pubkey: userPubkey,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ['d', comment.id],
+        ['r', articleUrl],
+        ['title', articleTitle],
+        ['comment-text', comment.text],
+        ['comment-author', comment.authorName],
+        ['platform', comment.platform],
+        ...(accountPubkey ? [['p', accountPubkey, '', 'commenter']] : []),
+        ...(comment.timestamp ? [['comment-date', String(Math.floor(comment.timestamp / 1000))]] : []),
+        ...(comment.replyTo ? [['reply-to', comment.replyTo]] : []),
+        ['client', 'nostr-article-capture']
+      ],
+      content: comment.text
+    };
+  },
+
+  // Build kind 32126 platform account event
+  buildPlatformAccountEvent: (account, userPubkey) => {
+    return {
+      kind: 32126,
+      pubkey: userPubkey,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ['d', account.id],
+        ['p', account.keypair.pubkey, '', 'account'],
+        ['account-username', account.username],
+        ['account-platform', account.platform],
+        ...(account.profileUrl ? [['r', account.profileUrl]] : []),
+        ...(account.linkedEntityId ? [['linked-entity', account.linkedEntityId]] : []),
+        ['client', 'nostr-article-capture']
+      ],
+      content: ''
+    };
+  },
+
+  // Build kind 30043 evidence link event
+  buildEvidenceLinkEvent: async (link, allClaims, userPubkey) => {
+    const sourceClaim = allClaims[link.source_claim_id];
+    const targetClaim = allClaims[link.target_claim_id];
 
     const tags = [
-      ['d', dTag],
-      ['r', normalizedUrl],
-      ['url-hash', urlHash],
-      ['annotation-type', 'comment'],
+      ['d', link.id],
+      ['source-claim', link.source_claim_id],
+      ['target-claim', link.target_claim_id],
+      ['relationship', link.relationship],
       ['client', 'nostr-article-capture']
     ];
-    if (data.parentId) tags.push(['e', data.parentId, '', 'reply']);
-    if (data.rootId)   tags.push(['e', data.rootId,   '', 'root']);
-    if (Array.isArray(data.mentions)) {
-      data.mentions.forEach(m => tags.push(['p', m]));
+
+    if (sourceClaim?.source_url) tags.push(['r', sourceClaim.source_url]);
+    if (targetClaim?.source_url) tags.push(['r', targetClaim.source_url]);
+
+    return {
+      kind: 30043,
+      pubkey: userPubkey,
+      created_at: Math.floor(Date.now() / 1000),
+      tags,
+      content: link.note || ''
+    };
+  },
+
+  // ─── Archive Reader: Relay Retrieval ───
+
+  /**
+   * Reconstruct an article object from a kind 30023 NOSTR event.
+   * Inverse of buildArticleEvent().
+   */
+  reconstructArticleFromEvent: (event) => {
+    if (!event || event.kind !== 30023) return null;
+
+    // Parse tags into lookup maps
+    const tags = {};
+    const tagArrays = {};
+    for (const tag of (event.tags || [])) {
+      const [key, ...values] = tag;
+      if (!tags[key]) tags[key] = values[0] || '';
+      if (!tagArrays[key]) tagArrays[key] = [];
+      tagArrays[key].push(values);
     }
 
-    const event = { kind: 32123, pubkey, created_at: Math.floor(Date.now() / 1000), tags, content: data.comment || '' };
-    event.id = await NostrCrypto.getEventHash(event);
-    return event;
+    // Extract markdown content, stripping our metadata header
+    let markdown = event.content || '';
+    let description = '';
+    let transcript = '';
+
+    // Strip metadata header (between --- markers)
+    const headerMatch = markdown.match(/^---\n[\s\S]*?\n---\n\n?/);
+    if (headerMatch) {
+      markdown = markdown.substring(headerMatch[0].length);
+    }
+
+    // Extract ## Description section
+    const descMatch = markdown.match(/## Description\n\n([\s\S]*?)(?=\n## |\n---|\n$|$)/);
+    if (descMatch) {
+      description = descMatch[1].trim();
+      markdown = markdown.replace(descMatch[0], '').trim();
+    }
+
+    // Extract ## Transcript section
+    const transMatch = markdown.match(/## Transcript\n\n([\s\S]*?)$/);
+    if (transMatch) {
+      transcript = transMatch[1].trim();
+      markdown = markdown.replace(transMatch[0], '').trim();
+    }
+
+    // Convert remaining markdown back to HTML
+    let htmlContent = '';
+    try {
+      htmlContent = ContentExtractor.markdownToHtml(markdown);
+    } catch (e) {
+      htmlContent = markdown.split('\n\n').map(p => `<p>${p}</p>`).join('');
+    }
+
+    const article = {
+      url: tags['r'] || '',
+      content: htmlContent,
+      textContent: markdown,
+      title: tags['title'] || '',
+      byline: tags['author'] || '',
+      siteName: tags['site_name'] || '',
+      domain: (tags['r'] || '').match(/https?:\/\/([^/]+)/)?.[1] || '',
+      publishedAt: parseInt(tags['published_at']) || event.created_at,
+      featuredImage: tags['image'] || '',
+      publicationIcon: tags['icon'] || '',
+      excerpt: tags['summary'] || '',
+      isPaywalled: tags['paywalled'] === 'true',
+      contentType: tags['content_format'] || 'article',
+      platform: tags['platform'] || null,
+      language: tags['lang'] || null,
+      keywords: (tagArrays['t'] || []).map(v => v[0]),
+      wordCount: parseInt(tags['word_count']) || 0,
+      section: tags['section'] || null,
+      description: description || null,
+      transcript: transcript || null,
+      engagement: null,
+      videoMeta: null,
+      tweetMeta: null,
+      platformAccount: null,
+      _fromArchive: true,
+      _archiveSource: 'relay',
+      _nostrEventId: event.id,
+      _nostrCreatedAt: event.created_at,
+      _nostrPubkey: event.pubkey,
+    };
+
+    // Reconstruct engagement
+    const eLikes = parseInt(tags['engagement_likes']);
+    const eShares = parseInt(tags['engagement_shares']);
+    const eComments = parseInt(tags['engagement_comments']);
+    if (eLikes || eShares || eComments) {
+      article.engagement = { likes: eLikes || 0, shares: eShares || 0, comments: eComments || 0, views: 0 };
+    }
+
+    // Video-specific
+    if (tags['video_id']) {
+      article.videoMeta = { videoId: tags['video_id'], duration: tags['duration'] || '', channelName: tags['channel'] || '' };
+    }
+
+    // Tweet-specific
+    if (tags['tweet_id']) {
+      article.tweetMeta = { tweetId: tags['tweet_id'], authorHandle: (tags['author_handle'] || '').replace('@', ''), isThread: tags['thread'] === 'true', threadLength: parseInt(tags['thread_length']) || 1 };
+    }
+
+    return article;
+  },
+
+  /**
+   * Query NOSTR relays for a kind 30023 event matching a URL.
+   * Stubbed until Phase 7 (#18) lands the Archive Reader. The method
+   * signature is preserved; real wiring will route the query through
+   * the background service worker's relay pool.
+   */
+  queryArticleFromRelays: async (_url, _userPubkey) => {
+    // TODO(Phase 7 / #18): send { type: 'xray:relay:query', filter, relays }
+    // to the background SW and reconstruct the article from the first
+    // matching kind-30023 event.
+    return null;
+  },
+
+  /**
+   * Get an archived article. Stubbed until Phase 7 (#18).
+   */
+  getArchivedArticle: async (_url, _userPubkey) => {
+    // TODO(Phase 7 / #18): IndexedDB cache lookup, then relay query.
+    return null;
   }
 };

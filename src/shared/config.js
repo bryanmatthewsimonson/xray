@@ -27,8 +27,31 @@ export const CONFIG = {
     },
 
     extraction: {
+        // snake_case keys match the v4 userscript for drop-in portability
+        // of content-extractor.js and related modules.
+        min_content_length: 200,
+        max_title_length: 300,
+        // camelCase legacy aliases kept for compatibility with pre-Phase-2
+        // X-Ray callers. Safe to remove once nothing references them.
         minContentLength: 200,
-        maxTitleLength: 200,
+        maxTitleLength: 300,
         maxSummaryLength: 500
+    },
+
+    articleCache: {
+        enabled: true,
+        maxSizeBytes: 100 * 1024 * 1024, // 100MB budget (Phase 7 uses IndexedDB)
+        evictionTarget: 0.75,
+        compressionThreshold: 100000
+    },
+
+    tagging: {
+        selection_debounce_ms: 300,
+        min_selection_length: 2,
+        max_selection_length: 100,
+        max_claim_length: 500
     }
 };
+
+// Shared mutable state (Phase 3+ platform handlers may use this).
+export const _state = { fabRef: null };

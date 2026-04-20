@@ -163,6 +163,41 @@ export const Storage = (() => {
           return false;
         }
       }
+    },
+
+    // -----------------------------------------------------------------
+    // v4-compatibility façades
+    // -----------------------------------------------------------------
+    // The userscript v4 event-builder (ported in Phase 2) expects these
+    // sub-namespaces. Phase 4 swaps out the `entities` stub for a real
+    // registry; Phase 7 swaps out `articleCache` for an IndexedDB
+    // implementation. `relays` is a read-through wrapper over the
+    // existing preferences storage, shaped to match the v4 contract.
+    entities: {
+      get:     async (_id) => null,           // Phase 4 (#15) returns real entities
+      getAll:  async () => ({}),
+      save:    async () => {
+        throw new Error('Entity storage not implemented until Phase 4 (#15)');
+      }
+    },
+
+    relays: {
+      // Returns `{ relays: [{url, read, write, enabled}] }` to match v4.
+      // X-Ray currently stores only a flat URL list in preferences, so
+      // every relay is assumed read+write+enabled.
+      get: async () => {
+        const prefs = await Store.get('preferences', {});
+        const urls = Array.isArray(prefs.default_relays) ? prefs.default_relays : [];
+        return {
+          relays: urls.map((url) => ({ url, read: true, write: true, enabled: true }))
+        };
+      }
+    },
+
+    articleCache: {
+      // Phase 7 (#18) replaces these with IndexedDB-backed storage.
+      getForUrl: async (_url) => null,
+      save:      async (_article) => {}
     }
   };
 

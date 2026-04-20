@@ -11,7 +11,7 @@
 import { CONFIG } from '../shared/config.js';
 import { Utils } from '../shared/utils.js';
 import { Storage } from '../shared/storage.js';
-import { ContentProcessor } from '../shared/content-processor.js';
+import { ContentExtractor } from '../shared/content-extractor.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
 import { NIP07Client } from './nip07-client.js';
@@ -299,7 +299,7 @@ export const UI = {
       </div>
     `;
 
-    const article = ContentProcessor.extractArticle();
+    const article = ContentExtractor.extractArticle();
 
     if (!article) {
       contentArea.innerHTML = `
@@ -313,7 +313,7 @@ export const UI = {
     }
 
     UI.state.article = article;
-    UI.state.markdown = ContentProcessor.htmlToMarkdown(article.content);
+    UI.state.markdown = ContentExtractor.htmlToMarkdown(article.content);
 
     document.getElementById('nac-pub-domain').value = article.domain;
     if (article.byline) {
@@ -600,15 +600,14 @@ export const UI = {
           authorPubkey = author?.pubkey;
         }
 
-        const article = { ...UI.state.article, markdown: UI.state.markdown };
+        const article = { ...UI.state.article, markdown: UI.state.markdown, content: UI.state.markdown };
 
         Utils.log('Building article event...');
-        const event = await EventBuilder.buildArticleEvent(article, {
-          pubkey,
-          authorPubkey,
-          tags,
-          mediaHandling
-        });
+        // v4 builder signature: (article, entities, userPubkey, claims).
+        // Entity tagging + claims UIs arrive in Phases 4/5.
+        // `authorPubkey` was a v1-era shortcut; the v4 flow represents authors
+        // as entities (Phase 4), so we omit it here.
+        const event = await EventBuilder.buildArticleEvent(article, [], pubkey, []);
         Utils.log('Built unsigned event:', event);
 
         btn.innerHTML = `<div class="nac-spinner"></div><span>Sign in extension...</span>`;
@@ -710,10 +709,8 @@ export const UI = {
           throw new Error('Publication not found. Please select or create a publication.');
         }
 
-        const article = { ...UI.state.article, markdown: UI.state.markdown };
-        const event = await EventBuilder.buildArticleEvent(article, {
-          pubkey: publication.pubkey, authorPubkey, tags, mediaHandling
-        });
+        const article = { ...UI.state.article, markdown: UI.state.markdown, content: UI.state.markdown };
+        const event = await EventBuilder.buildArticleEvent(article, [], publication.pubkey, []);
 
         if (!publication.pubkey) {
           throw new Error('Publication key not available. Please reconnect to NSecBunker.');
