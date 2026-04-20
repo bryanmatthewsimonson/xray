@@ -385,6 +385,135 @@ body {
   color: var(--xr-text-dim);
 }
 
+/* ---------------- comments ---------------- */
+
+.xr-comments {
+  max-width: var(--xr-reader-max-w);
+  margin: 40px auto 80px;
+  padding: 0 24px;
+  font-family: var(--xr-reader-sans);
+}
+
+.xr-comments__head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--xr-border);
+  margin-bottom: 24px;
+}
+
+.xr-comments__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.xr-comments__include {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--xr-text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+.xr-comments__include input {
+  margin: 0;
+  accent-color: var(--xr-primary);
+}
+
+.xr-comments__body ol {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.xr-comments__body ol ol {
+  margin-left: 24px;
+  border-left: 2px solid var(--xr-border);
+  padding-left: 16px;
+  margin-top: 12px;
+}
+
+.xr-comment {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--xr-border);
+}
+
+.xr-comments__body ol ol .xr-comment {
+  border-bottom: none;
+  padding: 10px 0;
+}
+
+.xr-comment--deleted {
+  opacity: 0.4;
+  font-style: italic;
+}
+
+.xr-comment__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.xr-comment__avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--xr-surface-2);
+}
+
+.xr-comment__handle {
+  color: var(--xr-text);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.xr-comment__handle:hover { text-decoration: underline; }
+
+.xr-comment__name {
+  color: var(--xr-text-dim);
+  font-size: 12px;
+}
+
+.xr-comment__date {
+  color: var(--xr-text-dim);
+  font-size: 12px;
+  margin-left: auto;
+}
+
+.xr-comment__body {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--xr-text);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.xr-comment__meta {
+  display: flex;
+  gap: 14px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--xr-text-dim);
+}
+
+.xr-comments__status {
+  color: var(--xr-text-dim);
+  font-size: 13px;
+  padding: 20px 0;
+  text-align: center;
+}
+
+.xr-comments__status--error { color: var(--xr-danger); }
+
 /* ---------------- toast ---------------- */
 
 .xr-reader__toast {

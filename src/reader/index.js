@@ -28,7 +28,18 @@ const state = {
     // on publish.
     htmlDraft: '',
     markdownDraft: '',
-    dirtySource: 'reader' // which draft is canonical
+    dirtySource: 'reader', // which draft is canonical
+    // Platform comments — Substack today, YouTube/Twitter/etc. in later
+    // phases. The tree is whatever the platform-specific fetcher returns
+    // via `xray:substack:fetchComments` (or equivalent).
+    comments: {
+        platform: null,   // 'substack' | ...
+        tree: [],
+        total: 0,
+        status: 'idle',   // 'idle' | 'loading' | 'ready' | 'error'
+        error: null,
+        includeInPublish: false
+    }
 };
 
 // ------------------------------------------------------------------
@@ -250,7 +261,140 @@ function setViewMode(mode) {
 }
 
 // ------------------------------------------------------------------
-// Publish — C3 will wire this to the SW + relay client
+// Comments (Substack — Phase 3a)
+// ------------------------------------------------------------------
+
+async function loadSubstackComments() {
+    const sub = state.article.substack;
+    if (!sub || !sub.postId || !sub.apiOrigin) return;
+
+    state.comments.platform = 'substack';
+    state.comments.status = 'loading';
+    renderCommentsSection();
+
+    try {
+        const resp = await browserApi.runtime.sendMessage({
+            type: 'xray:substack:fetchComments',
+            apiOrigin: sub.apiOrigin,
+            postId: sub.postId
+        });
+        if (!resp || !resp.ok) {
+            throw new Error((resp && resp.error) || 'No response from service worker');
+        }
+        state.comments.tree = resp.comments || [];
+        state.comments.total = resp.total || 0;
+        state.comments.status = 'ready';
+    } catch (err) {
+        console.warn('[X-Ray Reader] Substack comments fetch failed:', err);
+        state.comments.status = 'error';
+        state.comments.error = err.message || String(err);
+    }
+    renderCommentsSection();
+}
+
+function renderCommentsSection() {
+    const sec = $('#xr-comments');
+    const body = $('#xr-comments-body');
+    const title = $('#xr-comments-title');
+    const includeChk = $('#xr-comments-include');
+    const includeLabel = $('#xr-comments-include-label');
+
+    if (!state.comments.platform) {
+        sec.hidden = true;
+        return;
+    }
+    sec.hidden = false;
+
+    if (state.comments.status === 'loading') {
+        title.textContent = 'Comments';
+        body.innerHTML = `<div class="xr-comments__status">Loading comments…</div>`;
+        includeChk.disabled = true;
+        includeLabel.textContent = 'Include in publish';
+        return;
+    }
+    if (state.comments.status === 'error') {
+        title.textContent = 'Comments';
+        body.innerHTML = `<div class="xr-comments__status xr-comments__status--error">Comment fetch failed: ${escapeHtml(state.comments.error)}</div>`;
+        includeChk.disabled = true;
+        return;
+    }
+    if (state.comments.tree.length === 0) {
+        title.textContent = 'Comments (0)';
+        body.innerHTML = `<div class="xr-comments__status">No comments on this post.</div>`;
+        includeChk.disabled = true;
+        return;
+    }
+
+    title.textContent = `Comments (${state.comments.total})`;
+    body.innerHTML = renderCommentList(state.comments.tree);
+
+    includeChk.disabled = false;
+    includeChk.checked = state.comments.includeInPublish;
+    includeLabel.textContent = `Include all ${state.comments.total} in publish (requires ${state.comments.total + 1} signatures)`;
+}
+
+function renderCommentList(list) {
+    if (!list || list.length === 0) return '';
+    return `<ol>${list.map(renderCommentItem).join('')}</ol>`;
+}
+
+function renderCommentItem(c) {
+    const deletedCls = c.deleted ? ' xr-comment--deleted' : '';
+    const handle = c.author.handle ? '@' + c.author.handle : '';
+    const profileUrl = c.author.profileUrl || '#';
+    const headerHtml = c.author.handle
+        ? `<a class="xr-comment__handle" href="${escapeHtml(profileUrl)}" target="_blank" rel="noopener">${escapeHtml(handle)}</a>`
+        : `<span class="xr-comment__handle">${escapeHtml(c.author.name || 'Unknown')}</span>`;
+
+    const nameHtml = c.author.name && c.author.name !== c.author.handle
+        ? `<span class="xr-comment__name">${escapeHtml(c.author.name)}</span>`
+        : '';
+
+    const dateHtml = c.date
+        ? `<time class="xr-comment__date" datetime="${escapeHtml(c.date)}">${escapeHtml(fmtCommentDate(c.date))}</time>`
+        : '';
+
+    const avatarHtml = c.author.avatarUrl
+        ? `<img class="xr-comment__avatar" src="${escapeHtml(c.author.avatarUrl)}" alt="" loading="lazy">`
+        : `<span class="xr-comment__avatar"></span>`;
+
+    const body = c.deleted
+        ? `<em>(comment deleted or flagged)</em>`
+        : escapeHtml(c.body || '').replace(/\n/g, '<br>');
+
+    const meta = [];
+    if (c.reactionCount > 0) meta.push(`❤ ${c.reactionCount}`);
+    if (c.restacks > 0)      meta.push(`⟲ ${c.restacks} restack${c.restacks === 1 ? '' : 's'}`);
+    const metaHtml = meta.length ? `<footer class="xr-comment__meta">${meta.map(escapeHtml).join(' · ')}</footer>` : '';
+
+    const childrenHtml = c.children && c.children.length ? renderCommentList(c.children) : '';
+
+    return `
+      <li class="xr-comment${deletedCls}" data-comment-id="${escapeHtml(String(c.id))}">
+        <header class="xr-comment__header">
+          ${avatarHtml}
+          ${headerHtml}
+          ${nameHtml}
+          ${dateHtml}
+        </header>
+        <div class="xr-comment__body">${body}</div>
+        ${metaHtml}
+        ${childrenHtml}
+      </li>`;
+}
+
+function fmtCommentDate(iso) {
+    try {
+        const d = new Date(iso);
+        return d.toLocaleString('en-US', {
+            year: 'numeric', month: 'short', day: 'numeric',
+            hour: 'numeric', minute: '2-digit'
+        });
+    } catch { return iso; }
+}
+
+// ------------------------------------------------------------------
+// Publish — C3 full flow
 // ------------------------------------------------------------------
 
 async function publish() {
@@ -258,18 +402,21 @@ async function publish() {
     const originalLabel = btn.textContent;
     btn.disabled = true;
 
+    const includeComments = state.comments.includeInPublish && state.comments.tree.length > 0;
+    const commentList = includeComments ? flattenCommentTree(state.comments.tree) : [];
+    const totalEvents = 1 + commentList.length;
+
     try {
-        // Collect the canonical content before building the event.
         if (state.dirtySource === 'reader') {
             state.markdownDraft = ContentExtractor.htmlToMarkdown(state.htmlDraft);
         }
 
         btn.textContent = 'Signing…';
-        toast('Approving signature in your NOSTR extension…', 'warning');
+        toast(totalEvents > 1
+            ? `Signing ${totalEvents} events — approve each in your NOSTR extension.`
+            : 'Approving signature in your NOSTR extension…', 'warning');
 
-        // Step 1: ask the source tab for its NIP-07 pubkey so we can
-        // stamp the unsigned event correctly. The SW forwards this to
-        // the content script which calls NIP07Client.getPublicKey().
+        // Resolve the signing pubkey once.
         const pubResp = await browserApi.runtime.sendMessage({
             type: 'xray:capture:getPubkey',
             id: state.id
@@ -279,26 +426,85 @@ async function publish() {
         }
         const userPubkey = pubResp.pubkey;
 
-        // Step 2: build the unsigned kind-30023 event.
+        // Article event.
         const article = { ...state.article, content: state.markdownDraft, markdown: state.markdownDraft };
-        const unsigned = await EventBuilder.buildArticleEvent(article, [], userPubkey, []);
+        const unsignedArticle = await EventBuilder.buildArticleEvent(article, [], userPubkey, []);
 
-        // Step 3: ship it. The SW orchestrates sign (via source tab's
-        // NIP-07 bridge) then publish (via its own relay pool).
-        btn.textContent = 'Publishing…';
-        const resp = await browserApi.runtime.sendMessage({
+        btn.textContent = totalEvents > 1 ? `Publishing article (1/${totalEvents})…` : 'Publishing…';
+        const articleResp = await browserApi.runtime.sendMessage({
             type: 'xray:capture:publish',
             id: state.id,
-            event: unsigned
+            event: unsignedArticle
         });
-        if (!resp || !resp.ok) {
-            throw new Error((resp && resp.error) || 'No response from background worker');
+        if (!articleResp || !articleResp.ok) {
+            throw new Error((articleResp && articleResp.error) || 'No response from background worker');
         }
-        const r = resp.results;
-        if (r.successful > 0) {
-            toast(`Published to ${r.successful}/${r.total} relays.`, 'success', 5000);
+        const articleResults = articleResp.results;
+
+        // Comment events — only if the user opted in.
+        const commentResults = { ok: 0, fail: 0, errors: [] };
+        if (includeComments) {
+            const articleUrl = article.url;
+            const articleTitle = article.title || 'Untitled';
+
+            // Map Substack comment id → the `d`-tag value we use on NOSTR,
+            // so children can reference parents that were published earlier
+            // in this same run.
+            const idToDTag = new Map();
+
+            for (let i = 0; i < commentList.length; i++) {
+                const c = commentList[i];
+                btn.textContent = `Publishing comments (${i + 2}/${totalEvents})…`;
+
+                if (c.deleted || !c.body) continue;
+
+                const dTag = makeCommentDTag(state.comments.platform, c.id);
+                idToDTag.set(c.id, dTag);
+
+                const replyTo = c.parentId != null ? idToDTag.get(c.parentId) : null;
+                const unsignedComment = EventBuilder.buildCommentEvent({
+                    id:            dTag,
+                    text:          c.body,
+                    authorName:    c.author.name,
+                    authorHandle:  c.author.handle,
+                    authorUrl:     c.author.profileUrl,
+                    platform:      state.comments.platform,
+                    timestamp:     c.date ? Date.parse(c.date) : null, // ms
+                    replyTo,
+                    reactionCount: c.reactionCount,
+                    restacks:      c.restacks
+                }, articleUrl, articleTitle, userPubkey);
+
+                try {
+                    const resp = await browserApi.runtime.sendMessage({
+                        type: 'xray:capture:publish',
+                        id: state.id,
+                        event: unsignedComment
+                    });
+                    if (resp && resp.ok && resp.results.successful > 0) {
+                        commentResults.ok++;
+                    } else {
+                        commentResults.fail++;
+                        commentResults.errors.push((resp && resp.error) || 'unknown');
+                    }
+                } catch (err) {
+                    commentResults.fail++;
+                    commentResults.errors.push(err.message || String(err));
+                }
+            }
+        }
+
+        // Surface an aggregated result.
+        if (includeComments) {
+            const msg = `Article: ${articleResults.successful}/${articleResults.total} relays. ` +
+                        `Comments: ${commentResults.ok} published, ${commentResults.fail} failed.`;
+            toast(msg, commentResults.fail === 0 ? 'success' : 'warning', 8000);
         } else {
-            toast('No relays accepted the event. Check the Options page.', 'error', 7000);
+            if (articleResults.successful > 0) {
+                toast(`Published to ${articleResults.successful}/${articleResults.total} relays.`, 'success', 5000);
+            } else {
+                toast('No relays accepted the event. Check the Options page.', 'error', 7000);
+            }
         }
     } catch (err) {
         console.error('[X-Ray Reader] publish failed:', err);
@@ -307,6 +513,33 @@ async function publish() {
         btn.textContent = originalLabel;
         btn.disabled = false;
     }
+}
+
+/**
+ * Build a deterministic `d`-tag for a comment event. Using platform
+ * namespacing protects against numeric-id collisions across platforms
+ * (Substack and YouTube both use numeric ids; we don't want them to
+ * alias to the same NOSTR event).
+ */
+function makeCommentDTag(platform, commentId) {
+    return `cmt:${platform}:${String(commentId)}`;
+}
+
+/**
+ * Depth-first flatten of the comment tree — parents precede children,
+ * which guarantees `reply-to` references resolve during sequential
+ * publishing.
+ */
+function flattenCommentTree(tree) {
+    const out = [];
+    const walk = (list) => {
+        for (const c of list) {
+            out.push(c);
+            if (c.children && c.children.length) walk(c.children);
+        }
+    };
+    walk(tree);
+    return out;
 }
 
 // ------------------------------------------------------------------
@@ -342,6 +575,19 @@ async function init() {
     $('#xr-close').addEventListener('click', () => {
         window.close();
     });
+
+    // Comments include-in-publish toggle
+    $('#xr-comments-include').addEventListener('change', (ev) => {
+        state.comments.includeInPublish = ev.target.checked;
+    });
+
+    // Kick off the platform-specific comment fetch, if any.
+    // Non-blocking — the reader is already interactive.
+    if (state.article.platform === 'substack') {
+        loadSubstackComments().catch((err) => {
+            console.warn('[X-Ray Reader] comment load errored out:', err);
+        });
+    }
 }
 
 document.addEventListener('DOMContentLoaded', init);

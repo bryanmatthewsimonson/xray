@@ -31,6 +31,20 @@
     </div>
   </main>
 
+  <!-- Comments section. Shown only when the article has a postId from
+       a platform that supports comment capture (Substack today). The
+       inner HTML is populated by reader/index.js. -->
+  <section class="xr-comments" id="xr-comments" hidden>
+    <header class="xr-comments__head">
+      <h2 class="xr-comments__title" id="xr-comments-title">Comments</h2>
+      <label class="xr-comments__include">
+        <input type="checkbox" id="xr-comments-include" />
+        <span id="xr-comments-include-label">Include in publish</span>
+      </label>
+    </header>
+    <div class="xr-comments__body" id="xr-comments-body"></div>
+  </section>
+
   <div class="xr-reader__toast" id="xr-toast" hidden></div>
 
   <script src="../../dist/reader.bundle.js"></script>

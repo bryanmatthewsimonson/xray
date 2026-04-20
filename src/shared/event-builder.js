@@ -332,24 +332,59 @@ export const EventBuilder = {
     };
   },
 
-  // Build kind 30041 comment event
+  // Build kind 30041 comment event.
+  //
+  // Accepted `comment` shape (all fields except id/text/platform are optional):
+  //   id            string  — stable d-tag (namespaced by platform)
+  //   text          string
+  //   authorName    string  — display name
+  //   authorHandle  string  — stable public identifier (e.g. Substack handle)
+  //   authorUrl     string  — public profile URL
+  //   platform      string  — 'substack' / 'twitter' / …
+  //   timestamp     number  — ms-since-epoch OR seconds-since-epoch (auto-detected)
+  //   replyTo       string  — parent comment's d-tag value (threads via NIP-10-ish)
+  //   reactionCount number  — e.g. Substack heart count
+  //   restacks      number  — Substack restacks
+  //
+  // `accountPubkey` is the optional synthetic PlatformAccount pubkey
+  // (Phase 4 entity-keypair work). Safe to omit — Substack captures
+  // don't require it; the handle + URL are already stable identifiers.
   buildCommentEvent: (comment, articleUrl, articleTitle, userPubkey, accountPubkey) => {
+    // Auto-detect ms vs s timestamps. Substack gives us ISO strings that
+    // we convert upstream to ms; pre-v4 callers pass ms directly.
+    let commentDateSec = null;
+    if (typeof comment.timestamp === 'number' && Number.isFinite(comment.timestamp)) {
+      commentDateSec = comment.timestamp > 10_000_000_000
+        ? Math.floor(comment.timestamp / 1000)   // ms → s
+        : comment.timestamp;                      // already s
+    }
+
+    const tags = [
+      ['d', String(comment.id)],
+      ['r', articleUrl],
+      ['title', articleTitle],
+      ['comment-text', comment.text],
+      ['comment-author', comment.authorName || comment.authorHandle || 'Unknown'],
+      ['platform', comment.platform]
+    ];
+    if (comment.authorHandle) tags.push(['author-handle', comment.authorHandle]);
+    if (comment.authorUrl)    tags.push(['author-url',    comment.authorUrl]);
+    if (accountPubkey)        tags.push(['p', accountPubkey, '', 'commenter']);
+    if (commentDateSec != null) tags.push(['comment-date', String(commentDateSec)]);
+    if (comment.replyTo)      tags.push(['reply-to',    comment.replyTo]);
+    if (Number.isFinite(comment.reactionCount) && comment.reactionCount > 0) {
+      tags.push(['reaction-count', String(comment.reactionCount)]);
+    }
+    if (Number.isFinite(comment.restacks) && comment.restacks > 0) {
+      tags.push(['restack-count', String(comment.restacks)]);
+    }
+    tags.push(['client', 'xray']);
+
     return {
       kind: 30041,
       pubkey: userPubkey,
       created_at: Math.floor(Date.now() / 1000),
-      tags: [
-        ['d', comment.id],
-        ['r', articleUrl],
-        ['title', articleTitle],
-        ['comment-text', comment.text],
-        ['comment-author', comment.authorName],
-        ['platform', comment.platform],
-        ...(accountPubkey ? [['p', accountPubkey, '', 'commenter']] : []),
-        ...(comment.timestamp ? [['comment-date', String(Math.floor(comment.timestamp / 1000))]] : []),
-        ...(comment.replyTo ? [['reply-to', comment.replyTo]] : []),
-        ['client', 'nostr-article-capture']
-      ],
+      tags,
       content: comment.text
     };
   },
