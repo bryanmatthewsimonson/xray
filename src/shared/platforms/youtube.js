@@ -411,6 +411,14 @@ async function scrapeDomTranscript() {
             //    is a standalone duration label ("9 seconds", "1 minute,
             //    5 seconds"), are treated as accessibility fluff and
             //    dropped.
+            // Why we don't filter on aria-hidden: YouTube's new
+            // `transcript-segment-view-model` wraps the visible timestamp
+            // ("0:09") inside an aria-hidden span, because the accessible
+            // version is the button's aria-label ("Jump to 9 seconds").
+            // Skipping aria-hidden text would therefore drop the
+            // timestamp, leaving every segment unanchored and discarded
+            // downstream. The duration-label regex below is sufficient
+            // to strip the actual screen-reader fluff.
             const walker = document.createTreeWalker(seg, NodeFilter.SHOW_TEXT);
             const parts = [];
             let node;
@@ -418,19 +426,9 @@ async function scrapeDomTranscript() {
                 const t = (node.nodeValue || '').trim();
                 if (!t) continue;
 
-                // Drop screen-reader duration annotations.
+                // Drop standalone screen-reader duration annotations
+                // like "9 seconds" or "1 minute, 5 seconds".
                 if (A11Y_DURATION_RE.test(t)) continue;
-
-                // Drop anything inside an aria-hidden subtree (YouTube
-                // sometimes uses this for visual-only chrome it doesn't
-                // want announced — and text-walking hits both).
-                let p = node.parentElement;
-                let hidden = false;
-                while (p && p !== seg) {
-                    if (p.getAttribute && p.getAttribute('aria-hidden') === 'true') { hidden = true; break; }
-                    p = p.parentElement;
-                }
-                if (hidden) continue;
 
                 if (!tsText && /^\d{1,2}:\d{2}(:\d{2})?$/.test(t)) {
                     tsText = t;
@@ -451,6 +449,18 @@ async function scrapeDomTranscript() {
 
         events.push({ startMs, durationMs: 0, text: capText });
     });
+
+    // Post-extraction diagnostic — catches regressions where the
+    // pre-extraction segment count (`found 103 transcript segments`)
+    // looks fine but the walker filter chain strips every cue. If
+    // extracted < 20% of segment count, something's eaten the cues.
+    console.error('[X-Ray YouTube] extracted', events.length,
+                  'events from', segments.length, 'segments');
+    if (events.length === 0 && segments.length > 0) {
+        const sample = segments[0];
+        console.error('[X-Ray YouTube] zero extraction — first segment shape:',
+                      sample ? sample.outerHTML.slice(0, 500) : '(null)');
+    }
 
     for (let i = 0; i < events.length - 1; i++) {
         events[i].durationMs = Math.max(0, events[i + 1].startMs - events[i].startMs);
