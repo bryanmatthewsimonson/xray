@@ -213,37 +213,57 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     //      signal.
     if (message.type === 'xray:youtube:fetchTranscript') {
         const url = message.url;
-        if (!url) {
-            sendResponse({ ok: false, error: 'missing url' });
-            return false;
-        }
+        const tabId = sender && sender.tab && sender.tab.id;
+        if (!url)   { sendResponse({ ok: false, error: 'missing url' });   return false; }
+        if (!tabId) { sendResponse({ ok: false, error: 'missing tabId' }); return false; }
+
+        // YouTube gates the timedtext endpoint on browser context that
+        // can only be satisfied from the page's own JS — cookies alone,
+        // cookies + Referer, and cookies + Referer + client-version
+        // headers all return HTTP 200 with a 0-byte body. The only
+        // technique that reliably works is running the fetch in the
+        // page's MAIN world via chrome.scripting.executeScript. That
+        // makes the request indistinguishable from YouTube's own
+        // client calls (Sec-Fetch-*, cookies, Origin, timing — all
+        // identical because it IS the page).
         (async () => {
-            console.error('[X-Ray SW] fetchTranscript GET', url);
+            console.error('[X-Ray SW] fetchTranscript via page-world injection, tab', tabId, 'url', url);
             try {
-                const res = await fetch(url, {
-                    method: 'GET',
-                    credentials: 'include',
-                    headers: {
-                        'Accept': 'application/json,*/*',
-                        // Identify as the WEB client. Without these two
-                        // headers, YouTube's timedtext endpoint replies
-                        // HTTP 200 with a 0-byte body — the "unknown
-                        // caller" signal. yt-dlp et al. spoof the same
-                        // pair. Client-version is the current public
-                        // client build; YouTube accepts nearby versions
-                        // without complaining, and we refresh the literal
-                        // when it starts to fail.
-                        'X-YouTube-Client-Name': '1',
-                        'X-YouTube-Client-Version': message.clientVersion || '2.20260416.01.00'
+                const [injection] = await chrome.scripting.executeScript({
+                    target: { tabId },
+                    world: 'MAIN',
+                    // func is serialized to a string and re-parsed in the
+                    // page context, so it must be self-contained — no
+                    // closure references.
+                    func: async (fetchUrl) => {
+                        try {
+                            const r = await fetch(fetchUrl, { credentials: 'include' });
+                            const body = await r.text();
+                            return { ok: true, status: r.status, body };
+                        } catch (err) {
+                            return { ok: false, error: err && err.message ? err.message : String(err) };
+                        }
                     },
-                    signal: AbortSignal.timeout(15000)
+                    args: [url]
                 });
-                const body = await res.text();
-                console.error('[X-Ray SW] fetchTranscript response:',
-                    { status: res.status, ok: res.ok, bodyLen: body.length, bodyStart: body.slice(0, 120) });
-                sendResponse({ ok: true, status: res.status, body });
+                const result = injection && injection.result;
+                if (!result) {
+                    sendResponse({ ok: false, error: 'no result from page-world injection' });
+                    return;
+                }
+                console.error('[X-Ray SW] fetchTranscript response:', {
+                    status: result.status, ok: result.ok,
+                    bodyLen: result.body ? result.body.length : 0,
+                    bodyStart: result.body ? result.body.slice(0, 120) : null,
+                    error: result.error
+                });
+                if (!result.ok) {
+                    sendResponse({ ok: false, error: result.error || 'page-world fetch failed' });
+                } else {
+                    sendResponse({ ok: true, status: result.status, body: result.body });
+                }
             } catch (err) {
-                console.error('[X-Ray SW] fetchTranscript threw:', err);
+                console.error('[X-Ray SW] executeScript threw:', err);
                 sendResponse({ ok: false, error: err && err.message ? err.message : String(err) });
             }
         })();
