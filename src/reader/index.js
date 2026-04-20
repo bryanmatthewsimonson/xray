@@ -12,6 +12,9 @@
 
 import { ContentExtractor } from '../shared/content-extractor.js';
 import { EventBuilder } from '../shared/event-builder.js';
+import { LocalKeyManager } from '../shared/local-key-manager.js';
+import { installEntityStorageBridge } from '../shared/entity-model.js';
+import { installEntityTagger, rehydrateEntityMarks } from './entity-tagger.js';
 
 const browserApi = typeof browser !== 'undefined' && browser.runtime ? browser : chrome;
 
@@ -115,6 +118,11 @@ async function loadArticle() {
     state.article = article;
     state.markdownDraft = article.markdown || article.content || '';
     state.htmlDraft = article.content || ContentExtractor.markdownToHtml(state.markdownDraft);
+
+    // Tagged-entity refs stored on the article get round-tripped through
+    // the session-storage hand-off. Ensure the field exists so the
+    // tagger and publish paths can write to it without null-guards.
+    if (!Array.isArray(state.article.entities)) state.article.entities = [];
 }
 
 // ------------------------------------------------------------------
@@ -142,7 +150,36 @@ function renderReader() {
     `;
     // Inject the stored HTML without re-escaping, since it came from
     // Readability which already sanitizes to a safe HTML fragment.
-    $('.xr-article__body').innerHTML = state.htmlDraft;
+    const body = $('.xr-article__body');
+    body.innerHTML = state.htmlDraft;
+
+    // Rehydrate entity marks for any refs the article was loaded with.
+    // Best-effort: marks that can't be matched back to their source text
+    // (because the user edited the body between captures) are silently
+    // skipped; the p-tag on publish is what actually matters.
+    if (state.article.entities && state.article.entities.length > 0) {
+        rehydrateEntityMarks(body, state.article.entities)
+            .catch((err) => console.warn('[X-Ray Reader] rehydrate failed:', err));
+    }
+
+    // Mount the entity tagger on the article body. Its onTag callback
+    // pushes the resolved ref onto the article's entity list and marks
+    // state as dirty so the publish path picks it up.
+    if (state._taggerUninstall) state._taggerUninstall();
+    state._taggerUninstall = installEntityTagger({
+        container: body,
+        onTag: (ref) => {
+            // De-dup: same entity_id + context → ignore. Avoids accidental
+            // double-tagging when the user re-selects the same text.
+            const dup = state.article.entities.find(
+                (e) => e.entity_id === ref.entity_id && e.context === ref.context
+            );
+            if (!dup) state.article.entities.push(ref);
+            // Sync htmlDraft with whatever the mark wrap did to the body.
+            state.htmlDraft = body.innerHTML;
+            state.dirtySource = 'reader';
+        }
+    });
 
     // Wire metadata-field edits back to the article object.
     main.querySelectorAll('[contenteditable]').forEach((el) => {
@@ -679,7 +716,8 @@ async function publish() {
 
         // Article event.
         const article = { ...state.article, content: state.markdownDraft, markdown: state.markdownDraft };
-        const unsignedArticle = await EventBuilder.buildArticleEvent(article, [], userPubkey, []);
+        const entityRefs = Array.isArray(state.article.entities) ? state.article.entities : [];
+        const unsignedArticle = await EventBuilder.buildArticleEvent(article, entityRefs, userPubkey, []);
 
         btn.textContent = totalEvents > 1 ? `Publishing (1/${totalEvents})…` : 'Publishing…';
         const articleResp = await browserApi.runtime.sendMessage({
@@ -862,6 +900,16 @@ function flattenCommentTree(tree) {
 // ------------------------------------------------------------------
 
 async function init() {
+    // Entity layer bootstrap — swap Storage.entities for the real
+    // registry so event-builder's `p`-tag path resolves entities
+    // instead of always seeing null, and hydrate LocalKeyManager
+    // from chrome.storage.local so any already-created entity keypairs
+    // are usable by the tagger + publish flow.
+    try { installEntityStorageBridge(); } catch (_) { /* idempotent */ }
+    try { await LocalKeyManager.init(); } catch (err) {
+        console.warn('[X-Ray Reader] LocalKeyManager init failed:', err);
+    }
+
     try {
         await loadArticle();
     } catch (err) {
