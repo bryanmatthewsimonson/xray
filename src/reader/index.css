@@ -1,0 +1,29 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #1a1a1a;
+  color: #e6e6e6;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  min-height: 100vh;
+}
+
+.xr-reader__placeholder {
+  max-width: 680px;
+  margin: 80px auto;
+  padding: 0 24px;
+  line-height: 1.6;
+}
+
+.xr-reader__placeholder h1 {
+  font-size: 28px;
+  margin: 0 0 20px;
+}
+
+.xr-reader__placeholder p {
+  color: #9a9a9a;
+}
+
+.xr-reader__placeholder a {
+  color: #8b5cf6;
+}

@@ -3,7 +3,10 @@
 // content script, so we don't need to worry about the MV3 service worker
 // lifecycle here.
 
-var NostrClient = {
+import { Utils } from './utils.js';
+import { CONFIG } from './config.js';
+
+export const NostrClient = {
   connections: new Map(),
   subscriptions: new Map(),
   messageQueue: [],

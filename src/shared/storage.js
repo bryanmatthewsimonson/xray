@@ -7,7 +7,10 @@
 // Values are stored JSON-serialized just like the original script so that
 // exports/imports remain compatible.
 
-var Storage = (() => {
+import { CONFIG } from './config.js';
+import { Utils } from './utils.js';
+
+export const Storage = (() => {
   const area = (typeof browser !== 'undefined' && browser.storage) ? browser.storage.local : chrome.storage.local;
 
   const rawGet = (key) => new Promise((resolve) => {

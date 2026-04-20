@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "X-Ray — NOSTR URL Metadata & Article Capture",
-  "version": "0.1.0",
-  "description": "See NOSTR-sourced metadata for any URL — annotations, fact-checks, ratings, comments, headline corrections. Capture articles as Markdown and publish back to NOSTR.",
+  "version": "0.2.0",
+  "description": "Capture articles as Markdown and publish to NOSTR — Chrome/Firefox MV3 extension.",
   "author": "Decentralized News Network",
 
   "icons": {
@@ -26,9 +26,13 @@
     "open_in_tab": true
   },
 
+  "side_panel": {
+    "default_path": "src/sidepanel/index.html"
+  },
+
   "background": {
-    "service_worker": "src/background/service-worker.js",
-    "scripts": ["src/background/service-worker.js"],
+    "service_worker": "dist/background.bundle.js",
+    "scripts": ["dist/background.bundle.js"],
     "type": "module"
   },
 
@@ -37,7 +41,9 @@
     "notifications",
     "scripting",
     "activeTab",
-    "contextMenus"
+    "contextMenus",
+    "sidePanel",
+    "declarativeNetRequest"
   ],
 
   "host_permissions": [
@@ -56,22 +62,7 @@
       "matches": ["<all_urls>"],
       "run_at": "document_idle",
       "all_frames": false,
-      "js": [
-        "src/content/01-config.js",
-        "src/content/02-utils.js",
-        "src/content/03-storage.js",
-        "src/content/04-readability.js",
-        "src/content/05-turndown.js",
-        "src/content/06-content-processor.js",
-        "src/content/07-nostr-crypto.js",
-        "src/content/08-nostr-client.js",
-        "src/content/09-nsecbunker-client.js",
-        "src/content/10-nip07-client.js",
-        "src/content/10b-local-key-manager.js",
-        "src/content/11-event-builder.js",
-        "src/content/13-ui.js",
-        "src/content/15-init.js"
-      ],
+      "js": ["dist/content.bundle.js"],
       "css": ["src/content/content.css"]
     }
   ],
@@ -82,6 +73,26 @@
       "matches": ["<all_urls>"]
     }
   ],
+
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "csp_strip",
+        "enabled": true,
+        "path": "rules/csp-strip.json"
+      }
+    ]
+  },
+
+  "commands": {
+    "xray:toggle": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+X",
+        "mac": "Command+Shift+X"
+      },
+      "description": "Toggle the X-Ray capture panel on the current tab"
+    }
+  },
 
   "browser_specific_settings": {
     "gecko": {

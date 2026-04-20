@@ -8,7 +8,16 @@
 //     against kinds 32123–32144) has been removed as part of the push toward
 //     userscript v4.2 parity. See roadmap: #20, Phase 0: #11.
 
-var UI = {
+import { CONFIG } from '../shared/config.js';
+import { Utils } from '../shared/utils.js';
+import { Storage } from '../shared/storage.js';
+import { ContentProcessor } from '../shared/content-processor.js';
+import { EventBuilder } from '../shared/event-builder.js';
+import { NostrClient } from '../shared/nostr-client.js';
+import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
+import { NIP07Client } from './nip07-client.js';
+
+export const UI = {
   elements: {},
   state: {
     isOpen: false,

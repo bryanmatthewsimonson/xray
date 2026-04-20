@@ -2,7 +2,11 @@
 // event/tag shape to the userscript so existing relays/consumers continue
 // to parse what X-Ray emits.
 
-var EventBuilder = {
+import { NostrCrypto } from './crypto.js';
+import { ContentProcessor } from './content-processor.js';
+import { Utils } from './utils.js';
+
+export const EventBuilder = {
   // NIP-23 long-form article (kind 30023).
   buildArticleEvent: async (article, options = {}) => {
     const {

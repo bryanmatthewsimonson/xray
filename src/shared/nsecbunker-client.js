@@ -1,7 +1,10 @@
 // NSecBunker WebSocket client. Ported verbatim from the userscript.
 // Only the default URL changed (uses the user preference if set).
 
-var NSecBunkerClient = {
+import { CONFIG } from './config.js';
+import { Utils } from './utils.js';
+
+export const NSecBunkerClient = {
   ws: null,
   connected: false,
   url: null,

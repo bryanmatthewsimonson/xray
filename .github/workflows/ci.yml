@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   lint-and-build:
-    name: web-ext lint + build
+    name: build + lint + package
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -23,6 +23,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Install web-ext
         run: npm install --global web-ext@latest
@@ -32,9 +36,9 @@ jobs:
           node --version
           web-ext --version
 
-      - name: Syntax-check every JS file
-        # Defence-in-depth: caches any accidental syntax regression before
-        # the more expensive web-ext run.
+      - name: Syntax-check source JS
+        # Defence-in-depth: catches accidental syntax regressions in the
+        # ES module sources before esbuild bundles them.
         run: |
           set -e
           fail=0
@@ -43,14 +47,27 @@ jobs:
           done < <(find src -name '*.js' -type f)
           exit "$fail"
 
+      - name: Build bundles (esbuild)
+        run: npm run build
+
+      - name: Run unit tests
+        # Phase 1 lands the crypto test suite; until then there's nothing
+        # under tests/ and `node --test` is a no-op.
+        run: |
+          if compgen -G "tests/*.test.*" > /dev/null; then
+            npm test
+          else
+            echo "No tests yet; skipping."
+          fi
+
       - name: web-ext lint
-        # Uses defaults: warnings are non-fatal, errors fail the job.
+        # Default: warnings non-fatal, errors fail the job.
         run: web-ext lint --source-dir . --self-hosted
 
       - name: web-ext build
         run: web-ext build --source-dir . --artifacts-dir web-ext-artifacts --overwrite-dest
 
-      - name: Upload build artifact
+      - name: Upload packaged extension
         uses: actions/upload-artifact@v4
         with:
           name: xray-unpacked-${{ github.sha }}

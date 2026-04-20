@@ -3,7 +3,9 @@
 // cannot see page globals. We talk to src/page/nip07-bridge.js (injected
 // into the MAIN world via the manifest) through tagged window.postMessage.
 
-var NIP07Client = (() => {
+import { Utils } from '../shared/utils.js';
+
+export const NIP07Client = (() => {
   const TAG = 'XRAY_NIP07';
   let reqSeq = 0;
   let ready = false;         // has the MAIN-world bridge signalled it loaded?

@@ -2,7 +2,16 @@
 // image embedding. The userscript used GM_xmlhttpRequest to fetch
 // cross-origin images; we use fetch + host_permissions instead.
 
-var ContentProcessor = {
+import { Readability } from '@mozilla/readability';
+import TurndownService from 'turndown';
+import { CONFIG } from './config.js';
+import { Utils } from './utils.js';
+
+// Note: turndown-plugin-gfm (tables, strikethrough, task lists) is a
+// declared dependency but isn't wired into the converter yet. Will be
+// used when the reader view lands in Phase 2.
+
+export const ContentProcessor = {
   extractArticle: () => {
     const documentClone = document.cloneNode(true);
     const reader = new Readability(documentClone);

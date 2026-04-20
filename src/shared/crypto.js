@@ -2,7 +2,9 @@
 // signers (NIP-07 providers or NSecBunker); this module only handles
 // deterministic hashing + serialization that the browser can do natively.
 
-var NostrCrypto = {
+import { Utils } from './utils.js';
+
+export const NostrCrypto = {
   generatePrivateKey: () => {
     const array = new Uint8Array(32);
     crypto.getRandomValues(array);

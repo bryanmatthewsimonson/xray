@@ -14,7 +14,11 @@
 // port — it's the cause of the "LocalKeyManager is not defined"
 // error that aborted init and prevented the FAB from appearing).
 
-var LocalKeyManager = {
+import { Storage } from './storage.js';
+import { Utils } from './utils.js';
+import { NostrCrypto } from './crypto.js';
+
+export const LocalKeyManager = {
     // Store keys locally (encrypted with user password in future).
     // This is a fallback when NSecBunker is not available.
 

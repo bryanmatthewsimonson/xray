@@ -1,16 +1,17 @@
-// X-Ray background service worker (MV3).
+// X-Ray background service worker (MV3) — bundle entry.
 //
-// Responsibilities:
+// Phase 0 responsibilities:
 //   - Register context-menu items on install/update.
 //   - Forward context-menu clicks to the content script in the active tab.
-//   - Bridge notifications (the userscript used GM_notification; we use
-//     chrome.notifications). Content scripts send us a structured message
-//     and we pop the native OS notification.
 //   - Relay popup-driven actions (e.g. "Open Article Capture") to the
 //     content script in the current tab.
+//   - Bridge xray:notify → chrome.notifications.
+//   - Handle the keyboard-shortcut `command` (`Ctrl/Cmd+Shift+X`) by
+//     dispatching `xray:toggle` to the active tab.
 //
-// The actual UI logic stays in the content scripts — this worker is a
-// thin dispatcher so we don't have to re-implement the capture panel here.
+// Phase 1 (crypto) and Phase 2 (capture) add imports from ../shared/*.
+// Phase 3+ moves the relay client and more heavy lifting here. For now,
+// this worker is a thin dispatcher.
 
 const MENU_IDS = {
     OPEN_CAPTURE: 'xray:open-capture',
@@ -114,4 +115,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     sendResponse({ ok: false, error: 'unknown message type' });
     return false;
+});
+
+// ------------------------------------------------------------------
+// Keyboard commands
+// ------------------------------------------------------------------
+
+chrome.commands?.onCommand.addListener((command) => {
+    if (command !== 'xray:toggle') return;
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const tab = tabs && tabs[0];
+        if (!tab || !tab.id) return;
+        chrome.tabs.sendMessage(tab.id, { type: 'xray:toggle' }).catch((err) => {
+            console.warn('[X-Ray] Failed to deliver shortcut command:', err);
+        });
+    });
 });
