@@ -199,6 +199,41 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // async sendResponse
     }
 
+    // Content script → worker: fetch a YouTube transcript (timedtext API).
+    //
+    // The SW's fetch has two advantages over a content-script fetch:
+    //   1. It's outside the content-script's isolated world, so the
+    //      standard Chrome networking stack handles cookies the way
+    //      YouTube's own client expects.
+    //   2. A declarativeNetRequest rule (rules/referer-youtube.json)
+    //      rewrites the outgoing Referer header to
+    //      https://www.youtube.com/. Without that, the signed baseUrl
+    //      silently returns HTTP 200 with a 0-byte body even for logged-in
+    //      users — the 0-byte response is YouTube's "sorry, wrong caller"
+    //      signal.
+    if (message.type === 'xray:youtube:fetchTranscript') {
+        const url = message.url;
+        if (!url) {
+            sendResponse({ ok: false, error: 'missing url' });
+            return false;
+        }
+        (async () => {
+            try {
+                const res = await fetch(url, {
+                    method: 'GET',
+                    credentials: 'include',
+                    headers: { Accept: 'application/json,*/*' },
+                    signal: AbortSignal.timeout(15000)
+                });
+                const body = await res.text();
+                sendResponse({ ok: true, status: res.status, body });
+            } catch (err) {
+                sendResponse({ ok: false, error: err && err.message ? err.message : String(err) });
+            }
+        })();
+        return true;
+    }
+
     // Content script OR reader page → worker: fetch Substack post metadata
     // by slug. Uses credentials:'include' so the user's Substack session
     // cookie unlocks paywalled bodies automatically.

@@ -166,29 +166,52 @@ export function selectTracks(tracks, originLang, userLang) {
 // ------------------------------------------------------------------
 
 /**
- * Fetch a caption track by baseUrl and parse into timestamped events.
- * Same-origin on youtube.com, so session cookies + Referer are correct
- * automatically.
+ * Fetch a caption track. Delegates to the background service worker
+ * (xray:youtube:fetchTranscript message) which:
+ *   1. issues the request with credentials:'include' so cookies travel,
+ *   2. has its Referer header rewritten to https://www.youtube.com/
+ *      by a declarativeNetRequest rule — the signed baseUrl silently
+ *      returns 0 bytes without that specific Referer, even with
+ *      session cookies and a browser user-agent.
  *
- * Returns: { events: [{ startMs, durationMs, text }, …], raw }
- * Returns null on any fetch/parse failure.
+ * Returns { events: [{ startMs, durationMs, text }, …] } on success,
+ * or { events: null, error: <string> } on failure. The synthesizer
+ * propagates that error into the composed transcript block so the
+ * reader surfaces a specific reason, not a generic "fetch failed".
  */
 export async function fetchTranscript(baseUrl) {
     try {
         const url = new URL(baseUrl, window.location.origin);
         url.searchParams.set('fmt', 'json3');
-        const res = await fetch(url.toString(), {
-            credentials: 'include',
-            signal: AbortSignal.timeout(15000)
+
+        const resp = await chrome.runtime.sendMessage({
+            type: 'xray:youtube:fetchTranscript',
+            url: url.toString()
         });
-        if (!res.ok) return null;
-        const body = await res.text();
-        if (!body || body.length < 8) return null; // YouTube returns 0-byte on auth/session fail
-        const data = JSON.parse(body);
-        return shapeTranscript(data);
+
+        if (!resp || !resp.ok) {
+            const reason = (resp && resp.error) || 'no response from service worker';
+            console.warn('[X-Ray YouTube] transcript fetch failed:', reason, 'for', baseUrl);
+            return { events: null, error: reason };
+        }
+        if (!resp.body || resp.body.length < 8) {
+            console.warn('[X-Ray YouTube] transcript fetch returned empty body — YouTube dropped the request. HTTP status was', resp.status);
+            return { events: null, error: `empty response (HTTP ${resp.status || '?'}) — YouTube gated the transcript` };
+        }
+        let data;
+        try { data = JSON.parse(resp.body); }
+        catch (err) {
+            console.warn('[X-Ray YouTube] transcript body was not JSON:', err, 'first 120 chars:', resp.body.slice(0, 120));
+            return { events: null, error: 'malformed JSON response' };
+        }
+        const shaped = shapeTranscript(data);
+        if (!shaped.events || shaped.events.length === 0) {
+            return { events: [], error: 'transcript returned with no content' };
+        }
+        return shaped;
     } catch (err) {
-        console.warn('[X-Ray YouTube] transcript fetch failed:', err);
-        return null;
+        console.warn('[X-Ray YouTube] transcript fetch exception:', err, 'for', baseUrl);
+        return { events: null, error: err && err.message ? err.message : String(err) };
     }
 }
 
@@ -243,8 +266,8 @@ export async function synthesizeArticle() {
                 languageCode: t.languageCode,
                 displayName:  trackDisplayName(t),
                 role:         t.role,
-                events:       data ? data.events : null,
-                error:        data ? null : 'fetch failed',
+                events:       data && Array.isArray(data.events) ? data.events : null,
+                error:        (data && data.error) || null,
                 baseUrl:      t.baseUrl
             };
         })
@@ -320,9 +343,13 @@ export async function synthesizeArticle() {
 }
 
 function trackDisplayName(track) {
-    const name = (track.name && (track.name.simpleText ||
-                   (Array.isArray(track.name.runs) && track.name.runs[0] && track.name.runs[0].text))) || '';
-    return name || track.languageCode || 'caption';
+    const rawName = (track.name && (track.name.simpleText ||
+                     (Array.isArray(track.name.runs) && track.name.runs[0] && track.name.runs[0].text))) || '';
+    // YouTube embeds "(auto-generated)" into the ASR track's own
+    // display name. We rebuild the label ourselves, so strip it here
+    // to avoid "English (auto-generated) (auto-generated, origin language)".
+    const cleaned = rawName.replace(/\s*\(auto-generated\)\s*$/i, '').trim();
+    return cleaned || track.languageCode || 'caption';
 }
 
 /**

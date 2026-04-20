@@ -14,5 +14,20 @@
     "condition": {
       "resourceTypes": ["main_frame", "sub_frame"]
     }
+  },
+  {
+    "id": 2,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        { "header": "Referer", "operation": "set", "value": "https://www.youtube.com/" },
+        { "header": "Origin",  "operation": "set", "value": "https://www.youtube.com" }
+      ]
+    },
+    "condition": {
+      "urlFilter": "||youtube.com/api/timedtext",
+      "resourceTypes": ["xmlhttprequest"]
+    }
   }
 ]
