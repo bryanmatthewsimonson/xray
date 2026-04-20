@@ -377,23 +377,50 @@ async function scrapeDomTranscript() {
 
     console.error('[X-Ray YouTube] found', segments.length, 'transcript segments');
 
-    // Extract cues.
+    // Extract cues. Uses a text-walk strategy so it works across both the
+    // legacy `ytd-transcript-segment-renderer` shape (with #segment-timestamp
+    // / .segment-text children) and the current `transcript-segment-view-model`
+    // shape, whose internals have different class names but the same visible
+    // pattern: one text node is a timestamp, the rest is caption text.
+    const TS_RE = /\b(\d{1,2}):(\d{2})(?::(\d{2}))?\b/;
     const events = [];
     segments.forEach((seg) => {
+        // 1. Try the legacy named selectors first — cheap and exact.
+        let tsText = '';
+        let capText = '';
         const tsEl  = seg.querySelector('#segment-timestamp, .segment-timestamp, [class*="timestamp" i]');
         const txtEl = seg.querySelector('yt-formatted-string.segment-text, #segment-text, .segment-text, [class*="segment-text" i]');
-        if (!tsEl || !txtEl) return;
+        if (tsEl && txtEl) {
+            tsText  = (tsEl.textContent || '').trim();
+            capText = (txtEl.textContent || '').trim();
+        } else {
+            // 2. Fallback: walk text nodes. The first node whose trimmed
+            //    content matches a mm:ss (or h:mm:ss) timestamp is the
+            //    timestamp; everything else concatenated is the caption.
+            const walker = document.createTreeWalker(seg, NodeFilter.SHOW_TEXT);
+            const parts = [];
+            let node;
+            while ((node = walker.nextNode())) {
+                const t = (node.nodeValue || '').trim();
+                if (!t) continue;
+                if (!tsText && /^\d{1,2}:\d{2}(:\d{2})?$/.test(t)) {
+                    tsText = t;
+                    continue;
+                }
+                parts.push(t);
+            }
+            capText = parts.join(' ').replace(/\s{2,}/g, ' ').trim();
+        }
 
-        const raw = (tsEl.textContent || '').trim();
-        const m = raw.match(/^(\d+):(\d{1,2})(?::(\d{2}))?/);
+        if (!tsText || !capText) return;
+        const m = tsText.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
         if (!m) return;
-        const h = m[3] !== undefined ? parseInt(m[1], 10) : 0;
+        const h  = m[3] !== undefined ? parseInt(m[1], 10) : 0;
         const mm = m[3] !== undefined ? parseInt(m[2], 10) : parseInt(m[1], 10);
         const ss = m[3] !== undefined ? parseInt(m[3], 10) : parseInt(m[2], 10);
         const startMs = (h * 3600 + mm * 60 + ss) * 1000;
 
-        const text = (txtEl.textContent || '').trim();
-        if (text) events.push({ startMs, durationMs: 0, text });
+        events.push({ startMs, durationMs: 0, text: capText });
     });
 
     for (let i = 0; i < events.length - 1; i++) {
@@ -409,22 +436,22 @@ async function scrapeDomTranscript() {
     return { events, error: null, source: 'dom-scrape', footerText };
 }
 
+// Union selector for transcript segments, covering every shape YouTube
+// has shipped in the live-TV/kevlar UI. Order doesn't matter here —
+// querySelectorAll returns a combined NodeList.
+const TRANSCRIPT_SEGMENT_SELECTOR =
+    'transcript-segment-view-model, ' +            // current shape (late 2025)
+    'ytd-transcript-segment-renderer, ' +           // legacy shape
+    'ytd-transcript-body-renderer ytd-transcript-segment-renderer, ' +
+    '[class*="transcript-segment" i]';
+
 /**
  * Try several selectors for the transcript segments. YouTube has
  * changed these over time — handling a few variants keeps the scraper
  * alive across updates.
  */
 function pickTranscriptSegments() {
-    const selectors = [
-        'ytd-transcript-segment-renderer',
-        'ytd-transcript-body-renderer ytd-transcript-segment-renderer',
-        '[class*="transcript-segment" i]'
-    ];
-    for (const sel of selectors) {
-        const list = document.querySelectorAll(sel);
-        if (list.length > 0) return list;
-    }
-    return document.querySelectorAll('ytd-transcript-segment-renderer'); // empty list
+    return document.querySelectorAll(TRANSCRIPT_SEGMENT_SELECTOR);
 }
 
 function findTranscriptButton() {
@@ -451,10 +478,10 @@ function findTranscriptButton() {
 
 function waitForSegments(timeoutMs) {
     return new Promise((resolve) => {
-        if (document.querySelector('ytd-transcript-segment-renderer')) return resolve();
+        if (document.querySelector(TRANSCRIPT_SEGMENT_SELECTOR)) return resolve();
         const start = Date.now();
         const obs = new MutationObserver(() => {
-            if (document.querySelector('ytd-transcript-segment-renderer')) {
+            if (document.querySelector(TRANSCRIPT_SEGMENT_SELECTOR)) {
                 obs.disconnect(); resolve();
             } else if (Date.now() - start > timeoutMs) {
                 obs.disconnect(); resolve();
