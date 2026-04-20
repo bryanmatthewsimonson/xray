@@ -2,14 +2,37 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>X-Ray Reader</title>
   <link rel="stylesheet" href="index.css" />
 </head>
-<body>
-  <main class="xr-reader__placeholder">
-    <h1>X-Ray Reader</h1>
-    <p>Full reader view arrives in Phase 2 (capture parity) — WYSIWYG editor, markdown toggle, publish flow. See the <a href="https://github.com/bryanmatthewsimonson/xray/issues/20" target="_blank">roadmap</a>.</p>
+<body class="xr-reader">
+  <header class="xr-reader__chrome">
+    <div class="xr-reader__chrome-left">
+      <span class="xr-reader__brand">🩻 X-Ray</span>
+    </div>
+    <nav class="xr-reader__modes" role="tablist" aria-label="View mode">
+      <button class="xr-reader__mode-btn xr-reader__mode-btn--active" data-mode="reader"   role="tab" aria-selected="true">Reader</button>
+      <button class="xr-reader__mode-btn"                              data-mode="markdown" role="tab" aria-selected="false">Markdown</button>
+      <button class="xr-reader__mode-btn"                              data-mode="preview"  role="tab" aria-selected="false">Preview</button>
+    </nav>
+    <div class="xr-reader__chrome-right">
+      <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-close" title="Close tab">✕</button>
+      <button class="xr-reader__btn xr-reader__btn--primary" id="xr-publish" title="Publish to NOSTR">
+        Publish
+      </button>
+    </div>
+  </header>
+
+  <main class="xr-reader__main" id="xr-main">
+    <div class="xr-reader__loading" id="xr-loading">
+      <div class="xr-reader__spinner"></div>
+      <p>Loading article…</p>
+    </div>
   </main>
+
+  <div class="xr-reader__toast" id="xr-toast" hidden></div>
+
   <script src="../../dist/reader.bundle.js"></script>
 </body>
 </html>
