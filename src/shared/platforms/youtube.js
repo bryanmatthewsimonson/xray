@@ -394,6 +394,14 @@ async function scrapeDomTranscript() {
     const A11Y_DURATION_RE =
         /^\d+\s+(hour|minute|second)s?(,\s*\d+\s+(hour|minute|second)s?)*\.?$/i;
     const events = [];
+
+    // Cross-segment dedup: if the SAME cue appears as 3 DOM elements
+    // (YouTube's virtual-scroll or a11y shadow rendering; see the
+    // u-vMNzHgSHI regression, April 2026), this Set collapses them to
+    // one event. Keyed by `startMs:textHead` — `textHead` is a
+    // 64-char prefix to avoid huge keys on long cues.
+    const seenKeys = new Set();
+
     segments.forEach((seg) => {
         // 1. Try the legacy named selectors first — cheap and exact.
         let tsText = '';
@@ -407,10 +415,7 @@ async function scrapeDomTranscript() {
             // 2. Fallback: walk text nodes. The first node whose trimmed
             //    content matches a mm:ss (or h:mm:ss) timestamp is the
             //    timestamp; everything else concatenated is the caption.
-            //    Text nodes inside an aria-hidden ancestor, or whose text
-            //    is a standalone duration label ("9 seconds", "1 minute,
-            //    5 seconds"), are treated as accessibility fluff and
-            //    dropped.
+            //
             // Why we don't filter on aria-hidden: YouTube's new
             // `transcript-segment-view-model` wraps the visible timestamp
             // ("0:09") inside an aria-hidden span, because the accessible
@@ -419,8 +424,15 @@ async function scrapeDomTranscript() {
             // timestamp, leaving every segment unanchored and discarded
             // downstream. The duration-label regex below is sufficient
             // to strip the actual screen-reader fluff.
+            //
+            // Intra-segment dedup: when YouTube nests duplicate text
+            // nodes inside a segment (same string appears N times
+            // because a shadow/animation layer renders the same
+            // content), keep only the first occurrence of each exact
+            // string so the joined capText doesn't 3× itself.
             const walker = document.createTreeWalker(seg, NodeFilter.SHOW_TEXT);
             const parts = [];
+            const seenParts = new Set();
             let node;
             while ((node = walker.nextNode())) {
                 const t = (node.nodeValue || '').trim();
@@ -434,6 +446,8 @@ async function scrapeDomTranscript() {
                     tsText = t;
                     continue;
                 }
+                if (seenParts.has(t)) continue;     // ← dedup within-segment
+                seenParts.add(t);
                 parts.push(t);
             }
             capText = parts.join(' ').replace(/\s{2,}/g, ' ').trim();
@@ -447,19 +461,33 @@ async function scrapeDomTranscript() {
         const ss = m[3] !== undefined ? parseInt(m[3], 10) : parseInt(m[2], 10);
         const startMs = (h * 3600 + mm * 60 + ss) * 1000;
 
+        // Cross-segment dedup: same timestamp + same head-of-text
+        // means we've already emitted this cue from a prior DOM
+        // copy.
+        const dedupKey = startMs + ':' + capText.slice(0, 64);
+        if (seenKeys.has(dedupKey)) return;
+        seenKeys.add(dedupKey);
+
         events.push({ startMs, durationMs: 0, text: capText });
     });
 
     // Post-extraction diagnostic — catches regressions where the
     // pre-extraction segment count (`found 103 transcript segments`)
-    // looks fine but the walker filter chain strips every cue. If
-    // extracted < 20% of segment count, something's eaten the cues.
+    // looks fine but the walker filter chain strips every cue OR
+    // returns far more segments than reality (virtualization). If
+    // the segment count is more than 3× the event count, log the
+    // first segment's outerHTML so the next regression is
+    // diagnosable from a user paste.
     console.error('[X-Ray YouTube] extracted', events.length,
                   'events from', segments.length, 'segments');
     if (events.length === 0 && segments.length > 0) {
         const sample = segments[0];
         console.error('[X-Ray YouTube] zero extraction — first segment shape:',
                       sample ? sample.outerHTML.slice(0, 500) : '(null)');
+    } else if (segments.length > events.length * 3 && events.length > 0) {
+        const sample = segments[0];
+        console.warn('[X-Ray YouTube] high segment/event ratio — possible virtualization or shadow DOM. First segment:',
+                     sample ? sample.outerHTML.slice(0, 600) : '(null)');
     }
 
     for (let i = 0; i < events.length - 1; i++) {
@@ -475,22 +503,60 @@ async function scrapeDomTranscript() {
     return { events, error: null, source: 'dom-scrape', footerText };
 }
 
-// Union selector for transcript segments, covering every shape YouTube
-// has shipped in the live-TV/kevlar UI. Order doesn't matter here —
-// querySelectorAll returns a combined NodeList.
-const TRANSCRIPT_SEGMENT_SELECTOR =
-    'transcript-segment-view-model, ' +            // current shape (late 2025)
-    'ytd-transcript-segment-renderer, ' +           // legacy shape
-    'ytd-transcript-body-renderer ytd-transcript-segment-renderer, ' +
-    '[class*="transcript-segment" i]';
+// Priority-ordered selectors for transcript segments. We try specific
+// element names FIRST — a non-empty result from one shuts down the
+// rest of the list.
+//
+// The fallback `[class*="transcript-segment" i]` is loose on purpose
+// (catches class-name renames across YouTube UI revisions) but it can
+// match a wrapper element in addition to its child segments; running
+// it only when the specific selectors return zero keeps us from
+// counting the same cue multiple times.
+//
+// For the waitForSegments MutationObserver we need a single selector
+// string that matches ANY shape — `WAIT_SELECTOR` is the OR-union. It
+// runs for side effects only (did segments appear yet?), so the
+// union's "might match descendants" quirk is harmless there.
+const PRIMARY_SEGMENT_SELECTORS = [
+    'transcript-segment-view-model',                                   // current shape (late 2025/2026)
+    'ytd-transcript-segment-renderer',                                 // legacy shape
+    'ytd-transcript-body-renderer ytd-transcript-segment-renderer'
+];
+const FUZZY_SEGMENT_SELECTOR = '[class*="transcript-segment" i]';
+const WAIT_SELECTOR = [...PRIMARY_SEGMENT_SELECTORS, FUZZY_SEGMENT_SELECTOR].join(', ');
+const TRANSCRIPT_SEGMENT_SELECTOR = WAIT_SELECTOR;                     // back-compat; legacy consumers
 
 /**
- * Try several selectors for the transcript segments. YouTube has
- * changed these over time — handling a few variants keeps the scraper
- * alive across updates.
+ * Return the transcript segment elements. Tries strict element-name
+ * selectors in order; only falls back to the loose class-substring
+ * match if every strict selector turns up empty. This prevents
+ * double-counting the same cue when YouTube's DOM has a wrapper with
+ * `transcript-segment-*` in its class name that encloses the real
+ * `<transcript-segment-view-model>` entries.
  */
 function pickTranscriptSegments() {
-    return document.querySelectorAll(TRANSCRIPT_SEGMENT_SELECTOR);
+    for (const sel of PRIMARY_SEGMENT_SELECTORS) {
+        const list = document.querySelectorAll(sel);
+        if (list.length > 0) return list;
+    }
+    // Loose fallback — but filter out elements nested inside another
+    // match so we don't count a wrapper plus its children.
+    const loose = document.querySelectorAll(FUZZY_SEGMENT_SELECTOR);
+    if (loose.length === 0) return loose;
+    const out = [];
+    for (const el of loose) {
+        let parent = el.parentElement;
+        let nestedInAnotherMatch = false;
+        while (parent) {
+            if (parent.matches && parent.matches(FUZZY_SEGMENT_SELECTOR)) {
+                nestedInAnotherMatch = true;
+                break;
+            }
+            parent = parent.parentElement;
+        }
+        if (!nestedInAnotherMatch) out.push(el);
+    }
+    return out;
 }
 
 function findTranscriptButton() {
