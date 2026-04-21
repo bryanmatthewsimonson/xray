@@ -1510,3 +1510,135 @@ body {
   border-color: var(--xr-primary);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--xr-primary) 25%, transparent);
 }
+
+/* ---------------- "Others' claims" relay-query modal (C5) ---------------- */
+
+.xr-claims__others-btn {
+  padding: 5px 11px;
+  border: 1px solid var(--xr-border);
+  border-radius: 999px;
+  background: var(--xr-surface-2);
+  color: var(--xr-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 100ms ease, border-color 100ms ease;
+}
+
+.xr-claims__others-btn:hover {
+  background: color-mix(in srgb, var(--xr-accent) 15%, transparent);
+  border-color: color-mix(in srgb, var(--xr-accent) 45%, transparent);
+}
+
+.xr-others-modal__card { width: min(680px, calc(100vw - 40px)); }
+
+.xr-others-modal__url {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+  background: var(--xr-bg);
+  font-size: 12px;
+}
+
+.xr-others-modal__url code {
+  font-family: ui-monospace, SF Mono, Menlo, monospace;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.xr-others-modal__body {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.xr-others-modal__loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 12px;
+  color: var(--xr-text-dim);
+  font-size: 13px;
+}
+
+.xr-others-modal__spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--xr-border);
+  border-top-color: var(--xr-primary);
+  border-radius: 50%;
+  animation: xr-others-spin 800ms linear infinite;
+}
+
+@keyframes xr-others-spin { to { transform: rotate(360deg); } }
+
+.xr-others-modal__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 8px 10px;
+  border: 1px dashed var(--xr-border);
+  border-radius: 6px;
+  background: var(--xr-surface-2);
+  font-size: 12px;
+  color: var(--xr-text-dim);
+}
+
+.xr-others-modal__relay {
+  font-family: ui-monospace, SF Mono, Menlo, monospace;
+  font-size: 11px;
+}
+
+.xr-others-modal__empty {
+  padding: 24px 12px;
+  color: var(--xr-text-dim);
+  font-style: italic;
+  font-size: 13px;
+  text-align: center;
+}
+
+.xr-others-modal__empty--err {
+  color: var(--xr-danger);
+  font-style: normal;
+}
+
+.xr-others-modal__author {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+  background: var(--xr-surface);
+}
+
+.xr-others-modal__author-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--xr-text-dim);
+  border-bottom: 1px solid var(--xr-border);
+  padding-bottom: 6px;
+}
+
+.xr-others-modal__author-pub {
+  font-family: ui-monospace, SF Mono, Menlo, monospace;
+  font-weight: 600;
+  color: var(--xr-text);
+}
+
+.xr-others-modal__when {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--xr-text-dim);
+  font-family: ui-monospace, SF Mono, Menlo, monospace;
+}

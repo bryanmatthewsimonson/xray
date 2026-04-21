@@ -188,6 +188,87 @@ export const NostrClient = {
     };
   },
 
+  /**
+   * One-shot query across a list of relays. Opens a REQ on each,
+   * accumulates EVENTs into a de-duplicated array (keyed by event
+   * id — pubs to multiple relays produce the same event id), and
+   * resolves either when EOSE has fired on every relay or the
+   * timeout hits, whichever comes first. Either way the
+   * subscription is CLOSEd and the array returned.
+   *
+   * Not a live subscription — the caller gets a point-in-time
+   * snapshot. For live subscriptions we'd build a second method
+   * that keeps the subscription open; Phase 5 C5 doesn't need it.
+   *
+   * @param {string[]} relayUrls
+   * @param {object}   filter        a NIP-01 filter object
+   * @param {number}   timeoutMs     default 5000
+   * @returns {Promise<{events, byRelay}>}
+   */
+  queryRelays: async (relayUrls, filter, timeoutMs = 5000) => {
+    const subId = 'xr_' + Math.random().toString(36).slice(2, 10);
+    const events  = new Map();                            // id → event
+    const byRelay = new Map();                            // url → { received, eose }
+    for (const url of relayUrls) byRelay.set(url, { received: 0, eose: false });
+
+    return await new Promise((resolve) => {
+      let resolved = false;
+      const finish = () => {
+        if (resolved) return;
+        resolved = true;
+        // Send CLOSE to any relay whose socket is still open.
+        for (const [url, ws] of NostrClient.connections) {
+          if (ws.readyState === WebSocket.OPEN) {
+            try { ws.send(JSON.stringify(['CLOSE', subId])); } catch (_) {}
+          }
+        }
+        NostrClient.subscriptions.delete(subId);
+        resolve({
+          events: [...events.values()],
+          byRelay: Object.fromEntries(byRelay.entries())
+        });
+      };
+
+      NostrClient.subscriptions.set(subId, {
+        onEvent: (event, url) => {
+          if (!event || !event.id) return;
+          const stat = byRelay.get(url);
+          if (stat) stat.received++;
+          // Dedup across relays: first wins, subsequent matching
+          // ids are ignored. Ids are BIP-340 hashes, so collisions
+          // are cryptographically improbable.
+          if (!events.has(event.id)) events.set(event.id, event);
+        },
+        onEose: (url) => {
+          const stat = byRelay.get(url);
+          if (stat) stat.eose = true;
+          // Resolve early if every relay has signalled end-of-stored.
+          if ([...byRelay.values()].every((s) => s.eose)) finish();
+        }
+      });
+
+      // Kick off the REQ per relay. Relay connection failures shouldn't
+      // block the whole query — just mark that relay as 'no data'.
+      for (const url of relayUrls) {
+        NostrClient.connectToRelay(url)
+          .then((ws) => {
+            try { ws.send(JSON.stringify(['REQ', subId, filter])); }
+            catch (_) { /* relay closed mid-send */ }
+          })
+          .catch((err) => {
+            Utils.log('queryRelays: connect failed', url, err && err.message);
+            // Mark as EOSE so we don't wait on it.
+            const stat = byRelay.get(url);
+            if (stat) stat.eose = true;
+            if ([...byRelay.values()].every((s) => s.eose)) finish();
+          });
+      }
+
+      // Hard ceiling regardless of EOSE state.
+      setTimeout(finish, timeoutMs);
+    });
+  },
+
   closeAll: () => {
     for (const [url, ws] of NostrClient.connections) {
       try { ws.close(); } catch (e) { Utils.log('Error closing connection:', url, e); }

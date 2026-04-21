@@ -635,6 +635,10 @@ export async function renderClaimsBar(claims) {
       <section class="xr-claims" id="xr-claims">
         <header class="xr-claims__head">
           <h2 class="xr-claims__title">Claims <span class="xr-claims__count">${claims.length}</span></h2>
+          <button type="button" class="xr-claims__others-btn" id="xr-claims-others"
+                  title="Fetch kind-30040 events for this article from the configured relays">
+            🌐 Others' claims
+          </button>
         </header>
         <div class="xr-claims__list">${rows.join('')}</div>
       </section>`;
@@ -652,6 +656,171 @@ async function describeEntity(id) {
     const e = await EntityModel.get(id);
     if (!e) return '(missing entity)';
     return `${ENTITY_ICONS[e.type] || '🔷'} ${e.name}`;
+}
+
+// ------------------------------------------------------------------
+// Others' claims — relay query + modal render (Phase 5 C5)
+// ------------------------------------------------------------------
+
+/**
+ * Render a modal populated by a kind-30040 relay query filtered by
+ * the article URL. Two-state UI:
+ *
+ *   loading  — skeleton with a spinner + "Querying N relays…"
+ *   result   — one card per distinct event, grouped by author npub.
+ *
+ * Kind-30040 events include the full structured tag set produced by
+ * `event-builder.buildClaimEvent` — we reuse that tag vocabulary to
+ * reconstruct the display (claim-text, claim-type, crux, confidence,
+ * attribution, subject, object, predicate, claimant, claim-ref on
+ * evidence links).
+ *
+ * @param {{ url: string, relays: string[] }} opts
+ */
+export function openOthersClaimsModal({ url, relays }) {
+    return new Promise((resolve) => {
+        const modal = document.createElement('div');
+        modal.className = 'xr-claim-modal';
+        modal.innerHTML = `
+          <div class="xr-claim-modal__backdrop"></div>
+          <div class="xr-claim-modal__card xr-others-modal__card">
+            <header class="xr-claim-modal__head">
+              <h2 class="xr-claim-modal__title">Others' claims on this article</h2>
+              <button type="button" class="xr-claim-modal__close" aria-label="Close">✕</button>
+            </header>
+            <div class="xr-claim-modal__body">
+              <div class="xr-others-modal__url">
+                <span class="xr-claim-modal__label">URL</span>
+                <code>${escapeHtml(url)}</code>
+              </div>
+              <div class="xr-others-modal__body" id="xr-others-body">
+                <div class="xr-others-modal__loading">
+                  <span class="xr-others-modal__spinner"></span>
+                  Querying ${relays.length} relay${relays.length === 1 ? '' : 's'}…
+                </div>
+              </div>
+            </div>
+            <footer class="xr-claim-modal__foot">
+              <button type="button" class="xr-claim-modal__btn xr-claim-modal__btn--ghost" data-action="close">Close</button>
+            </footer>
+          </div>
+        `;
+        document.body.appendChild(modal);
+
+        const close = () => {
+            document.removeEventListener('keydown', esc);
+            if (modal.parentNode) modal.parentNode.removeChild(modal);
+            resolve(null);
+        };
+        function esc(ev) { if (ev.key === 'Escape') close(); }
+        document.addEventListener('keydown', esc);
+        modal.querySelector('.xr-claim-modal__close').addEventListener('click', close);
+        modal.querySelector('.xr-claim-modal__backdrop').addEventListener('click', close);
+        modal.querySelector('[data-action="close"]').addEventListener('click', close);
+
+        const body = modal.querySelector('#xr-others-body');
+
+        // Kick off the query via the SW — it owns the relay pool.
+        chrome.runtime.sendMessage({
+            type: 'xray:relay:query',
+            relays,
+            filter:    { kinds: [30040], '#r': [url], limit: 200 },
+            timeoutMs: 6000
+        }, (resp) => {
+            if (!resp || !resp.ok) {
+                body.innerHTML = `<div class="xr-others-modal__empty xr-others-modal__empty--err">Query failed: ${escapeHtml((resp && resp.error) || 'no response from service worker')}</div>`;
+                return;
+            }
+            body.innerHTML = renderOthersClaims(resp.events, resp.byRelay);
+        });
+    });
+}
+
+/**
+ * Group kind-30040 events by author pubkey, parse tags into
+ * display-ready rows, and render cards.
+ */
+function renderOthersClaims(events, byRelay) {
+    const relayCount = Object.keys(byRelay || {}).length;
+    const eventCount = (events || []).length;
+
+    // Summary strip: how many events came from how many relays.
+    const summary = `<div class="xr-others-modal__summary">
+      ${eventCount} claim${eventCount === 1 ? '' : 's'} across ${relayCount} relay${relayCount === 1 ? '' : 's'}.
+      ${Object.entries(byRelay || {}).map(([url, s]) => {
+        const dot = s.received > 0 ? '🟢' : (s.eose ? '⚪' : '🔴');
+        return `<span class="xr-others-modal__relay" title="${escapeHtml(url)} — ${s.received} event${s.received === 1 ? '' : 's'}">${dot} ${escapeHtml(url.replace(/^wss?:\/\//, ''))}</span>`;
+      }).join('')}
+    </div>`;
+
+    if (eventCount === 0) {
+        return summary + `<div class="xr-others-modal__empty">No kind-30040 events for this URL on the queried relays — you may be first, or the piece hasn't been tagged yet.</div>`;
+    }
+
+    // Group by pubkey so one author's batch of claims renders together.
+    const byAuthor = new Map();
+    for (const ev of events) {
+        if (!byAuthor.has(ev.pubkey)) byAuthor.set(ev.pubkey, []);
+        byAuthor.get(ev.pubkey).push(ev);
+    }
+
+    const authorCards = [...byAuthor.entries()].map(([pubkey, evs]) => {
+        evs.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+        const shortNpub = pubkey.slice(0, 12);
+        const claims = evs.map((ev) => renderForeignClaim(ev)).join('');
+        return `
+          <section class="xr-others-modal__author">
+            <header class="xr-others-modal__author-head">
+              <span class="xr-others-modal__author-pub" title="${escapeHtml(pubkey)}">👤 ${escapeHtml(shortNpub)}…</span>
+              <span class="xr-others-modal__author-count">${evs.length} claim${evs.length === 1 ? '' : 's'}</span>
+            </header>
+            ${claims}
+          </section>`;
+    }).join('');
+
+    return summary + authorCards;
+}
+
+function renderForeignClaim(event) {
+    const tags = event.tags || [];
+    const firstOf = (name) => {
+        const t = tags.find((x) => x[0] === name);
+        return t ? t[1] : '';
+    };
+    const allOf = (name) => tags.filter((x) => x[0] === name).map((x) => x[1]);
+
+    const text        = firstOf('claim-text') || (event.content || '').slice(0, 200);
+    const type        = firstOf('claim-type') || 'factual';
+    const typeIcon    = CLAIM_TYPE_ICONS[type] || '📋';
+    const typeLabel   = CLAIM_TYPE_LABELS[type] || type;
+    const attribution = firstOf('attribution');
+    const isCrux      = firstOf('crux') === 'true';
+    const confidence  = firstOf('confidence');
+    const predicate   = firstOf('predicate');
+    const subjects    = allOf('subject');
+    const objects     = allOf('object');
+    const claimant    = firstOf('claimant');
+    const triple = (subjects.length || objects.length || predicate)
+        ? `<div class="xr-claims__triple"><em>${escapeHtml(subjects.join(', ') || '—')}</em> <strong>${escapeHtml(predicate || '—')}</strong> <em>${escapeHtml(objects.join(', ') || '—')}</em></div>`
+        : '';
+    const cruxLine = isCrux
+        ? `<span class="xr-claims__crux">★ crux${confidence ? ` · ${escapeHtml(confidence)}%` : ''}</span>`
+        : '';
+    const when = event.created_at
+        ? new Date(event.created_at * 1000).toLocaleDateString()
+        : '';
+
+    return `
+      <article class="xr-claims__item xr-claims__item--${escapeHtml(type)} ${isCrux ? 'xr-claims__item--crux' : ''}">
+        <div class="xr-claims__row-top">
+          <span class="xr-claims__type">${typeIcon} ${escapeHtml(typeLabel)}</span>
+          ${cruxLine}
+          <span class="xr-others-modal__when">${escapeHtml(when)}</span>
+        </div>
+        <div class="xr-claims__text">${escapeHtml(text)}</div>
+        ${triple}
+        <div class="xr-claims__claimant">${claimant ? `Attributed to <em>${escapeHtml(claimant)}</em> · ` : ''}${escapeHtml(CLAIM_ATTRIBUTION_LABELS[attribution] || attribution || 'editorial')}</div>
+      </article>`;
 }
 
 // ------------------------------------------------------------------

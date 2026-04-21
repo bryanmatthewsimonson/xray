@@ -364,6 +364,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // async
     }
 
+    // Reader / content script → worker: one-shot query across the
+    // configured relay pool. Returns the de-duplicated set of events
+    // + per-relay receive/EOSE stats. Used by Phase 5 C5's
+    // "View others' claims" flow and the Phase 7 archive reader.
+    if (message.type === 'xray:relay:query') {
+        const relays  = Array.isArray(message.relays) ? message.relays : [];
+        const filter  = message.filter;
+        const timeout = Number.isFinite(message.timeoutMs) ? message.timeoutMs : 5000;
+        if (!filter || typeof filter !== 'object') {
+            sendResponse({ ok: false, error: 'missing or invalid filter' });
+            return false;
+        }
+        if (relays.length === 0) {
+            sendResponse({ ok: false, error: 'no relays configured' });
+            return false;
+        }
+        NostrClient.queryRelays(relays, filter, timeout)
+            .then((out) => sendResponse({ ok: true, events: out.events, byRelay: out.byRelay }))
+            .catch((err) => sendResponse({ ok: false, error: err && err.message }));
+        return true; // async
+    }
+
     // Content script → worker: publish a signed event to relays.
     if (message.type === 'xray:relay:publish') {
         const relays = Array.isArray(message.relays) ? message.relays : [];

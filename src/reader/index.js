@@ -17,7 +17,7 @@ import { EntityModel, installEntityStorageBridge } from '../shared/entity-model.
 import { ClaimModel } from '../shared/claim-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import { installEntityTagger, rehydrateEntityMarks } from './entity-tagger.js';
-import { openClaimModal, openEvidenceLinkModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
+import { openClaimModal, openEvidenceLinkModal, openOthersClaimsModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
 
 const browserApi = typeof browser !== 'undefined' && browser.runtime ? browser : chrome;
 
@@ -230,6 +230,17 @@ async function refreshClaimsBar() {
     // some marks unanchored; the claim data itself is unaffected.
     const body = $('.xr-article__body');
     if (body) rehydrateClaimMarks(body, claims);
+
+    // "Others' claims" — queries the configured relay pool for
+    // kind-30040 events filtered by this article's URL. The handler
+    // lives on the bar header, not on individual cards.
+    const othersBtn = host.querySelector('#xr-claims-others');
+    if (othersBtn) {
+        othersBtn.addEventListener('click', async () => {
+            const relays = await getConfiguredRelays();
+            await openOthersClaimsModal({ url: state.article.url, relays });
+        });
+    }
 
     // Wire per-row actions.
     host.querySelectorAll('.xr-claims__item').forEach((row) => {
