@@ -35,9 +35,9 @@ Phase 1  ████████████████████  complete
 Phase 2  ████████████████████  complete
 Phase 3  ██████████░░░░░░░░░░  in progress — Substack + YouTube done, Twitter + generic pending
 Phase 4  ████████████████████  complete — entity model + tagger + kind-0 publish + side panel
-Phase 5  ░░░░░░░░░░░░░░░░░░░░  next up — claims + evidence linking
-Phase 6  ░░░░░░░░░░░░░░░░░░░░  blocked on Phase 4 (now unblocked — can start anytime)
-Phase 7  ░░░░░░░░░░░░░░░░░░░░  opportunistic (independent)
+Phase 5  ████████████████████  complete — claims + evidence links + relay query
+Phase 6  ░░░░░░░░░░░░░░░░░░░░  unblocked — entity sync via NIP-78 / NIP-44
+Phase 7  ░░░░░░░░░░░░░░░░░░░░  opportunistic — archive reader (relay query now in)
 Phase 8  ░░░░░░░░░░░░░░░░░░░░  deferred — split into sub-issues when started
 ```
 
@@ -339,46 +339,105 @@ Per issue #15:
 
 ---
 
-## Phase 5 — Claims + evidence linking ⏳
+## Phase 5 — Claims + evidence linking ✅
 
-**Issue:** [#16](https://github.com/bryanmatthewsimonson/xray/issues/16). Blocked on: Phase 4.
+**Issue:** [#16](https://github.com/bryanmatthewsimonson/xray/issues/16) (complete). Commits `73b1cae`, `c92bce7`,
+`5220719`, `d5703e7`, `cd966e2`.
 
-Structured factual claims with cross-content relationships. Claims
-reference entity pubkeys, so Phase 4 has to land first.
+### Claim data model (C1)
 
-### Data model
+- `src/shared/claim-model.js` — deterministic hash-based ids
+  (`claim_<sha256(source_url + '|' + normalized_text).slice(0,16)>`);
+  CRUD plus `getBySourceUrl` (crux-first sorted). Four types
+  (factual / causal / evaluative / predictive), four attributions
+  (direct_quote / paraphrase / editorial / thesis), crux + confidence
+  (0-100 rounded to int). Immutable id/text/source_url under
+  `update()`. `markPublished` doesn't bump `updated` — matching
+  entity-model re-publish-gate semantics.
+- 10 unit tests under `tests/claim-model.test.mjs`.
 
-- **Claim** — `id = claim_<sha256(source_url + text)>`, fields
-  `text / type / is_crux / confidence / claimant_entity_id /
-  subject_entity_ids[] / subject_text / object_entity_ids[] /
-  object_text / predicate / quote_date / attribution / source_url /
-  context`.
-- **Evidence link** — `{ source_claim_id, target_claim_id,
-  relationship ∈ {supports, contradicts, contextualizes}, note }`.
-- Storage keys: `article_claims`, `evidence_links`.
+### Reader claim extractor UI (C2)
 
-### Modules + events
+- `src/reader/claim-extractor.js` — `openClaimModal` with 4-button
+  type row, crux + confidence slider, attribution dropdown,
+  predicate + S/P/O pickers (entity-or-freetext with live autocomplete
+  against `EntityModel.search`), optional claimant + quote-date.
+- Entity-tagger popover gains a "📋 Add as claim" row that hands off
+  the selected text + surrounding paragraph as `context`.
+- Claims bar below the article body, one card per claim with triple,
+  claimant, attribution, published dot, edit/delete/link buttons.
+  Cruxes sort first.
+- Visual marks on claim text — `.xr-claim.xr-claim--<type>` with
+  dashed type-coded underline (amber solid for crux).
 
-- [ ] `shared/claim-model.js` — CRUD + hash-based IDs.
-- [ ] `reader/claim-extractor.js` (~809 LOC in the userscript) —
-      text-selection UI, four classification buttons (Factual /
-      Causal / Evaluative / Predictive), crux marking with
-      confidence slider, subject/predicate/object triple form,
-      attribution dropdown.
-- [ ] `shared/evidence-linker.js` — create evidence links; fetch
-      others' claims for the same URL via the SW relay pool.
-- [ ] **Kind 30040** — claim event. `buildClaimEvent()` already
-      stubbed in event-builder.
-- [ ] **Kind 30043** — evidence link event.
-  `buildEvidenceLinkEvent()` already stubbed.
-- [ ] **Kind 32125** — entity relationship event.
-  `buildEntityRelationshipEvent()` already stubbed.
+### Kind-30040 + kind-32125 publish wiring (C3)
 
-### UI
+- Publish flow batch-step 4: claims signed by the user's NIP-07.
+  `resolveClaimsToPublish` + `updated > publishedAt` gate.
+  `buildClaimEvent` fed a pre-fetched `EntityModel.getAll()` dict so
+  claimant / subject / object IDs resolve into `p` + name tags
+  without per-claim round-trips.
+- Batch-step 5: entity-relationship events (kind-32125). Derived
+  from claims' participants, de-duped by `{entityId}:{url}:{relType}`
+  (the addressable `d`-tag coord). Publishes kind-32125 once per
+  unique coord per session; replaceable-event semantics make
+  redundant emits cheap.
+- Entity-resolution step now unions tagged-entity ids with
+  claim-referenced ids so `p` tags don't dangle.
 
-- [ ] Claims bar below the reader body (compact chip list).
-- [ ] 🌐 "View others' claims" button queries relays for kind-30040
-      filtered by the article URL.
+### Evidence linking (C4)
+
+- `src/shared/evidence-linker.js` — deterministic hash-based ids
+  (`link_<sha256(source + '|' + target + '|' + relationship).slice(0,16)>`),
+  CRUD, `getForClaim` (both endpoints), `deleteForClaim` (called on
+  claim-delete cascade). Three relationship types: supports /
+  contradicts / contextualizes. 10 unit tests.
+- `openEvidenceLinkModal({ sourceClaim, candidates })` — picks target
+  claim from the article's other claims, picks relationship, optional
+  note.
+- Each claim card shows its evidence-link block with per-link ✕.
+- Batch-step 6: kind-30043 events. `resolveEvidenceLinksToPublish`
+  filters to links whose both endpoints are on this article; same
+  `updated > publishedAt` gate.
+
+### "View others' claims" (C5)
+
+- `NostrClient.queryRelays(relays, filter, timeoutMs)` — one-shot
+  REQ per relay, de-duped events + per-relay stats, all-EOSE or
+  timeout resolves, sends CLOSE before returning.
+- `xray:relay:query` SW handler.
+- 🌐 button in the claims-bar header → `openOthersClaimsModal` sends
+  `{ kinds: [30040], '#r': [url], limit: 200 }`. Grouped by author
+  npub; each card reconstructs from the event's tags.
+
+### Exit criteria — all ✅
+
+Per issue #16:
+
+- ✅ Selecting text → claim → Factual → save creates a claim with a
+  valid `claim_<hash>` id.
+- ✅ Marking a claim as crux with confidence 85 publishes a kind-30040
+  with `["crux","true"]` + `["confidence","85"]`.
+- ✅ Creating an evidence link between two claims publishes a
+  kind-30043 with the right relationship tag.
+- ✅ Claims bar in the reader view shows the local claims.
+- ✅ 🌐 "View others' claims" button queries relays for kind-30040
+  events filtered by the article URL.
+
+### Deferred (tracked separately)
+
+- **Evidence-link edit UX** — today the modal creates-only; delete +
+  recreate is the path for changing note / target / relationship.
+  `EvidenceLinker.update({ note })` already supports patching notes.
+- **Cross-article evidence links** — the model stores arbitrary claim
+  id pairs, but the reader UI only surfaces same-article candidates.
+  A "paste claim id" path or relay-query-based picker is a follow-up.
+- **"Import others' claim" affordance** — the "Others' claims" modal
+  is read-only. A one-click local-clone action could follow if the UX
+  warrants.
+- **Live subscriptions** — `queryRelays` is point-in-time. A sibling
+  `subscribeRelays()` for persistent subscriptions can slot in when
+  needed (Phase 7 archive reader, maybe).
 
 ---
 
