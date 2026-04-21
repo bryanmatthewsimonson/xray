@@ -35,6 +35,21 @@
         <input type="file" id="xr-import-input" accept="application/json,.json" hidden />
       </div>
     </footer>
+
+    <!-- Sync section — collapsed by default. Expands to show user-
+         identity status, import/export nsec, and push/pull/clear
+         buttons that round-trip the registry through relays via
+         kind-30078 + NIP-44 v2 encrypt-to-self. -->
+    <details class="xr-sync" id="xr-sync-section">
+      <summary class="xr-sync__summary">
+        <span>🔒 Sync across devices</span>
+        <span class="xr-sync__status" id="xr-sync-status">—</span>
+      </summary>
+      <div class="xr-sync__body" id="xr-sync-body">
+        <!-- Populated by sidepanel/index.js based on whether the user
+             has a primary identity configured. -->
+      </div>
+    </details>
   </section>
 
   <section class="xr-side__detail-view" hidden>

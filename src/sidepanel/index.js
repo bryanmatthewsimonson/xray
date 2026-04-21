@@ -17,6 +17,13 @@
 
 import { EntityModel, ENTITY_TYPES, ENTITY_ICONS, installEntityStorageBridge } from '../shared/entity-model.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
+import { Crypto } from '../shared/crypto.js';
+import { pushEntities, pullEntities, clearRemote } from '../shared/entity-sync.js';
+
+// Reserved key name in LocalKeyManager for the user's primary
+// identity. Used only by the sync flow — article publishing still
+// routes through NIP-07.
+const USER_KEY_NAME = 'xray:user';
 
 // ------------------------------------------------------------------
 // State
@@ -542,6 +549,247 @@ async function handleImport(file) {
 }
 
 // ------------------------------------------------------------------
+// Sync section — user identity + push/pull/clear
+// ------------------------------------------------------------------
+
+/**
+ * What the user sees when the 🔒 Sync details block opens. Two
+ * states: "needs identity" (no `xray:user` key stored yet) and
+ * "ready" (key present; buttons enabled).
+ */
+function renderSyncBody() {
+    const body = $('#xr-sync-body');
+    const statusSpan = $('#xr-sync-status');
+    const userKey = LocalKeyManager.getKey(USER_KEY_NAME);
+
+    if (!userKey || !userKey.privateKey) {
+        statusSpan.textContent = 'not configured';
+        statusSpan.className = 'xr-sync__status xr-sync__status--warn';
+        body.innerHTML = `
+          <p class="xr-sync__lead">
+            Sync lets this device push your entity registry to NOSTR
+            relays and pull on another device. Entities are encrypted
+            to your own pubkey via NIP-44 v2 before leaving the
+            browser — the relay stores ciphertext only.
+          </p>
+          <p class="xr-sync__warn">
+            ⚠ Paste your <code>nsec</code> below to enable sync. It's
+            stored locally in <code>chrome.storage.local</code>, same
+            trust model as the entity keys already on this device.
+            Only import on devices you trust.
+          </p>
+          <div class="xr-side__field">
+            <label for="xr-sync-nsec">Your nsec</label>
+            <input type="password" id="xr-sync-nsec"
+                   placeholder="nsec1…" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="xr-sync__btn-row">
+            <button type="button" class="xr-side__btn xr-side__btn--primary" id="xr-sync-import">Save identity</button>
+            <button type="button" class="xr-side__ghost-btn"                 id="xr-sync-generate">Generate new</button>
+          </div>
+        `;
+        $('#xr-sync-import').addEventListener('click', importNsec);
+        $('#xr-sync-generate').addEventListener('click', generateIdentity);
+        return;
+    }
+
+    statusSpan.textContent = userKey.npub.slice(0, 12) + '…';
+    statusSpan.className = 'xr-sync__status xr-sync__status--ok';
+    body.innerHTML = `
+      <div class="xr-sync__identity">
+        <div class="xr-side__key-row">
+          <span class="xr-side__key-label">npub</span>
+          <code class="xr-side__key-value">${escapeHtml(userKey.npub)}</code>
+          <button type="button" class="xr-side__ghost-btn" id="xr-sync-copy-npub">Copy</button>
+        </div>
+        <div class="xr-side__key-row">
+          <span class="xr-side__key-label">nsec</span>
+          <code class="xr-side__key-value" id="xr-sync-nsec-value">••••••••••••••••</code>
+          <button type="button" class="xr-side__ghost-btn" id="xr-sync-reveal">Reveal</button>
+        </div>
+      </div>
+
+      <div class="xr-sync__btn-row">
+        <button type="button" class="xr-side__btn xr-side__btn--primary" id="xr-sync-push">
+          ⬆ Push ${Object.keys(state.entities).length} entit${Object.keys(state.entities).length === 1 ? 'y' : 'ies'} to relays
+        </button>
+        <button type="button" class="xr-side__btn" id="xr-sync-pull">
+          ⬇ Pull from relays
+        </button>
+      </div>
+
+      <div class="xr-sync__btn-row">
+        <button type="button" class="xr-side__ghost-btn xr-side__ghost-btn--danger" id="xr-sync-clear">
+          Clear remote (NIP-09 delete)
+        </button>
+        <button type="button" class="xr-side__ghost-btn xr-side__ghost-btn--danger" id="xr-sync-forget">
+          Forget identity
+        </button>
+      </div>
+
+      <div class="xr-sync__log" id="xr-sync-log" hidden></div>
+    `;
+
+    $('#xr-sync-copy-npub').addEventListener('click', () => copyToClipboard(userKey.npub));
+    const revealBtn = $('#xr-sync-reveal');
+    revealBtn.addEventListener('click', () => {
+        const el = $('#xr-sync-nsec-value');
+        if (el.textContent === userKey.nsec) {
+            el.textContent = '••••••••••••••••';
+            revealBtn.textContent = 'Reveal';
+            revealBtn.onclick = null;
+        } else {
+            el.textContent = userKey.nsec;
+            revealBtn.textContent = 'Copy';
+            revealBtn.onclick = () => copyToClipboard(userKey.nsec);
+        }
+    });
+
+    $('#xr-sync-push').addEventListener('click',  () => runPush(userKey));
+    $('#xr-sync-pull').addEventListener('click',  () => runPull(userKey));
+    $('#xr-sync-clear').addEventListener('click', () => runClear(userKey));
+    $('#xr-sync-forget').addEventListener('click', forgetIdentity);
+}
+
+async function importNsec() {
+    const input = $('#xr-sync-nsec').value.trim();
+    if (!input) { toast('Paste an nsec or click Generate', 'warning'); return; }
+    let privHex = null;
+    try {
+        if (input.startsWith('nsec1')) {
+            privHex = Crypto.nsecToHex(input);
+        } else if (/^[0-9a-fA-F]{64}$/.test(input)) {
+            privHex = input.toLowerCase();
+        } else {
+            throw new Error('Expected nsec1… or a 64-character hex privkey');
+        }
+        if (!privHex || !/^[0-9a-f]{64}$/.test(privHex)) {
+            throw new Error('Failed to decode privkey');
+        }
+        await saveIdentity(privHex);
+        toast('Identity saved', 'success');
+    } catch (err) {
+        toast('Import failed: ' + (err.message || err), 'error', 5000);
+    }
+}
+
+async function generateIdentity() {
+    if (!confirm('Generate a brand-new NOSTR identity and use it for sync? You\'ll want to copy the nsec to any other device you plan to sync with.')) return;
+    try {
+        const privHex = Crypto.generatePrivateKey();
+        await saveIdentity(privHex);
+        toast('New identity generated — copy the nsec from the detail view', 'success', 5000);
+    } catch (err) {
+        toast('Generate failed: ' + (err.message || err), 'error');
+    }
+}
+
+async function saveIdentity(privHex) {
+    const pubkey = Crypto.getPublicKey(privHex);
+    // Bypass LocalKeyManager.createKey (which throws on duplicate) —
+    // reinstalling the identity should be allowed.
+    LocalKeyManager.keys.set(USER_KEY_NAME, {
+        name:       USER_KEY_NAME,
+        privateKey: privHex,
+        pubkey,
+        npub:       Crypto.hexToNpub(pubkey),
+        nsec:       Crypto.hexToNsec(privHex),
+        metadata:   { role: 'user-primary', source: 'sync-setup' },
+        created:    Math.floor(Date.now() / 1000)
+    });
+    await LocalKeyManager.save();
+    renderSyncBody();
+}
+
+async function forgetIdentity() {
+    if (!confirm('Remove the user identity from this device? Pushed events stay on relays. Local entities + their keypairs are untouched.')) return;
+    try {
+        await LocalKeyManager.deleteKey(USER_KEY_NAME);
+        toast('Identity removed from this device', 'success');
+        renderSyncBody();
+    } catch (err) {
+        toast('Remove failed: ' + (err.message || err), 'error');
+    }
+}
+
+async function configuredRelays() {
+    return new Promise((resolve) => {
+        chrome.storage.local.get(['preferences'], (res) => {
+            const raw = res && res.preferences;
+            let prefs = {};
+            try { prefs = typeof raw === 'string' ? JSON.parse(raw) : (raw || {}); }
+            catch (_) { prefs = {}; }
+            const relays = Array.isArray(prefs.default_relays) && prefs.default_relays.length > 0
+                ? prefs.default_relays
+                : ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.nostr.band'];
+            resolve(relays);
+        });
+    });
+}
+
+function setSyncLog(html) {
+    const log = $('#xr-sync-log');
+    if (!log) return;
+    log.hidden = false;
+    log.innerHTML = html;
+}
+
+async function runPush(userKey) {
+    setSyncLog('<em>Pushing…</em>');
+    try {
+        const relays = await configuredRelays();
+        const out = await pushEntities({ userPrivkey: userKey.privateKey, relays });
+        setSyncLog(`
+          <div>Pushed <strong>${out.pushed}</strong>, skipped ${out.skipped}, failed ${out.failed}.</div>
+          <details>
+            <summary>Per-entity breakdown</summary>
+            <ul>${out.perEntity.map((e) =>
+              `<li>${escapeHtml(e.id.slice(0, 18))}… — ${e.ok ? `✓ ${e.relays}/${e.total}` : `✗ ${escapeHtml(e.reason || 'failed')}`}</li>`
+            ).join('')}</ul>
+          </details>
+        `);
+        toast(`Push done: ${out.pushed}/${out.pushed + out.skipped + out.failed}`, out.failed === 0 ? 'success' : 'warning', 5000);
+    } catch (err) {
+        setSyncLog(`<div style="color:var(--xr-danger)">${escapeHtml(err.message || String(err))}</div>`);
+        toast('Push failed: ' + (err.message || err), 'error', 5000);
+    }
+}
+
+async function runPull(userKey) {
+    setSyncLog('<em>Pulling…</em>');
+    try {
+        const relays = await configuredRelays();
+        const out = await pullEntities({ userPrivkey: userKey.privateKey, relays });
+        setSyncLog(`
+          <div>Fetched <strong>${out.fetched}</strong> events.
+               Added <strong>${out.added}</strong>, updated <strong>${out.updated}</strong>,
+               unchanged ${out.unchanged}, malformed ${out.malformed}, failed ${out.failed}.</div>
+        `);
+        toast(`Pull done: +${out.added} added, ${out.updated} updated`, out.failed === 0 && out.malformed === 0 ? 'success' : 'warning', 5000);
+        await refreshEntities();
+        renderList();
+        renderSyncBody();    // refresh the "Push N entities" count
+    } catch (err) {
+        setSyncLog(`<div style="color:var(--xr-danger)">${escapeHtml(err.message || String(err))}</div>`);
+        toast('Pull failed: ' + (err.message || err), 'error', 5000);
+    }
+}
+
+async function runClear(userKey) {
+    if (!confirm('Publish NIP-09 delete requests for every kind-30078 sync event you own? Not all relays honor these — partial success is normal. Local entities are untouched.')) return;
+    setSyncLog('<em>Clearing remote…</em>');
+    try {
+        const relays = await configuredRelays();
+        const out = await clearRemote({ userPrivkey: userKey.privateKey, relays });
+        setSyncLog(`<div>Targeted <strong>${out.targeted}</strong> remote events. Delete-request batches published: <strong>${out.published}</strong>; failed: ${out.failed}.</div>`);
+        toast('Clear sent', 'success', 4000);
+    } catch (err) {
+        setSyncLog(`<div style="color:var(--xr-danger)">${escapeHtml(err.message || String(err))}</div>`);
+        toast('Clear failed: ' + (err.message || err), 'error', 5000);
+    }
+}
+
+// ------------------------------------------------------------------
 // Wire up
 // ------------------------------------------------------------------
 
@@ -602,6 +850,18 @@ async function init() {
                     }
                 });
             }
+        });
+    }
+
+    // Sync section — render once on init so the summary-label
+    // ("configured" vs. "not configured") is accurate before the user
+    // opens the `<details>`. Re-renders happen after every sync action
+    // that mutates identity or the entity set.
+    renderSyncBody();
+    const syncSection = $('#xr-sync-section');
+    if (syncSection) {
+        syncSection.addEventListener('toggle', () => {
+            if (syncSection.open) renderSyncBody();
         });
     }
 

@@ -494,3 +494,109 @@ body.xr-side {
 .xr-side__toast--success { border-left-color: var(--xr-success); }
 .xr-side__toast--warning { border-left-color: var(--xr-warning); }
 .xr-side__toast--error   { border-left-color: var(--xr-danger);  }
+
+/* ---------------- Sync section (Phase 6) ---------------- */
+
+.xr-sync {
+  border-top: 1px solid var(--xr-border);
+  background: var(--xr-surface);
+}
+
+.xr-sync__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.xr-sync__summary::-webkit-details-marker { display: none; }
+
+.xr-sync__summary:hover { background: var(--xr-surface-2); }
+
+.xr-sync__status {
+  font-size: 11px;
+  color: var(--xr-text-dim);
+  font-family: ui-monospace, SF Mono, Menlo, monospace;
+}
+
+.xr-sync__status--ok   { color: var(--xr-success); }
+.xr-sync__status--warn { color: var(--xr-warning); }
+
+.xr-sync__body {
+  padding: 4px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-top: 1px dashed var(--xr-border);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.xr-sync__lead {
+  margin: 0;
+  color: var(--xr-text-dim);
+}
+
+.xr-sync__warn {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--xr-warning);
+  background: color-mix(in srgb, var(--xr-warning) 8%, transparent);
+  color: var(--xr-text);
+  font-size: 11px;
+}
+
+.xr-sync__warn code {
+  font-family: ui-monospace, SF Mono, Menlo, monospace;
+  font-size: 10px;
+  background: var(--xr-bg);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.xr-sync__identity {
+  padding: 10px 12px;
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+  background: var(--xr-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.xr-sync__btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.xr-sync__btn-row .xr-side__btn,
+.xr-sync__btn-row .xr-side__ghost-btn { flex: 1; min-width: 0; }
+
+.xr-sync__log {
+  padding: 8px 10px;
+  border: 1px dashed var(--xr-border);
+  border-radius: 6px;
+  background: var(--xr-surface-2);
+  font-size: 11px;
+  color: var(--xr-text-dim);
+  line-height: 1.5;
+}
+
+.xr-sync__log ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-family: ui-monospace, SF Mono, Menlo, monospace;
+  font-size: 10px;
+}
+
+.xr-sync__log details summary {
+  cursor: pointer;
+  margin-top: 4px;
+  color: var(--xr-text);
+}
