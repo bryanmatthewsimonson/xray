@@ -28,6 +28,12 @@ import {
     CLAIM_ATTRIBUTIONS,
     CLAIM_ATTRIBUTION_LABELS
 } from '../shared/claim-model.js';
+import {
+    EvidenceLinker,
+    EVIDENCE_RELATIONSHIPS,
+    EVIDENCE_RELATIONSHIP_LABELS,
+    EVIDENCE_RELATIONSHIP_ICONS
+} from '../shared/evidence-linker.js';
 import { EntityModel, ENTITY_ICONS } from '../shared/entity-model.js';
 
 // ------------------------------------------------------------------
@@ -398,6 +404,150 @@ function showModalError(modal, msg) {
 }
 
 // ------------------------------------------------------------------
+// Evidence-link modal
+// ------------------------------------------------------------------
+
+/**
+ * Open the evidence-link modal. User picks a target claim (restricted
+ * to the candidate list we pass in — typically all other claims on
+ * this article), picks a relationship, optionally adds a note, saves.
+ *
+ * Returns the saved link on success, null on cancel.
+ *
+ * @param {{
+ *   sourceClaim: object,
+ *   candidates:  object[]   // every other claim on this article
+ * }} opts
+ */
+export function openEvidenceLinkModal({ sourceClaim, candidates }) {
+    return new Promise((resolve) => {
+        const modal = document.createElement('div');
+        modal.className = 'xr-claim-modal';
+        modal.innerHTML = buildLinkModalHtml(sourceClaim, candidates);
+        document.body.appendChild(modal);
+
+        const $ = (sel) => modal.querySelector(sel);
+        const close = () => {
+            document.removeEventListener('keydown', escHandler);
+            if (modal.parentNode) modal.parentNode.removeChild(modal);
+            resolve(null);
+        };
+        function escHandler(ev) { if (ev.key === 'Escape') close(); }
+        document.addEventListener('keydown', escHandler);
+        $('.xr-claim-modal__close').addEventListener('click', close);
+        $('.xr-claim-modal__backdrop').addEventListener('click', close);
+        modal.querySelector('[data-action="cancel"]').addEventListener('click', close);
+
+        // Pick target
+        let targetId = null;
+        modal.querySelectorAll('.xr-link-modal__target').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                modal.querySelectorAll('.xr-link-modal__target').forEach((b) =>
+                    b.classList.remove('xr-link-modal__target--active'));
+                btn.classList.add('xr-link-modal__target--active');
+                targetId = btn.dataset.id;
+                // Auto-scroll so the user sees the relationship picker below.
+                const relRow = $('.xr-link-modal__rel-row');
+                if (relRow) relRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            });
+        });
+
+        // Pick relationship
+        let rel = 'supports';
+        modal.querySelectorAll('.xr-link-modal__rel-btn').forEach((btn) => {
+            if (btn.dataset.rel === rel) btn.classList.add('xr-link-modal__rel-btn--active');
+            btn.addEventListener('click', () => {
+                modal.querySelectorAll('.xr-link-modal__rel-btn').forEach((b) =>
+                    b.classList.remove('xr-link-modal__rel-btn--active'));
+                btn.classList.add('xr-link-modal__rel-btn--active');
+                rel = btn.dataset.rel;
+            });
+        });
+
+        modal.querySelector('[data-action="save"]').addEventListener('click', async () => {
+            if (!targetId) {
+                showModalError(modal, 'Pick a target claim first.');
+                return;
+            }
+            try {
+                const link = await EvidenceLinker.create({
+                    source_claim_id: sourceClaim.id,
+                    target_claim_id: targetId,
+                    relationship:    rel,
+                    note:            $('.xr-link-modal__note').value.trim()
+                });
+                document.removeEventListener('keydown', escHandler);
+                if (modal.parentNode) modal.parentNode.removeChild(modal);
+                resolve(link);
+            } catch (err) {
+                showModalError(modal, err.message || String(err));
+            }
+        });
+    });
+}
+
+function buildLinkModalHtml(sourceClaim, candidates) {
+    const srcType = CLAIM_TYPE_ICONS[sourceClaim.type] || '📋';
+
+    const candidateHtml = candidates.length === 0
+        ? `<div class="xr-claim-modal__picker-empty">No other claims on this article. Add a second claim first, then come back to link them.</div>`
+        : candidates.map((c) => `
+            <button type="button" class="xr-link-modal__target" data-id="${escapeHtml(c.id)}">
+              <span class="xr-link-modal__target-type">${CLAIM_TYPE_ICONS[c.type] || '📋'}</span>
+              <span class="xr-link-modal__target-text">${escapeHtml(c.text)}</span>
+            </button>`).join('');
+
+    const relHtml = EVIDENCE_RELATIONSHIPS.map((r) => `
+      <button type="button" class="xr-link-modal__rel-btn" data-rel="${r}">
+        ${EVIDENCE_RELATIONSHIP_ICONS[r]} ${escapeHtml(EVIDENCE_RELATIONSHIP_LABELS[r])}
+      </button>
+    `).join('');
+
+    return `
+      <div class="xr-claim-modal__backdrop"></div>
+      <div class="xr-claim-modal__card xr-link-modal__card">
+        <header class="xr-claim-modal__head">
+          <h2 class="xr-claim-modal__title">Link evidence</h2>
+          <button type="button" class="xr-claim-modal__close" aria-label="Cancel">✕</button>
+        </header>
+
+        <div class="xr-claim-modal__body">
+          <div class="xr-claim-modal__err" hidden></div>
+
+          <div class="xr-claim-modal__field">
+            <span class="xr-claim-modal__label">From this claim</span>
+            <div class="xr-link-modal__source">
+              <span class="xr-link-modal__target-type">${srcType}</span>
+              <span class="xr-link-modal__target-text">${escapeHtml(sourceClaim.text)}</span>
+            </div>
+          </div>
+
+          <div class="xr-claim-modal__field">
+            <span class="xr-claim-modal__label">To target claim <em>(on this article)</em></span>
+            <div class="xr-link-modal__target-list">${candidateHtml}</div>
+          </div>
+
+          <div class="xr-claim-modal__field xr-link-modal__rel-row">
+            <span class="xr-claim-modal__label">Relationship</span>
+            <div class="xr-link-modal__rels">${relHtml}</div>
+          </div>
+
+          <label class="xr-claim-modal__field">
+            <span class="xr-claim-modal__label">Note <em>(optional — becomes the kind-30043 content)</em></span>
+            <textarea class="xr-link-modal__note" rows="2"
+                      placeholder="Why does this link hold?"></textarea>
+          </label>
+        </div>
+
+        <footer class="xr-claim-modal__foot">
+          <button type="button" class="xr-claim-modal__btn xr-claim-modal__btn--ghost" data-action="cancel">Cancel</button>
+          <button type="button" class="xr-claim-modal__btn xr-claim-modal__btn--primary" data-action="save">Save link</button>
+        </footer>
+      </div>
+    `;
+}
+
+// ------------------------------------------------------------------
 // Claims bar — below the article body
 // ------------------------------------------------------------------
 
@@ -417,13 +567,15 @@ export async function renderClaimsBar(claims) {
           </section>`;
     }
 
-    // Resolve entity display for each claim's subject/object/claimant in
-    // parallel so the bar renders quickly for typical ~dozen-claim cases.
+    // Resolve entity display for each claim's subject/object/claimant
+    // plus its evidence links in parallel so the bar renders quickly
+    // for typical ~dozen-claim cases.
     const rows = await Promise.all(claims.map(async (c) => {
-        const [subject, object, claimant] = await Promise.all([
+        const [subject, object, claimant, links] = await Promise.all([
             describeParty(c.subject_entity_ids, c.subject_text),
             describeParty(c.object_entity_ids,  c.object_text),
-            c.claimant_entity_id ? describeEntity(c.claimant_entity_id) : null
+            c.claimant_entity_id ? describeEntity(c.claimant_entity_id) : null,
+            EvidenceLinker.getForClaim(c.id)
         ]);
         const typeIcon = CLAIM_TYPE_ICONS[c.type] || '📋';
         const crux = c.is_crux
@@ -438,6 +590,28 @@ export async function renderClaimsBar(claims) {
         const pubDot = c.publishedAt
             ? `<span class="xr-claims__pub" title="Published ${new Date(c.publishedAt * 1000).toLocaleString()}">🌐</span>`
             : '';
+        const linksBlock = links.length > 0
+            ? `<div class="xr-claims__links">${
+                (await Promise.all(links.map(async (l) => {
+                    const isOutgoing = l.source_claim_id === c.id;
+                    const otherId    = isOutgoing ? l.target_claim_id : l.source_claim_id;
+                    const other      = claims.find((x) => x.id === otherId);
+                    const otherLabel = other ? escapeHtml(other.text.slice(0, 80)) : escapeHtml(`(claim ${otherId.slice(0, 12)}…)`);
+                    const arrow      = isOutgoing ? '→' : '←';
+                    const relIcon    = EVIDENCE_RELATIONSHIP_ICONS[l.relationship] || '◇';
+                    const relLabel   = EVIDENCE_RELATIONSHIP_LABELS[l.relationship] || l.relationship;
+                    const linkPub    = l.publishedAt ? ' 🌐' : '';
+                    const noteLine   = l.note ? `<span class="xr-claims__link-note"> — ${escapeHtml(l.note)}</span>` : '';
+                    return `<div class="xr-claims__link" data-link-id="${escapeHtml(l.id)}">
+                              <span class="xr-claims__link-rel">${relIcon} ${escapeHtml(relLabel)}${linkPub}</span>
+                              <span class="xr-claims__link-arrow">${arrow}</span>
+                              <span class="xr-claims__link-other">${otherLabel}</span>
+                              ${noteLine}
+                              <button type="button" class="xr-claims__link-del" data-link-id="${escapeHtml(l.id)}" title="Remove this link">✕</button>
+                            </div>`;
+                }))).join('')
+              }</div>`
+            : '';
         return `
           <article class="xr-claims__item xr-claims__item--${c.type} ${c.is_crux ? 'xr-claims__item--crux' : ''}" data-id="${escapeHtml(c.id)}">
             <div class="xr-claims__row-top">
@@ -445,6 +619,7 @@ export async function renderClaimsBar(claims) {
               ${crux}
               ${pubDot}
               <div class="xr-claims__row-actions">
+                <button type="button" class="xr-claims__btn" data-action="link" title="Link to another claim">🔗</button>
                 <button type="button" class="xr-claims__btn" data-action="edit" title="Edit claim">✎</button>
                 <button type="button" class="xr-claims__btn xr-claims__btn--danger" data-action="delete" title="Delete claim">🗑</button>
               </div>
@@ -452,6 +627,7 @@ export async function renderClaimsBar(claims) {
             <div class="xr-claims__text">${escapeHtml(c.text)}</div>
             ${triple}
             ${claimantLine}
+            ${linksBlock}
           </article>`;
     }));
 

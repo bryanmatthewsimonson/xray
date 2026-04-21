@@ -15,8 +15,9 @@ import { EventBuilder } from '../shared/event-builder.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { EntityModel, installEntityStorageBridge } from '../shared/entity-model.js';
 import { ClaimModel } from '../shared/claim-model.js';
+import { EvidenceLinker } from '../shared/evidence-linker.js';
 import { installEntityTagger, rehydrateEntityMarks } from './entity-tagger.js';
-import { openClaimModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
+import { openClaimModal, openEvidenceLinkModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
 
 const browserApi = typeof browser !== 'undefined' && browser.runtime ? browser : chrome;
 
@@ -235,9 +236,35 @@ async function refreshClaimsBar() {
         const id = row.dataset.id;
         const editBtn = row.querySelector('[data-action="edit"]');
         const delBtn  = row.querySelector('[data-action="delete"]');
+        const linkBtn = row.querySelector('[data-action="link"]');
         if (editBtn) editBtn.addEventListener('click', () => openEditClaim(id));
         if (delBtn)  delBtn.addEventListener('click',  () => confirmDeleteClaim(id));
+        if (linkBtn) linkBtn.addEventListener('click', () => openLinkClaim(id, claims));
+
+        // Per-link ✕ delete buttons.
+        row.querySelectorAll('.xr-claims__link-del').forEach((btn) => {
+            btn.addEventListener('click', async (ev) => {
+                ev.stopPropagation();
+                const linkId = btn.dataset.linkId;
+                if (!linkId) return;
+                if (!confirm('Remove this evidence link? Already-published kind-30043 stays on relays until NIP-09 delete (later phase).')) return;
+                await EvidenceLinker.delete(linkId);
+                toast('Link removed', 'success', 1500);
+                await refreshClaimsBar();
+            });
+        });
     });
+}
+
+async function openLinkClaim(sourceId, allClaimsOnArticle) {
+    const source = allClaimsOnArticle.find((c) => c.id === sourceId);
+    if (!source) return;
+    const candidates = allClaimsOnArticle.filter((c) => c.id !== sourceId);
+    const link = await openEvidenceLinkModal({ sourceClaim: source, candidates });
+    if (link) {
+        toast('Evidence link saved', 'success', 1500);
+        await refreshClaimsBar();
+    }
 }
 
 async function openEditClaim(id) {
@@ -256,11 +283,22 @@ async function openEditClaim(id) {
 async function confirmDeleteClaim(id) {
     const claim = await ClaimModel.get(id);
     if (!claim) return;
-    const msg = claim.publishedAt
-        ? `Delete claim? Already-published kind-30040 stays on relays until NIP-09 delete (later phase).`
-        : `Delete claim?`;
+    // Count any evidence links this claim participates in so the user
+    // sees the blast radius before confirming.
+    const links = await EvidenceLinker.getForClaim(id);
+    const lines = [];
+    if (claim.publishedAt) {
+        lines.push('Already-published kind-30040 stays on relays until NIP-09 delete (later phase).');
+    }
+    if (links.length > 0) {
+        lines.push(`${links.length} evidence link${links.length === 1 ? '' : 's'} will also be removed.`);
+    }
+    const msg = lines.length > 0
+        ? `Delete claim? ${lines.join(' ')}`
+        : 'Delete claim?';
     if (!confirm(msg)) return;
     await ClaimModel.delete(id);
+    if (links.length > 0) await EvidenceLinker.deleteForClaim(id);
     toast('Claim deleted', 'success', 2000);
     await refreshClaimsBar();
 }
@@ -748,23 +786,36 @@ async function publish() {
     const includeComments = state.comments.includeInPublish && state.comments.tree.length > 0;
     const commentList = includeComments ? flattenCommentTree(state.comments.tree) : [];
 
-    // Claims attached to this article that need their kind-30040
-    // published — computed first so we know which extra entities the
-    // kind-30023 event's p-tags will reference. Claim-referenced
-    // entities get unioned with the directly-tagged entities so no
-    // `p` tag on any event we emit dangles to a pubkey with no kind-0.
-    const claimsToPublish = await resolveClaimsToPublish(state.article.url);
+    // All claims on this article (both fresh + already-published) —
+    // needed for the evidence-link resolver, which filters to links
+    // where *both* endpoints belong to this article's claim set.
+    const allArticleClaims = await ClaimModel.getBySourceUrl(state.article.url);
 
+    // Claims that actually need a kind-30040 emission this publish.
+    const claimsToPublish = allArticleClaims.filter((c) => !c.publishedAt || c.updated > c.publishedAt);
+
+    // Union tagged-entity ids with every claim's claimant / subject /
+    // object ids so their kind-0 events publish ahead of any claim's
+    // p-tags. Note we collect from ALL article claims — even
+    // already-published ones may have been edited to reference a new
+    // entity that still needs to publish.
     const taggedEntityIds = (state.article.entities || []).map((e) => e.entity_id).filter(Boolean);
-    const claimEntityIds  = [...collectClaimEntityIds(claimsToPublish)];
+    const claimEntityIds  = [...collectClaimEntityIds(allArticleClaims)];
     const allEntityIds    = [...new Set([...taggedEntityIds, ...claimEntityIds])];
     const entitiesToPublish = await resolveEntitiesToPublish(allEntityIds);
 
-    // kind-32125 entity-relationship events, deduped by d-tag coord.
+    // kind-32125 entity-relationship events — derived from
+    // claimsToPublish only (we don't re-emit relationships for already
+    // published + unchanged claims).
     const relationshipsToPublish = await resolveRelationshipsToPublish(claimsToPublish, state.article.url);
 
+    // kind-30043 evidence links — any link touching two claims on this
+    // article whose gate is open.
+    const linksToPublish = await resolveEvidenceLinksToPublish(allArticleClaims);
+
     const totalEvents = 1 + commentList.length + entitiesToPublish.length
-                          + claimsToPublish.length + relationshipsToPublish.length;
+                          + claimsToPublish.length + relationshipsToPublish.length
+                          + linksToPublish.length;
 
     // Per-relay rollup across the entire batch.
     const relayStats = new Map(); // url → { ok, fail, lastError }
@@ -793,7 +844,7 @@ async function publish() {
 
         btn.textContent = 'Signing…';
         toast(totalEvents > 1
-            ? buildPublishStartMessage(commentList.length, entitiesToPublish.length, claimsToPublish.length, relationshipsToPublish.length)
+            ? buildPublishStartMessage(commentList.length, entitiesToPublish.length, claimsToPublish.length, relationshipsToPublish.length, linksToPublish.length)
             : 'Approving signature in your NOSTR extension…', 'warning', 5000);
 
         setProgress(0, totalEvents);
@@ -1044,6 +1095,49 @@ async function publish() {
             if (i < relationshipsToPublish.length - 1) await sleep(BATCH_PUBLISH_DELAY_MS);
         }
 
+        // ---- Evidence links (kind-30043) ------------------------------
+        // Signed by the user. `buildEvidenceLinkEvent` needs the full
+        // claim registry to resolve source + target claim ids to their
+        // source_urls (for `r` tags) — pass the dict we already have
+        // on `allArticleClaims` keyed by id, plus any missing ones
+        // pulled from ClaimModel.
+        const linkBatchBase = relBatchBase + relationshipsToPublish.length;
+        const linkResults = { ok: 0, fail: 0, errors: [] };
+        const claimsDict = {};
+        for (const c of allArticleClaims) claimsDict[c.id] = c;
+        for (let i = 0; i < linksToPublish.length; i++) {
+            const link = linksToPublish[i];
+            btn.textContent = `Publishing (${linkBatchBase + i + 1}/${totalEvents})…`;
+            try {
+                const unsigned = await EventBuilder.buildEvidenceLinkEvent(link, claimsDict, userPubkey);
+                const resp = await browserApi.runtime.sendMessage({
+                    type:  'xray:capture:publish',
+                    id:    state.id,
+                    event: unsigned
+                });
+                if (resp && resp.ok && resp.results) {
+                    recordRelayResults(resp.results);
+                    if (resp.results.successful > 0) {
+                        linkResults.ok++;
+                        try { await EvidenceLinker.markPublished(link.id, resp.signedEvent?.id || null); }
+                        catch (_) { /* best-effort */ }
+                    } else {
+                        linkResults.fail++;
+                        linkResults.errors.push(`${link.relationship} link: no relays accepted`);
+                    }
+                } else {
+                    linkResults.fail++;
+                    linkResults.errors.push(`${link.relationship} link: ${(resp && resp.error) || 'unknown'}`);
+                }
+            } catch (err) {
+                linkResults.fail++;
+                linkResults.errors.push(`${link.relationship} link: ${err.message || String(err)}`);
+                console.warn('[X-Ray Reader] evidence-link publish failed:', link.id, err);
+            }
+            setProgress(linkBatchBase + i + 1, totalEvents);
+            if (i < linksToPublish.length - 1) await sleep(BATCH_PUBLISH_DELAY_MS);
+        }
+
         // Build + surface the end-of-batch summary.
         showPublishSummary({
             includeComments,
@@ -1056,6 +1150,8 @@ async function publish() {
             claimCount: claimsToPublish.length,
             relationshipResults,
             relationshipCount: relationshipsToPublish.length,
+            linkResults,
+            linkCount: linksToPublish.length,
             relayStats
         });
 
@@ -1147,6 +1243,29 @@ function collectClaimEntityIds(claims) {
 }
 
 /**
+ * Evidence links whose kind-30043 event still needs to publish.
+ * Pulled from `EvidenceLinker.getAll()` filtered to links where both
+ * endpoints are claims on the current article — cross-article links
+ * are a future feature (C4 scope note: today we only create links
+ * between claims on the same article via the modal UI).
+ *
+ * Same `updated > publishedAt` gate so edits to a link's note or
+ * re-creations re-emit.
+ */
+async function resolveEvidenceLinksToPublish(claimsForThisArticle) {
+    if (!Array.isArray(claimsForThisArticle) || claimsForThisArticle.length === 0) return [];
+    const claimIds = new Set(claimsForThisArticle.map((c) => c.id));
+    const all = await EvidenceLinker.getAll();
+    const out = [];
+    for (const link of Object.values(all)) {
+        if (!claimIds.has(link.source_claim_id) || !claimIds.has(link.target_claim_id)) continue;
+        if (link.publishedAt && link.updated <= link.publishedAt) continue;
+        out.push(link);
+    }
+    return out;
+}
+
+/**
  * For every claim, enumerate the (entity, relationshipType, claimId)
  * triples that should become kind-32125 entity-relationship events.
  * De-duplicated by `{entity_id}:{url}:{relationshipType}` — the same
@@ -1207,13 +1326,14 @@ async function getConfiguredRelays() {
  * what's about to happen. Pluralizes correctly and only mentions
  * parts that actually exist.
  */
-function buildPublishStartMessage(commentCount, entityCount, claimCount = 0, relationshipCount = 0) {
+function buildPublishStartMessage(commentCount, entityCount, claimCount = 0, relationshipCount = 0, linkCount = 0) {
     const parts = ['article'];
     if (commentCount > 0)      parts.push(`${commentCount} comment${commentCount === 1 ? '' : 's'}`);
     if (entityCount > 0)       parts.push(`${entityCount} entity profile${entityCount === 1 ? '' : 's'}`);
     if (claimCount > 0)        parts.push(`${claimCount} claim${claimCount === 1 ? '' : 's'}`);
     if (relationshipCount > 0) parts.push(`${relationshipCount} relationship${relationshipCount === 1 ? '' : 's'}`);
-    const total = 1 + commentCount + entityCount + claimCount + relationshipCount;
+    if (linkCount > 0)         parts.push(`${linkCount} evidence link${linkCount === 1 ? '' : 's'}`);
+    const total = 1 + commentCount + entityCount + claimCount + relationshipCount + linkCount;
     return `Publishing ${total} events (${parts.join(' + ')})…`;
 }
 
@@ -1226,6 +1346,7 @@ function showPublishSummary({
     includeComments, totalEvents, articleResults,
     commentResults, entityResults, entityCount,
     claimResults, claimCount, relationshipResults, relationshipCount,
+    linkResults, linkCount,
     relayStats
 }) {
     // Console breakdown (always useful for debugging)
@@ -1235,23 +1356,21 @@ function showPublishSummary({
     if (entityResults && entityCount > 0)                    console.log('entities:',       entityResults);
     if (claimResults  && claimCount  > 0)                    console.log('claims:',         claimResults);
     if (relationshipResults && relationshipCount > 0)        console.log('relationships:',  relationshipResults);
+    if (linkResults && linkCount > 0)                        console.log('evidence links:', linkResults);
     console.log('per relay:', Object.fromEntries(relayStats));
     console.groupEnd();
 
-    // Identify dead relays — ones that rejected 100% of our events.
     const dead = [];
     for (const [url, s] of relayStats) {
         if (s.ok === 0 && s.fail > 0) dead.push({ url, fail: s.fail, reason: s.lastError });
     }
 
-    const entFails = (entityResults  && entityResults.fail)       || 0;
-    const cmtFails = (commentResults && commentResults.fail)      || 0;
-    const clmFails = (claimResults   && claimResults.fail)        || 0;
-    const relFails = (relationshipResults && relationshipResults.fail) || 0;
+    const entFails  = (entityResults       && entityResults.fail)       || 0;
+    const cmtFails  = (commentResults      && commentResults.fail)      || 0;
+    const clmFails  = (claimResults        && claimResults.fail)        || 0;
+    const relFails  = (relationshipResults && relationshipResults.fail) || 0;
+    const linkFails = (linkResults         && linkResults.fail)         || 0;
 
-    // Primary line. Always state the article result, then list whichever
-    // of {comments, entity profiles, claims, relationships} actually
-    // participated this publish.
     const segments = [];
     segments.push(articleResults.successful > 0
         ? `article on ${articleResults.successful}/${articleResults.total} relays`
@@ -1268,28 +1387,29 @@ function showPublishSummary({
     if (relationshipCount > 0) {
         segments.push(`${relationshipResults.ok}/${relationshipResults.ok + relationshipResults.fail} relationship${relationshipCount === 1 ? '' : 's'}`);
     }
+    if (linkCount > 0) {
+        segments.push(`${linkResults.ok}/${linkResults.ok + linkResults.fail} evidence link${linkCount === 1 ? '' : 's'}`);
+    }
     let line = 'Published: ' + segments.join(', ') + '.';
 
-    // Per-relay aggregate.
     const acceptedAll = [...relayStats.values()].filter((s) => s.fail === 0 && s.ok > 0).length;
     if (relayStats.size > 0) {
         line += ` ${acceptedAll}/${relayStats.size} relays accepted everything.`;
     }
 
-    // Call out consistently-failing relays with a hint to remove them.
     if (dead.length > 0) {
         const names = dead.map((d) => d.url.replace(/^wss?:\/\//, '')).join(', ');
         line += ` Rejected by ${names} — consider removing in Options.`;
     }
 
-    const anyFail = dead.length > 0 || cmtFails > 0 || entFails > 0 || clmFails > 0 || relFails > 0;
+    const anyFail = dead.length > 0 || cmtFails > 0 || entFails > 0 || clmFails > 0 || relFails > 0 || linkFails > 0;
     const level = (anyFail || articleResults.successful === 0)
         ? (articleResults.successful > 0 ? 'warning' : 'error')
         : 'success';
     toast(line, level, 9000);
 
-    // landed count for callers that want it (currently nobody does; kept for parity).
-    return totalEvents - cmtFails - entFails - clmFails - relFails - (articleResults.successful === 0 ? 1 : 0);
+    return totalEvents - cmtFails - entFails - clmFails - relFails - linkFails
+                       - (articleResults.successful === 0 ? 1 : 0);
 }
 
 /**
