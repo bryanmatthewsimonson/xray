@@ -186,6 +186,18 @@ test('entity: delete unlinks aliases instead of cascading', async () => {
     assert.equal(stillThere.canonical_id, null);
 });
 
+test('entity: markPublished records publishedAt without bumping updated', async () => {
+    resetState();
+    const e = await EntityModel.create({ name: 'Marked', type: 'thing' });
+    const updatedBefore = e.updated;
+    // Make sure a second passes on slow machines so timestamps differ
+    // — or don't, the invariant is strictly `updated` unchanged.
+    const marked = await EntityModel.markPublished(e.id, 'aabbccdd'.repeat(8));
+    assert.ok(marked.publishedAt > 0);
+    assert.equal(marked.publishedEventId, 'aabbccdd'.repeat(8));
+    assert.equal(marked.updated, updatedBefore, 'publish must not bump `updated`');
+});
+
 test('entity: tag name maps + ENTITY_TYPES is exhaustive', () => {
     // If we add a new entity type later, this map has to stay in sync
     // with event-builder.js:121.

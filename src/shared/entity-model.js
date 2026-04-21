@@ -353,6 +353,27 @@ export const EntityModel = {
      */
     unlinkAlias: async (id) => {
         return await EntityModel.update(id, { canonical_id: null });
+    },
+
+    /**
+     * Mark an entity as having had its kind-0 profile event published to
+     * relays. Records `publishedAt` + `publishedEventId` so subsequent
+     * publishes of the same article are idempotent — we only re-publish
+     * entity kind-0s that haven't been published yet (or, in a future
+     * iteration, whose `updated` timestamp is newer than `publishedAt`).
+     *
+     * Bypasses `update()` because `update()` sets `updated` — we don't
+     * want a publish to look like a mutation that triggers a re-publish.
+     */
+    markPublished: async (id, eventId) => {
+        const all = await Storage.get('entities', {});
+        const record = all[id];
+        if (!record) return null;
+        record.publishedAt = Math.floor(Date.now() / 1000);
+        if (eventId) record.publishedEventId = eventId;
+        all[id] = record;
+        await Storage.set('entities', all);
+        return await EntityModel.get(id);
     }
 };
 

@@ -13,7 +13,7 @@
 import { ContentExtractor } from '../shared/content-extractor.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
-import { installEntityStorageBridge } from '../shared/entity-model.js';
+import { EntityModel, installEntityStorageBridge } from '../shared/entity-model.js';
 import { installEntityTagger, rehydrateEntityMarks } from './entity-tagger.js';
 
 const browserApi = typeof browser !== 'undefined' && browser.runtime ? browser : chrome;
@@ -670,7 +670,14 @@ async function publish() {
 
     const includeComments = state.comments.includeInPublish && state.comments.tree.length > 0;
     const commentList = includeComments ? flattenCommentTree(state.comments.tree) : [];
-    const totalEvents = 1 + commentList.length;
+
+    // Collect entities that need their kind-0 profile event published.
+    // De-duped by entity_id (the same entity may be tagged multiple
+    // times on one article). Skipped if already published — re-publish
+    // of an unchanged entity is noise on the relay.
+    const entitiesToPublish = await resolveEntitiesToPublish(state.article.entities);
+
+    const totalEvents = 1 + commentList.length + entitiesToPublish.length;
 
     // Per-relay rollup across the entire batch.
     const relayStats = new Map(); // url → { ok, fail, lastError }
@@ -699,7 +706,7 @@ async function publish() {
 
         btn.textContent = 'Signing…';
         toast(totalEvents > 1
-            ? `Publishing ${totalEvents} events (article + ${commentList.length} comments)…`
+            ? buildPublishStartMessage(commentList.length, entitiesToPublish.length)
             : 'Approving signature in your NOSTR extension…', 'warning', 5000);
 
         setProgress(0, totalEvents);
@@ -798,12 +805,75 @@ async function publish() {
             }
         }
 
+        // Entity kind-0 events — one per never-before-published tagged
+        // entity. Signed *locally* with the entity's own keypair (not
+        // the user's NIP-07 signer), so each entity publishes as its
+        // own NOSTR identity. Aliases include a `refers_to` tag
+        // pointing at the canonical entity's npub.
+        const entityBatchBase = 1 + commentList.length;  // article + comments already done
+        const relays = await getConfiguredRelays();
+        const entityResults = { ok: 0, fail: 0, errors: [] };
+        if (entitiesToPublish.length > 0) {
+            for (let i = 0; i < entitiesToPublish.length; i++) {
+                const entity = entitiesToPublish[i];
+                btn.textContent = `Publishing (${entityBatchBase + i + 1}/${totalEvents})…`;
+
+                try {
+                    // Look up canonical entity if this is an alias — its
+                    // npub goes into the `refers_to` tag on our kind-0.
+                    let canonicalNpub = null;
+                    if (entity.canonical_id) {
+                        const canonical = await EntityModel.get(entity.canonical_id);
+                        if (canonical && canonical.keypair) canonicalNpub = canonical.keypair.npub;
+                    }
+
+                    const unsignedProfile = EventBuilder.buildProfileEvent(entity, canonicalNpub);
+                    const signed = await LocalKeyManager.signEvent(unsignedProfile, entity.keyName);
+
+                    const resp = await browserApi.runtime.sendMessage({
+                        type:   'xray:relay:publish',
+                        event:  signed,
+                        relays
+                    });
+
+                    if (resp && resp.ok && resp.results) {
+                        recordRelayResults(resp.results);
+                        if (resp.results.successful > 0) {
+                            entityResults.ok++;
+                            // Only mark as published if at least one relay
+                            // accepted it — otherwise it'll retry next publish.
+                            try { await EntityModel.markPublished(entity.id, signed.id); }
+                            catch (_) { /* best-effort */ }
+                        } else {
+                            entityResults.fail++;
+                            entityResults.errors.push(`${entity.name}: no relays accepted`);
+                        }
+                    } else {
+                        entityResults.fail++;
+                        entityResults.errors.push(`${entity.name}: ${(resp && resp.error) || 'unknown'}`);
+                    }
+                } catch (err) {
+                    entityResults.fail++;
+                    entityResults.errors.push(`${entity.name}: ${err.message || String(err)}`);
+                    console.warn('[X-Ray Reader] entity publish failed:', entity.name, err);
+                }
+
+                setProgress(entityBatchBase + i + 1, totalEvents);
+
+                if (i < entitiesToPublish.length - 1) {
+                    await sleep(BATCH_PUBLISH_DELAY_MS);
+                }
+            }
+        }
+
         // Build + surface the end-of-batch summary.
         showPublishSummary({
             includeComments,
             totalEvents,
             articleResults,
             commentResults,
+            entityResults,
+            entityCount: entitiesToPublish.length,
             relayStats
         });
     } catch (err) {
@@ -820,17 +890,96 @@ async function publish() {
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 /**
+ * Given the article's raw entity refs, produce the de-duplicated list
+ * of entities whose kind-0 profile event still needs to be published.
+ *
+ * De-dup key = entity_id (the same entity may be tagged N times in one
+ * article; we only publish one kind-0 per unique entity per publish
+ * session). An entity with `publishedAt` set is skipped — its kind-0
+ * already exists on the network.
+ *
+ * Missing entities (refs pointing at entities we no longer have
+ * locally) are dropped silently: the p-tag on the article event still
+ * carries their pubkey via the event-builder path, so the reference
+ * doesn't disappear, but we obviously can't sign a kind-0 without the
+ * private key.
+ */
+async function resolveEntitiesToPublish(refs) {
+    if (!Array.isArray(refs) || refs.length === 0) return [];
+    const seen = new Set();
+    const out = [];
+
+    const enqueue = async (id) => {
+        if (!id || seen.has(id)) return;
+        seen.add(id);
+        const entity = await EntityModel.get(id);
+        if (!entity)                return;   // dangling ref
+        if (!entity.keypair)        return;   // no private key — can't sign
+        if (entity.publishedAt)     return;   // already on the network
+        // If this entity is an alias and its canonical isn't published yet,
+        // publish the canonical FIRST — otherwise the alias's kind-0
+        // `refers_to` tag would dangle to a pubkey with no profile.
+        if (entity.canonical_id) await enqueue(entity.canonical_id);
+        out.push(entity);
+    };
+
+    for (const ref of refs) {
+        if (!ref || !ref.entity_id) continue;
+        await enqueue(ref.entity_id);
+    }
+    return out;
+}
+
+/**
+ * Read the user's configured relays from preferences. Mirrors the
+ * logic in `handleCapturePublish` on the SW side; we need it
+ * reader-side too because entity kind-0 events go through the
+ * signed-event publish path (`xray:relay:publish`) which takes a
+ * relay list from the caller.
+ */
+async function getConfiguredRelays() {
+    return new Promise((resolve) => {
+        try {
+            browserApi.storage.local.get(['preferences'], (res) => {
+                const raw = res && res.preferences;
+                let prefs = {};
+                try { prefs = typeof raw === 'string' ? JSON.parse(raw) : (raw || {}); }
+                catch (_) { prefs = {}; }
+                const relays = Array.isArray(prefs.default_relays) && prefs.default_relays.length > 0
+                    ? prefs.default_relays
+                    : ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.nostr.band'];
+                resolve(relays);
+            });
+        } catch (_) {
+            resolve(['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.nostr.band']);
+        }
+    });
+}
+
+/**
+ * Compose the initial "Publishing…" toast so the user knows roughly
+ * what's about to happen. Pluralizes correctly and only mentions
+ * parts that actually exist.
+ */
+function buildPublishStartMessage(commentCount, entityCount) {
+    const parts = ['article'];
+    if (commentCount > 0) parts.push(`${commentCount} comment${commentCount === 1 ? '' : 's'}`);
+    if (entityCount > 0)  parts.push(`${entityCount} entity profile${entityCount === 1 ? '' : 's'}`);
+    const total = 1 + commentCount + entityCount;
+    return `Publishing ${total} events (${parts.join(' + ')})…`;
+}
+
+/**
  * Compose a per-relay rollup toast and log a detailed breakdown to the
  * console. Consistently-failing relays are called out by name so the
  * user knows which ones to consider removing.
  */
-function showPublishSummary({ includeComments, totalEvents, articleResults, commentResults, relayStats }) {
+function showPublishSummary({ includeComments, totalEvents, articleResults, commentResults, entityResults, entityCount, relayStats }) {
     // Console breakdown (always useful for debugging)
     console.group('[X-Ray Reader] publish summary');
     console.log('total events:', totalEvents);
-    if (includeComments) {
-        console.log('comments:', commentResults);
-    }
+    if (includeComments)                         console.log('comments:', commentResults);
+    if (entityResults && entityCount > 0)        console.log('entities:', entityResults);
     console.log('per relay:', Object.fromEntries(relayStats));
     console.groupEnd();
 
@@ -840,17 +989,25 @@ function showPublishSummary({ includeComments, totalEvents, articleResults, comm
         if (s.ok === 0 && s.fail > 0) dead.push({ url, fail: s.fail, reason: s.lastError });
     }
 
-    // Primary line.
-    const landed = totalEvents - (commentResults.fail || 0) - (articleResults.successful === 0 ? 1 : 0);
-    let line = includeComments
-        ? `Published article + ${commentResults.ok}/${commentResults.ok + commentResults.fail} comments.`
-        : (articleResults.successful > 0
-            ? `Published to ${articleResults.successful}/${articleResults.total} relays.`
-            : 'No relays accepted the event.');
+    const entFails = (entityResults && entityResults.fail) || 0;
+    const cmtFails = (commentResults && commentResults.fail) || 0;
+
+    // Primary line. We always state the article result; then list
+    // whichever of {comments, entity profiles} actually participated.
+    const segments = [];
+    segments.push(articleResults.successful > 0
+        ? `article on ${articleResults.successful}/${articleResults.total} relays`
+        : `article REJECTED by all ${articleResults.total} relays`);
+    if (includeComments) {
+        segments.push(`${commentResults.ok}/${commentResults.ok + commentResults.fail} comments`);
+    }
+    if (entityCount > 0) {
+        segments.push(`${entityResults.ok}/${entityResults.ok + entityResults.fail} entity profile${entityCount === 1 ? '' : 's'}`);
+    }
+    let line = 'Published: ' + segments.join(', ') + '.';
 
     // Per-relay aggregate: "N relays accepted all events, M relays failed".
     const acceptedAll = [...relayStats.values()].filter((s) => s.fail === 0 && s.ok > 0).length;
-    const anyFail    = [...relayStats.values()].filter((s) => s.fail > 0).length;
     if (relayStats.size > 0) {
         line += ` ${acceptedAll}/${relayStats.size} relays accepted everything.`;
     }
@@ -861,11 +1018,13 @@ function showPublishSummary({ includeComments, totalEvents, articleResults, comm
         line += ` Rejected by ${names} — consider removing in Options.`;
     }
 
-    const level = (dead.length > 0 || commentResults.fail > 0 || articleResults.successful === 0)
+    const level = (dead.length > 0 || cmtFails > 0 || entFails > 0 || articleResults.successful === 0)
         ? (articleResults.successful > 0 ? 'warning' : 'error')
         : 'success';
     toast(line, level, 9000);
-    return landed;
+
+    // landed count for callers that want it (currently nobody does; kept for parity).
+    return totalEvents - cmtFails - entFails - (articleResults.successful === 0 ? 1 : 0);
 }
 
 /**
