@@ -748,13 +748,23 @@ async function publish() {
     const includeComments = state.comments.includeInPublish && state.comments.tree.length > 0;
     const commentList = includeComments ? flattenCommentTree(state.comments.tree) : [];
 
-    // Collect entities that need their kind-0 profile event published.
-    // De-duped by entity_id (the same entity may be tagged multiple
-    // times on one article). Skipped if already published — re-publish
-    // of an unchanged entity is noise on the relay.
-    const entitiesToPublish = await resolveEntitiesToPublish(state.article.entities);
+    // Claims attached to this article that need their kind-30040
+    // published — computed first so we know which extra entities the
+    // kind-30023 event's p-tags will reference. Claim-referenced
+    // entities get unioned with the directly-tagged entities so no
+    // `p` tag on any event we emit dangles to a pubkey with no kind-0.
+    const claimsToPublish = await resolveClaimsToPublish(state.article.url);
 
-    const totalEvents = 1 + commentList.length + entitiesToPublish.length;
+    const taggedEntityIds = (state.article.entities || []).map((e) => e.entity_id).filter(Boolean);
+    const claimEntityIds  = [...collectClaimEntityIds(claimsToPublish)];
+    const allEntityIds    = [...new Set([...taggedEntityIds, ...claimEntityIds])];
+    const entitiesToPublish = await resolveEntitiesToPublish(allEntityIds);
+
+    // kind-32125 entity-relationship events, deduped by d-tag coord.
+    const relationshipsToPublish = await resolveRelationshipsToPublish(claimsToPublish, state.article.url);
+
+    const totalEvents = 1 + commentList.length + entitiesToPublish.length
+                          + claimsToPublish.length + relationshipsToPublish.length;
 
     // Per-relay rollup across the entire batch.
     const relayStats = new Map(); // url → { ok, fail, lastError }
@@ -783,7 +793,7 @@ async function publish() {
 
         btn.textContent = 'Signing…';
         toast(totalEvents > 1
-            ? buildPublishStartMessage(commentList.length, entitiesToPublish.length)
+            ? buildPublishStartMessage(commentList.length, entitiesToPublish.length, claimsToPublish.length, relationshipsToPublish.length)
             : 'Approving signature in your NOSTR extension…', 'warning', 5000);
 
         setProgress(0, totalEvents);
@@ -943,6 +953,97 @@ async function publish() {
             }
         }
 
+        // ---- Claim events (kind-30040) ---------------------------------
+        // Signed by the user's NIP-07 signer (claims are the USER's
+        // structured assertions about entities, not the entities' own
+        // statements). `buildClaimEvent` needs the entity registry to
+        // resolve claimant/subject/object IDs into p-tags + name tags.
+        const claimBatchBase = entityBatchBase + entitiesToPublish.length;
+        const claimResults = { ok: 0, fail: 0, errors: [] };
+        const entitiesDict = claimsToPublish.length > 0 ? await EntityModel.getAll() : {};
+        for (let i = 0; i < claimsToPublish.length; i++) {
+            const claim = claimsToPublish[i];
+            btn.textContent = `Publishing (${claimBatchBase + i + 1}/${totalEvents})…`;
+            try {
+                const unsigned = EventBuilder.buildClaimEvent(
+                    claim, article.url, article.title || 'Untitled', userPubkey, entitiesDict
+                );
+                const resp = await browserApi.runtime.sendMessage({
+                    type:  'xray:capture:publish',
+                    id:    state.id,
+                    event: unsigned
+                });
+                if (resp && resp.ok && resp.results) {
+                    recordRelayResults(resp.results);
+                    if (resp.results.successful > 0) {
+                        claimResults.ok++;
+                        // The signed event id is on the resp chain through
+                        // the SW; not trivially available here, but the
+                        // `d`-tag on the unsigned event doubles as the
+                        // stable pointer. Re-fetch signed id from results
+                        // array if relay echoed it.
+                        const signedId = resp.signedEvent?.id || null;
+                        try { await ClaimModel.markPublished(claim.id, signedId); }
+                        catch (_) { /* best-effort */ }
+                    } else {
+                        claimResults.fail++;
+                        claimResults.errors.push(`${claim.text.slice(0, 40)}…: no relays accepted`);
+                    }
+                } else {
+                    claimResults.fail++;
+                    claimResults.errors.push(`${claim.text.slice(0, 40)}…: ${(resp && resp.error) || 'unknown'}`);
+                }
+            } catch (err) {
+                claimResults.fail++;
+                claimResults.errors.push(`${claim.text.slice(0, 40)}…: ${err.message || String(err)}`);
+                console.warn('[X-Ray Reader] claim publish failed:', claim.id, err);
+            }
+            setProgress(claimBatchBase + i + 1, totalEvents);
+            if (i < claimsToPublish.length - 1) await sleep(BATCH_PUBLISH_DELAY_MS);
+        }
+
+        // ---- Entity-relationship events (kind-32125) -------------------
+        // Addressable by `{entity_id}:{url}:{relationshipType}`. The
+        // user signs these — they're assertions about the shape of a
+        // knowledge graph node, not the entity's own statement.
+        // Replaceable-event semantics mean re-publishing is safe;
+        // filter to a single emission per d-tag coordinate per batch
+        // already done in `resolveRelationshipsToPublish`.
+        const relBatchBase = claimBatchBase + claimsToPublish.length;
+        const relationshipResults = { ok: 0, fail: 0, errors: [] };
+        for (let i = 0; i < relationshipsToPublish.length; i++) {
+            const { entity, relType, claimId } = relationshipsToPublish[i];
+            btn.textContent = `Publishing (${relBatchBase + i + 1}/${totalEvents})…`;
+            try {
+                const unsigned = EventBuilder.buildEntityRelationshipEvent(
+                    entity, article.url, relType, userPubkey, claimId
+                );
+                const resp = await browserApi.runtime.sendMessage({
+                    type:  'xray:capture:publish',
+                    id:    state.id,
+                    event: unsigned
+                });
+                if (resp && resp.ok && resp.results) {
+                    recordRelayResults(resp.results);
+                    if (resp.results.successful > 0) {
+                        relationshipResults.ok++;
+                    } else {
+                        relationshipResults.fail++;
+                        relationshipResults.errors.push(`${entity.name} ${relType}: no relays`);
+                    }
+                } else {
+                    relationshipResults.fail++;
+                    relationshipResults.errors.push(`${entity.name} ${relType}: ${(resp && resp.error) || 'unknown'}`);
+                }
+            } catch (err) {
+                relationshipResults.fail++;
+                relationshipResults.errors.push(`${entity.name} ${relType}: ${err.message || String(err)}`);
+                console.warn('[X-Ray Reader] relationship publish failed:', entity.id, relType, err);
+            }
+            setProgress(relBatchBase + i + 1, totalEvents);
+            if (i < relationshipsToPublish.length - 1) await sleep(BATCH_PUBLISH_DELAY_MS);
+        }
+
         // Build + surface the end-of-batch summary.
         showPublishSummary({
             includeComments,
@@ -951,8 +1052,15 @@ async function publish() {
             commentResults,
             entityResults,
             entityCount: entitiesToPublish.length,
+            claimResults,
+            claimCount: claimsToPublish.length,
+            relationshipResults,
+            relationshipCount: relationshipsToPublish.length,
             relayStats
         });
+
+        // Refresh the claims bar so the 🌐 published indicator shows.
+        refreshClaimsBar().catch(() => {});
     } catch (err) {
         console.error('[X-Ray Reader] publish failed:', err);
         toast('Publish failed: ' + (err.message || err), 'error', 7000);
@@ -981,8 +1089,8 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
  * doesn't disappear, but we obviously can't sign a kind-0 without the
  * private key.
  */
-async function resolveEntitiesToPublish(refs) {
-    if (!Array.isArray(refs) || refs.length === 0) return [];
+async function resolveEntitiesToPublish(entityIds) {
+    if (!entityIds || entityIds.length === 0) return [];
     const seen = new Set();
     const out = [];
 
@@ -1006,9 +1114,64 @@ async function resolveEntitiesToPublish(refs) {
         out.push(entity);
     };
 
-    for (const ref of refs) {
-        if (!ref || !ref.entity_id) continue;
-        await enqueue(ref.entity_id);
+    for (const id of entityIds) await enqueue(id);
+    return out;
+}
+
+/**
+ * Claims on the current article that still need their kind-30040
+ * event published. Mirrors `resolveEntitiesToPublish`'s semantics
+ * with the same `updated > publishedAt` gate so edits to a claim's
+ * fields re-emit the event (NIP-01 replaceable on the `d` tag).
+ */
+async function resolveClaimsToPublish(articleUrl) {
+    if (!articleUrl) return [];
+    const all = await ClaimModel.getBySourceUrl(articleUrl);
+    return all.filter((c) => !c.publishedAt || c.updated > c.publishedAt);
+}
+
+/**
+ * Collect every entity id referenced by a claim as claimant, subject,
+ * or object. Used to ensure claim-referenced entities have their
+ * kind-0 on the network before the claim's kind-30040 lands (claim
+ * events p-tag these pubkeys; dangling references are rude).
+ */
+function collectClaimEntityIds(claims) {
+    const ids = new Set();
+    for (const c of claims || []) {
+        if (c.claimant_entity_id) ids.add(c.claimant_entity_id);
+        for (const id of c.subject_entity_ids || []) ids.add(id);
+        for (const id of c.object_entity_ids  || []) ids.add(id);
+    }
+    return ids;
+}
+
+/**
+ * For every claim, enumerate the (entity, relationshipType, claimId)
+ * triples that should become kind-32125 entity-relationship events.
+ * De-duplicated by `{entity_id}:{url}:{relationshipType}` — the same
+ * `d`-tag addressable-event-coordinate means only one should land on
+ * the network per publish session.
+ *
+ * Entities without a local keypair (rare — someone deleted the
+ * entity after tagging) are dropped silently.
+ */
+async function resolveRelationshipsToPublish(claims, articleUrl) {
+    const seen = new Set();
+    const out = [];
+    for (const c of claims || []) {
+        const triples = [];
+        if (c.claimant_entity_id) triples.push([c.claimant_entity_id, 'claimant']);
+        for (const id of c.subject_entity_ids || []) triples.push([id, 'subject']);
+        for (const id of c.object_entity_ids  || []) triples.push([id, 'object']);
+        for (const [entityId, relType] of triples) {
+            const key = `${entityId}:${articleUrl}:${relType}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const entity = await EntityModel.get(entityId);
+            if (!entity || !entity.keypair) continue;
+            out.push({ entity, relType, claimId: c.id });
+        }
     }
     return out;
 }
@@ -1044,11 +1207,13 @@ async function getConfiguredRelays() {
  * what's about to happen. Pluralizes correctly and only mentions
  * parts that actually exist.
  */
-function buildPublishStartMessage(commentCount, entityCount) {
+function buildPublishStartMessage(commentCount, entityCount, claimCount = 0, relationshipCount = 0) {
     const parts = ['article'];
-    if (commentCount > 0) parts.push(`${commentCount} comment${commentCount === 1 ? '' : 's'}`);
-    if (entityCount > 0)  parts.push(`${entityCount} entity profile${entityCount === 1 ? '' : 's'}`);
-    const total = 1 + commentCount + entityCount;
+    if (commentCount > 0)      parts.push(`${commentCount} comment${commentCount === 1 ? '' : 's'}`);
+    if (entityCount > 0)       parts.push(`${entityCount} entity profile${entityCount === 1 ? '' : 's'}`);
+    if (claimCount > 0)        parts.push(`${claimCount} claim${claimCount === 1 ? '' : 's'}`);
+    if (relationshipCount > 0) parts.push(`${relationshipCount} relationship${relationshipCount === 1 ? '' : 's'}`);
+    const total = 1 + commentCount + entityCount + claimCount + relationshipCount;
     return `Publishing ${total} events (${parts.join(' + ')})…`;
 }
 
@@ -1057,12 +1222,19 @@ function buildPublishStartMessage(commentCount, entityCount) {
  * console. Consistently-failing relays are called out by name so the
  * user knows which ones to consider removing.
  */
-function showPublishSummary({ includeComments, totalEvents, articleResults, commentResults, entityResults, entityCount, relayStats }) {
+function showPublishSummary({
+    includeComments, totalEvents, articleResults,
+    commentResults, entityResults, entityCount,
+    claimResults, claimCount, relationshipResults, relationshipCount,
+    relayStats
+}) {
     // Console breakdown (always useful for debugging)
     console.group('[X-Ray Reader] publish summary');
     console.log('total events:', totalEvents);
-    if (includeComments)                         console.log('comments:', commentResults);
-    if (entityResults && entityCount > 0)        console.log('entities:', entityResults);
+    if (includeComments)                                     console.log('comments:',       commentResults);
+    if (entityResults && entityCount > 0)                    console.log('entities:',       entityResults);
+    if (claimResults  && claimCount  > 0)                    console.log('claims:',         claimResults);
+    if (relationshipResults && relationshipCount > 0)        console.log('relationships:',  relationshipResults);
     console.log('per relay:', Object.fromEntries(relayStats));
     console.groupEnd();
 
@@ -1072,11 +1244,14 @@ function showPublishSummary({ includeComments, totalEvents, articleResults, comm
         if (s.ok === 0 && s.fail > 0) dead.push({ url, fail: s.fail, reason: s.lastError });
     }
 
-    const entFails = (entityResults && entityResults.fail) || 0;
-    const cmtFails = (commentResults && commentResults.fail) || 0;
+    const entFails = (entityResults  && entityResults.fail)       || 0;
+    const cmtFails = (commentResults && commentResults.fail)      || 0;
+    const clmFails = (claimResults   && claimResults.fail)        || 0;
+    const relFails = (relationshipResults && relationshipResults.fail) || 0;
 
-    // Primary line. We always state the article result; then list
-    // whichever of {comments, entity profiles} actually participated.
+    // Primary line. Always state the article result, then list whichever
+    // of {comments, entity profiles, claims, relationships} actually
+    // participated this publish.
     const segments = [];
     segments.push(articleResults.successful > 0
         ? `article on ${articleResults.successful}/${articleResults.total} relays`
@@ -1087,9 +1262,15 @@ function showPublishSummary({ includeComments, totalEvents, articleResults, comm
     if (entityCount > 0) {
         segments.push(`${entityResults.ok}/${entityResults.ok + entityResults.fail} entity profile${entityCount === 1 ? '' : 's'}`);
     }
+    if (claimCount > 0) {
+        segments.push(`${claimResults.ok}/${claimResults.ok + claimResults.fail} claim${claimCount === 1 ? '' : 's'}`);
+    }
+    if (relationshipCount > 0) {
+        segments.push(`${relationshipResults.ok}/${relationshipResults.ok + relationshipResults.fail} relationship${relationshipCount === 1 ? '' : 's'}`);
+    }
     let line = 'Published: ' + segments.join(', ') + '.';
 
-    // Per-relay aggregate: "N relays accepted all events, M relays failed".
+    // Per-relay aggregate.
     const acceptedAll = [...relayStats.values()].filter((s) => s.fail === 0 && s.ok > 0).length;
     if (relayStats.size > 0) {
         line += ` ${acceptedAll}/${relayStats.size} relays accepted everything.`;
@@ -1101,13 +1282,14 @@ function showPublishSummary({ includeComments, totalEvents, articleResults, comm
         line += ` Rejected by ${names} — consider removing in Options.`;
     }
 
-    const level = (dead.length > 0 || cmtFails > 0 || entFails > 0 || articleResults.successful === 0)
+    const anyFail = dead.length > 0 || cmtFails > 0 || entFails > 0 || clmFails > 0 || relFails > 0;
+    const level = (anyFail || articleResults.successful === 0)
         ? (articleResults.successful > 0 ? 'warning' : 'error')
         : 'success';
     toast(line, level, 9000);
 
     // landed count for callers that want it (currently nobody does; kept for parity).
-    return totalEvents - cmtFails - entFails - (articleResults.successful === 0 ? 1 : 0);
+    return totalEvents - cmtFails - entFails - clmFails - relFails - (articleResults.successful === 0 ? 1 : 0);
 }
 
 /**
