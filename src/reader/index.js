@@ -14,7 +14,9 @@ import { ContentExtractor } from '../shared/content-extractor.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { EntityModel, installEntityStorageBridge } from '../shared/entity-model.js';
+import { ClaimModel } from '../shared/claim-model.js';
 import { installEntityTagger, rehydrateEntityMarks } from './entity-tagger.js';
+import { openClaimModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
 
 const browserApi = typeof browser !== 'undefined' && browser.runtime ? browser : chrome;
 
@@ -164,7 +166,9 @@ function renderReader() {
 
     // Mount the entity tagger on the article body. Its onTag callback
     // pushes the resolved ref onto the article's entity list and marks
-    // state as dirty so the publish path picks it up.
+    // state as dirty so the publish path picks it up. The onClaim
+    // callback hands off to the claim extractor — opens the claim
+    // modal with the selected text + surrounding paragraph pre-filled.
     if (state._taggerUninstall) state._taggerUninstall();
     state._taggerUninstall = installEntityTagger({
         container: body,
@@ -178,14 +182,87 @@ function renderReader() {
             // Sync htmlDraft with whatever the mark wrap did to the body.
             state.htmlDraft = body.innerHTML;
             state.dirtySource = 'reader';
+        },
+        onClaim: async ({ text, context }) => {
+            const saved = await openClaimModal({
+                sourceUrl:   state.article.url,
+                initialText: text,
+                context
+            });
+            if (saved) {
+                toast('Claim saved', 'success', 2000);
+                await refreshClaimsBar();
+            }
         }
     });
+
+    // Render the claims bar below the article body. Fires in the
+    // background — we don't block the main render on it.
+    refreshClaimsBar().catch((err) => console.warn('[X-Ray Reader] claims-bar render failed:', err));
 
     // Wire metadata-field edits back to the article object.
     main.querySelectorAll('[contenteditable]').forEach((el) => {
         el.addEventListener('input', onReaderFieldInput);
         el.addEventListener('blur', onReaderFieldBlur);
     });
+}
+
+// ------------------------------------------------------------------
+// Claims bar (Phase 5 C2)
+// ------------------------------------------------------------------
+
+/**
+ * Pull all claims attached to `state.article.url` from the claim
+ * registry, render the bar beneath the article body, and wire up the
+ * edit / delete row actions. Also rehydrates visual `xr-claim` marks
+ * on the body for each claim whose text still appears verbatim.
+ */
+async function refreshClaimsBar() {
+    const host = $('#xr-claims-host');
+    if (!host || !state.article || !state.article.url) return;
+
+    const claims = await ClaimModel.getBySourceUrl(state.article.url);
+    host.innerHTML = await renderClaimsBar(claims);
+
+    // Rehydrate marks on the article body so tagged passages stay
+    // visibly linked. Best-effort: edits between captures may leave
+    // some marks unanchored; the claim data itself is unaffected.
+    const body = $('.xr-article__body');
+    if (body) rehydrateClaimMarks(body, claims);
+
+    // Wire per-row actions.
+    host.querySelectorAll('.xr-claims__item').forEach((row) => {
+        const id = row.dataset.id;
+        const editBtn = row.querySelector('[data-action="edit"]');
+        const delBtn  = row.querySelector('[data-action="delete"]');
+        if (editBtn) editBtn.addEventListener('click', () => openEditClaim(id));
+        if (delBtn)  delBtn.addEventListener('click',  () => confirmDeleteClaim(id));
+    });
+}
+
+async function openEditClaim(id) {
+    const claim = await ClaimModel.get(id);
+    if (!claim) { toast('Claim not found', 'error'); return; }
+    const saved = await openClaimModal({
+        sourceUrl:    state.article.url,
+        initialClaim: claim
+    });
+    if (saved) {
+        toast('Claim updated', 'success', 2000);
+        await refreshClaimsBar();
+    }
+}
+
+async function confirmDeleteClaim(id) {
+    const claim = await ClaimModel.get(id);
+    if (!claim) return;
+    const msg = claim.publishedAt
+        ? `Delete claim? Already-published kind-30040 stays on relays until NIP-09 delete (later phase).`
+        : `Delete claim?`;
+    if (!confirm(msg)) return;
+    await ClaimModel.delete(id);
+    toast('Claim deleted', 'success', 2000);
+    await refreshClaimsBar();
 }
 
 // ------------------------------------------------------------------

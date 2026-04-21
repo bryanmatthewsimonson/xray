@@ -30,16 +30,24 @@ let popover = null;
 let currentSelectionRange = null;
 let currentSelectionText  = '';
 let onTagCallback         = null;
+let onClaimCallback       = null;
 
 /**
  * Wire the tagger up to a container element (typically the article
  * body). Returns an uninstall function.
  *
- * @param {{ container: HTMLElement, onTag: (ref) => void }} opts
+ * @param {{
+ *   container: HTMLElement,
+ *   onTag:     (ref)  => void,
+ *   onClaim?:  (info) => void  // called when the popover's "Add as
+ *                              // claim" row is clicked; the reader
+ *                              // opens the claim modal from there
+ * }} opts
  */
-export function installEntityTagger({ container, onTag }) {
+export function installEntityTagger({ container, onTag, onClaim }) {
     if (!container) return () => {};
     onTagCallback = onTag;
+    onClaimCallback = onClaim || null;
 
     const onMouseUp = (ev) => {
         // Small delay so selection state has settled — some browsers
@@ -133,6 +141,11 @@ function openPopover({ x, y, initialText }) {
         <button type="button" class="xr-tagger-popover__type-btn" data-type="thing"
                 title="Thing">${ENTITY_ICONS.thing}</button>
       </div>
+      <div class="xr-tagger-popover__handoff">
+        <button type="button" class="xr-tagger-popover__claim-btn" title="Open the claim form with this selection">
+          📋 Add as claim
+        </button>
+      </div>
     `;
 
     // Position — near the selection's bottom-right, clamped to viewport.
@@ -182,10 +195,53 @@ function openPopover({ x, y, initialText }) {
     popover.querySelector('.xr-tagger-popover__close')
         .addEventListener('click', closePopover);
 
+    // "Add as claim" handoff — close the popover and invoke the
+    // caller-supplied onClaim callback with the selected text +
+    // anchor, so the reader can open the claim modal.
+    const claimBtn = popover.querySelector('.xr-tagger-popover__claim-btn');
+    if (claimBtn) {
+        claimBtn.addEventListener('click', () => {
+            const text = currentSelectionText;
+            // Grab a short surrounding-paragraph context for the claim
+            // record — useful for the kind-30040 event body and later
+            // rehydration.
+            const context = extractParagraphContext(currentSelectionRange);
+            closePopover();
+            // Clear selection so the body click doesn't reopen the
+            // popover immediately.
+            const sel = window.getSelection();
+            if (sel) sel.removeAllRanges();
+            currentSelectionRange = null;
+            currentSelectionText  = '';
+            if (typeof onClaimCallback === 'function') {
+                onClaimCallback({ text, context });
+            }
+        });
+    }
+
     search.focus();
     search.select();
     // Initial render — seed autocomplete with the pre-filled text.
     renderResults(results, search.value);
+}
+
+/**
+ * Walk up from the selection's common ancestor to the nearest block
+ * element and return its plain-text content, trimmed to a reasonable
+ * size. Used as the `context` field on the claim record — gives any
+ * downstream consumer (including our own rehydrate path) enough to
+ * anchor the claim even if the exact selection text moves.
+ */
+function extractParagraphContext(range) {
+    if (!range) return '';
+    let node = range.commonAncestorContainer;
+    if (node.nodeType === 3) node = node.parentElement;
+    while (node && !/^(P|LI|BLOCKQUOTE|DIV|ARTICLE|SECTION|MAIN)$/.test(node.tagName || '')) {
+        node = node.parentElement;
+    }
+    if (!node) return '';
+    const text = (node.textContent || '').replace(/\s+/g, ' ').trim();
+    return text.slice(0, 800);
 }
 
 function closePopover() {

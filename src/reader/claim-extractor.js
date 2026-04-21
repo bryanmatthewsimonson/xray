@@ -1,0 +1,583 @@
+// Reader-side claim extractor — Phase 5 C2 (issue #16).
+//
+// The entity tagger popover (entity-tagger.js) now includes an
+// "📋 Add as claim" row. Clicking it hands off to this module's
+// `openClaimModal()`, which opens a bigger form for the structured
+// claim fields: type, crux + confidence, subject/predicate/object
+// triple, attribution, claimant, quote-date.
+//
+// Save → `ClaimModel.create()` persists the record and returns it.
+// The reader then re-renders its claims bar (below the article body)
+// and wraps the selection in a `<span class="xr-claim xr-claim--<type>">`
+// so the passage is visibly linked to a claim.
+//
+// Edit flow: clicking an existing claim's ✎ in the claims bar opens
+// the same modal seeded with the current values — actually calls
+// `ClaimModel.update()` on save.
+//
+// Unlike the entity model, we DO NOT track claim refs on
+// `state.article.claims`. Claims are keyed in storage by their
+// `source_url`, and `ClaimModel.getBySourceUrl(article.url)` is the
+// single source of truth at render and publish time.
+
+import {
+    ClaimModel,
+    CLAIM_TYPES,
+    CLAIM_TYPE_LABELS,
+    CLAIM_TYPE_ICONS,
+    CLAIM_ATTRIBUTIONS,
+    CLAIM_ATTRIBUTION_LABELS
+} from '../shared/claim-model.js';
+import { EntityModel, ENTITY_ICONS } from '../shared/entity-model.js';
+
+// ------------------------------------------------------------------
+// Modal — used for create AND edit
+// ------------------------------------------------------------------
+
+/**
+ * Open the claim form modal. Returns a promise that resolves with
+ * the saved claim on success, or null on cancel.
+ *
+ * @param {{
+ *   sourceUrl:    string,
+ *   initialText?: string,
+ *   initialClaim?: object,   // pass to pre-populate for edit mode
+ *   context?:     string     // surrounding-paragraph text for the `context` field
+ * }} opts
+ */
+export function openClaimModal(opts) {
+    return new Promise((resolve) => {
+        const { sourceUrl, initialText = '', initialClaim = null, context = '' } = opts;
+
+        const isEdit = !!initialClaim;
+        const initial = initialClaim || {
+            text:                initialText,
+            type:                'factual',
+            is_crux:             false,
+            confidence:          null,
+            attribution:         'editorial',
+            predicate:           '',
+            subject_entity_ids:  [],
+            subject_text:        '',
+            object_entity_ids:   [],
+            object_text:         '',
+            claimant_entity_id:  null,
+            quote_date:          null,
+            context
+        };
+
+        const modal = document.createElement('div');
+        modal.className = 'xr-claim-modal';
+        modal.innerHTML = buildModalHtml(initial, isEdit);
+        document.body.appendChild(modal);
+
+        wireModal(modal, initial, isEdit, async (saved) => {
+            if (!saved) { closeModal(); resolve(null); return; }
+            try {
+                const result = isEdit
+                    ? await ClaimModel.update(initialClaim.id, saved)
+                    : await ClaimModel.create({ ...saved, source_url: sourceUrl });
+                closeModal();
+                resolve(result);
+            } catch (err) {
+                showModalError(modal, err.message || String(err));
+            }
+        });
+
+        function closeModal() { if (modal.parentNode) modal.parentNode.removeChild(modal); }
+    });
+}
+
+function buildModalHtml(initial, isEdit) {
+    const title = isEdit ? 'Edit claim' : 'Add claim';
+
+    const typeRow = CLAIM_TYPES.map((t) => `
+      <button type="button" class="xr-claim-modal__type-btn ${t === initial.type ? 'xr-claim-modal__type-btn--active' : ''}"
+              data-type="${t}">
+        ${CLAIM_TYPE_ICONS[t]} ${escapeHtml(CLAIM_TYPE_LABELS[t])}
+      </button>
+    `).join('');
+
+    const attributionOptions = CLAIM_ATTRIBUTIONS.map((a) => `
+      <option value="${escapeHtml(a)}" ${a === initial.attribution ? 'selected' : ''}>
+        ${escapeHtml(CLAIM_ATTRIBUTION_LABELS[a])}
+      </option>
+    `).join('');
+
+    const confidenceValue = initial.confidence != null ? initial.confidence : 75;
+
+    return `
+      <div class="xr-claim-modal__backdrop"></div>
+      <div class="xr-claim-modal__card">
+        <header class="xr-claim-modal__head">
+          <h2 class="xr-claim-modal__title">${escapeHtml(title)}</h2>
+          <button type="button" class="xr-claim-modal__close" aria-label="Cancel">✕</button>
+        </header>
+
+        <div class="xr-claim-modal__body">
+          <div class="xr-claim-modal__err" hidden></div>
+
+          <label class="xr-claim-modal__field">
+            <span class="xr-claim-modal__label">Claim text</span>
+            <textarea class="xr-claim-modal__text" rows="3"
+              ${isEdit ? 'readonly' : ''}
+              placeholder="The exact wording of the claim">${escapeHtml(initial.text || '')}</textarea>
+            ${isEdit ? '<small class="xr-claim-modal__hint">Text is immutable after creation. Delete + recreate to change it.</small>' : ''}
+          </label>
+
+          <div class="xr-claim-modal__field">
+            <span class="xr-claim-modal__label">Type</span>
+            <div class="xr-claim-modal__type-row">${typeRow}</div>
+          </div>
+
+          <div class="xr-claim-modal__field xr-claim-modal__field--inline">
+            <label class="xr-claim-modal__checkbox">
+              <input type="checkbox" class="xr-claim-modal__crux" ${initial.is_crux ? 'checked' : ''} />
+              <span>Crux — the central claim</span>
+            </label>
+          </div>
+
+          <div class="xr-claim-modal__field xr-claim-modal__conf-wrap" ${initial.is_crux ? '' : 'hidden'}>
+            <span class="xr-claim-modal__label">Confidence</span>
+            <div class="xr-claim-modal__conf-row">
+              <input type="range" class="xr-claim-modal__conf" min="0" max="100" step="1" value="${confidenceValue}" />
+              <output class="xr-claim-modal__conf-out">${confidenceValue}%</output>
+            </div>
+          </div>
+
+          <label class="xr-claim-modal__field">
+            <span class="xr-claim-modal__label">Attribution</span>
+            <select class="xr-claim-modal__attribution">${attributionOptions}</select>
+          </label>
+
+          <label class="xr-claim-modal__field">
+            <span class="xr-claim-modal__label">Predicate <em>(the verb connecting subject and object)</em></span>
+            <input type="text" class="xr-claim-modal__predicate" spellcheck="false"
+                   placeholder="e.g. causes, said, is, threatens"
+                   value="${escapeHtml(initial.predicate || '')}" />
+          </label>
+
+          ${buildEntityOrTextPicker('subject', 'Subject',  initial.subject_entity_ids, initial.subject_text)}
+          ${buildEntityOrTextPicker('object',  'Object',   initial.object_entity_ids,  initial.object_text)}
+          ${buildEntitySinglePicker('claimant', 'Claimant (optional)', initial.claimant_entity_id)}
+
+          <label class="xr-claim-modal__field">
+            <span class="xr-claim-modal__label">Quote date <em>(optional — when the claim was originally made)</em></span>
+            <input type="date" class="xr-claim-modal__date"
+                   value="${escapeHtml(initial.quote_date || '')}" />
+          </label>
+        </div>
+
+        <footer class="xr-claim-modal__foot">
+          <button type="button" class="xr-claim-modal__btn xr-claim-modal__btn--ghost" data-action="cancel">Cancel</button>
+          <button type="button" class="xr-claim-modal__btn xr-claim-modal__btn--primary" data-action="save">${isEdit ? 'Save changes' : 'Save claim'}</button>
+        </footer>
+      </div>
+    `;
+}
+
+/**
+ * Subject / Object field: radio between "Pick entity" and "Free text"
+ * — structured when possible, prose when not. Internally we render
+ * the entity picker as a search input with a dropdown of matches.
+ */
+function buildEntityOrTextPicker(prefix, label, entityIds, textValue) {
+    const isEntityMode = Array.isArray(entityIds) && entityIds.length > 0;
+    return `
+      <div class="xr-claim-modal__field xr-claim-modal__picker" data-prefix="${prefix}">
+        <span class="xr-claim-modal__label">${escapeHtml(label)}</span>
+        <div class="xr-claim-modal__picker-mode">
+          <label class="xr-claim-modal__radio">
+            <input type="radio" name="${prefix}-mode" value="entity" ${isEntityMode ? 'checked' : ''} />
+            <span>Entity</span>
+          </label>
+          <label class="xr-claim-modal__radio">
+            <input type="radio" name="${prefix}-mode" value="text" ${isEntityMode ? '' : 'checked'} />
+            <span>Free text</span>
+          </label>
+        </div>
+        <div class="xr-claim-modal__picker-entity" ${isEntityMode ? '' : 'hidden'}>
+          <div class="xr-claim-modal__picked" data-role="picked">
+            ${(entityIds || []).map((id) => `<span class="xr-claim-modal__pill" data-id="${escapeHtml(id)}">Loading…<button type="button" class="xr-claim-modal__pill-x">×</button></span>`).join('')}
+          </div>
+          <input type="text" class="xr-claim-modal__picker-search" data-role="search"
+                 placeholder="Search entities by name…" spellcheck="false" />
+          <div class="xr-claim-modal__picker-results" data-role="results" hidden></div>
+        </div>
+        <input type="text" class="xr-claim-modal__picker-text" ${isEntityMode ? 'hidden' : ''}
+               placeholder="Free-text ${escapeHtml(label.toLowerCase())}"
+               value="${escapeHtml(textValue || '')}" />
+      </div>
+    `;
+}
+
+function buildEntitySinglePicker(prefix, label, entityId) {
+    return `
+      <div class="xr-claim-modal__field xr-claim-modal__picker xr-claim-modal__picker--single" data-prefix="${prefix}">
+        <span class="xr-claim-modal__label">${escapeHtml(label)}</span>
+        <div class="xr-claim-modal__picker-entity">
+          <div class="xr-claim-modal__picked" data-role="picked">
+            ${entityId ? `<span class="xr-claim-modal__pill" data-id="${escapeHtml(entityId)}">Loading…<button type="button" class="xr-claim-modal__pill-x">×</button></span>` : ''}
+          </div>
+          <input type="text" class="xr-claim-modal__picker-search" data-role="search"
+                 placeholder="Search entities by name…" spellcheck="false" />
+          <div class="xr-claim-modal__picker-results" data-role="results" hidden></div>
+        </div>
+      </div>
+    `;
+}
+
+// ------------------------------------------------------------------
+// Modal wiring
+// ------------------------------------------------------------------
+
+function wireModal(modal, initial, isEdit, onSubmit) {
+    const $ = (sel) => modal.querySelector(sel);
+
+    // Close / cancel
+    const close = () => onSubmit(null);
+    $('.xr-claim-modal__close').addEventListener('click', close);
+    $('.xr-claim-modal__backdrop').addEventListener('click', close);
+    modal.querySelector('[data-action="cancel"]').addEventListener('click', close);
+    document.addEventListener('keydown', escHandler);
+    function escHandler(ev) { if (ev.key === 'Escape') { document.removeEventListener('keydown', escHandler); close(); } }
+
+    // Type picker
+    let currentType = initial.type;
+    modal.querySelectorAll('.xr-claim-modal__type-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            modal.querySelectorAll('.xr-claim-modal__type-btn').forEach((b) =>
+                b.classList.remove('xr-claim-modal__type-btn--active'));
+            btn.classList.add('xr-claim-modal__type-btn--active');
+            currentType = btn.dataset.type;
+        });
+    });
+
+    // Crux toggle → show/hide confidence row
+    const cruxCb = $('.xr-claim-modal__crux');
+    const confWrap = $('.xr-claim-modal__conf-wrap');
+    cruxCb.addEventListener('change', () => { confWrap.hidden = !cruxCb.checked; });
+
+    // Confidence slider → live output
+    const confSl = $('.xr-claim-modal__conf');
+    const confOut = $('.xr-claim-modal__conf-out');
+    confSl.addEventListener('input', () => { confOut.textContent = confSl.value + '%'; });
+
+    // Entity pickers. Each picker has either single-select or multi-select
+    // semantics depending on the field: claimant is single, subject + object
+    // are multi (multiple entity IDs supported by the event-builder).
+    const pickerState = {
+        subject:  { mode: (initial.subject_entity_ids?.length ? 'entity' : 'text'), ids: (initial.subject_entity_ids || []).slice(), text: initial.subject_text || '' },
+        object:   { mode: (initial.object_entity_ids?.length  ? 'entity' : 'text'), ids: (initial.object_entity_ids  || []).slice(), text: initial.object_text || '' },
+        claimant: { mode: 'entity', ids: initial.claimant_entity_id ? [initial.claimant_entity_id] : [], text: '' }
+    };
+
+    modal.querySelectorAll('.xr-claim-modal__picker').forEach((picker) => {
+        wirePicker(picker, pickerState[picker.dataset.prefix], picker.dataset.prefix, picker.classList.contains('xr-claim-modal__picker--single'));
+    });
+
+    // Hydrate entity pills async so the user sees real names instead of "Loading…".
+    hydratePills(modal).catch((err) => console.warn('[X-Ray Claim] pill hydrate failed:', err));
+
+    // Save
+    modal.querySelector('[data-action="save"]').addEventListener('click', async () => {
+        const text = $('.xr-claim-modal__text').value.trim();
+        if (!text) { showModalError(modal, 'Claim text is required'); return; }
+        const isCrux = cruxCb.checked;
+        const confidence = isCrux ? Number(confSl.value) : null;
+
+        const record = {
+            text,
+            type: currentType,
+            is_crux: isCrux,
+            confidence,
+            attribution: $('.xr-claim-modal__attribution').value,
+            predicate:   $('.xr-claim-modal__predicate').value.trim(),
+            subject_entity_ids: pickerState.subject.mode === 'entity' ? pickerState.subject.ids : [],
+            subject_text:       pickerState.subject.mode === 'text'   ? pickerState.subject.text.trim() : '',
+            object_entity_ids:  pickerState.object.mode  === 'entity' ? pickerState.object.ids  : [],
+            object_text:        pickerState.object.mode  === 'text'   ? pickerState.object.text.trim()  : '',
+            claimant_entity_id: pickerState.claimant.ids[0] || null,
+            quote_date:         $('.xr-claim-modal__date').value || null,
+            context:            initial.context || ''
+        };
+
+        document.removeEventListener('keydown', escHandler);
+        onSubmit(record);
+    });
+}
+
+function wirePicker(pickerEl, state, prefix, isSingle) {
+    const modeRadios = pickerEl.querySelectorAll(`input[name="${prefix}-mode"]`);
+    const entityWrap = pickerEl.querySelector('.xr-claim-modal__picker-entity');
+    const textInput  = pickerEl.querySelector('.xr-claim-modal__picker-text');
+    const search     = pickerEl.querySelector('[data-role="search"]');
+    const picked     = pickerEl.querySelector('[data-role="picked"]');
+    const results    = pickerEl.querySelector('[data-role="results"]');
+
+    if (modeRadios.length > 0) {
+        modeRadios.forEach((r) => {
+            r.addEventListener('change', () => {
+                state.mode = r.value;
+                if (entityWrap) entityWrap.hidden = state.mode !== 'entity';
+                if (textInput)  textInput.hidden  = state.mode !== 'text';
+            });
+        });
+    }
+
+    if (textInput) {
+        textInput.addEventListener('input', () => { state.text = textInput.value; });
+    }
+
+    // Entity search + pick
+    search.addEventListener('input', async () => {
+        const q = search.value.trim();
+        if (!q) { results.hidden = true; results.innerHTML = ''; return; }
+        const matches = await EntityModel.search(q, { limit: 6 });
+        if (matches.length === 0) {
+            results.innerHTML = `<div class="xr-claim-modal__picker-empty">No match — tag an entity from the article body first.</div>`;
+            results.hidden = false;
+            return;
+        }
+        results.innerHTML = matches.map((e) => `
+          <button type="button" class="xr-claim-modal__picker-match" data-id="${escapeHtml(e.id)}">
+            <span>${ENTITY_ICONS[e.type] || '🔷'}</span>
+            <span>${escapeHtml(e.name)}</span>
+          </button>
+        `).join('');
+        results.hidden = false;
+
+        results.querySelectorAll('.xr-claim-modal__picker-match').forEach((btn) => {
+            btn.addEventListener('click', async () => {
+                const id = btn.dataset.id;
+                if (isSingle) state.ids = [id];
+                else if (!state.ids.includes(id)) state.ids.push(id);
+                await rerenderPicked(picked, state.ids);
+                search.value = '';
+                results.hidden = true;
+                results.innerHTML = '';
+            });
+        });
+    });
+
+    // Remove-pill delegation
+    picked.addEventListener('click', async (ev) => {
+        const btn = ev.target.closest('.xr-claim-modal__pill-x');
+        if (!btn) return;
+        const pill = btn.closest('.xr-claim-modal__pill');
+        const id = pill && pill.dataset.id;
+        state.ids = state.ids.filter((x) => x !== id);
+        await rerenderPicked(picked, state.ids);
+    });
+}
+
+async function rerenderPicked(container, ids) {
+    if (!ids || ids.length === 0) { container.innerHTML = ''; return; }
+    const rows = await Promise.all(ids.map(async (id) => {
+        const e = await EntityModel.get(id);
+        const label = e ? `${ENTITY_ICONS[e.type] || '🔷'} ${e.name}` : `⚠️ missing (${id.slice(0, 12)}…)`;
+        return `<span class="xr-claim-modal__pill" data-id="${escapeHtml(id)}">${escapeHtml(label)}<button type="button" class="xr-claim-modal__pill-x">×</button></span>`;
+    }));
+    container.innerHTML = rows.join('');
+}
+
+async function hydratePills(modal) {
+    const pills = modal.querySelectorAll('.xr-claim-modal__pill[data-id]');
+    for (const pill of pills) {
+        const id = pill.dataset.id;
+        const e = await EntityModel.get(id);
+        const label = e ? `${ENTITY_ICONS[e.type] || '🔷'} ${e.name}` : `⚠️ missing`;
+        pill.innerHTML = `${escapeHtml(label)}<button type="button" class="xr-claim-modal__pill-x">×</button>`;
+    }
+}
+
+function showModalError(modal, msg) {
+    const el = modal.querySelector('.xr-claim-modal__err');
+    el.textContent = msg;
+    el.hidden = false;
+}
+
+// ------------------------------------------------------------------
+// Claims bar — below the article body
+// ------------------------------------------------------------------
+
+/**
+ * Render the list of claims attached to the current article. Returns
+ * the HTML string for an outer element that the reader replaces
+ * wholesale on re-render.
+ */
+export async function renderClaimsBar(claims) {
+    if (!claims || claims.length === 0) {
+        return `
+          <section class="xr-claims" id="xr-claims">
+            <header class="xr-claims__head">
+              <h2 class="xr-claims__title">Claims</h2>
+            </header>
+            <div class="xr-claims__empty">No claims on this article yet. Select text in the body and pick “Add as claim”.</div>
+          </section>`;
+    }
+
+    // Resolve entity display for each claim's subject/object/claimant in
+    // parallel so the bar renders quickly for typical ~dozen-claim cases.
+    const rows = await Promise.all(claims.map(async (c) => {
+        const [subject, object, claimant] = await Promise.all([
+            describeParty(c.subject_entity_ids, c.subject_text),
+            describeParty(c.object_entity_ids,  c.object_text),
+            c.claimant_entity_id ? describeEntity(c.claimant_entity_id) : null
+        ]);
+        const typeIcon = CLAIM_TYPE_ICONS[c.type] || '📋';
+        const crux = c.is_crux
+            ? `<span class="xr-claims__crux" title="Crux of the article — confidence ${c.confidence ?? '—'}%">★ crux${c.confidence != null ? ` · ${c.confidence}%` : ''}</span>`
+            : '';
+        const triple = (subject || object || c.predicate)
+            ? `<div class="xr-claims__triple"><em>${escapeHtml(subject || '—')}</em> <strong>${escapeHtml(c.predicate || '—')}</strong> <em>${escapeHtml(object || '—')}</em></div>`
+            : '';
+        const claimantLine = claimant
+            ? `<div class="xr-claims__claimant">Attributed to <em>${escapeHtml(claimant)}</em> · ${escapeHtml(CLAIM_ATTRIBUTION_LABELS[c.attribution] || c.attribution)}</div>`
+            : `<div class="xr-claims__claimant">${escapeHtml(CLAIM_ATTRIBUTION_LABELS[c.attribution] || c.attribution)}</div>`;
+        const pubDot = c.publishedAt
+            ? `<span class="xr-claims__pub" title="Published ${new Date(c.publishedAt * 1000).toLocaleString()}">🌐</span>`
+            : '';
+        return `
+          <article class="xr-claims__item xr-claims__item--${c.type} ${c.is_crux ? 'xr-claims__item--crux' : ''}" data-id="${escapeHtml(c.id)}">
+            <div class="xr-claims__row-top">
+              <span class="xr-claims__type">${typeIcon} ${escapeHtml(CLAIM_TYPE_LABELS[c.type] || c.type)}</span>
+              ${crux}
+              ${pubDot}
+              <div class="xr-claims__row-actions">
+                <button type="button" class="xr-claims__btn" data-action="edit" title="Edit claim">✎</button>
+                <button type="button" class="xr-claims__btn xr-claims__btn--danger" data-action="delete" title="Delete claim">🗑</button>
+              </div>
+            </div>
+            <div class="xr-claims__text">${escapeHtml(c.text)}</div>
+            ${triple}
+            ${claimantLine}
+          </article>`;
+    }));
+
+    return `
+      <section class="xr-claims" id="xr-claims">
+        <header class="xr-claims__head">
+          <h2 class="xr-claims__title">Claims <span class="xr-claims__count">${claims.length}</span></h2>
+        </header>
+        <div class="xr-claims__list">${rows.join('')}</div>
+      </section>`;
+}
+
+async function describeParty(entityIds, freetext) {
+    if (Array.isArray(entityIds) && entityIds.length > 0) {
+        const names = await Promise.all(entityIds.map(describeEntity));
+        return names.filter(Boolean).join(', ');
+    }
+    return freetext || '';
+}
+
+async function describeEntity(id) {
+    const e = await EntityModel.get(id);
+    if (!e) return '(missing entity)';
+    return `${ENTITY_ICONS[e.type] || '🔷'} ${e.name}`;
+}
+
+// ------------------------------------------------------------------
+// Rehydrate visual marks on the article body
+// ------------------------------------------------------------------
+
+export function rehydrateClaimMarks(container, claims) {
+    if (!container || !Array.isArray(claims) || claims.length === 0) return;
+    for (const claim of claims) {
+        if (!claim || !claim.text) continue;
+        wrapFirstTextOccurrence(container, claim.text, claim);
+    }
+}
+
+function wrapFirstTextOccurrence(container, needle, claim) {
+    // Search inside text nodes not already inside a claim or entity mark
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    let node;
+    // Normalize the needle for searching — collapse whitespace so a
+    // claim saved with pasted-in line breaks still finds its source.
+    const normNeedle = needle.replace(/\s+/g, ' ').trim();
+    if (!normNeedle) return;
+    while ((node = walker.nextNode())) {
+        if (node.parentElement && node.parentElement.closest('.xr-claim')) continue;
+        const hay = node.nodeValue.replace(/\s+/g, ' ');
+        const idx = hay.indexOf(normNeedle);
+        if (idx < 0) continue;
+        // Map back from normalized offset to raw-text offset is
+        // imprecise when the raw text has weird whitespace. Cheap
+        // approximation: find the first run of characters in the raw
+        // string whose collapsed form matches the needle.
+        const raw = node.nodeValue;
+        const startRaw = rawIndexOf(raw, normNeedle);
+        if (startRaw < 0) continue;
+        const endRaw = startRaw + approxLength(raw, startRaw, normNeedle.length);
+        const range = document.createRange();
+        try {
+            range.setStart(node, startRaw);
+            range.setEnd(node, Math.min(endRaw, raw.length));
+            wrapRangeWithClaimMark(range, claim);
+        } catch (_) { /* ignore */ }
+        return;
+    }
+}
+
+function rawIndexOf(raw, normalizedNeedle) {
+    const collapsed = raw.replace(/\s+/g, ' ');
+    const normIdx = collapsed.indexOf(normalizedNeedle);
+    if (normIdx < 0) return -1;
+    // Walk raw up to `normIdx` of non-leading-whitespace-collapsed characters.
+    let rawIdx = 0;
+    let collapsedIdx = 0;
+    while (rawIdx < raw.length && collapsedIdx < normIdx) {
+        const ch = raw[rawIdx];
+        const next = raw[rawIdx + 1];
+        if (/\s/.test(ch)) {
+            collapsedIdx++;
+            // Skip any contiguous whitespace that would've been collapsed.
+            while (rawIdx + 1 < raw.length && /\s/.test(next)) { rawIdx++; }
+        } else {
+            collapsedIdx++;
+        }
+        rawIdx++;
+    }
+    return rawIdx;
+}
+
+function approxLength(raw, startRaw, normalizedLen) {
+    // Expand from startRaw until the collapsed run length reaches normalizedLen.
+    let i = startRaw, collapsedCount = 0, inWs = false;
+    while (i < raw.length && collapsedCount < normalizedLen) {
+        if (/\s/.test(raw[i])) {
+            if (!inWs) { collapsedCount++; inWs = true; }
+        } else {
+            collapsedCount++;
+            inWs = false;
+        }
+        i++;
+    }
+    return i - startRaw;
+}
+
+function wrapRangeWithClaimMark(range, claim) {
+    const mark = document.createElement('span');
+    mark.className = `xr-claim xr-claim--${claim.type}${claim.is_crux ? ' xr-claim--crux' : ''}`;
+    mark.setAttribute('data-claim-id', claim.id);
+    mark.setAttribute('data-claim-type', claim.type);
+    mark.setAttribute('title', `${CLAIM_TYPE_LABELS[claim.type] || 'claim'}${claim.is_crux ? ' (crux)' : ''}: ${claim.text.slice(0, 180)}`);
+    try { range.surroundContents(mark); }
+    catch (_) {
+        const frag = range.extractContents();
+        mark.appendChild(frag);
+        range.insertNode(mark);
+    }
+}
+
+// ------------------------------------------------------------------
+// Helpers
+// ------------------------------------------------------------------
+
+function escapeHtml(s) {
+    return String(s ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
