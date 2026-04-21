@@ -7,6 +7,12 @@ and is now at **v4.2.0**. This document is the single source of truth
 for what has landed in the extension and what remains — organized by
 the phase structure laid out in [issue #20](https://github.com/bryanmatthewsimonson/xray/issues/20).
 
+Related docs:
+
+- [`docs/JOURNAL.md`](JOURNAL.md) — chronological log of bugs,
+  design decisions, and external platform changes. Worth a read
+  when a capture target breaks or a design choice needs context.
+
 Per-phase GitHub issues are the working trackers:
 
 | Phase | Issue | Title |

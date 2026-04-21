@@ -18,7 +18,11 @@ generic comment extractor are next. Entity / claims / archive /
 hard-tier platforms follow.
 
 The [**migration roadmap**](docs/ROADMAP.md) is the source of truth
-for what's landed and what's pending.
+for what's landed and what's pending. The
+[**engineering journal**](docs/JOURNAL.md) logs significant bugs,
+design decisions, and external platform changes that shape the
+architecture — worth a skim when a new capture target breaks or a
+subtle bug needs context.
 
 ## Features (currently working)
 

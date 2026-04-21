@@ -15,6 +15,12 @@ codebase — here's what you need to know.
   [`docs/ROADMAP.md`](docs/ROADMAP.md) and the relevant phase issue.
   Sub-phase progress belongs as comments on the phase issue, not as
   orphan branches.
+- **Engineering journal.** [`docs/JOURNAL.md`](docs/JOURNAL.md) is
+  the chronological log of bugs, design decisions, and external
+  platform changes. **Add an entry** when fixing a bug whose root
+  cause isn't obvious from the diff, when making a design choice
+  future-you might reasonably second-guess, or when working around
+  something a third party changed. Keep entries tight.
 - **Shared modules** live at `src/shared/`. Platform handlers live at
   `src/shared/platforms/`; they run in the content script and return
   plain data objects (no DOM mutation, no UI).
