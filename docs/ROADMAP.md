@@ -36,7 +36,7 @@ Phase 2  ████████████████████  complete
 Phase 3  ██████████░░░░░░░░░░  in progress — Substack + YouTube done, Twitter + generic pending
 Phase 4  ████████████████████  complete — entity model + tagger + kind-0 publish + side panel
 Phase 5  ████████████████████  complete — claims + evidence links + relay query
-Phase 6  ░░░░░░░░░░░░░░░░░░░░  unblocked — entity sync via NIP-78 / NIP-44
+Phase 6  ████████████████████  complete — entity sync via NIP-78 + NIP-44 v2
 Phase 7  ░░░░░░░░░░░░░░░░░░░░  opportunistic — archive reader (relay query now in)
 Phase 8  ░░░░░░░░░░░░░░░░░░░░  deferred — split into sub-issues when started
 ```
@@ -441,44 +441,58 @@ Per issue #16:
 
 ---
 
-## Phase 6 — Entity sync over NIP-78 + NIP-44 v2 ⏳
+## Phase 6 — Entity sync over NIP-78 + NIP-44 v2 ✅
 
-**Issue:** [#17](https://github.com/bryanmatthewsimonson/xray/issues/17). Blocked on: Phase 4.
-
-Cross-device sync of entities (including private keys) via encrypted
-NOSTR events.
+**Issue:** [#17](https://github.com/bryanmatthewsimonson/xray/issues/17) (complete). Commit `9c13598`.
 
 ### Mechanism
 
-- **Kind 30078** (NIP-78 app-specific data), `d: <entity-id>`.
-- Content = NIP-44 v2 encrypted payload of the full entity object
-  (including private key).
-- Encryption: encrypt-to-self. `conversation_key =
-  HKDF-extract(salt="nip44-v2", ikm=ECDH(user_privkey, user_pubkey).x)`.
-- Tags: `["entity-type", …]`, `["L", "nac/entity-sync"]`,
-  `["l", "v1", "nac/entity-sync"]`.
+- Kind-30078 (NIP-78 app-specific data) per entity, `d: <entity_id>`.
+- Content = NIP-44 v2 ciphertext of the full entity payload including
+  its per-entity keypair.
+- Encryption is encrypt-to-self via ECDH(userPrivkey, userPubkey); the
+  resulting conversation key never leaves the user's device.
+- Tags: `['d', entityId]`, `['entity-type', type]`, `['L', 'nac/entity-sync']`,
+  `['l', 'v1', 'nac/entity-sync']`, `['client', 'nostr-article-capture']`.
 
-### Modules
+### Shipped
 
-- [ ] `shared/entity-sync.js` (~226 LOC) — push all entities as
-      kind-30078 events, pull for the user's pubkey, decrypt,
-      validate, merge.
-- [ ] NIP-04 fallback read path for older sync events produced by
-      pre-NIP-44 userscript versions.
-
-### UI
-
-- [ ] Side panel settings section: **Push** / **Pull** / **Clear
-      remote** buttons.
-- [ ] Export nsec as bech32 string.
-- [ ] Import nsec flow — accept bech32, derive pubkey, run pull.
+- `src/shared/entity-sync.js` — `pushEntities`, `pullEntities`,
+  `clearRemote`, `serializeEntityForSync`, `deserializeEntityFromSync`.
+  7 unit tests under `tests/entity-sync.test.mjs` (59/59 total).
+- Side-panel sync section: collapsible `<details>` at the bottom of
+  the entity browser. Two states — "needs identity" (nsec input +
+  Generate new button) and "configured" (npub display with copy,
+  nsec reveal, Push / Pull / Clear / Forget buttons + inline log).
+- User identity stored in `LocalKeyManager` at the reserved key
+  name `xray:user`, separate from the per-entity keys.
+- Last-write-wins merge on the payload's `updated` field (not the
+  relay-side `created_at`) — the user's intent timestamp is the
+  authority.
+- `clearRemote` publishes NIP-09 delete requests chunked into
+  100-e-tags batches; not all relays honor NIP-09 but partial
+  success is fine.
 
 ### Exit criteria
 
-- Push → pull same device is idempotent.
-- Export on A, import on B, pull: B has the same registry as A.
-- Malformed event rejected cleanly.
-- NIP-04-encrypted legacy events decrypt successfully.
+- ✅ Push → pull same device is idempotent (`unchanged` counter
+  increments, `added` + `updated` stay at zero).
+- ✅ Export nsec on A, import on B, pull: B has the same registry.
+- ✅ Malformed event rejected cleanly (`malformed` counter increments).
+- ⏳ NIP-04 read-path fallback for pre-v4 userscript events —
+  deliberately not implemented (MV3 port, no pre-existing users).
+  Easy to add later if needed.
+
+### Known constraints (deferred)
+
+- Phase 6 needs the user's raw privkey to encrypt. NIP-07 doesn't
+  expose that. A later polish pass can route through
+  `nip44_encrypt` / `nip44_decrypt` on the NIP-07 signer when
+  available (Alby, nos2x-fox both support these) to avoid an nsec
+  on disk.
+- CRDT-shaped conflict resolution (collaborative entity editing by
+  multiple authors) is out of scope — Phase 6 targets a single
+  user's own devices.
 
 ---
 
