@@ -1511,6 +1511,50 @@ body {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--xr-primary) 25%, transparent);
 }
 
+/* ---------------- archive banner (Phase 7) ----------------
+   Sits above the main reader area. Fires when the reader detects
+   a better version of this URL is available in the local archive
+   cache or on a relay. Two actions: Load archive / Keep capture. */
+
+.xr-archive-banner {
+  max-width: var(--xr-reader-max-w);
+  margin: 14px auto 0;
+  padding: 12px 18px;
+  background: color-mix(in srgb, var(--xr-accent) 10%, var(--xr-surface));
+  border: 1px solid color-mix(in srgb, var(--xr-accent) 50%, transparent);
+  border-left: 3px solid var(--xr-accent);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.xr-archive-banner__body {
+  flex: 1;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.xr-archive-banner__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--xr-text);
+}
+
+.xr-archive-banner__metric {
+  font-size: 11px;
+  color: var(--xr-text-dim);
+}
+
+.xr-archive-banner__actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 /* ---------------- "Others' claims" relay-query modal (C5) ---------------- */
 
 .xr-claims__others-btn {

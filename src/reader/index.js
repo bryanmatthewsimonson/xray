@@ -16,6 +16,7 @@ import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { EntityModel, installEntityStorageBridge } from '../shared/entity-model.js';
 import { ClaimModel } from '../shared/claim-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
+import * as ArchiveCache from '../shared/archive-cache.js';
 import { installEntityTagger, rehydrateEntityMarks } from './entity-tagger.js';
 import { openClaimModal, openEvidenceLinkModal, openOthersClaimsModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
 
@@ -126,6 +127,166 @@ async function loadArticle() {
     // the session-storage hand-off. Ensure the field exists so the
     // tagger and publish paths can write to it without null-guards.
     if (!Array.isArray(state.article.entities)) state.article.entities = [];
+
+    // Cache the freshly-loaded article locally so revisits can detect
+    // prior captures. publishedToRelay stays false until the publish
+    // flow explicitly flips it. Fire-and-forget — reader load should
+    // not block on the IDB round trip.
+    if (state.article && state.article.url) {
+        ArchiveCache.saveArticle({ article: state.article, source: 'capture' })
+            .catch((err) => console.warn('[X-Ray Reader] archive cache save failed:', err));
+    }
+
+    // Archive-reader affordance — if this capture looks paywalled OR
+    // truncated, check for a richer version (local cache hit with
+    // a longer body, or a relay-hosted kind-30023). The banner UI is
+    // rendered AFTER the main view mounts so we don't block the
+    // render on a network round-trip.
+    setTimeout(() => checkArchiveAvailability().catch((err) =>
+        console.warn('[X-Ray Reader] archive check failed:', err)), 100);
+}
+
+// ------------------------------------------------------------------
+// Archive reader (Phase 7 C4+C5)
+// ------------------------------------------------------------------
+
+/**
+ * Decide whether the current capture could be improved by loading
+ * an archived version, then (if so) render a banner offering it.
+ *
+ * Heuristic: this capture is "possibly truncated" if its textContent
+ * is shorter than some threshold, OR if a cached copy for the same
+ * URL exists with a substantially longer body, OR if the platform
+ * handler flagged the article as paywalled in some metadata field.
+ * We could add JSON-LD paywall detection here by re-running
+ * `ContentExtractor.detectPaywall` — but that needs the page's
+ * `document`, which we don't have in the reader context.
+ * Substantial improvement likelihood via cache/relay comparison is
+ * the practical path.
+ */
+async function checkArchiveAvailability() {
+    const url = state.article && state.article.url;
+    if (!url) return;
+
+    const currentLen = (state.article.content || '').length;
+
+    // 1. Try local cache first. If the cached copy is substantially
+    //    longer than what we just extracted, it's probably the
+    //    paywall-unlocked version from a prior session — offer it.
+    let cached = null;
+    try { cached = await ArchiveCache.getArticle(url); } catch (_) { /* ignore */ }
+    if (cached && cached.article && cached.article.content) {
+        const cachedLen = cached.article.content.length;
+        if (cachedLen > currentLen * 1.3 && cachedLen > 1000) {
+            renderArchiveBanner({
+                source: 'cache',
+                cachedAt: cached.cachedAt,
+                article: cached.article,
+                metric:   `Cached copy is ${Math.round(cachedLen / currentLen)}× longer`
+            });
+            return;
+        }
+    }
+
+    // 2. If the local body is tiny (<1500 chars), try relay reconstruction.
+    //    Tiny is our paywall-shaped proxy in a context that can't re-run
+    //    `detectPaywall` against a live document.
+    if (currentLen < 1500) {
+        try {
+            const resp = await browserApi.runtime.sendMessage({
+                type: 'xray:archive:reconstruct',
+                url
+            });
+            if (resp && resp.ok && resp.found && resp.article) {
+                renderArchiveBanner({
+                    source:       'relay',
+                    author:       resp.authorPubkey,
+                    createdAt:    resp.createdAt,
+                    article:      resp.article,
+                    metric:       resp.altCount > 0 ? `${resp.altCount + 1} relay versions found, newest shown` : 'reconstructed from relay'
+                });
+            }
+        } catch (err) {
+            console.warn('[X-Ray Reader] relay archive reconstruct failed:', err);
+        }
+    }
+}
+
+/**
+ * Render the archive banner above the article body. Two actions:
+ *
+ *   "Load archive" — swap the reader's main body for the archive's
+ *                    content + markdown, re-render.
+ *   "Keep capture" — dismiss the banner.
+ */
+function renderArchiveBanner({ source, article, metric, cachedAt, createdAt, author }) {
+    let banner = $('#xr-archive-banner');
+    if (!banner) {
+        banner = document.createElement('aside');
+        banner.id = 'xr-archive-banner';
+        banner.className = 'xr-archive-banner';
+        const main = $('#xr-main');
+        if (!main || !main.parentElement) return;
+        main.parentElement.insertBefore(banner, main);
+    }
+
+    const ago = cachedAt
+        ? new Date(cachedAt * 1000).toLocaleDateString()
+        : (createdAt ? new Date(createdAt * 1000).toLocaleDateString() : '');
+    const sourceLabel = source === 'cache'
+        ? `📦 Your archive (${escapeHtml(ago)})`
+        : `🌐 Relay archive by ${escapeHtml((author || '').slice(0, 12) + '…')} (${escapeHtml(ago)})`;
+
+    banner.innerHTML = `
+      <div class="xr-archive-banner__body">
+        <div class="xr-archive-banner__label">${sourceLabel}</div>
+        <div class="xr-archive-banner__metric">${escapeHtml(metric || '')}</div>
+      </div>
+      <div class="xr-archive-banner__actions">
+        <button type="button" class="xr-reader__btn xr-reader__btn--primary" id="xr-archive-load">Load archive</button>
+        <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-archive-dismiss">Keep capture</button>
+      </div>
+    `;
+
+    $('#xr-archive-dismiss').addEventListener('click', () => banner.remove());
+    $('#xr-archive-load').addEventListener('click', () => {
+        loadArchivedArticle(article, { source, cachedAt, createdAt, author });
+        banner.remove();
+    });
+}
+
+/**
+ * Swap the reader's article payload for the archived version. Leaves
+ * entity refs, claims, and comments untouched — the user was working
+ * on this capture's metadata and the archive is only replacing the
+ * body content.
+ */
+function loadArchivedArticle(archived, provenance) {
+    state.article = {
+        ...archived,
+        // Preserve the URL / id bridging so publish + session paths
+        // stay consistent with the tab this reader was opened from.
+        url: state.article.url,
+        entities: state.article.entities || []
+    };
+    // Tag the article object with archive provenance for the publish
+    // flow's awareness + any downstream consumers that care.
+    state.article._archiveSource = provenance.source;
+    if (provenance.cachedAt) state.article._archiveCachedAt = provenance.cachedAt;
+    if (provenance.createdAt) state.article._archiveCreatedAt = provenance.createdAt;
+    if (provenance.author)   state.article._archiveAuthor = provenance.author;
+
+    state.markdownDraft = archived.markdown || archived.content || '';
+    state.htmlDraft     = archived.content  || ContentExtractor.markdownToHtml(state.markdownDraft);
+    state.dirtySource   = 'reader';
+
+    // Re-render whatever view the user's currently in.
+    switch (state.viewMode) {
+        case 'reader':   renderReader();   break;
+        case 'markdown': renderMarkdown(); break;
+        case 'preview':  renderPreview();  break;
+    }
+    toast(`Archive loaded (${provenance.source})`, 'success', 3000);
 }
 
 // ------------------------------------------------------------------
@@ -887,6 +1048,20 @@ async function publish() {
         recordRelayResults(articleResp.results);
         const articleResults = articleResp.results;
         setProgress(1, totalEvents);
+
+        // Cache the article to IndexedDB for Phase 7's archive reader.
+        // Fire-and-forget — a cache write shouldn't block publish. We
+        // only persist after at least one relay accepted the event so
+        // the `publishedToRelay` flag is honest.
+        if (articleResults.successful > 0) {
+            const publishedEventId = articleResp.signedEvent && articleResp.signedEvent.id;
+            ArchiveCache.saveArticle({
+                article,
+                source:           'capture',
+                publishedToRelay: true,
+                publishedEventId: publishedEventId || null
+            }).catch((err) => console.warn('[X-Ray Reader] archive cache save failed:', err));
+        }
 
         // Comment events — only if the user opted in.
         const commentResults = { ok: 0, fail: 0, skipped: 0, errors: [] };

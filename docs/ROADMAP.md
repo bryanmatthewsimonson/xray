@@ -37,7 +37,7 @@ Phase 3  ██████████░░░░░░░░░░  in progre
 Phase 4  ████████████████████  complete — entity model + tagger + kind-0 publish + side panel
 Phase 5  ████████████████████  complete — claims + evidence links + relay query
 Phase 6  ████████████████████  complete — entity sync via NIP-78 + NIP-44 v2
-Phase 7  ░░░░░░░░░░░░░░░░░░░░  opportunistic — archive reader (relay query now in)
+Phase 7  ████████████████████  complete — archive reader (IDB cache + paywall detection + relay reconstruct)
 Phase 8  ░░░░░░░░░░░░░░░░░░░░  deferred — split into sub-issues when started
 ```
 
@@ -496,44 +496,78 @@ Per issue #16:
 
 ---
 
-## Phase 7 — Archive reader ⏳
+## Phase 7 — Archive reader ✅
 
-**Issue:** [#18](https://github.com/bryanmatthewsimonson/xray/issues/18). Opportunistic — can slot in anywhere after
-Phase 2.
+**Issue:** [#18](https://github.com/bryanmatthewsimonson/xray/issues/18) (complete). Commit `TBD`.
 
-Local cache of captured articles with relay-backed retrieval as a
-paywall-bypass fallback.
+### Shipped
 
-### Storage
+- **`src/shared/archive-cache.js`** — IndexedDB wrapper keyed by
+  `urlHash = sha256(Utils.normalizeUrl(url)).slice(0, 16)`. Store:
+  `articles` (keyPath: `urlHash`, indexes on `lastAccessed`,
+  `publishedToRelay`, `cachedAt`). API: `saveArticle`,
+  `getArticle`, `hasArticle`, `deleteArticle`, `listArticles`,
+  `count`, `clear`, `evictIfNeeded`. LRU eviction tiered by
+  `publishedToRelay` (published first — relay is the backup; a lost
+  published entry is re-fetchable), then by `lastAccessed`.
+  MVP budget: 500 entries; byte-budget lands later if usage
+  warrants. 8 unit tests under `tests/archive-cache.test.mjs` via
+  `fake-indexeddb`.
 
-- [ ] `shared/idb.js` helper — open DB, stores: `articles`, `index`.
-- [ ] Per-article records keyed by
-  `urlHash = sha256(normalizedUrl).slice(0, 16)`.
-- [ ] LRU eviction with 100MB budget (unlimitedStorage permission).
-      Published articles evicted first (relay is backup).
+- **Cache-on-load + cache-on-publish wire-ups in the reader** — every
+  reader-opened article is written to IDB with `publishedToRelay:
+  false`. On first-relay-accept during publish, the record is
+  upserted with `publishedToRelay: true` + the signed event id.
 
-### Paywall detection (port from userscript)
+- **Paywall detection** — `ContentExtractor.detectPaywall(article)`
+  combines four signals:
+  1. JSON-LD `isAccessibleForFree: false` (highest confidence, 0.95)
+  2. DOM selector match on known paywall vendors + generic
+     `.paywall` / `[class*="paywall"]` shells (0.7 if visible)
+  3. Truncation ratio: extracted text < 25% of `body.innerText`
+     length (0.5) or < 40% borderline (0.3)
+  4. "Tiny body + headline present" sanity check (0.4)
 
-- [ ] JSON-LD `isAccessibleForFree: false`.
-- [ ] DOM selectors: `.paywall`, `.subscriber`, Piano, Tinypass,
-      registration walls, gradient-overlay patterns.
-- [ ] Truncation-ratio analysis: extracted words < 40% of
-      estimated total → suspect paywall.
+  Returns `{ paywalled, confidence, signals[] }`. `paywalled: true`
+  at confidence ≥ 0.5 — requires one strong signal or two weak ones
+  to avoid false positives on short articles.
 
-### Fallback flow
+- **Fallback flow** — on reader mount, if the capture looks tiny
+  or a longer cached copy exists for the same URL:
+  - Try local `ArchiveCache.getArticle(url)` first. If the cached
+    body is ≥ 1.3× longer than the current capture, offer it.
+  - Otherwise, message the SW with `xray:archive:reconstruct` —
+    the SW queries configured relays for
+    `{ kinds:[30023], '#r':[url], limit:20 }`, picks the most-recent
+    event, and returns the reconstructed article via
+    `EventBuilder.reconstructArticleFromEvent` (already in place
+    since Phase 2).
+  - A banner above the main reader offers "Load archive" / "Keep
+    capture". Load swaps the body + markdown draft and re-renders.
 
-1. User visits URL.
-2. Content detector runs. Paywall detected OR extraction truncated:
-3. Query local IDB cache first.
-4. If not cached, query relays (SW relay pool does a kind-30023
-   query filtered by `#r: <url>`), pick most recent, reconstruct
-   via `event-builder.reconstructArticleFromEvent()`.
-5. Open reader view; show 📦 Archive badge with source ("Your
-   cache" / "From relay: <npub>…").
+- **FAB badge** — the content script's FAB shows a 📦 badge when
+  `ArchiveCache.hasArticle(currentUrl)` returns true, so the user
+  sees "this is already archived" before clicking in.
 
-`reconstructArticleFromEvent()` already exists in event-builder from
-Phase 2; Phase 7 work is the cache + paywall detection + query
-orchestration.
+### Exit criteria
+
+- ✅ Publishing caches locally with `publishedToRelay: true`.
+- ✅ Visiting a paywalled URL that has a cached copy opens via the
+  reader (with the archive banner offering the cached body).
+- ✅ Visiting a URL with no local cache but a relay-hosted kind-30023
+  reconstructs and offers to open it.
+
+### Deferred
+
+- **Byte-budget eviction** — entry-count MVP is fine for typical
+  usage; replace with a size-aware pass when archive > 100MB.
+- **In-reader archive browser** — a "browse my archive" surface
+  (maybe in the side panel) that lists cached articles with search.
+  Today the cache is opaque to the user except through per-URL
+  lookups and the banner.
+- **Manual "archive this URL" action from the FAB** — today the
+  cache only fills via reader open + publish. A direct archive
+  action could slot in later.
 
 ---
 

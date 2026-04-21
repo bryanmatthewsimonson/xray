@@ -21,6 +21,7 @@
 
 import { Utils } from '../shared/utils.js';
 import { NostrClient } from '../shared/nostr-client.js';
+import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 
 // Pull the debug preference on SW startup. MV3 service workers sleep
@@ -361,6 +362,55 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         fetchSubstackComments(apiOrigin, postId)
             .then((result) => sendResponse({ ok: true, ...result }))
             .catch((err) => sendResponse({ ok: false, error: err && err.message }));
+        return true; // async
+    }
+
+    // Reader → worker: archive-reader flow. Given a URL, query the
+    // configured relay pool for kind-30023 events tagged with that
+    // URL, pick the most recent, reconstruct the article, and hand
+    // it back. Phase 7 C4+C5 (issue #18).
+    if (message.type === 'xray:archive:reconstruct') {
+        const url = message.url;
+        if (!url) { sendResponse({ ok: false, error: 'missing url' }); return false; }
+        (async () => {
+            try {
+                const prefs = await new Promise((r) => {
+                    (chrome.storage.local).get(['preferences'], (res) => {
+                        const raw = res && res.preferences;
+                        try { r(typeof raw === 'string' ? JSON.parse(raw) : (raw || {})); }
+                        catch (_) { r({}); }
+                    });
+                });
+                const relays = Array.isArray(prefs.default_relays) && prefs.default_relays.length > 0
+                    ? prefs.default_relays
+                    : ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.nostr.band'];
+                const { events } = await NostrClient.queryRelays(
+                    relays,
+                    { kinds: [30023], '#r': [url], limit: 20 },
+                    6000
+                );
+                if (events.length === 0) {
+                    sendResponse({ ok: true, found: false });
+                    return;
+                }
+                // Most recent event wins. kind-30023 is NIP-33 replaceable
+                // per (pubkey, d-tag), so ties should be rare but real.
+                events.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+                const pick = events[0];
+                const article = EventBuilder.reconstructArticleFromEvent(pick);
+                sendResponse({
+                    ok: true,
+                    found: true,
+                    article,
+                    eventId: pick.id,
+                    authorPubkey: pick.pubkey,
+                    createdAt: pick.created_at,
+                    altCount: events.length - 1
+                });
+            } catch (err) {
+                sendResponse({ ok: false, error: err && err.message ? err.message : String(err) });
+            }
+        })();
         return true; // async
     }
 

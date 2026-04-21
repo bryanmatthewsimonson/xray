@@ -71,6 +71,24 @@
   fill: white;
 }
 
+/* Phase 7 C6: 📦 archive badge — rendered via ::after so the FAB
+   DOM stays untouched for anyone querySelecting the button itself. */
+.nac-fab--archived::after {
+  content: '📦';
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #fff;
+  color: var(--nac-primary);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 20px;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
 /* Main Panel */
 .nac-panel {
   position: fixed;

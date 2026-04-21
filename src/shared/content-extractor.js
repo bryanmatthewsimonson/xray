@@ -935,5 +935,136 @@ export const ContentExtractor = {
     }
 
     return null;
+  },
+
+  // ----------------------------------------------------------------
+  // Paywall + truncation detection — Phase 7 C3 (issue #18)
+  // ----------------------------------------------------------------
+  //
+  // Returns a hint object:
+  //
+  //   { paywalled:  boolean,
+  //     confidence: 0..1,
+  //     signals:    string[]   // human-readable reasons }
+  //
+  // Caller decides what to do with it. Today the reader uses
+  // `paywalled: true` to offer an archive-fallback flow (try cache,
+  // then relay reconstruction) before showing the local extraction.
+  //
+  // Signals we look for:
+  //   - JSON-LD `"isAccessibleForFree": false` — the most reliable
+  //     indicator; schema.org standardized + used by WaPo / NYT /
+  //     FT / Bloomberg / WSJ when they bother.
+  //   - DOM classes commonly used by paywall vendors:
+  //       .paywall, .subscribe-wall, .tp-modal (Piano), .tp-container,
+  //       .tinypass, .tinypass-offer,
+  //       class names containing "paywall"/"subscri"/"premium" on
+  //       overlay-shaped elements.
+  //   - Truncation ratio: extracted text length < 40% of the total
+  //     visible text on page (paywalls usually leave a preview + gate
+  //     the rest, so Readability's body is much shorter than the raw
+  //     page would suggest).
+  //
+  // The detector is conservative — false positives would send users
+  // down the fallback flow for a normal article, so the confidence
+  // threshold for `paywalled: true` is set at 0.5 (requires at least
+  // one strong signal or two weak ones).
+  detectPaywall: (extractedArticle) => {
+    const signals = [];
+    let confidence = 0;
+
+    // --- 1. JSON-LD isAccessibleForFree ------------------------------
+    try {
+      const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+      for (const s of scripts) {
+        let raw;
+        try { raw = JSON.parse(s.textContent || ''); }
+        catch (_) { continue; }
+        const nodes = Array.isArray(raw) ? raw : [raw];
+        for (const node of nodes) {
+          if (!node || typeof node !== 'object') continue;
+          if (node.isAccessibleForFree === false || node.isAccessibleForFree === 'False') {
+            signals.push('json-ld isAccessibleForFree: false');
+            confidence = Math.max(confidence, 0.95);
+          }
+          // Nested content-shaped objects (NewsArticle, WebPage, etc.)
+          // sometimes wrap the flag one level deeper.
+          if (node.mainEntity && node.mainEntity.isAccessibleForFree === false) {
+            signals.push('json-ld mainEntity.isAccessibleForFree: false');
+            confidence = Math.max(confidence, 0.95);
+          }
+        }
+      }
+    } catch (_) { /* best-effort */ }
+
+    // --- 2. DOM class-name heuristics --------------------------------
+    const PAYWALL_SELECTORS = [
+      '.paywall', '.subscribe-wall', '.subscription-wall',
+      '.tp-modal', '.tp-container', '.tp-backdrop',       // Piano
+      '.tinypass', '.tinypass-offer',
+      '[class*="paywall" i]',
+      '[class*="subscribe" i][class*="wall" i]',
+      '[data-testid*="paywall" i]',
+      '[data-testid*="subscribe-wall" i]'
+    ];
+    for (const sel of PAYWALL_SELECTORS) {
+      let els;
+      try { els = document.querySelectorAll(sel); } catch (_) { continue; }
+      if (els && els.length > 0) {
+        // Weight by element visibility — hidden paywall shells are
+        // common on pages that haven't triggered the gate yet.
+        for (const el of els) {
+          const style = window.getComputedStyle(el);
+          const visible = style && style.display !== 'none' && style.visibility !== 'hidden' && el.offsetHeight > 0;
+          if (visible) {
+            signals.push(`DOM selector ${sel}`);
+            confidence = Math.max(confidence, 0.7);
+            break;
+          }
+        }
+      }
+    }
+
+    // --- 3. Truncation ratio ----------------------------------------
+    // Rough estimate: body.innerText length (all visible text on the
+    // page) vs. Readability's extracted textContent length. Paywalls
+    // leave a preview; the ratio stays low even when the page has
+    // chrome around the article. We're looking for the reverse: a
+    // page with a LOT of visible text where Readability only scored
+    // a small fraction of it.
+    try {
+      const pageText = String(document.body && document.body.innerText || '').trim();
+      const extractedText = String(extractedArticle && extractedArticle.textContent || '').trim();
+      if (pageText.length > 1500 && extractedText.length > 0) {
+        const ratio = extractedText.length / pageText.length;
+        if (ratio < 0.25) {
+          signals.push(`truncation ratio ${(ratio * 100).toFixed(1)}% — extracted body << page text`);
+          confidence = Math.max(confidence, 0.5);
+        } else if (ratio < 0.4) {
+          signals.push(`truncation ratio ${(ratio * 100).toFixed(1)}% — borderline`);
+          confidence = Math.max(confidence, 0.3);
+        }
+      }
+    } catch (_) { /* best-effort */ }
+
+    // --- 4. Content-length sanity check -----------------------------
+    // Extracted text under ~500 chars on a page that claims to be a
+    // news article probably means the paywall kicked in early.
+    try {
+      const extractedText = String(extractedArticle && extractedArticle.textContent || '').trim();
+      if (extractedText.length > 0 && extractedText.length < 500) {
+        const headline = extractedArticle && extractedArticle.title;
+        if (headline) {
+          signals.push(`tiny body: ${extractedText.length} chars with a headline present`);
+          confidence = Math.max(confidence, 0.4);
+        }
+      }
+    } catch (_) { /* best-effort */ }
+
+    return {
+      paywalled:  confidence >= 0.5,
+      confidence,
+      signals
+    };
   }
 };

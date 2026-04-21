@@ -58,6 +58,30 @@ export const UI = {
     fab.addEventListener('click', () => UI.openReader());
     document.body.appendChild(fab);
     UI.elements.fab = fab;
+
+    // Phase 7 C6: if the current URL has an entry in the archive
+    // cache, add a 📦 badge so the user knows a prior capture exists.
+    // Fire-and-forget — FAB appears immediately; badge catches up
+    // when the IDB round trip finishes. Re-checks on SPA nav are
+    // handled by the Phase 4-era URL-change observer if present;
+    // otherwise the badge reflects the URL at mount time.
+    UI.refreshArchiveBadge().catch(() => {});
+  },
+
+  refreshArchiveBadge: async () => {
+    try {
+      const { hasArticle } = await import('../shared/archive-cache.js');
+      const url = window.location.href;
+      const hit = await hasArticle(url);
+      const fab = UI.elements.fab;
+      if (!fab) return;
+      fab.classList.toggle('nac-fab--archived', hit);
+      if (hit) fab.title = 'X-Ray — Capture in reader (📦 archive available)';
+      else     fab.title = 'X-Ray — Capture in reader';
+    } catch (err) {
+      // IDB might not be ready on a fresh install; that's fine — no badge.
+      Utils.log('archive badge check skipped:', err && err.message);
+    }
   },
 
   // Extract the current page, hand off to the background SW, and let
