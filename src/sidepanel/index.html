@@ -2,14 +2,51 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>X-Ray — Side Panel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>X-Ray — Entities</title>
   <link rel="stylesheet" href="index.css" />
 </head>
-<body>
-  <div class="xr-side__placeholder">
-    <h1>X-Ray</h1>
-    <p>Side panel features arrive in Phase 4 (entity browser) and Phase 6 (entity sync). See the <a href="https://github.com/bryanmatthewsimonson/xray/issues/20" target="_blank">roadmap</a>.</p>
-  </div>
+<body class="xr-side">
+  <header class="xr-side__chrome">
+    <h1 class="xr-side__title">🩻 Entities</h1>
+    <button class="xr-side__btn xr-side__btn--primary" id="xr-new-entity" title="Create a new entity">＋ New</button>
+  </header>
+
+  <!-- Views: the list view and the detail view are siblings. Only one
+       is visible at a time, toggled by the class `xr-side--detail` on
+       <body>. -->
+
+  <section class="xr-side__list-view">
+    <div class="xr-side__filters">
+      <button class="xr-side__type-chip xr-side__type-chip--active" data-type=""            title="All">All</button>
+      <button class="xr-side__type-chip" data-type="person"       title="Person">👤</button>
+      <button class="xr-side__type-chip" data-type="organization" title="Organization">🏢</button>
+      <button class="xr-side__type-chip" data-type="place"        title="Place">📍</button>
+      <button class="xr-side__type-chip" data-type="thing"        title="Thing">🔷</button>
+    </div>
+    <input type="search" class="xr-side__search" id="xr-search"
+           placeholder="Search by name…" spellcheck="false" />
+    <div class="xr-side__list" id="xr-list"></div>
+    <footer class="xr-side__footer">
+      <span id="xr-count" class="xr-side__count">—</span>
+      <div class="xr-side__footer-actions">
+        <button class="xr-side__ghost-btn" id="xr-export" title="Export registry as JSON">Export</button>
+        <button class="xr-side__ghost-btn" id="xr-import" title="Import registry JSON">Import</button>
+        <input type="file" id="xr-import-input" accept="application/json,.json" hidden />
+      </div>
+    </footer>
+  </section>
+
+  <section class="xr-side__detail-view" hidden>
+    <header class="xr-side__detail-head">
+      <button class="xr-side__ghost-btn" id="xr-back" title="Back to list">← Back</button>
+      <button class="xr-side__ghost-btn xr-side__ghost-btn--danger" id="xr-delete" title="Delete this entity">Delete</button>
+    </header>
+    <div class="xr-side__detail-body" id="xr-detail"></div>
+  </section>
+
+  <div class="xr-side__toast" id="xr-toast" hidden></div>
+
   <script src="../../dist/sidepanel.bundle.js"></script>
 </body>
 </html>

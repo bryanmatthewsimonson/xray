@@ -1,5 +1,612 @@
-// Side panel entry. Empty shell — populated by Phase 4 (entity browser)
-// and Phase 6 (entity sync). See roadmap: #20.
+// X-Ray side panel — entity browser (Phase 4 C3, issue #15).
+//
+// Single-column drill-down:
+//   - List view: type-filter chips, search, entity list with a
+//     published-indicator and alias-chevron. Footer shows count +
+//     export/import.
+//   - Detail view: editable name / description / nip05, type (shown
+//     but immutable — changing it would re-derive the id), canonical
+//     link picker, npub (copy), nsec (reveal+copy), publish status,
+//     delete button.
+//
+// The panel lives at `chrome.sidePanel.default_path` and is opened
+// either via Chrome's sidepanel button or programmatically. It reads
+// directly from Storage / LocalKeyManager; no relay access from this
+// surface yet (kind-0 publishing lives in the reader's publish flow —
+// see reader/index.js `resolveEntitiesToPublish`).
 
-// Intentionally empty for Phase 0.
-export {};
+import { EntityModel, ENTITY_TYPES, ENTITY_ICONS, installEntityStorageBridge } from '../shared/entity-model.js';
+import { LocalKeyManager } from '../shared/local-key-manager.js';
+
+// ------------------------------------------------------------------
+// State
+// ------------------------------------------------------------------
+
+const state = {
+    view:          'list',     // 'list' | 'detail'
+    typeFilter:    '',         // '' | 'person' | 'organization' | 'place' | 'thing'
+    searchQuery:   '',
+    selectedId:    null,
+    entities:      {},         // cached getAll() result
+    // draft holds unsaved edits for the detail view so we don't mutate
+    // the underlying record until the user hits Save.
+    draft:         null
+};
+
+// ------------------------------------------------------------------
+// Helpers
+// ------------------------------------------------------------------
+
+const $ = (sel, root = document) => root.querySelector(sel);
+
+function escapeHtml(s) {
+    return String(s ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+
+function toast(message, type = 'success', timeoutMs = 3200) {
+    const el = $('#xr-toast');
+    el.textContent = message;
+    el.className = 'xr-side__toast xr-side__toast--' + type;
+    el.hidden = false;
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => { el.hidden = true; }, timeoutMs);
+}
+
+function fmtRelative(unixSec) {
+    if (!unixSec) return '';
+    const diffSec = Math.floor(Date.now() / 1000) - unixSec;
+    if (diffSec < 60)      return 'just now';
+    if (diffSec < 3600)    return Math.floor(diffSec / 60)   + 'm ago';
+    if (diffSec < 86400)   return Math.floor(diffSec / 3600) + 'h ago';
+    if (diffSec < 2592000) return Math.floor(diffSec / 86400) + 'd ago';
+    return new Date(unixSec * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+async function copyToClipboard(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        toast('Copied to clipboard', 'success', 1500);
+    } catch (_) {
+        toast('Clipboard blocked — select and ⌘C', 'warning', 3000);
+    }
+}
+
+// ------------------------------------------------------------------
+// Data loading
+// ------------------------------------------------------------------
+
+async function refreshEntities() {
+    state.entities = await EntityModel.getAll();
+}
+
+function filteredEntities() {
+    const q = state.searchQuery.trim().toLowerCase();
+    const type = state.typeFilter;
+    const out = [];
+    for (const entity of Object.values(state.entities)) {
+        if (type && entity.type !== type) continue;
+        if (q && !entity.name.toLowerCase().includes(q)) continue;
+        out.push(entity);
+    }
+    out.sort((a, b) => {
+        // Published first by recency, then unpublished by name.
+        if (a.publishedAt && !b.publishedAt) return -1;
+        if (!a.publishedAt && b.publishedAt) return 1;
+        if (a.publishedAt && b.publishedAt) return b.publishedAt - a.publishedAt;
+        return a.name.localeCompare(b.name);
+    });
+    return out;
+}
+
+// ------------------------------------------------------------------
+// View toggling
+// ------------------------------------------------------------------
+
+function setView(view) {
+    state.view = view;
+    $('.xr-side__list-view').hidden   = view !== 'list';
+    $('.xr-side__detail-view').hidden = view !== 'detail';
+    if (view === 'list') {
+        state.selectedId = null;
+        state.draft = null;
+    }
+}
+
+// ------------------------------------------------------------------
+// List rendering
+// ------------------------------------------------------------------
+
+function renderList() {
+    const list = $('#xr-list');
+    const entities = filteredEntities();
+
+    if (entities.length === 0) {
+        const empty = (state.searchQuery || state.typeFilter)
+            ? 'No matching entities.'
+            : 'No entities yet. Select text in a captured article to tag a person, organization, place, or thing — or click ＋ New above.';
+        list.innerHTML = `<div class="xr-side__empty">${escapeHtml(empty)}</div>`;
+    } else {
+        list.innerHTML = entities.map((e) => {
+            const canonicalHint = e.canonical_id
+                ? `<span class="xr-side__row-alias" title="Alias of another entity">→</span>`
+                : '';
+            const pubHint = e.publishedAt
+                ? `<span class="xr-side__row-pub" title="Published ${fmtRelative(e.publishedAt)}">🌐</span>`
+                : '';
+            return `
+              <button type="button" class="xr-side__row" data-id="${escapeHtml(e.id)}">
+                <span class="xr-side__row-icon">${ENTITY_ICONS[e.type] || '🔷'}</span>
+                <span class="xr-side__row-name">${escapeHtml(e.name)}</span>
+                ${canonicalHint}
+                ${pubHint}
+              </button>`;
+        }).join('');
+        list.querySelectorAll('.xr-side__row').forEach((row) => {
+            row.addEventListener('click', () => openDetail(row.dataset.id));
+        });
+    }
+
+    const total = Object.keys(state.entities).length;
+    $('#xr-count').textContent = total === 0
+        ? '0 entities'
+        : entities.length === total
+            ? `${total} entit${total === 1 ? 'y' : 'ies'}`
+            : `${entities.length} of ${total} shown`;
+}
+
+// ------------------------------------------------------------------
+// Detail rendering
+// ------------------------------------------------------------------
+
+async function openDetail(id) {
+    const entity = await EntityModel.get(id);
+    if (!entity) {
+        toast('Entity not found', 'error');
+        return;
+    }
+    state.selectedId = id;
+    state.draft = {
+        name:         entity.name,
+        description:  entity.description || '',
+        nip05:        entity.nip05 || '',
+        canonical_id: entity.canonical_id || null
+    };
+    setView('detail');
+    renderDetail(entity);
+}
+
+function renderDetail(entity) {
+    const target = $('#xr-detail');
+    const canonical = entity.canonical_id ? state.entities[entity.canonical_id] : null;
+    const pubInfo = entity.publishedAt
+        ? `✓ Published ${fmtRelative(entity.publishedAt)}` +
+          (entity.publishedEventId ? ` — event <code>${escapeHtml(entity.publishedEventId.slice(0, 16))}…</code>` : '')
+        : `Not yet published. The kind-0 profile event will be signed + broadcast on the next article publish that tags this entity.`;
+    const typeBadge = `<span class="xr-side__type-badge xr-side__type-badge--${entity.type}">${ENTITY_ICONS[entity.type]} ${escapeHtml(entity.type)}</span>`;
+
+    target.innerHTML = `
+      <h2 class="xr-side__detail-title">${escapeHtml(entity.name)}</h2>
+      ${typeBadge}
+
+      <div class="xr-side__field">
+        <label for="xr-field-name">Name</label>
+        <input type="text" id="xr-field-name" value="${escapeHtml(entity.name)}" />
+      </div>
+
+      <div class="xr-side__field">
+        <label for="xr-field-desc">Description</label>
+        <textarea id="xr-field-desc" rows="3" placeholder="Short note (optional)">${escapeHtml(entity.description || '')}</textarea>
+      </div>
+
+      <div class="xr-side__field">
+        <label for="xr-field-nip05">NIP-05</label>
+        <input type="text" id="xr-field-nip05" value="${escapeHtml(entity.nip05 || '')}" placeholder="user@example.com" />
+      </div>
+
+      <div class="xr-side__field">
+        <label>Canonical</label>
+        <div class="xr-side__canonical">
+          ${canonical
+              ? `<span class="xr-side__canonical-tag">${ENTITY_ICONS[canonical.type]} ${escapeHtml(canonical.name)}</span>
+                 <button type="button" class="xr-side__ghost-btn" id="xr-unlink">Unlink</button>`
+              : `<span class="xr-side__canonical-none">Not aliased</span>
+                 <button type="button" class="xr-side__ghost-btn" id="xr-link">Link to…</button>`}
+        </div>
+      </div>
+
+      <div class="xr-side__keypair">
+        <h3>NOSTR keypair</h3>
+        <div class="xr-side__key-row">
+          <span class="xr-side__key-label">npub</span>
+          <code class="xr-side__key-value">${escapeHtml(entity.keypair ? entity.keypair.npub : '—')}</code>
+          <button type="button" class="xr-side__ghost-btn" id="xr-copy-npub">Copy</button>
+        </div>
+        <div class="xr-side__key-row">
+          <span class="xr-side__key-label">nsec</span>
+          <code class="xr-side__key-value" id="xr-nsec-value">••••••••••••••••</code>
+          <button type="button" class="xr-side__ghost-btn" id="xr-reveal-nsec">Reveal</button>
+        </div>
+      </div>
+
+      <div class="xr-side__publish">
+        <h3>Publish status</h3>
+        <p class="xr-side__pub-line">${pubInfo}</p>
+      </div>
+
+      <div class="xr-side__save-row">
+        <button type="button" class="xr-side__btn xr-side__btn--primary" id="xr-save" disabled>Save changes</button>
+      </div>
+    `;
+
+    // Wire the editable fields to mark dirty + enable Save.
+    const nameEl = $('#xr-field-name');
+    const descEl = $('#xr-field-desc');
+    const nip05El = $('#xr-field-nip05');
+    const saveBtn = $('#xr-save');
+    const sync = () => {
+        state.draft.name        = nameEl.value;
+        state.draft.description = descEl.value;
+        state.draft.nip05       = nip05El.value;
+        saveBtn.disabled = !hasChanges(entity, state.draft);
+    };
+    nameEl.addEventListener('input', sync);
+    descEl.addEventListener('input', sync);
+    nip05El.addEventListener('input', sync);
+
+    saveBtn.addEventListener('click', () => saveDetail(entity));
+
+    // Link / unlink canonical.
+    const linkBtn   = $('#xr-link');
+    const unlinkBtn = $('#xr-unlink');
+    if (linkBtn)   linkBtn.addEventListener('click',   () => openAliasPicker(entity));
+    if (unlinkBtn) unlinkBtn.addEventListener('click', () => unlinkCanonical(entity));
+
+    // Keypair controls.
+    $('#xr-copy-npub').addEventListener('click', () => {
+        if (entity.keypair && entity.keypair.npub) copyToClipboard(entity.keypair.npub);
+    });
+    const revealBtn = $('#xr-reveal-nsec');
+    revealBtn.addEventListener('click', () => {
+        if (!entity.keypair || !entity.keypair.nsec) return;
+        const el = $('#xr-nsec-value');
+        if (el.textContent === entity.keypair.nsec) {
+            el.textContent = '••••••••••••••••';
+            revealBtn.textContent = 'Reveal';
+        } else {
+            el.textContent = entity.keypair.nsec;
+            revealBtn.textContent = 'Copy';
+            revealBtn.onclick = () => copyToClipboard(entity.keypair.nsec);
+        }
+    });
+}
+
+function hasChanges(entity, draft) {
+    return draft.name !== entity.name
+        || draft.description !== (entity.description || '')
+        || draft.nip05 !== (entity.nip05 || '');
+}
+
+async function saveDetail(entity) {
+    try {
+        await EntityModel.update(entity.id, {
+            name:        state.draft.name,
+            description: state.draft.description,
+            nip05:       state.draft.nip05
+        });
+        await refreshEntities();
+        toast('Saved — will re-publish on next article capture', 'success');
+        const updated = await EntityModel.get(entity.id);
+        renderDetail(updated);
+    } catch (err) {
+        toast('Save failed: ' + (err.message || err), 'error');
+    }
+}
+
+async function unlinkCanonical(entity) {
+    try {
+        await EntityModel.unlinkAlias(entity.id);
+        await refreshEntities();
+        toast('Alias link removed', 'success');
+        const updated = await EntityModel.get(entity.id);
+        renderDetail(updated);
+    } catch (err) {
+        toast('Unlink failed: ' + (err.message || err), 'error');
+    }
+}
+
+// ------------------------------------------------------------------
+// Alias picker (inline modal)
+// ------------------------------------------------------------------
+
+async function openAliasPicker(entity) {
+    // Candidates: same-type entities other than `entity` itself.
+    const candidates = Object.values(state.entities)
+        .filter((e) => e.type === entity.type && e.id !== entity.id);
+
+    // Build a lightweight modal.
+    const modal = document.createElement('div');
+    modal.className = 'xr-side__modal';
+    modal.innerHTML = `
+      <div class="xr-side__modal-card">
+        <header class="xr-side__modal-head">
+          <h3>Link ${escapeHtml(entity.name)} to canonical</h3>
+          <button type="button" class="xr-side__ghost-btn" id="xr-modal-close">✕</button>
+        </header>
+        <input type="search" class="xr-side__modal-search" id="xr-modal-search"
+               placeholder="Search ${escapeHtml(entity.type)} entities…" />
+        <div class="xr-side__modal-list" id="xr-modal-list"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const listEl = $('#xr-modal-list');
+    const render = (query) => {
+        const q = query.trim().toLowerCase();
+        const shown = candidates.filter((e) => !q || e.name.toLowerCase().includes(q));
+        if (shown.length === 0) {
+            listEl.innerHTML = `<div class="xr-side__empty">No candidates. Tag more ${escapeHtml(entity.type)} entities first.</div>`;
+            return;
+        }
+        listEl.innerHTML = shown.map((e) => `
+          <button type="button" class="xr-side__row" data-id="${escapeHtml(e.id)}">
+            <span class="xr-side__row-icon">${ENTITY_ICONS[e.type]}</span>
+            <span class="xr-side__row-name">${escapeHtml(e.name)}</span>
+          </button>`).join('');
+        listEl.querySelectorAll('.xr-side__row').forEach((row) => {
+            row.addEventListener('click', async () => {
+                const canonicalId = row.dataset.id;
+                try {
+                    await EntityModel.linkAlias(entity.id, canonicalId);
+                    await refreshEntities();
+                    toast('Alias linked', 'success');
+                    document.body.removeChild(modal);
+                    const updated = await EntityModel.get(entity.id);
+                    renderDetail(updated);
+                } catch (err) {
+                    toast('Link failed: ' + (err.message || err), 'error');
+                }
+            });
+        });
+    };
+    render('');
+    $('#xr-modal-search').addEventListener('input', (ev) => render(ev.target.value));
+    $('#xr-modal-close').addEventListener('click', () => document.body.removeChild(modal));
+    modal.addEventListener('click', (ev) => { if (ev.target === modal) document.body.removeChild(modal); });
+}
+
+// ------------------------------------------------------------------
+// Create new
+// ------------------------------------------------------------------
+
+function openCreateModal() {
+    const modal = document.createElement('div');
+    modal.className = 'xr-side__modal';
+    modal.innerHTML = `
+      <div class="xr-side__modal-card">
+        <header class="xr-side__modal-head">
+          <h3>Create new entity</h3>
+          <button type="button" class="xr-side__ghost-btn" id="xr-modal-close">✕</button>
+        </header>
+        <div class="xr-side__modal-body">
+          <div class="xr-side__field">
+            <label>Type</label>
+            <div class="xr-side__filters">
+              ${ENTITY_TYPES.map((t, i) => `
+                <button type="button" class="xr-side__type-chip ${i === 0 ? 'xr-side__type-chip--active' : ''}"
+                        data-type="${t}" title="${escapeHtml(t)}">${ENTITY_ICONS[t]} ${escapeHtml(t)}</button>
+              `).join('')}
+            </div>
+          </div>
+          <div class="xr-side__field">
+            <label>Name</label>
+            <input type="text" id="xr-new-name" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="xr-side__save-row">
+            <button type="button" class="xr-side__btn xr-side__btn--primary" id="xr-create-go">Create</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    let selectedType = ENTITY_TYPES[0];
+    modal.querySelectorAll('.xr-side__type-chip').forEach((chip) => {
+        chip.addEventListener('click', () => {
+            modal.querySelectorAll('.xr-side__type-chip').forEach((c) =>
+                c.classList.remove('xr-side__type-chip--active'));
+            chip.classList.add('xr-side__type-chip--active');
+            selectedType = chip.dataset.type;
+        });
+    });
+
+    const nameInput = $('#xr-new-name');
+    nameInput.focus();
+    $('#xr-modal-close').addEventListener('click', () => document.body.removeChild(modal));
+    modal.addEventListener('click', (ev) => { if (ev.target === modal) document.body.removeChild(modal); });
+
+    $('#xr-create-go').addEventListener('click', async () => {
+        const name = nameInput.value.trim();
+        if (!name) { toast('Name is required', 'warning'); return; }
+        try {
+            const created = await EntityModel.create({ name, type: selectedType });
+            await refreshEntities();
+            document.body.removeChild(modal);
+            toast('Entity created', 'success');
+            openDetail(created.id);
+            renderList();
+        } catch (err) {
+            toast('Create failed: ' + (err.message || err), 'error');
+        }
+    });
+
+    nameInput.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') { ev.preventDefault(); $('#xr-create-go').click(); }
+    });
+}
+
+// ------------------------------------------------------------------
+// Delete
+// ------------------------------------------------------------------
+
+async function deleteSelected() {
+    if (!state.selectedId) return;
+    const entity = state.entities[state.selectedId];
+    if (!entity) return;
+
+    // Count aliases that'll be unlinked so the user knows the blast radius.
+    const aliasCount = Object.values(state.entities)
+        .filter((e) => e.canonical_id === entity.id).length;
+    const msg = aliasCount > 0
+        ? `Delete "${entity.name}"? ${aliasCount} alias(es) will have their canonical link cleared (they won't be deleted). The entity's kind-0 event already on relays is NOT un-published — that requires NIP-09 (later phase).`
+        : `Delete "${entity.name}"? The entity's kind-0 event already on relays is NOT un-published — that requires NIP-09 (later phase).`;
+    if (!confirm(msg)) return;
+
+    try {
+        await EntityModel.delete(entity.id);
+        await refreshEntities();
+        toast('Deleted', 'success');
+        setView('list');
+        renderList();
+    } catch (err) {
+        toast('Delete failed: ' + (err.message || err), 'error');
+    }
+}
+
+// ------------------------------------------------------------------
+// Export / import
+// ------------------------------------------------------------------
+
+async function exportRegistry() {
+    const raw = Object.values(state.entities).map((e) => ({
+        ...e,
+        // Strip the merged keypair to match the stored shape; export
+        // represents what `entities` storage would hold on reimport.
+        keypair: undefined
+    }));
+    const blob = new Blob([JSON.stringify(raw, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `xray-entities-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast(`Exported ${raw.length} entities (metadata only — keypairs excluded for safety)`, 'success', 5000);
+}
+
+async function handleImport(file) {
+    if (!file) return;
+    try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        if (!Array.isArray(parsed)) throw new Error('Import file must be a JSON array of entities');
+        // Best-effort upsert. Entities with `keyName` pointing at a
+        // key we don't have locally will have `null` keypair in get(),
+        // which means they'll be reference-only (can't sign, can't
+        // publish kind-0). Safe for importing someone else's name-set
+        // without leaking keys.
+        let added = 0, updated = 0;
+        for (const row of parsed) {
+            if (!row || !row.id || !row.name || !row.type) continue;
+            const existing = state.entities[row.id];
+            if (existing) {
+                await EntityModel.update(existing.id, {
+                    name:        row.name,
+                    description: row.description || '',
+                    nip05:       row.nip05 || '',
+                    canonical_id: row.canonical_id || null
+                });
+                updated++;
+            } else {
+                try {
+                    await EntityModel.create({
+                        name:        row.name,
+                        type:        row.type,
+                        description: row.description || '',
+                        nip05:       row.nip05 || '',
+                        canonical_id: row.canonical_id || null
+                    });
+                    added++;
+                } catch (_) { /* id collision → skip */ }
+            }
+        }
+        await refreshEntities();
+        renderList();
+        toast(`Imported — ${added} added, ${updated} updated`, 'success', 5000);
+    } catch (err) {
+        toast('Import failed: ' + (err.message || err), 'error', 5000);
+    }
+}
+
+// ------------------------------------------------------------------
+// Wire up
+// ------------------------------------------------------------------
+
+async function init() {
+    try { installEntityStorageBridge(); } catch (_) { /* idempotent */ }
+    try { await LocalKeyManager.init(); } catch (err) {
+        console.warn('[X-Ray Sidepanel] LocalKeyManager init failed:', err);
+    }
+    await refreshEntities();
+
+    // Filter chips.
+    document.querySelectorAll('.xr-side__list-view .xr-side__type-chip').forEach((chip) => {
+        chip.addEventListener('click', () => {
+            document.querySelectorAll('.xr-side__list-view .xr-side__type-chip').forEach((c) =>
+                c.classList.remove('xr-side__type-chip--active'));
+            chip.classList.add('xr-side__type-chip--active');
+            state.typeFilter = chip.dataset.type || '';
+            renderList();
+        });
+    });
+
+    // Search.
+    $('#xr-search').addEventListener('input', (ev) => {
+        state.searchQuery = ev.target.value;
+        renderList();
+    });
+
+    // Header buttons.
+    $('#xr-new-entity').addEventListener('click', openCreateModal);
+
+    // Detail view buttons.
+    $('#xr-back').addEventListener('click', () => {
+        setView('list');
+        renderList();
+    });
+    $('#xr-delete').addEventListener('click', deleteSelected);
+
+    // Footer: export / import.
+    $('#xr-export').addEventListener('click', exportRegistry);
+    $('#xr-import').addEventListener('click', () => $('#xr-import-input').click());
+    $('#xr-import-input').addEventListener('change', (ev) => {
+        const file = ev.target.files && ev.target.files[0];
+        if (file) handleImport(file);
+        ev.target.value = '';   // allow re-importing the same file
+    });
+
+    // Listen for storage changes so another tab that creates/edits an
+    // entity (e.g. the reader's tagger) reflects in this panel without
+    // a manual reload.
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+        chrome.storage.onChanged.addListener((changes, area) => {
+            if (area !== 'local') return;
+            if ('entities' in changes || 'local_keys' in changes) {
+                refreshEntities().then(() => {
+                    if (state.view === 'list') renderList();
+                    else if (state.selectedId) {
+                        EntityModel.get(state.selectedId).then((e) => { if (e) renderDetail(e); });
+                    }
+                });
+            }
+        });
+    }
+
+    renderList();
+    setView('list');
+}
+
+document.addEventListener('DOMContentLoaded', init);

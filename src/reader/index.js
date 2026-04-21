@@ -913,9 +913,15 @@ async function resolveEntitiesToPublish(refs) {
         if (!id || seen.has(id)) return;
         seen.add(id);
         const entity = await EntityModel.get(id);
-        if (!entity)                return;   // dangling ref
-        if (!entity.keypair)        return;   // no private key — can't sign
-        if (entity.publishedAt)     return;   // already on the network
+        if (!entity)           return;        // dangling ref
+        if (!entity.keypair)   return;        // no private key — can't sign
+        // Skip if already on-network AND unedited since. `update()`
+        // bumps `updated`; `markPublished()` does not. So any local
+        // edit the user has made since the last publish will
+        // re-emit the kind-0 with the new content, using the same
+        // (stable) entity pubkey — NIP-01 replaceable-event
+        // semantics do the right thing.
+        if (entity.publishedAt && entity.updated <= entity.publishedAt) return;
         // If this entity is an alias and its canonical isn't published yet,
         // publish the canonical FIRST — otherwise the alias's kind-0
         // `refers_to` tag would dangle to a pubkey with no profile.
