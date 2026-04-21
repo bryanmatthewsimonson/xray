@@ -1104,6 +1104,25 @@ async function init() {
         window.close();
     });
 
+    // Open the entity browser in Chrome's side panel. chrome.sidePanel.open
+    // requires a user gesture + a windowId. We fall back to opening the
+    // sidepanel HTML in a regular tab for browsers that don't expose
+    // chrome.sidePanel (Firefox today, older Chrome) so the Entities
+    // button is always useful.
+    $('#xr-entities').addEventListener('click', async () => {
+        try {
+            const win = await new Promise((resolve) => browserApi.windows.getCurrent(resolve));
+            if (browserApi.sidePanel && browserApi.sidePanel.open) {
+                await browserApi.sidePanel.open({ windowId: win.id });
+            } else {
+                browserApi.tabs.create({ url: browserApi.runtime.getURL('src/sidepanel/index.html') });
+            }
+        } catch (err) {
+            console.warn('[X-Ray Reader] sidePanel.open failed:', err);
+            browserApi.tabs.create({ url: browserApi.runtime.getURL('src/sidepanel/index.html') });
+        }
+    });
+
     // Comments include-in-publish toggle
     $('#xr-comments-include').addEventListener('change', (ev) => {
         state.comments.includeInPublish = ev.target.checked;

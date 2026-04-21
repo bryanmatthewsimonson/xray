@@ -64,6 +64,24 @@ function wireButtons() {
         await forwardToActiveTab('xray:open');
         window.close();
     });
+    document.getElementById('btn-open-entities').addEventListener('click', async () => {
+        // chrome.sidePanel.open requires a user gesture in a tab/window
+        // context. From the popup we have both. If the API is missing
+        // (older Chrome / Firefox), fall back to a regular tab with the
+        // sidepanel HTML — ugly but functional.
+        try {
+            const win = await new Promise((resolve) => browserApi.windows.getCurrent(resolve));
+            if (browserApi.sidePanel && browserApi.sidePanel.open) {
+                await browserApi.sidePanel.open({ windowId: win.id });
+            } else {
+                browserApi.tabs.create({ url: browserApi.runtime.getURL('src/sidepanel/index.html') });
+            }
+        } catch (err) {
+            console.warn('[X-Ray popup] entity-browser open failed:', err);
+            browserApi.tabs.create({ url: browserApi.runtime.getURL('src/sidepanel/index.html') });
+        }
+        window.close();
+    });
     document.getElementById('btn-view-keypairs').addEventListener('click', async () => {
         await forwardToActiveTab('xray:viewKeypairs');
         window.close();
