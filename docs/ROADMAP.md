@@ -34,9 +34,9 @@ Phase 0  ████████████████████  complete
 Phase 1  ████████████████████  complete
 Phase 2  ████████████████████  complete
 Phase 3  ██████████░░░░░░░░░░  in progress — Substack + YouTube done, Twitter + generic pending
-Phase 4  ░░░░░░░░░░░░░░░░░░░░  next up
-Phase 5  ░░░░░░░░░░░░░░░░░░░░  blocked on Phase 4
-Phase 6  ░░░░░░░░░░░░░░░░░░░░  blocked on Phase 4
+Phase 4  ████████████████████  complete — entity model + tagger + kind-0 publish + side panel
+Phase 5  ░░░░░░░░░░░░░░░░░░░░  next up — claims + evidence linking
+Phase 6  ░░░░░░░░░░░░░░░░░░░░  blocked on Phase 4 (now unblocked — can start anytime)
 Phase 7  ░░░░░░░░░░░░░░░░░░░░  opportunistic (independent)
 Phase 8  ░░░░░░░░░░░░░░░░░░░░  deferred — split into sub-issues when started
 ```
@@ -257,60 +257,85 @@ Not started. Scope (from `comment-extractor.js`, ~153 LOC):
 
 ---
 
-## Phase 4 — Entity system ⏳
+## Phase 4 — Entity system ✅
 
-**Issue:** [#15](https://github.com/bryanmatthewsimonson/xray/issues/15). Blocked on: none (deps Phase 1 + 2 both done).
+**Issue:** [#15](https://github.com/bryanmatthewsimonson/xray/issues/15) (complete). Commits `c57d5e3`, `c79cd74`, `3e05254`,
+`7e857af`, `338f7e9`.
 
-### Data model
-
-Per `project-history-and-migration.md` §2.1:
+### Data model + storage (C1)
 
 - Four entity types: `person` 👤, `organization` 🏢, `place` 📍, `thing` 🔷.
-- Each entity gets its own secp256k1 keypair (uses the Phase 1
-  `shared/crypto.js`).
-- `canonical_id` field for alias relationships (per-entity
-  `refers_to` tag on the kind-0 event).
-- Storage key: `entity_registry` in `chrome.storage.local`.
+- Each entity gets its own secp256k1 keypair via `LocalKeyManager`
+  (stored under `local_keys` at keyName `entity:<id>`). `EntityModel.get`
+  transparently merges the keypair into the returned record.
+- Deterministic hash-based IDs:
+  `entity_<sha256(type+':'+normalized_name).slice(0,16)>` — normalization
+  handles whitespace + case so disambiguation lives in the alias
+  graph, not in string-matching.
+- `canonical_id` with cycle detection + graph flattening.
+- Storage key: `entities` in `chrome.storage.local`.
+- 14 unit tests under `tests/entity-model.test.mjs` (32/32 total).
 
-### Modules to port
+### Reader text-selection tagger (C2)
 
-- [ ] `shared/entity-model.js` — CRUD, validation, alias resolution,
-      hash-based ID generation.
-- [ ] `shared/entity-migration.js` — schema v1 → v2 migration
-      (aliases array → separate entities with `canonical_id`).
-- [ ] `reader/entity-tagger.js` — text-selection popover in the
-      reader. Select text → popover with four type icons + search →
-      save.
-- [ ] `sidepanel/entity-browser.js` — side panel, not injected
-      overlay. Search / create / edit / merge / alias-link.
-- [ ] `shared/entity-auto-suggest.js` — scans extracted article
-      content, ranks entity suggestions by name-match frequency.
+- Select text in `.xr-article__body` → popover opens with autocomplete
+  search (pre-filled from selection) + "New as: 👤 🏢 📍 🔷" row.
+- Pick existing → tag that entity. Pick a type → create entity with
+  the search-box value as name, tag with it.
+- Tagged text wrapped in
+  `<span class="xr-entity xr-entity--<type>">` with type-coded colors.
+  Rehydrate on reload best-effort by first-text-match.
 
-### Event publishing
+### Kind-0 profile publishing (C4)
 
-- [ ] Kind 0 profile events per entity, signed with the entity's
-      keypair (not the user's).
-- [ ] Alias entities include `["refers_to", canonical_npub]` in
-      kind-0 tags.
-- [ ] Kind-30023 article publishes add `["p", entity_pubkey, "",
-      "author" | "mentioned"]` tags. Alias entities auto-include
-      their canonical's pubkey alongside.
-- [ ] The existing `buildArticleEvent()` in `event-builder.js`
-      already has the entity-tag loop; Phase 4's work is mostly in
-      the entity layer itself, plus making the reader invoke it.
+- On article publish, `resolveEntitiesToPublish` de-dups tagged
+  entities by id, skips ones with `publishedAt >= updated`, and
+  auto-enqueues any unpublished canonicals an alias might refer to
+  (so `refers_to` tags don't dangle).
+- Each entity signs its own kind-0 via
+  `LocalKeyManager.signEvent(event, 'entity:<id>')` — no NIP-07
+  prompt, stable pubkey, NIP-01 replaceable-event semantics re-emit
+  on edits.
+- `EntityModel.markPublished` records `publishedAt` + `publishedEventId`
+  without bumping `updated`, so the re-publish gate works.
 
-### Exit criteria
+### Side panel entity browser (C3)
+
+- List view: type-filter chips / search / entity rows with 🌐
+  published indicator and → alias chevron. Footer with count +
+  export/import.
+- Detail drill-in: editable name/description/nip05, canonical link
+  picker (modal), keypair block (npub always copyable, nsec behind
+  reveal), publish status, delete with alias-blast-radius confirm.
+- `chrome.storage.onChanged` cross-tab sync.
+- Opens from: popup "Open Entity Browser" button, reader header
+  "👤 Entities" button, or Chrome's own sidepanel toolbar.
+
+### Exit criteria — all satisfied
 
 Per issue #15:
 
-- Creating a new Person entity via the tagger generates a valid
-  keypair (real secp256k1, validated by Phase 1 tests).
-- Tagging that entity on an article and publishing produces the
-  right `p`/`person` tags plus the entity's kind-0 event.
-- Setting entity A as alias of entity B → A's kind-0 includes
-  `refers_to` → B's npub; tagging A on an article also p-tags B.
-- Side panel Entity Browser lists all entities with type filters
-  + search.
+- ✅ Creating a new Person entity generates a valid keypair (real
+  secp256k1, verified by Phase 1 tests).
+- ✅ Tagging an entity on an article publishes kind-30023 with
+  `p`/`person` tags + a kind-0 for the entity.
+- ✅ Aliasing A → B: A's kind-0 includes `refers_to` → B's npub;
+  tagging A also p-tags B.
+- ✅ Side panel Entity Browser lists all entities with type filters
+  and search.
+
+### Deferred (tracked separately)
+
+- **Entity auto-suggest** — scan article content for known entity
+  names, rank by frequency, offer one-click tag. Polish for a
+  future iteration; not in the exit criteria.
+- **Entity-relationship events (kind-32125)** — `buildEntityRelationshipEvent`
+  is already stubbed in event-builder; emission path belongs with
+  Phase 5's claims work, not here.
+- **Batch kind-0 re-publish from the side panel** — today an
+  edited entity re-publishes on the next article capture. An
+  explicit "Push profile now" button from the detail view is a
+  small follow-up.
 
 ---
 
