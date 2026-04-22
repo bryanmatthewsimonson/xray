@@ -21,6 +21,11 @@ codebase — here's what you need to know.
   cause isn't obvious from the diff, when making a design choice
   future-you might reasonably second-guess, or when working around
   something a third party changed. Keep entries tight.
+- **Smoke test.** [`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md) is the
+  ~20-minute manual checklist that exercises every shipped surface
+  across Phases 0–7. Run it before any release tag, after any
+  cross-cutting refactor, or when adding a new contributor to the
+  project. File one issue per defect found.
 - **Shared modules** live at `src/shared/`. Platform handlers live at
   `src/shared/platforms/`; they run in the content script and return
   plain data objects (no DOM mutation, no UI).

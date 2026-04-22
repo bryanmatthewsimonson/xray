@@ -22,7 +22,10 @@ for what's landed and what's pending. The
 [**engineering journal**](docs/JOURNAL.md) logs significant bugs,
 design decisions, and external platform changes that shape the
 architecture — worth a skim when a new capture target breaks or a
-subtle bug needs context.
+subtle bug needs context. Before any release tag (or after any
+cross-cutting refactor), run the
+[**smoke test**](docs/SMOKE_TEST.md) — a ~20-minute manual
+checklist that exercises every shipped surface across Phases 0–7.
 
 ## Features (currently working)
 

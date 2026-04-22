@@ -34,10 +34,17 @@ async function init() {
     // NIP-07 lives on the page's `window.nostr`, which the isolated
     // content-script world cannot see directly. The MAIN-world bridge
     // (src/page/nip07-bridge.js) exposes it to us via postMessage.
-    const nip07Available = NIP07Client.checkAvailability();
+    //
+    // We use the async `probe()` rather than the synchronous
+    // `checkAvailability()` because at init time the bridge's "ready"
+    // broadcast may not have arrived yet — the sync check would say
+    // "no" even when the user does have nos2x / Alby installed, and
+    // we'd needlessly fall through to the NSecBunker path.
+    const nip07Available = await NIP07Client.probe();
     if (nip07Available) {
         Utils.log('NIP-07 extension detected');
         UI.updateSigningStatus();
+        recordSigningState('nip07');
         UI.showToast('NIP-07 extension detected - Ready to publish!', 'success');
     } else {
         // Try to connect to NSecBunker in background as fallback.
@@ -46,15 +53,42 @@ async function init() {
             Utils.log('NSecBunker connected');
             UI.updateSigningStatus();
             UI.updatePublishButton();
+            recordSigningState('nsecbunker');
             UI.showToast('Connected to NSecBunker', 'success');
         }).catch((e) => {
             Utils.log('NSecBunker not available:', e.message);
             UI.updateSigningStatus();
+            recordSigningState('none');
             Utils.log('No signing method available. Install a NIP-07 extension (nos2x, Alby) or run NSecBunker.');
         });
     }
 
     Utils.log('Initialization complete');
+}
+
+/**
+ * Persist the resolved signing state to chrome.storage.local so the
+ * popup ([src/popup/index.js]) can show an honest status badge instead
+ * of always falling through to "not detected" — the bug closed by
+ * issue #2.
+ *
+ * Writes the value JSON-stringified to match the convention of every
+ * other key written through `Storage` (see `src/shared/storage.js` —
+ * `set` always JSON.stringifies). The popup's `safeParse` handles
+ * the round-trip.
+ */
+function recordSigningState(method) {
+    try {
+        const payload = JSON.stringify({
+            method,                       // 'nip07' | 'nsecbunker' | 'none'
+            detectedAt: Date.now()
+        });
+        chrome.storage.local.set({ xr_signing_state: payload });
+    } catch (err) {
+        // Best-effort — never let a popup-visibility nicety crash the
+        // content script's init.
+        Utils.log('Failed to persist signing state:', err && err.message);
+    }
 }
 
 // Wire message handler for background-service-worker commands.
