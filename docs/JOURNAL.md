@@ -19,6 +19,57 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-04-21 — Browser-aware agent can drive part of the smoke test
+
+**Tags:** design, pattern
+
+**Context:** Tested whether a Chrome-MCP-aware agent could run the
+smoke checklist solo against Edge. Proof of concept: drove a
+YouTube capture (`pOlZ-E7tgCQ`) start to finish from the agent —
+navigate → wait for init → find FAB → click → wait → read console.
+
+**What worked:**
+
+- Connecting to Edge (Chrome MCP works fine against Edge with the
+  helper extension installed).
+- Verifying the content script loaded (read_console filtered by
+  `X-Ray`). The `[X-Ray] NIP-07 extension detected` log line
+  doubles as confirmation of the polish-#2 fix landing live.
+- Finding the FAB by natural-language query — `find("X-Ray Capture
+  article FAB floating button bottom right")` matched first try.
+- Clicking, waiting, re-reading console for the full capture
+  pipeline. The `extracted N events from N segments` line gives
+  us the dedup-fix sanity check for free (1:1 ratio = healthy).
+
+**Hard limit found — reader tab outside MCP group:**
+
+The capture pipeline ends with the SW calling
+`chrome.tabs.create({ url: 'chrome-extension://…/reader/…?id=<uuid>' })`.
+That tab opens in whatever window/group makes sense for the user,
+NOT the MCP-managed tab group the agent owns. So the agent can't
+navigate inside the reader tab to verify content unless the user
+manually drags it into the group.
+
+This isn't a bug in either X-Ray or the MCP — it's an architectural
+intersection. Workarounds:
+
+1. User drags the reader tab into the MCP group after each capture.
+2. Add a SW message handler `xray:smoke:export-state` that returns
+   the latest article from `chrome.storage.session` so the agent
+   can read full state via a content-script eval. Considered for
+   future automation work; not needed for the lightweight loop.
+
+**Implication codified:** `docs/SMOKE_TEST.md` now has an
+"Agent-runnable subset" section explicitly listing what the agent
+can verify solo and what it must hand off. Useful when iterating
+on a single platform handler — gets fast regression coverage on
+the parts that historically break (DOM-scrape selectors, focal-
+tweet detection, init-sequence completeness) without burning
+human time. Full reader / publish / sidepanel verification still
+requires the human checklist.
+
+---
+
 ## 2026-04-21 — Twitter capture: focal-tweet id leaked through as the literal string "null"
 
 **Tags:** bug

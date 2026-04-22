@@ -53,6 +53,126 @@ Have these installed in the test browser:
 
 ---
 
+## Agent-runnable subset
+
+A subset of this checklist can be driven by a browser-aware agent
+(any tool that exposes Chrome MCP-shaped APIs against Edge or
+Chrome — see `docs/JOURNAL.md` 2026-04-21 entry for the proof of
+concept run that established this). Useful when iterating on a
+single platform handler and you want fast regression coverage
+without manually clicking through.
+
+### One-time human setup
+
+The agent CANNOT do these. You do them once per test profile:
+
+1. Load X-Ray unpacked at `edge://extensions` (or `chrome://extensions`).
+2. Install a NIP-07 signer (nos2x or Alby) with at least one
+   identity loaded.
+3. Configure relays under Options.
+4. Make sure the agent's MCP-helper extension is also installed in
+   the same browser, and the agent has connected to it.
+
+### What the agent CAN verify solo
+
+For each platform handler:
+
+1. **Navigate** to the test URL (a YouTube video, Substack post,
+   X status, WordPress article, etc.).
+2. **Read console** filtered by `X-Ray` — look for the init
+   sequence:
+   ```
+   [X-Ray] Starting X-Ray content script v0.2.0
+   [X-Ray] LocalKeyManager initialized with N keys
+   [X-Ray] UI initialized
+   [X-Ray] NIP-07 extension detected      ← this line confirms #2 fix
+   [X-Ray] Initialization complete
+   ```
+   Absence of `NIP-07 extension detected` after a tab reload
+   indicates the bridge isn't reaching the isolated world — file
+   as a separate bug.
+3. **Find** the FAB by natural-language query (`"X-Ray Capture
+   article FAB floating button bottom right"` in the proof of
+   concept matched first try).
+4. **Click** the FAB.
+5. **Wait** 8–12 seconds for the capture pipeline to finish.
+6. **Re-read console** filtered by `X-Ray` — the platform handler's
+   diagnostics narrate the run. Healthy YouTube run looks like:
+   ```
+   [X-Ray YouTube] fetchTranscript via SW: …            ← signed-URL attempt
+   [X-Ray YouTube] transcript fetch failed: PO-token…   ← expected fail
+   [X-Ray YouTube] All signed-URL fetches returned empty. Falling back to DOM scrape.
+   [X-Ray YouTube] fetch-hook returned no events: …    ← expected on modern UI
+   [X-Ray YouTube] DOM probe before/after click + wait
+   [X-Ray YouTube] found N transcript segments
+   [X-Ray YouTube] extracted N events from N segments  ← 1:1 ratio = healthy
+   ```
+   If the segment-to-event ratio is > 3, the dedup fix has
+   regressed (`docs/JOURNAL.md` 2026-04-21 entry).
+7. **Take a screenshot** of the originating tab. For YouTube, the
+   transcript panel should be open (the X-Ray click triggered it).
+   For Twitter, the focal tweet should be highlighted. For
+   Substack, no visible side-effect on the page.
+
+### What the agent must hand off to the user
+
+**The reader tab opens outside the MCP-managed tab group**, so the
+agent can't directly verify reader contents. After the capture
+pipeline completes successfully, hand off:
+
+> "Capture pipeline completed for `<URL>`. Reader tab opened in your
+> Edge window. Please verify the reader content matches expectations
+> from the per-phase checklist below, then drag that tab into the
+> MCP group if you'd like the agent to continue verification."
+
+If the user does drag the reader tab into the agent's group, the
+agent CAN then verify reader content via `get_page_text`, check the
+banner state, click view-mode tabs, etc. — but cannot trigger
+**Publish** (NIP-07 prompt requires a real user-extension click).
+
+### Per-phase agent coverage
+
+| Phase | Agent can verify | Needs user |
+|---|---|---|
+| 2 (article) | FAB, content script, capture-pipeline console | Reader content, publish |
+| 3a Substack | FAB, capture pipeline, comment-tree extraction in console | Reader content, publish |
+| 3b YouTube | Full pipeline including DOM-scrape segment count + dedup ratio | Reader content, publish |
+| 3c Twitter | Capture pipeline, focal-tweet detection, console diagnostics | Reader content, publish |
+| 3d generic | WordPress comment count via `_commentsSource` console hint | Reader content, publish |
+| 4 entity tagger | After user-assisted reader open, can drive selection + popover via `find` and `click` | Side panel, all signing |
+| 4 side panel | Extension page — opens via popup/reader button | Sidepanel actions, signing |
+| 5 claims | Same as Phase 4 — text selection in reader is drivable; modal is testable; publish blocked | Signing |
+| 6 sync | None — sidepanel + cross-device | All of it |
+| 7 cache | FAB 📦 badge appearing on revisit | Reader's archive banner UX |
+| Polish #2 | The `NIP-07 extension detected` log line | — |
+
+### Suggested agent-driven loop
+
+Quick regression script (~3 minutes per platform handler):
+
+```text
+for platform in [YouTube, Substack, X, WordPress-blog]:
+    1. navigate(test_url[platform])
+    2. wait 3s
+    3. read_console("X-Ray", limit=10) → must see init sequence
+    4. find("X-Ray Capture FAB") → must return ref_*
+    5. click(ref_*)
+    6. wait 10s
+    7. read_console("X-Ray", limit=50) → check for completion signals
+       - YouTube: "extracted N events from N segments" with ratio
+       - Substack: comment-fetch success
+       - Twitter: "focal tweet not found in DOM" → bug, escalate
+    8. screenshot → save for the report
+    9. Hand off to user: "Reader opened. Verify content + publish."
+```
+
+This gives you fast regression coverage on the parts of the test
+that historically break (DOM-scrape selectors, focal-tweet
+detection, init-sequence completeness) without burning human time
+clicking through every URL.
+
+---
+
 ## Phase 0 — Infrastructure
 
 | # | Test | Pass criteria |
