@@ -62,9 +62,29 @@ export function tweetIdFromUrl(url = window.location.href) {
  * Walk the DOM and pull every `<article>` representing a tweet. Returns
  * the elements in document order — which matches the visual top-to-bottom
  * order that Twitter renders threads in.
+ *
+ * Tries selectors in priority order. X's `data-testid="tweet"` was the
+ * stable anchor for years but has churned — same defensive philosophy
+ * as our YouTube selector strategy (see `docs/JOURNAL.md`
+ * "youtube-arms-race"). Falls back to less-specific shapes only when
+ * the strict ones return nothing, then dedups.
  */
 function pickTweetElements() {
-    return Array.from(document.querySelectorAll('article[data-testid="tweet"]'));
+    const SELECTORS = [
+        'article[data-testid="tweet"]',
+        '[data-testid="tweetDetail"] article',
+        'div[data-testid="cellInnerDiv"] article',
+        'article[role="article"][tabindex]'
+    ];
+    for (const sel of SELECTORS) {
+        const list = document.querySelectorAll(sel);
+        if (list.length > 0) return Array.from(list);
+    }
+    // Loose final fallback — any <article> in the timeline column.
+    // Filter out the search/notification surrounding articles by
+    // requiring the element to contain a <time>.
+    const all = Array.from(document.querySelectorAll('main article'));
+    return all.filter((el) => el.querySelector('time'));
 }
 
 /**
@@ -404,12 +424,39 @@ function waitForFocalTweet(focalId, timeoutMs) {
     return new Promise((resolve) => {
         const find = () => {
             const tweets = pickTweetElements();
+            if (tweets.length === 0) return null;
+
+            // 1. Strict: a tweet whose ANY descendant <a href>
+            //    references this status id. Catches the timestamp
+            //    link, the "share" link, the permalink, etc.
             for (const el of tweets) {
-                const timeAnc = el.querySelector('time')?.closest('a');
-                const href = timeAnc?.getAttribute('href') || '';
-                if (href.includes(`/status/${focalId}`)) {
-                    return extractTweet(el);
+                const anchors = el.querySelectorAll('a[href*="/status/"]');
+                for (const a of anchors) {
+                    const href = a.getAttribute('href') || '';
+                    if (href.includes(`/status/${focalId}`)) {
+                        return extractTweet(el);
+                    }
                 }
+            }
+
+            // 2. Loose: on the focal tweet's own status page, X often
+            //    renders the timestamp as plain text instead of a
+            //    link — clicking would just reload the page. So
+            //    fall back to "the first tweet in DOM order whose
+            //    extracted id matches OR is empty (no link could be
+            //    found because there isn't one)".
+            for (const el of tweets) {
+                const t = extractTweet(el);
+                if (t.id === focalId) return t;
+            }
+            // The focal tweet sometimes ends up with id === null
+            // (no <time> ancestor link). On a status detail page,
+            // the topmost tweet is the focal one by convention.
+            const first = extractTweet(tweets[0]);
+            if (!first.id || first.id === focalId) {
+                first.id = focalId;            // backfill canonical id from URL
+                first.url = first.url || `${location.origin}/${first.author.handle}/status/${focalId}`;
+                return first;
             }
             return null;
         };
@@ -421,10 +468,51 @@ function waitForFocalTweet(focalId, timeoutMs) {
             const found = find();
             if (found) { obs.disconnect(); resolve(found); }
             else if (Date.now() - start > timeoutMs) {
-                obs.disconnect(); resolve(null);
+                obs.disconnect();
+                emitDiagnostic(focalId);
+                resolve(null);
             }
         });
         obs.observe(document.body, { childList: true, subtree: true });
-        setTimeout(() => { obs.disconnect(); resolve(find()); }, timeoutMs);
+        setTimeout(() => {
+            obs.disconnect();
+            const lastTry = find();
+            if (!lastTry) emitDiagnostic(focalId);
+            resolve(lastTry);
+        }, timeoutMs);
     });
+}
+
+/**
+ * Loud diagnostic when focal-tweet detection fails. Logs the testid
+ * inventory + the first article's outerHTML so a user paste is enough
+ * to diagnose the next selector regression — same shape as the
+ * YouTube `extracted N events from M segments` diagnostic.
+ */
+function emitDiagnostic(focalId) {
+    try {
+        const tweets = pickTweetElements();
+        const testidCounts = {};
+        document.querySelectorAll('[data-testid]').forEach((el) => {
+            const t = el.getAttribute('data-testid');
+            testidCounts[t] = (testidCounts[t] || 0) + 1;
+        });
+        const interesting = Object.fromEntries(
+            Object.entries(testidCounts).filter(([t]) => /tweet|status|cell|article/i.test(t))
+        );
+        console.error('[X-Ray Twitter] focal tweet not found in DOM. URL:', window.location.href);
+        console.error('[X-Ray Twitter] looked for status id:', focalId);
+        console.error('[X-Ray Twitter] tweet-element candidates found:', tweets.length);
+        console.error('[X-Ray Twitter] interesting data-testid counts:', interesting);
+        if (tweets.length > 0) {
+            console.error('[X-Ray Twitter] first candidate outerHTML (truncated):',
+                          tweets[0].outerHTML.slice(0, 800));
+        } else {
+            const main = document.querySelector('main');
+            console.error('[X-Ray Twitter] no candidates — main column outerHTML head:',
+                          main ? main.outerHTML.slice(0, 600) : '(no <main>)');
+        }
+    } catch (err) {
+        console.warn('[X-Ray Twitter] diagnostic emit failed:', err);
+    }
 }

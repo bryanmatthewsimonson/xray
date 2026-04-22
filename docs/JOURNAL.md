@@ -19,6 +19,54 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-04-21 — Twitter/X focal tweet not found in DOM
+
+**Tags:** bug, external
+
+**Repro URL:** `https://x.com/theamolavasare/status/2046724659039932830`.
+
+**Symptom:** First Twitter capture after Phase 3c shipped — handler
+logged `focal tweet not found in DOM` and bailed; reader fell through
+to Readability (got *something* usable but missed the structured
+Twitter shape — no thread detection, no engagement metrics, comments
+not separated from thread continuation).
+
+**Root cause(s) — two compounding:**
+
+1. `pickTweetElements()` only matched `article[data-testid="tweet"]`.
+   On a status detail page X may now wrap the focal tweet in a
+   different testid container (`tweetDetail`, `cellInnerDiv`, etc.).
+   No reproduction in our DOM, but the symptom matches.
+2. `waitForFocalTweet()` looked for the URL's status id by walking
+   `time → closest('a').href`. On the focal tweet's *own* status
+   page, X often renders the timestamp as plain text (clicking would
+   reload the same page) — so no enclosing anchor exists, so
+   matching failed even with the focal tweet right there.
+
+**Fix:** `09f99ab`-style defensive layering:
+
+- Priority-ordered selectors in `pickTweetElements`: strict testid →
+  alternative testids → `article[role="article"][tabindex]` → loose
+  `main article` filtered by presence of `<time>`.
+- `waitForFocalTweet` now: matches against ANY anchor descendant
+  (not just the timestamp), then falls back to "any tweet whose
+  extracted id matches", then to "the first tweet on a status page
+  is the focal one by convention" with id backfilled from the URL.
+- Loud diagnostic when no focal tweet found: logs candidate count,
+  interesting `data-testid` inventory, and the first candidate's
+  outerHTML — same shape as the YouTube extraction diagnostics. A
+  user paste should be enough to add a targeted selector for the
+  next X UI rewrite.
+
+**Pattern note:** Second platform-specific DOM bug after the YouTube
+3× duplication. Both fixed by the same defensive recipe (strict-first
+selectors with loose fallback + loud diagnostics on miss). The
+`pattern/youtube-arms-race` entry below now generalizes to all
+DOM-scraped platforms — Twitter / X qualifies for the same
+expectations.
+
+---
+
 ## 2026-04-21 — YouTube transcript: 3× cue duplication in the new DOM
 
 **Tags:** bug, external, pattern
@@ -190,10 +238,11 @@ the next UI rewrite. The cadence is roughly "every few months".
   never fires.
 - **2026-04-21** — 3× cue duplication in the DOM (the entry above).
 
-**Strategic takeaway:** Treat YouTube capture as perpetually
-fragile. Investing in *specific* resistance to any given change is
-wasted effort — the change will be obsolete in a quarter. Invest in
-the *defensive pattern*:
+**Strategic takeaway:** Treat ALL DOM-scraped platforms as perpetually
+fragile (X, Substack-DOM-fallback, Phase 8 hard-tier targets all
+qualify, not just YouTube). Investing in *specific* resistance to any
+given change is wasted effort — the change will be obsolete in a
+quarter. Invest in the *defensive pattern*:
 
 1. **Multiple strategies** with explicit priority ordering — signed-URL
    fetch → fetch-hook → DOM scrape.
