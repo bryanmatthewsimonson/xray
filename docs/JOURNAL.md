@@ -19,6 +19,51 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-04-21 — Twitter capture: focal-tweet id leaked through as the literal string "null"
+
+**Tags:** bug
+
+**Symptom:** First successful Twitter capture after the focal-tweet
+detection fix landed (entry below). Reader opened with the right
+title, byline, body content, even thread detection — but the URL
+field read `https://x.com/TheAmolAvasare/status/null`. String
+templating against `focal.id === null` produced the literal "null".
+
+**Root cause:** Two-step lookup — `waitForFocalTweet` had an id-
+backfill in its third fallback path (when `tweets[0]` is the focal
+tweet but its extracted id is null), but path 1 (matching against
+ANY anchor descendant for `/status/<id>`) returned `extractTweet(el)`
+directly without backfill. And `extractTweet` only harvested the id
+from `<time>.closest('a')`, which doesn't exist on the focal tweet
+because clicking the focal timestamp would reload the same page.
+
+So path 1 found the focal element via the share-button anchor,
+returned an extracted tweet with id=null, and synthesizeArticle
+built the canonical URL as `${handle}/status/${null}` →
+`.../status/null`.
+
+**Fix:**
+
+1. `extractTweet` now has an id-extraction fallback: if the
+   `<time>` anchor doesn't yield an id, scan all
+   `a[href*="/status/"]` anchors in the tweet and use the first
+   matching id. Share / copy-link buttons reference the canonical
+   id even when the timestamp doesn't.
+2. `synthesizeArticle` defensively backfills `focal.id` from the
+   pre-parsed `focalId` and constructs `focal.url` if missing — so
+   `null` can never reach URL composition even if a future DOM
+   shift breaks both extraction paths.
+
+**Bonus fix:** the Phase 7 archive banner was firing on every
+Twitter capture because the relay-reconstruct path only checked
+`currentLen < 1500` (always true for short-form content like
+tweets) and didn't compare the reconstructed length against the
+current. Tightened to "1.3× longer AND ≥1000 chars" — same
+threshold the cache path uses. Banner now only fires when the
+relay version is meaningfully bigger than what we just captured.
+
+---
+
 ## 2026-04-21 — Twitter/X focal tweet not found in DOM
 
 **Tags:** bug, external

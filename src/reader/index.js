@@ -198,13 +198,22 @@ async function checkArchiveAvailability() {
                 url
             });
             if (resp && resp.ok && resp.found && resp.article) {
-                renderArchiveBanner({
-                    source:       'relay',
-                    author:       resp.authorPubkey,
-                    createdAt:    resp.createdAt,
-                    article:      resp.article,
-                    metric:       resp.altCount > 0 ? `${resp.altCount + 1} relay versions found, newest shown` : 'reconstructed from relay'
-                });
+                const reconstructedLen = (resp.article.content || '').length;
+                // Same threshold the cache path uses — only surface
+                // the banner if the relay version is meaningfully
+                // bigger than what we just captured. Without this
+                // guard the banner fires on every short-form capture
+                // (single tweets are ~280 chars) even when the
+                // relay-published copy is the same content.
+                if (reconstructedLen > currentLen * 1.3 && reconstructedLen > 1000) {
+                    renderArchiveBanner({
+                        source:       'relay',
+                        author:       resp.authorPubkey,
+                        createdAt:    resp.createdAt,
+                        article:      resp.article,
+                        metric:       resp.altCount > 0 ? `${resp.altCount + 1} relay versions found, newest shown` : 'reconstructed from relay'
+                    });
+                }
             }
         } catch (err) {
             console.warn('[X-Ray Reader] relay archive reconstruct failed:', err);

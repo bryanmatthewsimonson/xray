@@ -139,7 +139,13 @@ function extractTweet(article) {
     if (avatarImg) out.author.avatarUrl = avatarImg.getAttribute('src') || '';
 
     // --- timestamp + canonical url ---
-    // The status link wraps the <time> element. href="/handle/status/<id>"
+    // On thread / reply tweets the status link wraps the <time>
+    // element (clicking the timestamp navigates to that tweet's
+    // detail page). On the *focal* tweet's own status page X often
+    // renders the timestamp as plain text — clicking would reload
+    // the same page — so no enclosing anchor exists. We then fall
+    // back to any other `a[href*="/status/"]` anchor inside the
+    // tweet (share button, copy-link, etc.) to recover the id.
     const timeEl = article.querySelector('time');
     if (timeEl) {
         out.timestamp = timeEl.getAttribute('datetime') || null;
@@ -148,6 +154,20 @@ function extractTweet(article) {
             out.url = linkAnc.href;
             const m = linkAnc.getAttribute('href').match(/\/status\/(\d+)/);
             if (m) out.id = m[1];
+        }
+    }
+    if (!out.id) {
+        // Fallback: walk all status anchors in the tweet element.
+        // The share / copy-link / quote-tweet buttons reference the
+        // canonical /status/<id> URL even when the timestamp doesn't.
+        const statusLinks = article.querySelectorAll('a[href*="/status/"]');
+        for (const a of statusLinks) {
+            const m = (a.getAttribute('href') || '').match(/\/status\/(\d+)(?:[/?#]|$)/);
+            if (m) {
+                out.id = m[1];
+                if (!out.url) out.url = a.href;
+                break;
+            }
         }
     }
 
@@ -237,6 +257,13 @@ export async function synthesizeArticle() {
         console.warn('[X-Ray Twitter] focal tweet not found in DOM. URL:', window.location.href);
         return null;
     }
+
+    // Defensive backfill — `extractTweet` can return id: null when
+    // the focal tweet has no enclosing anchor on its <time> AND no
+    // share-button anchor visible (rare but observed). The URL we
+    // were asked to capture has the canonical id; use it.
+    if (!focal.id) focal.id = focalId;
+    if (!focal.url) focal.url = `${location.origin}/${focal.author.handle}/status/${focalId}`;
 
     // Pull every tweet currently rendered. Tweets by the focal
     // author, in the same DOM region as the focal tweet, count as
