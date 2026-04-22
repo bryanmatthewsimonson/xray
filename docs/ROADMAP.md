@@ -39,7 +39,7 @@ scope for a given phase*.
 Phase 0  ████████████████████  complete
 Phase 1  ████████████████████  complete
 Phase 2  ████████████████████  complete
-Phase 3  ██████████░░░░░░░░░░  in progress — Substack + YouTube done, Twitter + generic pending
+Phase 3  ████████████████████  complete — Substack + YouTube + Twitter + generic comment extractor
 Phase 4  ████████████████████  complete — entity model + tagger + kind-0 publish + side panel
 Phase 5  ████████████████████  complete — claims + evidence links + relay query
 Phase 6  ████████████████████  complete — entity sync via NIP-78 + NIP-44 v2
@@ -227,39 +227,72 @@ Deferred (revisit after Phase 4 / 7):
 - Short-form (`/shorts/…`) URL shape.
 - Channel-page and playlist captures.
 
-### 3c — Twitter/X handler ⏳
+### 3c — Twitter/X handler ✅
 
-Not started. Scope (from the userscript's `platforms/twitter.js`,
-~265 LOC):
+`src/shared/platforms/twitter.js`. Status detail pages
+(`/<handle>/status/<id>`) only — profile, search, and list pages are
+detected and rejected because they don't have a single focal tweet
+to anchor on. Extracts:
 
-- Tweet + thread extraction via `data-testid` selectors — resilient
-  to the intermittent X UI rewrites.
-- Author handle, engagement (likes / replies / retweets / views),
-  tweet timestamp.
-- Thread detection — multi-tweet chains by the same author become
-  a single kind-30023 event. Reply conversations optionally become
-  kind-30041 comments.
-- SPA navigation support (`yt-navigate-finish`-equivalent for X).
-- Back-compat: v4 emits `author_handle`, `tweet_id`,
-  `thread`, `thread_length` tags. Legacy `article.tweetMeta` shape
-  already wired in `event-builder.js`.
+- Focal tweet metadata: id, author (handle / display name / profile
+  / avatar), text, timestamp, engagement (replies / retweets / likes
+  / views), media URLs.
+- Thread detection: every `<article data-testid="tweet">` in the DOM
+  by the focal tweet's author becomes a thread tweet. Sorted by
+  snowflake-id ascending (chronological).
+- Replies by *other* users → opt-in `comments` array consumed by the
+  reader's existing kind-30041 batch publish (same shape Substack
+  uses).
+- Tags emitted on the kind-30023: `tweet_id`, `author_handle`,
+  `thread: 'true'`, `thread_length` (legacy `tweetMeta` already wired
+  in event-builder.js:179) plus a richer `article.twitter` block for
+  downstream consumers.
+- DOM-shape resilience: `data-testid` selectors throughout (more
+  stable than class names but still subject to X's UI churn — the
+  YouTube-arms-race pattern in `JOURNAL.md` applies). Loud diagnostic
+  if the focal tweet doesn't render within 2s of the click.
 
-### 3d — Generic comment extractor ⏳
+Deferred to a follow-up:
 
-Not started. Scope (from `comment-extractor.js`, ~153 LOC):
+- Quoted tweet recursive extraction (rendered as a markdown link to
+  the quoted tweet for now).
+- Polls / spaces / community notes.
 
-- Heuristic DOM walker for native, Disqus, and WordPress comment
-  threads. Platform handlers above invoke it as a fallback.
-- Emits `Comment` objects matching the data model in
-  `project-history-and-migration.md` §2.5.
-- Each comment becomes a kind-30041 event (`d: cmt:<platform>:<id>`).
+### 3d — Generic comment extractor ✅
 
-### Phase 3 exit criteria
+`src/shared/platforms/comment-extractor.js`. Heuristic DOM walker
+for any article-shaped page that doesn't have a dedicated handler.
+Three tiers:
 
-- Twitter thread capture produces a kind-30023 event with all
-  thread tweets concatenated, `thread: true`, `thread_length: N`.
-- Generic comment extraction picks up at least Disqus threads in a
-  smoke-test corpus.
+1. **Disqus** — detected by the `<div id="disqus_thread">` shell.
+   Comments live in a cross-origin iframe so we can't actually scrape
+   them; we surface a `_commentsNote` explaining the limitation so
+   the user knows the platform uses Disqus.
+2. **WordPress** — `ol.comment-list` / `commentlist` containers with
+   `<li class="comment">` children, recursive into `ol.children`
+   nested replies. Picks up author, profile URL, avatar, datetime,
+   and content.
+3. **Generic class-name-based** — any container with class names
+   matching `comment-list` / `comments-list` / `comment-thread` /
+   `comment-section`, scored by direct-child comment-shaped count.
+
+Output matches the same `Comment` shape Substack and Twitter use, so
+the reader's existing comment-tree renderer + opt-in kind-30041
+batch publish consume it without changes.
+
+Wired into `enrichArticleForPlatform` so any platform that doesn't
+populate `article.comments` itself gets a generic pass. No-op on
+pages without a recognizable comment system.
+
+### Phase 3 exit criteria — all ✅
+
+- ✅ Twitter thread capture produces a kind-30023 event with all
+  thread tweets concatenated, `thread: 'true'`, `thread_length: N`.
+- ✅ Generic comment extraction picks up WordPress / generic
+  class-named comment threads. Disqus is detected and reported as
+  cross-origin-iframe-blocked (X-Ray can't read it from the host
+  page; a future polish could route through a SW-side Disqus API
+  fetch).
 
 ---
 

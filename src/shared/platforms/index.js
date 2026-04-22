@@ -21,11 +21,13 @@
 // Currently registered:
 //   substack   ✓ Phase 3a (#14)   — enrich-only
 //   youtube    ✓ Phase 3b (#14)   — synthesize-only
-//   twitter    ☐ Phase 3c
+//   twitter    ✓ Phase 3c (#14)   — synthesize-only
 //   facebook/instagram/tiktok ☐ Phase 8
 
 import * as substack from './substack.js';
 import * as youtube  from './youtube.js';
+import * as twitter  from './twitter.js';
+import { extractGenericComments } from './comment-extractor.js';
 
 /** @typedef {{ synthesize?: () => Promise<object|null>, enrich?: (article: object) => Promise<object|null> | object|null }} PlatformHandler */
 
@@ -36,6 +38,9 @@ const HANDLERS = {
     },
     youtube: {
         synthesize: () => youtube.synthesizeArticle()
+    },
+    twitter: {
+        synthesize: () => twitter.synthesizeArticle()
     }
 };
 
@@ -59,18 +64,41 @@ export async function captureForPlatform(platform) {
 /**
  * Layer platform-specific enrichment onto an already-extracted article.
  * Unknown platforms pass the article through unchanged.
+ *
+ * After platform-specific enrichment runs, also try the generic
+ * comment extractor — it's a no-op on pages without a recognizable
+ * comment system, and a useful fallback on WordPress / generic sites
+ * that don't have a dedicated handler. If the platform handler
+ * already populated `article.comments`, we leave them alone (their
+ * own extraction is authoritative).
  */
 export async function enrichArticleForPlatform(article, platform) {
-    if (!article || !platform) return article;
-    const h = HANDLERS[platform];
-    if (!h || typeof h.enrich !== 'function') return article;
-    try {
-        const enriched = await h.enrich(article);
-        return enriched || article;
-    } catch (err) {
-        console.warn('[X-Ray] Platform enrichment failed for', platform, err);
-        return article;
+    if (!article) return article;
+    let enriched = article;
+    if (platform) {
+        const h = HANDLERS[platform];
+        if (h && typeof h.enrich === 'function') {
+            try {
+                enriched = (await h.enrich(article)) || article;
+            } catch (err) {
+                console.warn('[X-Ray] Platform enrichment failed for', platform, err);
+            }
+        }
     }
+    if (!enriched.comments || enriched.comments.length === 0) {
+        try {
+            const result = extractGenericComments();
+            if (result && result.comments && result.comments.length > 0) {
+                enriched.comments = result.comments;
+                enriched._commentsSource = result.platform;     // for diagnostics
+            } else if (result && result.note) {
+                enriched._commentsNote = result.note;            // surfaceable in the reader
+            }
+        } catch (err) {
+            console.warn('[X-Ray] Generic comment extraction failed:', err);
+        }
+    }
+    return enriched;
 }
 
 /**
@@ -80,6 +108,7 @@ export async function enrichArticleForPlatform(article, platform) {
 export function detectPlatformFromDom() {
     if (substack.isSubstackPage()) return 'substack';
     if (youtube.isYouTubeVideoPage()) return 'youtube';
+    if (twitter.isTwitterPage()) return 'twitter';
     return null;
 }
 
