@@ -198,6 +198,7 @@ export const EventBuilder = {
       if (y.originLanguage)  tags.push(['origin_language', y.originLanguage]);
       if (y.userLanguage)    tags.push(['user_language',   y.userLanguage]);
       if (y.isLive === true) tags.push(['is_live',         'true']);
+      if (y.isShort === true) tags.push(['is_short',       'true']);
       if (y.uploadDate)      tags.push(['upload_date',     y.uploadDate]);
 
       // One row per captured transcript with non-empty events. Encoded
@@ -348,6 +349,24 @@ export const EventBuilder = {
         ['l', 'v1', 'nac/entity-sync']
       ],
       content: encryptedContent
+    };
+  },
+
+  // Build a NIP-65 relay-list event (kind 10002). Each relay becomes
+  // an `r`-tag; we don't distinguish read/write since the X-Ray UI
+  // has a single relay list. Replaces any prior 10002 from this
+  // pubkey on relays that honor NIP-09/replaceable semantics.
+  buildRelayListEvent: (relayUrls, userPubkey) => {
+    const tags = [];
+    for (const url of relayUrls) {
+      if (typeof url === 'string' && url) tags.push(['r', url]);
+    }
+    return {
+      kind: 10002,
+      pubkey: userPubkey,
+      created_at: Math.floor(Date.now() / 1000),
+      tags,
+      content: ''
     };
   },
 
@@ -591,6 +610,7 @@ export const EventBuilder = {
         originLanguage: tags['origin_language'] || null,
         userLanguage:   tags['user_language']   || null,
         isLive:         tags['is_live'] === 'true',
+        isShort:        tags['is_short'] === 'true',
         uploadDate:     tags['upload_date']     || null,
         transcripts:    transcriptLangs   // manifest only; bodies live in content
       };

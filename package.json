@@ -1,6 +1,6 @@
 {
   "name": "xray-extension",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "NOSTR-sourced URL metadata & article capture — Chrome/Firefox MV3 WebExtension.",
   "repository": "github:bryanmatthewsimonson/xray",
@@ -11,7 +11,9 @@
     "watch": "node esbuild.config.mjs --watch",
     "clean": "rm -rf dist",
     "lint": "web-ext lint --source-dir . --self-hosted",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "version:set": "node scripts/set-version.mjs",
+    "icons": "node scripts/build-icons.mjs"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
@@ -19,6 +21,7 @@
     "turndown-plugin-gfm": "^1.0.2"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "esbuild": "^0.25.0",
     "fake-indexeddb": "^6.2.5"
   },

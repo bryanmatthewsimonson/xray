@@ -30,9 +30,34 @@ import { ContentExtractor } from '../content-extractor.js';
 export function isYouTubeVideoPage() {
     const host = window.location.hostname;
     if (!/^(www\.|m\.)?youtube\.com$/i.test(host)) return false;
-    if (!/^\/watch\b/.test(window.location.pathname)) return false;
-    const v = new URLSearchParams(window.location.search).get('v');
-    return typeof v === 'string' && v.length > 0;
+    return videoIdFromLocation() !== null;
+}
+
+/**
+ * Returns true on Shorts URLs (`youtube.com/shorts/<id>`). Used to
+ * route capture metadata + reader UI labeling. Sub-condition of
+ * `isYouTubeVideoPage`.
+ */
+export function isYouTubeShortsPage() {
+    const host = window.location.hostname;
+    if (!/^(www\.|m\.)?youtube\.com$/i.test(host)) return false;
+    return /^\/shorts\/[A-Za-z0-9_-]{6,}/.test(window.location.pathname);
+}
+
+/**
+ * Extract the videoId from either the standard watch URL (`?v=…`)
+ * or a Shorts URL (`/shorts/<id>`). Returns null on anything else.
+ * Centralized here so every callsite agrees on the lookup order.
+ */
+function videoIdFromLocation() {
+    const path = window.location.pathname;
+    const shortsMatch = path.match(/^\/shorts\/([A-Za-z0-9_-]{6,})/);
+    if (shortsMatch) return shortsMatch[1];
+    if (/^\/watch\b/.test(path)) {
+        const v = new URLSearchParams(window.location.search).get('v');
+        if (typeof v === 'string' && v.length > 0) return v;
+    }
+    return null;
 }
 
 // ------------------------------------------------------------------
@@ -619,7 +644,8 @@ export async function synthesizeArticle() {
     const renderer = (player.captions || {}).playerCaptionsTracklistRenderer || {};
     const tracks = Array.isArray(renderer.captionTracks) ? renderer.captionTracks : [];
 
-    const videoId = vd.videoId || new URLSearchParams(window.location.search).get('v');
+    const videoId = vd.videoId || videoIdFromLocation();
+    const isShort = isYouTubeShortsPage();
     const originLang = detectOriginLanguage(tracks);
     const userLang   = detectUserLanguage();
     const selected   = selectTracks(tracks, originLang, userLang);
@@ -713,7 +739,8 @@ export async function synthesizeArticle() {
         category:        mf.category || null,
         description:     vd.shortDescription || '',
         keywords,
-        transcripts
+        transcripts,
+        isShort
     });
 
     return {
@@ -771,6 +798,7 @@ export async function synthesizeArticle() {
             uploadDate:      mf.uploadDate || null,
             thumbnails,
             isLive:          vd.isLiveContent === true,
+            isShort,
             originLanguage:  originLang,
             userLanguage:    userLang,
             transcripts
@@ -797,13 +825,14 @@ function trackDisplayName(track) {
 function composeMarkdownBody(opts) {
     const { title, channelName, canonicalUrl, videoId, durationSeconds,
             viewCount, publishDate, category, description, keywords,
-            transcripts } = opts;
+            transcripts, isShort } = opts;
 
     const parts = [];
 
     // Header — visible metadata block in the published article.
     const hdr = [];
-    hdr.push(`**Video**: [${title}](${canonicalUrl})`);
+    const titleLabel = isShort ? '**Short**' : '**Video**';
+    hdr.push(`${titleLabel}: [${title}](${canonicalUrl})`);
     if (channelName)    hdr.push(`**Channel**: ${channelName}`);
     if (publishDate)    hdr.push(`**Published**: ${new Date(publishDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`);
     if (durationSeconds != null) hdr.push(`**Duration**: ${formatDuration(durationSeconds)}`);

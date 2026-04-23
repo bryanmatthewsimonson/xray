@@ -18,7 +18,7 @@
 import { EntityModel, ENTITY_TYPES, ENTITY_ICONS, installEntityStorageBridge } from '../shared/entity-model.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { Crypto } from '../shared/crypto.js';
-import { pushEntities, pullEntities, clearRemote } from '../shared/entity-sync.js';
+import { pushEntities, pullEntities, clearRemote, pushRelayList, pullRelayList, normalizeRelayUrl } from '../shared/entity-sync.js';
 
 // Reserved key name in LocalKeyManager for the user's primary
 // identity. Used only by the sync flow — article publishing still
@@ -712,6 +712,72 @@ async function forgetIdentity() {
     }
 }
 
+async function saveRelays(newList) {
+    return new Promise((resolve) => {
+        chrome.storage.local.get(['preferences'], (res) => {
+            const raw = res && res.preferences;
+            let prefs = {};
+            try { prefs = typeof raw === 'string' ? JSON.parse(raw) : (raw || {}); }
+            catch (_) { prefs = {}; }
+            prefs.default_relays = newList;
+            chrome.storage.local.set({ preferences: JSON.stringify(prefs) }, () => resolve());
+        });
+    });
+}
+
+/**
+ * After a successful pull, query NIP-65 (kind-10002) for the user's
+ * pubkey across the relays we just used. If the discovered list adds
+ * relays we don't have, surface a one-line confirmation in the sync
+ * log so the user can adopt them with a click. We never auto-replace
+ * — the local list is authoritative until the user opts in.
+ */
+async function offerRelayListAdoption(userKey, currentRelays) {
+    let result;
+    try {
+        result = await pullRelayList({ userPrivkey: userKey.privateKey, relays: currentRelays });
+    } catch (err) {
+        // Quiet failure — don't add noise to the sync log if NIP-65
+        // discovery hiccups.
+        console.warn('[X-Ray] pullRelayList failed:', err);
+        return;
+    }
+    if (!result.found || result.relays.length === 0) return;
+
+    // Normalize both sides before comparing so trailing-slash and
+    // case differences don't cause spurious "missing" matches.
+    const local = new Set(currentRelays.map(normalizeRelayUrl));
+    const remote = new Set(result.relays.map(normalizeRelayUrl));
+    const newRemoteRelays = [...remote].filter((u) => !local.has(u));
+    if (newRemoteRelays.length === 0) return;  // already have everything
+
+    // Append the relay-adoption banner below the existing sync log.
+    const log = $('#xr-sync-log');
+    if (!log) return;
+    const banner = document.createElement('div');
+    banner.style.cssText = 'margin-top:8px;padding:8px;border:1px solid var(--xr-border);border-radius:4px;font-size:12px';
+    banner.innerHTML = `
+        <div>📡 Found <strong>${newRemoteRelays.length}</strong> relay(s) on your other devices that aren't in this device's list:</div>
+        <ul style="margin:4px 0 8px 16px">
+            ${newRemoteRelays.map((u) => `<li><code>${escapeHtml(u)}</code></li>`).join('')}
+        </ul>
+        <div style="display:flex;gap:6px">
+            <button type="button" class="xr-side__btn xr-side__btn--primary" id="xr-adopt-relays">Add to my list</button>
+            <button type="button" class="xr-side__ghost-btn" id="xr-dismiss-relays">Ignore</button>
+        </div>
+    `;
+    log.appendChild(banner);
+    $('#xr-adopt-relays').addEventListener('click', async () => {
+        // Save normalized union — protects against future round-trips
+        // re-introducing trailing-slash dupes.
+        const merged = [...new Set([...currentRelays.map(normalizeRelayUrl), ...newRemoteRelays])];
+        await saveRelays(merged);
+        toast(`Added ${newRemoteRelays.length} relay(s) to local list`, 'success', 4000);
+        banner.remove();
+    });
+    $('#xr-dismiss-relays').addEventListener('click', () => banner.remove());
+}
+
 async function configuredRelays() {
     return new Promise((resolve) => {
         chrome.storage.local.get(['preferences'], (res) => {
@@ -739,8 +805,23 @@ async function runPush(userKey) {
     try {
         const relays = await configuredRelays();
         const out = await pushEntities({ userPrivkey: userKey.privateKey, relays });
+        // Also push the relay list (NIP-65 / kind 10002) so a pull on
+        // another device can offer to adopt it. Best-effort — don't
+        // fail the entity push if relay-list publishing fails.
+        let relayListNote = '';
+        try {
+            const r = await pushRelayList({ userPrivkey: userKey.privateKey, relays });
+            relayListNote = `<div style="margin-top:4px;font-size:12px;opacity:.85">
+                Relay list (NIP-65) published to ${r.published}/${r.total} relays.
+            </div>`;
+        } catch (rlErr) {
+            relayListNote = `<div style="margin-top:4px;font-size:12px;color:var(--xr-warning)">
+                Relay-list push failed: ${escapeHtml(rlErr.message || String(rlErr))}
+            </div>`;
+        }
         setSyncLog(`
           <div>Pushed <strong>${out.pushed}</strong>, skipped ${out.skipped}, failed ${out.failed}.</div>
+          ${relayListNote}
           <details>
             <summary>Per-entity breakdown</summary>
             <ul>${out.perEntity.map((e) =>
@@ -760,15 +841,35 @@ async function runPull(userKey) {
     try {
         const relays = await configuredRelays();
         const out = await pullEntities({ userPrivkey: userKey.privateKey, relays });
-        setSyncLog(`
-          <div>Fetched <strong>${out.fetched}</strong> events.
-               Added <strong>${out.added}</strong>, updated <strong>${out.updated}</strong>,
-               unchanged ${out.unchanged}, malformed ${out.malformed}, failed ${out.failed}.</div>
-        `);
+        const perRelay = Object.entries(out.byRelay || {}).map(([url, stat]) => {
+            const dot = stat.eose ? '✓' : '⏱';
+            return `<li>${dot} <code>${escapeHtml(url)}</code> — received ${stat.received}${stat.eose ? '' : ' (no EOSE)'}</li>`;
+        }).join('');
+        const legacyNote = out.legacyNip04
+            ? ` <span title="Legacy NIP-04 events from the userscript decrypted via fallback path">(${out.legacyNip04} legacy NIP-04)</span>`
+            : '';
+        const formatBreakdown = `<div style="margin-top:4px;font-size:12px;opacity:.85">
+            Format split: <strong>${out.nip44Total}</strong> NIP-44, <strong>${out.nip04Total}</strong> NIP-04
+        </div>`;
         toast(`Pull done: +${out.added} added, ${out.updated} updated`, out.failed === 0 && out.malformed === 0 ? 'success' : 'warning', 5000);
         await refreshEntities();
         renderList();
         renderSyncBody();    // refresh the "Push N entities" count
+        // Set the log AFTER renderSyncBody — renderSyncBody re-renders
+        // the sync body and replaces the #xr-sync-log element, so any
+        // log content set before this call is wiped.
+        setSyncLog(`
+          <div>Fetched <strong>${out.fetched}</strong> events (deduped across relays).
+               Added <strong>${out.added}</strong>, updated <strong>${out.updated}</strong>,
+               unchanged ${out.unchanged}, malformed ${out.malformed}, failed ${out.failed}.${legacyNote}</div>
+          ${formatBreakdown}
+          ${perRelay ? `<details open><summary>Per-relay</summary><ul>${perRelay}</ul></details>` : ''}
+        `);
+        // Best-effort NIP-65 relay-list discovery. If the remote list
+        // diverges from local, ask the user before adopting — adopting
+        // silently could orphan in-flight queries to relays they're
+        // about to drop.
+        await offerRelayListAdoption(userKey, relays);
     } catch (err) {
         setSyncLog(`<div style="color:var(--xr-danger)">${escapeHtml(err.message || String(err))}</div>`);
         toast('Pull failed: ' + (err.message || err), 'error', 5000);

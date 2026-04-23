@@ -663,14 +663,14 @@ See the [full issue list](https://github.com/bryanmatthewsimonson/xray/issues) f
 
 | Issue | Priority | What |
 |---|---|---|
-| [#1](https://github.com/bryanmatthewsimonson/xray/issues/1) | P0 | End-to-end smoke test in Chrome and Firefox |
-| [#2](https://github.com/bryanmatthewsimonson/xray/issues/2) | P1 | Content script never writes `xr_signing_state` — popup always shows "not detected" |
-| [#3](https://github.com/bryanmatthewsimonson/xray/issues/3) | P1 | Publish success/failure as native OS notifications |
-| [#6](https://github.com/bryanmatthewsimonson/xray/issues/6) | P2 | Replace placeholder icons with real branding |
-| [#7](https://github.com/bryanmatthewsimonson/xray/issues/7) | P2 | Opt-in migration from nostr-article-capture userscript storage |
-| [#8](https://github.com/bryanmatthewsimonson/xray/issues/8) | P3 | Release pipeline: CHANGELOG, version bump, tagged releases |
-| [#9](https://github.com/bryanmatthewsimonson/xray/issues/9) | P3 | Basic unit tests for EventBuilder and Utils.normalizeUrl |
-| [#10](https://github.com/bryanmatthewsimonson/xray/issues/10) | P3 | Verify `browser_specific_settings.gecko.strict_min_version` |
+| [#1](https://github.com/bryanmatthewsimonson/xray/issues/1) | P0 | ✅ End-to-end smoke test (`docs/SMOKE_TEST.md` + agent-runnable subset) |
+| [#2](https://github.com/bryanmatthewsimonson/xray/issues/2) | P1 | ✅ `xr_signing_state` written by content script |
+| [#3](https://github.com/bryanmatthewsimonson/xray/issues/3) | P1 | ✅ Publish success/failure surfaces as native OS notifications |
+| [#6](https://github.com/bryanmatthewsimonson/xray/issues/6) | P2 | ✅ Real X-Ray icons + `npm run icons` rasterization script |
+| [#7](https://github.com/bryanmatthewsimonson/xray/issues/7) | P2 | ✅ Opt-in migration from nostr-article-capture userscript storage |
+| [#8](https://github.com/bryanmatthewsimonson/xray/issues/8) | P3 | ✅ Release pipeline: CHANGELOG, version bump, tagged releases |
+| [#9](https://github.com/bryanmatthewsimonson/xray/issues/9) | P3 | ✅ Tests for EventBuilder, Utils.normalizeUrl, sync deserializer, migration importer (96 tests) |
+| [#10](https://github.com/bryanmatthewsimonson/xray/issues/10) | P3 | ✅ Verified `strict_min_version: "128.0"` (3 APIs land there; matches FF ESR) |
 
 ---
 

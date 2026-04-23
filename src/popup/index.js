@@ -65,13 +65,16 @@ function wireButtons() {
         window.close();
     });
     document.getElementById('btn-open-entities').addEventListener('click', async () => {
-        // chrome.sidePanel.open requires a user gesture in a tab/window
-        // context. From the popup we have both. If the API is missing
-        // (older Chrome / Firefox), fall back to a regular tab with the
-        // sidepanel HTML — ugly but functional.
+        // Three openers, in preference order:
+        //   1. browser.sidebarAction.toggle()  — Firefox sidebar (MV3)
+        //   2. chrome.sidePanel.open()         — Chrome / Edge / Brave
+        //   3. tabs.create()                   — last-resort tab
+        // Both panel APIs require a user gesture; the popup click qualifies.
         try {
-            const win = await new Promise((resolve) => browserApi.windows.getCurrent(resolve));
-            if (browserApi.sidePanel && browserApi.sidePanel.open) {
+            if (browserApi.sidebarAction && browserApi.sidebarAction.toggle) {
+                await browserApi.sidebarAction.toggle();
+            } else if (browserApi.sidePanel && browserApi.sidePanel.open) {
+                const win = await new Promise((resolve) => browserApi.windows.getCurrent(resolve));
                 await browserApi.sidePanel.open({ windowId: win.id });
             } else {
                 browserApi.tabs.create({ url: browserApi.runtime.getURL('src/sidepanel/index.html') });

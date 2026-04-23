@@ -210,9 +210,6 @@ produces `dist/*.bundle.js`, which the manifest loads).
 
 - **[`nostr-article-capture`](https://github.com/bryanmatthewsimonson/nostr-article-capture)**
   — the original userscript this extension was ported from.
-- **Keystone** (forthcoming) — a dedicated NOSTR-integrated browser.
-  X-Ray is where we're incubating the content-script stack that will
-  eventually be built into Keystone natively.
 
 ## License
 

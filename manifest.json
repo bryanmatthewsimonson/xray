@@ -1,16 +1,14 @@
 {
   "manifest_version": 3,
   "name": "X-Ray — NOSTR URL Metadata & Article Capture",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Capture articles as Markdown and publish to NOSTR — Chrome/Firefox MV3 extension.",
   "author": "Decentralized News Network",
-
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-
   "action": {
     "default_title": "X-Ray",
     "default_icon": {
@@ -20,22 +18,29 @@
     },
     "default_popup": "src/popup/popup.html"
   },
-
   "options_ui": {
     "page": "src/options/options.html",
     "open_in_tab": true
   },
-
   "side_panel": {
     "default_path": "src/sidepanel/index.html"
   },
-
+  "sidebar_action": {
+    "default_panel": "src/sidepanel/index.html",
+    "default_title": "X-Ray Entities",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png"
+    },
+    "open_at_install": false
+  },
   "background": {
     "service_worker": "dist/background.bundle.js",
-    "scripts": ["dist/background.bundle.js"],
+    "scripts": [
+      "dist/background.bundle.js"
+    ],
     "type": "module"
   },
-
   "permissions": [
     "storage",
     "notifications",
@@ -45,35 +50,45 @@
     "sidePanel",
     "declarativeNetRequest"
   ],
-
   "host_permissions": [
     "<all_urls>"
   ],
-
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": [
+        "<all_urls>"
+      ],
       "run_at": "document_start",
       "world": "MAIN",
       "all_frames": false,
-      "js": ["src/page/nip07-bridge.js"]
+      "js": [
+        "src/page/nip07-bridge.js"
+      ]
     },
     {
-      "matches": ["<all_urls>"],
+      "matches": [
+        "<all_urls>"
+      ],
       "run_at": "document_idle",
       "all_frames": false,
-      "js": ["dist/content.bundle.js"],
-      "css": ["src/content/content.css"]
+      "js": [
+        "dist/content.bundle.js"
+      ],
+      "css": [
+        "src/content/content.css"
+      ]
     }
   ],
-
   "web_accessible_resources": [
     {
-      "resources": ["src/page/nip07-bridge.js"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "src/page/nip07-bridge.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ],
-
   "declarative_net_request": {
     "rule_resources": [
       {
@@ -83,7 +98,6 @@
       }
     ]
   },
-
   "commands": {
     "xray:toggle": {
       "suggested_key": {
@@ -93,13 +107,14 @@
       "description": "Toggle the X-Ray capture panel on the current tab"
     }
   },
-
   "browser_specific_settings": {
     "gecko": {
       "id": "xray@nostr-article-capture",
       "strict_min_version": "128.0",
       "data_collection_permissions": {
-        "required": ["none"]
+        "required": [
+          "none"
+        ]
       }
     }
   }

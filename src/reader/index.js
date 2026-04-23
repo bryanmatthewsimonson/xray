@@ -154,64 +154,65 @@ async function loadArticle() {
  * Decide whether the current capture could be improved by loading
  * an archived version, then (if so) render a banner offering it.
  *
- * Heuristic: this capture is "possibly truncated" if its textContent
- * is shorter than some threshold, OR if a cached copy for the same
- * URL exists with a substantially longer body, OR if the platform
- * handler flagged the article as paywalled in some metadata field.
- * We could add JSON-LD paywall detection here by re-running
- * `ContentExtractor.detectPaywall` — but that needs the page's
- * `document`, which we don't have in the reader context.
- * Substantial improvement likelihood via cache/relay comparison is
- * the practical path.
+ * Sensitivity modes (Options → Advanced → Archive banner):
+ *   'always' (default) — show whenever an archived copy exists and
+ *                        differs from the current capture (skip only
+ *                        on byte-identical / strict-prefix matches).
+ *   'richer'           — preserve the prior heuristic: archive must
+ *                        be ≥1.3× longer AND >1000 chars. Useful for
+ *                        users who only want the banner when the
+ *                        archive is meaningfully fuller (e.g. a
+ *                        paywall unlock).
+ *   'never'            — skip the check entirely.
  */
 async function checkArchiveAvailability() {
     const url = state.article && state.article.url;
     if (!url) return;
 
-    const currentLen = (state.article.content || '').length;
+    const prefs = await loadPreferences();
+    const mode = prefs.archive_banner_sensitivity || 'always';
+    if (mode === 'never') return;
 
-    // 1. Try local cache first. If the cached copy is substantially
-    //    longer than what we just extracted, it's probably the
-    //    paywall-unlocked version from a prior session — offer it.
+    const currentBody = state.article.content || '';
+    const currentLen = currentBody.length;
+
+    // 1. Try local cache first.
     let cached = null;
     try { cached = await ArchiveCache.getArticle(url); } catch (_) { /* ignore */ }
     if (cached && cached.article && cached.article.content) {
-        const cachedLen = cached.article.content.length;
-        if (cachedLen > currentLen * 1.3 && cachedLen > 1000) {
+        const cachedBody = cached.article.content;
+        if (shouldOfferArchive(currentBody, cachedBody, mode)) {
             renderArchiveBanner({
-                source: 'cache',
+                source:   'cache',
                 cachedAt: cached.cachedAt,
-                article: cached.article,
-                metric:   `Cached copy is ${Math.round(cachedLen / currentLen)}× longer`
+                article:  cached.article,
+                metric:   describeMetric(currentBody, cachedBody)
             });
             return;
         }
     }
 
-    // 2. If the local body is tiny (<1500 chars), try relay reconstruction.
-    //    Tiny is our paywall-shaped proxy in a context that can't re-run
-    //    `detectPaywall` against a live document.
-    if (currentLen < 1500) {
+    // 2. Always probe relay reconstruction in 'always' mode; in
+    //    'richer' mode keep the prior <1500-char paywall-shaped guard
+    //    to avoid pinging relays for full-length captures.
+    const probeRelay = mode === 'always' || currentLen < 1500;
+    if (probeRelay) {
         try {
             const resp = await browserApi.runtime.sendMessage({
                 type: 'xray:archive:reconstruct',
                 url
             });
             if (resp && resp.ok && resp.found && resp.article) {
-                const reconstructedLen = (resp.article.content || '').length;
-                // Same threshold the cache path uses — only surface
-                // the banner if the relay version is meaningfully
-                // bigger than what we just captured. Without this
-                // guard the banner fires on every short-form capture
-                // (single tweets are ~280 chars) even when the
-                // relay-published copy is the same content.
-                if (reconstructedLen > currentLen * 1.3 && reconstructedLen > 1000) {
+                const reconstructedBody = resp.article.content || '';
+                if (shouldOfferArchive(currentBody, reconstructedBody, mode)) {
                     renderArchiveBanner({
-                        source:       'relay',
-                        author:       resp.authorPubkey,
-                        createdAt:    resp.createdAt,
-                        article:      resp.article,
-                        metric:       resp.altCount > 0 ? `${resp.altCount + 1} relay versions found, newest shown` : 'reconstructed from relay'
+                        source:    'relay',
+                        author:    resp.authorPubkey,
+                        createdAt: resp.createdAt,
+                        article:   resp.article,
+                        metric:    resp.altCount > 0
+                            ? `${resp.altCount + 1} relay versions found, newest shown`
+                            : describeMetric(currentBody, reconstructedBody)
                     });
                 }
             }
@@ -219,6 +220,52 @@ async function checkArchiveAvailability() {
             console.warn('[X-Ray Reader] relay archive reconstruct failed:', err);
         }
     }
+}
+
+async function loadPreferences() {
+    return new Promise((resolve) => {
+        try {
+            browserApi.storage.local.get(['preferences'], (res) => {
+                const raw = res && res.preferences;
+                if (!raw) return resolve({});
+                if (typeof raw === 'string') {
+                    try { return resolve(JSON.parse(raw)); } catch (_) { return resolve({}); }
+                }
+                return resolve(raw);
+            });
+        } catch (_) { resolve({}); }
+    });
+}
+
+/**
+ * Decide whether an archived body is worth surfacing over the current
+ * capture, given the user's sensitivity preference.
+ *
+ * 'richer' keeps the prior 1.3×/1000-char threshold.
+ * 'always' shows whenever the archive is non-trivially different —
+ *          skip byte-identical matches and skip when the archive is
+ *          strictly contained in the current body (the current is a
+ *          superset, so the archive can only lose information).
+ */
+function shouldOfferArchive(currentBody, archiveBody, mode) {
+    if (!archiveBody) return false;
+    if (mode === 'richer') {
+        return archiveBody.length > currentBody.length * 1.3 && archiveBody.length > 1000;
+    }
+    if (archiveBody === currentBody) return false;
+    if (currentBody && currentBody.includes(archiveBody)) return false;
+    return true;
+}
+
+function describeMetric(currentBody, archiveBody) {
+    const cur = currentBody.length;
+    const arc = archiveBody.length;
+    if (cur > 0 && arc >= cur * 1.3) {
+        return `Archive is ${(arc / Math.max(cur, 1)).toFixed(1)}× longer`;
+    }
+    if (arc > cur) return `Archive is ${arc - cur} chars longer`;
+    if (arc < cur) return `Archive is ${cur - arc} chars shorter`;
+    return 'Archive differs from current capture';
 }
 
 /**
@@ -526,6 +573,7 @@ function renderYouTubeHeader(article) {
     if (viewsLabel)     chips.push(`<span class="xr-video__chip">${escapeHtml(viewsLabel)}</span>`);
     if (y.category)     chips.push(`<span class="xr-video__chip">${escapeHtml(y.category)}</span>`);
     if (y.isLive)       chips.push(`<span class="xr-video__chip xr-video__chip--live">LIVE</span>`);
+    if (y.isShort)      chips.push(`<span class="xr-video__chip xr-video__chip--short" title="YouTube Short — transcripts rarely available">SHORT</span>`);
 
     // Captured-transcript manifest — one chip per language/kind that
     // actually has events. Honest about what's in the body: a
@@ -1355,6 +1403,7 @@ async function publish() {
     } catch (err) {
         console.error('[X-Ray Reader] publish failed:', err);
         toast('Publish failed: ' + (err.message || err), 'error', 7000);
+        notify('X-Ray: Publish failed', err.message || String(err), 'error');
     } finally {
         btn.textContent = originalLabel;
         btn.disabled = false;
@@ -1603,8 +1652,46 @@ function showPublishSummary({
         : 'success';
     toast(line, level, 9000);
 
+    // Fire a native OS notification too — the publish flow is long
+    // enough that the user often tabs away mid-publish, and the toast
+    // disappears with the reader. The native notification surfaces
+    // outside the browser tab so completion is visible even when
+    // the reader isn't focused.
+    const notifyTitle = level === 'error'
+        ? 'X-Ray: Publish failed'
+        : level === 'warning'
+            ? 'X-Ray: Publish partially succeeded'
+            : 'X-Ray: Publish complete';
+    notify(notifyTitle, line, level);
+
     return totalEvents - cmtFails - entFails - clmFails - relFails - linkFails
                        - (articleResults.successful === 0 ? 1 : 0);
+}
+
+/**
+ * Fire a native OS notification via chrome.notifications. The reader
+ * runs in an extension page so the API is available directly. Called
+ * from the publish-complete summary and from the publish-failure
+ * catch block. Best-effort: notification permission can be denied at
+ * the OS level, in which case the toast still fires and we move on.
+ */
+function notify(title, message, level) {
+    try {
+        if (!browserApi.notifications || !browserApi.notifications.create) return;
+        browserApi.notifications.create({
+            type:     'basic',
+            iconUrl:  browserApi.runtime.getURL('icons/icon-128.png'),
+            title,
+            message,
+            priority: level === 'error' ? 2 : 0
+        }, () => {
+            // Swallow chrome.runtime.lastError here — OS-level deny is
+            // not actionable from inside the extension.
+            void browserApi.runtime.lastError;
+        });
+    } catch (err) {
+        console.warn('[X-Ray Reader] notification failed:', err);
+    }
 }
 
 /**
@@ -1671,6 +1758,7 @@ async function init() {
         publish().catch((err) => {
             console.error('[X-Ray Reader] publish failed:', err);
             toast('Publish failed: ' + (err.message || err), 'error', 6000);
+            notify('X-Ray: Publish failed', err.message || String(err), 'error');
         });
     });
 
@@ -1678,21 +1766,23 @@ async function init() {
         window.close();
     });
 
-    // Open the entity browser in Chrome's side panel. chrome.sidePanel.open
-    // requires a user gesture + a windowId. We fall back to opening the
-    // sidepanel HTML in a regular tab for browsers that don't expose
-    // chrome.sidePanel (Firefox today, older Chrome) so the Entities
-    // button is always useful.
+    // Open the entity browser. Three openers, in preference order:
+    //   1. browser.sidebarAction.toggle()  — Firefox sidebar
+    //   2. chrome.sidePanel.open()         — Chrome / Edge / Brave
+    //   3. tabs.create()                   — last-resort tab
+    // Both panel APIs require a user gesture; the click qualifies.
     $('#xr-entities').addEventListener('click', async () => {
         try {
-            const win = await new Promise((resolve) => browserApi.windows.getCurrent(resolve));
-            if (browserApi.sidePanel && browserApi.sidePanel.open) {
+            if (browserApi.sidebarAction && browserApi.sidebarAction.toggle) {
+                await browserApi.sidebarAction.toggle();
+            } else if (browserApi.sidePanel && browserApi.sidePanel.open) {
+                const win = await new Promise((resolve) => browserApi.windows.getCurrent(resolve));
                 await browserApi.sidePanel.open({ windowId: win.id });
             } else {
                 browserApi.tabs.create({ url: browserApi.runtime.getURL('src/sidepanel/index.html') });
             }
         } catch (err) {
-            console.warn('[X-Ray Reader] sidePanel.open failed:', err);
+            console.warn('[X-Ray Reader] entity-browser open failed:', err);
             browserApi.tabs.create({ url: browserApi.runtime.getURL('src/sidepanel/index.html') });
         }
     });

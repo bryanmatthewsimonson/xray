@@ -43,6 +43,12 @@ body.xr-side {
   flex-direction: column;
 }
 
+/* The flex display on .xr-side__list-view and .xr-side__detail-view
+   below overrides the UA's implicit `display: none` for the [hidden]
+   attribute. Restore the expected behavior so the JS view-toggle
+   actually hides the inactive view instead of letting both render. */
+[hidden] { display: none !important; }
+
 /* ---------------- header ---------------- */
 
 .xr-side__chrome {
@@ -535,6 +541,13 @@ body.xr-side {
   border-top: 1px dashed var(--xr-border);
   font-size: 12px;
   line-height: 1.5;
+  /* Cap the open-details body height so a verbose pull log
+     (per-relay breakdown + relay-adoption banner) scrolls
+     internally instead of pushing the rest of the panel out of
+     view. The cap is generous enough that the identity card and
+     primary buttons stay above any scroll boundary. */
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
 }
 
 .xr-sync__lead {

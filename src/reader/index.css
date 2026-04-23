@@ -665,6 +665,14 @@ body {
   letter-spacing: 0.08em;
 }
 
+.xr-video__chip--short {
+  background: color-mix(in srgb, var(--xr-warning) 18%, transparent);
+  border-color: color-mix(in srgb, var(--xr-warning) 50%, transparent);
+  color: var(--xr-warning);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
 .xr-video__chip--transcript {
   background: color-mix(in srgb, var(--xr-accent) 12%, transparent);
   border-color: color-mix(in srgb, var(--xr-accent) 40%, transparent);

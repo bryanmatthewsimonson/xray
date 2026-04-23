@@ -1,0 +1,104 @@
+name: Release
+
+# Fires when a `v*` tag is pushed (e.g. `v0.3.0`). Builds the
+# extension, packages it via web-ext, and creates a GitHub Release
+# with the .zip artifact attached. Manual dispatch is also supported
+# for re-running on an existing tag if a previous run was botched.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)release, e.g. v0.3.0"
+        required: true
+
+permissions:
+  contents: write   # needed to create the GitHub Release
+
+jobs:
+  release:
+    name: build + package + release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # workflow_dispatch needs to check out the tag explicitly;
+          # tag-push is already at the right ref.
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify package.json + manifest.json versions agree
+        # Both files carry the version. They MUST match the tag, and
+        # match each other — otherwise the published .zip's manifest
+        # version will lie about which release it is.
+        run: |
+          set -e
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          tag_version="${tag#v}"
+          pkg_version=$(node -p "require('./package.json').version")
+          mf_version=$(node -p "require('./manifest.json').version")
+          echo "Tag:      $tag_version"
+          echo "package:  $pkg_version"
+          echo "manifest: $mf_version"
+          if [ "$tag_version" != "$pkg_version" ] || [ "$tag_version" != "$mf_version" ]; then
+            echo "Version mismatch. Run 'npm run version:set <version>' before tagging."
+            exit 1
+          fi
+
+      - name: Install web-ext
+        run: npm install --global web-ext@latest
+
+      - name: Build bundles
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
+      - name: web-ext lint
+        run: web-ext lint --source-dir . --self-hosted
+
+      - name: web-ext build
+        run: web-ext build --source-dir . --artifacts-dir web-ext-artifacts --overwrite-dest
+
+      - name: Extract changelog section for this version
+        # Pull the section between this version's heading and the next
+        # `## ` heading. Falls back to a blank body if the section
+        # isn't found, so the release still publishes.
+        id: changelog
+        run: |
+          set -e
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          version="${tag#v}"
+          notes=$(awk -v v="$version" '
+            $0 ~ "^## \\["v"\\]" { capture=1; next }
+            capture && /^## \[/ { exit }
+            capture { print }
+          ' CHANGELOG.md)
+          {
+            echo "notes<<XRAYRELEASEEOF"
+            echo "$notes"
+            echo "XRAYRELEASEEOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: ${{ github.event.inputs.tag || github.ref_name }}
+          body: ${{ steps.changelog.outputs.notes }}
+          files: web-ext-artifacts/*.zip
+          fail_on_unmatched_files: true

@@ -13,6 +13,7 @@
       <button class="xr-opt__tab" data-tab="signing">Signing</button>
       <button class="xr-opt__tab" data-tab="entities">Entities</button>
       <button class="xr-opt__tab" data-tab="keypairs">Keypair Registry</button>
+      <button class="xr-opt__tab" data-tab="migrate">Migrate</button>
       <button class="xr-opt__tab" data-tab="advanced">Advanced</button>
     </nav>
   </header>
@@ -100,6 +101,55 @@
       <pre class="xr-opt__pre" id="keypairs-preview" style="display:none"></pre>
     </section>
 
+    <!-- ====== MIGRATE ====== -->
+    <section class="xr-opt__section" data-section="migrate">
+      <h2>Migrate from userscript</h2>
+      <p class="xr-opt__hint">
+        Import data from the
+        <a href="https://github.com/bryanmatthewsimonson/nostr-article-capture" target="_blank" rel="noopener"><code>nostr-article-capture</code></a>
+        Tampermonkey userscript. Paste a JSON blob with any of these
+        top-level keys: <code>user_identity</code>,
+        <code>entity_registry</code>, <code>relay_config</code>,
+        <code>article_claims</code>, <code>evidence_links</code>.
+        Schema differences (privkey vs privateKey, 16- vs 64-char ids)
+        are normalized on the way in. Existing X-Ray records are
+        merged, not replaced.
+      </p>
+
+      <details class="xr-opt__hint" style="margin: 8px 0 12px">
+        <summary style="cursor: pointer">How to get the JSON</summary>
+        <ol style="margin: 8px 0 0 18px; padding: 0">
+          <li>Open the Tampermonkey dashboard.</li>
+          <li>Click the <code>nostr-article-capture</code> script's
+              <strong>Storage</strong> tab.</li>
+          <li>Copy each row's value (they're JSON-stringified) and
+              wrap them in one object:
+              <pre style="margin: 4px 0; padding: 6px; background: var(--xr-bg); border-radius: 4px; font-size: 11px; overflow: auto">{
+  "user_identity":   {...},
+  "entity_registry": {...},
+  "relay_config":    {...}
+}</pre>
+          </li>
+          <li>Paste the combined JSON below and click Migrate.</li>
+        </ol>
+      </details>
+
+      <div class="xr-opt__field">
+        <span class="xr-opt__label">JSON blob</span>
+        <textarea id="migrate-input" rows="12" spellcheck="false"
+                  placeholder='{"user_identity": {...}, "entity_registry": {...}, ...}'></textarea>
+      </div>
+
+      <div class="xr-opt__actions">
+        <button class="xr-opt__btn xr-opt__btn--primary" id="migrate-run">Migrate</button>
+        <button class="xr-opt__btn" id="migrate-file">Import from file…</button>
+        <input type="file" id="migrate-file-input" accept="application/json,.json" style="display:none" />
+        <span class="xr-opt__status" id="migrate-status"></span>
+      </div>
+
+      <pre class="xr-opt__pre" id="migrate-result" style="display:none; margin-top: 8px"></pre>
+    </section>
+
     <!-- ====== ADVANCED ====== -->
     <section class="xr-opt__section" data-section="advanced">
       <h2>Advanced</h2>
@@ -120,6 +170,21 @@
           <option value="skip">Skip</option>
         </select>
       </label>
+
+      <label class="xr-opt__field">
+        <span class="xr-opt__label">Archive banner</span>
+        <select id="pref-archive-sensitivity">
+          <option value="always">Always (show whenever an archive differs)</option>
+          <option value="richer">Only when richer (≥1.3× longer, ≥1000 chars)</option>
+          <option value="never">Never</option>
+        </select>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Controls whether the reader offers to load a previously cached
+        or relay-published copy of the page. "Always" surfaces any
+        non-identical archive; "Only when richer" preserves the older
+        paywall-shaped heuristic.
+      </p>
 
       <label class="xr-opt__field xr-opt__field--inline">
         <input type="checkbox" id="pref-debug" />

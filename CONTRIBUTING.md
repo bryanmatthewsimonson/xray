@@ -102,6 +102,76 @@ steps, which are the three things we always need. Low-friction bug
 reports beat carefully-written ones: "it broke on this URL" with a link
 is more useful than a detailed report that omits the URL.
 
+## Firefox version floor
+
+`manifest.json` pins `browser_specific_settings.gecko.strict_min_version`
+to **128.0**. Don't lower this without re-verifying — three
+independent APIs we depend on land in exactly that version:
+
+- `content_scripts[].world: "MAIN"` — the NIP-07 bridge relies on
+  running in the page's main world. Before FF 128 this had to be
+  done by dynamic injection, which we've removed.
+- `browser.scripting.executeScript({ world: "MAIN" })` — used by
+  the background service worker for a few page-context calls.
+- `declarativeNetRequest` `modifyHeaders` with `responseHeaders` —
+  `rules/csp-strip.json` strips `Content-Security-Policy` so the
+  YouTube transcript fetch can reach `/api/timedtext` without the
+  page CSP blocking it. Before FF 128, only `requestHeaders` were
+  writable.
+
+128 is also the current Firefox ESR baseline (ESR 128.x), so every
+ESR install can run X-Ray without sacrificing reach. Bumping past
+128 gains nothing for any API we currently use — don't move this
+floor forward just because a newer ESR exists; move it only when a
+new dependency requires it.
+
+## Cutting a release
+
+X-Ray uses git tags to drive releases. Pushing a tag matching `v*`
+triggers `.github/workflows/release.yml`, which builds, packages,
+and creates a GitHub Release with the `.zip` attached.
+
+Steps:
+
+1. **Bump versions in lockstep.** `package.json` and `manifest.json`
+   both carry the version and they MUST agree (CI rejects a mismatch).
+   The helper handles both:
+
+   ```sh
+   npm run version:set 0.3.0
+   ```
+
+2. **Update `CHANGELOG.md`.** Move items out of `[Unreleased]` into a
+   new `[0.3.0]` section with today's date. The release workflow
+   pulls this section verbatim into the GitHub Release body, so
+   write it for a release-notes audience.
+
+3. **Run the smoke test** ([`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md))
+   in Chrome and Firefox. File issues for anything that breaks; only
+   tag once the breakages are fixed or explicitly accepted as
+   release-blockers triaged out.
+
+4. **Commit, tag, push.**
+
+   ```sh
+   git add package.json manifest.json CHANGELOG.md
+   git commit -m "release: v0.3.0"
+   git tag v0.3.0
+   git push && git push --tags
+   ```
+
+5. CI runs `release.yml`. When green, the GitHub Release exists with
+   the `.zip` attached. From there:
+   - **Chrome Web Store**: upload the `.zip` via the developer dashboard.
+   - **Firefox AMO**: `web-ext sign --channel=listed` against the
+     same source tree, OR upload the same `.zip` to AMO and let
+     review run.
+
+If a release run fails partway, fix the underlying issue, delete the
+tag (`git tag -d v0.3.0 && git push --delete origin v0.3.0`), and
+re-tag — or use the workflow's manual dispatch with the existing
+tag if the source tree doesn't need to change.
+
 ## Pull requests
 
 - One concern per PR. Don't rename + refactor + add a feature in one go.
