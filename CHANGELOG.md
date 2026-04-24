@@ -10,6 +10,151 @@ Sections per release: **Added** (new features), **Changed**
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-04-24
+
+### Added
+
+- **Phase 8d — Facebook handler** (`src/shared/platforms/facebook.js`).
+  Third and final hard-tier platform; Phase 8 now complete.
+  Recognizes all eleven FB post URL shapes: `/<user>/posts/<id>`,
+  `/<user>/videos/<id>`, `/<user>/photos/<set>/<id>`, `/watch/?v=`,
+  `/reel/<id>`, `/permalink.php`, `/story.php`, `/share/p|v|r/<code>/`,
+  `/photo/?fbid=`, and `/groups/<g>/posts|permalink/<id>/`. Four
+  parallel extraction paths with explicit provenance:
+  - **GraphQL response interception** via the Phase 8a api-hook
+    buffer — scored recursive walk picks the focal story by
+    longest `message.text` + bonuses for `feedback`/`attachments`.
+    Recursive `findCreationTime` fishes the timestamp out of
+    `comet_sections.timestamp.story.creation_time` and similar
+    nestings; `owner` accepted alongside `actors[0]` for the author.
+  - **Open Graph + Twitter Card meta tags** — parser handles the
+    `"<Author>: \"<body>\""` and `"<Author> wrote on Facebook: <body>"`
+    shapes plus optional leading engagement-count prefixes.
+  - **DOM scrape** scoped to `[role="dialog"]` (post-detail modal)
+    / `[role="article"][aria-posinset]` (feed unit) via
+    `pickFocalScope` — every scraper (author, body, verified flag,
+    post date, images) bounded so sibling posts visible behind the
+    modal never leak into the capture.
+  - **HTML snapshot + screenshot** — always-on evidence layer.
+  Post date extracted from absolute aria-label dates
+  (`"Monday, April 21, 2026 at 9:30 PM"`), `<time datetime>`,
+  or short-text relative-time tokens ("12h", "3d", "45m"). Event
+  builder emits `post_id`, `post_kind`, `author_handle`, and
+  `platform_account: facebook:<handle>` tags. Reader renders a
+  Facebook-specific header with author block, engagement chips, an
+  `extractedFrom` provenance chip, and inline screenshot evidence.
+  Image gallery scraped from the modal-scoped `<img>` tags
+  (fbcdn.net host filter, 200px size floor, signing-token-preserving
+  dedup) and embedded in the markdown body. 35 new tests (URL
+  grammar × 11 shapes, og:description variants, GraphQL walker
+  across nested envelopes, image extractor with srcset/data-src/
+  avatar-filter coverage, relative-time + absolute-date parsers,
+  `findCreationTime` against nested-story shapes).
+- **Capture quality hints + user documentation**.
+  - `docs/CAPTURE_GUIDE.md` — user-facing walkthrough covering the
+    correct way to capture from Instagram, Facebook, TikTok, plus
+    brief mentions of the easy-tier platforms. Includes a
+    symptom → cause → fix table for common bad-capture cases.
+  - In-reader hint banner — amber dashed-border `<details>` above
+    the article metadata when `extractedFrom === 'none'`, body text
+    is short, media extraction missed on a photo post, or the
+    author handle is empty. Platform-specific retry instructions,
+    linked back to the capture guide.
+  - Platform-aware FAB tooltip — hovering the FAB on Instagram,
+    Facebook, or TikTok shows a one-line reminder of the right
+    URL shape to capture from, before the user clicks.
+  - Popup adds a "Capture tips (Instagram, Facebook, …)" button
+    that opens the guide on GitHub.
+- **Instagram post-item inline `user` fallback** — when og-description,
+  URL path, and description-pattern author extraction all come up
+  empty (post-detail pages loaded via `/p/<shortcode>/` without a
+  username prefix), `extractMediaFromGraphQL` now also surfaces the
+  post item's embedded `user` object. Used as the fourth
+  handle-resolution fallback; also feeds `profile` enrichment when
+  no dedicated `data.user` response was in the buffer.
+
+### Fixed
+
+- **Instagram captures were rejected by relays** with
+  `"invalid: tag val was not a string"` because `user.pk` from the
+  REST `/api/v1/media/…/info/` response is a number. Fixed at two
+  layers: `normalizeUserShape` now stringifies at the normalization
+  boundary, and the event-builder `author_id` emission is
+  defensively `String()`-wrapped. Regression test asserts every
+  tag value in a built article event is `typeof 'string'`.
+- **Facebook captures produced `"null (@handle)"` bylines** when the
+  author name came from a path other than og-meta/GraphQL.
+  Defensive guard: `author ? "author (@handle)" : "@handle"`.
+- **Facebook capture misattribution chips** — the author/extraction
+  source was re-inferred at the end instead of being tracked at
+  assignment, defaulting to `og-meta` even when og-meta contributed
+  nothing. Now recorded as the extraction runs.
+- **Facebook picked the wrong story** from multi-story GraphQL
+  responses (first-quack walker grabbed a sibling or comment node).
+  Replaced with a candidate-scoring pass: longest `message.text`
+  wins, with bonuses for `feedback` metadata and `attachments`.
+- **Facebook image scraper pulled feed posts from behind the modal**.
+  Scoped to the focal post via `pickFocalScope` (dialog → aria-posinset
+  article → article → document).
+- **Facebook DOM body scraper swallowed an adjacent profile-feed
+  post** when the focal post's GraphQL story had no `message.text`
+  and the scraper walked the whole document for longest
+  `<div dir="auto">`. Same `pickFocalScope` scoping applied.
+- **Facebook screenshot captured a 680×80 sliver** because
+  `pickScreenshotTarget` walked up from a thumbnail-strip image
+  that passed the 200px floor. Floor raised to 400px; falls back
+  to the whole post container when no large media qualifies.
+- **Facebook title with embedded newlines** split into two link-lines
+  in the reader because the 80-char truncation landed mid-paragraph.
+  `truncate` now collapses whitespace and cuts at word boundaries.
+
+- **Phase 8c — Instagram handler** (`src/shared/platforms/instagram.js`).
+  Recognizes `instagram.com/p/<id>/`, `/reel/<id>/`, `/tv/<id>/`,
+  and the `/<user>/p/<id>/` and `/<user>/reel/<id>/` variants.
+  Capture path: Open Graph + Twitter Card meta tags as the
+  load-bearing data source (server-rendered, stable contract),
+  defensive DOM scrape for fields meta doesn't cover (post date
+  via `<time datetime>`, verified-account flag via `aria-label`),
+  and the Phase 8a evidence layer (HTML snapshot + screenshot).
+  Reader gets an Instagram header with author handle (verified ✓
+  when applicable), engagement counts, post-kind chip
+  (`post`/`reel`/`igtv`), and an `extractedFrom` provenance chip.
+- **Phase 8b — TikTok handler** (`src/shared/platforms/tiktok.js`).
+  First hard-tier platform shipped. Recognizes
+  `tiktok.com/@<user>/video/<id>` URLs. Three-layer capture model
+  in production: structured extraction from
+  `__UNIVERSAL_DATA_FOR_REHYDRATION__` / `SIGI_STATE` /
+  `__NEXT_DATA__` (defensive across all three SSR shapes) +
+  bounded HTML snapshot of the video container + element-cropped
+  screenshot. Reader gets a video-shaped header with author chip
+  (verified ✓ when applicable), play/like/comment/share counts,
+  music attribution, an `sourceShape` provenance chip, and an
+  inline collapsible "📸 Screenshot evidence" panel.
+- **Phase 8a — Anti-obfuscation infrastructure** for upcoming
+  hard-tier platform handlers (FB/IG/TikTok). Three standalone
+  modules, all tested, none wired to a platform yet:
+  - `src/shared/html-snapshot.js` — bounded sanitized `outerHTML`
+    extractor (strips `<script>`, `on*` handlers, data: URLs,
+    iframes; truncates to a byte cap with a marker; SHA-256 helper).
+  - `src/shared/screenshot.js` + background-side handler — element-
+    cropped screenshots via `chrome.tabs.captureVisibleTab` + an
+    OffscreenCanvas crop. Pure crop-math helper covered by unit
+    tests across DPR 1/1.5/2 + viewport-clamp edges.
+  - `src/page/api-interceptor.js` — MAIN-world `fetch` + XHR hook
+    that captures responses to URL/header-pattern matches and posts
+    them back to the content script. Bundled to
+    `dist/api-interceptor.bundle.js` for on-demand injection via
+    `chrome.scripting.executeScript`. Pattern matcher extracted to
+    `src/shared/api-pattern.js` for unit-testability.
+- **Article-shape evidence layer** — new optional `article.evidence`
+  field carries `{ screenshot, screenshotHash, screenshotUrl,
+  htmlSnapshot, htmlSnapshotHash }`. Event builder surfaces the
+  hashes/URL as event tags (`screenshot_sha256`, `screenshot_url`,
+  `html_snapshot_sha256`); archive-reader inverse rehydrates them.
+  Bodies stay in event content; tags carry verifiable refs.
+- 30 new tests (`html-snapshot`, `screenshot` crop math,
+  `api-pattern`) bringing total to 126 (up from 96).
+
 ## [0.3.0] — 2026-04-23
 
 ### Added

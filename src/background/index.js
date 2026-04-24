@@ -23,6 +23,7 @@ import { Utils } from '../shared/utils.js';
 import { NostrClient } from '../shared/nostr-client.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
+import { handleScreenshotCapture } from '../shared/screenshot.js';
 
 // Pull the debug preference on SW startup. MV3 service workers sleep
 // and wake, so this runs each time the SW reloads. A chrome.storage
@@ -369,6 +370,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // configured relay pool for kind-30023 events tagged with that
     // URL, pick the most recent, reconstruct the article, and hand
     // it back. Phase 7 C4+C5 (issue #18).
+    // Element-cropped screenshot capture. Content script measures
+    // the rect; SW does the captureVisibleTab + crop because the
+    // tabs API isn't available in content scripts. Phase 8a.
+    if (message.type === 'xray:screenshot:capture') {
+        handleScreenshotCapture(message, sender)
+            .then((res) => sendResponse(res))
+            .catch((err) => sendResponse({ ok: false, error: err && err.message }));
+        return true;
+    }
+
     if (message.type === 'xray:archive:reconstruct') {
         const url = message.url;
         if (!url) { sendResponse({ ok: false, error: 'missing url' }); return false; }

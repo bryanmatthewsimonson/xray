@@ -54,7 +54,19 @@ export const UI = {
     const fab = document.createElement('button');
     fab.className = 'nac-fab nac-reset';
     fab.innerHTML = UI.icons.book;
-    fab.title = 'X-Ray — Capture in reader';
+    // Hard-tier platforms (FB/IG/TikTok) need a bit of user cooperation
+    // to get a good capture. Surface a reminder right in the FAB
+    // tooltip so users hover and see the hint before clicking.
+    const host = window.location.hostname;
+    if (/(?:^|\.)(?:facebook|fb)\.com$/i.test(host)) {
+        fab.title = 'X-Ray — Capture this Facebook post.\n\nTip: open the specific post (not the feed), scroll so images load, then click.';
+    } else if (/(?:^|\.)instagram\.com$/i.test(host)) {
+        fab.title = 'X-Ray — Capture this Instagram post.\n\nTip: open a post/reel URL (not the profile grid). For carousels, swipe all slides first.';
+    } else if (/(?:^|\.)tiktok\.com$/i.test(host)) {
+        fab.title = 'X-Ray — Capture this TikTok video.\n\nTip: use the `/@user/video/<id>` URL, not a shortlink.';
+    } else {
+        fab.title = 'X-Ray — Capture in reader';
+    }
     fab.addEventListener('click', () => UI.openReader());
     document.body.appendChild(fab);
     UI.elements.fab = fab;
@@ -76,8 +88,11 @@ export const UI = {
       const fab = UI.elements.fab;
       if (!fab) return;
       fab.classList.toggle('nac-fab--archived', hit);
-      if (hit) fab.title = 'X-Ray — Capture in reader (📦 archive available)';
-      else     fab.title = 'X-Ray — Capture in reader';
+      // Preserve the platform-aware tooltip set in createFAB — the
+      // hard-tier capture tips are more useful than a generic label.
+      // Prepend the archive badge instead of overwriting.
+      const base = fab.title.replace(/^📦 Archive available\s+—\s+/, '');
+      fab.title = hit ? `📦 Archive available — ${base}` : base;
     } catch (err) {
       // IDB might not be ready on a fresh install; that's fine — no badge.
       Utils.log('archive badge check skipped:', err && err.message);

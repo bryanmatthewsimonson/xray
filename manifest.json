@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "X-Ray — NOSTR URL Metadata & Article Capture",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Capture articles as Markdown and publish to NOSTR — Chrome/Firefox MV3 extension.",
   "author": "Decentralized News Network",
   "icons": {
@@ -76,6 +76,19 @@
       ],
       "css": [
         "src/content/content.css"
+      ]
+    },
+    {
+      "matches": [
+        "*://*.instagram.com/*",
+        "*://*.facebook.com/*",
+        "*://*.fb.com/*"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false,
+      "js": [
+        "dist/api-interceptor.bundle.js"
       ]
     }
   ],

@@ -99,6 +99,20 @@ function wireButtons() {
         }
         window.close();
     });
+    document.getElementById('btn-capture-tips').addEventListener('click', () => {
+        // Link to the capture guide on GitHub so users discover the
+        // platform-specific instructions (Instagram: open a post URL;
+        // Facebook: scroll to render images; etc.). In-reader hints
+        // already catch the common bad-capture cases; this is the
+        // "I want to learn how this works" entry point.
+        const url = 'https://github.com/bryanmatthewsimonson/xray/blob/main/docs/CAPTURE_GUIDE.md';
+        if (browserApi.tabs && browserApi.tabs.create) {
+            browserApi.tabs.create({ url });
+        } else {
+            window.open(url, '_blank', 'noopener');
+        }
+        window.close();
+    });
 }
 
 document.addEventListener('DOMContentLoaded', () => {

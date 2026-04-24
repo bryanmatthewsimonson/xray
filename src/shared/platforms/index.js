@@ -22,11 +22,16 @@
 //   substack   ✓ Phase 3a (#14)   — enrich-only
 //   youtube    ✓ Phase 3b (#14)   — synthesize-only
 //   twitter    ✓ Phase 3c (#14)   — synthesize-only
-//   facebook/instagram/tiktok ☐ Phase 8
+//   tiktok     ✓ Phase 8b (#19)   — synthesize-only, screenshot-evidence
+//   instagram  ✓ Phase 8c (#19)   — synthesize-only, og-meta + screenshot
+//   facebook   ✓ Phase 8d (#19)   — synthesize-only, graphql + og-meta + screenshot
 
-import * as substack from './substack.js';
-import * as youtube  from './youtube.js';
-import * as twitter  from './twitter.js';
+import * as substack  from './substack.js';
+import * as youtube   from './youtube.js';
+import * as twitter   from './twitter.js';
+import * as tiktok    from './tiktok.js';
+import * as instagram from './instagram.js';
+import * as facebook  from './facebook.js';
 import { extractGenericComments } from './comment-extractor.js';
 
 /** @typedef {{ synthesize?: () => Promise<object|null>, enrich?: (article: object) => Promise<object|null> | object|null }} PlatformHandler */
@@ -41,6 +46,15 @@ const HANDLERS = {
     },
     twitter: {
         synthesize: () => twitter.synthesizeArticle()
+    },
+    tiktok: {
+        synthesize: () => tiktok.synthesizeArticle()
+    },
+    instagram: {
+        synthesize: () => instagram.synthesizeArticle()
+    },
+    facebook: {
+        synthesize: () => facebook.synthesizeArticle()
     }
 };
 

@@ -223,11 +223,58 @@ export const EventBuilder = {
       if (article.tweetMeta.threadLength > 1) tags.push(['thread_length', String(article.tweetMeta.threadLength)]);
     }
 
+    // Instagram-specific tags (Phase 8c). The author tags below
+    // give downstream consumers structured pointers to the
+    // post's author account — `platform_account` is a generic
+    // way to express "this came from `instagram:reasonmagazine`,"
+    // useful for entity-system tooling and cross-post grouping.
+    if (article.instagram) {
+      const ig = article.instagram;
+      if (ig.shortcode)    tags.push(['shortcode',          ig.shortcode]);
+      if (ig.postKind)     tags.push(['post_kind',          ig.postKind]);
+      if (ig.author && ig.author.handle) {
+        tags.push(['author_handle',   '@' + ig.author.handle]);
+        tags.push(['platform_account', `instagram:${ig.author.handle}`]);
+      }
+      // NOSTR requires all tag values to be strings. Instagram's REST
+      // `user.pk` comes through as a number (e.g. `507869549`), so
+      // coerce defensively — a number here crashes the relay with
+      // "invalid: tag val was not a string" and loses the whole event.
+      if (ig.author && ig.author.pk) tags.push(['author_id', String(ig.author.pk)]);
+      if (ig.author && ig.author.verified) tags.push(['author_verified', 'true']);
+      if (ig.author && ig.author.followerCount) tags.push(['author_followers', String(ig.author.followerCount)]);
+    }
+
+    // Facebook-specific tags (Phase 8d). Mirror Instagram's tagging
+    // so cross-post grouping via `platform_account` works uniformly.
+    if (article.facebook) {
+      const fb = article.facebook;
+      if (fb.postId)   tags.push(['post_id',   fb.postId]);
+      if (fb.postKind) tags.push(['post_kind', fb.postKind]);
+      if (fb.author && fb.author.handle) {
+        tags.push(['author_handle',   '@' + fb.author.handle]);
+        tags.push(['platform_account', `facebook:${fb.author.handle}`]);
+      }
+      if (fb.author && fb.author.verified) tags.push(['author_verified', 'true']);
+    }
+
     // Add engagement metrics tags (Phase 4)
     if (article.engagement) {
       if (article.engagement.likes) tags.push(['engagement_likes', String(article.engagement.likes)]);
       if (article.engagement.shares) tags.push(['engagement_shares', String(article.engagement.shares)]);
       if (article.engagement.comments) tags.push(['engagement_comments', String(article.engagement.comments)]);
+    }
+
+    // Phase 8a evidence layer — when a hard-tier capture (FB/IG/TikTok)
+    // produced a screenshot or HTML snapshot, surface their hashes
+    // as event tags so downstream consumers can verify the evidence
+    // wasn't substituted post-hoc. The actual blobs go in
+    // article.evidence and the publish flow decides how to embed
+    // them (inline base64, hosted URL, or omit).
+    if (article.evidence) {
+      if (article.evidence.screenshotHash)    tags.push(['screenshot_sha256', article.evidence.screenshotHash]);
+      if (article.evidence.screenshotUrl)     tags.push(['screenshot_url',    article.evidence.screenshotUrl]);
+      if (article.evidence.htmlSnapshotHash)  tags.push(['html_snapshot_sha256', article.evidence.htmlSnapshotHash]);
     }
 
     // Add topic tags
@@ -619,6 +666,18 @@ export const EventBuilder = {
     // Tweet-specific
     if (tags['tweet_id']) {
       article.tweetMeta = { tweetId: tags['tweet_id'], authorHandle: (tags['author_handle'] || '').replace('@', ''), isThread: tags['thread'] === 'true', threadLength: parseInt(tags['thread_length']) || 1 };
+    }
+
+    // Phase 8a evidence layer — read back hashes/URLs that confirm
+    // a published event carried screenshot or HTML-snapshot
+    // evidence. Body bytes (if inline) live elsewhere in the
+    // event content; this just rehydrates the verifiable refs.
+    if (tags['screenshot_sha256'] || tags['screenshot_url'] || tags['html_snapshot_sha256']) {
+      article.evidence = {
+        screenshotHash:    tags['screenshot_sha256']    || null,
+        screenshotUrl:     tags['screenshot_url']       || null,
+        htmlSnapshotHash:  tags['html_snapshot_sha256'] || null
+      };
     }
 
     return article;

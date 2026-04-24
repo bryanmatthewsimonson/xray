@@ -11,6 +11,7 @@ import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
 import { NIP07Client } from './nip07-client.js';
 import { UI } from './ui.js';
+import { installBufferListener, configureInterceptor } from '../shared/api-hook-buffer.js';
 
 async function init() {
     // Initialize storage (migrates from any legacy GM storage if present).
@@ -23,6 +24,40 @@ async function init() {
     } catch (_) { /* preferences may not exist on first run */ }
 
     Utils.log('Starting X-Ray content script v' + CONFIG.version);
+
+    // Phase 8c/8d — Wire the MAIN-world api-interceptor on platforms
+    // where structured extraction needs API responses we missed.
+    // The interceptor itself is loaded by a manifest content_script
+    // at document_start (so it's in place before page JS fires);
+    // here we install our buffer listener and configure which
+    // request patterns to capture.
+    const host = window.location.hostname;
+    if (/(?:^|\.)instagram\.com$/i.test(host)) {
+        installBufferListener();
+        configureInterceptor([
+            // Instagram has three GraphQL-flavored endpoints, all
+            // routed at slightly different paths. Match any URL
+            // containing `graphql` to cover all three:
+            //   /api/graphql           — the main post-detail query
+            //                             (fb_dtsg-signed POST)
+            //   /graphql/query         — some other operations
+            //                             (signup/etc; lightweight)
+            //   /api/v1/media/<id>/... — older REST-ish path; carries
+            //                             the same carousel_media shape
+            { urlIncludes: 'graphql' },
+            { urlIncludes: '/api/v1/media/' }
+        ]);
+    } else if (/(?:^|\.)(?:facebook|fb)\.com$/i.test(host)) {
+        // Facebook routes all structured post data through a single
+        // `/api/graphql/` POST endpoint (plus a few variants:
+        // `/graphql/`, `/ajax/...`). Capture any URL containing
+        // `graphql` — most responses we care about are posted
+        // during initial page load before the user clicks the FAB.
+        installBufferListener();
+        configureInterceptor([
+            { urlIncludes: 'graphql' }
+        ]);
+    }
 
     // Initialize local key manager.
     await LocalKeyManager.init();

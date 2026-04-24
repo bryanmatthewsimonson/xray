@@ -19,6 +19,968 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-04-24 — Facebook capture: full shake-down + scope-based DOM discipline
+
+**Tags:** bug, design, pattern
+
+**Context:** End-to-end real-world testing against a personal-profile
+FB post (Jessica McManus's acne-journey post at
+`/jessica.clydesdale/posts/pfbid...`) exercised every extraction
+path under adversarial conditions — private-profile with empty
+og-meta, multi-story GraphQL response containing sibling posts
+and comments, post-detail modal rendered on top of a profile feed.
+Each capture turned up a new failure mode; each fix tightened a
+pattern rule that now applies across all DOM-based platforms.
+
+**Five failures surfaced and fixed this session:**
+
+1. **Wrong story from first-match walker.** The GraphQL response for
+   a post-detail view includes the focal post plus sibling stories
+   (comments, nearby feed units, "suggested posts"). `findStoryRecursively`
+   took the first quacking node — which was "Lindsey Baker" (a
+   commenter) instead of "Jessica McManus" (the author). Replaced
+   with `collectStoriesRecursively` + `pickBestStory` scoring by
+   `message.text` length + `feedback`/`attachments` bonuses.
+   *Rule learned:* first-match walkers are wrong when a response
+   may contain multiple candidates; prefer candidate collection +
+   scoring.
+
+2. **Empty images on photo posts.** `evidenceTarget.querySelectorAll('img')`
+   returned zero hits because FB splits the focal post across
+   DOM siblings: `[role="article"]` holds the header + text, the
+   image gallery is a sibling inside the enclosing dialog. Broadened
+   to the whole document — which then pulled in ~5 images including
+   a profile banner, a family photo from the feed behind the modal,
+   and an adjacent post. Fixed with `pickImageScope` (renamed
+   `pickFocalScope`) scoped to `[role="dialog"]` when present.
+   *Rule learned:* DOM scope matters as much as selector specificity;
+   on modal overlays, the feed behind is always a DOM sibling.
+
+3. **Body text swallowed an adjacent profile-feed post.** Even after
+   the image scope was fixed, the body text came through as "Nova
+   Colette, It has almost been 2 months..." — a *different* post by
+   Jessica visible in her profile feed under the modal. Broadened
+   body scraper (whole-document longest `<div dir="auto">`) hit the
+   same trap. Extended `pickFocalScope` to govern every DOM scraper
+   (body, author, verified flag, post date, images) — one scope,
+   all scrapers.
+   *Rule learned:* every DOM scraper on a multi-container platform
+   needs the same scope; scoping one and leaving another unbounded
+   silently regresses.
+
+4. **Screenshot captured an 80-pixel sliver.** `pickScreenshotTarget`
+   walked up from any image ≥200×200 — which on FB included the
+   thumbnail strip at the top of the post wrapper. Raised the floor
+   to 400×400 so the algorithm prefers the actual post media and
+   falls back to the full post container when no media qualifies.
+   *Rule learned:* largest-media heuristics need a "nothing big
+   enough" fallback that returns the parent rather than a degenerate
+   sibling.
+
+5. **Missing publish date.** `scrapePostDate` checked only
+   `<abbr data-utime>` (legacy, gone from current FB) and
+   `story.creation_time` top-level (also gone — now nested under
+   `comet_sections.timestamp.story.creation_time`). Three new paths:
+   recursive `findCreationTime` walk of the GraphQL story subtree,
+   `aria-label` parse on permalink anchors, and a word-boundary
+   relative-time parser for "12h" / "3d" text tokens. The recursive
+   GraphQL walk skips `feedback` / `comments` subtrees so a
+   comment's `creation_time` can't mask the post's.
+   *Rule learned:* FB nests the same field at three different paths
+   depending on UI version; recursive bounded walks are cheaper to
+   maintain than path-case matrices.
+
+**Two user-visible polish items landed together:**
+
+- **`null (@handle)` byline** — `author + (handle ? ...)` string-
+  concats `null` as the literal string `"null"`. Defensive guard
+  on any nullable-left concatenation.
+- **Multi-line title from truncation** — the 80-char truncate ran
+  against body text that included `\n\n` paragraph breaks, so the
+  title rendered as multiple markdown link-lines. `truncate` now
+  `.replace(/\s+/g, ' ')` before measuring and cuts at the last
+  word boundary.
+
+**Documentation shipped alongside the fixes:**
+
+- `docs/CAPTURE_GUIDE.md` — user-facing walkthrough for Instagram,
+  Facebook, TikTok. Each platform gets a "do this" / "don't do
+  this" / "what you'll see" / "known limitations" block, plus a
+  symptom → fix table.
+- In-reader hint banner when capture quality is thin (missing
+  body, no images, `extractedFrom === 'none'`). Platform-specific
+  retry instructions linked to the guide.
+- Platform-aware FAB tooltip on FB/IG/TikTok hosts so hovering
+  the capture button surfaces the "open the specific post" tip
+  before the user clicks.
+- Popup "Capture tips" button → GitHub-hosted guide.
+
+**Cross-platform pattern update.** The `pickFocalScope` discipline
+(one scope, all scrapers) is now the established approach for any
+platform where the target content can share a DOM with sibling
+content (modals, feeds, infinite-scroll pages). Instagram's
+`pickEvidenceElement` already scoped to `article[role="presentation"]`
+after the "More posts grid" bug (2026-04-23); this session made
+the pattern explicit and named. Any future hard-tier platform
+should follow: pick the focal scope first, pass it to every
+extractor, never query `document` directly from a scraper.
+
+**Test count:** 176 → 223 (+47 across IG pk regression + FB URL
+grammar + og-description + GraphQL walker + image extractor +
+date parsers + creation_time walker). All green.
+
+**Publish timing:** `parseRelativeTime` against `Date.now()` is
+approximate to the string's granularity — "12h" lands within the
+hour. Acceptable for a best-effort signal; `findCreationTime` on
+a future response that exposes the exact `creation_time` will
+take precedence when the walker finds it.
+
+Files: [src/shared/platforms/facebook.js](../src/shared/platforms/facebook.js),
+[src/shared/platforms/instagram.js](../src/shared/platforms/instagram.js),
+[src/shared/event-builder.js](../src/shared/event-builder.js),
+[src/reader/index.js](../src/reader/index.js),
+[src/reader/index.css](../src/reader/index.css),
+[src/popup/popup.html](../src/popup/popup.html),
+[src/popup/index.js](../src/popup/index.js),
+[src/content/ui.js](../src/content/ui.js),
+[docs/CAPTURE_GUIDE.md](CAPTURE_GUIDE.md).
+
+---
+
+## 2026-04-24 — Facebook: first-capture iteration
+
+**Tags:** bug, design, pattern
+
+**Context:** First real capture against a personal-profile FB post
+(`/jessica.clydesdale/posts/pfbid...`) surfaced four problems that
+matched the YouTube DOM arms-race pattern exactly — each extraction
+path had a silent-failure mode that handed the next layer garbage.
+Fixing them is less about Facebook specifics and more about making
+the pattern's "fail visibly, track provenance" rules load-bearing.
+
+**What broke:**
+
+1. **`null (@jessica.clydesdale)` byline.** `synthesizeArticle`
+   built the byline as `author + (handle ? ...)`. With `author = null`,
+   JS string-concatenated the literal `"null"`. Visible garbage on
+   every personal-profile capture where no author layer produced a
+   name.
+2. **Wrong provenance chips.** The chip logic inferred the source
+   by re-checking (`apiUser ? 'graphql' : (domAuthor.name ? 'dom-scrape' : 'og-meta')`),
+   which defaulted to `'og-meta'` even when og-meta contributed
+   nothing and the handle came from URL regex alone. The reader's
+   provenance chip — the whole point of the three-layer model —
+   was lying about where fields came from.
+3. **Empty post body despite visible text on screen.** The OG
+   description was empty (personal profile), the GraphQL walker
+   matched a sibling node without `message.text`, and the DOM
+   scraper was scoped to the first `[role="article"]` — which on
+   post-detail pages is often NOT the focal post (FB renders
+   multiple article regions: focal post, comments, sidebar
+   suggestions, each its own article role).
+4. **Wrong story identified.** The post was "Jessica McManus's
+   Post" but the GraphQL walker returned `actors[0].name =
+   "Lindsey Baker"`. `findStoryRecursively` matched the first
+   node that quacked like a story — which was a nested
+   comment/feed-unit story, not the focal post. The screenshot
+   captured a `680×80` sliver because the wrong-story container
+   didn't have the focal post's images.
+
+**Fixes — all pattern-aligned:**
+
+- **Never string-concat nullable fields.** [facebook.js:691](../src/shared/platforms/facebook.js:691)
+  defensive byline: `author ? author + (handle ? ...) : (handle ? '@handle' : '')`.
+- **Track winning source at assignment time.** [facebook.js:619](../src/shared/platforms/facebook.js:619)
+  records `authorSource` + `extractedFrom` as the extraction runs,
+  not by re-inferring at the end. Chip vocabulary expands to include
+  `url`, `dom-scrape`, `og-title`, `og-meta`, `graphql`. The chip
+  now matches reality; when the next platform change breaks a layer,
+  the chip makes it obvious.
+- **Broaden the DOM body scraper.** [facebook.js:327](../src/shared/platforms/facebook.js:327)
+  searches the whole document for the longest `<div dir="auto">`,
+  skipping `aria-hidden` subtrees. Removes the "first article region
+  wins" bug. Post-detail pages reliably have exactly one
+  many-hundred-char text node, so longest-wins is a decent proxy.
+- **Score GraphQL story candidates.** [facebook.js:341](../src/shared/platforms/facebook.js:341)
+  replaces `findStoryRecursively` (first-match) with
+  `collectStoriesRecursively` + `pickBestStory`. Score: length of
+  `message.text` + bonuses for `feedback` (real post metadata) and
+  `attachments` (actual media). The focal post reliably has the
+  longest body text of any story-shaped node in the response.
+- **Raise the screenshot floor.** [facebook.js:540](../src/shared/platforms/facebook.js:540)
+  required media width/height 200→400px. When nothing qualifies,
+  screenshot the whole evidence container instead of walking up
+  from a thumbnail strip. A tall faithful screenshot beats a
+  sliver of nothing.
+- **Relaxed `looksLikeStory`.** [facebook.js:392](../src/shared/platforms/facebook.js:392)
+  now accepts `feedback + message.text` without requiring `actors`
+  — catches feed-wrapper shapes where actors are hoisted into a
+  sibling envelope.
+
+**Tie to the YouTube arms-race playbook:**
+
+1. ✅ *Multiple strategies with priority ordering* — graphql →
+   og-meta → dom-scrape → fallback. Each strategy can fail
+   independently.
+2. ✅ *Loud diagnostics at each stage boundary* —
+   `[X-Ray Facebook] buffer scan: walking N events` /
+   `buffer event matched: /api/graphql/ — actor: <name>` /
+   `capture diagnostic: {...}`. A user pasting their console
+   output now narrates exactly which path ran and where it landed.
+3. ✅ *Defensive selectors* — ARIA roles, `data-ad-comet-preview`,
+   `<div dir="auto">`. No class-name selectors anywhere in the
+   handler. FB's class names randomize per deploy; ARIA and
+   data-attrs change on a quarters-to-years cadence.
+4. ✅ *Fail gracefully + visibly* — provenance chips surface the
+   degradation. If the next capture shows `extractedFrom: none`,
+   the user sees it instantly; they don't have to diff two JSON
+   objects to notice something regressed.
+
+**Known unfixed case.** If a sibling story in the GraphQL response
+happens to have a longer `message.text` than the focal post's
+(e.g. a long ad comment where the focal post has a short caption),
+`pickBestStory` still picks wrong. The real fix needs post-id
+matching against the URL's `pfbid*`, but pfbid IDs don't appear
+literally in GraphQL payloads — FB uses different internal id
+formats (`feedback.id`, `post_id`, `story.id`, each encrypted
+differently). Flagged for future work once we have captured
+payloads to pin the id-mapping.
+
+**So-what:** Every hard-tier platform will hit some variant of
+these four failure modes — null-concat, mis-inferred provenance,
+first-match walker, misaligned screenshot. The pattern-level fixes
+(track provenance at assignment; search broadly not narrowly;
+score don't first-match; graceful fallback) generalize to
+Instagram/TikTok if they regress, and to the next hard-tier
+platform we tackle.
+
+Files: [src/shared/platforms/facebook.js](../src/shared/platforms/facebook.js).
+
+---
+
+## 2026-04-24 — Instagram: numeric pk blocks relay publish
+
+**Tags:** bug
+
+**Context:** Every Instagram capture published a signed event
+successfully but all three relays rejected it with
+`"invalid: tag val was not a string"`. Relay logs:
+
+```
+Received message from relay: ["OK","<event-id>",false,"invalid: tag val was not a string"]
+```
+
+**Root cause:** Instagram's REST `/api/v1/media/.../info/` response
+gives `user.pk` as a number (e.g. `507869549`), not a string. The
+yesterday's `normalizeUserShape` passed it through as-is. EventBuilder
+pushed it into a tag:
+
+```js
+if (ig.author && ig.author.pk) tags.push(['author_id', ig.author.pk]);
+```
+
+NIP-01 requires all tag values to be strings. The signed event
+serializes fine (numbers JSON-stringify), but relays enforce the
+type at ingestion. Failure mode was 100% — every relay, every
+attempt.
+
+**Fix at two layers** so this can't regress:
+
+1. **[instagram.js:509](../src/shared/platforms/instagram.js:509)**
+   — `normalizeUserShape` coerces pk to string at the normalization
+   boundary via `rawPk != null ? String(rawPk) : null`. Downstream
+   callers never see a non-string.
+2. **[event-builder.js:243](../src/shared/event-builder.js:243)**
+   — defensive `String()` wrap on the `author_id` tag emission as a
+   backstop, in case a future codepath hands us a raw user object.
+
+**Regression test** in [tests/event-builder.test.mjs](../tests/event-builder.test.mjs)
+builds an article event with a numeric `pk` and asserts
+`typeof v === 'string'` for every value in every tag — catches
+this class broadly, not just pk.
+
+**Pattern takeaway:** JSON fields that feed event tags need either
+explicit string coercion at the normalization boundary, or a type
+audit at the emission site. Pk/id-style fields are the highest
+risk because JSON gives them as numbers while every other id-ish
+thing in the codebase (shortcodes, handles, URLs) is already a
+string — the mixed-type path is easy to miss during code review.
+
+Files: [src/shared/platforms/instagram.js](../src/shared/platforms/instagram.js),
+[src/shared/event-builder.js](../src/shared/event-builder.js),
+[tests/event-builder.test.mjs](../tests/event-builder.test.mjs).
+
+---
+
+## 2026-04-23 — Phase 8d: Facebook handler — third hard-tier platform
+
+**Tags:** design
+
+**Context:** Third and final hard-tier platform. Facebook was the
+"real test" flagged during Phase 8c — no SSR JSON blob, hostile
+randomized class names, anti-replay `fb_dtsg` tokens, and OG meta
+that's rich-when-public / empty-when-private.
+
+**Four-layer capture model.** Same three-layer Phase 8a foundation
+as TikTok/Instagram, plus a fourth path needed specifically for
+Facebook's inconsistent OG emission:
+
+1. **GraphQL response interception** — load-bearing path for private
+   posts. The api-hook buffer captures `/api/graphql/`-tagged POSTs
+   during page load. `extractPostFromGraphQL` recursively walks the
+   parsed response for the first node that quacks like a story
+   (has `actors` + `message.text`, or `creation_time` + `message`,
+   or `actors` + `attachments`). No envelope-path hardcoding — FB's
+   query shapes drift too often to commit to specific paths.
+2. **Open Graph + Twitter Card meta tags** — the cleanest path for
+   public pages and share-link URLs. Parser handles the
+   `"<Author>: \"<body>\""` and `"<Author> wrote on Facebook: <body>"`
+   shapes, plus optional leading engagement counts. Falls back to
+   whole-string-as-body on unparseable input.
+3. **Defensive DOM scrape** — ARIA-based author extraction
+   (`[role="article"]` → `strong a[role="link"]`), verified-flag
+   detection, legacy `<abbr data-utime>` for post date when present.
+4. **HTML snapshot + screenshot** — always-on evidence layer. A
+   separate `pickScreenshotTarget` walks the post for the largest
+   media element and climbs to its container, same pattern as
+   Instagram — keeps the screenshot tight on the visible media
+   rather than sweeping the whole comment thread.
+
+**URL grammar covers:**
+- `/<user>/posts/<id>`, `/<user>/videos/<id>`, `/<user>/photos/<set>/<id>`
+- `/watch/?v=<id>`, `/reel/<id>`
+- `/permalink.php?story_fbid=<id>`, `/story.php?story_fbid=<id>`
+- `/share/p|v|r/<shortcode>/` — the modern share-link form
+- `/photo/?fbid=<id>`, `/photo.php?fbid=<id>`
+- `/groups/<g>/posts|permalink/<id>/`
+
+The `id` is opaque throughout — numeric story ids, `pfbid*` opaque
+ids, and share shortcodes all flow through the same code path.
+Canonical URL reconstruction picks the shape based on post kind +
+handle availability.
+
+**GraphQL response format detail.** Facebook serves GraphQL responses
+as newline-delimited multi-JSON in some cases (streamed partial
+updates). `extractFromBuffer` tries a direct parse first, then splits
+on newlines and tries each fragment — catches both shapes.
+
+**Manifest + content-script wiring:** the api-interceptor is now
+loaded at `document_start` on `*.facebook.com` and `*.fb.com` in
+addition to Instagram. Content script configures the buffer with
+`{ urlIncludes: 'graphql' }` on FB pages; no separate `/api/v1/media/`
+pattern since FB routes everything through `graphql`.
+
+**Test count:** 176 → 203 (27 new Facebook tests pinning all URL
+shapes + og:description variants + GraphQL recursive walker across
+top-level, deeply-nested, owner-vs-actors, and permalink-style
+shapes).
+
+**So-what:** All three hard-tier platforms ship on the same
+four-layer foundation without architectural changes. The screenshot
++ HTML snapshot + extractedFrom provenance chip pattern validated
+across TikTok (rich SSR) → Instagram (sparse SSR + GraphQL) →
+Facebook (no SSR + GraphQL-only) without rework. Phase 8 complete.
+
+**Known unknowns for first real-world tests:**
+- The OG description parser's format assumptions are inferred from
+  FB's historical behavior; the first actual capture may surface
+  shapes the regex doesn't cover. Falls back to whole-string body,
+  so nothing breaks — just means less-structured author extraction
+  until the parser is tuned.
+- `looksLikeStory` may match non-focal stories in `/api/graphql/`
+  responses that include feed context (e.g. a response carrying
+  both the focal post and a "People you may know" nested story).
+  Shortcode-style filtering isn't available since FB doesn't
+  embed a consistent id across response shapes. Newest-event-wins
+  heuristic should hold; if it doesn't, add a
+  `if (story.post_id !== postId) continue` gate once the real-world
+  shape is known.
+
+Files: [src/shared/platforms/facebook.js](../src/shared/platforms/facebook.js),
+[src/shared/platforms/index.js](../src/shared/platforms/index.js),
+[src/content/index.js](../src/content/index.js),
+[manifest.json](../manifest.json),
+[src/shared/event-builder.js](../src/shared/event-builder.js),
+[src/reader/index.js](../src/reader/index.js),
+[tests/facebook.test.mjs](../tests/facebook.test.mjs).
+
+---
+
+## 2026-04-23 — Instagram: rich author profile + platform_account tag
+
+**Tags:** design
+
+**Context:** Live test of carousel capture flagged that the
+captured artifact had `Author: Reason Magazine` but no link back
+to the actual Instagram account, no profile picture, no
+verified flag, and no follower count. For a truth-system goal
+that maps content to who said it, the author entity is at least
+as important as the content.
+
+**Two related issues:**
+
+1. **Handle extraction was failing for direct `/p/<id>/` URLs.**
+   `extractHandleFromUrl` only matched user-prefixed URLs
+   (`/<user>/p/<id>/`), and `parseOgDescription` only matched
+   the `(@handle)` parenthesized form which Instagram doesn't
+   always include. New `extractHandleFromMeta` parses the
+   `"<handle> on April 22, ..."` substring as a fallback.
+
+2. **No structured profile data.** When SPA navigation captures
+   the `/api/v1/users/<id>/info/` or `data.user` GraphQL response,
+   Instagram returns rich profile fields: `pk` (stable user id),
+   `full_name`, `username`, `is_verified`, `profile_pic_url`,
+   `follower_count`, `following_count`, `media_count`, `biography`,
+   `category`. Wired `extractProfileFromBuffer` to scan the
+   api-hook buffer for the post author's profile and surface it
+   in `article.instagram.author`.
+
+**Reader treatment:** new `xr-ig-author` block above the post
+header shows avatar + handle + verified + display name +
+follower/post counts + bio + account category. Whole block links
+to the author's Instagram profile so a reader can verify or
+cross-reference the source in one click.
+
+**Event tags (Phase 8c entity readiness):**
+- `author_handle` — `@reasonmagazine`
+- `author_id` — Instagram's stable `pk` identifier
+- `author_verified` — `'true'` when applicable
+- `author_followers` — count
+- `platform_account` — `instagram:reasonmagazine` (generic
+  cross-platform identifier; the entity system can match on this
+  to deduplicate the same account across captures)
+
+**Provenance chip extension:** the reader header now shows TWO
+provenance chips — one for media (`graphql`/`ssr-script`/
+`dom-scrape`/`og-meta`) and one for author profile
+(`graphql-profile`/`og-meta`). Lets the user see at a glance
+whether they got the rich profile or just the og-derived basics.
+
+**Entity classification deliberately deferred.** The article shape
+now has the structured data the entity system would need
+(`platform_account`, `author_id`, `author_handle`, profile pic,
+verified, follower count, biography). Auto-creating an entity
+on capture would be a bigger feature touching the whole entity
+flow across all platforms, not just Instagram. Worth doing once
+the pattern is stable enough to apply uniformly to Twitter
+authors, YouTube channels, Substack publications, etc. For now,
+the user can manually tag the author via the existing entity
+tagger — and when we do auto-create, the data is already there.
+
+**Test count:** 168 → 174 (6 new tests for `extractUserFromGraphQL`:
+canonical-path match, recursive walk, multi-user filtering by
+username, no-match returns null, falsy `requireUsername`
+accepts any user, defensive against false-positives that
+quack like users without a `username` field).
+
+Files: [src/shared/platforms/instagram.js:430](../src/shared/platforms/instagram.js:430),
+[src/shared/event-builder.js:226](../src/shared/event-builder.js:226),
+[src/reader/index.js:705](../src/reader/index.js:705),
+[src/reader/index.css:691](../src/reader/index.css:691).
+
+---
+
+## 2026-04-23 — Instagram carousel: accept the SPA-vs-direct-nav split
+
+**Tags:** design
+
+**Context:** Spent considerable time trying to get full-carousel
+capture for direct-navigation Instagram posts (where the user
+opens the post URL directly rather than clicking through from a
+feed). The challenge: Instagram serves direct-navigation pages
+with the post payload embedded in a Meta-internal "Lightspeed"
+opcode encoding inside `<script>` blocks. The data is THERE, but
+not as plain JSON we can parse — it's a binary-ish bytecode where
+field names are encoded as integer indices.
+
+**What we tried:**
+
+1. ✅ **api-interceptor + GraphQL response capture** — works
+   perfectly for SPA navigation (clicking a post from the
+   feed/profile triggers a fresh fetch we capture).
+2. ✅ **Recursive JSON parser** — finds the post item anywhere in
+   a parsed JSON tree, no matter how deeply nested. Handles SSR
+   envelopes that DO use plain JSON.
+3. ❌ **SSR script JSON parser** — found 54 candidate scripts on
+   the page, none of them had a parseable post item (the data
+   was Lightspeed-encoded, not JSON).
+4. ❌ **Brute-force regex over `<script>` content for CDN URLs**
+   — pulled in 720 URLs (every CDN reference on the page).
+5. ❌ **Regex constrained to scripts mentioning the shortcode** —
+   got 20 URLs but they were app store badges + related-posts
+   thumbnails. The script with the shortcode also has all the
+   page chrome URLs intermingled. The shortcode filter just says
+   "this script is for a post page" without identifying which
+   URLs in it ARE post media.
+
+**Decision: remove the brute-force layer.** Approach #4/#5
+produces noise, not signal. Lightspeed-decoding would require
+reverse-engineering Meta's opcode table — significant work,
+brittle to internal changes, not worth it for a single feature.
+
+**Final priority chain (`src/shared/platforms/instagram.js`):**
+- api-hook buffer (GraphQL response) → `graphql` provenance
+- SSR script JSON parse → `ssr-script`
+- DOM scrape (currently rendered slides) → `dom-scrape`
+- og:image (1:1 thumbnail) → `og-meta`
+
+**Honest tradeoff documented for users:**
+- **SPA navigation** (click into post from feed/profile/explore):
+  full carousel via GraphQL. All slides at full resolution.
+- **Direct navigation** (open post URL directly): visible slide(s)
+  + screenshot evidence + caption + metadata. The screenshot is
+  the always-faithful artifact for what's visible.
+
+This isn't a perfect outcome but it's an honest one. The
+infrastructure (api-interceptor + Phase 8a screenshot) makes the
+common case (SPA navigation) work, and the screenshot fallback
+makes direct-navigation captures evidentiary-grade even with only
+one slide.
+
+**Test count:** 178 → 168 (10 tests removed for the dropped
+script-regex layer; 16 remain for the rest of the Instagram
+handler — URL grammar, og:description parser, meta extractor,
+DOM scrape, GraphQL parser including recursive walk).
+
+**So-what:** Some platforms can't be fully captured without
+parsing internal binary encodings. Knowing where to stop is
+itself a design decision. The screenshot evidence layer makes
+"good enough" actually good enough for the truth-system use
+case — even one slide + a faithful screenshot is more than the
+nothing the userscript could ever produce on Instagram.
+
+Files: [src/shared/platforms/instagram.js:340](../src/shared/platforms/instagram.js:340).
+
+---
+
+## 2026-04-23 — Instagram: api-interceptor wired for full carousel capture
+
+**Tags:** design
+
+**Context:** The DOM-scrape strategy fundamentally can't see all
+carousel slides on Instagram — React recycles slide DOM nodes as
+the user navigates, so at capture time only the currently-visible
+slide is present as an `<img>`. The Phase 8a api-interceptor was
+built for exactly this situation; first real wiring lands now.
+
+**Architecture:**
+
+1. **Manifest content_script** loads `dist/api-interceptor.bundle.js`
+   into MAIN world at `document_start` for `*://*.instagram.com/*`.
+   Document-start matters: Instagram fires its initial GraphQL
+   request during page load, before our regular content script
+   runs at `document_idle`. Loading via manifest puts the
+   interceptor in place first.
+
+2. **`src/shared/api-hook-buffer.js`** — ISOLATED-world listener
+   that catches `xr:apihook:event` postMessages from MAIN-world
+   interceptor and holds them in a 50-event ring buffer per tab.
+   Exposes `findApiHookEvents(predicate)` for handlers to query
+   synchronously at capture time.
+
+3. **Content script** (`src/content/index.js`) installs the buffer
+   listener and configures the interceptor to capture
+   `/graphql/query` and `/api/v1/media/` responses on Instagram
+   pages. Other platforms get no interceptor — surface area is
+   per-domain.
+
+4. **Instagram handler** queries the buffer for matching responses,
+   parses out `carousel_media` via `extractMediaFromGraphQL`, and
+   uses the result in preference to DOM scrape. Provenance chip
+   in the reader header now reflects which path produced the
+   captured media: `graphql` / `dom-scrape` / `og-meta` / `none`.
+
+**`extractMediaFromGraphQL` is the load-bearing parser.** It walks
+three known response shapes:
+- Current GraphQL: `data.xdt_api__v1__media__shortcode__web_info.items[0]`
+- Legacy GraphQL: `data.shortcode_media` (with `edge_sidecar_to_children` for carousels and `display_resources` for resolution variants — translated to current-shape internally)
+- REST `/api/v1/media/`: top-level `items[0]`
+
+For each post item, walks `carousel_media[]` if present (carousel),
+otherwise treats the item itself as a single media. Per slide,
+prefers `video_versions[]` over `image_versions2.candidates`
+(if both, the slide is a video and the image is just the cover).
+Picks the highest-resolution variant within each.
+
+**Shortcode validation:** the buffer may hold responses from
+prior SPA navigations (Instagram is single-page-app routed). The
+handler only accepts a buffered response if its `code`/`shortcode`
+matches the URL we're capturing — protects against grabbing the
+previous post's media into the current capture.
+
+**Test count:** 160 → 166 (6 new tests pinning the GraphQL shapes:
+current `xdt_api...web_info`, carousel-of-4 with high-res
+selection, video-versions preference over image cover, legacy
+`shortcode_media` + `edge_sidecar_to_children`, REST shape,
+unrecognized-shape rejection).
+
+**So-what:** Carousel posts now capture all slides at the highest
+resolution Instagram serves, regardless of which slide the user
+was viewing when they clicked the FAB. The DOM scrape and
+og:image fallbacks remain as defense-in-depth — if a future
+Instagram redesign changes the GraphQL shape we don't handle yet,
+the handler degrades gracefully through the chain.
+
+This is also the proof of concept for Facebook (Phase 8d), which
+will use the same interceptor plumbing against
+`fb_api_req_friendly_name`-tagged GraphQL responses.
+
+Files: [manifest.json:79](../manifest.json:79),
+[src/shared/api-hook-buffer.js](../src/shared/api-hook-buffer.js),
+[src/content/index.js:30](../src/content/index.js:30),
+[src/shared/platforms/instagram.js:243](../src/shared/platforms/instagram.js:243),
+[tests/instagram.test.mjs](../tests/instagram.test.mjs).
+
+---
+
+## 2026-04-23 — Instagram: signed URLs, evidence target, screenshot scope
+
+**Tags:** bug
+
+**Context:** First real test of the carousel-image fix surfaced
+three problems:
+
+**Bug 1 — broken images in the captured article.** The 9 captured
+image URLs all rendered as broken icons in the reader. Cause:
+`canonicalImageKey` stripped the query string for dedup AND
+returned the path-only URL as the rendered URL. Instagram CDN's
+`?_nc_oh=…&oe=…` query params are signing tokens — without them
+the CDN returns 403 to any cross-origin loader (including
+`chrome-extension://` origins). Fix: separate the dedup key (path
+only) from the returned value (full URL with query string,
+first-seen variant wins).
+
+**Bug 2 — 9 wrong images instead of the post's 1.** The `<main>`
+fallback in `pickEvidenceElement` was matching the entire
+post-detail page including the "More posts from <user>" grid that
+Instagram renders below the focal post. That grid has 9
+thumbnails, all from the Instagram CDN, all passing our
+content-image filters. Result: scraped the recommendation grid
+rather than the post itself. Fix: restrict evidence target to
+post-specific selectors (`article[role="presentation"]`,
+`main article:first-of-type`, `article`), never bubble out to
+`<main>` or `<body>`. If we can't find any `<article>` we now
+return null and the capture proceeds without the evidence layer
+(better than scraping unrelated content).
+
+**Bug 3 — screenshot showed the bottom of the post, not the
+content.** Tall posts (caption + comments + hashtags) extend
+well past the viewport. `scrollIntoView({ block: 'center' })`
+on the post `<article>` puts the *centerpoint* of the article
+in viewport center — for a tall article that's somewhere in the
+comments section. The screenshot then captured the wrong area.
+Fix: new `pickScreenshotTarget` walks the post for the largest
+`<img>` or `<video>`, then climbs up to its slide container
+(capped at 4 hops). The screenshot now targets just the visible
+media region, which is small enough to always fit in the
+viewport when scrolled-to-center.
+
+**Carousel limitation re-acknowledged:** Instagram's React layer
+recycles slide DOM elements as the user navigates. Even after
+the user navigates through all slides, only the currently-visible
+slide(s) are present as `<img>`s at capture time. Getting the full
+carousel requires either programmatically clicking through (hostile
+UX, may fail silently) or wiring the api-interceptor to grab the
+GraphQL response with the full media list. The screenshot remains
+the always-faithful fallback for the slide that IS in view.
+
+**Test count:** 159 → 160 (1 test rewritten to pin the URL-must-
+include-query-string contract; 1 new test to pin first-seen-wins
+order across multiple unique images).
+
+Files: [src/shared/platforms/instagram.js:243](../src/shared/platforms/instagram.js:243).
+
+---
+
+## 2026-04-23 — Instagram: image content embed, not just the OG thumbnail
+
+**Tags:** bug, design
+
+**Context:** Real-world test of Phase 8c flagged that captures
+were "missing the images" — only the screenshot and caption made
+it through. og:image gives us exactly one image (the first/main
+one); for carousel posts that loses the other slides, and even
+for single-image posts the image was only being shown as a small
+header thumbnail rather than embedded in the article body.
+
+**Fix:** New `extractContentImageUrls(imgs)` walks `<img>`
+elements inside the post container, filtering to Instagram-CDN
+hosts (`cdninstagram.com`, `fbcdn.net`, `scontent-*` subdomains),
+rejecting tiny avatars (<200px or `s120x120`-style sizing
+variants), and deduping by path (Instagram appends different
+cache-busting query params to the same image across loads).
+
+The full image set (og:image first, then anything additional the
+DOM scrape found) lands in:
+- `article.instagram.images[]` for the reader header
+- A new `## Media` section in the markdown body, rendered as
+  `![](url)` per image. Single-image posts get no slide labels;
+  carousels get `**Slide 1**` / `**Slide 2**` / etc. so the
+  reader sees the carousel structure preserved.
+
+**Reels also get a `## Video` section** referencing `og:video`
+with an explicit note that Instagram's video URLs are signed and
+ephemeral — the cover image and screenshot are the durable
+artifacts. We don't try to embed the video bytes (multi-MB,
+multi-minute capture, signed URLs that expire within hours).
+
+**What we don't yet capture:** carousel slides the user hasn't
+navigated to. Instagram lazy-loads slides as the user clicks
+through; the DOM scrape only sees what's been loaded. Two
+possible follow-ups:
+1. Programmatically click through the carousel before capture
+   (hostile UX, may fail silently).
+2. Wire the api-interceptor to grab the GraphQL response that
+   carries the full media list.
+
+The screenshot evidence layer is the always-faithful safety net
+in the meantime.
+
+**Test count:** 152 → 159 (7 new tests pinning the image filter
+across Instagram CDN host variants, avatar-by-size filter, the
+`s120x120` path filter, and the canonical-key dedup).
+
+Files: [src/shared/platforms/instagram.js:243](../src/shared/platforms/instagram.js:243),
+[tests/instagram.test.mjs](../tests/instagram.test.mjs).
+
+---
+
+## 2026-04-23 — Phase 8c: Instagram handler — meta-tag-first capture
+
+**Tags:** design
+
+**Context:** Second hard-tier platform on the Phase 8a stack.
+Instagram is harder than TikTok in that there's no equivalent of
+TikTok's `__UNIVERSAL_DATA_FOR_REHYDRATION__` — the post page is
+SPA-loaded and the DOM is heavily React-obfuscated. But Instagram
+emits unusually rich Open Graph + Twitter Card meta tags into the
+initial HTML, and those have been stable for years.
+
+**Architectural decision: meta-tags-first, GraphQL never.** The
+api-interceptor (Phase 8a) is ready to plug in here, but in v1
+we deliberately don't. Reasons:
+- OG tags carry the load-bearing data: author display name +
+  handle, full caption, like count, comment count, image/video URL,
+  canonical URL.
+- The api-interceptor adds attack surface (every Instagram page
+  load patches `window.fetch`) and timing complexity (the GraphQL
+  request fires before the user clicks the FAB, so we'd have to
+  inject the interceptor on every page load to catch it).
+- The cost-to-value ratio favors waiting until concrete evidence
+  shows OG-only is missing something users actually want.
+
+If GraphQL ever becomes load-bearing, the `extractedFrom`
+provenance chip in the reader header has a deliberately-permanent
+slot for it — when the chip starts saying "graphql" instead of
+"og-meta", we'll have a paper trail of which source produced each
+artifact in the archive.
+
+**The og:description parser is the trickiest part.** Instagram's
+og:description is a structured-but-prose string:
+`"<N> likes, <M> comments — <Display Name> (@<handle>) on
+Instagram: \"<caption>\""`. The regex `parseOgDescription` handles
+the canonical form, missing leading engagement counts, missing
+parenthesized handle, smart quotes vs straight quotes, and
+em-dash vs hyphen separators. Falls back to "whole string is the
+caption" rather than null on unparseable input — better to ship a
+caption-without-author than to drop the artifact entirely.
+
+**DOM scrape is intentionally minimal.** Two fields only:
+- Post date from `<time datetime>` (ISO-8601, the only stable
+  timestamp signal across Instagram redesigns).
+- Verified flag from `svg[aria-label="Verified"]` (an ARIA
+  contract Instagram has kept stable for years).
+
+Anything else (full caption beyond truncation, comment thread,
+follower count, location tag) we deliberately don't try. They're
+either covered by meta tags or they're not worth the maintenance
+cost of fragile selectors.
+
+**Reader treatment:** mirrors TikTok's video header. Author chip
+(verified ✓), engagement counts, post-kind chip (`post`/`reel`/
+`igtv`), `extractedFrom` provenance chip, and the same collapsible
+"📸 Screenshot evidence" panel. Visual consistency across hard-tier
+platforms keeps the reader UX coherent.
+
+**Test count:** 136 → 152 (16 new Instagram tests pinning the URL
+grammar across all five recognized shapes + the og:description
+parser across canonical/missing-engagement/missing-handle/
+smart-quote/unparseable inputs + the meta-field reader with K/M
+suffix engagement counts).
+
+**So-what:** Two of three hard-tier platforms shipped. The
+three-layer model (structured + HTML snapshot + screenshot)
+holds up across both TikTok (rich SSR) and Instagram (sparse SSR)
+without architecture changes — validates the Phase 8a foundation.
+Facebook is next, and it'll be the real test: no SSR, hostile
+DOM, anti-replay GraphQL tokens. Likely the first place we'll
+need to actually wire the api-interceptor.
+
+Files: [src/shared/platforms/instagram.js](../src/shared/platforms/instagram.js),
+[src/shared/platforms/index.js:36](../src/shared/platforms/index.js:36),
+[src/reader/index.js:618](../src/reader/index.js:618),
+[tests/instagram.test.mjs](../tests/instagram.test.mjs).
+
+---
+
+## 2026-04-23 — Phase 8b: TikTok handler — first hard-tier platform
+
+**Tags:** design
+
+**Context:** First platform built on the Phase 8a anti-obfuscation
+stack. TikTok was deliberately first — its metadata lives in a
+server-rendered JSON blob, so structured extraction is robust;
+the screenshot path validates the always-works fallback without
+depending on the harder GraphQL-interception machinery.
+
+**Three SSR shapes, three keyed paths:**
+
+TikTok serves the same logical data through three different script
+tags depending on route + recency:
+- `__UNIVERSAL_DATA_FOR_REHYDRATION__` (newest, 2023+) — payload
+  at `__DEFAULT_SCOPE__["webapp.video-detail"].itemInfo.itemStruct`
+- `SIGI_STATE` (intermediate) — `ItemModule[<id>]` keyed by video id
+- `__NEXT_DATA__` (oldest, still on some embeds) — Next.js standard
+  `props.pageProps.itemInfo.itemStruct`
+
+`parseSsrState` walks them newest-first; `extractItemStruct` knows
+each path. When TikTok ships a 4th shape, `parseSsrState` adds one
+line and `extractItemStruct` adds one branch — every existing
+extraction continues working.
+
+**Three-layer capture in production:**
+
+The handler composes everything we need from itemStruct (caption,
+author, hashtags via `textExtra`, music, view/like/comment/share
+counts, duration, cover image), then unconditionally grabs:
+- HTML snapshot of `[data-e2e="browse-video"]` (or fallback) via
+  `html-snapshot.js`
+- Screenshot of the same element via `screenshot.js`
+
+Both land in `article.evidence`. The publish flow already knows
+how to surface the hashes as event tags (Phase 8a). The reader's
+new TikTok header has a collapsible "📸 Screenshot evidence" panel
+showing the captured image inline before publish.
+
+**Reader treatment:** mirrors the YouTube header pattern — thumbnail
++ duration badge + chip row. Chips include author handle (with
+verified ✓), engagement counts, music attribution, and an
+`sourceShape` provenance chip ("universal"/"sigi"/"nextdata"). The
+provenance chip is a deliberately-permanent feature: when TikTok
+shifts formats, captures from the old format keep a paper trail
+of which shape they came from, useful for debugging archive
+reconstructions years from now.
+
+**What we deliberately didn't do:**
+- **No comment thread capture.** TikTok's comments are paginated +
+  auth-gated; the cost-to-value ratio is poor. Hashtags + caption
+  cover the main searchable content.
+- **No GraphQL interception.** TikTok's structured data is
+  server-rendered, so the fetch-hook machinery isn't needed for
+  this platform. It exists for FB/IG, where it'll matter more.
+- **No video file capture.** The `video.playAddr` is a signed,
+  time-limited URL — embedding it would produce a dead link
+  within hours. The cover image is permanent enough to embed
+  as the article featured image.
+
+**Test count:** 126 → 136 (10 new TikTok tests pinning the SSR
+shapes + extraction paths).
+
+**So-what:** First platform on the new infrastructure validates the
+three-layer model. Even if structured extraction fully breaks
+(format change, JSON shape drift), the screenshot is still a
+faithful artifact + a hash in the event tags. That's the floor we
+needed before betting on Instagram and Facebook, where the metadata
+extraction will be much more fragile.
+
+Files: [src/shared/platforms/tiktok.js](../src/shared/platforms/tiktok.js),
+[src/shared/platforms/index.js:35](../src/shared/platforms/index.js:35),
+[src/reader/index.js:617](../src/reader/index.js:617),
+[src/reader/index.css:691](../src/reader/index.css:691),
+[tests/tiktok.test.mjs](../tests/tiktok.test.mjs).
+
+---
+
+## 2026-04-23 — Phase 8a: anti-obfuscation infrastructure (no platform yet)
+
+**Tags:** design
+
+**Context:** Discovered while planning Phase 8 that the userscript
+never actually shipped Facebook/Instagram/TikTok handlers — the
+roadmap's "1,629 LOC across the three platforms" was aspirational,
+described in `docs/` but not in code. The userscript explicitly
+stopped social-media support because of CSP isolation; the whole
+point of moving to a WebExtension is to escape that sandbox.
+
+After analyzing what an extension can actually do (service worker
+WebSockets bypass page CSP, MAIN-world `executeScript` for hooks,
+`tabs.captureVisibleTab` for screenshots, `declarativeNetRequest`
+for header rewrites), I proposed a **three-layer capture model**
+where every social capture produces:
+1. Best-effort structured extraction (DOM + GraphQL interception
+   + ARIA fallback + OG meta last-resort)
+2. A bounded, sanitized HTML snapshot of the post subtree
+3. An element-cropped screenshot
+
+Any subset surviving = a useful evidentiary artifact. The
+screenshot is the always-works fallback that makes the system
+robust to DOM breakage.
+
+**Phase 8a shipped today:** the three infrastructure modules,
+unit-tested in isolation, with NO platform handler wired in yet.
+That separation is deliberate — validates the tooling before any
+platform-specific bet.
+
+- `src/shared/html-snapshot.js` — clones the subtree, removes
+  `<script>` / `<iframe>` / `<noscript>` / etc. + `on*` handlers
+  + `data:` URLs in src/href, collapses whitespace, byte-honest
+  truncation with a marker. SHA-256 helper for the evidence tag.
+- `src/shared/screenshot.js` (content side) +
+  `handleScreenshotCapture` (background side) — content script
+  scrolls element into view, sends rect to SW, SW does
+  `tabs.captureVisibleTab` + OffscreenCanvas crop, returns a fresh
+  PNG dataURL. The crop math is split into a pure
+  `computeCropBox(rect, dpr, bitmapW, bitmapH)` so the DPR + viewport
+  clamping edge cases are unit-testable without spinning up Canvas.
+- `src/page/api-interceptor.js` — IIFE injected into MAIN world via
+  `chrome.scripting.executeScript`. Wraps `window.fetch` and
+  `XMLHttpRequest`; on requests matching URL/header patterns
+  configured by the content script, clones the response body and
+  posts it back via the same nonce-tagged `postMessage` envelope
+  the NIP-07 bridge uses. Pattern matcher extracted to
+  `src/shared/api-pattern.js` for unit-testability — the IIFE
+  reimplements the logic inline (it can't import — it's the entire
+  module). The shared file is the canonical implementation; if the
+  inline copy diverges, the unit test catches it.
+- New `dist/api-interceptor.bundle.js` build target so the SW can
+  inject the file via `executeScript({ files: [...] })` on demand.
+
+**Article shape:** new optional `article.evidence` field carries
+`{ screenshot, screenshotHash, screenshotUrl, htmlSnapshot,
+htmlSnapshotHash }`. Event-builder emits `screenshot_sha256`,
+`screenshot_url`, `html_snapshot_sha256` tags when present;
+archive-reader inverse reads them back. The blob bodies live in
+event content (or hosted externally referenced by URL); the tags
+carry the verifiable refs. Two new tests pin the round-trip.
+
+**Test count:** 96 → 126.
+
+**So-what:** With this infrastructure in place, the next phase
+(8b: TikTok handler) can wire the three layers together end-to-end
+without re-debating architecture. The screenshot path is the most
+load-bearing — it's the layer that makes hard-tier captures
+*never* return empty even when the page changes shape under us.
+
+Files: [src/shared/html-snapshot.js](../src/shared/html-snapshot.js),
+[src/shared/screenshot.js](../src/shared/screenshot.js),
+[src/page/api-interceptor.js](../src/page/api-interceptor.js),
+[src/shared/api-pattern.js](../src/shared/api-pattern.js),
+[src/shared/event-builder.js:233](../src/shared/event-builder.js:233),
+[esbuild.config.mjs:65](../esbuild.config.mjs:65),
+[src/background/index.js:374](../src/background/index.js:374).
+
+---
+
 ## 2026-04-23 — Pre-release polish: icons, test coverage, Firefox version pin
 
 **Tags:** design

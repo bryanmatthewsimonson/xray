@@ -354,6 +354,7 @@ function renderReader() {
     const main = $('#xr-main');
     main.innerHTML = `
       <article class="xr-article">
+        ${renderCaptureQualityHint(a)}
         <header class="xr-article__meta">
           <h1 class="xr-article__title" contenteditable="true" spellcheck="false" data-field="title">${escapeHtml(a.title || 'Untitled')}</h1>
           <div class="xr-article__byline-row">
@@ -364,7 +365,10 @@ function renderReader() {
           </div>
         </header>
         ${renderYouTubeHeader(a)}
-        ${a.featuredImage && !isYouTubeArticle(a) ? `<img class="xr-article__featured" src="${escapeHtml(a.featuredImage)}" alt="" loading="lazy" />` : ''}
+        ${renderTikTokHeader(a)}
+        ${renderInstagramHeader(a)}
+        ${renderFacebookHeader(a)}
+        ${a.featuredImage && !isYouTubeArticle(a) && !isTikTokArticle(a) && !isInstagramArticle(a) && !isFacebookArticle(a) ? `<img class="xr-article__featured" src="${escapeHtml(a.featuredImage)}" alt="" loading="lazy" />` : ''}
         <div class="xr-article__body" contenteditable="true" spellcheck="true" data-field="content"></div>
       </article>
     `;
@@ -612,6 +616,241 @@ function renderYouTubeHeader(article) {
     `;
 }
 
+// ------------------------------------------------------------------
+// TikTok-specific header (Phase 8b)
+// ------------------------------------------------------------------
+
+function isTikTokArticle(article) {
+    return article && article.platform === 'tiktok' && article.tiktok;
+}
+
+/**
+ * Video-shaped header for TikTok captures. Mirrors the YouTube
+ * header structure: thumbnail with duration badge, then a row of
+ * meta chips. Surfaces the screenshot evidence below the chips
+ * when present — the screenshot IS the artifact for hard-tier
+ * platforms even more than the metadata.
+ */
+function renderTikTokHeader(article) {
+    if (!isTikTokArticle(article)) return '';
+    const t = article.tiktok;
+
+    const durationLabel = t.durationSeconds != null
+        ? formatDurationForChip(t.durationSeconds)
+        : null;
+
+    const chips = [];
+    if (t.author && t.author.nickname) {
+        const handle = t.author.username ? ` (@${t.author.username})` : '';
+        const verified = t.author.verified ? ' ✓' : '';
+        chips.push(`<span class="xr-video__chip xr-video__chip--channel">${escapeHtml(t.author.nickname + verified + handle)}</span>`);
+    }
+    if (Number.isFinite(t.playCount)    && t.playCount    > 0) chips.push(`<span class="xr-video__chip">${escapeHtml(t.playCount.toLocaleString())} views</span>`);
+    if (Number.isFinite(t.likeCount)    && t.likeCount    > 0) chips.push(`<span class="xr-video__chip">${escapeHtml(t.likeCount.toLocaleString())} likes</span>`);
+    if (Number.isFinite(t.commentCount) && t.commentCount > 0) chips.push(`<span class="xr-video__chip">${escapeHtml(t.commentCount.toLocaleString())} comments</span>`);
+    if (Number.isFinite(t.shareCount)   && t.shareCount   > 0) chips.push(`<span class="xr-video__chip">${escapeHtml(t.shareCount.toLocaleString())} shares</span>`);
+    if (t.music && (t.music.title || t.music.authorName)) {
+        const label = [t.music.title, t.music.authorName].filter(Boolean).join(' — ');
+        chips.push(`<span class="xr-video__chip" title="Sound">♪ ${escapeHtml(label)}</span>`);
+    }
+    // Provenance tag — which SSR shape we extracted from. Useful
+    // diagnostic when TikTok shifts formats; leaves a paper trail.
+    if (t.sourceShape) chips.push(`<span class="xr-video__chip" title="Extraction source">${escapeHtml(t.sourceShape)}</span>`);
+
+    const thumb = article.featuredImage;
+    const watchUrl = article.url;
+    const thumbHtml = thumb
+        ? `
+          <a class="xr-video__thumb" href="${escapeHtml(watchUrl)}" target="_blank" rel="noopener"
+             title="Open on TikTok">
+            <img src="${escapeHtml(thumb)}" alt="" loading="lazy" />
+            ${durationLabel ? `<span class="xr-video__duration">${escapeHtml(durationLabel)}</span>` : ''}
+          </a>
+        `
+        : '';
+
+    // Evidence-layer screenshot. When the capture pipeline produced
+    // one, render it inline so the user can see what was preserved
+    // before publishing. The hash is implied by `article.evidence.screenshotHash`
+    // which lands in event tags at publish time.
+    const evidenceImg = article.evidence && article.evidence.screenshot
+        ? `<details class="xr-video__evidence">
+             <summary>📸 Screenshot evidence</summary>
+             <img src="${escapeHtml(article.evidence.screenshot)}" alt="Captured screenshot" />
+           </details>`
+        : '';
+
+    return `
+      <div class="xr-video">
+        ${thumbHtml}
+        <div class="xr-video__chips">${chips.join('')}</div>
+        ${evidenceImg}
+      </div>
+    `;
+}
+
+// ------------------------------------------------------------------
+// Instagram-specific header (Phase 8c)
+// ------------------------------------------------------------------
+
+function isInstagramArticle(article) {
+    return article && article.platform === 'instagram' && article.instagram;
+}
+
+/**
+ * Image- or video-shaped header for Instagram captures. Same chip
+ * vocabulary as TikTok plus an `extractedFrom` provenance chip
+ * (currently always 'og-meta' — when GraphQL interception lands
+ * the chip values diverge and we'll have a paper trail of which
+ * extractor produced each artifact).
+ */
+function renderInstagramHeader(article) {
+    if (!isInstagramArticle(article)) return '';
+    const ig = article.instagram;
+    const a  = ig.author || {};
+
+    // Profile card — when we have profile data, render an
+    // Instagram-style author block: avatar + display name + handle
+    // + verified + follower count + bio. The whole block links to
+    // the author's Instagram profile, making it one-click to verify
+    // / cross-reference the source. Falls back gracefully when the
+    // profile pic / follower count is missing.
+    const profileBlock = a.handle ? `
+        <div class="xr-ig-author">
+            ${a.profilePicUrl
+                ? `<a href="${escapeHtml(a.profileUrl)}" target="_blank" rel="noopener" class="xr-ig-author__avatar">
+                     <img src="${escapeHtml(a.profilePicUrl)}" alt="${escapeHtml((a.nickname || a.handle) + ' profile photo')}" loading="lazy" />
+                   </a>`
+                : ''}
+            <div class="xr-ig-author__meta">
+                <div class="xr-ig-author__name-row">
+                    <a href="${escapeHtml(a.profileUrl)}" target="_blank" rel="noopener" class="xr-ig-author__handle">@${escapeHtml(a.handle)}</a>
+                    ${a.verified ? `<span class="xr-ig-author__verified" title="Verified by Instagram">✓</span>` : ''}
+                    ${a.nickname && a.nickname !== a.handle
+                        ? `<span class="xr-ig-author__nickname">${escapeHtml(a.nickname)}</span>`
+                        : ''}
+                </div>
+                <div class="xr-ig-author__stats">
+                    ${Number.isFinite(a.followerCount) && a.followerCount > 0
+                        ? `<span title="Followers">${escapeHtml(a.followerCount.toLocaleString())} followers</span>`
+                        : ''}
+                    ${Number.isFinite(a.postCount) && a.postCount > 0
+                        ? `<span title="Posts">${escapeHtml(a.postCount.toLocaleString())} posts</span>`
+                        : ''}
+                    ${a.category ? `<span title="Account category">${escapeHtml(a.category)}</span>` : ''}
+                </div>
+                ${a.biography ? `<div class="xr-ig-author__bio">${escapeHtml(a.biography)}</div>` : ''}
+            </div>
+        </div>` : '';
+
+    const chips = [];
+    const eng = article.engagement || {};
+    if (Number.isFinite(eng.likes)    && eng.likes    > 0) chips.push(`<span class="xr-video__chip">${escapeHtml(eng.likes.toLocaleString())} likes</span>`);
+    if (Number.isFinite(eng.comments) && eng.comments > 0) chips.push(`<span class="xr-video__chip">${escapeHtml(eng.comments.toLocaleString())} comments</span>`);
+    if (Number.isFinite(eng.views)    && eng.views    > 0) chips.push(`<span class="xr-video__chip">${escapeHtml(eng.views.toLocaleString())} views</span>`);
+    if (ig.postKind) chips.push(`<span class="xr-video__chip">${escapeHtml(ig.postKind)}</span>`);
+    if (ig.extractedFrom) chips.push(`<span class="xr-video__chip" title="Extraction source for media">${escapeHtml(ig.extractedFrom)}</span>`);
+    if (a.source) chips.push(`<span class="xr-video__chip" title="Extraction source for author profile">author: ${escapeHtml(a.source)}</span>`);
+
+    const thumb = article.featuredImage;
+    const watchUrl = article.url;
+    const thumbHtml = thumb
+        ? `
+          <a class="xr-video__thumb" href="${escapeHtml(watchUrl)}" target="_blank" rel="noopener"
+             title="Open on Instagram">
+            <img src="${escapeHtml(thumb)}" alt="" loading="lazy" />
+          </a>
+        `
+        : '';
+
+    const evidenceImg = article.evidence && article.evidence.screenshot
+        ? `<details class="xr-video__evidence">
+             <summary>📸 Screenshot evidence</summary>
+             <img src="${escapeHtml(article.evidence.screenshot)}" alt="Captured screenshot" />
+           </details>`
+        : '';
+
+    return `
+      <div class="xr-video">
+        ${profileBlock}
+        ${thumbHtml}
+        <div class="xr-video__chips">${chips.join('')}</div>
+        ${evidenceImg}
+      </div>
+    `;
+}
+
+// ------------------------------------------------------------------
+// Facebook-specific header (Phase 8d)
+// ------------------------------------------------------------------
+
+function isFacebookArticle(article) {
+    return article && article.platform === 'facebook' && article.facebook;
+}
+
+/**
+ * Post-shaped header for Facebook captures. Similar chip vocabulary
+ * to Instagram — author, engagement, post-kind, extraction provenance.
+ * Reuses the existing `.xr-video` / `.xr-ig-author` CSS so we don't
+ * have to grow a parallel set of classes for every hard-tier platform.
+ */
+function renderFacebookHeader(article) {
+    if (!isFacebookArticle(article)) return '';
+    const fb = article.facebook;
+    const a  = fb.author || {};
+
+    const profileBlock = (a.handle || a.nickname) ? `
+        <div class="xr-ig-author">
+            <div class="xr-ig-author__meta">
+                <div class="xr-ig-author__name-row">
+                    ${a.handle
+                        ? `<a href="${escapeHtml(a.profileUrl)}" target="_blank" rel="noopener" class="xr-ig-author__handle">@${escapeHtml(a.handle)}</a>`
+                        : ''}
+                    ${a.verified ? `<span class="xr-ig-author__verified" title="Verified by Facebook">✓</span>` : ''}
+                    ${a.nickname && a.nickname !== a.handle
+                        ? `<span class="xr-ig-author__nickname">${escapeHtml(a.nickname)}</span>`
+                        : ''}
+                </div>
+            </div>
+        </div>` : '';
+
+    const chips = [];
+    const eng = article.engagement || {};
+    if (Number.isFinite(eng.likes)    && eng.likes    > 0) chips.push(`<span class="xr-video__chip">${escapeHtml(eng.likes.toLocaleString())} reactions</span>`);
+    if (Number.isFinite(eng.comments) && eng.comments > 0) chips.push(`<span class="xr-video__chip">${escapeHtml(eng.comments.toLocaleString())} comments</span>`);
+    if (Number.isFinite(eng.shares)   && eng.shares   > 0) chips.push(`<span class="xr-video__chip">${escapeHtml(eng.shares.toLocaleString())} shares</span>`);
+    if (fb.postKind)       chips.push(`<span class="xr-video__chip">${escapeHtml(fb.postKind)}</span>`);
+    if (fb.extractedFrom)  chips.push(`<span class="xr-video__chip" title="Extraction source for post data">${escapeHtml(fb.extractedFrom)}</span>`);
+    if (a.source)          chips.push(`<span class="xr-video__chip" title="Extraction source for author profile">author: ${escapeHtml(a.source)}</span>`);
+
+    const thumb = article.featuredImage;
+    const watchUrl = article.url;
+    const thumbHtml = thumb
+        ? `
+          <a class="xr-video__thumb" href="${escapeHtml(watchUrl)}" target="_blank" rel="noopener"
+             title="Open on Facebook">
+            <img src="${escapeHtml(thumb)}" alt="" loading="lazy" />
+          </a>
+        `
+        : '';
+
+    const evidenceImg = article.evidence && article.evidence.screenshot
+        ? `<details class="xr-video__evidence">
+             <summary>📸 Screenshot evidence</summary>
+             <img src="${escapeHtml(article.evidence.screenshot)}" alt="Captured screenshot" />
+           </details>`
+        : '';
+
+    return `
+      <div class="xr-video">
+        ${profileBlock}
+        ${thumbHtml}
+        <div class="xr-video__chips">${chips.join('')}</div>
+        ${evidenceImg}
+      </div>
+    `;
+}
+
 function formatDurationForChip(seconds) {
     const s = Math.max(0, Math.floor(seconds || 0));
     const h = Math.floor(s / 3600);
@@ -627,6 +866,86 @@ function field(label, key, value) {
         <span class="xr-article__field-label">${escapeHtml(label)}</span>
         <span class="xr-article__field-value" contenteditable="true" spellcheck="false" data-field="${key}">${escapeHtml(value || '')}</span>
       </div>`;
+}
+
+// ------------------------------------------------------------------
+// Capture-quality hints for hard-tier platforms (Phase 8)
+// ------------------------------------------------------------------
+
+/**
+ * Surface a platform-specific tip banner when the capture looks thin —
+ * missing author, empty body, no media on a photo post. The goal is
+ * to tell users who never read the capture guide what went wrong and
+ * how to retry. For users who did read the guide, the banner is a
+ * quick visual reminder rather than an annoyance (it only appears on
+ * poor captures).
+ *
+ * Platform-specific cues:
+ *   - Instagram: `extractedFrom === 'none'` OR missing author handle
+ *   - Facebook:  `extractedFrom === 'none'` OR empty post body
+ *   - TikTok:    `sourceShape == null` (SSR parse failed)
+ *
+ * Returns an HTML string (empty when the capture looks healthy).
+ */
+function renderCaptureQualityHint(article) {
+    const hints = buildCaptureHints(article);
+    if (hints.length === 0) return '';
+    const items = hints.map((h) => `<li>${escapeHtml(h)}</li>`).join('');
+    const docsUrl = 'https://github.com/bryanmatthewsimonson/xray/blob/main/docs/CAPTURE_GUIDE.md';
+    return `
+      <details class="xr-capture-hint" open>
+        <summary>⚠︎ This capture looks thin — how to get a better one</summary>
+        <ul>${items}</ul>
+        <p class="xr-capture-hint__footer">
+          Full walkthrough: <a href="${docsUrl}" target="_blank" rel="noopener">docs/CAPTURE_GUIDE.md</a>
+        </p>
+      </details>
+    `;
+}
+
+function buildCaptureHints(a) {
+    if (!a) return [];
+    const hints = [];
+
+    if (isInstagramArticle(a)) {
+        const ig = a.instagram || {};
+        if (ig.extractedFrom === 'none') {
+            hints.push('The post data didn\'t extract. Open the specific post URL (/p/<shortcode>/ or /reel/<shortcode>/), wait a beat for it to load, then capture.');
+        }
+        if (!ig.author || !ig.author.handle) {
+            hints.push('The author handle is missing. Make sure you\'re on a post detail URL, not a profile grid.');
+        }
+        if (ig.postKind !== 'reel' && (!ig.images || ig.images.length === 0)) {
+            hints.push('No images captured. For carousels, swipe through all slides before clicking the FAB.');
+        }
+        if (ig.extractedFrom === 'og-meta' && ig.postKind !== 'reel') {
+            hints.push('Only meta-tag data was captured — carousel slides may be incomplete. Swipe through the post and retry.');
+        }
+    } else if (isFacebookArticle(a)) {
+        const fb = a.facebook || {};
+        if (fb.extractedFrom === 'none') {
+            hints.push('The post body didn\'t extract. Scroll through the post so its text renders, wait for /api/graphql/ responses to fire, then retry.');
+        }
+        if (!a.markdown || a.markdown.length < 200) {
+            hints.push('The post body looks short or empty. Scroll the post into view before capturing — Facebook lazy-loads text.');
+        }
+        if (fb.mediaSource === 'none' && fb.postKind === 'photo') {
+            hints.push('No images captured on a photo post. Scroll the gallery into view (FB only loads image <src> after they enter the viewport), then retry.');
+        }
+        if (!fb.author || !fb.author.handle) {
+            hints.push('The author handle is missing. Open the post as a detail modal or via a permalink URL so the handle is in the path.');
+        }
+    } else if (isTikTokArticle(a)) {
+        const t = a.tiktok || {};
+        if (!t.sourceShape) {
+            hints.push('The SSR JSON parse failed — TikTok\'s page shape may have changed. Try reloading the page, then capture.');
+        }
+        if (!t.videoId) {
+            hints.push('No video ID found. Make sure the URL is `tiktok.com/@<user>/video/<id>` — short links (`vm.tiktok.com/...`) need to redirect first.');
+        }
+    }
+
+    return hints;
 }
 
 function onReaderFieldInput() {

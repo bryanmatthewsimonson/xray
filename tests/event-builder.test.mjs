@@ -60,6 +60,62 @@ test('buildRelayListEvent ignores non-string and empty entries', () => {
     assert.deepEqual(rTags.map((t) => t[1]), ['wss://a.example', 'wss://b.example']);
 });
 
+test('buildArticleEvent surfaces evidence hashes as tags when present', async () => {
+    const article = {
+        url: 'https://www.facebook.com/x/posts/1',
+        title: 'Test',
+        markdown: '# x',
+        domain: 'facebook.com',
+        evidence: {
+            screenshotHash:    'a'.repeat(64),
+            screenshotUrl:     'https://blossom.example/x.png',
+            htmlSnapshotHash:  'b'.repeat(64)
+        }
+    };
+    const ev = await EventBuilder.buildArticleEvent(article, [], PUBKEY, []);
+    assert.ok(ev.tags.some((t) => t[0] === 'screenshot_sha256' && t[1] === 'a'.repeat(64)));
+    assert.ok(ev.tags.some((t) => t[0] === 'screenshot_url' && t[1] === 'https://blossom.example/x.png'));
+    assert.ok(ev.tags.some((t) => t[0] === 'html_snapshot_sha256' && t[1] === 'b'.repeat(64)));
+});
+
+test('buildArticleEvent omits evidence tags when article.evidence is absent', async () => {
+    const article = { url: 'https://x', title: 'Test', markdown: '# x', domain: 'x' };
+    const ev = await EventBuilder.buildArticleEvent(article, [], PUBKEY, []);
+    assert.ok(!ev.tags.some((t) => t[0].startsWith('screenshot_') || t[0] === 'html_snapshot_sha256'));
+});
+
+test('buildArticleEvent coerces Instagram numeric pk to string tag value', async () => {
+    // Regression: relays reject events with non-string tag values
+    // ("invalid: tag val was not a string"). Instagram's REST API
+    // gives us a numeric `pk`; downstream emission must stringify.
+    const article = {
+        url: 'https://www.instagram.com/p/ABC/',
+        title: 'Test',
+        markdown: '# x',
+        domain: 'instagram.com',
+        platform: 'instagram',
+        instagram: {
+            shortcode: 'ABC',
+            postKind: 'post',
+            author: {
+                handle: 'reasonmagazine',
+                pk: 507869549,                   // number, not string
+                verified: true,
+                followerCount: 151000
+            }
+        }
+    };
+    const ev = await EventBuilder.buildArticleEvent(article, [], PUBKEY, []);
+    for (const t of ev.tags) {
+        for (const v of t) {
+            assert.equal(typeof v, 'string',
+                `tag ${JSON.stringify(t)} has non-string value ${JSON.stringify(v)}`);
+        }
+    }
+    const idTag = ev.tags.find((t) => t[0] === 'author_id');
+    assert.deepEqual(idTag, ['author_id', '507869549']);
+});
+
 test('buildRelayListEvent stamps created_at to a recent unix second', () => {
     const before = Math.floor(Date.now() / 1000);
     const ev = EventBuilder.buildRelayListEvent(['wss://a'], PUBKEY);

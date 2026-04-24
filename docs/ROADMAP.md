@@ -44,7 +44,7 @@ Phase 4  ████████████████████  complete 
 Phase 5  ████████████████████  complete — claims + evidence links + relay query
 Phase 6  ████████████████████  complete — entity sync via NIP-78 + NIP-44 v2
 Phase 7  ████████████████████  complete — archive reader (IDB cache + paywall detection + relay reconstruct)
-Phase 8  ░░░░░░░░░░░░░░░░░░░░  deferred — split into sub-issues when started
+Phase 8  ████████████████████  complete — 8a infra + TikTok + Instagram + Facebook shipped
 ```
 
 ---
@@ -610,37 +610,46 @@ Per issue #16:
 
 ---
 
-## Phase 8 — Hard-tier platforms ⏳
+## Phase 8 — Hard-tier platforms ✅
 
-**Issue:** [#19](https://github.com/bryanmatthewsimonson/xray/issues/19). Deferred. Will split into sub-issues when
-actual work begins. Blocked on: Phase 3 (handler-registry pattern).
+**Issue:** [#19](https://github.com/bryanmatthewsimonson/xray/issues/19). All three platforms + anti-obfuscation
+infrastructure shipped. See per-day entries in `JOURNAL.md` for
+architectural decisions and bug history.
 
-Facebook / Instagram / TikTok — high-maintenance. Class names are
-randomized, APIs change, React fiber is the only stable path in some
-cases. The userscript spends ~1,629 LOC on the three platforms plus
-~800 LOC of anti-obfuscation infrastructure.
+### Anti-obfuscation infrastructure (8a) ✅
 
-### Anti-obfuscation infrastructure
+- `src/shared/html-snapshot.js` — subtree clone with script/iframe
+  stripping + bounded truncation + SHA-256.
+- `src/shared/screenshot.js` + background-side `handleScreenshotCapture` —
+  element-cropped screenshots via `tabs.captureVisibleTab` + DPR-aware
+  crop math.
+- `src/page/api-interceptor.js` — MAIN-world fetch + XHR hook,
+  configurable URL/header patterns. Responses posted back via
+  nonce-tagged `postMessage`.
+- `src/shared/api-hook-buffer.js` — ISOLATED-world ring buffer
+  (MAX_EVENTS=50) queried synchronously by platform handlers at
+  capture time.
 
-- [ ] `shared/api-interceptor.js` (~595 LOC) — MAIN-world fetch +
-      XHR hook, captures GraphQL responses by
-      `fb_api_req_friendly_name` / `doc_id`.
-- [ ] React Fiber traversal helper — walks `__reactFiber$*` props
-      on DOM elements.
-- [ ] `shared/module-hook.js` (~121 LOC) — probes Facebook's
-      internal `__d()` module registry.
-- [ ] Click-to-select overlay — user clicks the post to capture,
-      DOM walker scores candidates by visual characteristic.
+Not shipped and deliberately deferred — the primary paths turned out
+to be sufficient:
+- React Fiber traversal helper (unused so far).
+- `shared/module-hook.js` for FB's `__d()` registry (unused so far).
+- Click-to-select overlay (the `[role="article"]` + largest-image
+  heuristic landed instead).
 
 ### Per-platform
 
-- [ ] Facebook (~240 LOC) — ARIA roles, API interception, React
-      fiber fallback.
-- [ ] Instagram (~964 LOC — the largest handler) — ARIA + React
-      fiber, API interception for comment threads, hashtag
-      extraction.
-- [ ] TikTok (~425 LOC) — `__NEXT_DATA__` JSON parse with DOM
-      fallback.
+- ✅ TikTok (`src/shared/platforms/tiktok.js`) — `__UNIVERSAL_DATA_FOR_REHYDRATION__`
+  / SIGI / `__NEXT_DATA__` triple-shape SSR parse + screenshot.
+- ✅ Instagram (`src/shared/platforms/instagram.js`) — og-meta primary +
+  GraphQL interception for carousels + profile lookup + DOM scrape
+  fallback + screenshot. The post item's inline `.user` is a 4th
+  handle-resolution fallback when og/URL/description all come up empty.
+- ✅ Facebook (`src/shared/platforms/facebook.js`) — URL grammar covers
+  `/<user>/posts`, `/<user>/videos`, `/reel`, `/watch`, `/permalink.php`,
+  `/story.php`, `/share/p|v|r`, `/photo`, and `/groups/.../posts`.
+  GraphQL buffer walk primary (for private posts), og-meta secondary,
+  DOM scrape tertiary, screenshot evidence always.
 
 ### Platform-review gate
 

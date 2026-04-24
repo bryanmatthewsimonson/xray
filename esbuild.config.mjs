@@ -59,7 +59,20 @@ const configs = [
         outfile: resolve(root, `dist/${name}.bundle.js`),
         format: 'iife',
         platform: 'browser'
-    }))
+    })),
+
+    // --- MAIN-world api-interceptor (Phase 8a) ---
+    // Injected on demand by platform handlers via
+    // chrome.scripting.executeScript({ world: 'MAIN', files: [...] }).
+    // Standalone IIFE because it runs in the page's globals — no
+    // shared imports allowed; the file's IIFE is the entire module.
+    {
+        ...shared,
+        entryPoints: [resolve(root, 'src/page/api-interceptor.js')],
+        outfile: resolve(root, 'dist/api-interceptor.bundle.js'),
+        format: 'iife',
+        platform: 'browser'
+    }
 ];
 
 const watch = process.argv.includes('--watch');
