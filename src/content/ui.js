@@ -16,6 +16,7 @@ import { ContentDetector } from '../shared/content-detector.js';
 import { captureForPlatform, enrichArticleForPlatform, detectPlatformFromDom } from '../shared/platforms/index.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
+import { Signer } from '../shared/signer.js';
 import { NIP07Client } from './nip07-client.js';
 
 export const UI = {
@@ -503,41 +504,70 @@ export const UI = {
     UI.showToast('Markdown downloaded!', 'success');
   },
 
-  updateSigningStatus: () => {
+  updateSigningStatus: async () => {
     const statusEl = document.getElementById('nac-signing-status');
     const dot = document.getElementById('nac-status-dot');
     const textEl = document.getElementById('nac-status-text');
     if (!statusEl || !dot) return;
 
     dot.classList.remove('connected', 'disconnected', 'connecting');
-    const nip07Available = NIP07Client.checkAvailability();
 
-    if (nip07Available) {
-      dot.classList.add('connected');
-      statusEl.title = 'NIP-07 Extension Available (nos2x, Alby, etc.)';
-      if (textEl) textEl.textContent = 'NIP-07';
-    } else if (NSecBunkerClient.connected) {
-      dot.classList.add('connected');
-      statusEl.title = 'NSecBunker Connected';
-      if (textEl) textEl.textContent = 'Bunker';
-    } else {
+    const method = await Signer.getMethod();
+    const configured = await Signer.isConfigured();
+
+    if (!configured) {
       dot.classList.add('disconnected');
-      statusEl.title = 'No signing method available. Install a NIP-07 extension or connect NSecBunker.';
-      if (textEl) textEl.textContent = 'No Signer';
+      statusEl.title = 'X-Ray needs setup. Open Settings → Signing.';
+      if (textEl) textEl.textContent = 'Set up signing';
+      return;
+    }
+
+    if (method === 'local') {
+      const id = await Storage.primaryIdentity.get();
+      if (id && id.privateKey) {
+        dot.classList.add('connected');
+        statusEl.title = 'Local signing — ' + (id.npub || id.pubkey);
+        if (textEl) textEl.textContent = 'Local';
+      } else {
+        dot.classList.add('disconnected');
+        statusEl.title = 'Local signing selected, no key. Open Settings → Signing.';
+        if (textEl) textEl.textContent = 'No key';
+      }
+    } else if (method === 'nip07') {
+      if (NIP07Client.checkAvailability()) {
+        dot.classList.add('connected');
+        statusEl.title = 'NIP-07 Extension Available (nos2x, Alby, etc.)';
+        if (textEl) textEl.textContent = 'NIP-07';
+      } else {
+        dot.classList.add('disconnected');
+        statusEl.title = 'NIP-07 selected but no provider on this page.';
+        if (textEl) textEl.textContent = 'NIP-07 ✗';
+      }
+    } else if (method === 'nsecbunker') {
+      if (NSecBunkerClient.connected) {
+        dot.classList.add('connected');
+        statusEl.title = 'NSecBunker Connected';
+        if (textEl) textEl.textContent = 'Bunker';
+      } else {
+        dot.classList.add('disconnected');
+        statusEl.title = 'NSecBunker selected but not connected.';
+        if (textEl) textEl.textContent = 'Bunker ✗';
+      }
     }
   },
 
   updateBunkerStatus: (_status) => UI.updateSigningStatus(),
 
-  updatePublishButton: () => {
+  updatePublishButton: async () => {
     const btn = document.getElementById('nac-publish-btn');
     const pubSelect = document.getElementById('nac-publication');
     const pubValue = pubSelect.value;
 
     UI.updateSigningStatus();
 
-    const nip07Available = NIP07Client.checkAvailability();
-    const hasSigningMethod = nip07Available || NSecBunkerClient.connected;
+    const method = await Signer.getMethod();
+    const configured = await Signer.isConfigured();
+    const ready = configured && (await Signer.isReady());
 
     if (!UI.state.article) {
       btn.disabled = true;
@@ -560,16 +590,22 @@ export const UI = {
       }
     }
 
-    if (!hasSigningMethod) {
+    if (!configured) {
       btn.disabled = true;
-      btn.innerHTML = `${UI.icons.send}<span>Install Signer Extension</span>`;
+      btn.innerHTML = `${UI.icons.send}<span>Set up signing</span>`;
+      return;
+    }
+    if (!ready) {
+      btn.disabled = true;
+      btn.innerHTML = `${UI.icons.send}<span>Signing not ready</span>`;
       return;
     }
 
     btn.disabled = false;
-    btn.innerHTML = nip07Available
-      ? `${UI.icons.send}<span>Publish with Extension</span>`
-      : `${UI.icons.send}<span>Publish to NOSTR</span>`;
+    const label = method === 'local'
+      ? 'Publish to NOSTR'
+      : method === 'nip07' ? 'Publish with Extension' : 'Publish via Bunker';
+    btn.innerHTML = `${UI.icons.send}<span>${label}</span>`;
   },
 
   publish: async () => {
@@ -596,23 +632,28 @@ export const UI = {
         throw new Error('Please select or create a publication');
       }
 
-      const nip07Available = NIP07Client.checkAvailability();
-      Utils.log('NIP-07 available:', nip07Available);
+      const signingMethod = await Signer.getMethod();
+      Utils.log('Signing method:', signingMethod);
 
       let signedEvent;
 
-      if (nip07Available) {
-        // ========== NIP-07 SIGNING PATH ==========
-        Utils.log('Using NIP-07 extension for signing');
+      if (signingMethod === 'local' || signingMethod === 'nip07') {
+        // ========== LOCAL or NIP-07 SIGNING PATH ==========
+        // Both use the user's own pubkey as the publication pubkey;
+        // the Signer façade hides which one is doing the work.
+        Utils.log('Using Signer (' + signingMethod + ') for signing');
         btn.innerHTML = `<div class="nac-spinner"></div><span>Getting key...</span>`;
 
         let pubkey;
         try {
-          pubkey = await NIP07Client.getPublicKey();
-          Utils.log('Got pubkey from NIP-07:', pubkey);
+          pubkey = await Signer.getPublicKey();
+          Utils.log('Got pubkey:', pubkey);
         } catch (e) {
-          Utils.error('Failed to get pubkey from NIP-07:', e);
-          throw new Error('Failed to get public key from extension. Please unlock your extension and try again.');
+          Utils.error('Failed to get pubkey:', e);
+          if (signingMethod === 'nip07') {
+            throw new Error('Failed to get public key from extension. Please unlock your extension and try again.');
+          }
+          throw new Error('No local signing key. Open Settings → Signing to generate or import one.');
         }
 
         if (publicationId === '__new__') {
@@ -629,7 +670,7 @@ export const UI = {
             type: pubType,
             domain: pubDomain,
             pubkey,
-            signingMethod: 'nip07',
+            signingMethod,
             created: Math.floor(Date.now() / 1000)
           });
 
@@ -639,19 +680,19 @@ export const UI = {
             pubkey,
             domain: pubDomain,
             pubType,
-            signingMethod: 'nip07',
+            signingMethod,
             created: Math.floor(Date.now() / 1000)
           });
 
-          Utils.log('Created new publication with NIP-07:', publicationId);
+          Utils.log('Created new publication with ' + signingMethod + ':', publicationId);
         } else {
           const publication = await Storage.publications.get(publicationId);
           if (publication && (!publication.pubkey || publication.pubkey !== pubkey)) {
-            Utils.log('Updating publication pubkey from NIP-07');
+            Utils.log('Updating publication pubkey from ' + signingMethod);
             await Storage.publications.save(publicationId, {
               ...publication,
               pubkey,
-              signingMethod: 'nip07'
+              signingMethod
             });
             await Storage.keypairs.save(publicationId, {
               type: 'publication',
@@ -659,7 +700,7 @@ export const UI = {
               pubkey,
               domain: publication.domain,
               pubType: publication.type,
-              signingMethod: 'nip07',
+              signingMethod,
               created: publication.created || Math.floor(Date.now() / 1000)
             });
           }
@@ -686,26 +727,30 @@ export const UI = {
 
         Utils.log('Building article event...');
         // v4 builder signature: (article, entities, userPubkey, claims).
-        // Entity tagging + claims UIs arrive in Phases 4/5.
-        // `authorPubkey` was a v1-era shortcut; the v4 flow represents authors
-        // as entities (Phase 4), so we omit it here.
         const event = await EventBuilder.buildArticleEvent(article, [], pubkey, []);
         Utils.log('Built unsigned event:', event);
 
-        btn.innerHTML = `<div class="nac-spinner"></div><span>Sign in extension...</span>`;
-        UI.showToast('Please approve the signature in your NOSTR extension...', 'warning');
+        if (signingMethod === 'nip07') {
+          btn.innerHTML = `<div class="nac-spinner"></div><span>Sign in extension...</span>`;
+          UI.showToast('Please approve the signature in your NOSTR extension...', 'warning');
+        } else {
+          btn.innerHTML = `<div class="nac-spinner"></div><span>Signing locally...</span>`;
+        }
 
         try {
-          signedEvent = await NIP07Client.signEvent(event);
-          Utils.log('Got signed event from NIP-07:', signedEvent);
+          signedEvent = await Signer.signEvent(event);
+          Utils.log('Got signed event:', signedEvent);
         } catch (e) {
-          Utils.error('NIP-07 signing failed:', e);
-          throw new Error('Signing was rejected or failed. Please try again.');
+          Utils.error('Signing failed:', e);
+          if (signingMethod === 'nip07') {
+            throw new Error('Signing was rejected or failed. Please try again.');
+          }
+          throw new Error('Local signing failed: ' + (e && e.message));
         }
 
         if (!signedEvent || !signedEvent.id || !signedEvent.sig) {
           Utils.error('Invalid signed event:', signedEvent);
-          throw new Error('Extension returned invalid signed event');
+          throw new Error('Signer returned invalid signed event');
         }
 
         await UI.loadEntities();

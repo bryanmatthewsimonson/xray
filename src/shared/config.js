@@ -57,3 +57,28 @@ export const CONFIG = {
 
 // Shared mutable state (Phase 3+ platform handlers may use this).
 export const _state = { fabRef: null };
+
+/**
+ * Apply user-supplied overrides from `preferences.config_overrides` onto
+ * the in-memory CONFIG object. Keeps the rest of the codebase reading
+ * CONFIG.* synchronously while honoring Settings → Advanced changes.
+ *
+ * Called once after Storage.initialize() in every entry-point bundle.
+ * Idempotent: blank fields fall back to factory defaults.
+ */
+export function applyConfigOverrides(overrides) {
+    if (!overrides || typeof overrides !== 'object') return;
+    if (typeof overrides.article_cache_enabled === 'boolean') {
+        CONFIG.articleCache.enabled = overrides.article_cache_enabled;
+    }
+    if (Number.isFinite(overrides.article_cache_budget_mb) && overrides.article_cache_budget_mb > 0) {
+        CONFIG.articleCache.maxSizeBytes = overrides.article_cache_budget_mb * 1024 * 1024;
+    }
+    if (Number.isFinite(overrides.min_content_length) && overrides.min_content_length >= 0) {
+        CONFIG.extraction.min_content_length = overrides.min_content_length;
+        CONFIG.extraction.minContentLength = overrides.min_content_length;
+    }
+    if (Number.isFinite(overrides.max_claim_length) && overrides.max_claim_length > 0) {
+        CONFIG.tagging.max_claim_length = overrides.max_claim_length;
+    }
+}

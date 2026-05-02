@@ -11,38 +11,57 @@ function setVersion() {
 }
 
 async function loadStatus() {
-    // Signing status: we can't directly ask the content script (would
-    // require it to be loaded), so we infer from preferences storage.
-    // The content script sets a volatile `xr_signing_state` key when
-    // NIP-07/NSecBunker becomes available.
+    // Signing status. With the user-pickable `signing_method` preference
+    // we trust that as the source of truth and use `xr_signing_state`
+    // (written by the content script on init) only to enrich the line
+    // with the active pubkey/npub.
     try {
-        const { xr_signing_state, preferences } = await new Promise((resolve) => {
-            browserApi.storage.local.get(['xr_signing_state', 'preferences'], resolve);
+        const { xr_signing_state, preferences, local_primary_identity } = await new Promise((resolve) => {
+            browserApi.storage.local.get(
+                ['xr_signing_state', 'preferences', 'local_primary_identity'],
+                resolve
+            );
         });
 
         const signingEl = document.getElementById('status-signing');
-        if (xr_signing_state) {
-            const parsed = typeof xr_signing_state === 'string'
-                ? safeParse(xr_signing_state)
-                : xr_signing_state;
-            if (parsed?.method === 'nip07') {
-                signingEl.textContent = 'NIP-07';
-                signingEl.classList.add('xr-popup__status-value--ok');
-            } else if (parsed?.method === 'nsecbunker') {
-                signingEl.textContent = 'NSecBunker';
+        const prefs = typeof preferences === 'string' ? safeParse(preferences) : preferences;
+        const state = typeof xr_signing_state === 'string'
+            ? safeParse(xr_signing_state)
+            : xr_signing_state;
+        const identity = typeof local_primary_identity === 'string'
+            ? safeParse(local_primary_identity)
+            : local_primary_identity;
+
+        const method = prefs && prefs.signing_method;
+        const configured = prefs && prefs.signing_method_configured === true;
+
+        if (!configured) {
+            signingEl.textContent = 'set up signing';
+            signingEl.classList.add('xr-popup__status-value--warn');
+        } else if (method === 'local') {
+            if (identity && identity.npub) {
+                const truncated = identity.npub.slice(0, 14) + '…';
+                signingEl.textContent = `Local (${truncated})`;
                 signingEl.classList.add('xr-popup__status-value--ok');
             } else {
-                signingEl.textContent = 'not configured';
+                signingEl.textContent = 'Local — no key';
                 signingEl.classList.add('xr-popup__status-value--warn');
             }
+        } else if (method === 'nip07') {
+            const detected = state && state.method === 'nip07';
+            signingEl.textContent = detected ? 'NIP-07' : 'NIP-07 (not detected)';
+            signingEl.classList.add(detected ? 'xr-popup__status-value--ok' : 'xr-popup__status-value--warn');
+        } else if (method === 'nsecbunker') {
+            const connected = state && state.method === 'nsecbunker';
+            signingEl.textContent = connected ? 'NSecBunker' : 'NSecBunker (offline)';
+            signingEl.classList.add(connected ? 'xr-popup__status-value--ok' : 'xr-popup__status-value--warn');
         } else {
-            signingEl.textContent = 'not detected';
+            signingEl.textContent = 'unknown';
             signingEl.classList.add('xr-popup__status-value--warn');
         }
 
         const relaysEl = document.getElementById('status-relays');
-        const prefs = typeof preferences === 'string' ? safeParse(preferences) : preferences;
-        const relays = prefs?.default_relays;
+        const relays = prefs && prefs.default_relays;
         relaysEl.textContent = Array.isArray(relays) ? `${relays.length} configured` : '—';
     } catch (e) {
         console.warn('[X-Ray popup] status load failed', e);
