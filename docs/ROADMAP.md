@@ -26,10 +26,15 @@ Per-phase GitHub issues are the working trackers:
 | 6 | [#17](https://github.com/bryanmatthewsimonson/xray/issues/17) | Entity sync over NIP-78 with NIP-44 v2 encryption |
 | 7 | [#18](https://github.com/bryanmatthewsimonson/xray/issues/18) | Archive reader (IndexedDB cache + paywall detection + relay reconstruction) |
 | 8 | [#19](https://github.com/bryanmatthewsimonson/xray/issues/19) | Hard-tier platforms (Facebook / Instagram / TikTok) |
+| 9 | _pending_ | Court of Public Opinion — MVP (personal Code of Conduct, grievance filing, WoT-weighted verdicts) |
 
 Ordering rationale and non-goals live in the roadmap issue; this doc
 focuses on *what is done, what's next, and what is deliberately out of
 scope for a given phase*.
+
+Forward-looking plans (incl. the Court of Public Opinion design) live
+under [`plans/`](plans/), consolidated from the `nostr-article-capture`
+repo on 2026-04-24 and marked **tentative**.
 
 ---
 
@@ -45,6 +50,7 @@ Phase 5  ████████████████████  complete 
 Phase 6  ████████████████████  complete — entity sync via NIP-78 + NIP-44 v2
 Phase 7  ████████████████████  complete — archive reader (IDB cache + paywall detection + relay reconstruct)
 Phase 8  ████████████████████  complete — 8a infra + TikTok + Instagram + Facebook shipped
+Phase 9  ░░░░░░░░░░░░░░░░░░░░  tentative design (2026-04-24) — Court of Public Opinion MVP
 ```
 
 ---
@@ -663,6 +669,34 @@ the existing code. Fresh recon is cheaper than porting stale code.
   layer without patching page `fetch`.
 - `chrome.debugger` API is a cheat code for especially-hostile
   targets; high-friction auth prompt though, so only a last resort.
+
+---
+
+## Phase 9 — Court of Public Opinion (MVP) — tentative
+
+**Status (2026-04-24):** design phase. The working plan is at
+[`plans/NIP-COURT-OF-PUBLIC-OPINION.md`](plans/NIP-COURT-OF-PUBLIC-OPINION.md)
+(to be written). High-level scope:
+
+1. **Personal Code of Conduct (kind 32150)** — users codify clauses of
+   behavior they'll be held to; publish via NIP-07; display on profile.
+2. **Grievance (kind 32151)** — file a structured complaint against any
+   URL/post citing specific clauses + evidence.
+3. **Verdict (kind 32152)** — self-published findings; aggregation is
+   client-side, weighted by the viewer's kind 30382 trust graph.
+
+Out of scope for MVP: trade-off questionnaire belief modeller, formal
+sanctions/badges, appeals UI, hypocrisy detection, community-template
+marketplace. See the plan file for full detail.
+
+Infrastructure reuse: `event-builder.js`, `nostr-client.js`, platform
+handlers (`facebook.js` + `twitter.js` hooks for `⚖️` injection),
+NIP-07 signing, `local-key-manager.js`, `evidence-linker.js`.
+
+Plans consolidated into [`plans/`](plans/):
+`trust-reputation-system.md` (kind 30382 WoT), `evidentiary-standards.md`
+(burden-of-proof thresholds, evidence Q-formula),
+`protocol-adoption-guide.md`, `ui-ux-design.md` §1.9 (DisputeThreadPanel).
 
 ---
 

@@ -27,6 +27,12 @@ cross-cutting refactor), run the
 [**smoke test**](docs/SMOKE_TEST.md) — a ~20-minute manual
 checklist that exercises every shipped surface across Phases 0–7.
 
+Forward-looking, unimplemented design plans live under
+[`docs/plans/`](docs/plans/) — consolidated from the
+`nostr-article-capture` repo on 2026-04-24 and carrying a **tentative**
+banner at the top of each file. Production-code reference docs for the
+legacy userscript stay in their original repo and are not mirrored here.
+
 ## Features (currently working)
 
 - **Reader-mode article extraction** — Mozilla Readability + Turndown
