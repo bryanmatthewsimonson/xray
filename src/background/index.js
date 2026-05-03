@@ -3,8 +3,9 @@
 // Phase 0 responsibilities:
 //   - Register context-menu items on install/update.
 //   - Forward context-menu clicks to the content script in the active tab.
-//   - Relay popup-driven actions (e.g. "Open Article Capture") to the
-//     content script in the current tab.
+//   - Toolbar-icon click → `xray:toggle` to the active tab (mirrors the
+//     keyboard shortcut). On non-injectable pages the click falls back
+//     to opening the options page so it's never a silent no-op.
 //   - Bridge xray:notify → chrome.notifications.
 //   - Handle the keyboard-shortcut `command` (`Ctrl/Cmd+Shift+X`) by
 //     dispatching `xray:toggle` to the active tab.
@@ -49,25 +50,47 @@ function safeParse(s) { try { return JSON.parse(s); } catch (_) { return null; }
 
 const MENU_IDS = {
     OPEN_CAPTURE: 'xray:open-capture',
+    OPEN_ENTITIES: 'xray:open-entities',
+    OPEN_SETTINGS: 'xray:open-settings',
     EXPORT_KEYPAIRS: 'xray:export-keypairs',
-    VIEW_KEYPAIRS: 'xray:view-keypairs'
+    VIEW_KEYPAIRS: 'xray:view-keypairs',
+    CAPTURE_TIPS: 'xray:capture-tips'
 };
+
+const CAPTURE_TIPS_URL = 'https://github.com/bryanmatthewsimonson/xray/blob/main/docs/CAPTURE_GUIDE.md';
 
 // ------------------------------------------------------------------
 // Context menus
 // ------------------------------------------------------------------
 
 function registerContextMenus() {
-    // Remove any stale entries first (e.g. after a reload during development).
+    // The browser-action click toggles the FAB panel directly (see
+    // chrome.action.onClicked below). The right-click menu hosts the
+    // jump-to-other-surfaces actions that used to live in the popup.
     chrome.contextMenus.removeAll(() => {
         chrome.contextMenus.create({
             id: MENU_IDS.OPEN_CAPTURE,
-            title: 'Open Article Capture',
+            title: 'Toggle Article Capture',
             contexts: ['page', 'action']
+        });
+        chrome.contextMenus.create({
+            id: MENU_IDS.OPEN_ENTITIES,
+            title: 'Open Entity Browser',
+            contexts: ['action']
+        });
+        chrome.contextMenus.create({
+            id: MENU_IDS.OPEN_SETTINGS,
+            title: 'Settings…',
+            contexts: ['action']
         });
         chrome.contextMenus.create({
             id: 'xray:separator-1',
             type: 'separator',
+            contexts: ['action']
+        });
+        chrome.contextMenus.create({
+            id: MENU_IDS.VIEW_KEYPAIRS,
+            title: 'View Keypair Registry',
             contexts: ['action']
         });
         chrome.contextMenus.create({
@@ -76,9 +99,58 @@ function registerContextMenus() {
             contexts: ['action']
         });
         chrome.contextMenus.create({
-            id: MENU_IDS.VIEW_KEYPAIRS,
-            title: 'View Keypair Registry',
+            id: 'xray:separator-2',
+            type: 'separator',
             contexts: ['action']
+        });
+        chrome.contextMenus.create({
+            id: MENU_IDS.CAPTURE_TIPS,
+            title: 'Capture tips (Instagram, Facebook, …)',
+            contexts: ['action']
+        });
+    });
+}
+
+/**
+ * Open the entity browser. Three openers, in preference order:
+ *   1. browser.sidebarAction.toggle()   — Firefox sidebar (MV3)
+ *   2. chrome.sidePanel.open()          — Chrome / Edge / Brave
+ *   3. tabs.create()                    — last-resort tab
+ * Both panel APIs require a user gesture; the menu/icon click qualifies.
+ */
+async function openEntityBrowser() {
+    try {
+        if (typeof browser !== 'undefined' && browser.sidebarAction && browser.sidebarAction.toggle) {
+            await browser.sidebarAction.toggle();
+            return;
+        }
+        if (chrome.sidePanel && chrome.sidePanel.open) {
+            const win = await new Promise((resolve) => chrome.windows.getCurrent(resolve));
+            await chrome.sidePanel.open({ windowId: win.id });
+            return;
+        }
+    } catch (err) {
+        console.warn('[X-Ray] entity-browser open failed:', err);
+    }
+    chrome.tabs.create({ url: chrome.runtime.getURL('src/sidepanel/index.html') });
+}
+
+/**
+ * Toggle the FAB capture panel on the active tab. If the content script
+ * isn't loaded (chrome://, file://, extension pages, the WebStore…)
+ * fall back to opening the options page so the icon click is never a
+ * no-op the user can't recover from.
+ */
+function toggleCaptureOnActiveTab() {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const tab = tabs && tabs[0];
+        if (!tab || !tab.id) {
+            chrome.runtime.openOptionsPage?.();
+            return;
+        }
+        chrome.tabs.sendMessage(tab.id, { type: 'xray:toggle' }).catch((err) => {
+            console.warn('[X-Ray] xray:toggle delivery failed, opening Settings:', err && err.message);
+            chrome.runtime.openOptionsPage?.();
         });
     });
 }
@@ -89,10 +161,25 @@ chrome.runtime.onInstalled.addListener(registerContextMenus);
 chrome.runtime.onStartup?.addListener(registerContextMenus);
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
+    // Settings / Entity Browser / Capture tips don't need an active tab —
+    // they target the extension itself.
+    if (info.menuItemId === MENU_IDS.OPEN_SETTINGS) {
+        chrome.runtime.openOptionsPage?.();
+        return;
+    }
+    if (info.menuItemId === MENU_IDS.OPEN_ENTITIES) {
+        openEntityBrowser();
+        return;
+    }
+    if (info.menuItemId === MENU_IDS.CAPTURE_TIPS) {
+        chrome.tabs.create({ url: CAPTURE_TIPS_URL });
+        return;
+    }
+
     if (!tab || !tab.id) return;
 
     const messageForMenuId = {
-        [MENU_IDS.OPEN_CAPTURE]: { type: 'xray:open' },
+        [MENU_IDS.OPEN_CAPTURE]: { type: 'xray:toggle' },
         [MENU_IDS.EXPORT_KEYPAIRS]: { type: 'xray:exportKeypairs' },
         [MENU_IDS.VIEW_KEYPAIRS]: { type: 'xray:viewKeypairs' }
     };
@@ -103,8 +190,16 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     chrome.tabs.sendMessage(tab.id, message).catch(err => {
         // Content script may not be loaded on this page (e.g. chrome:// URLs).
         console.warn('[X-Ray] Failed to deliver context-menu command:', err);
+        if (message.type === 'xray:toggle') {
+            chrome.runtime.openOptionsPage?.();
+        }
     });
 });
+
+// ------------------------------------------------------------------
+// Toolbar-icon click — toggle FAB on the active tab (no popup).
+// ------------------------------------------------------------------
+chrome.action?.onClicked.addListener(toggleCaptureOnActiveTab);
 
 // ------------------------------------------------------------------
 // Message routing between popup / content / worker
@@ -116,8 +211,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return false;
     }
 
-    // Popup → active tab's content script. Popup doesn't know the active
-    // tab id, so we look it up here.
+    // FAB / context-menu shortcuts that target the extension itself.
+    // No tab routing needed; the SW just opens the relevant surface.
+    if (message.type === 'xray:openSettings') {
+        chrome.runtime.openOptionsPage?.();
+        sendResponse({ ok: true });
+        return false;
+    }
+    if (message.type === 'xray:openEntities') {
+        openEntityBrowser();
+        sendResponse({ ok: true });
+        return false;
+    }
+    if (message.type === 'xray:openCaptureTips') {
+        chrome.tabs.create({ url: CAPTURE_TIPS_URL });
+        sendResponse({ ok: true });
+        return false;
+    }
+
+    // Forwarders — historically used by the popup. Kept because the
+    // options page also forwards a couple of things into the active tab.
     if (message.type?.startsWith('xray:forward:')) {
         const forwarded = { ...message, type: message.type.slice('xray:forward:'.length) };
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {

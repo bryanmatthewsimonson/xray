@@ -549,6 +549,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     const prefs = (await storageGet('preferences')) || {};
     if (!prefs.signing_method_configured) activateTab('signing');
 
+    // Quick-action header buttons (replace the old popup's role).
+    document.getElementById('qa-toggle-capture').addEventListener('click', () => {
+        browserApi.runtime.sendMessage({ type: 'xray:forward:xray:toggle' });
+    });
+    document.getElementById('qa-open-entities').addEventListener('click', () => {
+        browserApi.runtime.sendMessage({ type: 'xray:openEntities' });
+    });
+    document.getElementById('qa-capture-tips').addEventListener('click', () => {
+        browserApi.runtime.sendMessage({ type: 'xray:openCaptureTips' });
+    });
+
     document.getElementById('relays-save').addEventListener('click', saveRelays);
     document.getElementById('relays-reset').addEventListener('click', resetRelays);
     document.getElementById('relays-add').addEventListener('click', onRelayAdd);

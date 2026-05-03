@@ -7,7 +7,14 @@
 </head>
 <body>
   <header class="xr-opt__header">
-    <h1 class="xr-opt__title">X-Ray Settings</h1>
+    <div class="xr-opt__header-row">
+      <h1 class="xr-opt__title">X-Ray Settings</h1>
+      <div class="xr-opt__quick">
+        <button class="xr-opt__btn" id="qa-toggle-capture" title="Toggle the capture panel on the active tab">Toggle Capture</button>
+        <button class="xr-opt__btn" id="qa-open-entities" title="Open the entity browser sidepanel">Entity Browser</button>
+        <button class="xr-opt__btn" id="qa-capture-tips" title="Capture guide on GitHub">Capture tips</button>
+      </div>
+    </div>
     <nav class="xr-opt__tabs">
       <button class="xr-opt__tab xr-opt__tab--active" data-tab="relays">Relays</button>
       <button class="xr-opt__tab" data-tab="signing">Signing</button>

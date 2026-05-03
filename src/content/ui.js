@@ -40,6 +40,8 @@ export const UI = {
     business: '<svg viewBox="0 0 24 24"><path d="M12 7V3H2v18h20V7H12zM6 19H4v-2h2v2zm0-4H4v-2h2v2zm0-4H4V9h2v2zm0-4H4V5h2v2zm4 12H8v-2h2v2zm0-4H8v-2h2v2zm0-4H8V9h2v2zm0-4H8V5h2v2zm10 12h-8v-2h2v-2h-2v-2h2v-2h-2V9h8v10zm-2-8h-2v2h2v-2zm0 4h-2v2h2v-2z"/></svg>',
     article: '<svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>',
     warning: '<svg viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>',
+    settings: '<svg viewBox="0 0 24 24"><path d="M19.14 12.94a7.07 7.07 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54A.5.5 0 0 0 13.92 2h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.59.24-1.13.55-1.62.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.48a.5.5 0 0 0 .12.64l2.03 1.58a7.07 7.07 0 0 0 0 2l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.42.34.6.22l2.39-.96c.49.39 1.03.7 1.62.94l.36 2.54c.05.24.25.42.49.42h3.84c.24 0 .44-.18.49-.42l.36-2.54c.59-.24 1.13-.55 1.62-.94l2.39.96c.18.12.46.02.6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg>',
+    entities: '<svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>',
     check: '<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>'
   },
 
@@ -163,6 +165,8 @@ export const UI = {
           </span>
         </div>
         <div class="nac-panel-controls">
+          <button class="nac-btn-icon" id="nac-entities" title="Open Entity Browser">${UI.icons.entities}</button>
+          <button class="nac-btn-icon" id="nac-settings" title="Settings…">${UI.icons.settings}</button>
           <button class="nac-btn-icon" id="nac-download" title="Download Markdown">${UI.icons.download}</button>
           <button class="nac-btn-icon" id="nac-close" title="Close (Esc)">${UI.icons.close}</button>
         </div>
@@ -271,14 +275,8 @@ export const UI = {
             <span class="nac-collapsible-icon">${UI.icons.chevronDown}</span>
           </div>
           <div class="nac-collapsible-content">
-            <div class="nac-checkbox-group" id="nac-relays">
-              ${CONFIG.relays.map(relay => `
-                <label class="nac-checkbox">
-                  <input type="checkbox" value="${relay.url}" ${relay.enabled ? 'checked' : ''}>
-                  <span>${relay.url.replace('wss://', '')}</span>
-                </label>
-              `).join('')}
-            </div>
+            <!-- Populated at panel-open time from Storage.relays — see UI.loadRelays() -->
+            <div class="nac-checkbox-group" id="nac-relays"></div>
           </div>
         </div>
 
@@ -296,6 +294,14 @@ export const UI = {
 
   attachEventListeners: () => {
     document.getElementById('nac-close').addEventListener('click', () => UI.close());
+    document.getElementById('nac-settings').addEventListener('click', () => {
+      try { chrome.runtime.sendMessage({ type: 'xray:openSettings' }); }
+      catch (_) { /* SW not reachable; ignore */ }
+    });
+    document.getElementById('nac-entities').addEventListener('click', () => {
+      try { chrome.runtime.sendMessage({ type: 'xray:openEntities' }); }
+      catch (_) { /* SW not reachable; ignore */ }
+    });
 
     document.querySelectorAll('.nac-tab').forEach(tab => {
       tab.addEventListener('click', () => UI.switchTab(tab.dataset.tab));
@@ -360,8 +366,38 @@ export const UI = {
     UI.elements.overlay.classList.add('visible');
     UI.elements.panel.classList.add('visible');
     UI.elements.fab.classList.add('active');
+    await UI.loadRelays();
     await UI.loadArticle();
     await UI.loadEntities();
+  },
+
+  /**
+   * Populate the relay checkbox group from `Storage.relays.get()` so the
+   * publish-time picker reflects the user's actual relay list (Settings →
+   * Relays), not the static `CONFIG.relays` defaults. Disabled and
+   * write-false relays are omitted; the rest are checked by default.
+   */
+  loadRelays: async () => {
+    try {
+      const { relays } = await Storage.relays.get();
+      const eligible = (relays || []).filter((r) => r.enabled && r.write);
+      const host = document.getElementById('nac-relays');
+      if (!host) return;
+      if (eligible.length === 0) {
+        host.innerHTML = `<div class="nac-empty-text" style="font-size:12px">
+          No write-enabled relays configured. Open Settings → Relays.
+        </div>`;
+        return;
+      }
+      host.innerHTML = eligible.map((r) => `
+        <label class="nac-checkbox">
+          <input type="checkbox" value="${Utils.escapeHtml(r.url)}" checked>
+          <span>${Utils.escapeHtml(r.url.replace(/^wss?:\/\//, ''))}</span>
+        </label>
+      `).join('');
+    } catch (e) {
+      Utils.error('loadRelays failed:', e);
+    }
   },
 
   close: () => {

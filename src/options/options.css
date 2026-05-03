@@ -293,3 +293,18 @@ hr {
 
 .xr-opt__relays-flag { text-align: center; }
 
+.xr-opt__header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.xr-opt__quick {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+
