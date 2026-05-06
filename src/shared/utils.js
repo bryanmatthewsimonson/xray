@@ -1,6 +1,7 @@
 // Utility helpers. API-compatible with the userscript's Utils object.
 
 import { CONFIG } from './config.js';
+import { normalize as _normalize } from './metadata/url-normalizer.js';
 
 export const Utils = {
     generateId: () => Date.now().toString(36) + Math.random().toString(36).substr(2),
@@ -22,26 +23,11 @@ export const Utils = {
         return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     },
 
-    normalizeUrl: (url) => {
-        try {
-            const parsed = new URL(url);
-            const trackingParams = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid'];
-            trackingParams.forEach(param => parsed.searchParams.delete(param));
-            parsed.hash = '';
-            parsed.hostname = parsed.hostname.toLowerCase();
-            if ((parsed.protocol === 'https:' && parsed.port === '443') ||
-                (parsed.protocol === 'http:'  && parsed.port === '80')) {
-                parsed.port = '';
-            }
-            let normalized = parsed.toString();
-            if (normalized.endsWith('/') && parsed.pathname !== '/') {
-                normalized = normalized.slice(0, -1);
-            }
-            return normalized;
-        } catch (e) {
-            return url;
-        }
-    },
+    // Thin wrapper over `src/shared/metadata/url-normalizer.js` (the
+    // canonical NIP-73-conformant implementation). Existing call-sites
+    // continue to work; new code should import `normalize` directly so
+    // the dependency is explicit.
+    normalizeUrl: (url) => _normalize(url),
 
     getDomain: (url) => {
         try { return new URL(url).hostname.replace(/^www\./, ''); }

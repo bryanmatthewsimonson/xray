@@ -16,6 +16,7 @@ import { ContentDetector } from '../shared/content-detector.js';
 import { captureForPlatform, enrichArticleForPlatform, detectPlatformFromDom } from '../shared/platforms/index.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
+import { Signer } from '../shared/signer.js';
 import { NIP07Client } from './nip07-client.js';
 
 export const UI = {
@@ -39,6 +40,8 @@ export const UI = {
     business: '<svg viewBox="0 0 24 24"><path d="M12 7V3H2v18h20V7H12zM6 19H4v-2h2v2zm0-4H4v-2h2v2zm0-4H4V9h2v2zm0-4H4V5h2v2zm4 12H8v-2h2v2zm0-4H8v-2h2v2zm0-4H8V9h2v2zm0-4H8V5h2v2zm10 12h-8v-2h2v-2h-2v-2h2v-2h-2V9h8v10zm-2-8h-2v2h2v-2zm0 4h-2v2h2v-2z"/></svg>',
     article: '<svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>',
     warning: '<svg viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>',
+    settings: '<svg viewBox="0 0 24 24"><path d="M19.14 12.94a7.07 7.07 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54A.5.5 0 0 0 13.92 2h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.59.24-1.13.55-1.62.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.48a.5.5 0 0 0 .12.64l2.03 1.58a7.07 7.07 0 0 0 0 2l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.42.34.6.22l2.39-.96c.49.39 1.03.7 1.62.94l.36 2.54c.05.24.25.42.49.42h3.84c.24 0 .44-.18.49-.42l.36-2.54c.59-.24 1.13-.55 1.62-.94l2.39.96c.18.12.46.02.6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg>',
+    entities: '<svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>',
     check: '<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>'
   },
 
@@ -162,6 +165,8 @@ export const UI = {
           </span>
         </div>
         <div class="nac-panel-controls">
+          <button class="nac-btn-icon" id="nac-entities" title="Open Entity Browser">${UI.icons.entities}</button>
+          <button class="nac-btn-icon" id="nac-settings" title="Settings…">${UI.icons.settings}</button>
           <button class="nac-btn-icon" id="nac-download" title="Download Markdown">${UI.icons.download}</button>
           <button class="nac-btn-icon" id="nac-close" title="Close (Esc)">${UI.icons.close}</button>
         </div>
@@ -270,14 +275,8 @@ export const UI = {
             <span class="nac-collapsible-icon">${UI.icons.chevronDown}</span>
           </div>
           <div class="nac-collapsible-content">
-            <div class="nac-checkbox-group" id="nac-relays">
-              ${CONFIG.relays.map(relay => `
-                <label class="nac-checkbox">
-                  <input type="checkbox" value="${relay.url}" ${relay.enabled ? 'checked' : ''}>
-                  <span>${relay.url.replace('wss://', '')}</span>
-                </label>
-              `).join('')}
-            </div>
+            <!-- Populated at panel-open time from Storage.relays — see UI.loadRelays() -->
+            <div class="nac-checkbox-group" id="nac-relays"></div>
           </div>
         </div>
 
@@ -295,6 +294,14 @@ export const UI = {
 
   attachEventListeners: () => {
     document.getElementById('nac-close').addEventListener('click', () => UI.close());
+    document.getElementById('nac-settings').addEventListener('click', () => {
+      try { chrome.runtime.sendMessage({ type: 'xray:openSettings' }); }
+      catch (_) { /* SW not reachable; ignore */ }
+    });
+    document.getElementById('nac-entities').addEventListener('click', () => {
+      try { chrome.runtime.sendMessage({ type: 'xray:openEntities' }); }
+      catch (_) { /* SW not reachable; ignore */ }
+    });
 
     document.querySelectorAll('.nac-tab').forEach(tab => {
       tab.addEventListener('click', () => UI.switchTab(tab.dataset.tab));
@@ -359,8 +366,38 @@ export const UI = {
     UI.elements.overlay.classList.add('visible');
     UI.elements.panel.classList.add('visible');
     UI.elements.fab.classList.add('active');
+    await UI.loadRelays();
     await UI.loadArticle();
     await UI.loadEntities();
+  },
+
+  /**
+   * Populate the relay checkbox group from `Storage.relays.get()` so the
+   * publish-time picker reflects the user's actual relay list (Settings →
+   * Relays), not the static `CONFIG.relays` defaults. Disabled and
+   * write-false relays are omitted; the rest are checked by default.
+   */
+  loadRelays: async () => {
+    try {
+      const { relays } = await Storage.relays.get();
+      const eligible = (relays || []).filter((r) => r.enabled && r.write);
+      const host = document.getElementById('nac-relays');
+      if (!host) return;
+      if (eligible.length === 0) {
+        host.innerHTML = `<div class="nac-empty-text" style="font-size:12px">
+          No write-enabled relays configured. Open Settings → Relays.
+        </div>`;
+        return;
+      }
+      host.innerHTML = eligible.map((r) => `
+        <label class="nac-checkbox">
+          <input type="checkbox" value="${Utils.escapeHtml(r.url)}" checked>
+          <span>${Utils.escapeHtml(r.url.replace(/^wss?:\/\//, ''))}</span>
+        </label>
+      `).join('');
+    } catch (e) {
+      Utils.error('loadRelays failed:', e);
+    }
   },
 
   close: () => {
@@ -503,41 +540,70 @@ export const UI = {
     UI.showToast('Markdown downloaded!', 'success');
   },
 
-  updateSigningStatus: () => {
+  updateSigningStatus: async () => {
     const statusEl = document.getElementById('nac-signing-status');
     const dot = document.getElementById('nac-status-dot');
     const textEl = document.getElementById('nac-status-text');
     if (!statusEl || !dot) return;
 
     dot.classList.remove('connected', 'disconnected', 'connecting');
-    const nip07Available = NIP07Client.checkAvailability();
 
-    if (nip07Available) {
-      dot.classList.add('connected');
-      statusEl.title = 'NIP-07 Extension Available (nos2x, Alby, etc.)';
-      if (textEl) textEl.textContent = 'NIP-07';
-    } else if (NSecBunkerClient.connected) {
-      dot.classList.add('connected');
-      statusEl.title = 'NSecBunker Connected';
-      if (textEl) textEl.textContent = 'Bunker';
-    } else {
+    const method = await Signer.getMethod();
+    const configured = await Signer.isConfigured();
+
+    if (!configured) {
       dot.classList.add('disconnected');
-      statusEl.title = 'No signing method available. Install a NIP-07 extension or connect NSecBunker.';
-      if (textEl) textEl.textContent = 'No Signer';
+      statusEl.title = 'X-Ray needs setup. Open Settings → Signing.';
+      if (textEl) textEl.textContent = 'Set up signing';
+      return;
+    }
+
+    if (method === 'local') {
+      const id = await Storage.primaryIdentity.get();
+      if (id && id.privateKey) {
+        dot.classList.add('connected');
+        statusEl.title = 'Local signing — ' + (id.npub || id.pubkey);
+        if (textEl) textEl.textContent = 'Local';
+      } else {
+        dot.classList.add('disconnected');
+        statusEl.title = 'Local signing selected, no key. Open Settings → Signing.';
+        if (textEl) textEl.textContent = 'No key';
+      }
+    } else if (method === 'nip07') {
+      if (NIP07Client.checkAvailability()) {
+        dot.classList.add('connected');
+        statusEl.title = 'NIP-07 Extension Available (nos2x, Alby, etc.)';
+        if (textEl) textEl.textContent = 'NIP-07';
+      } else {
+        dot.classList.add('disconnected');
+        statusEl.title = 'NIP-07 selected but no provider on this page.';
+        if (textEl) textEl.textContent = 'NIP-07 ✗';
+      }
+    } else if (method === 'nsecbunker') {
+      if (NSecBunkerClient.connected) {
+        dot.classList.add('connected');
+        statusEl.title = 'NSecBunker Connected';
+        if (textEl) textEl.textContent = 'Bunker';
+      } else {
+        dot.classList.add('disconnected');
+        statusEl.title = 'NSecBunker selected but not connected.';
+        if (textEl) textEl.textContent = 'Bunker ✗';
+      }
     }
   },
 
   updateBunkerStatus: (_status) => UI.updateSigningStatus(),
 
-  updatePublishButton: () => {
+  updatePublishButton: async () => {
     const btn = document.getElementById('nac-publish-btn');
     const pubSelect = document.getElementById('nac-publication');
     const pubValue = pubSelect.value;
 
     UI.updateSigningStatus();
 
-    const nip07Available = NIP07Client.checkAvailability();
-    const hasSigningMethod = nip07Available || NSecBunkerClient.connected;
+    const method = await Signer.getMethod();
+    const configured = await Signer.isConfigured();
+    const ready = configured && (await Signer.isReady());
 
     if (!UI.state.article) {
       btn.disabled = true;
@@ -560,16 +626,22 @@ export const UI = {
       }
     }
 
-    if (!hasSigningMethod) {
+    if (!configured) {
       btn.disabled = true;
-      btn.innerHTML = `${UI.icons.send}<span>Install Signer Extension</span>`;
+      btn.innerHTML = `${UI.icons.send}<span>Set up signing</span>`;
+      return;
+    }
+    if (!ready) {
+      btn.disabled = true;
+      btn.innerHTML = `${UI.icons.send}<span>Signing not ready</span>`;
       return;
     }
 
     btn.disabled = false;
-    btn.innerHTML = nip07Available
-      ? `${UI.icons.send}<span>Publish with Extension</span>`
-      : `${UI.icons.send}<span>Publish to NOSTR</span>`;
+    const label = method === 'local'
+      ? 'Publish to NOSTR'
+      : method === 'nip07' ? 'Publish with Extension' : 'Publish via Bunker';
+    btn.innerHTML = `${UI.icons.send}<span>${label}</span>`;
   },
 
   publish: async () => {
@@ -596,23 +668,28 @@ export const UI = {
         throw new Error('Please select or create a publication');
       }
 
-      const nip07Available = NIP07Client.checkAvailability();
-      Utils.log('NIP-07 available:', nip07Available);
+      const signingMethod = await Signer.getMethod();
+      Utils.log('Signing method:', signingMethod);
 
       let signedEvent;
 
-      if (nip07Available) {
-        // ========== NIP-07 SIGNING PATH ==========
-        Utils.log('Using NIP-07 extension for signing');
+      if (signingMethod === 'local' || signingMethod === 'nip07') {
+        // ========== LOCAL or NIP-07 SIGNING PATH ==========
+        // Both use the user's own pubkey as the publication pubkey;
+        // the Signer façade hides which one is doing the work.
+        Utils.log('Using Signer (' + signingMethod + ') for signing');
         btn.innerHTML = `<div class="nac-spinner"></div><span>Getting key...</span>`;
 
         let pubkey;
         try {
-          pubkey = await NIP07Client.getPublicKey();
-          Utils.log('Got pubkey from NIP-07:', pubkey);
+          pubkey = await Signer.getPublicKey();
+          Utils.log('Got pubkey:', pubkey);
         } catch (e) {
-          Utils.error('Failed to get pubkey from NIP-07:', e);
-          throw new Error('Failed to get public key from extension. Please unlock your extension and try again.');
+          Utils.error('Failed to get pubkey:', e);
+          if (signingMethod === 'nip07') {
+            throw new Error('Failed to get public key from extension. Please unlock your extension and try again.');
+          }
+          throw new Error('No local signing key. Open Settings → Signing to generate or import one.');
         }
 
         if (publicationId === '__new__') {
@@ -629,7 +706,7 @@ export const UI = {
             type: pubType,
             domain: pubDomain,
             pubkey,
-            signingMethod: 'nip07',
+            signingMethod,
             created: Math.floor(Date.now() / 1000)
           });
 
@@ -639,19 +716,19 @@ export const UI = {
             pubkey,
             domain: pubDomain,
             pubType,
-            signingMethod: 'nip07',
+            signingMethod,
             created: Math.floor(Date.now() / 1000)
           });
 
-          Utils.log('Created new publication with NIP-07:', publicationId);
+          Utils.log('Created new publication with ' + signingMethod + ':', publicationId);
         } else {
           const publication = await Storage.publications.get(publicationId);
           if (publication && (!publication.pubkey || publication.pubkey !== pubkey)) {
-            Utils.log('Updating publication pubkey from NIP-07');
+            Utils.log('Updating publication pubkey from ' + signingMethod);
             await Storage.publications.save(publicationId, {
               ...publication,
               pubkey,
-              signingMethod: 'nip07'
+              signingMethod
             });
             await Storage.keypairs.save(publicationId, {
               type: 'publication',
@@ -659,7 +736,7 @@ export const UI = {
               pubkey,
               domain: publication.domain,
               pubType: publication.type,
-              signingMethod: 'nip07',
+              signingMethod,
               created: publication.created || Math.floor(Date.now() / 1000)
             });
           }
@@ -686,26 +763,30 @@ export const UI = {
 
         Utils.log('Building article event...');
         // v4 builder signature: (article, entities, userPubkey, claims).
-        // Entity tagging + claims UIs arrive in Phases 4/5.
-        // `authorPubkey` was a v1-era shortcut; the v4 flow represents authors
-        // as entities (Phase 4), so we omit it here.
         const event = await EventBuilder.buildArticleEvent(article, [], pubkey, []);
         Utils.log('Built unsigned event:', event);
 
-        btn.innerHTML = `<div class="nac-spinner"></div><span>Sign in extension...</span>`;
-        UI.showToast('Please approve the signature in your NOSTR extension...', 'warning');
+        if (signingMethod === 'nip07') {
+          btn.innerHTML = `<div class="nac-spinner"></div><span>Sign in extension...</span>`;
+          UI.showToast('Please approve the signature in your NOSTR extension...', 'warning');
+        } else {
+          btn.innerHTML = `<div class="nac-spinner"></div><span>Signing locally...</span>`;
+        }
 
         try {
-          signedEvent = await NIP07Client.signEvent(event);
-          Utils.log('Got signed event from NIP-07:', signedEvent);
+          signedEvent = await Signer.signEvent(event);
+          Utils.log('Got signed event:', signedEvent);
         } catch (e) {
-          Utils.error('NIP-07 signing failed:', e);
-          throw new Error('Signing was rejected or failed. Please try again.');
+          Utils.error('Signing failed:', e);
+          if (signingMethod === 'nip07') {
+            throw new Error('Signing was rejected or failed. Please try again.');
+          }
+          throw new Error('Local signing failed: ' + (e && e.message));
         }
 
         if (!signedEvent || !signedEvent.id || !signedEvent.sig) {
           Utils.error('Invalid signed event:', signedEvent);
-          throw new Error('Extension returned invalid signed event');
+          throw new Error('Signer returned invalid signed event');
         }
 
         await UI.loadEntities();

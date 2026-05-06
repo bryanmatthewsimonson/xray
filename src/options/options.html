@@ -7,7 +7,14 @@
 </head>
 <body>
   <header class="xr-opt__header">
-    <h1 class="xr-opt__title">X-Ray Settings</h1>
+    <div class="xr-opt__header-row">
+      <h1 class="xr-opt__title">X-Ray Settings</h1>
+      <div class="xr-opt__quick">
+        <button class="xr-opt__btn" id="qa-toggle-capture" title="Toggle the capture panel on the active tab">Toggle Capture</button>
+        <button class="xr-opt__btn" id="qa-open-entities" title="Open the entity browser sidepanel">Entity Browser</button>
+        <button class="xr-opt__btn" id="qa-capture-tips" title="Capture guide on GitHub">Capture tips</button>
+      </div>
+    </div>
     <nav class="xr-opt__tabs">
       <button class="xr-opt__tab xr-opt__tab--active" data-tab="relays">Relays</button>
       <button class="xr-opt__tab" data-tab="signing">Signing</button>
@@ -21,12 +28,27 @@
   <main class="xr-opt__main">
     <!-- ====== RELAYS ====== -->
     <section class="xr-opt__section xr-opt__section--active" data-section="relays">
-      <h2>Default Relays</h2>
+      <h2>Relays</h2>
       <p class="xr-opt__hint">
-        Events are published to these relays. One WebSocket URL per line (<code>wss://…</code>).
+        Per-relay <strong>read</strong> / <strong>write</strong> / <strong>enabled</strong> controls.
+        Disabled relays are skipped entirely; <em>read</em> applies to subscriptions, <em>write</em> to publishes.
       </p>
-      <textarea id="relays-input" rows="10" spellcheck="false"
-                placeholder="wss://relay.damus.io&#10;wss://relay.nostr.band"></textarea>
+
+      <div id="relays-table" class="xr-opt__relays-table" role="table">
+        <div class="xr-opt__relays-row xr-opt__relays-row--head" role="row">
+          <span role="columnheader">URL</span>
+          <span role="columnheader" class="xr-opt__relays-flag">Read</span>
+          <span role="columnheader" class="xr-opt__relays-flag">Write</span>
+          <span role="columnheader" class="xr-opt__relays-flag">Enabled</span>
+          <span role="columnheader"></span>
+        </div>
+        <div id="relays-rows"></div>
+        <div class="xr-opt__relays-row xr-opt__relays-row--add" role="row">
+          <input type="text" id="relays-add-url" placeholder="wss://example.relay" spellcheck="false" />
+          <button class="xr-opt__btn" id="relays-add">Add relay</button>
+        </div>
+      </div>
+
       <div class="xr-opt__actions">
         <button class="xr-opt__btn xr-opt__btn--primary" id="relays-save">Save</button>
         <button class="xr-opt__btn" id="relays-reset">Reset to defaults</button>
@@ -37,16 +59,90 @@
     <!-- ====== SIGNING ====== -->
     <section class="xr-opt__section" data-section="signing">
       <h2>Signing</h2>
-      <p class="xr-opt__hint">
-        X-Ray signs events with a NIP-07 browser extension when one is
-        installed. Otherwise it falls back to NSecBunker (remote signer)
-        over WebSocket.
-      </p>
 
-      <label class="xr-opt__field">
-        <span class="xr-opt__label">NSecBunker URL</span>
-        <input type="text" id="bunker-url" placeholder="wss://bunker.example.com" spellcheck="false" />
-      </label>
+      <div id="signing-firstrun" class="xr-opt__banner" style="display:none">
+        <strong>Welcome to X-Ray.</strong>
+        Pick a signing method below. Local signing is the default and
+        recommended for new users; you can switch to NIP-07 (Alby / nos2x)
+        or NSecBunker any time.
+      </div>
+
+      <div id="signing-active" class="xr-opt__active-line" aria-live="polite">
+        Loading…
+      </div>
+
+      <div class="xr-opt__methods">
+        <label class="xr-opt__method">
+          <input type="radio" name="signing-method" value="local" />
+          <div>
+            <strong>Local</strong>
+            <span class="xr-opt__hint">Keys stored on this device, signed in-browser. Default.</span>
+          </div>
+        </label>
+        <label class="xr-opt__method">
+          <input type="radio" name="signing-method" value="nip07" />
+          <div>
+            <strong>NIP-07</strong>
+            <span class="xr-opt__hint">Sign through a separate browser extension (nos2x, Alby).</span>
+          </div>
+        </label>
+        <label class="xr-opt__method">
+          <input type="radio" name="signing-method" value="nsecbunker" />
+          <div>
+            <strong>NSecBunker</strong>
+            <span class="xr-opt__hint">Remote signer over WebSocket. For shared / hardware keys.</span>
+          </div>
+        </label>
+      </div>
+
+      <!-- Local panel -->
+      <div class="xr-opt__panel" id="signing-panel-local">
+        <h3 class="xr-opt__subhead">Local key</h3>
+        <div id="local-key-state" class="xr-opt__hint">No key yet.</div>
+        <div class="xr-opt__actions" style="margin-top:8px">
+          <button class="xr-opt__btn xr-opt__btn--primary" id="local-generate">Generate new key</button>
+          <button class="xr-opt__btn" id="local-import-toggle">Import nsec…</button>
+          <button class="xr-opt__btn" id="local-export-toggle">Show nsec…</button>
+          <button class="xr-opt__btn xr-opt__btn--danger" id="local-reset">Reset key</button>
+        </div>
+        <div class="xr-opt__field" id="local-import-row" style="display:none; margin-top:8px">
+          <span class="xr-opt__label">nsec1… or 64-char hex</span>
+          <input type="text" id="local-import-input" placeholder="nsec1…" spellcheck="false" autocomplete="off" />
+          <div class="xr-opt__actions" style="margin-top:6px">
+            <button class="xr-opt__btn xr-opt__btn--primary" id="local-import-save">Import</button>
+          </div>
+        </div>
+        <div id="local-export-row" style="display:none; margin-top:8px">
+          <p class="xr-opt__hint" style="color:#c66"><strong>Warning:</strong> your nsec is the secret half of your identity. Never paste it into untrusted sites.</p>
+          <pre class="xr-opt__pre" id="local-export-pre"></pre>
+          <button class="xr-opt__btn" id="local-export-copy">Copy</button>
+        </div>
+        <span class="xr-opt__status" id="local-status"></span>
+      </div>
+
+      <!-- NIP-07 panel -->
+      <div class="xr-opt__panel" id="signing-panel-nip07">
+        <h3 class="xr-opt__subhead">NIP-07 provider</h3>
+        <div id="nip07-state" class="xr-opt__hint">Detecting…</div>
+        <p class="xr-opt__hint">
+          Install
+          <a href="https://github.com/fiatjaf/nos2x" target="_blank" rel="noopener">nos2x</a>
+          or <a href="https://getalby.com/" target="_blank" rel="noopener">Alby</a>
+          if you don't have a NIP-07 provider yet.
+        </p>
+      </div>
+
+      <!-- NSecBunker panel -->
+      <div class="xr-opt__panel" id="signing-panel-nsecbunker">
+        <h3 class="xr-opt__subhead">NSecBunker URL</h3>
+        <label class="xr-opt__field">
+          <input type="text" id="bunker-url" placeholder="wss://bunker.example.com" spellcheck="false" />
+        </label>
+        <div class="xr-opt__actions">
+          <button class="xr-opt__btn" id="bunker-test">Test connection</button>
+          <span class="xr-opt__status" id="bunker-test-status"></span>
+        </div>
+      </div>
 
       <div class="xr-opt__actions">
         <button class="xr-opt__btn xr-opt__btn--primary" id="signing-save">Save</button>
@@ -195,6 +291,32 @@
         browser console — useful for diagnosing publish failures, noisy for
         everyday use.
       </p>
+
+      <hr />
+      <h3 class="xr-opt__subhead">Engine tuning</h3>
+      <p class="xr-opt__hint">
+        These were previously hardcoded; leave blank to use the built-in defaults.
+      </p>
+
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-cache-enabled" />
+        <span>Article cache enabled</span>
+      </label>
+
+      <label class="xr-opt__field">
+        <span class="xr-opt__label">Article cache budget (MB)</span>
+        <input type="number" id="pref-cache-budget" min="1" max="2048" placeholder="100" />
+      </label>
+
+      <label class="xr-opt__field">
+        <span class="xr-opt__label">Min content length (chars)</span>
+        <input type="number" id="pref-min-content" min="0" max="10000" placeholder="200" />
+      </label>
+
+      <label class="xr-opt__field">
+        <span class="xr-opt__label">Max claim length (chars)</span>
+        <input type="number" id="pref-max-claim" min="0" max="5000" placeholder="500" />
+      </label>
 
       <div class="xr-opt__actions">
         <button class="xr-opt__btn xr-opt__btn--primary" id="advanced-save">Save</button>

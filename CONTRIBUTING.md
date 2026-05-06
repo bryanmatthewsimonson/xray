@@ -23,7 +23,7 @@ codebase — here's what you need to know.
   something a third party changed. Keep entries tight.
 - **Smoke test.** [`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md) is the
   ~20-minute manual checklist that exercises every shipped surface
-  across Phases 0–7. Run it before any release tag, after any
+  across Phases 0–8. Run it before any release tag, after any
   cross-cutting refactor, or when adding a new contributor to the
   project. File one issue per defect found.
 - **Shared modules** live at `src/shared/`. Platform handlers live at
@@ -64,9 +64,12 @@ web-ext build          # produces a .zip in web-ext-artifacts/
   ported verbatim from the userscript (preserved so diffs against the
   userscript stay readable).
 - **CSS class prefixes:**
-  - `xr-*` — extension-chrome UI (popup, options, reader, side panel).
-  - `nac-*` / `nmd-*` — legacy userscript prefixes; avoid in new
-    files.
+  - `xr-*` — extension-chrome UI (options, reader, side panel).
+  - `nac-*` / `nmd-*` — legacy userscript prefixes still permeating
+    the FAB / capture-panel content-script CSS. Don't introduce new
+    `nac-*` classes; new content-script UI should use `xr-*`. A bulk
+    rename of the existing `nac-*` styling to `xr-*` is a known
+    cosmetic-only follow-up.
 - **Logging:** use `Utils.log` / `Utils.error`. They're no-ops when
   `CONFIG.debug` is false.
 - **User-visible strings** use "X-Ray" (with a hyphen). Avoid emoji
