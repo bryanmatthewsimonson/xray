@@ -39,9 +39,24 @@
 import { Utils } from './utils.js';
 
 const DB_NAME        = 'xray-archive';
-const DB_VERSION     = 1;
+const DB_VERSION     = 2;     // v2 (Phase 9a) added metadata stores
 const ARTICLES_STORE = 'articles';
 const MAX_ENTRIES    = 500;  // cheap starting budget; revisit if needed
+
+// Phase 9a metadata stores (XRAY_METADATA_SPEC.md §6, Implementation Plan §4).
+// All keyed on `eventId` so we can dedupe across relays. `urlHash`
+// indexes mirror the convention in `articles` for cross-store joins.
+export const ANNOTATIONS_STORE = 'annotations';
+export const FACTCHECKS_STORE  = 'factchecks';
+export const RATINGS_STORE     = 'ratings';
+export const HELPFULNESS_STORE = 'helpfulness';
+export const TRUST_GRAPH_STORE = 'trust_graph';
+
+// Per-URL eviction caps for metadata. Once exceeded, oldest-first within
+// the urlHash bucket. A global cap (5000 across all urlHashes) drives
+// the second eviction pass.
+export const ANNOTATIONS_PER_URL_CAP = 200;
+export const ANNOTATIONS_GLOBAL_CAP  = 5000;
 
 // ------------------------------------------------------------------
 // Helpers
@@ -95,11 +110,49 @@ export function openArchiveDb() {
 
         open.onupgradeneeded = (ev) => {
             const db = open.result;
-            if (!db.objectStoreNames.contains(ARTICLES_STORE)) {
+            const oldVersion = ev.oldVersion || 0;
+
+            // v1 — articles store (Phase 7).
+            if (oldVersion < 1 && !db.objectStoreNames.contains(ARTICLES_STORE)) {
                 const store = db.createObjectStore(ARTICLES_STORE, { keyPath: 'urlHash' });
                 store.createIndex('lastAccessed',    'lastAccessed',    { unique: false });
                 store.createIndex('publishedToRelay','publishedToRelay',{ unique: false });
                 store.createIndex('cachedAt',        'cachedAt',        { unique: false });
+            }
+
+            // v2 — Phase 9a metadata stores. Each row's keyPath is
+            // `eventId`; `urlHash` is the join key against `articles`.
+            if (oldVersion < 2) {
+                if (!db.objectStoreNames.contains(ANNOTATIONS_STORE)) {
+                    const ann = db.createObjectStore(ANNOTATIONS_STORE, { keyPath: 'eventId' });
+                    ann.createIndex('urlHash',    'urlHash',    { unique: false });
+                    ann.createIndex('motivation', 'motivation', { unique: false });
+                    ann.createIndex('author',     'author',     { unique: false });
+                    ann.createIndex('createdAt',  'createdAt',  { unique: false });
+                }
+                if (!db.objectStoreNames.contains(FACTCHECKS_STORE)) {
+                    const fc = db.createObjectStore(FACTCHECKS_STORE, { keyPath: 'eventId' });
+                    fc.createIndex('urlHash',     'urlHash',     { unique: false });
+                    fc.createIndex('ratingValue', 'ratingValue', { unique: false });
+                    fc.createIndex('createdAt',   'createdAt',   { unique: false });
+                }
+                if (!db.objectStoreNames.contains(RATINGS_STORE)) {
+                    const r = db.createObjectStore(RATINGS_STORE, { keyPath: 'eventId' });
+                    r.createIndex('urlHash',    'urlHash',    { unique: false });
+                    r.createIndex('createdAt',  'createdAt',  { unique: false });
+                }
+                if (!db.objectStoreNames.contains(HELPFULNESS_STORE)) {
+                    const h = db.createObjectStore(HELPFULNESS_STORE, { keyPath: 'eventId' });
+                    h.createIndex('targetEventId', 'targetEventId', { unique: false });
+                    h.createIndex('voter',         'voter',         { unique: false });
+                    h.createIndex('createdAt',     'createdAt',     { unique: false });
+                }
+                if (!db.objectStoreNames.contains(TRUST_GRAPH_STORE)) {
+                    // Materialized graph for the local user. Single row,
+                    // keyed on the local user's pubkey hex (so multi-
+                    // identity profiles can host distinct graphs).
+                    db.createObjectStore(TRUST_GRAPH_STORE, { keyPath: 'pubkey' });
+                }
             }
         };
         open.onsuccess = () => resolve(open.result);
