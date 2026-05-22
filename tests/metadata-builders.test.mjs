@@ -132,7 +132,9 @@ test('annotation: targetEvent emits `e` tag with relay hint', async () => {
   assert.deepEqual(eTag, ['e', 'event123', 'wss://relay.example']);
 });
 
-test('annotation: body content is JSON-LD with anno + xray contexts', async () => {
+test('annotation: body content is JSON-LD with the single W3C anno context', async () => {
+  // NIP_DRAFT.md specifies the single W3C context string — no
+  // vendor-namespaced context entry.
   const out = await buildAnnotationEvent({
     url: URL,
     motivation: 'commenting',
@@ -140,10 +142,7 @@ test('annotation: body content is JSON-LD with anno + xray contexts', async () =
     selectors: [{ type: 'TextQuoteSelector', exact: 'world' }]
   });
   const body = JSON.parse(out.event.content);
-  assert.deepEqual(body['@context'], [
-    'http://www.w3.org/ns/anno.jsonld',
-    'https://x-ray.dev/ns/v1.jsonld'
-  ]);
+  assert.equal(body['@context'], 'http://www.w3.org/ns/anno.jsonld');
   assert.equal(body.type, 'Annotation');
   assert.equal(body.body.value, 'Hello');
   assert.equal(body.body.format, 'text/markdown');
@@ -154,6 +153,54 @@ test('annotation: body content is JSON-LD with anno + xray contexts', async () =
 test('annotation: rejects missing url / motivation', async () => {
   await assert.rejects(() => buildAnnotationEvent({ motivation: 'x', bodyMarkdown: 'y' }));
   await assert.rejects(() => buildAnnotationEvent({ url: URL, bodyMarkdown: 'y' }));
+});
+
+test('annotation: carries the NIP-22 root pair (I + K)', async () => {
+  // Annotations are also valid NIP-22 comments — they MUST carry the
+  // root-scope I/K pair per NIP_DRAFT.md.
+  const out = await buildAnnotationEvent({ url: URL, motivation: 'commenting', bodyMarkdown: 'x' });
+  const tagMap = tagsAsMap(out.event.tags);
+  assert.equal(tagMap.I[0], URL);
+  assert.equal(tagMap.K[0], 'web');
+});
+
+test('annotation: correcting motivation emits correction-type tag', async () => {
+  const out = await buildAnnotationEvent({
+    url: URL,
+    motivation: 'correcting',
+    bodyMarkdown: 'The headline is wrong.',
+    correctionType: 'headline'
+  });
+  const tagMap = tagsAsMap(out.event.tags);
+  assert.equal(tagMap['correction-type'][0], 'headline');
+});
+
+test('annotation: correction-type works when correcting is a secondary motivation', async () => {
+  const out = await buildAnnotationEvent({
+    url: URL,
+    motivation: 'commenting',
+    motivations: ['correcting'],
+    bodyMarkdown: 'x',
+    correctionType: 'stat'
+  });
+  assert.equal(tagsAsMap(out.event.tags)['correction-type'][0], 'stat');
+});
+
+test('annotation: rejects correction-type without a correcting motivation', async () => {
+  await assert.rejects(() => buildAnnotationEvent({
+    url: URL, motivation: 'commenting', bodyMarkdown: 'x', correctionType: 'headline'
+  }));
+});
+
+test('annotation: rejects unknown correction-type', async () => {
+  await assert.rejects(() => buildAnnotationEvent({
+    url: URL, motivation: 'correcting', bodyMarkdown: 'x', correctionType: 'vibes'
+  }));
+});
+
+test('annotation: omits correction-type when not provided', async () => {
+  const out = await buildAnnotationEvent({ url: URL, motivation: 'correcting', bodyMarkdown: 'x' });
+  assert.equal(tagsAsMap(out.event.tags)['correction-type'], undefined);
 });
 
 // ------------------------------------------------------------------
@@ -176,7 +223,7 @@ test('factcheck: kind 30051 with claim-reviewed + rating tags', async () => {
   assert.equal(tagMap['rating-best'][0], '5');
   assert.equal(tagMap['rating-worst'][0], '1');
   assert.equal(tagMap['rating-name'][0], 'False');
-  assert.equal(tagMap['rating-scale'][0], 'x-ray.dev/scale/v1');
+  assert.equal(tagMap['rating-scale'][0], 'nostr.dev/scale/v1');
   assert.equal(tagMap.r[0], URL);
 });
 
@@ -246,6 +293,34 @@ test('factcheck: custom rating-scale namespace passes through', async () => {
   assert.equal(tagMap['rating-scale'][0], 'politifact.com/scale/v1');
 });
 
+test('factcheck: default rating-scale is nostr.dev/scale/v1', async () => {
+  const out = await buildFactCheckEvent({
+    url: URL, claimReviewed: 'X', ratingValue: 1, ratingName: 'False'
+  });
+  assert.equal(tagsAsMap(out.event.tags)['rating-scale'][0], 'nostr.dev/scale/v1');
+});
+
+test('factcheck: standalone kind — r/i/k anchor tags, NO I/K root pair', async () => {
+  // NIP_DRAFT.md kind 30051: FactCheck is not a NIP-22 comment.
+  const out = await buildFactCheckEvent({
+    url: URL, claimReviewed: 'X', ratingValue: 1, ratingName: 'False'
+  });
+  const tagMap = tagsAsMap(out.event.tags);
+  assert.equal(tagMap.r[0], URL);
+  assert.equal(tagMap.i[0], URL);
+  assert.equal(tagMap.k[0], 'web');
+  assert.equal(tagMap.I, undefined);
+  assert.equal(tagMap.K, undefined);
+});
+
+test('factcheck: carries no `lang` tag', async () => {
+  // lang is not in the NIP_DRAFT.md / spec FactCheck tag set.
+  const out = await buildFactCheckEvent({
+    url: URL, claimReviewed: 'X', ratingValue: 1, ratingName: 'False'
+  });
+  assert.equal(tagsAsMap(out.event.tags).lang, undefined);
+});
+
 // ------------------------------------------------------------------
 // Rating — kind 30052
 // ------------------------------------------------------------------
@@ -285,6 +360,19 @@ test('rating: rejects missing fields', async () => {
   await assert.rejects(() => buildRatingEvent({ url: URL, ratingName: 'X', authorPubkey: TARGET_PUBKEY }));
   await assert.rejects(() => buildRatingEvent({ url: URL, ratingValue: 1, authorPubkey: TARGET_PUBKEY }));
   await assert.rejects(() => buildRatingEvent({ url: URL, ratingValue: 1, ratingName: 'X' }));
+});
+
+test('rating: standalone kind — r/i/k anchor tags, NO I/K root pair', async () => {
+  // NIP_DRAFT.md kind 30052: Rating is not a NIP-22 comment.
+  const out = await buildRatingEvent({
+    url: URL, ratingValue: 4, ratingName: 'X', content: 'a', authorPubkey: TARGET_PUBKEY
+  });
+  const tagMap = tagsAsMap(out.event.tags);
+  assert.equal(tagMap.r[0], URL);
+  assert.equal(tagMap.i[0], URL);
+  assert.equal(tagMap.k[0], 'web');
+  assert.equal(tagMap.I, undefined);
+  assert.equal(tagMap.K, undefined);
 });
 
 // ------------------------------------------------------------------

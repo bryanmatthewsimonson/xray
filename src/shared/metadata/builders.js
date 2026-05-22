@@ -53,25 +53,39 @@ function tag(name, ...values) {
   return [name, ...values.map((v) => (v === null || v === undefined ? '' : String(v)))];
 }
 
-/** Build the standard NIP-22 + NIP-73 anchor tags for a URL target. */
-function urlAnchorTags(url) {
-  return [
+/**
+ * Build the URL anchor tags for a metadata event.
+ *
+ * Every kind carries the NIP-73 trio `r` + `i` + `k=web`. Only the
+ * Annotation kind (30050) additionally carries the NIP-22 root-scope
+ * pair `I` + `K=web` — annotations are also valid NIP-22 comments and
+ * surface in NIP-22 readers (per the NIP draft's intro). FactCheck
+ * (30051) and Rating (30052) are standalone structured kinds, not
+ * NIP-22 comments, so they omit `I`/`K` — matching the per-kind tag
+ * examples in NIP_DRAFT.md.
+ */
+function urlAnchorTags(url, { nip22Root = false } = {}) {
+  const tags = [
     tag('r', url),
     tag('i', url),
-    tag('k', 'web'),
-    tag('I', url),
-    tag('K', 'web')
+    tag('k', 'web')
   ];
+  if (nip22Root) {
+    tags.push(tag('I', url));
+    tags.push(tag('K', 'web'));
+  }
+  return tags;
 }
 
 // ------------------------------------------------------------------
 // Annotation — kind 30050
 // ------------------------------------------------------------------
 
-const ANNO_CONTEXT = [
-  'http://www.w3.org/ns/anno.jsonld',
-  'https://x-ray.dev/ns/v1.jsonld'
-];
+// NIP_DRAFT.md specifies the single W3C Web Annotation context. The
+// xray-private `x-ray.dev/ns/v1.jsonld` context from the spec draft
+// was dropped: the body emits only standard W3C anno vocabulary, so a
+// vendor context adds nothing, and a NIP must be vendor-neutral.
+const ANNO_CONTEXT = 'http://www.w3.org/ns/anno.jsonld';
 
 /**
  * Build an unsigned kind 30050 Annotation event.
@@ -88,6 +102,9 @@ const ANNO_CONTEXT = [
  *   `30023:<pubkey>:<slug>` — when motivation is `responding-to`, the
  *   reaction article we're pointing at.
  * @param {object} [args.targetEvent]          — kind/id/relayHint for `e` tag
+ * @param {string} [args.correctionType]       — when a motivation is
+ *   `correcting`, one of: headline / quote / stat / name / date / other.
+ *   Emitted as a `correction-type` tag (NIP_DRAFT.md kind 30050).
  * @param {number} [args.createdAt]            — clock override for tests
  * @returns {Promise<{event, body, dTag}>}
  */
@@ -101,6 +118,7 @@ export async function buildAnnotationEvent({
   lang = 'en',
   respondsToArticleAddress = null,
   targetEvent = null,
+  correctionType = null,
   createdAt = nowSeconds()
 } = {}) {
   if (typeof url !== 'string' || !url) throw new Error('buildAnnotationEvent: url required');
@@ -121,13 +139,31 @@ export async function buildAnnotationEvent({
   const motivationList = uniqueStrings([motivation, ...arrayify(motivations)]);
   const topicList = uniqueStrings(arrayify(topic));
 
+  // Annotations are also valid NIP-22 comments → carry the `I`/`K`
+  // root-scope pair (nip22Root: true).
   const tags = [
     tag('d', dTag),
-    ...urlAnchorTags(normalizedUrl),
+    ...urlAnchorTags(normalizedUrl, { nip22Root: true }),
     ...motivationList.map((m) => tag('motivation', m)),
     ...topicList.map((t) => tag('t', t)),
     tag('lang', lang)
   ];
+
+  // `correction-type` — NIP_DRAFT.md: SHOULD accompany a `correcting`
+  // motivation. We only emit it when the motivation set actually
+  // includes `correcting`, so a stray param can't mislabel an event.
+  if (correctionType) {
+    const ALLOWED_CORRECTION_TYPES = ['headline', 'quote', 'stat', 'name', 'date', 'other'];
+    if (!ALLOWED_CORRECTION_TYPES.includes(correctionType)) {
+      throw new Error('buildAnnotationEvent: correctionType must be one of ' +
+        ALLOWED_CORRECTION_TYPES.join(', '));
+    }
+    if (!motivationList.includes('correcting')) {
+      throw new Error('buildAnnotationEvent: correctionType requires a `correcting` motivation');
+    }
+    tags.push(tag('correction-type', correctionType));
+  }
+
   if (respondsToArticleAddress) tags.push(tag('a', respondsToArticleAddress));
   if (targetEvent && targetEvent.id) {
     tags.push(tag('e', targetEvent.id, targetEvent.relayHint || ''));
@@ -160,7 +196,10 @@ export async function buildAnnotationEvent({
 // FactCheck — kind 30051 (gated; data path lands in 9a)
 // ------------------------------------------------------------------
 
-const RATING_SCALE_DEFAULT = 'x-ray.dev/scale/v1';
+// NIP_DRAFT.md and the implementation plan both name the reference
+// rating scale `nostr.dev/scale/v1` (vendor-neutral). The metadata
+// spec draft said `x-ray.dev/scale/v1`; the NIP wins for wire format.
+const RATING_SCALE_DEFAULT = 'nostr.dev/scale/v1';
 
 /**
  * Build an unsigned kind 30051 FactCheck event.
@@ -172,11 +211,10 @@ const RATING_SCALE_DEFAULT = 'x-ray.dev/scale/v1';
  * @param {number} [args.ratingBest=5]
  * @param {number} [args.ratingWorst=1]
  * @param {string} args.ratingName
- * @param {string} [args.ratingScale='x-ray.dev/scale/v1']
+ * @param {string} [args.ratingScale='nostr.dev/scale/v1']
  * @param {string} [args.ratingExplanation='']
  * @param {Array<string>} [args.evidence]    — URLs / nostr: refs
  * @param {string|string[]} [args.topic]
- * @param {string} [args.lang='en']
  * @param {object} [args.appearance]         — { headline, datePublished } for ClaimReview
  * @param {string} [args.relatedClaimEventId]
  * @param {number} [args.createdAt]
@@ -192,7 +230,6 @@ export async function buildFactCheckEvent({
   ratingExplanation = '',
   evidence = [],
   topic,
-  lang = 'en',
   appearance = null,
   relatedClaimEventId = null,
   createdAt = nowSeconds()
@@ -212,6 +249,8 @@ export async function buildFactCheckEvent({
   const dTag = 'factcheck:' + (await sha16(normalizedUrl + '|' + claimReviewed));
   const topicList = uniqueStrings(arrayify(topic));
 
+  // FactCheck is a standalone structured kind, not a NIP-22 comment —
+  // r/i/k only, no I/K (NIP_DRAFT.md kind 30051).
   const tags = [
     tag('d', dTag),
     ...urlAnchorTags(normalizedUrl),
@@ -221,7 +260,6 @@ export async function buildFactCheckEvent({
     tag('rating-worst', String(ratingWorst)),
     tag('rating-name',  ratingName),
     tag('rating-scale', ratingScale),
-    tag('lang', lang),
     ...topicList.map((t) => tag('t', t))
   ];
   if (relatedClaimEventId) tags.push(tag('e', relatedClaimEventId));
