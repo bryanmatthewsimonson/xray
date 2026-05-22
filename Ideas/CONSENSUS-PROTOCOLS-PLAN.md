@@ -1,4 +1,10 @@
-# Plan: Decentralized Human Consensus Protocols on Top of `xray`
+# [TENTATIVE — IDEA, NOT APPROVED] Decentralized Human Consensus Protocols on Top of `xray`
+
+> **Status: Tentative idea for future consideration.**
+> This document is an exploratory design proposal. It has **not** been
+> reviewed, approved, or scheduled. Nothing here is committed work —
+> phase numbers, event kinds, and timelines are illustrative and subject
+> to change pending further review. Do not treat as a roadmap.
 
 ## Context
 
