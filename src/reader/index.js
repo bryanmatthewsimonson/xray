@@ -14,6 +14,7 @@ import { ContentExtractor } from '../shared/content-extractor.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { EntityModel, installEntityStorageBridge } from '../shared/entity-model.js';
+import { recordAccount } from '../shared/identity/account-registry.js';
 import { ClaimModel } from '../shared/claim-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import * as ArchiveCache from '../shared/archive-cache.js';
@@ -1458,6 +1459,21 @@ async function publish() {
                 idToDTag.set(c.id, dTag);
 
                 const replyTo = c.parentId != null ? idToDTag.get(c.parentId) : null;
+
+                // Phase 9 identity: materialize the commenter as a
+                // PlatformAccount and reference its deterministic pubkey
+                // in the comment's `p` tag, so the same commenter is
+                // dedup-able across captures and (Phase IV) linkable to a
+                // canonical person. Best-effort — recordAccount never
+                // throws, and returns null for authors with no stable id
+                // (in which case the comment keeps its plain author
+                // string, exactly as before).
+                let commenterPubkey = null;
+                const commenterAccount = await recordAccount(
+                    state.comments.platform, c.author, { seenOnUrl: articleUrl }
+                );
+                if (commenterAccount) commenterPubkey = commenterAccount.accountPubkey;
+
                 const unsignedComment = EventBuilder.buildCommentEvent({
                     id:            dTag,
                     text:          c.body,
@@ -1469,7 +1485,7 @@ async function publish() {
                     replyTo,
                     reactionCount: c.reactionCount,
                     restacks:      c.restacks
-                }, articleUrl, articleTitle, userPubkey);
+                }, articleUrl, articleTitle, userPubkey, commenterPubkey);
 
                 btn.textContent = `Publishing (${i + 2}/${totalEvents})…`;
 
