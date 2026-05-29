@@ -12,11 +12,17 @@ has already said about it.*
 
 ## Status
 
-Phases 0–8 of the roadmap are complete. The extension can capture across
-every shipped platform handler, publish events end-to-end, sync entity
-data across devices, and reconstruct paywalled content from cached or
-relay copies. The codebase is past the userscript-paradigm port and now
-operates as a pure WebExtension.
+Phases 0–8 of the roadmap are complete, plus the Phase 9a metadata data
+model and the Phase 9 identity layer (v0.5.0). The extension captures
+across every shipped platform handler, publishes events end-to-end, syncs
+entity data across devices, reconstructs paywalled content from cached or
+relay copies, and now carries the wire-format foundation for crowdsourced
+URL metadata (annotations / fact-checks / topic-trust — see
+[`docs/NIP_DRAFT.md`](docs/NIP_DRAFT.md)) plus a stable cross-platform
+identity layer (captured commenters and post authors become dedup-able
+identities; cross-platform accounts can be collapsed into one person).
+The codebase is past the userscript-paradigm port and operates as a pure
+WebExtension.
 
 The [**roadmap**](docs/ROADMAP.md) tracks per-phase scope. The
 [**engineering journal**](docs/JOURNAL.md) logs significant bugs, design
@@ -232,7 +238,7 @@ produces `dist/*.bundle.js`, which the manifest loads).
 │           ├── instagram.js       og-meta + DOM scrape + GraphQL
 │           ├── tiktok.js          three SSR shapes + screenshot
 │           └── comment-extractor.js  generic WordPress / Disqus probe
-└── tests/                         node --test suite (235 passing)
+└── tests/                         node --test suite (519 passing)
 ```
 
 ## Permissions
@@ -253,7 +259,7 @@ produces `dist/*.bundle.js`, which the manifest loads).
 - **Build:** `npm install`, then `npm run build` to produce
   `dist/*.bundle.js` and `dist/*.bundle.js.map`. esbuild handles all
   bundling; no transpile step. `npm run watch` for incremental.
-- **Tests:** `npm test` runs `node --test tests/*.test.mjs`. **235
+- **Tests:** `npm test` runs `node --test tests/*.test.mjs`. **519
   tests** today, covering crypto, event-builder, every platform
   handler, entity sync, claim model, archive cache, the Signer
   façade, and the URL normalizer.

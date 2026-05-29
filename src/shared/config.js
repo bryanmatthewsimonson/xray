@@ -3,7 +3,7 @@
 // content/ui.js, background/index.js (indirectly via the above).
 
 export const CONFIG = {
-    version: '0.2.0',
+    version: '0.5.0',
     // Off by default — users who want noise can flip
     // `preferences.debug` in the options page Advanced tab.
     debug: false,

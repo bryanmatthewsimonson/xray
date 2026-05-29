@@ -10,6 +10,13 @@ Sections per release: **Added** (new features), **Changed**
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-05-29
+
+This release consolidates three feature lines onto `main`: default-to-local
+signing + the consolidated Settings hub, the Phase 9a crowdsourced
+URL-metadata data model + NIP draft, and the Phase 9 social-media identity
+layer.
+
 ### Added
 
 - **Signing method is now an explicit user preference**
@@ -50,7 +57,46 @@ Sections per release: **Added** (new features), **Changed**
   through `Storage.relays.get()` and keeps `default_relays` in sync.
 - **12 new tests in `tests/signer.test.mjs`** covering all three
   signing branches, primaryIdentity round-trip, the `signing_method`
-  migration, and `Storage.relays.set()`. Total: 235 (up from 223).
+  migration, and `Storage.relays.set()`.
+- **Phase 9a — crowdsourced URL-metadata data model** (`src/shared/metadata/`).
+  The wire-format foundation for annotations, fact-checks, ratings,
+  topic-scoped trust, and helpfulness votes, conforming to
+  `docs/NIP_DRAFT.md`:
+  - NIP-73-conformant URL normalizer (`url-normalizer.js`);
+    `Utils.normalizeUrl` is now a thin wrapper over it.
+  - W3C Web Annotation selector capture + a confidence-scored
+    resolution cascade (`anchor-capture.js` / `anchor-resolver.js`).
+  - Builders for kinds 30050 (Annotation), 30051 (FactCheck), 30052
+    (Rating), 30053 (TopicTrust), 9803 (HelpfulnessVote) + the kind
+    30023 `responds-to` tag extension (`builders.js`).
+  - First-order trust graph (kind 3 + kind 30053) and a v1
+    binary-trust ranker (`trust-graph.js` / `ranker.js`).
+  - Feature flags gating the not-yet-surfaced kinds; IDB v2 metadata
+    stores in `archive-cache.js`. Data model only — no UI yet.
+  - `docs/NIP_DRAFT.md` — the authoritative wire-format spec
+    ("Web Content Annotations, Fact-Checks, and Topic Trust").
+- **Phase 9 — social-media identity layer** (`src/shared/identity/`).
+  Turns a captured author (commenter or post author) into a stable,
+  cross-capture identity and lets the user collapse cross-platform
+  accounts into one canonical person:
+  - Deterministic `accountPubkey` per `<platform>:<stableId>`
+    (`platform-account.js`) — an identifier-only key that never signs;
+    a `Storage.platformAccounts` registry in `chrome.storage`.
+  - Published comments and post authors now carry a stable `p`-tag
+    identity (kind 30041 / 30023), via `recordAccount` + the existing
+    `buildCommentEvent` socket and a new optional `authorAccountPubkey`
+    on `buildArticleEvent`.
+  - **YouTube comment capture** — parses the InnerTube
+    `/youtubei/v1/next` responses (reusing the Phase 8a api-interceptor;
+    both legacy `commentThreadRenderer` and modern `commentEntityPayload`
+    shapes), keyed on the commenter's channelId. Scroll the comments
+    into view before capturing (see `docs/CAPTURE_GUIDE.md`).
+  - **Manual account↔entity linking** in the sidepanel Entity Browser,
+    with alias-chain-aware `resolveAccountToEntity`. v1 is
+    local-index-only (no kind 32126 relay publish) and manual-link-only.
+- **Combined test suite: 519 passing** (up from 223 at v0.4.0), adding
+  `tests/metadata-*`, `tests/identity-*`, `tests/youtube-comments`, and
+  `tests/platform-account-event`.
 
 ### Changed
 
@@ -337,6 +383,8 @@ roadmap landed:
 - **Phase 7** — Archive reader: IndexedDB cache, paywall detection,
   relay-backed reconstruction.
 
-[Unreleased]: https://github.com/bryanmatthewsimonson/xray/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/bryanmatthewsimonson/xray/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/bryanmatthewsimonson/xray/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/bryanmatthewsimonson/xray/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/bryanmatthewsimonson/xray/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/bryanmatthewsimonson/xray/releases/tag/v0.2.0

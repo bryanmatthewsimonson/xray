@@ -14,7 +14,7 @@ git clone …
 cd xray
 npm install
 npm run build           # produces dist/*.bundle.js (5 bundles)
-npm test                # 235/235 should pass
+npm test                # 519/519 should pass
 ```
 
 ### Chrome / Chromium / Brave / Edge
@@ -88,7 +88,7 @@ For each platform handler:
 2. **Read console** filtered by `X-Ray` — look for the init
    sequence. With Local signing selected (the default):
    ```
-   [X-Ray] Starting X-Ray content script v0.4.0
+   [X-Ray] Starting X-Ray content script v0.5.0
    [X-Ray] LocalKeyManager initialized with N keys
    [X-Ray] UI initialized
    [X-Ray] Local signing identity ready: npub1…
@@ -187,7 +187,7 @@ clicking through every URL.
 | # | Test | Pass criteria |
 |---|---|---|
 | 0.1 | `npm run build` exits 0 with no errors | ✅ all five bundles emitted under `dist/` (content, background, options, sidepanel, reader) plus `api-interceptor` |
-| 0.2 | `npm test` exits 0 | ✅ 235/235 (or current-on-main count) passing |
+| 0.2 | `npm test` exits 0 | ✅ 519/519 (or current-on-main count) passing |
 | 0.3 | Reload extension after a build → no console errors in the SW log | ✅ the SW log under `chrome://extensions` → "Inspect views: service worker" is clean |
 | 0.4 | Click toolbar icon on a normal http page | ✅ FAB capture panel toggles open/closed (no popup window) |
 | 0.5 | Click toolbar icon on `chrome://newtab` | ✅ Options page opens (fallback, since content script can't run there) |
