@@ -15,6 +15,7 @@
 import { normalizeAuthor, makeAccountRecord } from './platform-account.js';
 import { Storage } from '../storage.js';
 import { Utils } from '../utils.js';
+import { EntityModel } from '../entity-model.js';
 
 /**
  * Pull the POST AUTHOR out of a captured article object, returning
@@ -90,4 +91,86 @@ export async function recordAccount(platform, rawAuthor, opts = {}) {
     Utils.log('recordAccount failed (non-fatal):', err && err.message);
     return null;
   }
+}
+
+// ── Phase IV: manual account ↔ entity linking ──────────────────────────
+//
+// Per the v1 decision (manual linking only): an account materializes
+// automatically, but declaring "this account IS this person" is always a
+// deliberate user action. Multiple accounts pointed at one entity is the
+// cross-platform collapse — no separate merge primitive needed.
+
+/**
+ * Link a platform account to a canonical person (entity). Validates the
+ * entity exists. Throws on bad input (this is a deliberate user action,
+ * so failures should surface, unlike the best-effort capture path).
+ *
+ * @param {string} accountKey  "<platform>:<stableId>"
+ * @param {string} entityId
+ * @returns {Promise<object>} the updated account record
+ */
+export async function linkAccountToEntity(accountKey, entityId) {
+  if (!accountKey) throw new Error('linkAccountToEntity: accountKey required');
+  if (!entityId) throw new Error('linkAccountToEntity: entityId required');
+  const entity = await EntityModel.get(entityId);
+  if (!entity) throw new Error('linkAccountToEntity: unknown entity ' + entityId);
+  return await Storage.platformAccounts.link(accountKey, entityId);
+}
+
+/**
+ * Remove an account's entity link.
+ * @param {string} accountKey
+ * @returns {Promise<object>} the updated account record
+ */
+export async function unlinkAccount(accountKey) {
+  if (!accountKey) throw new Error('unlinkAccount: accountKey required');
+  return await Storage.platformAccounts.link(accountKey, null);
+}
+
+/**
+ * Resolve a captured account (by key OR by deterministic accountPubkey)
+ * to the canonical person it belongs to. Follows the entity alias chain
+ * so an account linked to an alias surfaces its canonical entity.
+ * Returns null when the account is unknown or unlinked.
+ *
+ * This is the read-side join: given a comment's `p`-tag pubkey, "who is
+ * this, really?"
+ *
+ * @param {string} accountKeyOrPubkey
+ * @returns {Promise<object|null>} canonical entity, or null
+ */
+export async function resolveAccountToEntity(accountKeyOrPubkey) {
+  if (!accountKeyOrPubkey) return null;
+  let rec = null;
+  if (/^[0-9a-f]{64}$/i.test(accountKeyOrPubkey)) {
+    rec = await Storage.platformAccounts.findByPubkey(accountKeyOrPubkey);
+  } else {
+    rec = await Storage.platformAccounts.get(accountKeyOrPubkey);
+  }
+  if (!rec || !rec.linkedEntityId) return null;
+  const entity = await EntityModel.get(rec.linkedEntityId);
+  if (!entity) return null;
+  return await EntityModel.resolveAlias(entity);
+}
+
+/**
+ * All platform accounts linked directly to an entity (the inverse of
+ * linkAccountToEntity). Used by the Entity Browser's "Linked accounts"
+ * section.
+ * @param {string} entityId
+ * @returns {Promise<Array<object>>}
+ */
+export async function accountsForEntity(entityId) {
+  if (!entityId) return [];
+  return await Storage.platformAccounts.findByEntity(entityId);
+}
+
+/**
+ * Every known platform account NOT yet linked to an entity — the
+ * candidate list for the "Link an account…" picker.
+ * @returns {Promise<Array<object>>}
+ */
+export async function listUnlinkedAccounts() {
+  const all = await Storage.platformAccounts.getAll();
+  return Object.values(all).filter((a) => a && !a.linkedEntityId);
 }

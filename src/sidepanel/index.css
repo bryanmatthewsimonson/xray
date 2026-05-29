@@ -293,6 +293,17 @@ body.xr-side {
   font-style: italic;
 }
 
+.xr-side__hint {
+  margin: 0 0 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--xr-text-dim);
+}
+
+.xr-side__linked-accounts {
+  margin-top: 18px;
+}
+
 /* ---------------- keypair block ---------------- */
 
 .xr-side__keypair,
