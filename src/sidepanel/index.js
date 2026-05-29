@@ -16,6 +16,7 @@
 // see reader/index.js `resolveEntitiesToPublish`).
 
 import { EntityModel, ENTITY_TYPES, ENTITY_ICONS, installEntityStorageBridge } from '../shared/entity-model.js';
+import { accountsForEntity, listUnlinkedAccounts, linkAccountToEntity, unlinkAccount } from '../shared/identity/account-registry.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { Crypto } from '../shared/crypto.js';
 import { pushEntities, pullEntities, clearRemote, pushRelayList, pullRelayList, normalizeRelayUrl } from '../shared/entity-sync.js';
@@ -237,6 +238,13 @@ function renderDetail(entity) {
         </div>
       </div>
 
+      <div class="xr-side__linked-accounts">
+        <h3>Linked accounts</h3>
+        <p class="xr-side__hint">Social-media accounts X-Ray has captured that belong to this person. Linking collapses the same individual across platforms.</p>
+        <div id="xr-linked-accounts">Loading…</div>
+        <button type="button" class="xr-side__ghost-btn" id="xr-link-account">Link an account…</button>
+      </div>
+
       <div class="xr-side__publish">
         <h3>Publish status</h3>
         <p class="xr-side__pub-line">${pubInfo}</p>
@@ -270,6 +278,10 @@ function renderDetail(entity) {
     if (linkBtn)   linkBtn.addEventListener('click',   () => openAliasPicker(entity));
     if (unlinkBtn) unlinkBtn.addEventListener('click', () => unlinkCanonical(entity));
 
+    // Linked platform accounts (Phase 9 identity).
+    renderLinkedAccounts(entity.id);
+    $('#xr-link-account').addEventListener('click', () => openAccountPicker(entity));
+
     // Keypair controls.
     $('#xr-copy-npub').addEventListener('click', () => {
         if (entity.keypair && entity.keypair.npub) copyToClipboard(entity.keypair.npub);
@@ -287,6 +299,102 @@ function renderDetail(entity) {
             revealBtn.onclick = () => copyToClipboard(entity.keypair.nsec);
         }
     });
+}
+
+/**
+ * Render the "Linked accounts" list for an entity into #xr-linked-accounts.
+ * Async — called after renderDetail paints the (synchronous) shell.
+ */
+async function renderLinkedAccounts(entityId) {
+    const host = $('#xr-linked-accounts');
+    if (!host) return;
+    let accounts = [];
+    try { accounts = await accountsForEntity(entityId); }
+    catch (_) { /* registry unavailable — show empty */ }
+
+    if (!accounts.length) {
+        host.innerHTML = `<div class="xr-side__canonical-none">No linked accounts yet.</div>`;
+        return;
+    }
+    host.innerHTML = accounts.map((a) => `
+      <div class="xr-side__key-row">
+        <span class="xr-side__key-label">${escapeHtml(a.platform)}</span>
+        <code class="xr-side__key-value">${escapeHtml(a.handle ? '@' + a.handle : a.stableId)}</code>
+        <button type="button" class="xr-side__ghost-btn" data-acct="${escapeHtml(a.key)}">Unlink</button>
+      </div>`).join('');
+
+    host.querySelectorAll('[data-acct]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            try {
+                await unlinkAccount(btn.dataset.acct);
+                toast('Account unlinked', 'success');
+                renderLinkedAccounts(entityId);
+            } catch (err) {
+                toast('Unlink failed: ' + (err.message || err), 'error');
+            }
+        });
+    });
+}
+
+/**
+ * Modal to link one of the captured-but-unlinked platform accounts to
+ * this entity. Mirrors openAliasPicker.
+ */
+async function openAccountPicker(entity) {
+    let candidates = [];
+    try { candidates = await listUnlinkedAccounts(); }
+    catch (_) { candidates = []; }
+
+    const modal = document.createElement('div');
+    modal.className = 'xr-side__modal';
+    modal.innerHTML = `
+      <div class="xr-side__modal-card">
+        <header class="xr-side__modal-head">
+          <h3>Link an account to ${escapeHtml(entity.name)}</h3>
+          <button type="button" class="xr-side__ghost-btn" id="xr-acct-close">✕</button>
+        </header>
+        <input type="search" class="xr-side__modal-search" id="xr-acct-search"
+               placeholder="Search captured accounts…" />
+        <div class="xr-side__modal-list" id="xr-acct-list"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const listEl = $('#xr-acct-list');
+    const render = (query) => {
+        const q = query.trim().toLowerCase();
+        const shown = candidates.filter((a) =>
+            !q
+            || (a.handle && a.handle.toLowerCase().includes(q))
+            || a.platform.includes(q)
+            || String(a.stableId).toLowerCase().includes(q));
+        if (!shown.length) {
+            listEl.innerHTML = `<div class="xr-side__empty">No unlinked accounts. Capture some comments or posts first.</div>`;
+            return;
+        }
+        listEl.innerHTML = shown.map((a) => `
+          <button type="button" class="xr-side__row" data-acct="${escapeHtml(a.key)}">
+            <span class="xr-side__row-icon">${escapeHtml(a.platform.slice(0, 2))}</span>
+            <span class="xr-side__row-name">${escapeHtml(a.handle ? '@' + a.handle : a.stableId)}
+              <small>${escapeHtml(a.platform)}</small></span>
+          </button>`).join('');
+        listEl.querySelectorAll('.xr-side__row').forEach((row) => {
+            row.addEventListener('click', async () => {
+                try {
+                    await linkAccountToEntity(row.dataset.acct, entity.id);
+                    toast('Account linked', 'success');
+                    document.body.removeChild(modal);
+                    renderLinkedAccounts(entity.id);
+                } catch (err) {
+                    toast('Link failed: ' + (err.message || err), 'error');
+                }
+            });
+        });
+    };
+    render('');
+    $('#xr-acct-search').addEventListener('input', (ev) => render(ev.target.value));
+    $('#xr-acct-close').addEventListener('click', () => document.body.removeChild(modal));
+    modal.addEventListener('click', (ev) => { if (ev.target === modal) document.body.removeChild(modal); });
 }
 
 function hasChanges(entity, draft) {
