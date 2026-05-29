@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "X-Ray — NOSTR URL Metadata & Article Capture",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Capture articles as Markdown and publish to NOSTR — Chrome/Firefox MV3 extension.",
   "author": "Decentralized News Network",
   "icons": {

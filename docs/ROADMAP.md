@@ -45,6 +45,8 @@ Phase 5  ████████████████████  complete 
 Phase 6  ████████████████████  complete — entity sync via NIP-78 + NIP-44 v2
 Phase 7  ████████████████████  complete — archive reader (IDB cache + paywall detection + relay reconstruct)
 Phase 8  ████████████████████  complete — 8a infra + TikTok + Instagram + Facebook shipped
+Phase 9a ████████████████████  complete — URL-metadata data model (annotations / fact-checks / topic-trust) + NIP draft; data-model only, UI in 9b+
+Phase 9  ████████████████████  complete — identity layer: platform accounts + YouTube comments + manual account↔entity linking
 ```
 
 ---
