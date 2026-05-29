@@ -63,6 +63,7 @@ export const Storage = (() => {
         people: {},
         organizations: {},
         keypair_registry: {},
+        platform_accounts: {},
         preferences: {
           default_relays: CONFIG.relays.filter(r => r.enabled).map(r => r.url),
           media_handling: 'embed',
@@ -192,6 +193,82 @@ export const Storage = (() => {
           Utils.error('Failed to import keypairs:', e);
           return false;
         }
+      }
+    },
+
+    // -----------------------------------------------------------------
+    // Platform-account registry (Phase 9 identity layer)
+    // -----------------------------------------------------------------
+    // A registry of social-media accounts X-Ray has seen, keyed by
+    // `<platform>:<stableId>` (the dedup key from
+    // shared/identity/platform-account.js). Each record carries the
+    // deterministic `accountPubkey` (an identifier, never a signing
+    // key), the captured display fields, and an optional `linkedEntityId`
+    // joining the account to a canonical person (set manually in v1).
+    //
+    // Lives in chrome.storage.local like every other registry
+    // (keypairs / people / organizations) — small structured records
+    // with reverse lookups, not bulky cached blobs.
+    platformAccounts: {
+      getAll: async () => await Store.get('platform_accounts', {}),
+      get:    async (key) => (await Store.get('platform_accounts', {}))[key] || null,
+
+      // Upsert. On re-capture of a known account, preserve `firstSeen`
+      // and any existing `linkedEntityId`, bump `lastSeen`, and refresh
+      // the mutable display fields (handle/displayName/avatar/verified
+      // all drift over time; stableId + accountPubkey never do).
+      save: async (record) => {
+        if (!record || !record.key) throw new Error('platformAccounts.save: record.key required');
+        const all = await Store.get('platform_accounts', {});
+        const prev = all[record.key] || null;
+        const now = Math.floor(Date.now() / 1000);
+        const merged = {
+          ...record,
+          firstSeen: (prev && prev.firstSeen) || record.firstSeen || now,
+          lastSeen: now,
+          // Don't let a re-capture silently clobber a manual entity link.
+          linkedEntityId: record.linkedEntityId != null
+            ? record.linkedEntityId
+            : (prev ? prev.linkedEntityId : null)
+        };
+        all[record.key] = merged;
+        await Store.set('platform_accounts', all);
+        return merged;
+      },
+
+      delete: async (key) => {
+        const all = await Store.get('platform_accounts', {});
+        delete all[key];
+        await Store.set('platform_accounts', all);
+      },
+
+      // Reverse lookup by the deterministic account pubkey. Linear scan
+      // — the registry is small (hundreds, not millions) and this is not
+      // a hot path.
+      findByPubkey: async (accountPubkey) => {
+        if (!accountPubkey) return null;
+        const all = await Store.get('platform_accounts', {});
+        for (const rec of Object.values(all)) {
+          if (rec && rec.accountPubkey === accountPubkey) return rec;
+        }
+        return null;
+      },
+
+      // All accounts linked to a given canonical entity (the inverse of
+      // the manual link). Used to render "this person's accounts."
+      findByEntity: async (entityId) => {
+        if (!entityId) return [];
+        const all = await Store.get('platform_accounts', {});
+        return Object.values(all).filter((rec) => rec && rec.linkedEntityId === entityId);
+      },
+
+      // Manual entity link (Phase IV). Sets or clears linkedEntityId.
+      link: async (key, entityId) => {
+        const all = await Store.get('platform_accounts', {});
+        if (!all[key]) throw new Error('platformAccounts.link: unknown account ' + key);
+        all[key] = { ...all[key], linkedEntityId: entityId || null, lastSeen: Math.floor(Date.now() / 1000) };
+        await Store.set('platform_accounts', all);
+        return all[key];
       }
     },
 

@@ -494,22 +494,69 @@ export const EventBuilder = {
     };
   },
 
-  // Build kind 32126 platform account event
+  // Build kind 32126 platform account event (Phase 9 identity layer).
+  //
+  // Consumes a PlatformAccount record from
+  // shared/identity/platform-account.js (makeAccountRecord). The event
+  // is authored/signed by the CAPTURING USER (`userPubkey`); the
+  // account's deterministic pubkey appears only as a `p` reference —
+  // it is an identifier, never a signer (see platform-account.js header).
+  //
+  // The `d` tag IS the account key (`<platform>:<stableId>`), so re-
+  // publishing an updated record (new display name, a fresh entity link)
+  // replaces in place per NIP-01 addressable-event semantics.
   buildPlatformAccountEvent: (account, userPubkey) => {
+    if (!account || !account.key || !account.accountPubkey) {
+      throw new Error('buildPlatformAccountEvent: account.key + account.accountPubkey required');
+    }
+    const tags = [
+      ['d', account.key],
+      ['p', account.accountPubkey, '', 'account'],
+      ['account-platform', account.platform],
+      ['account-id', account.stableId]
+    ];
+    if (account.handle)      tags.push(['account-username', account.handle]);
+    if (account.displayName) tags.push(['account-name', account.displayName]);
+    if (account.profileUrl)  tags.push(['r', account.profileUrl]);
+    if (account.verified)    tags.push(['account-verified', 'true']);
+    if (account.linkedEntityId) tags.push(['linked-entity', account.linkedEntityId]);
+    tags.push(['client', 'xray']);
+
     return {
       kind: 32126,
       pubkey: userPubkey,
       created_at: Math.floor(Date.now() / 1000),
-      tags: [
-        ['d', account.id],
-        ['p', account.keypair.pubkey, '', 'account'],
-        ['account-username', account.username],
-        ['account-platform', account.platform],
-        ...(account.profileUrl ? [['r', account.profileUrl]] : []),
-        ...(account.linkedEntityId ? [['linked-entity', account.linkedEntityId]] : []),
-        ['client', 'nostr-article-capture']
-      ],
+      tags,
       content: ''
+    };
+  },
+
+  // Inverse of buildPlatformAccountEvent — rebuild a partial
+  // PlatformAccount record from a received kind 32126 event. Used when
+  // ingesting account events (e.g. a future relay-publish path) back
+  // into the local registry. Returns null on a malformed event.
+  reconstructPlatformAccount: (event) => {
+    if (!event || event.kind !== 32126 || !Array.isArray(event.tags)) return null;
+    const get = (name) => {
+      const t = event.tags.find((x) => Array.isArray(x) && x[0] === name);
+      return t ? t[1] : null;
+    };
+    const pTag = event.tags.find((x) => Array.isArray(x) && x[0] === 'p' && x[3] === 'account');
+    const key = get('d');
+    const accountPubkey = pTag ? pTag[1] : null;
+    const platform = get('account-platform');
+    const stableId = get('account-id');
+    if (!key || !accountPubkey || !platform || !stableId) return null;
+    return {
+      key,
+      accountPubkey,
+      platform,
+      stableId,
+      handle: get('account-username') || '',
+      displayName: get('account-name') || '',
+      profileUrl: get('r') || '',
+      verified: get('account-verified') === 'true',
+      linkedEntityId: get('linked-entity') || null
     };
   },
 
