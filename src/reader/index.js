@@ -14,7 +14,7 @@ import { ContentExtractor } from '../shared/content-extractor.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { EntityModel, installEntityStorageBridge } from '../shared/entity-model.js';
-import { recordAccount } from '../shared/identity/account-registry.js';
+import { recordAccount, extractPostAuthor } from '../shared/identity/account-registry.js';
 import { ClaimModel } from '../shared/claim-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import * as ArchiveCache from '../shared/archive-cache.js';
@@ -1135,6 +1135,38 @@ async function loadSubstackData() {
 }
 
 /**
+ * Populate the comments section for a YouTube capture. Unlike Substack
+ * (which the reader fetches from the API here), YouTube comments were
+ * captured passively in the content script and ride along in
+ * `article.youtube.comments`. We just move them into `state.comments`.
+ *
+ * When `captured` is false the interceptor saw no `/youtubei/v1/next`
+ * responses — almost always because the user didn't scroll to the
+ * comments before capturing — so we surface an instructional hint.
+ */
+function loadYouTubeComments() {
+    state.comments.platform = 'youtube';
+    const cm = state.article && state.article.youtube && state.article.youtube.comments;
+
+    if (!cm || cm.captured === false) {
+        state.comments.status = 'error';
+        state.comments.error = 'No comments loaded. On YouTube, scroll down so the comments render, then re-open X-Ray — comments load lazily as you scroll.';
+        renderCommentsSection();
+        return;
+    }
+    if (!cm.total) {
+        state.comments.status = 'error';
+        state.comments.error = 'No comments found. The video may have comments disabled, or none had loaded when you captured (scroll the comments into view first).';
+        renderCommentsSection();
+        return;
+    }
+    state.comments.tree = cm.tree || [];
+    state.comments.total = cm.total || 0;
+    state.comments.status = 'ready';
+    renderCommentsSection();
+}
+
+/**
  * Merge Substack post-API fields onto the live article and re-render.
  * Readability produced an initial extraction; the API response is
  * authoritative for everything except user-edited fields. We treat
@@ -1411,7 +1443,21 @@ async function publish() {
         // Article event.
         const article = { ...state.article, content: state.markdownDraft, markdown: state.markdownDraft };
         const entityRefs = Array.isArray(state.article.entities) ? state.article.entities : [];
-        const unsignedArticle = await EventBuilder.buildArticleEvent(article, entityRefs, userPubkey, []);
+
+        // Phase 9 identity: materialize the post author as a
+        // PlatformAccount (where the platform exposes a stable id) and
+        // reference its pubkey on the article. Best-effort — null author
+        // or no stable id just means no author p-tag, as before.
+        let authorAccountPubkey = null;
+        try {
+            const postAuthor = extractPostAuthor(article);
+            if (postAuthor) {
+                const acct = await recordAccount(postAuthor.platform, postAuthor.raw, { seenOnUrl: article.url });
+                if (acct) authorAccountPubkey = acct.accountPubkey;
+            }
+        } catch (_) { /* identity is enrichment, never a publish gate */ }
+
+        const unsignedArticle = await EventBuilder.buildArticleEvent(article, entityRefs, userPubkey, [], authorAccountPubkey);
 
         btn.textContent = totalEvents > 1 ? `Publishing (1/${totalEvents})…` : 'Publishing…';
         const articleResp = await browserApi.runtime.sendMessage({
@@ -2133,6 +2179,11 @@ async function init() {
         loadSubstackData().catch((err) => {
             console.warn('[X-Ray Reader] Substack data load errored out:', err);
         });
+    } else if (state.article.platform === 'youtube') {
+        // Comments were captured in the content script and travel on the
+        // article; just move them into state.comments (no fetch).
+        try { loadYouTubeComments(); }
+        catch (err) { console.warn('[X-Ray Reader] YouTube comments load failed:', err); }
     }
 }
 

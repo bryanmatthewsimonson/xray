@@ -22,6 +22,8 @@
 // rewriting needed for this path.
 
 import { ContentExtractor } from '../content-extractor.js';
+import { findApiHookEvents, tryParseJson } from '../api-hook-buffer.js';
+import { parseComments } from './youtube-comments.js';
 
 // ------------------------------------------------------------------
 // Detection
@@ -801,9 +803,46 @@ export async function synthesizeArticle() {
             isShort,
             originLanguage:  originLang,
             userLanguage:    userLang,
-            transcripts
+            transcripts,
+
+            // Comments captured passively from the InnerTube
+            // `/youtubei/v1/next` responses the page fired while the
+            // user scrolled (Phase 9 / Phase III). `captured` is false
+            // when the buffer held no comment responses — the reader
+            // uses that to show a "scroll to load comments first" hint
+            // rather than an empty list.
+            comments: extractComments()
         }
     };
+}
+
+/**
+ * Extract the comment tree from the api-hook buffer. Reads every
+ * captured `/youtubei/v1/next` response (the InnerTube comment-
+ * continuation endpoint), parses both legacy + modern shapes, and
+ * returns the normalized tree.
+ *
+ * Runs in the content script at capture time — the buffer lives there,
+ * populated by the MAIN-world api-interceptor as the user scrolled.
+ * The result rides along in the captured article (stashed to
+ * chrome.storage.session) so the reader can render + publish it without
+ * a second fetch.
+ *
+ * @returns {{ tree: Array<object>, total: number, captured: boolean }}
+ */
+export function extractComments() {
+    let events = [];
+    try {
+        events = findApiHookEvents((e) =>
+            typeof e.url === 'string' && e.url.includes('/youtubei/v1/next'));
+    } catch (_) { /* buffer not installed in this context */ }
+
+    if (!events.length) return { tree: [], total: 0, captured: false };
+
+    const responses = events.map((e) => tryParseJson(e.body)).filter(Boolean);
+    const { tree, total } = parseComments(responses);
+    console.log('[X-Ray YouTube] extracted', total, 'comments from', events.length, 'InnerTube response(s)');
+    return { tree, total, captured: true };
 }
 
 function trackDisplayName(track) {

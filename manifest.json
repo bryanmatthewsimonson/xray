@@ -82,7 +82,8 @@
       "matches": [
         "*://*.instagram.com/*",
         "*://*.facebook.com/*",
-        "*://*.fb.com/*"
+        "*://*.fb.com/*",
+        "*://*.youtube.com/*"
       ],
       "run_at": "document_start",
       "world": "MAIN",

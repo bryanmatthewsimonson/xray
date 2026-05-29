@@ -14,8 +14,15 @@ import { Crypto } from './crypto.js';
 import { ContentExtractor } from './content-extractor.js';
 
 export const EventBuilder = {
-  // Build NIP-23 article event (kind 30023)
-  buildArticleEvent: async (article, entities, userPubkey, claims = []) => {
+  // Build NIP-23 article event (kind 30023).
+  //
+  // `authorAccountPubkey` (Phase 9 identity) is the deterministic
+  // PlatformAccount pubkey of the POST author — when present, emitted as
+  // a `['p', pubkey, '', 'author']` reference so the post is linked to
+  // the same stable identity used for that author's comments elsewhere.
+  // Additive + optional: existing 4-arg callers are unaffected and emit
+  // no author p-tag, exactly as before.
+  buildArticleEvent: async (article, entities, userPubkey, claims = [], authorAccountPubkey = null) => {
     // Convert content to markdown, preserving formatting and images
     let markdownContent = article.content || '';
     if (markdownContent && markdownContent.includes('<')) {
@@ -106,7 +113,14 @@ export const EventBuilder = {
     if (article.byline) {
       tags.push(['author', article.byline]);
     }
-    
+
+    // Phase 9 identity: reference the post author's stable PlatformAccount
+    // pubkey, so the article is joined to the same identity used for that
+    // author's comments and (Phase IV) their canonical person.
+    if (authorAccountPubkey) {
+      tags.push(['p', authorAccountPubkey, '', 'author']);
+    }
+
     // Add entity tags
     const taggedPubkeys = new Set();
     for (const entityRef of entities) {

@@ -57,6 +57,18 @@ async function init() {
         configureInterceptor([
             { urlIncludes: 'graphql' }
         ]);
+    } else if (/(?:^|\.)youtube\.com$/i.test(host)) {
+        // YouTube comments lazy-load as the user scrolls, via POSTs to
+        // the InnerTube `/youtubei/v1/next` continuation endpoint. The
+        // MAIN-world interceptor (installed at document_start by the
+        // manifest content_script) buffers those response bodies;
+        // youtube.js#extractComments parses them at capture time.
+        // Comments only land in the buffer once the user has scrolled
+        // to them — hence the reader's "scroll to load comments" hint.
+        installBufferListener();
+        configureInterceptor([
+            { urlIncludes: '/youtubei/v1/next' }
+        ]);
     }
 
     // Initialize local key manager.

@@ -17,7 +17,7 @@ globalThis.chrome = {
   }
 };
 
-const { recordAccount } = await import('../src/shared/identity/account-registry.js');
+const { recordAccount, extractPostAuthor } = await import('../src/shared/identity/account-registry.js');
 const { Storage } = await import('../src/shared/storage.js');
 const { deriveAccountPubkey } = await import('../src/shared/identity/platform-account.js');
 
@@ -73,4 +73,45 @@ test('recordAccount: YouTube channel id becomes the stable key', async () => {
   }, { now: 1 });
   assert.equal(rec.key, 'youtube:UCabc123');
   assert.equal(rec.verified, true);
+});
+
+// ── extractPostAuthor ──────────────────────────────────────────────────
+
+test('extractPostAuthor: YouTube channel → youtube account', () => {
+  const out = extractPostAuthor({ platform: 'youtube', youtube: { channel: { channelId: 'UCxyz', name: 'Jane Macro' } } });
+  assert.deepEqual(out, { platform: 'youtube', raw: { channelId: 'UCxyz', displayName: 'Jane Macro' } });
+});
+
+test('extractPostAuthor: YouTube with no channelId → null', () => {
+  assert.equal(extractPostAuthor({ platform: 'youtube', youtube: { channel: { name: 'No Id' } } }), null);
+});
+
+test('extractPostAuthor: Instagram author with pk', () => {
+  const out = extractPostAuthor({ platform: 'instagram', instagram: { author: { pk: 555, handle: 'foo' } } });
+  assert.equal(out.platform, 'instagram');
+  assert.equal(out.raw.pk, 555);
+});
+
+test('extractPostAuthor: Facebook author with handle', () => {
+  const out = extractPostAuthor({ platform: 'facebook', facebook: { author: { handle: 'reason' } } });
+  assert.equal(out.platform, 'facebook');
+  assert.equal(out.raw.handle, 'reason');
+});
+
+test('extractPostAuthor: Substack → null (no reliable post-author stable id)', () => {
+  assert.equal(extractPostAuthor({ platform: 'substack', substack: { author: { name: 'Noah' } } }), null);
+});
+
+test('extractPostAuthor: unknown/missing platform → null', () => {
+  assert.equal(extractPostAuthor({ platform: 'medium' }), null);
+  assert.equal(extractPostAuthor({}), null);
+  assert.equal(extractPostAuthor(null), null);
+});
+
+test('extractPostAuthor → recordAccount round-trip for a YouTube channel', async () => {
+  reset();
+  const pa = extractPostAuthor({ platform: 'youtube', youtube: { channel: { channelId: 'UCpost', name: 'Chan' } } });
+  const rec = await recordAccount(pa.platform, pa.raw, { now: 1 });
+  assert.equal(rec.key, 'youtube:UCpost');
+  assert.match(rec.accountPubkey, /^[0-9a-f]{64}$/);
 });

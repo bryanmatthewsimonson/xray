@@ -98,3 +98,23 @@ test('reconstructPlatformAccount: null on wrong kind / malformed', () => {
   assert.equal(EventBuilder.reconstructPlatformAccount(null), null);
   assert.equal(EventBuilder.reconstructPlatformAccount({ kind: 32126, tags: [['d', 'x']] }), null); // no p/platform/id
 });
+
+// ── buildArticleEvent author p-tag (Phase III.b) ───────────────────────
+
+test('buildArticleEvent: emits author p-tag when authorAccountPubkey given', async () => {
+  const article = { title: 'T', url: 'https://example.com/a', content: 'plain text body', byline: 'Jane' };
+  const authorPubkey = 'a'.repeat(64);
+  const evt = await EventBuilder.buildArticleEvent(article, [], USER, [], authorPubkey);
+  const pAuthor = evt.tags.find((t) => t[0] === 'p' && t[3] === 'author');
+  assert.ok(pAuthor, 'expected an author p-tag');
+  assert.equal(pAuthor[1], authorPubkey);
+});
+
+test('buildArticleEvent: no author p-tag when omitted (back-compat)', async () => {
+  const article = { title: 'T', url: 'https://example.com/a', content: 'plain text body', byline: 'Jane' };
+  const evt = await EventBuilder.buildArticleEvent(article, [], USER, []);
+  const pAuthor = evt.tags.find((t) => t[0] === 'p' && t[3] === 'author');
+  assert.equal(pAuthor, undefined);
+  // The display-name `author` tag is unaffected.
+  assert.ok(evt.tags.find((t) => t[0] === 'author' && t[1] === 'Jane'));
+});

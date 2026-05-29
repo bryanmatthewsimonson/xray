@@ -17,6 +17,50 @@ import { Storage } from '../storage.js';
 import { Utils } from '../utils.js';
 
 /**
+ * Pull the POST AUTHOR out of a captured article object, returning
+ * `{ platform, raw }` for `recordAccount`, or null when the platform's
+ * article shape carries no stable author identifier.
+ *
+ * Pure — knows the per-platform article shapes but touches no storage.
+ * Substack is intentionally omitted: the post-API gives commenter
+ * user_ids but not a reliable stable id for the post author, so we keep
+ * the existing display-string byline rather than mint a shaky identity.
+ *
+ * @param {object} article
+ * @returns {{platform: string, raw: object}|null}
+ */
+export function extractPostAuthor(article) {
+  if (!article || typeof article !== 'object') return null;
+  switch (article.platform) {
+    case 'youtube': {
+      const ch = article.youtube && article.youtube.channel;
+      if (ch && ch.channelId) {
+        return { platform: 'youtube', raw: { channelId: ch.channelId, displayName: ch.name } };
+      }
+      return null;
+    }
+    case 'instagram': {
+      const a = article.instagram && article.instagram.author;
+      if (a && (a.pk || a.handle)) return { platform: 'instagram', raw: a };
+      return null;
+    }
+    case 'facebook': {
+      const a = article.facebook && article.facebook.author;
+      if (a && a.handle) return { platform: 'facebook', raw: a };
+      return null;
+    }
+    case 'twitter':
+    case 'x': {
+      const a = article.twitter && article.twitter.author;
+      if (a && a.handle) return { platform: 'twitter', raw: a };
+      return null;
+    }
+    default:
+      return null;
+  }
+}
+
+/**
  * Materialize (or refresh) a PlatformAccount from a raw platform-handler
  * author object and persist it to the local registry. Returns the
  * record (carrying the deterministic `accountPubkey`), or null when the

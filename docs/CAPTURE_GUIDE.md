@@ -191,6 +191,14 @@ These "just work" without special handling:
 - **YouTube** (`youtube.com/watch?v=<id>`) — transcript included when
   available, language selection for origin + user language, per-cue
   clickable timestamps that link back into the video.
+  - **To capture comments, scroll down to the comments first.** YouTube
+    loads comments lazily — they don't exist on the page until you
+    scroll them into view. X-Ray captures whatever has loaded at the
+    moment you open it, so: scroll the comments into view (and keep
+    scrolling for more), *then* click the X-Ray button. Each captured
+    commenter is recorded with their stable channel id, so the same
+    person is recognized across videos. If you capture without
+    scrolling, the reader will tell you no comments were loaded.
 - **Twitter / X** (`x.com/<user>/status/<id>`) — focal tweet plus
   thread if it's a thread. Profiles and search pages are declined.
 - **Substack** (`<publication>.substack.com/p/<slug>` or custom-domain
