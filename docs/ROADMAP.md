@@ -61,7 +61,9 @@ Landed:
   piecemeal.
 - esbuild bundling with ES modules, `src/` restructured into
   `content/`, `background/`, `reader/`, `popup/`, `options/`,
-  `sidepanel/`, `shared/`, `page/`.
+  `sidepanel/`, `shared/`, `page/`. (`popup/` was later removed when
+  the toolbar-icon click was repurposed to toggle the FAB directly —
+  see the Unreleased section of `CHANGELOG.md`.)
 - Relay client lives in the background service worker (`src/background/index.js`)
   — relay WebSockets survive tab navigation and aren't subject to
   page CSP.
@@ -347,8 +349,9 @@ pages without a recognizable comment system.
   picker (modal), keypair block (npub always copyable, nsec behind
   reveal), publish status, delete with alias-blast-radius confirm.
 - `chrome.storage.onChanged` cross-tab sync.
-- Opens from: popup "Open Entity Browser" button, reader header
-  "👤 Entities" button, or Chrome's own sidepanel toolbar.
+- Opens from: FAB header entity-browser icon, right-click menu's
+  "Entity Browser" item, Options page header quick-action, reader
+  header "👤 Entities" button, or Chrome's own sidepanel toolbar.
 
 ### Exit criteria — all satisfied
 

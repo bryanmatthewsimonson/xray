@@ -196,3 +196,115 @@ hr {
   font-size: 14px;
   color: var(--xr-danger);
 }
+
+.xr-opt__banner {
+  background: var(--xr-surface);
+  border: 1px solid var(--xr-border);
+  border-left: 3px solid var(--xr-accent, #6c83ff);
+  padding: 12px 14px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.xr-opt__active-line {
+  background: var(--xr-surface);
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.xr-opt__methods {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.xr-opt__method {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--xr-surface);
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.xr-opt__method input[type="radio"] {
+  margin-top: 3px;
+}
+
+.xr-opt__method strong { display: block; font-size: 14px; margin-bottom: 2px; }
+.xr-opt__method .xr-opt__hint { display: block; margin: 0; }
+
+.xr-opt__panel {
+  border-top: 1px solid var(--xr-border);
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+.xr-opt__panel[hidden] { display: none; }
+
+.xr-opt__relays-table {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.xr-opt__relays-row {
+  display: grid;
+  grid-template-columns: 1fr 70px 70px 70px 80px;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  background: var(--xr-surface);
+  border: 1px solid var(--xr-border);
+  border-radius: 4px;
+}
+
+.xr-opt__relays-row--head {
+  background: transparent;
+  border: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+
+.xr-opt__relays-row--add {
+  grid-template-columns: 1fr auto;
+}
+
+.xr-opt__relays-row input[type="text"] {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  padding: 4px 0;
+  width: 100%;
+}
+
+.xr-opt__relays-flag { text-align: center; }
+
+.xr-opt__header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.xr-opt__quick {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+

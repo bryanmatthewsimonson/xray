@@ -1,17 +1,18 @@
 // X-Ray build pipeline.
 //
-// Produces six bundles under `dist/`:
+// Produces five bundles under `dist/`:
 //
 //   dist/content.bundle.js     — content script (IIFE; runs in every tab)
 //   dist/background.bundle.js  — MV3 service worker (ESM per manifest)
-//   dist/popup.bundle.js       — toolbar popup page
-//   dist/options.bundle.js     — extension options page
+//   dist/options.bundle.js     — extension options page (single settings hub)
 //   dist/sidepanel.bundle.js   — chrome.sidePanel target (shell for now)
 //   dist/reader.bundle.js      — extension-page reader view (shell for now)
 //
-// HTML and CSS files stay in `src/` and reference the built bundles via
-// relative paths like `../../dist/popup.bundle.js`. The manifest keeps its
-// references to `src/.../*.html` files unchanged.
+// The toolbar-icon click toggles the FAB on the active tab — no popup
+// surface, so no popup bundle. HTML and CSS files stay in `src/` and
+// reference the built bundles via relative paths like
+// `../../dist/options.bundle.js`. The manifest keeps its references to
+// `src/.../*.html` files unchanged.
 
 import * as esbuild from 'esbuild';
 import { fileURLToPath } from 'node:url';
@@ -53,7 +54,7 @@ const configs = [
     },
 
     // --- extension pages (each is its own IIFE bundle, loaded by its HTML shell) ---
-    ...['popup', 'options', 'sidepanel', 'reader'].map((name) => ({
+    ...['options', 'sidepanel', 'reader'].map((name) => ({
         ...shared,
         entryPoints: [resolve(root, `src/${name}/index.js`)],
         outfile: resolve(root, `dist/${name}.bundle.js`),

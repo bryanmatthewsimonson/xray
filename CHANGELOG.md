@@ -10,6 +10,82 @@ Sections per release: **Added** (new features), **Changed**
 
 ## [Unreleased]
 
+### Added
+
+- **Signing method is now an explicit user preference**
+  (`preferences.signing_method`, values `'local' | 'nip07' | 'nsecbunker'`)
+  with **local signing as the default**. Replaces the auto-detect-NIP-07-
+  then-NSecBunker probe at content-script init.
+- **`Signer` façade** (`src/shared/signer.js`) — single sign call site that
+  dispatches to `Crypto.signEvent` (local), the injected NIP-07 client, or
+  `NSecBunkerClient.signEvent`. The whole publish path goes through it.
+- **Local primary identity** in a dedicated `local_primary_identity`
+  storage key with its own `Storage.primaryIdentity` namespace (Generate /
+  Import nsec / Show nsec / Reset). Kept distinct from `keypair_registry`
+  so an entity-key export never leaks the user's own nsec.
+- **Idempotent signing-method migration** — existing profiles land on
+  `signing_method=local`, `signing_method_configured=false` so a one-time
+  setup banner fires on the next Settings open.
+- **Signing tab redesign** in Options — radios for Local / NIP-07 /
+  NSecBunker, per-method panels, NSecBunker **Test connection** button,
+  and an always-visible *Active method: …* line at the top of the tab.
+- **Per-relay flags surfaced** in Options → Relays — URL / read / write
+  / enabled rows replace the textarea. The structured shape persists as
+  `preferences.relays`; `preferences.default_relays` (URL list) is
+  auto-synced to the enabled+writable subset for back-compat with every
+  reader (`nostr-client.js`, background, reader, sidepanel).
+- **`CONFIG` override controls in Options → Advanced** — article cache
+  enabled/budget, min content length, max claim length. Applied via a
+  new `applyConfigOverrides()` at content-script init.
+- **FAB panel header** gained a settings cog and entity-browser icon.
+  Clicking either messages the SW (`xray:openSettings`,
+  `xray:openEntities`), so the FAB itself is a settings entry point.
+- **FAB relay picker now reads from `Storage.relays.get()`**, filtered
+  to enabled+writable relays. Settings → Relays drives what the FAB
+  offers; static `CONFIG.relays` no longer leaks through.
+- **Quick-actions bar** at the top of the Options page (Toggle Capture
+  / Entity Browser / Capture tips), so Options is a complete settings
+  hub on its own.
+- **`Storage.relays.set()`** — structured-shape writer; round-trips
+  through `Storage.relays.get()` and keeps `default_relays` in sync.
+- **12 new tests in `tests/signer.test.mjs`** covering all three
+  signing branches, primaryIdentity round-trip, the `signing_method`
+  migration, and `Storage.relays.set()`. Total: 235 (up from 223).
+
+### Changed
+
+- **Toolbar-icon click no longer opens a popup.** The icon now toggles
+  the FAB capture panel on the active tab via `chrome.action.onClicked`,
+  mirroring the keyboard shortcut. On non-injectable pages
+  (`chrome://`, `file://`, extension pages) it falls back to opening
+  the Options page so the click is never a silent no-op.
+- **Right-click menu on the toolbar icon expanded** to host the
+  jump-actions the popup used to provide: Toggle Capture / Entity
+  Browser / Settings… / View Keypair Registry / Export Keypair
+  Registry / Capture tips.
+- **`content/ui.js` publish flow simplified** — Local + NIP-07 collapse
+  into a single `Signer.signEvent` path; NSecBunker keeps its
+  per-publication-keypair flow.
+- **Background `xray:sign` / `xray:getPubkey` route through `Signer`**
+  instead of `NIP07Client` directly. The reader-page publish flow
+  respects the user's chosen method.
+- **README, ROADMAP, SMOKE_TEST, CONTRIBUTING** updated to reflect the
+  current signing model, the popup removal, and the consolidated
+  Settings hub. Test counts and bundle counts brought current.
+
+### Removed
+
+- **Toolbar popup** (`src/popup/`) — files deleted, popup bundle
+  dropped from `esbuild.config.mjs`, `action.default_popup` removed
+  from `manifest.json`. The popup duplicated state already shown in
+  the FAB header and split jump-actions across multiple surfaces.
+- **Forward-looking design plans under `docs/plans/`** — the five
+  tentative documents (`NIP-COURT-OF-PUBLIC-OPINION`,
+  `evidentiary-standards`, `protocol-adoption-guide`,
+  `trust-reputation-system`, `ui-ux-design`) are out of scope for
+  X-Ray's current phase and have been removed. The Phase 9 row that
+  referenced them is gone from the roadmap.
+
 ## [0.4.0] — 2026-04-24
 
 ### Added

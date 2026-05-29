@@ -4,11 +4,12 @@
 //
 // Part of the v4.2 parity push — see roadmap: #20.
 
-import { CONFIG } from '../shared/config.js';
+import { CONFIG, applyConfigOverrides } from '../shared/config.js';
 import { Utils } from '../shared/utils.js';
 import { Storage } from '../shared/storage.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
+import { Signer } from '../shared/signer.js';
 import { NIP07Client } from './nip07-client.js';
 import { UI } from './ui.js';
 import { installBufferListener, configureInterceptor } from '../shared/api-hook-buffer.js';
@@ -18,9 +19,11 @@ async function init() {
     await Storage.initialize();
 
     // Apply runtime debug preference — off by default; opt-in via options page.
+    // Also apply user-supplied CONFIG overrides from Settings → Advanced.
     try {
         const prefs = await Storage.get('preferences', {});
         if (prefs && typeof prefs.debug === 'boolean') Utils.setDebug(prefs.debug);
+        if (prefs && prefs.config_overrides) applyConfigOverrides(prefs.config_overrides);
     } catch (_) { /* preferences may not exist on first run */ }
 
     Utils.log('Starting X-Ray content script v' + CONFIG.version);
@@ -74,29 +77,56 @@ async function init() {
     // Initialize local key manager.
     await LocalKeyManager.init();
 
+    // Wire the Signer façade to this context's NIP-07 client. Local and
+    // NSecBunker work without injection.
+    Signer.configure({ nip07Client: NIP07Client });
+
     // Initialize Article Capture UI (FAB and panel).
     UI.init();
 
-    // Check for NIP-07 extension availability.
-    // NIP-07 lives on the page's `window.nostr`, which the isolated
-    // content-script world cannot see directly. The MAIN-world bridge
-    // (src/page/nip07-bridge.js) exposes it to us via postMessage.
-    //
-    // We use the async `probe()` rather than the synchronous
-    // `checkAvailability()` because at init time the bridge's "ready"
-    // broadcast may not have arrived yet — the sync check would say
-    // "no" even when the user does have nos2x / Alby installed, and
-    // we'd needlessly fall through to the NSecBunker path.
-    const nip07Available = await NIP07Client.probe();
-    if (nip07Available) {
-        Utils.log('NIP-07 extension detected');
+    // Resolve the user's chosen signing method.
+    const method = await Signer.getMethod();
+    const configured = await Signer.isConfigured();
+
+    if (!configured) {
+        Utils.log('Signing method not yet configured by user');
         UI.updateSigningStatus();
-        recordSigningState('nip07');
-        UI.showToast('NIP-07 extension detected - Ready to publish!', 'success');
-    } else {
-        // Try to connect to NSecBunker in background as fallback.
-        Utils.log('No NIP-07 extension, trying NSecBunker...');
-        NSecBunkerClient.connect().then(() => {
+        recordSigningState('unconfigured');
+        // Still probe NIP-07 so the bridge ready event lands; this keeps
+        // the popup's "detected?" indicator honest even before setup.
+        NIP07Client.probe().catch(() => { /* ignore */ });
+    } else if (method === 'local') {
+        const id = await Storage.primaryIdentity.get();
+        if (id && id.privateKey) {
+            Utils.log('Local signing identity ready:', id.npub);
+            UI.updateSigningStatus();
+            recordSigningState('local', id.pubkey);
+        } else {
+            UI.updateSigningStatus();
+            recordSigningState('local-missing');
+            Utils.log('Local signing selected but no key present. Open Settings → Signing.');
+        }
+    } else if (method === 'nip07') {
+        const nip07Available = await NIP07Client.probe();
+        if (nip07Available) {
+            Utils.log('NIP-07 extension detected');
+            UI.updateSigningStatus();
+            try {
+                const pubkey = await NIP07Client.getPublicKey();
+                recordSigningState('nip07', pubkey);
+            } catch (_) {
+                recordSigningState('nip07');
+            }
+            UI.showToast('NIP-07 extension detected - Ready to publish!', 'success');
+        } else {
+            UI.updateSigningStatus();
+            recordSigningState('nip07-missing');
+            Utils.log('NIP-07 selected but no provider. Install nos2x / Alby or switch method.');
+        }
+    } else if (method === 'nsecbunker') {
+        Utils.log('Connecting to NSecBunker...');
+        const prefs = await Storage.get('preferences', {});
+        NSecBunkerClient.connect(prefs && prefs.nsecbunker_url).then(() => {
             Utils.log('NSecBunker connected');
             UI.updateSigningStatus();
             UI.updatePublishButton();
@@ -105,8 +135,7 @@ async function init() {
         }).catch((e) => {
             Utils.log('NSecBunker not available:', e.message);
             UI.updateSigningStatus();
-            recordSigningState('none');
-            Utils.log('No signing method available. Install a NIP-07 extension (nos2x, Alby) or run NSecBunker.');
+            recordSigningState('nsecbunker-missing');
         });
     }
 
@@ -124,10 +153,11 @@ async function init() {
  * `set` always JSON.stringifies). The popup's `safeParse` handles
  * the round-trip.
  */
-function recordSigningState(method) {
+function recordSigningState(method, pubkey = null) {
     try {
         const payload = JSON.stringify({
-            method,                       // 'nip07' | 'nsecbunker' | 'none'
+            method,                       // 'local' | 'nip07' | 'nsecbunker' | 'unconfigured' | '<x>-missing'
+            pubkey,                       // hex pubkey when known, else null
             detectedAt: Date.now()
         });
         chrome.storage.local.set({ xr_signing_state: payload });
@@ -170,12 +200,12 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
                     sendResponse({ ok: true });
                     break;
                 case 'xray:getPubkey':
-                    NIP07Client.getPublicKey()
+                    Signer.getPublicKey()
                         .then((pubkey) => sendResponse({ ok: true, pubkey }))
                         .catch((err) => sendResponse({ ok: false, error: err && err.message }));
                     return true;
                 case 'xray:sign':
-                    NIP07Client.signEvent(msg.event)
+                    Signer.signEvent(msg.event)
                         .then((signed) => sendResponse({ ok: true, event: signed }))
                         .catch((err) => sendResponse({ ok: false, error: err && err.message }));
                     return true; // keep channel open for the async response

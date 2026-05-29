@@ -9,6 +9,7 @@
 
 import { CONFIG } from './config.js';
 import { Utils } from './utils.js';
+import { Crypto } from './crypto.js';
 
 export const Storage = (() => {
   const area = (typeof browser !== 'undefined' && browser.storage) ? browser.storage.local : chrome.storage.local;
@@ -64,12 +65,15 @@ export const Storage = (() => {
         organizations: {},
         keypair_registry: {},
         platform_accounts: {},
+        local_primary_identity: null,
         preferences: {
           default_relays: CONFIG.relays.filter(r => r.enabled).map(r => r.url),
           media_handling: 'embed',
           theme: 'dark',
           debug: false,
-          nsecbunker_url: CONFIG.nsecbunker.defaultUrl
+          nsecbunker_url: CONFIG.nsecbunker.defaultUrl,
+          signing_method: 'local',
+          signing_method_configured: false
         },
         recent_publications: []
       };
@@ -100,6 +104,24 @@ export const Storage = (() => {
           Utils.log('[migration] dropped wss://offchain.pub from saved relay list');
         }
         applied.drop_offchain_pub = true;
+        changed = true;
+      }
+
+      // 2026-05-01 — introduce explicit signing_method preference. Older
+      // profiles auto-detected NIP-07 / NSecBunker at content-script init;
+      // X-Ray now defaults to local signing and asks the user to choose
+      // through the first-run prompt. Existing users land on 'local' with
+      // signing_method_configured=false so the prompt fires once.
+      if (!applied.signing_method_default) {
+        if (typeof prefs.signing_method !== 'string') {
+          prefs.signing_method = 'local';
+          changed = true;
+        }
+        if (typeof prefs.signing_method_configured !== 'boolean') {
+          prefs.signing_method_configured = false;
+          changed = true;
+        }
+        applied.signing_method_default = true;
         changed = true;
       }
 
@@ -164,6 +186,48 @@ export const Storage = (() => {
         const current = await Store.get('preferences', {});
         await Store.set('preferences', { ...current, ...updates });
       }
+    },
+
+    // The user's primary signing identity when signing_method === 'local'.
+    // Kept distinct from `keypair_registry` (which holds entity keys) so
+    // that an entity-keypair export never accidentally leaks the user's
+    // own nsec. Shape: { privateKey, pubkey, npub, nsec, created } | null.
+    primaryIdentity: {
+      get: async () => await Store.get('local_primary_identity', null),
+
+      set: async (privateKey) => {
+        if (typeof privateKey !== 'string' || !/^[0-9a-fA-F]{64}$/.test(privateKey)) {
+          throw new Error('Private key must be 64-char hex');
+          }
+        const pubkey = Crypto.getPublicKey(privateKey);
+        const identity = {
+          privateKey,
+          pubkey,
+          npub: Crypto.hexToNpub(pubkey),
+          nsec: Crypto.hexToNsec(privateKey),
+          created: Math.floor(Date.now() / 1000)
+        };
+        await Store.set('local_primary_identity', identity);
+        return identity;
+      },
+
+      generate: async () => {
+        return await Store.primaryIdentity.set(Crypto.generatePrivateKey());
+      },
+
+      importNsec: async (nsecOrHex) => {
+        const trimmed = String(nsecOrHex || '').trim();
+        let hex = null;
+        if (/^nsec1[0-9a-z]+$/i.test(trimmed)) {
+          hex = Crypto.nsecToHex(trimmed);
+        } else if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+          hex = trimmed.toLowerCase();
+        }
+        if (!hex) throw new Error('Provide an nsec1… string or 64-char hex private key');
+        return await Store.primaryIdentity.set(hex);
+      },
+
+      clear: async () => await Store.set('local_primary_identity', null)
     },
 
     keypairs: {
@@ -290,14 +354,47 @@ export const Storage = (() => {
 
     relays: {
       // Returns `{ relays: [{url, read, write, enabled}] }` to match v4.
-      // X-Ray currently stores only a flat URL list in preferences, so
-      // every relay is assumed read+write+enabled.
+      // The Settings page persists the structured shape under
+      // preferences.relays. For back-compat with profiles that only ever
+      // saw `default_relays` (flat URL list), synthesize the structured
+      // shape on read with read=write=enabled=true.
       get: async () => {
         const prefs = await Store.get('preferences', {});
+        if (Array.isArray(prefs.relays) && prefs.relays.length > 0) {
+          return {
+            relays: prefs.relays.map((r) => ({
+              url: String(r && r.url || ''),
+              read: r && r.read !== false,
+              write: r && r.write !== false,
+              enabled: r && r.enabled !== false
+            })).filter((r) => r.url)
+          };
+        }
         const urls = Array.isArray(prefs.default_relays) ? prefs.default_relays : [];
         return {
           relays: urls.map((url) => ({ url, read: true, write: true, enabled: true }))
         };
+      },
+
+      set: async (relays) => {
+        if (!Array.isArray(relays)) throw new Error('relays must be an array');
+        const normalized = relays
+          .map((r) => ({
+            url: String(r && r.url || '').trim(),
+            read: r && r.read !== false,
+            write: r && r.write !== false,
+            enabled: r && r.enabled !== false
+          }))
+          .filter((r) => r.url);
+        const prefs = await Store.get('preferences', {});
+        prefs.relays = normalized;
+        // Keep default_relays in sync as the enabled-write URL list so
+        // every existing reader (nostr-client.js etc.) continues working.
+        prefs.default_relays = normalized
+          .filter((r) => r.enabled && r.write)
+          .map((r) => r.url);
+        await Store.set('preferences', prefs);
+        return normalized;
       }
     },
 

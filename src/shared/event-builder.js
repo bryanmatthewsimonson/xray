@@ -12,6 +12,11 @@
 import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
 import { ContentExtractor } from './content-extractor.js';
+import { buildRespondsToTag, RESPONDS_TO_RELATIONSHIPS } from './metadata/builders.js';
+
+// Re-export the metadata helpers so callers that already import from
+// `event-builder.js` don't need a second import path. See spec §6.4.
+export { buildRespondsToTag, RESPONDS_TO_RELATIONSHIPS } from './metadata/builders.js';
 
 export const EventBuilder = {
   // Build NIP-23 article event (kind 30023).
@@ -119,6 +124,25 @@ export const EventBuilder = {
     // author's comments and (Phase IV) their canonical person.
     if (authorAccountPubkey) {
       tags.push(['p', authorAccountPubkey, '', 'author']);
+    }
+
+    // Phase 9a — `responds-to` extension. Emit a tag for each declared
+    // response target (URL, naddr, or nevent). Per spec §6.4, also emit
+    // an indexed `r` tag for URL targets so relays can answer
+    // `#r=<url>` queries on the response side.
+    //
+    // Shape: article.respondsTo = [{ target, relationship, relayHint? }]
+    if (Array.isArray(article.respondsTo)) {
+      for (const ref of article.respondsTo) {
+        if (!ref || typeof ref.target !== 'string' || !ref.relationship) continue;
+        try {
+          tags.push(buildRespondsToTag(ref.target, ref.relationship, ref.relayHint || ''));
+          // Co-emit an `r` tag for URL targets (skip nostr: refs).
+          if (!/^nostr:/.test(ref.target)) {
+            tags.push(['r', ref.target]);
+          }
+        } catch (_) { /* invalid relationship; silently drop the entry */ }
+      }
     }
 
     // Add entity tags

@@ -6,17 +6,19 @@
 
 import { migrateUserscriptBlob } from '../shared/userscript-migration.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
+import { Storage } from '../shared/storage.js';
+import { Crypto } from '../shared/crypto.js';
+import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
 
 const browserApi = (typeof browser !== 'undefined' && browser.runtime) ? browser : chrome;
 
 const DEFAULT_RELAYS = [
-    'wss://relay.damus.io',
-    'wss://relay.nostr.band',
-    'wss://nos.lol',
-    'wss://relay.snort.social'
+    { url: 'wss://relay.damus.io',     read: true, write: true, enabled: true },
+    { url: 'wss://nos.lol',            read: true, write: true, enabled: true },
+    { url: 'wss://relay.nostr.band',   read: true, write: true, enabled: true }
 ];
 
-const DEFAULT_BUNKER_URL = 'wss://bunker.nsec.app';
+const DEFAULT_BUNKER_URL = 'ws://localhost:5454';
 
 // ------------------------------------------------------------------
 // Storage helpers (mirror Storage wrapper semantics)
@@ -45,7 +47,7 @@ function storageClearExtension() {
     const keys = [
         'publications', 'people', 'organizations',
         'preferences', 'keypair_registry', 'recent_publications',
-        'xr_signing_state'
+        'local_primary_identity', 'xr_signing_state'
     ];
     return new Promise((resolve) => {
         browserApi.storage.local.remove(keys, () => resolve());
@@ -69,7 +71,15 @@ function wireTabs() {
     });
 }
 
+function activateTab(name) {
+    document.querySelectorAll('.xr-opt__tab').forEach(t =>
+        t.classList.toggle('xr-opt__tab--active', t.dataset.tab === name));
+    document.querySelectorAll('.xr-opt__section').forEach(s =>
+        s.classList.toggle('xr-opt__section--active', s.dataset.section === name));
+}
+
 function flash(el, msg, ok = true) {
+    if (!el) return;
     el.textContent = msg;
     el.classList.toggle('xr-opt__status--ok', ok);
     el.classList.toggle('xr-opt__status--err', !ok);
@@ -83,29 +93,102 @@ function flash(el, msg, ok = true) {
 // Relays
 // ------------------------------------------------------------------
 
+let _relayState = []; // [{url, read, write, enabled}]
+
 async function loadRelays() {
+    // Read structured shape if present, else fall back to default_relays.
     const prefs = (await storageGet('preferences')) || {};
-    const relays = Array.isArray(prefs.default_relays) ? prefs.default_relays : DEFAULT_RELAYS;
-    document.getElementById('relays-input').value = relays.join('\n');
+    if (Array.isArray(prefs.relays) && prefs.relays.length > 0) {
+        _relayState = prefs.relays.map((r) => ({
+            url: String(r && r.url || ''),
+            read: r && r.read !== false,
+            write: r && r.write !== false,
+            enabled: r && r.enabled !== false
+        })).filter((r) => r.url);
+    } else if (Array.isArray(prefs.default_relays) && prefs.default_relays.length > 0) {
+        _relayState = prefs.default_relays.map((url) => ({
+            url, read: true, write: true, enabled: true
+        }));
+    } else {
+        _relayState = DEFAULT_RELAYS.map((r) => ({ ...r }));
+    }
+    renderRelays();
+}
+
+function renderRelays() {
+    const rows = document.getElementById('relays-rows');
+    rows.innerHTML = '';
+    _relayState.forEach((relay, i) => {
+        const row = document.createElement('div');
+        row.className = 'xr-opt__relays-row';
+        row.setAttribute('role', 'row');
+        row.innerHTML = `
+            <input type="text" data-i="${i}" data-field="url" value="${escapeAttr(relay.url)}" spellcheck="false" />
+            <input type="checkbox" data-i="${i}" data-field="read" ${relay.read ? 'checked' : ''} />
+            <input type="checkbox" data-i="${i}" data-field="write" ${relay.write ? 'checked' : ''} />
+            <input type="checkbox" data-i="${i}" data-field="enabled" ${relay.enabled ? 'checked' : ''} />
+            <button class="xr-opt__btn" data-action="remove" data-i="${i}">Remove</button>
+        `;
+        rows.appendChild(row);
+    });
+    rows.querySelectorAll('input').forEach((el) => {
+        el.addEventListener('change', onRelayFieldChange);
+    });
+    rows.querySelectorAll('[data-action="remove"]').forEach((el) => {
+        el.addEventListener('click', onRelayRemove);
+    });
+}
+
+function escapeAttr(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+}
+
+function onRelayFieldChange(ev) {
+    const i = +ev.target.dataset.i;
+    const field = ev.target.dataset.field;
+    if (!_relayState[i]) return;
+    if (field === 'url') _relayState[i].url = ev.target.value.trim();
+    else _relayState[i][field] = ev.target.checked;
+}
+
+function onRelayRemove(ev) {
+    const i = +ev.target.dataset.i;
+    _relayState.splice(i, 1);
+    renderRelays();
+}
+
+function onRelayAdd() {
+    const input = document.getElementById('relays-add-url');
+    const url = input.value.trim();
+    const status = document.getElementById('relays-status');
+    if (!url) { flash(status, 'Enter a URL', false); return; }
+    if (!/^wss?:\/\//i.test(url)) { flash(status, 'Must start with wss:// or ws://', false); return; }
+    if (_relayState.some((r) => r.url === url)) { flash(status, 'Already in list', false); return; }
+    _relayState.push({ url, read: true, write: true, enabled: true });
+    input.value = '';
+    renderRelays();
 }
 
 async function saveRelays() {
-    const raw = document.getElementById('relays-input').value;
-    const lines = raw.split('\n').map(s => s.trim()).filter(Boolean);
-    const invalid = lines.find(u => !/^wss?:\/\//i.test(u));
     const status = document.getElementById('relays-status');
-    if (invalid) {
-        flash(status, `Not a ws/wss URL: ${invalid}`, false);
-        return;
-    }
+    const invalid = _relayState.find((r) => !/^wss?:\/\//i.test(r.url));
+    if (invalid) { flash(status, `Not a ws/wss URL: ${invalid.url}`, false); return; }
     const prefs = (await storageGet('preferences')) || {};
-    prefs.default_relays = lines;
+    prefs.relays = _relayState.map((r) => ({ ...r }));
+    // Keep default_relays in sync so existing readers (nostr-client.js etc.)
+    // continue to see only enabled+writable URLs.
+    prefs.default_relays = _relayState
+        .filter((r) => r.enabled && r.write)
+        .map((r) => r.url);
     await storageSet('preferences', prefs);
     flash(status, 'Saved.');
 }
 
-async function resetRelays() {
-    document.getElementById('relays-input').value = DEFAULT_RELAYS.join('\n');
+function resetRelays() {
+    _relayState = DEFAULT_RELAYS.map((r) => ({ ...r }));
+    renderRelays();
 }
 
 // ------------------------------------------------------------------
@@ -114,20 +197,167 @@ async function resetRelays() {
 
 async function loadSigning() {
     const prefs = (await storageGet('preferences')) || {};
+    const method = (prefs.signing_method === 'nip07' || prefs.signing_method === 'nsecbunker')
+        ? prefs.signing_method
+        : 'local';
+    document.querySelectorAll('input[name="signing-method"]').forEach((r) => {
+        r.checked = r.value === method;
+    });
     document.getElementById('bunker-url').value = prefs.nsecbunker_url || DEFAULT_BUNKER_URL;
+    refreshSigningPanels();
+    await refreshLocalKeyState();
+    await refreshActiveLine();
+    await refreshNip07State();
+
+    // First-run banner
+    const banner = document.getElementById('signing-firstrun');
+    banner.style.display = prefs.signing_method_configured ? 'none' : '';
+}
+
+function selectedMethod() {
+    const r = document.querySelector('input[name="signing-method"]:checked');
+    return r ? r.value : 'local';
+}
+
+function refreshSigningPanels() {
+    const method = selectedMethod();
+    document.getElementById('signing-panel-local').style.display       = method === 'local' ? '' : 'none';
+    document.getElementById('signing-panel-nip07').style.display       = method === 'nip07' ? '' : 'none';
+    document.getElementById('signing-panel-nsecbunker').style.display  = method === 'nsecbunker' ? '' : 'none';
 }
 
 async function saveSigning() {
-    const url = document.getElementById('bunker-url').value.trim();
+    const method = selectedMethod();
     const status = document.getElementById('signing-status');
-    if (url && !/^wss?:\/\//i.test(url)) {
+    const url = document.getElementById('bunker-url').value.trim();
+    if (method === 'nsecbunker' && url && !/^wss?:\/\//i.test(url)) {
         flash(status, 'NSecBunker URL must start with ws:// or wss://', false);
         return;
     }
     const prefs = (await storageGet('preferences')) || {};
-    prefs.nsecbunker_url = url;
+    prefs.signing_method = method;
+    prefs.signing_method_configured = true;
+    if (url) prefs.nsecbunker_url = url;
     await storageSet('preferences', prefs);
+    document.getElementById('signing-firstrun').style.display = 'none';
     flash(status, 'Saved.');
+    await refreshActiveLine();
+}
+
+async function refreshActiveLine() {
+    const el = document.getElementById('signing-active');
+    const prefs = (await storageGet('preferences')) || {};
+    const method = (prefs.signing_method === 'nip07' || prefs.signing_method === 'nsecbunker')
+        ? prefs.signing_method
+        : 'local';
+    if (!prefs.signing_method_configured) {
+        el.textContent = 'Active method: not configured yet — pick one below.';
+        return;
+    }
+    if (method === 'local') {
+        const id = await storageGet('local_primary_identity');
+        el.textContent = id && id.npub
+            ? `Active method: Local — ${id.npub}`
+            : 'Active method: Local — no key yet';
+    } else if (method === 'nip07') {
+        el.textContent = 'Active method: NIP-07 (browser extension)';
+    } else if (method === 'nsecbunker') {
+        el.textContent = `Active method: NSecBunker — ${prefs.nsecbunker_url || '(no URL set)'}`;
+    }
+}
+
+async function refreshLocalKeyState() {
+    const el = document.getElementById('local-key-state');
+    const id = await storageGet('local_primary_identity');
+    if (id && id.npub) {
+        const truncated = id.npub.slice(0, 14) + '…' + id.npub.slice(-6);
+        el.innerHTML = `Current key: <code>${escapeAttr(truncated)}</code>`;
+    } else {
+        el.textContent = 'No key yet.';
+    }
+    document.getElementById('local-export-row').style.display = 'none';
+    document.getElementById('local-export-pre').textContent = '';
+}
+
+async function refreshNip07State() {
+    const el = document.getElementById('nip07-state');
+    const state = await storageGet('xr_signing_state');
+    if (state && state.method === 'nip07' && state.pubkey) {
+        el.textContent = `Detected — pubkey ${state.pubkey.slice(0, 16)}…`;
+    } else if (state && state.method === 'nip07-missing') {
+        el.textContent = 'Not detected on the last visited tab.';
+    } else {
+        el.textContent = 'Status unknown — open any page with X-Ray loaded to detect.';
+    }
+}
+
+async function localGenerate() {
+    const status = document.getElementById('local-status');
+    try {
+        await Storage.primaryIdentity.generate();
+        flash(status, 'New key generated.');
+        await refreshLocalKeyState();
+        await refreshActiveLine();
+    } catch (e) {
+        flash(status, 'Generate failed: ' + (e && e.message), false);
+    }
+}
+
+async function localImport() {
+    const status = document.getElementById('local-status');
+    const value = document.getElementById('local-import-input').value;
+    try {
+        await Storage.primaryIdentity.importNsec(value);
+        document.getElementById('local-import-input').value = '';
+        document.getElementById('local-import-row').style.display = 'none';
+        flash(status, 'Key imported.');
+        await refreshLocalKeyState();
+        await refreshActiveLine();
+    } catch (e) {
+        flash(status, 'Import failed: ' + (e && e.message), false);
+    }
+}
+
+async function localExportShow() {
+    const status = document.getElementById('local-status');
+    const id = await storageGet('local_primary_identity');
+    if (!id || !id.nsec) { flash(status, 'No key to export.', false); return; }
+    const row = document.getElementById('local-export-row');
+    const pre = document.getElementById('local-export-pre');
+    pre.textContent = id.nsec;
+    row.style.display = '';
+}
+
+async function localExportCopy() {
+    const status = document.getElementById('local-status');
+    const text = document.getElementById('local-export-pre').textContent;
+    try {
+        await navigator.clipboard.writeText(text);
+        flash(status, 'Copied to clipboard.');
+    } catch (e) {
+        flash(status, 'Copy failed: ' + (e && e.message), false);
+    }
+}
+
+async function localReset() {
+    const status = document.getElementById('local-status');
+    if (!confirm('Erase the local signing key? You will not be able to sign with it again unless you have backed up the nsec.')) return;
+    await Storage.primaryIdentity.clear();
+    flash(status, 'Key cleared.');
+    await refreshLocalKeyState();
+    await refreshActiveLine();
+}
+
+async function bunkerTest() {
+    const status = document.getElementById('bunker-test-status');
+    const url = document.getElementById('bunker-url').value.trim() || DEFAULT_BUNKER_URL;
+    flash(status, 'Connecting…');
+    try {
+        await NSecBunkerClient.connect(url);
+        flash(status, 'Connected.');
+    } catch (e) {
+        flash(status, 'Failed: ' + (e && e.message), false);
+    }
 }
 
 // ------------------------------------------------------------------
@@ -216,6 +446,16 @@ async function loadAdvanced() {
     document.getElementById('pref-archive-sensitivity').value =
         prefs.archive_banner_sensitivity || 'always';
     document.getElementById('pref-debug').checked = prefs.debug === true;
+
+    const overrides = prefs.config_overrides || {};
+    document.getElementById('pref-cache-enabled').checked =
+        overrides.article_cache_enabled !== false;
+    document.getElementById('pref-cache-budget').value =
+        overrides.article_cache_budget_mb != null ? overrides.article_cache_budget_mb : '';
+    document.getElementById('pref-min-content').value =
+        overrides.min_content_length != null ? overrides.min_content_length : '';
+    document.getElementById('pref-max-claim').value =
+        overrides.max_claim_length != null ? overrides.max_claim_length : '';
 }
 
 async function saveAdvanced() {
@@ -225,6 +465,17 @@ async function saveAdvanced() {
     prefs.archive_banner_sensitivity =
         document.getElementById('pref-archive-sensitivity').value;
     prefs.debug = document.getElementById('pref-debug').checked;
+
+    const cacheBudget = document.getElementById('pref-cache-budget').value;
+    const minContent = document.getElementById('pref-min-content').value;
+    const maxClaim = document.getElementById('pref-max-claim').value;
+    prefs.config_overrides = {
+        article_cache_enabled: document.getElementById('pref-cache-enabled').checked,
+        article_cache_budget_mb: cacheBudget === '' ? null : Math.max(1, parseInt(cacheBudget, 10) || 0),
+        min_content_length: minContent === '' ? null : Math.max(0, parseInt(minContent, 10) || 0),
+        max_claim_length: maxClaim === '' ? null : Math.max(0, parseInt(maxClaim, 10) || 0)
+    };
+
     await storageSet('preferences', prefs);
     flash(document.getElementById('advanced-status'), 'Saved.');
 }
@@ -243,8 +494,6 @@ async function runMigration() {
     try { blob = JSON.parse(text); }
     catch (err) { flash(status, 'Invalid JSON: ' + (err.message || err), false); return; }
 
-    // LocalKeyManager.init reads the existing store into memory so
-    // our writes merge instead of overwriting unrelated keys.
     try { await LocalKeyManager.init(); }
     catch (err) { flash(status, 'Storage not ready: ' + (err.message || err), false); return; }
 
@@ -277,7 +526,7 @@ function readMigrationFile(file) {
 }
 
 async function clearAll() {
-    if (!confirm('Erase all X-Ray settings, entities, and the keypair registry? This cannot be undone.')) return;
+    if (!confirm('Erase all X-Ray settings, entities, the keypair registry, and the local signing key? This cannot be undone.')) return;
     await storageClearExtension();
     await Promise.all([loadRelays(), loadSigning(), loadEntities(), loadAdvanced()]);
     document.getElementById('keypairs-preview').style.display = 'none';
@@ -296,10 +545,40 @@ document.addEventListener('DOMContentLoaded', async () => {
         loadAdvanced()
     ]);
 
+    // Auto-activate Signing tab if not yet configured.
+    const prefs = (await storageGet('preferences')) || {};
+    if (!prefs.signing_method_configured) activateTab('signing');
+
+    // Quick-action header buttons (replace the old popup's role).
+    document.getElementById('qa-toggle-capture').addEventListener('click', () => {
+        browserApi.runtime.sendMessage({ type: 'xray:forward:xray:toggle' });
+    });
+    document.getElementById('qa-open-entities').addEventListener('click', () => {
+        browserApi.runtime.sendMessage({ type: 'xray:openEntities' });
+    });
+    document.getElementById('qa-capture-tips').addEventListener('click', () => {
+        browserApi.runtime.sendMessage({ type: 'xray:openCaptureTips' });
+    });
+
     document.getElementById('relays-save').addEventListener('click', saveRelays);
     document.getElementById('relays-reset').addEventListener('click', resetRelays);
+    document.getElementById('relays-add').addEventListener('click', onRelayAdd);
 
+    document.querySelectorAll('input[name="signing-method"]').forEach((r) => {
+        r.addEventListener('change', refreshSigningPanels);
+    });
     document.getElementById('signing-save').addEventListener('click', saveSigning);
+
+    document.getElementById('local-generate').addEventListener('click', localGenerate);
+    document.getElementById('local-import-toggle').addEventListener('click', () => {
+        const row = document.getElementById('local-import-row');
+        row.style.display = row.style.display === 'none' ? '' : 'none';
+    });
+    document.getElementById('local-import-save').addEventListener('click', localImport);
+    document.getElementById('local-export-toggle').addEventListener('click', localExportShow);
+    document.getElementById('local-export-copy').addEventListener('click', localExportCopy);
+    document.getElementById('local-reset').addEventListener('click', localReset);
+    document.getElementById('bunker-test').addEventListener('click', bunkerTest);
 
     document.getElementById('entities-save').addEventListener('click', saveEntities);
 
@@ -327,3 +606,5 @@ document.addEventListener('DOMContentLoaded', async () => {
         e.target.value = '';
     });
 });
+// Re-export for tests / debugging.
+export { Storage, Crypto };

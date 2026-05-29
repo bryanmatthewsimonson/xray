@@ -1,7 +1,7 @@
 # X-Ray — End-to-end smoke test
 
 Manual walkthrough that exercises every shipped surface across
-Phases 0–7 + the polish backlog. Aim for ~20 minutes per browser.
+Phases 0–8 + the polish backlog. Aim for ~20 minutes per browser.
 Run before any release tag, after any cross-cutting refactor, and
 when adding a contributor.
 
@@ -13,8 +13,8 @@ This doc replaces the v1-era checklist that lived on issue #1.
 git clone …
 cd xray
 npm install
-npm run build           # produces dist/*.bundle.js
-npm test                # 67/67 should pass
+npm run build           # produces dist/*.bundle.js (5 bundles)
+npm test                # 235/235 should pass
 ```
 
 ### Chrome / Chromium / Brave / Edge
@@ -34,11 +34,17 @@ npm test                # 67/67 should pass
 
 ### Test prereqs
 
-Have these installed in the test browser:
+Have these set up in the test browser:
 
-- A **NIP-07 signer** — [nos2x](https://github.com/fiatjaf/nos2x)
-  or [Alby](https://getalby.com/) — with at least one identity
-  loaded.
+- A signing identity. Pick one method up front to drive the smoke
+  test from a known-good baseline:
+  - **Local** (default) — Settings → Signing → **Generate new key**.
+    No external dependency. Fastest path for first-time setup.
+  - **NIP-07** — install [nos2x](https://github.com/fiatjaf/nos2x)
+    or [Alby](https://getalby.com/) with at least one identity, then
+    Settings → Signing → **NIP-07**.
+  - **NSecBunker** — point at a running bunker WebSocket and click
+    **Test connection**.
 - For Phase 6 sync testing: a separate browser profile (Chrome
   user-data-dir or a fresh Firefox profile) so you can simulate
   "second device".
@@ -80,16 +86,19 @@ For each platform handler:
 1. **Navigate** to the test URL (a YouTube video, Substack post,
    X status, WordPress article, etc.).
 2. **Read console** filtered by `X-Ray` — look for the init
-   sequence:
+   sequence. With Local signing selected (the default):
    ```
-   [X-Ray] Starting X-Ray content script v0.2.0
+   [X-Ray] Starting X-Ray content script v0.4.0
    [X-Ray] LocalKeyManager initialized with N keys
    [X-Ray] UI initialized
-   [X-Ray] NIP-07 extension detected      ← this line confirms #2 fix
+   [X-Ray] Local signing identity ready: npub1…
    [X-Ray] Initialization complete
    ```
-   Absence of `NIP-07 extension detected` after a tab reload
-   indicates the bridge isn't reaching the isolated world — file
+   With NIP-07 selected the third line is
+   `[X-Ray] NIP-07 extension detected` instead. With NSecBunker
+   selected the third line is `[X-Ray] NSecBunker connected`.
+   If the line for the chosen method is absent after a tab reload,
+   the bridge / connection isn't reaching the content script — file
    as a separate bug.
 3. **Find** the FAB by natural-language query (`"X-Ray Capture
    article FAB floating button bottom right"` in the proof of
@@ -140,11 +149,11 @@ banner state, click view-mode tabs, etc. — but cannot trigger
 | 3c Twitter | Capture pipeline, focal-tweet detection, console diagnostics | Reader content, publish |
 | 3d generic | WordPress comment count via `_commentsSource` console hint | Reader content, publish |
 | 4 entity tagger | After user-assisted reader open, can drive selection + popover via `find` and `click` | Side panel, all signing |
-| 4 side panel | Extension page — opens via popup/reader button | Sidepanel actions, signing |
+| 4 side panel | Extension page — opens via FAB header / right-click menu / Options quick-action | Sidepanel actions, signing |
 | 5 claims | Same as Phase 4 — text selection in reader is drivable; modal is testable; publish blocked | Signing |
 | 6 sync | None — sidepanel + cross-device | All of it |
 | 7 cache | FAB 📦 badge appearing on revisit | Reader's archive banner UX |
-| Polish #2 | The `NIP-07 extension detected` log line | — |
+| Polish #2 | The init-sequence signing-method line | — |
 
 ### Suggested agent-driven loop
 
@@ -177,9 +186,12 @@ clicking through every URL.
 
 | # | Test | Pass criteria |
 |---|---|---|
-| 0.1 | `npm run build` exits 0 with no errors | ✅ all six bundles emitted under `dist/` |
-| 0.2 | `npm test` exits 0 | ✅ 67/67 (or current-on-main count) passing |
+| 0.1 | `npm run build` exits 0 with no errors | ✅ all five bundles emitted under `dist/` (content, background, options, sidepanel, reader) plus `api-interceptor` |
+| 0.2 | `npm test` exits 0 | ✅ 235/235 (or current-on-main count) passing |
 | 0.3 | Reload extension after a build → no console errors in the SW log | ✅ the SW log under `chrome://extensions` → "Inspect views: service worker" is clean |
+| 0.4 | Click toolbar icon on a normal http page | ✅ FAB capture panel toggles open/closed (no popup window) |
+| 0.5 | Click toolbar icon on `chrome://newtab` | ✅ Options page opens (fallback, since content script can't run there) |
+| 0.6 | Right-click toolbar icon | ✅ menu has Toggle Capture / Entity Browser / Settings… / View Keypair Registry / Export Keypair Registry / Capture tips |
 
 ---
 
@@ -188,7 +200,7 @@ clicking through every URL.
 | # | Test | Pass criteria |
 |---|---|---|
 | 1.1 | `npm test -- --test-name-pattern crypto` | ✅ 13 crypto + 5 nip44 tests pass |
-| 1.2 | Open the popup → the **Open Keypair Registry** entry exists | ✅ can be clicked without error |
+| 1.2 | Settings → Keypair Registry → **View** | ✅ JSON of saved entity keypairs renders without error |
 
 ---
 
@@ -205,8 +217,8 @@ piece — anything Readability handles cleanly).
 | 2.4 | **Markdown** tab shows the body as markdown | ✅ recognizable headings, paragraphs, links |
 | 2.5 | **Preview** tab shows the markdown re-rendered as HTML | ✅ matches the Reader tab output approximately |
 | 2.6 | Edit a metadata field (title, byline, URL, published date) → blur → switch tabs → return | ✅ edit persists |
-| 2.7 | Click **Publish** with NIP-07 installed → signer prompts for signature → toast reports per-relay results | ✅ at least one configured relay accepts |
-| 2.8 | Look up the published article on a NOSTR client (e.g. snort, primal, nostr.band) by your npub → the kind-30023 should be there | ✅ event id matches the toast |
+| 2.7 | Click **Publish** → signing happens via the Active method (toast says "Signing locally…" for Local, prompts a signer extension for NIP-07, talks to the bunker for NSecBunker) → toast reports per-relay results | ✅ at least one configured relay accepts |
+| 2.8 | Look up the published article on a NOSTR client (e.g. snort, primal, nostr.band) by your npub → the kind-30023 should be there | ✅ event id matches the toast; pubkey matches the Active method's npub |
 
 ---
 
@@ -280,7 +292,7 @@ verify the page actually shows Disqus comments inline).
 
 | # | Test | Pass criteria |
 |---|---|---|
-| 4.4 | Open via the popup's **Open Entity Browser** button | ✅ side panel slides in (Chrome) or new tab opens (Firefox fallback) |
+| 4.4 | Open via the FAB header's entity-browser icon, the right-click menu's **Entity Browser**, or the Options page's **Entity Browser** quick-action | ✅ side panel slides in (Chrome) or new tab opens (Firefox fallback) |
 | 4.5 | Type-filter chips work; search filters by name | ✅ entity count in the footer updates |
 | 4.6 | Click an entity → detail view shows editable fields + npub + nsec (behind reveal) | ✅ Save enables only when a field changes |
 
@@ -358,26 +370,33 @@ inside (so a relay copy exists).
 
 ## Cross-cutting polish
 
-### #2 — popup signing-state badge
+### Signing methods + active-method line
 
 | # | Test | Pass criteria |
 |---|---|---|
-| P2.1 | With NIP-07 installed, open the popup | ✅ Signing line shows `NIP-07` (not `not detected`) |
-| P2.2 | Disable the NIP-07 extension, reload the page, open the popup | ✅ Signing line shows `not configured` (NSecBunker fallback) or whatever method actually responded |
+| S.1 | Fresh profile → first time opening Settings → Signing tab | ✅ first-run banner asks the user to pick a method |
+| S.2 | Pick **Local** → Generate new key → **Save** | ✅ npub appears in the Active method line at the top of the tab; FAB header signing badge shows "Local" |
+| S.3 | Switch to **NIP-07** (with nos2x or Alby installed) → Save | ✅ FAB header shows "NIP-07"; on a tabbed reload the init log says `NIP-07 extension detected` |
+| S.4 | Switch to **NSecBunker** with a running bunker URL → click **Test connection** | ✅ "Connected." status; FAB header shows "Bunker" after a tab reload |
+| S.5 | With **Local** active, capture and publish an article | ✅ no signer-extension prompt; published event's `pubkey` matches the local npub |
+| S.6 | Local panel → **Show nsec…** → **Copy** | ✅ nsec lands in clipboard; warning text is visible |
 
 ### Options page
 
 | # | Test | Pass criteria |
 |---|---|---|
-| O.1 | Toolbar icon → Settings → Relays tab | ✅ list of configured relays renders |
-| O.2 | Add a relay URL → Save → reload the page → relay still listed | ✅ persists across reloads |
-| O.3 | Try publishing — the new relay appears in the per-relay rollup toast | ✅ |
+| O.1 | Right-click toolbar icon → **Settings…** → Relays tab | ✅ per-relay rows render with read / write / enabled checkboxes |
+| O.2 | Add a relay URL → Save → reload the Options page → relay still listed | ✅ persists across reloads |
+| O.3 | Disable a relay's **write** flag → publish from a captured article → that relay's URL is absent from the per-relay rollup toast and from the FAB's relay picker | ✅ |
+| O.4 | Advanced → set **Article cache budget (MB)** to e.g. 10 → reload the extension → DevTools → Application → IndexedDB → archive store stays under 10 MB after captures | ✅ override applied at content-script init via `applyConfigOverrides()` |
+| O.5 | Header quick-action **Toggle Capture** with a normal page in the background | ✅ FAB toggles in that tab |
+| O.6 | Header quick-action **Entity Browser** | ✅ side panel opens (or new tab on Firefox) |
 
 ### Context menus
 
 | # | Test | Pass criteria |
 |---|---|---|
-| C.1 | Right-click the toolbar icon | ✅ four X-Ray items (Open Article Capture, Export Keypair Registry, View Keypair Registry, Settings) |
+| C.1 | Right-click the toolbar icon | ✅ six X-Ray items: Toggle Capture, Entity Browser, Settings…, View Keypair Registry, Export Keypair Registry, Capture tips |
 | C.2 | Click each one — they should each dispatch without console error | ✅ |
 
 ---
@@ -391,7 +410,7 @@ Firefox-only points.
 | # | Test | Pass criteria |
 |---|---|---|
 | F.1 | After "Load Temporary Add-on", `about:debugging` shows the extension with no manifest warnings | ✅ |
-| F.2 | NIP-07 detection works (popup signing line shows `NIP-07` not `not detected`) | ✅ if it fails, the bridge isn't reaching the isolated world — file as a separate bug |
+| F.2 | With Signing method = NIP-07 and a NIP-07 provider installed, the FAB header signing badge shows "NIP-07" | ✅ if it fails, the MAIN-world bridge isn't reaching the isolated world — file as a separate bug |
 | F.3 | Run the full Phase 2 + Phase 3a (Substack) checklist | ✅ same outcomes as Chrome |
 
 If you have ESR 128 handy, repeat F.1–F.3.
