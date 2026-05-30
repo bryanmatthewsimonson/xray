@@ -9,6 +9,18 @@ import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
+import { loadFlags, snapshot as flagSnapshot, setOverride as setFlagOverride } from '../shared/metadata/feature-flags.js';
+
+// Curated experimental flags exposed in Settings → Advanced. Only flags
+// that do something user-visible today belong here; the rest stay
+// internal (flip via the `xray:flags` storage key if needed).
+const EXPERIMENTAL_FLAGS = [
+    {
+        key: 'metadataOverlay',
+        label: 'Live-page metadata overlay',
+        desc: 'Show a bottom-left badge with NOSTR annotations / responses for the current page. Fires a metadata relay query on each page load.'
+    }
+];
 
 const browserApi = (typeof browser !== 'undefined' && browser.runtime) ? browser : chrome;
 
@@ -481,6 +493,37 @@ async function saveAdvanced() {
 }
 
 // ------------------------------------------------------------------
+// Experimental feature flags
+// ------------------------------------------------------------------
+
+async function loadExperimentalFlags() {
+    const host = document.getElementById('experimental-flags');
+    if (!host) return;
+    await loadFlags();
+    const current = flagSnapshot();
+    host.innerHTML = EXPERIMENTAL_FLAGS.map((f) => `
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" data-flag="${f.key}" ${current[f.key] ? 'checked' : ''} />
+        <span><strong>${f.label}</strong></span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">${f.desc}</p>
+    `).join('');
+
+    host.querySelectorAll('input[data-flag]').forEach((el) => {
+        el.addEventListener('change', async () => {
+            try {
+                await setFlagOverride(el.dataset.flag, el.checked);
+                flash(document.getElementById('advanced-status'),
+                    el.checked ? 'Enabled — reload open tabs.' : 'Disabled — reload open tabs.');
+            } catch (err) {
+                flash(document.getElementById('advanced-status'),
+                    'Flag change failed: ' + (err && err.message), false);
+            }
+        });
+    });
+}
+
+// ------------------------------------------------------------------
 // Migrate (userscript)
 // ------------------------------------------------------------------
 
@@ -542,7 +585,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         loadRelays(),
         loadSigning(),
         loadEntities(),
-        loadAdvanced()
+        loadAdvanced(),
+        loadExperimentalFlags()
     ]);
 
     // Auto-activate Signing tab if not yet configured.
