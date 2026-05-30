@@ -1391,3 +1391,108 @@
 .nac-meta-resp-title { font-size: 13px; font-weight: 500; }
 .nac-meta-more { margin-top: 10px; }
 .nac-meta-more summary { font-size: 12px; color: var(--nac-text-muted); cursor: pointer; }
+
+/* ===================================================================== */
+/* Phase 9b — annotation author flow (selection popover + modal + toast)  */
+/* ===================================================================== */
+
+.nac-anno-popover {
+  position: fixed;
+  display: none;
+  gap: 4px;
+  padding: 4px;
+  background: var(--nac-surface);
+  border: 1px solid var(--nac-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  z-index: 2147483646;
+}
+.nac-anno-popover.visible { display: flex; }
+.nac-anno-popover__btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--nac-text); font-size: 12px; padding: 5px 9px; border-radius: 5px;
+  white-space: nowrap;
+}
+.nac-anno-popover__btn:hover { background: var(--nac-surface-hover); }
+
+.nac-anno-modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 2147483647;
+}
+.nac-anno-modal.visible { display: flex; }
+.nac-anno-modal__card {
+  width: 440px;
+  max-width: 92vw;
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--nac-bg);
+  color: var(--nac-text);
+  border: 1px solid var(--nac-border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.nac-anno-modal__head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px;
+}
+.nac-anno-modal__title { font-size: 15px; font-weight: 600; }
+.nac-anno-modal__close {
+  background: none; border: none; color: var(--nac-text-muted);
+  cursor: pointer; font-size: 15px;
+}
+.nac-anno-field { margin-bottom: 12px; }
+.nac-anno-field > label {
+  display: block; font-size: 12px; color: var(--nac-text-muted); margin-bottom: 5px;
+}
+.nac-anno-quote {
+  margin: 0; padding: 6px 10px; border-left: 3px solid var(--nac-primary);
+  font-size: 12px; font-style: italic; color: var(--nac-text-muted);
+  background: var(--nac-surface); border-radius: 0 6px 6px 0;
+}
+.nac-anno-radios { display: flex; flex-wrap: wrap; gap: 8px; }
+.nac-anno-radio { display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; }
+.nac-anno-field textarea,
+.nac-anno-field input[type="text"],
+.nac-anno-field select {
+  width: 100%; box-sizing: border-box;
+  background: var(--nac-surface); color: var(--nac-text);
+  border: 1px solid var(--nac-border); border-radius: 6px; padding: 8px;
+  font-size: 13px; font-family: inherit;
+}
+.nac-anno-modal__actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.nac-anno-btn {
+  background: var(--nac-surface); color: var(--nac-text);
+  border: 1px solid var(--nac-border); border-radius: 6px;
+  padding: 8px 14px; font-size: 13px; cursor: pointer;
+}
+.nac-anno-btn--primary { background: var(--nac-primary); border-color: var(--nac-primary); color: #fff; }
+.nac-anno-btn--primary:hover { background: var(--nac-primary-hover); }
+.nac-anno-status { font-size: 12px; color: var(--nac-text-muted); }
+.nac-anno-status[data-ok="0"] { color: #f08a8a; }
+
+.nac-anno-toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  opacity: 0;
+  pointer-events: none;
+  background: var(--nac-surface);
+  color: var(--nac-text);
+  border: 1px solid var(--nac-border);
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  z-index: 2147483647;
+  transition: opacity 0.2s, transform 0.2s;
+}
+.nac-anno-toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+.nac-anno-toast[data-type="error"] { border-color: #b45454; }
+.nac-anno-toast[data-type="warn"] { border-color: #b4954e; }

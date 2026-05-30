@@ -15,6 +15,7 @@ const {
   buildFactCheckEvent,
   buildRatingEvent,
   buildHelpfulnessEvent,
+  buildHighlightEvent,
   buildRespondsToTag,
   RESPONDS_TO_RELATIONSHIPS
 } = await import('../src/shared/metadata/builders.js');
@@ -511,6 +512,29 @@ test('respondsTo: relationships set is exposed for UIs', () => {
     [...RESPONDS_TO_RELATIONSHIPS].sort(),
     ['contextualizes', 'corrects', 'extends', 'rebuts', 'supports']
   );
+});
+
+// ── Highlight — kind 9802 ──────────────────────────────────────────────
+
+test('highlight: kind 9802 with r/i/k anchor + text content', () => {
+  const out = buildHighlightEvent({ url: URL, text: 'the highlighted passage', topic: 'bitcoin' });
+  assert.equal(out.event.kind, 9802);
+  assert.equal(out.event.content, 'the highlighted passage');
+  const m = tagsAsMap(out.event.tags);
+  assert.equal(m.r[0], URL);
+  assert.equal(m.i[0], URL);
+  assert.equal(m.k[0], 'web');
+  assert.equal(m.t[0], 'bitcoin');
+});
+
+test('highlight: normalizes the URL', () => {
+  const out = buildHighlightEvent({ url: 'HTTPS://Example.COM/article?utm_source=x', text: 'hi' });
+  assert.equal(tagsAsMap(out.event.tags).r[0], 'https://example.com/article');
+});
+
+test('highlight: rejects missing url / blank text', () => {
+  assert.throws(() => buildHighlightEvent({ text: 'hi' }));
+  assert.throws(() => buildHighlightEvent({ url: URL, text: '   ' }));
 });
 
 // ------------------------------------------------------------------

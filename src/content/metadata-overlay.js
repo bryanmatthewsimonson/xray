@@ -68,7 +68,20 @@ export async function installMetadataOverlay() {
   // Skip non-http(s) pages (extension pages, chrome://, etc.).
   if (!/^https?:$/.test(location.protocol)) return;
   _installed = true;
+  await runFetch();
+}
 
+/**
+ * Re-fetch + re-render the overlay for the current URL. Called after the
+ * author flow publishes a new annotation so the badge/panel pick it up.
+ * No-op until the overlay has been installed.
+ */
+export async function refreshMetadataOverlay() {
+  if (!_installed) return;
+  await runFetch();
+}
+
+async function runFetch() {
   _state.url = Utils.normalizeUrl(location.href);
   createBadge();
   setBadge('…', 'loading', 'Looking up metadata…');

@@ -15,6 +15,7 @@ import { UI } from './ui.js';
 import { installBufferListener, configureInterceptor } from '../shared/api-hook-buffer.js';
 import { loadFlags } from '../shared/metadata/feature-flags.js';
 import { installMetadataOverlay } from './metadata-overlay.js';
+import { installMetadataAuthor } from './metadata-author.js';
 
 async function init() {
     // Initialize storage (migrates from any legacy GM storage if present).
@@ -91,7 +92,7 @@ async function init() {
     // this is a no-op unless the user has opted in. Best-effort; never
     // blocks the rest of init.
     loadFlags()
-        .then(() => installMetadataOverlay())
+        .then(() => { installMetadataOverlay(); installMetadataAuthor(); })
         .catch((e) => Utils.log('metadata overlay init skipped:', e && e.message));
 
     // Resolve the user's chosen signing method.

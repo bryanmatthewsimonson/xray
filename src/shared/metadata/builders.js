@@ -443,6 +443,47 @@ export const RESPONDS_TO_RELATIONSHIPS = Object.freeze(
 );
 
 // ------------------------------------------------------------------
+// Highlight — kind 9802 (NIP-84)
+// ------------------------------------------------------------------
+
+/**
+ * Build an unsigned kind 9802 Highlight event (NIP-84) — "draw attention
+ * to this passage" with no commentary. Per NIP_DRAFT.md §6.9 the content
+ * is the highlighted text, anchored to the URL with r/i/k=web.
+ *
+ * @param {object} args
+ * @param {string} args.url
+ * @param {string} args.text        the highlighted passage (event content)
+ * @param {string|string[]} [args.topic]
+ * @param {number} [args.createdAt]
+ * @returns {{event: object}}
+ */
+export function buildHighlightEvent({ url, text, topic, createdAt = nowSeconds() } = {}) {
+  if (typeof url !== 'string' || !url) throw new Error('buildHighlightEvent: url required');
+  if (typeof text !== 'string' || !text.trim()) throw new Error('buildHighlightEvent: text required');
+  const normalizedUrl = normalize(url);
+  const tags = [
+    tag('r', normalizedUrl),
+    tag('i', normalizedUrl),
+    tag('k', 'web'),
+    ...uniqueStrings(arrayify(topic)).map((t) => tag('t', t))
+  ];
+  return {
+    event: { kind: 9802, created_at: createdAt, tags, content: String(text) }
+  };
+}
+
+/** Valid annotation motivations, exported for the author UI. */
+export const ANNOTATION_MOTIVATIONS = Object.freeze([
+  'commenting', 'rebutting', 'supporting', 'contextualizing', 'correcting'
+]);
+
+/** Valid correction-type values, exported for the author UI. */
+export const CORRECTION_TYPES = Object.freeze([
+  'headline', 'quote', 'stat', 'name', 'date', 'other'
+]);
+
+// ------------------------------------------------------------------
 // Internal helpers
 // ------------------------------------------------------------------
 
