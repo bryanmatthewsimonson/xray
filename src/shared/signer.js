@@ -38,9 +38,20 @@ export const Signer = {
     return m === 'nip07' || m === 'nsecbunker' ? m : 'local';
   },
 
+  // "Configured" means the user has a usable signing setup. It is true
+  // when they've explicitly confirmed a method (signing_method_configured),
+  // OR when the selected method already has a working credential —
+  // `isReady()`. The second clause matters because the 0.5.0 migration
+  // set signing_method_configured=false on every existing profile to
+  // surface the first-run prompt; a user who already had a key would
+  // otherwise be told to "set up signing" (and blocked from publishing)
+  // until they pointlessly clicked Save. Having a working signer IS being
+  // configured. Genuinely-new users (no key, no provider) still resolve
+  // false and get the first-run prompt.
   isConfigured: async () => {
     const prefs = await Storage.get('preferences', {});
-    return prefs && prefs.signing_method_configured === true;
+    if (prefs && prefs.signing_method_configured === true) return true;
+    try { return await Signer.isReady(); } catch (_) { return false; }
   },
 
   /**

@@ -125,6 +125,23 @@ export const Storage = (() => {
         changed = true;
       }
 
+      // 2026-05-29 — the migration above set signing_method_configured=false
+      // unconditionally, which made profiles that ALREADY had a local
+      // signing key look "unconfigured": they got the first-run prompt and
+      // were blocked from publishing until they re-confirmed via
+      // Settings → Save. If a local primary identity exists, the user is
+      // configured — flip the flag so no pointless Save is required.
+      if (!applied.configured_if_keyed) {
+        const localId = await Store.get('local_primary_identity', null);
+        if (localId && localId.privateKey && prefs.signing_method_configured !== true) {
+          prefs.signing_method_configured = true;
+          Utils.log('[migration] existing local key → signing_method_configured=true');
+          changed = true;
+        }
+        applied.configured_if_keyed = true;
+        changed = true;
+      }
+
       if (changed) {
         prefs._migrations = applied;
         await Store.set('preferences', prefs);

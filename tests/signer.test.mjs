@@ -51,6 +51,22 @@ test('signing_method_configured starts false', async () => {
     assert.equal(await Signer.isConfigured(), false);
 });
 
+test('isConfigured: true when a usable key exists even if never saved (0.5.0 migration fix)', async () => {
+    // Repro of the reported bug: the migration set
+    // signing_method_configured=false on existing profiles, so a user
+    // who already had a local key was told to "set up signing" and
+    // blocked from publishing until they pointlessly clicked Save.
+    resetStorage();
+    await Storage.initialize();                          // local, configured=false, no key
+    assert.equal(await Signer.isConfigured(), false);    // genuinely nothing yet → prompt
+
+    await Storage.primaryIdentity.generate();            // a working key now exists…
+    const prefs = await Storage.get('preferences', {});
+    assert.equal(prefs.signing_method_configured, false); // …but the flag was never saved
+    assert.equal(await Signer.isReady(), true);
+    assert.equal(await Signer.isConfigured(), true);     // having a working signer IS configured
+});
+
 test('migration sets signing_method=local on a profile that lacks it', async () => {
     resetStorage();
     // Pre-seed preferences without signing_method to simulate an upgrade.
@@ -64,6 +80,31 @@ test('migration sets signing_method=local on a profile that lacks it', async () 
     const prefs = await Storage.get('preferences', {});
     assert.equal(prefs.signing_method, 'local');
     assert.equal(prefs.signing_method_configured, false);
+});
+
+test('migration: an existing local key flips signing_method_configured=true', async () => {
+    resetStorage();
+    // Post-0.5.0-migration profile: a local key already exists, but the
+    // first migration left configured=false (the reported bug).
+    await Storage.set('local_primary_identity', {
+        privateKey: 'a'.repeat(64), pubkey: 'b'.repeat(64), npub: 'npub1x', nsec: 'nsec1x', created: 1
+    });
+    await Storage.set('preferences', {
+        signing_method: 'local', signing_method_configured: false,
+        _migrations: { signing_method_default: true }   // prior migration done; new one pending
+    });
+    await Storage.initialize();
+    assert.equal((await Storage.get('preferences', {})).signing_method_configured, true);
+});
+
+test('migration: no local key leaves signing_method_configured false', async () => {
+    resetStorage();
+    await Storage.set('preferences', {
+        signing_method: 'local', signing_method_configured: false,
+        _migrations: { signing_method_default: true }
+    });
+    await Storage.initialize();
+    assert.equal((await Storage.get('preferences', {})).signing_method_configured, false);
 });
 
 test('local primaryIdentity.generate creates a key with matching pubkey', async () => {
