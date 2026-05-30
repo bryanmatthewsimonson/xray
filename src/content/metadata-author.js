@@ -134,7 +134,27 @@ function openModal() {
   if (mot) mot.checked = true;
   syncCorrectionVisibility();
   _modal.classList.add('visible');
+  reflectSigningState();   // warn upfront if signing isn't set up
   setTimeout(() => _modal.querySelector('#nac-anno-body').focus(), 0);
+}
+
+// Show an upfront banner + gate the publish button when signing isn't
+// configured, so the user isn't surprised at publish time.
+async function reflectSigningState() {
+  const warn = _modal.querySelector('#nac-anno-signwarn');
+  const pub = _modal.querySelector('#nac-anno-publish');
+  let ready = false;
+  try { ready = (await Signer.isConfigured()) && (await Signer.isReady()); } catch (_) { ready = false; }
+  if (ready) {
+    warn.style.display = 'none';
+    pub.disabled = false;
+    pub.textContent = 'Sign & publish';
+  } else {
+    warn.style.display = '';
+    warn.innerHTML = '⚠ Signing isn’t set up. Open <strong>Settings → Signing</strong> and generate or import a key, then reopen this — your note won’t be lost.';
+    pub.disabled = true;
+    pub.textContent = 'Set up signing to publish';
+  }
 }
 
 function closeModal() { if (_modal) _modal.classList.remove('visible'); }
@@ -154,6 +174,7 @@ function createModal() {
         <span class="nac-anno-modal__title">Annotate this page</span>
         <button type="button" class="nac-anno-modal__close" aria-label="Close">✕</button>
       </div>
+      <div class="nac-anno-warn" id="nac-anno-signwarn" style="display:none"></div>
       <div class="nac-anno-field" id="nac-anno-quote-wrap">
         <label>Anchored to</label>
         <blockquote class="nac-anno-quote" id="nac-anno-quote"></blockquote>

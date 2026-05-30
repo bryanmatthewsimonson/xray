@@ -1496,3 +1496,18 @@
 .nac-anno-toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
 .nac-anno-toast[data-type="error"] { border-color: #b45454; }
 .nac-anno-toast[data-type="warn"] { border-color: #b4954e; }
+
+.nac-anno-warn {
+  background: rgba(180, 149, 78, 0.12);
+  border: 1px solid #b4954e;
+  color: var(--nac-text);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  margin-bottom: 12px;
+}
+.nac-anno-btn--primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
