@@ -26,6 +26,13 @@ export const FLAGS_DEFAULTS = Object.freeze({
   topicTrust: true,
   trustGraphFilter: true,
 
+  // Phase 9b — the live-page metadata overlay (bottom-left badge +
+  // panel). Default OFF: when on, every page load fans out a metadata
+  // relay query, so it stays opt-in until the ecosystem has data and the
+  // fetch is tuned (caching, etc.). Flip via Settings → Advanced or the
+  // `xray:flags` storage key.
+  metadataOverlay: false,
+
   // Scaffolded but UI-gated in 9a; flip in 9b/9c:
   factchecks: false,
   ratings: false,

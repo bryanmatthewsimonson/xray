@@ -13,6 +13,8 @@ import { Signer } from '../shared/signer.js';
 import { NIP07Client } from './nip07-client.js';
 import { UI } from './ui.js';
 import { installBufferListener, configureInterceptor } from '../shared/api-hook-buffer.js';
+import { loadFlags } from '../shared/metadata/feature-flags.js';
+import { installMetadataOverlay } from './metadata-overlay.js';
 
 async function init() {
     // Initialize storage (migrates from any legacy GM storage if present).
@@ -83,6 +85,14 @@ async function init() {
 
     // Initialize Article Capture UI (FAB and panel).
     UI.init();
+
+    // Phase 9b — live-page metadata overlay (bottom-left badge + panel).
+    // Self-gates on the `metadataOverlay` feature flag (default off), so
+    // this is a no-op unless the user has opted in. Best-effort; never
+    // blocks the rest of init.
+    loadFlags()
+        .then(() => installMetadataOverlay())
+        .catch((e) => Utils.log('metadata overlay init skipped:', e && e.message));
 
     // Resolve the user's chosen signing method.
     const method = await Signer.getMethod();
