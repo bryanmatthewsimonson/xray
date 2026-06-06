@@ -10,6 +10,16 @@ Sections per release: **Added** (new features), **Changed**
 
 ## [Unreleased]
 
+### Fixed
+
+- **Inline person/place names no longer vanish from article captures** on
+  sites that wrap them in `popup`-classed elements (e.g.
+  josephsmithpapers.org). Readability's `unlikelyCandidates` blocklist
+  matches the substring `popup` and was deleting the whole wrapper —
+  visible name included — leaving dangling punctuation. The extractor now
+  unwraps `aside.popup-wrapper` to its reference text before Readability
+  runs.
+
 ## [0.5.0] — 2026-05-29
 
 This release consolidates three feature lines onto `main`: default-to-local
