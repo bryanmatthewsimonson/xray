@@ -10,6 +10,8 @@ Sections per release: **Added** (new features), **Changed**
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-06-06
+
 ### Fixed
 
 - **Inline person/place names no longer vanish from article captures** on
