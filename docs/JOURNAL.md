@@ -19,6 +19,39 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-06 — Relays reject events with non-string tag values
+
+**Tags:** bug, external
+
+**Symptom:** Publishing a josephsmithpapers.org capture failed on every
+relay with `invalid: tag val was not a string` (per-relay `{ok:0, fail:1}`).
+The event was otherwise well-formed and signed.
+
+**Root cause:** NOSTR requires every element of every tag to be a string,
+and relays reject the *whole* event if one isn't. `buildArticleEvent`
+pushes some tag values straight from the page's JSON-LD, where schema.org
+legitimately allows non-string shapes: `articleSection` can be an **array**
+(`["History","Religion"]`) and `inLanguage` an **object**
+(`{"@type":"Language","name":"en"}`). Those flowed into `['section', …]`
+and `['lang', …]` as a raw array/object → relay rejection. Most sites emit
+string scalars, so this never showed up in testing until a richly-marked-up
+scholarly site hit it.
+
+**Fix:** `EventBuilder.sanitizeTags()` runs over the article event's tags
+before it's returned. `coerceTagAtom()` turns each value into a string —
+primitives stringify, arrays flatten+join, schema.org objects yield their
+`name`/`@value`/`@id`, anything else becomes null and the tag is dropped
+(a valueless `["section"]` is meaningless). Empty positional markers (the
+`""` in `["p", pk, "", "author"]`) are preserved.
+
+**So-what:** Any tag value sourced from a third party's structured data is
+untrusted shape-wise. The sanitizer is a wire-level guarantee, not a
+per-field patch, so the next exotic JSON-LD field can't silently break
+publishing. Files: `src/shared/event-builder.js`,
+`tests/event-builder.test.mjs`.
+
+---
+
 ## 2026-06-06 — Readability eats inline names on josephsmithpapers.org
 
 **Tags:** bug, external

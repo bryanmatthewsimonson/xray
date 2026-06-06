@@ -326,11 +326,54 @@ export const EventBuilder = {
       kind: 30023,
       pubkey: userPubkey || '',
       created_at: Math.floor(Date.now() / 1000),
-      tags,
+      // Guarantee every tag value is a string. Article metadata harvested
+      // from a page's JSON-LD can legitimately be an array (`articleSection`)
+      // or an object (`inLanguage: {"@type":"Language","name":"en"}`); a
+      // single non-string tag value makes relays reject the *entire* event
+      // with "invalid: tag val was not a string".
+      tags: EventBuilder.sanitizeTags(tags),
       content
     };
-    
+
     return event;
+  },
+
+  // Coerce a single tag atom to a string, or null if it can't be reduced
+  // to a meaningful one. Strings pass through; numbers/booleans stringify;
+  // arrays flatten (filtering empties) and join; schema.org-shaped objects
+  // yield their `name` / `@value` / `@id`; everything else is rejected.
+  coerceTagAtom: (value) => {
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    if (value == null) return null;
+    if (Array.isArray(value)) {
+      const parts = value.map(EventBuilder.coerceTagAtom).filter((p) => p);
+      return parts.length ? parts.join(', ') : null;
+    }
+    if (typeof value === 'object') {
+      const candidate = value.name || value['@value'] || value['@id'];
+      return typeof candidate === 'string' ? candidate : null;
+    }
+    return null;
+  },
+
+  // Make a tag array NOSTR-valid: every element must be a string. The tag
+  // name (index 0) must be a non-empty string or the tag is dropped; if a
+  // tag's primary value (index 1) collapses to null the whole tag is
+  // dropped (publishing a `["section"]` with no value is meaningless);
+  // trailing positional slots (e.g. the empty marker in `["p", pk, "",
+  // "author"]`) are preserved as empty strings.
+  sanitizeTags: (tags) => {
+    const out = [];
+    for (const tag of (tags || [])) {
+      if (!Array.isArray(tag) || tag.length === 0) continue;
+      const name = tag[0];
+      if (typeof name !== 'string' || !name) continue;
+      const rest = tag.slice(1).map(EventBuilder.coerceTagAtom);
+      if (tag.length > 1 && rest[0] == null) continue;
+      out.push([name, ...rest.map((atom) => (atom == null ? '' : atom))]);
+    }
+    return out;
   },
 
   // Generate d-tag from URL (16 chars)
