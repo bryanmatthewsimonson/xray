@@ -768,11 +768,9 @@ with keypairs, claims `30040`, evidence links `30043`, relationships
 Scope is still being shaped, but the working themes:
 
 - **Usability of claim capture** — lower the friction from "I see an
-  assertion" to "it's a structured claim tied to real entities" (entity
-  auto-suggest, smarter S/P/O pickers, batch signing).
-- **Connecting claims across sources** — cross-article/cross-capture
-  evidence links and claim de-dup, so a story accretes evidence from many
-  pages instead of living in one capture.
+  assertion" to "it's a structured claim tied to real entities."
+- **Connecting claims across sources** — so a story accretes evidence from
+  many pages instead of living in one capture.
 - **Reading others' claims** — go beyond the point-in-time "others'
   claims" modal toward a browsable, trust-filtered view (leaning on the
   Phase 9a trust graph) of what the network says about a person / org /
@@ -781,8 +779,30 @@ Scope is still being shaped, but the working themes:
   real work: collapse duplicate captured authors into canonical people and
   attach their claims to that person.
 
-A dedicated Phase 10 issue will pin exit criteria before implementation
-starts; this section is the intent, not the spec.
+### Foundation: claim redesign (agreed 2026-06-09)
+
+The Phase 5 claim model is being reworked first — see
+[`docs/CLAIMS_REDESIGN.md`](CLAIMS_REDESIGN.md) for the full design and
+rationale. In short: replace the heavy structured claim (type / confidence /
+attribution / predicate / subject–predicate–object / quote-date) with a
+**thin, entity-centric claim** — *text + the entities it's about + a source
+anchor*, plus an optional "who said it" and a single ⭐ key-claim flag. The
+queryable value moves into `p`-tag links to entity pubkeys, so "what the
+network says about person P" is a single `{kinds:[30040], "#p":[P]}` query.
+**Claims become the core primitive**; the Phase 9a metadata layer's
+fact-checks / ratings are reframed as *responses to* claims, sharing the
+text-anchor mechanism, rather than a parallel system.
+
+Implemented in slices (one PR each):
+
+- **10.1** Thin model + gutted modal (no wire change).
+- **10.2** Lean `30040` tag set + dual-read of old/new vocab (wire change).
+- **10.3** Shared anchor (reuse `metadata/anchor-capture.js`).
+- **10.4** Cross-source aggregation — "what the network says about entity P".
+- **10.5** Metadata reframe — fact-checks/ratings as responses; retire `30043`.
+
+A dedicated Phase 10 issue will pin exit criteria; this section + the design
+note are the intent, not the final spec.
 
 ---
 

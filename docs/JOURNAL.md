@@ -19,6 +19,33 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-09 — Claim redesign agreed: thin, entity-centric claims (Phase 10)
+
+**Tags:** design
+
+**Decision:** Rework the Phase 5 structured-claim model. The original asked
+for ~9 fields per claim (type / crux+confidence / attribution / predicate /
+subject / object / claimant / quote-date / text) plus a separate
+same-article evidence-link modal — analyst-grade friction that fights the
+goal of *volume* of useful entity data, with a brittle S/P/O graph and a
+`confidence` slider whose semantics are ambiguous (truth vs. centrality).
+
+Agreed shape: a **thin, entity-centric claim** — `text` + `about[]` (the
+entities it concerns) + `source_url`/`anchor`, an optional `source` ("who
+said it", absorbing attribution+claimant), and a single `is_key` ⭐ flag.
+Everything else is cut. The queryable value moves into `30040` `p`-tags on
+entity pubkeys, so "what the network says about person P" is one
+`{kinds:[30040], "#p":[P]}` query. **Claims become the core primitive**; the
+Phase 9a metadata fact-checks/ratings get reframed as *responses to* claims
+(shared text-anchor) rather than a parallel system; same-article evidence
+links (`30043`) retire in favor of cross-source entity aggregation.
+
+Full design + rationale + compat plan: `docs/CLAIMS_REDESIGN.md`. Ships in
+slices 10.1–10.5 (see ROADMAP). Wire-format change in 10.2 with dual-read of
+old/new tag vocab and a one-time storage migration of old claim records.
+
+---
+
 ## 2026-06-09 — Roadmap + docs refresh; Phase 10 teed up (Phase E)
 
 **Tags:** design
