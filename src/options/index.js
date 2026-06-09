@@ -551,7 +551,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Quick-action header buttons (replace the old popup's role).
     document.getElementById('qa-toggle-capture').addEventListener('click', () => {
-        browserApi.runtime.sendMessage({ type: 'xray:forward:xray:toggle' });
+        browserApi.runtime.sendMessage({ type: 'xray:forward:xray:capture' });
     });
     document.getElementById('qa-open-entities').addEventListener('click', () => {
         browserApi.runtime.sendMessage({ type: 'xray:openEntities' });

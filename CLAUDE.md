@@ -52,7 +52,9 @@ directly except the two MAIN-world page scripts.** Entry points:
 
 `src/page/nip07-bridge.js` is loaded **unbundled** straight from `src/` as a
 MAIN-world content script (and is a `web_accessible_resource`). There is no
-popup surface — the toolbar click toggles the in-page FAB.
+popup surface and no in-page FAB/panel — the toolbar click (and the
+`Ctrl/Cmd+Shift+X` command and the right-click menu) **captures the page and
+opens it in the reader** via the `xray:capture` message.
 
 ## Architecture (the big picture)
 
@@ -61,9 +63,11 @@ Four JS execution contexts, kept strictly separate, talking over
 the single most important thing here.
 
 1. **Content script** (`src/content/`, isolated world) — bootstraps on
-   every tab, owns the FAB and the capture pipeline (`ui.js` →
-   `openReader`). Runs the platform handlers and DOM extraction. Cannot
-   open WebSockets to relays on CSP-strict sites, so it delegates publish.
+   every tab and owns the capture pipeline (`ui.js` → `openReader`),
+   triggered by the `xray:capture` message. Runs the platform handlers and
+   DOM extraction. Injects no in-page chrome except a transient error toast.
+   Cannot open WebSockets to relays on CSP-strict sites, so it delegates
+   publish.
 2. **Background service worker** (`src/background/index.js`, ESM) — owns
    the **relay WebSocket pool** (connections survive tab navigation and
    aren't subject to page CSP — this is *why* the pool lives here, not in
@@ -80,13 +84,14 @@ the single most important thing here.
    `api-interceptor.js` hooks `fetch`/XHR on FB/IG/YouTube to capture
    GraphQL responses (buffered through `shared/api-hook-buffer.js`).
 
-**Capture → publish handoff:** FAB click extracts the article, stashes it
-in `chrome.storage.session` under a UUID, opens the reader with `?id=<uuid>`.
-The reader's publish flow routes signing back through the **source tab**
-when NIP-07 is active, so the user's signer extension approves in-context.
+**Capture → publish handoff:** a capture trigger (`xray:capture`) extracts
+the article, stashes it in `chrome.storage.session` under a UUID, opens the
+reader with `?id=<uuid>`. The reader's publish flow routes signing back
+through the **source tab** when NIP-07 is active, so the user's signer
+extension approves in-context.
 
 **Message bus:** everything is `chrome.runtime` messages typed `xray:*`
-(e.g. `xray:toggle`, `xray:capture:publish`, `xray:relay:publish`,
+(e.g. `xray:capture`, `xray:capture:publish`, `xray:relay:publish`,
 `xray:relay:query`, `xray:sign`, `xray:youtube:fetch`,
 `xray:screenshot:capture`, `xray:flags:reload`). When adding a cross-context
 call, add an `xray:*` message rather than reaching across contexts directly.
@@ -144,9 +149,12 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   match the v4 userscript for drop-in module portability, with some
   camelCase legacy aliases kept alongside. Don't "tidy" these casings.
 - **CSS prefixes:** `xr-*` for extension-chrome UI (options/reader/side
-  panel) and all *new* content-script UI. `nac-*` / `nmd-*` are legacy
-  userscript prefixes still in the FAB/capture CSS — **don't add new
-  `nac-*` classes**; a bulk rename to `xr-*` is a known cosmetic follow-up.
+  panel) and all content-script UI. The FAB/panel `nac-*` CSS is gone; the
+  only `nac-*` left is a handful of **capture-pipeline markers** in
+  `content-extractor.js` (`nac-tweet-embed`, `nac-facebook-post`,
+  `nac-inline-img`, …) — class names on cloned nodes that the Turndown
+  rules match to build Markdown, not UI. **Don't add new `nac-*` classes**;
+  renaming those remaining markers to `xr-*` is a known follow-up.
 - **Logging:** use `Utils.log` / `Utils.error` (no-ops when `CONFIG.debug`
   is false). Don't add bare `console.log`.
 - **User-visible strings** use "X-Ray" (hyphenated). Avoid emoji in code

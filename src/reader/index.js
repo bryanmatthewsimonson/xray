@@ -90,7 +90,7 @@ function parseDate(str) {
 async function loadArticle() {
     const params = new URLSearchParams(location.search);
     const id = params.get('id');
-    if (!id) throw new Error('Missing ?id= parameter. Open the reader via the X-Ray FAB.');
+    if (!id) throw new Error('Missing ?id= parameter. Capture a page with the X-Ray toolbar icon (or Ctrl/Cmd+Shift+X).');
     state.id = id;
 
     const key = 'xray:article:' + id;
@@ -917,7 +917,7 @@ function buildCaptureHints(a) {
             hints.push('The author handle is missing. Make sure you\'re on a post detail URL, not a profile grid.');
         }
         if (ig.postKind !== 'reel' && (!ig.images || ig.images.length === 0)) {
-            hints.push('No images captured. For carousels, swipe through all slides before clicking the FAB.');
+            hints.push('No images captured. For carousels, swipe through all slides before capturing.');
         }
         if (ig.extractedFrom === 'og-meta' && ig.postKind !== 'reel') {
             hints.push('Only meta-tag data was captured — carousel slides may be incomplete. Swipe through the post and retry.');
