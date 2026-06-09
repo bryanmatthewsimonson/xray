@@ -50,7 +50,7 @@ export const ContentExtractor = {
           const naturalHeight = img.naturalHeight || parseInt(img.getAttribute('height')) || img.offsetHeight;
           // Only tag small images (< 100px) to prevent enlargement in reader view
           if (naturalWidth > 0 && naturalWidth < 100) {
-              img.classList.add('nac-inline-img');
+              img.classList.add('xr-inline-img');
               img.setAttribute('width', naturalWidth);
               img.setAttribute('height', naturalHeight || naturalWidth);
           }
@@ -77,7 +77,7 @@ export const ContentExtractor = {
 
           // Replace complex tweet HTML with clean blockquote
           const cleanTweet = document.createElement('blockquote');
-          cleanTweet.className = 'nac-tweet-embed';
+          cleanTweet.className = 'xr-tweet-embed';
           cleanTweet.setAttribute('data-tweet-url', tweetUrl);
           cleanTweet.innerHTML = `<p>${tweetText}</p>` +
               (authorName ? `<footer>— ${authorName}</footer>` : '') +
@@ -88,7 +88,7 @@ export const ContentExtractor = {
 
       // Also handle Twitter avatar/profile images - constrain their size
       document.querySelectorAll('img[src*="pbs.twimg.com/profile_images"], img[src*="twimg.com/profile"]').forEach(img => {
-          img.classList.add('nac-inline-img');
+          img.classList.add('xr-inline-img');
           img.style.width = '48px';
           img.style.height = '48px';
           img.style.borderRadius = '50%';
@@ -563,7 +563,7 @@ export const ContentExtractor = {
           filter: function(node) {
             return (node.nodeName === 'BLOCKQUOTE' &&
                     (node.classList.contains('twitter-tweet') ||
-                     node.classList.contains('nac-tweet-embed') ||
+                     node.classList.contains('xr-tweet-embed') ||
                      node.getAttribute('data-tweet-url')));
           },
           replacement: function(content, node) {
@@ -597,12 +597,12 @@ export const ContentExtractor = {
         // Handle Facebook post blocks
         turndown.addRule('facebookPost', {
           filter: function(node) {
-            return node.nodeName === 'DIV' && node.classList.contains('nac-facebook-post');
+            return node.nodeName === 'DIV' && node.classList.contains('xr-facebook-post');
           },
           replacement: function(content, node) {
-            const authorName = node.querySelector('.nac-fb-author-name')?.textContent?.trim() || '';
-            const timestamp = node.querySelector('.nac-fb-timestamp')?.textContent?.trim() || '';
-            const postText = node.querySelector('.nac-fb-text')?.textContent?.trim() || '';
+            const authorName = node.querySelector('.xr-fb-author-name')?.textContent?.trim() || '';
+            const timestamp = node.querySelector('.xr-fb-timestamp')?.textContent?.trim() || '';
+            const postText = node.querySelector('.xr-fb-text')?.textContent?.trim() || '';
 
             let md = '> 📘 **Facebook Post';
             if (authorName) md += ` by ${authorName}`;
@@ -620,14 +620,14 @@ export const ContentExtractor = {
             }
 
             // Include images
-            const images = node.querySelectorAll('.nac-fb-image');
+            const images = node.querySelectorAll('.xr-fb-image');
             images.forEach(img => {
               const src = img.getAttribute('src') || '';
               if (src) md += `> \n> ![Post image](${src})\n`;
             });
 
             // Include shared links
-            const links = node.querySelectorAll('.nac-fb-link');
+            const links = node.querySelectorAll('.xr-fb-link');
             links.forEach(link => {
               const href = link.getAttribute('href') || '';
               const text = link.textContent?.trim() || href;
@@ -641,12 +641,12 @@ export const ContentExtractor = {
         // Handle Instagram post blocks
         turndown.addRule('instagramPost', {
           filter: function(node) {
-            return node.nodeName === 'DIV' && node.classList.contains('nac-instagram-post');
+            return node.nodeName === 'DIV' && node.classList.contains('xr-instagram-post');
           },
           replacement: function(content, node) {
-            const authorName = node.querySelector('.nac-ig-author-name')?.textContent?.trim() || '';
-            const timestamp = node.querySelector('.nac-ig-timestamp')?.textContent?.trim() || '';
-            const captionEl = node.querySelector('.nac-ig-caption');
+            const authorName = node.querySelector('.xr-ig-author-name')?.textContent?.trim() || '';
+            const timestamp = node.querySelector('.xr-ig-timestamp')?.textContent?.trim() || '';
+            const captionEl = node.querySelector('.xr-ig-caption');
             let caption = captionEl?.textContent?.trim() || '';
 
             let md = '> 📷 **Instagram Post';
@@ -654,7 +654,7 @@ export const ContentExtractor = {
             md += '**\n> \n';
 
             // Include images
-            const images = node.querySelectorAll('.nac-ig-image');
+            const images = node.querySelectorAll('.xr-ig-image');
             images.forEach(img => {
               const src = img.getAttribute('src') || '';
               if (src) md += `> ![Instagram media](${src})\n> \n`;

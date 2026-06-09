@@ -12,6 +12,13 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Changed
 
+- **Legacy `nac-*` CSS prefix fully eliminated.** The last `nac-*` tokens —
+  the capture→Markdown markers in `content-extractor.js` (`nac-tweet-embed`,
+  `nac-facebook-post`, `nac-inline-img`, …) — were renamed to `xr-*`. These
+  are internal class names on cloned nodes the Turndown rules match; the
+  rename is a pure no-behavior-change string swap (producer/consumer pairs
+  stay matched). The whole codebase now uses the `xr-*` prefix.
+
 - **NOSTR `client` tag unified to `'xray'`** across all event builders
   (article 30023, entity-sync 30078, relationship 32125, evidence 30043
   previously emitted `'nostr-article-capture'`; comment 30041 and
