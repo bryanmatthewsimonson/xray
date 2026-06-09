@@ -31,6 +31,7 @@ import {
     EVIDENCE_RELATIONSHIP_ICONS
 } from '../shared/evidence-linker.js';
 import { EntityModel, ENTITY_ICONS } from '../shared/entity-model.js';
+import { resolveSelectors } from '../shared/metadata/anchor-resolver.js';
 
 // ------------------------------------------------------------------
 // Modal — used for create AND edit
@@ -49,7 +50,7 @@ import { EntityModel, ENTITY_ICONS } from '../shared/entity-model.js';
  */
 export function openClaimModal(opts) {
     return new Promise((resolve) => {
-        const { sourceUrl, initialText = '', initialClaim = null, context = '' } = opts;
+        const { sourceUrl, initialText = '', initialClaim = null, context = '', anchor = null } = opts;
 
         const isEdit = !!initialClaim;
         const initial = initialClaim || {
@@ -70,7 +71,7 @@ export function openClaimModal(opts) {
             try {
                 const result = isEdit
                     ? await ClaimModel.update(initialClaim.id, saved)
-                    : await ClaimModel.create({ ...saved, source_url: sourceUrl });
+                    : await ClaimModel.create({ ...saved, source_url: sourceUrl, anchor });
                 closeModal();
                 resolve(result);
             } catch (err) {
@@ -774,7 +775,53 @@ export function rehydrateClaimMarks(container, claims) {
     if (!container || !Array.isArray(claims) || claims.length === 0) return;
     for (const claim of claims) {
         if (!claim || !claim.text) continue;
+        // Prefer the precise text-anchor (prefix/exact/suffix disambiguates
+        // which occurrence) captured at claim time. Fall back to the
+        // first-occurrence search for claims with no anchor (pre-10.3) or
+        // when the anchor can't be resolved (the body was edited).
+        if (Array.isArray(claim.anchor) && claim.anchor.length > 0) {
+            const resolved = resolveSelectors(claim.anchor, container);
+            if (resolved && resolved.range && wrapByOffsets(container, resolved.range.textStart, resolved.range.textEnd, claim)) {
+                continue;
+            }
+        }
         wrapFirstTextOccurrence(container, claim.text, claim);
+    }
+}
+
+/**
+ * Map a [textStart, textEnd) range over `container.textContent` to a DOM
+ * Range and wrap it with the claim mark. Returns true on success. Skips
+ * spans already inside an `.xr-claim` mark (idempotent across re-renders).
+ */
+function wrapByOffsets(container, textStart, textEnd, claim) {
+    if (!Number.isFinite(textStart) || !Number.isFinite(textEnd) || textEnd <= textStart) return false;
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    let node, pos = 0;
+    let startNode = null, startOff = 0, endNode = null, endOff = 0;
+    while ((node = walker.nextNode())) {
+        const len = node.nodeValue.length;
+        if (!startNode && textStart < pos + len) {
+            startNode = node;
+            startOff = textStart - pos;
+        }
+        if (startNode && textEnd <= pos + len) {
+            endNode = node;
+            endOff = textEnd - pos;
+            break;
+        }
+        pos += len;
+    }
+    if (!startNode || !endNode) return false;
+    if (startNode.parentElement && startNode.parentElement.closest('.xr-claim')) return false; // already marked
+    const range = document.createRange();
+    try {
+        range.setStart(startNode, startOff);
+        range.setEnd(endNode, endOff);
+        wrapRangeWithClaimMark(range, claim);
+        return true;
+    } catch (_) {
+        return false;
     }
 }
 

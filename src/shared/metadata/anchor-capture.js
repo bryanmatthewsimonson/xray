@@ -152,12 +152,7 @@ function cssEscape(str) {
 /**
  * Pull selector primitives out of a live `Selection` object and
  * delegate to `buildSelectors`. Returns null if the selection is
- * empty or collapsed.
- *
- * The `root` argument is the DOM root we treat as the article body.
- * XPaths are computed relative to the document, but the prefix/suffix
- * are read from the rendered text inside `root` so prefix/suffix do
- * not leak text from the page chrome (header, footer, sidebar).
+ * empty or collapsed. Thin wrapper over `captureFromRange`.
  *
  * @param {Selection} selection
  * @param {Element} [root=document.body]
@@ -169,8 +164,36 @@ export function captureFromSelection(selection, root) {
   }
   const range = selection.getRangeAt(0);
   if (!range || range.collapsed) return null;
+  // Prefer the Selection's own text — most reliable across browsers.
+  return captureWith(String(selection.toString() || ''), range, root);
+}
 
-  const exact = String(selection.toString() || '');
+/**
+ * Pull selector primitives out of a DOM `Range` and delegate to
+ * `buildSelectors`. Returns null if the range is empty/collapsed.
+ *
+ * Prefer this over `captureFromSelection` when the live selection may
+ * already be gone (e.g. a popover button click has cleared it) — pass
+ * a cloned range captured at selection time.
+ *
+ * The `root` argument is the DOM root we treat as the article body.
+ * XPaths are computed relative to it, and prefix/suffix are read from
+ * its rendered text so they don't leak page chrome.
+ *
+ * @param {Range} range
+ * @param {Element} [root=document.body]
+ * @returns {ReturnType<typeof buildSelectors> | null}
+ */
+export function captureFromRange(range, root) {
+  if (!range || range.collapsed) return null;
+  return captureWith(String(range.toString() || ''), range, root);
+}
+
+/**
+ * Shared capture core — given the already-extracted `exact` text and the
+ * DOM `range` it came from, build the selector array.
+ */
+function captureWith(exact, range, root) {
   if (!exact) return null;
 
   const rootEl = root || (typeof document !== 'undefined' ? document.body : null);

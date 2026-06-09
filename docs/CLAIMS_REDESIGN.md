@@ -145,3 +145,19 @@ Each is one reviewable PR (the A–E cadence).
 - **10.5 — Metadata reframe.** Fact-checks / ratings as responses-to-claims;
   reconcile annotations onto the shared anchor; retire `30043`. (Biggest;
   last.)
+
+## Known limitations
+
+- **Repeated short phrases anchor to the first occurrence.** The text-anchor
+  capture (`metadata/anchor-capture.js` → `captureWith`) derives the
+  TextQuoteSelector's prefix/suffix from `root.textContent.indexOf(exact)` —
+  the *first* match — so if you mark a short phrase that recurs verbatim on
+  the page (e.g. a bare name), the saved prefix/suffix describe the first
+  instance and the body highlight resolves there, not the instance you
+  selected. The claim *data* (text, entities, anchor) is unaffected; only the
+  cosmetic highlight is wrong. This doesn't hit real claims (full sentences
+  are unique), so it's left as-is. The clean fix is to compute prefix/suffix
+  from the selection range's actual offset (`range.cloneRange()` →
+  `selectNodeContents` → `setEnd` → measure length) rather than first-match;
+  deferred because it touches the shared Phase 9a capture path and needs
+  in-browser verification.

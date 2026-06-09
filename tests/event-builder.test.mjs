@@ -83,6 +83,19 @@ test('buildClaimEvent (thin) — free-text source, no source p-tag, no key when 
     assert.equal(ev.tags.find((t) => t[0] === 'title'), undefined, 'empty title omitted');
 });
 
+test('buildClaimEvent (thin) — anchor selectors serialize to an anchor tag', () => {
+    const anchor = [{ type: 'TextQuoteSelector', exact: 'a passage', prefix: 'before ', suffix: ' after' }];
+    const claim = { id: 'claim_a', text: 'A passage claim.', about: [], source: null, is_key: false, anchor };
+    const ev = EventBuilder.buildClaimEvent(claim, 'https://x.test/a', '', PUBKEY, {});
+    const anchorTag = ev.tags.find((t) => t[0] === 'anchor');
+    assert.ok(anchorTag, 'anchor tag present when claim.anchor is set');
+    assert.deepEqual(JSON.parse(anchorTag[1]), anchor, 'anchor tag round-trips the selector array');
+
+    // No anchor tag when the claim has none.
+    const bare = EventBuilder.buildClaimEvent({ id: 'claim_b', text: 'X', about: [] }, 'https://x.test/a', '', PUBKEY, {});
+    assert.equal(bare.tags.find((t) => t[0] === 'anchor'), undefined);
+});
+
 test('buildRelayListEvent emits one r-tag per relay, kind 10002', () => {
     const relays = [
         'wss://relay.damus.io',
