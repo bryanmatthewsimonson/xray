@@ -114,21 +114,20 @@ welcome banner asking you to pick a method:
 - **NIP-07** → install nos2x / Alby first, then pick this option.
 - **NSecBunker** → enter the bunker URL, click **Test connection**.
 
-Until you pick, the FAB shows "Set up signing" instead of the publish
-button.
+Until you pick, capturing opens the **Settings → Signing** tab with a
+"Set up signing" prompt instead of the reader.
 
 ## Usage
 
-- **Click the toolbar icon** to toggle the capture panel (the **FAB**)
-  on the active tab. On `chrome://`, `file://`, or extension pages
-  where the content script can't run, the click opens **Settings**
-  instead.
-- **`Cmd/Ctrl + Shift + X`** does the same toggle from the keyboard.
-- **The floating FAB** itself is also clickable on every page; the
-  capture panel has tabs for **Readable** preview and **Markdown**
-  copy/download, plus the publish form.
-- **Right-click the toolbar icon** for the menu: Toggle Capture,
-  Entity Browser, Settings…, View Keypair Registry, Export Keypair
+- **Click the toolbar icon** to capture the active tab and open it in
+  the **reader** — where you preview the article (Readable / Markdown),
+  tag entities, mark claims, and publish. On `chrome://`, `file://`, or
+  extension pages where the content script can't run, the click opens
+  **Settings** instead.
+- **`Cmd/Ctrl + Shift + X`** captures from the keyboard.
+- **Right-click** a page (or the toolbar icon) → **Capture this page
+  with X-Ray** does the same. The toolbar icon's right-click menu also
+  has: Entity Browser, Settings…, View Keypair Registry, Export Keypair
   Registry, Capture tips.
 - **Per-platform capture instructions** — Facebook, Instagram, and
   TikTok have URL-shape and timing requirements; see the
@@ -136,14 +135,14 @@ button.
 
 ## Settings
 
-Open via toolbar icon → right-click → **Settings…**, the cog in the
-FAB panel header, or `chrome://extensions` → X-Ray → **Details** →
+Open via the toolbar icon's right-click → **Settings…**, the reader's
+header, or `chrome://extensions` → X-Ray → **Details** →
 **Extension options**.
 
 The Options page is the single home for configuration. Tabs:
 
 - **Relays** — per-relay rows (URL, read, write, enabled). Disabled
-  relays are skipped entirely; the FAB's publish-time picker shows
+  relays are skipped entirely; the reader's publish-time picker shows
   only enabled+writable relays. The structured shape is persisted as
   `preferences.relays`; `preferences.default_relays` (URL list) is
   auto-synced for back-compat.
@@ -191,7 +190,7 @@ produces `dist/*.bundle.js`, which the manifest loads).
 │   │                              GraphQL response capture (FB/IG)
 │   ├── content/
 │   │   ├── index.js               bootstrap + chrome.runtime wire
-│   │   ├── ui.js                  FAB + capture pipeline (openReader)
+│   │   ├── ui.js                  capture pipeline (openReader) + toast
 │   │   └── nip07-client.js        postMessage client to MAIN bridge
 │   ├── reader/                    extension-page reader (Reader /
 │   │                              Markdown / Preview tabs, publish
@@ -270,7 +269,8 @@ produces `dist/*.bundle.js`, which the manifest loads).
 - **API interception** — `src/page/api-interceptor.js` runs in the
   page's main world on Facebook / Instagram and posts captured
   GraphQL responses to the content script (`api-hook-buffer.js`).
-- **Session handoff** — the capture pipeline (FAB click) stashes the
+- **Session handoff** — the capture pipeline (toolbar/keyboard/menu
+  trigger) stashes the
   extracted article in `chrome.storage.session` keyed by a UUID, then
   opens the reader with `?id=<uuid>`. The reader's publish flow
   routes signing back through the source tab when NIP-07 is the

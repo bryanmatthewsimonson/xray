@@ -3,12 +3,13 @@
 // Phase 0 responsibilities:
 //   - Register context-menu items on install/update.
 //   - Forward context-menu clicks to the content script in the active tab.
-//   - Toolbar-icon click → `xray:toggle` to the active tab (mirrors the
-//     keyboard shortcut). On non-injectable pages the click falls back
-//     to opening the options page so it's never a silent no-op.
+//   - Toolbar-icon click → `xray:capture` to the active tab (mirrors the
+//     keyboard shortcut): capture the page and open it in the reader. On
+//     non-injectable pages the click falls back to opening the options
+//     page so it's never a silent no-op.
 //   - Bridge xray:notify → chrome.notifications.
 //   - Handle the keyboard-shortcut `command` (`Ctrl/Cmd+Shift+X`) by
-//     dispatching `xray:toggle` to the active tab.
+//     capturing the active tab.
 //   - **Publish signed events to NOSTR relays** on behalf of the content
 //     script. Moving the WebSocket pool here matters because:
 //       (a) relay connections survive tab navigations and can be kept
@@ -64,13 +65,14 @@ const CAPTURE_TIPS_URL = 'https://github.com/bryanmatthewsimonson/xray/blob/main
 // ------------------------------------------------------------------
 
 function registerContextMenus() {
-    // The browser-action click toggles the FAB panel directly (see
-    // chrome.action.onClicked below). The right-click menu hosts the
-    // jump-to-other-surfaces actions that used to live in the popup.
+    // The browser-action click captures the active tab and opens it in
+    // the reader (see chrome.action.onClicked below). The right-click
+    // menu hosts the same capture action plus the jump-to-other-surfaces
+    // actions that used to live in the popup.
     chrome.contextMenus.removeAll(() => {
         chrome.contextMenus.create({
             id: MENU_IDS.OPEN_CAPTURE,
-            title: 'Toggle Article Capture',
+            title: 'Capture this page with X-Ray',
             contexts: ['page', 'action']
         });
         chrome.contextMenus.create({
@@ -136,20 +138,20 @@ async function openEntityBrowser() {
 }
 
 /**
- * Toggle the FAB capture panel on the active tab. If the content script
- * isn't loaded (chrome://, file://, extension pages, the WebStore…)
- * fall back to opening the options page so the icon click is never a
- * no-op the user can't recover from.
+ * Capture the active tab and open it in the reader. If the content
+ * script isn't loaded (chrome://, file://, extension pages, the
+ * WebStore…) fall back to opening the options page so the icon click is
+ * never a no-op the user can't recover from.
  */
-function toggleCaptureOnActiveTab() {
+function captureActiveTab() {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         const tab = tabs && tabs[0];
         if (!tab || !tab.id) {
             chrome.runtime.openOptionsPage?.();
             return;
         }
-        chrome.tabs.sendMessage(tab.id, { type: 'xray:toggle' }).catch((err) => {
-            console.warn('[X-Ray] xray:toggle delivery failed, opening Settings:', err && err.message);
+        chrome.tabs.sendMessage(tab.id, { type: 'xray:capture' }).catch((err) => {
+            console.warn('[X-Ray] xray:capture delivery failed, opening Settings:', err && err.message);
             chrome.runtime.openOptionsPage?.();
         });
     });
@@ -179,7 +181,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (!tab || !tab.id) return;
 
     const messageForMenuId = {
-        [MENU_IDS.OPEN_CAPTURE]: { type: 'xray:toggle' },
+        [MENU_IDS.OPEN_CAPTURE]: { type: 'xray:capture' },
         [MENU_IDS.EXPORT_KEYPAIRS]: { type: 'xray:exportKeypairs' },
         [MENU_IDS.VIEW_KEYPAIRS]: { type: 'xray:viewKeypairs' }
     };
@@ -190,16 +192,16 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     chrome.tabs.sendMessage(tab.id, message).catch(err => {
         // Content script may not be loaded on this page (e.g. chrome:// URLs).
         console.warn('[X-Ray] Failed to deliver context-menu command:', err);
-        if (message.type === 'xray:toggle') {
+        if (message.type === 'xray:capture') {
             chrome.runtime.openOptionsPage?.();
         }
     });
 });
 
 // ------------------------------------------------------------------
-// Toolbar-icon click — toggle FAB on the active tab (no popup).
+// Toolbar-icon click — capture the active tab and open the reader (no popup).
 // ------------------------------------------------------------------
-chrome.action?.onClicked.addListener(toggleCaptureOnActiveTab);
+chrome.action?.onClicked.addListener(captureActiveTab);
 
 // ------------------------------------------------------------------
 // Message routing between popup / content / worker
@@ -601,14 +603,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // ------------------------------------------------------------------
 
 chrome.commands?.onCommand.addListener((command) => {
+    // The manifest command id stays `xray:toggle` so existing user key
+    // bindings survive; it now triggers a capture rather than a toggle.
     if (command !== 'xray:toggle') return;
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const tab = tabs && tabs[0];
-        if (!tab || !tab.id) return;
-        chrome.tabs.sendMessage(tab.id, { type: 'xray:toggle' }).catch((err) => {
-            console.warn('[X-Ray] Failed to deliver shortcut command:', err);
-        });
-    });
+    captureActiveTab();
 });
 
 // ------------------------------------------------------------------

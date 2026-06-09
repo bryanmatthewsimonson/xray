@@ -10,6 +10,24 @@ Sections per release: **Added** (new features), **Changed**
 
 ## [Unreleased]
 
+### Changed
+
+- **Capture is now a single surface.** The in-page floating action button
+  (FAB) and the in-page capture panel were removed. Clicking the toolbar
+  icon, pressing `Ctrl/Cmd+Shift+X`, or right-click → "Capture this page
+  with X-Ray" now extracts the page and opens it directly in the reader
+  (which already superseded the panel for preview, entity tagging, claims,
+  comments, and publishing). The content script no longer injects any
+  in-page chrome beyond a transient error toast.
+
+### Removed
+
+- The FAB, the in-page capture panel and its publish form, the FAB archive
+  badge, and the FAB-header signing-status indicator. Signing status lives
+  on the Settings → Signing "Active method" line; a prior capture surfaces
+  via the reader's archive banner. (~600 lines of content-script JS/CSS
+  deleted, including most of the legacy `nac-*` styling.)
+
 ## [0.5.1] — 2026-06-06
 
 ### Fixed

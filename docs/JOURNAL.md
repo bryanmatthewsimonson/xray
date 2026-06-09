@@ -19,6 +19,45 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-09 — De-FAB: one capture surface (Phase A of the cleanup)
+
+**Tags:** design
+
+**What changed:** Removed the in-page floating action button (FAB) and the
+in-page capture panel. Every capture trigger — toolbar-icon click, the
+`Ctrl/Cmd+Shift+X` command, and the right-click menu — now sends a single
+`xray:capture` message to the content script, which runs `UI.openReader()`
+(extract → stash in `chrome.storage.session` → open the reader tab). The
+content script injects no in-page chrome beyond a transient error toast.
+
+**Why:** The FAB opened the modern reader while the toolbar/keyboard/menu
+still opened a *legacy in-page panel* — two capture surfaces with
+divergent feature sets (the panel duplicated ~60% of the reader but lacked
+entity tagging, claims, comments, and the archive flow the reader gained
+in Phases 4–7). The FAB also "got in the way" on every page for no benefit
+now that the extension owns a toolbar action. Collapsing to the reader as
+the single surface removed the inconsistency and ~600 lines of
+content-script JS/CSS, including most of the orphaned `nac-*` styling.
+
+**Surface:** `src/content/ui.js` shrank from ~1017 lines (FAB + panel +
+overlay + publish form + signing-status + all panel helpers) to ~165
+(capture core + toast + keypair-registry utilities). `content.css` shrank
+to the toast styles only (now `xr-toast`, self-contained, no `:root`
+pollution). The toolbar `action`, the `xray:toggle` command id (kept so
+existing key bindings survive), the context-menu item ("Capture this
+page…"), and the options "Capture Page" quick-action were all re-pointed
+at `xray:capture`. Removed the dead `xray:toggle`/`xray:open` content-side
+handlers and the panel-only signing-status calls; `recordSigningState`
+still writes `xr_signing_state` for the options Signing tab.
+
+**Follow-ups:** the 15 remaining `nac-*` tokens are capture→Markdown
+markers in `content-extractor.js` (not UI) — renamed in a later phase. The
+detailed SMOKE_TEST step rewrite rides with the Phase E docs refresh (a
+correction banner was added in the meantime). First of the staged cleanup
+phases; the entry-point decision was recorded with the user.
+
+---
+
 ## 2026-06-06 — Relays reject events with non-string tag values
 
 **Tags:** bug, external

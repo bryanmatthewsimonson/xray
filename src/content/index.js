@@ -81,28 +81,25 @@ async function init() {
     // NSecBunker work without injection.
     Signer.configure({ nip07Client: NIP07Client });
 
-    // Initialize Article Capture UI (FAB and panel).
-    UI.init();
-
-    // Resolve the user's chosen signing method.
+    // Resolve the user's chosen signing method and persist the result to
+    // `xr_signing_state` so the options Signing tab can show an honest
+    // status. There is no in-page signing UI any more — capture and
+    // publish both happen in the reader page.
     const method = await Signer.getMethod();
     const configured = await Signer.isConfigured();
 
     if (!configured) {
         Utils.log('Signing method not yet configured by user');
-        UI.updateSigningStatus();
         recordSigningState('unconfigured');
         // Still probe NIP-07 so the bridge ready event lands; this keeps
-        // the popup's "detected?" indicator honest even before setup.
+        // the options "detected?" indicator honest even before setup.
         NIP07Client.probe().catch(() => { /* ignore */ });
     } else if (method === 'local') {
         const id = await Storage.primaryIdentity.get();
         if (id && id.privateKey) {
             Utils.log('Local signing identity ready:', id.npub);
-            UI.updateSigningStatus();
             recordSigningState('local', id.pubkey);
         } else {
-            UI.updateSigningStatus();
             recordSigningState('local-missing');
             Utils.log('Local signing selected but no key present. Open Settings → Signing.');
         }
@@ -110,16 +107,13 @@ async function init() {
         const nip07Available = await NIP07Client.probe();
         if (nip07Available) {
             Utils.log('NIP-07 extension detected');
-            UI.updateSigningStatus();
             try {
                 const pubkey = await NIP07Client.getPublicKey();
                 recordSigningState('nip07', pubkey);
             } catch (_) {
                 recordSigningState('nip07');
             }
-            UI.showToast('NIP-07 extension detected - Ready to publish!', 'success');
         } else {
-            UI.updateSigningStatus();
             recordSigningState('nip07-missing');
             Utils.log('NIP-07 selected but no provider. Install nos2x / Alby or switch method.');
         }
@@ -128,13 +122,9 @@ async function init() {
         const prefs = await Storage.get('preferences', {});
         NSecBunkerClient.connect(prefs && prefs.nsecbunker_url).then(() => {
             Utils.log('NSecBunker connected');
-            UI.updateSigningStatus();
-            UI.updatePublishButton();
             recordSigningState('nsecbunker');
-            UI.showToast('Connected to NSecBunker', 'success');
         }).catch((e) => {
             Utils.log('NSecBunker not available:', e.message);
-            UI.updateSigningStatus();
             recordSigningState('nsecbunker-missing');
         });
     }
@@ -144,9 +134,8 @@ async function init() {
 
 /**
  * Persist the resolved signing state to chrome.storage.local so the
- * popup ([src/popup/index.js]) can show an honest status badge instead
- * of always falling through to "not detected" — the bug closed by
- * issue #2.
+ * options Signing tab can show an honest status instead of always
+ * falling through to "not detected" — the bug closed by issue #2.
  *
  * Writes the value JSON-stringified to match the convention of every
  * other key written through `Storage` (see `src/shared/storage.js` —
@@ -170,8 +159,7 @@ function recordSigningState(method, pubkey = null) {
 
 // Wire message handler for background-service-worker commands.
 // The background worker dispatches:
-//   { type: 'xray:open' }           — open the capture panel (v1 FAB path)
-//   { type: 'xray:toggle' }         — toggle the capture panel
+//   { type: 'xray:capture' }        — capture this page and open the reader
 //   { type: 'xray:exportKeypairs' } — export keypair registry
 //   { type: 'xray:viewKeypairs' }   — view keypair registry
 //   { type: 'xray:sign', event }    — sign an unsigned event via NIP-07.
@@ -183,12 +171,8 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         try {
             switch (msg && msg.type) {
-                case 'xray:open':
-                    UI.open();
-                    sendResponse({ ok: true });
-                    break;
-                case 'xray:toggle':
-                    UI.toggle();
+                case 'xray:capture':
+                    UI.openReader();
                     sendResponse({ ok: true });
                     break;
                 case 'xray:exportKeypairs':

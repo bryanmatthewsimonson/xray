@@ -7,6 +7,20 @@ when adding a contributor.
 
 This doc replaces the v1-era checklist that lived on issue #1.
 
+> **⚠️ Capture model changed (de-FAB refactor).** The in-page floating
+> action button (FAB) and the in-page capture panel were removed. Capture
+> is now triggered by **clicking the toolbar icon**, pressing
+> **`Ctrl/Cmd+Shift+X`**, or **right-click → "Capture this page with
+> X-Ray"** — any of which extracts the page and opens it directly in the
+> **reader** (there is no in-page panel). Consequences for the steps
+> below, which still say "FAB": (1) wherever a step says "click the FAB /
+> FAB → reader", trigger capture via one of those three entry points;
+> (2) the **FAB 📦 archive badge no longer exists** — a prior capture
+> surfaces only via the reader's archive banner on re-capture; (3) the
+> **FAB-header signing badge no longer exists** — signing status shows on
+> the **Settings → Signing** "Active method" line. A full step-by-step
+> rewrite of this checklist rides with the Phase E docs refresh.
+
 ## Setup
 
 ```sh
@@ -14,7 +28,7 @@ git clone …
 cd xray
 npm install
 npm run build           # produces dist/*.bundle.js (5 bundles)
-npm test                # 519/519 should pass
+npm test                # 528/528 should pass
 ```
 
 ### Chrome / Chromium / Brave / Edge
@@ -100,10 +114,10 @@ For each platform handler:
    If the line for the chosen method is absent after a tab reload,
    the bridge / connection isn't reaching the content script — file
    as a separate bug.
-3. **Find** the FAB by natural-language query (`"X-Ray Capture
+3. **Find** the X-Ray toolbar icon by natural-language query (`"X-Ray Capture
    article FAB floating button bottom right"` in the proof of
    concept matched first try).
-4. **Click** the FAB.
+4. **Click** the X-Ray toolbar icon.
 5. **Wait** 8–12 seconds for the capture pipeline to finish.
 6. **Re-read console** filtered by `X-Ray` — the platform handler's
    diagnostics narrate the run. Healthy YouTube run looks like:
@@ -292,7 +306,7 @@ verify the page actually shows Disqus comments inline).
 
 | # | Test | Pass criteria |
 |---|---|---|
-| 4.4 | Open via the FAB header's entity-browser icon, the right-click menu's **Entity Browser**, or the Options page's **Entity Browser** quick-action | ✅ side panel slides in (Chrome) or new tab opens (Firefox fallback) |
+| 4.4 | Open via the X-Ray toolbar icon header's entity-browser icon, the right-click menu's **Entity Browser**, or the Options page's **Entity Browser** quick-action | ✅ side panel slides in (Chrome) or new tab opens (Firefox fallback) |
 | 4.5 | Type-filter chips work; search filters by name | ✅ entity count in the footer updates |
 | 4.6 | Click an entity → detail view shows editable fields + npub + nsec (behind reveal) | ✅ Save enables only when a field changes |
 
@@ -387,7 +401,7 @@ inside (so a relay copy exists).
 |---|---|---|
 | O.1 | Right-click toolbar icon → **Settings…** → Relays tab | ✅ per-relay rows render with read / write / enabled checkboxes |
 | O.2 | Add a relay URL → Save → reload the Options page → relay still listed | ✅ persists across reloads |
-| O.3 | Disable a relay's **write** flag → publish from a captured article → that relay's URL is absent from the per-relay rollup toast and from the FAB's relay picker | ✅ |
+| O.3 | Disable a relay's **write** flag → publish from a captured article → that relay's URL is absent from the per-relay rollup toast and from the X-Ray toolbar icon's relay picker | ✅ |
 | O.4 | Advanced → set **Article cache budget (MB)** to e.g. 10 → reload the extension → DevTools → Application → IndexedDB → archive store stays under 10 MB after captures | ✅ override applied at content-script init via `applyConfigOverrides()` |
 | O.5 | Header quick-action **Toggle Capture** with a normal page in the background | ✅ FAB toggles in that tab |
 | O.6 | Header quick-action **Entity Browser** | ✅ side panel opens (or new tab on Firefox) |
@@ -410,7 +424,7 @@ Firefox-only points.
 | # | Test | Pass criteria |
 |---|---|---|
 | F.1 | After "Load Temporary Add-on", `about:debugging` shows the extension with no manifest warnings | ✅ |
-| F.2 | With Signing method = NIP-07 and a NIP-07 provider installed, the FAB header signing badge shows "NIP-07" | ✅ if it fails, the MAIN-world bridge isn't reaching the isolated world — file as a separate bug |
+| F.2 | With Signing method = NIP-07 and a NIP-07 provider installed, the X-Ray toolbar icon header signing badge shows "NIP-07" | ✅ if it fails, the MAIN-world bridge isn't reaching the isolated world — file as a separate bug |
 | F.3 | Run the full Phase 2 + Phase 3a (Substack) checklist | ✅ same outcomes as Chrome |
 
 If you have ESR 128 handy, repeat F.1–F.3.

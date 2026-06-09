@@ -18,7 +18,7 @@ This guide covers:
 ## Instagram
 
 **The golden path:** open the specific post you want to capture, wait a
-beat for it to fully load, then click the X-Ray FAB.
+beat for it to fully load, then trigger X-Ray (toolbar icon or Ctrl/Cmd+Shift+X).
 
 ### Do this
 
@@ -38,13 +38,13 @@ beat for it to fully load, then click the X-Ray FAB.
    gets every slide even if you didn't swipe — but swiping is the
    reliable fallback.)
 
-3. **Wait for the page to settle** before clicking the FAB. X-Ray
+3. **Wait for the page to settle** before triggering X-Ray (toolbar icon or Ctrl/Cmd+Shift+X). X-Ray
    buffers Instagram's GraphQL responses as they fire during page load;
-   if you click the FAB before those responses arrive, the author
+   if you trigger X-Ray (toolbar icon or Ctrl/Cmd+Shift+X) before those responses arrive, the author
    profile (verified flag, follower count, full name) won't be enriched.
    A second or two is enough on most connections.
 
-4. **Click the X-Ray FAB.** It'll open the reader with the extracted
+4. **Trigger X-Ray (toolbar icon or Ctrl/Cmd+Shift+X).** It'll open the reader with the extracted
    post: caption, author, image URLs, engagement counts, screenshot
    evidence, and a hashed HTML snapshot.
 
@@ -81,7 +81,7 @@ For Instagram posts, the reader shows:
 
 **The golden path:** open the post in the detail-modal view (click into
 it from the feed or a profile), let the page settle, and click the
-X-Ray FAB.
+X-Ray toolbar icon.
 
 ### Do this
 
@@ -103,15 +103,15 @@ X-Ray FAB.
 
 2. **Scroll through the post so the images render.** Facebook aggressively
    lazy-loads images — the `<img>` tags don't have their `src` set
-   until they enter the viewport. If you click the FAB on a post whose
+   until they enter the viewport. If you trigger X-Ray (toolbar icon or Ctrl/Cmd+Shift+X) on a post whose
    images haven't rendered yet, they won't be captured.
 
-3. **Wait for the page to settle** before clicking the FAB. Facebook's
+3. **Wait for the page to settle** before triggering X-Ray (toolbar icon or Ctrl/Cmd+Shift+X). Facebook's
    `/api/graphql/` responses fire during page load and navigation;
-   X-Ray's buffer captures them as they arrive. Click the FAB after
+   X-Ray's buffer captures them as they arrive. Click the X-Ray toolbar icon after
    the post has finished loading.
 
-4. **Click the X-Ray FAB.** You'll see the reader with the extracted
+4. **Trigger X-Ray (toolbar icon or Ctrl/Cmd+Shift+X).** You'll see the reader with the extracted
    post: author name and handle, the full post body text, any inline
    images, engagement counts (reactions / comments / shares when
    public), screenshot evidence, and a hashed HTML snapshot.
@@ -162,7 +162,7 @@ For Facebook posts, the reader shows:
 
 ## TikTok
 
-**The golden path:** open the specific video URL and click the FAB.
+**The golden path:** open the specific video URL and trigger X-Ray (toolbar icon or Ctrl/Cmd+Shift+X).
 TikTok is the easiest hard-tier platform — most of the metadata lives
 in a server-rendered JSON blob that's in the HTML before any JS runs.
 
@@ -171,7 +171,7 @@ in a server-rendered JSON blob that's in the HTML before any JS runs.
 1. **Navigate to a single video.** The canonical desktop URL is
    `tiktok.com/@<user>/video/<id>`.
 
-2. **Click the X-Ray FAB.** Caption, hashtags, author, view/like/comment/
+2. **Trigger X-Ray (toolbar icon or Ctrl/Cmd+Shift+X).** Caption, hashtags, author, view/like/comment/
    share counts, duration, and cover image get captured, plus a
    screenshot and HTML snapshot.
 
@@ -257,7 +257,7 @@ If any of these look wrong, see the next section.
 ### The screenshot only shows part of the post
 
 - Tall posts exceed one viewport. X-Ray captures what's visible when
-  you click the FAB. Scroll the post so the most important content is
+  you trigger X-Ray (toolbar icon or Ctrl/Cmd+Shift+X). Scroll the post so the most important content is
   centered before clicking.
 
 ### The capture picks the wrong item
@@ -270,7 +270,7 @@ If any of these look wrong, see the next section.
 ### Images are missing from the markdown body
 
 - **Instagram carousels:** Swipe through all the slides before
-  clicking the FAB. The GraphQL path captures all slides; the DOM
+  triggering X-Ray (toolbar icon or Ctrl/Cmd+Shift+X). The GraphQL path captures all slides; the DOM
   path captures only slides that have been rendered.
 
 - **Facebook:** Scroll so the image gallery renders. FB sets

@@ -10,7 +10,7 @@
     "128": "icons/icon-128.png"
   },
   "action": {
-    "default_title": "X-Ray — toggle Article Capture (right-click for more)",
+    "default_title": "X-Ray — capture this page (right-click for more)",
     "default_icon": {
       "16": "icons/icon-16.png",
       "48": "icons/icon-48.png",
@@ -117,7 +117,7 @@
         "default": "Ctrl+Shift+X",
         "mac": "Command+Shift+X"
       },
-      "description": "Toggle the X-Ray capture panel on the current tab"
+      "description": "Capture the current page with X-Ray"
     }
   },
   "browser_specific_settings": {
