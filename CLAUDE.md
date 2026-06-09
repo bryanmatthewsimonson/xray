@@ -147,13 +147,12 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
 - **`config.js` carries snake_case keys** (e.g. `min_content_length`) to
   match the v4 userscript for drop-in module portability, with some
   camelCase legacy aliases kept alongside. Don't "tidy" these casings.
-- **CSS prefixes:** `xr-*` for extension-chrome UI (options/reader/side
-  panel) and all content-script UI. The FAB/panel `nac-*` CSS is gone; the
-  only `nac-*` left is a handful of **capture-pipeline markers** in
-  `content-extractor.js` (`nac-tweet-embed`, `nac-facebook-post`,
-  `nac-inline-img`, …) — class names on cloned nodes that the Turndown
-  rules match to build Markdown, not UI. **Don't add new `nac-*` classes**;
-  renaming those remaining markers to `xr-*` is a known follow-up.
+- **CSS prefixes:** everything is `xr-*` now — extension-chrome UI
+  (options/reader/side panel), content-script UI, and the capture-pipeline
+  markers in `content-extractor.js` (`xr-tweet-embed`, `xr-fb-*`,
+  `xr-inline-img`, … — class names on cloned nodes the Turndown rules match
+  to build Markdown, not UI). The legacy `nac-*` / `nmd-*` prefixes are
+  fully gone; don't reintroduce them.
 - **Logging:** use `Utils.log` / `Utils.error` (no-ops when `CONFIG.debug`
   is false). Don't add bare `console.log`.
 - **User-visible strings** use "X-Ray" (hyphenated). Avoid emoji in code

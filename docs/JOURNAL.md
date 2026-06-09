@@ -19,6 +19,37 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-09 — Eliminate the last `nac-*` markers (Phase D)
+
+**Tags:** design
+
+**What changed:** Renamed the remaining `nac-*` class names — the
+capture→Markdown markers in `content-extractor.js` (`nac-tweet-embed`,
+`nac-inline-img`, `nac-facebook-post`/`nac-fb-*`,
+`nac-instagram-post`/`nac-ig-*`) — to `xr-*`. The codebase is now
+100% `xr-*` (the FAB/panel `nac-*` CSS went in Phase A; this clears the
+internal markers). Pure string rename, no behavior change: these are class
+names on cloned DOM nodes the Turndown rules match, and producer/consumer
+pairs were renamed in lockstep within the one file.
+
+**Tracing notes (for whoever touches these next):** `xr-tweet-embed` and
+`xr-inline-img` have live producer+consumer pairs. `xr-inline-img` is
+otherwise **vestigial** — Phase A deleted the content.css rule that styled
+it, and `htmlToMarkdown`'s image rule keys on width, not the class. The
+`xr-facebook-post` / `xr-instagram-post` Turndown rules have **no producer
+anywhere in src** — they're dead code from an earlier HTML-embed
+architecture (FB/IG handlers now return data objects). Left both in place
+(renamed) rather than deleted to keep Phase D a zero-risk rename; removing
+the dead rules + vestigial class is a safe future cleanup.
+
+**Deferred (needs browser QA):** the deeper CSS *token/color* unification
+the audit flagged — reconciling the minor success/warning/danger value
+divergence across reader/options/sidepanel and the couple of hardcoded
+`#363636`s — is a visual change I can't verify headless, so it's left as a
+documented follow-up rather than shipped blind.
+
+---
+
 ## 2026-06-09 — Unify the NOSTR `client` tag to `xray` (Phase C)
 
 **Tags:** design, external
