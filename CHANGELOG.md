@@ -12,6 +12,20 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Changed
 
+- **Lean `kind 30040` claim wire format** (Phase 10.2; **wire-format
+  change**, back-compat preserved). Published claims now carry the entities
+  they're about as **`['p', <entity_pubkey>, '', 'about']` tags** (mirrored by
+  `['entity', <name>, 'about']`), the claim text as the event **content**, the
+  asserting source as `['source', …]` (+ a `p`-tag when it's an entity), and a
+  single `['key','true']` flag — replacing the old `claim-text` / `claim-type`
+  / `crux` / `confidence` / `attribution` / `subject` / `object` / `predicate`
+  / `claimant` tag soup. This makes *"what the network says about person P"* a
+  single `{ kinds:[30040], "#p":[P] }` query. **Reading is dual-vocabulary:**
+  the "others' claims" view renders both new and pre-redesign events, and
+  already-published claims keep their old tags. The transitional legacy-field
+  mirror from 10.1 is removed. Entity-relationship (`32125`) events derived
+  from claims now use `about` / `source` relationship types.
+
 - **Claims simplified to a thin, entity-centric model** (Phase 10.1; see
   [`docs/CLAIMS_REDESIGN.md`](docs/CLAIMS_REDESIGN.md)). A claim is now just
   *text + the entities it's about + an optional "who said it" + a single ⭐

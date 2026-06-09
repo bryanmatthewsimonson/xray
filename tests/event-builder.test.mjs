@@ -36,6 +36,53 @@ test('buildEntitySyncEvent has the d/L/l tags the pull filter expects', () => {
     assert.deepEqual(tTag, ['entity-type', 'person']);
 });
 
+test('buildClaimEvent (thin) — about p-tags, source, key; text in content', () => {
+    const entities = {
+        entity_p: { id: 'entity_p', name: 'Jane Roe',  type: 'person',       keypair: { pubkey: 'a'.repeat(64) } },
+        entity_o: { id: 'entity_o', name: 'Acme Corp', type: 'organization', keypair: { pubkey: 'b'.repeat(64) } }
+    };
+    const claim = {
+        id: 'claim_0123456789abcdef',
+        text: 'Jane Roe runs Acme Corp.',
+        about: ['entity_p', 'entity_o'],
+        source: 'entity_p',
+        is_key: true
+    };
+    const ev = EventBuilder.buildClaimEvent(claim, 'https://x.test/a', 'A Title', PUBKEY, entities);
+
+    assert.equal(ev.kind, 30040);
+    assert.equal(ev.content, 'Jane Roe runs Acme Corp.', 'claim text is the content');
+    assert.deepEqual(ev.tags.find((t) => t[0] === 'd'), ['d', 'claim_0123456789abcdef']);
+    assert.deepEqual(ev.tags.find((t) => t[0] === 'r'), ['r', 'https://x.test/a']);
+
+    // About entities → p-tag (queryable) + human-readable entity name.
+    const aboutPs = ev.tags.filter((t) => t[0] === 'p' && t[3] === 'about').map((t) => t[1]);
+    assert.deepEqual(aboutPs.sort(), ['a'.repeat(64), 'b'.repeat(64)]);
+    const aboutNames = ev.tags.filter((t) => t[0] === 'entity' && t[2] === 'about').map((t) => t[1]);
+    assert.deepEqual(aboutNames.sort(), ['Acme Corp', 'Jane Roe']);
+
+    // Source entity → p-tag(source) + source name.
+    assert.deepEqual(ev.tags.find((t) => t[0] === 'p' && t[3] === 'source'), ['p', 'a'.repeat(64), '', 'source']);
+    assert.deepEqual(ev.tags.find((t) => t[0] === 'source'), ['source', 'Jane Roe']);
+
+    assert.deepEqual(ev.tags.find((t) => t[0] === 'key'), ['key', 'true']);
+    assert.deepEqual(ev.tags.find((t) => t[0] === 'client'), ['client', 'xray']);
+
+    // No legacy structured tags.
+    for (const dead of ['claim-text', 'claim-type', 'crux', 'confidence', 'attribution', 'subject', 'object', 'predicate', 'claimant']) {
+        assert.equal(ev.tags.find((t) => t[0] === dead), undefined, `no legacy ${dead} tag`);
+    }
+});
+
+test('buildClaimEvent (thin) — free-text source, no source p-tag, no key when absent', () => {
+    const claim = { id: 'claim_x', text: 'A.', about: [], source: 'An unnamed official', is_key: false };
+    const ev = EventBuilder.buildClaimEvent(claim, 'https://x.test/a', '', PUBKEY, {});
+    assert.deepEqual(ev.tags.find((t) => t[0] === 'source'), ['source', 'An unnamed official']);
+    assert.equal(ev.tags.find((t) => t[0] === 'p' && t[3] === 'source'), undefined, 'free-text source gets no p-tag');
+    assert.equal(ev.tags.find((t) => t[0] === 'key'), undefined, 'no key tag when not a key claim');
+    assert.equal(ev.tags.find((t) => t[0] === 'title'), undefined, 'empty title omitted');
+});
+
 test('buildRelayListEvent emits one r-tag per relay, kind 10002', () => {
     const relays = [
         'wss://relay.damus.io',

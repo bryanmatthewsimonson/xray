@@ -87,19 +87,6 @@ test('claim: source can be free text (a quoted name) or null', async () => {
     assert.equal(article.source, null);
 });
 
-test('claim: legacy mirror keeps the (unchanged) event-builder path fed', async () => {
-    resetState();
-    const claim = await ClaimModel.create({
-        text: 'Mirror.', source_url: URL_A, about: [ENT_1], source: ENT_2, is_key: true
-    });
-    // Until slice 10.2, the thin fields are mirrored onto the legacy fields
-    // buildClaimEvent still reads.
-    assert.deepEqual(claim.subject_entity_ids, [ENT_1]);
-    assert.equal(claim.claimant_entity_id, ENT_2);
-    assert.equal(claim.is_crux, true);
-    assert.equal(claim.type, 'factual');
-});
-
 test('claim: create is idempotent on same (url, normalized-text)', async () => {
     resetState();
     const a = await ClaimModel.create({ text: 'Same claim.',  source_url: URL_A });
@@ -129,7 +116,6 @@ test('claim: update patches thin fields, refuses immutable ones', async () => {
     assert.deepEqual(updated.about, [ENT_2]);
     assert.equal(updated.source, 'A spokesperson');
     assert.equal(updated.is_key, true);
-    assert.deepEqual(updated.subject_entity_ids, [ENT_2], 'mirror re-derived on update');
     assert.ok(updated.updated >= claim.updated);
 });
 

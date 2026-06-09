@@ -1852,17 +1852,16 @@ async function resolveClaimsToPublish(articleUrl) {
 }
 
 /**
- * Collect every entity id referenced by a claim as claimant, subject,
- * or object. Used to ensure claim-referenced entities have their
+ * Collect every entity id a claim references — its `about` set plus an
+ * entity `source`. Used to ensure claim-referenced entities have their
  * kind-0 on the network before the claim's kind-30040 lands (claim
  * events p-tag these pubkeys; dangling references are rude).
  */
 function collectClaimEntityIds(claims) {
     const ids = new Set();
     for (const c of claims || []) {
-        if (c.claimant_entity_id) ids.add(c.claimant_entity_id);
-        for (const id of c.subject_entity_ids || []) ids.add(id);
-        for (const id of c.object_entity_ids  || []) ids.add(id);
+        for (const id of c.about || []) ids.add(id);
+        if (c.source && /^entity_/.test(c.source)) ids.add(c.source);
     }
     return ids;
 }
@@ -1905,9 +1904,8 @@ async function resolveRelationshipsToPublish(claims, articleUrl) {
     const out = [];
     for (const c of claims || []) {
         const triples = [];
-        if (c.claimant_entity_id) triples.push([c.claimant_entity_id, 'claimant']);
-        for (const id of c.subject_entity_ids || []) triples.push([id, 'subject']);
-        for (const id of c.object_entity_ids  || []) triples.push([id, 'object']);
+        for (const id of c.about || []) triples.push([id, 'about']);
+        if (c.source && /^entity_/.test(c.source)) triples.push([c.source, 'source']);
         for (const [entityId, relType] of triples) {
             const key = `${entityId}:${articleUrl}:${relType}`;
             if (seen.has(key)) continue;

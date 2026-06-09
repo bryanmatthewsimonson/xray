@@ -22,9 +22,7 @@
 
 import {
     ClaimModel,
-    CLAIM_TYPE_LABELS,
-    CLAIM_TYPE_ICONS,
-    CLAIM_ATTRIBUTION_LABELS
+    CLAIM_TYPE_ICONS
 } from '../shared/claim-model.js';
 import {
     EvidenceLinker,
@@ -724,46 +722,48 @@ function renderOthersClaims(events, byRelay) {
     return summary + authorCards;
 }
 
+// Render one foreign (others') kind-30040. Dual-read: understands both the
+// thin vocabulary (Phase 10.2 — content=text, `entity …about`, `source`,
+// `key`) and the legacy one (`claim-text`, `subject`/`object`, `claimant`,
+// `crux`) so claims published before the redesign still display.
 function renderForeignClaim(event) {
     const tags = event.tags || [];
     const firstOf = (name) => {
         const t = tags.find((x) => x[0] === name);
         return t ? t[1] : '';
     };
-    const allOf = (name) => tags.filter((x) => x[0] === name).map((x) => x[1]);
+    // `entity` name tags carry their role in slot 2 ('about'); fall back to
+    // the legacy subject/object tags.
+    const entityNames = (role) => tags.filter((x) => x[0] === 'entity' && x[2] === role).map((x) => x[1]);
 
-    const text        = firstOf('claim-text') || (event.content || '').slice(0, 200);
-    const type        = firstOf('claim-type') || 'factual';
-    const typeIcon    = CLAIM_TYPE_ICONS[type] || '📋';
-    const typeLabel   = CLAIM_TYPE_LABELS[type] || type;
-    const attribution = firstOf('attribution');
-    const isCrux      = firstOf('crux') === 'true';
-    const confidence  = firstOf('confidence');
-    const predicate   = firstOf('predicate');
-    const subjects    = allOf('subject');
-    const objects     = allOf('object');
-    const claimant    = firstOf('claimant');
-    const triple = (subjects.length || objects.length || predicate)
-        ? `<div class="xr-claims__triple"><em>${escapeHtml(subjects.join(', ') || '—')}</em> <strong>${escapeHtml(predicate || '—')}</strong> <em>${escapeHtml(objects.join(', ') || '—')}</em></div>`
-        : '';
-    const cruxLine = isCrux
-        ? `<span class="xr-claims__crux">★ crux${confidence ? ` · ${escapeHtml(confidence)}%` : ''}</span>`
-        : '';
-    const when = event.created_at
-        ? new Date(event.created_at * 1000).toLocaleDateString()
-        : '';
+    // Text: thin events put it in content; legacy used a claim-text tag.
+    const text    = firstOf('claim-text') || (event.content || '');
+    const isKey   = firstOf('key') === 'true' || firstOf('crux') === 'true';
+    const about   = entityNames('about');
+    if (about.length === 0) {                       // legacy fallback
+        for (const n of [...tagVals(tags, 'subject'), ...tagVals(tags, 'object')]) about.push(n);
+    }
+    const source  = firstOf('source') || firstOf('claimant');
+    const when    = event.created_at ? new Date(event.created_at * 1000).toLocaleDateString() : '';
+
+    const keyLine    = isKey ? `<span class="xr-claims__crux">⭐ key</span>` : '';
+    const aboutLine  = about.length ? `<div class="xr-claims__triple">About <em>${escapeHtml(about.join(', '))}</em></div>` : '';
+    const sourceLine = source    ? `<div class="xr-claims__claimant">Per <em>${escapeHtml(source)}</em></div>` : '';
 
     return `
-      <article class="xr-claims__item xr-claims__item--${escapeHtml(type)} ${isCrux ? 'xr-claims__item--crux' : ''}">
+      <article class="xr-claims__item ${isKey ? 'xr-claims__item--crux' : ''}">
         <div class="xr-claims__row-top">
-          <span class="xr-claims__type">${typeIcon} ${escapeHtml(typeLabel)}</span>
-          ${cruxLine}
+          ${keyLine}
           <span class="xr-others-modal__when">${escapeHtml(when)}</span>
         </div>
         <div class="xr-claims__text">${escapeHtml(text)}</div>
-        ${triple}
-        <div class="xr-claims__claimant">${claimant ? `Attributed to <em>${escapeHtml(claimant)}</em> · ` : ''}${escapeHtml(CLAIM_ATTRIBUTION_LABELS[attribution] || attribution || 'editorial')}</div>
+        ${aboutLine}
+        ${sourceLine}
       </article>`;
+}
+
+function tagVals(tags, name) {
+    return tags.filter((x) => x[0] === name).map((x) => x[1]);
 }
 
 // ------------------------------------------------------------------
@@ -848,10 +848,9 @@ function approxLength(raw, startRaw, normalizedLen) {
 
 function wrapRangeWithClaimMark(range, claim) {
     const mark = document.createElement('span');
-    mark.className = `xr-claim xr-claim--${claim.type}${claim.is_crux ? ' xr-claim--crux' : ''}`;
+    mark.className = `xr-claim${claim.is_key ? ' xr-claim--crux' : ''}`;
     mark.setAttribute('data-claim-id', claim.id);
-    mark.setAttribute('data-claim-type', claim.type);
-    mark.setAttribute('title', `${CLAIM_TYPE_LABELS[claim.type] || 'claim'}${claim.is_crux ? ' (crux)' : ''}: ${claim.text.slice(0, 180)}`);
+    mark.setAttribute('title', `${claim.is_key ? '⭐ key claim' : 'Claim'}: ${claim.text.slice(0, 180)}`);
     try { range.surroundContents(mark); }
     catch (_) {
         const frag = range.extractContents();
