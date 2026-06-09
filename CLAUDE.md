@@ -77,7 +77,7 @@ the single most important thing here.
    `chrome.storage.onChanged` listener every wake.
 3. **Extension pages** (`src/options/`, `src/reader/`, `src/sidepanel/`) —
    options is the single settings hub (Relays / Signing / Entities /
-   Keypair Registry / Migrate / Advanced); reader renders the captured
+   Keypair Registry / Advanced); reader renders the captured
    article + publish flow; sidepanel is the entity browser.
 4. **MAIN world page scripts** (`src/page/`) — `nip07-bridge.js` exposes
    `window.nostr` to the extension via tagged `postMessage` envelopes;
@@ -137,8 +137,7 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   commenters/authors become dedup-able identities, and cross-platform
   accounts can be collapsed into one person.
 - Also: `nostr-client.js` (relay pool, used from background),
-  `archive-cache.js` (IndexedDB + paywall reconstruction),
-  `userscript-migration.js` (legacy JSON importer for Settings → Migrate).
+  `archive-cache.js` (IndexedDB + paywall reconstruction).
 
 ## Conventions
 

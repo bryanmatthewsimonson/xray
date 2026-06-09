@@ -12,6 +12,11 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Changed
 
+- **Settings consolidated.** The Advanced tab is reorganized into a
+  **Reader** group (archive banner sensitivity, promoted out of the
+  engine-tuning pile) and a **Power user** group (debug logging + the
+  engine-tuning overrides), then the Danger zone. The header quick-action
+  is now **Capture Page**.
 - **Capture is now a single surface.** The in-page floating action button
   (FAB) and the in-page capture panel were removed. Clicking the toolbar
   icon, pressing `Ctrl/Cmd+Shift+X`, or right-click → "Capture this page
@@ -22,6 +27,12 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Removed
 
+- **The "Migrate from userscript" Settings tab** and its importer
+  (`shared/userscript-migration.js` + tests). The legacy
+  `nostr-article-capture` userscript data import is no longer shipped.
+- **Dead settings:** the Advanced tab's **Theme** and **Media handling**
+  selectors (both written but never read by any code), and the unused
+  `recent_publications` storage key.
 - The FAB, the in-page capture panel and its publish form, the FAB archive
   badge, and the FAB-header signing-status indicator. Signing status lives
   on the Settings → Signing "Active method" line; a prior capture surfaces

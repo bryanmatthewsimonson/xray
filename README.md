@@ -155,14 +155,12 @@ The Options page is the single home for configuration. Tabs:
   *entity* keypairs only — your primary signing identity (Local mode)
   lives in a separate `local_primary_identity` key so an entity-key
   export never leaks the user's nsec.
-- **Migrate** — import data exported from the legacy
-  `nostr-article-capture` userscript (`user_identity`,
-  `entity_registry`, `relay_config`, `article_claims`, `evidence_links`).
-- **Advanced** — theme, media handling, archive banner sensitivity,
-  debug logging, plus engine-tuning overrides for article cache
-  enabled/budget, min content length, and max claim length.
+- **Advanced** — a **Reader** group (archive banner sensitivity) and a
+  **Power user** group (debug logging plus engine-tuning overrides for
+  article cache enabled/budget, min content length, and max claim
+  length), then a Danger zone (clear all storage).
 
-Quick-action buttons in the Options header (Toggle Capture, Entity
+Quick-action buttons in the Options header (Capture Page, Entity
 Browser, Capture tips) cover the jump-to-other-surfaces actions
 without needing a separate popup.
 
@@ -197,7 +195,7 @@ produces `dist/*.bundle.js`, which the manifest loads).
 │   │                              flow, comment tree render, claims)
 │   ├── options/                   single settings hub (Relays /
 │   │                              Signing / Entities / Keypair
-│   │                              Registry / Migrate / Advanced)
+│   │                              Registry / Advanced)
 │   ├── sidepanel/                 entity browser
 │   └── shared/
 │       ├── config.js              defaults + applyConfigOverrides()
@@ -226,7 +224,6 @@ produces `dist/*.bundle.js`, which the manifest loads).
 │       ├── entity-model.js        entity types, aliases, kind-0
 │       ├── entity-sync.js         NIP-78 sync over NIP-44 v2
 │       ├── evidence-linker.js     evidence-link relationships
-│       ├── userscript-migration.js  legacy-userscript JSON importer
 │       └── platforms/
 │           ├── index.js           handler dispatch
 │           ├── substack.js        Readability fallback + meta enrich
@@ -276,14 +273,12 @@ produces `dist/*.bundle.js`, which the manifest loads).
   routes signing back through the source tab when NIP-07 is the
   active method, so the user's signer extension approves in-context.
 - **Storage:** `chrome.storage.local` is the canonical source of
-  truth. Userscript exports are drop-in importable in **Settings →
-  Migrate**.
+  truth.
 
 ## Related
 
 - **[`nostr-article-capture`](https://github.com/bryanmatthewsimonson/nostr-article-capture)**
-  — the legacy userscript X-Ray was ported from. Its storage shape is
-  importable via Settings → Migrate.
+  — the legacy userscript X-Ray was ported from.
 
 ## License
 
