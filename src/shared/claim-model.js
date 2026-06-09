@@ -68,6 +68,36 @@ export async function generateClaimId(sourceUrl, text) {
     return `claim_${hash.slice(0, 16)}`;
 }
 
+/**
+ * Parse a foreign kind-30040 event into a display-ready object. Dual-read:
+ * understands both the thin vocabulary (Phase 10.2 — content=text,
+ * `entity …about`, `source`, `key`) and the legacy one (`claim-text`,
+ * `subject`/`object`, `claimant`, `crux`). Pure; no DOM, no storage.
+ *
+ * @param {{tags?: Array, content?: string, pubkey?: string, created_at?: number, id?: string}} event
+ * @returns {{id, text, about: string[], source: string, isKey: boolean, url, title, pubkey, created_at}}
+ */
+export function parseClaimEvent(event) {
+    const tags = (event && event.tags) || [];
+    const first = (name) => { const t = tags.find((x) => x[0] === name); return t ? t[1] : ''; };
+    const valsOf = (name) => tags.filter((x) => x[0] === name).map((x) => x[1]);
+    // `entity` name tags carry their role in slot 2 ('about'); fall back to
+    // the legacy subject/object tags.
+    let about = tags.filter((x) => x[0] === 'entity' && x[2] === 'about').map((x) => x[1]);
+    if (about.length === 0) about = [...valsOf('subject'), ...valsOf('object')];
+    return {
+        id:         first('d') || (event && event.id) || '',
+        text:       first('claim-text') || (event && event.content) || '',
+        about,
+        source:     first('source') || first('claimant') || '',
+        isKey:      first('key') === 'true' || first('crux') === 'true',
+        url:        first('r') || '',
+        title:      first('title') || '',
+        pubkey:     (event && event.pubkey) || '',
+        created_at: (event && event.created_at) || 0
+    };
+}
+
 // ------------------------------------------------------------------
 // Validation
 // ------------------------------------------------------------------

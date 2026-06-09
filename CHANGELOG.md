@@ -10,6 +10,22 @@ Sections per release: **Added** (new features), **Changed**
 
 ## [Unreleased]
 
+### Added
+
+- **"Claims about this entity" — cross-source aggregation** (Phase 10.4). The
+  side-panel entity browser's detail view gains a **Load from relays** action
+  that queries `kind 30040` across your configured relays by the entity's
+  pubkey (`{ kinds:[30040], "#p":[P] }`) and shows what the network has said
+  about that person / org / thing — grouped by author, each claim with its ⭐
+  key flag, source, and a link back to the article it came from. This is the
+  payoff of the entity-centric claim redesign: because claims `p`-tag the same
+  entity pubkeys X-Ray uses everywhere, "what the network says about P" is a
+  single relay query. (Per-*entity* axis — distinct from the reader's existing
+  per-*article* "Others' claims".) The panel routes the query through the
+  background service worker's relay pool (`xray:relay:query`); reading is
+  dual-vocabulary via a shared `parseClaimEvent`, so pre-redesign `30040`s
+  show too.
+
 ### Changed
 
 - **Claims record a precise text-anchor** (Phase 10.3). When you mark a
