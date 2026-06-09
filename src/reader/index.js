@@ -406,11 +406,12 @@ function renderReader() {
             state.htmlDraft = body.innerHTML;
             state.dirtySource = 'reader';
         },
-        onClaim: async ({ text, context }) => {
+        onClaim: async ({ text, context, anchor }) => {
             const saved = await openClaimModal({
                 sourceUrl:   state.article.url,
                 initialText: text,
-                context
+                context,
+                anchor
             });
             if (saved) {
                 toast('Claim saved', 'success', 2000);

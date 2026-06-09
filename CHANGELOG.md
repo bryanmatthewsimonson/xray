@@ -12,6 +12,16 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Changed
 
+- **Claims record a precise text-anchor** (Phase 10.3). When you mark a
+  claim, X-Ray now captures a W3C-Web-Annotation selector (exact text +
+  prefix/suffix + XPath/CSS fallbacks) from the selection — reusing the
+  Phase 9a `anchor-capture` machinery — and stores it on the claim (and in
+  the `30040` event's `anchor` tag). The reader's body highlight now resolves
+  via that anchor's prefix/suffix to mark the **exact** passage, instead of
+  blindly wrapping the first occurrence of the claim text; it falls back to
+  the first-occurrence search for pre-anchor claims or when the body has been
+  edited past what the selector cascade can recover.
+
 - **Lean `kind 30040` claim wire format** (Phase 10.2; **wire-format
   change**, back-compat preserved). Published claims now carry the entities
   they're about as **`['p', <entity_pubkey>, '', 'about']` tags** (mirrored by

@@ -19,6 +19,34 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-09 — Precise claim anchoring (Phase 10.3)
+
+**Tags:** design
+
+Wired the Phase 9a `metadata/anchor-capture.js` into claim creation. At
+"Add as claim" the tagger captures a selector array from the **cloned**
+selection range (`captureFromRange`, a new sibling of `captureFromSelection`
+— the live selection is already cleared by the time the popover button
+fires, so reading `window.getSelection()` there returns nothing). The anchor
+threads tagger → `onClaim` → `openClaimModal` → `ClaimModel.create({anchor})`
+and rides the `30040` `anchor` tag (already wired in 10.2).
+
+Rehydration (`rehydrateClaimMarks`) now prefers the anchor: `resolveSelectors`
+returns `{textStart,textEnd}` offsets into `container.textContent`, which a
+new `wrapByOffsets` maps to a DOM Range (walking text nodes) and wraps —
+disambiguating *which* occurrence via prefix/suffix instead of always taking
+the first. Falls back to `wrapFirstTextOccurrence` for pre-10.3 claims or
+unresolvable anchors, and skips spans already inside an `.xr-claim` so
+repeated `refreshClaimsBar` re-renders stay idempotent.
+
+**Gotcha fixed:** the refactor first made `captureFromSelection` delegate to
+`captureFromRange` (exact via `range.toString()`), which broke two existing
+anchor-capture tests whose mock *range* has no real `toString()`. Kept
+`captureFromSelection` reading `selection.toString()` and factored the shared
+body into `captureWith(exact, range, root)`. 524/524 green.
+
+---
+
 ## 2026-06-09 — Lean kind-30040 wire format (Phase 10.2)
 
 **Tags:** design, wire-format

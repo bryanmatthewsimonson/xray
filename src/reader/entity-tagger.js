@@ -25,12 +25,14 @@
 // plain DOM node appended to document.body, positioned absolutely.
 
 import { EntityModel, ENTITY_ICONS } from '../shared/entity-model.js';
+import { captureFromRange } from '../shared/metadata/anchor-capture.js';
 
 let popover = null;
 let currentSelectionRange = null;
 let currentSelectionText  = '';
 let onTagCallback         = null;
 let onClaimCallback       = null;
+let taggerRoot            = null;
 
 /**
  * Wire the tagger up to a container element (typically the article
@@ -48,6 +50,7 @@ export function installEntityTagger({ container, onTag, onClaim }) {
     if (!container) return () => {};
     onTagCallback = onTag;
     onClaimCallback = onClaim || null;
+    taggerRoot = container;
 
     const onMouseUp = (ev) => {
         // Small delay so selection state has settled — some browsers
@@ -206,6 +209,13 @@ function openPopover({ x, y, initialText }) {
             // record — useful for the kind-30040 event body and later
             // rehydration.
             const context = extractParagraphContext(currentSelectionRange);
+            // Capture a W3C text-anchor from the *cloned* range (the live
+            // selection is cleared just below, so we can't read it after).
+            // `anchor` is the selector array; null if capture failed.
+            const captured = currentSelectionRange
+                ? captureFromRange(currentSelectionRange, taggerRoot)
+                : null;
+            const anchor = captured ? captured.selectors : null;
             closePopover();
             // Clear selection so the body click doesn't reopen the
             // popover immediately.
@@ -214,7 +224,7 @@ function openPopover({ x, y, initialText }) {
             currentSelectionRange = null;
             currentSelectionText  = '';
             if (typeof onClaimCallback === 'function') {
-                onClaimCallback({ text, context });
+                onClaimCallback({ text, context, anchor });
             }
         });
     }
