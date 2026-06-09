@@ -14,13 +14,9 @@
 // The old structured fields (type / confidence / attribution / predicate /
 // subject / object / claimant / quote_date) are gone from the capture UX.
 //
-// TRANSITIONAL MIRROR: until slice 10.2 rewrites `buildClaimEvent` to read
-// the thin fields directly, `create`/`update` also populate the legacy
-// fields the unchanged event-builder + reader publish flow read:
-//   subject_entity_ids ← about, claimant_entity_id ← source (when an
-//   entity), is_crux ← is_key, type ← 'factual', attribution ← 'editorial'.
-// `normalizeClaim` does the inverse for records written before this slice,
-// so old claims render in the thin UI. Both go away in 10.2.
+// `normalizeClaim` backfills the thin fields for records written before the
+// redesign (which carried subject/object/claimant/crux), so old claims still
+// render and publish under the new model.
 //
 // Storage: Storage.get('article_claims', {}) keyed by claim id (unchanged).
 
@@ -97,24 +93,6 @@ function cleanAbout(about) {
     if (!Array.isArray(about)) return [];
     // Keep unique, non-empty entity ids only.
     return [...new Set(about.filter((id) => typeof id === 'string' && id))];
-}
-
-// Derive the transitional legacy mirror from the thin fields, so the
-// (as-yet-unchanged) event-builder + publish flow keep working.
-function legacyMirror(about, source, isKey) {
-    return {
-        subject_entity_ids: about.slice(),
-        object_entity_ids:  [],
-        subject_text:       '',
-        object_text:        '',
-        claimant_entity_id: isEntityId(source) ? source : null,
-        predicate:          '',
-        is_crux:            isKey,
-        confidence:         null,
-        type:               'factual',
-        attribution:        'editorial',
-        quote_date:         null
-    };
 }
 
 // Backfill thin fields for records written before slice 10.1, so old
@@ -197,7 +175,6 @@ export const ClaimModel = {
             anchor:           fields.anchor || null,
             source_url:       sourceUrl,
             context:          fields.context || '',
-            ...legacyMirror(about, source, isKey),   // transitional — removed in 10.2
             created:          now,
             updated:          now,
             publishedAt:      null,
@@ -229,9 +206,6 @@ export const ClaimModel = {
         if ('is_key' in updates)  patched.is_key  = updates.is_key === true;
         if ('anchor' in updates)  patched.anchor  = updates.anchor || null;
         if ('context' in updates) patched.context = updates.context || '';
-
-        // Re-derive the transitional legacy mirror from the patched thin fields.
-        Object.assign(patched, legacyMirror(patched.about, patched.source, patched.is_key));
 
         patched.updated = Math.floor(Date.now() / 1000);
         all[id] = patched;

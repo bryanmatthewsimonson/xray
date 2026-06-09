@@ -19,6 +19,38 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-09 — Lean kind-30040 wire format (Phase 10.2)
+
+**Tags:** design, wire-format
+
+**What changed:** `buildClaimEvent` now emits the thin shape directly. Claim
+text moves to the event **content** (was a `claim-text` tag); about-entities
+become **`['p', pubkey, '', 'about']`** + `['entity', name, 'about']`; the
+source is `['source', value]` (+ a `p`-tag with `source` marker when it's an
+entity); `['key','true']` replaces `crux`/`confidence`. Gone: `claim-type`,
+`attribution`, `predicate`, `subject`/`object`, `claimant`, `quote-date`. The
+`buildArticleEvent` embedded `['claim', …]` tags went thin too
+(`['claim', text]` / `['claim', text, 'key']`). The 10.1 transitional mirror
+in `claim-model.js` is removed; `normalizeClaim` stays (reads pre-redesign
+local records). The reader's publish flow (`collectClaimEntityIds`,
+`resolveRelationshipsToPublish`) now reads `about` + `source`, and the derived
+`32125` relationships use `about` / `source` relTypes (the relationship
+builder takes an arbitrary type, so no enum change).
+
+**Why this is the payoff:** about-entities tagged with the *same entity
+pubkeys used everywhere else* make "what the network says about person P" a
+single `{ kinds:[30040], "#p":[P] }` relay query (Phase 10.4 will surface it).
+
+**Compat:** wire-format change, back-compat preserved. Already-published
+30040s keep their old tags; `renderForeignClaim` is **dual-read** — it
+understands both the new vocab (`content`, `entity …about`, `source`, `key`)
+and the legacy one (`claim-text`, `subject`/`object`, `claimant`, `crux`), so
+others' claims published before the redesign still display. Tests:
+`tests/event-builder.test.mjs` gains two lean-format cases; the 10.1 mirror
+test was dropped. 523/523 green.
+
+---
+
 ## 2026-06-09 — Thin claims shipped: model + modal (Phase 10.1)
 
 **Tags:** design

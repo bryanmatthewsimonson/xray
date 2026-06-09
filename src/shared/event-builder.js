@@ -179,14 +179,10 @@ export const EventBuilder = {
       tags.push(['icon', article.publicationIcon]);
     }
     
-    // Add claim tags
+    // Add claim tags (thin — Phase 10.2)
     if (Array.isArray(claims)) {
       for (const claim of claims) {
-        if (claim.is_crux) {
-          tags.push(['claim', claim.text, claim.type, 'crux']);
-        } else {
-          tags.push(['claim', claim.text, claim.type]);
-        }
+        tags.push(claim.is_key ? ['claim', claim.text, 'key'] : ['claim', claim.text]);
       }
     }
 
@@ -401,65 +397,60 @@ export const EventBuilder = {
     };
   },
 
-  // Build kind 30040 claim event
+  // Build kind 30040 claim event — thin, entity-centric (Phase 10.2).
+  //
+  // Wire format (see docs/CLAIMS_REDESIGN.md):
+  //   ['d', id], ['r', sourceUrl], ['title', articleTitle]
+  //   per about-entity:  ['p', pubkey, '', 'about'] + ['entity', name, 'about']
+  //   source (who said it):
+  //     entity    → ['p', pubkey, '', 'source'] + ['source', name]
+  //     free text → ['source', text]
+  //     null      → (the article — no tag)
+  //   ['key', 'true']?   ['anchor', <selector-json>]?   ['client', 'xray']
+  //   content = claim text
+  //
+  // "What the network says about entity P" is then a single relay query:
+  //   { kinds:[30040], "#p":[P_pubkey] }
   buildClaimEvent: (claim, articleUrl, articleTitle, userPubkey, entities) => {
+    const dict = entities || {};
     const tags = [
       ['d', claim.id],
       ['r', articleUrl],
-      ['claim-text', claim.text],
-      ['claim-type', claim.type],
-      ['title', articleTitle],
     ];
-    if (claim.is_crux) tags.push(['crux', 'true']);
-    if (claim.confidence != null) tags.push(['confidence', String(claim.confidence)]);
-    // Attribution tag
-    tags.push(['attribution', claim.attribution || 'editorial']);
-    // Claimant entity
-    if (claim.claimant_entity_id && entities) {
-      const claimant = entities[claim.claimant_entity_id];
-      if (claimant && claimant.keypair) {
-        tags.push(['p', claimant.keypair.pubkey, '', 'claimant']);
-        tags.push(['claimant', claimant.name]);
+    if (articleTitle) tags.push(['title', articleTitle]);
+
+    // About entities — the queryable core.
+    for (const eid of (Array.isArray(claim.about) ? claim.about : [])) {
+      const ent = dict[eid];
+      if (ent && ent.keypair) {
+        tags.push(['p', ent.keypair.pubkey, '', 'about']);
+        tags.push(['entity', ent.name, 'about']);
       }
     }
-    // Subject entities or freetext
-    if (Array.isArray(claim.subject_entity_ids) && claim.subject_entity_ids.length > 0 && entities) {
-      for (const sid of claim.subject_entity_ids) {
-        const subject = entities[sid];
-        if (subject && subject.keypair) {
-          tags.push(['p', subject.keypair.pubkey, '', 'subject']);
-          tags.push(['subject', subject.name]);
+
+    // Source — an entity id, free text, or null (= the article).
+    if (claim.source) {
+      if (/^entity_/.test(claim.source)) {
+        const s = dict[claim.source];
+        if (s && s.keypair) {
+          tags.push(['p', s.keypair.pubkey, '', 'source']);
+          tags.push(['source', s.name]);
         }
+      } else {
+        tags.push(['source', claim.source]);
       }
-    } else if (claim.subject_text) {
-      tags.push(['subject', claim.subject_text]);
     }
-    // Object entities or freetext
-    if (Array.isArray(claim.object_entity_ids) && claim.object_entity_ids.length > 0 && entities) {
-      for (const oid of claim.object_entity_ids) {
-        const obj = entities[oid];
-        if (obj && obj.keypair) {
-          tags.push(['p', obj.keypair.pubkey, '', 'object']);
-          tags.push(['object', obj.name]);
-        }
-      }
-    } else if (claim.object_text) {
-      tags.push(['object', claim.object_text]);
-    }
-    // Predicate
-    if (claim.predicate) {
-      tags.push(['predicate', claim.predicate]);
-    }
-    // Quote date
-    if (claim.quote_date) {
-      tags.push(['quote-date', claim.quote_date]);
-    }
+
+    if (claim.is_key) tags.push(['key', 'true']);
+    if (claim.anchor) tags.push(['anchor', JSON.stringify(claim.anchor)]);
+    tags.push(['client', 'xray']);
+
     return {
       kind: 30040,
       pubkey: userPubkey,
       created_at: Math.floor(Date.now() / 1000),
-      tags,
-      content: claim.context || ''
+      tags: EventBuilder.sanitizeTags(tags),
+      content: claim.text || ''
     };
   },
 
