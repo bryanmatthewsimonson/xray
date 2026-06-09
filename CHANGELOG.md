@@ -10,6 +10,24 @@ Sections per release: **Added** (new features), **Changed**
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-06-06
+
+### Fixed
+
+- **Inline person/place names no longer vanish from article captures** on
+  sites that wrap them in `popup`-classed elements (e.g.
+  josephsmithpapers.org). Readability's `unlikelyCandidates` blocklist
+  matches the substring `popup` and was deleting the whole wrapper —
+  visible name included — leaving dangling punctuation. The extractor now
+  unwraps `aside.popup-wrapper` to its reference text before Readability
+  runs.
+- **Publishing no longer fails with `invalid: tag val was not a string`**
+  on pages whose JSON-LD carries a non-string `articleSection` (array) or
+  `inLanguage` (object). The kind-30023 builder now sanitizes every tag
+  value to a string — flattening arrays, extracting `name`/`@value` from
+  schema.org objects, and dropping anything unstringifiable — so a single
+  odd metadata field can't make relays reject the whole event.
+
 ## [0.5.0] — 2026-05-29
 
 This release consolidates three feature lines onto `main`: default-to-local

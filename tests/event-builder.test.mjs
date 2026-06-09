@@ -123,3 +123,57 @@ test('buildRelayListEvent stamps created_at to a recent unix second', () => {
     assert.ok(ev.created_at >= before && ev.created_at <= after,
         `created_at ${ev.created_at} outside [${before}, ${after}]`);
 });
+
+// --- Tag sanitization: relays reject any non-string tag value with
+// "invalid: tag val was not a string". Article metadata harvested from a
+// page's JSON-LD can be an array (articleSection) or an object
+// (inLanguage), so buildArticleEvent must coerce before emitting. ---
+
+test('coerceTagAtom reduces JSON-LD shapes to strings or null', () => {
+    assert.equal(EventBuilder.coerceTagAtom('hi'), 'hi');
+    assert.equal(EventBuilder.coerceTagAtom(42), '42');
+    assert.equal(EventBuilder.coerceTagAtom(true), 'true');
+    assert.equal(EventBuilder.coerceTagAtom(['History', 'Religion']), 'History, Religion');
+    assert.equal(EventBuilder.coerceTagAtom({ '@type': 'Language', name: 'en' }), 'en');
+    assert.equal(EventBuilder.coerceTagAtom({ '@value': 'fr' }), 'fr');
+    assert.equal(EventBuilder.coerceTagAtom(null), null);
+    assert.equal(EventBuilder.coerceTagAtom({ shape: 'unknown' }), null);
+});
+
+test('sanitizeTags keeps valid tags untouched and drops valueless ones', () => {
+    const tags = [
+        ['d', 'abc'],
+        ['p', PUBKEY, '', 'author'],   // empty marker slot must survive
+        ['t', 'article']
+    ];
+    assert.deepEqual(EventBuilder.sanitizeTags(tags), tags);
+
+    // A section that collapsed to null (e.g. unstringifiable object) is dropped.
+    const dropped = EventBuilder.sanitizeTags([['section', { weird: true }], ['t', 'ok']]);
+    assert.deepEqual(dropped, [['t', 'ok']]);
+});
+
+test('buildArticleEvent stringifies array section and object language', async () => {
+    const article = {
+        url: 'https://www.josephsmithpapers.org/intro/x',
+        title: 'Intro',
+        domain: 'josephsmithpapers.org',
+        excerpt: 'An introduction.',
+        wordCount: 5000,
+        section: ['History', 'Religion'],                       // JSON-LD array
+        language: { '@type': 'Language', name: 'en' },          // JSON-LD object
+        keywords: ['council', 'nauvoo'],
+        structuredData: { type: 'Article' }
+    };
+    const ev = await EventBuilder.buildArticleEvent(article, [], PUBKEY, []);
+
+    // Nothing in the event may be a non-string tag value.
+    for (const t of ev.tags) {
+        for (const v of t) {
+            assert.equal(typeof v, 'string',
+                `tag ${JSON.stringify(t)} has non-string value ${JSON.stringify(v)}`);
+        }
+    }
+    assert.deepEqual(ev.tags.find((t) => t[0] === 'section'), ['section', 'History, Religion']);
+    assert.deepEqual(ev.tags.find((t) => t[0] === 'lang'), ['lang', 'en']);
+});

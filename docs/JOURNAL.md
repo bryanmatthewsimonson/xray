@@ -19,6 +19,84 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-06 — Relays reject events with non-string tag values
+
+**Tags:** bug, external
+
+**Symptom:** Publishing a josephsmithpapers.org capture failed on every
+relay with `invalid: tag val was not a string` (per-relay `{ok:0, fail:1}`).
+The event was otherwise well-formed and signed.
+
+**Root cause:** NOSTR requires every element of every tag to be a string,
+and relays reject the *whole* event if one isn't. `buildArticleEvent`
+pushes some tag values straight from the page's JSON-LD, where schema.org
+legitimately allows non-string shapes: `articleSection` can be an **array**
+(`["History","Religion"]`) and `inLanguage` an **object**
+(`{"@type":"Language","name":"en"}`). Those flowed into `['section', …]`
+and `['lang', …]` as a raw array/object → relay rejection. Most sites emit
+string scalars, so this never showed up in testing until a richly-marked-up
+scholarly site hit it.
+
+**Fix:** `EventBuilder.sanitizeTags()` runs over the article event's tags
+before it's returned. `coerceTagAtom()` turns each value into a string —
+primitives stringify, arrays flatten+join, schema.org objects yield their
+`name`/`@value`/`@id`, anything else becomes null and the tag is dropped
+(a valueless `["section"]` is meaningless). Empty positional markers (the
+`""` in `["p", pk, "", "author"]`) are preserved.
+
+**So-what:** Any tag value sourced from a third party's structured data is
+untrusted shape-wise. The sanitizer is a wire-level guarantee, not a
+per-field patch, so the next exotic JSON-LD field can't silently break
+publishing. Files: `src/shared/event-builder.js`,
+`tests/event-builder.test.mjs`.
+
+---
+
+## 2026-06-06 — Readability eats inline names on josephsmithpapers.org
+
+**Tags:** bug, external
+
+**Symptom:** Capturing a Joseph Smith Papers introduction
+(`/intro/introduction-to-administrative-records-volume-1`) produced prose
+with gaps where every person and place name should be — e.g. "organized a
+council in `[ ]`, Illinois" and "met in Nauvoo under `[ ]`'s leadership".
+The body text was otherwise complete (~56k chars captured), so it read as
+"missing full text" but was really *missing inline entities*.
+
+**Root cause:** JSP wraps each inline person/place name in an interactive
+glossary popup:
+
+```html
+<aside class="popup-wrapper">
+  <a class="reference staticPopup" title="Nauvoo, Illinois">Nauvoo</a>
+  <div class="popup-content">…hover blurb…</div>
+</aside>
+```
+
+Readability's `unlikelyCandidates` regex matches the literal substring
+**`popup`**, so during `_grabArticle` it removes the entire `<aside>` —
+visible name included — leaving the surrounding punctuation behind. Plain
+text occurrences of the same word survive because they aren't wrapped. The
+editorial footnote markers (`<aside>` → `a.editorial-note-static`) get
+eaten the same way.
+
+**Fix:** `ContentExtractor._unwrapInlinePopups()` runs on the detached
+document clone *before* Readability. It replaces each `aside.popup-wrapper`
+with its reference link's visible text (so "Nauvoo" becomes a bare text
+node Readability keeps) and drops editorial-note markers so footnote
+superscripts don't litter the prose. It operates on the clone, never the
+live page (so the user's interactive popups are untouched), and is
+best-effort — any failure falls through without blocking extraction.
+
+**So-what:** This is the same class as the YouTube `aria-hidden` timestamp
+drop (2026-04-19 entry): a third party's a11y/interaction markup colliding
+with an extraction heuristic that strips "chrome". The `popup` keyword in
+Readability's blocklist is the trap — any site that renders meaningful
+inline content inside a `popup`-classed element will lose it. Files:
+`src/shared/content-extractor.js`, `tests/content-popup-unwrap.test.mjs`.
+
+---
+
 ## 2026-04-24 — Facebook capture: full shake-down + scope-based DOM discipline
 
 **Tags:** bug, design, pattern

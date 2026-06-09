@@ -98,7 +98,16 @@ export const ContentExtractor = {
 
       // Clone document for Readability
       const documentClone = document.cloneNode(true);
-      
+
+      // Unwrap inline glossary/footnote popups before Readability runs.
+      // Sites like josephsmithpapers.org wrap inline person/place names in
+      // <aside class="popup-wrapper">. Readability's `unlikelyCandidates`
+      // blocklist matches the literal substring "popup", so it deletes the
+      // whole <aside> — visible name included — leaving dangling
+      // punctuation ("organized a council in , Illinois"). See JOURNAL
+      // 2026-06-06.
+      ContentExtractor._unwrapInlinePopups(documentClone);
+
       // Readability is now bundled via npm import
       {
         const reader = new Readability(documentClone);
@@ -231,6 +240,46 @@ export const ContentExtractor = {
       console.error('[NAC] Article extraction failed:', e);
       return ContentExtractor.extractSimple();
     }
+  },
+
+  // Unwrap inline glossary/footnote popups so the visible reference text
+  // survives Readability. Targets the josephsmithpapers.org shape:
+  //
+  //   <aside class="popup-wrapper">
+  //     <a class="reference staticPopup" title="Nauvoo, Illinois">Nauvoo</a>
+  //     <div class="popup-content">…hover blurb…</div>
+  //   </aside>
+  //
+  // Readability's `unlikelyCandidates` regex matches "popup", so it strips
+  // the whole <aside> and the inline name vanishes. We replace each wrapper
+  // with its reference link's visible text (e.g. "Nauvoo"), and drop
+  // editorial-note markers (footnote superscripts) entirely so they don't
+  // litter the prose. Operates on the detached clone, never the live page.
+  // Best-effort: any failure here must not block extraction.
+  _unwrapInlinePopups: (root) => {
+    let unwrapped = 0;
+    try {
+      if (!root || typeof root.querySelectorAll !== 'function') return 0;
+      // A Document exposes createTextNode directly; an Element does not, so
+      // fall back to its ownerDocument.
+      const doc = (typeof root.createTextNode === 'function') ? root : root.ownerDocument;
+      const wrappers = root.querySelectorAll('aside.popup-wrapper');
+      Array.prototype.forEach.call(wrappers, (wrap) => {
+        // The first anchor in document order is the visible reference; the
+        // hover blurb's links live later inside .popup-content.
+        const ref = wrap.querySelector('a.reference, a.staticPopup');
+        const cls = (ref && ref.className) || '';
+        const label = ref ? (ref.textContent || '').trim() : '';
+        if (label && !/editorial-note/.test(cls)) {
+          wrap.replaceWith(doc.createTextNode(label));
+          unwrapped++;
+        } else {
+          // Footnote-number markers and empty wrappers: remove outright.
+          wrap.remove();
+        }
+      });
+    } catch (_) { /* never block extraction on a popup-unwrap failure */ }
+    return unwrapped;
   },
 
   // Simple fallback extraction
