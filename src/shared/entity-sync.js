@@ -23,7 +23,7 @@
 //       publish(relays, event)
 //
 //   Device B (Pull):
-//     events = queryRelays({ kinds:[30078], authors:[userPubkey], '#L':['nac/entity-sync'] })
+//     events = queryRelays({ kinds:[30078], authors:[userPubkey], '#L':['xray/entity-sync'] })
 //     for event in events:
 //       payload = nip44Decrypt(event.content, conversationKey)
 //       record  = JSON.parse(payload)
@@ -45,7 +45,13 @@ import { EntityModel } from './entity-model.js';
 import { LocalKeyManager } from './local-key-manager.js';
 
 const SCHEMA_VERSION = 1;
-const SYNC_LABEL     = 'nac/entity-sync';   // NIP-32 L/l tags for namespacing
+// NIP-32 L/l namespace for our sync events. Writes use the current label;
+// reads also accept the legacy `nac/entity-sync` so entities synced before
+// the rename still pull. (The write label lives in
+// EventBuilder.buildEntitySyncEvent — keep the two in lockstep.)
+const SYNC_LABEL        = 'xray/entity-sync';
+const SYNC_LABEL_LEGACY = 'nac/entity-sync';
+const SYNC_LABELS_READ  = [SYNC_LABEL, SYNC_LABEL_LEGACY];
 
 // ------------------------------------------------------------------
 // Encryption helpers
@@ -221,7 +227,7 @@ export async function pullEntities({ userPrivkey, relays, timeoutMs = 8000 }) {
 
     const { events, byRelay } = await NostrClient.queryRelays(
         relays,
-        { kinds: [30078], authors: [userPubkey], '#L': [SYNC_LABEL], limit: 500 },
+        { kinds: [30078], authors: [userPubkey], '#L': SYNC_LABELS_READ, limit: 500 },
         timeoutMs
     );
 
@@ -411,7 +417,7 @@ export async function clearRemote({ userPrivkey, relays }) {
     // Query our own kind-30078 events to find the ids to delete.
     const { events } = await NostrClient.queryRelays(
         relays,
-        { kinds: [30078], authors: [userPubkey], '#L': [SYNC_LABEL], limit: 500 },
+        { kinds: [30078], authors: [userPubkey], '#L': SYNC_LABELS_READ, limit: 500 },
         5000
     );
 

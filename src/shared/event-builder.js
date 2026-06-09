@@ -104,7 +104,7 @@ export const EventBuilder = {
       ['title', article.title || 'Untitled'],
       ['published_at', String(article.publishedAt || Math.floor(Date.now() / 1000))],
       ['r', article.url],
-      ['client', 'nostr-article-capture']
+      ['client', 'xray']
     ];
     
     if (article.excerpt) {
@@ -395,7 +395,7 @@ export const EventBuilder = {
       tags,
       content: JSON.stringify({
         name: entity.name,
-        about: `${entity.type} entity created by nostr-article-capture`,
+        about: `${entity.type} entity created by X-Ray`,
         nip05: entity.nip05 || undefined
       })
     };
@@ -471,10 +471,10 @@ export const EventBuilder = {
       created_at: Math.floor(Date.now() / 1000),
       tags: [
         ['d', entityId],
-        ['client', 'nostr-article-capture'],
+        ['client', 'xray'],
         ['entity-type', entityType],
-        ['L', 'nac/entity-sync'],
-        ['l', 'v1', 'nac/entity-sync']
+        ['L', 'xray/entity-sync'],
+        ['l', 'v1', 'xray/entity-sync']
       ],
       content: encryptedContent
     };
@@ -511,7 +511,7 @@ export const EventBuilder = {
         ['entity-name', entity.name],
         ['entity-type', entity.type],
         ['relationship', relationshipType],
-        ['client', 'nostr-article-capture'],
+        ['client', 'xray'],
         ...(claimId ? [['claim-ref', claimId]] : [])
       ],
       content: ''
@@ -651,7 +651,7 @@ export const EventBuilder = {
       ['source-claim', link.source_claim_id],
       ['target-claim', link.target_claim_id],
       ['relationship', link.relationship],
-      ['client', 'nostr-article-capture']
+      ['client', 'xray']
     ];
 
     if (sourceClaim?.source_url) tags.push(['r', sourceClaim.source_url]);

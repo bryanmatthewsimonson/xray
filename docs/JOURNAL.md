@@ -19,6 +19,33 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-09 — Unify the NOSTR `client` tag to `xray` (Phase C)
+
+**Tags:** design, external
+
+**What changed:** The `['client', …]` tag was inconsistent — the article,
+entity-sync, relationship, and evidence builders emitted
+`'nostr-article-capture'` (the old userscript name) while the comment and
+platform-account builders already emitted `'xray'`. Unified all to
+`'xray'`. The entity-sync NIP-32 label namespace likewise moved from
+`nac/entity-sync` to `xray/entity-sync`. Also retitled the entity kind-0
+`about` field ("entity created by X-Ray").
+
+**Compatibility:** The `client` tag is informational — no consumer filters
+on it for correctness, and already-published events keep their old value,
+so unifying is cosmetic on the wire. The **sync label is a read filter**,
+though: changing it naively would orphan entities synced under the old
+label. So the write path emits `xray/entity-sync` while the *read* path
+(`entity-sync.js` pull/clear filters) queries **both** the new label and
+the legacy `nac/entity-sync` (`SYNC_LABELS_READ`). The write label lives
+in `EventBuilder.buildEntitySyncEvent`; the read constants live in
+`entity-sync.js` — keep them in lockstep.
+
+**Left intentionally:** the line-1 port-attribution comments in
+`event-builder.js` / `crypto.js` (historical, not wire data).
+
+---
+
 ## 2026-06-09 — Settings consolidation (Phase B of the cleanup)
 
 **Tags:** design
