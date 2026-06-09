@@ -19,6 +19,30 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-09 — Roadmap + docs refresh; Phase 10 teed up (Phase E)
+
+**Tags:** design
+
+**What changed:** Closed out the staged cleanup with a docs pass. ROADMAP:
+fixed staleness (Phase 3 header `🟡`→`✅`, Shorts noted as shipped), added a
+status-snapshot line + a "Post-parity cleanup (A–E)" record, triaged the
+scattered per-phase "Deferred" lists into one **keep / defer / cut**
+disposition against the claim-tracking north star, and added a **Phase 10 —
+Claim tracking** section capturing the intent (make the existing claim /
+evidence / identity primitives *useful and usable*, not new wire kinds).
+SMOKE_TEST: rewrote the FAB-era steps for the no-FAB model and dropped the
+now-impossible assertions (FAB renders bottom-right, FAB 📦 badge,
+FAB-header signing badge) — signing status reads from the Settings Active
+method line, archive from the reader banner. README status updated.
+
+**So-what:** The roadmap now reflects reality and points at the next
+milestone, and the release-gating smoke test no longer instructs testers
+to look for UI that was deliberately removed. End of the v0.5.x cleanup
+arc (A de-FAB → B settings → C client-tag → D nac→xr → E docs); next work
+is Phase 10.
+
+---
+
 ## 2026-06-09 — Eliminate the last `nac-*` markers (Phase D)
 
 **Tags:** design

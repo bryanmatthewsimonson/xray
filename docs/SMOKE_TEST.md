@@ -1,25 +1,19 @@
 # X-Ray — End-to-end smoke test
 
 Manual walkthrough that exercises every shipped surface across
-Phases 0–8 + the polish backlog. Aim for ~20 minutes per browser.
+Phases 0–9 + the v0.5.x cleanup. Aim for ~20 minutes per browser.
 Run before any release tag, after any cross-cutting refactor, and
 when adding a contributor.
 
 This doc replaces the v1-era checklist that lived on issue #1.
 
-> **⚠️ Capture model changed (de-FAB refactor).** The in-page floating
-> action button (FAB) and the in-page capture panel were removed. Capture
-> is now triggered by **clicking the toolbar icon**, pressing
-> **`Ctrl/Cmd+Shift+X`**, or **right-click → "Capture this page with
-> X-Ray"** — any of which extracts the page and opens it directly in the
-> **reader** (there is no in-page panel). Consequences for the steps
-> below, which still say "FAB": (1) wherever a step says "click the FAB /
-> FAB → reader", trigger capture via one of those three entry points;
-> (2) the **FAB 📦 archive badge no longer exists** — a prior capture
-> surfaces only via the reader's archive banner on re-capture; (3) the
-> **FAB-header signing badge no longer exists** — signing status shows on
-> the **Settings → Signing** "Active method" line. A full step-by-step
-> rewrite of this checklist rides with the Phase E docs refresh.
+> **Capture model (no FAB).** There is no in-page floating button or
+> capture panel. Trigger capture by **clicking the toolbar icon**,
+> pressing **`Ctrl/Cmd+Shift+X`**, or **right-click → "Capture this page
+> with X-Ray"** — each extracts the page and opens it directly in the
+> **reader**. Signing status shows on the **Settings → Signing** "Active
+> method" line (not in-page); a prior capture surfaces via the reader's
+> archive banner on re-capture (there is no FAB archive badge).
 
 ## Setup
 
@@ -102,9 +96,7 @@ For each platform handler:
 2. **Read console** filtered by `X-Ray` — look for the init
    sequence. With Local signing selected (the default):
    ```
-   [X-Ray] Starting X-Ray content script v0.5.0
-   [X-Ray] LocalKeyManager initialized with N keys
-   [X-Ray] UI initialized
+   [X-Ray] Starting X-Ray content script v0.5.x
    [X-Ray] Local signing identity ready: npub1…
    [X-Ray] Initialization complete
    ```
@@ -114,10 +106,8 @@ For each platform handler:
    If the line for the chosen method is absent after a tab reload,
    the bridge / connection isn't reaching the content script — file
    as a separate bug.
-3. **Find** the X-Ray toolbar icon by natural-language query (`"X-Ray Capture
-   article FAB floating button bottom right"` in the proof of
-   concept matched first try).
-4. **Click** the X-Ray toolbar icon.
+3. **Click** the X-Ray toolbar icon (browser-action button) to capture.
+   (Or press `Ctrl/Cmd+Shift+X`.) There is no in-page button to find.
 5. **Wait** 8–12 seconds for the capture pipeline to finish.
 6. **Re-read console** filtered by `X-Ray` — the platform handler's
    diagnostics narrate the run. Healthy YouTube run looks like:
@@ -157,16 +147,16 @@ banner state, click view-mode tabs, etc. — but cannot trigger
 
 | Phase | Agent can verify | Needs user |
 |---|---|---|
-| 2 (article) | FAB, content script, capture-pipeline console | Reader content, publish |
-| 3a Substack | FAB, capture pipeline, comment-tree extraction in console | Reader content, publish |
+| 2 (article) | toolbar capture, content script, capture-pipeline console | Reader content, publish |
+| 3a Substack | toolbar capture, capture pipeline, comment-tree extraction in console | Reader content, publish |
 | 3b YouTube | Full pipeline including DOM-scrape segment count + dedup ratio | Reader content, publish |
 | 3c Twitter | Capture pipeline, focal-tweet detection, console diagnostics | Reader content, publish |
 | 3d generic | WordPress comment count via `_commentsSource` console hint | Reader content, publish |
 | 4 entity tagger | After user-assisted reader open, can drive selection + popover via `find` and `click` | Side panel, all signing |
-| 4 side panel | Extension page — opens via FAB header / right-click menu / Options quick-action | Sidepanel actions, signing |
+| 4 side panel | Extension page — opens via right-click menu / reader header / Options quick-action | Sidepanel actions, signing |
 | 5 claims | Same as Phase 4 — text selection in reader is drivable; modal is testable; publish blocked | Signing |
 | 6 sync | None — sidepanel + cross-device | All of it |
-| 7 cache | FAB 📦 badge appearing on revisit | Reader's archive banner UX |
+| 7 cache | (none — archive surfaces in the reader) | Reader's archive banner UX on revisit |
 | Polish #2 | The init-sequence signing-method line | — |
 
 ### Suggested agent-driven loop
@@ -178,7 +168,7 @@ for platform in [YouTube, Substack, X, WordPress-blog]:
     1. navigate(test_url[platform])
     2. wait 3s
     3. read_console("X-Ray", limit=10) → must see init sequence
-    4. find("X-Ray Capture FAB") → must return ref_*
+    4. click the X-Ray toolbar icon (browser action) to capture
     5. click(ref_*)
     6. wait 10s
     7. read_console("X-Ray", limit=50) → check for completion signals
@@ -201,9 +191,9 @@ clicking through every URL.
 | # | Test | Pass criteria |
 |---|---|---|
 | 0.1 | `npm run build` exits 0 with no errors | ✅ all five bundles emitted under `dist/` (content, background, options, sidepanel, reader) plus `api-interceptor` |
-| 0.2 | `npm test` exits 0 | ✅ 519/519 (or current-on-main count) passing |
+| 0.2 | `npm test` exits 0 | ✅ 521/521 (or current-on-main count) passing |
 | 0.3 | Reload extension after a build → no console errors in the SW log | ✅ the SW log under `chrome://extensions` → "Inspect views: service worker" is clean |
-| 0.4 | Click toolbar icon on a normal http page | ✅ FAB capture panel toggles open/closed (no popup window) |
+| 0.4 | Click toolbar icon on a normal http page | ✅ captures the page → a reader tab opens (no popup window, no in-page panel) |
 | 0.5 | Click toolbar icon on `chrome://newtab` | ✅ Options page opens (fallback, since content script can't run there) |
 | 0.6 | Right-click toolbar icon | ✅ menu has Toggle Capture / Entity Browser / Settings… / View Keypair Registry / Export Keypair Registry / Capture tips |
 
@@ -225,8 +215,8 @@ piece — anything Readability handles cleanly).
 
 | # | Test | Pass criteria |
 |---|---|---|
-| 2.1 | The 🩻 FAB renders bottom-right of the page | ✅ visible, no console errors |
-| 2.2 | Click FAB → a new tab opens with the X-Ray reader | ✅ reader title + byline + body visible |
+| 2.1 | Page loads with the X-Ray content script active | ✅ no console errors; no in-page FAB/panel injected |
+| 2.2 | Click the toolbar icon → a new tab opens with the X-Ray reader | ✅ reader title + byline + body visible |
 | 2.3 | Reader has three tabs: **Reader**, **Markdown**, **Preview** | ✅ all three switch without error |
 | 2.4 | **Markdown** tab shows the body as markdown | ✅ recognizable headings, paragraphs, links |
 | 2.5 | **Preview** tab shows the markdown re-rendered as HTML | ✅ matches the Reader tab output approximately |
@@ -244,7 +234,7 @@ URL: any free Substack post (e.g. `https://noahpinion.substack.com/p/<slug>`).
 
 | # | Test | Pass criteria |
 |---|---|---|
-| 3a.1 | FAB → reader opens with the post body | ✅ paywall-unlock works if you're signed in to Substack |
+| 3a.1 | Toolbar-icon capture → reader opens with the post body | ✅ paywall-unlock works if you're signed in to Substack |
 | 3a.2 | Comments section appears below the body | ✅ tree renders with avatars + handles |
 | 3a.3 | Toggle "Include all N in publish" → publish → batch shows article + comments | ✅ comment count in the toast matches the tree |
 
@@ -255,7 +245,7 @@ URL: any video with auto-generated captions (e.g.
 
 | # | Test | Pass criteria |
 |---|---|---|
-| 3b.1 | FAB → reader opens with the video header (thumbnail + duration + chips) | ✅ thumbnail clickable, duration badge visible |
+| 3b.1 | Toolbar-icon capture → reader opens with the video header (thumbnail + duration + chips) | ✅ thumbnail clickable, duration badge visible |
 | 3b.2 | Transcript section appears as prose paragraphs | ✅ no 3× repetition (the bug fixed in `09f99ab`) |
 | 3b.3 | Each paragraph starts with a clickable `[0:05]`-style timestamp | ✅ link href ends with `&t=Ns` |
 | 3b.4 | Console shows `extracted N events from M segments` with `N ≈ M` (within 1.3×) | ✅ no `high segment/event ratio` warning |
@@ -267,7 +257,7 @@ URL: any status detail page (e.g.
 
 | # | Test | Pass criteria |
 |---|---|---|
-| 3c.1 | FAB → reader opens with the focal tweet body | ✅ title format `@handle: "first-60-chars…"` |
+| 3c.1 | Toolbar-icon capture → reader opens with the focal tweet body | ✅ title format `@handle: "first-60-chars…"` |
 | 3c.2 | URL field reads `https://x.com/<handle>/status/<actual-id>` | ✅ NOT `.../status/null` (the bug fixed in `94ef0c7`) |
 | 3c.3 | If multi-tweet thread by the same author: title says `(thread, N tweets)` and body has `1/N…N/N` sections | ✅ tweet ordering matches the on-page order |
 | 3c.4 | Replies by other users appear as comments | ✅ comment-publish toggle works |
@@ -361,12 +351,12 @@ and at least one entity tagged on Device A.
 
 ## Phase 7 — Archive reader
 
-### Cache + FAB badge
+### Cache + archive banner
 
 | # | Test | Pass criteria |
 |---|---|---|
-| 7.1 | Open any article via FAB → reader opens, capture is cached | ✅ |
-| 7.2 | Close the reader, navigate to a different page, then come BACK to the original URL | ✅ FAB now shows a 📦 badge |
+| 7.1 | Open any article via the toolbar icon → reader opens, capture is cached | ✅ |
+| 7.2 | Close the reader, navigate away, then re-capture the original URL | ✅ the reader's archive banner offers the cached copy |
 | 7.3 | DevTools → Application → IndexedDB → `xray-archive` → `articles` | ✅ entry exists for the URL hash |
 
 ### Paywall fallback
@@ -376,7 +366,7 @@ inside (so a relay copy exists).
 
 | # | Test | Pass criteria |
 |---|---|---|
-| 7.4 | Visit the paywalled URL fresh → FAB → reader | ✅ banner above the body offers either "📦 Your archive (date)" OR "🌐 Relay archive by npub…" |
+| 7.4 | Visit the paywalled URL fresh → toolbar-icon capture → reader | ✅ banner above the body offers either "📦 Your archive (date)" OR "🌐 Relay archive by npub…" |
 | 7.5 | Click "Load archive" | ✅ body swaps to the longer cached/relay copy; toast confirms |
 | 7.6 | Click "Keep capture" instead | ✅ banner dismisses; current capture stays |
 
@@ -389,9 +379,9 @@ inside (so a relay copy exists).
 | # | Test | Pass criteria |
 |---|---|---|
 | S.1 | Fresh profile → first time opening Settings → Signing tab | ✅ first-run banner asks the user to pick a method |
-| S.2 | Pick **Local** → Generate new key → **Save** | ✅ npub appears in the Active method line at the top of the tab; FAB header signing badge shows "Local" |
-| S.3 | Switch to **NIP-07** (with nos2x or Alby installed) → Save | ✅ FAB header shows "NIP-07"; on a tabbed reload the init log says `NIP-07 extension detected` |
-| S.4 | Switch to **NSecBunker** with a running bunker URL → click **Test connection** | ✅ "Connected." status; FAB header shows "Bunker" after a tab reload |
+| S.2 | Pick **Local** → Generate new key → **Save** | ✅ npub appears in the Active method line at the top of the tab |
+| S.3 | Switch to **NIP-07** (with nos2x or Alby installed) → Save | ✅ Active method line shows "NIP-07"; on a tabbed reload the init log says `NIP-07 extension detected` |
+| S.4 | Switch to **NSecBunker** with a running bunker URL → click **Test connection** | ✅ "Connected." status; Active method line shows "Bunker" |
 | S.5 | With **Local** active, capture and publish an article | ✅ no signer-extension prompt; published event's `pubkey` matches the local npub |
 | S.6 | Local panel → **Show nsec…** → **Copy** | ✅ nsec lands in clipboard; warning text is visible |
 
@@ -403,7 +393,7 @@ inside (so a relay copy exists).
 | O.2 | Add a relay URL → Save → reload the Options page → relay still listed | ✅ persists across reloads |
 | O.3 | Disable a relay's **write** flag → publish from a captured article → that relay's URL is absent from the per-relay rollup toast and from the X-Ray toolbar icon's relay picker | ✅ |
 | O.4 | Advanced → set **Article cache budget (MB)** to e.g. 10 → reload the extension → DevTools → Application → IndexedDB → archive store stays under 10 MB after captures | ✅ override applied at content-script init via `applyConfigOverrides()` |
-| O.5 | Header quick-action **Toggle Capture** with a normal page in the background | ✅ FAB toggles in that tab |
+| O.5 | Header quick-action **Capture Page** with a normal page in the background | ✅ that tab is captured and a reader tab opens |
 | O.6 | Header quick-action **Entity Browser** | ✅ side panel opens (or new tab on Firefox) |
 
 ### Context menus
