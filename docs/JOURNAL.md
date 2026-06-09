@@ -19,6 +19,36 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-09 — Settings consolidation (Phase B of the cleanup)
+
+**Tags:** design
+
+**What changed:** Removed the **"Migrate from userscript" tab** and its
+importer (`shared/userscript-migration.js` + test). Removed two **dead
+Advanced controls** — the **Theme** and **Media handling** selectors,
+which were written to `preferences` but never read anywhere in the capture
+or publish path (media is always emitted as URLs per the event-builder
+note; theme was never wired to any stylesheet). Removed the unused
+`recent_publications` storage key (defaults + clear-list). Reorganized the
+Advanced tab into a **Reader** group (archive-banner sensitivity, promoted
+out of the engine-tuning pile where it was buried) and a **Power user**
+group (debug + engine-tuning overrides), then the Danger zone.
+
+**Why:** Audit found the settings were "dispersed in weird ways": the
+Migrate tab was the most prominent old-project remnant, two Advanced
+controls did nothing, and a genuinely user-facing reader control (archive
+banner) sat among power-user knobs. The FAB-panel's separate per-capture
+media toggle that *did* do something was already deleted in Phase A, so
+the Advanced media pref had no remaining purpose.
+
+**Note:** `LocalKeyManager` import dropped from `options/index.js` (only
+the removed `runMigration` used it). The storage `_runMigrations()` runner
+(relay/signing data migrations) is unrelated to the userscript importer
+and stays. Test count 528 → 521 (the 7 migration tests went with the
+module).
+
+---
+
 ## 2026-06-09 — De-FAB: one capture surface (Phase A of the cleanup)
 
 **Tags:** design

@@ -68,14 +68,11 @@ export const Storage = (() => {
         local_primary_identity: null,
         preferences: {
           default_relays: CONFIG.relays.filter(r => r.enabled).map(r => r.url),
-          media_handling: 'embed',
-          theme: 'dark',
           debug: false,
           nsecbunker_url: CONFIG.nsecbunker.defaultUrl,
           signing_method: 'local',
           signing_method_configured: false
-        },
-        recent_publications: []
+        }
       };
       for (const [key, value] of Object.entries(defaults)) {
         const existing = await Store.get(key);

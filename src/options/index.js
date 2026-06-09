@@ -4,8 +4,6 @@
 // Values written by the Storage wrapper are JSON-stringified, so we
 // match that here: parse on read, stringify on write.
 
-import { migrateUserscriptBlob } from '../shared/userscript-migration.js';
-import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
@@ -46,7 +44,7 @@ function storageSet(key, value) {
 function storageClearExtension() {
     const keys = [
         'publications', 'people', 'organizations',
-        'preferences', 'keypair_registry', 'recent_publications',
+        'preferences', 'keypair_registry',
         'local_primary_identity', 'xr_signing_state'
     ];
     return new Promise((resolve) => {
@@ -441,8 +439,6 @@ async function importKeypairsFromFile(file) {
 
 async function loadAdvanced() {
     const prefs = (await storageGet('preferences')) || {};
-    document.getElementById('pref-theme').value = prefs.theme || 'dark';
-    document.getElementById('pref-media').value = prefs.media_handling || 'embed';
     document.getElementById('pref-archive-sensitivity').value =
         prefs.archive_banner_sensitivity || 'always';
     document.getElementById('pref-debug').checked = prefs.debug === true;
@@ -460,8 +456,6 @@ async function loadAdvanced() {
 
 async function saveAdvanced() {
     const prefs = (await storageGet('preferences')) || {};
-    prefs.theme = document.getElementById('pref-theme').value;
-    prefs.media_handling = document.getElementById('pref-media').value;
     prefs.archive_banner_sensitivity =
         document.getElementById('pref-archive-sensitivity').value;
     prefs.debug = document.getElementById('pref-debug').checked;
@@ -478,51 +472,6 @@ async function saveAdvanced() {
 
     await storageSet('preferences', prefs);
     flash(document.getElementById('advanced-status'), 'Saved.');
-}
-
-// ------------------------------------------------------------------
-// Migrate (userscript)
-// ------------------------------------------------------------------
-
-async function runMigration() {
-    const status = document.getElementById('migrate-status');
-    const resultEl = document.getElementById('migrate-result');
-    const text = document.getElementById('migrate-input').value.trim();
-    if (!text) { flash(status, 'Paste a JSON blob first', false); return; }
-
-    let blob;
-    try { blob = JSON.parse(text); }
-    catch (err) { flash(status, 'Invalid JSON: ' + (err.message || err), false); return; }
-
-    try { await LocalKeyManager.init(); }
-    catch (err) { flash(status, 'Storage not ready: ' + (err.message || err), false); return; }
-
-    let out;
-    try { out = await migrateUserscriptBlob(blob); }
-    catch (err) { flash(status, 'Migration failed: ' + (err.message || err), false); return; }
-
-    const lines = [];
-    for (const [key, r] of Object.entries(out.perKey)) {
-        if (!r.ok) { lines.push(`✗ ${key}: ${r.reason}`); continue; }
-        if (key === 'user_identity')   lines.push(`✓ user_identity   → ${r.npub.slice(0, 18)}…`);
-        else if (key === 'entity_registry') lines.push(`✓ entity_registry → +${r.added} added, ${r.updated} updated, ${r.skipped} skipped`);
-        else if (key === 'relay_config')    lines.push(`✓ relay_config   → +${r.merged} relays added (${r.total} total)`);
-        else                                lines.push(`✓ ${key} → +${r.added} added (${r.total} total)`);
-    }
-    for (const e of out.errors) lines.push(`! ${e}`);
-
-    resultEl.textContent = lines.join('\n') || 'No recognized keys in payload.';
-    resultEl.style.display = 'block';
-    const failed = Object.values(out.perKey).some((r) => !r.ok);
-    flash(status, failed ? 'Migration finished with errors' : 'Migration complete', !failed);
-}
-
-function readMigrationFile(file) {
-    const reader = new FileReader();
-    reader.onload = () => {
-        document.getElementById('migrate-input').value = String(reader.result || '');
-    };
-    reader.readAsText(file);
 }
 
 async function clearAll() {
@@ -595,16 +544,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.getElementById('advanced-save').addEventListener('click', saveAdvanced);
     document.getElementById('clear-all').addEventListener('click', clearAll);
-
-    document.getElementById('migrate-run').addEventListener('click', runMigration);
-    document.getElementById('migrate-file').addEventListener('click', () => {
-        document.getElementById('migrate-file-input').click();
-    });
-    document.getElementById('migrate-file-input').addEventListener('change', (e) => {
-        const file = e.target.files && e.target.files[0];
-        if (file) readMigrationFile(file);
-        e.target.value = '';
-    });
 });
 // Re-export for tests / debugging.
 export { Storage, Crypto };
