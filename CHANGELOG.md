@@ -12,6 +12,16 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Changed
 
+- **Claims simplified to a thin, entity-centric model** (Phase 10.1; see
+  [`docs/CLAIMS_REDESIGN.md`](docs/CLAIMS_REDESIGN.md)). A claim is now just
+  *text + the entities it's about + an optional "who said it" + a single ⭐
+  key-claim flag*. The old per-claim fields — type, the crux confidence
+  slider, attribution, predicate, the subject/predicate/object pickers, and
+  quote-date — are gone from the capture modal. Old stored claims normalize
+  to the new shape on read; no wire-format change yet (the thin fields are
+  mirrored onto the legacy fields the publisher still reads — slice 10.2
+  rewrites the `kind 30040` tag set).
+
 - **Docs refreshed for the post-parity state.** `ROADMAP.md` updated:
   status snapshot reflects all phases complete, the v0.5.x cleanup (A–E)
   recorded, the deferred backlog triaged (keep / defer / cut) against the

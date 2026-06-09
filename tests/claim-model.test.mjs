@@ -1,4 +1,4 @@
-// Claim model tests — Phase 5 C1 (issue #16).
+// Claim model tests — thin model (Phase 10.1).
 //
 // Same chrome.storage.local shim pattern as entity-model.test.mjs.
 
@@ -28,17 +28,18 @@ globalThis.chrome = {
     }
 };
 
-const { ClaimModel, CLAIM_TYPES, CLAIM_ATTRIBUTIONS, generateClaimId } =
-    await import('../src/shared/claim-model.js');
+const { ClaimModel, generateClaimId } = await import('../src/shared/claim-model.js');
 
 function resetState() { _stateStore.clear(); }
 
 const URL_A = 'https://example.com/article-a';
 const URL_B = 'https://example.com/article-b';
+const ENT_1 = 'entity_aaaaaaaaaaaaaaaa';
+const ENT_2 = 'entity_bbbbbbbbbbbbbbbb';
 
 // ---------------------------------------------------------------------
 
-test('claim: deterministic id generation', async () => {
+test('claim: deterministic id generation (stable across the redesign)', async () => {
     const a = await generateClaimId(URL_A, 'The sky is blue.');
     const b = await generateClaimId(URL_A, '  the   sky   is   BLUE.  ');
     const c = await generateClaimId(URL_A, 'The sky is green.');
@@ -49,134 +50,128 @@ test('claim: deterministic id generation', async () => {
     assert.match(a, /^claim_[0-9a-f]{16}$/);
 });
 
-test('claim: create + get round-trip', async () => {
+test('claim: thin create + get round-trip', async () => {
     resetState();
     const claim = await ClaimModel.create({
         text: 'Democracy is under threat.',
-        type: 'evaluative',
         source_url: URL_A,
-        is_crux: true,
-        confidence: 75,
-        attribution: 'thesis',
-        predicate: 'is threatened by',
-        subject_text: 'Democracy',
-        object_text: 'Authoritarianism'
+        about: [ENT_1, ENT_2],
+        source: ENT_1,
+        is_key: true
     });
     assert.match(claim.id, /^claim_[0-9a-f]{16}$/);
-    assert.equal(claim.type, 'evaluative');
-    assert.equal(claim.is_crux, true);
-    assert.equal(claim.confidence, 75);
-    assert.equal(claim.attribution, 'thesis');
+    assert.deepEqual(claim.about, [ENT_1, ENT_2]);
+    assert.equal(claim.source, ENT_1);
+    assert.equal(claim.is_key, true);
 
     const fetched = await ClaimModel.get(claim.id);
     assert.deepEqual(fetched, claim);
 });
 
-test('claim: create is idempotent on same (url, normalized-text)', async () => {
-    resetState();
-    const a = await ClaimModel.create({
-        text: 'Same claim.',
-        type: 'factual',
-        source_url: URL_A
-    });
-    const b = await ClaimModel.create({
-        text: 'SAME   claim.',   // whitespace + case
-        type: 'factual',
-        source_url: URL_A
-    });
-    assert.equal(a.id, b.id, 'idempotent create must collide on the same id');
-});
-
-test('claim: rejects invalid type / attribution / empty text / bad confidence', async () => {
-    resetState();
-    await assert.rejects(() => ClaimModel.create({ text: 'X', type: 'bogus',    source_url: URL_A }), /Invalid claim type/);
-    await assert.rejects(() => ClaimModel.create({ text: '',  type: 'factual',  source_url: URL_A }), /text is required/);
-    await assert.rejects(() => ClaimModel.create({ text: 'X', type: 'factual',  source_url: ''     }), /source_url is required/);
-    await assert.rejects(() => ClaimModel.create({
-        text: 'X', type: 'factual', source_url: URL_A, attribution: 'bogus'
-    }), /Invalid attribution/);
-    await assert.rejects(() => ClaimModel.create({
-        text: 'X', type: 'factual', source_url: URL_A, confidence: 150
-    }), /Invalid confidence/);
-    await assert.rejects(() => ClaimModel.create({
-        text: 'X', type: 'factual', source_url: URL_A, confidence: -5
-    }), /Invalid confidence/);
-});
-
-test('claim: confidence gets rounded; null is preserved', async () => {
-    resetState();
-    const a = await ClaimModel.create({ text: 'A', type: 'factual', source_url: URL_A, confidence: 87.4 });
-    assert.equal(a.confidence, 87);
-    const b = await ClaimModel.create({ text: 'B', type: 'factual', source_url: URL_A, confidence: null });
-    assert.equal(b.confidence, null);
-});
-
-test('claim: update patches mutable fields but refuses immutable ones', async () => {
+test('claim: about dedups + drops empties; defaults are sane', async () => {
     resetState();
     const claim = await ClaimModel.create({
-        text: 'Original.', type: 'factual', source_url: URL_A
+        text: 'A.', source_url: URL_A, about: [ENT_1, ENT_1, '', null, ENT_2]
     });
-    const originalId = claim.id;
-    const originalText = claim.text;
+    assert.deepEqual(claim.about, [ENT_1, ENT_2]);
+    assert.equal(claim.source, null);   // no source → "the article"
+    assert.equal(claim.is_key, false);
+    assert.deepEqual(claim.anchor, null);
+});
+
+test('claim: source can be free text (a quoted name) or null', async () => {
+    resetState();
+    const quoted = await ClaimModel.create({ text: 'A.', source_url: URL_A, source: '  Jane Roe  ' });
+    assert.equal(quoted.source, 'Jane Roe');
+    const article = await ClaimModel.create({ text: 'B.', source_url: URL_A, source: '' });
+    assert.equal(article.source, null);
+});
+
+test('claim: legacy mirror keeps the (unchanged) event-builder path fed', async () => {
+    resetState();
+    const claim = await ClaimModel.create({
+        text: 'Mirror.', source_url: URL_A, about: [ENT_1], source: ENT_2, is_key: true
+    });
+    // Until slice 10.2, the thin fields are mirrored onto the legacy fields
+    // buildClaimEvent still reads.
+    assert.deepEqual(claim.subject_entity_ids, [ENT_1]);
+    assert.equal(claim.claimant_entity_id, ENT_2);
+    assert.equal(claim.is_crux, true);
+    assert.equal(claim.type, 'factual');
+});
+
+test('claim: create is idempotent on same (url, normalized-text)', async () => {
+    resetState();
+    const a = await ClaimModel.create({ text: 'Same claim.',  source_url: URL_A });
+    const b = await ClaimModel.create({ text: 'SAME   claim.', source_url: URL_A });
+    assert.equal(a.id, b.id);
+});
+
+test('claim: rejects empty text / missing url', async () => {
+    resetState();
+    await assert.rejects(() => ClaimModel.create({ text: '',  source_url: URL_A }), /text is required/);
+    await assert.rejects(() => ClaimModel.create({ text: 'X', source_url: ''     }), /source_url is required/);
+});
+
+test('claim: update patches thin fields, refuses immutable ones', async () => {
+    resetState();
+    const claim = await ClaimModel.create({ text: 'Original.', source_url: URL_A, about: [ENT_1] });
     const updated = await ClaimModel.update(claim.id, {
-        type: 'causal',
-        is_crux: true,
-        confidence: 50,
-        predicate: 'causes',
-        subject_text: 'A',
-        object_text: 'B',
-        // text + source_url + id are immutable — Updater ignores them.
-        text: 'CHANGED',
-        source_url: URL_B,
-        id: 'claim_fake'
+        about: [ENT_2],
+        source: 'A spokesperson',
+        is_key: true,
+        // immutable — ignored:
+        text: 'CHANGED', source_url: URL_B, id: 'claim_fake'
     });
-    assert.equal(updated.id, originalId,     'id stays stable');
-    assert.equal(updated.text, originalText, 'text stays stable');
-    assert.equal(updated.source_url, URL_A,  'source_url stays stable');
-    assert.equal(updated.type, 'causal');
-    assert.equal(updated.is_crux, true);
-    assert.equal(updated.confidence, 50);
-    assert.equal(updated.predicate, 'causes');
+    assert.equal(updated.id, claim.id);
+    assert.equal(updated.text, 'Original.');
+    assert.equal(updated.source_url, URL_A);
+    assert.deepEqual(updated.about, [ENT_2]);
+    assert.equal(updated.source, 'A spokesperson');
+    assert.equal(updated.is_key, true);
+    assert.deepEqual(updated.subject_entity_ids, [ENT_2], 'mirror re-derived on update');
     assert.ok(updated.updated >= claim.updated);
 });
 
-test('claim: getBySourceUrl filters and sorts cruxes first', async () => {
+test('claim: getBySourceUrl filters and sorts key claims first', async () => {
     resetState();
-    const earlyNonCrux = await ClaimModel.create({ text: 'Early non-crux.', type: 'factual', source_url: URL_A });
-    const lateCrux     = await ClaimModel.create({ text: 'Late crux.',     type: 'evaluative', source_url: URL_A, is_crux: true });
-    await ClaimModel.create({ text: 'Different article.', type: 'factual', source_url: URL_B });
+    const earlyNonKey = await ClaimModel.create({ text: 'Early non-key.', source_url: URL_A });
+    const lateKey     = await ClaimModel.create({ text: 'Late key.',      source_url: URL_A, is_key: true });
+    await ClaimModel.create({ text: 'Different article.', source_url: URL_B });
 
     const forA = await ClaimModel.getBySourceUrl(URL_A);
     assert.equal(forA.length, 2);
-    assert.equal(forA[0].id, lateCrux.id,      'crux sorts first regardless of creation order');
-    assert.equal(forA[1].id, earlyNonCrux.id);
-
-    const forB = await ClaimModel.getBySourceUrl(URL_B);
-    assert.equal(forB.length, 1);
+    assert.equal(forA[0].id, lateKey.id, 'key claim sorts first regardless of creation order');
+    assert.equal(forA[1].id, earlyNonKey.id);
 });
 
-test('claim: delete removes record; no cascade on evidence links (C4 handles those)', async () => {
+test('claim: legacy records normalize to thin fields on read', async () => {
     resetState();
-    const claim = await ClaimModel.create({ text: 'Deletable.', type: 'factual', source_url: URL_A });
-    assert.ok(await ClaimModel.get(claim.id));
-    const ok = await ClaimModel.delete(claim.id);
-    assert.equal(ok, true);
-    assert.equal(await ClaimModel.get(claim.id), null);
-    const notFound = await ClaimModel.delete(claim.id);
-    assert.equal(notFound, false);
+    // Simulate a pre-10.1 record written straight into storage.
+    const legacyId = await generateClaimId(URL_A, 'Legacy claim.');
+    _stateStore.set('article_claims', {
+        [legacyId]: {
+            id: legacyId, text: 'Legacy claim.', source_url: URL_A,
+            type: 'causal', is_crux: true, confidence: 80, attribution: 'paraphrase',
+            subject_entity_ids: [ENT_1], object_entity_ids: [ENT_2],
+            claimant_entity_id: ENT_1, predicate: 'causes',
+            created: 1, updated: 1, publishedAt: null, publishedEventId: null
+        }
+    });
+    const got = await ClaimModel.get(legacyId);
+    assert.deepEqual(got.about, [ENT_1, ENT_2], 'about backfilled from subject ∪ object');
+    assert.equal(got.is_key, true, 'is_key backfilled from is_crux');
+    assert.equal(got.source, ENT_1, 'source backfilled from claimant');
 });
 
-test('claim: markPublished records publishedAt without bumping updated', async () => {
+test('claim: delete + markPublished', async () => {
     resetState();
-    const claim = await ClaimModel.create({ text: 'Publishable.', type: 'factual', source_url: URL_A });
-    const updatedBefore = claim.updated;
-    const marked = await ClaimModel.markPublished(claim.id, 'eventid' + '0'.repeat(57));
+    const claim = await ClaimModel.create({ text: 'Publishable.', source_url: URL_A });
+    const marked = await ClaimModel.markPublished(claim.id, 'e'.repeat(64));
     assert.ok(marked.publishedAt > 0);
-    assert.ok(marked.publishedEventId && marked.publishedEventId.length === 64);
-    assert.equal(marked.updated, updatedBefore, 'publish must not bump updated');
-});
+    assert.equal(marked.updated, claim.updated, 'publish must not bump updated');
 
-test('claim: type + attribution enums are exhaustive', () => {
-    assert.deepEqual(CLAIM_TYPES.slice().sort(), ['causal', 'evaluative', 'factual', 'predictive']);
-    assert.deepEqual(CLAIM_ATTRIBUTIONS.slice().sort(), ['direct_quote', 'editorial', 'paraphrase', 'thesis']);
+    assert.equal(await ClaimModel.delete(claim.id), true);
+    assert.equal(await ClaimModel.get(claim.id), null);
+    assert.equal(await ClaimModel.delete(claim.id), false);
 });

@@ -19,6 +19,33 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-09 — Thin claims shipped: model + modal (Phase 10.1)
+
+**Tags:** design
+
+**What changed:** First slice of the claim redesign. `claim-model.js` is now
+thin — `text` + `about[]` (entity ids) + `source` (entity id / free text /
+null=article) + `is_key` + `anchor?`. The claim modal (`claim-extractor.js`)
+lost the type row, crux+confidence slider, attribution dropdown, predicate,
+the subject/object/claimant pickers, and the quote-date field; in their place
+it has a single **About** multi-entity picker, an optional **"who said it"**
+entity-or-text picker, and a ⭐ **Key claim** checkbox. The claims bar renders
+text + about-entities + source + ⭐ instead of the type/triple/attribution.
+
+**Compat / how it stays non-breaking:** This slice deliberately makes **no
+wire-format change** (that's 10.2). `ClaimModel.create/update` mirror the thin
+fields onto the legacy fields the unchanged `buildClaimEvent` + reader publish
+flow read (`subject_entity_ids`←`about`, `claimant_entity_id`←`source` when an
+entity, `is_crux`←`is_key`, `type='factual'`, `attribution='editorial'`).
+`normalizeClaim()` does the inverse for pre-10.1 records on read, so old
+claims render in the thin UI. Both the mirror and `normalizeClaim` go away in
+10.2 when the `kind 30040` builder reads the thin fields directly. Id
+derivation (`source_url|norm(text)`) is unchanged, so published-event ids stay
+stable. Tests: `tests/claim-model.test.mjs` rewritten (thin API + legacy
+normalization); 522/522 green.
+
+---
+
 ## 2026-06-09 — Claim redesign agreed: thin, entity-centric claims (Phase 10)
 
 **Tags:** design

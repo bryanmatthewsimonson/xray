@@ -1,34 +1,36 @@
-// Claim model — Phase 5 C1 of the v4.2 parity push (issue #16).
+// Claim model — thin, entity-centric claim (Phase 10.1).
 //
-// A "claim" is a structured factual assertion the user has extracted
-// from an article. Each claim has:
+// See docs/CLAIMS_REDESIGN.md. A claim is now just:
 //
-//   - a stable hash-based id           (derived from source URL + text)
-//   - a classification type            (factual / causal / evaluative / predictive)
-//   - optional "crux" flag + confidence (0–100) — this is the central
-//     claim the whole piece hinges on
-//   - a claimant, subject, object triple — each either a specific
-//     entity (by id, from Phase 4's `EntityModel`) or free text
-//   - a predicate — the relationship verb
-//   - an attribution — direct_quote / paraphrase / editorial / thesis
-//   - an optional quote_date — when the claim was ORIGINALLY made (may
-//     predate the article reporting it)
-//   - the surrounding context text — becomes the kind-30040 event body
+//   - text       — the assertion (required; immutable after creation)
+//   - about[]    — the entity ids the claim concerns (the queryable core)
+//   - source     — who asserts it: null = "the article/author", else an
+//                  entity id or free-text name (absorbs the old
+//                  attribution + claimant)
+//   - is_key     — a single ⭐ flag (replaces crux + the 0–100 confidence)
+//   - anchor     — optional W3C text-range selector (wired in slice 10.3)
+//   - source_url + context — unchanged
 //
-// Storage:
-//   Storage.get('article_claims', {})  — keyed by claim id. Same
-//     pattern as entities.
+// The old structured fields (type / confidence / attribution / predicate /
+// subject / object / claimant / quote_date) are gone from the capture UX.
 //
-// Publication (Phase 5 C3): the reader's publish flow will emit a
-// kind-30040 event per claim via `event-builder.buildClaimEvent()`,
-// already built in Phase 2 and consuming this exact shape.
+// TRANSITIONAL MIRROR: until slice 10.2 rewrites `buildClaimEvent` to read
+// the thin fields directly, `create`/`update` also populate the legacy
+// fields the unchanged event-builder + reader publish flow read:
+//   subject_entity_ids ← about, claimant_entity_id ← source (when an
+//   entity), is_crux ← is_key, type ← 'factual', attribution ← 'editorial'.
+// `normalizeClaim` does the inverse for records written before this slice,
+// so old claims render in the thin UI. Both go away in 10.2.
+//
+// Storage: Storage.get('article_claims', {}) keyed by claim id (unchanged).
 
 import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
 import { Utils } from './utils.js';
 
 // ------------------------------------------------------------------
-// Enums
+// Enums — retained for rendering legacy + foreign (others') claims that
+// still carry a type/attribution. The thin model does not require them.
 // ------------------------------------------------------------------
 
 export const CLAIM_TYPES = ['factual', 'causal', 'evaluative', 'predictive'];
@@ -57,16 +59,9 @@ export const CLAIM_ATTRIBUTION_LABELS = {
 };
 
 // ------------------------------------------------------------------
-// ID derivation
+// ID derivation (unchanged — keeps published-event ids stable)
 // ------------------------------------------------------------------
 
-/**
- * Collapse whitespace + casefold the claim text for id derivation.
- * Two capture sessions that extract the same claim from the same URL —
- * even with minor whitespace differences — get the same id. Explicit
- * variant claims live at different URLs or have substantively different
- * text.
- */
 function normalizeClaimText(text) {
     return String(text || '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
@@ -81,32 +76,11 @@ export async function generateClaimId(sourceUrl, text) {
 // Validation
 // ------------------------------------------------------------------
 
-function assertValidType(type) {
-    if (!CLAIM_TYPES.includes(type)) {
-        throw new Error(`Invalid claim type: ${type} (expected one of ${CLAIM_TYPES.join(', ')})`);
-    }
-}
-
-function assertValidAttribution(attribution) {
-    if (!CLAIM_ATTRIBUTIONS.includes(attribution)) {
-        throw new Error(`Invalid attribution: ${attribution} (expected one of ${CLAIM_ATTRIBUTIONS.join(', ')})`);
-    }
-}
-
 function assertValidText(text) {
     const trimmed = String(text || '').trim();
     if (!trimmed) throw new Error('Claim text is required');
     if (trimmed.length > 2000) throw new Error('Claim text too long (max 2000 chars)');
     return trimmed;
-}
-
-function assertValidConfidence(confidence) {
-    if (confidence == null) return null;
-    const n = Number(confidence);
-    if (!Number.isFinite(n) || n < 0 || n > 100) {
-        throw new Error(`Invalid confidence: ${confidence} (expected 0..100)`);
-    }
-    return Math.round(n);
 }
 
 function assertValidUrl(url) {
@@ -115,96 +89,119 @@ function assertValidUrl(url) {
     return trimmed;
 }
 
+function isEntityId(s) {
+    return typeof s === 'string' && /^entity_/.test(s);
+}
+
+function cleanAbout(about) {
+    if (!Array.isArray(about)) return [];
+    // Keep unique, non-empty entity ids only.
+    return [...new Set(about.filter((id) => typeof id === 'string' && id))];
+}
+
+// Derive the transitional legacy mirror from the thin fields, so the
+// (as-yet-unchanged) event-builder + publish flow keep working.
+function legacyMirror(about, source, isKey) {
+    return {
+        subject_entity_ids: about.slice(),
+        object_entity_ids:  [],
+        subject_text:       '',
+        object_text:        '',
+        claimant_entity_id: isEntityId(source) ? source : null,
+        predicate:          '',
+        is_crux:            isKey,
+        confidence:         null,
+        type:               'factual',
+        attribution:        'editorial',
+        quote_date:         null
+    };
+}
+
+// Backfill thin fields for records written before slice 10.1, so old
+// claims render in the thin UI. Non-destructive (read-time only).
+function normalizeClaim(record) {
+    if (!record) return record;
+    if ('about' in record && 'is_key' in record && 'source' in record) return record;
+    const about = cleanAbout(
+        Array.isArray(record.about)
+            ? record.about
+            : [...(record.subject_entity_ids || []), ...(record.object_entity_ids || [])]
+    );
+    const source = ('source' in record)
+        ? record.source
+        : (record.claimant_entity_id || null);
+    const isKey = ('is_key' in record) ? record.is_key === true : record.is_crux === true;
+    return { ...record, about, source, is_key: isKey };
+}
+
 // ------------------------------------------------------------------
 // CRUD
 // ------------------------------------------------------------------
 
 export const ClaimModel = {
-    /**
-     * Fetch a single claim by id, or null if not found.
-     */
     get: async (id) => {
         if (!id) return null;
         const all = await Storage.get('article_claims', {});
-        return all[id] || null;
+        return all[id] ? normalizeClaim(all[id]) : null;
     },
 
-    /**
-     * All claims, keyed by id.
-     */
     getAll: async () => {
-        return await Storage.get('article_claims', {});
+        const all = await Storage.get('article_claims', {});
+        const out = {};
+        for (const [id, rec] of Object.entries(all)) out[id] = normalizeClaim(rec);
+        return out;
     },
 
     /**
-     * All claims whose `source_url` exactly matches the given URL.
-     * Used by the reader's claims-bar to show the list of claims for
-     * the currently-open article.
+     * All claims for a URL, key claims first then by creation time.
      */
     getBySourceUrl: async (url) => {
         if (!url) return [];
         const all = await Storage.get('article_claims', {});
         const out = [];
         for (const claim of Object.values(all)) {
-            if (claim.source_url === url) out.push(claim);
+            if (claim.source_url === url) out.push(normalizeClaim(claim));
         }
-        out.sort((a, b) => (b.is_crux ? 1 : 0) - (a.is_crux ? 1 : 0)   // cruxes first
-                          || (a.created || 0) - (b.created || 0));     // then by creation
+        out.sort((a, b) => (b.is_key ? 1 : 0) - (a.is_key ? 1 : 0)   // key claims first
+                          || (a.created || 0) - (b.created || 0));   // then by creation
         return out;
     },
 
     /**
-     * Create a new claim. Generates a hash-based id from
-     * `source_url + text`, so the same claim on the same article is
-     * idempotent — second `create()` with identical text + URL returns
-     * the existing record without surprise.
-     *
-     * Required fields: `text`, `type`, `source_url`.
-     * Optional:        `is_crux`, `confidence` (0-100), `attribution`
-     *                  (default 'editorial'), `claimant_entity_id`,
-     *                  `subject_entity_ids` | `subject_text`,
-     *                  `object_entity_ids` | `object_text`,
-     *                  `predicate`, `quote_date`, `context`.
+     * Create a thin claim. Required: `text`, `source_url`.
+     * Optional: `about` (entity id[]), `source` (entity id | free text |
+     * null), `is_key` (bool), `anchor`, `context`. Idempotent on
+     * (source_url, normalized text).
      */
     create: async (fields) => {
         const text = assertValidText(fields.text);
-        const type = fields.type;
-        assertValidType(type);
         const sourceUrl = assertValidUrl(fields.source_url);
-        const attribution = fields.attribution || 'editorial';
-        assertValidAttribution(attribution);
-        const confidence = assertValidConfidence(fields.confidence);
 
         const id = await generateClaimId(sourceUrl, text);
         const all = await Storage.get('article_claims', {});
-        if (all[id]) {
-            // Idempotent create if the URL + normalized text already
-            // produced this id — return the existing record. If the
-            // caller wanted to update, they should call `update()`.
-            return all[id];
-        }
+        if (all[id]) return normalizeClaim(all[id]);   // idempotent
+
+        const about = cleanAbout(fields.about);
+        const source = fields.source != null && String(fields.source).trim() !== ''
+            ? (isEntityId(fields.source) ? fields.source : String(fields.source).trim())
+            : null;
+        const isKey = fields.is_key === true;
 
         const now = Math.floor(Date.now() / 1000);
         const record = {
             id,
             text,
-            type,
-            is_crux:             fields.is_crux === true,
-            confidence:          confidence,
-            claimant_entity_id:  fields.claimant_entity_id || null,
-            subject_entity_ids:  Array.isArray(fields.subject_entity_ids) ? fields.subject_entity_ids.slice() : [],
-            subject_text:        fields.subject_text || '',
-            object_entity_ids:   Array.isArray(fields.object_entity_ids)  ? fields.object_entity_ids.slice()  : [],
-            object_text:         fields.object_text || '',
-            predicate:           fields.predicate   || '',
-            attribution,
-            quote_date:          fields.quote_date  || null,
-            source_url:          sourceUrl,
-            context:             fields.context     || '',
-            created:             now,
-            updated:             now,
-            publishedAt:         null,
-            publishedEventId:    null
+            about,
+            source,
+            is_key:           isKey,
+            anchor:           fields.anchor || null,
+            source_url:       sourceUrl,
+            context:          fields.context || '',
+            ...legacyMirror(about, source, isKey),   // transitional — removed in 10.2
+            created:          now,
+            updated:          now,
+            publishedAt:      null,
+            publishedEventId: null
         };
 
         all[id] = record;
@@ -214,32 +211,27 @@ export const ClaimModel = {
     },
 
     /**
-     * Patch a claim. Id, source_url, and text are IMMUTABLE — they
-     * derive the id together, so changing them would orphan any
-     * already-published kind-30040 event. If you need to change the
-     * text, delete the old claim and create a new one.
+     * Patch a claim. id / source_url / text are IMMUTABLE (they derive
+     * the id). Patchable: about, source, is_key, anchor, context.
      */
     update: async (id, updates) => {
         const all = await Storage.get('article_claims', {});
         const record = all[id];
         if (!record) throw new Error(`Claim not found: ${id}`);
 
-        const patched = { ...record };
-        if (updates.type != null) { assertValidType(updates.type); patched.type = updates.type; }
-        if (updates.attribution != null) {
-            assertValidAttribution(updates.attribution);
-            patched.attribution = updates.attribution;
+        const patched = normalizeClaim({ ...record });
+        if ('about' in updates)   patched.about   = cleanAbout(updates.about);
+        if ('source' in updates) {
+            patched.source = updates.source != null && String(updates.source).trim() !== ''
+                ? (isEntityId(updates.source) ? updates.source : String(updates.source).trim())
+                : null;
         }
-        if ('is_crux' in updates)            patched.is_crux           = updates.is_crux === true;
-        if ('confidence' in updates)         patched.confidence        = assertValidConfidence(updates.confidence);
-        if ('claimant_entity_id' in updates) patched.claimant_entity_id = updates.claimant_entity_id || null;
-        if ('subject_entity_ids' in updates) patched.subject_entity_ids = Array.isArray(updates.subject_entity_ids) ? updates.subject_entity_ids.slice() : [];
-        if ('subject_text' in updates)       patched.subject_text       = updates.subject_text || '';
-        if ('object_entity_ids' in updates)  patched.object_entity_ids  = Array.isArray(updates.object_entity_ids)  ? updates.object_entity_ids.slice()  : [];
-        if ('object_text' in updates)        patched.object_text        = updates.object_text || '';
-        if ('predicate' in updates)          patched.predicate          = updates.predicate || '';
-        if ('quote_date' in updates)         patched.quote_date         = updates.quote_date || null;
-        if ('context' in updates)            patched.context            = updates.context || '';
+        if ('is_key' in updates)  patched.is_key  = updates.is_key === true;
+        if ('anchor' in updates)  patched.anchor  = updates.anchor || null;
+        if ('context' in updates) patched.context = updates.context || '';
+
+        // Re-derive the transitional legacy mirror from the patched thin fields.
+        Object.assign(patched, legacyMirror(patched.about, patched.source, patched.is_key));
 
         patched.updated = Math.floor(Date.now() / 1000);
         all[id] = patched;
@@ -247,11 +239,6 @@ export const ClaimModel = {
         return patched;
     },
 
-    /**
-     * Delete a claim. Any evidence links that reference it should be
-     * orphan-cleaned in Phase 5 C4's `EvidenceLinker.deleteForClaim`;
-     * not our concern here.
-     */
     delete: async (id) => {
         const all = await Storage.get('article_claims', {});
         if (!all[id]) return false;
@@ -261,10 +248,8 @@ export const ClaimModel = {
     },
 
     /**
-     * Record a successful kind-30040 publish so `resolveClaimsToPublish`
-     * on the reader side can skip unchanged claims. Matches
-     * `EntityModel.markPublished` semantics: does NOT bump `updated`,
-     * so the user's edits after a publish correctly re-emit next time.
+     * Record a successful kind-30040 publish. Does NOT bump `updated`,
+     * so edits after a publish correctly re-emit next time.
      */
     markPublished: async (id, eventId) => {
         const all = await Storage.get('article_claims', {});
@@ -274,6 +259,6 @@ export const ClaimModel = {
         if (eventId) record.publishedEventId = eventId;
         all[id] = record;
         await Storage.set('article_claims', all);
-        return record;
+        return normalizeClaim(record);
     }
 };
