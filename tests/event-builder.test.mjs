@@ -21,7 +21,7 @@ const { EventBuilder } = await import('../src/shared/event-builder.js');
 
 const PUBKEY = '4ba5145ddce7322c3422096997fdf9d5cf9198312d7567b0dda275e580654a9f';
 
-test('buildEntitySyncEvent has the d/L/l tags the userscript pull filter expects', () => {
+test('buildEntitySyncEvent has the d/L/l tags the pull filter expects', () => {
     const ev = EventBuilder.buildEntitySyncEvent('entity_abc', 'CIPHERTEXT', 'person', PUBKEY);
     assert.equal(ev.kind, 30078);
     assert.equal(ev.pubkey, PUBKEY);
@@ -31,8 +31,8 @@ test('buildEntitySyncEvent has the d/L/l tags the userscript pull filter expects
     const lTag = ev.tags.find((t) => t[0] === 'l');
     const tTag = ev.tags.find((t) => t[0] === 'entity-type');
     assert.deepEqual(dTag, ['d', 'entity_abc']);
-    assert.deepEqual(LTag, ['L', 'nac/entity-sync']);
-    assert.deepEqual(lTag, ['l', 'v1', 'nac/entity-sync']);
+    assert.deepEqual(LTag, ['L', 'xray/entity-sync']);
+    assert.deepEqual(lTag, ['l', 'v1', 'xray/entity-sync']);
     assert.deepEqual(tTag, ['entity-type', 'person']);
 });
 

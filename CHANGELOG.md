@@ -12,6 +12,14 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Changed
 
+- **NOSTR `client` tag unified to `'xray'`** across all event builders
+  (article 30023, entity-sync 30078, relationship 32125, evidence 30043
+  previously emitted `'nostr-article-capture'`; comment 30041 and
+  platform-account 32126 already used `'xray'`). The entity-sync NIP-32
+  label namespace likewise moves to `xray/entity-sync`. **Wire-format
+  change, back-compat preserved:** entity-sync *reads* still accept the
+  legacy `nac/entity-sync` label, so entities synced before the rename
+  still pull; already-published events keep their old `client` value.
 - **Settings consolidated.** The Advanced tab is reorganized into a
   **Reader** group (archive banner sensitivity, promoted out of the
   engine-tuning pile) and a **Power user** group (debug logging + the
