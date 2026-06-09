@@ -12,17 +12,18 @@ has already said about it.*
 
 ## Status
 
-Phases 0–8 of the roadmap are complete, plus the Phase 9a metadata data
-model and the Phase 9 identity layer (v0.5.0). The extension captures
+Phases 0–9 of the roadmap are complete (parity with the v4.2 userscript),
+plus a v0.5.x **post-parity cleanup** (de-FAB / single capture surface,
+settings consolidation, wire-format hygiene). The extension captures
 across every shipped platform handler, publishes events end-to-end, syncs
 entity data across devices, reconstructs paywalled content from cached or
-relay copies, and now carries the wire-format foundation for crowdsourced
+relay copies, and carries the wire-format foundation for crowdsourced
 URL metadata (annotations / fact-checks / topic-trust — see
 [`docs/NIP_DRAFT.md`](docs/NIP_DRAFT.md)) plus a stable cross-platform
 identity layer (captured commenters and post authors become dedup-able
 identities; cross-platform accounts can be collapsed into one person).
-The codebase is past the userscript-paradigm port and operates as a pure
-WebExtension.
+The codebase operates as a pure WebExtension and is moving toward the
+next milestone — **claim tracking** (see [`docs/ROADMAP.md`](docs/ROADMAP.md)).
 
 The [**roadmap**](docs/ROADMAP.md) tracks per-phase scope. The
 [**engineering journal**](docs/JOURNAL.md) logs significant bugs, design

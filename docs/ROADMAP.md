@@ -47,7 +47,16 @@ Phase 7  ████████████████████  complete 
 Phase 8  ████████████████████  complete — 8a infra + TikTok + Instagram + Facebook shipped
 Phase 9a ████████████████████  complete — URL-metadata data model (annotations / fact-checks / topic-trust) + NIP draft; data-model only, UI in 9b+
 Phase 9  ████████████████████  complete — identity layer: platform accounts + YouTube comments + manual account↔entity linking
+
+Cleanup  ████████████████████  complete — v0.5.x post-parity cleanup (Phases A–E):
+                                de-FAB / one capture surface, settings consolidation,
+                                client-tag unify, nac-→xr- rename, roadmap + docs refresh
+Phase 10 ░░░░░░░░░░░░░░░░░░░░  next — claim tracking that produces useful data about
+                                real people, organizations, and stories (see below)
 ```
+
+Parity with the v4.2 userscript is reached; the project now operates as a
+pure WebExtension and is moving past parity toward the claim-tracking goal.
 
 ---
 
@@ -135,10 +144,10 @@ Landed:
 
 ---
 
-## Phase 3 — Easy-tier platform handlers 🟡
+## Phase 3 — Easy-tier platform handlers ✅
 
-**Issue:** [#14](https://github.com/bryanmatthewsimonson/xray/issues/14). Substack and YouTube are done; Twitter/X
-and the generic comment extractor are next.
+**Issue:** [#14](https://github.com/bryanmatthewsimonson/xray/issues/14). Complete — Substack, YouTube
+(incl. Shorts), Twitter/X, and the generic comment extractor all shipped.
 
 ### 3a — Substack handler ✅
 
@@ -685,6 +694,95 @@ See the [full issue list](https://github.com/bryanmatthewsimonson/xray/issues) f
 | [#8](https://github.com/bryanmatthewsimonson/xray/issues/8) | P3 | ✅ Release pipeline: CHANGELOG, version bump, tagged releases |
 | [#9](https://github.com/bryanmatthewsimonson/xray/issues/9) | P3 | ✅ Tests for EventBuilder, Utils.normalizeUrl, sync deserializer, migration importer (96 tests) |
 | [#10](https://github.com/bryanmatthewsimonson/xray/issues/10) | P3 | ✅ Verified `strict_min_version: "128.0"` (3 APIs land there; matches FF ESR) |
+
+---
+
+## Post-parity cleanup (v0.5.x, Phases A–E) ✅
+
+Once parity was reached the codebase carried userscript-era cruft and a
+two-surface capture model. A staged cleanup (one reviewable PR per phase)
+removed it, in preparation for the claim-tracking work:
+
+- **A — De-FAB / one capture surface.** Removed the in-page floating action
+  button and the legacy in-page capture panel. Every trigger (toolbar
+  icon, `Ctrl/Cmd+Shift+X`, right-click) now sends `xray:capture` and opens
+  the page directly in the reader. `src/content/ui.js` 1017 → ~160 lines.
+- **B — Settings consolidation.** Removed the "Migrate from userscript" tab
+  + importer, the dead Advanced Theme/Media-handling controls, and the
+  unused `recent_publications` key. Advanced reorganized into Reader /
+  Power-user groups.
+- **C — Wire-format hygiene.** Unified the NOSTR `client` tag to `'xray'`
+  across all builders; entity-sync label `nac/entity-sync` → `xray/entity-sync`
+  (reads still accept the legacy label for back-compat).
+- **D — Final prefix cleanup.** Renamed the last `nac-*` capture-pipeline
+  markers to `xr-*`; the codebase is now 100% `xr-*`.
+- **E — Roadmap + docs refresh.** This update; smoke-test FAB-step rewrite.
+
+**Deferred from the cleanup (needs browser QA):** the deeper CSS
+token/color unification (reconciling minor success/warning/danger value
+drift across reader/options/sidepanel + a couple of hardcoded colors) — a
+visual change best done with eyes on the rendered UI.
+
+---
+
+## Deferred backlog — disposition
+
+The per-phase "Deferred" lists above were triaged against the
+claim-tracking north star (*useful data about real people, organizations,
+and real-world stories*):
+
+**Keep — serves claim tracking / usability (candidates for Phase 10+):**
+
+- Entity auto-suggest (scan article for known entity names, one-click tag).
+- Cross-article evidence links (model already stores arbitrary claim-id
+  pairs; needs a picker beyond same-article candidates).
+- "Import others' claims" — clone a relay-queried claim locally.
+- Evidence-link editing (today create+delete only).
+- In-reader archive browser (browse/search the IDB cache).
+- Batch-signing UX (one prompt for a comment/claim batch).
+- "Push profile now" from the entity side panel.
+
+**Defer — opportunistic, not core:**
+
+- Substack Notes; podcast episodes; YouTube livestream-chat replay,
+  channel/playlist captures, per-cue transcript archival; quoted-tweet
+  recursion; polls / spaces; live relay subscriptions; byte-budget cache
+  eviction; manual "archive this URL" action.
+
+**Cut — out of scope:**
+
+- NIP-04 read-path fallback for pre-v4 userscript events (no such users).
+- Per-comment inclusion toggle (marginal over the all/none toggle).
+
+---
+
+## Phase 10 — Claim tracking (next)
+
+The north star: turn X-Ray from a capture tool into a system that
+**produces useful, usable data about real people, organizations, and
+real-world stories.** Phases 4–5 already ship the primitives (entities
+with keypairs, claims `30040`, evidence links `30043`, relationships
+`32125`, others'-claims relay query). Phase 10 is about making those
+*useful and usable at scale* rather than adding new wire kinds.
+
+Scope is still being shaped, but the working themes:
+
+- **Usability of claim capture** — lower the friction from "I see an
+  assertion" to "it's a structured claim tied to real entities" (entity
+  auto-suggest, smarter S/P/O pickers, batch signing).
+- **Connecting claims across sources** — cross-article/cross-capture
+  evidence links and claim de-dup, so a story accretes evidence from many
+  pages instead of living in one capture.
+- **Reading others' claims** — go beyond the point-in-time "others'
+  claims" modal toward a browsable, trust-filtered view (leaning on the
+  Phase 9a trust graph) of what the network says about a person / org /
+  story.
+- **Identity quality** — make the Phase 9 cross-platform identity layer do
+  real work: collapse duplicate captured authors into canonical people and
+  attach their claims to that person.
+
+A dedicated Phase 10 issue will pin exit criteria before implementation
+starts; this section is the intent, not the spec.
 
 ---
 

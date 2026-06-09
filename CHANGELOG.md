@@ -12,6 +12,14 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Changed
 
+- **Docs refreshed for the post-parity state.** `ROADMAP.md` updated:
+  status snapshot reflects all phases complete, the v0.5.x cleanup (A–E)
+  recorded, the deferred backlog triaged (keep / defer / cut) against the
+  claim-tracking goal, and **Phase 10 — Claim tracking** added as the next
+  milestone. `SMOKE_TEST.md` rewritten for the no-FAB capture model
+  (toolbar / keyboard / right-click → reader; removed the FAB-badge and
+  FAB-header-signing steps). README status updated.
+
 - **Legacy `nac-*` CSS prefix fully eliminated.** The last `nac-*` tokens —
   the capture→Markdown markers in `content-extractor.js` (`nac-tweet-embed`,
   `nac-facebook-post`, `nac-inline-img`, …) — were renamed to `xr-*`. These
