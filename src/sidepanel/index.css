@@ -738,3 +738,8 @@ body.xr-side {
   font-style: italic;
   margin-top: 2px;
 }
+
+.xr-side__case-export-row {
+  display: flex;
+  gap: 8px;
+}

@@ -54,8 +54,10 @@ Cleanup  ████████████████████  complete 
 Phase 10 ████████████████████  complete — claim tracking (thin entity-centric
                                 claims). 10.1–10.4 shipped; 10.5 (metadata reframe)
                                 superseded by Phase 11 (see below)
-Phase 11 ░░░░░░░░░░░░░░░░░░░░  design — assessments & contradictions
-                                (docs/ASSESSMENTS_DESIGN.md)
+Phase 11 ██████████████████░░  implemented — assessments & contradictions
+                                (docs/ASSESSMENTS_DESIGN.md). 11.1–11.6
+                                shipped; remaining: case smoke-runs +
+                                the flag-gated publish slice
 ```
 
 Parity with the v4.2 userscript is reached; the project now operates as a
@@ -839,19 +841,25 @@ former 10.5 metadata-reframe slice.
 
 Slices (one PR each):
 
-- ⬜ **11.1** Taxonomy + assessment model + tests; evidence-linker
-  cross-source refs + relationship enum; legacy `30043` publish gated off.
-- ⬜ **11.2** Wire builders + NIP draft — `30054` assessment + `30055`
-  claim relationship (the wire-format PR).
-- ⬜ **11.3** Assess UI in the reader (stance chips, label badges, foreign
-  claims).
-- ⬜ **11.4** Cross-source link UI (search all captured claims; ⚠ badges).
-- ⬜ **11.5** Side-panel rollups + inconsistencies (case dashboard).
-- ⬜ **11.6** Case export (JSON + Markdown).
+- ✅ **11.1** Taxonomy + assessment model + tests; evidence-linker
+  cross-source refs + relationship enum; legacy `30043` publish gated
+  off. — #38
+- ✅ **11.2** Wire builders + NIP draft — `30054` assessment + `30055`
+  claim relationship (the wire-format PR). — #39
+- ✅ **11.3** Assess UI in the reader (stance chips, label badges, span
+  anchors, foreign claims, sticky about-defaults). — #40
+- ✅ **11.4** Cross-source link UI (search all captured claims; ⚠
+  badges; snapshot rendering). — #41
+- ✅ **11.5** Side-panel rollups + inconsistencies (the case
+  dashboard + label tally + replaceable dedupe). — #42
+- ✅ **11.6** Case export (JSON + Markdown, deterministic content
+  set). — #43
 
-Acceptance: demo end-to-end on the two driving cases (LDS Church v. Dehlin;
-Bricks & Minifigs v. Reckless Ben) — capture, atomize, assess, link a
-cross-video contradiction, see it on the case dashboard, export.
+Remaining: run the acceptance demo end-to-end on the two driving cases
+(LDS Church v. Dehlin; Bricks & Minifigs v. Reckless Ben) — the
+checklist is `docs/SMOKE_TEST.md` §Phase 11 — and, later, the
+flag-gated publish slice (30054/30055 + the 1985 mirror behind
+`assessmentPublishing`).
 
 ---
 

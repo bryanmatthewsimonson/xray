@@ -20,6 +20,7 @@ import { parseClaimEvent, ClaimModel } from '../shared/claim-model.js';
 import { EvidenceLinker, EVIDENCE_RELATIONSHIP_ICONS } from '../shared/evidence-linker.js';
 import { openAssessModal, renderAssessmentBadges, assessmentsByCanonicalRef } from '../shared/assess-modal.js';
 import { makeClaimRefCanonicalizer, isLocalClaimId, buildClaimCoord } from '../shared/claim-ref.js';
+import { collectCaseData, buildCaseJson, buildCaseMarkdown } from '../shared/case-export.js';
 import { accountsForEntity, listUnlinkedAccounts, linkAccountToEntity, unlinkAccount } from '../shared/identity/account-registry.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { Crypto } from '../shared/crypto.js';
@@ -269,6 +270,16 @@ function renderDetail(entity) {
         <div id="xr-inconsistencies">Loading…</div>
       </div>
 
+      ${entity.type === 'case' ? `
+      <div class="xr-side__case-export">
+        <h3>Export case</h3>
+        <p class="xr-side__hint">The case file: local claims about this case, your stances + labels, and its contradictions. JSON for machines, Markdown for humans. (Viewed-only network claims are excluded so the same case always exports the same.)</p>
+        <div class="xr-side__case-export-row">
+          <button type="button" class="xr-side__ghost-btn" id="xr-export-case-json">Export JSON</button>
+          <button type="button" class="xr-side__ghost-btn" id="xr-export-case-md">Export Markdown</button>
+        </div>
+      </div>` : ''}
+
       <div class="xr-side__publish">
         <h3>Publish status</h3>
         <p class="xr-side__pub-line">${pubInfo}</p>
@@ -319,6 +330,12 @@ function renderDetail(entity) {
         paintNetworkClaims(entity, state.networkClaims.events, state.networkClaims.byRelay)
             .catch(() => {});
     }
+
+    // Phase 11.6 — case export (case entities only).
+    const exportJsonBtn = $('#xr-export-case-json');
+    const exportMdBtn   = $('#xr-export-case-md');
+    if (exportJsonBtn) exportJsonBtn.addEventListener('click', () => exportCase(entity, 'json'));
+    if (exportMdBtn)   exportMdBtn.addEventListener('click', () => exportCase(entity, 'md'));
 
     // Keypair controls.
     $('#xr-copy-npub').addEventListener('click', () => {
@@ -626,6 +643,33 @@ async function renderInconsistencies(entity) {
 
 function hostOf(url) {
     try { return new URL(url).host; } catch { return String(url || ''); }
+}
+
+/** Export a case entity as JSON or Markdown (Phase 11.6). */
+async function exportCase(entity, format) {
+    try {
+        const data = await collectCaseData(entity.id);
+        const generatedAt = new Date().toISOString();
+        const slug = entity.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'case';
+        const date = generatedAt.slice(0, 10);
+        if (format === 'json') {
+            downloadText(`xray-case-${slug}-${date}.json`, buildCaseJson(data, generatedAt), 'application/json');
+        } else {
+            downloadText(`xray-case-${slug}-${date}.md`, buildCaseMarkdown(data, generatedAt), 'text/markdown');
+        }
+    } catch (err) {
+        alert(`Export failed: ${err.message || err}`);
+    }
+}
+
+function downloadText(filename, text, mime) {
+    const blob = new Blob([text], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
 /**

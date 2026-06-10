@@ -318,17 +318,81 @@ verify the page actually shows Disqus comments inline).
 
 ---
 
-## Phase 5 — Claims + evidence
+## Phase 5/10 — Claims (thin model)
 
 | # | Test | Pass criteria |
 |---|---|---|
 | 5.1 | Select text → entity popover → click "📋 Add as claim" | ✅ claim modal opens with text pre-filled |
-| 5.2 | Pick a type, fill in subject/predicate/object (mix entity + freetext), set crux + confidence, save | ✅ claim card appears in the claims bar; selection gets dashed colored underline |
+| 5.2 | Pick **About** entities, optionally "who said it" + ⭐ key, save | ✅ claim card appears in the claims bar; selection gets dashed colored underline (exact passage, not first occurrence) |
 | 5.3 | Click ✎ on a claim → edit a field → save | ✅ card updates |
-| 5.4 | Click 🔗 on a claim → link modal opens with other claims as targets | ✅ pick relationship + (optional) note → save |
-| 5.5 | Both linked claims show the link block under the triple line | ✅ direction arrow + relationship label correct |
-| 5.6 | Publish | ✅ batch toast names: article + N claims + M relationships + K evidence links + (entity profiles for any new entities referenced) |
+| 5.4 | Click 🔗 on a claim → link modal opens (see 11.x for the cross-source flow) | ✅ pick target + relationship + (optional) note → save |
+| 5.5 | Both linked claims show the link block | ✅ relationship label correct; ↔ for contradicts/duplicates, →/← otherwise |
+| 5.6 | Publish | ✅ batch toast names: article + N claims + M relationships + (entity profiles for any new entities referenced) — **no evidence links** (kind 30043 retired in Phase 11) |
 | 5.7 | Look up your published article on a NOSTR client → its `p` tags should include each tagged entity's pubkey | ✅ |
+
+---
+
+## Phase 11 — Assessments, contradictions & cases
+
+The "Community Notes for the internet" loop, end to end on a real
+story. Use a real case (e.g. two YouTube videos from opposing sides).
+Everything here is **local-first** — no relay publish is involved
+except where marked, and assessment/link publishing stays off until
+the `assessmentPublishing` flag ships.
+
+**Setup: the case entity**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 11.1 | Side panel → ➕ → type chips include 🗂️ **Case** → create "My test case" | ✅ case entity appears in the list; 🗂️ chip filters to it |
+| 11.2 | Open its detail view | ✅ sections present: *Your claims about this entity* (empty hint), *Claims about this entity* (Load button), *⚠ Inconsistencies* (empty hint), **Export case** (JSON + Markdown buttons — case entities only) |
+
+**Capture + assess (reader)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 11.3 | Capture page 1 → select a quote → "Add as claim" → About = the case entity (+ a person) → save | ✅ claim row in the bar |
+| 11.4 | Add a second claim on the same page | ✅ the About picker **pre-fills the last-used entities** (sticky session default) |
+| 11.5 | Click **⚖** on a claim → stance **Disagree** → labels `misleading` + `fallacy/strawman` → note on `misleading` → rationale → Save | ✅ button shows ⚖✓; row shows the 👎 stance chip + label badges |
+| 11.6 | Re-open ⚖ → click the active stance to clear → Save | ✅ badges show labels only (label-only assessment is valid) |
+| 11.7 | In the assess modal, add a custom label "my made up label" | ✅ normalizes to `my-made-up-label`, renders with the dashed *custom* style |
+| 11.8 | Select a label → **📍** → modal minimizes to the pill → select a passage in the article → Done | ✅ label badge gains 📍; re-opening shows ✓ on the mark button |
+| 11.9 | ⚖ → **Remove** | ✅ badges disappear; button back to plain ⚖ |
+| 11.10 | 🌐 **Others' claims** → any foreign claim → ⚖ → judge it | ✅ badges render on the foreign card; if the "foreign" claim is actually yours, the claims bar badge updates too after closing the modal |
+
+**Cross-source contradiction (reader)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 11.11 | Capture page 2 (different site/video) → add a claim contradicting page 1's claim, About = same case | ✅ |
+| 11.12 | 🔗 on it → candidate list shows **claims from page 1** (📋) and any assessed-foreign claims (⚖) with hostnames; search box filters | ✅ |
+| 11.13 | Pick page 1's claim → relationship **Contradicts** (default) → note → Save | ✅ both claims' rows show the **⚠ badge**; link row highlighted, ↔ arrow, other endpoint shows text + source host |
+| 11.14 | Create the same link from the other claim's 🔗 in the opposite direction | ✅ no duplicate — the existing link is returned (symmetric identity) |
+
+**Case dashboard (side panel)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 11.15 | Open the case entity | ✅ *Your claims* lists every claim about it with stance chips + label badges; ⚖ Assess works here too |
+| 11.16 | *⚠ Inconsistencies* | ✅ the contradiction pair renders: both quotes, source hosts, your note; **label tally** on top (e.g. `2× misleading`) |
+| 11.17 | Assess/link something in the reader while the panel is open | ✅ the dashboard refreshes live (storage listener) |
+| 11.18 | **Load from relays** (needs the case published/p-tagged or returns the empty hint) | ✅ rows render with badges + ⚖; republished claims appear **once** (latest-wins dedupe) |
+
+**Export**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 11.19 | **Export JSON** | ✅ `xray-case-<name>-<date>.json` downloads: case header, claims (incl. the foreign endpoint with its snapshot), per-label notes/anchors/`suggested_by`, contradictions with embedded endpoint texts, `label_counts` |
+| 11.20 | **Export Markdown** | ✅ readable report: claims grouped by stance, labels + notes per claim, *Inconsistencies* pairing the quotes, label tally |
+| 11.21 | Re-export without changing anything | ✅ identical content (deterministic set — viewed-only network claims are excluded) |
+
+**Regression guards**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 11.22 | Publish an article with claims | ✅ batch has **no evidence-link events**; claims publish normally |
+| 11.23 | Delete a claim that has an assessment + links | ✅ confirm lists the blast radius; assessment and links are removed with it |
+| 11.24 | Settings → no assessment publishing toggle anywhere | ✅ publishing stays flag-gated off (`xray:flags` → `assessmentPublishing`) |
 
 ---
 
