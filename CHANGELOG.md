@@ -12,6 +12,18 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Cross-source claim links + ⚠ contradiction surfacing** (Phase 11.4).
+  The 🔗 link modal now searches **all captured claims** — local claims
+  across every article (📋), assessed-foreign claims (⚖, from their stored
+  snapshots), and foreign claims seen in the last others'-claims query
+  (🌐) — with a text/URL search box and per-candidate source host;
+  `contradicts` leads the relationship picker and is the default. A claim
+  participating in a `contradicts` link shows a **⚠ badge** (either
+  endpoint, after canonical-ref matching), the offending link row is
+  highlighted, symmetric links render with ↔, and cross-source endpoints
+  render their text + source host from claim records or link snapshots —
+  no relay round-trip.
+
 - **Assess UI in the reader** (Phase 11.3). Every claim row in the claims
   bar gains an **⚖ Assess** action opening the judgment modal: five stance
   chips (strongly disagree → strongly agree, click again to clear), the
