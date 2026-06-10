@@ -12,6 +12,21 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **The case dashboard: side-panel rollups + inconsistencies**
+  (Phase 11.5). The entity detail view now has three judgment surfaces:
+  **Your claims about this entity** (local claims tagging it, each with
+  your stance/label badges and an ⚖ Assess action — works before anything
+  is published), the network **Claims about this entity** list upgraded
+  with the same badges + Assess per row (judging a network copy of your
+  own claim hits the same record) and NIP-01 **latest-wins dedup** per
+  `(kind, pubkey, d)` so republished claims show once, and a new
+  **⚠ Inconsistencies** section listing `contradicts` links where at
+  least one endpoint is about the entity — each pair quoted with its
+  source host and note — headed by the **label tally** ("3× misleading ·
+  2× unsupported"). Loaded network results survive re-renders, and the
+  panel live-refreshes when claims, assessments, or links change in the
+  reader.
+
 - **Cross-source claim links + ⚠ contradiction surfacing** (Phase 11.4).
   The 🔗 link modal now searches **all captured claims** — local claims
   across every article (📋), assessed-foreign claims (⚖, from their stored
