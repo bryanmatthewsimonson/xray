@@ -32,6 +32,8 @@ import {
 } from '../shared/evidence-linker.js';
 import { EntityModel, ENTITY_ICONS } from '../shared/entity-model.js';
 import { resolveSelectors } from '../shared/metadata/anchor-resolver.js';
+import { openAssessModal, renderAssessmentBadges, assessmentsByCanonicalRef } from '../shared/assess-modal.js';
+import { makeClaimRefCanonicalizer } from '../shared/claim-ref.js';
 
 // ------------------------------------------------------------------
 // Modal — used for create AND edit
@@ -50,12 +52,13 @@ import { resolveSelectors } from '../shared/metadata/anchor-resolver.js';
  */
 export function openClaimModal(opts) {
     return new Promise((resolve) => {
-        const { sourceUrl, initialText = '', initialClaim = null, context = '', anchor = null } = opts;
+        const { sourceUrl, initialText = '', initialClaim = null, context = '', anchor = null,
+                initialAbout = [] } = opts;
 
         const isEdit = !!initialClaim;
         const initial = initialClaim || {
             text:    initialText,
-            about:   [],
+            about:   initialAbout,    // sticky session default (Phase 11.3)
             source:  null,
             is_key:  false,
             context
@@ -506,13 +509,16 @@ export async function renderClaimsBar(claims) {
 
     // Resolve entity display for each claim's `about` set + its `source`
     // plus its evidence links in parallel so the bar renders quickly
-    // for typical ~dozen-claim cases.
+    // for typical ~dozen-claim cases. Assessments come as one
+    // canonical-keyed map for the whole bar (Phase 11.3).
+    const assessMap = await assessmentsByCanonicalRef();
     const rows = await Promise.all(claims.map(async (c) => {
         const [about, source, links] = await Promise.all([
             describeParty(c.about, ''),
             describeSource(c.source),
             EvidenceLinker.getForClaim(c.id)
         ]);
+        const assessment = assessMap.get(c.id) || null;
         const key = c.is_key
             ? `<span class="xr-claims__crux" title="Key claim — central to the piece">⭐ key</span>`
             : '';
@@ -553,12 +559,14 @@ export async function renderClaimsBar(claims) {
               ${key}
               ${pubDot}
               <div class="xr-claims__row-actions">
+                <button type="button" class="xr-claims__btn" data-action="assess" title="${assessment ? 'Edit your assessment' : 'Assess this claim'}">${assessment ? '⚖✓' : '⚖'}</button>
                 <button type="button" class="xr-claims__btn" data-action="link" title="Link to another claim">🔗</button>
                 <button type="button" class="xr-claims__btn" data-action="edit" title="Edit claim">✎</button>
                 <button type="button" class="xr-claims__btn xr-claims__btn--danger" data-action="delete" title="Delete claim">🗑</button>
               </div>
             </div>
             <div class="xr-claims__text">${escapeHtml(c.text)}</div>
+            ${renderAssessmentBadges(assessment)}
             ${aboutLine}
             ${sourceLine}
             ${linksBlock}
@@ -649,10 +657,14 @@ export function openOthersClaimsModal({ url, relays }) {
         `;
         document.body.appendChild(modal);
 
+        let anyAssessed = false;
         const close = () => {
             document.removeEventListener('keydown', esc);
             if (modal.parentNode) modal.parentNode.removeChild(modal);
-            resolve(null);
+            // Tell the caller whether any judgment changed, so the
+            // claims bar can refresh its badges (a "foreign" claim can
+            // be one of ours seen from the network).
+            resolve(anyAssessed ? { assessed: true } : null);
         };
         function esc(ev) { if (ev.key === 'Escape') close(); }
         document.addEventListener('keydown', esc);
@@ -661,6 +673,27 @@ export function openOthersClaimsModal({ url, relays }) {
         modal.querySelector('[data-action="close"]').addEventListener('click', close);
 
         const body = modal.querySelector('#xr-others-body');
+
+        // Render + wire the foreign-claim cards (re-run after each
+        // assessment so badges update in place).
+        const paint = async (events, byRelay) => {
+            body.innerHTML = await renderOthersClaims(events, byRelay);
+            body.querySelectorAll('[data-action="assess-foreign"]').forEach((btn) => {
+                btn.addEventListener('click', async () => {
+                    const ref = lastSeenForeignClaims()[Number(btn.dataset.fidx)];
+                    if (!ref) return;
+                    const result = await openAssessModal({
+                        claimRef: { coord: ref.coord, url: ref.url, text: ref.text, event_id: ref.event_id },
+                        claimText: ref.text
+                        // no anchorContext: the article DOM isn't this page's
+                    });
+                    if (result) {
+                        anyAssessed = true;
+                        await paint(events, byRelay);
+                    }
+                });
+            });
+        };
 
         // Kick off the query via the SW — it owns the relay pool.
         chrome.runtime.sendMessage({
@@ -673,16 +706,25 @@ export function openOthersClaimsModal({ url, relays }) {
                 body.innerHTML = `<div class="xr-others-modal__empty xr-others-modal__empty--err">Query failed: ${escapeHtml((resp && resp.error) || 'no response from service worker')}</div>`;
                 return;
             }
-            body.innerHTML = renderOthersClaims(resp.events, resp.byRelay);
+            paint(resp.events, resp.byRelay).catch((err) => {
+                body.innerHTML = `<div class="xr-others-modal__empty xr-others-modal__empty--err">Render failed: ${escapeHtml(err.message || String(err))}</div>`;
+            });
         });
     });
 }
 
 /**
  * Group kind-30040 events by author pubkey, parse tags into
- * display-ready rows, and render cards.
+ * display-ready rows, and render cards. Async since 11.3: fetches the
+ * canonical-keyed assessment map so already-judged foreign claims
+ * render their badges.
  */
-function renderOthersClaims(events, byRelay) {
+async function renderOthersClaims(events, byRelay) {
+    const [assessMap, canon] = await Promise.all([
+        assessmentsByCanonicalRef(),
+        makeClaimRefCanonicalizer()
+    ]);
+    foreignClaimRefs = [];
     const relayCount = Object.keys(byRelay || {}).length;
     const eventCount = (events || []).length;
 
@@ -709,7 +751,7 @@ function renderOthersClaims(events, byRelay) {
     const authorCards = [...byAuthor.entries()].map(([pubkey, evs]) => {
         evs.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
         const shortNpub = pubkey.slice(0, 12);
-        const claims = evs.map((ev) => renderForeignClaim(ev)).join('');
+        const claims = evs.map((ev) => renderForeignClaim(ev, assessMap, canon)).join('');
         return `
           <section class="xr-others-modal__author">
             <header class="xr-others-modal__author-head">
@@ -723,11 +765,25 @@ function renderOthersClaims(events, byRelay) {
     return summary + authorCards;
 }
 
+// Foreign claims rendered by the most recent others'-claims query, as
+// assessable refs: { coord, url, text }. Module state so the assess
+// wiring (and 11.4's link-candidate search) can reach them without
+// stuffing claim text into data attributes.
+let foreignClaimRefs = [];
+
+/** Foreign claims seen in the most recent others'-claims render. */
+export function lastSeenForeignClaims() {
+    return [...foreignClaimRefs];
+}
+
 // Render one foreign (others') kind-30040. Dual-read: understands both the
 // thin vocabulary (Phase 10.2 — content=text, `entity …about`, `source`,
 // `key`) and the legacy one (`claim-text`, `subject`/`object`, `claimant`,
 // `crux`) so claims published before the redesign still display.
-function renderForeignClaim(event) {
+// Phase 11.3: each row carries an Assess action + any existing
+// assessment's badges (matched by the event's coordinate — which
+// collapses to the local id when the claim is actually ours).
+function renderForeignClaim(event, assessMap, canon) {
     const tags = event.tags || [];
     const firstOf = (name) => {
         const t = tags.find((x) => x[0] === name);
@@ -751,13 +807,30 @@ function renderForeignClaim(event) {
     const aboutLine  = about.length ? `<div class="xr-claims__triple">About <em>${escapeHtml(about.join(', '))}</em></div>` : '';
     const sourceLine = source    ? `<div class="xr-claims__claimant">Per <em>${escapeHtml(source)}</em></div>` : '';
 
+    // Assessability needs a coordinate (d + author pubkey) and the
+    // url/text snapshots the assessment record stores.
+    const dTag = firstOf('d');
+    const url = firstOf('r');
+    let assessBlock = '';
+    let badges = '';
+    if (dTag && event.pubkey && text && url) {
+        const coord = `30040:${event.pubkey}:${dTag}`;
+        const idx = foreignClaimRefs.push({ coord, url, text, event_id: event.id || null }) - 1;
+        const existing = assessMap && canon ? assessMap.get(canon(coord)) : null;
+        badges = renderAssessmentBadges(existing);
+        assessBlock = `<button type="button" class="xr-claims__btn" data-action="assess-foreign" data-fidx="${idx}"
+                          title="${existing ? 'Edit your assessment' : 'Assess this claim'}">${existing ? '⚖✓' : '⚖'}</button>`;
+    }
+
     return `
       <article class="xr-claims__item ${isKey ? 'xr-claims__item--crux' : ''}">
         <div class="xr-claims__row-top">
           ${keyLine}
           <span class="xr-others-modal__when">${escapeHtml(when)}</span>
+          <div class="xr-claims__row-actions">${assessBlock}</div>
         </div>
         <div class="xr-claims__text">${escapeHtml(text)}</div>
+        ${badges}
         ${aboutLine}
         ${sourceLine}
       </article>`;

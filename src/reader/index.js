@@ -20,6 +20,8 @@ import { EvidenceLinker } from '../shared/evidence-linker.js';
 import * as ArchiveCache from '../shared/archive-cache.js';
 import { installEntityTagger, rehydrateEntityMarks } from './entity-tagger.js';
 import { openClaimModal, openEvidenceLinkModal, openOthersClaimsModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
+import { openAssessModal } from '../shared/assess-modal.js';
+import { AssessmentModel } from '../shared/assessment-model.js';
 
 const browserApi = typeof browser !== 'undefined' && browser.runtime ? browser : chrome;
 
@@ -411,9 +413,13 @@ function renderReader() {
                 sourceUrl:   state.article.url,
                 initialText: text,
                 context,
-                anchor
+                anchor,
+                // Sticky default (Phase 11.3): a case-capture session tags
+                // dozens of claims with the same case entity + people.
+                initialAbout: state.lastClaimAbout || []
             });
             if (saved) {
+                state.lastClaimAbout = saved.about || [];
                 toast('Claim saved', 'success', 2000);
                 await refreshClaimsBar();
             }
@@ -461,19 +467,35 @@ async function refreshClaimsBar() {
     if (othersBtn) {
         othersBtn.addEventListener('click', async () => {
             const relays = await getConfiguredRelays();
-            await openOthersClaimsModal({ url: state.article.url, relays });
+            const result = await openOthersClaimsModal({ url: state.article.url, relays });
+            // Assessing a "foreign" claim can touch one of OURS (its
+            // coordinate collapses to the local id) — refresh badges.
+            if (result && result.assessed) await refreshClaimsBar();
         });
     }
 
     // Wire per-row actions.
     host.querySelectorAll('.xr-claims__item').forEach((row) => {
         const id = row.dataset.id;
-        const editBtn = row.querySelector('[data-action="edit"]');
-        const delBtn  = row.querySelector('[data-action="delete"]');
-        const linkBtn = row.querySelector('[data-action="link"]');
+        const editBtn   = row.querySelector('[data-action="edit"]');
+        const delBtn    = row.querySelector('[data-action="delete"]');
+        const linkBtn   = row.querySelector('[data-action="link"]');
+        const assessBtn = row.querySelector('[data-action="assess"]');
         if (editBtn) editBtn.addEventListener('click', () => openEditClaim(id));
         if (delBtn)  delBtn.addEventListener('click',  () => confirmDeleteClaim(id));
         if (linkBtn) linkBtn.addEventListener('click', () => openLinkClaim(id, claims));
+        if (assessBtn) assessBtn.addEventListener('click', async () => {
+            const claim = claims.find((c) => c.id === id);
+            const result = await openAssessModal({
+                claimRef:  { claim_id: id },
+                claimText: claim ? claim.text : '',
+                anchorContext: { container: $('.xr-article__body') }
+            });
+            if (result) {
+                toast(result.deleted ? 'Assessment removed' : 'Assessment saved', 'success', 1500);
+                await refreshClaimsBar();
+            }
+        });
 
         // Per-link ✕ delete buttons.
         row.querySelectorAll('.xr-claims__link-del').forEach((btn) => {
@@ -517,22 +539,29 @@ async function openEditClaim(id) {
 async function confirmDeleteClaim(id) {
     const claim = await ClaimModel.get(id);
     if (!claim) return;
-    // Count any evidence links this claim participates in so the user
-    // sees the blast radius before confirming.
+    // Count any links / assessment this claim participates in so the
+    // user sees the blast radius before confirming.
     const links = await EvidenceLinker.getForClaim(id);
+    const assessment = await AssessmentModel.getByClaimRef(id);
     const lines = [];
     if (claim.publishedAt) {
         lines.push('Already-published kind-30040 stays on relays until NIP-09 delete (later phase).');
     }
     if (links.length > 0) {
-        lines.push(`${links.length} evidence link${links.length === 1 ? '' : 's'} will also be removed.`);
+        lines.push(`${links.length} claim link${links.length === 1 ? '' : 's'} will also be removed.`);
+    }
+    if (assessment) {
+        lines.push('Your assessment of it will also be removed.');
     }
     const msg = lines.length > 0
         ? `Delete claim? ${lines.join(' ')}`
         : 'Delete claim?';
     if (!confirm(msg)) return;
-    await ClaimModel.delete(id);
+    // Delete dependents FIRST: canonical-ref matching reads the claim
+    // registry, so it must still see the claim while matching.
     if (links.length > 0) await EvidenceLinker.deleteForClaim(id);
+    if (assessment) await AssessmentModel.delete(assessment.id);
+    await ClaimModel.delete(id);
     toast('Claim deleted', 'success', 2000);
     await refreshClaimsBar();
 }
