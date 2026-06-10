@@ -12,6 +12,20 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Assessment + claim-relationship wire builders** (Phase 11.2;
+  **wire-format addition**, publishing stays off). `buildAssessmentEvent`
+  (kind `30054`: claim referenced by `a` coordinate, `d` recomputable from
+  it, stance −2..+2, NIP-32-style `L`/`l` labels under `xray/assessment`
+  with per-label anchor/note tags, mirrored about-entity `p` tags, the
+  claim's `r` verbatim + normalized `i`/`k`) and `buildClaimRelationshipEvent`
+  (kind `30055`: two `a`-coordinate endpoints with `source`/`target` markers,
+  symmetric relationships sort endpoints so A↔B republishes the same `d`)
+  + `parseRelationshipEvent`. Both publish paths are gated behind the new
+  **`assessmentPublishing` flag (default off)** — nothing is emitted yet;
+  this slice makes the local records publish-*ready*. `docs/NIP_DRAFT.md`
+  gains §30040 (claim), §30054, §30055, updated querying filters, and the
+  30051-vs-30054 delineation (formal ClaimReview vs personal judgment).
+
 - **Assessment data layer** (Phase 11.1; local-only, no UI yet — see
   `docs/ASSESSMENTS_DESIGN.md`). New `assessment-model.js` +
   `assessment-taxonomy.js`: register a personal judgment on any claim —
@@ -137,6 +151,11 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Removed
 
+- **`buildEvidenceLinkEvent` (kind `30043`) and the reader's dead
+  evidence-link publish loop** (Phase 11.2). Publishing was already switched
+  off in 11.1; this removes the builder and plumbing. Already-published
+  30043s stay on relays (NIP-09 cleanup remains a later phase); local link
+  records are untouched and republish as `30055` when the flag turns on.
 - **The "Migrate from userscript" Settings tab** and its importer
   (`shared/userscript-migration.js` + tests). The legacy
   `nostr-article-capture` userscript data import is no longer shipped.

@@ -67,6 +67,52 @@ export const EVIDENCE_RELATIONSHIP_ICONS = {
 };
 
 // ------------------------------------------------------------------
+// Wire parse — kind 30055 (Phase 11.2)
+// ------------------------------------------------------------------
+
+/**
+ * Parse a foreign kind-30055 ClaimRelationship event into a
+ * display-ready object (the parseClaimEvent sibling — pure; no DOM,
+ * no storage). Endpoints come from the `a` tags' `source`/`target`
+ * markers, falling back to tag order; for symmetric relationships the
+ * markers carry no meaning. Returns null for anything that isn't a
+ * kind-30055 event.
+ *
+ * @param {{kind?: number, tags?: Array, content?: string, pubkey?: string, created_at?: number, id?: string}} event
+ * @returns {{id, relationship, source: {coord, eventId}, target: {coord, eventId}, note, suggestedBy, urls: string[], pubkey, created_at} | null}
+ */
+export function parseRelationshipEvent(event) {
+    if (!event || event.kind !== 30055) return null;
+    const tags = event.tags || [];
+    const first = (name) => { const t = tags.find((x) => x[0] === name); return t ? t[1] : ''; };
+    // Positional fallback applies only to UNMARKED tags — a lone tag
+    // carrying the opposite marker must not be misattributed (e.g. a
+    // link with only a target event id).
+    const marked = (name, marker, fallbackIndex) => {
+        const list = tags.filter((x) => x[0] === name);
+        const hit = list.find((x) => x[3] === marker);
+        if (hit) return hit;
+        const fallback = list[fallbackIndex];
+        return (fallback && !fallback[3]) ? fallback : null;
+    };
+    const srcA = marked('a', 'source', 0);
+    const tgtA = marked('a', 'target', 1);
+    const srcE = marked('e', 'source', 0);
+    const tgtE = marked('e', 'target', 1);
+    return {
+        id:           first('d') || (event.id || ''),
+        relationship: first('relationship'),
+        source:       { coord: (srcA && srcA[1]) || '', eventId: (srcE && srcE[1]) || null },
+        target:       { coord: (tgtA && tgtA[1]) || '', eventId: (tgtE && tgtE[1]) || null },
+        note:         event.content || '',
+        suggestedBy:  first('suggested-by') || 'user',
+        urls:         tags.filter((x) => x[0] === 'r').map((x) => x[1]),
+        pubkey:       event.pubkey || '',
+        created_at:   event.created_at || 0
+    };
+}
+
+// ------------------------------------------------------------------
 // ID derivation
 // ------------------------------------------------------------------
 

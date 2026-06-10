@@ -6,7 +6,7 @@ Web Content Annotations, Fact-Checks, and Topic Trust
 
 `draft` `optional`
 
-This NIP defines five event kinds and one tag extension that together let users publish structured, anchored metadata about web content — annotations, fact-checks, ratings, topic-scoped trust assertions, and helpfulness votes — and lets readers query, rank, and surface that metadata in context.
+This NIP defines eight event kinds and one tag extension that together let users publish structured, anchored metadata about web content — atomized claims, annotations, fact-checks, ratings, personal assessments, claim relationships, topic-scoped trust assertions, and helpfulness votes — and lets readers query, rank, and surface that metadata in context.
 
 It composes with rather than replaces:
 
@@ -49,6 +49,35 @@ The recommended selector types, in order of robustness preference:
 4. `FragmentSelector` — for media fragments only: `xywh=...` for images, `t=Ns` for time offsets in audio/video.
 
 Authors SHOULD include multiple selectors. Consumers SHOULD try them in order and treat the first match with confidence ≥ 0.7 as the resolution. Annotations whose selectors do not resolve on the current page are NOT discarded; they are surfaced as page-level annotations with a "could not be located" indicator.
+
+## Kind 30040 — Claim
+
+Addressable. An atomized assertion extracted from web content: the claim text plus the real-world entities it concerns. This is the unit the assessment (30054) and relationship (30055) kinds target.
+
+```jsonc
+{
+  "kind": 30040,
+  "tags": [
+    ["d", "claim_<sha256(source_url + '|' + normalized_text).slice(0,16)>"],
+    ["r", "<source-url>"],
+    ["title", "<source title>"],
+    ["p", "<entity-pubkey>", "", "about"],     // one per entity the claim concerns
+    ["entity", "<entity name>", "about"],      // human-readable mirror per entity
+    ["p", "<source-pubkey>", "", "source"],    // who asserts it, when a quoted entity
+    ["source", "<who said it>"],               // entity name or free text
+    ["anchor", "<selector-json>"],             // W3C selector array for the exact span
+    ["key", "true"],                           // present only on key claims
+    ["client", "<client>"]
+  ],
+  "content": "<the claim text>"
+}
+```
+
+The `d` tag is deterministic over the verbatim (trimmed) source URL and the whitespace-collapsed, casefolded claim text, so re-publishing an edited claim's metadata replaces rather than duplicates, and two captures of the same quote from the same page-as-captured by the *same* author coincide. (URL variants — tracking parameters, trailing slashes — derive distinct `d`s; the reference implementation does not normalize the URL input here.) Note that two **different** authors who capture the same quote derive the same `d` under different pubkeys — those are distinct addressable events, and consumers MUST treat the full `30040:<pubkey>:<d>` coordinate as the claim's identity.
+
+The `p` tags carry the queryable signal: `{ "kinds": [30040], "#p": ["<entity-pubkey>"] }` returns everything the network claims about an entity. The 4th-position `about`/`source` markers distinguish the entity's role; `#p` filters match either, so role-sensitive consumers filter client-side.
+
+*Caveat for the kind registry:* `30040` has known third-party uses in the wild (NKBIP-01 curated publications). The reference implementation predates this NIP; a kind renumber is a pre-submission question, not a format one.
 
 ## Kind 30050 — Annotation
 
@@ -237,6 +266,75 @@ A user MAY publish a TopicTrust assertion encrypted to themselves (using [NIP-44
 
 Clients computing trust graphs SHOULD treat the absence of an assertion as neutral, NOT as distrust. A separate distrust primitive is out of scope for this NIP and should be modeled via [NIP-51](51.md) mute lists or [NIP-56](56.md) reports.
 
+## Kind 30054 — Assessment
+
+Addressable. A **personal judgment** on one claim (kind 30040): a graded stance and/or typed issue labels, with an optional rationale. One assessment per (author, claim) — the `d` tag hashes the claim's coordinate, so editing republishes the same `d` and replaces.
+
+This kind is deliberately distinct from kind 30051 (FactCheck): a FactCheck is a *formal review against a published truth scale* (Schema.org ClaimReview — interoperable with professional fact-checking tooling), keyed by claim text. An Assessment is a *personal agree/disagree judgment with issue labels*, keyed by claim coordinate (stable under claim-text edits). They are different aggregation signals; consumers MUST NOT merge them.
+
+```jsonc
+{
+  "kind": 30054,
+  "tags": [
+    ["d", "assess:<sha256(claim_coordinate).slice(0,16)>"],
+    ["a", "30040:<claim-author-pubkey>:<claim-d>", "<relay-hint>"],
+    ["e", "<claim-event-id>", "<relay-hint>"],
+    ["p", "<claim-author-pubkey>"],
+    ["r", "<claim-r-verbatim>"],
+    ["i", "<normalized-url>"], ["k", "web"],
+    ["stance", "-1"],
+    ["L", "xray/assessment"],
+    ["l", "misleading", "xray/assessment"],
+    ["l", "fallacy/strawman", "xray/assessment"],
+    ["label-anchor", "misleading", "<selector-json>"],
+    ["label-note", "misleading", "<short note>"],
+    ["p", "<about-entity-pubkey>", "", "about"],
+    ["suggested-by", "user"],
+    ["client", "<client>"]
+  ],
+  "content": "<markdown rationale>"
+}
+```
+
+- The `a` tag is the claim reference; the `d` MUST be recomputable as `assess:<sha256(a-tag value).slice(0,16)>`. The `e` tag is an optional pointer to a specific seen event. At least one of `stance` / `l` MUST be present.
+- **`stance`** is a discrete integer in −2..+2: −2 strongly disagree · −1 disagree · 0 unsure · +1 agree · +2 strongly agree. Omitted for label-only assessments.
+- **Labels** use the `L`/`l` structure with the `xray/assessment` namespace. Per NIP-32, `L`/`l` on a non-1985 kind are formally *self*-labels; this kind **defines** them as applying to the `a`-referenced claim (a documented deviation). Clients wanting plain-NIP-32 aggregation SHOULD also publish a kind-1985 mirror (`a`-targeted at the claim, same `L`/`l`). The standardized vocabulary: factual (`false`, `unsupported`, `misleading`, `cherry-picked`, `missing-context`, `outdated`), consistency (`contradicts-prior-statement`, `flip-flop`, `moved-goalposts`), fallacy (`fallacy/strawman`, `fallacy/ad-hominem`, `fallacy/false-dilemma`, `fallacy/whataboutism`, `fallacy/circular`, `fallacy/slippery-slope`, `fallacy/appeal-to-authority`, `fallacy/appeal-to-consequences`), rhetorical (`loaded-language`, `unfalsifiable`, `ambiguous`, `euphemism`), provenance (`undisclosed-interest`). Other values are valid custom labels if they match the token grammar (lowercase `a-z0-9-`, at most one `/` namespace segment, ≤ 64 chars). At most one `l` per label value.
+- **`label-anchor`** / **`label-note`** enrich a label with the offending span (a W3C selector array, JSON, as in the 30040 `anchor` tag — a deviation from the content-borne selectors of 30050/30051, since `content` here is human-readable markdown) and a short note, keyed by the label value in slot 1.
+- **`r` carries the claim's `r` value verbatim** (the per-URL join key with the 30040); `i`/`k` carry the normalized NIP-73 form. Consumers joining assessments to claims by URL SHOULD use `#r`; consumers needing the canonical URL use `i`.
+- **About-entity `p` tags are mirrored from the claim** (4th-position marker `about`) so a single `{"kinds":[30040,30054],"#p":[entity]}` filter returns an entity's claims and their assessments together. The unmarked `p` is the claim's author (the kind-9803 idiom).
+- **`suggested-by`** is `user` or `llm:<model>` — provenance for machine-suggested judgments.
+- `stance`, `label-anchor`, `label-note`, and `suggested-by` are multi-letter tags and therefore not relay-indexed; all standard queries for this kind filter on `#a` / `#r` / `#p` / `#l` + `kinds`, with stance filtering client-side.
+
+## Kind 30055 — ClaimRelationship
+
+Addressable. A typed link between two claims — the cross-source contradiction tracker.
+
+```jsonc
+{
+  "kind": 30055,
+  "tags": [
+    ["d", "rel:<sha256(coordA + '|' + coordB + '|' + relationship).slice(0,16)>"],
+    ["a", "30040:<author-A>:<d-A>", "<relay-hint>", "source"],
+    ["a", "30040:<author-B>:<d-B>", "<relay-hint>", "target"],
+    ["e", "<event-id-A>", "", "source"],
+    ["e", "<event-id-B>", "", "target"],
+    ["relationship", "contradicts"],
+    ["r", "<claim-A-r-verbatim>"],
+    ["r", "<claim-B-r-verbatim>"],
+    ["i", "<normalized-url-A>"], ["i", "<normalized-url-B>"], ["k", "web"],
+    ["suggested-by", "user"],
+    ["client", "<client>"]
+  ],
+  "content": "<note>"
+}
+```
+
+- `relationship` MUST be one of: `contradicts`, `supports`, `updates`, `duplicates`.
+- **`contradicts` and `duplicates` are symmetric**: the two coordinates MUST be sorted lexically — both in the `d` hash and in `a`-tag order — so the same logical link republishes the same `d` regardless of creation direction, and the `source`/`target` markers carry no meaning. **`supports` and `updates` are directional** (source → target) and hash in semantic order.
+- The `d` MUST be recomputable from the two `a` tags + `relationship`. The 4th-position markers on `a`/`e` follow the same role-marker idiom as `p` tags elsewhere in this NIP.
+- `r` tags carry each claim's `r` verbatim, `i` tags the normalized forms (values deduplicated when both claims share a URL); one `k` = `web` accompanies them. Relationship events anchor to the claims (via `a`), not to pages — the URL tags exist for `#r`-join convenience and MAY be omitted when an endpoint's URL is unknown.
+- Surfacing rule: a `contradicts` link SHOULD surface a warning indicator on **both** claims wherever they render.
+
 ## Kind 30023 — `responds-to` tag (extension)
 
 A long-form article (kind 30023) MAY declare that it responds to one or more other pieces of content. Each response is a separate `responds-to` tag:
@@ -267,7 +365,7 @@ A client wishing to display all metadata for a URL SHOULD issue these filters in
 
 ```jsonc
 [
-  { "kinds": [30050, 30051, 30052], "#r": ["<url>"], "limit": 200 },
+  { "kinds": [30040, 30050, 30051, 30052, 30054, 30055], "#r": ["<url>"], "limit": 200 },
   { "kinds": [9802], "#r": ["<url>"], "limit": 100 },
   { "kinds": [1111], "#i": ["<url>"], "limit": 200 },
   { "kinds": [1985], "#r": ["<url>"], "limit": 100 },
@@ -278,6 +376,14 @@ A client wishing to display all metadata for a URL SHOULD issue these filters in
 ```
 
 The kind 30023 query catches articles published with `responds-to`; clients filter client-side to those with a matching `responds-to` tag.
+
+Other standard queries:
+
+```jsonc
+{ "kinds": [30040, 30054], "#p": ["<entity-pubkey>"], "limit": 200 }   // claims about an entity + their assessments
+{ "kinds": [30054, 30055], "#a": ["30040:<pubkey>:<d>"], "limit": 100 } // judgments + links targeting one claim
+{ "kinds": [30054], "#l": ["misleading"], "limit": 100 }                // everything labeled `misleading`
+```
 
 A client wishing to display helpfulness aggregates for a set of metadata events SHOULD then issue a follow-up `#a` query against kind 9803 keyed by the addressable coordinates of those events.
 
@@ -294,5 +400,5 @@ This NIP does not specify a ranking algorithm. Recommended approaches:
 
 ## Reference implementations
 
-- [x-ray browser extension](https://github.com/bryanmatthewsimonson/xray) — Phase 9, currently shipping kinds 30050 + the `responds-to` extension; remaining kinds scaffolded.
+- [x-ray browser extension](https://github.com/bryanmatthewsimonson/xray) — shipping kinds 30040 + 30050 + the `responds-to` extension; 30054/30055 builders implemented with publishing flag-gated (Phase 11); remaining kinds scaffolded.
 - *(second client, TBD pre-merge)*
