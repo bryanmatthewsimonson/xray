@@ -1,8 +1,9 @@
 # Assessments & contradictions — "Community Notes for the internet" (Phase 11)
 
-**Status:** design draft 2026-06-09 (revised same day after an adversarial
-review pass), for maintainer review before any feature code. Absorbs and
-supersedes the Phase 10.5 "metadata reframe" slice (see
+**Status:** design **agreed 2026-06-09** (drafted + revised after an
+adversarial review pass the same day; all five review questions answered
+in the affirmative by the maintainer — see the bottom of this doc).
+Absorbs and supersedes the Phase 10.5 "metadata reframe" slice (see
 [Reconciling Phase 10.5](#reconciling-phase-105) below).
 
 X-Ray already captures atomized claims (kind `30040`: text + the entities it
@@ -29,7 +30,7 @@ fast-moving, with abundant quotes from both sides.
 | Local-first | New `claim_assessments` storage key + the existing `evidence_links` key (records gain coordinate refs). Local capture always on; **publishing flag-gated** (`assessmentPublishing`, default off) |
 | Foreign claims | Assessable and linkable from day one — records key on the claim's event coordinate; assessable from the reader's others'-claims modal *and* the side panel's network-claims list |
 | LLM-ready | `suggested_by` (`'user'` \| `'llm:<model>'`, default `'user'`) on assessments, labels, and links; model + linker APIs callable programmatically |
-| Case modeling | **A case is an entity, not a new object.** Recommendation: add `case` as a first-class entity *type* in 11.1 (vs. plain `thing`) — open question #3 |
+| Case modeling | **A case is an entity, not a new object**, with `case` as a first-class entity *type* added in 11.1 (decided) |
 | Export | Per-case JSON + Markdown from the side-panel entity detail; deterministic content set |
 | Non-goals (v1) | Publishing/aggregating others' judgments (publish-*ready* only), LLM detection, trust-weighting |
 
@@ -411,7 +412,7 @@ picker (`contradicts / supports / updates / duplicates`), and a note field.
 - **Case dashboard = entity detail.** No new view; the entity detail *is*
   the case dashboard once claims are tagged about the case entity.
 
-### Case = entity (decision), `case` type recommended
+### Case = entity, with a `case` entity type (decided)
 
 A case ("John Dehlin excommunication", "Bricks & Minifigs scandal") is an
 **entity** — *not* a dedicated case object. A dedicated object would
@@ -419,18 +420,16 @@ duplicate the entity pipeline (keypair, picker, sync, publish) for one
 ontological nicety, while an entity gets all of it free: keypair → about
 p-tags → `#p` relay query → 10.4 aggregation → the new rollups, unchanged.
 
-Within that: **recommendation is a first-class `case` entity type** rather
-than overloading `thing`. Entity type is already wire-visible
-(`entity-type` tags in 30078 sync and 32125 relationship events), so
-deferring the type means the acceptance-case entities publish as `thing`
-and need a type migration + republish later — exactly the wire-vocabulary
-churn the compat rule exists to avoid. Adding it now is small and contained
-(`ENTITY_TYPES`, icon, tag map, the `event-builder.js` kind-0 type ternary,
-sidepanel filter chip) and gives the type filter, a cases-only "Export
-case" affordance, and a legible demo; entity-sync ingest already tolerates
-unknown type strings on older installs. Fallback if the maintainer
-disagrees: plain `thing` + naming convention works with zero schema work
-(open question #3).
+Within that: a **first-class `case` entity type** (decided) rather than
+overloading `thing`. Entity type is already wire-visible (`entity-type`
+tags in 30078 sync and 32125 relationship events), so deferring the type
+would mean the acceptance-case entities publish as `thing` and need a type
+migration + republish later — exactly the wire-vocabulary churn the compat
+rule exists to avoid. Adding it now is small and contained (`ENTITY_TYPES`,
+icon, tag map, the `event-builder.js` kind-0 type ternary, sidepanel filter
+chip) and gives the type filter, a cases-only "Export case" affordance, and
+a legible demo; entity-sync ingest already tolerates unknown type strings
+on older installs.
 
 ## Export (per case)
 
@@ -487,8 +486,8 @@ records provenance.
    `evidence-linker.js`: relationship enum, canonical refs +
    normalization, symmetric-relationship ordering, endpoint snapshots,
    matcher updates. The reader's evidence-link publish batch is switched
-   off (CHANGELOG + JOURNAL callout — behavior change). `case` entity type
-   (if confirmed). No UI, no new wire.
+   off (CHANGELOG + JOURNAL callout — behavior change). `case` entity
+   type. No UI, no new wire.
 2. **11.2 — Wire builders + NIP draft (the wire-format PR).**
    `buildAssessmentEvent` (30054), `buildClaimRelationshipEvent` (30055) +
    `parseRelationshipEvent` (new consumer code + first wire tests),
@@ -548,14 +547,14 @@ JOURNAL have been updated alongside this note):
   normalized-`i` rule above, and a 30040 normalization retrofit is left as
   a separately-called-out future wire change.
 
-## Open questions for review
+## Review questions — all decided 2026-06-09
 
-1. **Kind numbers `30054`/`30055`** in our draft-NIP block — OK?
+1. **Kind numbers `30054`/`30055`** in our draft-NIP block — ✅ confirmed.
    (30051-reuse and 30043-repurposing both examined and rejected above.)
 2. **1985 mirror** as the designated NIP-32 aggregation path in the publish
-   slice — agreed?
-3. **`case` entity type now** (recommended) vs. plain `thing` + naming
-   convention?
-4. **Label-only assessments** (stance null) — confirmed OK?
-5. **Export trigger** in the side-panel entity detail — right home, or also
-   want it in the reader?
+   slice — ✅ agreed.
+3. **`case` entity type now** (vs. plain `thing` + naming convention) —
+   ✅ confirmed; lands in 11.1.
+4. **Label-only assessments** (stance null) — ✅ confirmed.
+5. **Export trigger** in the side-panel entity detail — ✅ confirmed as the
+   home (reader export not requested).

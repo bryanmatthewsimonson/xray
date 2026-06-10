@@ -829,9 +829,9 @@ span) — plus typed **cross-source claim links** (`contradicts` / `supports` /
 Local-first (records usable immediately), publish-ready (clean mapping to
 new kinds `30054` assessment + `30055` claim relationship, flag-gated;
 legacy `30043` retires), LLM-ready (`suggested_by`). A case ("John Dehlin
-excommunication", "Bricks & Minifigs scandal") is an entity (recommended: a
-new `case` entity type); the side-panel entity view becomes the case
-dashboard; cases export as JSON + Markdown.
+excommunication", "Bricks & Minifigs scandal") is an entity with a new
+`case` entity type; the side-panel entity view becomes the case dashboard;
+cases export as JSON + Markdown. Design agreed 2026-06-09 (PR #37).
 
 Full design, wire formats, and rationale:
 [`docs/ASSESSMENTS_DESIGN.md`](ASSESSMENTS_DESIGN.md). Absorbs/supersedes the
