@@ -51,9 +51,11 @@ Phase 9  ████████████████████  complete 
 Cleanup  ████████████████████  complete — v0.5.x post-parity cleanup (Phases A–E):
                                 de-FAB / one capture surface, settings consolidation,
                                 client-tag unify, nac-→xr- rename, roadmap + docs refresh
-Phase 10 ████████████████░░░░  in progress — claim tracking (thin entity-centric
+Phase 10 ████████████████████  complete — claim tracking (thin entity-centric
                                 claims). 10.1–10.4 shipped; 10.5 (metadata reframe)
-                                remains (see below)
+                                superseded by Phase 11 (see below)
+Phase 11 ░░░░░░░░░░░░░░░░░░░░  design — assessments & contradictions
+                                (docs/ASSESSMENTS_DESIGN.md)
 ```
 
 Parity with the v4.2 userscript is reached; the project now operates as a
@@ -801,15 +803,55 @@ Implemented in slices (one PR each):
 - ✅ **10.3** Shared anchor (reuse `metadata/anchor-capture.js`). — #34
 - ✅ **10.4** Cross-source aggregation — "what the network says about entity P"
   (side-panel entity detail → *Load from relays*). — #35
-- ⬜ **10.5** Metadata reframe — fact-checks/ratings as responses-to-claims;
-  reconcile annotations onto the shared anchor; retire `30043`. *Not started —
-  the biggest/most exploratory slice; wants a short design note (responds-to
-  wire shape + disposition of existing `30043`/`30050` data) before code.*
+- 🔁 **10.5** Metadata reframe — *superseded by Phase 11* (see
+  [`docs/ASSESSMENTS_DESIGN.md`](ASSESSMENTS_DESIGN.md)): the
+  responses-to-claims idea becomes the assessment primitive (new kind
+  `30054`); `30043` retires as planned, replaced by the cross-source
+  claim-relationship kind `30055`; annotations keep the shared anchor
+  from 10.3.
 
 **10.1–10.4 shipped** (thin capture, lean entity-centric wire, precise
 anchoring, the cross-source entity payoff). A dedicated Phase 10 issue will
 pin exit criteria; this section + the design note are the intent, not the
 final spec.
+
+---
+
+## Phase 11 — Assessments & contradictions (next)
+
+"Community Notes for the internet": register a **personal judgment** on any
+captured claim (yours or a foreign one) and surface it wherever the claim or
+entity reappears. Two orthogonal axes per assessment — a graded stance
+(−2..+2) and typed issue labels (NIP-32 `xray/assessment`: `misleading`,
+`fallacy/strawman`, `flip-flop`, …, each optionally anchored to the offending
+span) — plus typed **cross-source claim links** (`contradicts` / `supports` /
+`updates` / `duplicates`) that put a ⚠ inconsistency badge on both claims.
+Local-first (records usable immediately), publish-ready (clean mapping to
+new kinds `30054` assessment + `30055` claim relationship, flag-gated;
+legacy `30043` retires), LLM-ready (`suggested_by`). A case ("John Dehlin
+excommunication", "Bricks & Minifigs scandal") is an entity with a new
+`case` entity type; the side-panel entity view becomes the case dashboard;
+cases export as JSON + Markdown. Design agreed 2026-06-09 (PR #37).
+
+Full design, wire formats, and rationale:
+[`docs/ASSESSMENTS_DESIGN.md`](ASSESSMENTS_DESIGN.md). Absorbs/supersedes the
+former 10.5 metadata-reframe slice.
+
+Slices (one PR each):
+
+- ⬜ **11.1** Taxonomy + assessment model + tests; evidence-linker
+  cross-source refs + relationship enum; legacy `30043` publish gated off.
+- ⬜ **11.2** Wire builders + NIP draft — `30054` assessment + `30055`
+  claim relationship (the wire-format PR).
+- ⬜ **11.3** Assess UI in the reader (stance chips, label badges, foreign
+  claims).
+- ⬜ **11.4** Cross-source link UI (search all captured claims; ⚠ badges).
+- ⬜ **11.5** Side-panel rollups + inconsistencies (case dashboard).
+- ⬜ **11.6** Case export (JSON + Markdown).
+
+Acceptance: demo end-to-end on the two driving cases (LDS Church v. Dehlin;
+Bricks & Minifigs v. Reckless Ben) — capture, atomize, assess, link a
+cross-video contradiction, see it on the case dashboard, export.
 
 ---
 
