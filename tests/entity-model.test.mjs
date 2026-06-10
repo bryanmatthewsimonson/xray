@@ -36,9 +36,10 @@ globalThis.chrome = {
 };
 
 const { EntityModel, ENTITY_TYPES, ENTITY_ICONS,
-        entityTypeToTag, generateEntityId } =
+        entityTypeToTag, generateEntityId, installEntityStorageBridge } =
     await import('../src/shared/entity-model.js');
 const { LocalKeyManager } = await import('../src/shared/local-key-manager.js');
+const { EventBuilder } = await import('../src/shared/event-builder.js');
 
 // Fresh state between groups of tests — tests that create entities
 // should be independent.
@@ -200,13 +201,42 @@ test('entity: markPublished records publishedAt without bumping updated', async 
 
 test('entity: tag name maps + ENTITY_TYPES is exhaustive', () => {
     // If we add a new entity type later, this map has to stay in sync
-    // with event-builder.js:121.
-    assert.deepEqual(ENTITY_TYPES.slice().sort(), ['organization', 'person', 'place', 'thing']);
+    // with the duplicated entity-tag ternaries inside
+    // EventBuilder.buildArticleEvent (the buildArticleEvent test below
+    // pins the emitted tag per type, so a divergence fails there).
+    assert.deepEqual(ENTITY_TYPES.slice().sort(), ['case', 'organization', 'person', 'place', 'thing']);
     assert.equal(entityTypeToTag('person'),       'person');
     assert.equal(entityTypeToTag('organization'), 'org');
     assert.equal(entityTypeToTag('place'),        'place');
     assert.equal(entityTypeToTag('thing'),        'thing');
+    assert.equal(entityTypeToTag('case'),         'case');
     for (const type of ENTITY_TYPES) {
         assert.ok(ENTITY_ICONS[type], `ENTITY_ICONS must cover ${type}`);
+    }
+});
+
+test('entity: buildArticleEvent name-tags every entity type per entityTypeToTag', async () => {
+    resetState();
+    installEntityStorageBridge();   // buildArticleEvent reads Storage.entities
+
+    const refs = [];
+    for (const type of ENTITY_TYPES) {
+        const e = await EntityModel.create({ name: `${type} fixture`, type });
+        refs.push({ entity_id: e.id, context: 'about' });
+    }
+
+    const ev = await EventBuilder.buildArticleEvent(
+        { url: 'https://example.com/article', title: 'T', content: 'Body text.' },
+        refs,
+        'a'.repeat(64)
+    );
+
+    // The duplicated entity-tag ternaries inside buildArticleEvent must
+    // agree with entityTypeToTag for every type — a new type that only
+    // updates the map falls back to 'place' silently on the wire.
+    for (const type of ENTITY_TYPES) {
+        const expected = [entityTypeToTag(type), `${type} fixture`, 'about'];
+        const tag = ev.tags.find((t) => t[0] === expected[0] && t[1] === expected[1]);
+        assert.deepEqual(tag, expected, `kind-30023 name tag for entity type '${type}'`);
     }
 });

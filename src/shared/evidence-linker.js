@@ -1,42 +1,68 @@
-// Evidence linker — Phase 5 C4 of the v4.2 parity push (issue #16).
+// Claim linker — Phase 5 C4, repurposed cross-source in Phase 11.1
+// (docs/ASSESSMENTS_DESIGN.md).
 //
-// An "evidence link" connects two claims with a typed relationship —
-// the user is asserting that one claim relates to another in a
-// specific way:
+// A link connects two claims with a typed relationship:
 //
-//   - supports         (source supports target)
-//   - contradicts      (source contradicts target)
-//   - contextualizes   (source provides context for target)
+//   - contradicts   (SYMMETRIC — the Phase 11 core: ⚠ on both claims)
+//   - supports      (directional: source supports target)
+//   - updates       (directional: source updates/replaces target)
+//   - duplicates    (SYMMETRIC — same assertion, different capture)
 //
-// Links are directional. (A supports B) is a different link from
-// (B supports A); the model doesn't auto-mirror. Separately, we
-// allow multiple links between the same claim pair with different
-// relationship types — the user can state both "A supports B on
-// point X" and "A contextualizes B on point Y" — so the hash-based
-// id includes the relationship so the combinations don't collide.
+// The legacy `contextualizes` is read-only: pre-11.1 records still
+// load and render, but new links can't use it.
 //
-// Published as kind-30043 events. `event-builder.buildEvidenceLinkEvent`
-// has been stubbed since Phase 2 and consumes this exact shape.
+// Endpoints take CANONICAL claim refs (see claim-ref.js): a local
+// claim id for claims we authored, a `30040:<pubkey>:<d>` coordinate
+// for foreign ones — so links work against claims we didn't author.
+// Refs are canonicalized before hashing, and symmetric relationships
+// sort their endpoints first, so one logical link always derives one
+// id (A↔B contradicts === B↔A contradicts). Directional links remain
+// distinct per direction, and multiple relationship types between the
+// same pair coexist (the id includes the relationship).
+//
+// Each endpoint may carry a `{ url, text, author_pubkey }` snapshot so
+// links against foreign claims render and export without a relay
+// round-trip; for local endpoints the snapshot auto-fills from the
+// claim registry.
+//
+// Wire: the legacy kind-30043 publish path is RETIRED as of 11.1; the
+// cross-source kind-30055 builder lands in 11.2 and publishes behind
+// the `assessmentPublishing` flag in a later slice.
 
 import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
 import { Utils } from './utils.js';
+import { ClaimModel } from './claim-model.js';
+import { normalize as normalizeUrl } from './metadata/url-normalizer.js';
+import {
+    CLAIM_RELATIONSHIPS, isSymmetricRelationship, isValidSuggestedBy
+} from './assessment-taxonomy.js';
+import {
+    isLocalClaimId, parseClaimCoord, assertValidClaimRef,
+    canonicalizeClaimRef, makeClaimRefCanonicalizer
+} from './claim-ref.js';
 
 // ------------------------------------------------------------------
 // Enums
 // ------------------------------------------------------------------
 
-export const EVIDENCE_RELATIONSHIPS = ['supports', 'contradicts', 'contextualizes'];
+export const EVIDENCE_RELATIONSHIPS = CLAIM_RELATIONSHIPS;
 
+// Legacy `contextualizes` keeps label/icon entries so pre-11.1
+// records render; it is not offered for new links.
 export const EVIDENCE_RELATIONSHIP_LABELS = {
-    supports:       'Supports',
     contradicts:    'Contradicts',
+    supports:       'Supports',
+    updates:        'Updates',
+    duplicates:     'Duplicates',
     contextualizes: 'Contextualizes'
 };
 
 export const EVIDENCE_RELATIONSHIP_ICONS = {
-    supports:       '↗',
     contradicts:    '⚔',
+    supports:       '↗',
+    updates:        '↻',
+    duplicates:     '≡',
     contextualizes: '◇'
 };
 
@@ -45,33 +71,79 @@ export const EVIDENCE_RELATIONSHIP_ICONS = {
 // ------------------------------------------------------------------
 
 /**
- * Deterministic id from (source, target, relationship). Same triple
- * always produces the same id — so a second `create()` with identical
- * inputs is idempotent, matching the entity / claim pattern.
+ * Deterministic id from (source, target, relationship). Expects
+ * already-canonical refs (create() canonicalizes first). Symmetric
+ * relationships sort the endpoints so both directions derive the same
+ * id; the relationship is in the hash so different types between the
+ * same pair don't collide. NOTE: this is the LOCAL id; the kind-30055
+ * wire d-tag hashes coordinates only and is derived at publish time.
  */
-export async function generateEvidenceLinkId(sourceClaimId, targetClaimId, relationship) {
-    const key = `${String(sourceClaimId || '')}|${String(targetClaimId || '')}|${String(relationship || '')}`;
+export async function generateEvidenceLinkId(sourceRef, targetRef, relationship) {
+    let a = String(sourceRef || '');
+    let b = String(targetRef || '');
+    if (isSymmetricRelationship(relationship) && b < a) [a, b] = [b, a];
+    const key = `${a}|${b}|${String(relationship || '')}`;
     const hash = await Crypto.sha256(key);
     return `link_${hash.slice(0, 16)}`;
 }
 
 // ------------------------------------------------------------------
-// Validation
+// Validation + normalization
 // ------------------------------------------------------------------
 
 function assertValidRelationship(relationship) {
-    if (!EVIDENCE_RELATIONSHIPS.includes(relationship)) {
-        throw new Error(`Invalid relationship: ${relationship} (expected one of ${EVIDENCE_RELATIONSHIPS.join(', ')})`);
+    if (!CLAIM_RELATIONSHIPS.includes(relationship)) {
+        throw new Error(`Invalid relationship: ${relationship} (expected one of ${CLAIM_RELATIONSHIPS.join(', ')})`);
     }
 }
 
-function assertValidClaimId(id, label) {
-    const trimmed = String(id || '').trim();
-    if (!trimmed) throw new Error(`${label} is required`);
-    if (!/^claim_[0-9a-f]{16}$/.test(trimmed)) {
-        throw new Error(`${label} must be a claim id (got ${trimmed})`);
+function assertValidSuggestedBy(value) {
+    const v = value === undefined || value === null ? 'user' : value;
+    if (!isValidSuggestedBy(v)) {
+        throw new Error(`Invalid suggested_by: ${v} (expected 'user' or 'llm:<model>')`);
     }
-    return trimmed;
+    return v;
+}
+
+/**
+ * Endpoint snapshot: caller-supplied for foreign refs, auto-filled
+ * from the claim registry for local ones. Null when neither source
+ * has it (e.g. tests with fake ids) — renderers must tolerate that.
+ * A coordinate ref carries its author pubkey, so that backfills when
+ * the caller didn't supply one.
+ */
+async function resolveSnapshot(ref, given) {
+    if (given && (given.url || given.text)) {
+        const coord = parseClaimCoord(ref);
+        return {
+            url:           given.url ? normalizeUrl(String(given.url)) : '',
+            text:          String(given.text || ''),
+            author_pubkey: given.author_pubkey || (coord ? coord.pubkey : null)
+        };
+    }
+    if (isLocalClaimId(ref)) {
+        const claim = await ClaimModel.get(ref);
+        if (claim) {
+            return {
+                url:           normalizeUrl(claim.source_url),
+                text:          claim.text,
+                author_pubkey: claim.publishedPubkey || null
+            };
+        }
+    }
+    return null;
+}
+
+// Backfill fields for records written before 11.1, read-time only.
+function normalizeLink(record) {
+    if (!record) return record;
+    if ('suggested_by' in record) return record;
+    return {
+        ...record,
+        suggested_by:    'user',
+        source_snapshot: record.source_snapshot || null,
+        target_snapshot: record.target_snapshot || null
+    };
 }
 
 // ------------------------------------------------------------------
@@ -82,24 +154,33 @@ export const EvidenceLinker = {
     get: async (id) => {
         if (!id) return null;
         const all = await Storage.get('evidence_links', {});
-        return all[id] || null;
+        return all[id] ? normalizeLink(all[id]) : null;
     },
 
     getAll: async () => {
-        return await Storage.get('evidence_links', {});
+        const all = await Storage.get('evidence_links', {});
+        const out = {};
+        for (const [id, rec] of Object.entries(all)) out[id] = normalizeLink(rec);
+        return out;
     },
 
     /**
-     * Every link where `claimId` is either source OR target. Used by
-     * the reader's claim card to show outgoing + incoming links.
+     * Every link where `ref` is either endpoint. BOTH the query ref
+     * and the stored endpoints are canonicalized before matching —
+     * canonicality is time-dependent (a stored coordinate becomes
+     * collapsible once its claim records a publishedPubkey), so a
+     * drifted endpoint must still match. Used by the reader's claim
+     * card and the ⚠ badge logic.
      */
-    getForClaim: async (claimId) => {
-        if (!claimId) return [];
+    getForClaim: async (ref) => {
+        if (!ref) return [];
+        const canonical = await canonicalizeClaimRef(ref);
+        const canon = await makeClaimRefCanonicalizer();
         const all = await Storage.get('evidence_links', {});
         const out = [];
         for (const link of Object.values(all)) {
-            if (link.source_claim_id === claimId || link.target_claim_id === claimId) {
-                out.push(link);
+            if (canon(link.source_claim_id) === canonical || canon(link.target_claim_id) === canonical) {
+                out.push(normalizeLink(link));
             }
         }
         out.sort((a, b) => (a.created || 0) - (b.created || 0));
@@ -107,23 +188,50 @@ export const EvidenceLinker = {
     },
 
     /**
-     * Create a new evidence link. Idempotent on the
-     * (source, target, relationship) triple — second create with the
-     * same triple returns the existing record rather than surprising
-     * the caller.
+     * Create a link. Endpoints accept local claim ids or 30040
+     * coordinates; idempotent on the canonical (source, target,
+     * relationship) triple — for symmetric relationships, on the
+     * unordered pair.
      */
-    create: async ({ source_claim_id, target_claim_id, relationship, note }) => {
-        const source = assertValidClaimId(source_claim_id, 'source_claim_id');
-        const target = assertValidClaimId(target_claim_id, 'target_claim_id');
+    create: async ({ source_claim_id, target_claim_id, relationship, note, suggested_by,
+                     source_snapshot, target_snapshot }) => {
+        assertValidClaimRef(source_claim_id, 'source_claim_id');
+        assertValidClaimRef(target_claim_id, 'target_claim_id');
         assertValidRelationship(relationship);
+
+        let source = await canonicalizeClaimRef(source_claim_id, 'source_claim_id');
+        let target = await canonicalizeClaimRef(target_claim_id, 'target_claim_id');
+        let sourceSnap = source_snapshot || null;
+        let targetSnap = target_snapshot || null;
 
         if (source === target) {
             throw new Error('Cannot link a claim to itself');
         }
 
+        // Symmetric relationships store endpoints in sorted order so
+        // both creation directions land on the same record.
+        if (isSymmetricRelationship(relationship) && target < source) {
+            [source, target] = [target, source];
+            [sourceSnap, targetSnap] = [targetSnap, sourceSnap];
+        }
+
         const id = await generateEvidenceLinkId(source, target, relationship);
         const all = await Storage.get('evidence_links', {});
-        if (all[id]) return all[id];
+        if (all[id]) return normalizeLink(all[id]);
+        // Match-based dedupe too: an endpoint stored under a ref whose
+        // canonicality has since drifted derives a different id for the
+        // same logical pair — it must still win.
+        {
+            const canon = await makeClaimRefCanonicalizer();
+            let qa = canon(source), qb = canon(target);
+            if (isSymmetricRelationship(relationship) && qb < qa) [qa, qb] = [qb, qa];
+            for (const link of Object.values(all)) {
+                if (link.relationship !== relationship) continue;
+                let sa = canon(link.source_claim_id), sb = canon(link.target_claim_id);
+                if (isSymmetricRelationship(relationship) && sb < sa) [sa, sb] = [sb, sa];
+                if (sa === qa && sb === qb) return normalizeLink(link);
+            }
+        }
 
         const now = Math.floor(Date.now() / 1000);
         const record = {
@@ -131,15 +239,18 @@ export const EvidenceLinker = {
             source_claim_id: source,
             target_claim_id: target,
             relationship,
-            note: note || '',
-            created: now,
-            updated: now,
-            publishedAt: null,
+            note:            note || '',
+            suggested_by:    assertValidSuggestedBy(suggested_by),
+            source_snapshot: await resolveSnapshot(source, sourceSnap),
+            target_snapshot: await resolveSnapshot(target, targetSnap),
+            created:         now,
+            updated:         now,
+            publishedAt:     null,
             publishedEventId: null
         };
         all[id] = record;
         await Storage.set('evidence_links', all);
-        Utils.log('Created evidence link:', id, relationship);
+        Utils.log('Created claim link:', id, relationship);
         return record;
     },
 
@@ -152,7 +263,7 @@ export const EvidenceLinker = {
         const all = await Storage.get('evidence_links', {});
         const record = all[id];
         if (!record) throw new Error(`Evidence link not found: ${id}`);
-        const patched = { ...record };
+        const patched = normalizeLink({ ...record });
         if ('note' in updates) patched.note = updates.note || '';
         patched.updated = Math.floor(Date.now() / 1000);
         all[id] = patched;
@@ -169,15 +280,19 @@ export const EvidenceLinker = {
     },
 
     /**
-     * Delete every link that references `claimId`. Called by the
-     * reader's claim-delete flow so links aren't orphaned. Returns
-     * the number of links removed.
+     * Delete every link that references the claim (by either
+     * representation — stored endpoints are canonicalized too, so
+     * drifted refs still match). Called by the reader's claim-delete
+     * flow so links aren't orphaned. Returns the number removed.
      */
-    deleteForClaim: async (claimId) => {
+    deleteForClaim: async (ref) => {
+        if (!ref) return 0;
+        const canonical = await canonicalizeClaimRef(ref);
+        const canon = await makeClaimRefCanonicalizer();
         const all = await Storage.get('evidence_links', {});
         let removed = 0;
         for (const [id, link] of Object.entries(all)) {
-            if (link.source_claim_id === claimId || link.target_claim_id === claimId) {
+            if (canon(link.source_claim_id) === canonical || canon(link.target_claim_id) === canonical) {
                 delete all[id];
                 removed++;
             }
@@ -194,6 +309,6 @@ export const EvidenceLinker = {
         if (eventId) record.publishedEventId = eventId;
         all[id] = record;
         await Storage.set('evidence_links', all);
-        return record;
+        return normalizeLink(record);
     }
 };

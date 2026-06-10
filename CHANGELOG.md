@@ -12,6 +12,22 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Assessment data layer** (Phase 11.1; local-only, no UI yet — see
+  `docs/ASSESSMENTS_DESIGN.md`). New `assessment-model.js` +
+  `assessment-taxonomy.js`: register a personal judgment on any claim —
+  yours or a foreign one referenced by its `30040:<pubkey>:<d>` coordinate —
+  with a graded stance (−2..+2), typed issue labels (`misleading`,
+  `fallacy/strawman`, `flip-flop`, … under the `xray/assessment` namespace,
+  each optionally anchored + noted), a markdown rationale, and a
+  `suggested_by` provenance field (`'user' | 'llm:<model>'`). One assessment
+  per claim, idempotent across the publish boundary via canonical claim refs
+  (`claim-ref.js`). Records live under the new `claim_assessments` storage
+  key; the kind-30054 wire mapping lands in slice 11.2 and publishing stays
+  flag-gated.
+- **`case` entity type** (🗂️) for modeling a real-world story under
+  assessment ("John Dehlin excommunication") — the side-panel entity detail
+  becomes the case dashboard in later Phase 11 slices.
+
 - **"Claims about this entity" — cross-source aggregation** (Phase 10.4). The
   side-panel entity browser's detail view gains a **Load from relays** action
   that queries `kind 30040` across your configured relays by the entity's
@@ -27,6 +43,27 @@ Sections per release: **Added** (new features), **Changed**
   show too.
 
 ### Changed
+
+- **Claim links are cross-source and re-typed** (Phase 11.1). The link
+  vocabulary is now `contradicts / supports / updates / duplicates`
+  (`contextualizes` is read-only legacy: old records still render; new links
+  can't use it). Endpoints accept local claim ids **or** foreign claim
+  coordinates, and symmetric relationships (`contradicts`, `duplicates`)
+  derive one id regardless of creation direction. Links now carry
+  `suggested_by` + per-endpoint `{url, text}` snapshots.
+
+- **Evidence-link (kind `30043`) publishing is switched off** (Phase 11.1;
+  **behavior change**). The reader's batch publish no longer emits kind-30043
+  events — the kind is retired per the agreed Phase 11 design; cross-source
+  links will publish as the new kind `30055` behind the `assessmentPublishing`
+  flag in a later slice. Local link records are unaffected, and
+  already-published 30043s stay on relays (NIP-09 cleanup remains a later
+  phase).
+
+- **Claims record their publishing pubkey** (`ClaimModel.markPublished`
+  gains `publishedPubkey` + an append-only `publishedPubkeys` history) so a
+  published claim's addressable coordinate stays recoverable even if the
+  signing identity later changes.
 
 - **Claims record a precise text-anchor** (Phase 10.3). When you mark a
   claim, X-Ray now captures a W3C-Web-Annotation selector (exact text +

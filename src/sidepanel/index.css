@@ -233,6 +233,7 @@ body.xr-side {
 .xr-side__type-badge--organization { border-color: color-mix(in srgb, #22d3ee 60%, transparent); }
 .xr-side__type-badge--place        { border-color: color-mix(in srgb, #34d399 60%, transparent); }
 .xr-side__type-badge--thing        { border-color: color-mix(in srgb, #a78bfa 60%, transparent); }
+.xr-side__type-badge--case         { border-color: color-mix(in srgb, #fb923c 60%, transparent); }
 
 /* ---------------- form fields ---------------- */
 

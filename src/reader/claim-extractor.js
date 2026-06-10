@@ -470,7 +470,7 @@ function buildLinkModalHtml(sourceClaim, candidates) {
           </div>
 
           <label class="xr-claim-modal__field">
-            <span class="xr-claim-modal__label">Note <em>(optional — becomes the kind-30043 content)</em></span>
+            <span class="xr-claim-modal__label">Note <em>(optional — stored with the link)</em></span>
             <textarea class="xr-link-modal__note" rows="2"
                       placeholder="Why does this link hold?"></textarea>
           </label>

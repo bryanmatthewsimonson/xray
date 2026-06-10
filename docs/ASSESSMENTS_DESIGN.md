@@ -155,10 +155,13 @@ source for model validation, UI chips, and the NIP draft), namespace
 - **Rhetorical:** `loaded-language`, `unfalsifiable`, `ambiguous`,
   `euphemism`
 - **Provenance:** `undisclosed-interest`
-- **Escape hatch:** any other value is accepted as a custom label, stored
-  and published verbatim under the same namespace, rendered with a "custom"
-  affordance in the UI. (Standard labels aggregate; custom ones still ride
-  the same rails.)
+- **Escape hatch:** any other value matching the label token grammar —
+  lowercase `a-z0-9-`, at most one `family/value` namespace segment,
+  ≤ 64 chars — is accepted as a custom label, stored and published verbatim
+  under the same namespace, rendered with a "custom" affordance in the UI.
+  (Standard labels aggregate; custom ones still ride the same rails. The
+  grammar keeps custom values wire-safe and aggregatable; 11.3's input
+  normalizes case/whitespace rather than rejecting.)
 
 The set is grouped + exported flat; the exhaustive-enum test idiom
 (`deepEqual(.slice().sort())`, as for `EVIDENCE_RELATIONSHIPS`) pins it.
@@ -426,7 +429,8 @@ tags in 30078 sync and 32125 relationship events), so deferring the type
 would mean the acceptance-case entities publish as `thing` and need a type
 migration + republish later — exactly the wire-vocabulary churn the compat
 rule exists to avoid. Adding it now is small and contained (`ENTITY_TYPES`,
-icon, tag map, the `event-builder.js` kind-0 type ternary, sidepanel filter
+icon, tag map, the `event-builder.js` `buildArticleEvent` (kind-30023)
+entity-tag ternaries, sidepanel filter
 chip) and gives the type filter, a cases-only "Export case" affordance, and
 a legible demo; entity-sync ingest already tolerates unknown type strings
 on older installs.

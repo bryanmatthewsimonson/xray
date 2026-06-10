@@ -143,6 +143,8 @@ function openPopover({ x, y, initialText }) {
                 title="Place">${ENTITY_ICONS.place}</button>
         <button type="button" class="xr-tagger-popover__type-btn" data-type="thing"
                 title="Thing">${ENTITY_ICONS.thing}</button>
+        <button type="button" class="xr-tagger-popover__type-btn" data-type="case"
+                title="Case">${ENTITY_ICONS.case}</button>
       </div>
       <div class="xr-tagger-popover__handoff">
         <button type="button" class="xr-tagger-popover__claim-btn" title="Open the claim form with this selection">

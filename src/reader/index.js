@@ -1391,9 +1391,10 @@ async function publish() {
     // published + unchanged claims).
     const relationshipsToPublish = await resolveRelationshipsToPublish(claimsToPublish, state.article.url);
 
-    // kind-30043 evidence links — any link touching two claims on this
-    // article whose gate is open.
-    const linksToPublish = await resolveEvidenceLinksToPublish(allArticleClaims);
+    // Claim links: the legacy kind-30043 publish path is retired
+    // (Phase 11.1) — this always resolves to [] until the kind-30055
+    // path lands behind the assessmentPublishing flag.
+    const linksToPublish = await resolveEvidenceLinksToPublish();
 
     const totalEvents = 1 + commentList.length + entitiesToPublish.length
                           + claimsToPublish.length + relationshipsToPublish.length
@@ -1659,7 +1660,9 @@ async function publish() {
                         // stable pointer. Re-fetch signed id from results
                         // array if relay echoed it.
                         const signedId = resp.signedEvent?.id || null;
-                        try { await ClaimModel.markPublished(claim.id, signedId); }
+                        // Record WHO signed too (Phase 11.1) — the claim's
+                        // addressable coordinate needs the publishing pubkey.
+                        try { await ClaimModel.markPublished(claim.id, signedId, userPubkey); }
                         catch (_) { /* best-effort */ }
                     } else {
                         claimResults.fail++;
@@ -1868,26 +1871,16 @@ function collectClaimEntityIds(claims) {
 }
 
 /**
- * Evidence links whose kind-30043 event still needs to publish.
- * Pulled from `EvidenceLinker.getAll()` filtered to links where both
- * endpoints are claims on the current article — cross-article links
- * are a future feature (C4 scope note: today we only create links
- * between claims on the same article via the modal UI).
- *
- * Same `updated > publishedAt` gate so edits to a link's note or
- * re-creations re-emit.
+ * Phase 11.1: the legacy kind-30043 evidence-link publish path is
+ * RETIRED (docs/ASSESSMENTS_DESIGN.md — "30043 retires"). Link records
+ * stay local-only until the cross-source kind-30055 publish path lands
+ * behind the `assessmentPublishing` flag (Phase 11 publish slice);
+ * already-published 30043s stay on relays per the standing NIP-09
+ * posture. Returning [] keeps the batch flow untouched — every count
+ * downstream guards on `> 0`.
  */
-async function resolveEvidenceLinksToPublish(claimsForThisArticle) {
-    if (!Array.isArray(claimsForThisArticle) || claimsForThisArticle.length === 0) return [];
-    const claimIds = new Set(claimsForThisArticle.map((c) => c.id));
-    const all = await EvidenceLinker.getAll();
-    const out = [];
-    for (const link of Object.values(all)) {
-        if (!claimIds.has(link.source_claim_id) || !claimIds.has(link.target_claim_id)) continue;
-        if (link.publishedAt && link.updated <= link.publishedAt) continue;
-        out.push(link);
-    }
-    return out;
+async function resolveEvidenceLinksToPublish() {
+    return [];
 }
 
 /**

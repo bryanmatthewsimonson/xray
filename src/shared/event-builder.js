@@ -154,8 +154,9 @@ export const EventBuilder = {
         tags.push(['p', entity.keypair.pubkey, '', entityRef.context]);
         taggedPubkeys.add(entity.keypair.pubkey);
         
-        // Add name tag for clients that don't resolve pubkeys
-        const tagType = entity.type === 'person' ? 'person' : entity.type === 'organization' ? 'org' : entity.type === 'thing' ? 'thing' : 'place';
+        // Add name tag for clients that don't resolve pubkeys.
+        // Keep in sync with entity-model.js entityTypeToTag.
+        const tagType = entity.type === 'person' ? 'person' : entity.type === 'organization' ? 'org' : entity.type === 'thing' ? 'thing' : entity.type === 'case' ? 'case' : 'place';
         tags.push([tagType, entity.name, entityRef.context]);
 
         // If this entity is an alias, also tag the canonical entity
@@ -164,7 +165,7 @@ export const EventBuilder = {
           if (canonical && canonical.keypair && !taggedPubkeys.has(canonical.keypair.pubkey)) {
             tags.push(['p', canonical.keypair.pubkey, '', entityRef.context]);
             taggedPubkeys.add(canonical.keypair.pubkey);
-            const canonTagType = canonical.type === 'person' ? 'person' : canonical.type === 'organization' ? 'org' : canonical.type === 'thing' ? 'thing' : 'place';
+            const canonTagType = canonical.type === 'person' ? 'person' : canonical.type === 'organization' ? 'org' : canonical.type === 'thing' ? 'thing' : canonical.type === 'case' ? 'case' : 'place';
             tags.push([canonTagType, canonical.name, entityRef.context]);
           }
         }
