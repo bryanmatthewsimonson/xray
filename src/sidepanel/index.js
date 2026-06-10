@@ -16,7 +16,10 @@
 // see reader/index.js `resolveEntitiesToPublish`).
 
 import { EntityModel, ENTITY_TYPES, ENTITY_ICONS, installEntityStorageBridge } from '../shared/entity-model.js';
-import { parseClaimEvent } from '../shared/claim-model.js';
+import { parseClaimEvent, ClaimModel } from '../shared/claim-model.js';
+import { EvidenceLinker, EVIDENCE_RELATIONSHIP_ICONS } from '../shared/evidence-linker.js';
+import { openAssessModal, renderAssessmentBadges, assessmentsByCanonicalRef } from '../shared/assess-modal.js';
+import { makeClaimRefCanonicalizer, isLocalClaimId, buildClaimCoord } from '../shared/claim-ref.js';
 import { accountsForEntity, listUnlinkedAccounts, linkAccountToEntity, unlinkAccount } from '../shared/identity/account-registry.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { Crypto } from '../shared/crypto.js';
@@ -246,12 +249,24 @@ function renderDetail(entity) {
         <button type="button" class="xr-side__ghost-btn" id="xr-link-account">Link an account…</button>
       </div>
 
+      <div class="xr-side__local-claims">
+        <h3>Your claims about this entity</h3>
+        <p class="xr-side__hint">Claims you've captured that are about ${escapeHtml(entity.name)} — with your stance and labels. This is the case dashboard's local half; it works before anything is published.</p>
+        <div id="xr-local-claims">Loading…</div>
+      </div>
+
       <div class="xr-side__network-claims">
         <h3>Claims about this entity</h3>
         <p class="xr-side__hint">What the network has published about ${escapeHtml(entity.name)} — kind-30040 claims that reference this entity's key, across your configured relays.</p>
         <div id="xr-network-claims">
           <button type="button" class="xr-side__ghost-btn" id="xr-load-network-claims">Load from relays</button>
         </div>
+      </div>
+
+      <div class="xr-side__inconsistencies">
+        <h3>⚠ Inconsistencies</h3>
+        <p class="xr-side__hint">Contradiction links where at least one endpoint is a claim about ${escapeHtml(entity.name)}.</p>
+        <div id="xr-inconsistencies">Loading…</div>
       </div>
 
       <div class="xr-side__publish">
@@ -294,6 +309,16 @@ function renderDetail(entity) {
     // Network claims about this entity (Phase 10.4) — on-demand relay query.
     const loadClaimsBtn = $('#xr-load-network-claims');
     if (loadClaimsBtn) loadClaimsBtn.addEventListener('click', () => loadNetworkClaims(entity));
+
+    // Phase 11.5 — the case-dashboard halves. Storage-change re-renders
+    // wipe the shell, so repaint the network list from the stash rather
+    // than resetting to the Load button.
+    renderLocalClaims(entity);
+    renderInconsistencies(entity);
+    if (state.networkClaims && state.networkClaims.entityId === entity.id) {
+        paintNetworkClaims(entity, state.networkClaims.events, state.networkClaims.byRelay)
+            .catch(() => {});
+    }
 
     // Keypair controls.
     $('#xr-copy-npub').addEventListener('click', () => {
@@ -366,12 +391,62 @@ async function loadNetworkClaims(entity) {
             host.innerHTML = `<div class="xr-side__canonical-none">Query failed: ${escapeHtml((resp && resp.error) || 'no response from service worker')}</div>`;
             return;
         }
-        host.innerHTML = renderNetworkClaims(resp.events, resp.byRelay);
+        // Replaceable-event dedup (Phase 11.5): queryRelays dedups by
+        // event id only, so a republished claim appears once per
+        // version — keep the latest per (kind, pubkey, d).
+        const events = dedupeReplaceable(resp.events);
+        state.networkClaims = { entityId: entity.id, events, byRelay: resp.byRelay };
+        paintNetworkClaims(entity, events, resp.byRelay).catch((err) => {
+            host.innerHTML = `<div class="xr-side__canonical-none">Render failed: ${escapeHtml(err.message || String(err))}</div>`;
+        });
+    });
+}
+
+/** Latest-wins per (kind, pubkey, d) — NIP-01 addressable semantics. */
+function dedupeReplaceable(events) {
+    const best = new Map();
+    for (const ev of (Array.isArray(events) ? events : [])) {
+        const d = ((ev.tags || []).find((t) => t[0] === 'd') || [])[1] || ev.id;
+        const key = `${ev.kind}:${ev.pubkey}:${d}`;
+        const seen = best.get(key);
+        if (!seen || (ev.created_at || 0) > (seen.created_at || 0)) best.set(key, ev);
+    }
+    return [...best.values()];
+}
+
+// Refs for the assess buttons in the network list (claim text stays
+// out of data attributes).
+let netClaimRefs = [];
+
+/** Render + wire the network-claims list (re-runs after assessments). */
+async function paintNetworkClaims(entity, events, byRelay) {
+    const host = $('#xr-network-claims');
+    if (!host) return;
+    const [assessMap, canon] = await Promise.all([
+        assessmentsByCanonicalRef(),
+        makeClaimRefCanonicalizer()
+    ]);
+    netClaimRefs = [];
+    host.innerHTML = renderNetworkClaims(events, byRelay, assessMap, canon);
+    host.querySelectorAll('[data-action="assess-net"]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const ref = netClaimRefs[Number(btn.dataset.nidx)];
+            if (!ref) return;
+            const result = await openAssessModal({
+                claimRef:  { coord: ref.coord, url: ref.url, text: ref.text, event_id: ref.event_id },
+                claimText: ref.text
+            });
+            if (result) {
+                await paintNetworkClaims(entity, events, byRelay);
+                renderInconsistencies(entity);
+                renderLocalClaims(entity);
+            }
+        });
     });
 }
 
 /** Group kind-30040 events by author pubkey and render claim cards. */
-function renderNetworkClaims(events, byRelay) {
+function renderNetworkClaims(events, byRelay, assessMap, canon) {
     const relayCount = Object.keys(byRelay || {}).length;
     const list = Array.isArray(events) ? events : [];
     if (list.length === 0) {
@@ -385,7 +460,7 @@ function renderNetworkClaims(events, byRelay) {
     const summary = `<div class="xr-side__net-summary">${list.length} claim${list.length === 1 ? '' : 's'} from ${byAuthor.size} author${byAuthor.size === 1 ? '' : 's'} · ${relayCount} relay${relayCount === 1 ? '' : 's'}</div>`;
     const cards = [...byAuthor.entries()].map(([pubkey, evs]) => {
         evs.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-        const rows = evs.map((ev) => renderNetworkClaimRow(parseClaimEvent(ev))).join('');
+        const rows = evs.map((ev) => renderNetworkClaimRow(parseClaimEvent(ev), ev, assessMap, canon)).join('');
         return `
           <section class="xr-side__net-author">
             <header class="xr-side__net-author-head">👤 ${escapeHtml(pubkey.slice(0, 12))}… <span class="xr-side__net-author-count">${evs.length}</span></header>
@@ -395,20 +470,162 @@ function renderNetworkClaims(events, byRelay) {
     return summary + cards;
 }
 
-function renderNetworkClaimRow(c) {
+function renderNetworkClaimRow(c, ev, assessMap, canon) {
     const when = c.created_at ? fmtRelative(c.created_at) : '';
     const key = c.isKey ? `<span class="xr-side__net-key">⭐ key</span>` : '';
     const source = c.source ? `<div class="xr-side__net-source">Per <em>${escapeHtml(c.source)}</em></div>` : '';
     const src = c.url
         ? `<a class="xr-side__net-src" href="${escapeHtml(c.url)}" target="_blank" rel="noopener">${escapeHtml(c.title || c.url)}</a>`
         : '';
+
+    // Assessability (Phase 11.5): the row's coordinate collapses to the
+    // local id when the claim is actually ours, so badges + the modal
+    // hit the same record everywhere.
+    let assessBtn = '';
+    let badges = '';
+    if (ev && ev.pubkey && c.id && c.text && c.url) {
+        const coord = buildClaimCoord(ev.pubkey, c.id);
+        const idx = netClaimRefs.push({ coord, url: c.url, text: c.text, event_id: ev.id || null }) - 1;
+        const existing = assessMap && canon ? assessMap.get(canon(coord)) : null;
+        badges = renderAssessmentBadges(existing);
+        assessBtn = `<button type="button" class="xr-side__net-assess" data-action="assess-net" data-nidx="${idx}"
+                        title="${existing ? 'Edit your assessment' : 'Assess this claim'}">${existing ? '⚖✓' : '⚖ Assess'}</button>`;
+    }
+
     return `
       <article class="xr-side__net-claim">
-        <div class="xr-side__net-claim-top">${key}<span class="xr-side__net-when">${escapeHtml(when)}</span></div>
+        <div class="xr-side__net-claim-top">${key}<span class="xr-side__net-when">${escapeHtml(when)}</span>${assessBtn}</div>
         <div class="xr-side__net-claim-text">${escapeHtml(c.text)}</div>
+        ${badges}
         ${source}
         ${src}
       </article>`;
+}
+
+// ------------------------------------------------------------------
+// Local claims + inconsistencies (Phase 11.5 — the case dashboard)
+// ------------------------------------------------------------------
+
+/** Local claims whose `about` set includes this entity. */
+async function localClaimsAbout(entityId) {
+    const all = await ClaimModel.getAll();
+    return Object.values(all).filter((c) => (c.about || []).includes(entityId));
+}
+
+/** "Your claims about this entity" — local half of the dashboard. */
+async function renderLocalClaims(entity) {
+    const host = $('#xr-local-claims');
+    if (!host) return;
+    try {
+        const [claims, assessMap] = await Promise.all([
+            localClaimsAbout(entity.id),
+            assessmentsByCanonicalRef()
+        ]);
+        if (claims.length === 0) {
+            host.innerHTML = `<div class="xr-side__canonical-none">No local claims tag this entity yet — capture a page and mark some claims about it.</div>`;
+            return;
+        }
+        claims.sort((a, b) => (b.is_key ? 1 : 0) - (a.is_key ? 1 : 0) || (a.created || 0) - (b.created || 0));
+        host.innerHTML = claims.map((c, idx) => {
+            const a = assessMap.get(c.id) || null;
+            return `
+              <article class="xr-side__net-claim">
+                <div class="xr-side__net-claim-top">
+                  ${c.is_key ? '<span class="xr-side__net-key">⭐ key</span>' : ''}
+                  ${c.publishedAt ? '<span class="xr-side__net-when" title="Published">🌐</span>' : '<span class="xr-side__net-when">local</span>'}
+                  <button type="button" class="xr-side__net-assess" data-action="assess-local" data-lidx="${idx}"
+                          title="${a ? 'Edit your assessment' : 'Assess this claim'}">${a ? '⚖✓' : '⚖ Assess'}</button>
+                </div>
+                <div class="xr-side__net-claim-text">${escapeHtml(c.text)}</div>
+                ${renderAssessmentBadges(a)}
+                <a class="xr-side__net-src" href="${escapeHtml(c.source_url)}" target="_blank" rel="noopener">${escapeHtml(hostOf(c.source_url))}</a>
+              </article>`;
+        }).join('');
+        host.querySelectorAll('[data-action="assess-local"]').forEach((btn) => {
+            btn.addEventListener('click', async () => {
+                const claim = claims[Number(btn.dataset.lidx)];
+                if (!claim) return;
+                const result = await openAssessModal({ claimRef: { claim_id: claim.id }, claimText: claim.text });
+                if (result) {
+                    renderLocalClaims(entity);
+                    renderInconsistencies(entity);
+                }
+            });
+        });
+    } catch (err) {
+        host.innerHTML = `<div class="xr-side__canonical-none">${escapeHtml(err.message || String(err))}</div>`;
+    }
+}
+
+/**
+ * Contradiction links where at least one endpoint is a claim about
+ * this entity (requiring BOTH ends would silently drop the common
+ * case where only one side got tagged), plus the label tally across
+ * the entity's assessed claims.
+ */
+async function renderInconsistencies(entity) {
+    const host = $('#xr-inconsistencies');
+    if (!host) return;
+    try {
+        const [claims, allLinks, assessMap, canon] = await Promise.all([
+            localClaimsAbout(entity.id),
+            EvidenceLinker.getAll(),
+            assessmentsByCanonicalRef(),
+            makeClaimRefCanonicalizer()
+        ]);
+        const aboutIds = new Set(claims.map((c) => c.id));
+        const claimText = new Map(claims.map((c) => [c.id, c]));
+
+        const rows = [];
+        const relevantRefs = new Set(aboutIds);
+        for (const link of Object.values(allLinks)) {
+            if (link.relationship !== 'contradicts') continue;
+            const a = canon(link.source_claim_id);
+            const b = canon(link.target_claim_id);
+            if (!aboutIds.has(a) && !aboutIds.has(b)) continue;
+            relevantRefs.add(a); relevantRefs.add(b);
+            const side = async (ref, snap) => {
+                if (claimText.has(ref)) return { text: claimText.get(ref).text, url: claimText.get(ref).source_url };
+                if (isLocalClaimId(ref)) {
+                    const rec = await ClaimModel.get(ref);
+                    if (rec) return { text: rec.text, url: rec.source_url };
+                }
+                return { text: (snap && snap.text) || `(claim ${String(ref).slice(0, 18)}…)`, url: (snap && snap.url) || '' };
+            };
+            const left  = await side(a, link.source_snapshot);
+            const right = await side(b, link.target_snapshot);
+            rows.push(`
+              <article class="xr-side__contra">
+                <div class="xr-side__contra-claim">“${escapeHtml(left.text)}” <span class="xr-side__contra-host">${escapeHtml(hostOf(left.url))}</span></div>
+                <div class="xr-side__contra-vs">⚔ contradicts</div>
+                <div class="xr-side__contra-claim">“${escapeHtml(right.text)}” <span class="xr-side__contra-host">${escapeHtml(hostOf(right.url))}</span></div>
+                ${link.note ? `<div class="xr-side__contra-note">${escapeHtml(link.note)}</div>` : ''}
+              </article>`);
+        }
+
+        // Label tally across everything judged in this case's orbit.
+        const counts = new Map();
+        for (const ref of relevantRefs) {
+            const a = assessMap.get(ref);
+            if (!a) continue;
+            for (const l of a.labels || []) counts.set(l.label, (counts.get(l.label) || 0) + 1);
+        }
+        const tally = counts.size > 0
+            ? `<div class="xr-side__label-tally">${[...counts.entries()]
+                .sort((x, y) => y[1] - x[1])
+                .map(([label, n]) => `<span class="xr-side__tally-pill">${n}× ${escapeHtml(label)}</span>`).join('')}</div>`
+            : '';
+
+        host.innerHTML = rows.length > 0
+            ? tally + rows.join('')
+            : tally + `<div class="xr-side__canonical-none">No contradictions recorded for this entity yet — link two claims with “contradicts” in the reader.</div>`;
+    } catch (err) {
+        host.innerHTML = `<div class="xr-side__canonical-none">${escapeHtml(err.message || String(err))}</div>`;
+    }
+}
+
+function hostOf(url) {
+    try { return new URL(url).host; } catch { return String(url || ''); }
 }
 
 /**
@@ -1157,11 +1374,17 @@ async function init() {
 
     // Listen for storage changes so another tab that creates/edits an
     // entity (e.g. the reader's tagger) reflects in this panel without
-    // a manual reload.
+    // a manual reload. Phase 11.5 adds the judgment keys: assessing or
+    // linking in the reader live-refreshes the case dashboard
+    // (renderDetail repaints network claims from the stash, so loaded
+    // results survive the re-render).
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
         chrome.storage.onChanged.addListener((changes, area) => {
             if (area !== 'local') return;
-            if ('entities' in changes || 'local_keys' in changes) {
+            if ('entities' in changes || 'local_keys' in changes
+                || 'article_claims' in changes
+                || 'claim_assessments' in changes
+                || 'evidence_links' in changes) {
                 refreshEntities().then(() => {
                     if (state.view === 'list') renderList();
                     else if (state.selectedId) {
