@@ -16,6 +16,7 @@
 // see reader/index.js `resolveEntitiesToPublish`).
 
 import { EntityModel, ENTITY_TYPES, ENTITY_ICONS, installEntityStorageBridge } from '../shared/entity-model.js';
+import { parseClaimEvent } from '../shared/claim-model.js';
 import { accountsForEntity, listUnlinkedAccounts, linkAccountToEntity, unlinkAccount } from '../shared/identity/account-registry.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { Crypto } from '../shared/crypto.js';
@@ -245,6 +246,14 @@ function renderDetail(entity) {
         <button type="button" class="xr-side__ghost-btn" id="xr-link-account">Link an account…</button>
       </div>
 
+      <div class="xr-side__network-claims">
+        <h3>Claims about this entity</h3>
+        <p class="xr-side__hint">What the network has published about ${escapeHtml(entity.name)} — kind-30040 claims that reference this entity's key, across your configured relays.</p>
+        <div id="xr-network-claims">
+          <button type="button" class="xr-side__ghost-btn" id="xr-load-network-claims">Load from relays</button>
+        </div>
+      </div>
+
       <div class="xr-side__publish">
         <h3>Publish status</h3>
         <p class="xr-side__pub-line">${pubInfo}</p>
@@ -282,6 +291,10 @@ function renderDetail(entity) {
     renderLinkedAccounts(entity.id);
     $('#xr-link-account').addEventListener('click', () => openAccountPicker(entity));
 
+    // Network claims about this entity (Phase 10.4) — on-demand relay query.
+    const loadClaimsBtn = $('#xr-load-network-claims');
+    if (loadClaimsBtn) loadClaimsBtn.addEventListener('click', () => loadNetworkClaims(entity));
+
     // Keypair controls.
     $('#xr-copy-npub').addEventListener('click', () => {
         if (entity.keypair && entity.keypair.npub) copyToClipboard(entity.keypair.npub);
@@ -299,6 +312,103 @@ function renderDetail(entity) {
             revealBtn.onclick = () => copyToClipboard(entity.keypair.nsec);
         }
     });
+}
+
+// ------------------------------------------------------------------
+// Network claims about this entity (Phase 10.4)
+//
+// "What the network says about entity P" — query kind-30040 across the
+// configured relays by the entity's pubkey (#p). The panel has no relay
+// access, so it routes the query through the background SW (the same
+// `xray:relay:query` path the reader's per-URL "others' claims" uses).
+// ------------------------------------------------------------------
+
+/** Configured read relays, mirroring the reader's `getConfiguredRelays`. */
+function getQueryRelays() {
+    const FALLBACK = ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.nostr.band'];
+    return new Promise((resolve) => {
+        try {
+            chrome.storage.local.get(['preferences'], (res) => {
+                const raw = res && res.preferences;
+                let prefs = {};
+                try { prefs = typeof raw === 'string' ? JSON.parse(raw) : (raw || {}); }
+                catch (_) { prefs = {}; }
+                const relays = Array.isArray(prefs.default_relays) && prefs.default_relays.length > 0
+                    ? prefs.default_relays
+                    : FALLBACK;
+                resolve(relays);
+            });
+        } catch (_) { resolve(FALLBACK); }
+    });
+}
+
+async function loadNetworkClaims(entity) {
+    const host = $('#xr-network-claims');
+    if (!host) return;
+    const pubkey = entity.keypair && entity.keypair.pubkey;
+    if (!pubkey) {
+        host.innerHTML = `<div class="xr-side__canonical-none">This entity has no keypair, so the network can't reference it yet.</div>`;
+        return;
+    }
+    const relays = await getQueryRelays();
+    if (!relays.length) {
+        host.innerHTML = `<div class="xr-side__canonical-none">No relays configured — add some in Settings → Relays.</div>`;
+        return;
+    }
+    host.innerHTML = `<div class="xr-side__net-loading">Querying ${relays.length} relay${relays.length === 1 ? '' : 's'}…</div>`;
+    chrome.runtime.sendMessage({
+        type: 'xray:relay:query',
+        relays,
+        filter: { kinds: [30040], '#p': [pubkey], limit: 200 },
+        timeoutMs: 6000
+    }, (resp) => {
+        if (!resp || !resp.ok) {
+            host.innerHTML = `<div class="xr-side__canonical-none">Query failed: ${escapeHtml((resp && resp.error) || 'no response from service worker')}</div>`;
+            return;
+        }
+        host.innerHTML = renderNetworkClaims(resp.events, resp.byRelay);
+    });
+}
+
+/** Group kind-30040 events by author pubkey and render claim cards. */
+function renderNetworkClaims(events, byRelay) {
+    const relayCount = Object.keys(byRelay || {}).length;
+    const list = Array.isArray(events) ? events : [];
+    if (list.length === 0) {
+        return `<div class="xr-side__canonical-none">No claims about this entity found on ${relayCount} relay${relayCount === 1 ? '' : 's'} yet.</div>`;
+    }
+    const byAuthor = new Map();
+    for (const ev of list) {
+        if (!byAuthor.has(ev.pubkey)) byAuthor.set(ev.pubkey, []);
+        byAuthor.get(ev.pubkey).push(ev);
+    }
+    const summary = `<div class="xr-side__net-summary">${list.length} claim${list.length === 1 ? '' : 's'} from ${byAuthor.size} author${byAuthor.size === 1 ? '' : 's'} · ${relayCount} relay${relayCount === 1 ? '' : 's'}</div>`;
+    const cards = [...byAuthor.entries()].map(([pubkey, evs]) => {
+        evs.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+        const rows = evs.map((ev) => renderNetworkClaimRow(parseClaimEvent(ev))).join('');
+        return `
+          <section class="xr-side__net-author">
+            <header class="xr-side__net-author-head">👤 ${escapeHtml(pubkey.slice(0, 12))}… <span class="xr-side__net-author-count">${evs.length}</span></header>
+            ${rows}
+          </section>`;
+    }).join('');
+    return summary + cards;
+}
+
+function renderNetworkClaimRow(c) {
+    const when = c.created_at ? fmtRelative(c.created_at) : '';
+    const key = c.isKey ? `<span class="xr-side__net-key">⭐ key</span>` : '';
+    const source = c.source ? `<div class="xr-side__net-source">Per <em>${escapeHtml(c.source)}</em></div>` : '';
+    const src = c.url
+        ? `<a class="xr-side__net-src" href="${escapeHtml(c.url)}" target="_blank" rel="noopener">${escapeHtml(c.title || c.url)}</a>`
+        : '';
+    return `
+      <article class="xr-side__net-claim">
+        <div class="xr-side__net-claim-top">${key}<span class="xr-side__net-when">${escapeHtml(when)}</span></div>
+        <div class="xr-side__net-claim-text">${escapeHtml(c.text)}</div>
+        ${source}
+        ${src}
+      </article>`;
 }
 
 /**

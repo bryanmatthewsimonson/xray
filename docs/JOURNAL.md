@@ -19,6 +19,34 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-09 — Cross-source claim aggregation (Phase 10.4)
+
+**Tags:** design
+
+The payoff slice. Added a "Claims about this entity" section to the side
+panel's entity-detail view (`renderDetail`): a **Load from relays** button
+queries `kind 30040` by the entity's pubkey (`{kinds:[30040], "#p":[P]}`)
+and renders what the network says about that entity, grouped by author.
+
+**Placement (decided with maintainer):** side-panel entity detail, *not* the
+reader. The reader's existing "Others' claims" is per-**URL** (`#r`); this is
+per-**entity** (`#p`) across all articles — a different axis, and the panel is
+the entity-centric surface. The panel has no relay access of its own (by
+design — see its header comment), so the query routes through the background
+SW's `xray:relay:query` (same path the reader uses), with relays read from
+`preferences.default_relays` (mirroring the reader's `getConfiguredRelays`).
+
+**Shared parse:** added `parseClaimEvent(event)` to `claim-model.js` — a pure,
+dual-vocabulary (thin 10.2 + legacy) reader that turns a `30040` into a
+display object. Unit-tested both vocabularies. (The reader's
+`renderForeignClaim` still has its own inline parse; DRYing it onto
+`parseClaimEvent` is a low-value follow-up, left alone to avoid churn.)
+
+Querying is **on-demand** (a button), not auto-on-detail-open, so browsing
+entities doesn't fire a relay round-trip per click. 526/526 green.
+
+---
+
 ## 2026-06-09 — Precise claim anchoring (Phase 10.3)
 
 **Tags:** design

@@ -28,7 +28,7 @@ globalThis.chrome = {
     }
 };
 
-const { ClaimModel, generateClaimId } = await import('../src/shared/claim-model.js');
+const { ClaimModel, generateClaimId, parseClaimEvent } = await import('../src/shared/claim-model.js');
 
 function resetState() { _stateStore.clear(); }
 
@@ -148,6 +148,45 @@ test('claim: legacy records normalize to thin fields on read', async () => {
     assert.deepEqual(got.about, [ENT_1, ENT_2], 'about backfilled from subject ∪ object');
     assert.equal(got.is_key, true, 'is_key backfilled from is_crux');
     assert.equal(got.source, ENT_1, 'source backfilled from claimant');
+});
+
+test('parseClaimEvent: reads the thin (10.2) vocabulary', () => {
+    const ev = {
+        id: 'evid', pubkey: 'a'.repeat(64), created_at: 100,
+        content: 'Jane runs Acme.',
+        tags: [
+            ['d', 'claim_1'], ['r', 'https://x.test/a'], ['title', 'A Title'],
+            ['p', 'b'.repeat(64), '', 'about'], ['entity', 'Jane Roe', 'about'],
+            ['entity', 'Acme Corp', 'about'],
+            ['source', 'Jane Roe'], ['key', 'true']
+        ]
+    };
+    const c = parseClaimEvent(ev);
+    assert.equal(c.id, 'claim_1');
+    assert.equal(c.text, 'Jane runs Acme.');
+    assert.deepEqual(c.about, ['Jane Roe', 'Acme Corp']);
+    assert.equal(c.source, 'Jane Roe');
+    assert.equal(c.isKey, true);
+    assert.equal(c.url, 'https://x.test/a');
+    assert.equal(c.title, 'A Title');
+    assert.equal(c.pubkey, 'a'.repeat(64));
+});
+
+test('parseClaimEvent: reads the legacy vocabulary', () => {
+    const ev = {
+        pubkey: 'c'.repeat(64), created_at: 50,
+        content: 'ignored body',
+        tags: [
+            ['claim-text', 'Old-style claim.'], ['claim-type', 'factual'],
+            ['subject', 'Old Subject'], ['object', 'Old Object'],
+            ['claimant', 'A Reporter'], ['crux', 'true']
+        ]
+    };
+    const c = parseClaimEvent(ev);
+    assert.equal(c.text, 'Old-style claim.', 'prefers claim-text tag over content');
+    assert.deepEqual(c.about, ['Old Subject', 'Old Object'], 'about backfilled from subject ∪ object');
+    assert.equal(c.source, 'A Reporter', 'source from claimant');
+    assert.equal(c.isKey, true, 'isKey from crux');
 });
 
 test('claim: delete + markPublished', async () => {

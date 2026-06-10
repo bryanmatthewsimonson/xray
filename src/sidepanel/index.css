@@ -624,3 +624,57 @@ body.xr-side {
   margin-top: 4px;
   color: var(--xr-text);
 }
+
+/* Network claims about an entity (Phase 10.4) */
+.xr-side__net-loading,
+.xr-side__net-summary {
+  font-size: 11px;
+  color: var(--xr-text-dim);
+  margin-bottom: 8px;
+}
+.xr-side__net-author {
+  margin-bottom: 10px;
+}
+.xr-side__net-author-head {
+  font-size: 11px;
+  color: var(--xr-text-dim);
+  font-family: var(--xr-mono, monospace);
+  margin-bottom: 4px;
+}
+.xr-side__net-author-count {
+  opacity: 0.7;
+}
+.xr-side__net-claim {
+  border-left: 2px solid var(--xr-border, #444);
+  padding: 4px 0 4px 8px;
+  margin-bottom: 6px;
+}
+.xr-side__net-claim-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.xr-side__net-key {
+  font-size: 10px;
+  color: var(--xr-accent, #c8a2ff);
+}
+.xr-side__net-when {
+  font-size: 10px;
+  color: var(--xr-text-dim);
+}
+.xr-side__net-claim-text {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--xr-text);
+}
+.xr-side__net-source {
+  font-size: 11px;
+  color: var(--xr-text-dim);
+}
+.xr-side__net-src {
+  font-size: 10px;
+  color: var(--xr-text-dim);
+  text-decoration: none;
+}
+.xr-side__net-src:hover { text-decoration: underline; }
