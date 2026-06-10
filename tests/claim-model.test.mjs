@@ -200,3 +200,18 @@ test('claim: delete + markPublished', async () => {
     assert.equal(await ClaimModel.get(claim.id), null);
     assert.equal(await ClaimModel.delete(claim.id), false);
 });
+
+test('claim: markPublished records the publishing pubkey (Phase 11.1)', async () => {
+    resetState();
+    const PUBKEY = 'a'.repeat(64);
+    const claim = await ClaimModel.create({ text: 'Coordinate-bearing.', source_url: URL_A });
+    assert.equal(claim.publishedPubkey, undefined, 'unset before publish');
+
+    const marked = await ClaimModel.markPublished(claim.id, 'e'.repeat(64), PUBKEY);
+    assert.equal(marked.publishedPubkey, PUBKEY);
+    assert.equal(marked.updated, claim.updated, 'publish must not bump updated');
+
+    // Omitting the pubkey (legacy call shape) must not clear it.
+    const again = await ClaimModel.markPublished(claim.id, 'f'.repeat(64));
+    assert.equal(again.publishedPubkey, PUBKEY, 'pubkey survives a pubkey-less re-publish call');
+});

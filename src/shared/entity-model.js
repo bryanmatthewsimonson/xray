@@ -33,7 +33,11 @@ import { Crypto } from './crypto.js';
 import { Utils } from './utils.js';
 import { LocalKeyManager } from './local-key-manager.js';
 
-export const ENTITY_TYPES = ['person', 'organization', 'place', 'thing'];
+// `case` (Phase 11.1) models a real-world story under assessment —
+// "John Dehlin excommunication", "Bricks & Minifigs scandal" — so the
+// side-panel entity detail can serve as the case dashboard
+// (docs/ASSESSMENTS_DESIGN.md).
+export const ENTITY_TYPES = ['person', 'organization', 'place', 'thing', 'case'];
 
 /**
  * Map entity type → tag name used in kind-30023 article events.
@@ -45,6 +49,7 @@ export function entityTypeToTag(type) {
         case 'organization': return 'org';
         case 'place':        return 'place';
         case 'thing':        return 'thing';
+        case 'case':         return 'case';
         default:             return 'thing';
     }
 }
@@ -58,7 +63,8 @@ export const ENTITY_ICONS = {
     person:       '👤',
     organization: '🏢',
     place:        '📍',
-    thing:        '🔷'
+    thing:        '🔷',
+    case:         '🗂️'
 };
 
 /**

@@ -33,7 +33,7 @@ const USER_KEY_NAME = 'xray:user';
 
 const state = {
     view:          'list',     // 'list' | 'detail'
-    typeFilter:    '',         // '' | 'person' | 'organization' | 'place' | 'thing'
+    typeFilter:    '',         // '' | 'person' | 'organization' | 'place' | 'thing' | 'case'
     searchQuery:   '',
     selectedId:    null,
     entities:      {},         // cached getAll() result

@@ -19,6 +19,56 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-09 — Phase 11.1: assessment data layer; legacy 30043 publish retired
+
+**Tags:** design, wire-format
+
+First Phase 11 slice (see `docs/ASSESSMENTS_DESIGN.md`, agreed same day).
+Model + taxonomy + tests only — no UI, no new wire kinds yet.
+
+**What landed:** `assessment-taxonomy.js` (label vocabulary under
+`xray/assessment`, stance −2..+2, relationship directionality),
+`claim-ref.js` (canonical claim refs: local id for ours, coordinate for
+foreign, with the collapse rule), `assessment-model.js`
+(one-assessment-per-claim under the `claim_assessments` key),
+evidence-linker repurposed cross-source (coordinate endpoints, new
+`contradicts/supports/updates/duplicates` enum, sorted endpoints for
+symmetric relationships, endpoint snapshots, `suggested_by`), the `case`
+entity type, and `ClaimModel.markPublished` recording `publishedPubkey`.
+
+**Behavior change (the wire-format-rule callout):** the reader's batch
+publish no longer emits kind-30043 evidence-link events —
+`resolveEvidenceLinksToPublish` returns `[]`. Rationale: the agreed design
+retires 30043 (its local-id tag vocabulary can't survive a public NIP, and
+a re-keyed d could never replace already-published events); gating the
+legacy path off *before* the model accepts coordinate refs guarantees no
+hybrid-vocabulary event can ever publish (a coordinate inside a
+`source-claim` tag would be malformed under both vocabularies). Local link
+records keep accumulating; the cross-source kind-30055 path arrives in 11.2
+and publishes behind `assessmentPublishing`. Already-published 30043s stay
+on relays per the standing NIP-09 posture.
+
+**Subtle invariant worth remembering:** assessment/link identity hashes the
+*canonical* ref, and `canonicalizeClaimRef` only collapses a coordinate to
+a local id when the coordinate's pubkey matches one of the claim's recorded
+publishing pubkeys (`publishedPubkeys`, append-only — a re-keyed republish
+must not orphan coordinates minted under the old identity). The d-tag alone
+is insufficient because claim ids hash (url|text), so two users capturing
+the same quote derive the same d under different pubkeys.
+
+**Drift-robust matching (review-forced):** canonicality is *time-dependent* —
+a stored coordinate becomes collapsible only once its claim records a
+publishedPubkey (e.g. claims published pre-11.1 gain it on their next
+republish). Matching only the query side would orphan such records under
+BOTH representations and let `create()` mint duplicates. So every matcher
+(`getByClaimRef`, `getForClaim`, `deleteForClaim`) canonicalizes the stored
+side too (via a one-storage-read snapshot canonicalizer,
+`makeClaimRefCanonicalizer`), and both `create()`s fall back to match-based
+dedupe when the id lookup misses. Pinned by the "drift" tests in
+`tests/assessment-model.test.mjs` / `tests/evidence-linker.test.mjs`.
+
+---
+
 ## 2026-06-09 — Phase 11 design: assessments & contradictions; 10.5 superseded
 
 **Tags:** design

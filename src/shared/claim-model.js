@@ -254,13 +254,28 @@ export const ClaimModel = {
     /**
      * Record a successful kind-30040 publish. Does NOT bump `updated`,
      * so edits after a publish correctly re-emit next time.
+     *
+     * `publishedPubkey` (Phase 11.1) records WHO signed: the claim's
+     * addressable coordinate is `30040:<publishedPubkey>:<id>`, and
+     * without it the coordinate is unrecoverable if the signing
+     * identity later changes. claim-ref.js needs it to collapse
+     * coordinates of our own claims to their local ids. The full
+     * history is kept append-only in `publishedPubkeys` — coordinates
+     * minted under an OLD identity are live addressable events on
+     * relays and must keep collapsing after a re-keyed republish.
      */
-    markPublished: async (id, eventId) => {
+    markPublished: async (id, eventId, publishedPubkey) => {
         const all = await Storage.get('article_claims', {});
         const record = all[id];
         if (!record) return null;
         record.publishedAt = Math.floor(Date.now() / 1000);
         if (eventId) record.publishedEventId = eventId;
+        if (publishedPubkey) {
+            record.publishedPubkey = publishedPubkey;
+            const seen = Array.isArray(record.publishedPubkeys) ? record.publishedPubkeys : [];
+            if (!seen.includes(publishedPubkey)) seen.push(publishedPubkey);
+            record.publishedPubkeys = seen;
+        }
         all[id] = record;
         await Storage.set('article_claims', all);
         return normalizeClaim(record);
