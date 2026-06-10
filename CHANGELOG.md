@@ -12,6 +12,20 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Assess UI in the reader** (Phase 11.3). Every claim row in the claims
+  bar gains an **⚖ Assess** action opening the judgment modal: five stance
+  chips (strongly disagree → strongly agree, click again to clear), the
+  label picker grouped by taxonomy category with a custom-label input
+  (normalizes case/whitespace), a per-label note, an optional per-label
+  **📍 offending-span anchor** (the modal minimizes while you select the
+  passage in the article), a markdown rationale, and Remove. Your stance
+  chip + label badges render on the claim row. Foreign claims in the
+  **Others' claims** modal get the same Assess action + badge overlay,
+  keyed by the event's coordinate — judging a network copy of your own
+  claim updates the same record. The claim modal now pre-fills the
+  last-used about-entities for the session (case-capture tagging helper),
+  and deleting a claim also removes your assessment of it.
+
 - **Assessment + claim-relationship wire builders** (Phase 11.2;
   **wire-format addition**, publishing stays off). `buildAssessmentEvent`
   (kind `30054`: claim referenced by `a` coordinate, `d` recomputable from

@@ -19,6 +19,28 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-10 — Phase 11.3: assess UI; the one UI module in src/shared/
+
+**Tags:** design
+
+The judgment-capture surface. Two second-guessable calls:
+
+- **`assess-modal.js` lives in `src/shared/` and renders DOM** — an
+  explicit exception to the pure-ish-shared norm, because it is one
+  surface used by two extension pages (reader claims bar + others'
+  modal now; side-panel network rows in 11.5). It injects its own
+  `<style>` (xr-assess-* only) so neither page's stylesheet carries the
+  modal styles — no cross-surface CSS drift. Must never be imported by
+  the content script.
+- **Span anchoring minimizes the modal** instead of reusing the 10.3
+  popover capture directly: a modal with a backdrop has no live
+  selection, so the flow is mark-span → modal hides to a floating pill
+  → user selects in the article → `captureFromRange` on the cloned
+  range → modal restores. Capability-gated by `anchorContext` (the
+  side panel has no article DOM and won't pass one).
+
+---
+
 ## 2026-06-10 — Phase 11.2: kind 30054/30055 wire builders; 30043 builder deleted
 
 **Tags:** design, wire-format
