@@ -51,8 +51,9 @@ Phase 9  ████████████████████  complete 
 Cleanup  ████████████████████  complete — v0.5.x post-parity cleanup (Phases A–E):
                                 de-FAB / one capture surface, settings consolidation,
                                 client-tag unify, nac-→xr- rename, roadmap + docs refresh
-Phase 10 ░░░░░░░░░░░░░░░░░░░░  next — claim tracking that produces useful data about
-                                real people, organizations, and stories (see below)
+Phase 10 ████████████████░░░░  in progress — claim tracking (thin entity-centric
+                                claims). 10.1–10.4 shipped; 10.5 (metadata reframe)
+                                remains (see below)
 ```
 
 Parity with the v4.2 userscript is reached; the project now operates as a
@@ -795,14 +796,20 @@ text-anchor mechanism, rather than a parallel system.
 
 Implemented in slices (one PR each):
 
-- **10.1** Thin model + gutted modal (no wire change).
-- **10.2** Lean `30040` tag set + dual-read of old/new vocab (wire change).
-- **10.3** Shared anchor (reuse `metadata/anchor-capture.js`).
-- **10.4** Cross-source aggregation — "what the network says about entity P".
-- **10.5** Metadata reframe — fact-checks/ratings as responses; retire `30043`.
+- ✅ **10.1** Thin model + gutted modal (no wire change). — #32
+- ✅ **10.2** Lean `30040` tag set + dual-read of old/new vocab (wire change). — #33
+- ✅ **10.3** Shared anchor (reuse `metadata/anchor-capture.js`). — #34
+- ✅ **10.4** Cross-source aggregation — "what the network says about entity P"
+  (side-panel entity detail → *Load from relays*). — #35
+- ⬜ **10.5** Metadata reframe — fact-checks/ratings as responses-to-claims;
+  reconcile annotations onto the shared anchor; retire `30043`. *Not started —
+  the biggest/most exploratory slice; wants a short design note (responds-to
+  wire shape + disposition of existing `30043`/`30050` data) before code.*
 
-A dedicated Phase 10 issue will pin exit criteria; this section + the design
-note are the intent, not the final spec.
+**10.1–10.4 shipped** (thin capture, lean entity-centric wire, precise
+anchoring, the cross-source entity payoff). A dedicated Phase 10 issue will
+pin exit criteria; this section + the design note are the intent, not the
+final spec.
 
 ---
 
