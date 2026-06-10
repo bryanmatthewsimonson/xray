@@ -1391,14 +1391,8 @@ async function publish() {
     // published + unchanged claims).
     const relationshipsToPublish = await resolveRelationshipsToPublish(claimsToPublish, state.article.url);
 
-    // Claim links: the legacy kind-30043 publish path is retired
-    // (Phase 11.1) — this always resolves to [] until the kind-30055
-    // path lands behind the assessmentPublishing flag.
-    const linksToPublish = await resolveEvidenceLinksToPublish();
-
     const totalEvents = 1 + commentList.length + entitiesToPublish.length
-                          + claimsToPublish.length + relationshipsToPublish.length
-                          + linksToPublish.length;
+                          + claimsToPublish.length + relationshipsToPublish.length;
 
     // Per-relay rollup across the entire batch.
     const relayStats = new Map(); // url → { ok, fail, lastError }
@@ -1427,7 +1421,7 @@ async function publish() {
 
         btn.textContent = 'Signing…';
         toast(totalEvents > 1
-            ? buildPublishStartMessage(commentList.length, entitiesToPublish.length, claimsToPublish.length, relationshipsToPublish.length, linksToPublish.length)
+            ? buildPublishStartMessage(commentList.length, entitiesToPublish.length, claimsToPublish.length, relationshipsToPublish.length)
             : 'Approving signature in your NOSTR extension…', 'warning', 5000);
 
         setProgress(0, totalEvents);
@@ -1723,48 +1717,9 @@ async function publish() {
             if (i < relationshipsToPublish.length - 1) await sleep(BATCH_PUBLISH_DELAY_MS);
         }
 
-        // ---- Evidence links (kind-30043) ------------------------------
-        // Signed by the user. `buildEvidenceLinkEvent` needs the full
-        // claim registry to resolve source + target claim ids to their
-        // source_urls (for `r` tags) — pass the dict we already have
-        // on `allArticleClaims` keyed by id, plus any missing ones
-        // pulled from ClaimModel.
-        const linkBatchBase = relBatchBase + relationshipsToPublish.length;
-        const linkResults = { ok: 0, fail: 0, errors: [] };
-        const claimsDict = {};
-        for (const c of allArticleClaims) claimsDict[c.id] = c;
-        for (let i = 0; i < linksToPublish.length; i++) {
-            const link = linksToPublish[i];
-            btn.textContent = `Publishing (${linkBatchBase + i + 1}/${totalEvents})…`;
-            try {
-                const unsigned = await EventBuilder.buildEvidenceLinkEvent(link, claimsDict, userPubkey);
-                const resp = await browserApi.runtime.sendMessage({
-                    type:  'xray:capture:publish',
-                    id:    state.id,
-                    event: unsigned
-                });
-                if (resp && resp.ok && resp.results) {
-                    recordRelayResults(resp.results);
-                    if (resp.results.successful > 0) {
-                        linkResults.ok++;
-                        try { await EvidenceLinker.markPublished(link.id, resp.signedEvent?.id || null); }
-                        catch (_) { /* best-effort */ }
-                    } else {
-                        linkResults.fail++;
-                        linkResults.errors.push(`${link.relationship} link: no relays accepted`);
-                    }
-                } else {
-                    linkResults.fail++;
-                    linkResults.errors.push(`${link.relationship} link: ${(resp && resp.error) || 'unknown'}`);
-                }
-            } catch (err) {
-                linkResults.fail++;
-                linkResults.errors.push(`${link.relationship} link: ${err.message || String(err)}`);
-                console.warn('[X-Ray Reader] evidence-link publish failed:', link.id, err);
-            }
-            setProgress(linkBatchBase + i + 1, totalEvents);
-            if (i < linksToPublish.length - 1) await sleep(BATCH_PUBLISH_DELAY_MS);
-        }
+        // (Claim-link publishing: the legacy kind-30043 batch was retired
+        // in Phase 11.1; the kind-30055 path lands behind the
+        // assessmentPublishing flag in the Phase 11 publish slice.)
 
         // Build + surface the end-of-batch summary.
         showPublishSummary({
@@ -1778,8 +1733,6 @@ async function publish() {
             claimCount: claimsToPublish.length,
             relationshipResults,
             relationshipCount: relationshipsToPublish.length,
-            linkResults,
-            linkCount: linksToPublish.length,
             relayStats
         });
 
@@ -1870,18 +1823,6 @@ function collectClaimEntityIds(claims) {
     return ids;
 }
 
-/**
- * Phase 11.1: the legacy kind-30043 evidence-link publish path is
- * RETIRED (docs/ASSESSMENTS_DESIGN.md — "30043 retires"). Link records
- * stay local-only until the cross-source kind-30055 publish path lands
- * behind the `assessmentPublishing` flag (Phase 11 publish slice);
- * already-published 30043s stay on relays per the standing NIP-09
- * posture. Returning [] keeps the batch flow untouched — every count
- * downstream guards on `> 0`.
- */
-async function resolveEvidenceLinksToPublish() {
-    return [];
-}
 
 /**
  * For every claim, enumerate the (entity, relationshipType, claimId)
@@ -1943,14 +1884,13 @@ async function getConfiguredRelays() {
  * what's about to happen. Pluralizes correctly and only mentions
  * parts that actually exist.
  */
-function buildPublishStartMessage(commentCount, entityCount, claimCount = 0, relationshipCount = 0, linkCount = 0) {
+function buildPublishStartMessage(commentCount, entityCount, claimCount = 0, relationshipCount = 0) {
     const parts = ['article'];
     if (commentCount > 0)      parts.push(`${commentCount} comment${commentCount === 1 ? '' : 's'}`);
     if (entityCount > 0)       parts.push(`${entityCount} entity profile${entityCount === 1 ? '' : 's'}`);
     if (claimCount > 0)        parts.push(`${claimCount} claim${claimCount === 1 ? '' : 's'}`);
     if (relationshipCount > 0) parts.push(`${relationshipCount} relationship${relationshipCount === 1 ? '' : 's'}`);
-    if (linkCount > 0)         parts.push(`${linkCount} evidence link${linkCount === 1 ? '' : 's'}`);
-    const total = 1 + commentCount + entityCount + claimCount + relationshipCount + linkCount;
+    const total = 1 + commentCount + entityCount + claimCount + relationshipCount;
     return `Publishing ${total} events (${parts.join(' + ')})…`;
 }
 
@@ -1963,7 +1903,6 @@ function showPublishSummary({
     includeComments, totalEvents, articleResults,
     commentResults, entityResults, entityCount,
     claimResults, claimCount, relationshipResults, relationshipCount,
-    linkResults, linkCount,
     relayStats
 }) {
     // Console breakdown (always useful for debugging)
@@ -1973,7 +1912,6 @@ function showPublishSummary({
     if (entityResults && entityCount > 0)                    console.log('entities:',       entityResults);
     if (claimResults  && claimCount  > 0)                    console.log('claims:',         claimResults);
     if (relationshipResults && relationshipCount > 0)        console.log('relationships:',  relationshipResults);
-    if (linkResults && linkCount > 0)                        console.log('evidence links:', linkResults);
     console.log('per relay:', Object.fromEntries(relayStats));
     console.groupEnd();
 
@@ -1986,7 +1924,6 @@ function showPublishSummary({
     const cmtFails  = (commentResults      && commentResults.fail)      || 0;
     const clmFails  = (claimResults        && claimResults.fail)        || 0;
     const relFails  = (relationshipResults && relationshipResults.fail) || 0;
-    const linkFails = (linkResults         && linkResults.fail)         || 0;
 
     const segments = [];
     segments.push(articleResults.successful > 0
@@ -2004,9 +1941,6 @@ function showPublishSummary({
     if (relationshipCount > 0) {
         segments.push(`${relationshipResults.ok}/${relationshipResults.ok + relationshipResults.fail} relationship${relationshipCount === 1 ? '' : 's'}`);
     }
-    if (linkCount > 0) {
-        segments.push(`${linkResults.ok}/${linkResults.ok + linkResults.fail} evidence link${linkCount === 1 ? '' : 's'}`);
-    }
     let line = 'Published: ' + segments.join(', ') + '.';
 
     const acceptedAll = [...relayStats.values()].filter((s) => s.fail === 0 && s.ok > 0).length;
@@ -2019,7 +1953,7 @@ function showPublishSummary({
         line += ` Rejected by ${names} — consider removing in Options.`;
     }
 
-    const anyFail = dead.length > 0 || cmtFails > 0 || entFails > 0 || clmFails > 0 || relFails > 0 || linkFails > 0;
+    const anyFail = dead.length > 0 || cmtFails > 0 || entFails > 0 || clmFails > 0 || relFails > 0;
     const level = (anyFail || articleResults.successful === 0)
         ? (articleResults.successful > 0 ? 'warning' : 'error')
         : 'success';
@@ -2037,7 +1971,7 @@ function showPublishSummary({
             : 'X-Ray: Publish complete';
     notify(notifyTitle, line, level);
 
-    return totalEvents - cmtFails - entFails - clmFails - relFails - linkFails
+    return totalEvents - cmtFails - entFails - clmFails - relFails
                        - (articleResults.successful === 0 ? 1 : 0);
 }
 

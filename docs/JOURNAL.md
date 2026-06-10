@@ -19,6 +19,45 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-10 — Phase 11.2: kind 30054/30055 wire builders; 30043 builder deleted
+
+**Tags:** design, wire-format
+
+The wire-format slice (docs/ASSESSMENTS_DESIGN.md §wire; NIP_DRAFT.md gains
+§30040/§30054/§30055 + querying filters). Builders only — **nothing
+publishes yet**: both paths gate behind the new `assessmentPublishing`
+flag (default off), wired in the Phase 11 publish slice.
+
+**What landed:** `buildAssessmentEvent` (kind 30054) +
+`buildClaimRelationshipEvent`/`parseRelationshipEvent` (kind 30055) in the
+metadata-builders family ({event, body, dTag} contract);
+`buildEvidenceLinkEvent` (kind 30043) deleted along with the reader's dead
+link-publish loop and summary plumbing (publishing was gated off in 11.1,
+so this is pure code removal — no behavior change).
+
+Wire rules worth remembering:
+
+- **d-tags are recomputable from the `a` tags** — 30054's d hashes the
+  claim coordinate; 30055's hashes `coordA|coordB|relationship` with
+  endpoints (and their url/eventId bundles) sorted lexically for the
+  symmetric relationships. Local ids never hit the wire; the builders
+  throw on `claim_*` refs.
+- **`r` verbatim / `i` normalized:** both kinds mirror the target claim's
+  `r` value exactly (the `#r` join with 30040s, which publish raw URLs
+  today) and carry the normalized URL in the NIP-73 `i`/`k` pair. One
+  rule, stated in the design note's URL section.
+- **NIP-32 honesty:** `L`/`l` on a non-1985 kind are formally self-labels;
+  NIP_DRAFT §30054 defines them as applying to the `a`-referenced claim
+  (documented deviation), and the kind-1985 mirror is the designated
+  ecosystem-aggregation path (publish slice).
+- **builders.js stays chromeless:** it can't import claim-ref.js (which
+  pulls claim-model → storage.js, and storage.js dereferences
+  `chrome.storage.local` at module load — would break the shimless
+  metadata tests). It carries a local 10-line coordinate shape-parser
+  instead; claim-ref.js keeps the registry-aware canonicalization.
+
+---
+
 ## 2026-06-09 — Phase 11.1: assessment data layer; legacy 30043 publish retired
 
 **Tags:** design, wire-format

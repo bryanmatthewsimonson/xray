@@ -30,8 +30,9 @@ globalThis.chrome = {
 const {
     EvidenceLinker, EVIDENCE_RELATIONSHIPS,
     EVIDENCE_RELATIONSHIP_LABELS, EVIDENCE_RELATIONSHIP_ICONS,
-    generateEvidenceLinkId
+    generateEvidenceLinkId, parseRelationshipEvent
 } = await import('../src/shared/evidence-linker.js');
+const { buildClaimRelationshipEvent } = await import('../src/shared/metadata/builders.js');
 const { ClaimModel } = await import('../src/shared/claim-model.js');
 const { buildClaimCoord } = await import('../src/shared/claim-ref.js');
 
@@ -364,4 +365,63 @@ test('evidence: relationship enum is exhaustive', () => {
         EVIDENCE_RELATIONSHIPS.slice().sort(),
         ['contradicts', 'duplicates', 'supports', 'updates']
     );
+});
+
+test('evidence: parseRelationshipEvent round-trips the kind-30055 builder', async () => {
+    const srcCoord = `30040:${PUBKEY_A}:claim_aaaaaaaaaaaaaaaa`;
+    const tgtCoord = `30040:${PUBKEY_B}:claim_bbbbbbbbbbbbbbbb`;
+    const { event, dTag } = await buildClaimRelationshipEvent({
+        sourceCoord: srcCoord, targetCoord: tgtCoord, relationship: 'contradicts',
+        sourceUrl: 'https://example.com/a', targetUrl: 'https://example.com/b',
+        sourceEventId: 'e'.repeat(64),
+        note: 'Same events, incompatible narrations.'
+    });
+
+    const parsed = parseRelationshipEvent({ ...event, pubkey: PUBKEY_A, id: 'f'.repeat(64) });
+    assert.equal(parsed.id, dTag);
+    assert.equal(parsed.relationship, 'contradicts');
+    // contradicts is symmetric: the builder sorted the endpoints.
+    assert.equal(parsed.source.coord, srcCoord);
+    assert.equal(parsed.target.coord, tgtCoord);
+    assert.equal(parsed.source.eventId, 'e'.repeat(64));
+    assert.equal(parsed.target.eventId, null);
+    assert.equal(parsed.note, 'Same events, incompatible narrations.');
+    assert.equal(parsed.suggestedBy, 'user');
+    assert.deepEqual(parsed.urls, ['https://example.com/a', 'https://example.com/b']);
+    assert.equal(parsed.pubkey, PUBKEY_A);
+});
+
+test('evidence: parseRelationshipEvent does not misattribute a lone role-marked tag', async () => {
+    // A directional link with ONLY a target event id: the single e tag
+    // carries the 'target' marker, and the positional fallback must NOT
+    // hand it to the source side.
+    const { event } = await buildClaimRelationshipEvent({
+        sourceCoord: `30040:${PUBKEY_A}:claim_aaaaaaaaaaaaaaaa`,
+        targetCoord: `30040:${PUBKEY_B}:claim_bbbbbbbbbbbbbbbb`,
+        relationship: 'supports',
+        targetEventId: 'f'.repeat(64)
+    });
+    const parsed = parseRelationshipEvent(event);
+    assert.equal(parsed.source.eventId, null, 'source has no event id');
+    assert.equal(parsed.target.eventId, 'f'.repeat(64));
+});
+
+test('evidence: parseRelationshipEvent rejects non-30055 events, tolerates missing markers', () => {
+    assert.equal(parseRelationshipEvent(null), null);
+    assert.equal(parseRelationshipEvent({ kind: 30043, tags: [] }), null);
+
+    // Unmarked a-tags fall back to tag order.
+    const parsed = parseRelationshipEvent({
+        kind: 30055,
+        tags: [
+            ['d', 'rel_x'],
+            ['a', `30040:${PUBKEY_A}:claim_aaaaaaaaaaaaaaaa`],
+            ['a', `30040:${PUBKEY_B}:claim_bbbbbbbbbbbbbbbb`],
+            ['relationship', 'updates']
+        ],
+        content: ''
+    });
+    assert.equal(parsed.source.coord, `30040:${PUBKEY_A}:claim_aaaaaaaaaaaaaaaa`);
+    assert.equal(parsed.target.coord, `30040:${PUBKEY_B}:claim_bbbbbbbbbbbbbbbb`);
+    assert.equal(parsed.suggestedBy, 'user', 'defaults when absent');
 });

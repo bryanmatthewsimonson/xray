@@ -31,7 +31,13 @@ export const FLAGS_DEFAULTS = Object.freeze({
   ratings: false,
   helpfulnessVoting: false, // UI gate; SW always accepts incoming votes
   bridgingRanking: false,   // v3
-  transitiveTrust: false    // v2
+  transitiveTrust: false,   // v2
+
+  // Phase 11 (docs/ASSESSMENTS_DESIGN.md): gates the PUBLISH paths for
+  // kind 30054 assessments, kind 30055 claim relationships, and the
+  // kind-1985 label mirror. Local capture/badges/rollups/export are
+  // never gated — they're the product.
+  assessmentPublishing: false
 });
 
 /**

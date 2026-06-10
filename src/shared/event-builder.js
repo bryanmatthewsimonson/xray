@@ -633,30 +633,10 @@ export const EventBuilder = {
     };
   },
 
-  // Build kind 30043 evidence link event
-  buildEvidenceLinkEvent: async (link, allClaims, userPubkey) => {
-    const sourceClaim = allClaims[link.source_claim_id];
-    const targetClaim = allClaims[link.target_claim_id];
-
-    const tags = [
-      ['d', link.id],
-      ['source-claim', link.source_claim_id],
-      ['target-claim', link.target_claim_id],
-      ['relationship', link.relationship],
-      ['client', 'xray']
-    ];
-
-    if (sourceClaim?.source_url) tags.push(['r', sourceClaim.source_url]);
-    if (targetClaim?.source_url) tags.push(['r', targetClaim.source_url]);
-
-    return {
-      kind: 30043,
-      pubkey: userPubkey,
-      created_at: Math.floor(Date.now() / 1000),
-      tags,
-      content: link.note || ''
-    };
-  },
+  // (Kind-30043 evidence links: builder deleted in Phase 11.2 — the
+  // kind is retired per docs/ASSESSMENTS_DESIGN.md. Cross-source claim
+  // relationships publish as kind 30055 via
+  // metadata/builders.buildClaimRelationshipEvent, flag-gated.)
 
   // ─── Archive Reader: Relay Retrieval ───
 
