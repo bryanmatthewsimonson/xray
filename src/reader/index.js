@@ -515,10 +515,11 @@ async function refreshClaimsBar() {
 async function openLinkClaim(sourceId, allClaimsOnArticle) {
     const source = allClaimsOnArticle.find((c) => c.id === sourceId);
     if (!source) return;
-    const candidates = allClaimsOnArticle.filter((c) => c.id !== sourceId);
-    const link = await openEvidenceLinkModal({ sourceClaim: source, candidates });
+    // Candidates span ALL captured claims (cross-source, Phase 11.4) —
+    // the modal collects them itself.
+    const link = await openEvidenceLinkModal({ sourceClaim: source });
     if (link) {
-        toast('Evidence link saved', 'success', 1500);
+        toast('Claim link saved', 'success', 1500);
         await refreshClaimsBar();
     }
 }

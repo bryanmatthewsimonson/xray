@@ -33,7 +33,8 @@ import {
 import { EntityModel, ENTITY_ICONS } from '../shared/entity-model.js';
 import { resolveSelectors } from '../shared/metadata/anchor-resolver.js';
 import { openAssessModal, renderAssessmentBadges, assessmentsByCanonicalRef } from '../shared/assess-modal.js';
-import { makeClaimRefCanonicalizer } from '../shared/claim-ref.js';
+import { AssessmentModel } from '../shared/assessment-model.js';
+import { makeClaimRefCanonicalizer, isLocalClaimId } from '../shared/claim-ref.js';
 
 // ------------------------------------------------------------------
 // Modal — used for create AND edit
@@ -359,8 +360,10 @@ function showModalError(modal, msg) {
  *   candidates:  object[]   // every other claim on this article
  * }} opts
  */
-export function openEvidenceLinkModal({ sourceClaim, candidates }) {
-    return new Promise((resolve) => {
+export function openEvidenceLinkModal({ sourceClaim }) {
+    return new Promise(async (resolve) => {
+        const candidates = await collectLinkCandidates(sourceClaim.id);
+
         const modal = document.createElement('div');
         modal.className = 'xr-claim-modal';
         modal.innerHTML = buildLinkModalHtml(sourceClaim, candidates);
@@ -378,22 +381,36 @@ export function openEvidenceLinkModal({ sourceClaim, candidates }) {
         $('.xr-claim-modal__backdrop').addEventListener('click', close);
         modal.querySelector('[data-action="cancel"]').addEventListener('click', close);
 
-        // Pick target
-        let targetId = null;
+        // Search across all candidates (text + url substring).
+        const search = $('.xr-link-modal__search');
+        if (search) {
+            search.addEventListener('input', () => {
+                const q = search.value.trim().toLowerCase();
+                modal.querySelectorAll('.xr-link-modal__target').forEach((btn) => {
+                    const hay = (btn.dataset.hay || '');
+                    btn.hidden = q !== '' && !hay.includes(q);
+                });
+            });
+        }
+
+        // Pick target — selection is the candidate index (refs may be
+        // coordinates; claim text never goes into data attributes).
+        let target = null;
         modal.querySelectorAll('.xr-link-modal__target').forEach((btn) => {
             btn.addEventListener('click', () => {
                 modal.querySelectorAll('.xr-link-modal__target').forEach((b) =>
                     b.classList.remove('xr-link-modal__target--active'));
                 btn.classList.add('xr-link-modal__target--active');
-                targetId = btn.dataset.id;
+                target = candidates[Number(btn.dataset.idx)] || null;
                 // Auto-scroll so the user sees the relationship picker below.
                 const relRow = $('.xr-link-modal__rel-row');
                 if (relRow) relRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
             });
         });
 
-        // Pick relationship
-        let rel = 'supports';
+        // Pick relationship — contradicts is the Phase 11 core, so it
+        // leads the enum and is the default.
+        let rel = EVIDENCE_RELATIONSHIPS[0];
         modal.querySelectorAll('.xr-link-modal__rel-btn').forEach((btn) => {
             if (btn.dataset.rel === rel) btn.classList.add('xr-link-modal__rel-btn--active');
             btn.addEventListener('click', () => {
@@ -405,16 +422,23 @@ export function openEvidenceLinkModal({ sourceClaim, candidates }) {
         });
 
         modal.querySelector('[data-action="save"]').addEventListener('click', async () => {
-            if (!targetId) {
+            if (!target) {
                 showModalError(modal, 'Pick a target claim first.');
                 return;
             }
             try {
                 const link = await EvidenceLinker.create({
                     source_claim_id: sourceClaim.id,
-                    target_claim_id: targetId,
+                    target_claim_id: target.ref,
                     relationship:    rel,
-                    note:            $('.xr-link-modal__note').value.trim()
+                    note:            $('.xr-link-modal__note').value.trim(),
+                    // Foreign endpoints carry their snapshot so the link
+                    // renders/exports without a relay round-trip; local
+                    // ones auto-fill from the registry.
+                    target_snapshot: target.origin === 'local' ? null : {
+                        url: target.url, text: target.text,
+                        author_pubkey: target.author_pubkey || null
+                    }
                 });
                 document.removeEventListener('keydown', escHandler);
                 if (modal.parentNode) modal.parentNode.removeChild(modal);
@@ -426,15 +450,57 @@ export function openEvidenceLinkModal({ sourceClaim, candidates }) {
     });
 }
 
+/**
+ * Cross-source link candidates (Phase 11.4): every locally captured
+ * claim across ALL articles, plus assessed-foreign claims (their
+ * coordinate + url/text snapshots live in claim_assessments), plus
+ * foreign claims from the most recent others'-claims render. Deduped
+ * by canonical ref; the source claim is excluded under any
+ * representation.
+ */
+async function collectLinkCandidates(sourceId) {
+    const [allClaims, allAssessments, canon] = await Promise.all([
+        ClaimModel.getAll(),
+        AssessmentModel.getAll(),
+        makeClaimRefCanonicalizer()
+    ]);
+    const pool = [];
+    for (const c of Object.values(allClaims)) {
+        pool.push({ ref: c.id, text: c.text, url: c.source_url, origin: 'local' });
+    }
+    for (const a of Object.values(allAssessments)) {
+        const r = a.claim_ref || {};
+        if (r.coord && !r.claim_id) {
+            pool.push({ ref: r.coord, text: r.text, url: r.url, origin: 'assessed',
+                        author_pubkey: r.author_pubkey || null });
+        }
+    }
+    for (const f of lastSeenForeignClaims()) {
+        pool.push({ ref: f.coord, text: f.text, url: f.url, origin: 'network',
+                    author_pubkey: null });
+    }
+    const out = new Map();
+    for (const cand of pool) {
+        const key = canon(cand.ref);
+        if (key === sourceId) continue;
+        if (!out.has(key)) out.set(key, cand);
+    }
+    return [...out.values()];
+}
+
 function buildLinkModalHtml(sourceClaim, candidates) {
     const srcType = CLAIM_TYPE_ICONS[sourceClaim.type] || '📋';
 
+    const host = (u) => { try { return new URL(u).host; } catch { return u || ''; } };
+    const ORIGIN_ICONS = { local: '📋', assessed: '⚖', network: '🌐' };
     const candidateHtml = candidates.length === 0
-        ? `<div class="xr-claim-modal__picker-empty">No other claims on this article. Add a second claim first, then come back to link them.</div>`
-        : candidates.map((c) => `
-            <button type="button" class="xr-link-modal__target" data-id="${escapeHtml(c.id)}">
-              <span class="xr-link-modal__target-type">${CLAIM_TYPE_ICONS[c.type] || '📋'}</span>
+        ? `<div class="xr-claim-modal__picker-empty">No other captured claims yet. Capture or assess a second claim first, then come back to link them.</div>`
+        : candidates.map((c, idx) => `
+            <button type="button" class="xr-link-modal__target" data-idx="${idx}"
+                    data-hay="${escapeHtml((c.text + ' ' + (c.url || '')).toLowerCase())}">
+              <span class="xr-link-modal__target-type" title="${escapeHtml(c.origin)}">${ORIGIN_ICONS[c.origin] || '📋'}</span>
               <span class="xr-link-modal__target-text">${escapeHtml(c.text)}</span>
+              <span class="xr-link-modal__target-host">${escapeHtml(host(c.url))}</span>
             </button>`).join('');
 
     const relHtml = EVIDENCE_RELATIONSHIPS.map((r) => `
@@ -463,7 +529,8 @@ function buildLinkModalHtml(sourceClaim, candidates) {
           </div>
 
           <div class="xr-claim-modal__field">
-            <span class="xr-claim-modal__label">To target claim <em>(on this article)</em></span>
+            <span class="xr-claim-modal__label">To target claim <em>(across all captures — 📋 local · ⚖ assessed foreign · 🌐 seen on relays)</em></span>
+            <input type="search" class="xr-link-modal__search" placeholder="Search claims…" spellcheck="false" />
             <div class="xr-link-modal__target-list">${candidateHtml}</div>
           </div>
 
@@ -510,8 +577,13 @@ export async function renderClaimsBar(claims) {
     // Resolve entity display for each claim's `about` set + its `source`
     // plus its evidence links in parallel so the bar renders quickly
     // for typical ~dozen-claim cases. Assessments come as one
-    // canonical-keyed map for the whole bar (Phase 11.3).
-    const assessMap = await assessmentsByCanonicalRef();
+    // canonical-keyed map for the whole bar (Phase 11.3); the
+    // canonicalizer also decides link direction (stored endpoint refs
+    // may be coordinates that collapse to this claim's id).
+    const [assessMap, canon] = await Promise.all([
+        assessmentsByCanonicalRef(),
+        makeClaimRefCanonicalizer()
+    ]);
     const rows = await Promise.all(claims.map(async (c) => {
         const [about, source, links] = await Promise.all([
             describeParty(c.about, ''),
@@ -531,22 +603,45 @@ export async function renderClaimsBar(claims) {
         const pubDot = c.publishedAt
             ? `<span class="xr-claims__pub" title="Published ${new Date(c.publishedAt * 1000).toLocaleString()}">🌐</span>`
             : '';
+        // ⚠ badge rule (Phase 11.4): the claim participates in a
+        // contradicts link as either endpoint.
+        const warn = links.some((l) => l.relationship === 'contradicts')
+            ? `<span class="xr-claims__warn" title="In a contradiction — see the linked claim below">⚠</span>`
+            : '';
         const linksBlock = links.length > 0
             ? `<div class="xr-claims__links">${
                 (await Promise.all(links.map(async (l) => {
-                    const isOutgoing = l.source_claim_id === c.id;
-                    const otherId    = isOutgoing ? l.target_claim_id : l.source_claim_id;
-                    const other      = claims.find((x) => x.id === otherId);
-                    const otherLabel = other ? escapeHtml(other.text.slice(0, 80)) : escapeHtml(`(claim ${otherId.slice(0, 12)}…)`);
-                    const arrow      = isOutgoing ? '→' : '←';
+                    const symmetric  = l.relationship === 'contradicts' || l.relationship === 'duplicates';
+                    const isOutgoing = canon(l.source_claim_id) === c.id;
+                    const otherRef   = isOutgoing ? l.target_claim_id : l.source_claim_id;
+                    const otherSnap  = isOutgoing ? l.target_snapshot : l.source_snapshot;
+                    // Resolve the other endpoint: same-article claim →
+                    // cross-article local claim → foreign snapshot.
+                    const otherCanon = canon(otherRef);
+                    let otherText = '', otherUrl = '';
+                    const onArticle = claims.find((x) => x.id === otherCanon);
+                    if (onArticle) { otherText = onArticle.text; otherUrl = onArticle.source_url; }
+                    else if (isLocalClaimId(otherCanon)) {
+                        const rec = await ClaimModel.get(otherCanon);
+                        if (rec) { otherText = rec.text; otherUrl = rec.source_url; }
+                    }
+                    if (!otherText && otherSnap) { otherText = otherSnap.text || ''; otherUrl = otherSnap.url || ''; }
+                    const otherLabel = otherText
+                        ? escapeHtml(otherText.slice(0, 80))
+                        : escapeHtml(`(claim ${String(otherRef).slice(0, 18)}…)`);
+                    const hostPill = (otherUrl && otherUrl !== c.source_url)
+                        ? `<span class="xr-claims__link-host" title="${escapeHtml(otherUrl)}">${escapeHtml(hostOf(otherUrl))}</span>`
+                        : '';
+                    const arrow      = symmetric ? '↔' : (isOutgoing ? '→' : '←');
                     const relIcon    = EVIDENCE_RELATIONSHIP_ICONS[l.relationship] || '◇';
                     const relLabel   = EVIDENCE_RELATIONSHIP_LABELS[l.relationship] || l.relationship;
                     const linkPub    = l.publishedAt ? ' 🌐' : '';
                     const noteLine   = l.note ? `<span class="xr-claims__link-note"> — ${escapeHtml(l.note)}</span>` : '';
-                    return `<div class="xr-claims__link" data-link-id="${escapeHtml(l.id)}">
+                    return `<div class="xr-claims__link${l.relationship === 'contradicts' ? ' xr-claims__link--warn' : ''}" data-link-id="${escapeHtml(l.id)}">
                               <span class="xr-claims__link-rel">${relIcon} ${escapeHtml(relLabel)}${linkPub}</span>
                               <span class="xr-claims__link-arrow">${arrow}</span>
                               <span class="xr-claims__link-other">${otherLabel}</span>
+                              ${hostPill}
                               ${noteLine}
                               <button type="button" class="xr-claims__link-del" data-link-id="${escapeHtml(l.id)}" title="Remove this link">✕</button>
                             </div>`;
@@ -557,6 +652,7 @@ export async function renderClaimsBar(claims) {
           <article class="xr-claims__item ${c.is_key ? 'xr-claims__item--crux' : ''}" data-id="${escapeHtml(c.id)}">
             <div class="xr-claims__row-top">
               ${key}
+              ${warn}
               ${pubDot}
               <div class="xr-claims__row-actions">
                 <button type="button" class="xr-claims__btn" data-action="assess" title="${assessment ? 'Edit your assessment' : 'Assess this claim'}">${assessment ? '⚖✓' : '⚖'}</button>
@@ -838,6 +934,10 @@ function renderForeignClaim(event, assessMap, canon) {
 
 function tagVals(tags, name) {
     return tags.filter((x) => x[0] === name).map((x) => x[1]);
+}
+
+function hostOf(url) {
+    try { return new URL(url).host; } catch { return String(url || ''); }
 }
 
 // ------------------------------------------------------------------
