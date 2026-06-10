@@ -19,6 +19,62 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-09 — Phase 11 design: assessments & contradictions; 10.5 superseded
+
+**Tags:** design
+
+**Decision:** Phase 11 ("Community Notes for the internet") adds a personal
+judgment layer on claims: per-claim **assessments** (graded stance −2..+2 +
+NIP-32 `xray/assessment` issue labels, each label optionally anchored) and
+**cross-source claim relationships** (`contradicts`/`supports`/`updates`/
+`duplicates`). Local-first; publishing flag-gated. Full design:
+`docs/ASSESSMENTS_DESIGN.md` (for review before code).
+
+Three second-guessable calls, on the record (the draft went through an
+adversarial review pass; the second call below was *reversed* by it):
+
+- **New kind `30054` for assessments** instead of overloading the dormant
+  `30052`/`30051`. 30052's d-tag is per-(author, URL) — can't hold per-claim
+  stances without changing its identity semantics; 30051 is Schema.org
+  ClaimReview ("reviewed against a truth scale"), semantically distinct from
+  a personal agree/disagree judgment — and although 30051 is unshipped (so
+  redefining it would be compat-free), its ClaimReview JSON-LD interop and
+  formal-verdict semantics are worth keeping as a distinct signal, and its
+  text-keyed d breaks on claim edits where a coordinate-keyed d doesn't.
+- **`30043` retired (as 10.5 planned), replaced by new kind `30055`** for
+  cross-source claim relationships. The first draft repurposed 30043 with a
+  new tag vocabulary + dual-read; review killed that: the legacy publish
+  path is live and *ungated* today, so relays already hold local-id-vocab
+  30043s a public NIP could never honor, and a re-keyed d can't replace
+  them (different hash input — both versions would live forever). A fresh
+  `3005x` kind starts coordinate-only and conventions-conformant; nothing
+  in src/ reads foreign 30043s, so retirement costs ~nothing. The
+  `evidence-linker.js` *module* is still repurposed as the cross-source
+  local model.
+- **A "case" is an entity, not a new object** — the keypair/p-tag/
+  relay-query pipeline works unchanged and the entity detail view grows
+  into the case dashboard. Recommended refinement (open for review): a
+  first-class `case` entity *type* rather than overloading `thing`, because
+  entity type is already wire-visible (30078/32125 `entity-type` tags) and
+  deferring it means a type migration + republish later.
+
+Other review-forced specifics worth remembering: assessment/link identity
+keys on a *canonical claim ref* (local id for ours, coordinate for foreign,
+normalized everywhere — the naive "coord when present, else local id" rule
+breaks idempotency across the publish boundary); `ClaimModel.markPublished`
+must start recording the publishing pubkey or coordinates of our own
+published claims are unrecoverable; NIP-32 `l` tags on a non-1985 kind are
+formally *self*-labels, so the kind-1985 mirror is the designated ecosystem
+aggregation path; `contradicts`/`duplicates` are symmetric and need sorted
+endpoint ordering in the d-hash or A↔B double-counts.
+
+**Consequence for ROADMAP:** 10.5 ("metadata reframe") is superseded —
+responses-to-claims arrives as the assessment primitive; annotations keep
+the 10.3 shared anchor; 30043's retirement is confirmed and lands in 11.1
+(publish path gated off). Phase 11 section added with slices 11.1–11.6.
+
+---
+
 ## 2026-06-09 — Cross-source claim aggregation (Phase 10.4)
 
 **Tags:** design
