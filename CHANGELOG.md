@@ -12,6 +12,16 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Case export** (Phase 11.6 — the last Phase 11 v1 slice). Case
+  entities' detail view gains **Export JSON** + **Export Markdown**: the
+  deterministic case file (local claims about the case, your stances +
+  labels with notes/anchors/provenance, contradictions with embedded
+  endpoint snapshots — never dangling — and the label tally; viewed-only
+  network claims are excluded so the same case always exports the same
+  bytes) and the publishable research-notes report (claims grouped by
+  stance, inconsistencies pairing the contradicting quotes, label tally).
+  `docs/SMOKE_TEST.md` gains the full Phase 11 walkthrough (§11.1–11.24).
+
 - **The case dashboard: side-panel rollups + inconsistencies**
   (Phase 11.5). The entity detail view now has three judgment surfaces:
   **Your claims about this entity** (local claims tagging it, each with
