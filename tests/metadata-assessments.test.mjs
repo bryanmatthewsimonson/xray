@@ -12,7 +12,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { buildAssessmentEvent, buildClaimRelationshipEvent } =
+const { buildAssessmentEvent, buildClaimRelationshipEvent, buildAssessmentMirrorEvent } =
   await import('../src/shared/metadata/builders.js');
 const { ASSESSMENT_LABEL_NAMESPACE } =
   await import('../src/shared/assessment-taxonomy.js');
@@ -293,6 +293,40 @@ test('30055: validation', async () => {
     /cannot link a claim to itself/);
   await assert.rejects(() => buildClaimRelationshipEvent({ ...ok, suggestedBy: 'llm: ' }),
     /suggestedBy/);
+});
+
+// ---------------------------------------------------------------------
+// Kind 1985 — assessment label mirror
+// ---------------------------------------------------------------------
+
+test('1985 mirror: tag shape, regular-event semantics, validation', () => {
+  const { event, dTag } = buildAssessmentMirrorEvent({
+    claimCoord: COORD_A,
+    labels: [{ label: 'misleading', note: 'note stays on the 30054' }, 'flip-flop'],
+    relayHint: 'wss://relay.example'
+  });
+
+  assert.equal(event.kind, 1985);
+  assert.equal(event.content, '');
+  assert.equal(dTag, null, 'kind 1985 is a regular event — no d');
+
+  assert.deepEqual(firstTag(event, 'L'), ['L', ASSESSMENT_LABEL_NAMESPACE]);
+  assert.deepEqual(tagsNamed(event, 'l'), [
+    ['l', 'misleading', ASSESSMENT_LABEL_NAMESPACE],
+    ['l', 'flip-flop', ASSESSMENT_LABEL_NAMESPACE]
+  ]);
+  assert.deepEqual(firstTag(event, 'a'), ['a', COORD_A, 'wss://relay.example']);
+  assert.deepEqual(firstTag(event, 'p'), ['p', PUBKEY_A], 'claim author from the coordinate');
+  assert.deepEqual(firstTag(event, 'client'), ['client', 'xray']);
+  assert.equal(firstTag(event, 'label-note'), undefined, 'enrichments stay on the 30054');
+  for (const t of event.tags) {
+    for (const v of t) assert.equal(typeof v, 'string');
+  }
+
+  assert.throws(() => buildAssessmentMirrorEvent({ claimCoord: COORD_A, labels: [] }),
+    /at least one label/);
+  assert.throws(() => buildAssessmentMirrorEvent({ claimCoord: 'claim_aaaaaaaaaaaaaaaa', labels: ['misleading'] }),
+    /must be a 30040:<pubkey>:<d> coordinate/);
 });
 
 // ---------------------------------------------------------------------

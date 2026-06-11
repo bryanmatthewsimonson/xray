@@ -12,6 +12,20 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Judgment publishing** (Phase 11.7; behind **Settings → Advanced →
+  Experimental → "Publish assessments & claim links to relays"**, default
+  off). When enabled, the reader's Publish batch also emits — after the
+  claims, so own-claim coordinates resolve from the recorded publishing
+  pubkey — your wire-ready judgments: kind-30054 assessments (stance,
+  labels with anchors/notes, rationale, mirrored about-entity `p` tags),
+  kind-30055 claim links (both endpoints' coordinates required), and a
+  one-time kind-1985 label mirror per labeled assessment on its first
+  publish (the plain-NIP-32 aggregation path). Selection spans ALL
+  wire-ready judgments (judgments are article-agnostic), uses the standard
+  `updated > publishedAt` re-emit gate, backfills assessment coordinates
+  at publish time, and reports per-type results in the publish summary.
+  Local capture continues to work with the switch off.
+
 - **Case export** (Phase 11.6 — the last Phase 11 v1 slice). Case
   entities' detail view gains **Export JSON** + **Export Markdown**: the
   deterministic case file (local claims about the case, your stances +

@@ -675,6 +675,49 @@ export async function buildClaimRelationshipEvent({
   };
 }
 
+/**
+ * Build an unsigned kind 1985 label event mirroring an assessment's
+ * labels — the designated plain-NIP-32 ecosystem-aggregation path
+ * (NIP draft §30054): generic NIP-32 consumers query kind 1985 and
+ * read `L`/`l` against the `a`-referenced target, which is exactly
+ * this shape. Emitted alongside a labeled 30054 on its FIRST publish,
+ * behind the same `assessmentPublishing` flag. Notes/anchors/stance
+ * stay on the 30054 — the mirror is aggregation-only.
+ *
+ * @param {object} args
+ * @param {string} args.claimCoord      — `30040:<pubkey>:<d>` (required)
+ * @param {Array<string>} args.labels   — at least one taxonomy/custom label
+ * @param {string} [args.relayHint]
+ * @param {number} [args.createdAt]
+ * @returns {{event, body, dTag: null}}  (kind 1985 is a regular event)
+ */
+export function buildAssessmentMirrorEvent({
+  claimCoord,
+  labels,
+  relayHint = '',
+  createdAt = nowSeconds()
+} = {}) {
+  const coord = assertClaimCoordinate(claimCoord, 'buildAssessmentMirrorEvent', 'claimCoord');
+  const labelList = cleanWireLabels(labels, 'buildAssessmentMirrorEvent');
+  if (labelList.length === 0) {
+    throw new Error('buildAssessmentMirrorEvent: at least one label required');
+  }
+
+  const tags = [
+    tag('L', ASSESSMENT_LABEL_NAMESPACE),
+    ...labelList.map((l) => tag('l', l.label, ASSESSMENT_LABEL_NAMESPACE)),
+    tag('a', claimCoord, relayHint),
+    tag('p', coord.pubkey),
+    tag('client', 'xray')
+  ];
+
+  return {
+    event: { kind: 1985, created_at: createdAt, tags, content: '' },
+    body: '',
+    dTag: null
+  };
+}
+
 // ------------------------------------------------------------------
 // `responds-to` tag for kind 30023 (extension)
 // ------------------------------------------------------------------

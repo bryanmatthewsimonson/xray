@@ -7,6 +7,7 @@
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
+import { loadFlags, isEnabled, setOverride } from '../shared/metadata/feature-flags.js';
 
 const browserApi = (typeof browser !== 'undefined' && browser.runtime) ? browser : chrome;
 
@@ -443,6 +444,12 @@ async function loadAdvanced() {
         prefs.archive_banner_sensitivity || 'always';
     document.getElementById('pref-debug').checked = prefs.debug === true;
 
+    // Experimental flags (metadata/feature-flags.js — stored under the
+    // `xray:flags` key, not preferences).
+    await loadFlags();
+    document.getElementById('pref-assessment-publishing').checked =
+        isEnabled('assessmentPublishing');
+
     const overrides = prefs.config_overrides || {};
     document.getElementById('pref-cache-enabled').checked =
         overrides.article_cache_enabled !== false;
@@ -471,6 +478,12 @@ async function saveAdvanced() {
     };
 
     await storageSet('preferences', prefs);
+
+    // Experimental flags: checked → explicit override on; unchecked →
+    // clear the override back to the default (off).
+    const publishJudgments = document.getElementById('pref-assessment-publishing').checked;
+    await setOverride('assessmentPublishing', publishJudgments ? true : null);
+
     flash(document.getElementById('advanced-status'), 'Saved.');
 }
 
