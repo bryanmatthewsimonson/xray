@@ -90,6 +90,9 @@ function buildItem(record, entityIndex) {
     let title = '';
     let sub = '';
     const haystack = [];
+    // Structured fields the entity/case views key on (Phase 12.5);
+    // null/absent where a kind doesn't carry them.
+    const extra = {};
 
     switch (event.kind) {
         case 30023: {
@@ -112,6 +115,8 @@ function buildItem(record, entityIndex) {
             if (c.isKey) bits.push('key claim');
             sub = bits.join(' · ');
             haystack.push(c.text, c.source, ...entityNames, c.title);
+            const dTag = (((event.tags || []).find((t) => t[0] === 'd')) || [])[1];
+            if (dTag && event.pubkey) extra.claimCoord = `30040:${event.pubkey}:${dTag}`;
             break;
         }
         case 30041: {
@@ -135,6 +140,9 @@ function buildItem(record, entityIndex) {
                 title = bits.join(' · ') || '(judgment)';
                 sub = a.rationale;
                 haystack.push(a.rationale, ...a.labels.map((l) => l.label), a.claimCoord);
+                extra.claimCoord = a.claimCoord;
+                extra.stance = a.stance;
+                extra.labelCount = a.labels.length;
             }
             break;
         }
@@ -145,6 +153,9 @@ function buildItem(record, entityIndex) {
                 title = r.relationship || '(link)';
                 sub = r.note || r.urls.join('  ');
                 haystack.push(r.relationship, r.note, ...r.urls);
+                extra.relationship = r.relationship;
+                extra.sourceCoord = r.source.coord || null;
+                extra.targetCoord = r.target.coord || null;
             }
             break;
         }
@@ -166,6 +177,7 @@ function buildItem(record, entityIndex) {
                 sub = [acct.displayName, acct.linkedEntityId ? `linked to ${acct.linkedEntityId}` : '']
                     .filter(Boolean).join(' · ');
                 haystack.push(acct.platform, acct.handle, acct.displayName, acct.stableId);
+                extra.linkedEntityId = acct.linkedEntityId || null;
             }
             break;
         }
@@ -244,7 +256,8 @@ function buildItem(record, entityIndex) {
         client,
         cases,
         created_at: event.created_at || 0,
-        searchText: haystack.filter(Boolean).join(' ').toLowerCase()
+        searchText: haystack.filter(Boolean).join(' ').toLowerCase(),
+        ...extra
     };
 }
 

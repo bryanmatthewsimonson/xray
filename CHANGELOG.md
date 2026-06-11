@@ -27,6 +27,23 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Portal entity spokes graph + case dashboard** (Phase 12.5). The
+  "explore visually" surface, per the agreed design: a hand-rolled
+  SVG **ego graph** — focused entity centered, deterministic radial
+  layout with type sectors (claims about it, claims it sourced,
+  co-tagged entities, containing cases, linked platform accounts),
+  spoke and mention edges, **⚠ contradiction edges** drawn hot with
+  ghost endpoints when the counterpart claim lives outside the ego
+  set, claim nodes tinted by their latest assessment stance, per-type
+  "+K more" overflow nodes that expand on click, drag-pan, wheel-zoom,
+  and locate-by-text pulse. Clicking a co-tagged entity refocuses;
+  clicking a case opens the new **case dashboard** — the publish-side
+  complement of the side panel's local one: artifact rollup by type, a
+  publish-density strip, the people/orgs tagged alongside, and the
+  case's claims with stance and ⚠ contradicted badges. Entity and
+  case rows in the Library link straight in. No graph dependency
+  added; the bundle stays vanilla SVG.
+
 - **Portal timeline — publish-date density + brush filtering**
   (Phase 12.4). A density strip over the corpus's `created_at` (UTC
   day buckets, rolling up to Monday-anchored weeks past 180 days, gap

@@ -21,46 +21,28 @@ import {
     kindLabel, TYPE_DEFS, EMPTY_FILTERS
 } from './library.js';
 import { buildBuckets, brushRange } from './timeline.js';
+import { el, svgEl, clear, truncate, shortKey } from './dom.js';
+import { renderEntityView } from './entity-view.js';
+import { renderCaseView } from './case-view.js';
 
 const $ = (sel) => document.querySelector(sel);
 
 const state = {
     identities: [],      // [{pubkey, sources}]
     entities: [],        // [{pubkey, entityId, name, type}]
+    entityIndex: {},     // pubkey → {entityId, name, type}
     signer: null,        // {method, pubkey, reason}
     relays: [],
     records: [],         // [{event, relays}] — raw, pre-dedupe
     items: [],           // library items (deduped, parsed, sorted)
     filters: { ...EMPTY_FILTERS },
     groupByDomain: false,
+    view: { name: 'library' },   // | {name:'entity', pubkey} | {name:'case', pubkey}
+    expandedTypes: new Set(),    // graph sectors the user expanded
     relayErrors: {},
     truncated: false,
     loading: false
 };
-
-// ------------------------------------------------------------------
-// Small DOM helpers
-// ------------------------------------------------------------------
-
-function el(tag, className, text) {
-    const node = document.createElement(tag);
-    if (className) node.className = className;
-    if (text !== undefined && text !== null) node.textContent = text;
-    return node;
-}
-
-function clear(node) {
-    while (node.firstChild) node.removeChild(node.firstChild);
-}
-
-function shortKey(pubkey) {
-    return pubkey.slice(0, 8) + '…' + pubkey.slice(-4);
-}
-
-function truncate(s, n) {
-    const str = String(s || '').trim();
-    return str.length > n ? str.slice(0, n - 1) + '…' : str;
-}
 
 // ------------------------------------------------------------------
 // Header / identity / status
@@ -177,6 +159,13 @@ function renderFacets() {
     state.filters.caseName = $('#xr-facet-case').value;
 }
 
+function casePubkeyFor(name) {
+    for (const [pk, ent] of Object.entries(state.entityIndex)) {
+        if (ent.type === 'case' && ent.name === name) return pk;
+    }
+    return null;
+}
+
 function buildRow(item) {
     const row = el('li', 'xr-row');
     const head = el('div', 'xr-row__head');
@@ -191,7 +180,27 @@ function buildRow(item) {
         badges.appendChild(el('span', 'xr-badge xr-badge--warn', `via ${truncate(item.client, 24)}`));
     }
     for (const caseName of item.cases) {
-        badges.appendChild(el('span', 'xr-badge xr-badge--case', truncate(caseName, 32)));
+        const pk = casePubkeyFor(caseName);
+        const badge = el(pk ? 'button' : 'span', 'xr-badge xr-badge--case', truncate(caseName, 32));
+        if (pk) {
+            badge.type = 'button';
+            badge.title = 'Open the case dashboard';
+            badge.addEventListener('click', () => viewCallbacks.onOpenCase(pk));
+        }
+        badges.appendChild(badge);
+    }
+    if ((item.typeKey === 'entity' || item.typeKey === 'case') && item.event.pubkey) {
+        const btn = el('button', 'xr-badge xr-badge--action',
+            item.typeKey === 'case' ? '☰ Dashboard' : '✳ Spokes');
+        btn.type = 'button';
+        btn.title = item.typeKey === 'case'
+            ? 'Open this case\'s published-artifact dashboard'
+            : 'Open this entity\'s spokes graph';
+        btn.addEventListener('click', () => {
+            if (item.typeKey === 'case') viewCallbacks.onOpenCase(item.event.pubkey);
+            else viewCallbacks.onFocusEntity(item.event.pubkey);
+        });
+        badges.appendChild(btn);
     }
     head.appendChild(badges);
 
@@ -257,15 +266,8 @@ function renderRows(visible) {
 // Timeline (Phase 12.4): publish-date density + brush-to-filter
 // ------------------------------------------------------------------
 
-const SVG_NS = 'http://www.w3.org/2000/svg';
 const TL_BAR_W = 6;     // viewBox units per bucket (4 bar + 2 gap)
 const TL_HEIGHT = 56;
-
-function svgEl(tag, attrs) {
-    const node = document.createElementNS(SVG_NS, tag);
-    for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, String(v));
-    return node;
-}
 
 function fmtDay(ts) {
     return new Date(ts * 1000).toLocaleDateString();
@@ -324,7 +326,7 @@ function renderTimeline() {
                 + (inBrush ? ' xr-tl-bar--active' : '')
                 + (b.count === 0 ? ' xr-tl-bar--empty' : '')
         });
-        const tip = document.createElementNS(SVG_NS, 'title');
+        const tip = svgEl('title', {});
         tip.textContent = `${fmtDay(b.start)} — ${b.count} item(s)`;
         bar.appendChild(tip);
         svg.appendChild(bar);
@@ -364,6 +366,51 @@ function renderLibrary() {
 }
 
 // ------------------------------------------------------------------
+// View router (Phase 12.5): library | entity spokes | case dashboard
+// ------------------------------------------------------------------
+
+function libraryChromeVisible(visible) {
+    $('#xr-tabs').hidden = !visible;
+    $('#xr-facets').hidden = !visible;
+    $('#xr-timeline').hidden = !visible || state.items.length === 0;
+    $('#xr-list').hidden = !visible;
+    $('#xr-empty').hidden = true;
+    $('#xr-view').hidden = visible;
+}
+
+const viewCallbacks = {
+    onBack: () => { state.view = { name: 'library' }; render(); },
+    onFocusEntity: (pubkey) => { state.view = { name: 'entity', pubkey }; state.expandedTypes = new Set(); render(); },
+    onOpenCase: (pubkey) => { state.view = { name: 'case', pubkey }; render(); },
+    onOpenGraph: (pubkey) => { state.view = { name: 'entity', pubkey }; state.expandedTypes = new Set(); render(); },
+    onExpand: (type) => { state.expandedTypes.add(type); render(); }
+};
+
+function render() {
+    if (state.view.name === 'entity') {
+        libraryChromeVisible(false);
+        renderEntityView($('#xr-view'), {
+            items: state.items,
+            entityIndex: state.entityIndex,
+            focusPubkey: state.view.pubkey,
+            expandedTypes: state.expandedTypes,
+            callbacks: viewCallbacks
+        });
+    } else if (state.view.name === 'case') {
+        libraryChromeVisible(false);
+        renderCaseView($('#xr-view'), {
+            items: state.items,
+            entityIndex: state.entityIndex,
+            casePubkey: state.view.pubkey,
+            callbacks: viewCallbacks
+        });
+    } else {
+        libraryChromeVisible(true);
+        renderLibrary();
+    }
+}
+
+// ------------------------------------------------------------------
 // Boot + refresh (cache-first since 12.3: render what we have, then
 // refresh incrementally in the background and re-render the union)
 // ------------------------------------------------------------------
@@ -375,11 +422,11 @@ const SYNC_OVERLAP_SECONDS = 3600;
 
 function rebuildItems(records) {
     state.records = records;
-    const entityIndex = {};
-    for (const e of state.entities) entityIndex[e.pubkey] = e;
+    state.entityIndex = {};
+    for (const e of state.entities) state.entityIndex[e.pubkey] = e;
     // The cache stores only the latest version per replaceable address,
     // so records arrive pre-deduped.
-    state.items = buildItems(records, { entityIndex });
+    state.items = buildItems(records, { entityIndex: state.entityIndex });
 }
 
 function setBusy(busy) {
@@ -413,7 +460,7 @@ async function boot({ full = false } = {}) {
         const cached = await loadRecords();
         if (cached.length > 0) {
             rebuildItems(cached);
-            renderLibrary();
+            render();
             setStatus(`${state.items.length} item(s) from cache — refreshing…`);
         }
 
@@ -453,7 +500,7 @@ async function boot({ full = false } = {}) {
 
         const stats = await saveRecords(records);
         rebuildItems(await loadRecords());
-        renderLibrary();
+        render();
 
         const failed = Object.keys(relayErrors);
         // Only advance the cursor when at least one relay answered in
