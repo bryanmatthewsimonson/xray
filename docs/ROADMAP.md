@@ -913,7 +913,7 @@ Slices (one PR each):
   footer. — #54
 - ✅ **12.7** Hardening — three-lens adversarial review (20 confirmed
   findings fixed, incl. two relay-sync bugs and a read-only breach;
-  JOURNAL 2026-06-11), SMOKE_TEST §Phase 12, docs pass.
+  JOURNAL 2026-06-11), SMOKE_TEST §Phase 12, docs pass. — #55
 
 ---
 
