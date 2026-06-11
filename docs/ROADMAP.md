@@ -62,6 +62,12 @@ Phase 12 ████████████████████  complete 
                                 portal (docs/PORTAL_DESIGN.md). 12.1–12.7
                                 shipped incl. adversarial-review fixes;
                                 §Phase 12 smoke-run pending
+Phase 13 ██░░░░░░░░░░░░░░░░░░  design under review — epistemic audits
+                                (docs/EPISTEMIC_AUDIT_DESIGN.md, from the
+                                recovered auditor framework vendored at
+                                docs/auditor-prototype/). Kinds 30056–30061
+                                proposed; no code until the design's review
+                                questions are answered
 ```
 
 Parity with the v4.2 userscript is reached; the project now operates as a
@@ -914,6 +920,40 @@ Slices (one PR each):
 - ✅ **12.7** Hardening — three-lens adversarial review (20 confirmed
   findings fixed, incl. two relay-sync bugs and a read-only breach;
   JOURNAL 2026-06-11), SMOKE_TEST §Phase 12, docs pass. — #55
+
+---
+
+## Phase 13 — Epistemic audits 🚧 (design under review)
+
+The maintainer's epistemic-auditor framework — eight versioned
+surface-scan module prompts (headline-body fidelity, asymmetric
+language, number hygiene, source quality, internal coherence,
+definitional precision, omission, prediction extraction), a canonical
+data model (`audit-types.ts`: content-addressed articles, module
+results with confidence, aggregate audits under a knowability ceiling,
+a prediction ledger with resolutions, dossiers with Bayesian shrinkage,
+disputes, first-class auditor identity), and a working Node scorer —
+is recovered and vendored at
+[`docs/auditor-prototype/`](auditor-prototype/README.md) (PRs #58/#60).
+
+Phase 13 integrates it into X-Ray. The design note,
+[`docs/EPISTEMIC_AUDIT_DESIGN.md`](EPISTEMIC_AUDIT_DESIGN.md)
+(drafted 2026-06-11 from the rev-3 kickoff,
+[`docs/EPISTEMIC_AUDIT_KICKOFF.md`](EPISTEMIC_AUDIT_KICKOFF.md), and
+adversarially reviewed before its PR), proposes: six new kinds
+**30056–30061** (the framework's 30050–30055 are all taken in-repo); a
+canonical article hash (the scorer's normalization, byte-for-byte)
+carried as an indexed `x` tag; a local-first execution path staged
+through a companion-CLI stopgap (hosted endpoint refused for v1); a
+strict audit/assessment firewall; dossiers as derived portal views over
+published audit events; honest score display (no score without
+confidence, no aggregate without its ceiling, <0.6 confidence renders
+as "needs human review"); and a nine-slice implementation plan.
+
+**Status: design only — nothing is built.** Implementation is gated on
+the note's review questions (runs-where staging, knowability-ceiling
+provenance, the manual tier, the calibration multiplier, kind numbers,
+prediction→claim atomization, API-key custody, beat taxonomy).
 
 ---
 

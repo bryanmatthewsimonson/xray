@@ -19,6 +19,59 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-11 — Phase 13 design: the calls a future reader will second-guess
+
+**Tags:** design
+
+`docs/EPISTEMIC_AUDIT_DESIGN.md` (design-note-only session; no code).
+The decisions most worth a paper trail:
+
+- **Numeric scores are back in — deliberately.** The rev-1 kickoff
+  reconstruction had *forbidden* numeric scores (reasoning from the
+  10.1 confidence-slider failure). The recovered framework
+  (`docs/auditor-prototype/`) scores 0–100 with per-score confidence, a
+  knowability ceiling, versioned methodology, and auditor identity —
+  the rev-2 brief reversed rev 1 because **the framework wins where
+  they conflict**. The design note's display rules (no score without
+  confidence, <0.6 renders as "needs human review", bands anchored to
+  the framework's own rubric, never centered on 50) are the guardrails
+  that made the 10.1 objection answerable rather than ignored.
+- **Kind remap 30050→30056 etc.** The framework's suggested kinds
+  30050–30055 were chosen before Phases 9a/11 shipped and every one is
+  now occupied in-repo. Six new kinds 30056–30061, same one-family-
+  per-kind shape. Not a framework deviation of substance — the schema
+  README itself says the numbers "should be claimed via NIP proposal."
+- **Run-unique `d` tags for module results/aggregates.** The schema
+  README said `d` = article hash; `audit-types.ts` mandates
+  "nothing overwrites prior audits." At one `d`, NIP-01 replacement
+  eats history — so the note resolves the framework's own internal
+  tension toward time-series (`d` includes `run_at`, recomputable from
+  the event's tags), and documents per-entity where latest-wins *is*
+  correct (resolutions, dossier snapshots).
+- **Import-then-sign, not CLI-signs.** The kickoff sketched the
+  companion-CLI stopgap as "emitting signed events the portal reads."
+  The note recommends the CLI emit *unsigned* audit JSON that the
+  extension imports, validates, and signs via the existing Signer —
+  keeps nsec handling out of Node entirely. Flagged as review
+  question 1 rather than decided silently.
+- **Hosted scorer endpoint refused for v1.** A server between a trust
+  tool and its users is a new trust dependency; local-first (user's
+  API key) staged through the CLI stopgap instead.
+- **Adversarial review before the PR** (three lenses: framework
+  fidelity / repo fidelity / scope): 1 high + ~8 medium confirmed
+  findings, all fixed — the high was hand-recomputability gaps in the
+  30057/30058 `d` formulas (fixed by pinning `auditor_id` to the
+  `auditor` tag's id slot and moving prediction resolution-criteria
+  out of `content` into a `criteria` tag); the most consequential
+  mediums: typed evidence (`kind`/`value`/`description`) restored on
+  30059/30061, badge bands realigned to the framework's published
+  rubric instead of invented breaks, the opt-in host-permission story
+  corrected (manifest already grants `<all_urls>` — the API key + flag
+  are the real consent gates), and video transcript formatting named
+  as part of the canonical hash input.
+
+---
+
 ## 2026-06-11 — Phase 12.7: what the adversarial review caught (two relay-sync bugs + a read-only breach)
 
 **Tags:** bug, design, pattern
