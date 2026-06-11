@@ -58,9 +58,9 @@ Phase 11 ████████████████████  complete 
                                 (docs/ASSESSMENTS_DESIGN.md). 11.1–11.6 +
                                 publishing (11.7) + collaboration (11.8)
                                 shipped; case smoke-runs pending
-Phase 12 ░░░░░░░░░░░░░░░░░░░░  design under review — "My Archive" personal
-                                data portal (docs/PORTAL_DESIGN.md); no
-                                feature code before maintainer sign-off
+Phase 12 ░░░░░░░░░░░░░░░░░░░░  in progress — "My Archive" personal data
+                                portal (docs/PORTAL_DESIGN.md, design
+                                agreed 2026-06-10); slices 12.1–12.7
 ```
 
 Parity with the v4.2 userscript is reached; the project now operates as a
@@ -871,7 +871,7 @@ NIP-44-encrypted collaboration bundles.
 
 ---
 
-## Phase 12 — "My Archive" personal data portal (design under review)
+## Phase 12 — "My Archive" personal data portal (in progress)
 
 A **full-tab portal page** (`src/portal/`) where the user sees, searches,
 and visually explores everything they have published to NOSTR relays —
@@ -890,11 +890,11 @@ Cache-first via a new IndexedDB DB (`xray-portal`), refreshed
 incrementally.
 
 Full design, identity-resolution plan, parser inventory, and rationale:
-[`docs/PORTAL_DESIGN.md`](PORTAL_DESIGN.md) — **under maintainer review;
-no feature code before sign-off** (kickoff brief:
-[`docs/PORTAL_KICKOFF.md`](PORTAL_KICKOFF.md)).
+[`docs/PORTAL_DESIGN.md`](PORTAL_DESIGN.md) — design agreed 2026-06-10,
+all five review questions answered in the affirmative (PR #48; kickoff
+brief: [`docs/PORTAL_KICKOFF.md`](PORTAL_KICKOFF.md)).
 
-Planned slices (one PR each, finalized at design sign-off):
+Slices (one PR each):
 
 - ⬜ **12.1** Foundation — portal shell + esbuild entry + open wiring;
   identity resolver; corpus queries; **new `parseCommentEvent` (30041)

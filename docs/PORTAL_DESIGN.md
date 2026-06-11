@@ -1,10 +1,11 @@
 # "My Archive" — the personal data portal (Phase 12)
 
-**Status:** design **for maintainer review**, drafted 2026-06-10 from the
-kickoff brief ([`docs/PORTAL_KICKOFF.md`](PORTAL_KICKOFF.md)), with every
-load-bearing claim re-verified against `main` (post-PR-#47). Review
-questions for the maintainer are at the [bottom of this doc](#review-questions);
-no feature code lands before sign-off (the Phase 10/11 cadence).
+**Status:** design **agreed 2026-06-10** (drafted the same day from the
+kickoff brief, [`docs/PORTAL_KICKOFF.md`](PORTAL_KICKOFF.md), with every
+load-bearing claim re-verified against `main` post-PR-#47; all five
+review questions answered in the affirmative by the maintainer — see the
+[bottom of this doc](#review-questions)). Implementation proceeds in
+slices 12.1–12.7 (PR #48).
 
 X-Ray publishes a lot on the user's behalf — articles, atomized claims,
 captured comments, assessments, contradiction links, entity profiles,
@@ -432,27 +433,27 @@ the full CHANGELOG + JOURNAL + dual-read discipline).
   corpora; a worker-offloaded index is the scale follow-up.
 - **Full free-floating graph deferred** to a later slice/phase.
 
-## Review questions
+## Review questions — all decided 2026-06-10
 
-The four from the kickoff plus one this design surfaced. Recommendations
-inline; awaiting maintainer ✅/correction on each.
+The four from the kickoff plus one this design surfaced. All five
+answered by the maintainer on 2026-06-10:
 
-1. **Identifying "me":** recommend the four-source union resolver
+1. **Identifying "me":** ✅ **yes** — the four-source union resolver
    (signer / `xray:user` sync key / `publishedPubkeys` history / manual
    npub) with provenance chips, **no NIP-07 tab-routing in v1**, and
    entity kind-0 queried as a separate-subscription fan-out across all
-   entity pubkeys. OK?
-2. **Graph build:** recommend **hand-rolled SVG radial ego layout, no
+   entity pubkeys.
+2. **Graph build:** ✅ **yes** — **hand-rolled SVG radial ego layout, no
    third-party graph dependency** (bundle-size + no-deps posture +
-   deterministic legibility; Firefox 128 floor untouched). OK?
-3. **Graph scope:** confirm the maintainer lean — **entity-centric
-   spokes view in v1**, full free-floating graph as a later slice. OK?
-4. **Privacy:** recommend the stance above — no new content disclosure;
-   correlation caveat documented + stated in a portal footer; queries
-   restricted to the user's configured relays; entity queries kept in a
-   separate subscription. Sufficient, or do you want a harder gate
-   (e.g. an explicit first-open consent step)?
-5. **Reconciliation is display-only:** the portal never backfills
-   `markPublished` (no ledger writes from a read surface), and
-   remote-only items render fully but are never imported into local
-   models in v1. OK?
+   deterministic legibility; Firefox 128 floor untouched).
+3. **Graph scope:** ✅ **confirmed** — **entity-centric spokes view in
+   v1**, full free-floating graph as a later slice.
+4. **Privacy:** ✅ **sufficient as designed** — no new content
+   disclosure; correlation caveat documented + stated in a portal
+   footer; queries restricted to the user's configured relays; entity
+   queries kept in a separate subscription. No explicit first-open
+   consent step required.
+5. **Reconciliation is display-only:** ✅ **yes** — the portal never
+   backfills `markPublished` (no ledger writes from a read surface),
+   and remote-only items render fully but are never imported into
+   local models in v1.
