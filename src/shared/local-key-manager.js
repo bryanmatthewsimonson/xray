@@ -50,6 +50,39 @@ export const LocalKeyManager = {
         return keyData;
     },
 
+    /**
+     * Install a known private key under `name` (Phase 11.8 — case
+     * collaboration bundles import collaborators' entity keys so
+     * claims aggregate under the same pubkeys). Idempotent when the
+     * same key is already installed; CONFLICT (throws) when a
+     * different key occupies the name — never silently overwrite key
+     * material.
+     */
+    importKey: async (name, privateKeyHex, metadata = {}) => {
+        if (!/^[0-9a-f]{64}$/.test(String(privateKeyHex || ''))) {
+            throw new Error('importKey: privateKey must be 64 hex chars');
+        }
+        const existing = LocalKeyManager.keys.get(name);
+        if (existing) {
+            if (existing.privateKey === privateKeyHex) return existing;   // idempotent
+            throw new Error('Key conflict: a different key already exists for ' + name);
+        }
+        const pubkey = Crypto.getPublicKey(privateKeyHex);
+        const keyData = {
+            name,
+            privateKey: privateKeyHex,
+            pubkey,
+            npub: Crypto.hexToNpub(pubkey),
+            nsec: Crypto.hexToNsec(privateKeyHex),
+            metadata: { ...metadata, imported: true },
+            created: Math.floor(Date.now() / 1000)
+        };
+        LocalKeyManager.keys.set(name, keyData);
+        await LocalKeyManager.save();
+        Utils.log('Imported local key:', name, keyData.npub);
+        return keyData;
+    },
+
     getKey: (name) => LocalKeyManager.keys.get(name) || null,
 
     listKeys: () => Array.from(LocalKeyManager.keys.values()),

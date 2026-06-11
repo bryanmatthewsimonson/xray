@@ -12,6 +12,18 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Case collaboration bundles** (Phase 11.8). A case entity's detail view
+  gains **Share case bundle (includes keys)**: a JSON file carrying the
+  case and every entity its claims reference — names, alias links, and
+  **private keys** (clearly warned; share it like a password). A
+  collaborator imports it via the entity list's existing Import button:
+  keys install conflict-safely (an existing different key is never
+  overwritten — reported instead), records keep the exporter's original
+  entity ids, and from then on both sides tag claims under the **same
+  entity pubkeys**, so published claims aggregate in the `#p` queries and
+  the case dashboard across installs. This closes the known
+  per-install-pubkey limitation for shared cases.
+
 - **Judgment publishing** (Phase 11.7; behind **Settings → Advanced →
   Experimental → "Publish assessments & claim links to relays"**, default
   off). When enabled, the reader's Publish batch also emits — after the

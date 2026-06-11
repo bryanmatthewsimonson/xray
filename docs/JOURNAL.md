@@ -19,6 +19,38 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-10 — Phase 11.8: collaboration = shared entity keys, by bundle
+
+**Tags:** design
+
+Cross-user aggregation was the design note's first known limitation:
+entity keypairs are random per install, so two users' "claims about P"
+never meet. The fix is deliberately low-tech — a **case bundle** file
+(case entity + every entity its claims reference, WITH private keys)
+that a collaborator imports.
+
+Decisions worth remembering:
+
+- **Bundle import preserves the exporter's entity ids** via the new
+  `EntityModel.importRecord` (upsert-as-given). `create()` re-derives
+  ids from (type, name), which breaks after renames — and the id is
+  what `keyName` and claim `about` refs point at. Discovered en route:
+  the panel's legacy array-import path creates entities with FRESH
+  keypairs, so it never enabled aggregation; it remains for name-set
+  sharing, bundles are the collaboration path.
+- **Key conflicts are terminal, not merged:** `LocalKeyManager.importKey`
+  is idempotent for the same key and throws for a different one — we
+  never overwrite key material. The same case independently created on
+  two installs (deterministic ids collide on purpose) reports a
+  conflict; claims published under the two keys won't merge, pick one
+  side's bundle and re-tag.
+- **Security posture:** the bundle is plaintext keys, same as the
+  keypair-registry export precedent. The UI says "share it like a
+  password" twice. Encrypting to a collaborator's npub (NIP-44) is the
+  obvious upgrade once a key-exchange UX exists.
+
+---
+
 ## 2026-06-10 — Phase 11.7: judgment publishing behind the flag
 
 **Tags:** design, wire-format
