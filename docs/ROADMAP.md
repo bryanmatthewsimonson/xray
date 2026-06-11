@@ -900,8 +900,8 @@ Slices (one PR each):
   identity resolver; corpus queries; **new `parseCommentEvent` (30041)
   + `parseAssessmentEvent` (30054) parsers + tests**; flat event
   list. — #49
-- ⬜ **12.2** Library — type tabs, per-type renderers, facets,
-  cross-cutting search.
+- ✅ **12.2** Library — type tabs, per-type renderers, facets,
+  cross-cutting search. — #50
 - ⬜ **12.3** Cache — IndexedDB `xray-portal`, cache-first render,
   incremental refresh, relay-provenance persistence.
 - ⬜ **12.4** Timeline — density buckets + brush filtering.

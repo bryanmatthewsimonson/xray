@@ -146,6 +146,100 @@ body.xr-portal {
   font-size: 12px;
 }
 
+/* ---------------- library tabs + facets (12.2) ---------------- */
+
+.xr-portal__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 16px 0;
+}
+
+.xr-tab {
+  border: 1px solid var(--xr-border);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: var(--xr-surface);
+  color: var(--xr-text-dim);
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.xr-tab--active {
+  color: var(--xr-text);
+  background: var(--xr-surface-2);
+  border-color: var(--xr-primary);
+}
+
+.xr-tab__count {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 5px;
+  margin-left: 4px;
+  border-radius: 999px;
+  background: var(--xr-bg);
+  color: var(--xr-text-dim);
+  font-size: 11px;
+  text-align: center;
+}
+
+.xr-portal__facets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--xr-border);
+  border-bottom: 1px solid var(--xr-border);
+  background: var(--xr-surface);
+}
+
+.xr-portal__facets input[type="search"] {
+  flex: 1;
+  min-width: 200px;
+  padding: 6px 10px;
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+  background: var(--xr-bg);
+  color: var(--xr-text);
+  font-size: 13px;
+}
+
+.xr-portal__facets select {
+  max-width: 220px;
+  padding: 5px 8px;
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+  background: var(--xr-bg);
+  color: var(--xr-text);
+  font-size: 12px;
+}
+
+.xr-portal__group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--xr-text-dim);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.xr-portal__group-head {
+  margin: 16px 0 4px;
+  padding: 0 2px 4px;
+  border-bottom: 1px solid var(--xr-border);
+  color: var(--xr-text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  list-style: none;
+}
+
+.xr-badge--case { color: var(--xr-accent); border-color: var(--xr-accent); }
+
 /* ---------------- status ---------------- */
 
 .xr-portal__status {
