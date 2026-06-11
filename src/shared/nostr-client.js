@@ -257,9 +257,18 @@ export const NostrClient = {
           })
           .catch((err) => {
             Utils.log('queryRelays: connect failed', url, err && err.message);
-            // Mark as EOSE so we don't wait on it.
+            // Mark as EOSE so we don't wait on it — but record the
+            // failure too (Phase 12.7): a dead relay is otherwise
+            // indistinguishable from an empty one ({received:0,
+            // eose:true}), and callers like the portal's sync cursor
+            // must not treat "unreachable" as "answered with nothing".
+            // Additive fields; existing byRelay consumers are unaffected.
             const stat = byRelay.get(url);
-            if (stat) stat.eose = true;
+            if (stat) {
+              stat.eose = true;
+              stat.failed = true;
+              stat.error = (err && err.message) || 'connect failed';
+            }
             if ([...byRelay.values()].every((s) => s.eose)) finish();
           });
       }

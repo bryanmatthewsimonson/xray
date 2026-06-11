@@ -48,6 +48,8 @@ let _dbPromise = null;
 export function openPortalDb() {
     if (_dbPromise) return _dbPromise;
     _dbPromise = new Promise((resolve, reject) => {
+        // (Rejections un-memoize below so one failed open — quota,
+        // private-mode restrictions — doesn't brick every later call.)
         let open;
         try { open = idb().open(DB_NAME, DB_VERSION); }
         catch (err) { reject(err); return; }
@@ -70,6 +72,7 @@ export function openPortalDb() {
         open.onsuccess = () => resolve(open.result);
         open.onerror   = () => reject(open.error);
     });
+    _dbPromise.catch(() => { _dbPromise = null; });
     return _dbPromise;
 }
 

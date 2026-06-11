@@ -141,7 +141,8 @@ export function renderEntityView(host, params) {
     nodeLayer.appendChild(focusG);
 
     for (const node of graph.nodes) {
-        const extra = node.nodeType === 'claim' ? stanceClass(node) : '';
+        const extra = (node.nodeType === 'claim' || node.nodeType === 'sourced-claim')
+            ? stanceClass(node) : '';
         const tip = node.labelCount
             ? `${node.label}\n${node.labelCount} label(s) on latest assessment`
             : node.label;

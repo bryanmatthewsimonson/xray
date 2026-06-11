@@ -521,6 +521,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('qa-open-entities').addEventListener('click', () => {
         browserApi.runtime.sendMessage({ type: 'xray:openEntities' });
     });
+    document.getElementById('qa-open-portal').addEventListener('click', () => {
+        browserApi.runtime.sendMessage({ type: 'xray:openPortal' });
+    });
     document.getElementById('qa-capture-tips').addEventListener('click', () => {
         browserApi.runtime.sendMessage({ type: 'xray:openCaptureTips' });
     });

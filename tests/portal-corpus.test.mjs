@@ -81,18 +81,64 @@ test('per-relay provenance: shared events accumulate both relays', async () => {
     assert.deepEqual(byId.get('e3'), [RELAY_B]);
 });
 
-test('pagination stops on an EMPTY page, not a short one, and pages with until = oldest - 1', async () => {
+test('pagination pages with INCLUSIVE until = oldest and stops when a page brings nothing new', async () => {
     const pagesServed = [];
     reset((_relay, filter) => {
         pagesServed.push(filter.until);
         if (filter.until === undefined) return [ev('p1', 100), ev('p2', 90)];   // short page (relay cap)
-        if (filter.until === 89) return [ev('p3', 50)];                          // older events still there
-        if (filter.until === 49) return [];                                      // genuinely dry
+        if (filter.until === 90) return [ev('p2', 90), ev('p3', 50)];            // boundary second re-served
+        if (filter.until === 50) return [ev('p3', 50)];                          // nothing new → stop
         throw new Error(`unexpected until ${filter.until}`);
     });
     const { records } = await fetchCorpus({ pubkeys: [PK], entityPubkeys: [], relays: [RELAY_A] });
-    assert.deepEqual(pagesServed, [undefined, 89, 49]);
+    assert.deepEqual(pagesServed, [undefined, 90, 50]);
     assert.equal(records.length, 3);
+});
+
+test('a relay cap landing inside a same-second run no longer drops the siblings', async () => {
+    // Relay holds [n@200, a@100, b@100, c@100] and caps responses at 3.
+    // The old `until = oldest - 1` skipped past second 100 after page 1
+    // and lost b and c forever; inclusive until recovers them.
+    const ALL = [ev('n', 200), ev('a', 100), ev('b', 100), ev('c', 100)];
+    reset((_relay, filter) => ALL
+        .filter((e) => filter.until === undefined || e.created_at <= filter.until)
+        .slice(0, 3));
+    const { records } = await fetchCorpus({ pubkeys: [PK], entityPubkeys: [], relays: [RELAY_A] });
+    assert.deepEqual(records.map((r) => r.event.id).sort(), ['a', 'b', 'c', 'n']);
+});
+
+test('a dead relay (connect failed → ok:true but byRelay.failed) lands in relayErrors', async () => {
+    // The background resolves ok:true for unreachable relays — the
+    // queryRelays connect-catch marks the per-relay stat instead.
+    reset(null);
+    globalThis.chrome.runtime.sendMessage = (message, cb) => {
+        sentMessages.push(message);
+        const relay = message.relays[0];
+        if (relay === RELAY_A) {
+            cb({ ok: true, events: [], byRelay: { [relay]: { received: 0, eose: true, failed: true, error: 'connect failed' } } });
+        } else {
+            const events = message.filter.until === undefined ? [ev('ok1', 10)] : [ev('ok1', 10)];
+            cb({ ok: true, events: message.filter.until === undefined ? events : [], byRelay: { [relay]: { received: events.length, eose: true } } });
+        }
+    };
+    const { records, relayErrors } = await fetchCorpus({
+        pubkeys: [PK], entityPubkeys: [], relays: [RELAY_A, RELAY_B]
+    });
+    assert.deepEqual(Object.keys(relayErrors), [RELAY_A]);
+    assert.match(relayErrors[RELAY_A], /connect failed/);
+    assert.equal(records.length, 1);
+    // Restore the scripted handler transport for later tests.
+    globalThis.chrome.runtime.sendMessage = (message, cb) => {
+        sentMessages.push(message);
+        const relay = message.relays && message.relays[0];
+        try {
+            const result = scriptedHandler(relay, message.filter);
+            if (result && result.error) { cb({ ok: false, error: result.error }); return; }
+            cb({ ok: true, events: result, byRelay: { [relay]: { received: result.length, eose: true } } });
+        } catch (err) {
+            cb({ ok: false, error: err.message });
+        }
+    };
 });
 
 test('Q1 filter carries authors + the full kind list + a limit', async () => {

@@ -13,18 +13,19 @@
 
 import { Storage } from '../shared/storage.js';
 import { Utils } from '../shared/utils.js';
+import { dedupeReplaceable } from '../shared/nostr-events.js';
 import { resolveIdentities, addManualIdentity, removeManualIdentity } from './identity.js';
 import { fetchCorpus, FALLBACK_RELAYS } from './corpus.js';
 import { saveRecords, loadRecords, getMeta, setMeta, clearAll } from './portal-cache.js';
 import {
     buildItems, applyFilters, typeCounts, facetValues, isOtherClient,
-    kindLabel, TYPE_DEFS, EMPTY_FILTERS
+    kindLabel, pageWindow, TYPE_DEFS, EMPTY_FILTERS
 } from './library.js';
 import { buildBuckets, brushRange } from './timeline.js';
 import { el, svgEl, clear, truncate, shortKey } from './dom.js';
 import { renderEntityView } from './entity-view.js';
 import { renderCaseView } from './case-view.js';
-import { loadLocalLedger, reconcile } from './reconcile.js';
+import { loadLocalLedger, reconcile, countLocalOnly } from './reconcile.js';
 import { renderInspector } from './inspector.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -42,10 +43,14 @@ const state = {
     view: { name: 'library' },   // | {name:'entity', pubkey} | {name:'case', pubkey}
     expandedTypes: new Set(),    // graph sectors the user expanded
     reconciliation: null,        // {summary, missing, statusByEventId} (12.6)
+    rowLimit: 200,               // incremental-reveal window (12.7)
+    cacheBroken: false,          // IndexedDB unavailable → live-only mode (12.7)
     relayErrors: {},
     truncated: false,
     loading: false
 };
+
+const ROW_PAGE_SIZE = 200;
 
 // ------------------------------------------------------------------
 // Header / identity / status
@@ -126,6 +131,7 @@ function renderTabs() {
         btn.classList.toggle('xr-tab--active', state.filters.type === def.key);
         btn.addEventListener('click', () => {
             state.filters.type = def.key;
+            state.rowLimit = ROW_PAGE_SIZE;
             renderLibrary();
         });
         host.appendChild(btn);
@@ -156,6 +162,9 @@ function renderFacets() {
     fillFacetSelect($('#xr-facet-domain'), facetValues(base, 'domain'), state.filters.domain, 'All sources');
     fillFacetSelect($('#xr-facet-case'), facetValues(base, 'cases'), state.filters.caseName, 'All cases');
     $('#xr-facet-client').value = state.filters.client;
+    // Status facet only means something once the ledger diff has run.
+    $('#xr-facet-status').hidden = !state.reconciliation;
+    $('#xr-facet-status').value = state.filters.status;
     // Sync any select whose remembered value vanished from the options.
     state.filters.platform = $('#xr-facet-platform').value;
     state.filters.domain = $('#xr-facet-domain').value;
@@ -239,14 +248,18 @@ function buildRow(item) {
     return row;
 }
 
-function renderRows(visible) {
+function renderRows(allVisible) {
     const list = $('#xr-list');
     const empty = $('#xr-empty');
     empty.hidden = true;
     list.hidden = false;
     clear(list);
 
-    if (visible.length === 0) {
+    // Incremental reveal (12.7): cap the DOM at rowLimit rows; counts,
+    // facets, and the timeline still see the full filtered set.
+    const { shown: visible, remaining } = pageWindow(allVisible, state.rowLimit);
+
+    if (allVisible.length === 0) {
         if (state.items.length === 0) {
             renderEmpty('Nothing found on the relays', [
                 'The configured relays returned no events for the resolved identities. '
@@ -273,6 +286,19 @@ function renderRows(visible) {
         }
     } else {
         for (const item of visible) list.appendChild(buildRow(item));
+    }
+
+    if (remaining > 0) {
+        const li = el('li', 'xr-portal__more-row');
+        const btn = el('button', 'xr-portal__btn xr-portal__btn--ghost',
+            `Show ${Math.min(ROW_PAGE_SIZE, remaining)} more (${remaining} remaining)`);
+        btn.type = 'button';
+        btn.addEventListener('click', () => {
+            state.rowLimit += ROW_PAGE_SIZE;
+            renderRows(applyFilters(state.items, state.filters));
+        });
+        li.appendChild(btn);
+        list.appendChild(li);
     }
 }
 
@@ -313,6 +339,7 @@ function renderTimeline() {
         chip.addEventListener('click', () => {
             state.filters.after = 0;
             state.filters.before = 0;
+            state.rowLimit = ROW_PAGE_SIZE;
             renderLibrary();
         });
         head.appendChild(chip);
@@ -365,6 +392,7 @@ function renderTimeline() {
         if (!range) return;
         state.filters.after = range.after;
         state.filters.before = range.before;
+        state.rowLimit = ROW_PAGE_SIZE;
         renderLibrary();
     });
     svg.addEventListener('mouseleave', () => { dragStart = null; });
@@ -380,6 +408,11 @@ async function updateReconciliation() {
     try {
         const ledger = await loadLocalLedger({ pubkeys: state.identities.map((i) => i.pubkey) });
         state.reconciliation = reconcile(ledger, state.items);
+        state.reconciliation.summary.localOnly = (await countLocalOnly()).total;
+        // Annotate items so the status facet can filter on plain fields.
+        for (const item of state.items) {
+            item.reconStatus = state.reconciliation.statusByEventId[item.id] || 'no-ledger';
+        }
     } catch (err) {
         Utils.error('Portal reconciliation failed:', err);
         state.reconciliation = null;
@@ -390,7 +423,8 @@ function renderReconPanel() {
     const host = $('#xr-recon');
     clear(host);
     const r = state.reconciliation;
-    if (!r || (r.summary.ledgerPublished === 0 && r.summary.remoteOnly === 0)) {
+    if (!r || (r.summary.ledgerPublished === 0 && r.summary.remoteOnly === 0
+        && !(r.summary.localOnly > 0))) {
         host.hidden = true;
         return;
     }
@@ -400,9 +434,13 @@ function renderReconPanel() {
         `Local ledger says ${s.ledgerPublished} published; the relays confirm ${s.confirmed}`
         + (s.missing ? `; ${s.missing} missing` : '')
         + (s.remoteOnly ? `; ${s.remoteOnly} on relays only (another device, or pre-ledger)` : '')
+        + (s.localOnly > 0 ? `; ${s.localOnly} local only (never published)` : '')
         + '.');
     line.classList.toggle('xr-recon__line--warn', s.missing > 0);
     host.appendChild(line);
+    host.appendChild(el('div', 'xr-recon__legend',
+        'Comments, linked accounts, and entity↔article links have no local publish ledger — '
+        + 'they appear from relays only and are never counted as missing.'));
 
     if (r.missing.length > 0) {
         const details = el('details');
@@ -461,7 +499,8 @@ const viewCallbacks = {
     onFocusEntity: (pubkey) => { state.view = { name: 'entity', pubkey }; state.expandedTypes = new Set(); closeInspector(); render(); },
     onOpenCase: (pubkey) => { state.view = { name: 'case', pubkey }; closeInspector(); render(); },
     onOpenGraph: (pubkey) => { state.view = { name: 'entity', pubkey }; state.expandedTypes = new Set(); closeInspector(); render(); },
-    onExpand: (type) => { state.expandedTypes.add(type); render(); }
+    onExpand: (type) => { state.expandedTypes.add(type); render(); },
+    onOpenItem: (item) => { openInspector(item); }
 };
 
 function render() {
@@ -511,6 +550,11 @@ function setBusy(busy) {
     state.loading = busy;
     $('#xr-refresh').disabled = busy;
     $('#xr-resync').disabled = busy;
+    // The identity form re-boots on submit; mid-refresh that submit
+    // would silently no-op (boot() early-returns while loading), so
+    // make the unavailability visible instead (12.7 review fix).
+    $('#xr-identity-input').disabled = busy;
+    $('#xr-identity-form button').disabled = busy;
 }
 
 /**
@@ -535,7 +579,16 @@ async function boot({ full = false } = {}) {
         renderFooter();
 
         // Cache first: anything we already hold renders immediately.
-        const cached = await loadRecords();
+        // A broken IndexedDB (quota, private mode) must not brick the
+        // portal — degrade to live-only mode (12.7 review fix).
+        let cached = [];
+        state.cacheBroken = false;
+        try {
+            cached = await loadRecords();
+        } catch (err) {
+            Utils.error('Portal cache unavailable — running live-only:', err);
+            state.cacheBroken = true;
+        }
         if (cached.length > 0) {
             rebuildItems(cached);
             render();
@@ -560,11 +613,22 @@ async function boot({ full = false } = {}) {
             return;
         }
 
-        // Incremental unless asked for a full pass or never synced.
-        const sync = full ? null : await getMeta('sync');
-        const since = sync && Number.isFinite(sync.lastSyncAt)
-            ? sync.lastSyncAt - SYNC_OVERLAP_SECONDS
-            : undefined;
+        // Incremental only when the cursor is trustworthy: it must
+        // exist AND have been written for the SAME identity and relay
+        // sets — a new pubkey or relay needs its full history, not the
+        // last hour (12.7 review fix). Cache-broken mode always runs full.
+        const authorsKey = [
+            ...state.identities.map((i) => i.pubkey),
+            ...state.entities.map((e) => e.pubkey)
+        ].sort().join(',');
+        const relaysKey = [...state.relays].sort().join(',');
+        let sync = null;
+        if (!full && !state.cacheBroken) {
+            try { sync = await getMeta('sync'); } catch (_) { /* live-only */ }
+        }
+        const cursorValid = sync && Number.isFinite(sync.lastSyncAt)
+            && sync.authorsKey === authorsKey && sync.relaysKey === relaysKey;
+        const since = cursorValid ? sync.lastSyncAt - SYNC_OVERLAP_SECONDS : undefined;
         const fetchStartedAt = Math.floor(Date.now() / 1000);
 
         setStatus(`Querying ${state.relays.length} relay(s)${since ? ' for new events' : ''}…`);
@@ -578,16 +642,38 @@ async function boot({ full = false } = {}) {
         state.relayErrors = relayErrors;
         state.truncated = truncated;
 
-        const stats = await saveRecords(records);
-        rebuildItems(await loadRecords());
+        let stats = { added: records.length, updated: 0, superseded: 0, skippedStale: 0 };
+        if (state.cacheBroken) {
+            // Live-only mode: the cache normally dedupes at write time,
+            // so collapse replaceable versions here instead.
+            const live = dedupeReplaceable(records.map((r) => r.event));
+            const liveIds = new Set(live.map((e) => e.id));
+            rebuildItems(records.filter((r) => liveIds.has(r.event.id)));
+        } else {
+            try {
+                stats = await saveRecords(records);
+                rebuildItems(await loadRecords());
+            } catch (err) {
+                Utils.error('Portal cache write failed — rendering live results:', err);
+                state.cacheBroken = true;
+                const live = dedupeReplaceable(records.map((r) => r.event));
+                const liveIds = new Set(live.map((e) => e.id));
+                rebuildItems(records.filter((r) => liveIds.has(r.event.id)));
+            }
+        }
         await updateReconciliation();
         render();
 
         const failed = Object.keys(relayErrors);
-        // Only advance the cursor when at least one relay answered in
-        // full — an all-failed refresh must not eat the window.
-        if (failed.length < state.relays.length) {
-            await setMeta('sync', { lastSyncAt: fetchStartedAt });
+        // Advance the cursor only on a CLEAN pass: every relay answered
+        // and no relay hit the page ceiling. Failure and truncation are
+        // per-relay while the cursor is global — advancing it over a
+        // partial fetch would hide the unfetched window from every
+        // future incremental refresh (12.7 review fix).
+        if (!state.cacheBroken && failed.length === 0 && !truncated) {
+            try {
+                await setMeta('sync', { lastSyncAt: fetchStartedAt, authorsKey, relaysKey });
+            } catch (_) { /* live-only */ }
         }
 
         const parts = [`${state.items.length} item(s)`];
@@ -635,19 +721,24 @@ function wireChrome() {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => {
             state.filters.query = e.target.value;
+            state.rowLimit = ROW_PAGE_SIZE;
             renderLibrary();
         }, 150);
     });
 
+    // 'client' and 'status' are enum facets whose empty value means
+    // 'all'; the value facets fall back to '' (no filter).
     const facetWiring = [
-        ['#xr-facet-platform', 'platform'],
-        ['#xr-facet-domain', 'domain'],
-        ['#xr-facet-case', 'caseName'],
-        ['#xr-facet-client', 'client']
+        ['#xr-facet-platform', 'platform', ''],
+        ['#xr-facet-domain', 'domain', ''],
+        ['#xr-facet-case', 'caseName', ''],
+        ['#xr-facet-client', 'client', 'all'],
+        ['#xr-facet-status', 'status', 'all']
     ];
-    for (const [sel, field] of facetWiring) {
+    for (const [sel, field, fallback] of facetWiring) {
         $(sel).addEventListener('change', (e) => {
-            state.filters[field] = e.target.value || (field === 'client' ? 'all' : '');
+            state.filters[field] = e.target.value || fallback;
+            state.rowLimit = ROW_PAGE_SIZE;
             renderLibrary();
         });
     }

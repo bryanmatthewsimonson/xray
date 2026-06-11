@@ -16,11 +16,13 @@
 // independent of the others.
 //
 // Backfill: relays cap responses silently (often below our `limit`),
-// so each relay pages backward with `until = oldest - 1` until it
-// returns an EMPTY page (not a short one — a short page may just be
-// the relay's own cap) or the page ceiling hits. Known v1 edge: a
-// relay holding more than a full page of events at one identical
-// timestamp can hide the overflow; accepted, per the design note.
+// so each relay pages backward with `until = oldest` — NIP-01 `until`
+// is INCLUSIVE, so the boundary second is re-asked-for and a cap that
+// landed mid-second can't silently drop its siblings (12.7 review
+// fix). Termination is "this page produced no event we hadn't already
+// seen", not "empty page", which also makes the tie-heavy case
+// converge. Residual edge: a single same-second run longer than the
+// relay's own cap can still hide its overflow; accepted.
 
 import { Utils } from '../shared/utils.js';
 
@@ -72,32 +74,49 @@ function relayQuery(filter, relays, timeoutMs = QUERY_TIMEOUT_MS) {
 
 /**
  * Page one relay backward through one base filter, feeding every event
- * into `collect(event, relayUrl)`.
+ * into `collect(event, relayUrl)`. Pagination terminates when a page
+ * contains nothing THIS RELAY hasn't already served — per-relay, not
+ * global, because relays page concurrently and one relay's coverage
+ * must never truncate another's backfill (or its provenance).
  */
 async function backfillRelay(relayUrl, baseFilter, collect, onProgress) {
     let until;
     let pages = 0;
+    const served = new Set(); // event ids this relay has returned
     for (;;) {
         const filter = { ...baseFilter, limit: PAGE_LIMIT };
         if (until !== undefined) filter.until = until;
         const resp = await relayQuery(filter, [relayUrl]);
         if (!resp.ok) return { ok: false, error: resp.error || 'query failed', pages };
+        // The background resolves ok:true even when the WebSocket never
+        // connected (queryRelays marks the relay EOSE to avoid blocking
+        // the pool) — the per-relay stat carries the truth (12.7).
+        const stat = resp.byRelay && resp.byRelay[relayUrl];
+        if (stat && stat.failed) {
+            return { ok: false, error: stat.error || 'relay unreachable', pages };
+        }
         const events = Array.isArray(resp.events) ? resp.events : [];
         pages++;
         if (events.length === 0) break;
         let oldest = Infinity;
+        let fresh = 0;
         for (const ev of events) {
             if (!ev || !ev.id) continue;
             if (typeof ev.created_at === 'number' && ev.created_at < oldest) oldest = ev.created_at;
+            if (!served.has(ev.id)) { served.add(ev.id); fresh++; }
             collect(ev, relayUrl);
         }
         if (typeof onProgress === 'function') onProgress();
+        // `until` is inclusive, so the boundary page always re-serves
+        // events we already hold — a page with nothing NEW means this
+        // relay is drained (or capped inside one second; see header).
+        if (fresh === 0) break;
         if (!Number.isFinite(oldest)) break;
         if (pages >= MAX_PAGES_PER_QUERY) {
             Utils.log('Portal corpus: page ceiling hit on', relayUrl, '— older events not fetched');
             return { ok: true, pages, truncated: true };
         }
-        until = oldest - 1;
+        until = oldest;
     }
     return { ok: true, pages, truncated: false };
 }

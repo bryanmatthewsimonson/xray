@@ -37,7 +37,8 @@ function contradictedCoords(items) {
  * @param {Array}  params.items        ALL library items
  * @param {object} params.entityIndex  pubkey → {entityId, name, type}
  * @param {string} params.casePubkey
- * @param {object} params.callbacks    {onBack(), onFocusEntity(pubkey), onOpenGraph(pubkey)}
+ * @param {object} params.callbacks    {onBack(), onFocusEntity(pubkey),
+ *                                      onOpenGraph(pubkey), onOpenItem(item)}
  */
 export function renderCaseView(host, params) {
     const { items, entityIndex, casePubkey, callbacks } = params;
@@ -146,7 +147,11 @@ export function renderCaseView(host, params) {
         const row = el('li', 'xr-row');
         const headRow = el('div', 'xr-row__head');
         headRow.appendChild(el('span', 'xr-row__kind', kindLabel(item.kind)));
-        headRow.appendChild(el('span', 'xr-row__title', truncate(item.title, 160)));
+        const titleEl = el('button', 'xr-row__title xr-row__title--link', truncate(item.title, 160));
+        titleEl.type = 'button';
+        titleEl.title = 'Inspect — raw event, relays holding it, ledger status';
+        titleEl.addEventListener('click', () => callbacks.onOpenItem(item));
+        headRow.appendChild(titleEl);
         const badges = el('span', 'xr-row__badges');
         const assessment = item.claimCoord ? assessments.get(item.claimCoord) : null;
         if (assessment && assessment.stance !== null && assessment.stance !== undefined) {
@@ -184,7 +189,11 @@ export function renderCaseView(host, params) {
             const row = el('li', 'xr-row');
             const headRow = el('div', 'xr-row__head');
             headRow.appendChild(el('span', 'xr-row__kind', kindLabel(item.kind)));
-            headRow.appendChild(el('span', 'xr-row__title', truncate(item.title, 160)));
+            const titleEl = el('button', 'xr-row__title xr-row__title--link', truncate(item.title, 160));
+            titleEl.type = 'button';
+            titleEl.title = 'Inspect — raw event, relays holding it, ledger status';
+            titleEl.addEventListener('click', () => callbacks.onOpenItem(item));
+            headRow.appendChild(titleEl);
             if (item.created_at) {
                 headRow.appendChild(el('span', 'xr-row__date', new Date(item.created_at * 1000).toLocaleString()));
             }

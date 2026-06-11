@@ -42,6 +42,12 @@
       <option value="ours">X-Ray only</option>
       <option value="other">Other clients</option>
     </select>
+    <select id="xr-facet-status" title="Filter by ledger status" hidden>
+      <option value="all">Any ledger status</option>
+      <option value="confirmed">✓ Confirmed</option>
+      <option value="remote-only">◌ Remote-only</option>
+      <option value="no-ledger">No ledger</option>
+    </select>
     <label class="xr-portal__group-toggle" title="Group the list by source domain">
       <input type="checkbox" id="xr-group-domain" /> Group by source
     </label>

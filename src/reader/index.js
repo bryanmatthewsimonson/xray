@@ -138,8 +138,11 @@ async function loadArticle() {
     // Cache the freshly-loaded article locally so revisits can detect
     // prior captures. publishedToRelay stays false until the publish
     // flow explicitly flips it. Fire-and-forget — reader load should
-    // not block on the IDB round trip.
-    if (state.article && state.article.url) {
+    // not block on the IDB round trip. SKIPPED for read-only opens
+    // (the portal's relay reconstructions, Phase 12.7): overwriting
+    // the archive row here would reset its publishedToRelay marker and
+    // break the portal's read-only guarantee.
+    if (state.article && state.article.url && !(stored && stored.readOnly)) {
         ArchiveCache.saveArticle({ article: state.article, source: 'capture' })
             .catch((err) => console.warn('[X-Ray Reader] archive cache save failed:', err));
     }

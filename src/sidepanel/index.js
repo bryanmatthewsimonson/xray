@@ -1453,6 +1453,9 @@ async function init() {
 
     // Header buttons.
     $('#xr-new-entity').addEventListener('click', openCreateModal);
+    $('#xr-open-portal').addEventListener('click', () => {
+        chrome.runtime.sendMessage({ type: 'xray:openPortal' });
+    });
 
     // Detail view buttons.
     $('#xr-back').addEventListener('click', () => {

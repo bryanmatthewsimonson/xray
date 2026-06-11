@@ -67,10 +67,22 @@ test('buildBuckets: empty/garbage input yields an empty series', () => {
     assert.deepEqual(buildBuckets([{ created_at: 0 }, {}, null]).buckets, []);
 });
 
-test('brushRange normalizes reversed drags and clamps to the series', () => {
+test('buildBuckets: a millisecond-precision created_at cannot explode the series', () => {
+    const d0 = Date.UTC(2026, 5, 1) / 1000;
     const { buckets } = buildBuckets([
-        { created_at: 1000 * DAY + 10 },
-        { created_at: 1002 * DAY + 10 }
+        { created_at: d0 },
+        { created_at: d0 * 1000 }   // 13-digit ms timestamp from a broken writer
+    ]);
+    // The insane stamp is ignored entirely — one bucket, not ~3 million.
+    assert.equal(buckets.length, 1);
+    assert.equal(buckets[0].count, 1);
+});
+
+test('brushRange normalizes reversed drags and clamps to the series', () => {
+    const d0 = Date.UTC(2026, 5, 1) / 1000;
+    const { buckets } = buildBuckets([
+        { created_at: d0 + 10 },
+        { created_at: d0 + 2 * DAY + 10 }
     ], { bucket: 'day' });
     assert.equal(buckets.length, 3);
     const forward = brushRange(buckets, 0, 1);

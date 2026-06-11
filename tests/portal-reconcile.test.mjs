@@ -36,7 +36,7 @@ globalThis.chrome = {
     }
 };
 
-const { loadLocalLedger, reconcile } = await import('../src/portal/reconcile.js');
+const { loadLocalLedger, reconcile, countLocalOnly } = await import('../src/portal/reconcile.js');
 const { Storage } = await import('../src/shared/storage.js');
 const { Crypto } = await import('../src/shared/crypto.js');
 const { saveArticle } = await import('../src/shared/archive-cache.js');
@@ -117,8 +117,11 @@ test('loadLocalLedger derives every addr rule from the local stores', async () =
     await Storage.set('evidence_links', {
         link_bbbbbbbbbbbbbbbb: {
             id: 'link_bbbbbbbbbbbbbbbb',
-            source: `30040:${PK_B}:claim_zzz`,
-            target: coord,
+            // Real records store canonical refs under *_claim_id —
+            // pinned here after the 12.7 review caught reconcile
+            // reading nonexistent source/target fields.
+            source_claim_id: `30040:${PK_B}:claim_zzz`,
+            target_claim_id: coord,
             relationship: 'contradicts',
             // publishedKind matters: the 30043-retirement migration
             // clears publish markers that lack it (normalizeLink).
@@ -135,8 +138,11 @@ test('loadLocalLedger derives every addr rule from the local stores', async () =
     await Storage.set('local_keys', {
         'entity:entity_0123456789abcdef': { name: 'entity:entity_0123456789abcdef', pubkey: ENTITY_PK, privateKey: '1'.repeat(64) }
     });
+    // A URL the archive's normalization rewrites — pins that the
+    // article address uses the RAW-url hash (the wire d), not urlHash.
+    const RAW_URL = 'https://X.com/a?utm_source=test';
     const saved = await saveArticle({
-        article: { url: 'https://x.com/a', title: 'The Article' },
+        article: { url: RAW_URL, title: 'The Article' },
         publishedToRelay: true,
         publishedEventId: EV('5')
     });
@@ -166,9 +172,30 @@ test('loadLocalLedger derives every addr rule from the local stores', async () =
     // Entity: replaceable kind-0 address under the entity's own key.
     assert.deepEqual(bySource('entity')[0].addrs, [`0:${ENTITY_PK}`]);
 
-    // Article: d = the archive cache's urlHash.
-    assert.deepEqual(bySource('article')[0].addrs, [`30023:${PK_A}:${saved.urlHash}`]);
+    // Article: d = sha256 of the RAW capture url (what the published
+    // 30023 actually carries) — NOT the archive's normalized urlHash.
+    const expectedArticleD = (await Crypto.sha256(saved.url || RAW_URL)).slice(0, 16);
+    assert.deepEqual(bySource('article')[0].addrs, [`30023:${PK_A}:${expectedArticleD}`]);
     assert.equal(bySource('article')[0].publishedEventId, EV('5'));
+});
+
+test('countLocalOnly tallies never-published records across the models', async () => {
+    _stateStore.clear();
+    await Storage.set('article_claims', {
+        claim_pub0000000001: {
+            id: 'claim_pub0000000001', text: 'published', source_url: 'https://x.com/a',
+            publishedAt: 100, publishedEventId: EV('1'), publishedPubkey: PK_A
+        },
+        claim_unpub00000002: { id: 'claim_unpub00000002', text: 'draft 1', source_url: 'https://x.com/b' },
+        claim_unpub00000003: { id: 'claim_unpub00000003', text: 'draft 2', source_url: 'https://x.com/c' }
+    });
+    await Storage.set('claim_assessments', {
+        assess_aaaaaaaaaaaaaaaa: { id: 'assess_aaaaaaaaaaaaaaaa', claim_ref: { text: 't' }, stance: 1, labels: [], rationale: '' }
+    });
+    const counts = await countLocalOnly();
+    assert.equal(counts.claim, 2);
+    assert.equal(counts.assessment, 1);
+    assert.equal(counts.total >= 3, true);
 });
 
 test('loadLocalLedger: link with a local-id endpoint gets no addr (id-only match)', async () => {
@@ -176,8 +203,8 @@ test('loadLocalLedger: link with a local-id endpoint gets no addr (id-only match
     await Storage.set('evidence_links', {
         link_cccccccccccccccc: {
             id: 'link_cccccccccccccccc',
-            source: 'claim_local000000001',          // endpoint still a local id
-            target: `30040:${PK_A}:claim_pub`,
+            source_claim_id: 'claim_local000000001', // endpoint still a local id
+            target_claim_id: `30040:${PK_A}:claim_pub`,
             relationship: 'supports',
             publishedAt: 100, publishedEventId: EV('6'), publishedKind: 30055
         }

@@ -214,3 +214,16 @@ test('layout is deterministic, centered, and gives every node a distinct positio
         seen.add(key);
     }
 });
+
+test('sourced claims get the same assessment decoration as about-claims (12.7 fix)', async () => {
+    const records = [claimRec('claim_said', { source: [FOCUS_PK] })];
+    records.push(rec(30054, [
+        ['d', 'assess:s'], ['a', coord('claim_said')], ['r', 'https://example.com/v'],
+        ['stance', '-2'], ['L', 'xray/assessment'],
+        ['l', 'misleading', 'xray/assessment'], ['l', 'flip-flop', 'xray/assessment']
+    ], 'judged', 900));
+    const g = buildEgoGraph(baseItems(records), { focusPubkey: FOCUS_PK, entityIndex: ENTITY_INDEX });
+    const node = g.nodes.find((n) => n.nodeType === 'sourced-claim');
+    assert.equal(node.stance, -2);
+    assert.equal(node.labelCount, 2);
+});

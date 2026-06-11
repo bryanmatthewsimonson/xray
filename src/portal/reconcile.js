@@ -94,11 +94,13 @@ export async function loadLocalLedger({ pubkeys = [] } = {}) {
         for (const l of Object.values(links || {})) {
             if (!l || !l.publishedAt || !l.publishedEventId) continue;
             const addrs = [];
-            // The wire d is recomputable only when both endpoints are
+            // Records store endpoints as source_claim_id/target_claim_id
+            // (canonical refs — local id for ours, coordinate for
+            // foreign). The wire d is recomputable only when both are
             // coordinates (own claims backfill coords at publish, 11.7).
-            if (isCoord(l.source) && isCoord(l.target)) {
-                let a = l.source;
-                let b = l.target;
+            if (isCoord(l.source_claim_id) && isCoord(l.target_claim_id)) {
+                let a = l.source_claim_id;
+                let b = l.target_claim_id;
                 if (isSymmetricRelationship(l.relationship) && b < a) [a, b] = [b, a];
                 const d = 'rel:' + (await sha16(`${a}|${b}|${l.relationship}`));
                 for (const pk of pubkeys) addrs.push(`30055:${pk}:${d}`);
@@ -134,18 +136,55 @@ export async function loadLocalLedger({ pubkeys = [] } = {}) {
         const articles = await listArticles();
         for (const rec of (articles || [])) {
             if (!rec || !rec.publishedToRelay || !rec.publishedEventId) continue;
+            // The archive's urlHash hashes the NORMALIZED url, but the
+            // published kind-30023 d-tag hashes the RAW capture url
+            // (event-builder) — recompute from rec.url or the address
+            // tier never fires (12.7 review fix).
+            const wireD = rec.url ? (await Crypto.sha256(rec.url)).slice(0, 16) : null;
             entries.push({
                 source: 'article',
                 localId: rec.urlHash,
                 label: (rec.article && rec.article.title) || rec.url || rec.urlHash,
                 publishedAt: rec.cachedAt || null,
                 publishedEventId: rec.publishedEventId,
-                addrs: pubkeys.map((pk) => `30023:${pk}:${rec.urlHash}`)
+                addrs: wireD ? pubkeys.map((pk) => `30023:${pk}:${wireD}`) : []
             });
         }
     } catch (err) { Utils.error('Reconcile: article ledger scan failed', err); }
 
     return entries;
+}
+
+/**
+ * Count local records that were never published — the design's
+ * "local only / never published (shown only as counts)" bucket.
+ * Display-only, like everything else here.
+ *
+ * @returns {Promise<{claim: number, assessment: number, link: number,
+ *                    entity: number, article: number, total: number}>}
+ */
+export async function countLocalOnly() {
+    const counts = { claim: 0, assessment: 0, link: 0, entity: 0, article: 0, total: 0 };
+    const unpublished = (r) => r && (!r.publishedAt || !r.publishedEventId);
+    try {
+        for (const c of Object.values(await ClaimModel.getAll() || {})) if (unpublished(c)) counts.claim++;
+    } catch (_) { /* counted as zero */ }
+    try {
+        for (const a of Object.values(await AssessmentModel.getAll() || {})) if (unpublished(a)) counts.assessment++;
+    } catch (_) { /* counted as zero */ }
+    try {
+        for (const l of Object.values(await EvidenceLinker.getAll() || {})) if (unpublished(l)) counts.link++;
+    } catch (_) { /* counted as zero */ }
+    try {
+        for (const e of Object.values(await EntityModel.getAll() || {})) if (unpublished(e)) counts.entity++;
+    } catch (_) { /* counted as zero */ }
+    try {
+        for (const r of (await listArticles() || [])) {
+            if (r && (!r.publishedToRelay || !r.publishedEventId)) counts.article++;
+        }
+    } catch (_) { /* counted as zero */ }
+    counts.total = counts.claim + counts.assessment + counts.link + counts.entity + counts.article;
+    return counts;
 }
 
 /**

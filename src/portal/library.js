@@ -286,6 +286,7 @@ export const EMPTY_FILTERS = Object.freeze({
     domain: '',
     caseName: '',
     client: 'all',   // 'all' | 'ours' | 'other'
+    status: 'all',   // 'all' | 'confirmed' | 'remote-only' | 'no-ledger' (12.6 reconciliation)
     query: '',
     after: 0,        // epoch seconds, inclusive — 0 = unset (timeline brush)
     before: 0        // epoch seconds, exclusive — 0 = unset
@@ -307,6 +308,10 @@ export function applyFilters(items, filters) {
         if (f.before && item.created_at >= f.before) return false;
         if (f.client === 'ours' && isOtherClient(item)) return false;
         if (f.client === 'other' && !isOtherClient(item)) return false;
+        // reconStatus is annotated onto items after reconcile() runs;
+        // unannotated items read as 'no-ledger' so the facet stays
+        // honest before the (async) ledger diff lands.
+        if (f.status !== 'all' && (item.reconStatus || 'no-ledger') !== f.status) return false;
         for (const token of tokens) {
             if (!item.searchText.includes(token)) return false;
         }
@@ -323,6 +328,17 @@ export function typeCounts(items) {
         if (counts[item.typeKey] !== undefined) counts[item.typeKey]++;
     }
     return counts;
+}
+
+/**
+ * The Library's incremental-reveal window (12.7): the list renders
+ * `limit` rows and a "show more" affordance for the rest, so a
+ * many-thousand-event corpus can't jank first paint.
+ */
+export function pageWindow(items, limit) {
+    const list = Array.isArray(items) ? items : [];
+    const n = Number.isFinite(limit) && limit > 0 ? limit : list.length;
+    return { shown: list.slice(0, n), remaining: Math.max(0, list.length - n) };
 }
 
 /**

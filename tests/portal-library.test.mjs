@@ -166,7 +166,7 @@ test('isOtherClient: badge only when a client tag exists and is not ours', () =>
 
 test('EMPTY_FILTERS and TYPE_DEFS are pinned', () => {
     assert.deepEqual(EMPTY_FILTERS,
-        { type: 'all', platform: '', domain: '', caseName: '', client: 'all', query: '', after: 0, before: 0 });
+        { type: 'all', platform: '', domain: '', caseName: '', client: 'all', status: 'all', query: '', after: 0, before: 0 });
     assert.deepEqual(TYPE_DEFS.map((d) => d.key),
         ['article', 'claim', 'comment', 'assessment', 'link', 'entity', 'case', 'account', 'other']);
     assert.equal(kindLabel(30040), 'Claim');
@@ -183,4 +183,27 @@ test('malformed events degrade to other-typed generic items, never vanish', () =
     assert.equal(items.length, 3);
     for (const item of items) assert.ok(item.title.length > 0);
     assert.deepEqual(items.map((i) => i.typeKey).sort(), ['entity', 'other', 'other']);
+});
+
+// ------------------------------------------------------------------
+// Phase 12.7 review fixes
+// ------------------------------------------------------------------
+
+test('status facet filters on reconStatus; unannotated items read as no-ledger', async () => {
+    const { pageWindow } = await import('../src/portal/library.js');
+    const items = buildItems(corpus(), { entityIndex: {} }).map((i, n) => ({
+        ...i,
+        reconStatus: n === 0 ? 'confirmed' : (n === 1 ? 'remote-only' : undefined)
+    }));
+    assert.equal(applyFilters(items, { status: 'confirmed' }).length, 1);
+    assert.equal(applyFilters(items, { status: 'remote-only' }).length, 1);
+    assert.equal(applyFilters(items, { status: 'no-ledger' }).length, items.length - 2);
+    assert.equal(applyFilters(items, { status: 'all' }).length, items.length);
+
+    // pageWindow: the Library's incremental-reveal cap.
+    const win = pageWindow(items, 3);
+    assert.equal(win.shown.length, 3);
+    assert.equal(win.remaining, items.length - 3);
+    assert.deepEqual(pageWindow(items, 0).shown.length, items.length); // 0 = no cap
+    assert.deepEqual(pageWindow([], 5), { shown: [], remaining: 0 });
 });
