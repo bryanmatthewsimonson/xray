@@ -1,0 +1,21 @@
+{
+  "name": "xray-auditor-scorer",
+  "version": "0.1.0",
+  "description": "Prototype per-article scorer for the X-Ray epistemic auditor. Orchestrates 8 surface-scan modules in parallel and aggregates into a final score with knowability ceiling.",
+  "type": "module",
+  "main": "scorer.js",
+  "scripts": {
+    "score": "node scorer.js",
+    "example": "node example-usage.js"
+  },
+  "bin": {
+    "xray-score": "scorer.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}
