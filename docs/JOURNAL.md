@@ -19,6 +19,49 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-11 — 13.1: the hash is parity-not-idempotence, and other slice-one calls
+
+**Tags:** design, pattern
+
+Slice 13.1 (`src/shared/audit/`) landed the model layer. The
+second-guessable calls:
+
+- **The canonical normalization is NOT idempotent — pinned, not
+  fixed.** Stripping the trailing space in `"\r \n"` manufactures a
+  fresh `\r\n` that a second pass would collapse. The vendored
+  scorer's algorithm has this property, so ours does too, verbatim:
+  the contract is *parity* (extension output ≡ CLI output, enforced by
+  extracting `normalizeMarkdown` from the vendored source at test
+  time), defined over exactly one pass. "Fixing" idempotence on either
+  side is a methodology change that forks every hash.
+- **Validator required-ness follows the design note's worked example,
+  not the prompts' canonical examples.** Discriminator enums, scoring
+  booleans, and every evidence quote are required; descriptive
+  enrichments (ids, notes, context) are typed but optional — a benign
+  model omission must not turn a paid run into a failed one. The one
+  strict block: module 04's seven summary counts (the ceiling
+  heuristic reads them by name). Module 08 *forbids* score/confidence
+  rather than omitting them — a scored prediction-extraction is
+  malformed.
+- **`beats-v1` ships as a JS module + JSON artifact with a sync
+  test**, not a JSON import — `with { type: 'json' }` needs Node
+  ≥20.10 and the engines floor is `>=20`; a two-file-one-test
+  arrangement has zero loader risk and keeps the published artifact.
+- **The adversarial review (three lenses, all findings
+  adversarially verified) caught three real correctness gaps** before
+  the PR: IndexedDB writes resolved on request success rather than
+  transaction commit (a silent-loss window on a ledger the module
+  itself calls precious); `IDBIndex.getAll(undefined)` is an
+  unbounded range, so an unguarded missing key would have widened
+  "audits for this article" into "the whole ledger"; and resolution
+  outcomes were stored unvalidated, where a typo'd outcome silently
+  degrades to "open" and vanishes from calibration. Plus the
+  humbling one: every "never bumps `updated`" test was tautological
+  (second-granularity timestamps) — mutation-verified, now
+  sentinel-based.
+
+---
+
 ## 2026-06-11 — Phase 13 design accepted: the resolutions, and the recovered constitution
 
 **Tags:** design

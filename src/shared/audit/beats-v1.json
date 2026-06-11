@@ -1,0 +1,41 @@
+{
+    "version": "beats-v1",
+    "description": "X-Ray epistemic-auditor beat vocabulary. Canonical kebab-case slugs bind dossier beat subjects; aliases normalize free-form t tags; unmapped tags never mint beats (RQ8, docs/EPISTEMIC_AUDIT_DESIGN.md). Flat for v1.",
+    "beats": [
+        "monetary-policy",
+        "bitcoin",
+        "banking",
+        "fiscal-policy",
+        "free-speech",
+        "religion",
+        "media-criticism",
+        "family-law",
+        "mens-issues",
+        "immigration",
+        "drug-policy",
+        "housing-policy",
+        "civil-asset-forfeiture",
+        "occupational-licensing",
+        "education-policy",
+        "courts-legal",
+        "elections",
+        "foreign-policy",
+        "national-security",
+        "tech-policy",
+        "ai",
+        "public-health",
+        "crime-justice",
+        "labor-economics"
+    ],
+    "aliases": {
+        "fed": "monetary-policy",
+        "federal-reserve": "monetary-policy",
+        "m2": "monetary-policy",
+        "btc": "bitcoin",
+        "lds": "religion",
+        "mormon": "religion"
+    },
+    "non_aliases": {
+        "crypto": "deliberately not aliased to bitcoin — not the same beat"
+    }
+}
