@@ -27,6 +27,23 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **"My Archive" portal — foundation** (Phase 12.1,
+  `docs/PORTAL_DESIGN.md`). A new full-tab extension page
+  (`src/portal/`, opened from the toolbar right-click menu or the
+  `xray:openPortal` message) showing everything you've published to
+  your configured relays: identity resolution as a provenance-tagged
+  set (signer / `xray:user` sync key / claim publish history / manual
+  npub — NIP-07 users paste their npub in v1), per-relay corpus
+  queries with empty-page pagination so "which relays hold this event"
+  is exact, and a flat newest-first list with per-kind summaries and
+  raw-event view. New read-side parsers close the wire round-trip:
+  `EventBuilder.parseCommentEvent` (kind 30041) and
+  `parseAssessmentEvent` (kind 30054). The side panel's
+  replaceable-event dedupe moved to `shared/nostr-events.js` and is now
+  NIP-01-class-aware (kind-0/10002 collapse per author; 1985/9803 all
+  kept). Read-only: the portal publishes nothing and never writes the
+  local ledger.
+
 - **Case collaboration bundles** (Phase 11.8). A case entity's detail view
   gains **Share case bundle (includes keys)**: a JSON file carrying the
   case and every entity its claims reference — names, alias links, and

@@ -1,16 +1,18 @@
 // X-Ray build pipeline.
 //
-// Produces five bundles under `dist/`:
+// Produces seven bundles under `dist/`:
 //
-//   dist/content.bundle.js     — content script (IIFE; runs in every tab)
-//   dist/background.bundle.js  — MV3 service worker (ESM per manifest)
-//   dist/options.bundle.js     — extension options page (single settings hub)
-//   dist/sidepanel.bundle.js   — chrome.sidePanel target (shell for now)
-//   dist/reader.bundle.js      — extension-page reader view (shell for now)
+//   dist/content.bundle.js          — content script (IIFE; runs in every tab)
+//   dist/background.bundle.js       — MV3 service worker (ESM per manifest)
+//   dist/options.bundle.js          — extension options page (single settings hub)
+//   dist/sidepanel.bundle.js        — chrome.sidePanel target (entity browser)
+//   dist/reader.bundle.js           — extension-page reader view
+//   dist/portal.bundle.js           — "My Archive" data portal (Phase 12)
+//   dist/api-interceptor.bundle.js  — MAIN-world fetch/XHR hook (Phase 8a)
 //
-// The toolbar-icon click toggles the FAB on the active tab — no popup
-// surface, so no popup bundle. HTML and CSS files stay in `src/` and
-// reference the built bundles via relative paths like
+// The toolbar-icon click captures the active tab into the reader — no
+// popup surface, so no popup bundle. HTML and CSS files stay in `src/`
+// and reference the built bundles via relative paths like
 // `../../dist/options.bundle.js`. The manifest keeps its references to
 // `src/.../*.html` files unchanged.
 
@@ -54,7 +56,7 @@ const configs = [
     },
 
     // --- extension pages (each is its own IIFE bundle, loaded by its HTML shell) ---
-    ...['options', 'sidepanel', 'reader'].map((name) => ({
+    ...['options', 'sidepanel', 'reader', 'portal'].map((name) => ({
         ...shared,
         entryPoints: [resolve(root, `src/${name}/index.js`)],
         outfile: resolve(root, `dist/${name}.bundle.js`),

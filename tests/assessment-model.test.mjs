@@ -283,3 +283,99 @@ test('assessment: getByClaimRef returns null for unassessed claims; delete works
     assert.equal(await AssessmentModel.get(a.id), null);
     assert.equal(await AssessmentModel.delete(a.id), false);
 });
+
+// ---------------------------------------------------------------------
+// parseAssessmentEvent — Phase 12.1 read-back (inverse of the 11.2
+// wire builder in metadata/builders.js)
+// ---------------------------------------------------------------------
+
+const { parseAssessmentEvent } = await import('../src/shared/assessment-model.js');
+const { buildAssessmentEvent } = await import('../src/shared/metadata/builders.js');
+
+test('parseAssessmentEvent round-trips buildAssessmentEvent', async () => {
+    const coord = `30040:${PUBKEY_A}:claim_1234567890abcdef`;
+    const anchor = [{ type: 'TextQuoteSelector', exact: 'worth $200,000' }];
+    const { event, dTag } = await buildAssessmentEvent({
+        claimCoord: coord,
+        claimUrl: URL_1,
+        claimEventId: 'e'.repeat(64),
+        stance: -2,
+        labels: [
+            { label: 'misleading', anchor, note: 'numbers do not add up' },
+            { label: 'fallacy/strawman' }
+        ],
+        rationale: 'The two figures cannot both be true.',
+        aboutPubkeys: [PUBKEY_B],
+        suggestedBy: 'llm:claude'
+    });
+    const a = parseAssessmentEvent({ ...event, pubkey: PUBKEY_A, id: 'f'.repeat(64) });
+    assert.ok(a, 'parser must accept its own builder output');
+    assert.equal(a.id, dTag);
+    assert.equal(a.claimCoord, coord);
+    assert.equal(a.claimEventId, 'e'.repeat(64));
+    assert.equal(a.claimAuthorPubkey, PUBKEY_A); // role-less p = claim author
+    assert.equal(a.stance, -2);
+    assert.deepEqual(a.labels.map((l) => l.label), ['misleading', 'fallacy/strawman']);
+    assert.deepEqual(a.labels[0].anchor, anchor);
+    assert.equal(a.labels[0].note, 'numbers do not add up');
+    assert.equal(a.labels[1].anchor, null);
+    assert.equal(a.labels[1].note, null);
+    assert.equal(a.rationale, 'The two figures cannot both be true.');
+    assert.deepEqual(a.aboutPubkeys, [PUBKEY_B]);
+    assert.equal(a.url, URL_1);
+    assert.equal(a.suggestedBy, 'llm:claude');
+    assert.equal(a.pubkey, PUBKEY_A);
+});
+
+test('parseAssessmentEvent: label-only assessment reads stance null', async () => {
+    const { event } = await buildAssessmentEvent({
+        claimCoord: `30040:${PUBKEY_A}:claim_1234567890abcdef`,
+        claimUrl: URL_1,
+        labels: ['misleading']
+    });
+    const a = parseAssessmentEvent(event);
+    assert.equal(a.stance, null);
+    assert.deepEqual(a.labels.map((l) => l.label), ['misleading']);
+});
+
+test('parseAssessmentEvent rejects wrong kind and missing claim coordinate', () => {
+    assert.equal(parseAssessmentEvent(null), null);
+    assert.equal(parseAssessmentEvent({ kind: 30055, tags: [['a', 'x']] }), null);
+    assert.equal(parseAssessmentEvent({ kind: 30054, tags: [['d', 'assess:x']], content: '' }), null);
+});
+
+test('parseAssessmentEvent degrades softly on malformed wire data', () => {
+    const a = parseAssessmentEvent({
+        kind: 30054,
+        tags: [
+            ['a', `30040:${PUBKEY_A}:claim_x`],
+            ['stance', '7'],                                  // out of range
+            ['L', 'xray/assessment'],
+            ['l', 'misleading', 'xray/assessment'],
+            ['l', 'misleading', 'xray/assessment'],           // duplicate — kept once
+            ['l', 'other-ns-label', 'someone/else'],          // foreign namespace — ignored
+            ['label-anchor', 'misleading', '{not json'],      // unparsable — stays null
+            ['label-note', 'unknown-label', 'orphan note']    // no matching label — dropped
+        ],
+        content: ''
+    });
+    assert.equal(a.stance, null);
+    assert.deepEqual(a.labels, [{ label: 'misleading', anchor: null, note: null }]);
+    assert.equal(a.suggestedBy, 'user');
+});
+
+test('buildAssessmentEvent tag vocabulary is pinned (parser contract)', async () => {
+    const { event } = await buildAssessmentEvent({
+        claimCoord: `30040:${PUBKEY_A}:claim_1234567890abcdef`,
+        claimUrl: URL_1,
+        claimEventId: 'e'.repeat(64),
+        stance: 1,
+        labels: [{ label: 'misleading', anchor: [{ type: 'TextQuoteSelector', exact: 'x' }], note: 'n' }],
+        aboutPubkeys: [PUBKEY_B]
+    });
+    const names = [...new Set(event.tags.map((t) => t[0]))].sort();
+    assert.deepEqual(names, [
+        'L', 'a', 'client', 'd', 'e', 'i', 'k', 'l',
+        'label-anchor', 'label-note', 'p', 'r', 'stance', 'suggested-by'
+    ]);
+});

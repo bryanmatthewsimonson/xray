@@ -52,6 +52,7 @@ function safeParse(s) { try { return JSON.parse(s); } catch (_) { return null; }
 const MENU_IDS = {
     OPEN_CAPTURE: 'xray:open-capture',
     OPEN_ENTITIES: 'xray:open-entities',
+    OPEN_PORTAL: 'xray:open-portal',
     OPEN_SETTINGS: 'xray:open-settings',
     EXPORT_KEYPAIRS: 'xray:export-keypairs',
     VIEW_KEYPAIRS: 'xray:view-keypairs',
@@ -78,6 +79,11 @@ function registerContextMenus() {
         chrome.contextMenus.create({
             id: MENU_IDS.OPEN_ENTITIES,
             title: 'Open Entity Browser',
+            contexts: ['action']
+        });
+        chrome.contextMenus.create({
+            id: MENU_IDS.OPEN_PORTAL,
+            title: 'Open My Archive',
             contexts: ['action']
         });
         chrome.contextMenus.create({
@@ -138,6 +144,14 @@ async function openEntityBrowser() {
 }
 
 /**
+ * Open the "My Archive" portal (Phase 12) — a full-tab extension page,
+ * same pattern as the reader: no manifest entry needed.
+ */
+function openPortal() {
+    chrome.tabs.create({ url: chrome.runtime.getURL('src/portal/index.html') });
+}
+
+/**
  * Capture the active tab and open it in the reader. If the content
  * script isn't loaded (chrome://, file://, extension pages, the
  * WebStore…) fall back to opening the options page so the icon click is
@@ -171,6 +185,10 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     }
     if (info.menuItemId === MENU_IDS.OPEN_ENTITIES) {
         openEntityBrowser();
+        return;
+    }
+    if (info.menuItemId === MENU_IDS.OPEN_PORTAL) {
+        openPortal();
         return;
     }
     if (info.menuItemId === MENU_IDS.CAPTURE_TIPS) {
@@ -222,6 +240,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     if (message.type === 'xray:openEntities') {
         openEntityBrowser();
+        sendResponse({ ok: true });
+        return false;
+    }
+    if (message.type === 'xray:openPortal') {
+        openPortal();
         sendResponse({ ok: true });
         return false;
     }

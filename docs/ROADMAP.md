@@ -896,9 +896,10 @@ brief: [`docs/PORTAL_KICKOFF.md`](PORTAL_KICKOFF.md)).
 
 Slices (one PR each):
 
-- ⬜ **12.1** Foundation — portal shell + esbuild entry + open wiring;
+- ✅ **12.1** Foundation — portal shell + esbuild entry + open wiring;
   identity resolver; corpus queries; **new `parseCommentEvent` (30041)
-  + `parseAssessmentEvent` (30054) parsers + tests**; flat event list.
+  + `parseAssessmentEvent` (30054) parsers + tests**; flat event
+  list. — #49
 - ⬜ **12.2** Library — type tabs, per-type renderers, facets,
   cross-cutting search.
 - ⬜ **12.3** Cache — IndexedDB `xray-portal`, cache-first render,

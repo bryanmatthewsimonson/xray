@@ -25,6 +25,7 @@ import { collectCaseBundle, buildCaseBundleJson, isCaseBundle, importCaseBundle 
 import { accountsForEntity, listUnlinkedAccounts, linkAccountToEntity, unlinkAccount } from '../shared/identity/account-registry.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { Crypto } from '../shared/crypto.js';
+import { dedupeReplaceable } from '../shared/nostr-events.js';
 import { pushEntities, pullEntities, clearRemote, pushRelayList, pullRelayList, normalizeRelayUrl } from '../shared/entity-sync.js';
 
 // Reserved key name in LocalKeyManager for the user's primary
@@ -429,17 +430,11 @@ async function loadNetworkClaims(entity) {
     });
 }
 
-/** Latest-wins per (kind, pubkey, d) — NIP-01 addressable semantics. */
-function dedupeReplaceable(events) {
-    const best = new Map();
-    for (const ev of (Array.isArray(events) ? events : [])) {
-        const d = ((ev.tags || []).find((t) => t[0] === 'd') || [])[1] || ev.id;
-        const key = `${ev.kind}:${ev.pubkey}:${d}`;
-        const seen = best.get(key);
-        if (!seen || (ev.created_at || 0) > (seen.created_at || 0)) best.set(key, ev);
-    }
-    return [...best.values()];
-}
+// Replaceable-event dedup now lives in shared/nostr-events.js (Phase
+// 12.1) — the portal needs the same latest-wins collapse, class-aware
+// for its mixed-kind corpus. For this panel's all-30040 input the
+// shared helper is behavior-identical to the local function it
+// replaced.
 
 // Refs for the assess buttons in the network list (claim text stays
 // out of data attributes).
