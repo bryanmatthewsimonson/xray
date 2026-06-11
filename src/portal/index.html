@@ -53,6 +53,10 @@
 
   <div class="xr-portal__status" id="xr-status" hidden></div>
 
+  <!-- Ledger vs relay truth (Phase 12.6): "ledger says N; relays
+       confirm M; K missing; R remote-only" + the missing list. -->
+  <section class="xr-portal__recon" id="xr-recon" hidden></section>
+
   <main class="xr-portal__main">
     <div class="xr-portal__empty" id="xr-empty" hidden></div>
     <ol class="xr-portal__list" id="xr-list"></ol>
@@ -60,6 +64,9 @@
          Populated by entity-view.js / case-view.js via the router. -->
     <section class="xr-portal__view" id="xr-view" hidden></section>
   </main>
+
+  <!-- Item inspector drawer (Phase 12.6). -->
+  <aside class="xr-portal__inspector" id="xr-inspector" hidden></aside>
 
   <footer class="xr-portal__footer">
     <span id="xr-footer-relays"></span>

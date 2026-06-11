@@ -907,9 +907,9 @@ Slices (one PR each):
 - ✅ **12.4** Timeline — density buckets + brush filtering. — #52
 - ✅ **12.5** Entity & case views — radial spokes graph + case
   dashboard. — #53
-- ⬜ **12.6** Inspector & reconciliation — raw events, per-relay
+- ✅ **12.6** Inspector & reconciliation — raw events, per-relay
   holdings, ledger diff (confirmed / missing / remote-only), privacy
-  footer.
+  footer. — #54
 - ⬜ **12.7** Hardening — adversarial review + fixes, SMOKE_TEST
   §Phase 12, docs pass.
 
