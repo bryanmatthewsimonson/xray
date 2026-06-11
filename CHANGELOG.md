@@ -27,6 +27,18 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Portal Library — type tabs, facets, search** (Phase 12.2). The
+  portal's flat list grows into a browsable Library: type tabs with
+  live counts (Articles / Claims / Comments / Assessments / Links /
+  Entities / Cases / Accounts / Other), facet selects for platform,
+  source domain, case, and publishing client, a group-by-source toggle,
+  and cross-cutting token-AND search over claim text, comment text,
+  article titles, entity names, assessment labels and rationale, and
+  account handles. Case membership derives from `p` tags matching
+  local case entities — the publish-side complement of the side
+  panel's case dashboard. The item model is a pure module
+  (`src/portal/library.js`) with its own test suite.
+
 - **"My Archive" portal — foundation** (Phase 12.1,
   `docs/PORTAL_DESIGN.md`). A new full-tab extension page
   (`src/portal/`, opened from the toolbar right-click menu or the

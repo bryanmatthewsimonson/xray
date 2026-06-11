@@ -1,11 +1,11 @@
-// X-Ray portal — "My Archive" (Phase 12.1, docs/PORTAL_DESIGN.md).
+// X-Ray portal — "My Archive" (Phase 12, docs/PORTAL_DESIGN.md).
 //
-// Slice 12.1 is the end-to-end pipe: resolve who "me" is, pull the
-// published corpus off the configured relays through the background
-// pool, collapse replaceable versions, and render a flat newest-first
-// list with per-kind one-line summaries and the raw signed event a
-// click away. Type views, search, caching, the graph, and
-// reconciliation land in later slices on top of this.
+// View layer only: identity chips, the Library (type tabs + facets +
+// cross-cutting search, Phase 12.2), and the flat row list with raw
+// events a click away. The item model, filtering, and search live in
+// ./library.js; identity resolution in ./identity.js; relay fetch in
+// ./corpus.js. Caching (12.3), the timeline (12.4), entity/case views
+// (12.5), and reconciliation (12.6) land on top of this.
 //
 // All DOM here is built with createElement/textContent — no dynamic
 // innerHTML (keeps web-ext's UNSAFE_VAR_ASSIGNMENT warnings from
@@ -13,44 +13,25 @@
 
 import { Storage } from '../shared/storage.js';
 import { Utils } from '../shared/utils.js';
-import { EventBuilder } from '../shared/event-builder.js';
-import { parseClaimEvent } from '../shared/claim-model.js';
-import { parseAssessmentEvent } from '../shared/assessment-model.js';
-import { parseRelationshipEvent } from '../shared/evidence-linker.js';
 import { dedupeReplaceable } from '../shared/nostr-events.js';
 import { resolveIdentities, addManualIdentity, removeManualIdentity } from './identity.js';
 import { fetchCorpus, FALLBACK_RELAYS } from './corpus.js';
+import {
+    buildItems, applyFilters, typeCounts, facetValues, isOtherClient,
+    kindLabel, TYPE_DEFS, EMPTY_FILTERS
+} from './library.js';
 
 const $ = (sel) => document.querySelector(sel);
-
-// Tags written by this extension (current + userscript-era value).
-const OUR_CLIENT_TAGS = new Set(['xray', 'nostr-article-capture']);
-
-const KIND_LABELS = {
-    30023: 'Article',
-    30040: 'Claim',
-    30041: 'Comment',
-    30054: 'Assessment',
-    30055: 'Link',
-    1985:  'Label',
-    0:     'Profile',
-    32125: 'Entity link',
-    32126: 'Account',
-    10002: 'Relay list',
-    30078: 'Entity sync',
-    30050: 'Annotation',
-    30051: 'Fact-check',
-    30052: 'Rating',
-    30053: 'Topic trust',
-    9803:  'Vote'
-};
 
 const state = {
     identities: [],      // [{pubkey, sources}]
     entities: [],        // [{pubkey, entityId, name, type}]
     signer: null,        // {method, pubkey, reason}
     relays: [],
-    records: [],         // [{event, relays}]
+    records: [],         // [{event, relays}] — raw, pre-dedupe
+    items: [],           // library items (deduped, parsed, sorted)
+    filters: { ...EMPTY_FILTERS },
+    groupByDomain: false,
     relayErrors: {},
     truncated: false,
     loading: false
@@ -75,100 +56,13 @@ function shortKey(pubkey) {
     return pubkey.slice(0, 8) + '…' + pubkey.slice(-4);
 }
 
-// ------------------------------------------------------------------
-// Per-kind one-line summaries (the 12.1 generic rows; richer per-type
-// renderers arrive with the Library slice)
-// ------------------------------------------------------------------
-
-function firstTag(event, name) {
-    const t = (event.tags || []).find((x) => x[0] === name);
-    return t ? t[1] : '';
-}
-
 function truncate(s, n) {
     const str = String(s || '').trim();
     return str.length > n ? str.slice(0, n - 1) + '…' : str;
 }
 
-function domainOf(url) {
-    try { return new URL(url).hostname; } catch (_) { return ''; }
-}
-
-/** @returns {{title: string, sub: string}} */
-function summarize(event) {
-    switch (event.kind) {
-        case 30023: {
-            const title = firstTag(event, 'title') || '(untitled capture)';
-            const url = firstTag(event, 'r');
-            return { title, sub: domainOf(url) || url };
-        }
-        case 30040: {
-            const c = parseClaimEvent(event);
-            return { title: truncate(c.text, 140) || '(empty claim)', sub: c.source ? `source: ${c.source}` : '' };
-        }
-        case 30041: {
-            const c = EventBuilder.parseCommentEvent(event);
-            if (!c) return { title: '(unparsable comment)', sub: '' };
-            return { title: truncate(c.text, 140), sub: `${c.author} · ${c.platform}` };
-        }
-        case 30054: {
-            const a = parseAssessmentEvent(event);
-            if (!a) return { title: '(unparsable assessment)', sub: '' };
-            const bits = [];
-            if (a.stance !== null) bits.push(`stance ${a.stance > 0 ? '+' : ''}${a.stance}`);
-            if (a.labels.length) bits.push(a.labels.map((l) => l.label).join(', '));
-            return { title: bits.join(' · ') || '(judgment)', sub: truncate(a.rationale, 120) };
-        }
-        case 30055: {
-            const r = parseRelationshipEvent(event);
-            if (!r) return { title: '(unparsable link)', sub: '' };
-            return { title: r.relationship || '(link)', sub: truncate(r.note, 120) || `${r.urls.length} source(s)` };
-        }
-        case 1985: {
-            const labels = (event.tags || []).filter((t) => t[0] === 'l').map((t) => t[1]);
-            return { title: labels.join(', ') || '(label)', sub: firstTag(event, 'r') };
-        }
-        case 0: {
-            let name = '';
-            let about = '';
-            try {
-                const profile = JSON.parse(event.content || '{}');
-                name = profile.name || '';
-                about = profile.about || '';
-            } catch (_) { /* malformed profile content */ }
-            return { title: name || '(profile)', sub: truncate(about, 120) };
-        }
-        case 32125: {
-            return {
-                title: `${firstTag(event, 'entity-name') || '(entity)'} — ${firstTag(event, 'relationship') || 'related'}`,
-                sub: firstTag(event, 'r')
-            };
-        }
-        case 32126: {
-            const acct = EventBuilder.reconstructPlatformAccount(event);
-            if (!acct) return { title: '(unparsable account)', sub: '' };
-            return {
-                title: `${acct.platform}: ${acct.handle || acct.displayName || acct.stableId}`,
-                sub: acct.linkedEntityId ? `linked to ${acct.linkedEntityId}` : ''
-            };
-        }
-        case 10002: {
-            const relays = (event.tags || []).filter((t) => t[0] === 'r').map((t) => t[1]);
-            return { title: `${relays.length} relay(s) declared`, sub: relays.join('  ') };
-        }
-        case 30078: {
-            return { title: firstTag(event, 'd') || '(entity sync)', sub: 'encrypted — listed, not decrypted' };
-        }
-        default: {
-            const d = firstTag(event, 'd');
-            const r = firstTag(event, 'r');
-            return { title: d || event.id || '(event)', sub: r };
-        }
-    }
-}
-
 // ------------------------------------------------------------------
-// Rendering
+// Header / identity / status
 // ------------------------------------------------------------------
 
 function setStatus(text, isError) {
@@ -208,88 +102,160 @@ function renderIdentityChips() {
     }
 }
 
-function renderEmpty() {
+function renderEmpty(heading, lines) {
     const host = $('#xr-empty');
     clear(host);
     host.hidden = false;
     $('#xr-list').hidden = true;
-    host.appendChild(el('h2', null, 'No identity resolved'));
-    const reason = state.signer && state.signer.reason
-        ? `Signing (${state.signer.method}): ${state.signer.reason}`
-        : 'No signing identity, sync key, publish history, or manual identity found.';
-    host.appendChild(el('p', null, reason));
-    host.appendChild(el('p', null,
-        'Paste your npub above, configure signing in Settings, or publish a capture once — then refresh.'));
-}
-
-function renderRows() {
-    const list = $('#xr-list');
-    const empty = $('#xr-empty');
-    empty.hidden = true;
-    list.hidden = false;
-    clear(list);
-
-    const relaysByEventId = new Map(state.records.map((r) => [r.event.id, r.relays]));
-    const display = dedupeReplaceable(state.records.map((r) => r.event))
-        .sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-
-    for (const event of display) {
-        const row = el('li', 'xr-row');
-        const head = el('div', 'xr-row__head');
-        head.appendChild(el('span', 'xr-row__kind', KIND_LABELS[event.kind] || `kind ${event.kind}`));
-
-        const { title, sub } = summarize(event);
-        head.appendChild(el('span', 'xr-row__title', title));
-
-        const badges = el('span', 'xr-row__badges');
-        const relays = relaysByEventId.get(event.id) || [];
-        const relayBadge = el('span', 'xr-badge', `${relays.length} relay${relays.length === 1 ? '' : 's'}`);
-        relayBadge.title = relays.join('\n');
-        badges.appendChild(relayBadge);
-        const client = firstTag(event, 'client');
-        if (client && !OUR_CLIENT_TAGS.has(client)) {
-            badges.appendChild(el('span', 'xr-badge xr-badge--warn', `via ${truncate(client, 24)}`));
-        }
-        head.appendChild(badges);
-
-        if (event.created_at) {
-            head.appendChild(el('span', 'xr-row__date', new Date(event.created_at * 1000).toLocaleString()));
-        }
-        row.appendChild(head);
-        if (sub) row.appendChild(el('div', 'xr-row__sub', sub));
-
-        const details = el('details');
-        details.appendChild(el('summary', null, 'Raw event'));
-        const pre = el('pre');
-        // Serialize lazily — hundreds of large 30023s stringified up
-        // front would make first paint pay for JSON nobody opened.
-        details.addEventListener('toggle', () => {
-            if (details.open && !pre.textContent) {
-                pre.textContent = JSON.stringify(event, null, 2);
-            }
-        }, { once: false });
-        details.appendChild(pre);
-        row.appendChild(details);
-
-        list.appendChild(row);
-    }
-
-    if (display.length === 0) {
-        const host = empty;
-        clear(host);
-        host.hidden = false;
-        list.hidden = true;
-        host.appendChild(el('h2', null, 'Nothing found on the relays'));
-        host.appendChild(el('p', null,
-            'The configured relays returned no events for the resolved identities. '
-            + 'If you publish from another device, add that identity above; otherwise publish a capture and refresh.'));
-    }
+    host.appendChild(el('h2', null, heading));
+    for (const line of lines) host.appendChild(el('p', null, line));
 }
 
 function renderFooter() {
     $('#xr-footer-relays').textContent = state.relays.length
         ? `Relays: ${state.relays.join('  ')}`
         : 'No relays configured.';
+}
+
+// ------------------------------------------------------------------
+// Library: tabs + facets + rows (Phase 12.2)
+// ------------------------------------------------------------------
+
+function renderTabs() {
+    const host = $('#xr-tabs');
+    host.hidden = false;
+    clear(host);
+    // Counts respect search + facets so the tab numbers answer "what
+    // would I see if I clicked this" — type itself excluded, of course.
+    const counted = applyFilters(state.items, { ...state.filters, type: 'all' });
+    const counts = typeCounts(counted);
+
+    const defs = [{ key: 'all', label: 'All' }, ...TYPE_DEFS];
+    for (const def of defs) {
+        const count = counts[def.key] || 0;
+        if (count === 0 && def.key !== 'all' && state.filters.type !== def.key) continue;
+        const btn = el('button', 'xr-tab', `${def.label} `);
+        btn.type = 'button';
+        btn.appendChild(el('span', 'xr-tab__count', String(count)));
+        btn.classList.toggle('xr-tab--active', state.filters.type === def.key);
+        btn.addEventListener('click', () => {
+            state.filters.type = def.key;
+            renderLibrary();
+        });
+        host.appendChild(btn);
+    }
+}
+
+function fillFacetSelect(select, values, selected, allLabel) {
+    clear(select);
+    const allOpt = el('option', null, allLabel);
+    allOpt.value = '';
+    select.appendChild(allOpt);
+    for (const { value, count } of values) {
+        const opt = el('option', null, `${truncate(value, 40)} (${count})`);
+        opt.value = value;
+        select.appendChild(opt);
+    }
+    select.value = values.some((v) => v.value === selected) ? selected : '';
+    select.hidden = values.length === 0;
+}
+
+function renderFacets() {
+    const host = $('#xr-facets');
+    host.hidden = false;
+    // Options reflect the current type + search + client cut, ignoring
+    // the value selects themselves (standard faceting, kept simple).
+    const base = applyFilters(state.items, { ...state.filters, platform: '', domain: '', caseName: '' });
+    fillFacetSelect($('#xr-facet-platform'), facetValues(base, 'platform'), state.filters.platform, 'All platforms');
+    fillFacetSelect($('#xr-facet-domain'), facetValues(base, 'domain'), state.filters.domain, 'All sources');
+    fillFacetSelect($('#xr-facet-case'), facetValues(base, 'cases'), state.filters.caseName, 'All cases');
+    $('#xr-facet-client').value = state.filters.client;
+    // Sync any select whose remembered value vanished from the options.
+    state.filters.platform = $('#xr-facet-platform').value;
+    state.filters.domain = $('#xr-facet-domain').value;
+    state.filters.caseName = $('#xr-facet-case').value;
+}
+
+function buildRow(item) {
+    const row = el('li', 'xr-row');
+    const head = el('div', 'xr-row__head');
+    head.appendChild(el('span', 'xr-row__kind', kindLabel(item.kind)));
+    head.appendChild(el('span', 'xr-row__title', truncate(item.title, 160)));
+
+    const badges = el('span', 'xr-row__badges');
+    const relayBadge = el('span', 'xr-badge', `${item.relays.length} relay${item.relays.length === 1 ? '' : 's'}`);
+    relayBadge.title = item.relays.join('\n');
+    badges.appendChild(relayBadge);
+    if (isOtherClient(item)) {
+        badges.appendChild(el('span', 'xr-badge xr-badge--warn', `via ${truncate(item.client, 24)}`));
+    }
+    for (const caseName of item.cases) {
+        badges.appendChild(el('span', 'xr-badge xr-badge--case', truncate(caseName, 32)));
+    }
+    head.appendChild(badges);
+
+    if (item.created_at) {
+        head.appendChild(el('span', 'xr-row__date', new Date(item.created_at * 1000).toLocaleString()));
+    }
+    row.appendChild(head);
+    if (item.sub) row.appendChild(el('div', 'xr-row__sub', truncate(item.sub, 240)));
+
+    const details = el('details');
+    details.appendChild(el('summary', null, 'Raw event'));
+    const pre = el('pre');
+    // Serialize lazily — hundreds of large 30023s stringified up front
+    // would make first paint pay for JSON nobody opened.
+    details.addEventListener('toggle', () => {
+        if (details.open && !pre.textContent) {
+            pre.textContent = JSON.stringify(item.event, null, 2);
+        }
+    });
+    details.appendChild(pre);
+    row.appendChild(details);
+    return row;
+}
+
+function renderRows(visible) {
+    const list = $('#xr-list');
+    const empty = $('#xr-empty');
+    empty.hidden = true;
+    list.hidden = false;
+    clear(list);
+
+    if (visible.length === 0) {
+        if (state.items.length === 0) {
+            renderEmpty('Nothing found on the relays', [
+                'The configured relays returned no events for the resolved identities. '
+                + 'If you publish from another device, add that identity above; otherwise publish a capture and refresh.'
+            ]);
+        } else {
+            renderEmpty('No matches', ['Nothing matches the current search and filters.']);
+        }
+        return;
+    }
+
+    if (state.groupByDomain) {
+        const groups = new Map(); // domain → items (insertion order = newest first)
+        for (const item of visible) {
+            const key = item.domain || '(no source URL)';
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(item);
+        }
+        for (const [domain, items] of groups) {
+            const header = el('li', 'xr-portal__group-head', `${domain} `);
+            header.appendChild(el('span', 'xr-tab__count', String(items.length)));
+            list.appendChild(header);
+            for (const item of items) list.appendChild(buildRow(item));
+        }
+    } else {
+        for (const item of visible) list.appendChild(buildRow(item));
+    }
+}
+
+function renderLibrary() {
+    renderTabs();
+    renderFacets();
+    renderRows(applyFilters(state.items, state.filters));
 }
 
 // ------------------------------------------------------------------
@@ -316,7 +282,13 @@ async function boot() {
 
         if (state.identities.length === 0 && state.entities.length === 0) {
             setStatus('');
-            renderEmpty();
+            const reason = state.signer && state.signer.reason
+                ? `Signing (${state.signer.method}): ${state.signer.reason}`
+                : 'No signing identity, sync key, publish history, or manual identity found.';
+            renderEmpty('No identity resolved', [
+                reason,
+                'Paste your npub above, configure signing in Settings, or publish a capture once — then refresh.'
+            ]);
             return;
         }
 
@@ -331,10 +303,17 @@ async function boot() {
         state.relayErrors = relayErrors;
         state.truncated = truncated;
 
-        renderRows();
+        // Latest version per replaceable address, then the item model.
+        const liveEvents = dedupeReplaceable(records.map((r) => r.event));
+        const liveIds = new Set(liveEvents.map((e) => e.id));
+        const entityIndex = {};
+        for (const e of state.entities) entityIndex[e.pubkey] = e;
+        state.items = buildItems(records.filter((r) => liveIds.has(r.event.id)), { entityIndex });
+
+        renderLibrary();
 
         const failed = Object.keys(relayErrors);
-        const parts = [`${records.length} event(s) from ${state.relays.length - failed.length}/${state.relays.length} relay(s)`];
+        const parts = [`${state.items.length} item(s) from ${state.relays.length - failed.length}/${state.relays.length} relay(s)`];
         if (failed.length) parts.push(`failed: ${failed.join(', ')}`);
         if (truncated) parts.push('some relays hit the page ceiling — older events not shown');
         setStatus(parts.join(' — '), failed.length > 0);
@@ -349,6 +328,7 @@ async function boot() {
 
 function wireChrome() {
     $('#xr-refresh').addEventListener('click', () => { boot(); });
+
     $('#xr-identity-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const input = $('#xr-identity-input');
@@ -359,6 +339,33 @@ function wireChrome() {
         }
         input.value = '';
         await boot();
+    });
+
+    let searchTimer = null;
+    $('#xr-search').addEventListener('input', (e) => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => {
+            state.filters.query = e.target.value;
+            renderLibrary();
+        }, 150);
+    });
+
+    const facetWiring = [
+        ['#xr-facet-platform', 'platform'],
+        ['#xr-facet-domain', 'domain'],
+        ['#xr-facet-case', 'caseName'],
+        ['#xr-facet-client', 'client']
+    ];
+    for (const [sel, field] of facetWiring) {
+        $(sel).addEventListener('change', (e) => {
+            state.filters[field] = e.target.value || (field === 'client' ? 'all' : '');
+            renderLibrary();
+        });
+    }
+
+    $('#xr-group-domain').addEventListener('change', (e) => {
+        state.groupByDomain = e.target.checked;
+        renderLibrary();
     });
 }
 

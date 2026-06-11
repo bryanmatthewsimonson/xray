@@ -26,6 +26,25 @@
     </form>
   </section>
 
+  <!-- Library chrome (Phase 12.2): type tabs + facet bar + search.
+       Hidden until a corpus is loaded. -->
+  <nav class="xr-portal__tabs" id="xr-tabs" aria-label="Type filter" hidden></nav>
+
+  <div class="xr-portal__facets" id="xr-facets" hidden>
+    <input type="search" id="xr-search" placeholder="Search everything…" autocomplete="off" />
+    <select id="xr-facet-platform" title="Filter by platform"></select>
+    <select id="xr-facet-domain" title="Filter by source domain"></select>
+    <select id="xr-facet-case" title="Filter by case"></select>
+    <select id="xr-facet-client" title="Filter by publishing client">
+      <option value="all">All clients</option>
+      <option value="ours">X-Ray only</option>
+      <option value="other">Other clients</option>
+    </select>
+    <label class="xr-portal__group-toggle" title="Group the list by source domain">
+      <input type="checkbox" id="xr-group-domain" /> Group by source
+    </label>
+  </div>
+
   <div class="xr-portal__status" id="xr-status" hidden></div>
 
   <main class="xr-portal__main">
