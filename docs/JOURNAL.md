@@ -19,6 +19,60 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-11 — Phase 13 design accepted: the resolutions, and the recovered constitution
+
+**Tags:** design
+
+The maintainer answered all eight review questions in
+`docs/EPISTEMIC_AUDIT_DESIGN.md` (answers + dispositions now recorded
+in the note's resolutions section and threaded through its body) and
+delivered the originally-unrecovered philosophy prose — vendored
+verbatim and **normative** at `docs/PHILOSOPHY.md` (v1.0.0: twelve
+principles, red lines, decision heuristics; CLAUDE.md now instructs
+consulting it before structural changes). The calls a future reader
+will second-guess:
+
+- **The ceiling binds to the heuristic, not the model (RQ2).** The
+  knowability ceiling is the single most score-determinative scalar in
+  the aggregate, so it goes to the most *reproducible* source: the
+  versioned source-quality heuristic a third party can recompute
+  exactly (P12). The model's estimate is kept advisorily
+  (`model_estimated_ceiling`); the accumulated divergence between the
+  two is the design dataset for the eventually-dedicated knowability
+  module.
+- **Conflicts-supersede, exercised (RQ5).** The maintainer's answer
+  sketched append-only `d`s for resolutions/disputes and a windowed
+  dossier `d`; per his standing instruction ("your recommendations …
+  supercede"), the note's schemes stand — likewise the answer's
+  literal version-in-`d` constraint, generalized to
+  version-and/or-run-identity with the relaxation explicitly flagged. The P9 tension is documented
+  in the resolutions rather than silently resolved — the accepted
+  cost (a resolver's own earlier revision isn't relay-retained) is
+  stated, with the local ledger as mitigation.
+- **`calibration-v1` is specified, not activated (RQ4).** There was no
+  lost formula — the original prose fixed only P7's ordering
+  constraints. The Brier spec (hedge→probability mapping, clamped
+  dossier-only multiplier, ≥10-resolved display gate) is a *new,
+  published assumption*, logged from slice 13.1 and applied never,
+  until an explicit activation decision at ledger volume. Don't
+  "recover" what didn't exist.
+- **Beats are curated (RQ8).** Free-form beat tags silently shrink
+  dossier sample sizes and corrupt the shrinkage math — vocabulary is
+  methodology, so `beats-v1` is versioned in-repo with an alias map
+  (`crypto` deliberately ≠ `bitcoin`); free-form `t` tags never mint
+  dossier subjects.
+- **The kind block stays at 30056–30061 (RQ5).** The answer floated
+  reusing 30050–30055 if the old drafts were unpublished — inside
+  X-Ray they're *shipped kinds with live events* (9a/11), so reuse is
+  impossible. Upstream `nostr-protocol/nips` registry checked
+  2026-06-11: nothing touches 30056–30061.
+
+So-what: implementation starts at 13.1 with these as binding
+constraints, and PHILOSOPHY.md governs when code and principles
+conflict.
+
+---
+
 ## 2026-06-11 — Phase 13 design: the calls a future reader will second-guess
 
 **Tags:** design

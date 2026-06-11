@@ -62,12 +62,14 @@ Phase 12 ████████████████████  complete 
                                 portal (docs/PORTAL_DESIGN.md). 12.1–12.7
                                 shipped incl. adversarial-review fixes;
                                 §Phase 12 smoke-run pending
-Phase 13 ██░░░░░░░░░░░░░░░░░░  design under review — epistemic audits
-                                (docs/EPISTEMIC_AUDIT_DESIGN.md, from the
-                                recovered auditor framework vendored at
-                                docs/auditor-prototype/). Kinds 30056–30061
-                                proposed; no code until the design's review
-                                questions are answered
+Phase 13 ███░░░░░░░░░░░░░░░░░  in progress — epistemic audits
+                                (docs/EPISTEMIC_AUDIT_DESIGN.md; design
+                                accepted 2026-06-11, all eight review
+                                questions answered, the recovered
+                                philosophy vendored normatively at
+                                docs/PHILOSOPHY.md). Kinds 30056–30061
+                                confirmed; implementation slices 13.1+
+                                under way
 ```
 
 Parity with the v4.2 userscript is reached; the project now operates as a
@@ -923,7 +925,7 @@ Slices (one PR each):
 
 ---
 
-## Phase 13 — Epistemic audits 🚧 (design under review)
+## Phase 13 — Epistemic audits 🚧 (in progress)
 
 The maintainer's epistemic-auditor framework — eight versioned
 surface-scan module prompts (headline-body fidelity, asymmetric
@@ -943,17 +945,30 @@ Phase 13 integrates it into X-Ray. The design note,
 adversarially reviewed before its PR), proposes: six new kinds
 **30056–30061** (the framework's 30050–30055 are all taken in-repo); a
 canonical article hash (the scorer's normalization, byte-for-byte)
-carried as an indexed `x` tag; a local-first execution path staged
-through a companion-CLI stopgap (hosted endpoint refused for v1); a
+carried as an indexed `x` tag; a local-first execution path via a
+companion CLI, import-then-sign (RQ1 confirmed it as the keeper
+architecture, not a stopgap; hosted endpoint refused for v1); a
 strict audit/assessment firewall; dossiers as derived portal views over
 published audit events; honest score display (no score without
 confidence, no aggregate without its ceiling, <0.6 confidence renders
 as "needs human review"); and a nine-slice implementation plan.
 
-**Status: design only — nothing is built.** Implementation is gated on
-the note's review questions (runs-where staging, knowability-ceiling
-provenance, the manual tier, the calibration multiplier, kind numbers,
-prediction→claim atomization, API-key custody, beat taxonomy).
+**Status: design accepted 2026-06-11.** The maintainer answered all
+eight review questions (resolutions recorded and threaded in the
+design note) and delivered the previously-unrecovered philosophy
+prose, vendored **normatively** at
+[`docs/PHILOSOPHY.md`](PHILOSOPHY.md) (v1.0.0). Headline resolutions:
+import-then-sign confirmed as the keeper v1 architecture (hosted
+endpoint refused; re-validate-before-sign; producer ≠ publisher);
+the knowability ceiling binds to the versioned source-quality
+heuristic, the model's estimate riding advisorily; the
+guided-checklist tier is the first post-v1 slice, with an
+auditor-kind-agnostic invariant binding v1; `calibration-v1` (Brier)
+specified but logged-only until an explicit activation decision;
+kinds 30056–30061 confirmed (upstream registry checked clean
+2026-06-11) with the `d`-scheme constraint written into the draft
+NIP; beats become a curated versioned vocabulary (`beats-v1`).
+Implementation slices 13.1+ are in progress.
 
 ---
 

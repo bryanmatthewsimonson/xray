@@ -1,17 +1,24 @@
 # Epistemic audits — the X-Ray auditor, integrated (Phase 13)
 
-**Status:** design **under review** (drafted 2026-06-11 from the rev-3
+**Status:** design **accepted** (drafted 2026-06-11 from the rev-3
 kickoff brief, [`docs/EPISTEMIC_AUDIT_KICKOFF.md`](EPISTEMIC_AUDIT_KICKOFF.md);
 every load-bearing repo claim verified against `main` post-PR-#60; an
 adversarial review pass — framework fidelity / repo fidelity / scope —
-ran over this note before the PR opened). **Nothing is built.** The
-review questions at the bottom gate all implementation.
+ran over this note before the PR opened). The maintainer answered all
+eight review questions on 2026-06-11 — answers and dispositions are
+recorded in [the resolutions](#review-questions--resolved-2026-06-11),
+threaded through the sections they touch, and implementation proceeds
+per the [slice plan](#slice-plan-one-pr-each-claudephase-13-).
 
 The maintainer's epistemic-auditor framework is recovered and vendored
 at [`docs/auditor-prototype/`](auditor-prototype/README.md) — eight
 versioned surface-scan module prompts, the canonical
 [`audit-types.ts`](auditor-prototype/schema/audit-types.ts) data model,
-and a working Node scorer. That framework is settled intent; **this
+and a working Node scorer. Its governing philosophy, unrecovered when
+this note was drafted, is now also recovered and vendored
+**normatively** at [`docs/PHILOSOPHY.md`](PHILOSOPHY.md) (v1.0.0) —
+the twelve principles (P1–P12), red lines, and decision heuristics
+this note cites by number. That framework is settled intent; **this
 note designs its integration into X-Ray**: kinds, tags, hashing,
 execution path, storage, surfaces, and slices. Where this note deviates
 from the framework, the deviation is flagged in the
@@ -25,16 +32,20 @@ justified inline; nothing is silently dropped or mutated.
 | Kind map | **Six new kinds `30056`–`30061`** (ModuleResult, AggregateAudit, PredictionEntry, PredictionResolution, DossierSnapshot, AuditDispute). The framework's 30050–30055 are all taken inside X-Ray; 30043 is retired-do-not-reuse; the contiguous free block preserves the framework's one-kind-per-entity-family shape ([rationale](#kind-map)) |
 | Time-series vs NIP-01 replacement | Reconciled **per entity**: module results and aggregates get **run-unique `d` schemes** (replacement = idempotent republish of the same run only, never an edit channel — audit history survives); predictions **converge** on a stable text-hash identity; disputes are one-per-(filer, target), amendable until adjudication; resolutions and dossier snapshots are **latest-wins replaceable** because for them replacement *is* the right semantics ([per-entity table](#reconciling-each-entity-becomes-an-addressable-event-with-nothing-overwrites)) |
 | Article hash | **SHA-256 of the scorer's `normalizeMarkdown` over the captured body markdown** (metadata header excluded), specified [byte-for-byte](#canonical-article-hash); carried as an **indexed `x` tag** (NIP-94 precedent) on every audit event and added to 30023 at capture time (additive, dual-read-safe) |
-| Where the model runs | **Local-first, staged**: v1 = companion-CLI stopgap (the vendored scorer as-is → JSON import → flag-gated publish through the existing Signer); v1.x = scorer logic in the background worker with a user-supplied API key; **hosted endpoint refused for v1** (a new trust dependency for a trust tool); optional **manual tier** pending the accessibility-tiers review question ([framing + recommendation](#where-the-model-runs)) |
-| Knowability ceiling | The two vendored implementations disagree (prompts/00: the auditing model sets it; scorer.js: source-quality heuristic). The 30057 wire shape **records `ceiling-source` explicitly per event** so either answer publishes honestly; the v1 default is **review question 2** |
+| Where the model runs | **Local-first, import-then-sign** (RQ1: confirmed as the keeper architecture, not a stopgap): v1 = companion CLI emits unsigned JSON → the extension **re-validates before signing** (re-hash + schema-check; you never sign what you haven't verified) → flag-gated publish through the existing Signer, producer (auditor tags) and publisher (signing pubkey) kept distinct; v1.x = scorer in the background worker with a user-supplied key under the four RQ7 hardenings; **hosted endpoint refused for v1** (centralizes key custody, creates a capture point — §9) ([framing + recommendation](#where-the-model-runs)) |
+| Knowability ceiling | **Resolved (RQ2): record both, heuristic binds.** Pipeline runs: the deterministic source-quality heuristic is canonical and score-binding (`ceiling-source: heuristic:source-quality/1.0`, versioned — the most score-determinative scalar must be the most reproducible, P12); the model's estimate rides advisory `model_estimated_ceiling` in the aggregate content; the accumulated divergence is the dataset that designs the future knowability module. Orchestrator runs keep model-set ceilings (`ceiling-source: model`) — calibration tools, not canonical pipeline audits |
 | Auditor identity | Not an event — a **tag vocabulary** (`auditor`, repeatable `auditor-constituent`) on every audit event, covering all four `AuditorKind`s; the signing pubkey stays the accountability anchor |
-| Predictions | First-class: 30058 entries (stable text-hash `d`, so re-extraction converges) + 30059 resolutions (one per resolver per prediction). 30040 claim atomization is an **offered action, not automatic** ([argument](#predictions-as-first-class-records)) |
+| Predictions | First-class: 30058 entries (stable text-hash `d`, so re-extraction converges) + 30059 resolutions (one per resolver per prediction). 30040 claim atomization is an **offered action, not automatic** (RQ6 confirmed); on promotion the claim event `a`-references the prediction back, so lineage runs both directions ([argument](#predictions-as-first-class-records)) |
 | Dossiers | **Derived, computed-on-open in the portal** over published audit events (the schema's reproducibility demand made primary); 30060 snapshot kind defined for optional sharing/caching, parameters (window, shrinkage k, population mean) on the wire so anyone can re-derive. All four subject kinds covered — **a beat is a bare `t` tag, no entity pubkey assumed** |
+| Beats | **Curated, versioned vocabulary, binding for dossiers** (RQ8): `beats-v1` ships in-repo (canonical kebab-case slugs + alias map — vocabulary is methodology, P12); dossier beat subjects MUST be canonical slugs; free-form `t` tags ride events but never mint beats; the dossier builder normalizes via the alias map and surfaces unmapped tags for review; flat for v1 ([spec](#beats--a-curated-versioned-vocabulary-rq8)) |
+| Calibration | **Rate table canonical for v1**; **`calibration-v1` specified now, logged, not activated** (RQ4): hedge→implied probability (confident 0.90 / hedged 0.70 / speculative 0.55; negatives invert), Brier-scored per resolved prediction; subject calibration = mean Brier, shrunk per §4; the eventual multiplier `clamp(1 + β·(B_pop − B_subject), 0.85, 1.15)`, β≈0.5, dossier-only, never retroactive (P9), displayed only at ≥10 resolved ([spec](#calibration--the-rate-table-and-calibration-v1-rq4)) |
+| Participation tiers | The recovered tier spec (delivered with the RQ3 answer — PHILOSOPHY.md itself carries only §8's weight-follows-track-record mechanic) is five tiers (Read / Flag / Verify / Audit / Adjudicate). v1 ships none as UI but holds the **auditor-kind-agnostic invariant**: human `AuditorIdentity` results flow through the same schemas, kinds, and rollups end-to-end — nothing may assume `model`/`pipeline`. The guided-checklist Audit tier is the **first post-v1 slice** (RQ3) |
 | Disputes | Kind 30061 defined, **wire-format-only in v1** — no filing UI, no adjudication runtime (explicit non-goal). Structural rhyme with the maintainer's Court-of-Public-Opinion draft noted |
 | Display rule | A score **never renders without its confidence**; an aggregate **never without its ceiling**; confidence < 0.6 renders as **"needs human review"**, not a number; color scales anchor 70–85 as normal — **50 is concerning, not the midpoint**; module version + auditor identity always one tap away; cross-auditor disagreement shown side-by-side, never averaged |
-| Feature flag | `epistemicAuditing: false` gates publish paths and the audit UI tabs; audit *execution* additionally requires a user-supplied API key (its own consent gate) |
+| Feature flag | `epistemicAuditing: false` gates every publish path; local capture/import/render is ungated — the Phase 11 split; audit *execution* additionally requires a user-supplied API key (its own consent gate) |
 | Findings schemas | **Derived in this note** from the prompt output specs (per-module contract table + worked example); JSON Schema validators land in slice 13.1 — closing the gap the scorer README's Limitations section admits (the prototype only extracts JSON, it does not validate) |
 | Firewall | Audit kinds (30056–30061) and assessments (30054) are **separate aggregation signals; consumers MUST NOT merge** — the 30051-vs-30054 NIP_DRAFT idiom applied with full force ([section](#the-firewall-audits-are-not-assessments)) |
+| Philosophy | [`docs/PHILOSOPHY.md`](PHILOSOPHY.md) (v1.0.0) is **normative** — code expresses it; when they conflict, it governs until amended. Principle conflicts are documented tensions citing P-numbers, never silent calls |
 | Non-goals (v1) | Hosted scorer endpoint, multi-auditor consensus (beyond disagreement display), adjudication runtime, dedicated knowability module, exposure files, network trust machinery (TrustRank, stakes, auto-sanctions), NIP-09 cleanup |
 
 ## The framework in one paragraph (what this note integrates)
@@ -58,7 +69,9 @@ publication, beat, publication×beat). Disagreement between auditors is
 [`prompts/00`](auditor-prototype/prompts/00-orchestrator-single-shot.md)
 bind every design decision below: **evidence-bound** (every finding
 quotes exact text), **knowability-aware**, **symmetric**,
-**calibrated**, **no-reformulation**.
+**calibrated**, **no-reformulation** — codified normatively, with
+seven more, in [`docs/PHILOSOPHY.md`](PHILOSOPHY.md) (P3, P6, P5, P7,
+P4 respectively).
 
 ## The firewall: audits are not assessments
 
@@ -109,7 +122,7 @@ the schema README).
 | `Article` | **Existing kind 30023** + capture pipeline | No new kind. The fields (headline/byline/publication_date/word_count/language) already ride 30023 tags; `body_markdown` is the content (after the metadata header). **New additive `x` tag** carries the canonical article hash at capture time (wire change to a shipping kind — additive, dual-read-safe, CHANGELOG/JOURNAL callout). **`subhead` has no 30023 carrier and no extractor support today** — flagged: module 01 needs it as input; the CLI path supplies it via its metadata file, and the future in-extension path runs headline-only until capture grows subhead extraction (deferred, noted in the execution slice). `captured_by`/`capture_method` → the existing `client` tag + capture context; `archive_url` → the existing archive layer. `author_ids`/`publication_id` resolution → the entity system, derived at dossier time, not stored on the article |
 | `AtomicClaim` | **Existing kind 30040** | Already shipped. **`ClaimType` (incl. `predictive`) is not representable** — claim types were deliberately dropped in Phase 10.1 (`docs/CLAIMS_REDESIGN.md`); prediction semantics live on 30058 instead, which MAY reference a claim coordinate. `is_contested`/`contested_reason` → the assessment layer (30054 labels), firewall-separated. `source_span` → the existing `anchor` selector tag |
 | `ModuleResult` | **New kind 30056** | `findings: Record<string, unknown>` → JSON event content, validated against the [derived per-module schemas](#derived-findings-schemas--the-modules-output-contracts). `id` → the `(kind, pubkey, d)` coordinate. **`d` includes `run_at`** (unique-`d` time series; see reconciliation table). `evidence_quotes[]` — the deduplicated cross-module reference index — rides as a top-level array in the content JSON beside the findings (exactly the `collectEvidenceQuotes` output), not as tags |
-| `AggregateAudit` | **New kind 30057** | `module_contributions[].module_result_id` → **`e` tags referencing the 30056 events** (one per module, role-marked). **`superseded_by` and `disputes[]` are reversed into forward pointers**: a superseding audit `e`-tags its predecessor (`supersedes`), a dispute `a`-tags its target — a signed addressable event cannot be mutated by later actors, so backpointers on the original are unpublishable; consumers derive both by query. `knowability_ceiling` + **new `ceiling-source` tag** records which implementation set it (the framework's own internal disagreement, made explicit on the wire) |
+| `AggregateAudit` | **New kind 30057** | `module_contributions[].module_result_id` → **`a` coordinates referencing the 30056 events** (one per module, role-marked; durable under idempotent republish), plus optional `e` convenience ids. **`superseded_by` and `disputes[]` are reversed into forward pointers**: a superseding audit `e`-tags its predecessor (`supersedes`), a dispute `a`-tags its target — a signed addressable event cannot be mutated by later actors, so backpointers on the original are unpublishable; consumers derive both by query. `knowability_ceiling` + **new `ceiling-source` tag** records which implementation set it (RQ2 resolved: pipeline runs bind the versioned source-quality heuristic; model-set ceilings are advisory `model_estimated_ceiling` or orchestrator-only) |
 | `PredictionEntry` | **New kind 30058** | `resolution_status` / `latest_resolution_id` → **derived client-side from 30059 events** (mutable fields don't fit signed immutable wire records; the local model tracks them). `attributed_to_author_id` → entity `p` tag when the author is a tracked entity, name string otherwise. `source_span` → an optional `anchor` selector tag (the 30040 idiom). `extracted_at` → `created_at`, **with a flagged caveat**: under the convergent `d`, a re-extraction's republish refreshes the timestamp (the original extraction date survives only locally). MAY `a`-reference a 30040 claim ([offered action](#predictions-as-first-class-records)) |
 | `PredictionResolution` | **New kind 30059** | `prediction_id` → `a` coordinate + optional `e`. `evidence[]` → repeatable **typed** `evidence` tags carrying all three framework fields (`kind`/`value`/`description` — a flagged *extension* of the dormant 30051 builder's bare-string idiom, which couldn't carry `document_hash` or `quote` evidence). One resolution per (resolver, prediction); the resolver editing replaces — by design (the type's own "latest wins"; **its "unless a dispute is open" exception defers with the adjudication runtime**, flagged) |
 | `Author` | **Entity system** (person entity + 32126 platform accounts) | No new kind. `beat_tags` → optional `t` tags on audit events (mirrored from the article's topics — see wire conventions). **`exposures[]` deferred** — no X-Ray home yet (candidate: entity-profile extension; carrying sourced exposure files is its own design problem). `aliases` → the existing alias graph. `primary_publication_id` → derived (dossier-time majority); `notes_url` → kind-0 profile content, not audit wire |
@@ -145,6 +158,30 @@ from the schema README's "`d` = article hash for module results" (which
 would make every re-run a silent overwrite — exactly what audit-types
 forbids).
 
+RQ5 (2026-06-11) confirms the schemes **with a constraint now written
+into the draft NIP**. The answer's literal constraint: *"include the
+methodology version (e.g., `<article_hash>:<module>:<module_version>`)"*
+in every audit-bearing `d`, because relays keep only the latest event
+per `(pubkey, kind, d)` — a v2 rescoring that reused a v1 `d` would
+make the relay silently drop the v1 audit, a P9 violation by storage
+semantics. This note generalizes that to **methodology version and/or
+run identity in `d`** — a *flagged relaxation*, standing under the
+conflicts-supersede instruction: a run-unique `d` prevents the same
+relay-drop (30056 carries version *and* run; 30057 carries run, with
+the pipeline's methodology semver embedded in its `auditor_id` input),
+and supersession is expressed exclusively through explicit `e`-tag
+references, never through relay replacement. 30058 sits deliberately
+*outside* the constraint: a prediction entry is extraction —
+enrichment, not judgment — whose convergence across re-extractions is
+the design goal; its methodology version rides the `module-version`
+tag instead of forking the ledger identity per version.
+Where the maintainer's answer sketched different schemes — append-only
+per-filing `d`s for 30059/30061, a window component in the 30060 `d` —
+the table above stands per the same instruction; the tension is
+documented in
+[the resolutions](#review-questions--resolved-2026-06-11) (P9 vs the
+types' own latest-wins semantics), not silently resolved.
+
 ## Kind map
 
 The framework assigned 30050–30055. **Every one is now taken inside
@@ -152,7 +189,13 @@ X-Ray** (30050 annotations, 30051 fact-checks, 30052 ratings, 30053
 topic-trust, 30054 assessments, 30055 claim relationships; 30043 is
 retired per Phase 11 with legacy events live on relays — reusing it
 would collide with vocabulary a public NIP could never honor). Free in
-our draft-NIP block: 30042, 30044–30049, 30056+. The map:
+our draft-NIP block: 30042, 30044–30049, 30056+. Checked against the
+live `nostr-protocol/nips` registry 2026-06-11 (RQ5's pre-circulation
+requirement): **no upstream assignment or reference touches
+30056–30061** — nearest registered neighbors are 30040/30041 (NKBIP
+curated publications, the known pre-existing divergence NIP_DRAFT
+already flags) and 30063 (release artifact sets). Re-check at draft-NIP
+submission. The map:
 
 | Kind | Entity | Why its own kind (the ASSESSMENTS_DESIGN test) |
 | --- | --- | --- |
@@ -160,7 +203,7 @@ our draft-NIP block: 30042, 30044–30049, 30056+. The map:
 | **30057** | AggregateAudit | The headline record — badge surfaces want exactly one small event per (auditor, article, run): `{kinds:[30057], "#x":[hash]}`. Carries weights, ceiling + `ceiling-source`, confidence stacking |
 | **30058** | PredictionEntry | Different identity discipline from everything else (stable text-hash `d`, converging), different lifetime (years), different consumers (ledger/calibration vs badge). Reuses the 30040 claim-id *pattern* without overloading the claim kind, whose semantics deliberately exclude prediction typing (10.1) |
 | **30059** | PredictionResolution | References 30058 by `a`; arrives possibly years later, possibly from a different auditor. A kind boundary keeps `{kinds:[30059], authors:[me]}` = "my resolution record" cheap, which dossier calibration recomputes from |
-| **30060** | DossierSnapshot | Latest-wins semantics (unique among the six), subject-keyed not article-keyed, optional to publish at all. Merging with anything would poison the others' time-series discipline |
+| **30060** | DossierSnapshot | Cache semantics — the one kind whose record is wholly re-derivable from published events, so latest-wins replacement loses nothing; subject-keyed not article-keyed, optional to publish at all. Merging with anything would poison the others' time-series discipline |
 | **30061** | AuditDispute | Wire-format-only in v1, and disputes target *any* audit entity (`target-kind` tag). Court-of-Public-Opinion rhyme: the maintainer's clause/grievance/verdict draft maps structurally onto target → filed_by → evidence → (deferred) adjudications → status; the grievance-style evidence list and immutable-filing posture carry over |
 
 Fewer-kinds alternatives examined and rejected: (a) one "audit" kind
@@ -265,7 +308,7 @@ The scorer is a Node CLI calling the Anthropic API; the extension has
 no API dependency and no key handling. The scorer README offers two
 paths with trade-offs. Framed, costed, and recommended:
 
-| | (a) Hosted endpoint | (b) Local-first | (b0) Companion CLI (stopgap) | (c) Manual tier |
+| | (a) Hosted endpoint | (b) Local-first | (b0) Companion CLI (v1 path) | (c) Manual tier |
 | --- | --- | --- | --- | --- |
 | Key handling | Server-side (operator pays or proxies) | User's key in `chrome.storage.local` | User's key in their shell env | None |
 | Trust surface | **A new server between a trust tool and its users** — sees every audited article, could bias results | None beyond Anthropic | None beyond Anthropic | None |
@@ -281,50 +324,99 @@ article). Re-cost during the execution slice; the caching prescription
 is what keeps either number tolerable.
 
 **Recommendation: (b), staged through (b0), with (a) refused for v1.**
+*(RQ1, 2026-06-11: confirmed — and import-then-sign is the keeper
+architecture, not a stopgap.)*
 
 - **v1 — companion CLI (b0).** The vendored scorer runs as-is
   (`node scorer.js --input … --output audit.json`). X-Ray gains an
   **Import audit** affordance (reader audit panel + options) that
-  ingests the JSON, verifies the article hash matches a local capture,
-  stores it in the local audit ledger, and — flag-gated — publishes the
-  30056/30057/30058 events **through the existing Signer façade**. The
-  CLI never touches NOSTR keys; signing stays inside the extension
-  where the keys already live. (The kickoff's alternative — the CLI
-  signing and publishing events itself — would duplicate key handling
-  in Node for no capability gain; import-then-sign is strictly
-  simpler and keeps the nsec-never-leaves-the-extension property.)
-- **v1.x — background-worker execution (b), its own slice plan once
-  review question 1 settles.** Port `scoreArticle`'s loop to the SW:
-  load the eight prompt bodies (vendored into the extension), eight
-  parallel `fetch`es to `api.anthropic.com` with the user's key.
-  Permission posture, stated honestly: the manifest already grants
+  ingests the JSON, stores it in the local audit ledger, and —
+  flag-gated — publishes the 30056/30057/30058 events **through the
+  existing Signer façade**. The CLI never touches NOSTR keys. Signing
+  belongs in the extension for three reasons (RQ1): NIP-07 signers are
+  browser extensions a CLI cannot invoke at all — "CLI signs directly"
+  would force raw nsec export into a second custody surface; the
+  signature is the attribution act (§8), and the extension's
+  interactive signing flow means nothing publishes under the user's
+  identity without an explicit approval moment, where an autonomously
+  signing CLI could publish under their key in a loop; and the
+  unsigned-JSON intermediate is a *feature* — the human-review
+  checkpoint before publicly asserting something (P11). Two
+  requirements on the import path, both invariants: **the extension
+  re-validates before signing** — it re-hashes the imported
+  `body_markdown`, checks the result against the JSON's claimed
+  `article_hash` (and — this note's addition, beyond RQ1's letter —
+  against the local capture's hash), and schema-validates
+  every module payload, because you never sign what you haven't
+  verified; and **producer and publisher stay distinct in the
+  events** — the `auditor`/`auditor-constituent` tags record the
+  pipeline that produced the result (CLI version + model), the signing
+  pubkey records the human who published it.
+- **v1.x — background-worker execution (b), its own slice pair.** Port
+  `scoreArticle`'s loop to the SW: load the eight prompt bodies
+  (vendored into the extension), eight parallel `fetch`es to
+  `api.anthropic.com` with the user's key. Permission posture, stated
+  honestly: the manifest already grants
   `host_permissions: ["<all_urls>"]`, so on Chrome no new permission
   exists to request — **the real consent gates are the API key entry
   and the flag**, and the opt-in UI says so plainly (on Firefox 128+,
   where host permissions are runtime-granted, the request surfaces
   naturally). The `anthropic-dangerous-direct-browser-access: true`
   request header is included for CORS correctness regardless. Key
-  stored under a dedicated `chrome.storage.local` key, **never included
-  in entity/keypair export**, same red-line as
-  `local_primary_identity`. Caching: a completed audit is cached by
-  `(article_hash, module, module_version)` and never recomputed until a
-  methodology version changes — the scorer README's prescription,
-  enforced in the model layer. (Sizing note: this is at least two
-  slices on its own — key custody + consent UI, then the runner — which
-  is exactly why it is staged behind the CLI path rather than ridden
+  custody hardenings (RQ7, all four binding on the slice pair):
+  **(a) SW-only access invariant** — the key is read exclusively in
+  the background service worker; entry UI hands it to the SW by
+  message; it never transits content scripts or page world; a test
+  asserts no key read outside the SW. **(b) Host allowlist in code** —
+  the key attaches only to requests matching a hardcoded
+  `api.anthropic.com` allowlist, independent of what `<all_urls>`
+  permits; that is the technical gate, the consent copy is the
+  honesty. **(c) Session-only as an option, not the only mode** — a
+  "don't persist; re-enter each browser session" toggle backed by
+  `chrome.storage.session`; default persistent (session-only as the
+  sole mode pushes daily users toward worse workarounds like keys in
+  shell history). **(d) Honest at-rest disclosure** — the consent copy
+  says plainly "stored unencrypted in extension storage on this
+  device"; no obfuscation-at-rest theater (P11 applies to security
+  posture too: don't imply custody you don't have). Plus: the key is
+  never logged, never leaks into audit events or error reports,
+  **never included in entity/keypair export** (same red-line as
+  `local_primary_identity`), and the consent copy recommends a
+  spend-capped workspace key. Caching: a completed audit is cached by
+  `(article_hash, module, module_version)` and never recomputed until
+  a methodology version changes — the scorer README's prescription,
+  enforced in the model layer. (Sizing: two slices — key custody +
+  consent UI, then the runner — staged behind the CLI path, not ridden
   into a v1 slice.)
-- **(c) manual tier — designed but gated on review question 3.** The
-  module prompts double as guided human checklists (each module's
-  Methodology section is already step-numbered); a reader panel can
-  present module 01's steps against the captured article and record a
-  human-scored 30056 with `auditor: human:<pubkey>`. This may be what
-  the unrecovered "accessibility tiers" prose envisioned — **asking
-  rather than inventing**: see review question 3.
-- **(a) hosted endpoint — refused for v1**, revisitable. It
-  centralizes exactly what the framework decentralizes, and "the
-  auditor must itself be auditable" argues against a black-box relay in
-  the middle. If a future phase wants zero-setup auditing, the endpoint
-  question reopens with its own design note.
+- **(c) manual tier — the first post-v1 slice (RQ3).** The recovered
+  tier spec (delivered with the RQ3 answer; `PHILOSOPHY.md` itself
+  carries only §8's weight-follows-track-record mechanic) is five
+  participation tiers — **Read**
+  (browse, free, no account), **Flag** (one-line reason → triage
+  queue), **Verify** (claim one open task, submit an evidence-backed
+  finding), **Audit** (full methodology audits, public, attributed),
+  **Adjudicate** (resolve auditor disagreement, published reasoning) —
+  with the load-bearing mechanic that everyone exercising judgment is
+  scored on the same epistemic axes as the journalists (§8). The
+  guided-checklist mode (the Audit tier: the module prompts'
+  step-numbered Methodology sections as forms; a human-scored 30056
+  with `auditor: human:<pubkey>`) is deliberately **post-v1, not v1**:
+  the deferral isn't effort — it's that v1's job is calibrating the
+  methodology against real articles, and opening a human-audit surface
+  before module versions stabilize produces human audits under
+  methodology that's about to churn. The **v1 requirement instead is
+  the auditor-kind-agnostic invariant**: nothing in the pipeline may
+  assume `auditor.kind` is `model` or `pipeline` — human
+  `AuditorIdentity` results must flow through the same findings
+  schemas, wire kinds, and rollups end-to-end, and slice 13.1/13.2
+  tests pin that.
+- **(a) hosted endpoint — refused for v1, confirmed (RQ1, §9).** It
+  centralizes API-key custody, creates a capture point between a trust
+  tool and its users, and concentrates liability — the opposite of
+  decentralized publication. A hosted *convenience* tier can exist
+  later, but never as the canonical path; if a future phase wants
+  zero-setup auditing, the endpoint question reopens with its own
+  design note.
 
 Either path yields identical `audit-types.ts` shapes; the
 `auditor`/`auditor-constituent` tags record which path produced each
@@ -417,8 +509,13 @@ One per (auditor, article, run). The badge-surface record.
     ["ceiling-binding", "true"],             // present only when raw > ceiling
     ["ceiling-source", "heuristic:source-quality/1.0"],
     //  ^ "model" | "heuristic:source-quality/<ver>" | "module:<coordinate>" | "human"
-    //    — the framework's internal disagreement (prompts/00 vs scorer.js),
-    //    recorded per event instead of resolved by fiat. Review question 2.
+    //    — RQ2 resolved: pipeline runs bind the versioned heuristic (a third
+    //    party can recompute it exactly from public module output; they cannot
+    //    recompute a model's judgment call — P12). Model-set ceilings publish
+    //    as "model" (orchestrator/calibration runs, not canonical pipeline
+    //    audits). The model's advisory estimate rides model_estimated_ceiling
+    //    in the content JSON; heuristic-vs-model divergence, accumulated, is
+    //    the dataset that designs the future dedicated knowability module.
     ["confidence", "0.71"],
     ["a", "30056:<auditor-pubkey>:<mod-d>", "<relay-hint>", "headline_body_fidelity"],  // ×N modules — durable refs
     ["a", "30056:<auditor-pubkey>:<mod-d>", "<relay-hint>", "source_quality"],
@@ -429,7 +526,9 @@ One per (auditor, article, run). The badge-surface record.
     ["auditor-constituent", "model", "anthropic/claude-sonnet-4-6"],
     ["client", "xray"]
   ],
-  "content": "{ \"module_contributions\": [ {\"module\":…, \"score\":…, \"confidence\":…, \"weight\":…, \"ref\":\"<30056 coordinate>\"} ], \"knowability_notes\": \"…\", \"top_strengths\": […], \"top_concerns\": […] }"
+  "content": "{ \"module_contributions\": [ {\"module\":…, \"score\":…, \"confidence\":…, \"weight\":…, \"ref\":\"<30056 coordinate>\"} ], \"knowability_notes\": \"…\", \"model_estimated_ceiling\": null, \"top_strengths\": […], \"top_concerns\": […] }"
+  // model_estimated_ceiling: advisory (RQ2) — populated when a model-run
+  // produced a ceiling estimate (e.g. an orchestrator run); never binds.
 }
 ```
 
@@ -533,7 +632,8 @@ value (the 30058 coordinate, verbatim).
     ["d", "dossier:<sha16(subject_kind + '|' + subject_id)>"],   // latest-wins per (pubkey, subject)
     ["subject-kind", "publication_x_beat"],   // author|publication|beat|publication_x_beat
     ["p", "<entity-pubkey>"],                 // author/publication(/×beat) subjects only
-    ["t", "monetary-policy"],                 // beat(/×beat) subjects only — a beat is a bare tag
+    ["t", "monetary-policy"],                 // beat(/×beat) subjects only — MUST be a
+                                              // canonical beats-v1 slug (RQ8)
     ["window-start", "2026-01-01T00:00:00Z"],
     ["window-end", "2026-06-11T00:00:00Z"],
     ["article-count", "14"],
@@ -542,16 +642,19 @@ value (the 30058 coordinate, verbatim).
     ["auditor", "pipeline", "xray-auditor/0.1.0/anthropic/claude-sonnet-4-6"],
     ["client", "xray"]
   ],
-  "content": "{ \"per_module_means\": {…}, \"predictions\": { \"total\":…, \"resolved\":…, \"calibration\": { \"confident\": {…}, \"hedged\": {…}, \"speculative\": {…} } }, \"top_named_sources\": […], \"corrections\": null }"
+  "content": "{ \"per_module_means\": {…}, \"predictions\": { \"total\":…, \"resolved\":…, \"calibration\": { \"confident\": {…}, \"hedged\": {…}, \"speculative\": {…} }, \"calibration_v1\": { \"mean_brier\":…, \"resolved_count\":…, \"multiplier\": null } }, \"top_named_sources\": […], \"corrections\": null }"
+  // calibration_v1: informational (RQ4) — multiplier stays null until the
+  // activation decision; never applied to scores in v1.
 }
 ```
 
 `d` formula: `dossier:` + first 16 hex of SHA-256 over
 `<subject-kind tag> + '|' + <subject_id>`. `subject_id` per kind:
 author/publication → the entity pubkey (64 hex, the `p` tag);
-beat → the bare topic tag (lowercase `t`-tag grammar, the `t` tag);
-publication×beat → `<entity-pubkey>|<beat>` (the `p` tag + `|` + the
-`t` tag). **Beat and pub×beat dossiers carry no entity `p`
+beat → the canonical `beats-v1` slug (lowercase `t`-tag grammar, the
+`t` tag — free-form tags never mint dossier subjects, RQ8);
+publication×beat → `<entity-pubkey>|<beat-slug>` (the `p` tag + `|` +
+the `t` tag). **Beat and pub×beat dossiers carry no entity `p`
 requirement** — the `d` derives from the tag string alone, so beat
 dossiers cannot fall out of the scheme.
 Known limitation, inherited from Phase 11 verbatim: entity pubkeys are
@@ -751,6 +854,18 @@ deliberately carry no prediction semantics (types dropped in 10.1;
    `suggested_by: llm:<model>`); the 30058 then carries
    `["a", <claim-coord>, hint, "claim"]`. The prediction needs no claim
    to exist; the claim enriches the entity graph when the user wants it.
+   RQ6 confirms (the 30040 space is shared substrate — auto-fanning
+   unreviewed model extractions into it under the user's signature
+   would pollute the layer and skip the consent gate RQ1 establishes;
+   promoting asserts more than extracting, P11, so it deserves a
+   deliberate act) **and adds the back-reference**: on promotion the
+   claim event carries `["a", "30058:<pubkey>:<pred-d>", hint,
+   "prediction"]`, so lineage runs both directions. (An `a` coordinate
+   rather than the answer's literal `e`: the claim usually publishes
+   *before* the prediction event exists — coordinates are derivable
+   pre-publish, event ids aren't; an `e` is added when known. Additive
+   optional tag on a shipping kind — wire-change callout in the
+   13.6 slice.)
 4. **`resolution_horizon` × the portal timeline:** `horizon-iso` is a
    plain tag, so the portal can render a **"predictions coming due"**
    strip (next 30/90 days) on the timeline view and a per-subject
@@ -790,9 +905,83 @@ Phase 12's portal already owns read-back surfaces. Division of labor:
   publication = organization entity; its domains derive from captured
   articles and 32125 relationships). **A beat is a bare `t` tag** —
   beat and publication×beat dossiers key on tag strings, no entity
-  pubkey, and appear in the portal behind a beat-picker (tag cloud from
-  audited articles' `t` tags), so they cannot fall out of any
-  entity-keyed code path.
+  pubkey, and appear in the portal behind a beat-picker (the `beats-v1`
+  vocabulary with alias-normalized counts from audited articles' `t`
+  tags; unmapped tags surface only in the review list and mint nothing —
+  RQ8), so they cannot fall out of any entity-keyed code path.
+
+### Beats — a curated, versioned vocabulary (RQ8)
+
+Fragmented beats aren't cosmetic: every spelling split
+("monetary-policy" / "monetarypolicy" / "fed") silently shrinks sample
+sizes and distorts the §4 shrinkage math on reputation-bearing
+rollups. So the beat vocabulary is **methodology, versioned like the
+prompts** (P12): **`beats-v1`** ships in-repo (slice 13.1, importable
+from the audit model and published verbatim as a JSON artifact)
+containing canonical kebab-case slugs plus an alias map. Rules:
+
+- A dossier `subject_id` for beat and publication×beat subjects MUST
+  be a canonical slug.
+- Free-form `t` tags remain allowed on events but **never mint
+  beats** — the dossier builder normalizes via the alias map and
+  surfaces unmapped tags in a portal review list rather than creating
+  subjects from them.
+- Flat, single-level for v1 — hierarchy is a v2 problem.
+- Starter vocabulary (24 slugs, maintainer-curated):
+  `monetary-policy`, `bitcoin`, `banking`, `fiscal-policy`,
+  `free-speech`, `religion`, `media-criticism`, `family-law`,
+  `mens-issues`, `immigration`, `drug-policy`, `housing-policy`,
+  `civil-asset-forfeiture`, `occupational-licensing`,
+  `education-policy`, `courts-legal`, `elections`, `foreign-policy`,
+  `national-security`, `tech-policy`, `ai`, `public-health`,
+  `crime-justice`, `labor-economics`.
+- Seed aliases: `fed`, `federal-reserve`, `m2` → `monetary-policy`;
+  `btc` → `bitcoin` (**`crypto` is deliberately not aliased to
+  `bitcoin`** — not the same beat); `lds`, `mormon` → `religion`.
+- Draft-NIP flag (review-time, not v1): bare `t` slugs collide with
+  generic NOSTR hashtags, so the NIP states that beat *semantics* for
+  the audit kinds derive from matching `t` values against the
+  published vocabulary; a namespaced value is a later consideration.
+
+### Calibration — the rate table and calibration-v1 (RQ4)
+
+There is no lost formula to recover: the original prose specified the
+ordering constraints (confident-wrong costs more than hedged-wrong;
+confident-right earns more than hedged-right — now P7), never
+coefficients. The **per-hedge rate table is sufficient and canonical
+for v1** (per hedge level: resolved / true / rate — the dossier block
+and 30060 content above).
+
+**`calibration-v1` is specified now so it's ready when the ledger has
+volume — logged, not activated.** A proper scoring rule, not an ad-hoc
+payoff matrix:
+
+- Map hedge levels to implied probabilities: `confident` → 0.90,
+  `hedged` → 0.70, `speculative` → 0.55. Negative predictions invert
+  (a confident "X won't happen" → p(X) = 0.10; generally
+  p = 1 − p_hedge).
+- Score each resolved prediction with Brier: `(p − outcome)²`,
+  outcome ∈ {1 = true, 0 = false, 0.5 = partial}; `unresolvable`
+  excluded. Lower is better.
+- P7's ordering falls out automatically: confident-wrong costs 0.81 vs
+  hedged-wrong 0.49; confident-right costs 0.01, beating hedged-right's
+  0.09.
+- Subject calibration = mean Brier, shrunk per §4 (same k machinery as
+  scores).
+- The probability mapping is an assumption — published as such (P12).
+  Empirically recalibrating it against the corpus later is itself a
+  publishable finding (do journalists' "confident" predictions resolve
+  true 90% of the time? measuring that gap is a story).
+- The eventual multiplier, **when activated** (a future, explicit
+  decision — never computed off three resolutions):
+  `clamp(1 + β·(B_population − B_subject), 0.85, 1.15)` with β ≈ 0.5,
+  applied to **dossier rollups only** — never retroactively mutating
+  article vintage scores (P9) — and **displayed only at ≥ ~10 resolved
+  predictions**; below that it's noise dressed as judgment.
+- v1 carriage: the dossier block and the 30060 content JSON carry an
+  informational `calibration_v1` object (`mean_brier`,
+  `resolved_count`, `multiplier: null`); the multiplier field stays
+  `null` until activation.
 
 ## Score display — honest by construction
 
@@ -947,39 +1136,54 @@ Per the kickoff: vocabulary mined, network machinery refused. From
 - **Network trust machinery** — the refuse list above.
 - **NIP-09 cleanup / 30023 versioned identity** — unchanged postures.
 
-## Slice plan (a later implementation run; one PR each, `claude/phase-13-*`)
+## Slice plan (one PR each, `claude/phase-13-*`)
 
 1. **13.1 — Model + hashing + schemas + tests.** `audit/article-hash.js`
    (vectors generated against the vendored scorer), the eight derived
    findings-schema validators (hand-rolled walker, per-module tests),
    `audit-cache.js` (IndexedDB `xray-audits`, fake-indexeddb tests),
    AuditRun/Prediction/Resolution local models with the per-event
-   publish ledger. No UI, no wire, no manifest change.
+   publish ledger, the `beats-v1` vocabulary + alias normalizer (RQ8),
+   and the `calibration-v1` math (hedge→probability mapping + Brier,
+   logged-not-activated — RQ4). Auditor-kind-parity tests throughout
+   (RQ3: human results flow every path a model result does). No UI,
+   no wire, no manifest change.
 2. **13.2 — Wire, audit core.** `buildModuleResultEvent` (30056) +
    `buildAggregateAuditEvent` (30057) (both `{event, body, dTag}`),
    their parsers (pure, null-on-invalid, round-trip-tested,
    pinned-tag-vocabulary tests), the `epistemicAuditing` flag,
    NIP_DRAFT §30056/§30057 + intro count + Querying + the firewall
-   clause, CHANGELOG/JOURNAL callouts. (Phase 11.2's grain was two
-   builders + one parser; six kinds in one PR would concentrate the
-   exact review surface the one-concern rule spreads — hence the split
-   with 13.3.)
+   clause + the `d`-scheme constraint (RQ5: methodology version/run
+   identity in `d`, supersession by reference only), CHANGELOG/JOURNAL
+   callouts. Human-auditor round-trips pinned (RQ3). (Phase 11.2's
+   grain was two builders + one parser; six kinds in one PR would
+   concentrate the exact review surface the one-concern rule spreads —
+   hence the split with 13.3.)
 3. **13.3 — Wire, ledger + governance kinds.** `buildPredictionEntryEvent`
    (30058), `buildPredictionResolutionEvent` (30059),
    `buildDossierSnapshotEvent` (30060), `buildAuditDisputeEvent`
    (30061) + parsers + tests, NIP_DRAFT §30058–§30061 (30061 marked
-   wire-format-only).
+   wire-format-only; the beat-vocabulary clause, RQ8), dossier math
+   (shrinkage, rate table, informational `calibration_v1` block —
+   RQ4) with beat normalization via `beats-v1`.
 4. **13.4 — Capture-time hashing.** The `x` tag on new 30023s (additive
    wire change — its own callout), header-field newline sanitization,
    hash recorded in `xray-archive`, reader hash display, stealth-edit
    detection (hash mismatch banner).
 5. **13.5 — Audit execution, v1 path.** CLI-import: an Import-audit
-   affordance (reader + options) → validate against the findings
-   schemas → verify hash against a local capture → store in the audit
+   affordance (reader + options) → **re-validate before signing**
+   (re-hash the imported `body_markdown`, check against the JSON's
+   claimed `article_hash` *and* the local capture; schema-validate
+   every module payload — RQ1's invariant) → store in the audit
    ledger. The vendored scorer is the CLI; a thin `--xray-export` note
-   in its README.
+   in its README. Subhead: supplied via the CLI metadata file; the
+   future in-extension path runs module 01 headline-only until capture
+   grows subhead extraction (the fidelity table's Article-row
+   deferral).
 6. **13.6 — Reader audit panel.** Badge + module rows + display rules
-   + prediction list with atomize-offers + re-audit affordance.
+   + prediction list with atomize-offers (the promoted claim carries
+   the `a` back-reference to its prediction — additive wire change to
+   30040, its own callout; RQ6) + re-audit affordance.
 7. **13.7 — Portal surfaces.** Library audit chips, inspector audit
    tab, dossier block (computed-on-open), predictions-due strip +
    the minimal **Resolve…** form, disagreement view.
@@ -990,8 +1194,10 @@ Per the kickoff: vocabulary mined, network machinery refused. From
 9. **13.9 — Hardening.** Adversarial review, SMOKE_TEST §Phase 13,
    docs pass.
 
-*(Post-RQ1, its own slice pair, not a rider: SW-side execution — key
-custody + consent UI first, the `scoreArticle` runner second.)*
+*(v1.x, RQ1-confirmed, its own slice pair, not a rider: SW-side
+execution — key custody + consent UI under the four RQ7 hardenings
+first, the `scoreArticle` runner second. First post-v1 slice after
+that, per RQ3: the guided-checklist Audit tier.)*
 
 Every push gates on `npm run build` + `npm test` +
 `npx --yes web-ext lint --source-dir . --self-hosted`.
@@ -1011,51 +1217,233 @@ the stealth-edit banner with a re-audit offer → a hostile reading of
 the published score finds: a dated, signed, first-person,
 evidence-quoting, versioned, disputable record — not a verdict. Which
 parts are what: 13.1–13.9 are v1 slices; SW-side execution is its own
-post-RQ1 slice pair; 30061 is wire-format-only; consensus,
+v1.x slice pair (RQ1-confirmed); 30061 is wire-format-only; consensus,
 adjudication, knowability module, hosted endpoint, exposures are
 non-goals.
 
-## Review questions
+## Review questions — resolved 2026-06-11
 
-1. **Runs-where.** Recommended: local-first staged through the
+The maintainer delivered answers to all eight on 2026-06-11 —
+prepared as Claude's recommendations from the original conversation,
+endorsed as the maintainer's decisions — alongside the recovered
+philosophy prose (now [`docs/PHILOSOPHY.md`](PHILOSOPHY.md),
+normative). The standing instruction, verbatim: *"Proceed with
+implementation. These are Claude's recommended answers based on the
+original conversation. Wherever there are conflicts, your
+recommendations from the work you've done on this already will
+supercede."* [sic] — applied below with each tension documented, per
+the philosophy's own how-to-use rule. The original questions are kept
+verbatim (P9: the record of what was asked is part of the answer's
+meaning).
+
+1. **Runs-where.** *Asked:* Recommended: local-first staged through the
    companion CLI (import-then-sign, not CLI-signs), hosted endpoint
    refused for v1. Confirm the staging — and confirm that the CLI
    stopgap importing *unsigned JSON* (signing stays in the extension)
    matches your intent, since the kickoff sketched the CLI emitting
    signed events directly.
-2. **Knowability-ceiling provenance.** Your two implementations
-   disagree: `prompts/00` has the auditing model set the ceiling
-   ("Set this thoughtfully"); `scorer.js` derives it from
+
+   **Answer: confirmed — and import-then-sign is better than the
+   kickoff sketch, not a stopgap. Keep it.** Signing belongs in the
+   extension: NIP-07 signers are browser extensions a CLI cannot
+   invoke (CLI-signs would force raw nsec export into a second custody
+   surface — strictly worse); the signature is the attribution act
+   (§8) and the extension's interactive flow guarantees an explicit
+   approval moment before anything publishes under the user's
+   identity; and the unsigned-JSON intermediate is itself the
+   human-review checkpoint (P11). Two import-path requirements:
+   re-validate before signing (re-hash + schema-validate — you never
+   sign what you haven't verified), and keep producer (pipeline
+   auditor tags) distinct from publisher (signing pubkey). Hosted
+   endpoint refused for v1 per §9 — it centralizes key custody,
+   creates a capture point, concentrates liability; a hosted
+   convenience tier may exist later, never as the canonical path.
+   *Disposition:* threaded into
+   [Where the model runs](#where-the-model-runs) and slice 13.5; the
+   re-validate invariant and the producer/publisher split are named
+   slice-13.5 test obligations.
+2. **Knowability-ceiling provenance.** *Asked:* Your two
+   implementations disagree: `prompts/00` has the auditing model set
+   the ceiling ("Set this thoughtfully"); `scorer.js` derives it from
    source-quality stats with a hand-tuned clamp, and your README calls
    that heuristic less defensible than a dedicated module. The wire
    records `ceiling-source` either way. **Which is the v1 default for
    pipeline runs** — the deterministic heuristic (reproducible from
    module 04's summary, our lean), the model-set value (more
    information, less reproducible), or both-with-display-preference?
-3. **Manual tier / accessibility tiers.** The module prompts double as
-   guided human checklists; the unrecovered philosophy prose may have
-   specified "accessibility tiers" for exactly this. Should the manual
-   tier be a v1 surface (13.6 grows a guided-checklist mode), a later
-   slice, or did the original prose intend something different?
-4. **Calibration multiplier.** The dossier calibration table publishes
-   per-hedge-level resolution rates (confident/hedged/speculative ×
-   resolved/true/rate) but **no single calibration multiplier** — the
-   formula lived in the unrecovered prose (module 08 alludes to
-   reward shaping: confident-and-wrong worse than hedged-and-wrong).
-   Is the rate table sufficient for v1, or do you want the multiplier
-   formula reconstructed — and if so, what was it?
-5. **Kind numbers 30056–30061** in our draft-NIP block, with the
-   per-entity `d` schemes above — confirm.
-6. **Prediction → claim atomization** as an offered action (never
-   automatic) — confirm.
-7. **API key custody** (for the post-RQ1 SW execution slices): a
+
+   **Answer: the lean confirmed, with one addition — record both,
+   heuristic binds.** For pipeline runs the deterministic heuristic
+   (from module 04's summary) is canonical and score-binding, tagged
+   `ceiling-source: heuristic:source-quality/1.0`: the ceiling is the
+   single most score-determinative scalar in the aggregate, and the
+   most consequential number should be the most reproducible one
+   (P12, §11.5 — a third party can recompute the heuristic exactly;
+   they cannot recompute a model's judgment call). The model's
+   estimate is captured advisorily as `model_estimated_ceiling` in the
+   aggregate content; the accumulated heuristic-vs-model divergence is
+   precisely the dataset that designs the promised dedicated
+   knowability module (when the model consistently says 70 where the
+   heuristic says 92 on a beat, that beat needs a rule). The heuristic
+   itself is versioned (§8). The single-shot orchestrator keeps
+   model-set ceilings — it's a calibration tool, and its runs don't
+   publish as canonical pipeline audits; `ceiling-source: model`
+   already distinguishes them. *Disposition:* threaded into the 30057
+   wire shape and the decisions table; the heuristic version rides the
+   `ceiling-source` tag value.
+
+3. **Manual tier / accessibility tiers.** *Asked:* The module prompts
+   double as guided human checklists; the unrecovered philosophy prose
+   may have specified "accessibility tiers" for exactly this. Should
+   the manual tier be a v1 surface (13.6 grows a guided-checklist
+   mode), a later slice, or did the original prose intend something
+   different?
+
+   **Answer: the original prose specified five participation tiers** —
+   Read (browse scoreboards, free, no account), Flag (one-line reason
+   → triage queue), Verify (claim a single open task — "does this
+   study support this claim?" — submit an evidence-backed finding),
+   Audit (full methodology audits, public, attributed), Adjudicate
+   (resolve auditor disagreement, published reasoning) — with the load-bearing mechanic that everyone
+   exercising judgment is scored on the same epistemic axes as the
+   journalists, and weight follows track record (§8). **Decision: the
+   guided-checklist mode (the Audit tier) is the first post-v1 slice,
+   not v1.** Not for effort reasons (the prompts already are the
+   checklists; it's form-ification) — but because v1's job is
+   calibrating the methodology against real articles, and opening a
+   human-audit surface before module versions stabilize produces
+   human audits under methodology that's about to churn. **The v1
+   requirement, confirmed now: nothing in the pipeline may assume
+   `auditor.kind` is `model` or `pipeline`** — human `AuditorIdentity`
+   results must flow through the same ModuleResult schema, wire kinds,
+   and rollups end-to-end. *Disposition:* the auditor-kind-agnostic
+   invariant is pinned by tests in slices 13.1/13.2; the checklist
+   tier is scheduled as the first post-v1 slice; Flag/Verify/
+   Adjudicate tiers stay future design space (the Adjudicate tier
+   joins the deferred adjudication-runtime question).
+
+4. **Calibration multiplier.** *Asked:* The dossier calibration table
+   publishes per-hedge-level resolution rates (confident/hedged/
+   speculative × resolved/true/rate) but **no single calibration
+   multiplier** — the formula lived in the unrecovered prose (module
+   08 alludes to reward shaping: confident-and-wrong worse than
+   hedged-and-wrong). Is the rate table sufficient for v1, or do you
+   want the multiplier formula reconstructed — and if so, what was it?
+
+   **Answer: there is no lost formula.** The original prose specified
+   the ordering constraints (confident-wrong > hedged-wrong in cost;
+   confident-right > hedged-right in credit — now P7), never
+   coefficients; nothing is "recovered" by inventing one. **The rate
+   table is sufficient and canonical for v1.** For readiness,
+   `calibration-v1` is specified now — logged, not activated — as a
+   proper scoring rule rather than an ad-hoc payoff matrix: hedge
+   levels map to implied probabilities (confident 0.90 / hedged 0.70 /
+   speculative 0.55; negatives invert), each resolved prediction
+   Brier-scores as `(p − outcome)²` (partial = 0.5, unresolvable
+   excluded), subject calibration is mean Brier shrunk per §4, and the
+   eventual multiplier — when explicitly activated, never computed off
+   three resolutions — is `clamp(1 + β·(B_population − B_subject),
+   0.85, 1.15)`, β ≈ 0.5, applied to dossier rollups only, never
+   retroactively to vintage scores (P9), displayed only at ≥ ~10
+   resolved predictions. The probability mapping is a published
+   assumption (P12); measuring its empirical gap against the corpus is
+   itself a story. *Disposition:* the full spec lives in
+   [Calibration](#calibration--the-rate-table-and-calibration-v1-rq4);
+   the math lands in slice 13.1 (logged), the informational
+   `calibration_v1` block in the 30060 content in slice 13.3;
+   activation is a future, explicit decision.
+5. **Kind numbers 30056–30061** *Asked:* in our draft-NIP block, with
+   the per-entity `d` schemes above — confirm.
+
+   **Answer: conditional confirm.** The block is fine (the maintainer
+   floated reusing 30050–30055 if the earlier journalism-audit drafts
+   that claimed them were superseded and unpublished — but inside
+   X-Ray those numbers are *shipped kinds* with live events, 9a/11
+   vintage, so reuse is impossible; 30056–30061 stands). Verify
+   against the live NIPs repo before the draft circulates — **done
+   2026-06-11, block clean** (see [kind map](#kind-map)). The trap
+   named in the answer is now a draft-NIP constraint, in the answer's
+   words: every audit-bearing `d` must *"include the methodology
+   version"*, so prior-methodology audits persist as distinct
+   addressable events, with supersession expressed exclusively through
+   explicit reference tags, never relay replacement (P9). 30056
+   conforms fully (version + run in `d`); for 30057 this note **flags
+   a relaxation** — run identity in `d`, with the methodology semver
+   embedded in the `auditor_id` input — since run-uniqueness prevents
+   the relay-drop the constraint exists for (standing under the
+   conflicts-supersede instruction). 30058 is documented as
+   deliberately outside the constraint: extraction converges by
+   design; its version rides the `module-version` tag. **Documented tension, resolved by the
+   conflicts-supersede instruction:** the answer sketched append-only
+   per-filing `d`s for disputes and resolutions and a window component
+   in the dossier `d`; this note's schemes stand — 30059/30061
+   replacement applies only to a *single author revising their own
+   judgment record pre-adjudication* (the framework type's own
+   "latest wins" semantics; cross-party history lives in distinct
+   pubkeys and coordinates), and the 30060 snapshot is a cache whose
+   parameters (window included) ride the wire for re-derivation, so a
+   windowed `d` would only multiply cache rows. The P9 cost — a
+   resolver's own earlier revision isn't relay-retained — is accepted
+   and stated, mitigated by the local ledger keeping authored history.
+
+6. **Prediction → claim atomization** *Asked:* as an offered action
+   (never automatic) — confirm.
+
+   **Answer: confirm.** The 30040 claim space is shared substrate
+   (crux.immo builds on it), and auto-fanning unreviewed model
+   extractions into it under the user's signature pollutes the layer
+   and skips the consent gate RQ1 establishes. Offered-action keeps
+   the human as publisher-of-record; promoting a ledger entry to a
+   first-class claim asserts more than extraction does (P11) and
+   deserves a deliberate act. **One addition: on promotion the claim
+   event must reference the prediction entry back**, so lineage runs
+   both directions. *Disposition:* implemented as an `a` coordinate
+   (role `prediction`) rather than the answer's literal `e` — the
+   claim usually publishes before the prediction event exists, and
+   coordinates are derivable pre-publish (an `e` is added when known);
+   see [Predictions](#predictions-as-first-class-records), slice 13.6.
+
+7. **API key custody** *Asked:* (for the SW execution slices): a
    dedicated `chrome.storage.local` key, excluded from every export
    path, with the opt-in UI stating plainly that the manifest's
    existing `<all_urls>` grant already covers the API host (the key +
    flag are the real consent gates) — sufficient, or do you want
    harder custody (e.g. session-only entry)?
-8. **Beat taxonomy.** Beat dossiers key on bare `t` tags. Free-form
-   tags will fragment beats ("monetary-policy" vs "monetarypolicy" vs
-   "fed"). Curate a starter beat list (the Author type's
-   `beat_tags` example suggests you had one in mind), or accept
+
+   **Answer: sufficient with four hardenings; session-only must not be
+   the only mode.** (a) SW-only access invariant — the key is read
+   exclusively in the background service worker, never transits
+   content scripts or page world, with a test asserting it; (b) a
+   hardcoded `api.anthropic.com` host allowlist in code — the real
+   technical gate, independent of what `<all_urls>` permits; (c)
+   session-only as an *option* (`chrome.storage.session`-backed
+   toggle), default persistent — sole-mode session-only pushes daily
+   users toward worse workarounds; (d) honest at-rest disclosure
+   ("stored unencrypted in extension storage on this device") — no
+   obfuscation theater (P11 applies to security posture). Plus: never
+   log the key, never let it leak into audit events or error reports,
+   and recommend a spend-capped workspace key in the consent copy.
+   *Disposition:* binding on the v1.x slice pair; threaded into
+   [Where the model runs](#where-the-model-runs).
+
+8. **Beat taxonomy.** *Asked:* Beat dossiers key on bare `t` tags.
+   Free-form tags will fragment beats ("monetary-policy" vs
+   "monetarypolicy" vs "fed"). Curate a starter beat list (the Author
+   type's `beat_tags` example suggests you had one in mind), or accept
    free-form + portal-side merge for v1?
+
+   **Answer: curated vocabulary, binding for dossiers; free-form rides
+   along.** Fragmentation silently shrinks sample sizes and distorts
+   the §4 shrinkage math on reputation-bearing rollups — so a
+   versioned `beats-v1` ships in-repo (vocabulary is methodology,
+   P12): canonical kebab-case slugs + an alias map; dossier beat
+   subjects MUST be canonical slugs; free-form `t` tags never mint
+   beats; the dossier builder normalizes via aliases and routes
+   unmapped tags to review; flat for v1. A 24-slug starter list and
+   seed aliases are recorded in
+   [Beats](#beats--a-curated-versioned-vocabulary-rq8), including the
+   deliberate non-alias `crypto` ↛ `bitcoin`. Draft-NIP flag (not
+   v1): beat semantics derive from matching `t` values against the
+   published vocabulary; namespacing is a later consideration.
+   *Disposition:* vocabulary + normalizer in slice 13.1; dossier
+   enforcement in 13.3; the NIP clause in 13.3.
