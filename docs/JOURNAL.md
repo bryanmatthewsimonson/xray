@@ -19,6 +19,56 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-10 — Phase 12 design: the "My Archive" portal (for review before code)
+
+**Tags:** design
+
+**Decision:** Phase 12 adds a read-back surface — a full-tab portal page
+(`src/portal/`) that queries the user's published corpus off the
+configured relays via the existing `xray:relay:query` path, renders it as
+Library / Timeline / entity spokes graph / case dashboard / inspector,
+and reconciles relay truth against the local published ledger. Read-only;
+no new kinds, no builder changes. Full design (for maintainer review
+before any feature code): `docs/PORTAL_DESIGN.md`.
+
+Second-guessable calls, on the record:
+
+- **"Me" is a resolved *set*, not one pubkey.** The portal runs outside
+  any capture context, so the reader's `xray:capture:getPubkey` →
+  source-tab path is unavailable, and NIP-07 cannot answer from an
+  extension page at all. The resolver unions `Signer.getPublicKey()`
+  (Local/NSecBunker), the reserved `xray:user` sync key, the append-only
+  `publishedPubkeys` claim history, and manual npubs — each chip carries
+  its provenance. No NIP-07 tab-routing in v1.
+- **Two new read-side parsers, placed by precedent:**
+  `parseCommentEvent` (30041) goes in `event-builder.js` beside its
+  builder and the two existing reconstructors; `parseAssessmentEvent`
+  (30054) goes in `assessment-model.js`, mirroring `parseRelationshipEvent`
+  living in `evidence-linker.js`. Round-trip-tested against the builders
+  with pinned tag vocabularies.
+- **Hand-rolled radial SVG ego graph, no dependency.** A force-layout
+  package buys nothing for a one-hop spokes view that is better
+  deterministic (stable layouts, no physics tuning), and the repo's
+  no-deps posture + Firefox 128 floor both favor plain SVG. The full
+  free-floating graph is deferred; if it ever needs force layout, that
+  slice re-opens the question.
+- **A separate IndexedDB (`xray-portal`), not an `xray-archive` v3
+  bump.** The portal cache is derived data — droppable and rebuildable
+  from relays — while the archive holds precious captures; coupling
+  their schema versions and eviction stories buys nothing.
+- **Reconciliation is display-only.** The portal never writes
+  `markPublished` or imports remote-only events into local models — a
+  read surface must not be able to corrupt publish-side invariants.
+  Comments/accounts/32125 have no publish ledger (verified), so they
+  can only be present/remote-only, never "missing"; accepted for v1.
+- **Other clients' events are badged, not filtered.** An
+  `authors`+`kinds` query inevitably returns e.g. a Habla 30023 or a
+  Damus 10002 by the same pubkey; hiding them would make the
+  reconciliation counts lie, so they render with an "other client"
+  badge keyed off the `client` tag.
+
+---
+
 ## 2026-06-10 — Phase 11.7/11.8 review fixes (one security bug, two wire bugs)
 
 **Tags:** bug, wire-format, security

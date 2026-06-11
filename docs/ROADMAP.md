@@ -58,6 +58,9 @@ Phase 11 ████████████████████  complete 
                                 (docs/ASSESSMENTS_DESIGN.md). 11.1–11.6 +
                                 publishing (11.7) + collaboration (11.8)
                                 shipped; case smoke-runs pending
+Phase 12 ░░░░░░░░░░░░░░░░░░░░  design under review — "My Archive" personal
+                                data portal (docs/PORTAL_DESIGN.md); no
+                                feature code before maintainer sign-off
 ```
 
 Parity with the v4.2 userscript is reached; the project now operates as a
@@ -819,7 +822,7 @@ final spec.
 
 ---
 
-## Phase 11 — Assessments & contradictions (next)
+## Phase 11 — Assessments & contradictions ✅
 
 "Community Notes for the internet": register a **personal judgment** on any
 captured claim (yours or a foreign one) and surface it wherever the claim or
@@ -865,6 +868,49 @@ Remaining: run the acceptance demo end-to-end on the two driving cases
 checklist is `docs/SMOKE_TEST.md` §Phase 11 + §Phase 11b. Later, if
 warranted: network assessment aggregation/trust-weighting, and
 NIP-44-encrypted collaboration bundles.
+
+---
+
+## Phase 12 — "My Archive" personal data portal (design under review)
+
+A **full-tab portal page** (`src/portal/`) where the user sees, searches,
+and visually explores everything they have published to NOSTR relays —
+articles (30023), claims (30040), captured comments (30041), assessments
+(30054) + label mirrors (1985), claim relationships (30055), entity
+profiles (0, signed by entity keys), entity↔article relationships
+(32125), platform accounts (32126), the NIP-65 relay list (10002), and
+entity-sync blobs (30078, listed opaque) — reconciled against the local
+published ledger ("ledger says 40; relays confirm 37; 3 missing").
+Read-only: no publishing, no deletion, no new event kinds. Surfaces:
+type-faceted **Library** with cross-cutting search, publish-date
+**Timeline**, an entity-centric **spokes graph** (hand-rolled radial SVG,
+full free-floating graph deferred), per-**case** dashboards, and an
+**item inspector** (raw signed event, which relays hold it, jump links).
+Cache-first via a new IndexedDB DB (`xray-portal`), refreshed
+incrementally.
+
+Full design, identity-resolution plan, parser inventory, and rationale:
+[`docs/PORTAL_DESIGN.md`](PORTAL_DESIGN.md) — **under maintainer review;
+no feature code before sign-off** (kickoff brief:
+[`docs/PORTAL_KICKOFF.md`](PORTAL_KICKOFF.md)).
+
+Planned slices (one PR each, finalized at design sign-off):
+
+- ⬜ **12.1** Foundation — portal shell + esbuild entry + open wiring;
+  identity resolver; corpus queries; **new `parseCommentEvent` (30041)
+  + `parseAssessmentEvent` (30054) parsers + tests**; flat event list.
+- ⬜ **12.2** Library — type tabs, per-type renderers, facets,
+  cross-cutting search.
+- ⬜ **12.3** Cache — IndexedDB `xray-portal`, cache-first render,
+  incremental refresh, relay-provenance persistence.
+- ⬜ **12.4** Timeline — density buckets + brush filtering.
+- ⬜ **12.5** Entity & case views — radial spokes graph + case
+  dashboard.
+- ⬜ **12.6** Inspector & reconciliation — raw events, per-relay
+  holdings, ledger diff (confirmed / missing / remote-only), privacy
+  footer.
+- ⬜ **12.7** Hardening — adversarial review + fixes, SMOKE_TEST
+  §Phase 12, docs pass.
 
 ---
 
