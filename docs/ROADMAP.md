@@ -986,6 +986,17 @@ Implementation slices 13.1+ are in progress.
   (default off), NIP_DRAFT §30056/§30057 incl. the canonical-hash
   `x` tag and the RQ5 time-series `d` constraint, CHANGELOG
   wire-change callout. — #63
+- ✅ **13.3** Wire ledger + governance kinds — builders + parsers for
+  30058 PredictionEntry (convergent text-hash `d`; content =
+  prediction text only, so `d` recomputes from the event), 30059
+  PredictionResolution (typed four-kind evidence tags, evidence-bound
+  — no evidence, no resolution), 30060 DossierSnapshot (cache
+  semantics; beat subjects MUST be canonical `beats-v1` slugs), 30061
+  AuditDispute (wire-format-only; filer-asserted status open/withdrawn
+  only); dossier rollup math (`dossier.js`: §4 shrinkage published
+  per rollup, per-module means, rate table + logged-not-activated
+  `calibration_v1`); NIP_DRAFT §30058–§30061 + the beat-vocabulary
+  clause. — #64
 
 ---
 

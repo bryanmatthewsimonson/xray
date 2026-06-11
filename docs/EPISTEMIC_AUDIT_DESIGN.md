@@ -559,7 +559,7 @@ event; the superseded audit is never edited.
     //  (the 30040 claim-id discipline, exactly) — so re-extraction of the
     //  same restated text converges on one record
     ["x", "<article_hash>"],
-    ["a", "30023:<capturer-pubkey>:<article-d>", "<relay-hint>"],
+    ["a", "30023:<capturer-pubkey>:<article-d>", "<relay-hint>"],   // optional article pointer
     ["a", "30040:<pubkey>:<claim-d>", "<relay-hint>", "claim"],   // optional — the atomized claim
     ["r", "<article-r-verbatim>"],
     ["i", "<normalized-url>"], ["k", "web"],
@@ -598,14 +598,14 @@ resolution criteria ride the `criteria` tag, not the content.
   "kind": 30059,
   "tags": [
     ["d", "res:<sha16(prediction_coordinate)>"],   // one per (resolver, prediction); edits replace
-    ["a", "30058:<extractor-pubkey>:<pred-d>", "<relay-hint>"],
-    ["e", "<30058-event-id>", "<relay-hint>"],     // optional
+    ["a", "30058:<extractor-pubkey>:<pred-d>", "<relay-hint>", "prediction"],
+    ["e", "<30058-event-id>", "<relay-hint>", "prediction"],   // optional
     ["x", "<article_hash>"],                        // the predicting article
     ["outcome", "false"],                           // true|false|partial|unresolvable
     ["confidence", "0.9"],
     ["resolved-at", "2027-01-15T00:00:00Z"],
     ["evidence", "url", "<url>", "<description>"],            // ×N — TYPED:
-    ["evidence", "nostr_event", "<naddr-or-nevent>", "<description>"],
+    ["evidence", "nostr_event", "<coordinate-or-event-id>", "<description>"],
     ["evidence", "document_hash", "<sha256>", "<description>"],
     ["evidence", "quote", "<verbatim text>", "<description>"],
     //  ^ all four framework evidence kinds carried (kind, value, description) —
@@ -668,8 +668,8 @@ keys; the aggregation phase owns this.
   "kind": 30061,
   "tags": [
     ["d", "dispute:<sha16(target_coordinate)>"],   // one per (filer, target)
-    ["a", "<target coordinate>", "<relay-hint>"],
-    ["e", "<target-event-id>", "<relay-hint>"],    // optional
+    ["a", "<target coordinate>", "<relay-hint>", "target"],
+    ["e", "<target-event-id>", "<relay-hint>", "target"],   // optional
     ["target-kind", "aggregate_audit"],   // module_result|aggregate_audit|prediction_resolution|claim
     ["x", "<article_hash>"],              // when the target anchors to an article
     ["status", "open"],                   // filer-asserted: open|withdrawn

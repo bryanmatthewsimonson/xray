@@ -6,7 +6,7 @@ Web Content Annotations, Fact-Checks, and Topic Trust
 
 `draft` `optional`
 
-This NIP defines ten event kinds and one tag extension that together let users publish structured, anchored metadata about web content — atomized claims, annotations, fact-checks, ratings, personal assessments, claim relationships, topic-scoped trust assertions, helpfulness votes, and epistemic-audit records (per-module surface-scan results and aggregate article audits, content-addressed to the exact text scored) — and lets readers query, rank, and surface that metadata in context.
+This NIP defines fourteen event kinds and one tag extension that together let users publish structured, anchored metadata about web content — atomized claims, annotations, fact-checks, ratings, personal assessments, claim relationships, topic-scoped trust assertions, helpfulness votes, and epistemic-audit records (per-module surface-scan results, aggregate article audits, a prediction ledger with resolutions, dossier rollup snapshots, and audit disputes — content-addressed to the exact text scored) — and lets readers query, rank, and surface that metadata in context.
 
 It composes with rather than replaces:
 
@@ -411,6 +411,133 @@ Addressable. The combined article audit: per-module contributions under document
 - A score SHOULD never render without its confidence, and an aggregate never without its ceiling context — the wire carries both precisely so displays have no excuse.
 - The 30056 firewall clause applies identically: consumers MUST NOT merge aggregate audit scores with 30051 verdicts or 30054 stances.
 
+## Kind 30058 — PredictionEntry
+
+Addressable. One testable prediction extracted from an article — the write side of the prediction ledger, the audit system's compounding long-game asset. Extracted at audit time, resolved later (possibly years later, possibly by a different auditor) via kind 30059.
+
+```jsonc
+{
+  "kind": 30058,
+  "tags": [
+    ["d", "pred:<sha256(article_hash + '|' + norm(prediction_text)).slice(0,16)>"],
+    ["x", "<article-hash>"],
+    ["a", "30023:<capturer-pubkey>:<article-d>", "<relay-hint>"],   // optional
+    ["a", "30040:<pubkey>:<claim-d>", "<relay-hint>", "claim"],     // optional — the atomized claim
+    ["r", "<article-url-verbatim>"], ["i", "<normalized-url>"], ["k", "web"],
+    ["prediction-type", "explicit"],     // explicit|implicit|conditional|negative|counterfactual
+    ["hedge", "confident"],              // confident|hedged|speculative — the calibration input
+    ["attribution", "named_source"],     // article_voice|named_source|vague_attribution
+    ["attributed-name", "<who, when named>"],          // optional
+    ["p", "<author-entity-pubkey>", "", "predicts"],   // optional, when tracked
+    ["condition", "<antecedent>"],                     // REQUIRED for conditional predictions
+    ["horizon", "by the end of the year"],
+    ["horizon-iso", "2026-12-31"],                     // optional, when computable
+    ["tractability", "publicly_resolvable"],           // publicly_resolvable|requires_private_info|ambiguous
+    ["quote", "<exact evidence quote from the article>"],
+    ["anchor", "<selector-json>"],                     // optional — W3C selector, the 30040 idiom
+    ["criteria", "<concrete, observable resolution criteria>"],
+    ["module-version", "1.0"],                         // prediction_extraction's version
+    ["auditor", "model", "anthropic/claude-sonnet-4-6"],
+    ["client", "<client>"]
+  ],
+  "content": "<the prediction text, restated clear and testable — NOTHING else>"
+}
+```
+
+- The `content` carries the prediction text and nothing else, precisely so the `d` is mechanically recomputable from the event: `pred:` + the first 16 hex of SHA-256 over `<x> | norm(content)`, where `norm` trims, collapses whitespace runs to single spaces, and lowercases (the kind-30040 claim-id discipline, exactly).
+- **The convergent `d` is deliberate**: re-extraction of the same restated text converges on one ledger record, so a resolution's `a` coordinate never retargets. Differently-phrased re-extractions mint sibling records (consumers group near-duplicates for display). The `d` includes the article hash, so a stealth-edited article's predictions are that text version's ledger.
+- `resolution_status` and any latest-resolution pointer are NOT wire fields — they derive client-side from kind-30059 events (mutable state does not belong on signed immutable records).
+- Predictions are NOT scored at extraction (no `score`/`confidence` tags, ever) — the ledger is graded by reality, via resolutions.
+- When a prediction is promoted to a kind-30040 claim, the entry carries the claim's `a` coordinate (role `claim`) and the claim SHOULD carry an `a` back-reference to this entry (role `prediction`) — lineage runs both directions.
+
+## Kind 30059 — PredictionResolution
+
+Addressable. The outcome of one prediction, judged against reality with evidence. One per (resolver, prediction): the `d` derives from the prediction coordinate alone, so a resolver revising their resolution replaces it (latest wins); different resolvers are different pubkeys and coexist.
+
+```jsonc
+{
+  "kind": 30059,
+  "tags": [
+    ["d", "res:<sha256(prediction_coordinate).slice(0,16)>"],
+    ["a", "30058:<extractor-pubkey>:<pred-d>", "<relay-hint>", "prediction"],
+    ["e", "<30058-event-id>", "<relay-hint>", "prediction"],   // optional
+    ["x", "<article-hash>"],                        // the predicting article
+    ["outcome", "false"],                           // true|false|partial|unresolvable
+    ["confidence", "0.9"],
+    ["resolved-at", "2027-01-15T00:00:00Z"],
+    ["evidence", "url", "<url>", "<description>"],                 // ×N — typed:
+    ["evidence", "nostr_event", "<coordinate-or-event-id>", "<description>"],
+    ["evidence", "document_hash", "<sha256>", "<description>"],
+    ["evidence", "quote", "<verbatim text>", "<description>"],
+    ["auditor", "human", "<resolver-pubkey>"],
+    ["p", "<resolver-pubkey>", "", "auditor"],
+    ["client", "<client>"]
+  ],
+  "content": "<markdown notes: what happened, why this outcome>"
+}
+```
+
+- **Resolutions are evidence-bound**: at least one typed `evidence` tag is REQUIRED — a resolution without verifiable references is returned, not published. Each entry carries kind, value, and description; `nostr_event` evidence values MUST be a raw `kind:pubkey:d` coordinate or a 64-hex event id (never bech32), and additionally emit a plain `a` (coordinate) or `e` (event id) tag for relay indexing.
+- The `d` MUST be recomputable: `res:` + the first 16 hex of SHA-256 over the role-marked `prediction` `a` tag's value, verbatim. The role markers on the reference `a`/`e` tags exist because typed `nostr_event` evidence also emits plain `a`/`e` indexing tags — consumers MUST prefer role-marked references and MUST NOT treat evidence-derived tags as the prediction reference.
+- Resolutions feed exactly one consumer: the calibration ledger (per-hedge resolution rates, and the published Brier-based calibration spec). A 30059 `outcome` judges whether a *specific prediction resolved against reality* — it is NOT a fact-check of any claim the prediction was atomized into. Consumers MUST NOT merge 30059 outcomes with 30051 ClaimReview verdicts or 30054 stances on a linked 30040.
+
+## Kind 30060 — DossierSnapshot
+
+Addressable. A materialized rollup of a subject's audit record — author, publication, beat, or publication×beat. **A cache, latest-wins by design**: the canonical truth is always the underlying audit events, and the snapshot carries every parameter (window, shrinkage constant, population mean) needed for any third party to re-derive it from scratch. Consumers MUST prefer re-derivation when they hold the underlying events.
+
+```jsonc
+{
+  "kind": 30060,
+  "tags": [
+    ["d", "dossier:<sha256(subject_kind + '|' + subject_id).slice(0,16)>"],
+    ["subject-kind", "publication_x_beat"],   // author|publication|beat|publication_x_beat
+    ["p", "<entity-pubkey>"],                 // author/publication(/×beat) subjects
+    ["t", "monetary-policy"],                 // beat(/×beat) subjects — a canonical vocabulary slug
+    ["window-start", "2026-01-01T00:00:00Z"],
+    ["window-end", "2026-06-11T00:00:00Z"],
+    ["article-count", "14"],
+    ["score-mean", "73.5"], ["score-median", "75"], ["score-stdev", "8.1"],
+    ["shrinkage-k", "10"], ["population-mean", "77"], ["shrinkage-factor", "0.42"],
+    ["auditor", "pipeline", "xray-auditor/0.1.0/anthropic/claude-sonnet-4-6"],
+    ["client", "<client>"]
+  ],
+  "content": "{ \"per_module_means\": {…}, \"predictions\": { \"total\":…, \"resolved\":…, \"calibration\": {…}, \"calibration_v1\": { \"mean_brier\":…, \"resolved_count\":…, \"multiplier\": null } }, \"top_named_sources\": […], \"corrections\": null }"
+}
+```
+
+- `subject_id` per kind: author/publication → the entity pubkey (the `p` tag); beat → the beat slug (the `t` tag); publication×beat → `<entity-pubkey>|<beat-slug>`. The `d` MUST be recomputable from the `subject-kind` tag plus those values.
+- **Beat subjects MUST be canonical slugs from the publisher's versioned beat vocabulary** — free-form topic tags ride audit events but never mint dossier subjects (fragmented beats silently shrink sample sizes and distort the shrinkage math on reputation-bearing rollups). Beat semantics derive from matching `t` values against that published vocabulary.
+- **Shrinkage is published, always**: rolled-up means are pulled toward the population mean (`shrunk = (n/(n+k))·raw + (k/(n+k))·population`), and the applied factor rides the wire — a raw three-article mean is never presented as a stable reputation.
+- `calibration_v1` in the content is informational: the published Brier-based calibration spec, logged so the wire shape is stable; the `multiplier` field stays `null` until an explicit activation decision, and is never applied retroactively to article scores.
+
+## Kind 30061 — AuditDispute
+
+Addressable. A challenge to an audit record — module result, aggregate audit, prediction resolution, or claim. Anyone may file, **with evidence**: challenges without evidence quotes or verifiable references are returned, not adjudicated.
+
+```jsonc
+{
+  "kind": 30061,
+  "tags": [
+    ["d", "dispute:<sha256(target_coordinate).slice(0,16)>"],
+    ["a", "<target coordinate>", "<relay-hint>", "target"],
+    ["e", "<target-event-id>", "<relay-hint>", "target"],   // optional
+    ["target-kind", "aggregate_audit"],   // module_result|aggregate_audit|prediction_resolution|claim
+    ["x", "<article-hash>"],              // when the target anchors to an article
+    ["status", "open"],                   // filer-asserted: open|withdrawn
+    ["contested", "<finding pointer: an evidence_quote or JSON path>"],   // ×N
+    ["evidence", "<kind>", "<value>", "<description>"],   // ×N — typed, as on 30059
+    ["auditor", "human", "<filer-pubkey>"],
+    ["p", "<filer-pubkey>", "", "auditor"],
+    ["client", "<client>"]
+  ],
+  "content": "<markdown dispute summary>"
+}
+```
+
+- One dispute per (filer, target): the `d` derives from the target coordinate verbatim (the role-marked `target` `a` tag — evidence-derived `a`/`e` tags are never the target reference), so the filer may amend pre-adjudication or withdraw (`status: withdrawn`); the filed record is otherwise stable.
+- **`status` is filer-asserted only** (`open`/`withdrawn`). Upheld/rejected outcomes are NOT wire fields here — they derive from adjudication events (a separate, future kind authored by other pubkeys) and from superseding audits that `e`-tag this dispute with role `resolves-dispute`. A dispute never edits its target; an upheld dispute produces a NEW audit that supersedes the original, and both remain visible.
+- A rejected dispute remains visible too — the record of what was challenged and survived is part of a score's credibility.
+
 ## Kind 30023 — `responds-to` tag (extension)
 
 A long-form article (kind 30023) MAY declare that it responds to one or more other pieces of content. Each response is a separate `responds-to` tag:
@@ -442,7 +569,7 @@ A client wishing to display all metadata for a URL SHOULD issue these filters in
 ```jsonc
 [
   { "kinds": [30040, 30050, 30051, 30052, 30054, 30055], "#r": ["<url>"], "limit": 200 },
-  { "kinds": [30056, 30057], "#r": ["<url>"], "limit": 100 },
+  { "kinds": [30056, 30057, 30058], "#r": ["<url>"], "limit": 100 },
   { "kinds": [9802], "#r": ["<url>"], "limit": 100 },
   { "kinds": [1111], "#i": ["<url>"], "limit": 200 },
   { "kinds": [1985], "#r": ["<url>"], "limit": 100 },
@@ -460,8 +587,10 @@ Other standard queries:
 { "kinds": [30040, 30054], "#p": ["<entity-pubkey>"], "limit": 200 }   // claims about an entity + their assessments
 { "kinds": [30054, 30055], "#a": ["30040:<pubkey>:<d>"], "limit": 100 } // judgments + links targeting one claim
 { "kinds": [30054], "#l": ["misleading"], "limit": 100 }                // everything labeled `misleading`
-{ "kinds": [30056, 30057], "#x": ["<article-hash>"], "limit": 100 }     // every audit of this exact text
+{ "kinds": [30056, 30057, 30058], "#x": ["<article-hash>"], "limit": 100 } // every audit of this exact text
 { "kinds": [30057], "#t": ["monetary-policy"], "limit": 100 }           // aggregate audits on a beat
+{ "kinds": [30059], "#a": ["30058:<pubkey>:<d>"], "limit": 50 }         // resolutions of one prediction
+{ "kinds": [30061], "#a": ["30057:<pubkey>:<d>"], "limit": 50 }         // disputes targeting one audit
 ```
 
 A client wishing to display helpfulness aggregates for a set of metadata events SHOULD then issue a follow-up `#a` query against kind 9803 keyed by the addressable coordinates of those events.

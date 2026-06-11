@@ -22,6 +22,7 @@
 
 import { normalize } from '../metadata/url-normalizer.js';
 import { MODULE_NAMES, validateFindings } from './findings-schemas.js';
+import { normalizeBeat } from './beats.js';
 
 const KIND_MODULE_RESULT = 30056;
 const KIND_AGGREGATE_AUDIT = 30057;
@@ -511,6 +512,614 @@ export function parseAggregateAuditEvent(event) {
         modelEstimatedCeiling: typeof content.model_estimated_ceiling === 'number' ? content.model_estimated_ceiling : null,
         topStrengths: Array.isArray(content.top_strengths) ? content.top_strengths : [],
         topConcerns: Array.isArray(content.top_concerns) ? content.top_concerns : [],
+        pubkey: event.pubkey || '',
+        created_at: event.created_at || 0,
+        eventId: event.id || null
+    };
+}
+
+// =============================================================================
+// Ledger + governance kinds: 30058 PredictionEntry, 30059
+// PredictionResolution, 30060 DossierSnapshot, 30061 AuditDispute
+// (Phase 13, slice 13.3). 30061 is WIRE-FORMAT-ONLY in v1 — the kind
+// is defined and buildable, no filing UI or adjudication runtime
+// exists (explicit non-goal).
+// =============================================================================
+
+const KIND_PREDICTION_ENTRY = 30058;
+const KIND_PREDICTION_RESOLUTION = 30059;
+const KIND_DOSSIER_SNAPSHOT = 30060;
+const KIND_AUDIT_DISPUTE = 30061;
+
+export const PREDICTION_TYPES = Object.freeze(['explicit', 'implicit', 'conditional', 'negative', 'counterfactual']);
+export const HEDGE_LEVELS = Object.freeze(['confident', 'hedged', 'speculative']);
+export const ATTRIBUTION_KINDS = Object.freeze(['article_voice', 'named_source', 'vague_attribution']);
+export const TRACTABILITIES = Object.freeze(['publicly_resolvable', 'requires_private_info', 'ambiguous']);
+export const RESOLUTION_OUTCOMES_WIRE = Object.freeze(['true', 'false', 'partial', 'unresolvable']);
+export const EVIDENCE_KINDS = Object.freeze(['url', 'nostr_event', 'document_hash', 'quote']);
+export const DOSSIER_SUBJECT_KINDS = Object.freeze(['author', 'publication', 'beat', 'publication_x_beat']);
+export const DISPUTE_TARGET_KINDS = Object.freeze(['module_result', 'aggregate_audit', 'prediction_resolution', 'claim']);
+export const DISPUTE_STATUSES = Object.freeze(['open', 'withdrawn']);   // filer-asserted only
+
+function assertEnum(value, allowed, name, fn) {
+    if (!allowed.includes(value)) {
+        throw new Error(`${fn}: ${name} must be one of ${allowed.join(', ')} (got ${value})`);
+    }
+}
+
+// The claim-id discipline, exactly (claim-model.js / audit-model.js):
+// trim, collapse whitespace runs to single spaces, lowercase — so
+// re-extraction of the same restated text converges on one record.
+function normalizePredictionTextWire(text) {
+    return String(text || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
+ * Typed evidence tags (30059/30061): each entry
+ * {kind, value, description} becomes ["evidence", kind, value,
+ * description] — a flagged extension of the dormant 30051 builder's
+ * bare-string idiom, which could not express document_hash or quote
+ * evidence. nostr_event evidence additionally gets a plain `a` or `e`
+ * tag for relay indexing.
+ */
+function evidenceTags(evidence, fn) {
+    if (!Array.isArray(evidence)) {
+        throw new Error(`${fn}: evidence must be an array of {kind, value, description}`);
+    }
+    const tags = [];
+    for (const ev of evidence) {
+        if (!ev || typeof ev.value !== 'string' || !ev.value) {
+            throw new Error(`${fn}: evidence entries need a nonempty string value (got ${JSON.stringify(ev)})`);
+        }
+        assertEnum(ev.kind, EVIDENCE_KINDS, 'evidence kind', fn);
+        if (ev.kind === 'nostr_event') {
+            // Value grammar enforced: a raw kind:pubkey:d coordinate or
+            // a 64-hex event id — never bech32 — so the SHOULD-level
+            // indexing companion tag below is always emittable.
+            if (!COORD_RE.test(ev.value) && !HASH64_RE.test(ev.value)) {
+                throw new Error(`${fn}: nostr_event evidence value must be a raw coordinate or 64-hex event id (got ${ev.value})`);
+            }
+        }
+        tags.push(tag('evidence', ev.kind, ev.value, ev.description || ''));
+        if (ev.kind === 'nostr_event') {
+            if (COORD_RE.test(ev.value)) tags.push(tag('a', ev.value));
+            else tags.push(tag('e', ev.value));
+        }
+    }
+    return tags;
+}
+
+// Evidence-derived a/e tags are indistinguishable from reference tags
+// by name alone — parsers exclude any value that appears in an
+// evidence tag before falling back to positional matching.
+function evidenceValues(tags) {
+    return new Set(tags.filter((x) => x[0] === 'evidence' && x[1] === 'nostr_event').map((x) => x[2]));
+}
+
+function parseEvidenceTags(tags) {
+    return tags.filter((x) => x[0] === 'evidence' && EVIDENCE_KINDS.includes(x[1]) && x[2])
+        .map((x) => ({ kind: x[1], value: x[2], description: x[3] || '' }));
+}
+
+/** `d` for a 30058: pred:<sha16(articleHash|norm(predictionText))>. */
+export async function derivePredictionEntryDTag(articleHash, predictionText) {
+    return 'pred:' + (await sha16(`${articleHash}|${normalizePredictionTextWire(predictionText)}`));
+}
+
+/** `d` for a 30059: res:<sha16(predictionCoord verbatim)>. */
+export async function derivePredictionResolutionDTag(predictionCoord) {
+    return 'res:' + (await sha16(String(predictionCoord || '').trim()));
+}
+
+/** `d` for a 30060: dossier:<sha16(subjectKind|subjectId)>. */
+export async function deriveDossierSnapshotDTag(subjectKind, subjectId) {
+    return 'dossier:' + (await sha16(`${subjectKind}|${subjectId}`));
+}
+
+/** `d` for a 30061: dispute:<sha16(targetCoord verbatim)>. */
+export async function deriveAuditDisputeDTag(targetCoord) {
+    return 'dispute:' + (await sha16(String(targetCoord || '').trim()));
+}
+
+/**
+ * Build a kind-30058 PredictionEntry. The ledger's write side: the
+ * stable text-hash `d` makes re-extraction CONVERGE (same article
+ * hash + same restated text → one record), so resolutions never
+ * retarget. The content carries the prediction text and NOTHING else,
+ * precisely so the `d` is mechanically recomputable from the event.
+ *
+ * `resolution_status`/`latest_resolution_id` are NOT wire fields —
+ * they derive client-side from 30059s (the local model owns them).
+ *
+ * @returns {Promise<{event: object, body: string, dTag: string}>}
+ */
+export async function buildPredictionEntryEvent({
+    articleHash,
+    predictionText,
+    predictionType,
+    hedgeLevel,
+    attribution,
+    attributedName = null,
+    condition = null,
+    horizon,
+    horizonIso = null,
+    criteria,
+    tractability,
+    evidenceQuote,
+    anchor = null,
+    moduleVersion,
+    claimCoord = null,
+    authorEntityPubkey = null,
+    articleCoord = null,
+    relayHint = '',
+    articleUrl = '',
+    auditor,
+    constituents = [],
+    manifestHash = null,
+    createdAt = nowSeconds()
+} = {}) {
+    const FN = 'buildPredictionEntryEvent';
+    assertArticleHash(articleHash, FN);
+    if (typeof predictionText !== 'string' || !predictionText.trim()) {
+        throw new Error(`${FN}: predictionText required — the prediction is the record`);
+    }
+    assertEnum(predictionType, PREDICTION_TYPES, 'predictionType', FN);
+    assertEnum(hedgeLevel, HEDGE_LEVELS, 'hedgeLevel', FN);
+    assertEnum(attribution, ATTRIBUTION_KINDS, 'attribution', FN);
+    assertEnum(tractability, TRACTABILITIES, 'tractability', FN);
+    if (typeof horizon !== 'string' || !horizon) {
+        throw new Error(`${FN}: horizon required (descriptive or ISO date)`);
+    }
+    if (typeof criteria !== 'string' || !criteria) {
+        throw new Error(`${FN}: criteria required — an unresolvable-by-construction prediction is not a ledger entry`);
+    }
+    if (typeof evidenceQuote !== 'string' || !evidenceQuote) {
+        throw new Error(`${FN}: evidenceQuote required — evidence-bound, no exceptions`);
+    }
+    if (predictionType === 'conditional' && (typeof condition !== 'string' || !condition)) {
+        throw new Error(`${FN}: conditional predictions require the condition (the antecedent)`);
+    }
+    if (typeof moduleVersion !== 'string' || !moduleVersion) {
+        throw new Error(`${FN}: moduleVersion required (prediction_extraction's version)`);
+    }
+    if (claimCoord && (!COORD_RE.test(claimCoord) || !claimCoord.startsWith('30040:'))) {
+        throw new Error(`${FN}: claimCoord must be a 30040 coordinate (got ${claimCoord})`);
+    }
+    if (authorEntityPubkey && !HASH64_RE.test(authorEntityPubkey)) {
+        throw new Error(`${FN}: authorEntityPubkey must be 64-hex (got ${authorEntityPubkey})`);
+    }
+    if (horizonIso !== null && !/^\d{4}-\d{2}-\d{2}$/.test(horizonIso)) {
+        throw new Error(`${FN}: horizonIso must be YYYY-MM-DD or null (got ${horizonIso})`);
+    }
+
+    const body = predictionText.trim();
+    const dTag = await derivePredictionEntryDTag(articleHash, body);
+
+    const tags = [tag('d', dTag)];
+    tags.push(...articleTags({ articleHash, articleCoord, relayHint, articleUrl }, FN));
+    if (claimCoord) tags.push(tag('a', claimCoord, relayHint, 'claim'));   // the atomized claim (RQ6)
+    tags.push(tag('prediction-type', predictionType));
+    tags.push(tag('hedge', hedgeLevel));
+    tags.push(tag('attribution', attribution));
+    if (attributedName) tags.push(tag('attributed-name', attributedName));
+    if (authorEntityPubkey) tags.push(tag('p', authorEntityPubkey, '', 'predicts'));
+    if (condition) tags.push(tag('condition', condition));
+    tags.push(tag('horizon', horizon));
+    if (horizonIso) tags.push(tag('horizon-iso', horizonIso));
+    tags.push(tag('tractability', tractability));
+    tags.push(tag('quote', evidenceQuote));
+    if (anchor) tags.push(tag('anchor', JSON.stringify(anchor)));   // source_span as W3C selector
+    tags.push(tag('criteria', criteria));
+    tags.push(tag('module-version', moduleVersion));
+    tags.push(...auditorTags({ auditor, constituents, manifestHash }, FN));
+    tags.push(tag('client', 'xray'));
+
+    return {
+        event: { kind: KIND_PREDICTION_ENTRY, created_at: createdAt, tags, content: body },
+        body,
+        dTag
+    };
+}
+
+/**
+ * Parse a kind-30058 event. Null when structurally unusable (no
+ * d/x/content text, bad enums, or missing auditor).
+ */
+export function parsePredictionEntryEvent(event) {
+    if (!event || event.kind !== KIND_PREDICTION_ENTRY) return null;
+    const tags = event.tags || [];
+    const id = firstTag(tags, 'd');
+    const articleHash = firstTag(tags, 'x');
+    const text = (event.content || '').trim();
+    const predictionType = firstTag(tags, 'prediction-type');
+    const hedgeLevel = firstTag(tags, 'hedge');
+    const auditorBlock = parseAuditorBlock(tags);
+    if (!id || !articleHash || !text || !auditorBlock) return null;
+    if (!PREDICTION_TYPES.includes(predictionType) || !HEDGE_LEVELS.includes(hedgeLevel)) return null;
+
+    let anchor = null;
+    const anchorRaw = firstTag(tags, 'anchor');
+    if (anchorRaw) { try { anchor = JSON.parse(anchorRaw); } catch (_) { /* stays null */ } }
+
+    // Attribution rejects like hedge/type — it books the prediction
+    // against someone's track record, and defaulting a missing tag to
+    // article_voice would silently misattribute a named source's
+    // prediction to the article author's dossier.
+    const attribution = firstTag(tags, 'attribution');
+    if (!ATTRIBUTION_KINDS.includes(attribution)) return null;
+
+    const claimA = tags.find((x) => x[0] === 'a' && x[3] === 'claim');
+    const articleA = tags.find((x) => x[0] === 'a' && String(x[1]).startsWith('30023:'));
+    const predictsP = tags.find((x) => x[0] === 'p' && x[3] === 'predicts');
+    const tractability = firstTag(tags, 'tractability');
+    return {
+        id,
+        articleHash,
+        text,
+        predictionType,
+        hedgeLevel,
+        attribution,
+        attributedName: firstTag(tags, 'attributed-name') || null,
+        condition: firstTag(tags, 'condition') || null,
+        horizon: firstTag(tags, 'horizon') || '',
+        horizonIso: firstTag(tags, 'horizon-iso') || null,
+        tractability: TRACTABILITIES.includes(tractability) ? tractability : 'ambiguous',
+        evidenceQuote: firstTag(tags, 'quote') || '',
+        anchor,
+        criteria: firstTag(tags, 'criteria') || '',
+        moduleVersion: firstTag(tags, 'module-version') || '',
+        claimCoord: (claimA && claimA[1]) || null,
+        authorEntityPubkey: (predictsP && predictsP[1]) || null,
+        ...auditorBlock,
+        articleCoord: (articleA && articleA[1]) || null,
+        url: firstTag(tags, 'r') || null,
+        pubkey: event.pubkey || '',
+        created_at: event.created_at || 0,
+        eventId: event.id || null
+    };
+}
+
+/**
+ * Build a kind-30059 PredictionResolution. One per (resolver,
+ * prediction) — the same resolver revising replaces (the framework
+ * type's own latest-wins; the accepted RQ5 P9 tension, documented).
+ * Evidence-bound (P3): at least one typed evidence entry is required —
+ * challenges without evidence are returned, and so are resolutions.
+ *
+ * @returns {Promise<{event: object, body: string, dTag: string}>}
+ */
+export async function buildPredictionResolutionEvent({
+    predictionCoord,
+    predictionEventId = null,
+    articleHash = null,
+    outcome,
+    confidence,
+    resolvedAt,
+    evidence,
+    notes = '',
+    relayHint = '',
+    auditor,
+    constituents = [],
+    manifestHash = null,
+    createdAt = nowSeconds()
+} = {}) {
+    const FN = 'buildPredictionResolutionEvent';
+    if (!predictionCoord || !COORD_RE.test(predictionCoord) || !predictionCoord.startsWith(`${KIND_PREDICTION_ENTRY}:`)) {
+        throw new Error(`${FN}: predictionCoord must be a 30058 coordinate (got ${predictionCoord})`);
+    }
+    assertEnum(outcome, RESOLUTION_OUTCOMES_WIRE, 'outcome', FN);
+    assertRange(confidence, 0, 1, 'confidence', FN);
+    assertRunAt(resolvedAt, FN);
+    const evTags = evidenceTags(evidence, FN);
+    if (!evidence || evidence.length === 0) {
+        throw new Error(`${FN}: at least one evidence entry required — resolutions are evidence-bound (P3)`);
+    }
+    // Required: the prediction d is a one-way hash of (article hash |
+    // text), so without `x` a resolution is invisible to #x article
+    // queries — and the resolver always has the hash (it rides the
+    // prediction record).
+    assertArticleHash(articleHash, FN);
+    if (predictionEventId !== null && !HASH64_RE.test(predictionEventId)) {
+        throw new Error(`${FN}: predictionEventId must be a 64-hex event id (got ${predictionEventId})`);
+    }
+
+    const coord = predictionCoord.trim();
+    const dTag = await derivePredictionResolutionDTag(coord);
+
+    const tags = [tag('d', dTag)];
+    tags.push(tag('a', coord, relayHint, 'prediction'));
+    if (predictionEventId) tags.push(tag('e', predictionEventId, relayHint, 'prediction'));
+    tags.push(tag('x', articleHash));     // the predicting article
+    tags.push(tag('outcome', outcome));
+    tags.push(tag('confidence', confidence));
+    tags.push(tag('resolved-at', resolvedAt));
+    tags.push(...evTags);
+    tags.push(...auditorTags({ auditor, constituents, manifestHash }, FN));
+    tags.push(tag('client', 'xray'));
+
+    const body = String(notes || '');
+    return {
+        event: { kind: KIND_PREDICTION_RESOLUTION, created_at: createdAt, tags, content: body },
+        body,
+        dTag
+    };
+}
+
+/** Parse a kind-30059 event. Null when structurally unusable. */
+export function parsePredictionResolutionEvent(event) {
+    if (!event || event.kind !== KIND_PREDICTION_RESOLUTION) return null;
+    const tags = event.tags || [];
+    const id = firstTag(tags, 'd');
+    const evValues = evidenceValues(tags);
+    // Role-marked reference first; fall back to prefix-match for
+    // foreign events, excluding evidence-derived a tags (an evidence
+    // entry can itself cite another 30058).
+    const predictionA = tags.find((x) => x[0] === 'a' && x[3] === 'prediction'
+            && String(x[1]).startsWith(`${KIND_PREDICTION_ENTRY}:`))
+        || tags.find((x) => x[0] === 'a' && String(x[1]).startsWith(`${KIND_PREDICTION_ENTRY}:`)
+            && !evValues.has(x[1]));
+    const outcome = firstTag(tags, 'outcome');
+    const auditorBlock = parseAuditorBlock(tags);
+    if (!id || !predictionA || !RESOLUTION_OUTCOMES_WIRE.includes(outcome) || !auditorBlock) return null;
+
+    const predictionE = tags.find((x) => x[0] === 'e' && x[3] === 'prediction' && HASH64_RE.test(x[1]))
+        || tags.find((x) => x[0] === 'e' && HASH64_RE.test(x[1]) && !evValues.has(x[1]));
+    return {
+        id,
+        predictionCoord: predictionA[1],
+        predictionEventId: (predictionE && predictionE[1]) || null,
+        articleHash: firstTag(tags, 'x') || null,
+        outcome,
+        confidence: numberOrNull(firstTag(tags, 'confidence')),
+        resolvedAt: firstTag(tags, 'resolved-at') || null,
+        evidence: parseEvidenceTags(tags),
+        notes: event.content || '',
+        ...auditorBlock,
+        pubkey: event.pubkey || '',
+        created_at: event.created_at || 0,
+        eventId: event.id || null
+    };
+}
+
+/**
+ * Build a kind-30060 DossierSnapshot. A CACHE: latest-wins per
+ * (pubkey, subject) by design — the only audit kind where relay
+ * replacement is the right semantics, because the record is wholly
+ * re-derivable from published audit events given the window +
+ * parameters it carries. Consumers MUST prefer re-derivation when
+ * they hold the underlying events.
+ *
+ * Beat subjects MUST be canonical beats-v1 slugs (RQ8) — free-form
+ * tags never mint dossier subjects.
+ *
+ * @returns {Promise<{event: object, body: string, dTag: string}>}
+ */
+export async function buildDossierSnapshotEvent({
+    subjectKind,
+    entityPubkey = null,
+    beat = null,
+    windowStart,
+    windowEnd,
+    articleCount,
+    scoreMean,
+    scoreMedian,
+    scoreStdev,
+    shrinkageK,
+    populationMean,
+    shrinkageFactor,
+    perModuleMeans = {},
+    predictions = null,
+    topNamedSources = null,
+    corrections = null,
+    auditor,
+    constituents = [],
+    manifestHash = null,
+    createdAt = nowSeconds()
+} = {}) {
+    const FN = 'buildDossierSnapshotEvent';
+    assertEnum(subjectKind, DOSSIER_SUBJECT_KINDS, 'subjectKind', FN);
+    const needsEntity = subjectKind === 'author' || subjectKind === 'publication' || subjectKind === 'publication_x_beat';
+    const needsBeat = subjectKind === 'beat' || subjectKind === 'publication_x_beat';
+    if (needsEntity && !HASH64_RE.test(entityPubkey || '')) {
+        throw new Error(`${FN}: ${subjectKind} subjects need entityPubkey (64-hex)`);
+    }
+    if (needsBeat) {
+        const slug = normalizeBeat(beat);
+        if (!slug || slug !== beat) {
+            throw new Error(`${FN}: beat subjects MUST be canonical beats-v1 slugs (got ${beat}) — free-form tags never mint dossiers (RQ8)`);
+        }
+    }
+    assertRunAt(windowStart, FN);
+    assertRunAt(windowEnd, FN);
+    if (!Number.isInteger(articleCount) || articleCount < 1) {
+        throw new Error(`${FN}: articleCount must be a positive integer (got ${articleCount}) — empty dossiers are never published; a zero-article rollup is just the population prior`);
+    }
+    assertRange(scoreMean, 0, 100, 'scoreMean', FN);
+    assertRange(scoreMedian, 0, 100, 'scoreMedian', FN);
+    if (typeof scoreStdev !== 'number' || !Number.isFinite(scoreStdev) || scoreStdev < 0) {
+        throw new Error(`${FN}: scoreStdev must be a non-negative number (got ${scoreStdev})`);
+    }
+    if (!Number.isFinite(shrinkageK) || shrinkageK <= 0) {
+        throw new Error(`${FN}: shrinkageK must be positive (got ${shrinkageK})`);
+    }
+    assertRange(populationMean, 0, 100, 'populationMean', FN);
+    assertRange(shrinkageFactor, 0, 1, 'shrinkageFactor', FN);
+
+    const subjectId = subjectKind === 'beat' ? beat
+        : subjectKind === 'publication_x_beat' ? `${entityPubkey}|${beat}`
+            : entityPubkey;
+    const dTag = await deriveDossierSnapshotDTag(subjectKind, subjectId);
+
+    const tags = [tag('d', dTag)];
+    tags.push(tag('subject-kind', subjectKind));
+    if (needsEntity) tags.push(tag('p', entityPubkey));
+    if (needsBeat) tags.push(tag('t', beat));
+    tags.push(tag('window-start', windowStart));
+    tags.push(tag('window-end', windowEnd));
+    tags.push(tag('article-count', articleCount));
+    tags.push(tag('score-mean', scoreMean));
+    tags.push(tag('score-median', scoreMedian));
+    tags.push(tag('score-stdev', scoreStdev));
+    tags.push(tag('shrinkage-k', shrinkageK));
+    tags.push(tag('population-mean', populationMean));
+    tags.push(tag('shrinkage-factor', shrinkageFactor));
+    tags.push(...auditorTags({ auditor, constituents, manifestHash }, FN));
+    tags.push(tag('client', 'xray'));
+
+    const body = JSON.stringify({
+        per_module_means: perModuleMeans,
+        predictions,
+        top_named_sources: topNamedSources,
+        corrections
+    });
+
+    return {
+        event: { kind: KIND_DOSSIER_SNAPSHOT, created_at: createdAt, tags, content: body },
+        body,
+        dTag
+    };
+}
+
+/** Parse a kind-30060 event. Null when structurally unusable. */
+export function parseDossierSnapshotEvent(event) {
+    if (!event || event.kind !== KIND_DOSSIER_SNAPSHOT) return null;
+    const tags = event.tags || [];
+    const id = firstTag(tags, 'd');
+    const subjectKind = firstTag(tags, 'subject-kind');
+    const auditorBlock = parseAuditorBlock(tags);
+    if (!id || !DOSSIER_SUBJECT_KINDS.includes(subjectKind) || !auditorBlock) return null;
+    const entityPubkey = firstTag(tags, 'p') || null;
+    const beat = firstTag(tags, 't') || null;
+    if ((subjectKind === 'author' || subjectKind === 'publication' || subjectKind === 'publication_x_beat') && !entityPubkey) return null;
+    if ((subjectKind === 'beat' || subjectKind === 'publication_x_beat') && !beat) return null;
+
+    let content = {};
+    try { content = JSON.parse(event.content) || {}; } catch (_) { /* tags carry the rollup */ }
+    if (Array.isArray(content) || typeof content !== 'object' || content === null) content = {};
+
+    return {
+        id,
+        subjectKind,
+        entityPubkey,
+        beat,
+        windowStart: firstTag(tags, 'window-start') || null,
+        windowEnd: firstTag(tags, 'window-end') || null,
+        articleCount: numberOrNull(firstTag(tags, 'article-count')),
+        scoreMean: numberOrNull(firstTag(tags, 'score-mean')),
+        scoreMedian: numberOrNull(firstTag(tags, 'score-median')),
+        scoreStdev: numberOrNull(firstTag(tags, 'score-stdev')),
+        shrinkageK: numberOrNull(firstTag(tags, 'shrinkage-k')),
+        populationMean: numberOrNull(firstTag(tags, 'population-mean')),
+        shrinkageFactor: numberOrNull(firstTag(tags, 'shrinkage-factor')),
+        perModuleMeans: content.per_module_means || {},
+        predictions: content.predictions || null,
+        topNamedSources: content.top_named_sources || null,
+        corrections: content.corrections || null,
+        ...auditorBlock,
+        pubkey: event.pubkey || '',
+        created_at: event.created_at || 0,
+        eventId: event.id || null
+    };
+}
+
+/**
+ * Build a kind-30061 AuditDispute — WIRE-FORMAT-ONLY in v1 (no filing
+ * UI, no adjudication runtime). One dispute per (filer, target); the
+ * filer may amend pre-adjudication or withdraw (`status`). Status on
+ * the wire is FILER-ASSERTED only (open|withdrawn) — upheld/rejected
+ * derive from future adjudication events and superseding audits,
+ * which are other pubkeys' records. Evidence-bound: challenges
+ * without evidence are returned, not adjudicated (P3, §7).
+ *
+ * @returns {Promise<{event: object, body: string, dTag: string}>}
+ */
+export async function buildAuditDisputeEvent({
+    targetCoord,
+    targetEventId = null,
+    targetKind,
+    articleHash = null,
+    status = 'open',
+    contested,
+    evidence,
+    disputeSummary,
+    relayHint = '',
+    auditor,
+    constituents = [],
+    manifestHash = null,
+    createdAt = nowSeconds()
+} = {}) {
+    const FN = 'buildAuditDisputeEvent';
+    if (!targetCoord || !COORD_RE.test(targetCoord)) {
+        throw new Error(`${FN}: targetCoord must be a kind:pubkey:d coordinate (got ${targetCoord})`);
+    }
+    assertEnum(targetKind, DISPUTE_TARGET_KINDS, 'targetKind', FN);
+    assertEnum(status, DISPUTE_STATUSES, 'status', FN);
+    if (!Array.isArray(contested) || contested.length === 0 || contested.some((c) => typeof c !== 'string' || !c)) {
+        throw new Error(`${FN}: contested must be a nonempty array of finding pointers (evidence_quote or JSON path)`);
+    }
+    const evTags = evidenceTags(evidence, FN);
+    if (!evidence || evidence.length === 0) {
+        throw new Error(`${FN}: at least one evidence entry required — challenges without evidence are returned, not adjudicated`);
+    }
+    if (typeof disputeSummary !== 'string' || !disputeSummary.trim()) {
+        throw new Error(`${FN}: disputeSummary required`);
+    }
+    if (articleHash !== null) assertArticleHash(articleHash, FN);
+    if (targetEventId !== null && !HASH64_RE.test(targetEventId)) {
+        throw new Error(`${FN}: targetEventId must be a 64-hex event id (got ${targetEventId})`);
+    }
+
+    const coord = targetCoord.trim();
+    const dTag = await deriveAuditDisputeDTag(coord);
+
+    const tags = [tag('d', dTag)];
+    tags.push(tag('a', coord, relayHint, 'target'));
+    if (targetEventId) tags.push(tag('e', targetEventId, relayHint, 'target'));
+    tags.push(tag('target-kind', targetKind));
+    if (articleHash) tags.push(tag('x', articleHash));
+    tags.push(tag('status', status));
+    for (const c of contested) tags.push(tag('contested', c));
+    tags.push(...evTags);
+    tags.push(...auditorTags({ auditor, constituents, manifestHash }, FN));
+    tags.push(tag('client', 'xray'));
+
+    const body = disputeSummary.trim();
+    return {
+        event: { kind: KIND_AUDIT_DISPUTE, created_at: createdAt, tags, content: body },
+        body,
+        dTag
+    };
+}
+
+/** Parse a kind-30061 event. Null when structurally unusable. */
+export function parseAuditDisputeEvent(event) {
+    if (!event || event.kind !== KIND_AUDIT_DISPUTE) return null;
+    const tags = event.tags || [];
+    const id = firstTag(tags, 'd');
+    const evValues = evidenceValues(tags);
+    // Role-marked target first. The fallback for foreign events
+    // cannot prefix-filter (disputes target four kinds), so it
+    // excludes evidence-derived a tags instead.
+    const targetA = tags.find((x) => x[0] === 'a' && x[3] === 'target' && COORD_RE.test(x[1]))
+        || tags.find((x) => x[0] === 'a' && COORD_RE.test(x[1]) && !evValues.has(x[1]));
+    const targetKind = firstTag(tags, 'target-kind');
+    const status = firstTag(tags, 'status');
+    const auditorBlock = parseAuditorBlock(tags);
+    if (!id || !targetA || !targetA[1] || !DISPUTE_TARGET_KINDS.includes(targetKind) || !auditorBlock) return null;
+
+    const targetE = tags.find((x) => x[0] === 'e' && x[3] === 'target' && HASH64_RE.test(x[1]))
+        || tags.find((x) => x[0] === 'e' && HASH64_RE.test(x[1]) && !evValues.has(x[1]));
+    return {
+        id,
+        targetCoord: targetA[1],
+        targetEventId: (targetE && targetE[1]) || null,
+        targetKind,
+        articleHash: firstTag(tags, 'x') || null,
+        status: DISPUTE_STATUSES.includes(status) ? status : 'open',
+        contested: tags.filter((x) => x[0] === 'contested' && x[1]).map((x) => x[1]),
+        evidence: parseEvidenceTags(tags),
+        disputeSummary: event.content || '',
+        ...auditorBlock,
         pubkey: event.pubkey || '',
         created_at: event.created_at || 0,
         eventId: event.id || null

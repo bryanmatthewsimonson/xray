@@ -19,6 +19,57 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-11 — 13.3: the ledger kinds, and what a resolution must carry
+
+**Tags:** design
+
+Kinds 30058–30061 + `dossier.js` (slice 13.3). The calls worth a
+paper trail:
+
+- **30058 content is the prediction text and nothing else.** The
+  resolution criteria, horizon, and attribution all ride tags — so
+  the convergent `d` (`pred:<sha16(hash|norm(text))>`) is mechanically
+  recomputable from the event alone, and a re-extraction converges
+  instead of duplicating. Tempting as it was to put a richer JSON in
+  the content, every added byte would have broken `d`-recomputability.
+- **Resolutions and disputes require evidence at build time.** P3
+  applies recursively ("dispute filings, adjudications, and prediction
+  resolutions are equally evidence-bound") — so `evidence: []` throws,
+  in the builder, before anything could be signed. Likewise 30061's
+  `status` enum is just open/withdrawn: upheld/rejected are other
+  pubkeys' judgments and structurally cannot be filer-asserted.
+- **30060 enforces canonical beat slugs at build time** (RQ8):
+  `buildDossierSnapshotEvent` rejects aliases (`fed`) and unmapped
+  strings rather than normalizing silently — the caller should have
+  normalized deliberately, and a dossier minted from a typo would be
+  a permanent subject identity.
+- **Dossier math is a pure module** (`dossier.js`): same inputs, same
+  rollup, auditor-kind-blind (RQ3 pinned by test). The shrinkage
+  factor is returned with every rollup because it must be *published*,
+  not just applied (§4).
+- **The adversarial review (14 confirmed, 1 refuted-by-mutation)
+  earned its keep again.** The bug class from 13.2 recurred in a new
+  costume: typed `nostr_event` evidence emits plain `a`/`e` indexing
+  tags that are name-indistinguishable from the prediction/target
+  *reference* tags — a foreign 30061 with evidence tags serialized
+  first parsed the evidence article as the dispute target (reproduced
+  live), and the same id-confusion hit `predictionEventId`. Fix: the
+  reference `a`/`e` tags are now role-marked (`prediction`/`target`,
+  the 30055 house idiom) with evidence-excluding fallbacks for
+  foreign events. Also: the parser's attribution fallback to
+  `article_voice` would have silently booked a named source's
+  prediction against the *author's* dossier — attribution now rejects
+  like hedge does; `x` became required on 30059 (the prediction `d`
+  is a one-way hash, so an x-less resolution is invisible to article
+  queries); the nostr_event evidence value grammar is pinned to raw
+  coordinate/event-id (the three sources disagreed: naddr-or-nevent
+  vs coordinate-or-event-id vs unvalidated); and zero-article
+  dossiers went from allowed-but-unconstructible (articleCount 0
+  passed, the null median it implies threw) to explicitly never
+  published.
+
+---
+
 ## 2026-06-11 — 13.2: the wire core enforces what the design promises
 
 **Tags:** design
