@@ -18,7 +18,7 @@ modules still carry userscript-era idioms (see Conventions).
 npm install            # required first — a fresh clone has no node_modules
 npm run build          # esbuild → dist/*.bundle.js (+ .map). No transpile step.
 npm run watch          # incremental rebuild
-npm test               # node --test tests/*.test.mjs  (519 tests, must be green)
+npm test               # node --test tests/*.test.mjs  (670 tests, must be green)
 npm run lint           # web-ext lint --self-hosted (what CI gates on)
 npm run version:set X  # bump package.json + manifest.json in lockstep
 npm run clean          # rm -rf dist
@@ -41,13 +41,13 @@ npm run clean          # rm -rf dist
 
 ## Build model (esbuild → dist/)
 
-`esbuild.config.mjs` produces six bundles from entry points. The manifest
+`esbuild.config.mjs` produces seven bundles from entry points. The manifest
 and HTML shells reference `dist/*.bundle.js`; **`src/` is never loaded
 directly except the two MAIN-world page scripts.** Entry points:
 
 - `src/content/index.js` → `content.bundle.js` (IIFE, isolated world, every tab)
 - `src/background/index.js` → `background.bundle.js` (**ESM** service worker, `conditions: ['worker','browser']`)
-- `src/options|sidepanel|reader/index.js` → matching IIFE bundles (loaded by their HTML shells)
+- `src/options|sidepanel|reader|portal/index.js` → matching IIFE bundles (loaded by their HTML shells)
 - `src/page/api-interceptor.js` → `api-interceptor.bundle.js` (IIFE; runs in the page MAIN world — **no shared imports allowed**, the file's IIFE is the whole module)
 
 `src/page/nip07-bridge.js` is loaded **unbundled** straight from `src/` as a
@@ -75,10 +75,12 @@ the single most important thing here.
    notifications, YouTube transcript fetch, and screenshot capture. MV3
    SWs sleep/wake, so startup re-reads the debug pref and re-attaches a
    `chrome.storage.onChanged` listener every wake.
-3. **Extension pages** (`src/options/`, `src/reader/`, `src/sidepanel/`) —
-   options is the single settings hub (Relays / Signing / Entities /
-   Keypair Registry / Advanced); reader renders the captured
-   article + publish flow; sidepanel is the entity browser.
+3. **Extension pages** (`src/options/`, `src/reader/`, `src/sidepanel/`,
+   `src/portal/`) — options is the single settings hub (Relays / Signing /
+   Entities / Keypair Registry / Advanced); reader renders the captured
+   article + publish flow; sidepanel is the entity browser; portal is the
+   full-tab "My Archive" page (Phase 12) — a read-only view of everything
+   published, reconciled against relays.
 4. **MAIN world page scripts** (`src/page/`) — `nip07-bridge.js` exposes
    `window.nostr` to the extension via tagged `postMessage` envelopes;
    `api-interceptor.js` hooks `fetch`/XHR on FB/IG/YouTube to capture
@@ -117,8 +119,12 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
 - **`crypto.js`** — real secp256k1 / BIP-340 Schnorr / bech32 / NIP-44 v2,
   unit-tested against the BIP-340 vectors. Don't hand-roll alternatives.
 - **`event-builder.js`** — builds the NOSTR events (NIP-23 `30023`, claims
-  `30040`, comments `30041`, evidence `30043`, relationships `32125`) and
-  the archive-reader inverse. **Wire-format changes here have compatibility
+  `30040`, comments `30041`, entity profiles `0`, entity↔article
+  relationships `32125`, platform accounts `32126`, relay lists `10002`,
+  entity-sync `30078`) and the archive-reader inverses. Evidence kind
+  `30043` is retired (Phase 11); assessments `30054`, cross-claim
+  relationships `30055`, and their kind-`1985` label mirrors are built in
+  `metadata/builders.js`. **Wire-format changes here have compatibility
   consequences for anyone consuming X-Ray events — call them out
   explicitly.**
 - **`content-detector.js` / `content-extractor.js`** — URL+DOM platform
@@ -175,8 +181,10 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
 
 ## Project docs (read these for non-trivial work)
 
-- **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 9a
-  metadata data model + Phase 9 identity layer (v0.5.0).
+- **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 12
+  "My Archive" portal (v0.5.1) — Phases 10 (thin claims), 11 (assessments;
+  `docs/ASSESSMENTS_DESIGN.md`), and 12 (portal; `docs/PORTAL_DESIGN.md`)
+  are complete.
 - **`docs/JOURNAL.md`** — chronological log of bugs, design decisions, and
   external-platform changes. **Add a tight entry** when fixing a non-obvious
   bug, making a second-guessable design choice, or working around a
