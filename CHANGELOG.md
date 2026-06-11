@@ -27,6 +27,17 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Portal cache — instant open, incremental refresh** (Phase 12.3).
+  The portal now renders from a local IndexedDB cache (`xray-portal`,
+  a separate database from the archive — derived data, droppable and
+  rebuildable) and refreshes in the background: incremental `since`
+  queries with a one-hour clock-skew overlap, write-time supersession
+  so the store only ever holds the newest version per replaceable
+  address, relay-provenance sets merged across syncs, a "+N new"
+  status diff, and a **Full resync** button that drops the cache and
+  re-fetches everything. The sync cursor only advances when at least
+  one relay answered, so a dead-network refresh can't eat the window.
+
 - **Portal Library — type tabs, facets, search** (Phase 12.2). The
   portal's flat list grows into a browsable Library: type tabs with
   live counts (Articles / Claims / Comments / Assessments / Links /
