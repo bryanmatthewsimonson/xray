@@ -19,6 +19,53 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-11 — 13.2: the wire core enforces what the design promises
+
+**Tags:** design
+
+Kinds 30056/30057 (`src/shared/audit/builders.js` + NIP_DRAFT
+sections). The calls worth a paper trail:
+
+- **Builders validate findings BEFORE building.** `buildModuleResultEvent`
+  runs the slice-13.1 schema validator and throws on failure — the
+  RQ1 "never sign what you haven't verified" invariant moved as far
+  upstream as it can go. A consequence: `score`/`confidence`/`version`
+  are read from the validated findings rather than passed separately,
+  so the tags can never disagree with the content, and a
+  prediction_extraction event structurally cannot carry score tags.
+- **The firewall is enforced by construction, not convention** — the
+  builders emit a closed tag vocabulary, and tests pin that no audit
+  event ever carries `stance`/`rating-value`/`L`/`l`.
+- **`ceiling-binding` presence-is-the-signal.** The design note's
+  illustrative 30057 example showed the tag alongside a non-binding
+  raw/ceiling pair; the builder computes `raw > ceiling` and the NIP
+  text says "present ONLY when". The example was illustrative-sloppy;
+  the computed rule governs.
+- **Parsers demand the auditor block.** A 30056/30057 without a
+  parseable `auditor` tag is structurally unusable (null), because an
+  unattributed audit defeats the auditing-the-auditors layer — but
+  unknown auditor *kinds* are rejected rather than defaulted, same
+  posture as outcomes in 13.1.
+- **The three-lens adversarial review confirmed 19 findings (0
+  refuted), all fixed pre-PR.** The instructive ones: the canonical
+  30057 example in both the design note and the NIP draft was
+  *internally inconsistent* (score 64.5 / raw 71.2 / ceiling 80 with
+  `ceiling-binding: true` — binding requires raw > ceiling), now a
+  coherent binding trio and a builder invariant (`finalScore ≤
+  min(raw, ceiling)`, ≤ not == since pipeline degradation may lower
+  it); parser module detection trusted t-tag ORDER, which NIP-01
+  doesn't specify — `findings.module` (const-checked in the envelope)
+  is now authoritative with t-disagreement → null; `Date.parse` as an
+  "ISO-8601" gate accepts `"Jun 11 2026 (x|y)"` — a pipe-bearing
+  runAt would have corrupted the `|`-delimited `d` preimage, now a
+  strict regex; and beats reaching indexed `t` tags unvalidated could
+  collide with module names and poison the relay-side module filter.
+  Mutation testing again earned its keep: nine surviving-mutant test
+  holes (zero-score falsy drops, unparsed lineage roles, first-array-
+  element-only walker masking) now bite.
+
+---
+
 ## 2026-06-11 — 13.1: the hash is parity-not-idempotence, and other slice-one calls
 
 **Tags:** design, pattern

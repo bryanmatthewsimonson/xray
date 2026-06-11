@@ -978,6 +978,14 @@ Implementation slices 13.1+ are in progress.
   ledger, `beats-v1` vocabulary + alias normalizer, `calibration-v1`
   math (logged, not activated), auditor-kind-parity tests;
   three-lens adversarial review (7 confirmed findings fixed). — #62
+- ✅ **13.2** Wire audit core — `buildModuleResultEvent` (30056) +
+  `buildAggregateAuditEvent` (30057) with pure null-on-invalid
+  parsers (findings schema-validated before building — never sign
+  what you haven't verified; firewall held by construction: no
+  assessment vocabulary emitted), the `epistemicAuditing` flag
+  (default off), NIP_DRAFT §30056/§30057 incl. the canonical-hash
+  `x` tag and the RQ5 time-series `d` constraint, CHANGELOG
+  wire-change callout. — #63
 
 ---
 

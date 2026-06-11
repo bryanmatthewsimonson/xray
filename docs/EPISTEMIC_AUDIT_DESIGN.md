@@ -503,8 +503,8 @@ One per (auditor, article, run). The badge-surface record.
     ["r", "<article-r-verbatim>"],
     ["i", "<normalized-url>"], ["k", "web"],
     ["run-at", "2026-06-11T20:14:05Z"],
-    ["score", "64.5"],                       // final, post-ceiling
-    ["raw-score", "71.2"],
+    ["score", "80"],                         // final, post-ceiling: min(raw, ceiling)
+    ["raw-score", "85.4"],
     ["ceiling", "80"],
     ["ceiling-binding", "true"],             // present only when raw > ceiling
     ["ceiling-source", "heuristic:source-quality/1.0"],
