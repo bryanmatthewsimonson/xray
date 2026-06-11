@@ -27,6 +27,21 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Portal inspector + reconciliation** (Phase 12.6). Clicking any
+  Library row opens an **inspector drawer**: the addressable
+  coordinate, event id, author, **which relays hold the event**, its
+  ledger status, the raw signed JSON (copyable), a jump to the source
+  URL, and for articles a read-only **Open in reader** that
+  reconstructs the capture from its signed event. Above the list, the
+  **reconciliation panel** diffs the local publish ledger against
+  relay truth — "ledger says N published; relays confirm M; K
+  missing; R remote-only" — matching by exact event id first, then by
+  replaceable address (so a republish from another device still
+  confirms), with the missing entries listed. Rows wear ✓ /
+  ◌ remote-only chips; comments/accounts/32125 (no publish ledger)
+  stay neutral by design. Strictly display-only: the portal never
+  writes `markPublished` or imports remote events into local models.
+
 - **Portal entity spokes graph + case dashboard** (Phase 12.5). The
   "explore visually" surface, per the agreed design: a hand-rolled
   SVG **ego graph** — focused entity centered, deterministic radial

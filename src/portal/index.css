@@ -533,6 +533,94 @@ button.xr-badge--case { cursor: pointer; background: transparent; }
   color: var(--xr-text);
 }
 
+/* ---------------- reconciliation panel (12.6) ---------------- */
+
+.xr-portal__recon {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--xr-border);
+  font-size: 13px;
+}
+
+.xr-recon__line { color: var(--xr-text-dim); }
+.xr-recon__line--warn { color: var(--xr-warning); }
+
+.xr-portal__recon details { margin-top: 6px; }
+.xr-portal__recon summary { cursor: pointer; color: var(--xr-warning); font-size: 12px; }
+
+/* ---------------- inspector drawer (12.6) ---------------- */
+
+.xr-portal__inspector {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(440px, 90vw);
+  background: var(--xr-surface);
+  border-left: 1px solid var(--xr-border);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
+  padding: 14px 16px 24px;
+  overflow-y: auto;
+  z-index: 50;
+}
+
+.xr-inspector__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.xr-inspector__head .xr-chip__remove { margin-left: auto; font-size: 16px; }
+
+.xr-inspector__title { font-weight: 600; overflow-wrap: anywhere; }
+
+.xr-inspector__status {
+  display: inline-block;
+  margin: 8px 0;
+}
+
+.xr-inspector__fields { margin: 8px 0; font-size: 13px; }
+.xr-inspector__fields dt { color: var(--xr-text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 8px; }
+.xr-inspector__fields dd { margin: 2px 0 0; overflow-wrap: anywhere; }
+
+.xr-inspector__mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; overflow-wrap: anywhere; }
+
+.xr-inspector__relays { margin: 10px 0; }
+
+.xr-inspector__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.xr-inspector__actions a { text-decoration: none; }
+
+.xr-inspector__raw pre {
+  margin: 8px 0 0;
+  padding: 10px;
+  background: var(--xr-bg);
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+  overflow: auto;
+  max-height: 50vh;
+  font-size: 11px;
+  font-family: ui-monospace, Menlo, monospace;
+}
+
+.xr-row__title--link {
+  border: none;
+  background: none;
+  color: var(--xr-text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.xr-row__title--link:hover { color: var(--xr-primary); }
+
 /* ---------------- footer ---------------- */
 
 .xr-portal__footer {

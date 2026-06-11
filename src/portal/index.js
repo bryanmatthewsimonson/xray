@@ -24,6 +24,8 @@ import { buildBuckets, brushRange } from './timeline.js';
 import { el, svgEl, clear, truncate, shortKey } from './dom.js';
 import { renderEntityView } from './entity-view.js';
 import { renderCaseView } from './case-view.js';
+import { loadLocalLedger, reconcile } from './reconcile.js';
+import { renderInspector } from './inspector.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -39,6 +41,7 @@ const state = {
     groupByDomain: false,
     view: { name: 'library' },   // | {name:'entity', pubkey} | {name:'case', pubkey}
     expandedTypes: new Set(),    // graph sectors the user expanded
+    reconciliation: null,        // {summary, missing, statusByEventId} (12.6)
     relayErrors: {},
     truncated: false,
     loading: false
@@ -166,13 +169,34 @@ function casePubkeyFor(name) {
     return null;
 }
 
+function openInspector(item) {
+    const status = state.reconciliation
+        ? state.reconciliation.statusByEventId[item.id] || 'no-ledger'
+        : 'no-ledger';
+    renderInspector($('#xr-inspector'), item, { status });
+}
+
 function buildRow(item) {
     const row = el('li', 'xr-row');
     const head = el('div', 'xr-row__head');
     head.appendChild(el('span', 'xr-row__kind', kindLabel(item.kind)));
-    head.appendChild(el('span', 'xr-row__title', truncate(item.title, 160)));
+    const titleEl = el('button', 'xr-row__title xr-row__title--link', truncate(item.title, 160));
+    titleEl.type = 'button';
+    titleEl.title = 'Inspect — raw event, relays holding it, ledger status';
+    titleEl.addEventListener('click', () => openInspector(item));
+    head.appendChild(titleEl);
 
     const badges = el('span', 'xr-row__badges');
+    const status = state.reconciliation && state.reconciliation.statusByEventId[item.id];
+    if (status === 'confirmed') {
+        const b = el('span', 'xr-badge xr-badge--agree', '✓');
+        b.title = 'In the local publish ledger and on the relays';
+        badges.appendChild(b);
+    } else if (status === 'remote-only') {
+        const b = el('span', 'xr-badge xr-badge--case', '◌ remote-only');
+        b.title = 'On the relays but not in this device\'s publish ledger — published from another device, or before the ledger existed';
+        badges.appendChild(b);
+    }
     const relayBadge = el('span', 'xr-badge', `${item.relays.length} relay${item.relays.length === 1 ? '' : 's'}`);
     relayBadge.title = item.relays.join('\n');
     badges.appendChild(relayBadge);
@@ -210,18 +234,8 @@ function buildRow(item) {
     row.appendChild(head);
     if (item.sub) row.appendChild(el('div', 'xr-row__sub', truncate(item.sub, 240)));
 
-    const details = el('details');
-    details.appendChild(el('summary', null, 'Raw event'));
-    const pre = el('pre');
-    // Serialize lazily — hundreds of large 30023s stringified up front
-    // would make first paint pay for JSON nobody opened.
-    details.addEventListener('toggle', () => {
-        if (details.open && !pre.textContent) {
-            pre.textContent = JSON.stringify(item.event, null, 2);
-        }
-    });
-    details.appendChild(pre);
-    row.appendChild(details);
+    // Raw event, relay holdings, and ledger status live in the
+    // inspector drawer (12.6) — click the row title.
     return row;
 }
 
@@ -358,10 +372,67 @@ function renderTimeline() {
     host.appendChild(svg);
 }
 
+// ------------------------------------------------------------------
+// Reconciliation (12.6): ledger vs relay truth, display-only
+// ------------------------------------------------------------------
+
+async function updateReconciliation() {
+    try {
+        const ledger = await loadLocalLedger({ pubkeys: state.identities.map((i) => i.pubkey) });
+        state.reconciliation = reconcile(ledger, state.items);
+    } catch (err) {
+        Utils.error('Portal reconciliation failed:', err);
+        state.reconciliation = null;
+    }
+}
+
+function renderReconPanel() {
+    const host = $('#xr-recon');
+    clear(host);
+    const r = state.reconciliation;
+    if (!r || (r.summary.ledgerPublished === 0 && r.summary.remoteOnly === 0)) {
+        host.hidden = true;
+        return;
+    }
+    host.hidden = false;
+    const s = r.summary;
+    const line = el('div', 'xr-recon__line',
+        `Local ledger says ${s.ledgerPublished} published; the relays confirm ${s.confirmed}`
+        + (s.missing ? `; ${s.missing} missing` : '')
+        + (s.remoteOnly ? `; ${s.remoteOnly} on relays only (another device, or pre-ledger)` : '')
+        + '.');
+    line.classList.toggle('xr-recon__line--warn', s.missing > 0);
+    host.appendChild(line);
+
+    if (r.missing.length > 0) {
+        const details = el('details');
+        details.appendChild(el('summary', null, `Missing from the relays (${r.missing.length})`));
+        const ul = el('ol', 'xr-portal__list');
+        for (const entry of r.missing) {
+            const row = el('li', 'xr-row');
+            const head = el('div', 'xr-row__head');
+            head.appendChild(el('span', 'xr-row__kind', entry.source));
+            head.appendChild(el('span', 'xr-row__title', truncate(entry.label, 140)));
+            if (entry.publishedAt) {
+                head.appendChild(el('span', 'xr-row__date',
+                    'marked published ' + new Date(entry.publishedAt * 1000).toLocaleString()));
+            }
+            row.appendChild(head);
+            row.appendChild(el('div', 'xr-row__sub',
+                `event ${entry.publishedEventId ? entry.publishedEventId.slice(0, 16) + '…' : '?'} — `
+                + 'no configured relay returned it. It may have been rejected, expired, or published to relays not configured here.'));
+            ul.appendChild(row);
+        }
+        details.appendChild(ul);
+        host.appendChild(details);
+    }
+}
+
 function renderLibrary() {
     renderTabs();
     renderFacets();
     renderTimeline();
+    renderReconPanel();
     renderRows(applyFilters(state.items, state.filters));
 }
 
@@ -373,16 +444,23 @@ function libraryChromeVisible(visible) {
     $('#xr-tabs').hidden = !visible;
     $('#xr-facets').hidden = !visible;
     $('#xr-timeline').hidden = !visible || state.items.length === 0;
+    $('#xr-recon').hidden = !visible || !state.reconciliation;
     $('#xr-list').hidden = !visible;
     $('#xr-empty').hidden = true;
     $('#xr-view').hidden = visible;
 }
 
+function closeInspector() {
+    const host = $('#xr-inspector');
+    host.hidden = true;
+    clear(host);
+}
+
 const viewCallbacks = {
-    onBack: () => { state.view = { name: 'library' }; render(); },
-    onFocusEntity: (pubkey) => { state.view = { name: 'entity', pubkey }; state.expandedTypes = new Set(); render(); },
-    onOpenCase: (pubkey) => { state.view = { name: 'case', pubkey }; render(); },
-    onOpenGraph: (pubkey) => { state.view = { name: 'entity', pubkey }; state.expandedTypes = new Set(); render(); },
+    onBack: () => { state.view = { name: 'library' }; closeInspector(); render(); },
+    onFocusEntity: (pubkey) => { state.view = { name: 'entity', pubkey }; state.expandedTypes = new Set(); closeInspector(); render(); },
+    onOpenCase: (pubkey) => { state.view = { name: 'case', pubkey }; closeInspector(); render(); },
+    onOpenGraph: (pubkey) => { state.view = { name: 'entity', pubkey }; state.expandedTypes = new Set(); closeInspector(); render(); },
     onExpand: (type) => { state.expandedTypes.add(type); render(); }
 };
 
@@ -462,6 +540,8 @@ async function boot({ full = false } = {}) {
             rebuildItems(cached);
             render();
             setStatus(`${state.items.length} item(s) from cache — refreshing…`);
+            // Ledger diff against the cached view while the refresh runs.
+            updateReconciliation().then(() => renderReconPanel());
         }
 
         if (state.identities.length === 0 && state.entities.length === 0) {
@@ -500,6 +580,7 @@ async function boot({ full = false } = {}) {
 
         const stats = await saveRecords(records);
         rebuildItems(await loadRecords());
+        await updateReconciliation();
         render();
 
         const failed = Object.keys(relayErrors);
