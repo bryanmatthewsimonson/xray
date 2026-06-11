@@ -436,7 +436,7 @@ export function openEvidenceLinkModal({ sourceClaim }) {
                     // renders/exports without a relay round-trip; local
                     // ones auto-fill from the registry.
                     target_snapshot: target.origin === 'local' ? null : {
-                        url: target.url, text: target.text,
+                        url: target.url, url_raw: target.url_raw || target.url, text: target.text,
                         author_pubkey: target.author_pubkey || null
                     }
                 });
@@ -466,17 +466,17 @@ async function collectLinkCandidates(sourceId) {
     ]);
     const pool = [];
     for (const c of Object.values(allClaims)) {
-        pool.push({ ref: c.id, text: c.text, url: c.source_url, origin: 'local' });
+        pool.push({ ref: c.id, text: c.text, url: c.source_url, url_raw: c.source_url, origin: 'local' });
     }
     for (const a of Object.values(allAssessments)) {
         const r = a.claim_ref || {};
         if (r.coord && !r.claim_id) {
-            pool.push({ ref: r.coord, text: r.text, url: r.url, origin: 'assessed',
+            pool.push({ ref: r.coord, text: r.text, url: r.url, url_raw: r.url_raw || r.url, origin: 'assessed',
                         author_pubkey: r.author_pubkey || null });
         }
     }
     for (const f of lastSeenForeignClaims()) {
-        pool.push({ ref: f.coord, text: f.text, url: f.url, origin: 'network',
+        pool.push({ ref: f.coord, text: f.text, url: f.url, url_raw: f.url, origin: 'network',
                     author_pubkey: null });
     }
     const out = new Map();
@@ -779,7 +779,7 @@ export function openOthersClaimsModal({ url, relays }) {
                     const ref = lastSeenForeignClaims()[Number(btn.dataset.fidx)];
                     if (!ref) return;
                     const result = await openAssessModal({
-                        claimRef: { coord: ref.coord, url: ref.url, text: ref.text, event_id: ref.event_id },
+                        claimRef: { coord: ref.coord, url: ref.url, text: ref.text, event_id: ref.event_id, about_pubkeys: ref.about_pubkeys },
                         claimText: ref.text
                         // no anchorContext: the article DOM isn't this page's
                     });
@@ -911,7 +911,8 @@ function renderForeignClaim(event, assessMap, canon) {
     let badges = '';
     if (dTag && event.pubkey && text && url) {
         const coord = `30040:${event.pubkey}:${dTag}`;
-        const idx = foreignClaimRefs.push({ coord, url, text, event_id: event.id || null }) - 1;
+        const aboutPubkeys = tags.filter((t) => t[0] === 'p' && t[3] === 'about').map((t) => t[1]);
+        const idx = foreignClaimRefs.push({ coord, url, text, event_id: event.id || null, about_pubkeys: aboutPubkeys }) - 1;
         const existing = assessMap && canon ? assessMap.get(canon(coord)) : null;
         badges = renderAssessmentBadges(existing);
         assessBlock = `<button type="button" class="xr-claims__btn" data-action="assess-foreign" data-fidx="${idx}"

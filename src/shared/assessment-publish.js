@@ -21,26 +21,33 @@ import { isLocalClaimId, parseClaimCoord, buildClaimCoord } from './claim-ref.js
 
 /**
  * Wire-readiness of one claim ref. Returns
- * `{ coord, url, eventId, aboutIds }` or null when the claim can't be
- * referenced on the wire yet (our own claim, not yet published).
+ * `{ coord, url, eventId, aboutIds, aboutPubkeys }` or null when the
+ * claim can't be referenced on the wire yet (our own claim, not yet
+ * published). `url` is the VERBATIM claim `r` (own claims publish raw
+ * URLs; the join is raw), so callers emit it as the wire `r`.
+ * `aboutIds` are local entity ids the caller resolves to pubkeys via
+ * the registry (own claims); `aboutPubkeys` are pre-resolved foreign
+ * pubkeys snapshotted at assess time.
  */
 export function claimWireInfo(claims, canonicalRef, fallback = {}) {
     if (isLocalClaimId(canonicalRef)) {
         const claim = claims[canonicalRef];
         if (!claim || !claim.publishedPubkey) return null;
         return {
-            coord:    buildClaimCoord(claim.publishedPubkey, claim.id),
-            url:      claim.source_url || '',
-            eventId:  claim.publishedEventId || null,
-            aboutIds: claim.about || []
+            coord:        buildClaimCoord(claim.publishedPubkey, claim.id),
+            url:          claim.source_url || '',   // verbatim
+            eventId:      claim.publishedEventId || null,
+            aboutIds:     claim.about || [],
+            aboutPubkeys: []
         };
     }
     if (!parseClaimCoord(canonicalRef)) return null;
     return {
-        coord:    canonicalRef,
-        url:      fallback.url || '',
-        eventId:  fallback.event_id || null,
-        aboutIds: []
+        coord:        canonicalRef,
+        url:          fallback.url_raw || fallback.url || '',   // verbatim if snapshotted
+        eventId:      fallback.event_id || null,
+        aboutIds:     [],
+        aboutPubkeys: Array.isArray(fallback.about_pubkeys) ? fallback.about_pubkeys : []
     };
 }
 
@@ -90,17 +97,29 @@ export function selectLinksToPublish({ links, claims, canon }) {
 }
 
 /**
- * The kind-1985 mirrors for a batch: one per labeled assessment on
- * its FIRST publish only. Kind 1985 is a regular (non-replaceable)
- * event, so re-mirroring on every edit would accumulate duplicates in
- * naive aggregators; the trade-off (a label edit after first publish
- * leaves the mirror stale until a NIP-09 cleanup pass exists) is
- * recorded in the JOURNAL.
+ * The kind-1985 label mirrors to publish: every labeled, wire-ready
+ * assessment that has NOT yet been mirrored (`mirroredAt` unset).
+ * Keyed on `mirroredAt`, NOT the assessment's publish state, so a
+ * mirror rejected while its 30054 landed is retried next batch, and a
+ * label-added-after-first-publish still mirrors once — while a label
+ * EDIT never re-mirrors (1985 is non-replaceable; markMirrored is set
+ * once). Selected independently of `selectAssessmentsToPublish`, so it
+ * also covers assessments published in a PRIOR batch.
+ *
+ * The reader must still gate a same-batch first publish: don't emit a
+ * mirror whose 30054 was attempted this batch and failed.
  */
-export function selectMirrors(assessmentSelections) {
-    return (assessmentSelections || []).filter((s) =>
-        !s.assessment.publishedAt
-        && Array.isArray(s.assessment.labels)
-        && s.assessment.labels.length > 0
-    );
+export function selectMirrors({ assessments, claims, canon }) {
+    const out = [];
+    for (const a of Object.values(assessments || {})) {
+        if (a.mirroredAt) continue;
+        if (!Array.isArray(a.labels) || a.labels.length === 0) continue;
+        const rawRef = a.claim_ref && (a.claim_ref.claim_id || a.claim_ref.coord);
+        if (!rawRef) continue;
+        const info = claimWireInfo(claims, canon(rawRef), a.claim_ref || {});
+        if (!info) continue;
+        out.push({ assessment: a, coord: info.coord, url: info.url });
+    }
+    out.sort((x, y) => (x.assessment.created || 0) - (y.assessment.created || 0));
+    return out;
 }

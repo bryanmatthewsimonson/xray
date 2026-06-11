@@ -684,9 +684,16 @@ export async function buildClaimRelationshipEvent({
  * behind the same `assessmentPublishing` flag. Notes/anchors/stance
  * stay on the 30054 — the mirror is aggregation-only.
  *
+ * On a kind-1985 event every subject tag (`a`/`e`/`p`/`r`) is a
+ * LABELED target, so the labels here apply to the `a`-referenced claim
+ * (and the verbatim `r` URL, for the draft's `#r` 1985 query). We
+ * deliberately do NOT emit a `p` tag: a `p` on a 1985 would label the
+ * claim's AUTHOR with the issue labels — a reputational mislabel.
+ *
  * @param {object} args
  * @param {string} args.claimCoord      — `30040:<pubkey>:<d>` (required)
  * @param {Array<string>} args.labels   — at least one taxonomy/custom label
+ * @param {string} [args.claimUrl]      — the claim's `r`, verbatim (for #r)
  * @param {string} [args.relayHint]
  * @param {number} [args.createdAt]
  * @returns {{event, body, dTag: null}}  (kind 1985 is a regular event)
@@ -694,10 +701,11 @@ export async function buildClaimRelationshipEvent({
 export function buildAssessmentMirrorEvent({
   claimCoord,
   labels,
+  claimUrl = '',
   relayHint = '',
   createdAt = nowSeconds()
 } = {}) {
-  const coord = assertClaimCoordinate(claimCoord, 'buildAssessmentMirrorEvent', 'claimCoord');
+  assertClaimCoordinate(claimCoord, 'buildAssessmentMirrorEvent', 'claimCoord');
   const labelList = cleanWireLabels(labels, 'buildAssessmentMirrorEvent');
   if (labelList.length === 0) {
     throw new Error('buildAssessmentMirrorEvent: at least one label required');
@@ -706,10 +714,10 @@ export function buildAssessmentMirrorEvent({
   const tags = [
     tag('L', ASSESSMENT_LABEL_NAMESPACE),
     ...labelList.map((l) => tag('l', l.label, ASSESSMENT_LABEL_NAMESPACE)),
-    tag('a', claimCoord, relayHint),
-    tag('p', coord.pubkey),
-    tag('client', 'xray')
+    tag('a', claimCoord, relayHint)
   ];
+  if (claimUrl) tags.push(tag('r', claimUrl));
+  tags.push(tag('client', 'xray'));
 
   return {
     event: { kind: 1985, created_at: createdAt, tags, content: '' },

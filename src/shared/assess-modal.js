@@ -48,6 +48,9 @@ export function renderAssessmentBadges(assessment) {
     if (!assessment) return '';
     ensureStyles();
     const bits = [];
+    if (assessment.publishedAt) {
+        bits.push(`<span class="xr-assess-badge xr-assess-badge--pub" title="Published ${new Date(assessment.publishedAt * 1000).toLocaleString()}">🌐</span>`);
+    }
     if (assessment.stance !== null && assessment.stance !== undefined) {
         const key = String(assessment.stance);
         bits.push(`<span class="xr-assess-badge xr-assess-badge--stance" title="Your stance">${STANCE_ICONS[key] || ''} ${escapeHtml(STANCE_LABELS[key] || key)}</span>`);
@@ -484,6 +487,7 @@ function ensureStyles() {
 .xr-assess-badge--label { border-color: var(--xr-warning, #fbbf24); }
 .xr-assess-badge--custom { border-style: dashed; }
 .xr-assess-badge--warn { border-color: var(--xr-danger, #f87171); }
+.xr-assess-badge--pub { border-color: var(--xr-success, #34d399); padding: 1px 5px; }
 `;
     document.head.appendChild(style);
 }

@@ -220,6 +220,10 @@ export const EntityModel = {
         }
         const name = assertValidName(row.name);
         assertValidType(row.type);
+        // SECURITY: keyName is ALWAYS derived from the id — never taken
+        // from the row. A caller-supplied keyName could bind the record
+        // to the reserved `xray:user` primary-identity slot.
+        const keyName = `entity:${row.id}`;
 
         const all = await Storage.get('entities', {});
         const existing = all[row.id];
@@ -232,7 +236,7 @@ export const EntityModel = {
                 description:  row.description || existing.description || '',
                 nip05:        row.nip05 || existing.nip05 || '',
                 canonical_id: row.canonical_id || existing.canonical_id || null,
-                keyName:      row.keyName || existing.keyName,
+                keyName,
                 updated:      now
             };
         } else {
@@ -243,7 +247,7 @@ export const EntityModel = {
                 description:  row.description || '',
                 nip05:        row.nip05 || '',
                 canonical_id: row.canonical_id || null,
-                keyName:      row.keyName || `entity:${row.id}`,
+                keyName,
                 created:      now,
                 updated:      now
             };
