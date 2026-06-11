@@ -905,8 +905,8 @@ Slices (one PR each):
 - ✅ **12.3** Cache — IndexedDB `xray-portal`, cache-first render,
   incremental refresh, relay-provenance persistence. — #51
 - ✅ **12.4** Timeline — density buckets + brush filtering. — #52
-- ⬜ **12.5** Entity & case views — radial spokes graph + case
-  dashboard.
+- ✅ **12.5** Entity & case views — radial spokes graph + case
+  dashboard. — #53
 - ⬜ **12.6** Inspector & reconciliation — raw events, per-relay
   holdings, ledger diff (confirmed / missing / remote-only), privacy
   footer.
