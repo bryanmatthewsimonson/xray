@@ -21,6 +21,7 @@ import { EvidenceLinker, EVIDENCE_RELATIONSHIP_ICONS } from '../shared/evidence-
 import { openAssessModal, renderAssessmentBadges, assessmentsByCanonicalRef } from '../shared/assess-modal.js';
 import { makeClaimRefCanonicalizer, isLocalClaimId, buildClaimCoord } from '../shared/claim-ref.js';
 import { collectCaseData, buildCaseJson, buildCaseMarkdown } from '../shared/case-export.js';
+import { collectCaseBundle, buildCaseBundleJson, isCaseBundle, importCaseBundle } from '../shared/case-bundle.js';
 import { accountsForEntity, listUnlinkedAccounts, linkAccountToEntity, unlinkAccount } from '../shared/identity/account-registry.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { Crypto } from '../shared/crypto.js';
@@ -278,6 +279,11 @@ function renderDetail(entity) {
           <button type="button" class="xr-side__ghost-btn" id="xr-export-case-json">Export JSON</button>
           <button type="button" class="xr-side__ghost-btn" id="xr-export-case-md">Export Markdown</button>
         </div>
+        <p class="xr-side__hint" style="margin-top:10px">Collaborate: share this case's <em>entity keys</em> so a collaborator's claims aggregate under the same pubkeys. <strong>The bundle contains private keys</strong> — share it like a password.</p>
+        <div class="xr-side__case-export-row">
+          <button type="button" class="xr-side__ghost-btn" id="xr-share-case-bundle">Share case bundle (includes keys)</button>
+        </div>
+        <p class="xr-side__hint" style="margin-top:6px">Your collaborator imports it via the entity list's <em>Import</em> button.</p>
       </div>` : ''}
 
       <div class="xr-side__publish">
@@ -336,6 +342,10 @@ function renderDetail(entity) {
     const exportMdBtn   = $('#xr-export-case-md');
     if (exportJsonBtn) exportJsonBtn.addEventListener('click', () => exportCase(entity, 'json'));
     if (exportMdBtn)   exportMdBtn.addEventListener('click', () => exportCase(entity, 'md'));
+
+    // Phase 11.8 — collaboration bundle (case entities only).
+    const shareBtn = $('#xr-share-case-bundle');
+    if (shareBtn) shareBtn.addEventListener('click', () => shareCaseBundle(entity));
 
     // Keypair controls.
     $('#xr-copy-npub').addEventListener('click', () => {
@@ -643,6 +653,29 @@ async function renderInconsistencies(entity) {
 
 function hostOf(url) {
     try { return new URL(url).host; } catch { return String(url || ''); }
+}
+
+/** Share a case's entity keys for collaboration (Phase 11.8). */
+async function shareCaseBundle(entity) {
+    const ok = confirm(
+        `Share "${entity.name}" as a collaboration bundle?\n\n` +
+        'The file includes the PRIVATE KEYS of this case and every entity its ' +
+        'claims reference, so a collaborator can tag claims under the same ' +
+        'pubkeys. Anyone holding the file can sign as those entities — share ' +
+        'it like a password.'
+    );
+    if (!ok) return;
+    try {
+        const bundle = await collectCaseBundle(entity.id);
+        const exportedAt = new Date().toISOString();
+        const slug = entity.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'case';
+        downloadText(`xray-case-bundle-${slug}-${exportedAt.slice(0, 10)}.json`,
+            buildCaseBundleJson(bundle, exportedAt), 'application/json');
+        const withKeys = bundle.entities.filter((e) => e.privkey).length;
+        toast(`Bundle exported: ${bundle.entities.length} entities (${withKeys} with keys)`, 'success', 5000);
+    } catch (err) {
+        alert(`Bundle export failed: ${err.message || err}`);
+    }
 }
 
 /** Export a case entity as JSON or Markdown (Phase 11.6). */
@@ -988,7 +1021,25 @@ async function handleImport(file) {
     try {
         const text = await file.text();
         const parsed = JSON.parse(text);
-        if (!Array.isArray(parsed)) throw new Error('Import file must be a JSON array of entities');
+
+        // Collaboration bundle (Phase 11.8): entities + their keys,
+        // preserved under the exporter's ids so claims aggregate.
+        if (isCaseBundle(parsed)) {
+            const r = await importCaseBundle(parsed);
+            await refreshEntities();
+            renderList();
+            const bits = [`${r.added} added`, `${r.updated} updated`, `${r.keysInstalled} key${r.keysInstalled === 1 ? '' : 's'} installed`];
+            if (r.skipped) bits.push(`${r.skipped} skipped`);
+            toast(`Case bundle imported — ${bits.join(', ')}`,
+                r.conflicts.length ? 'warning' : 'success', 6000);
+            if (r.conflicts.length) {
+                alert('Key conflicts (kept your existing keys — claims under the two keys will not merge):\n\n'
+                      + r.conflicts.join('\n'));
+            }
+            return;
+        }
+
+        if (!Array.isArray(parsed)) throw new Error('Import file must be a JSON array of entities, or an X-Ray case bundle');
         // Best-effort upsert. Entities with `keyName` pointing at a
         // key we don't have locally will have `null` keypair in get(),
         // which means they'll be reference-only (can't sign, can't

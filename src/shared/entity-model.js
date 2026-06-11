@@ -205,6 +205,54 @@ export const EntityModel = {
     },
 
     /**
+     * Upsert an entity record AS GIVEN — id included (Phase 11.8).
+     * Unlike `create`, the id is NOT re-derived from (type, name):
+     * collaboration bundles must preserve the exporter's id, which can
+     * diverge from sha(type:name) after renames, and the id is what
+     * `keyName` and claim `about` refs point at. Existing records are
+     * patched (name/description/nip05/canonical_id/keyName); missing
+     * ones are written whole. Keypair installation is the caller's job
+     * (LocalKeyManager.importKey) — this only writes the record.
+     */
+    importRecord: async (row) => {
+        if (!row || typeof row.id !== 'string' || !/^entity_[0-9a-f]{16}$/.test(row.id)) {
+            throw new Error('importRecord: row.id must be an entity id');
+        }
+        const name = assertValidName(row.name);
+        assertValidType(row.type);
+
+        const all = await Storage.get('entities', {});
+        const existing = all[row.id];
+        const now = Math.floor(Date.now() / 1000);
+        if (existing) {
+            all[row.id] = {
+                ...existing,
+                name,
+                type:         row.type,
+                description:  row.description || existing.description || '',
+                nip05:        row.nip05 || existing.nip05 || '',
+                canonical_id: row.canonical_id || existing.canonical_id || null,
+                keyName:      row.keyName || existing.keyName,
+                updated:      now
+            };
+        } else {
+            all[row.id] = {
+                id:           row.id,
+                name,
+                type:         row.type,
+                description:  row.description || '',
+                nip05:        row.nip05 || '',
+                canonical_id: row.canonical_id || null,
+                keyName:      row.keyName || `entity:${row.id}`,
+                created:      now,
+                updated:      now
+            };
+        }
+        await Storage.set('entities', all);
+        return await EntityModel.get(row.id);
+    },
+
+    /**
      * Patch an existing entity. Keypair and id are immutable. Name and
      * type changes don't rederive the id — this is intentional: the id
      * is the stable identifier for relay-published kind-0 events.
