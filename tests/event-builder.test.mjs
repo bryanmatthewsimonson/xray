@@ -237,3 +237,83 @@ test('buildArticleEvent stringifies array section and object language', async ()
     assert.deepEqual(ev.tags.find((t) => t[0] === 'section'), ['section', 'History, Religion']);
     assert.deepEqual(ev.tags.find((t) => t[0] === 'lang'), ['lang', 'en']);
 });
+
+// ------------------------------------------------------------------
+// parseCommentEvent — Phase 12.1 read-back (inverse of buildCommentEvent)
+// ------------------------------------------------------------------
+
+const FULL_COMMENT = {
+    id: 'cmt:substack:98765',
+    text: 'This completely contradicts what he said last week.',
+    authorName: 'Jane Reader',
+    authorHandle: 'janereader',
+    authorUrl: 'https://substack.com/@janereader',
+    platform: 'substack',
+    timestamp: 1749500000000,    // ms — builder normalizes to seconds
+    replyTo: 'cmt:substack:98000',
+    reactionCount: 12,
+    restacks: 3
+};
+const ACCOUNT_PUBKEY = 'c'.repeat(64);
+
+test('parseCommentEvent round-trips buildCommentEvent field-for-field', () => {
+    const ev = EventBuilder.buildCommentEvent(
+        FULL_COMMENT, 'https://example.substack.com/p/post', 'The Post', PUBKEY, ACCOUNT_PUBKEY);
+    const c = EventBuilder.parseCommentEvent(ev);
+    assert.ok(c, 'parser must accept its own builder output');
+    assert.equal(c.id, FULL_COMMENT.id);
+    assert.equal(c.text, FULL_COMMENT.text);
+    assert.equal(c.author, FULL_COMMENT.authorName);
+    assert.equal(c.platform, 'substack');
+    assert.equal(c.authorHandle, FULL_COMMENT.authorHandle);
+    assert.equal(c.authorUrl, FULL_COMMENT.authorUrl);
+    assert.equal(c.commentDate, 1749500000); // ms → s happened at build time
+    assert.equal(c.replyTo, FULL_COMMENT.replyTo);
+    assert.equal(c.reactionCount, 12);
+    assert.equal(c.restackCount, 3);
+    assert.equal(c.commenterPubkey, ACCOUNT_PUBKEY);
+    assert.equal(c.url, 'https://example.substack.com/p/post');
+    assert.equal(c.title, 'The Post');
+    assert.equal(c.pubkey, PUBKEY);
+});
+
+test('parseCommentEvent: minimal comment degrades to nulls and zeros', () => {
+    const ev = EventBuilder.buildCommentEvent(
+        { id: 'cmt:youtube:1', text: 'short', platform: 'youtube' },
+        'https://youtube.com/watch?v=x', 'Video', PUBKEY, null);
+    const c = EventBuilder.parseCommentEvent(ev);
+    assert.equal(c.author, 'Unknown');
+    assert.equal(c.authorHandle, null);
+    assert.equal(c.authorUrl, null);
+    assert.equal(c.commentDate, null);
+    assert.equal(c.replyTo, null);
+    assert.equal(c.reactionCount, 0);
+    assert.equal(c.restackCount, 0);
+    assert.equal(c.commenterPubkey, null);
+});
+
+test('parseCommentEvent rejects wrong kinds and textless events', () => {
+    assert.equal(EventBuilder.parseCommentEvent(null), null);
+    assert.equal(EventBuilder.parseCommentEvent({ kind: 30040, tags: [], content: 'x' }), null);
+    assert.equal(EventBuilder.parseCommentEvent({ kind: 30041, tags: [['d', 'x']], content: '' }), null);
+});
+
+test('parseCommentEvent tolerates a foreign ms-precision comment-date', () => {
+    const c = EventBuilder.parseCommentEvent({
+        kind: 30041,
+        tags: [['d', 'x'], ['comment-text', 'hi'], ['comment-date', '1749500000000']],
+        content: 'hi'
+    });
+    assert.equal(c.commentDate, 1749500000);
+});
+
+test('buildCommentEvent tag vocabulary is pinned (parser contract)', () => {
+    const ev = EventBuilder.buildCommentEvent(
+        FULL_COMMENT, 'https://example.substack.com/p/post', 'The Post', PUBKEY, ACCOUNT_PUBKEY);
+    const names = [...new Set(ev.tags.map((t) => t[0]))].sort();
+    assert.deepEqual(names, [
+        'author-handle', 'author-url', 'client', 'comment-author',
+        'comment-date', 'comment-text', 'd', 'p', 'platform',
+        'r', 'reaction-count', 'reply-to', 'restack-count', 'title'
+    ]);
+});

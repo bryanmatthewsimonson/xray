@@ -567,6 +567,55 @@ export const EventBuilder = {
     };
   },
 
+  // Inverse of buildCommentEvent (Phase 12.1) — reconstruct a captured
+  // comment from a kind-30041 event, for the portal's read-back path.
+  // Pure and defensive in the parseClaimEvent style: tags first with
+  // content fallback, optional tags become null/0, and anything that
+  // isn't a usable comment (wrong kind, no text anywhere) returns null
+  // so callers can fall back to a generic event row.
+  //
+  // `comment-date` was written in SECONDS by buildCommentEvent (which
+  // normalizes ms upstream), but be tolerant on read: a 13-digit value
+  // from some other writer is treated as ms and converted.
+  parseCommentEvent: (event) => {
+    if (!event || event.kind !== 30041) return null;
+    const tags = event.tags || [];
+    const first = (name) => { const t = tags.find((x) => x[0] === name); return t ? t[1] : ''; };
+    const num = (name) => {
+      const v = first(name);
+      if (v === '') return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const text = first('comment-text') || event.content || '';
+    if (!text) return null;
+    let commentDate = num('comment-date');
+    if (commentDate !== null && commentDate > 10_000_000_000) {
+      commentDate = Math.floor(commentDate / 1000); // ms → s
+    }
+    const commenter = tags.find((x) => x[0] === 'p' && x[3] === 'commenter');
+    const reactions = num('reaction-count');
+    const restacks  = num('restack-count');
+    return {
+      id:              first('d') || event.id || '',
+      text,
+      author:          first('comment-author') || 'Unknown',
+      platform:        first('platform') || '',
+      authorHandle:    first('author-handle') || null,
+      authorUrl:       first('author-url') || null,
+      commentDate,
+      replyTo:         first('reply-to') || null,
+      reactionCount:   reactions === null ? 0 : reactions,
+      restackCount:    restacks === null ? 0 : restacks,
+      commenterPubkey: (commenter && commenter[1]) || null,
+      url:             first('r') || '',
+      title:           first('title') || '',
+      pubkey:          event.pubkey || '',
+      created_at:      event.created_at || 0,
+      eventId:         event.id || null
+    };
+  },
+
   // Build kind 32126 platform account event (Phase 9 identity layer).
   //
   // Consumes a PlatformAccount record from

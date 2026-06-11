@@ -34,12 +34,81 @@ import { Utils } from './utils.js';
 import { ClaimModel } from './claim-model.js';
 import { normalize as normalizeUrl } from './metadata/url-normalizer.js';
 import {
-    isValidLabel, isValidStance, isValidSuggestedBy
+    isValidLabel, isValidStance, isValidSuggestedBy,
+    ASSESSMENT_LABEL_NAMESPACE
 } from './assessment-taxonomy.js';
 import {
     isLocalClaimId, parseClaimCoord, canonicalizeClaimRef,
     makeClaimRefCanonicalizer
 } from './claim-ref.js';
+
+// ------------------------------------------------------------------
+// Wire read-back (Phase 12.1)
+// ------------------------------------------------------------------
+
+/**
+ * Inverse of metadata/builders.js `buildAssessmentEvent` — reconstruct
+ * an assessment from a kind-30054 event, for the portal's read-back
+ * path. Pure and defensive in the parseRelationshipEvent style:
+ * returns null for a wrong-kind event or one with no claim coordinate
+ * (structurally unusable); everything else degrades softly — a
+ * malformed stance reads as null, an unparsable label-anchor stays
+ * null. `p` tags disambiguate on the slot-4 role marker: role-less is
+ * the claim's author, 'about' entries are mirrored about-entities.
+ */
+export function parseAssessmentEvent(event) {
+    if (!event || event.kind !== 30054) return null;
+    const tags = event.tags || [];
+    const first = (name) => { const t = tags.find((x) => x[0] === name); return t ? t[1] : ''; };
+    const claimCoord = first('a');
+    if (!claimCoord) return null;
+
+    let stance = null;
+    const stanceRaw = first('stance');
+    if (stanceRaw !== '') {
+        const n = Number(stanceRaw);
+        if (Number.isInteger(n) && isValidStance(n)) stance = n;
+    }
+
+    // Labels in l-tag order under the xray/assessment namespace, one
+    // entry per value (the builder enforces uniqueness; read-side we
+    // just keep the first). label-anchor / label-note attach by value.
+    const labels = [];
+    const seen = new Set();
+    for (const t of tags) {
+        if (t[0] !== 'l' || t[2] !== ASSESSMENT_LABEL_NAMESPACE) continue;
+        if (!t[1] || seen.has(t[1])) continue;
+        seen.add(t[1]);
+        labels.push({ label: t[1], anchor: null, note: null });
+    }
+    for (const t of tags) {
+        if (t[0] === 'label-anchor') {
+            const hit = labels.find((l) => l.label === t[1]);
+            if (hit && t[2]) { try { hit.anchor = JSON.parse(t[2]); } catch (_) { /* stays null */ } }
+        } else if (t[0] === 'label-note') {
+            const hit = labels.find((l) => l.label === t[1]);
+            if (hit && t[2]) hit.note = t[2];
+        }
+    }
+
+    const authorP = tags.find((x) => x[0] === 'p' && !x[3]);
+    const eTag = tags.find((x) => x[0] === 'e');
+    return {
+        id:                first('d') || event.id || '',
+        claimCoord,
+        claimEventId:      (eTag && eTag[1]) || null,
+        claimAuthorPubkey: (authorP && authorP[1]) || null,
+        stance,
+        labels,
+        rationale:         event.content || '',
+        aboutPubkeys:      tags.filter((x) => x[0] === 'p' && x[3] === 'about').map((x) => x[1]),
+        url:               first('r') || null,
+        suggestedBy:       first('suggested-by') || 'user',
+        pubkey:            event.pubkey || '',
+        created_at:        event.created_at || 0,
+        eventId:           event.id || null
+    };
+}
 
 // ------------------------------------------------------------------
 // ID derivation
