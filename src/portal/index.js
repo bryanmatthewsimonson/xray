@@ -13,9 +13,9 @@
 
 import { Storage } from '../shared/storage.js';
 import { Utils } from '../shared/utils.js';
-import { dedupeReplaceable } from '../shared/nostr-events.js';
 import { resolveIdentities, addManualIdentity, removeManualIdentity } from './identity.js';
 import { fetchCorpus, FALLBACK_RELAYS } from './corpus.js';
+import { saveRecords, loadRecords, getMeta, setMeta, clearAll } from './portal-cache.js';
 import {
     buildItems, applyFilters, typeCounts, facetValues, isOtherClient,
     kindLabel, TYPE_DEFS, EMPTY_FILTERS
@@ -259,13 +259,37 @@ function renderLibrary() {
 }
 
 // ------------------------------------------------------------------
-// Boot + refresh
+// Boot + refresh (cache-first since 12.3: render what we have, then
+// refresh incrementally in the background and re-render the union)
 // ------------------------------------------------------------------
 
-async function boot() {
+// Clock-skew overlap for incremental refresh: re-ask for the last hour
+// before the recorded sync point so a relay whose clock trails ours
+// can't hide an event in the seam. Duplicates merge by event id.
+const SYNC_OVERLAP_SECONDS = 3600;
+
+function rebuildItems(records) {
+    state.records = records;
+    const entityIndex = {};
+    for (const e of state.entities) entityIndex[e.pubkey] = e;
+    // The cache stores only the latest version per replaceable address,
+    // so records arrive pre-deduped.
+    state.items = buildItems(records, { entityIndex });
+}
+
+function setBusy(busy) {
+    state.loading = busy;
+    $('#xr-refresh').disabled = busy;
+    $('#xr-resync').disabled = busy;
+}
+
+/**
+ * @param {{full?: boolean}} [opts]  full=true drops the sync cursor
+ *        (the cache itself is cleared by the Resync handler first)
+ */
+async function boot({ full = false } = {}) {
     if (state.loading) return;
-    state.loading = true;
-    $('#xr-refresh').disabled = true;
+    setBusy(true);
     try {
         setStatus('Resolving identity…');
         const { identities, entities, signer } = await resolveIdentities();
@@ -280,40 +304,63 @@ async function boot() {
             : FALLBACK_RELAYS;
         renderFooter();
 
+        // Cache first: anything we already hold renders immediately.
+        const cached = await loadRecords();
+        if (cached.length > 0) {
+            rebuildItems(cached);
+            renderLibrary();
+            setStatus(`${state.items.length} item(s) from cache — refreshing…`);
+        }
+
         if (state.identities.length === 0 && state.entities.length === 0) {
-            setStatus('');
-            const reason = state.signer && state.signer.reason
-                ? `Signing (${state.signer.method}): ${state.signer.reason}`
-                : 'No signing identity, sync key, publish history, or manual identity found.';
-            renderEmpty('No identity resolved', [
-                reason,
-                'Paste your npub above, configure signing in Settings, or publish a capture once — then refresh.'
-            ]);
+            if (cached.length === 0) {
+                setStatus('');
+                const reason = state.signer && state.signer.reason
+                    ? `Signing (${state.signer.method}): ${state.signer.reason}`
+                    : 'No signing identity, sync key, publish history, or manual identity found.';
+                renderEmpty('No identity resolved', [
+                    reason,
+                    'Paste your npub above, configure signing in Settings, or publish a capture once — then refresh.'
+                ]);
+            } else {
+                setStatus(`${state.items.length} cached item(s) — no identity resolved, refresh skipped`, true);
+            }
             return;
         }
 
-        setStatus(`Querying ${state.relays.length} relay(s)…`);
+        // Incremental unless asked for a full pass or never synced.
+        const sync = full ? null : await getMeta('sync');
+        const since = sync && Number.isFinite(sync.lastSyncAt)
+            ? sync.lastSyncAt - SYNC_OVERLAP_SECONDS
+            : undefined;
+        const fetchStartedAt = Math.floor(Date.now() / 1000);
+
+        setStatus(`Querying ${state.relays.length} relay(s)${since ? ' for new events' : ''}…`);
         const { records, relayErrors, truncated } = await fetchCorpus({
             pubkeys: state.identities.map((i) => i.pubkey),
             entityPubkeys: state.entities.map((e) => e.pubkey),
             relays: state.relays,
+            since,
             onProgress: ({ fetched }) => setStatus(`Querying ${state.relays.length} relay(s)… ${fetched} event(s) so far`)
         });
-        state.records = records;
         state.relayErrors = relayErrors;
         state.truncated = truncated;
 
-        // Latest version per replaceable address, then the item model.
-        const liveEvents = dedupeReplaceable(records.map((r) => r.event));
-        const liveIds = new Set(liveEvents.map((e) => e.id));
-        const entityIndex = {};
-        for (const e of state.entities) entityIndex[e.pubkey] = e;
-        state.items = buildItems(records.filter((r) => liveIds.has(r.event.id)), { entityIndex });
-
+        const stats = await saveRecords(records);
+        rebuildItems(await loadRecords());
         renderLibrary();
 
         const failed = Object.keys(relayErrors);
-        const parts = [`${state.items.length} item(s) from ${state.relays.length - failed.length}/${state.relays.length} relay(s)`];
+        // Only advance the cursor when at least one relay answered in
+        // full — an all-failed refresh must not eat the window.
+        if (failed.length < state.relays.length) {
+            await setMeta('sync', { lastSyncAt: fetchStartedAt });
+        }
+
+        const parts = [`${state.items.length} item(s)`];
+        if (stats.added > 0) parts.push(`+${stats.added} new`);
+        if (stats.superseded > 0) parts.push(`${stats.superseded} replaced by newer versions`);
+        parts.push(`${state.relays.length - failed.length}/${state.relays.length} relay(s)`);
         if (failed.length) parts.push(`failed: ${failed.join(', ')}`);
         if (truncated) parts.push('some relays hit the page ceiling — older events not shown');
         setStatus(parts.join(' — '), failed.length > 0);
@@ -321,13 +368,22 @@ async function boot() {
         Utils.error('Portal boot failed:', err);
         setStatus('Portal failed to load: ' + (err && err.message ? err.message : String(err)), true);
     } finally {
-        state.loading = false;
-        $('#xr-refresh').disabled = false;
+        setBusy(false);
     }
 }
 
 function wireChrome() {
     $('#xr-refresh').addEventListener('click', () => { boot(); });
+
+    $('#xr-resync').addEventListener('click', async () => {
+        if (state.loading) return;
+        try {
+            await clearAll();
+        } catch (err) {
+            Utils.error('Portal resync: cache clear failed', err);
+        }
+        boot({ full: true });
+    });
 
     $('#xr-identity-form').addEventListener('submit', async (e) => {
         e.preventDefault();

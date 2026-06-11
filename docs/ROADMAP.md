@@ -902,8 +902,8 @@ Slices (one PR each):
   list. — #49
 - ✅ **12.2** Library — type tabs, per-type renderers, facets,
   cross-cutting search. — #50
-- ⬜ **12.3** Cache — IndexedDB `xray-portal`, cache-first render,
-  incremental refresh, relay-provenance persistence.
+- ✅ **12.3** Cache — IndexedDB `xray-portal`, cache-first render,
+  incremental refresh, relay-provenance persistence. — #51
 - ⬜ **12.4** Timeline — density buckets + brush filtering.
 - ⬜ **12.5** Entity & case views — radial spokes graph + case
   dashboard.

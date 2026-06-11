@@ -115,6 +115,8 @@ function chunk(list, size) {
  * @param {string[]} opts.pubkeys        the user's resolved author pubkeys
  * @param {string[]} opts.entityPubkeys  entity pubkeys (kind-0 authors)
  * @param {string[]} opts.relays         relay URLs (callers resolve config/fallback)
+ * @param {number}   [opts.since]        epoch seconds — incremental refresh window
+ *                                       (callers subtract their clock-skew overlap)
  * @param {function} [opts.onProgress]   ({fetched}) per page, for the status line
  * @returns {Promise<{
  *   records: Array<{event: object, relays: string[]}>,
@@ -122,7 +124,7 @@ function chunk(list, size) {
  *   truncated: boolean
  * }>}
  */
-export async function fetchCorpus({ pubkeys = [], entityPubkeys = [], relays = [], onProgress } = {}) {
+export async function fetchCorpus({ pubkeys = [], entityPubkeys = [], relays = [], since, onProgress } = {}) {
     const byId = new Map(); // event id → { event, relays:Set }
     const relayErrors = {};
     let truncated = false;
@@ -136,14 +138,17 @@ export async function fetchCorpus({ pubkeys = [], entityPubkeys = [], relays = [
         if (typeof onProgress === 'function') onProgress({ fetched: byId.size });
     };
 
+    const sinceFilter = Number.isFinite(since) && since > 0 ? { since } : {};
+
     await Promise.all(relays.map(async (url) => {
         if (pubkeys.length > 0) {
-            const r = await backfillRelay(url, { authors: pubkeys, kinds: CONTENT_KINDS }, collect, tick);
+            const r = await backfillRelay(url,
+                { authors: pubkeys, kinds: CONTENT_KINDS, ...sinceFilter }, collect, tick);
             if (!r.ok) relayErrors[url] = r.error;
             if (r.truncated) truncated = true;
         }
         for (const authors of chunk(entityPubkeys, ENTITY_AUTHOR_CHUNK)) {
-            const r = await backfillRelay(url, { authors, kinds: [0] }, collect, tick);
+            const r = await backfillRelay(url, { authors, kinds: [0], ...sinceFilter }, collect, tick);
             if (!r.ok) relayErrors[url] = relayErrors[url] || r.error;
             if (r.truncated) truncated = true;
         }

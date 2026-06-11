@@ -150,3 +150,16 @@ test('onProgress ticks with a running fetched count', async () => {
     });
     assert.deepEqual(ticks, [1]);
 });
+
+test('since (12.3 incremental refresh) rides into both query classes', async () => {
+    reset(() => []);
+    await fetchCorpus({
+        pubkeys: [PK], entityPubkeys: ['b'.repeat(64)], relays: [RELAY_A], since: 1234
+    });
+    assert.equal(sentMessages.length, 2);
+    for (const m of sentMessages) assert.equal(m.filter.since, 1234);
+    // No since → no since key in the filter at all.
+    reset(() => []);
+    await fetchCorpus({ pubkeys: [PK], entityPubkeys: [], relays: [RELAY_A] });
+    assert.ok(!('since' in sentMessages[0].filter));
+});
