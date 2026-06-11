@@ -20,6 +20,7 @@ import {
     buildItems, applyFilters, typeCounts, facetValues, isOtherClient,
     kindLabel, TYPE_DEFS, EMPTY_FILTERS
 } from './library.js';
+import { buildBuckets, brushRange } from './timeline.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -252,9 +253,113 @@ function renderRows(visible) {
     }
 }
 
+// ------------------------------------------------------------------
+// Timeline (Phase 12.4): publish-date density + brush-to-filter
+// ------------------------------------------------------------------
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const TL_BAR_W = 6;     // viewBox units per bucket (4 bar + 2 gap)
+const TL_HEIGHT = 56;
+
+function svgEl(tag, attrs) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, String(v));
+    return node;
+}
+
+function fmtDay(ts) {
+    return new Date(ts * 1000).toLocaleDateString();
+}
+
+function renderTimeline() {
+    const host = $('#xr-timeline');
+    clear(host);
+    if (state.items.length === 0) { host.hidden = true; return; }
+    host.hidden = false;
+
+    // Density reflects every filter EXCEPT the brush itself, so the
+    // bars show where the current cut lives in time.
+    const base = applyFilters(state.items, { ...state.filters, after: 0, before: 0 });
+    const { bucket, buckets } = buildBuckets(base);
+    if (buckets.length === 0) { host.hidden = true; return; }
+
+    const maxCount = Math.max(...buckets.map((b) => b.count), 1);
+    const brushed = state.filters.after || state.filters.before;
+
+    const head = el('div', 'xr-portal__timeline-head');
+    head.appendChild(el('span', 'xr-portal__timeline-label',
+        `${fmtDay(buckets[0].start)} – ${fmtDay(buckets[buckets.length - 1].end - 1)} · ${bucket} buckets`));
+    if (brushed) {
+        const chip = el('button', 'xr-portal__timeline-clear',
+            `✕ ${fmtDay(state.filters.after)} – ${fmtDay(state.filters.before - 1)}`);
+        chip.type = 'button';
+        chip.title = 'Clear the time filter';
+        chip.addEventListener('click', () => {
+            state.filters.after = 0;
+            state.filters.before = 0;
+            renderLibrary();
+        });
+        head.appendChild(chip);
+    }
+    host.appendChild(head);
+
+    const svg = svgEl('svg', {
+        viewBox: `0 0 ${buckets.length * TL_BAR_W} ${TL_HEIGHT}`,
+        preserveAspectRatio: 'none',
+        class: 'xr-portal__timeline-svg'
+    });
+
+    buckets.forEach((b, i) => {
+        const h = b.count === 0 ? 0 : Math.max(2, Math.round((b.count / maxCount) * (TL_HEIGHT - 4)));
+        const inBrush = brushed
+            && b.start >= (state.filters.after || -Infinity)
+            && b.end <= (state.filters.before || Infinity);
+        const bar = svgEl('rect', {
+            x: i * TL_BAR_W,
+            y: TL_HEIGHT - h,
+            width: TL_BAR_W - 2,
+            height: Math.max(h, 0.5),  // zero-count buckets stay hoverable
+            'data-index': i,
+            class: 'xr-tl-bar'
+                + (inBrush ? ' xr-tl-bar--active' : '')
+                + (b.count === 0 ? ' xr-tl-bar--empty' : '')
+        });
+        const tip = document.createElementNS(SVG_NS, 'title');
+        tip.textContent = `${fmtDay(b.start)} — ${b.count} item(s)`;
+        bar.appendChild(tip);
+        svg.appendChild(bar);
+    });
+
+    // Drag-to-brush: indices come from the bars' data attributes; a
+    // plain click selects the single bucket.
+    let dragStart = null;
+    const indexFromEvent = (e) => {
+        const idx = e.target && e.target.getAttribute && e.target.getAttribute('data-index');
+        return idx === null || idx === undefined ? null : Number(idx);
+    };
+    svg.addEventListener('mousedown', (e) => {
+        const idx = indexFromEvent(e);
+        if (idx !== null) { dragStart = idx; e.preventDefault(); }
+    });
+    svg.addEventListener('mouseup', (e) => {
+        if (dragStart === null) return;
+        const idx = indexFromEvent(e);
+        const range = brushRange(buckets, dragStart, idx === null ? dragStart : idx);
+        dragStart = null;
+        if (!range) return;
+        state.filters.after = range.after;
+        state.filters.before = range.before;
+        renderLibrary();
+    });
+    svg.addEventListener('mouseleave', () => { dragStart = null; });
+
+    host.appendChild(svg);
+}
+
 function renderLibrary() {
     renderTabs();
     renderFacets();
+    renderTimeline();
     renderRows(applyFilters(state.items, state.filters));
 }
 
