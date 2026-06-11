@@ -7,7 +7,7 @@
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
-import { loadFlags, isEnabled, setOverride } from '../shared/metadata/feature-flags.js';
+import { loadFlags, isEnabled, setOverride, resetOverrides } from '../shared/metadata/feature-flags.js';
 
 const browserApi = (typeof browser !== 'undefined' && browser.runtime) ? browser : chrome;
 
@@ -490,6 +490,9 @@ async function saveAdvanced() {
 async function clearAll() {
     if (!confirm('Erase all X-Ray settings, entities, the keypair registry, and the local signing key? This cannot be undone.')) return;
     await storageClearExtension();
+    // Reset experimental flags too — otherwise a wipe leaves the
+    // public judgment-publishing path enabled.
+    try { await resetOverrides(); } catch (_) { /* best-effort */ }
     await Promise.all([loadRelays(), loadSigning(), loadEntities(), loadAdvanced()]);
     document.getElementById('keypairs-preview').style.display = 'none';
 }

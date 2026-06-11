@@ -386,13 +386,43 @@ the `assessmentPublishing` flag ships.
 | 11.20 | **Export Markdown** | ✅ readable report: claims grouped by stance, labels + notes per claim, *Inconsistencies* pairing the quotes, label tally |
 | 11.21 | Re-export without changing anything | ✅ identical content (deterministic set — viewed-only network claims are excluded) |
 
-**Regression guards**
+**Regression guards (flag OFF — the default)**
 
 | # | Test | Pass criteria |
 |---|---|---|
-| 11.22 | Publish an article with claims | ✅ batch has **no evidence-link events**; claims publish normally |
+| 11.22 | With the publish toggle **off**, publish an article with claims | ✅ batch summary names article + claims + relationships, but **no assessment / mirror / claim-link events** |
 | 11.23 | Delete a claim that has an assessment + links | ✅ confirm lists the blast radius; assessment and links are removed with it |
-| 11.24 | Settings → no assessment publishing toggle anywhere | ✅ publishing stays flag-gated off (`xray:flags` → `assessmentPublishing`) |
+| 11.24 | Settings → Advanced → Experimental shows **"Publish assessments & claim links"**, **unchecked** by default | ✅ the toggle exists and is off (`xray:flags` → `assessmentPublishing` absent/false) |
+
+---
+
+## Phase 11b — Publishing judgments + case collaboration
+
+The follow-up slices: putting your judgments on the wire (flag-gated) and
+sharing a case so a collaborator's claims aggregate with yours.
+
+**Enable + publish (reader)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 11b.1 | Settings → Advanced → Experimental → check **"Publish assessments & claim links to relays"** → Save | ✅ persists across an Options reload; the copy warns judgments become public |
+| 11b.2 | On a case you've assessed (stance + labels) and linked, hit **Publish** in the reader | ✅ a second toast announces the judgment sub-batch; summary lists `N assessments` (+ `label mirrors` + `claim links`); progress bar completes |
+| 11b.3 | Re-publish the same article with no changes | ✅ judgments are **not** re-emitted (only fresh/edited ones publish) |
+| 11b.4 | Edit an assessment's stance → Publish again | ✅ that one assessment re-emits (replaces by `d`); its **🌐** badge stays |
+| 11b.5 | A published assessment's row | ✅ shows a **🌐** badge alongside the stance/label badges |
+| 11b.6 | Inspect a published kind-30054 on a NOSTR client / relay explorer | ✅ carries `a`=claim coord, `stance`, `l` labels under `xray/assessment`, and the claim's `r` URL **as captured** (tracking params intact — matches the 30040's `r`) |
+| 11b.7 | A labeled assessment's kind-1985 mirror | ✅ present once; carries `L`/`l` + `a` + `r`, and **no `p`** (it must not label the claim's author) |
+
+**Case collaboration (two installs, or two browser profiles)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 11b.8 | On the case entity → **Share case bundle (includes keys)** → confirm the warning | ✅ `xray-case-bundle-<name>-<date>.json` downloads; toast reports N entities, M with keys |
+| 11b.9 | On the **second** install: entity list → **Import** → pick the bundle | ✅ toast reports added / updated / keys installed |
+| 11b.10 | Compare an entity's **npub** on both installs (detail view) | ✅ **identical** — the collaboration property |
+| 11b.11 | On the second install, capture a page and tag a claim about the shared case → Publish (flag on) → on the first install open the case → **Load from relays** | ✅ the collaborator's claim appears in *Claims about this entity* (same `#p`) |
+| 11b.12 | Independently create a case with the same name on both installs, then import the other's bundle | ✅ import reports a **key conflict**, keeps your existing key, and still imports the non-conflicting entities |
+| 11b.13 | Options → Advanced → **Erase all** → reopen Options | ✅ the publish toggle is back to **off** (flags cleared with everything else) |
 
 ---
 

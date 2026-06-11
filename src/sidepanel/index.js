@@ -460,7 +460,7 @@ async function paintNetworkClaims(entity, events, byRelay) {
             const ref = netClaimRefs[Number(btn.dataset.nidx)];
             if (!ref) return;
             const result = await openAssessModal({
-                claimRef:  { coord: ref.coord, url: ref.url, text: ref.text, event_id: ref.event_id },
+                claimRef:  { coord: ref.coord, url: ref.url, text: ref.text, event_id: ref.event_id, about_pubkeys: ref.about_pubkeys },
                 claimText: ref.text
             });
             if (result) {
@@ -512,7 +512,11 @@ function renderNetworkClaimRow(c, ev, assessMap, canon) {
     let badges = '';
     if (ev && ev.pubkey && c.id && c.text && c.url) {
         const coord = buildClaimCoord(ev.pubkey, c.id);
-        const idx = netClaimRefs.push({ coord, url: c.url, text: c.text, event_id: ev.id || null }) - 1;
+        // Snapshot the claim's about-entity pubkeys so an assessment of
+        // it can mirror them (single-#p surfacing of foreign claims).
+        const aboutPubkeys = (ev.tags || [])
+            .filter((t) => t[0] === 'p' && t[3] === 'about').map((t) => t[1]);
+        const idx = netClaimRefs.push({ coord, url: c.url, text: c.text, event_id: ev.id || null, about_pubkeys: aboutPubkeys }) - 1;
         const existing = assessMap && canon ? assessMap.get(canon(coord)) : null;
         badges = renderAssessmentBadges(existing);
         assessBtn = `<button type="button" class="xr-side__net-assess" data-action="assess-net" data-nidx="${idx}"
@@ -1029,12 +1033,16 @@ async function handleImport(file) {
             await refreshEntities();
             renderList();
             const bits = [`${r.added} added`, `${r.updated} updated`, `${r.keysInstalled} key${r.keysInstalled === 1 ? '' : 's'} installed`];
-            if (r.skipped) bits.push(`${r.skipped} skipped`);
+            const problems = r.conflicts.length + (r.invalid ? r.invalid.length : 0) + (r.skipped || 0);
+            if (problems) bits.push(`${problems} skipped`);
             toast(`Case bundle imported — ${bits.join(', ')}`,
-                r.conflicts.length ? 'warning' : 'success', 6000);
+                problems ? 'warning' : 'success', 6000);
             if (r.conflicts.length) {
                 alert('Key conflicts (kept your existing keys — claims under the two keys will not merge):\n\n'
                       + r.conflicts.join('\n'));
+            }
+            if (r.invalid && r.invalid.length) {
+                alert('Skipped malformed bundle entries:\n\n' + r.invalid.join('\n'));
             }
             return;
         }

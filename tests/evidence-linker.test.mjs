@@ -158,11 +158,13 @@ test('evidence: cross-source links — coordinate endpoints and canonicalization
     assert.equal(link.target_claim_id, local.id, 'our coordinate collapsed to the local id');
     assert.deepEqual(link.source_snapshot, {
         url: 'https://example.com/charges',          // normalized
+        url_raw: 'https://example.com/charges?utm_source=x',  // verbatim, for the wire r
         text: 'Charges: trespassing.',
         author_pubkey: PUBKEY_B                       // backfilled from the coord
     });
     assert.deepEqual(link.target_snapshot, {
         url: 'https://example.com/video-3',           // auto-filled from the registry
+        url_raw: 'https://example.com/video-3',
         text: 'Police dislocated my shoulder.',
         author_pubkey: PUBKEY_A
     });

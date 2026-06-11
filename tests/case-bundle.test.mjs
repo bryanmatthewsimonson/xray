@@ -154,4 +154,51 @@ test('bundle: malformed input is rejected or skipped', async () => {
     });
     assert.equal(r.skipped, 2);
     assert.equal(r.added, 0);
+
+    // Unknown type from a newer exporter is bucketed as invalid and its
+    // key is NOT installed (no orphaned key material).
+    const r2 = await importCaseBundle({
+        format: CASE_BUNDLE_FORMAT, version: 1,
+        entities: [{ id: 'entity_' + 'a'.repeat(16), name: 'Wombat', type: 'wombat', privkey: 'a'.repeat(64) }]
+    });
+    assert.equal(r2.added, 0);
+    assert.equal(r2.keysInstalled, 0, 'no key installed for an unknown-type row');
+    assert.equal(r2.invalid.length, 1);
+    assert.equal(LocalKeyManager.getKey('entity:entity_' + 'a'.repeat(16)), null, 'no orphaned key');
+});
+
+test('bundle: SECURITY — a crafted keyName cannot bind/plant the primary identity', async () => {
+    resetState();
+    // The victim has a primary identity key.
+    await LocalKeyManager.importKey('xray:user', '7'.repeat(64), {});
+    const victimPrimary = LocalKeyManager.getKey('xray:user').pubkey;
+
+    // Exfiltration attempt: a reference-only row (no privkey) whose
+    // keyName targets the reserved primary slot.
+    const id = 'entity_' + 'b'.repeat(16);
+    await importCaseBundle({
+        format: CASE_BUNDLE_FORMAT, version: 1,
+        entities: [{ id, name: 'Trojan', type: 'person', keyName: 'xray:user', privkey: null }]
+    });
+    const ent = await EntityModel.get(id);
+    assert.equal(ent.keyName, `entity:${id}`, 'keyName is derived from the id, never the bundle');
+    // The entity does NOT merge the primary keypair, so a re-share can't leak it.
+    const reexport = await collectCaseBundle(id).catch(() => null);
+    // (collectCaseBundle of a non-case still returns a bundle; the point
+    // is the entity carries its OWN key, not xray:user's.)
+    if (reexport) {
+        const row = reexport.entities.find((e) => e.id === id);
+        assert.notEqual(row && row.privkey, LocalKeyManager.getKey('xray:user').privateKey,
+            'entity never exports the primary private key');
+    }
+
+    // Planting attempt: an attacker key aimed at xray:user must not
+    // overwrite the victim's primary.
+    const id2 = 'entity_' + 'c'.repeat(16);
+    await importCaseBundle({
+        format: CASE_BUNDLE_FORMAT, version: 1,
+        entities: [{ id: id2, name: 'Planter', type: 'person', keyName: 'xray:user', privkey: '9'.repeat(64) }]
+    });
+    assert.equal(LocalKeyManager.getKey('xray:user').pubkey, victimPrimary,
+        'primary identity is untouched');
 });

@@ -16,7 +16,7 @@
 
 import { Storage } from './storage.js';
 import { ClaimModel } from './claim-model.js';
-import { EntityModel } from './entity-model.js';
+import { EntityModel, ENTITY_TYPES } from './entity-model.js';
 import { LocalKeyManager } from './local-key-manager.js';
 
 export const CASE_BUNDLE_FORMAT = 'xray-case-bundle';
@@ -106,15 +106,31 @@ export async function importCaseBundle(parsed) {
 
     const existingAll = await Storage.get('entities', {});
     let added = 0, updated = 0, keysInstalled = 0;
-    const conflicts = [];
+    const conflicts = [];   // a DIFFERENT key already installed under this id
+    const invalid = [];     // malformed/unimportable rows (bad type, bad key)
     let skipped = 0;
 
     for (const row of parsed.entities) {
-        if (!row || !/^entity_[0-9a-f]{16}$/.test(String(row.id || '')) || !row.name || !row.type) {
+        if (!row || !/^entity_[0-9a-f]{16}$/.test(String(row.id || '')) || !row.name) {
             skipped++;
             continue;
         }
-        const keyName = row.keyName || `entity:${row.id}`;
+        // SECURITY: the keyName is ALWAYS derived from the entity id and
+        // the bundle's own `keyName` is ignored. Trusting it would let a
+        // crafted bundle bind a record to the reserved `xray:user`
+        // primary-identity slot — exfiltrating it on a later re-share, or
+        // planting an attacker key as the user's identity. A legitimate
+        // bundle's keyName is already `entity:<id>`, so this is
+        // behavior-preserving. (CLAUDE.md private-key rule.)
+        const keyName = `entity:${row.id}`;
+
+        // Validate the type BEFORE touching key material, so an unknown
+        // type from a newer exporter can't orphan an installed key.
+        if (!ENTITY_TYPES.includes(row.type)) {
+            invalid.push(`${row.name}: unknown entity type "${row.type}"`);
+            continue;
+        }
+
         let keyOk = true;
         if (row.privkey) {
             try {
@@ -124,22 +140,24 @@ export async function importCaseBundle(parsed) {
                 });
                 if (!before) keysInstalled++;
             } catch (err) {
-                // A DIFFERENT key already lives here — never overwrite.
+                const msg = String(err && err.message || err);
+                // Distinguish a genuine same-id-different-key conflict
+                // (kept your key) from a malformed key in the bundle.
+                if (/conflict/i.test(msg)) conflicts.push(`${row.name}: ${msg}`);
+                else invalid.push(`${row.name}: ${msg}`);
                 keyOk = false;
-                conflicts.push(`${row.name}: ${err.message || err}`);
             }
         }
-        if (!keyOk) continue;   // record under a conflicting key would mislead
+        if (!keyOk) continue;   // record under a conflicting/bad key would mislead
 
         try {
             const existed = !!existingAll[row.id];
-            await EntityModel.importRecord({ ...row, keyName });
+            await EntityModel.importRecord(row);   // importRecord re-derives keyName
             if (existed) updated++; else added++;
         } catch (err) {
-            skipped++;
-            conflicts.push(`${row.name}: ${err.message || err}`);
+            invalid.push(`${row.name}: ${err.message || err}`);
         }
     }
 
-    return { caseId: parsed.case_id || null, added, updated, keysInstalled, conflicts, skipped };
+    return { caseId: parsed.case_id || null, added, updated, keysInstalled, conflicts, invalid, skipped };
 }

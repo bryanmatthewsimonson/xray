@@ -97,6 +97,7 @@ test('publish-select: assessments — readiness, staleness, and coord backfill f
 
     const pubSel = sel.find((s) => s.assessment.id === aPub.id);
     assert.equal(pubSel.coord, buildClaimCoord(PUBKEY_A, pub.id));
+    assert.equal(pubSel.url, 'https://example.com/p', 'verbatim own-claim source url');
     assert.equal(pubSel.needsCoordBackfill, false,
         'assessed AFTER publish → the model auto-filled the coordinate at create');
     assert.deepEqual(pubSel.aboutIds, [], 'no about entities on this fixture');
@@ -121,6 +122,50 @@ test('publish-select: assessments — readiness, staleness, and coord backfill f
     await AssessmentModel.update(aPub.id, { stance: -2 });
     sel = selectAssessmentsToPublish(await ctx());
     assert.ok(sel.map((s) => s.assessment.id).includes(aPub.id), 'edited → re-emits');
+});
+
+test('publish-select: foreign assessments emit the VERBATIM claim url as wire r', async () => {
+    resetState();
+    const coord = buildClaimCoord(PUBKEY_B, 'their-d');
+    await AssessmentModel.create({
+        claim_ref: {
+            coord,
+            url: 'https://www.example.com/story/?utm_source=nl&id=9',   // raw, with tracking
+            text: 'Foreign.', about_pubkeys: ['c'.repeat(64)]
+        },
+        labels: ['misleading']
+    });
+    const sel = selectAssessmentsToPublish(await ctx());
+    assert.equal(sel.length, 1);
+    assert.equal(sel[0].url, 'https://www.example.com/story/?utm_source=nl&id=9',
+        'wire r is the verbatim url_raw, not the normalized form');
+    assert.deepEqual(sel[0].aboutPubkeys, ['c'.repeat(64)], 'foreign about-pubkeys carried for the p mirror');
+});
+
+test('publish-select: 30043-era links re-publish as 30055 (migration)', async () => {
+    resetState();
+    const pubClaim = await ClaimModel.create({ text: 'Ours.', source_url: 'https://example.com/p' });
+    await ClaimModel.markPublished(pubClaim.id, 'e'.repeat(64), PUBKEY_A);
+    const foreignCoord = buildClaimCoord(PUBKEY_B, 'their-d');
+    const link = await EvidenceLinker.create({
+        source_claim_id: pubClaim.id, target_claim_id: foreignCoord, relationship: 'contradicts',
+        target_snapshot: { url: 'https://example.com/f', text: 'Foreign.' }
+    });
+    // Simulate a legacy 30043 publish: publishedAt set, no publishedKind.
+    const raw = JSON.parse(_stateStore.get('evidence_links'));
+    raw[link.id].publishedAt = 1000;
+    raw[link.id].publishedEventId = 'd'.repeat(64);
+    delete raw[link.id].publishedKind;
+    _stateStore.set('evidence_links', JSON.stringify(raw));
+
+    // The read-time migration clears the stale 30043 marker, so it selects.
+    const sel = selectLinksToPublish(await ctx());
+    assert.equal(sel.length, 1, '30043-era link re-emits as 30055');
+    assert.equal(sel[0].link.id, link.id);
+
+    // After a 30055 publish it carries publishedKind and stops selecting.
+    await EvidenceLinker.markPublished(link.id, '5'.repeat(64));
+    assert.equal(selectLinksToPublish(await ctx()).length, 0, 'published as 30055 → done');
 });
 
 test('publish-select: links need BOTH endpoints wire-ready; legacy contextualizes never publishes', async () => {
@@ -195,7 +240,7 @@ test('publish-select: drift-stored refs still resolve (coordinate stored, pubkey
     assert.equal(sel[0].eventId, 'f'.repeat(64), 'registry event id now available');
 });
 
-test('publish-select: mirrors — labeled, first-publish only', async () => {
+test('publish-select: mirrors — labeled + wire-ready + not-yet-mirrored', async () => {
     resetState();
     const claim = await ClaimModel.create({ text: 'Mirrored.', source_url: 'https://example.com/m' });
     await ClaimModel.markPublished(claim.id, 'e'.repeat(64), PUBKEY_A);
@@ -205,20 +250,26 @@ test('publish-select: mirrors — labeled, first-publish only', async () => {
     await ClaimModel.markPublished(claim2.id, 'e'.repeat(64), PUBKEY_A);
     await AssessmentModel.create({ claim_ref: { claim_id: claim2.id }, stance: 2 });
 
-    let sel = selectAssessmentsToPublish(await ctx());
-    assert.equal(sel.length, 2);
-    let mirrors = selectMirrors(sel);
+    let mirrors = selectMirrors(await ctx());
     assert.equal(mirrors.length, 1, 'stance-only assessments do not mirror');
     assert.equal(mirrors[0].assessment.id, labeled.id);
+    assert.equal(mirrors[0].coord, buildClaimCoord(PUBKEY_A, claim.id));
 
-    // A REpublish (edit after first publish) must not re-mirror. The
-    // stance-only assessment is still unpublished, so it stays in the
-    // selection alongside the edited one.
+    // Once mirrored, it drops out — even after the 30054 is republished
+    // (1985 is non-replaceable, so markMirrored is set once).
+    await AssessmentModel.markMirrored(labeled.id);
     await AssessmentModel.markPublished(labeled.id, '1'.repeat(64));
     await new Promise((r) => setTimeout(r, 1100));
     await AssessmentModel.update(labeled.id, { labels: ['misleading', 'outdated'] });
-    sel = selectAssessmentsToPublish(await ctx());
-    assert.ok(sel.map((s) => s.assessment.id).includes(labeled.id), 'edited assessment re-selects');
-    mirrors = selectMirrors(sel);
-    assert.equal(mirrors.length, 0, 'mirrors are first-publish only (1985 is non-replaceable)');
+    mirrors = selectMirrors(await ctx());
+    assert.equal(mirrors.length, 0, 'mirrored assessments never re-mirror');
+
+    // A mirror that was NOT yet recorded (e.g. rejected last batch)
+    // stays selectable even after its 30054 published.
+    const claim3 = await ClaimModel.create({ text: 'Mirror retry.', source_url: 'https://example.com/m3' });
+    await ClaimModel.markPublished(claim3.id, 'e'.repeat(64), PUBKEY_A);
+    const retry = await AssessmentModel.create({ claim_ref: { claim_id: claim3.id }, labels: ['flip-flop'] });
+    await AssessmentModel.markPublished(retry.id, '2'.repeat(64));   // 30054 landed, mirror didn't
+    mirrors = selectMirrors(await ctx());
+    assert.deepEqual(mirrors.map((m) => m.assessment.id), [retry.id], 'unmirrored-but-published retries');
 });

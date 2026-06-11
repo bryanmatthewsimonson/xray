@@ -303,6 +303,7 @@ test('1985 mirror: tag shape, regular-event semantics, validation', () => {
   const { event, dTag } = buildAssessmentMirrorEvent({
     claimCoord: COORD_A,
     labels: [{ label: 'misleading', note: 'note stays on the 30054' }, 'flip-flop'],
+    claimUrl: 'https://example.com/v?utm_source=x',
     relayHint: 'wss://relay.example'
   });
 
@@ -316,12 +317,20 @@ test('1985 mirror: tag shape, regular-event semantics, validation', () => {
     ['l', 'flip-flop', ASSESSMENT_LABEL_NAMESPACE]
   ]);
   assert.deepEqual(firstTag(event, 'a'), ['a', COORD_A, 'wss://relay.example']);
-  assert.deepEqual(firstTag(event, 'p'), ['p', PUBKEY_A], 'claim author from the coordinate');
+  // NO p tag — a p on a 1985 would label the claim's AUTHOR with the
+  // issue labels (reputational mislabel).
+  assert.equal(firstTag(event, 'p'), undefined, 'mirror does not label the author');
+  assert.deepEqual(firstTag(event, 'r'), ['r', 'https://example.com/v?utm_source=x'],
+    'verbatim claim r for the draft #r 1985 query');
   assert.deepEqual(firstTag(event, 'client'), ['client', 'xray']);
   assert.equal(firstTag(event, 'label-note'), undefined, 'enrichments stay on the 30054');
   for (const t of event.tags) {
     for (const v of t) assert.equal(typeof v, 'string');
   }
+
+  // r is omitted when no url is supplied.
+  const { event: noUrl } = buildAssessmentMirrorEvent({ claimCoord: COORD_A, labels: ['outdated'] });
+  assert.equal(firstTag(noUrl, 'r'), undefined);
 
   assert.throws(() => buildAssessmentMirrorEvent({ claimCoord: COORD_A, labels: [] }),
     /at least one label/);

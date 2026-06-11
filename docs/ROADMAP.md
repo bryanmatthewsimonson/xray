@@ -54,10 +54,10 @@ Cleanup  ████████████████████  complete 
 Phase 10 ████████████████████  complete — claim tracking (thin entity-centric
                                 claims). 10.1–10.4 shipped; 10.5 (metadata reframe)
                                 superseded by Phase 11 (see below)
-Phase 11 ██████████████████░░  implemented — assessments & contradictions
-                                (docs/ASSESSMENTS_DESIGN.md). 11.1–11.6
-                                shipped; remaining: case smoke-runs +
-                                the flag-gated publish slice
+Phase 11 ████████████████████  complete — assessments & contradictions
+                                (docs/ASSESSMENTS_DESIGN.md). 11.1–11.6 +
+                                publishing (11.7) + collaboration (11.8)
+                                shipped; case smoke-runs pending
 ```
 
 Parity with the v4.2 userscript is reached; the project now operates as a
@@ -854,12 +854,17 @@ Slices (one PR each):
   dashboard + label tally + replaceable dedupe). — #42
 - ✅ **11.6** Case export (JSON + Markdown, deterministic content
   set). — #43
+- ✅ **11.7** Judgment publishing — flag-gated emission of `30054` +
+  `30055` + the kind-1985 label mirror; claim-before-assessment
+  ordering; coord backfill; options toggle. — #44
+- ✅ **11.8** Case collaboration — shareable entity-key bundles so
+  collaborators' claims aggregate under the same pubkeys. — #45
 
 Remaining: run the acceptance demo end-to-end on the two driving cases
 (LDS Church v. Dehlin; Bricks & Minifigs v. Reckless Ben) — the
-checklist is `docs/SMOKE_TEST.md` §Phase 11 — and, later, the
-flag-gated publish slice (30054/30055 + the 1985 mirror behind
-`assessmentPublishing`).
+checklist is `docs/SMOKE_TEST.md` §Phase 11 + §Phase 11b. Later, if
+warranted: network assessment aggregation/trust-weighting, and
+NIP-44-encrypted collaboration bundles.
 
 ---
 

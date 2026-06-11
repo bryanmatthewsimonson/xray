@@ -129,6 +129,11 @@ async function resolveClaimRef(input) {
                                    : null,
                 event_id:      given.event_id || null,
                 url:           normalizeUrl(claim.source_url),
+                // url_raw preserves the verbatim source URL — own claims
+                // publish their `r` raw, so the 30054's `r` must match it
+                // verbatim for the #r join (about_pubkeys come from the
+                // registry at publish time, so none stored here).
+                url_raw:       claim.source_url || '',
                 text:          claim.text,
                 author_pubkey: claim.publishedPubkey || null
             }
@@ -141,6 +146,12 @@ async function resolveClaimRef(input) {
     const text = String(given.text || '').trim();
     if (!url)  throw new Error('claim_ref.url is required for foreign claims');
     if (!text) throw new Error('claim_ref.text is required for foreign claims');
+    // about_pubkeys: the assessed claim's about-entity pubkeys, so the
+    // published 30054 can mirror them and a single
+    // {kinds:[30040,30054], "#p":[entity]} filter pulls both.
+    const aboutPubkeys = Array.isArray(given.about_pubkeys)
+        ? given.about_pubkeys.filter((p) => /^[0-9a-f]{64}$/.test(p))
+        : [];
     return {
         canonicalRef,
         claim_ref: {
@@ -148,8 +159,10 @@ async function resolveClaimRef(input) {
             coord:         canonicalRef,
             event_id:      given.event_id || null,
             url:           normalizeUrl(url),
+            url_raw:       url,                // verbatim, as the 30040 published it
             text,
-            author_pubkey: coord.pubkey
+            author_pubkey: coord.pubkey,
+            about_pubkeys: aboutPubkeys
         }
     };
 }
@@ -317,6 +330,23 @@ export const AssessmentModel = {
         if (!record) return null;
         record.publishedAt = Math.floor(Date.now() / 1000);
         if (eventId) record.publishedEventId = eventId;
+        all[id] = record;
+        await Storage.set(STORAGE_KEY, all);
+        return record;
+    },
+
+    /**
+     * Record a successful kind-1985 label-mirror publish. Tracked
+     * SEPARATELY from `publishedAt`: kind 1985 is non-replaceable, so a
+     * mirror that was rejected (while its 30054 landed) must be
+     * retryable, and selection keys on `mirroredAt` not the
+     * assessment's publish state. Does not bump `updated`.
+     */
+    markMirrored: async (id) => {
+        const all = await Storage.get(STORAGE_KEY, {});
+        const record = all[id];
+        if (!record) return null;
+        record.mirroredAt = Math.floor(Date.now() / 1000);
         all[id] = record;
         await Storage.set(STORAGE_KEY, all);
         return record;

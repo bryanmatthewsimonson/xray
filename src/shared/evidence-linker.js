@@ -161,8 +161,10 @@ function assertValidSuggestedBy(value) {
 async function resolveSnapshot(ref, given) {
     if (given && (given.url || given.text)) {
         const coord = parseClaimCoord(ref);
+        const rawUrl = given.url ? String(given.url) : '';
         return {
-            url:           given.url ? normalizeUrl(String(given.url)) : '',
+            url:           rawUrl ? normalizeUrl(rawUrl) : '',
+            url_raw:       given.url_raw || rawUrl,   // verbatim, for the wire `r`
             text:          String(given.text || ''),
             author_pubkey: given.author_pubkey || (coord ? coord.pubkey : null)
         };
@@ -172,6 +174,7 @@ async function resolveSnapshot(ref, given) {
         if (claim) {
             return {
                 url:           normalizeUrl(claim.source_url),
+                url_raw:       claim.source_url || '',
                 text:          claim.text,
                 author_pubkey: claim.publishedPubkey || null
             };
@@ -180,16 +183,27 @@ async function resolveSnapshot(ref, given) {
     return null;
 }
 
-// Backfill fields for records written before 11.1, read-time only.
+// Backfill fields for records written before 11.x, read-time only.
 function normalizeLink(record) {
     if (!record) return record;
-    if ('suggested_by' in record) return record;
-    return {
-        ...record,
-        suggested_by:    'user',
-        source_snapshot: record.source_snapshot || null,
-        target_snapshot: record.target_snapshot || null
-    };
+    let out = record;
+    if (!('suggested_by' in out)) {
+        out = {
+            ...out,
+            suggested_by:    'user',
+            source_snapshot: out.source_snapshot || null,
+            target_snapshot: out.target_snapshot || null
+        };
+    }
+    // 30043→30055 republish migration (Phase 11.7): a link whose only
+    // prior publish was the RETIRED kind 30043 carries a publishedAt
+    // but no publishedKind. Clear its publish marker so the first
+    // kind-30055 batch re-emits it; markPublished stamps
+    // publishedKind=30055 going forward, so this runs once.
+    if (out.publishedAt && !out.publishedKind) {
+        out = { ...out, publishedAt: null, publishedEventId: null };
+    }
+    return out;
 }
 
 // ------------------------------------------------------------------
@@ -353,6 +367,9 @@ export const EvidenceLinker = {
         if (!record) return null;
         record.publishedAt = Math.floor(Date.now() / 1000);
         if (eventId) record.publishedEventId = eventId;
+        // Stamp the kind so the 30043→30055 read-time migration knows
+        // this was published under the current vocabulary.
+        record.publishedKind = 30055;
         all[id] = record;
         await Storage.set('evidence_links', all);
         return normalizeLink(record);

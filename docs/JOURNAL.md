@@ -19,6 +19,49 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-10 — Phase 11.7/11.8 review fixes (one security bug, two wire bugs)
+
+**Tags:** bug, wire-format, security
+
+A three-lens adversarial review of the publishing + collaboration
+slices surfaced eleven findings; the load-bearing ones, fixed here:
+
+- **SECURITY (bundle):** import trusted the bundle's `keyName`, so a
+  crafted bundle could bind an entity record to the reserved
+  `xray:user` primary-identity slot — exfiltrating the user's primary
+  key on a later re-share, or planting an attacker key as their
+  identity. `keyName` is now ALWAYS derived from the entity id (in both
+  `case-bundle.importCaseBundle` and `EntityModel.importRecord`); the
+  bundle's own field is ignored. Regression-tested both vectors.
+- **WIRE (verbatim `r`):** foreign-claim judgments emitted the
+  *normalized* URL as `r`, forking the `#r` join the design makes
+  load-bearing (claims publish raw `r`). The models now snapshot
+  `url_raw` (verbatim) alongside the normalized `url`; `claimWireInfo`
+  emits the raw form as `r`, normalized as `i`.
+- **WIRE (1985 mirror):** the mirror carried `['p', claimAuthor]`,
+  which under NIP-32 labels the *author* with the issue labels — a
+  reputational mislabel. Dropped the `p`; the mirror now carries
+  `L`/`l` + `a` + verbatim `r` only.
+- **Mirror loss:** mirror emission was keyed to the assessment's
+  publish state, so a mirror rejected (while its 30054 landed) was
+  never retried. Now keyed to a separate `mirroredAt`; `selectMirrors`
+  picks up any labeled, wire-ready, un-mirrored assessment and the
+  reader marks it only on mirror relay-success.
+- **30043→30055 republish:** the design promised legacy links
+  republish as 30055, but their 30043-era `publishedAt` suppressed
+  them forever. `normalizeLink` now clears a publish marker lacking
+  `publishedKind` (one-time read-time migration); `markPublished`
+  stamps `publishedKind: 30055` going forward.
+- Plus: foreign 30054s now mirror the assessed claim's about-entity
+  `p` tags (single-`#p` surfacing); pre-pubkey own claims with a
+  pending judgment get re-emitted to backfill their coordinate;
+  "Erase all" clears `xray:flags`; published assessments show 🌐;
+  malformed bundle keys bucket separately from genuine conflicts;
+  unknown entity types are rejected before key install; trailing
+  inter-event sleeps guarded.
+
+---
+
 ## 2026-06-10 — Phase 11.8: collaboration = shared entity keys, by bundle
 
 **Tags:** design

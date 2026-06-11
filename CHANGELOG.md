@@ -10,6 +10,21 @@ Sections per release: **Added** (new features), **Changed**
 
 ## [Unreleased]
 
+### Fixed
+
+- **Hardening from the Phase 11.7/11.8 review.** Case bundles now derive
+  the key slot from the entity id and ignore any bundle-supplied
+  `keyName` (a crafted bundle could otherwise bind a record to the
+  reserved primary-identity key). Published judgments now carry the
+  claim's **verbatim** `r` URL (was normalized — forking the `#r` join);
+  the kind-1985 label mirror drops the author `p` tag (it would
+  mislabel the claim's author) and carries `r`; a rejected mirror is
+  retried instead of lost (tracked by a separate `mirroredAt`); legacy
+  kind-30043 links correctly republish as kind-30055; foreign-claim
+  assessments mirror the claim's about-entity `p` tags; "Erase all"
+  clears the experimental flags; and published assessments show a 🌐
+  badge.
+
 ### Added
 
 - **Case collaboration bundles** (Phase 11.8). A case entity's detail view
