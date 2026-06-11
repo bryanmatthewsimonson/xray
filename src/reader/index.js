@@ -22,6 +22,10 @@ import { installEntityTagger, rehydrateEntityMarks } from './entity-tagger.js';
 import { openClaimModal, openEvidenceLinkModal, openOthersClaimsModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
 import { openAssessModal } from '../shared/assess-modal.js';
 import { AssessmentModel } from '../shared/assessment-model.js';
+import { makeClaimRefCanonicalizer } from '../shared/claim-ref.js';
+import { selectAssessmentsToPublish, selectLinksToPublish, selectMirrors } from '../shared/assessment-publish.js';
+import { buildAssessmentEvent, buildClaimRelationshipEvent, buildAssessmentMirrorEvent } from '../shared/metadata/builders.js';
+import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 
 const browserApi = typeof browser !== 'undefined' && browser.runtime ? browser : chrome;
 
@@ -1421,8 +1425,11 @@ async function publish() {
     // published + unchanged claims).
     const relationshipsToPublish = await resolveRelationshipsToPublish(claimsToPublish, state.article.url);
 
-    const totalEvents = 1 + commentList.length + entitiesToPublish.length
-                          + claimsToPublish.length + relationshipsToPublish.length;
+    // `let`: the judgment batch (Phase 11.7, flag-gated) extends the
+    // total after claims publish — own-claim coordinates only resolve
+    // once their publishing pubkey is recorded.
+    let totalEvents = 1 + commentList.length + entitiesToPublish.length
+                        + claimsToPublish.length + relationshipsToPublish.length;
 
     // Per-relay rollup across the entire batch.
     const relayStats = new Map(); // url → { ok, fail, lastError }
@@ -1747,9 +1754,167 @@ async function publish() {
             if (i < relationshipsToPublish.length - 1) await sleep(BATCH_PUBLISH_DELAY_MS);
         }
 
-        // (Claim-link publishing: the legacy kind-30043 batch was retired
-        // in Phase 11.1; the kind-30055 path lands behind the
-        // assessmentPublishing flag in the Phase 11 publish slice.)
+        // ---- Judgments: assessments + mirrors + claim links ------------
+        // (Phase 11.7 — behind the assessmentPublishing flag, default
+        // off.) Runs AFTER the claims batch: claims published above
+        // recorded their publishing pubkey, so own-claim coordinates
+        // resolve; foreign refs carry theirs. The selection spans ALL
+        // wire-ready judgments, not just this article's — judgments are
+        // article-agnostic records and cross-article ones would
+        // otherwise never publish.
+        await loadFlags();
+        const publishJudgments = isEnabled('assessmentPublishing');
+        const assessResults = { ok: 0, fail: 0, errors: [] };
+        const mirrorResults = { ok: 0, fail: 0, errors: [] };
+        const jLinkResults  = { ok: 0, fail: 0, errors: [] };
+        let assessSel = [], mirrorSel = [], linkSel = [];
+        if (publishJudgments) {
+            const [claimsAll, assessmentsAll, linksAll, canon] = await Promise.all([
+                ClaimModel.getAll(), AssessmentModel.getAll(), EvidenceLinker.getAll(),
+                makeClaimRefCanonicalizer()
+            ]);
+            assessSel = selectAssessmentsToPublish({ assessments: assessmentsAll, claims: claimsAll, canon });
+            mirrorSel = selectMirrors(assessSel);
+            linkSel   = selectLinksToPublish({ links: linksAll, claims: claimsAll, canon });
+        }
+        const judgmentBase = relBatchBase + relationshipsToPublish.length;
+        let judgmentStep = 0;
+        if (assessSel.length + mirrorSel.length + linkSel.length > 0) {
+            totalEvents += assessSel.length + mirrorSel.length + linkSel.length;
+            toast(`Also publishing your judgments: ${assessSel.length} assessment${assessSel.length === 1 ? '' : 's'}`
+                  + (mirrorSel.length ? ` + ${mirrorSel.length} label mirror${mirrorSel.length === 1 ? '' : 's'}` : '')
+                  + (linkSel.length ? ` + ${linkSel.length} claim link${linkSel.length === 1 ? '' : 's'}` : '')
+                  + '…', 'warning', 4000);
+
+            const sendJudgment = async (unsigned) => {
+                unsigned.pubkey = userPubkey;
+                return await browserApi.runtime.sendMessage({
+                    type: 'xray:capture:publish', id: state.id, event: unsigned
+                });
+            };
+            const entitiesAll = await EntityModel.getAll();
+
+            // Assessments (kind 30054). Track which landed their FIRST
+            // publish — only those get a 1985 mirror below.
+            const firstPublishOk = new Set();
+            for (const sel of assessSel) {
+                btn.textContent = `Publishing (${judgmentBase + (++judgmentStep)}/${totalEvents})…`;
+                const label = (sel.assessment.claim_ref.text || '').slice(0, 40);
+                try {
+                    if (sel.needsCoordBackfill) {
+                        try { await AssessmentModel.backfillCoord(sel.assessment.id, sel.coord); }
+                        catch (_) { /* best-effort */ }
+                    }
+                    const aboutPubkeys = [];
+                    for (const id of sel.aboutIds) {
+                        const ent = entitiesAll[id];
+                        if (ent && ent.keypair) aboutPubkeys.push(ent.keypair.pubkey);
+                    }
+                    const wasFirst = !sel.assessment.publishedAt;
+                    const { event: unsigned } = await buildAssessmentEvent({
+                        claimCoord:   sel.coord,
+                        claimUrl:     sel.url,
+                        claimEventId: sel.eventId,
+                        stance:       sel.assessment.stance,
+                        labels:       sel.assessment.labels,
+                        rationale:    sel.assessment.rationale,
+                        aboutPubkeys,
+                        suggestedBy:  sel.assessment.suggested_by || 'user'
+                    });
+                    const resp = await sendJudgment(unsigned);
+                    if (resp && resp.ok && resp.results) {
+                        recordRelayResults(resp.results);
+                        if (resp.results.successful > 0) {
+                            assessResults.ok++;
+                            if (wasFirst) firstPublishOk.add(sel.assessment.id);
+                            try { await AssessmentModel.markPublished(sel.assessment.id, resp.signedEvent?.id || null); }
+                            catch (_) { /* best-effort */ }
+                        } else {
+                            assessResults.fail++;
+                            assessResults.errors.push(`${label}…: no relays accepted`);
+                        }
+                    } else {
+                        assessResults.fail++;
+                        assessResults.errors.push(`${label}…: ${(resp && resp.error) || 'unknown'}`);
+                    }
+                } catch (err) {
+                    assessResults.fail++;
+                    assessResults.errors.push(`${label}…: ${err.message || String(err)}`);
+                    console.warn('[X-Ray Reader] assessment publish failed:', sel.assessment.id, err);
+                }
+                setProgress(judgmentBase + judgmentStep, totalEvents);
+                await sleep(BATCH_PUBLISH_DELAY_MS);
+            }
+
+            // Label mirrors (kind 1985) — first publish only, and only
+            // when the 30054 actually landed.
+            for (const sel of mirrorSel) {
+                btn.textContent = `Publishing (${judgmentBase + (++judgmentStep)}/${totalEvents})…`;
+                if (!firstPublishOk.has(sel.assessment.id)) {
+                    setProgress(judgmentBase + judgmentStep, totalEvents);
+                    continue;   // its 30054 didn't land — no orphan mirrors
+                }
+                try {
+                    const { event: unsigned } = buildAssessmentMirrorEvent({
+                        claimCoord: sel.coord,
+                        labels:     sel.assessment.labels
+                    });
+                    const resp = await sendJudgment(unsigned);
+                    if (resp && resp.ok && resp.results) {
+                        recordRelayResults(resp.results);
+                        if (resp.results.successful > 0) mirrorResults.ok++;
+                        else { mirrorResults.fail++; mirrorResults.errors.push('mirror: no relays accepted'); }
+                    } else {
+                        mirrorResults.fail++;
+                        mirrorResults.errors.push(`mirror: ${(resp && resp.error) || 'unknown'}`);
+                    }
+                } catch (err) {
+                    mirrorResults.fail++;
+                    mirrorResults.errors.push(`mirror: ${err.message || String(err)}`);
+                }
+                setProgress(judgmentBase + judgmentStep, totalEvents);
+                await sleep(BATCH_PUBLISH_DELAY_MS);
+            }
+
+            // Claim links (kind 30055).
+            for (const sel of linkSel) {
+                btn.textContent = `Publishing (${judgmentBase + (++judgmentStep)}/${totalEvents})…`;
+                try {
+                    const { event: unsigned } = await buildClaimRelationshipEvent({
+                        sourceCoord:   sel.source.coord,
+                        targetCoord:   sel.target.coord,
+                        relationship:  sel.link.relationship,
+                        sourceUrl:     sel.source.url,
+                        targetUrl:     sel.target.url,
+                        sourceEventId: sel.source.eventId,
+                        targetEventId: sel.target.eventId,
+                        note:          sel.link.note,
+                        suggestedBy:   sel.link.suggested_by || 'user'
+                    });
+                    const resp = await sendJudgment(unsigned);
+                    if (resp && resp.ok && resp.results) {
+                        recordRelayResults(resp.results);
+                        if (resp.results.successful > 0) {
+                            jLinkResults.ok++;
+                            try { await EvidenceLinker.markPublished(sel.link.id, resp.signedEvent?.id || null); }
+                            catch (_) { /* best-effort */ }
+                        } else {
+                            jLinkResults.fail++;
+                            jLinkResults.errors.push(`${sel.link.relationship} link: no relays accepted`);
+                        }
+                    } else {
+                        jLinkResults.fail++;
+                        jLinkResults.errors.push(`${sel.link.relationship} link: ${(resp && resp.error) || 'unknown'}`);
+                    }
+                } catch (err) {
+                    jLinkResults.fail++;
+                    jLinkResults.errors.push(`${sel.link.relationship} link: ${err.message || String(err)}`);
+                    console.warn('[X-Ray Reader] claim-link publish failed:', sel.link.id, err);
+                }
+                setProgress(judgmentBase + judgmentStep, totalEvents);
+                await sleep(BATCH_PUBLISH_DELAY_MS);
+            }
+        }
 
         // Build + surface the end-of-batch summary.
         showPublishSummary({
@@ -1763,6 +1928,12 @@ async function publish() {
             claimCount: claimsToPublish.length,
             relationshipResults,
             relationshipCount: relationshipsToPublish.length,
+            assessResults,
+            assessCount: assessSel.length,
+            mirrorResults,
+            mirrorCount: mirrorSel.length,
+            jLinkResults,
+            jLinkCount: linkSel.length,
             relayStats
         });
 
@@ -1933,6 +2104,8 @@ function showPublishSummary({
     includeComments, totalEvents, articleResults,
     commentResults, entityResults, entityCount,
     claimResults, claimCount, relationshipResults, relationshipCount,
+    assessResults, assessCount = 0, mirrorResults, mirrorCount = 0,
+    jLinkResults, jLinkCount = 0,
     relayStats
 }) {
     // Console breakdown (always useful for debugging)
@@ -1942,6 +2115,9 @@ function showPublishSummary({
     if (entityResults && entityCount > 0)                    console.log('entities:',       entityResults);
     if (claimResults  && claimCount  > 0)                    console.log('claims:',         claimResults);
     if (relationshipResults && relationshipCount > 0)        console.log('relationships:',  relationshipResults);
+    if (assessResults && assessCount > 0)                    console.log('assessments:',    assessResults);
+    if (mirrorResults && mirrorCount > 0)                    console.log('label mirrors:',  mirrorResults);
+    if (jLinkResults && jLinkCount > 0)                      console.log('claim links:',    jLinkResults);
     console.log('per relay:', Object.fromEntries(relayStats));
     console.groupEnd();
 
@@ -1954,6 +2130,9 @@ function showPublishSummary({
     const cmtFails  = (commentResults      && commentResults.fail)      || 0;
     const clmFails  = (claimResults        && claimResults.fail)        || 0;
     const relFails  = (relationshipResults && relationshipResults.fail) || 0;
+    const jdgFails  = ((assessResults && assessResults.fail) || 0)
+                    + ((mirrorResults && mirrorResults.fail) || 0)
+                    + ((jLinkResults && jLinkResults.fail) || 0);
 
     const segments = [];
     segments.push(articleResults.successful > 0
@@ -1971,6 +2150,15 @@ function showPublishSummary({
     if (relationshipCount > 0) {
         segments.push(`${relationshipResults.ok}/${relationshipResults.ok + relationshipResults.fail} relationship${relationshipCount === 1 ? '' : 's'}`);
     }
+    if (assessCount > 0) {
+        segments.push(`${assessResults.ok}/${assessCount} assessment${assessCount === 1 ? '' : 's'}`);
+    }
+    if (mirrorCount > 0) {
+        segments.push(`${mirrorResults.ok}/${mirrorCount} label mirror${mirrorCount === 1 ? '' : 's'}`);
+    }
+    if (jLinkCount > 0) {
+        segments.push(`${jLinkResults.ok}/${jLinkCount} claim link${jLinkCount === 1 ? '' : 's'}`);
+    }
     let line = 'Published: ' + segments.join(', ') + '.';
 
     const acceptedAll = [...relayStats.values()].filter((s) => s.fail === 0 && s.ok > 0).length;
@@ -1983,7 +2171,7 @@ function showPublishSummary({
         line += ` Rejected by ${names} — consider removing in Options.`;
     }
 
-    const anyFail = dead.length > 0 || cmtFails > 0 || entFails > 0 || clmFails > 0 || relFails > 0;
+    const anyFail = dead.length > 0 || cmtFails > 0 || entFails > 0 || clmFails > 0 || relFails > 0 || jdgFails > 0;
     const level = (anyFail || articleResults.successful === 0)
         ? (articleResults.successful > 0 ? 'warning' : 'error')
         : 'success';
@@ -2001,7 +2189,7 @@ function showPublishSummary({
             : 'X-Ray: Publish complete';
     notify(notifyTitle, line, level);
 
-    return totalEvents - cmtFails - entFails - clmFails - relFails
+    return totalEvents - cmtFails - entFails - clmFails - relFails - jdgFails
                        - (articleResults.successful === 0 ? 1 : 0);
 }
 

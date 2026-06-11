@@ -19,6 +19,41 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-10 — Phase 11.7: judgment publishing behind the flag
+
+**Tags:** design, wire-format
+
+The `assessmentPublishing` flag now does something: the reader's batch
+publishes wire-ready 30054 assessments + 30055 claim links + kind-1985
+label mirrors, after the claims (publish ordering per design rule 4 —
+own-claim coordinates derive from the RECORDED publishedPubkey, never
+the current signer). Selection logic is pure + unit-tested
+(`shared/assessment-publish.js`); the options Advanced tab grew an
+Experimental toggle (writes the `xray:flags` override; the reader
+re-reads flags at publish time, so no reload ping is needed — the
+`xray:flags:reload` message remains aspirational).
+
+Three second-guessable calls:
+
+- **Batch scope is ALL wire-ready judgments**, not just this article's:
+  judgments are article-agnostic records, and cross-article ones
+  (foreign-claim assessments, cross-source links) would otherwise never
+  publish. The progress total extends mid-batch (judgment counts aren't
+  knowable until claims record their pubkeys); a second toast announces
+  the judgment sub-batch.
+- **Mirrors are first-publish only, and only when their 30054 landed.**
+  Kind 1985 is a regular (non-replaceable) event — re-mirroring on every
+  edit would accumulate duplicates in naive aggregators. Cost: a label
+  edit after first publish leaves the mirror stale until a NIP-09
+  cleanup pass exists (same posture as every other superseded event).
+- **Pre-backfill ambiguity, accepted:** an assessment stored against our
+  own claim's coordinate BEFORE the claim recorded its pubkey publishes
+  "as foreign" (correct coordinate, just no registry enrichment); once
+  the pubkey lands, the same record selects via the local claim. Either
+  path emits the same coordinate, so the wire d is identical.
+
+---
+
 ## 2026-06-10 — Phase 11.3: assess UI; the one UI module in src/shared/
 
 **Tags:** design
