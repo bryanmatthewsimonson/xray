@@ -1,8 +1,11 @@
 # Phase 13 — Epistemic audits: the X-Ray auditor, integrated
 
-**Status:** kickoff brief, 2026-06-11 (rev 2 — now grounded in the
-maintainer's recovered auditor framework; supersedes the rev-1
-reconstruction). This is the prompt for a *new session* to design
+**Status:** kickoff brief, 2026-06-11 (rev 3 — rev 2 grounded the
+brief in the maintainer's recovered auditor framework, superseding the
+rev-1 reconstruction; rev 3 incorporates the three subsequently
+recovered sub-READMEs: the per-entity kind map, the calibration
+anchors, the integration paths, and derive-don't-ask for the module
+findings schemas). This is the prompt for a *new session* to design
 Phase 13. **Design note ONLY this session** — the maintainer has
 explicitly scoped this run to producing `docs/EPISTEMIC_AUDIT_DESIGN.md`
 for review; **no feature code, no wire builders, no UI** until the
@@ -23,29 +26,47 @@ conversations, is **recovered and vendored in this repo** at
 
 - `docs/auditor-prototype/README.md` — the architecture and the design
   rationale, in the maintainer's own words. Authoritative.
-- `docs/auditor-prototype/prompts/00`–`08` — the eight surface-scan
-  module methodologies (versioned prompts with scoring rubrics and
-  structured-JSON output contracts) plus a single-shot orchestrator.
-- `docs/auditor-prototype/schema/audit-types.ts` — the full data
-  model: content-addressed articles, atomic claims, module results,
-  aggregate audits with knowability ceiling, prediction ledger +
-  resolutions, author/publication dossiers with Bayesian shrinkage,
-  audit disputes, auditor identity, cross-auditor disagreement.
+- `docs/auditor-prototype/prompts/` — the eight surface-scan module
+  methodologies (versioned prompts with scoring rubrics and
+  structured-JSON output contracts), a single-shot orchestrator, and a
+  README whose **calibration notes are load-bearing for display
+  design**: a score of 50 is a *meaningfully concerning* article, not
+  an average one (competent journalism's expected mean is 70–85);
+  confidence below 0.6 means "needs human review"; every finding must
+  carry an `evidence_quote` — "this is what makes the audit
+  auditable"; methodology changes bump the module version so dossiers
+  can show "rescored under v1.2" history.
+- `docs/auditor-prototype/schema/` — `audit-types.ts` (the canonical
+  data model: content-addressed articles, atomic claims, module
+  results, aggregate audits with knowability ceiling, prediction
+  ledger + resolutions, dossiers with Bayesian shrinkage, disputes,
+  auditor identity, cross-auditor disagreement) plus a README with the
+  entity diagram, the per-entity kind suggestions, the NOSTR mapping
+  notes (`d`/`e`/`p`/`t` tag schemes), and the design-decisions
+  rationale.
 - `docs/auditor-prototype/scorer/` — a working Node prototype that
   fans the eight modules out in parallel against the Anthropic API and
-  aggregates (weights, ceiling, confidence stacking).
+  aggregates (weights, ceiling, confidence stacking), plus a README
+  with cost notes (cache key = article hash; a cached audit needs no
+  recompute until the methodology version changes) and — read this
+  twice — a **"Wiring into X-Ray" section laying out two integration
+  paths**, each with its trade-offs.
 
-Three referenced artifacts were NOT recovered: `schema/README.md`
-(cited by the README for the per-entity kind suggestions),
-`schema/relational.sql` (cited in audit-types.ts's header), and the
-per-module findings JSON schemas in `schema/modules/` (cited by
-`ModuleResult.findings` — note the scorer's "validates each output"
-header is aspirational; the code only extracts JSON). Also unrecovered:
-the original conversation's prose on "governing principles, dimensions,
-knowability, calibration multiplier, dispute mechanics, accessibility
-tiers" (the README's final paragraph points to it). Where any of these
-would have answered a question — the module findings schemas bear
-directly on your module-result wire shape — put the question to the
+Two referenced artifacts remain unrecovered, both reconstructible:
+`schema/relational.sql` (audit-types.ts's header; the schema README
+says it can be code-generated from the types — treat as a non-loss)
+and the per-module findings JSON schemas in `schema/modules/` (absent,
+but both READMEs say they are *derived from the prompt output
+specifications* in `prompts/01`–`08` — your design note should derive
+them, not ask; note that the scorer's "validates each output" header
+AND the schema README's "the scorer prototype validates module
+outputs against these schemas before persisting" are both
+aspirational — the code only extracts JSON, as the scorer README's
+own Limitations section admits). Still genuinely
+unrecovered: the original conversation's prose on "governing
+principles, dimensions, knowability, calibration multiplier, dispute
+mechanics, accessibility tiers" (the main README's final paragraph
+points to it). Where THAT would have answered a question, ask the
 maintainer rather than inventing the answer.
 
 An earlier revision of this brief reconstructed the concept from first
@@ -111,11 +132,8 @@ calibration machinery only works if those signals never blend.
 
 ## Read next (and verify — don't take this brief's word for it)
 
-- `CLAUDE.md` — contexts, conventions, the `xray:*` bus. **CAUTION:**
-  parts are stale (pre-Phase-11): its event-builder kind list still
-  shows retired 30043 as live and omits 30054/30055, and its roadmap
-  line stops at Phase 9a/v0.5.0. On kinds and phase status, trust
-  `docs/ROADMAP.md`, `docs/ASSESSMENTS_DESIGN.md`, and the code.
+- `CLAUDE.md` — contexts, conventions, the `xray:*` bus (refreshed for
+  Phase 12 in PR #59; current as of this brief).
 - `docs/ASSESSMENTS_DESIGN.md` — the Phase 11 design this layer sits
   beside; its "why a new kind" section is the template for your
   kind-number arguments.
@@ -154,34 +172,55 @@ These are the actual design work. The framework's shape is the
 maintainer's settled intent (modulo its own not-yet-built list, above);
 its *integration into X-Ray* is not.
 
-1. **Kind remapping (mandatory).** `audit-types.ts` suggests kinds
-   30050–30055 — written before Phases 9a/11 shipped, and **every one
-   of those numbers is now taken** (30050 annotations, 30051
+1. **Kind remapping (mandatory).** The schema README assigns the six
+   entity families precisely — ModuleResult 30050 (×8 modules),
+   AggregateAudit 30051, PredictionEntry 30052, PredictionResolution
+   30053, DossierSnapshot 30054, AuditDispute 30055 — and itself says
+   the numbers "should be claimed via NIP proposal before formal
+   publishing." They were chosen before Phases 9a/11 shipped, and
+   **every one is now taken inside X-Ray** (30050 annotations, 30051
    fact-checks, 30052 ratings, 30053 topic-trust, 30054 assessments,
    30055 relationships; 30043 is retired-do-not-reuse). Free: 30042,
-   30044–30049, 30056+. The note must map the framework's six entity
-   families (module result, aggregate audit, prediction entry,
-   prediction resolution, dossier snapshot, dispute) onto new kinds —
+   30044–30049, 30056+. Map the same six families onto new kinds —
    or argue fewer kinds with `d`-tag discrimination — with
    ASSESSMENTS_DESIGN-grade rationale per choice, `d` recomputable
-   from public inputs, dual-read-friendly, flag-gated. Note which
-   entities are addressable (latest-wins is WRONG for audits — the
-   schema says "nothing overwrites prior audits; drift is queryable" —
-   so argue the addressable-vs-regular choice per entity carefully).
+   from public inputs, dual-read-friendly, flag-gated. Preserve the
+   schema README's tag grammar where it fits the house idiom (`d` =
+   article hash for module results / subject id for dossiers; `e` to
+   predecessors — dispute→audit, resolution→prediction; `p` auditor/
+   author pubkeys; `t` beat/publication/module). **And resolve the
+   framework's sharpest internal tension head-on:** the schema README
+   says "each entity becomes an addressable replaceable event," while
+   audit-types.ts mandates "all time-series... nothing overwrites
+   prior audits; drift is queryable" — at the same `d`, NIP-01
+   replacement would eat the history. Your `d` scheme (run
+   discriminator? supersession chains with both visible, as the
+   dispute section requires?) must reconcile these, per entity.
 2. **Where the model runs.** The scorer is a Node CLI calling the
-   Anthropic API. X-Ray the extension has no API dependency, no API
-   keys, and a hard local-first posture. Options to weigh (this is
-   the biggest open question — frame it, recommend, and ask):
-   (a) companion-tool architecture — the scorer stays outside the
-   extension, emits signed NOSTR events the extension/portal then
-   reads like any other corpus events; (b) in-extension calls to an
-   LLM API behind settings + the flag (key storage, cost, consent);
-   (c) a manual tier — the module *methodologies* double as guided
-   human checklists run in the reader (the unrecovered "accessibility
-   tiers" prose may have envisioned exactly this — ask); (d) hybrid.
-   Auditor identity must record which path produced each result —
-   the schema already supports model/human/pipeline/consensus, with
-   constituent auditors on the latter two.
+   Anthropic API; X-Ray the extension currently has no API dependency
+   and no key handling. The scorer README's "Wiring into X-Ray"
+   section lays out **two integration paths** (presented with
+   trade-offs, not as a ruling): (a) the service worker calls a
+   **hosted scorer endpoint** (thin wrapper around `scoreArticle`),
+   result rendered in the reader — the README says "capture panel,"
+   a surface removed with the FAB/in-page panel; the reader is its
+   successor — and optionally published as audit events;
+   (b) **local-first** — users supply their
+   own API key and the scorer logic runs client-side from the
+   background worker, no server. Either path yields identical
+   `audit-types.ts` shapes downstream. The design note should weigh
+   these two (key storage, consent, cost — the README budgets 1–3¢
+   per article on Sonnet, and prescribes caching by article hash
+   until a methodology version changes; also note a hosted endpoint
+   is a new trust dependency for a trust tool), may add a third
+   **manual tier** — the module methodologies double as guided human
+   checklists in the reader (the unrecovered "accessibility tiers"
+   prose may have envisioned this — ask) — and recommend. A
+   companion-CLI stopgap (the scorer as-is, emitting signed events
+   the portal reads) is compatible with (b) and worth costing as the
+   v1 stepping stone. Auditor identity must record which path
+   produced each result — the schema supports model/human/pipeline/
+   consensus, with constituent auditors on the latter two.
 3. **Article hashing, canonically.** One normalization, specified
    byte-for-byte in the note (the scorer's `normalizeMarkdown` is the
    candidate), its relationship to `html_snapshot_sha256`, and how a
@@ -223,10 +262,15 @@ its *integration into X-Ray* is not.
    disagreement is preserved as a sibling record rather than averaged
    away. The design note should make the display rule explicit — a
    score never renders without its confidence, and an aggregate never
-   without its ceiling context — and apply it to every UI surface,
-   especially the score badge (a surface your note *proposes*: the v1
-   trust-badge UI was removed in Phase 0/10 reframes, and the auditor
-   README's "metadata badge surface" line predates that removal).
+   without its ceiling context — and bake in the prompts README's
+   calibration anchors: 50 is *concerning*, not average (competent
+   journalism's expected mean is 70–85, so any color scale or badge
+   must not center on 50), and confidence < 0.6 renders as
+   "needs human review," not as a number. Apply it to every UI
+   surface, especially the score badge (a surface your note
+   *proposes*: the v1 trust-badge UI was removed in Phase 0/10
+   reframes, and the auditor README's "metadata badge surface" line
+   predates that removal).
 8. **Failure modes** (address each): score theater (a 0–100 number
    invites consumers to ignore the confidence — the display rule
    above is the mitigation; the knowability ceiling is the other
@@ -262,11 +306,15 @@ its *integration into X-Ray* is not.
   history docs; non-goals (network consensus, multi-auditor
   aggregation beyond disagreement display, adjudication runtime);
   slice plan for a later implementation run (model+tests → wire
-  builders+NIP draft → capture-time hashing → companion/manual audit
-  path → portal surfaces → publish, or as your design dictates); and
-  **review questions** — lead with the runs-where architecture and
-  any place the unrecovered philosophy prose (calibration multiplier
-  details, accessibility tiers) forced a guess.
+  builders+NIP draft → capture-time hashing → audit execution path
+  per your runs-where recommendation, with stopgap tiers as your
+  design dictates → portal surfaces → publish); and
+  **review questions** — lead with the runs-where architecture, the
+  knowability-ceiling provenance question (who sets it: the auditing
+  model, the pipeline heuristic, or a dedicated module — the two
+  recovered implementations disagree), and any place the unrecovered
+  philosophy prose (calibration multiplier details, accessibility
+  tiers) forced a guess.
 - **Run a multi-agent adversarial review over the design note itself**
   before opening the PR (lenses: framework fidelity — every deviation
   from `docs/auditor-prototype/` is flagged and justified, none is
@@ -274,9 +322,7 @@ its *integration into X-Ray* is not.
   against `main`; scope — small slices, nothing network-shaped,
   design-note-only honored). Fix what's confirmed.
 - ROADMAP gains a Phase 13 section (status: design under review) +
-  snapshot line. (Housekeeping: if the §Phase 12 section header still
-  says "(in progress)", fix it in passing — the snapshot is
-  authoritative.) JOURNAL records the second-guessable calls,
+  snapshot line. JOURNAL records the second-guessable calls,
   including the rev-1→rev-2 reversal on numeric scores (the kind of
   thing future readers will second-guess). Gate the push on
   `npm run build`, `npm test`, `npx --yes web-ext lint --source-dir .
