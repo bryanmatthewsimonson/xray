@@ -765,7 +765,7 @@ and real-world stories*):
 
 ---
 
-## Phase 10 — Claim tracking (next)
+## Phase 10 — Claim tracking ✅
 
 The north star: turn X-Ray from a capture tool into a system that
 **produces useful, usable data about real people, organizations, and
@@ -872,7 +872,7 @@ NIP-44-encrypted collaboration bundles.
 
 ---
 
-## Phase 12 — "My Archive" personal data portal (in progress)
+## Phase 12 — "My Archive" personal data portal ✅
 
 A **full-tab portal page** (`src/portal/`) where the user sees, searches,
 and visually explores everything they have published to NOSTR relays —
