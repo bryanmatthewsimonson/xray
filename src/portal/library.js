@@ -273,7 +273,9 @@ export const EMPTY_FILTERS = Object.freeze({
     domain: '',
     caseName: '',
     client: 'all',   // 'all' | 'ours' | 'other'
-    query: ''
+    query: '',
+    after: 0,        // epoch seconds, inclusive — 0 = unset (timeline brush)
+    before: 0        // epoch seconds, exclusive — 0 = unset
 });
 
 /**
@@ -288,6 +290,8 @@ export function applyFilters(items, filters) {
         if (f.platform && item.platform !== f.platform) return false;
         if (f.domain && item.domain !== f.domain) return false;
         if (f.caseName && !item.cases.includes(f.caseName)) return false;
+        if (f.after && item.created_at < f.after) return false;
+        if (f.before && item.created_at >= f.before) return false;
         if (f.client === 'ours' && isOtherClient(item)) return false;
         if (f.client === 'other' && !isOtherClient(item)) return false;
         for (const token of tokens) {

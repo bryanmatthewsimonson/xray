@@ -166,7 +166,7 @@ test('isOtherClient: badge only when a client tag exists and is not ours', () =>
 
 test('EMPTY_FILTERS and TYPE_DEFS are pinned', () => {
     assert.deepEqual(EMPTY_FILTERS,
-        { type: 'all', platform: '', domain: '', caseName: '', client: 'all', query: '' });
+        { type: 'all', platform: '', domain: '', caseName: '', client: 'all', query: '', after: 0, before: 0 });
     assert.deepEqual(TYPE_DEFS.map((d) => d.key),
         ['article', 'claim', 'comment', 'assessment', 'link', 'entity', 'case', 'account', 'other']);
     assert.equal(kindLabel(30040), 'Claim');

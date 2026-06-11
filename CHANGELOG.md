@@ -27,6 +27,15 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Portal timeline — publish-date density + brush filtering**
+  (Phase 12.4). A density strip over the corpus's `created_at` (UTC
+  day buckets, rolling up to Monday-anchored weeks past 180 days, gap
+  days rendered as gaps) sits above the Library; capture sessions show
+  as spikes. Dragging across bars — or clicking one — brushes a time
+  range that filters the list below (after-inclusive /
+  before-exclusive, one filtering path with tabs/facets/search); a
+  chip shows the active range and clears it.
+
 - **Portal cache — instant open, incremental refresh** (Phase 12.3).
   The portal now renders from a local IndexedDB cache (`xray-portal`,
   a separate database from the archive — derived data, droppable and
