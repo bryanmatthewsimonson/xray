@@ -99,7 +99,9 @@ export function renderInspector(host, item, { status = 'no-ledger', onClose } = 
                 return;
             }
             const id = crypto.randomUUID();
-            chrome.runtime.sendMessage({ type: 'xray:reader:open', id, article }, (resp) => {
+            // readOnly: the reader must not write this relay
+            // reconstruction into the local archive cache (Q5).
+            chrome.runtime.sendMessage({ type: 'xray:reader:open', id, article, readOnly: true }, (resp) => {
                 if (!resp || !resp.ok) {
                     Utils.error('Inspector: reader open failed', resp && resp.error);
                     open.textContent = 'Reader open failed';

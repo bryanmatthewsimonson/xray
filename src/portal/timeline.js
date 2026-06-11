@@ -43,10 +43,18 @@ export function bucketStart(ts, bucket) {
  * @param {{bucket?: 'day'|'week'}} [opts]  omit to auto-choose
  * @returns {{bucket: string, buckets: Array<{start: number, end: number, count: number}>}}
  */
+// Plausible-seconds window: NOSTR predates 2015 nowhere we care about,
+// and anything past ~2286 (1e10) is a millisecond-precision timestamp
+// from a broken writer. One such event would otherwise stretch the
+// series by ~50k years of buckets and freeze the tab (12.7 review fix).
+const MIN_SANE_TS = 1262304000;     // 2010-01-01
+const MAX_SANE_TS = 10000000000;    // ~2286; 13-digit ms values exceed this
+const MAX_BUCKETS = 5000;           // hard safety ceiling for the dense series
+
 export function buildBuckets(items, { bucket } = {}) {
     const stamps = (Array.isArray(items) ? items : [])
         .map((i) => i && i.created_at)
-        .filter((t) => Number.isFinite(t) && t > 0);
+        .filter((t) => Number.isFinite(t) && t >= MIN_SANE_TS && t < MAX_SANE_TS);
     if (stamps.length === 0) return { bucket: bucket || 'day', buckets: [] };
 
     const min = Math.min(...stamps);
@@ -62,7 +70,7 @@ export function buildBuckets(items, { bucket } = {}) {
     }
 
     const buckets = [];
-    for (let start = first; start <= max; start += size) {
+    for (let start = first; start <= max && buckets.length < MAX_BUCKETS; start += size) {
         buckets.push({ start, end: start + size, count: counts.get(start) || 0 });
     }
     return { bucket: chosen, buckets };

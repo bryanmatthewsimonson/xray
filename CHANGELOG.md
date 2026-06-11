@@ -12,6 +12,29 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Fixed
 
+- **Hardening from the Phase 12.7 adversarial review** (three lenses,
+  every finding probe-verified; full record in `docs/JOURNAL.md`
+  2026-06-11). The two relay-sync bugs: an unreachable relay was
+  indistinguishable from an empty one (`queryRelays` resolves ok for a
+  failed connect), so an offline Refresh reported success and advanced
+  the portal's sync cursor over the outage — the connect failure is now
+  stamped on the per-relay stat and honored; and backfill paged with an
+  exclusive `until`, silently dropping same-second events at a relay's
+  response-cap boundary — paging is now inclusive with a
+  nothing-new-from-this-relay terminator. The sync cursor also
+  fingerprints the identity + relay sets (a new npub or relay triggers
+  a full backfill, not a one-hour window) and only advances on a clean
+  pass. "Open in reader" no longer writes the relay reconstruction into
+  the archive cache (read-only guarantee); reconciliation reads link
+  endpoints from the fields records actually carry and matches article
+  addresses by the raw-URL hash the wire uses; one millisecond-precision
+  timestamp can no longer freeze the timeline; sourced claims get
+  assessment tinting; case-dashboard rows open the inspector; the
+  Library gained the designed ledger-status facet, show-more pagination,
+  and the local-only count + legend; the portal is now linked from the
+  options and side-panel headers; and a failed IndexedDB open degrades
+  to live-only instead of bricking the page.
+
 - **Hardening from the Phase 11.7/11.8 review.** Case bundles now derive
   the key slot from the entity id and ignore any bundle-supplied
   `keyName` (a crafted bundle could otherwise bind a record to the

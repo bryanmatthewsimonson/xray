@@ -135,7 +135,15 @@ export function buildEgoGraph(items, { focusPubkey, entityIndex = {}, expandedTy
     const keptSourced = capList('sourced-claim', claimsSourced);
     for (const item of keptSourced) {
         const id = `claim:${item.claimCoord || item.id}`;
-        if (!addNode({ id, nodeType: 'sourced-claim', label: item.title, item, stance: null, labelCount: 0 })) continue;
+        // Assessments decorate sourced claims exactly like about-claims
+        // (12.7 review fix — the same assessed claim must not render
+        // tinted on one entity's graph and bare on another's).
+        const assessment = item.claimCoord ? assessmentByCoord.get(item.claimCoord) : null;
+        if (!addNode({
+            id, nodeType: 'sourced-claim', label: item.title, item,
+            stance: assessment ? assessment.stance : null,
+            labelCount: assessment ? assessment.labelCount : 0
+        })) continue;
         if (item.claimCoord) claimNodeByCoord.set(item.claimCoord, id);
         edges.push({ from: 'focus', to: id, kind: 'spoke', role: 'source' });
     }

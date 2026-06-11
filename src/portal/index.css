@@ -544,6 +544,19 @@ button.xr-badge--case { cursor: pointer; background: transparent; }
 .xr-recon__line { color: var(--xr-text-dim); }
 .xr-recon__line--warn { color: var(--xr-warning); }
 
+.xr-recon__legend {
+  margin-top: 2px;
+  color: var(--xr-text-dim);
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.xr-portal__more-row {
+  list-style: none;
+  text-align: center;
+  padding: 12px 0 4px;
+}
+
 .xr-portal__recon details { margin-top: 6px; }
 .xr-portal__recon summary { cursor: pointer; color: var(--xr-warning); font-size: 12px; }
 

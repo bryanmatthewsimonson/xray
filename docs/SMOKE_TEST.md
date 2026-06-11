@@ -426,6 +426,75 @@ sharing a case so a collaborator's claims aggregate with yours.
 
 ---
 
+## Phase 12 — "My Archive" portal
+
+The read-back surface (docs/PORTAL_DESIGN.md). Best run on a profile
+that has already published a case or two: claims, comments,
+assessments, a cross-video `contradicts` link, entities, a couple of
+captured articles (the Phase 11/11b walkthrough leaves exactly this
+behind). The portal is **read-only** — nothing here publishes,
+deletes, or writes the local publish ledger.
+
+**Open + identity**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 12.1 | Toolbar right-click → **Open My Archive** (also: Options header → **My Archive**, side panel header → **Archive**) | ✅ full-tab portal opens from all three; relay list in the footer + the privacy note ("Relays can see that request") |
+| 12.2 | Header identity chips | ✅ your pubkey(s) render with provenance tags (`signer` / `sync-key` / `publish-history` / `manual`); entity-keys chip shows the count, hover lists names |
+| 12.3 | Paste a second npub → **Add identity** | ✅ chip appears tagged `manual` with a ✕; ✕ removes it |
+| 12.4 | (NIP-07 profile with no history) open the portal | ✅ honest empty state explains NIP-07 can't answer here and points to the npub field — no silent blank |
+
+**Corpus + Library**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 12.5 | First open | ✅ status walks resolve → query → "N item(s)"; list renders newest-first with kind chips |
+| 12.6 | Close and reopen the portal | ✅ items render **instantly from cache**, then "refreshing…" then "+N new" (or no change) |
+| 12.7 | Type tabs | ✅ counts per type; clicking filters; Articles / Claims / Comments / Assessments / Links / Entities / Cases / Accounts / Other |
+| 12.8 | **Search** a person's name | ✅ claims/comments/entities mentioning them filter live; tab counts follow |
+| 12.9 | Facets | ✅ platform / source domain / case / ledger-status selects filter; "Group by source" renders domain headers; an event published by another client wears a `via <client>` badge but is **not hidden**; >200 rows reveal incrementally via **Show more** |
+| 12.10 | Publish something new (reader) → portal **↻ Refresh** | ✅ status reports `+1 new`; the item appears |
+| 12.11 | **Full resync** | ✅ cache drops and rebuilds to the same state |
+
+**Timeline**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 12.12 | Density strip above the list | ✅ capture sessions show as spikes; gaps stay visible |
+| 12.13 | Drag across a spike | ✅ list filters to the brushed range; chip shows it; ✕ clears |
+
+**Graph + case (the acceptance walk)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 12.14 | An entity row → **✳ Spokes** | ✅ radial ego graph: claims ring the focus; co-tagged people/orgs; containing cases; linked accounts |
+| 12.15 | Claim nodes | ✅ assessed claims tint by stance (red/green/amber); hover shows label count |
+| 12.16 | The `contradicts` link | ✅ ⚠ dashed red edge between the two claims; if the counterpart claim belongs to another entity it renders as a **ghost node** — never hidden |
+| 12.17 | Click a co-tagged entity node | ✅ graph refocuses on it |
+| 12.18 | Locate box + pan/zoom | ✅ typing pulses the first match; drag pans; wheel zooms |
+| 12.19 | More than 24 claims → "+K more" node | ✅ clicking expands the sector |
+| 12.20 | A case badge or case row → **☰ Dashboard** | ✅ artifact rollup by type, density strip, member chips (click → spokes), claims with stance + ⚠ contradicted badges |
+
+**Inspector + reconciliation**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 12.21 | Click any row title | ✅ drawer: coordinate, event id, author, **relays holding it**, ledger status, raw signed JSON |
+| 12.22 | **Copy raw event** | ✅ clipboard gets the JSON ("Copied ✓") |
+| 12.23 | An article row → **Open in reader** | ✅ the capture reconstructs from its signed event and opens read-only in the reader |
+| 12.24 | Reconciliation line above the list | ✅ "Local ledger says N published; the relays confirm M…" — counts agree with reality |
+| 12.25 | Publish to a relay, then remove that relay from Settings → portal **Full resync** | ✅ the item moves to **missing**; the panel lists it with its event id |
+| 12.26 | Query a pubkey you've published with from another device | ✅ those items render fully with the **◌ remote-only** chip — informational, not an error |
+| 12.27 | After all of the above, check the side panel / reader / options | ✅ untouched — the portal wrote nothing (no markPublished changes, no new local claims/entities) |
+
+**Firefox**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 12.28 | Repeat 12.1, 12.5–12.7, 12.14, 12.21 on Firefox ≥128 | ✅ identical behavior (the portal is plain SVG/IDB/`chrome.*`-polyfilled APIs) |
+
+---
+
 ## Phase 6 — Entity sync
 
 Run on **Device A** (your normal profile) and **Device B** (a

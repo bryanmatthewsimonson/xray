@@ -283,7 +283,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // NIP-07 signing back through a tab that has the content script
         // + MAIN-world bridge loaded.
         const sourceTabId = sender && sender.tab && sender.tab.id;
-        const record = { article, sourceTabId, createdAt: Date.now() };
+        // readOnly (Phase 12.7): set by the portal's "Open in reader" —
+        // the article is a relay reconstruction for VIEWING, and the
+        // reader must not let it touch the local archive cache.
+        const record = { article, sourceTabId, createdAt: Date.now(), readOnly: !!message.readOnly };
         const area = chrome.storage.session || chrome.storage.local;
         area.set({ ['xray:article:' + id]: record }, () => {
             const url = chrome.runtime.getURL('src/reader/index.html') + '?id=' + encodeURIComponent(id);

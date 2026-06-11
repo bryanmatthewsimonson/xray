@@ -19,6 +19,61 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-11 — Phase 12.7: what the adversarial review caught (two relay-sync bugs + a read-only breach)
+
+**Tags:** bug, design, pattern
+
+A three-lens review (correctness / integration / design-fidelity, every
+finding probe-verified; 20 confirmed, 1 refuted) over the six portal
+slices. The load-bearing fixes, recorded because each encodes a
+contract a future reader could re-break:
+
+- **A dead relay is indistinguishable from an empty one** on the
+  `xray:relay:query` wire: `queryRelays` deliberately marks a failed
+  connect as EOSE so one bad relay can't block the pool (a Phase 5
+  choice), which means it answers `{ok:true, events:[]}` for an
+  unreachable relay. The portal's sync-cursor guard and "failed:"
+  status keyed off `ok` and so were dead code — an *offline* Refresh
+  advanced the cursor and silently ate the window. Fix: the connect
+  catch now also stamps `failed:true` + `error` on the per-relay stat
+  (additive; existing consumers unaffected) and the portal honors it.
+- **NIP-01 `until` is inclusive, and paging with `until = oldest − 1`
+  drops same-second siblings** whenever a relay's silent response cap
+  lands inside a same-second run — which is the *normal* shape of an
+  X-Ray corpus, since claims/comments bulk-publish in one pass. Fix:
+  page with `until = oldest` and terminate on "this page brought
+  nothing this relay hasn't already served" — per-relay, not global,
+  because relays page concurrently and one relay's coverage must not
+  truncate another's backfill. Residual (documented): a single
+  same-second run longer than the relay's own cap.
+- **The sync cursor now carries fingerprints of the author + relay
+  sets** and only advances on a clean pass (no failures, no
+  truncation): a newly pasted npub or newly added relay needs its full
+  history, not the last hour.
+- **"Open in reader" was a read-only breach**: the reader
+  unconditionally archive-caches on load, which would have overwritten
+  the local row's `publishedToRelay` marker with a relay
+  reconstruction. The stash record now carries `readOnly: true` and
+  the reader skips the cache save for it.
+- **Reconcile read link endpoints from fields that don't exist**
+  (`source`/`target` vs the real `source_claim_id`/`target_claim_id`)
+  — its test had seeded the same fiction and passed. The test now pins
+  the real field names, plus `publishedKind: 30055` (the
+  30043-retirement migration clears publish markers without it). Same
+  class of bug for articles: the archive's `urlHash` hashes the
+  *normalized* URL but the wire 30023 `d` hashes the *raw* URL, so the
+  address tier never fired; reconcile recomputes from `rec.url`.
+- Smaller, same pattern of "the design said so": one ms-precision
+  `created_at` could explode the timeline into ~3M buckets (sane-window
+  filter + bucket ceiling); sourced-claim nodes now get assessment
+  decoration like about-claims; case-dashboard rows are inspectable;
+  the Library gained its designed status facet, "show more" pagination,
+  the local-only count + no-ledger legend; the portal is linked from
+  the options/side-panel headers; a failed IndexedDB open un-memoizes
+  and the portal degrades to live-only instead of bricking.
+
+---
+
 ## 2026-06-10 — Phase 12 design: the "My Archive" portal (for review before code)
 
 **Tags:** design

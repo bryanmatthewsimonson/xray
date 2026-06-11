@@ -58,9 +58,10 @@ Phase 11 ████████████████████  complete 
                                 (docs/ASSESSMENTS_DESIGN.md). 11.1–11.6 +
                                 publishing (11.7) + collaboration (11.8)
                                 shipped; case smoke-runs pending
-Phase 12 ░░░░░░░░░░░░░░░░░░░░  in progress — "My Archive" personal data
-                                portal (docs/PORTAL_DESIGN.md, design
-                                agreed 2026-06-10); slices 12.1–12.7
+Phase 12 ████████████████████  complete — "My Archive" personal data
+                                portal (docs/PORTAL_DESIGN.md). 12.1–12.7
+                                shipped incl. adversarial-review fixes;
+                                §Phase 12 smoke-run pending
 ```
 
 Parity with the v4.2 userscript is reached; the project now operates as a
@@ -910,8 +911,9 @@ Slices (one PR each):
 - ✅ **12.6** Inspector & reconciliation — raw events, per-relay
   holdings, ledger diff (confirmed / missing / remote-only), privacy
   footer. — #54
-- ⬜ **12.7** Hardening — adversarial review + fixes, SMOKE_TEST
-  §Phase 12, docs pass.
+- ✅ **12.7** Hardening — three-lens adversarial review (20 confirmed
+  findings fixed, incl. two relay-sync bugs and a read-only breach;
+  JOURNAL 2026-06-11), SMOKE_TEST §Phase 12, docs pass.
 
 ---
 
