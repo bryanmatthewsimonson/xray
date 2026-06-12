@@ -6,7 +6,7 @@ Web Content Annotations, Fact-Checks, and Topic Trust
 
 `draft` `optional`
 
-This NIP defines fourteen event kinds and one tag extension that together let users publish structured, anchored metadata about web content — atomized claims, annotations, fact-checks, ratings, personal assessments, claim relationships, topic-scoped trust assertions, helpfulness votes, and epistemic-audit records (per-module surface-scan results, aggregate article audits, a prediction ledger with resolutions, dossier rollup snapshots, and audit disputes — content-addressed to the exact text scored) — and lets readers query, rank, and surface that metadata in context.
+This NIP defines fourteen event kinds and two tag extensions that together let users publish structured, anchored metadata about web content — atomized claims, annotations, fact-checks, ratings, personal assessments, claim relationships, topic-scoped trust assertions, helpfulness votes, and epistemic-audit records (per-module surface-scan results, aggregate article audits, a prediction ledger with resolutions, dossier rollup snapshots, and audit disputes — content-addressed to the exact text scored) — and lets readers query, rank, and surface that metadata in context.
 
 It composes with rather than replaces:
 
@@ -561,6 +561,16 @@ Consumers visiting a URL or NOSTR event that is the target of a `responds-to` SH
 ```
 
 Filtered client-side to events that carry a matching `responds-to` tag.
+
+## Kind 30023 — `x` tag (extension)
+
+A long-form article (kind 30023) SHOULD carry the canonical article hash of its own body as an indexed `x` tag (NIP-94 precedent: the SHA-256 of the thing):
+
+```
+["x", "<sha256 of the normalized article body markdown>"]
+```
+
+The hash input is the event `content` after stripping the client metadata header (the leading `---…---` block), normalized exactly as specified in the kind-30056 section — so any consumer can verify the tag from the event alone, and `{"kinds":[30023],"#x":["<hash>"]}` finds the article a set of audit events scored. Additive and optional: events published before this extension carry no `x` tag and join audit queries by `r`/`d` instead; a re-published edit derives a NEW hash, which is the point — the audit kinds anchor to the exact text they scored, and a hash change between captures of one URL is a detected content change, not an error.
 
 ## Querying
 

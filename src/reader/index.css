@@ -1731,6 +1731,55 @@ body {
   flex-shrink: 0;
 }
 
+/* ---------------- Canonical-hash line + stealth-edit banner (13.4) ------- */
+
+.xr-article__hash {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--xr-text-dim);
+  margin-top: 4px;
+  user-select: all;
+}
+
+.xr-hash-banner {
+  max-width: var(--xr-reader-max-w);
+  margin: 14px auto 0;
+  padding: 12px 18px;
+  background: color-mix(in srgb, var(--xr-warning) 10%, var(--xr-surface));
+  border: 1px solid color-mix(in srgb, var(--xr-warning) 50%, transparent);
+  border-left: 3px solid var(--xr-warning);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.xr-hash-banner__body {
+  flex: 1;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.xr-hash-banner__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--xr-text);
+}
+
+.xr-hash-banner__metric {
+  font-size: 11px;
+  color: var(--xr-text-dim);
+}
+
+.xr-hash-banner__actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 /* ---------------- "Others' claims" relay-query modal (C5) ---------------- */
 
 .xr-claims__others-btn {

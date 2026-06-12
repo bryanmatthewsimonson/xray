@@ -13,49 +13,27 @@ import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
 import { ContentExtractor } from './content-extractor.js';
 import { buildRespondsToTag, RESPONDS_TO_RELATIONSHIPS } from './metadata/builders.js';
+import { articleHash } from './audit/article-hash.js';
 
 // Re-export the metadata helpers so callers that already import from
 // `event-builder.js` don't need a second import path. See spec §6.4.
 export { buildRespondsToTag, RESPONDS_TO_RELATIONSHIPS } from './metadata/builders.js';
 
 export const EventBuilder = {
-  // Build NIP-23 article event (kind 30023).
-  //
-  // `authorAccountPubkey` (Phase 9 identity) is the deterministic
-  // PlatformAccount pubkey of the POST author — when present, emitted as
-  // a `['p', pubkey, '', 'author']` reference so the post is linked to
-  // the same stable identity used for that author's comments elsewhere.
-  // Additive + optional: existing 4-arg callers are unaffected and emit
-  // no author p-tag, exactly as before.
-  buildArticleEvent: async (article, entities, userPubkey, claims = [], authorAccountPubkey = null) => {
+  // Assemble the publish-path article BODY — the markdown that follows
+  // the metadata header in a published 30023's content. This is the
+  // canonical-article-hash input (Phase 13.4): the audited text is the
+  // published text in full, so video Description/Transcript sections
+  // are INSIDE it, and the transcript chunking below is part of the
+  // content address — a formatting tweak here changes video hashes and
+  // gets the wire-change treatment (docs/EPISTEMIC_AUDIT_DESIGN.md
+  // §"Canonical article hash").
+  assembleArticleBody: (article) => {
     // Convert content to markdown, preserving formatting and images
     let markdownContent = article.content || '';
     if (markdownContent && markdownContent.includes('<')) {
       markdownContent = ContentExtractor.htmlToMarkdown(markdownContent);
     }
-
-    // Build metadata header for published content
-    let metadataHeader = '---\n';
-    metadataHeader += `**Source**: [${article.title}](${article.url})\n`;
-
-    // For video content, use "Channel" instead of "Author"
-    if (article.contentType === 'video' && article.byline) {
-      metadataHeader += `**Channel**: ${article.byline}\n`;
-    } else {
-      const metaParts = [];
-      if (article.siteName) metaParts.push(`**Publisher**: ${article.siteName}`);
-      if (article.byline) metaParts.push(`**Author**: ${article.byline}`);
-      if (metaParts.length) metadataHeader += metaParts.join(' | ') + '\n';
-    }
-
-    const dateParts = [];
-    if (article.publishedAt) {
-      dateParts.push(`**Published**: ${new Date(article.publishedAt * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`);
-    }
-    dateParts.push(`**Archived**: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`);
-    metadataHeader += dateParts.join(' | ') + '\n';
-
-    metadataHeader += '---\n\n';
 
     // For video content, include description and transcript as separate sections
     if (article.contentType === 'video') {
@@ -91,8 +69,58 @@ export const EventBuilder = {
       }
     }
 
+    return markdownContent;
+  },
+
+  // Build NIP-23 article event (kind 30023).
+  //
+  // `authorAccountPubkey` (Phase 9 identity) is the deterministic
+  // PlatformAccount pubkey of the POST author — when present, emitted as
+  // a `['p', pubkey, '', 'author']` reference so the post is linked to
+  // the same stable identity used for that author's comments elsewhere.
+  // Additive + optional: existing 4-arg callers are unaffected and emit
+  // no author p-tag, exactly as before.
+  buildArticleEvent: async (article, entities, userPubkey, claims = [], authorAccountPubkey = null) => {
+    const markdownContent = EventBuilder.assembleArticleBody(article);
+
+    // Header fields are interpolated raw between the `---` markers; a
+    // value smuggling a newline could forge the header terminator and
+    // leak header residue (the Archived date) into a third party's
+    // hash recomputation (Phase 13.4). Newlines have no business in a
+    // title/byline/site name anyway — flatten them.
+    const headerField = (v) => String(v == null ? '' : v).replace(/[\r\n]+/g, ' ');
+
+    // Build metadata header for published content
+    let metadataHeader = '---\n';
+    metadataHeader += `**Source**: [${headerField(article.title)}](${headerField(article.url)})\n`;
+
+    // For video content, use "Channel" instead of "Author"
+    if (article.contentType === 'video' && article.byline) {
+      metadataHeader += `**Channel**: ${headerField(article.byline)}\n`;
+    } else {
+      const metaParts = [];
+      if (article.siteName) metaParts.push(`**Publisher**: ${headerField(article.siteName)}`);
+      if (article.byline) metaParts.push(`**Author**: ${headerField(article.byline)}`);
+      if (metaParts.length) metadataHeader += metaParts.join(' | ') + '\n';
+    }
+
+    const dateParts = [];
+    if (article.publishedAt) {
+      dateParts.push(`**Published**: ${new Date(article.publishedAt * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`);
+    }
+    dateParts.push(`**Archived**: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`);
+    metadataHeader += dateParts.join(' | ') + '\n';
+
+    metadataHeader += '---\n\n';
+
     // Prepend metadata header to content
     const content = metadataHeader + markdownContent;
+
+    // Canonical article hash (Phase 13.4): SHA-256 of the normalized
+    // body — exactly what stripMetadataHeader recovers from this
+    // event's content, so any third party can verify the tag from the
+    // event alone. The anchor every audit kind joins on (`#x`).
+    const articleXHash = await articleHash(markdownContent);
 
     // Note: Images are kept as original URLs to avoid exceeding relay event size limits
     // (base64 embedding can inflate events to megabytes, causing universal relay rejection).
@@ -104,6 +132,7 @@ export const EventBuilder = {
       ['title', article.title || 'Untitled'],
       ['published_at', String(article.publishedAt || Math.floor(Date.now() / 1000))],
       ['r', article.url],
+      ['x', articleXHash],
       ['client', 'xray']
     ];
     
@@ -769,6 +798,11 @@ export const EventBuilder = {
       _nostrEventId: event.id,
       _nostrCreatedAt: event.created_at,
       _nostrPubkey: event.pubkey,
+      // Phase 13.4 — the canonical article hash the publisher computed
+      // at build time (the `x` tag). Carried as published rather than
+      // recomputed: a markdown→HTML→markdown round trip would not
+      // byte-match the original body. Null on pre-13.4 events.
+      _articleHash: tags['x'] || null,
     };
 
     // Reconstruct engagement

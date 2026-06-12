@@ -19,6 +19,66 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-11 — 13.4: the hash reaches the capture pipeline
+
+**Tags:** design
+
+Slice 13.4 puts the canonical article hash on shipping surfaces. The
+second-guessable calls:
+
+- **The hash input is the assembled publish-path body, not raw
+  `article.content`.** `assembleArticleBody` was extracted from
+  `buildArticleEvent` so the capture path (archive record), the
+  publish path (the `x` tag), and any future import path hash
+  identical bytes. Consequence, stated in the design and now true in
+  code: the video transcript-chunking loop is part of the content
+  address — a formatting tweak there changes video hashes and gets
+  the wire-change treatment.
+- **Header fields are newline-flattened, not rejected.** A title
+  smuggling `\n---\n` would forge the header terminator and leak the
+  Archived date into a third party's hash recomputation. Flattening
+  to spaces is a no-op for every real capture seen so far and keeps
+  capture unbreakable by hostile page titles. Pinned by a hostile-
+  title test asserting the strip invariant byte-for-byte:
+  `stripMetadataHeader(event.content) === assembleArticleBody(article)`.
+- **Relay reconstructions carry the published hash (`_articleHash`),
+  never recompute.** A markdown→HTML→markdown round trip does not
+  byte-match the original body; recomputing would mint a divergent
+  hash for the same published text.
+- **The reader's stealth-edit check is sequenced, not racing.** The
+  load path previously fire-and-forgot the archive save; the hash
+  comparison must read the PRIOR row, so hash → compare → save now
+  run in order inside one async block (still non-blocking for
+  render).
+- **Dependency note:** `archive-cache.js` now imports
+  `event-builder.js` (for the body assembly) — which transitively
+  probes `chrome.storage.local` at module load, so archive-cache
+  tests gained the event-builder tests' minimal chrome stub.
+- **The adversarial review caught the slice contradicting itself —
+  8 confirmed findings, one BLOCKING.** The banner told the user
+  "your previous capture stays in the archive" while the very next
+  line's `saveArticle` overwrote the single per-URL row — destroying
+  the only local copy of the text prior audits anchor to,
+  milliseconds after promising to keep it (and the design note had
+  explicitly committed to local survival, so softening the copy was
+  not an option). Fix: **bounded stealth-edit retention** — when a
+  re-capture's hash differs, the displaced `{article, articleHash,
+  cachedAt, displacedAt}` snapshots onto the row's `priorVersions`
+  (cap 3; the row still LRU-evicts as a unit). Also from the review:
+  the hash line went stale after "Load archive" (now refreshed from
+  the archive's carried hash, or recomputed) and after body edits
+  (now flagged "edited, recomputed at publish" — honest display over
+  live recomputation against a half-synced draft); republishing a
+  relay-loaded archive would have stamped the OLD carried hash into
+  the archive row beside a new event whose x tag differs (publish now
+  stamps the just-built event's x); a failed hash no longer inherits
+  the prior row's (a hash labels THIS body — inheriting mislabels);
+  and three mutation-verified test holes (per-call-site header
+  sanitization, the legacy fenced-transcript body — the only shape
+  that pins the strip regex's laziness — and the hash-failure path).
+
+---
+
 ## 2026-06-11 — 13.3: the ledger kinds, and what a resolution must carry
 
 **Tags:** design
