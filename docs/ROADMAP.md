@@ -1057,6 +1057,16 @@ Implementation slices 13.1+ are in progress.
   `findings.version` — the wire-address preimage), portal
   reconciliation for 30056–30059 (30060/30061 stay no-ledger; 30060
   snapshot publish deferred — portal stays read-only). — #69
+- 🔄 **13.9** Hardening (draft PR) — `SMOKE_TEST.md` §Phase 13 (the
+  24-step acceptance walk: capture → scorer → import gates → display
+  rules → atomize → flag-gated publish incl. resume + firewall →
+  portal surfaces → reconcile), docs-consistency pass (NIP draft vs
+  builders, design note vs code, options surface names), cross-slice
+  seam checks. The phase-wide multi-agent review was attempted and
+  lost to session limits (workflow script saved for a re-run); the
+  per-slice adversarial reviews — eight rounds, ~109 confirmed
+  findings, all fixed pre-PR — stand as the phase's review record.
+  — #70
 
 ---
 

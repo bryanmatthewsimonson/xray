@@ -12,6 +12,13 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 13.9 — hardening.** `docs/SMOKE_TEST.md` gains §Phase 13:
+  the 24-step manual acceptance walk for the audit pipeline (import
+  refusal cases, the display-rule checks, publish resume, the
+  audit/assessment firewall on raw events, portal surfaces,
+  reconciliation), plus a docs-consistency pass across the NIP draft,
+  design note, and options surfaces.
+
 - **Phase 13.8 — audit publish path.** A new `epistemicAuditing`
   feature flag (default **off**, Options ▸ Advanced, with an explicit
   public-visibility disclosure) lets the reader's Publish batch also

@@ -186,7 +186,8 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   `docs/ASSESSMENTS_DESIGN.md`), and 12 (portal; `docs/PORTAL_DESIGN.md`)
   are complete; Phase 13 (epistemic audits;
   `docs/EPISTEMIC_AUDIT_DESIGN.md`) design accepted 2026-06-11,
-  implementation slices 13.1+ in progress.
+  slices 13.1–13.9 implemented as the stacked PR train #61–#70
+  (awaiting review + the SMOKE_TEST §Phase 13 walk).
 - **`docs/JOURNAL.md`** — chronological log of bugs, design decisions, and
   external-platform changes. **Add a tight entry** when fixing a non-obvious
   bug, making a second-guessable design choice, or working around a

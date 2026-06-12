@@ -19,6 +19,54 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-12 — 13.9: hardening, and an honest note about the review that didn't run
+
+**Tags:** design, pattern
+
+Final Phase 13 slice (draft PR). What it contains and one thing it
+doesn't:
+
+- **SMOKE_TEST §Phase 13** — the 24-step manual acceptance walk:
+  capture/hash → scorer CLI → import gates (refusal cases included:
+  hash mismatch, no local capture, score-divergence tamper) → display
+  rules as explicit check steps (no naked numbers, sub-0.6 review
+  chip, side-by-side never averaged, scores never transfer across
+  edits) → atomize → flag-gated publish (off-by-default verified
+  first, then resume/no-duplicates, the relay-outage retry, and the
+  stance/`rating-value`/`L`/`l` firewall on raw events) → portal
+  chips/inspector/dossier/Resolve → reconciliation. Surface names
+  verified against the actual DOM (the importer and toggle live under
+  Options ▸ Advanced ▸ Epistemic audits).
+- **Docs-consistency pass** by direct reading: NIP draft §30058/30059
+  already agree with what 13.8 publishes (the `claim`-marked
+  back-reference, `x` = the *predicting* article's hash, foreign
+  extractor pubkeys anticipated in the 30059 reference); the design
+  note carries the publish-ordering and resolution-identity rules
+  threaded in during 13.8; one SMOKE_TEST step was corrected before it
+  ever misled anyone (batch events can share `created_at` seconds, so
+  ordering is verified by reference resolution, not timestamps).
+- **Cross-slice seam checks, run manually:** reconcile's address
+  recomputation and the publish batch derive from the same inputs
+  (`run.articleHash`, findings-version-first) so they cannot disagree;
+  pre-13.8 records flow through 13.8 paths via fallbacks that degrade
+  to counted skips, never blocked batches; claims published before
+  11.1 (no `publishedPubkey`) self-heal — the 11.7 `needCoordIds`
+  republish stamps the pubkey, and the deferred 30058 follows one
+  batch later; the publish flag is re-read inside every publish call,
+  so mid-session toggles can't race the gate.
+- **The thing that didn't happen:** the planned phase-wide
+  multi-agent review lost all seven finder agents to API session
+  limits (the 13.5 failure mode, phase-sized this time). Rather than
+  fabricate coverage, the workflow script is saved with its run id
+  for a later resume, and the honest record stands: eight per-slice
+  adversarial rounds (design + 13.1–13.8) confirmed ~109 findings,
+  all fixed before their PRs — the phase has been reviewed
+  slice-by-slice, not yet wall-to-wall. If the resumed phase review
+  ever runs, its findings belong in a follow-up PR, not silently
+  folded into history.
+
+---
+
 ## 2026-06-11 — 13.8: the publish batch, and what "ordered" has to mean on the wire
 
 **Tags:** design, bug
