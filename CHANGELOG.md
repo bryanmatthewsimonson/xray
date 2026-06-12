@@ -12,6 +12,20 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 13.6 — reader audit panel.** The imported audit renders
+  under the claims bar: aggregate badge on the framework's rubric
+  bands (a score never renders without its confidence; aggregate
+  confidence below 0.6 renders as "needs human review" with no
+  number; a binding knowability ceiling always shows its context and
+  provenance), expandable per-module rows with auditor caveats and
+  click-to-locate evidence quotes, the prediction ledger with
+  **Atomize as claim** offers, and side-by-side display of multiple
+  runs (never averaged). ⚠️ **Wire-format note (additive, kind
+  30040)**: a claim promoted from a prediction-ledger entry emits an
+  `a` back-reference to its kind-30058 prediction (4th-position role
+  `prediction`) — lineage runs both directions; unpromoted claims are
+  byte-identical to the previous shape.
+
 - **Phase 13.5 — audit import (the v1 execution path).** Run the
   vendored scorer CLI out-of-band, then import its JSON from the
   Reader ("Import audit JSON…" under the open capture) or Settings →

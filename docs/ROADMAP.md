@@ -1014,6 +1014,18 @@ Implementation slices 13.1+ are in progress.
   honest status line) + options Advanced importer (archive-matched,
   incl. retained prior versions); scorer README import note. Imports
   are local-only and ungated; publishing is 13.8. — #66
+- 🔄 **13.6** Reader audit panel (draft PR for smoke-testing) —
+  aggregate badge on the framework rubric bands (no naked numbers;
+  confidence < 0.6 renders "needs human review" with no number and no
+  band color; ceiling context when binding; provenance line), eight
+  expandable module rows (caveats + click-to-locate evidence quotes,
+  selection-only — never mutates the contenteditable body), prediction
+  ledger list with **Atomize as claim** offers (RQ6: the promotion
+  links both ways — prediction `claim_ref` locally, and the promoted
+  claim's 30040 emits an `a` back-reference at publish; additive wire
+  change, CHANGELOG callout), prior-version re-audit notice,
+  staleness chips (`CURRENT_MODULE_VERSIONS` reference), other runs
+  side-by-side (never averaged). — #67
 
 ---
 

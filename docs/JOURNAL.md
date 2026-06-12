@@ -19,6 +19,56 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-11 — 13.6: the audit panel, and where the promotion link lives
+
+**Tags:** design
+
+Slice 13.6 (reader audit panel, draft PR). The second-guessable calls:
+
+- **The RQ6 promotion link lives on the PREDICTION record, not the
+  claim record.** `ClaimModel` whitelists its fields (id-deriving
+  fields immutable, the rest enumerated) — extending it for one
+  enrichment field would touch shipped Phase-10 storage for no
+  gain. Instead `PredictionModel.setClaimRef` stores
+  `{claim_id, pred_d}` (enrichment, no `updated` bump), and the
+  publish loop builds a claim→prediction map from the predictions
+  side. `pred_d` is stored pre-derived (the wire `d` is the local id
+  with the prefix swapped) so `buildClaimEvent` stays synchronous.
+- **Quote-locate is selection-only.** The article body is
+  contenteditable and syncs `htmlDraft` — wrapping matches in mark
+  elements (the entity-tagger idiom) would pollute the draft with
+  audit chrome. A Range + Selection highlight scrolls and flashes
+  without mutating anything.
+- **A sub-0.6 aggregate renders NO band color.** The review chip IS
+  the badge — score, band, and color all suppressed, because a
+  colored "needs review" still smuggles a verdict.
+- **Audits anchored to retained prior versions surface as a re-audit
+  notice, never as scores** — scores don't transfer across edits;
+  the notice says exactly that and points at the CLI re-run.
+- **The adversarial review confirmed 8 findings (0 refuted), one
+  BLOCKING**: the publish flow restamps `state.articleHash` to the
+  newly built event's hash (13.4) BEFORE the claims loop builds the
+  RQ6 back-ref map (13.6) — on an edited-body publish the prediction
+  lookup ran under the wrong hash and every back-reference silently
+  dropped. Fixed by snapshotting the capture hash before the restamp.
+  Also caught: a score with UNKNOWN confidence rendered as a naked —
+  and therefore more authoritative — number than one at 0.59
+  (unknown now renders the review chip, and import takes
+  score/confidence FROM the validated findings, failing modules whose
+  top-level copies diverge); `ceiling_binding` was trusted from the
+  file though both operands are validated (now derived — a tampered
+  file can neither hide a binding ceiling nor paint a spurious one);
+  quote-locate had a measured 213ms O(n²) stall plus an off-by-N that
+  started selections inside collapsed whitespace (rewritten as one
+  O(n) scan with per-character index mapping, cross-node ranges);
+  atomizing onto an already-published claim never re-emitted (the
+  publish filter skips published-unedited claims — promotion now
+  bumps `updated`, because gaining the back-ref tag IS an edit); and
+  the pred_d string surgery now has a parity test against the wire
+  derivation so the lineage coordinate cannot silently drift.
+
+---
+
 ## 2026-06-11 — 13.5: the import gate, and what rejects vs what degrades
 
 **Tags:** design

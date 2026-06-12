@@ -288,6 +288,14 @@ const PAYLOADS = {
 
 export const MODULE_NAMES = Object.freeze(Object.keys(PAYLOADS));
 
+// The methodology versions the vendored prompts currently declare —
+// the staleness reference: a stored result whose module_version is
+// older gets a "re-audit under vX.Y" offer (never auto-recompute;
+// old results stay valid under their recorded version, P9/§8). Bump
+// alongside the prompt when a methodology changes.
+export const CURRENT_MODULE_VERSIONS = Object.freeze(
+    Object.fromEntries(MODULE_NAMES.map((m) => [m, '1.0'])));
+
 // prediction_extraction does not score (the ledger does, later).
 export const SCOREABLE_MODULES = Object.freeze(
     MODULE_NAMES.filter((m) => m !== 'prediction_extraction')

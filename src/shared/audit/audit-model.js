@@ -240,6 +240,21 @@ export const PredictionModel = {
     },
 
     /**
+     * Record the promotion link (RQ6): this prediction was atomized
+     * into a 30040 claim. `claimRef` carries `{claim_id, pred_d}` —
+     * the local claim id plus this prediction's wire `d`, so the
+     * claim builder can emit the `a` back-reference without an async
+     * derivation. Enrichment, never bumps `updated`.
+     */
+    setClaimRef: async (id, claimRef) => {
+        const record = await getPrediction(id);
+        if (!record) return null;
+        record.claim_ref = claimRef || null;
+        await savePrediction(record);
+        return record;
+    },
+
+    /**
      * Recompute the derived resolution fields from a set of resolution
      * records (own + incoming 30059s). Persists without bumping
      * `updated` — derivation is enrichment, not an edit.
