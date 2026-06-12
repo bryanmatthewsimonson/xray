@@ -19,6 +19,56 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-11 — 13.5: the import gate, and what rejects vs what degrades
+
+**Tags:** design
+
+Slice 13.5 (`audit/import.js` + reader/options affordances). The
+calls worth a paper trail:
+
+- **Reject vs degrade is drawn at the badge.** A corrupt file
+  (claimed hash ≠ body), a capture mismatch (audit about text the
+  user never captured), or a contradictory aggregate (final >
+  min(raw, ceiling)) rejects the whole import — those poison the
+  badge record. A single module failing schema validation (or a
+  scorer-reported `_error`) degrades instead: stored as a failed run,
+  score null, the validation errors recorded as a caveat — the
+  scorer's own failure posture, because one flaky module shouldn't
+  discard seven paid ones. A file where EVERY module fails rejects.
+- **The options importer matches against retained prior versions
+  too** — an audit of last week's text is still an audit of text the
+  user captured; 13.4's `priorVersions` retention is what makes that
+  honest.
+- **The reader's status line obeys the display rules from day one**:
+  no naked numbers (score renders with confidence), and
+  confidence < 0.6 renders as "needs human review" — even in this
+  pre-panel stub, so 13.6 inherits a surface that never violated the
+  rule.
+- **`ceiling_source` defaults to `heuristic:source-quality/1.0` on
+  import** when the export predates the field — RQ2's canonical
+  pipeline source, which is what the vendored scorer actually does.
+  A *present-but-invalid* value rejects (the closed RQ2 grammar,
+  enforced at the door rather than at publish).
+- **The adversarial review confirmed the slice's one real gate
+  hole**: the reader passed `state.articleHash || null`, and the
+  hash is never computed for read-only portal opens — so on those
+  views ANY internally-consistent audit imported ungated while the
+  status line simultaneously said "no audit imported." The reader
+  now refuses without a capture hash (pointing at the
+  archive-matched options importer); the half-checked state was
+  worse than either honest extreme. Mutation testing also showed
+  module- and prediction-level auditor attribution was unasserted
+  (a silent fallback-to-pipeline would have flattened RQ3's
+  identity layer into the published events) — now pinned. Review
+  process note: seven verifier agents hit the session usage limit
+  mid-run; their finder-lens findings (prediction enums unvalidated,
+  never-publishable predictions, ceiling_source grammar, the
+  vacuous `.every`-on-empty rejection) were adjudicated by direct
+  code reading and all fixed — predictions now validate enums +
+  publishability at import and skip with counted reasons.
+
+---
+
 ## 2026-06-11 — 13.4: the hash reaches the capture pipeline
 
 **Tags:** design

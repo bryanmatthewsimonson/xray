@@ -1731,6 +1731,39 @@ body {
   flex-shrink: 0;
 }
 
+/* ---------------- Epistemic-audit import bar (13.5) ---------------------- */
+
+.xr-audit {
+  max-width: var(--xr-reader-max-w);
+  margin: 18px auto 0;
+}
+
+.xr-audit__bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: var(--xr-surface);
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+}
+
+.xr-audit__label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--xr-text-dim);
+}
+
+.xr-audit__status {
+  flex: 1;
+  min-width: 200px;
+  font-size: 12px;
+  color: var(--xr-text-dim);
+}
+
 /* ---------------- Canonical-hash line + stealth-edit banner (13.4) ------- */
 
 .xr-article__hash {

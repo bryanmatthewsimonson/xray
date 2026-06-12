@@ -1005,6 +1005,15 @@ Implementation slices 13.1+ are in progress.
   `articleHash` on archive records; reader hash line + stealth-edit
   mismatch banner (sequenced before the archive save so the
   comparison reads the prior row). — #65
+- ✅ **13.5** Audit execution, v1 path — `audit/import.js` enforces
+  the RQ1 gate at the door: re-hash `body_markdown` vs the claimed
+  hash, match against the local capture, schema-validate every module
+  payload (failed/`_error` modules stored as failed runs — one bad
+  module never rejects the file; a contradictory aggregate does);
+  reader import bar (keyed to the open capture's hash, display-rule-
+  honest status line) + options Advanced importer (archive-matched,
+  incl. retained prior versions); scorer README import note. Imports
+  are local-only and ungated; publishing is 13.8. — #66
 
 ---
 
