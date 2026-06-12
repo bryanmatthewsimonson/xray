@@ -27,6 +27,15 @@ import { renderEntityView } from './entity-view.js';
 import { renderCaseView } from './case-view.js';
 import { loadLocalLedger, reconcile, countLocalOnly } from './reconcile.js';
 import { renderInspector } from './inspector.js';
+import {
+    buildAuditIndex, mergeLocalRuns, mergeLocalResolutions, auditsForArticle,
+    latestAuditFor, dossierInputsForEntity, computeEntityDossier,
+    predictionsDue, resolverIdentity, DEFAULT_POPULATION_MEAN
+} from './audit-data.js';
+import { auditCardChipData } from '../shared/audit/display.js';
+import { listRuns, listPredictions, listResolutions } from '../shared/audit/audit-cache.js';
+import { PredictionModel } from '../shared/audit/audit-model.js';
+import { openResolveForm } from './resolve-form.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -182,7 +191,23 @@ function openInspector(item) {
     const status = state.reconciliation
         ? state.reconciliation.statusByEventId[item.id] || 'no-ledger'
         : 'no-ledger';
-    renderInspector($('#xr-inspector'), item, { status });
+    // 13.7: articles get their audit record in the drawer — every
+    // run, side-by-side, never averaged, with module results and
+    // dispute lineage joined in.
+    let audit = null;
+    if (item.typeKey === 'article' && state.auditIndex) {
+        const { runs, joinedBy } = auditsForArticle(state.auditIndex, item);
+        if (runs.length) {
+            const hash = item.articleHash || (item.extra && item.extra.articleHash) || null;
+            audit = {
+                runs,
+                joinedBy,
+                modules: hash ? (state.auditIndex.modulesByHash.get(hash) || []) : [],
+                disputesByTarget: state.auditIndex.disputesByTarget
+            };
+        }
+    }
+    renderInspector($('#xr-inspector'), item, { status, audit });
 }
 
 function buildRow(item) {
@@ -209,6 +234,22 @@ function buildRow(item) {
     const relayBadge = el('span', 'xr-badge', `${item.relays.length} relay${item.relays.length === 1 ? '' : 's'}`);
     relayBadge.title = item.relays.join('\n');
     badges.appendChild(relayBadge);
+    // Audit chip (13.7) — the latest aggregate anchored to this
+    // article. Display rules hold at chip size: review states show no
+    // number, bands follow the rubric. URL joins (pre-13.4 hashless
+    // articles only) are ADVISORY and say so.
+    if (item.typeKey === 'article' && state.auditIndex) {
+        const latest = latestAuditFor(state.auditIndex, item);
+        const chip = auditCardChipData(latest);
+        if (chip) {
+            const advisory = latest.joinedBy === 'url';
+            const b = el('span', `xr-badge xr-badge--audit-${chip.bandKey}`,
+                chip.text + (advisory ? ' (URL match)' : ''));
+            b.title = chip.title + (advisory
+                ? ' — joined by URL, text unverified: this capture predates content hashing' : '');
+            badges.appendChild(b);
+        }
+    }
     if (isOtherClient(item)) {
         badges.appendChild(el('span', 'xr-badge xr-badge--warn', `via ${truncate(item.client, 24)}`));
     }
@@ -313,6 +354,77 @@ function fmtDay(ts) {
     return new Date(ts * 1000).toLocaleDateString();
 }
 
+// The predictions-due strip (13.7). Merges published 30058s with the
+// local ledger (deduped by their shared sha16 identity); each open,
+// scheduled entry offers Resolve… — resolutions file locally
+// (ResolutionModel); the 30059 publishes in 13.8 behind the flag.
+function renderPredictionsStrip(host) {
+    if (!state.auditIndex) return;
+    const { due, unscheduled } = predictionsDue(state.auditIndex, state.localPredictions, {
+        nowMs: Date.now(), windowDays: 90
+    });
+    if (due.length === 0 && unscheduled === 0) return;
+
+    const strip = el('div', 'xr-predue');
+    const label = el('span', 'xr-predue__label',
+        `Predictions due (90d): ${due.length}` + (unscheduled ? ` · ${unscheduled} unscheduled` : ''));
+    strip.appendChild(label);
+
+    // The resolver identity: the signer when known, never the
+    // reserved sync key — a coordinate minted under the wrong key
+    // would never match the 13.8 publish.
+    const resolver = resolverIdentity(state.identities);
+    for (const p of due.slice(0, 6)) {
+        const row = el('span', 'xr-predue__item');
+        row.appendChild(el('span', 'xr-predue__date', p.horizonIso));
+        const text = el('span', 'xr-predue__text', truncate(p.text, 70));
+        text.title = p.text;
+        row.appendChild(text);
+        // Coordinate: published entries carry it; local unpublished
+        // ones resolve under the resolver identity (the v1 flow signs
+        // predictions and resolutions with one key).
+        const coordinate = p.coordinate
+            || (resolver && p.localId ? `30058:${resolver.pubkey}:pred:${p.key}` : null);
+        if (coordinate) {
+            const btn = el('button', 'xr-badge xr-badge--action', 'Resolve…');
+            btn.type = 'button';
+            btn.title = 'File an evidence-bound resolution for this prediction';
+            btn.addEventListener('click', async () => {
+                const record = await openResolveForm({
+                    text: p.text,
+                    coordinate,
+                    resolverAuditor: resolver ? { kind: 'human', id: resolver.pubkey } : null
+                });
+                if (record) {
+                    // Make the resolution visible NOW, not at next
+                    // boot: derive the local prediction's status,
+                    // merge the record into the index, refresh the
+                    // local snapshots.
+                    try {
+                        if (p.localId) await PredictionModel.updateDerived(p.localId, [record]);
+                        mergeLocalResolutions(state.auditIndex, [record]);
+                        state.localPredictions = await listPredictions();
+                    } catch (err) {
+                        Utils.error('Portal: resolution refresh failed', err);
+                    }
+                    setStatus(`Resolution filed (${record.outcome}) — publishes with the 13.8 batch.`);
+                    renderLibrary();
+                }
+            });
+            row.appendChild(btn);
+        } else {
+            const why = el('span', 'xr-badge', 'no signing identity');
+            why.title = 'Resolving needs a signing identity (not the sync key) — connect a signer or add one above.';
+            row.appendChild(why);
+        }
+        strip.appendChild(row);
+    }
+    if (due.length > 6) {
+        strip.appendChild(el('span', 'xr-predue__more', `+${due.length - 6} more`));
+    }
+    host.appendChild(strip);
+}
+
 function renderTimeline() {
     const host = $('#xr-timeline');
     clear(host);
@@ -345,6 +457,11 @@ function renderTimeline() {
         head.appendChild(chip);
     }
     host.appendChild(head);
+
+    // Predictions coming due (13.7) — the long-game asset made
+    // visible: open ledger entries with a horizon inside 90 days,
+    // each with the Resolve… affordance.
+    renderPredictionsStrip(host);
 
     const svg = svgEl('svg', {
         viewBox: `0 0 ${buckets.length * TL_BAR_W} ${TL_HEIGHT}`,
@@ -511,6 +628,13 @@ function render() {
             entityIndex: state.entityIndex,
             focusPubkey: state.view.pubkey,
             expandedTypes: state.expandedTypes,
+            // 13.7: the audit dossier — derived, computed-on-open,
+            // reproducible from the same events by anyone (the 30060
+            // snapshot is just a cache of this).
+            dossier: state.auditIndex
+                ? computeEntityDossier(dossierInputsForEntity(state.items, state.auditIndex, state.view.pubkey))
+                : null,
+            populationMean: DEFAULT_POPULATION_MEAN,
             callbacks: viewCallbacks
         });
     } else if (state.view.name === 'case') {
@@ -519,6 +643,10 @@ function render() {
             items: state.items,
             entityIndex: state.entityIndex,
             casePubkey: state.view.pubkey,
+            dossier: state.auditIndex
+                ? computeEntityDossier(dossierInputsForEntity(state.items, state.auditIndex, state.view.pubkey))
+                : null,
+            populationMean: DEFAULT_POPULATION_MEAN,
             callbacks: viewCallbacks
         });
     } else {
@@ -544,6 +672,22 @@ function rebuildItems(records) {
     // The cache stores only the latest version per replaceable address,
     // so records arrive pre-deduped.
     state.items = buildItems(records, { entityIndex: state.entityIndex });
+
+    // 13.7: the audit index — published audit events joined to
+    // articles by canonical hash (URL fallback for pre-13.4 events),
+    // then merged with the LOCAL xray-audits ledger (imported but
+    // possibly unpublished runs). Async enrichment: render proceeds,
+    // surfaces refresh when it lands.
+    state.auditIndex = buildAuditIndex(state.items);
+    state.localPredictions = [];
+    Promise.all([listRuns(), listPredictions(), listResolutions()])
+        .then(([runs, preds, resolutions]) => {
+            mergeLocalRuns(state.auditIndex, runs);
+            mergeLocalResolutions(state.auditIndex, resolutions);
+            state.localPredictions = preds;
+            render();
+        })
+        .catch((err) => Utils.error('Portal: audit ledger load failed', err));
 }
 
 function setBusy(busy) {

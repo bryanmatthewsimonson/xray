@@ -19,6 +19,67 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-11 — 13.7: the portal joins, and what a dossier refuses to be
+
+**Tags:** design
+
+Slice 13.7 (portal audit surfaces, draft PR). The calls worth a
+paper trail:
+
+- **Hash-first joins, URL fallback only for hashless events.** An
+  audit chip on an article card means "this exact text was scored."
+  Pre-13.4 articles carry no `x` tag, so they fall back to the URL
+  join — and post-13.4 articles NEVER do, even when audits share
+  their URL: scores don't transfer across edits, full stop. Pinned by
+  test.
+- **The dossier rolls up the latest judgment per (article, auditor)**
+  — older runs by the same auditor are superseded judgments, not
+  extra data points; cross-auditor disagreement stays visible in the
+  inspector instead (side-by-side, never averaged). And no audited
+  articles → NO dossier, not an empty one at the population prior —
+  a dossier that is pure prior is noise dressed as reputation.
+- **`DEFAULT_POPULATION_MEAN = 77` is a published assumption**,
+  displayed in the dossier line every time it shrinks a mean
+  ("shrunk to 77.27 toward population 77, k=10, factor 0.91") — §4's
+  publish-the-shrinkage rule, applied literally.
+- **The Resolve… form derives unpublished-prediction coordinates
+  from the primary identity** — the v1 flow signs predictions and
+  resolutions with one key, so the coordinate the local resolution
+  keys on is the one the 13.8 publish will mint. No identity → the
+  affordance disables rather than guessing.
+- **The kind-list and TYPE_DEFS pins fired** when the corpus gained
+  the audit family — updated deliberately, which is exactly what
+  those pins are for.
+- **The adversarial review confirmed 20 findings (0 refuted), the
+  most of any slice — two blocking roots.** (1) The hash join was
+  DEAD in production: `buildItem` spreads extras flat, my joins read
+  the nested `item.extra.articleHash` my own test fixtures had
+  invented — every article silently fell to the URL join, local runs
+  never surfaced, and dossier predictions were always empty. Fixed
+  with a both-shapes accessor and, more importantly, a
+  production-pipeline test that builds events with the real builders
+  and runs them through `buildItems` — the seam can't silently split
+  again. (2) Locally-filed resolutions were invisible everywhere:
+  `updateDerived` had zero production callers, `listResolutions` was
+  never imported, and the strip re-offered Resolve… forever. Now the
+  resolve flow derives the prediction's status, merges the record
+  into the index, and the strip matches resolutions by sha16 identity
+  (so the coordinate's pubkey can't hide a local filing). Also from
+  the review: URL joins now carry an explicit "URL match — text
+  unverified" marker everywhere they render; sub-0.6 aggregates are
+  EXCLUDED from dossier rollups and counted as pending review (a new
+  design-note rule: a number the display refuses must not move a
+  reputation); the dossier line now distinguishes audited articles
+  from auditor judgments (shrinkage n = judgments, documented); the
+  inspector gained module rows + dispute lineage (`modulesByHash` had
+  zero consumers); case views gained the dossier block the design
+  assigned them; re-filing a resolution upserts instead of silently
+  returning the first record; and the resolver identity skips the
+  reserved sync key (with NIP-07, `identities[0]` IS the sync key —
+  a coordinate minted under it would never match the 13.8 publish).
+
+---
+
 ## 2026-06-11 — 13.6: the audit panel, and where the promotion link lives
 
 **Tags:** design

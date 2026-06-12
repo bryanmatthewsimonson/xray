@@ -895,6 +895,10 @@ Phase 12's portal already owns read-back surfaces. Division of labor:
   (via 30023 `p…author` tags + 32126 accounts + `t` beats), plus the
   local audit ledger for unpublished runs. Reproducible by
   construction — anyone with the events derives the same numbers.
+  Confidence rule (added in 13.7): aggregates below the 0.6 review
+  threshold are **excluded from the rollup and counted as pending
+  review** — a number the display rules refuse to show must not move
+  a reputation either.
 - **Published 30060 (optional cache):** "Publish dossier snapshot" from
   the dossier block, flag-gated like everything else. Latest-wins per
   subject. Consumers MUST prefer re-derivation when they hold the

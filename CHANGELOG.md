@@ -12,6 +12,19 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 13.7 — portal audit surfaces.** The portal corpus now
+  fetches the audit kinds (30056–30061); the Library gains Audits and
+  Predictions facets plus an audit chip on article cards (joined by
+  canonical hash — scores never transfer across edits); the item
+  inspector shows every audit run anchored to an article side-by-side
+  (never averaged), including local unpublished imports; entity views
+  gain a derived **Audit dossier** (shrinkage always shown with its
+  parameters; the per-hedge calibration rate table; calibration-v1
+  displayed as informational, never applied); and the timeline gains
+  a predictions-coming-due strip with an evidence-bound **Resolve…**
+  form (resolutions file locally; publishing is the flag-gated 13.8
+  step).
+
 - **Phase 13.6 — reader audit panel.** The imported audit renders
   under the claims bar: aggregate badge on the framework's rubric
   bands (a score never renders without its confidence; aggregate

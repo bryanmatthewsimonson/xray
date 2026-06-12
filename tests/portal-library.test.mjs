@@ -168,7 +168,10 @@ test('EMPTY_FILTERS and TYPE_DEFS are pinned', () => {
     assert.deepEqual(EMPTY_FILTERS,
         { type: 'all', platform: '', domain: '', caseName: '', client: 'all', status: 'all', query: '', after: 0, before: 0 });
     assert.deepEqual(TYPE_DEFS.map((d) => d.key),
-        ['article', 'claim', 'comment', 'assessment', 'link', 'entity', 'case', 'account', 'other']);
+        ['article', 'claim', 'comment', 'assessment',
+            // Phase 13.7 facets:
+            'audit', 'prediction',
+            'link', 'entity', 'case', 'account', 'other']);
     assert.equal(kindLabel(30040), 'Claim');
     assert.equal(kindLabel(12345), 'kind 12345');
 });
