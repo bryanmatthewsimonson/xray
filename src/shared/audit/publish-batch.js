@@ -71,7 +71,15 @@ export async function assembleAuditBatch({
         const runHash = run.articleHash || articleHash;
         // --- 30056s first: the aggregate's a-coords must reference
         // events that exist (or are in this very batch).
-        const coordByModule = {};
+        // Null prototype: module names key this map, and a hostile
+        // contribution row named '__proto__'/'constructor' must not
+        // resolve through the prototype chain.
+        const coordByModule = Object.create(null);
+        // A SCORED module whose build refused poisons the aggregate:
+        // its contribution row would silently vanish from a signed,
+        // immutable 30057 while final_score still counts it. The
+        // aggregate defers until the refusal is fixed.
+        let scoredBuildRefused = false;
         for (const r of run.moduleResults || []) {
             if (r.failed || !r.findings || typeof r.findings !== 'object') {
                 skipped.push({ what: `module ${r.module} (run ${run.runAt})`, reason: 'failed result — never publishes' });
@@ -81,7 +89,11 @@ export async function assembleAuditBatch({
             try {
                 const dTag = await deriveModuleResultDTag(runHash, r.module, moduleWireVersion(r), r.run_at);
                 if (alreadyPublished(run, eventKey)) {
-                    coordByModule[r.module] = `30056:${userPubkey}:${dTag}`;
+                    // The coordinate as PUBLISHED — after an identity
+                    // switch the current key would mint an address
+                    // that never existed on relays.
+                    const pk = run.events[eventKey].publishedPubkey || userPubkey;
+                    coordByModule[r.module] = `30056:${pk}:${dTag}`;
                     skipped.push({ what: `module ${r.module} (run ${run.runAt})`, reason: 'already published — resume skips it' });
                     continue;
                 }
@@ -107,6 +119,7 @@ export async function assembleAuditBatch({
                 // One malformed record never blocks the batch — and a
                 // module that won't build must not be referenced by
                 // the aggregate either (no coordByModule entry).
+                if (typeof r.score === 'number') scoredBuildRefused = true;
                 skipped.push({ what: `module ${r.module} (run ${run.runAt})`, reason: `build refused: ${err.message || err}` });
             }
         }
@@ -117,6 +130,11 @@ export async function assembleAuditBatch({
             skipped.push({ what: `aggregate (run ${run.runAt})`, reason: 'no scored aggregate' });
         } else if (alreadyPublished(run, 'agg')) {
             skipped.push({ what: `aggregate (run ${run.runAt})`, reason: 'already published — resume skips it' });
+        } else if (scoredBuildRefused) {
+            skipped.push({
+                what: `aggregate (run ${run.runAt})`,
+                reason: 'a scored module’s build refused — publishing the aggregate without its contribution would misstate the run'
+            });
         } else {
             try {
                 const contributions = (agg.module_contributions || [])
@@ -169,15 +187,28 @@ export async function assembleAuditBatch({
     const deferredPredCoords = new Set();
     for (const p of predictions) {
         const predD = 'pred:' + String(p.id || '').slice('pred_'.length);
-        const coord = `30058:${userPubkey}:${predD}`;
+        // The coordinate this prediction HAS (already published —
+        // under the key that signed it) or WILL have (this batch,
+        // under the signing key).
+        const coord = `30058:${p.publishedEventId ? (p.publishedPubkey || userPubkey) : userPubkey}:${predD}`;
         predCoordById[p.id] = coord;
         predHashById[p.id] = p.articleHash || articleHash;
-        if (p.publishedEventId) {
-            skipped.push({ what: `prediction ${predD}`, reason: 'already published' });
-            continue;
-        }
         const claimId = p.claim_ref && p.claim_ref.claim_id;
-        if (claimId && !claimPubkeys[claimId]) {
+        if (p.publishedEventId) {
+            // Late atomization (RQ6): a prediction promoted AFTER its
+            // 30058 published re-emits with the claim back-reference
+            // — the kind is replaceable, and without this the lineage
+            // holds in one direction only. Replacement only works at
+            // the SAME address, so the signing key must match the
+            // publishing key. Otherwise the resume skip.
+            const lateClaimLink = claimId && p.claim_ref_at && p.publishedAt
+                && p.claim_ref_at > p.publishedAt && claimPubkeys[claimId]
+                && (p.publishedPubkey || userPubkey) === userPubkey;
+            if (!lateClaimLink) {
+                skipped.push({ what: `prediction ${predD}`, reason: 'already published' });
+                continue;
+            }
+        } else if (claimId && !claimPubkeys[claimId]) {
             deferredPredCoords.add(coord);
             skipped.push({
                 what: `prediction ${predD}`,
@@ -206,7 +237,7 @@ export async function assembleAuditBatch({
                 auditor: p.auditor || { kind: 'human', id: userPubkey },
             });
             entries.push({
-                label: 'prediction',
+                label: p.publishedEventId ? 'prediction (re-emit: claim link)' : 'prediction',
                 event: built.event,
                 mark: { type: 'prediction', id: p.id },
                 coord
@@ -218,16 +249,21 @@ export async function assembleAuditBatch({
     }
 
     // --- 30059s last.
-    const ownCoords = new Set(Object.values(predCoordById));
+    const predById = {};
+    for (const p of predictions) predById[p.id] = p;
     const localPredByDSuffix = new Map();
     for (const [id, coord] of Object.entries(predCoordById)) {
         localPredByDSuffix.set(coord.split(':').slice(2).join(':'), id);
     }
     for (const r of resolutions) {
-        if (r.publishedEventId) {
+        // A REVISED resolution re-emits: update() bumps `updated`,
+        // markPublished never does, and the same d replaces the prior
+        // event on relays — the 13.1 model contract, honored here.
+        if (r.publishedEventId && !((r.updated || 0) > (r.publishedAt || 0))) {
             skipped.push({ what: `resolution ${r.id}`, reason: 'already published' });
             continue;
         }
+        const reEmit = !!r.publishedEventId;
         if (deferredPredCoords.has(r.prediction_coord)) {
             skipped.push({ what: `resolution ${r.id}`, reason: 'its prediction deferred this batch' });
             continue;
@@ -235,21 +271,31 @@ export async function assembleAuditBatch({
         const coordPubkey = String(r.prediction_coord || '').split(':')[1] || '';
         const dSuffix = String(r.prediction_coord || '').split(':').slice(2).join(':');
         const localPredId = localPredByDSuffix.get(dSuffix);
-        if (coordPubkey !== userPubkey && !ownCoords.has(r.prediction_coord) && localPredId) {
-            // The coordinate's d belongs to a LOCAL prediction, but it
-            // was minted under a different identity — that address
-            // will never exist (this batch publishes the prediction
-            // under the signing key). A coordinate with NO local
-            // counterpart is a remote prediction and publishes fine.
-            skipped.push({
-                what: `resolution ${r.id}`,
-                reason: 'prediction coordinate minted under a different pubkey — re-file under the signing identity'
-            });
+        // The address this resolution must reference:
+        //   - no local counterpart → someone else's published
+        //     prediction; the stored coordinate is the live address —
+        //     publish verbatim.
+        //   - local counterpart → the prediction's REAL address (the
+        //     key it published under, or the signing key it publishes
+        //     under this batch). A stored coordinate minted under a
+        //     stale identity is re-keyed here — the machine re-files
+        //     under the signing identity instead of dead-ending the
+        //     user with a skip whose remedy the strip has withdrawn.
+        let wireCoord = r.prediction_coord;
+        let rekeyedCoord = null;
+        if (localPredId) {
+            const targetCoord = predCoordById[localPredId];
+            if (wireCoord !== targetCoord) {
+                wireCoord = targetCoord;
+                rekeyedCoord = targetCoord;
+            }
+        } else if (!coordPubkey) {
+            skipped.push({ what: `resolution ${r.id}`, reason: 'unparseable prediction coordinate' });
             continue;
         }
         try {
             const built = await buildPredictionResolutionEvent({
-                predictionCoord: r.prediction_coord,
+                predictionCoord: wireCoord,
                 articleHash: r.article_hash || (localPredId && predHashById[localPredId]) || articleHash,
                 outcome: r.outcome,
                 confidence: typeof r.confidence === 'number' ? r.confidence : 0.9,
@@ -260,13 +306,13 @@ export async function assembleAuditBatch({
                 auditor: r.auditor || { kind: 'human', id: userPubkey },
             });
             entries.push({
-                label: 'resolution',
+                label: reEmit ? 'resolution (revision)' : 'resolution',
                 event: built.event,
-                mark: { type: 'resolution', id: r.id },
+                mark: { type: 'resolution', id: r.id, ...(rekeyedCoord ? { rekeyedCoord } : {}) },
                 // Dependency key: the publisher defers this resolution
                 // if the prediction minting this coordinate fails in
                 // this very batch.
-                predictionCoord: r.prediction_coord
+                predictionCoord: wireCoord
             });
         } catch (err) {
             skipped.push({ what: `resolution ${r.id}`, reason: `build refused: ${err.message || err}` });

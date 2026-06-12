@@ -28,7 +28,7 @@ import { articleHash } from './article-hash.js';
 import { MODULE_NAMES, validateFindings } from './findings-schemas.js';
 import { AuditRunModel, PredictionModel } from './audit-model.js';
 import {
-    AUDITOR_KINDS, isValidCeilingSource,
+    AUDITOR_KINDS, isValidCeilingSource, isStrictRunAt,
     PREDICTION_TYPES, HEDGE_LEVELS, ATTRIBUTION_KINDS, TRACTABILITIES
 } from './builders.js';
 
@@ -40,12 +40,23 @@ function fail(message) {
     return err;
 }
 
+// The builders additionally require a HUMAN auditor's id to be the
+// 64-hex pubkey (it becomes an indexed p tag) — a human id like
+// "bryan" would import cleanly, display fine, and then the whole
+// run would silently refuse to build at publish, forever. Invalid
+// human entries are treated as absent (callers fall back); same rule
+// for constituents.
+function validAuditorEntry(c) {
+    return c && AUDITOR_KINDS.includes(c.kind) && typeof c.id === 'string' && c.id
+        && (c.kind !== 'human' || HASH64_RE.test(c.id));
+}
+
 function normalizeAuditor(raw, fallbackId) {
-    if (raw && AUDITOR_KINDS.includes(raw.kind) && typeof raw.id === 'string' && raw.id) {
+    if (validAuditorEntry(raw)) {
         const auditor = { kind: raw.kind, id: raw.id };
         if (Array.isArray(raw.constituents)) {
             auditor.constituents = raw.constituents
-                .filter((c) => c && AUDITOR_KINDS.includes(c.kind) && typeof c.id === 'string' && c.id)
+                .filter(validAuditorEntry)
                 .map((c) => ({ kind: c.kind, id: c.id }));
         }
         return auditor;
@@ -109,8 +120,11 @@ export async function importAuditJson(json, { localArticleHash = null } = {}) {
     if (finalScore > ceiling + 1e-9 || finalScore > rawScore + 1e-9) {
         throw fail(`aggregate is internally contradictory: final_score ${finalScore} exceeds min(raw ${rawScore}, ceiling ${ceiling})`);
     }
-    if (typeof aggregate.run_at !== 'string' || Number.isNaN(Date.parse(aggregate.run_at))) {
-        throw fail('aggregate.run_at missing or unparseable');
+    // Strict ISO-8601 with explicit zone — the BUILDERS' grammar, not
+    // Date.parse's. run_at feeds the wire d preimage; a lenient
+    // timestamp here imports a run that can never publish.
+    if (!isStrictRunAt(aggregate.run_at)) {
+        throw fail(`aggregate.run_at must be strict ISO-8601 with timezone, e.g. 2026-06-11T20:14:05Z (got ${aggregate.run_at})`);
     }
     // A present-but-invalid ceiling provenance means a tampered or
     // foreign file — the wire's closed grammar (RQ2) would reject it
@@ -127,12 +141,15 @@ export async function importAuditJson(json, { localArticleHash = null } = {}) {
             throw fail('aggregate.module_contributions must be an array when present');
         }
         for (const c of aggregate.module_contributions) {
-            const ok = c && typeof c.module === 'string'
+            // Module must be a KNOWN name: the builder requires it,
+            // and an attacker-shaped name ('__proto__', 'constructor')
+            // would otherwise hit prototype-chain lookups downstream.
+            const ok = c && typeof c.module === 'string' && MODULE_NAMES.includes(c.module)
                 && (c.score === null || (typeof c.score === 'number' && Number.isFinite(c.score)))
                 && typeof c.confidence === 'number' && Number.isFinite(c.confidence) && c.confidence >= 0 && c.confidence <= 1
                 && typeof c.weight === 'number' && Number.isFinite(c.weight) && c.weight >= 0 && c.weight <= 1;
             if (!ok) {
-                throw fail(`aggregate.module_contributions has a malformed row (module ${c && c.module}) — score number|null, confidence/weight in [0,1] required`);
+                throw fail(`aggregate.module_contributions has a malformed row (module ${c && c.module}) — known module, score number|null, confidence/weight in [0,1] required`);
             }
         }
     }
@@ -164,6 +181,19 @@ export async function importAuditJson(json, { localArticleHash = null } = {}) {
                 findings: r.findings || null, failed: true
             });
             failedModules.push({ module, reason: 'scorer-reported error' });
+            continue;
+        }
+        // Per-module run_at feeds this module's wire d — the builder's
+        // strict grammar, enforced at the door (failed posture: the
+        // rest of the run still imports).
+        if (r.run_at != null && !isStrictRunAt(r.run_at)) {
+            storedResults.push({
+                ...base, score: null, confidence: null, findings: r.findings || null,
+                failed: true,
+                auditor_caveats: [...base.auditor_caveats,
+                    `run_at is not strict ISO-8601 with timezone (got ${r.run_at}) — the wire address cannot be derived`]
+            });
+            failedModules.push({ module, reason: 'run_at not strict ISO-8601' });
             continue;
         }
         const { valid, errors } = validateFindings(module, r.findings);
@@ -230,13 +260,7 @@ export async function importAuditJson(json, { localArticleHash = null } = {}) {
 
     // --- persist -------------------------------------------------------------
     const existing = await AuditRunModel.getByArticleHash(recomputed);
-    const run = await AuditRunModel.create({
-        articleHash: recomputed,
-        auditor,
-        runAt: aggregate.run_at,
-        source: 'cli-import',
-        moduleResults: storedResults,
-        aggregate: {
+    const storedAggregate = {
             final_score: finalScore,
             raw_weighted_score: rawScore,
             knowability_ceiling: ceiling,
@@ -257,9 +281,29 @@ export async function importAuditJson(json, { localArticleHash = null } = {}) {
                 ? aggregate.module_contributions : [],
             top_strengths: Array.isArray(aggregate.top_strengths) ? aggregate.top_strengths : [],
             top_concerns: Array.isArray(aggregate.top_concerns) ? aggregate.top_concerns : []
-        }
+    };
+    const run = await AuditRunModel.create({
+        articleHash: recomputed,
+        auditor,
+        runAt: aggregate.run_at,
+        source: 'cli-import',
+        moduleResults: storedResults,
+        aggregate: storedAggregate
     });
     const alreadyImported = existing.some((r) => r.id === run.id);
+    // A CORRECTED export keeps its run identity (hash|auditor|runAt)
+    // — create's idempotence returned the stale record untouched
+    // while the toast reported the fresh parse. Replace the contents
+    // and clear the publish marks of every changed event so the next
+    // publish re-emits it (replaceable kinds replace in place).
+    let ledgerUpdated = false;
+    if (alreadyImported) {
+        const replaced = await AuditRunModel.replaceContents(run.id, {
+            moduleResults: storedResults,
+            aggregate: storedAggregate
+        });
+        ledgerUpdated = replaced.changed;
+    }
 
     // Predictions are ledger records: enum fields feed calibration and
     // the 30058 builder requires horizon/criteria/evidence at publish.
@@ -308,7 +352,13 @@ export async function importAuditJson(json, { localArticleHash = null } = {}) {
             attributed_source_name: p.attributed_to_named_source || p.attributed_source_name || null,
             condition: candidate.condition,
             horizon: candidate.horizon,
-            horizon_iso: p.resolution_horizon_iso || null,
+            // The 30058 builder requires strict YYYY-MM-DD or null —
+            // a datetime here would import a prediction that shows in
+            // the due strip, takes a resolution, and then both skip
+            // at every publish. Degrade to null; the horizon STRING
+            // stays for display.
+            horizon_iso: /^\d{4}-\d{2}-\d{2}$/.test(p.resolution_horizon_iso || '')
+                ? p.resolution_horizon_iso : null,
             criteria: candidate.criteria,
             tractability: candidate.tractability,
             evidence_quote: candidate.evidence_quote,
@@ -328,6 +378,7 @@ export async function importAuditJson(json, { localArticleHash = null } = {}) {
         predictionsImported,
         predictionsSkipped: skippedPredictions.length,
         skippedPredictions,
-        alreadyImported
+        alreadyImported,
+        ledgerUpdated
     };
 }

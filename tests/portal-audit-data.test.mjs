@@ -276,3 +276,69 @@ test('resolverIdentity: signer first, never the bare sync key', () => {
         { pubkey: 'k2', sources: ['manual'] }
     ]).pubkey, 'k2');
 });
+
+// ------------------------------------------------------------------
+// 13.9 phase review — prior-vintage joins, URL-join dossier purity,
+// unscheduled Resolve reachability
+// ------------------------------------------------------------------
+
+test('prior-vintage hash join: audits anchored to an earlier capture surface, marked, never silently lost', () => {
+    const index = buildAuditIndex([
+        aggregateItem({ hash: HASH_B, url: 'https://example.com/a' })   // audited the OLD vintage
+    ]);
+    const current = articleItem({ hash: HASH_A, url: 'https://example.com/a' });   // republished, new x
+
+    // Without the vintage map: silently empty (the pre-13.9 failure).
+    const blind = auditsForArticle(index, current);
+    assert.deepEqual(blind.runs, []);
+
+    // With it: the audit surfaces as a HASH join to PRIOR text.
+    const priorMap = new Map([['https://example.com/a', [HASH_A, HASH_B]]]);
+    const found = auditsForArticle(index, current, priorMap);
+    assert.equal(found.runs.length, 1);
+    assert.equal(found.joinedBy, 'hash');
+    assert.equal(found.vintage, 'prior', 'the chip layer marks it as anchored to earlier text');
+
+    // Current-hash audits always win and read vintage: current.
+    const both = buildAuditIndex([
+        aggregateItem({ hash: HASH_A, url: 'https://example.com/a' }),
+        aggregateItem({ hash: HASH_B, url: 'https://example.com/a', d: 'agg:9999999999999999' })
+    ]);
+    const fresh = auditsForArticle(both, current, priorMap);
+    assert.equal(fresh.vintage, 'current');
+    assert.equal(fresh.runs.length, 1);
+});
+
+test('dossier refuses URL-joined (advisory) audits — counted, never aggregated', () => {
+    // A hashless pre-13.4 article whose URL matches a published
+    // aggregate: the chip may show it (marked), the dossier must not
+    // let an unverified-text score move a reputation.
+    const agg = aggregateItem({ hash: HASH_B, url: 'https://example.com/legacy', conf: 0.9 });
+    const index = buildAuditIndex([agg]);
+    const legacyArticle = articleItem({ hash: null, url: 'https://example.com/legacy', pTags: [['p', ENTITY_PK, '', 'author']] });
+    const inputs = dossierInputsForEntity([legacyArticle], index, ENTITY_PK);
+    assert.equal(inputs, null, 'URL-joined runs alone produce NO dossier');
+
+    // And alongside a hash-joined article, they are counted out.
+    const hashedArticle = articleItem({ hash: HASH_A, url: 'https://example.com/a', pTags: [['p', ENTITY_PK, '', 'author']] });
+    const index2 = buildAuditIndex([
+        agg, aggregateItem({ hash: HASH_A, url: 'https://example.com/a' })
+    ]);
+    const inputs2 = dossierInputsForEntity([legacyArticle, hashedArticle], index2, ENTITY_PK);
+    assert.equal(inputs2.aggregates.length, 1, 'only the hash-joined run aggregates');
+    assert.equal(inputs2.excludedUrlJoined, 1, 'the advisory join is counted, not hidden');
+});
+
+test('predictionsDue returns the unscheduled OPEN list — the scorer never emits horizon_iso, and Resolve… must reach those', () => {
+    const index = buildAuditIndex([
+        predictionItem({ d: 'pred:2222222222222222', text: 'Unscheduled thing.', horizonIso: null })
+    ]);
+    const { due, unscheduled, unscheduledList } = predictionsDue(index, [], {
+        nowMs: Date.parse('2026-06-12T00:00:00Z'), windowDays: 90
+    });
+    assert.equal(due.length, 0);
+    assert.equal(unscheduled, 1);
+    assert.equal(unscheduledList.length, 1);
+    assert.equal(unscheduledList[0].text, 'Unscheduled thing.');
+    assert.ok(unscheduledList[0].coordinate, 'relay-sourced entries carry the coordinate the Resolve form needs');
+});

@@ -526,7 +526,7 @@ everything before 13.13 below must work with the flag off.
 |---|---|---|
 | 13.8 | Any score chip, reader or portal | ✅ **no naked numbers**: score always renders beside its confidence; aggregate confidence < 0.6 renders as "needs human review" with **no** number and no band color |
 | 13.9 | Two runs on one article (rerun the scorer, import both) | ✅ side-by-side, **never averaged**; each keeps its auditor + run time |
-| 13.10 | Edit the article body in the reader after import | ✅ hash-mismatch banner appears; the audit panel marks the run as anchored to the prior text — scores never transfer across edits |
+| 13.10 | Edit the article body in the reader after import | ✅ the hash line flips to "edited, recomputed at publish" and the audit panel header changes to "for the CAPTURED text — the body has been edited"; after publish, the panel marks the run as anchored to the prior text — scores never transfer across edits |
 
 **Prediction ledger + atomization (RQ6)**
 
@@ -539,7 +539,7 @@ everything before 13.13 below must work with the flag off.
 
 | # | Test | Pass criteria |
 |---|---|---|
-| 13.13 | With the flag **off** (default), publish the article | ✅ no audit events in the summary; nothing audit-shaped reaches relays (verify in the portal raw corpus) |
+| 13.13 | With the flag **off** (default), publish the article | ✅ no audit events in the summary; no events of kinds 30056–30061 reach relays (verify in the portal raw corpus). Exception by design: a claim atomized from a prediction still carries its `a` lineage tag pointing at the future 30058 coordinate — addressable references tolerate the referent arriving when the flag turns on |
 | 13.14 | Options ▸ Advanced → enable **Publish audit events to relays** | ✅ the disclosure states the per-article scope and public visibility; toggle persists across reloads |
 | 13.15 | Publish the article again | ✅ summary line gains `N/M audit events`; the portal corpus holds the 30056s, the 30057 (its `a` contributions resolve to the 30056 coordinates), and the 30058s; the atomized prediction's 30058 carries the `a` back-reference to its claim at the claim's **published** address |
 | 13.16 | Publish a second time without changes | ✅ everything audit-shaped reports as skipped (`already published`) — resume never duplicates |

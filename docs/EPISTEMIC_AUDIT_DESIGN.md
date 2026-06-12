@@ -170,7 +170,13 @@ conflicts-supersede instruction: a run-unique `d` prevents the same
 relay-drop (30056 carries version *and* run; 30057 carries run, with
 the pipeline's methodology semver embedded in its `auditor_id` input),
 and supersession is expressed exclusively through explicit `e`-tag
-references, never through relay replacement. 30058 sits deliberately
+references, never through relay replacement. *(Implementation note:
+the vendored prototype's aggregate auditor id is
+`xray-auditor-prototype/<provider>/<model>` — no semver segment — and
+the import fallback is `xray-auditor-import/unknown`; the run-unique
+`runAt` in the 30057 `d` is what carries the load today. Embedding the
+methodology semver in the auditor id remains the convention for
+versioned pipelines.)* 30058 sits deliberately
 *outside* the constraint: a prediction entry is extraction —
 enrichment, not judgment — whose convergence across re-extractions is
 the design goal; its methodology version rides the `module-version`
@@ -654,9 +660,10 @@ author/publication → the entity pubkey (64 hex, the `p` tag);
 beat → the canonical `beats-v1` slug (lowercase `t`-tag grammar, the
 `t` tag — free-form tags never mint dossier subjects, RQ8);
 publication×beat → `<entity-pubkey>|<beat-slug>` (the `p` tag + `|` +
-the `t` tag). **Beat and pub×beat dossiers carry no entity `p`
-requirement** — the `d` derives from the tag string alone, so beat
-dossiers cannot fall out of the scheme.
+the `t` tag). **Beat-only dossiers carry no entity `p` requirement**
+— their `d` derives from the tag string alone, so they cannot fall
+out of the scheme; **pub×beat dossiers DO carry the publication's `p`**
+(the builder requires it — the subject id embeds the entity pubkey).
 Known limitation, inherited from Phase 11 verbatim: entity pubkeys are
 per-install, so cross-*user* dossier aggregation needs entity-sync'd
 keys; the aggregation phase owns this.
@@ -864,8 +871,11 @@ deliberately carry no prediction semantics (types dropped in 10.1;
    exactly the provenance line the `suggested_by` machinery exists to
    keep crisp, and most extracted predictions reference no tracked
    entity. So: the audit review UI offers "atomize as claim" per
-   prediction (pre-filled, user-confirmed, ordinary claim pipeline with
-   `suggested_by: llm:<model>`); the 30058 then carries
+   prediction (pre-filled, user-confirmed, ordinary claim pipeline —
+   provenance rides the WIRE as the claim's role-marked `a`
+   back-reference to its 30058, whose auditor tags name the extracting
+   model; the promotion link lives on the prediction record, not a
+   claim field, per the 13.6 decision); the 30058 then carries
    `["a", <claim-coord>, hint, "claim"]`. The prediction needs no claim
    to exist; the claim enriches the entity graph when the user wants it.
    RQ6 confirms (the 30040 space is shared substrate — auto-fanning
@@ -906,24 +916,29 @@ Phase 12's portal already owns read-back surfaces. Division of labor:
   prediction calibration table (per hedge level: resolved / true /
   rate), open predictions due. Inputs: published 30056–30059 events
   for articles whose author/publication resolves to the focused entity
-  (via 30023 `p…author` tags + 32126 accounts + `t` beats), plus the
+  (v1 joins on 30023 `p` tags only; the 32126 platform-account hop and
+  `t`-beat scoping are future joins), plus the
   local audit ledger for unpublished runs. Reproducible by
   construction — anyone with the events derives the same numbers.
   Confidence rule (added in 13.7): aggregates below the 0.6 review
   threshold are **excluded from the rollup and counted as pending
   review** — a number the display rules refuse to show must not move
   a reputation either.
-- **Published 30060 (optional cache):** "Publish dossier snapshot" from
-  the dossier block, flag-gated like everything else. Latest-wins per
-  subject. Consumers MUST prefer re-derivation when they hold the
-  underlying events; the snapshot exists for cheap cross-client display
-  and for subjects whose audit corpus the consumer can't fetch.
+- **Published 30060 (optional cache, DEFERRED post-v1):** a "Publish
+  dossier snapshot" affordance, flag-gated like everything else.
+  Latest-wins per subject. Consumers MUST prefer re-derivation when
+  they hold the underlying events; the snapshot exists for cheap
+  cross-client display and for subjects whose audit corpus the
+  consumer can't fetch. *v1 ships no publish affordance — the portal
+  stays read-only and the dossier stays derived; the wire shape and
+  builders exist so the deferral is a UI decision, not a format one.*
 - **Subjects:** the four kinds per the wire shape above. Author and
   publication reuse the entity system (strong prior honored:
   publication = organization entity; its domains derive from captured
   articles and 32125 relationships). **A beat is a bare `t` tag** —
-  beat and publication×beat dossiers key on tag strings, no entity
-  pubkey, and appear in the portal behind a beat-picker (the `beats-v1`
+  beat dossiers key on tag strings and would appear in the portal
+  behind a beat-picker *(deferred post-v1 with the snapshot publish —
+  v1 ships entity dossiers only)* (the `beats-v1`
   vocabulary with alias-normalized counts from audited articles' `t`
   tags; unmapped tags surface only in the review list and mint nothing —
   RQ8), so they cannot fall out of any entity-keyed code path.

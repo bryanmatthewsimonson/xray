@@ -180,6 +180,16 @@ async function loadArticle() {
             ArchiveCache.saveArticle({ article: state.article, source: 'capture' })
                 .catch((err) => console.warn('[X-Ray Reader] archive cache save failed:', err));
         })();
+    } else if (stored && stored.readOnly && state.article && state.article._articleHash) {
+        // Read-only opens (the portal's relay reconstructions) skip
+        // the hash/compare/save pipeline by design — but the carried
+        // PUBLISHED hash (the event's own x tag) is the view's
+        // identity, and the audit panel keys on it. Display-only:
+        // nothing is recomputed, nothing is saved.
+        state.articleHash = state.article._articleHash;
+        updateHashLine();
+        refreshAuditStatus().catch((err) =>
+            console.warn('[X-Ray Reader] audit status failed:', err));
     }
 
     // Archive-reader affordance — if this capture looks paywalled OR
@@ -591,7 +601,12 @@ async function refreshAuditStatus() {
     const score = typeof agg.final_score === 'number' ? agg.final_score : null;
     const conf = typeof agg.overall_confidence === 'number' ? agg.overall_confidence : null;
 
-    statusEl.textContent = `${runs.length} audit run${runs.length === 1 ? '' : 's'} for this exact text.`;
+    // An edited body is no longer the text these runs scored —
+    // "for this exact text" would be score transfer across an edit,
+    // the exact display rule the hash exists to enforce.
+    statusEl.textContent = state.hashDirty
+        ? `${runs.length} audit run${runs.length === 1 ? '' : 's'} for the CAPTURED text — the body has been edited; scores never transfer across edits (re-keyed at publish).`
+        : `${runs.length} audit run${runs.length === 1 ? '' : 's'} for this exact text.`;
 
     // Badge per the display rules. A sub-0.6 confidence never renders
     // a number, band color included — review-needed is the whole badge.
@@ -923,9 +938,15 @@ async function confirmDeleteClaim(id) {
     // registry, so it must still see the claim while matching.
     if (links.length > 0) await EvidenceLinker.deleteForClaim(id);
     if (assessment) await AssessmentModel.delete(assessment.id);
+    // 13.6's dependent: a prediction promoted into this claim holds a
+    // claim_ref — left dangling it defers the 30058 at every publish
+    // forever and the audit panel shows a permanent "claim ✓".
+    try { await PredictionModel.clearClaimRef(id); }
+    catch (_) { /* best-effort — the audit ledger may be absent */ }
     await ClaimModel.delete(id);
     toast('Claim deleted', 'success', 2000);
     await refreshClaimsBar();
+    refreshAuditStatus().catch(() => { /* display refresh only */ });
 }
 
 // ------------------------------------------------------------------
@@ -1350,6 +1371,11 @@ function onReaderFieldInput(ev) {
     if (ev && ev.target && ev.target.dataset.field === 'content' && !state.hashDirty) {
         state.hashDirty = true;
         updateHashLine();
+        // The audit panel's header claims "for this exact text" —
+        // no longer true; one refresh flips it to the edited-state
+        // wording (guarded above so this fires once per edit session,
+        // not per keystroke).
+        refreshAuditStatus().catch(() => { /* display refresh only */ });
     }
 }
 
@@ -1862,8 +1888,16 @@ async function publish() {
         }
         const userPubkey = pubResp.pubkey;
 
-        // Article event.
-        const article = { ...state.article, content: state.markdownDraft, markdown: state.markdownDraft };
+        // Article event. The draft IS markdown — mark it so
+        // assembleArticleBody never re-converts it (a second
+        // htmlToMarkdown pass mangles the body and forks the
+        // published x from the capture hash the audits anchor to).
+        const article = {
+            ...state.article,
+            content: state.markdownDraft,
+            markdown: state.markdownDraft,
+            _contentIsMarkdown: true
+        };
         const entityRefs = Array.isArray(state.article.entities) ? state.article.entities : [];
 
         // Phase 9 identity: materialize the post author as a
@@ -2082,13 +2116,20 @@ async function publish() {
         // ledger entries carry an `a` pointer back to their 30058.
         // Keyed by claim id from the predictions' claim_ref records;
         // best-effort — a missing map never gates claim publishing.
+        // Gathered across EVERY hash vintage the article has carried
+        // (the same set the audit batch uses) — a single-vintage
+        // lookup silently dropped the lineage tag whenever the ledger
+        // trailed the current capture hash.
         let predictionRefByClaim = {};
-        if (claimsToPublish.length > 0 && captureHashForLedger) {
+        const auditHashes = captureHashForLedger
+            ? await auditHashCandidates(captureHashForLedger, state.article.url) : [];
+        if (claimsToPublish.length > 0 && auditHashes.length) {
             try {
-                const preds = await PredictionModel.getByArticleHash(captureHashForLedger);
-                for (const p of preds) {
-                    if (p.claim_ref && p.claim_ref.claim_id && p.claim_ref.pred_d) {
-                        predictionRefByClaim[p.claim_ref.claim_id] = { pred_d: p.claim_ref.pred_d };
+                for (const h of auditHashes) {
+                    for (const p of await PredictionModel.getByArticleHash(h)) {
+                        if (p.claim_ref && p.claim_ref.claim_id && p.claim_ref.pred_d) {
+                            predictionRefByClaim[p.claim_ref.claim_id] = { pred_d: p.claim_ref.pred_d };
+                        }
                     }
                 }
             } catch (_) { /* enrichment only */ }
@@ -2369,19 +2410,11 @@ async function publish() {
             let batch = { entries: [], skipped: [] };
             try {
                 // The ledger may be keyed to an EARLIER capture vintage
-                // than this publish (body edited since import; or a
-                // resume after the first publish restamped
-                // state.articleHash) — gather every hash this article
-                // has carried, current first.
-                const hashCandidates = [captureHashForLedger];
-                try {
-                    const arch = state.article.url ? await ArchiveCache.getArticle(state.article.url) : null;
-                    if (arch && arch.articleHash) hashCandidates.push(arch.articleHash);
-                    for (const v of (arch && arch.priorVersions) || []) {
-                        if (v && v.articleHash) hashCandidates.push(v.articleHash);
-                    }
-                } catch (_) { /* archive lookup is enrichment */ }
-                const hashes = [...new Set(hashCandidates.filter(Boolean))];
+                // than this publish — the same candidate set the RQ6
+                // back-reference map used above.
+                const hashes = auditHashes.length
+                    ? auditHashes
+                    : await auditHashCandidates(captureHashForLedger, state.article.url);
 
                 const auditRuns = [];
                 const auditPreds = [];
@@ -2478,11 +2511,11 @@ async function publish() {
                             const signedId = resp.signedEvent?.id || null;
                             try {
                                 if (entry.mark.type === 'run-event') {
-                                    await AuditRunModel.markEventPublished(entry.mark.runId, entry.mark.eventKey, signedId);
+                                    await AuditRunModel.markEventPublished(entry.mark.runId, entry.mark.eventKey, signedId, userPubkey);
                                 } else if (entry.mark.type === 'prediction') {
-                                    await PredictionModel.markPublished(entry.mark.id, signedId);
+                                    await PredictionModel.markPublished(entry.mark.id, signedId, userPubkey);
                                 } else if (entry.mark.type === 'resolution') {
-                                    await ResolutionModel.markPublished(entry.mark.id, signedId);
+                                    await ResolutionModel.markPublished(entry.mark.id, signedId, userPubkey, entry.mark.rekeyedCoord || null);
                                 }
                             } catch (_) { /* ledger mark is best-effort */ }
                         } else {
@@ -2550,6 +2583,25 @@ async function publish() {
 }
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+/**
+ * Every canonical hash this article has carried, current first — the
+ * audit ledger may be keyed to an EARLIER capture vintage than the
+ * one being published (body edited since import, or a resume after
+ * the first publish restamped state.articleHash). Both the RQ6
+ * back-reference map and the audit batch gather across this set.
+ */
+async function auditHashCandidates(currentHash, url) {
+    const candidates = [currentHash];
+    try {
+        const arch = url ? await ArchiveCache.getArticle(url) : null;
+        if (arch && arch.articleHash) candidates.push(arch.articleHash);
+        for (const v of (arch && arch.priorVersions) || []) {
+            if (v && v.articleHash) candidates.push(v.articleHash);
+        }
+    } catch (_) { /* archive lookup is enrichment */ }
+    return [...new Set(candidates.filter(Boolean))];
+}
 
 /**
  * Given the article's raw entity refs, produce the de-duplicated list
@@ -2941,11 +2993,28 @@ async function init() {
         }
         try {
             const parsed = JSON.parse(await file.text());
-            const summary = await importAuditJson(parsed, { localArticleHash: state.articleHash });
+            // Same gate as the options importer: the audit may match
+            // the CURRENT capture or a retained prior vintage of this
+            // URL — both are text the user actually captured. The
+            // single-hash check refused legitimate prior-version
+            // audits the options surface accepted.
+            const body = parsed && parsed.article && parsed.article.body_markdown;
+            const claimed = typeof body === 'string' && body ? await canonicalArticleHash(body) : null;
+            const candidates = await auditHashCandidates(state.articleHash, state.article.url);
+            if (!claimed || !candidates.includes(claimed)) {
+                throw new Error('no capture of this article matches the audit\'s text — re-run the scorer against the current capture');
+            }
+            const summary = await importAuditJson(parsed, { localArticleHash: claimed });
             const bits = [`${summary.modulesValid} module${summary.modulesValid === 1 ? '' : 's'} valid`];
             if (summary.modulesFailed) bits.push(`${summary.modulesFailed} failed validation`);
             if (summary.predictionsImported) bits.push(`${summary.predictionsImported} prediction${summary.predictionsImported === 1 ? '' : 's'}`);
-            toast(`Audit imported — ${bits.join(', ')}`, summary.modulesFailed ? 'warning' : 'success', 5000);
+            if (summary.predictionsSkipped) bits.push(`${summary.predictionsSkipped} prediction${summary.predictionsSkipped === 1 ? '' : 's'} skipped`);
+            toast(summary.alreadyImported
+                ? (summary.ledgerUpdated
+                    ? `Audit re-imported — ledger updated; changed events re-publish (${bits.join(', ')})`
+                    : `Audit already imported — ledger unchanged (${bits.join(', ')})`)
+                : `Audit imported — ${bits.join(', ')}`,
+            summary.modulesFailed ? 'warning' : 'success', 5000);
             await refreshAuditStatus();
         } catch (err) {
             toast('Audit import failed: ' + (err && err.message), 'error', 7000);

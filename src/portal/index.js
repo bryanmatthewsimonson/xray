@@ -35,6 +35,7 @@ import {
 import { auditCardChipData } from '../shared/audit/display.js';
 import { listRuns, listPredictions, listResolutions } from '../shared/audit/audit-cache.js';
 import { PredictionModel } from '../shared/audit/audit-model.js';
+import { listArticles as listArchiveArticles } from '../shared/archive-cache.js';
 import { openResolveForm } from './resolve-form.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -196,12 +197,17 @@ function openInspector(item) {
     // dispute lineage joined in.
     let audit = null;
     if (item.typeKey === 'article' && state.auditIndex) {
-        const { runs, joinedBy } = auditsForArticle(state.auditIndex, item);
+        const { runs, joinedBy, vintage } = auditsForArticle(state.auditIndex, item, state.priorHashesByUrl);
         if (runs.length) {
-            const hash = item.articleHash || (item.extra && item.extra.articleHash) || null;
+            // Module rows join through the RUNS' anchor hash — a
+            // prior-vintage join would otherwise show the aggregate
+            // with its module rows silently missing.
+            const hash = (runs[0] && runs[0].articleHash)
+                || item.articleHash || (item.extra && item.extra.articleHash) || null;
             audit = {
                 runs,
                 joinedBy,
+                vintage,
                 modules: hash ? (state.auditIndex.modulesByHash.get(hash) || []) : [],
                 disputesByTarget: state.auditIndex.disputesByTarget
             };
@@ -239,14 +245,18 @@ function buildRow(item) {
     // number, bands follow the rubric. URL joins (pre-13.4 hashless
     // articles only) are ADVISORY and say so.
     if (item.typeKey === 'article' && state.auditIndex) {
-        const latest = latestAuditFor(state.auditIndex, item);
+        const latest = latestAuditFor(state.auditIndex, item, state.priorHashesByUrl);
         const chip = auditCardChipData(latest);
         if (chip) {
             const advisory = latest.joinedBy === 'url';
+            const prior = latest.vintage === 'prior';
             const b = el('span', `xr-badge xr-badge--audit-${chip.bandKey}`,
-                chip.text + (advisory ? ' (URL match)' : ''));
+                chip.text + (advisory ? ' (URL match)' : prior ? ' (prior version)' : ''));
             b.title = chip.title + (advisory
-                ? ' — joined by URL, text unverified: this capture predates content hashing' : '');
+                ? ' — joined by URL, text unverified: this capture predates content hashing'
+                : prior
+                    ? ' — anchored to an earlier capture of this article; the current text is unaudited'
+                    : '');
             badges.appendChild(b);
         }
     }
@@ -360,7 +370,7 @@ function fmtDay(ts) {
 // (ResolutionModel); the 30059 publishes in 13.8 behind the flag.
 function renderPredictionsStrip(host) {
     if (!state.auditIndex) return;
-    const { due, unscheduled } = predictionsDue(state.auditIndex, state.localPredictions, {
+    const { due, unscheduled, unscheduledList = [] } = predictionsDue(state.auditIndex, state.localPredictions, {
         nowMs: Date.now(), windowDays: 90
     });
     if (due.length === 0 && unscheduled === 0) return;
@@ -374,9 +384,18 @@ function renderPredictionsStrip(host) {
     // reserved sync key — a coordinate minted under the wrong key
     // would never match the 13.8 publish.
     const resolver = resolverIdentity(state.identities);
-    for (const p of due.slice(0, 6)) {
+    // Dated rows first, then unscheduled open ones (the scorer never
+    // emits horizon_iso, so CLI-imported predictions live here — the
+    // Resolve… affordance must reach them too or the resolution arm
+    // is unreachable for exactly the designed import flow).
+    const rows = due.slice(0, 6);
+    for (const u of unscheduledList) {
+        if (rows.length >= 6) break;
+        rows.push(u);
+    }
+    for (const p of rows) {
         const row = el('span', 'xr-predue__item');
-        row.appendChild(el('span', 'xr-predue__date', p.horizonIso));
+        row.appendChild(el('span', 'xr-predue__date', p.horizonIso || 'unscheduled'));
         const text = el('span', 'xr-predue__text', truncate(p.text, 70));
         text.title = p.text;
         row.appendChild(text);
@@ -420,8 +439,9 @@ function renderPredictionsStrip(host) {
         }
         strip.appendChild(row);
     }
-    if (due.length > 6) {
-        strip.appendChild(el('span', 'xr-predue__more', `+${due.length - 6} more`));
+    const totalOpen = due.length + unscheduledList.length;
+    if (totalOpen > rows.length) {
+        strip.appendChild(el('span', 'xr-predue__more', `+${totalOpen - rows.length} more`));
     }
     host.appendChild(strip);
 }
@@ -633,7 +653,7 @@ function render() {
             // reproducible from the same events by anyone (the 30060
             // snapshot is just a cache of this).
             dossier: state.auditIndex
-                ? computeEntityDossier(dossierInputsForEntity(state.items, state.auditIndex, state.view.pubkey))
+                ? computeEntityDossier(dossierInputsForEntity(state.items, state.auditIndex, state.view.pubkey, state.priorHashesByUrl))
                 : null,
             populationMean: DEFAULT_POPULATION_MEAN,
             callbacks: viewCallbacks
@@ -645,7 +665,7 @@ function render() {
             entityIndex: state.entityIndex,
             casePubkey: state.view.pubkey,
             dossier: state.auditIndex
-                ? computeEntityDossier(dossierInputsForEntity(state.items, state.auditIndex, state.view.pubkey))
+                ? computeEntityDossier(dossierInputsForEntity(state.items, state.auditIndex, state.view.pubkey, state.priorHashesByUrl))
                 : null,
             populationMean: DEFAULT_POPULATION_MEAN,
             callbacks: viewCallbacks
@@ -689,6 +709,26 @@ function rebuildItems(records) {
             render();
         })
         .catch((err) => Utils.error('Portal: audit ledger load failed', err));
+    // Prior capture vintages per URL (read-only archive lookup):
+    // 13.8 anchors published audit events to the vintage they
+    // audited, and the 30023 is replaceable — after a re-capture +
+    // republish, a current-hash-only join would silently lose every
+    // earlier audit. Prior vintages are still text-verified hash
+    // joins, marked as joining OLDER text.
+    state.priorHashesByUrl = null;
+    listArchiveArticles()
+        .then((records) => {
+            const map = new Map();
+            for (const rec of records || []) {
+                if (!rec || !rec.url) continue;
+                const hashes = [rec.articleHash,
+                    ...((rec.priorVersions || []).map((v) => v && v.articleHash))].filter(Boolean);
+                if (hashes.length) map.set(rec.url, hashes);
+            }
+            state.priorHashesByUrl = map;
+            render();
+        })
+        .catch((err) => Utils.error('Portal: archive vintage map failed', err));
 }
 
 function setBusy(busy) {

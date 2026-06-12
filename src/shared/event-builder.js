@@ -29,9 +29,16 @@ export const EventBuilder = {
   // gets the wire-change treatment (docs/EPISTEMIC_AUDIT_DESIGN.md
   // §"Canonical article hash").
   assembleArticleBody: (article) => {
-    // Convert content to markdown, preserving formatting and images
+    // Convert content to markdown, preserving formatting and images.
+    // `_contentIsMarkdown` is the EXPLICIT already-converted marker
+    // (set by the reader's publish path, whose draft is markdown):
+    // htmlToMarkdown is not idempotent, and markdown legitimately
+    // contains '<' (inline small-image tags, code fences) — sniffing
+    // would re-convert it, mangling the published body AND forking
+    // the publish-path hash from the capture hash every audit
+    // anchors to. Conversion runs ONCE per body, ever.
     let markdownContent = article.content || '';
-    if (markdownContent && markdownContent.includes('<')) {
+    if (markdownContent && markdownContent.includes('<') && !article._contentIsMarkdown) {
       markdownContent = ContentExtractor.htmlToMarkdown(markdownContent);
     }
 

@@ -24,7 +24,7 @@
 import { Crypto } from '../crypto.js';
 import {
     saveRun, getRun, runsByArticleHash,
-    savePrediction, getPrediction, predictionsByArticleHash,
+    savePrediction, getPrediction, predictionsByArticleHash, listPredictions,
     saveResolution, getResolution, resolutionsByPredictionCoord
 } from './audit-cache.js';
 
@@ -132,13 +132,64 @@ export const AuditRunModel = {
      * bumps `updated` — publishing is not an edit, so post-publish
      * edits still re-emit (the Phase 11 rule, per event).
      */
-    markEventPublished: async (id, eventKey, eventId) => {
+    /**
+     * Re-import path: replace a run's contents when a corrected
+     * export (same hash|auditor|runAt → same id) differs from what
+     * was stored — `create`'s idempotence would otherwise silently
+     * return the stale record while the import UI reports the fresh
+     * parse. Publish marks are CLEARED for every changed event so the
+     * next publish re-emits it (replaceable kinds replace in place) —
+     * a stale mark over changed findings would freeze stale wire
+     * content forever. Returns {record, changed}.
+     */
+    replaceContents: async (id, { moduleResults = [], aggregate = null }) => {
+        const record = await getRun(id);
+        if (!record) return { record: null, changed: false };
+        const events = record.events || {};
+        const oldByModule = {};
+        for (const m of record.moduleResults || []) oldByModule[m.module] = m;
+        let changed = false;
+        const sameModule = (a, b) => a && b
+            && JSON.stringify(a.findings) === JSON.stringify(b.findings)
+            && !!a.failed === !!b.failed
+            && a.module_version === b.module_version
+            && a.run_at === b.run_at;
+        for (const m of moduleResults) {
+            if (!sameModule(oldByModule[m.module], m)) {
+                delete events[`mod:${m.module}`];
+                changed = true;
+            }
+        }
+        for (const name of Object.keys(oldByModule)) {
+            if (!moduleResults.some((m) => m.module === name)) {
+                delete events[`mod:${name}`];
+                changed = true;
+            }
+        }
+        if (JSON.stringify(record.aggregate) !== JSON.stringify(aggregate)) {
+            delete events.agg;
+            changed = true;
+        }
+        if (!changed) return { record, changed: false };
+        record.moduleResults = moduleResults;
+        record.aggregate = aggregate;
+        record.events = events;
+        record.updated = nowSeconds();
+        await saveRun(record);
+        return { record, changed: true };
+    },
+
+    markEventPublished: async (id, eventKey, eventId, pubkey) => {
         const record = await getRun(id);
         if (!record) return null;
         record.events = record.events || {};
         record.events[eventKey] = {
             publishedAt: nowSeconds(),
-            publishedEventId: eventId || null
+            publishedEventId: eventId || null,
+            // The signing pubkey: resume paths reconstruct this
+            // event's coordinate, and after an identity switch the
+            // CURRENT key would mint an address that never existed.
+            publishedPubkey: pubkey || null
         };
         await saveRun(record);
         return record;
@@ -234,11 +285,12 @@ export const PredictionModel = {
     getByArticleHash: (hash) => predictionsByArticleHash(hash),
 
     /** Publish ledger mark — never bumps `updated`. */
-    markPublished: async (id, eventId) => {
+    markPublished: async (id, eventId, pubkey) => {
         const record = await getPrediction(id);
         if (!record) return null;
         record.publishedAt = nowSeconds();
         if (eventId) record.publishedEventId = eventId;
+        if (pubkey) record.publishedPubkey = pubkey;
         await savePrediction(record);
         return record;
     },
@@ -254,8 +306,34 @@ export const PredictionModel = {
         const record = await getPrediction(id);
         if (!record) return null;
         record.claim_ref = claimRef || null;
+        // When the promotion happens AFTER the 30058 published, the
+        // publisher compares this stamp against publishedAt to re-emit
+        // the prediction with its claim back-reference (the kind is
+        // replaceable) — without it, RQ6 lineage would hold in one
+        // direction only for late atomizations.
+        record.claim_ref_at = claimRef ? nowSeconds() : null;
         await savePrediction(record);
         return record;
+    },
+
+    /**
+     * Sever every promotion link pointing at a deleted claim — the
+     * claim-deletion path's audit-side dependent. Without this, a
+     * dangling claim_ref defers the 30058 at every publish forever
+     * and the panel shows a permanent "claim ✓".
+     */
+    clearClaimRef: async (claimId) => {
+        if (!claimId) return 0;
+        let cleared = 0;
+        for (const p of await listPredictions()) {
+            if (p && p.claim_ref && p.claim_ref.claim_id === claimId) {
+                p.claim_ref = null;
+                p.claim_ref_at = null;
+                await savePrediction(p);
+                cleared++;
+            }
+        }
+        return cleared;
     },
 
     /**
@@ -345,12 +423,21 @@ export const ResolutionModel = {
     get: (id) => getResolution(id),
     getByPredictionCoord: (coord) => resolutionsByPredictionCoord(coord),
 
-    /** Publish ledger mark — never bumps `updated`. */
-    markPublished: async (id, eventId) => {
+    /**
+     * Publish ledger mark — never bumps `updated`. `rekeyedCoord`:
+     * when the publisher re-filed this resolution under the signing
+     * identity (the local prediction's coordinate was minted under a
+     * stale key), the record's prediction_coord follows the wire.
+     * The record ID keeps its original derivation — IDs are opaque
+     * once created; the wire d stays recomputable from the coord.
+     */
+    markPublished: async (id, eventId, pubkey, rekeyedCoord) => {
         const record = await getResolution(id);
         if (!record) return null;
         record.publishedAt = nowSeconds();
         if (eventId) record.publishedEventId = eventId;
+        if (pubkey) record.publishedPubkey = pubkey;
+        if (rekeyedCoord) record.prediction_coord = rekeyedCoord;
         await saveResolution(record);
         return record;
     },

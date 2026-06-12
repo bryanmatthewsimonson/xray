@@ -10,6 +10,7 @@ import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
 import { loadFlags, isEnabled, setOverride, resetOverrides } from '../shared/metadata/feature-flags.js';
 import { importAuditJson } from '../shared/audit/import.js';
 import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
+import { listRuns, listPredictions, listResolutions } from '../shared/audit/audit-cache.js';
 import { listArticles } from '../shared/archive-cache.js';
 
 const browserApi = (typeof browser !== 'undefined' && browser.runtime) ? browser : chrome;
@@ -444,9 +445,46 @@ async function importAuditFromFile(file) {
         const bits = [`${summary.modulesValid} modules valid`];
         if (summary.modulesFailed) bits.push(`${summary.modulesFailed} failed validation`);
         if (summary.predictionsImported) bits.push(`${summary.predictionsImported} predictions`);
-        flash(status, `Imported — ${bits.join(', ')}.`, summary.modulesFailed === 0);
+        if (summary.predictionsSkipped) bits.push(`${summary.predictionsSkipped} predictions skipped`);
+        flash(status, summary.alreadyImported
+            ? (summary.ledgerUpdated
+                ? `Re-imported — ledger updated; changed events re-publish (${bits.join(', ')}).`
+                : `Already imported — ledger unchanged (${bits.join(', ')}).`)
+            : `Imported — ${bits.join(', ')}.`,
+        summary.modulesFailed === 0);
     } catch (e) {
         flash(status, 'Import failed: ' + (e && e.message), false);
+    }
+}
+
+// The audit ledger is PRECIOUS — audits cost money to recompute — so
+// the design marks it export-included, never droppable. This is that
+// export: the full xray-audits stores (runs incl. publish marks,
+// predictions, resolutions) as one JSON file. No keys, no secrets —
+// everything in it is local audit data.
+async function exportAuditLedger() {
+    const status = document.getElementById('audit-status');
+    try {
+        const [runs, predictions, resolutions] = await Promise.all([
+            listRuns(), listPredictions(), listResolutions()
+        ]);
+        const payload = {
+            format: 'xray-audit-ledger/1',
+            exported_at: new Date().toISOString(),
+            runs, predictions, resolutions
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `xray-audit-ledger-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        flash(status, `Exported ${runs.length} run(s), ${predictions.length} prediction(s), ${resolutions.length} resolution(s).`);
+    } catch (e) {
+        flash(status, 'Export failed: ' + (e && e.message), false);
     }
 }
 
@@ -600,6 +638,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.getElementById('audit-import').addEventListener('click', () => {
         document.getElementById('audit-file').click();
+    });
+    document.getElementById('audit-export').addEventListener('click', () => {
+        exportAuditLedger();
     });
     document.getElementById('audit-file').addEventListener('change', (e) => {
         const file = e.target.files && e.target.files[0];

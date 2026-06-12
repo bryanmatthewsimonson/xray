@@ -1060,13 +1060,22 @@ Implementation slices 13.1+ are in progress.
 - 🔄 **13.9** Hardening (draft PR) — `SMOKE_TEST.md` §Phase 13 (the
   24-step acceptance walk: capture → scorer → import gates → display
   rules → atomize → flag-gated publish incl. resume + firewall →
-  portal surfaces → reconcile), docs-consistency pass (NIP draft vs
-  builders, design note vs code, options surface names), cross-slice
-  seam checks. The phase-wide multi-agent review was attempted and
-  lost to session limits (workflow script saved for a re-run); the
-  per-slice adversarial reviews — eight rounds, ~109 confirmed
-  findings, all fixed pre-PR — stand as the phase's review record.
-  — #70
+  portal surfaces → reconcile), docs-consistency pass, and the
+  **phase-wide multi-agent review** (7 cross-slice lenses, 68 agents:
+  46 confirmed / 15 refuted — on top of the eight per-slice rounds'
+  ~109). Headline fixes: the publish-path hash fork (double
+  htmlToMarkdown on `<`-bearing markdown — body mangled, published
+  `x` ≠ the audited hash; pre-Phase-13 bug promoted into the content
+  address by 13.4), relay-parser range-checking, import-gate parity
+  with the builders (strict run_at / 64-hex human auditors /
+  horizon_iso / evidence grammar — nothing imports that cannot
+  publish), publish-identity marks + stale-coordinate re-keying,
+  RQ6 lifecycle closure (late atomization re-emits, claim deletion
+  severs links, multi-vintage back-references, revised resolutions
+  re-publish, corrected re-imports update the ledger), dossier purity
+  (URL-joined + sub-0.6 contributions excluded), portal prior-vintage
+  joins + coordinate-based module joins, Resolve… for unscheduled
+  predictions, and the promised audit-ledger export. — #70
 
 ---
 
