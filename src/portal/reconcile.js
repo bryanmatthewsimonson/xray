@@ -26,12 +26,18 @@ import { AssessmentModel } from '../shared/assessment-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import { EntityModel } from '../shared/entity-model.js';
 import { listArticles } from '../shared/archive-cache.js';
+import { listRuns, listPredictions, listResolutions } from '../shared/audit/audit-cache.js';
+import {
+    deriveModuleResultDTag, deriveAggregateAuditDTag
+} from '../shared/audit/builders.js';
 import { Crypto } from '../shared/crypto.js';
 import { isSymmetricRelationship } from '../shared/assessment-taxonomy.js';
 import { replaceableKey } from '../shared/nostr-events.js';
 import { Utils } from '../shared/utils.js';
 
-const LEDGERED_KINDS = new Set([30023, 30040, 30054, 30055, 0]);
+// 30060 (snapshots) and 30061 (disputes) have no publish path in 13.8
+// — they stay 'no-ledger' below, never an anomaly.
+const LEDGERED_KINDS = new Set([30023, 30040, 30054, 30055, 0, 30056, 30057, 30058, 30059]);
 
 async function sha16(s) {
     return (await Crypto.sha256(String(s))).slice(0, 16);
@@ -152,6 +158,79 @@ export async function loadLocalLedger({ pubkeys = [] } = {}) {
         }
     } catch (err) { Utils.error('Reconcile: article ledger scan failed', err); }
 
+    // Audit kinds (13.8). The run's per-event ledger marks which of
+    // its 30056s/30057 went out; predictions and resolutions carry
+    // plain publishedEventId. Wire d-tags are recomputable from the
+    // records (the local-id discipline shares the sha16 inputs), and
+    // — like assessments — the signer's pubkey isn't recorded, so
+    // addresses fan out across the resolved identity set.
+    try {
+        for (const run of (await listRuns()) || []) {
+            if (!run || !run.events) continue;
+            for (const [eventKey, mark] of Object.entries(run.events)) {
+                if (!mark || !mark.publishedEventId) continue;
+                const addrs = [];
+                if (eventKey === 'agg') {
+                    const d = await deriveAggregateAuditDTag(
+                        run.articleHash, run.auditor && run.auditor.id, run.runAt);
+                    for (const pk of pubkeys) addrs.push(`30057:${pk}:${d}`);
+                } else if (eventKey.startsWith('mod:')) {
+                    const r = (run.moduleResults || [])
+                        .find((m) => m && m.module === eventKey.slice('mod:'.length));
+                    if (r) {
+                        // The wire d derives from findings.version
+                        // (the builder's source) — the wrapper field
+                        // is only the fallback for failed results.
+                        const d = await deriveModuleResultDTag(
+                            run.articleHash, r.module,
+                            (r.findings && r.findings.version) || r.module_version, r.run_at);
+                        for (const pk of pubkeys) addrs.push(`30056:${pk}:${d}`);
+                    }
+                }
+                entries.push({
+                    source: 'audit',
+                    localId: `${run.id}/${eventKey}`,
+                    label: eventKey === 'agg'
+                        ? `aggregate audit (${run.runAt})`
+                        : `module ${eventKey.slice('mod:'.length)} (${run.runAt})`,
+                    publishedAt: mark.publishedAt || null,
+                    publishedEventId: mark.publishedEventId,
+                    addrs
+                });
+            }
+        }
+    } catch (err) { Utils.error('Reconcile: audit-run ledger scan failed', err); }
+
+    try {
+        for (const p of (await listPredictions()) || []) {
+            if (!p || !p.publishedEventId) continue;
+            const d = 'pred:' + String(p.id || '').slice('pred_'.length);
+            entries.push({
+                source: 'prediction',
+                localId: p.id,
+                label: (p.text || p.id).slice(0, 60),
+                publishedAt: p.publishedAt || null,
+                publishedEventId: p.publishedEventId,
+                addrs: pubkeys.map((pk) => `30058:${pk}:${d}`)
+            });
+        }
+    } catch (err) { Utils.error('Reconcile: prediction ledger scan failed', err); }
+
+    try {
+        for (const r of (await listResolutions()) || []) {
+            if (!r || !r.publishedEventId) continue;
+            const d = 'res:' + String(r.id || '').slice('res_'.length);
+            entries.push({
+                source: 'resolution',
+                localId: r.id,
+                label: `${r.outcome || 'resolution'} (${r.prediction_coord || r.id})`.slice(0, 60),
+                publishedAt: r.publishedAt || null,
+                publishedEventId: r.publishedEventId,
+                addrs: pubkeys.map((pk) => `30059:${pk}:${d}`)
+            });
+        }
+    } catch (err) { Utils.error('Reconcile: resolution ledger scan failed', err); }
+
     return entries;
 }
 
@@ -161,10 +240,14 @@ export async function loadLocalLedger({ pubkeys = [] } = {}) {
  * Display-only, like everything else here.
  *
  * @returns {Promise<{claim: number, assessment: number, link: number,
- *                    entity: number, article: number, total: number}>}
+ *                    entity: number, article: number, auditRun: number,
+ *                    prediction: number, resolution: number, total: number}>}
  */
 export async function countLocalOnly() {
-    const counts = { claim: 0, assessment: 0, link: 0, entity: 0, article: 0, total: 0 };
+    const counts = {
+        claim: 0, assessment: 0, link: 0, entity: 0, article: 0,
+        auditRun: 0, prediction: 0, resolution: 0, total: 0
+    };
     const unpublished = (r) => r && (!r.publishedAt || !r.publishedEventId);
     try {
         for (const c of Object.values(await ClaimModel.getAll() || {})) if (unpublished(c)) counts.claim++;
@@ -183,7 +266,22 @@ export async function countLocalOnly() {
             if (r && (!r.publishedToRelay || !r.publishedEventId)) counts.article++;
         }
     } catch (_) { /* counted as zero */ }
-    counts.total = counts.claim + counts.assessment + counts.link + counts.entity + counts.article;
+    try {
+        // A run is "local only" when NONE of its events went out — a
+        // partially-published run is a `missing` problem, not this one.
+        for (const run of (await listRuns()) || []) {
+            const marks = Object.values((run && run.events) || {});
+            if (!marks.some((m) => m && m.publishedEventId)) counts.auditRun++;
+        }
+    } catch (_) { /* counted as zero */ }
+    try {
+        for (const p of (await listPredictions()) || []) if (unpublished(p)) counts.prediction++;
+    } catch (_) { /* counted as zero */ }
+    try {
+        for (const r of (await listResolutions()) || []) if (unpublished(r)) counts.resolution++;
+    } catch (_) { /* counted as zero */ }
+    counts.total = counts.claim + counts.assessment + counts.link + counts.entity + counts.article
+                 + counts.auditRun + counts.prediction + counts.resolution;
     return counts;
 }
 

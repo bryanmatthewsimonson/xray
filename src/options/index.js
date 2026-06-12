@@ -482,6 +482,8 @@ async function loadAdvanced() {
     await loadFlags();
     document.getElementById('pref-assessment-publishing').checked =
         isEnabled('assessmentPublishing');
+    document.getElementById('pref-epistemic-auditing').checked =
+        isEnabled('epistemicAuditing');
 
     const overrides = prefs.config_overrides || {};
     document.getElementById('pref-cache-enabled').checked =
@@ -516,6 +518,8 @@ async function saveAdvanced() {
     // clear the override back to the default (off).
     const publishJudgments = document.getElementById('pref-assessment-publishing').checked;
     await setOverride('assessmentPublishing', publishJudgments ? true : null);
+    const publishAudits = document.getElementById('pref-epistemic-auditing').checked;
+    await setOverride('epistemicAuditing', publishAudits ? true : null);
 
     flash(document.getElementById('advanced-status'), 'Saved.');
 }

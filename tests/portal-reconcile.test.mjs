@@ -214,3 +214,139 @@ test('loadLocalLedger: link with a local-id endpoint gets no addr (id-only match
     assert.deepEqual(link.addrs, []);
     assert.equal(link.publishedEventId, EV('6'));
 });
+
+// ------------------------------------------------------------------
+// Audit kinds (13.8) — the publish ledger added for 30056–30059
+// ------------------------------------------------------------------
+
+const AUDIT_HASH = 'd'.repeat(64);
+const RUN_AT = '2026-06-11T20:14:05Z';
+const AUDITOR = { kind: 'model', id: 'anthropic/claude-sonnet-4-6' };
+const sha16 = async (s) => (await Crypto.sha256(String(s))).slice(0, 16);
+
+test('loadLocalLedger: audit addrs are recomputable from the records', async () => {
+    const { AuditRunModel, PredictionModel, ResolutionModel } =
+        await import('../src/shared/audit/audit-model.js');
+
+    const run = await AuditRunModel.create({
+        articleHash: AUDIT_HASH, auditor: AUDITOR, runAt: RUN_AT, source: 'cli-import',
+        moduleResults: [
+            { module: 'internal_coherence', module_version: '1.0', run_at: RUN_AT, failed: false },
+            { module: 'omission', module_version: '1.0', run_at: RUN_AT, failed: false }
+        ],
+        aggregate: { final_score: 60 }
+    });
+    // Publish marks: one module + the aggregate. The unmarked module
+    // must yield NO ledger entry — never published, nothing to confirm.
+    await AuditRunModel.markEventPublished(run.id, 'mod:internal_coherence', EV('a'));
+    await AuditRunModel.markEventPublished(run.id, 'agg', EV('b'));
+
+    const pred = await PredictionModel.create({
+        articleHash: AUDIT_HASH, text: 'Rates Will  Fall.',
+        criteria: 'c', evidence_quote: 'q', tractability: 'publicly_resolvable'
+    });
+    await PredictionModel.markPublished(pred.id, EV('c'));
+
+    const predCoord = `30058:${PK_A}:pred:${pred.id.slice('pred_'.length)}`;
+    const res = await ResolutionModel.create({
+        predictionCoord: predCoord, outcome: 'true', auditor: { kind: 'human', id: PK_A }
+    });
+    await ResolutionModel.markPublished(res.id, EV('d'));
+
+    const ledger = await loadLocalLedger({ pubkeys: [PK_A] });
+    const audits = ledger.filter((e) => e.source === 'audit');
+    assert.equal(audits.length, 2, 'one entry per PUBLISHED run event — the unmarked module stays off the ledger');
+
+    const modD = 'mod:' + (await sha16(`${AUDIT_HASH}|internal_coherence|1.0|${RUN_AT}`));
+    const aggD = 'agg:' + (await sha16(`${AUDIT_HASH}|${AUDITOR.id}|${RUN_AT}`));
+    assert.deepEqual(audits.find((e) => e.localId.endsWith('mod:internal_coherence')).addrs,
+        [`30056:${PK_A}:${modD}`]);
+    assert.deepEqual(audits.find((e) => e.localId.endsWith('/agg')).addrs,
+        [`30057:${PK_A}:${aggD}`]);
+
+    // Prediction: the local id shares its sha16 with the wire d.
+    const predEntry = ledger.find((e) => e.source === 'prediction');
+    assert.deepEqual(predEntry.addrs, [`30058:${PK_A}:pred:${pred.id.slice('pred_'.length)}`]);
+    assert.equal(predEntry.publishedEventId, EV('c'));
+
+    // Resolution: res:<sha16(coord)> — the id's own derivation.
+    const resEntry = ledger.find((e) => e.source === 'resolution');
+    assert.deepEqual(resEntry.addrs, [`30059:${PK_A}:res:${res.id.slice('res_'.length)}`]);
+});
+
+test('countLocalOnly: audit buckets count never-published records only', async () => {
+    const { AuditRunModel, PredictionModel, ResolutionModel } =
+        await import('../src/shared/audit/audit-model.js');
+
+    // Self-contained: create BOTH a marked and an unmarked run here,
+    // so the partial-run-exclusion assertion holds even when this
+    // test runs in isolation (the shared fake-indexeddb DB makes the
+    // prior test's records an order-dependence hazard otherwise).
+    const marked = await AuditRunModel.create({
+        articleHash: AUDIT_HASH, auditor: AUDITOR, runAt: '2026-06-12T02:00:00Z',
+        source: 'cli-import',
+        moduleResults: [{ module: 'omission', module_version: '1.0', run_at: '2026-06-12T02:00:00Z', failed: false }],
+        aggregate: null
+    });
+    await AuditRunModel.markEventPublished(marked.id, 'mod:omission', EV('e'));
+    await AuditRunModel.create({
+        articleHash: AUDIT_HASH, auditor: AUDITOR, runAt: '2026-06-12T01:00:00Z',
+        source: 'cli-import',
+        moduleResults: [{ module: 'omission', module_version: '1.0', run_at: '2026-06-12T01:00:00Z', failed: false }],
+        aggregate: null
+    });
+    await PredictionModel.create({
+        articleHash: AUDIT_HASH, text: 'Another, unpublished prediction.',
+        criteria: 'c', evidence_quote: 'q'
+    });
+    await ResolutionModel.create({
+        predictionCoord: `30058:${PK_B}:pred:${'1'.repeat(16)}`, outcome: 'false'
+    });
+
+    const counts = await countLocalOnly();
+    assert.equal(counts.auditRun, 1, 'the marked run is not local-only; the unmarked one is');
+    assert.equal(counts.prediction, 1);
+    assert.equal(counts.resolution, 1);
+    assert.equal(counts.total >= 3, true);
+});
+
+test('reconcile: audit kinds are ledgered — unledgered ones surface as remote-only', () => {
+    const ledger = [
+        { source: 'audit', localId: 'audit_x/agg', label: 'agg', publishedEventId: EV('1'),
+          addrs: [`30057:${PK_A}:agg:${'2'.repeat(16)}`] }
+    ];
+    const items = [
+        item(EV('9'), 30057, PK_A, { d: 'agg:' + '2'.repeat(16) }),  // republished — addr match
+        item(EV('8'), 30058, PK_A, { d: 'pred:' + '3'.repeat(16) }), // remote-only: ledgered kind, no record
+        item(EV('6'), 30056, PK_A, { d: 'mod:' + '5'.repeat(16) }),  // remote-only: ledgered kind, no record
+        item(EV('5'), 30059, PK_A, { d: 'res:' + '6'.repeat(16) }),  // remote-only: ledgered kind, no record
+        item(EV('7'), 30061, PK_A, { d: 'dispute:' + '4'.repeat(16) }), // 30061 has no publish path — no-ledger
+        item(EV('4'), 30060, PK_A, { d: 'dossier:' + '7'.repeat(16) })  // 30060 deferred — no-ledger by design
+    ];
+    const r = reconcile(ledger, items);
+    assert.equal(r.statusByEventId[EV('9')], 'confirmed');
+    assert.equal(r.statusByEventId[EV('8')], 'remote-only');
+    assert.equal(r.statusByEventId[EV('6')], 'remote-only');
+    assert.equal(r.statusByEventId[EV('5')], 'remote-only');
+    assert.equal(r.statusByEventId[EV('7')], 'no-ledger');
+    assert.equal(r.statusByEventId[EV('4')], 'no-ledger');
+    assert.deepEqual(r.summary, { ledgerPublished: 1, confirmed: 1, missing: 0, remoteOnly: 3 });
+});
+
+test('loadLocalLedger: the 30056 address derives from findings.version, not the wrapper field', async () => {
+    const { AuditRunModel } = await import('../src/shared/audit/audit-model.js');
+    const run = await AuditRunModel.create({
+        articleHash: 'e'.repeat(64), auditor: AUDITOR, runAt: RUN_AT, source: 'cli-import',
+        moduleResults: [{
+            module: 'internal_coherence', module_version: '1.0', run_at: RUN_AT,
+            findings: { module: 'internal_coherence', version: '1.1' }, failed: false
+        }],
+        aggregate: null
+    });
+    await AuditRunModel.markEventPublished(run.id, 'mod:internal_coherence', EV('f'));
+    const ledger = await loadLocalLedger({ pubkeys: [PK_A] });
+    const entry = ledger.find((e) => e.source === 'audit' && e.localId === `${run.id}/mod:internal_coherence`);
+    const d = 'mod:' + (await sha16(`${'e'.repeat(64)}|internal_coherence|1.1|${RUN_AT}`));
+    assert.deepEqual(entry.addrs, [`30056:${PK_A}:${d}`],
+        'the builder derives the wire d from findings.version — the ledger must recompute the same way');
+});

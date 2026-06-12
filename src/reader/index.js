@@ -28,7 +28,9 @@ import { buildAssessmentEvent, buildClaimRelationshipEvent, buildAssessmentMirro
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
 import { importAuditJson } from '../shared/audit/import.js';
-import { AuditRunModel, PredictionModel, staleModules } from '../shared/audit/audit-model.js';
+import { AuditRunModel, PredictionModel, ResolutionModel, staleModules } from '../shared/audit/audit-model.js';
+import { listResolutions as listAuditResolutions } from '../shared/audit/audit-cache.js';
+import { assembleAuditBatch } from '../shared/audit/publish-batch.js';
 import { CURRENT_MODULE_VERSIONS } from '../shared/audit/findings-schemas.js';
 import { auditBand, scoreChipHtml, prettyModule } from '../shared/audit/display.js';
 
@@ -2354,6 +2356,162 @@ async function publish() {
             }
         }
 
+        // ---- Audit events (13.8, flag-gated) ---------------------------
+        // The ordered audit batch for this capture: 30056s → 30057 →
+        // 30058s (claims published above, so claim back-refs resolve)
+        // → 30059s. Per-event ledger marks make a relay hiccup
+        // mid-batch resumable instead of duplicating. Uses the
+        // CAPTURE hash — predictions and runs anchor to the text that
+        // was audited, not the possibly-edited published text.
+        const auditResults = { ok: 0, fail: 0, errors: [], skipped: 0 };
+        let auditCount = 0;
+        if (isEnabled('epistemicAuditing') && captureHashForLedger) {
+            let batch = { entries: [], skipped: [] };
+            try {
+                // The ledger may be keyed to an EARLIER capture vintage
+                // than this publish (body edited since import; or a
+                // resume after the first publish restamped
+                // state.articleHash) — gather every hash this article
+                // has carried, current first.
+                const hashCandidates = [captureHashForLedger];
+                try {
+                    const arch = state.article.url ? await ArchiveCache.getArticle(state.article.url) : null;
+                    if (arch && arch.articleHash) hashCandidates.push(arch.articleHash);
+                    for (const v of (arch && arch.priorVersions) || []) {
+                        if (v && v.articleHash) hashCandidates.push(v.articleHash);
+                    }
+                } catch (_) { /* archive lookup is enrichment */ }
+                const hashes = [...new Set(hashCandidates.filter(Boolean))];
+
+                const auditRuns = [];
+                const auditPreds = [];
+                for (const h of hashes) {
+                    for (const r of await AuditRunModel.getByArticleHash(h)) {
+                        if (!auditRuns.some((x) => x.id === r.id)) auditRuns.push(r);
+                    }
+                    for (const p of await PredictionModel.getByArticleHash(h)) {
+                        if (!auditPreds.some((x) => x.id === p.id)) auditPreds.push(p);
+                    }
+                }
+
+                // Resolutions: anything referencing one of this
+                // article's predictions (under ANY pubkey — the batch
+                // sorts stale-identity filings from remote-prediction
+                // ones), plus anything filed with this article's hash
+                // (resolutions of remote predictions about it).
+                const predSuffixes = new Set(auditPreds.map((p) => `pred:${String(p.id).slice('pred_'.length)}`));
+                const auditResolutions = (await listAuditResolutions()).filter((r) => {
+                    if (!r) return false;
+                    const suffix = String(r.prediction_coord || '').split(':').slice(2).join(':');
+                    return predSuffixes.has(suffix) || (r.article_hash && hashes.includes(r.article_hash));
+                });
+
+                // Promoted predictions reference their claim's PUBLISHED
+                // address — read it fresh (the claims block just ran,
+                // so a claim that landed this batch already carries
+                // its publishedPubkey). Absent → the batch defers.
+                const claimPubkeys = {};
+                try {
+                    for (const c of await ClaimModel.getBySourceUrl(state.article.url)) {
+                        if (c && c.publishedPubkey) claimPubkeys[c.id] = c.publishedPubkey;
+                    }
+                } catch (_) { /* defer-on-absence is the safe posture */ }
+
+                // The article's own coordinate — attached only when at
+                // least one relay holds the 30023 (referenced-before-
+                // referencer applies to the article join too).
+                const articleDTag = (unsignedArticle.tags.find((t) => t[0] === 'd') || [])[1];
+                const auditArticleCoord = (articleResults.successful > 0 && articleDTag)
+                    ? `30023:${userPubkey}:${articleDTag}` : null;
+
+                batch = await assembleAuditBatch({
+                    articleHash: captureHashForLedger,
+                    userPubkey,
+                    runs: auditRuns,
+                    predictions: auditPreds,
+                    resolutions: auditResolutions,
+                    claimPubkeys,
+                    articleUrl: state.article.url || '',
+                    articleCoord: auditArticleCoord
+                });
+            } catch (err) {
+                console.warn('[X-Ray Reader] audit batch assembly failed:', err);
+                auditResults.fail++;
+                auditResults.errors.push(`batch assembly: ${err.message || String(err)}`);
+            }
+            auditResults.skipped = batch.skipped.length;
+            auditCount = batch.entries.length;
+            if (batch.entries.length > 0) {
+                const auditBase = totalEvents;
+                totalEvents += batch.entries.length;
+                toast(`Also publishing ${batch.entries.length} audit event${batch.entries.length === 1 ? '' : 's'} — public, signed, disputable…`, 'warning', 4000);
+                // Referenced-before-referencer holds on the WIRE, not
+                // just in the list: an aggregate defers when one of
+                // its run's module events failed THIS batch, and a
+                // resolution defers when the prediction minting its
+                // coordinate failed this batch (the failed30054
+                // discipline, per dependency). Resume re-offers both.
+                const failedModuleRuns = new Set();
+                const failedPredCoords = new Set();
+                let aStep = 0;
+                for (const entry of batch.entries) {
+                    btn.textContent = `Publishing (${auditBase + (++aStep)}/${totalEvents})…`;
+                    const isAgg = entry.mark.type === 'run-event' && entry.mark.eventKey === 'agg';
+                    if ((isAgg && failedModuleRuns.has(entry.mark.runId))
+                        || (entry.mark.type === 'resolution' && failedPredCoords.has(entry.predictionCoord))) {
+                        auditResults.fail++;
+                        auditResults.errors.push(`${entry.label}: deferred — its referent failed this batch`);
+                        setProgress(auditBase + aStep, totalEvents);
+                        if (aStep < batch.entries.length) await sleep(BATCH_PUBLISH_DELAY_MS);
+                        continue;
+                    }
+                    let landed = false;
+                    try {
+                        entry.event.pubkey = userPubkey;
+                        const resp = await browserApi.runtime.sendMessage({
+                            type: 'xray:capture:publish', id: state.id, event: entry.event
+                        });
+                        if (resp && resp.ok && resp.results && resp.results.successful > 0) {
+                            recordRelayResults(resp.results);
+                            auditResults.ok++;
+                            landed = true;
+                            const signedId = resp.signedEvent?.id || null;
+                            try {
+                                if (entry.mark.type === 'run-event') {
+                                    await AuditRunModel.markEventPublished(entry.mark.runId, entry.mark.eventKey, signedId);
+                                } else if (entry.mark.type === 'prediction') {
+                                    await PredictionModel.markPublished(entry.mark.id, signedId);
+                                } else if (entry.mark.type === 'resolution') {
+                                    await ResolutionModel.markPublished(entry.mark.id, signedId);
+                                }
+                            } catch (_) { /* ledger mark is best-effort */ }
+                        } else {
+                            if (resp && resp.results) recordRelayResults(resp.results);
+                            auditResults.fail++;
+                            auditResults.errors.push(`${entry.label}: ${(resp && resp.error) || 'no relays accepted'}`);
+                        }
+                    } catch (err) {
+                        auditResults.fail++;
+                        auditResults.errors.push(`${entry.label}: ${err.message || String(err)}`);
+                        console.warn('[X-Ray Reader] audit publish failed:', entry.label, err);
+                    }
+                    if (!landed) {
+                        if (entry.mark.type === 'run-event' && entry.mark.eventKey !== 'agg') {
+                            failedModuleRuns.add(entry.mark.runId);
+                        } else if (entry.mark.type === 'prediction' && entry.coord) {
+                            failedPredCoords.add(entry.coord);
+                        }
+                    }
+                    setProgress(auditBase + aStep, totalEvents);
+                    if (aStep < batch.entries.length) await sleep(BATCH_PUBLISH_DELAY_MS);
+                }
+                // No toast here — showPublishSummary's toast replaces
+                // it in the same tick (single-slot); the audit segment
+                // and skipped count ride the summary line instead.
+                refreshAuditStatus().catch(() => { /* display refresh only */ });
+            }
+        }
+
         // Build + surface the end-of-batch summary.
         showPublishSummary({
             includeComments,
@@ -2372,6 +2530,8 @@ async function publish() {
             mirrorCount: mirrorSel.length,
             jLinkResults,
             jLinkCount: linkSel.length,
+            auditResults,
+            auditCount,
             relayStats
         });
 
@@ -2544,6 +2704,7 @@ function showPublishSummary({
     claimResults, claimCount, relationshipResults, relationshipCount,
     assessResults, assessCount = 0, mirrorResults, mirrorCount = 0,
     jLinkResults, jLinkCount = 0,
+    auditResults = { ok: 0, fail: 0, errors: [], skipped: 0 }, auditCount = 0,
     relayStats
 }) {
     // Console breakdown (always useful for debugging)
@@ -2556,6 +2717,7 @@ function showPublishSummary({
     if (assessResults && assessCount > 0)                    console.log('assessments:',    assessResults);
     if (mirrorResults && mirrorCount > 0)                    console.log('label mirrors:',  mirrorResults);
     if (jLinkResults && jLinkCount > 0)                      console.log('claim links:',    jLinkResults);
+    if (auditResults && (auditCount > 0 || auditResults.errors.length > 0 || auditResults.skipped > 0)) console.log('audit events:', auditResults);
     console.log('per relay:', Object.fromEntries(relayStats));
     console.groupEnd();
 
@@ -2571,6 +2733,7 @@ function showPublishSummary({
     const jdgFails  = ((assessResults && assessResults.fail) || 0)
                     + ((mirrorResults && mirrorResults.fail) || 0)
                     + ((jLinkResults && jLinkResults.fail) || 0);
+    const audFails  = (auditResults && auditResults.fail) || 0;
 
     const segments = [];
     segments.push(articleResults.successful > 0
@@ -2597,6 +2760,10 @@ function showPublishSummary({
     if (jLinkCount > 0) {
         segments.push(`${jLinkResults.ok}/${jLinkCount} claim link${jLinkCount === 1 ? '' : 's'}`);
     }
+    if (auditCount > 0 || (auditResults && (auditResults.skipped > 0 || auditResults.fail > 0))) {
+        segments.push(`${auditResults.ok}/${auditCount} audit event${auditCount === 1 ? '' : 's'}`
+            + (auditResults.skipped > 0 ? ` (${auditResults.skipped} skipped)` : ''));
+    }
     let line = 'Published: ' + segments.join(', ') + '.';
 
     const acceptedAll = [...relayStats.values()].filter((s) => s.fail === 0 && s.ok > 0).length;
@@ -2609,7 +2776,7 @@ function showPublishSummary({
         line += ` Rejected by ${names} — consider removing in Options.`;
     }
 
-    const anyFail = dead.length > 0 || cmtFails > 0 || entFails > 0 || clmFails > 0 || relFails > 0 || jdgFails > 0;
+    const anyFail = dead.length > 0 || cmtFails > 0 || entFails > 0 || clmFails > 0 || relFails > 0 || jdgFails > 0 || audFails > 0;
     const level = (anyFail || articleResults.successful === 0)
         ? (articleResults.successful > 0 ? 'warning' : 'error')
         : 'success';
@@ -2627,7 +2794,7 @@ function showPublishSummary({
             : 'X-Ray: Publish complete';
     notify(notifyTitle, line, level);
 
-    return totalEvents - cmtFails - entFails - clmFails - relFails - jdgFails
+    return totalEvents - cmtFails - entFails - clmFails - relFails - jdgFails - audFails
                        - (articleResults.successful === 0 ? 1 : 0);
 }
 

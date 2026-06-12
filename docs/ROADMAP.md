@@ -1039,6 +1039,24 @@ Implementation slices 13.1+ are in progress.
   **predictions-due strip** (90-day window, merged published+local,
   deduped) with the minimal **Resolve…** form (evidence-bound;
   resolutions file locally, publish in 13.8). — #68
+- 🔄 **13.8** Publish path (draft PR for smoke-testing) — flag-gated
+  (`epistemicAuditing`, default off, Options ▸ Advanced toggle with
+  public-visibility disclosure) ordered batch in the reader's publish
+  flow: 30056s → 30057 → 30058s → 30059s with per-event ledger marks
+  (resume never duplicates); referenced-before-referencer enforced on
+  the WIRE (aggregates defer when a module fails this batch, promoted
+  30058s defer until their claim has a published address — at that
+  address, not the signing key's), per-record hash anchoring (records
+  publish against their audited vintage, resumes survive the publish
+  restamp), per-entry build isolation (one malformed record never
+  blocks the batch, every skip counted into the summary), the
+  resolution identity rule (stale-identity filings refused with
+  re-file guidance; remote-prediction resolutions publish verbatim,
+  anchored via the new `article_hash` record field), import-side
+  version trust boundary (wrapper `module_version` must agree with
+  `findings.version` — the wire-address preimage), portal
+  reconciliation for 30056–30059 (30060/30061 stay no-ledger; 30060
+  snapshot publish deferred — portal stays read-only). — #69
 
 ---
 

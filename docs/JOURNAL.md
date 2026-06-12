@@ -19,6 +19,71 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-11 — 13.8: the publish batch, and what "ordered" has to mean on the wire
+
+**Tags:** design, bug
+
+Slice 13.8 (flag-gated audit publish, draft PR). The calls worth a
+paper trail:
+
+- **"Ordered" is a wire property, not a list property.** The first
+  cut emitted 30056s → 30057 → 30058s → 30059s in order and called it
+  done; the adversarial review (30 confirmed, 10 refuted) pulled the
+  thread: under PARTIAL failure the order still inverts — an
+  aggregate can land while its module result bounced, a promoted
+  30058 while its 30040 was rejected by every relay. Now an aggregate
+  defers when any of its run's module events failed this batch, a
+  resolution defers when its prediction failed or deferred, and a
+  promoted prediction defers until its claim has a **published
+  address** — `claimPubkeys` is read from the claim records *after*
+  the claims block runs, so "failed this batch" and "never published"
+  collapse into one check, and the back-reference is minted at the
+  claim's actual address (its `publishedPubkey`), never the current
+  signing key's. The marks make every deferral a next-batch retry,
+  not a loss.
+- **`findings.version` is the d-preimage source of truth.** The
+  builder derives the 30056 wire `d` from `findings.version`; the
+  batch and the reconcile ledger were deriving coordinates from the
+  WRAPPER's `module_version` — a divergent pair would have minted
+  30057 contribution coords pointing at addresses that never exist,
+  with both events happily on relays. Import now enforces agreement
+  (failed-module posture on divergence, findings win when the wrapper
+  is absent), and every derivation site reads findings-first. Same
+  trust boundary as the score/confidence gate, missed for the one
+  field that feeds an address.
+- **Per-record hash anchoring.** Records publish against the vintage
+  they audited (`run.articleHash`/`p.articleHash`), and the reader
+  gathers ledger records across every hash the article has carried
+  (current + archive + priorVersions) — otherwise the publish-time
+  restamp stranded a resumed batch, and an edited-body publish
+  silently dropped the whole thing.
+- **The resolution identity rule.** A 30059 whose coordinate matches
+  a local prediction under a different pubkey is refused (that
+  address will never exist — re-file under the signing identity); a
+  coordinate with no local counterpart is someone else's published
+  prediction and publishes verbatim, anchored to the prediction's own
+  article via the new `article_hash` field the Resolve… form now
+  stamps (and backfills on revision). The first cut refused ALL
+  foreign coordinates — which made the portal's "publishes with the
+  13.8 batch" promise false for the resolver-≠-predictor workflow the
+  design explicitly supports.
+- **One malformed record never blocks the batch.** assembleAuditBatch
+  isolates every build; a refused record is a counted skip with the
+  builder's reason, and the summary line carries `ok/count (skipped)`
+  — the import module's per-module posture, applied at publish. The
+  end-of-loop audit toast was deleted as dead: the summary toast
+  replaced it in the same tick (single-slot toast), which would have
+  hidden every skip explanation.
+- **Known gaps, decided not patched:** `xray:flags:reload` is
+  documented in two places but has no sender or listener — benign
+  today (the reader `loadFlags()`s before the gate) — left for a
+  flags-bus slice; the reader's defer-discipline loop is DOM-bound
+  and untested (the property contract it consumes is pinned in the
+  batch tests; SMOKE_TEST coverage lands in 13.9); 30060 snapshot
+  publish stays deferred (portal read-only).
+
+---
+
 ## 2026-06-11 — 13.7: the portal joins, and what a dossier refuses to be
 
 **Tags:** design

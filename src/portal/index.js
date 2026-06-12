@@ -393,6 +393,7 @@ function renderPredictionsStrip(host) {
                 const record = await openResolveForm({
                     text: p.text,
                     coordinate,
+                    articleHash: p.articleHash || null,
                     resolverAuditor: resolver ? { kind: 'human', id: resolver.pubkey } : null
                 });
                 if (record) {

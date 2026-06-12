@@ -296,6 +296,7 @@ export function predictionsDue(index, localPredictions, { nowMs, windowDays = 90
             hedge: p.hedgeLevel,
             horizonIso: p.horizonIso,
             coordinate: p.coordinate,
+            articleHash: p.articleHash || null,
             resolved: resolvedKeys.has(key),
             source: 'relay'
         });
@@ -309,6 +310,7 @@ export function predictionsDue(index, localPredictions, { nowMs, windowDays = 90
             hedge: p.hedge_level,
             horizonIso: p.horizon_iso,
             coordinate: null,            // unpublished — coordinate at publish (13.8)
+            articleHash: p.articleHash || null,
             resolved: p.resolution_status !== 'open' || resolvedKeys.has(key),
             localId: p.id,
             source: 'local'

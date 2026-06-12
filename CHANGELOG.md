@@ -12,6 +12,27 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 13.8 — audit publish path.** A new `epistemicAuditing`
+  feature flag (default **off**, Options ▸ Advanced, with an explicit
+  public-visibility disclosure) lets the reader's Publish batch also
+  emit the published article's audit record: module results (30056),
+  the aggregate (30057), prediction ledger entries (30058, stamped
+  with the extraction methodology version that actually produced
+  them), and resolutions (30059 — including resolutions of *other
+  auditors'* predictions, anchored to the prediction's own article
+  hash). Ordering is enforced on the wire: referenced events always
+  land before their referencers, and anything whose referent failed
+  defers to the next publish via per-event ledger marks (a resumed
+  batch never duplicates, never orphans). One malformed record never
+  blocks the rest — every skip is counted and surfaced in the publish
+  summary. The portal's reconciliation panel now covers the audit
+  kinds (a published audit that vanishes from relays surfaces as
+  `missing`, like everything else). CLI import additionally enforces
+  the wrapper/findings `module_version` agreement — the field feeds
+  the wire address — and validates aggregate contribution rows at the
+  door. Kind-30060 dossier snapshots remain unpublished by design
+  (the portal stays read-only).
+
 - **Phase 13.7 — portal audit surfaces.** The portal corpus now
   fetches the audit kinds (30056–30061); the Library gains Audits and
   Predictions facets plus an audit chip on article cards (joined by

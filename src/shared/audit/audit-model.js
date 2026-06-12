@@ -212,6 +212,10 @@ export const PredictionModel = {
             tractability: fields.tractability || 'ambiguous',
             evidence_quote: fields.evidence_quote || '',
             anchor: fields.anchor || null,
+            // prediction_extraction's methodology version, persisted
+            // so the published 30058 states the version that actually
+            // produced it (P9) — never re-stamped at publish time.
+            module_version: fields.module_version || null,
             claim_ref: fields.claim_ref || null,   // set on promotion (RQ6)
             auditor: fields.auditor ? { ...fields.auditor } : null,
             extracted_at: fields.extracted_at || null,
@@ -319,6 +323,10 @@ export const ResolutionModel = {
         const record = {
             id,
             prediction_coord: predictionCoord.trim(),
+            // The PREDICTION's article hash (x on the published 30059)
+            // — without it, a resolution of a remote prediction can't
+            // be scoped to an article at publish time.
+            article_hash: fields.articleHash || null,
             outcome: fields.outcome,
             evidence: Array.isArray(fields.evidence) ? fields.evidence : [],
             notes: fields.notes || '',
@@ -359,7 +367,7 @@ export const ResolutionModel = {
         if (updates && 'outcome' in updates) {
             assertOutcome(updates.outcome, 'ResolutionModel.update');
         }
-        const allowed = ['outcome', 'evidence', 'notes', 'confidence', 'resolved_at'];
+        const allowed = ['outcome', 'evidence', 'notes', 'confidence', 'resolved_at', 'article_hash'];
         for (const key of allowed) {
             if (updates && key in updates) record[key] = updates[key];
         }

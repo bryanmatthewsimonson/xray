@@ -133,6 +133,7 @@ export function openResolveForm(prediction) {
                 };
                 let record = await ResolutionModel.create({
                     predictionCoord: prediction.coordinate,
+                    articleHash: prediction.articleHash || null,
                     ...chosen,
                     auditor: prediction.resolverAuditor || null
                 });
@@ -144,8 +145,14 @@ export function openResolveForm(prediction) {
                 if (record.outcome !== chosen.outcome
                         || record.confidence !== chosen.confidence
                         || record.notes !== chosen.notes
-                        || JSON.stringify(record.evidence) !== JSON.stringify(chosen.evidence)) {
-                    record = await ResolutionModel.update(record.id, chosen);
+                        || JSON.stringify(record.evidence) !== JSON.stringify(chosen.evidence)
+                        || (!record.article_hash && prediction.articleHash)) {
+                    record = await ResolutionModel.update(record.id, {
+                        ...chosen,
+                        // Backfill the article scope on revision —
+                        // pre-13.8 records were filed without it.
+                        ...(prediction.articleHash ? { article_hash: prediction.articleHash } : {})
+                    });
                 }
                 close(record);
             } catch (err) {
