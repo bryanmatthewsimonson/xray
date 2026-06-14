@@ -997,6 +997,14 @@ Implementation slices 13.1+ are in progress.
   per rollup, per-module means, rate table + logged-not-activated
   `calibration_v1`); NIP_DRAFT §30058–§30061 + the beat-vocabulary
   clause. — #64
+- ✅ **13.4** Capture-time hashing — the canonical hash rides new
+  30023s as an indexed `x` tag (additive wire change, CHANGELOG
+  callout; NIP_DRAFT §30023 `x` extension); `assembleArticleBody`
+  extracted so capture and publish hash identical bytes;
+  header-field newline sanitization (terminator-forge defense);
+  `articleHash` on archive records; reader hash line + stealth-edit
+  mismatch banner (sequenced before the archive save so the
+  comparison reads the prior row). — #65
 
 ---
 

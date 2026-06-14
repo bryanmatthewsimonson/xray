@@ -37,11 +37,19 @@
 // permission means we have headroom to be sloppy about this for now.
 
 import { Utils } from './utils.js';
+import { EventBuilder } from './event-builder.js';
+import { articleHash as canonicalArticleHash } from './audit/article-hash.js';
 
 const DB_NAME        = 'xray-archive';
 const DB_VERSION     = 2;     // v2 (Phase 9a) added metadata stores
 const ARTICLES_STORE = 'articles';
 const MAX_ENTRIES    = 500;  // cheap starting budget; revisit if needed
+
+// Stealth-edit retention bound (13.4): displaced article versions kept
+// per row. Bounded because article bodies are large and the row is
+// LRU-evicted as a unit; three covers the realistic edit-detection
+// window without letting a churn-heavy page balloon its row.
+const MAX_PRIOR_VERSIONS = 3;
 
 // Phase 9a metadata stores (XRAY_METADATA_SPEC.md §6, Implementation Plan §4).
 // All keyed on `eventId` so we can dedupe across relays. `urlHash`
@@ -204,14 +212,56 @@ export async function saveArticle({ article, source = 'capture', publishedToRela
     const hash = await urlHash(url);
     const now = Math.floor(Date.now() / 1000);
 
+    // Phase 13.4 — the canonical article hash (the audit anchor, the
+    // `x` tag value). Relay-reconstructed articles carry the hash the
+    // publisher computed (`_articleHash`; recomputing after a
+    // markdown→HTML→markdown round trip would not byte-match);
+    // captures compute it from the same body assembly the publish
+    // path uses, so local and published hashes agree. Best-effort —
+    // a hash failure must never block archiving, and a failed hash
+    // stays null rather than inheriting the prior row's (the hash
+    // labels THIS article body; inheriting would mislabel new
+    // content with old identity). Computed BEFORE the store
+    // transaction opens (an awaited digest would let an IndexedDB
+    // transaction auto-commit under it).
+    let contentHash = article._articleHash || null;
+    if (!contentHash) {
+        try {
+            contentHash = await canonicalArticleHash(EventBuilder.assembleArticleBody(article));
+        } catch (err) {
+            Utils.error('archive-cache: article hash failed', err);
+        }
+    }
+
     const transaction = db.transaction(ARTICLES_STORE, 'readwrite');
     const store       = transaction.objectStore(ARTICLES_STORE);
     const existing    = await req(store.get(hash));
+
+    // Stealth-edit retention (13.4): this row is the only LOCAL copy
+    // of the text prior audits anchor to, and put() replaces it. When
+    // a re-capture's hash differs from the stored one, snapshot the
+    // displaced version (bounded) so "capturing both versions is its
+    // own diagnostic" stays true locally — the design's promise, and
+    // the reader banner's.
+    let priorVersions = (existing && Array.isArray(existing.priorVersions))
+        ? existing.priorVersions : [];
+    if (existing && existing.articleHash && contentHash
+            && existing.articleHash !== contentHash) {
+        priorVersions = [...priorVersions, {
+            article:     existing.article,
+            articleHash: existing.articleHash,
+            cachedAt:    existing.cachedAt,
+            source:      existing.source,
+            displacedAt: now
+        }].slice(-MAX_PRIOR_VERSIONS);
+    }
 
     const record = {
         urlHash:          hash,
         url,
         article,
+        articleHash:      contentHash,
+        priorVersions,
         cachedAt:         existing ? existing.cachedAt : now,
         lastAccessed:     now,
         source,

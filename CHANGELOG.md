@@ -12,6 +12,23 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 13.4 — capture-time canonical hashing.** ⚠️ **Wire-format
+  change to kind 30023 (additive)**: new articles carry the canonical
+  article hash as an indexed `x` tag — SHA-256 of the normalized body
+  markdown (the content after the metadata header), the anchor every
+  audit kind joins on (`docs/NIP_DRAFT.md` §30023 `x` extension).
+  Pre-13.4 events are unaffected (no `x`; consumers fall back to
+  `r`/`d`). Interpolated metadata-header fields (title/byline/site
+  name) are newline-flattened at build time so a hostile value cannot
+  forge the header terminator and skew third-party hash
+  recomputation — a no-op for every real capture seen so far. Archive
+  records gain an `articleHash` field; the reader shows the hash under
+  the article meta and a warning banner when a re-capture of the same
+  URL hashes differently (the stealth-edit surface). Displaced
+  versions are retained on the archive row (`priorVersions`, bounded
+  at 3) so the text prior audits anchor to genuinely survives a
+  re-capture — "capturing both versions is its own diagnostic."
+
 - **Phase 13.1–13.3 — epistemic-audit foundation** (flag-gated,
   default off; `docs/EPISTEMIC_AUDIT_DESIGN.md`). The audit model
   layer (`src/shared/audit/`): canonical article hash (byte-parity
