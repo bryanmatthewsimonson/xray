@@ -12,21 +12,25 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
-- **Phase 13.1/13.2 — epistemic-audit foundation** (flag-gated,
+- **Phase 13.1–13.3 — epistemic-audit foundation** (flag-gated,
   default off; `docs/EPISTEMIC_AUDIT_DESIGN.md`). The audit model
   layer (`src/shared/audit/`): canonical article hash (byte-parity
   with the vendored scorer's normalization), eight derived
   findings-schema validators, the `xray-audits` IndexedDB ledger,
-  beats-v1 vocabulary, calibration-v1 math (logged, not activated) —
-  and the wire core: builders + parsers for **two new event kinds**,
-  30056 AuditModuleResult and 30057 AggregateAudit, specified in
-  `docs/NIP_DRAFT.md`. **Wire-format note for event consumers:** the
-  new kinds carry the indexed `x` tag (SHA-256 of normalized article
-  markdown, NIP-94 precedent) as their article anchor; audit events
-  never carry assessment vocabulary (`stance`, `L`/`l` labels) and
-  MUST NOT be merged with 30051 fact-checks or 30054 assessments.
-  Nothing publishes until the `epistemicAuditing` flag (default
-  `false`) is enabled; no UI ships in these slices.
+  beats-v1 vocabulary, calibration-v1 math (logged, not activated),
+  dossier rollup math (published shrinkage) — and the wire layer:
+  builders + parsers for **six new event kinds** specified in
+  `docs/NIP_DRAFT.md`: 30056 AuditModuleResult, 30057 AggregateAudit,
+  30058 PredictionEntry, 30059 PredictionResolution, 30060
+  DossierSnapshot, 30061 AuditDispute (wire-format-only — no filing
+  UI or adjudication runtime). **Wire-format note for event
+  consumers:** the audit kinds carry the indexed `x` tag (SHA-256 of
+  normalized article markdown, NIP-94 precedent) as their article
+  anchor; audit events never carry assessment vocabulary (`stance`,
+  `L`/`l` labels) and MUST NOT be merged with 30051 fact-checks or
+  30054 assessments; 30059 resolutions and 30061 disputes require
+  typed evidence. Nothing publishes until the `epistemicAuditing`
+  flag (default `false`) is enabled; no UI ships in these slices.
 
 ### Fixed
 
