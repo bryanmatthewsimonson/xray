@@ -234,6 +234,22 @@
       </p>
 
       <hr />
+      <h3 class="xr-opt__subhead">Epistemic audits</h3>
+      <p class="xr-opt__hint">
+        Run the companion scorer CLI (<code>docs/auditor-prototype/scorer/</code>)
+        against a captured article, then import its JSON here. Imports
+        are re-hashed and schema-validated, and must match a local
+        capture — the audit has to be about text you actually captured.
+        Importing stores results locally only; publishing audit events
+        is a separate, experimental-flagged step.
+      </p>
+      <div class="xr-opt__actions">
+        <button class="xr-opt__btn" id="audit-import">Import audit JSON…</button>
+        <span class="xr-opt__status" id="audit-status"></span>
+      </div>
+      <input type="file" id="audit-file" accept="application/json" style="display:none" />
+
+      <hr />
       <h3 class="xr-opt__subhead">Power user</h3>
 
       <label class="xr-opt__field xr-opt__field--inline">

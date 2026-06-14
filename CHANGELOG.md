@@ -12,6 +12,18 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 13.5 — audit import (the v1 execution path).** Run the
+  vendored scorer CLI out-of-band, then import its JSON from the
+  Reader ("Import audit JSON…" under the open capture) or Settings →
+  Advanced → Epistemic audits (matched against the archive, including
+  retained prior versions). Imports enforce the never-sign-unverified
+  gate at the door: the article body is re-hashed against the claimed
+  hash, the audit must match a locally captured text, and every
+  module payload is schema-validated (failed modules are stored as
+  failed runs and excluded from aggregation). Importing is local-only
+  and ungated; publishing audit events remains a separate
+  `epistemicAuditing`-flagged step (slice 13.8).
+
 - **Phase 13.4 — capture-time canonical hashing.** ⚠️ **Wire-format
   change to kind 30023 (additive)**: new articles carry the canonical
   article hash as an indexed `x` tag — SHA-256 of the normalized body

@@ -27,6 +27,8 @@ import { selectAssessmentsToPublish, selectLinksToPublish, selectMirrors } from 
 import { buildAssessmentEvent, buildClaimRelationshipEvent, buildAssessmentMirrorEvent } from '../shared/metadata/builders.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
+import { importAuditJson } from '../shared/audit/import.js';
+import { AuditRunModel } from '../shared/audit/audit-model.js';
 
 const browserApi = typeof browser !== 'undefined' && browser.runtime ? browser : chrome;
 
@@ -155,6 +157,10 @@ async function loadArticle() {
                 state.articleHash = await canonicalArticleHash(
                     EventBuilder.assembleArticleBody(state.article));
                 updateHashLine();
+                // The audit bar keys on the hash — refresh it now that
+                // the hash is known (init wired it before this resolved).
+                refreshAuditStatus().catch((err) =>
+                    console.warn('[X-Ray Reader] audit status failed:', err));
             } catch (err) {
                 console.warn('[X-Ray Reader] article hash failed:', err);
             }
@@ -415,6 +421,33 @@ function updateHashLine() {
     }
     el.title = state.articleHash;
     el.textContent = 'content hash ' + state.articleHash.slice(0, 16) + '…';
+}
+
+// Audit-bar status line (13.5): how many imported runs anchor to this
+// capture's hash. The full panel (scores, module rows) is 13.6 — this
+// just keeps the import affordance honest about what's stored.
+async function refreshAuditStatus() {
+    const el = $('#xr-audit-status');
+    if (!el) return;
+    if (!state.articleHash) {
+        el.textContent = 'No audit imported for this capture.';
+        return;
+    }
+    const runs = await AuditRunModel.getByArticleHash(state.articleHash);
+    if (!runs.length) {
+        el.textContent = 'No audit imported for this capture.';
+        return;
+    }
+    const latest = runs.slice().sort((a, b) => String(b.runAt).localeCompare(String(a.runAt)))[0];
+    const score = latest.aggregate && typeof latest.aggregate.final_score === 'number'
+        ? latest.aggregate.final_score : null;
+    const conf = latest.aggregate && typeof latest.aggregate.overall_confidence === 'number'
+        ? latest.aggregate.overall_confidence : null;
+    // Display rule (no naked numbers; <0.6 ⇒ needs human review).
+    const scoreLabel = score === null ? 'no aggregate score'
+        : (conf !== null && conf < 0.6) ? 'needs human review (confidence < 0.6)'
+            : `score ${score}` + (conf !== null ? ` · confidence ${conf}` : '');
+    el.textContent = `${runs.length} audit run${runs.length === 1 ? '' : 's'} stored — latest: ${scoreLabel}. Full panel arrives in 13.6.`;
 }
 
 // Stealth-edit surface: the same URL hashed differently on a prior
@@ -2469,6 +2502,37 @@ async function init() {
     $('#xr-comments-include').addEventListener('change', (ev) => {
         state.comments.includeInPublish = ev.target.checked;
     });
+
+    // Epistemic-audit import (13.5): button → hidden file input →
+    // importAuditJson with the RQ1 gate (re-hash + schema-validate +
+    // match against THIS capture's hash). Local-only and ungated —
+    // publishing the audit events is 13.8, behind the flag.
+    $('#xr-audit-import').addEventListener('click', () => $('#xr-audit-file').click());
+    $('#xr-audit-file').addEventListener('change', async (ev) => {
+        const file = ev.target.files && ev.target.files[0];
+        ev.target.value = '';
+        if (!file) return;
+        // The capture-match half of the RQ1 gate NEEDS the capture's
+        // hash — without it (read-only portal opens, hash failure) an
+        // import would be silently ungated. Refuse rather than weaken;
+        // the options importer matches against the archive instead.
+        if (!state.articleHash) {
+            toast('This view has no capture hash to verify against — import from Settings → Advanced → Epistemic audits instead.', 'error', 7000);
+            return;
+        }
+        try {
+            const parsed = JSON.parse(await file.text());
+            const summary = await importAuditJson(parsed, { localArticleHash: state.articleHash });
+            const bits = [`${summary.modulesValid} module${summary.modulesValid === 1 ? '' : 's'} valid`];
+            if (summary.modulesFailed) bits.push(`${summary.modulesFailed} failed validation`);
+            if (summary.predictionsImported) bits.push(`${summary.predictionsImported} prediction${summary.predictionsImported === 1 ? '' : 's'}`);
+            toast(`Audit imported — ${bits.join(', ')}`, summary.modulesFailed ? 'warning' : 'success', 5000);
+            await refreshAuditStatus();
+        } catch (err) {
+            toast('Audit import failed: ' + (err && err.message), 'error', 7000);
+        }
+    });
+    refreshAuditStatus().catch((err) => console.warn('[X-Ray Reader] audit status failed:', err));
 
     // Kick off the platform-specific data fetch, if any.
     // Non-blocking — the reader is already interactive.
