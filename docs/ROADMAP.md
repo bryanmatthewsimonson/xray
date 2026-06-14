@@ -970,6 +970,15 @@ kinds 30056–30061 confirmed (upstream registry checked clean
 NIP; beats become a curated versioned vocabulary (`beats-v1`).
 Implementation slices 13.1+ are in progress.
 
+- ✅ **13.1** Model + hashing + schemas + tests — canonical article
+  hash (vendored-scorer parity pinned by source-extracted vectors),
+  the eight derived findings validators (evidence-bound, module 08
+  score-forbidden), `xray-audits` IndexedDB ledger,
+  AuditRun/Prediction/Resolution models with the per-event publish
+  ledger, `beats-v1` vocabulary + alias normalizer, `calibration-v1`
+  math (logged, not activated), auditor-kind-parity tests;
+  three-lens adversarial review (7 confirmed findings fixed). — #62
+
 ---
 
 ## Abandonment criteria
