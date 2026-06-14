@@ -62,6 +62,9 @@ Phase 12 ████████████████████  complete 
                                 portal (docs/PORTAL_DESIGN.md). 12.1–12.7
                                 shipped incl. adversarial-review fixes;
                                 §Phase 12 smoke-run pending
+Phase 13 ░░░░░░░░░░░░░░░░░░░░  design agreed 2026-06-14 — forensic findings:
+                                behavioral-pattern layer (docs/CRIMINOLOGY_DESIGN.md).
+                                13.1–13.5 not yet built
 ```
 
 Parity with the v4.2 userscript is reached; the project now operates as a
@@ -914,6 +917,56 @@ Slices (one PR each):
 - ✅ **12.7** Hardening — three-lens adversarial review (20 confirmed
   findings fixed, incl. two relay-sync bugs and a read-only breach;
   JOURNAL 2026-06-11), SMOKE_TEST §Phase 12, docs pass. — #55
+
+---
+
+## Phase 13 — Forensic findings (behavioral-pattern layer) ⏳ design agreed
+
+Where Phase 11 grades whether a *claim* is true, Phase 13 names what a
+*subject* is doing around the truth — an evasion, a defense, a self-serving
+revision — and binds it to evidence, **without a verdict on honesty or
+intent**. A **behavioral finding** (new kind `30056`) targets a subject (the
+Phase 9 identity layer) in a declared **role** (apologist / critic /
+institution / witness / survivor), names a **maneuver** from a taxonomy
+seeded from the criminology / thought-reform canon (Sykes & Matza
+neutralization, Freyd/DARVO, Lifton thought-reform, Popper/Lakatos immunizing
+defenses, Finkelhor/Craven grooming sequence, statement-analysis revision),
+and carries an **ordered evidence chain** plus a **required counter-note**
+(the alternative reading). No stance, no score — a bounded `basis` enum
+(`quoted` / `paraphrased` / `behavioral-cue` / `structural-inference`)
+records *how we know*. Diachronic story-changes extend kind `30055` with
+directional `revision/*` edges (`narrative-patch` / `recharacterizes` /
+`walks-back`). Local-first, publish-ready (flag-gated `forensicPublishing`,
+kind-1985 mirror), LLM-ready (`suggested_by`). The portal renders the same
+findings as Dawn McCarty's four report lenses (evidentiary / executive /
+survivor / editor). Companion to — not a fork of — the assessment layer.
+
+Full design, wire formats, methodology rules, and the canon→vocabulary map:
+[`docs/CRIMINOLOGY_DESIGN.md`](CRIMINOLOGY_DESIGN.md) — design agreed
+2026-06-14.
+
+Slices (one PR each):
+
+- ⏳ **13.1** Foundation — `forensic-taxonomy.js` (six families + role/basis
+  enums + indicators/counter-indicators), `forensic-model.js` +
+  `behavioral_findings` store, baselines, `evidence-linker.js` `revision/*`
+  values; tests. No UI, no wire.
+- ⏳ **13.2** Capture UI — finding modal (subject+role, ordered anchors,
+  note + required counter-note, basis), findings bar, baseline marking,
+  revision-link flow.
+- ⏳ **13.3** Wire builders + NIP draft — `30056`
+  `buildBehavioralFindingEvent` + `parseBehavioralFindingEvent`, 30055
+  `revision/*` emission, `forensicPublishing` flag, §30056/§30055 NIP text
+  with the "structural-observation, not verdict" framing.
+- ⏳ **13.4** Portal report lenses — corpus parser + subject/case lens views
+  (evidentiary / executive / survivor / editor) + reconciliation.
+- ⏳ **13.5** LLM assist (flag-gated) — `suggested_by: llm:<model>` proposal
+  pass enforcing the anchor + counter-note + basis discipline.
+
+Acceptance demo: the source video itself
+([`0axZ8EGLaxQ`](https://www.youtube.com/watch?v=0axZ8EGLaxQ)) — profile both
+interlocutors (the symmetry check), with evidence chains, counter-notes, and
+diachronic revision edges visible across the four lenses.
 
 ---
 
