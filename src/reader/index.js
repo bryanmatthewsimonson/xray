@@ -26,6 +26,11 @@ import { makeClaimRefCanonicalizer } from '../shared/claim-ref.js';
 import { selectAssessmentsToPublish, selectLinksToPublish, selectMirrors } from '../shared/assessment-publish.js';
 import { buildAssessmentEvent, buildClaimRelationshipEvent, buildAssessmentMirrorEvent } from '../shared/metadata/builders.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
+import { ForensicModel } from '../shared/forensic-model.js';
+import { openFindingModal, openBaselineModal } from '../shared/forensic-modal.js';
+import { renderFindingsBar } from './findings-section.js';
+import { captureFromRange } from '../shared/metadata/anchor-capture.js';
+import { normalize as normalizeUrl } from '../shared/metadata/url-normalizer.js';
 
 const browserApi = typeof browser !== 'undefined' && browser.runtime ? browser : chrome;
 
@@ -436,6 +441,7 @@ function renderReader() {
     // Render the claims bar below the article body. Fires in the
     // background — we don't block the main render on it.
     refreshClaimsBar().catch((err) => console.warn('[X-Ray Reader] claims-bar render failed:', err));
+    refreshFindingsBar().catch((err) => console.warn('[X-Ray Reader] findings-bar render failed:', err));
 
     // Wire metadata-field edits back to the article object.
     main.querySelectorAll('[contenteditable]').forEach((el) => {
@@ -515,6 +521,95 @@ async function refreshClaimsBar() {
                 toast('Link removed', 'success', 1500);
                 await refreshClaimsBar();
             });
+        });
+    });
+}
+
+// ------------------------------------------------------------------
+// Forensic findings bar (Phase 13.2)
+// ------------------------------------------------------------------
+
+/** Tagged entities on this article become the subject choices. */
+function subjectChoicesFromArticle() {
+    const seen = new Set();
+    const choices = [];
+    for (const e of (state.article && state.article.entities) || []) {
+        if (!e.entity_id || seen.has(e.entity_id)) continue;
+        seen.add(e.entity_id);
+        choices.push({ key: e.entity_id, label: e.name || e.context || e.entity_id });
+    }
+    return choices;
+}
+
+/** The current article-body selection, as a seed anchor (quote + span). */
+function captureSelectionSeed() {
+    const body = $('.xr-article__body');
+    const sel = typeof window !== 'undefined' ? window.getSelection() : null;
+    if (!body || !sel || sel.rangeCount === 0) return null;
+    const range = sel.getRangeAt(0);
+    if (range.collapsed || !body.contains(range.commonAncestorContainer)) return null;
+    const quote = String(range.toString() || '').trim();
+    if (!quote) return null;
+    try {
+        const captured = captureFromRange(range, body);
+        return { quote, selector: captured ? captured.selectors : null };
+    } catch (_) { return { quote, selector: null }; }
+}
+
+/**
+ * Render the findings bar: findings whose evidence is anchored to this
+ * article's URL (findings are keyed by subject, not URL, so we match on
+ * the per-anchor source). Wires the capture affordances + row actions.
+ */
+async function refreshFindingsBar() {
+    const host = $('#xr-findings-host');
+    if (!host || !state.article || !state.article.url) return;
+
+    const url = normalizeUrl(state.article.url);
+    const all = await ForensicModel.getAll();
+    const findings = Object.values(all)
+        .filter((f) => (f.anchors || []).some((a) => a.source_ref && a.source_ref.url === url))
+        .sort((a, b) => (a.created || 0) - (b.created || 0));
+    host.innerHTML = renderFindingsBar(findings);
+
+    const anchorContext  = { container: $('.xr-article__body') };
+    const sourceRef      = { url: state.article.url, title: state.article.title || '' };
+    const subjectChoices = subjectChoicesFromArticle();
+
+    const addBtn = host.querySelector('#xr-findings-add');
+    if (addBtn) addBtn.addEventListener('click', async () => {
+        const seedAnchor = captureSelectionSeed();
+        const result = await openFindingModal({ subjectChoices, anchorContext, seedAnchor, sourceRef });
+        if (result) {
+            toast(result.deleted ? 'Finding removed' : 'Finding saved', 'success', 1500);
+            await refreshFindingsBar();
+        }
+    });
+
+    const baseBtn = host.querySelector('#xr-findings-baseline');
+    if (baseBtn) baseBtn.addEventListener('click', async () => {
+        const result = await openBaselineModal({ subjectChoices, sourceRef });
+        if (result) toast('Baseline saved', 'success', 1500);
+    });
+
+    host.querySelectorAll('.xr-findings__item').forEach((row) => {
+        const id = row.dataset.id;
+        const editBtn = row.querySelector('[data-action="edit"]');
+        const delBtn  = row.querySelector('[data-action="delete"]');
+        if (editBtn) editBtn.addEventListener('click', async () => {
+            const existing = await ForensicModel.get(id);
+            if (!existing) return;
+            const result = await openFindingModal({ subjectChoices, anchorContext, existing, sourceRef });
+            if (result) {
+                toast(result.deleted ? 'Finding removed' : 'Finding saved', 'success', 1500);
+                await refreshFindingsBar();
+            }
+        });
+        if (delBtn) delBtn.addEventListener('click', async () => {
+            if (!confirm('Delete this finding?')) return;
+            await ForensicModel.delete(id);
+            toast('Finding removed', 'success', 1500);
+            await refreshFindingsBar();
         });
     });
 }

@@ -1428,6 +1428,86 @@ body {
   color: var(--xr-text-dim);
 }
 
+/* Forensic findings bar (Phase 13) — sibling of the claims bar. */
+.xr-findings {
+  max-width: var(--xr-reader-max-w);
+  margin: 0 auto 16px;
+  padding: 16px 24px 20px;
+  background: var(--xr-surface);
+  border: 1px solid var(--xr-border);
+  border-radius: 10px;
+}
+
+.xr-findings__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.xr-findings__title { margin: 0; font-size: 16px; font-weight: 600; }
+.xr-findings__gap { flex: 1; }
+
+.xr-findings__btn {
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  background: var(--xr-surface-2);
+  color: var(--xr-text);
+  border: 1px solid var(--xr-border);
+}
+
+.xr-findings__btn--primary {
+  background: var(--xr-primary, #8b5cf6);
+  border-color: var(--xr-primary, #8b5cf6);
+  color: #fff;
+}
+
+.xr-findings__empty {
+  padding: 14px 16px;
+  color: var(--xr-text-dim);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.xr-findings__list { display: flex; flex-direction: column; gap: 10px; }
+
+.xr-findings__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--xr-warning, #fbbf24);
+  background: var(--xr-surface-2);
+  border-radius: 0 6px 6px 0;
+}
+
+.xr-findings__item-main { flex: 1; min-width: 0; }
+.xr-findings__subject { font-weight: 600; font-size: 14px; }
+
+.xr-findings__quote {
+  margin: 6px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--xr-border);
+  color: var(--xr-text-dim);
+  font-style: italic;
+  font-size: 13px;
+}
+
+.xr-findings__item-actions { display: flex; gap: 4px; flex: none; }
+
+.xr-findings__row-btn {
+  background: none;
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+  color: var(--xr-text);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 3px 7px;
+}
+
 .xr-claims__type {
   font-weight: 600;
   color: var(--xr-text);
