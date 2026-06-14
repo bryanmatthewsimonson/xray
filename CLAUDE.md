@@ -184,7 +184,9 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
 - **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 12
   "My Archive" portal (v0.5.1) — Phases 10 (thin claims), 11 (assessments;
   `docs/ASSESSMENTS_DESIGN.md`), and 12 (portal; `docs/PORTAL_DESIGN.md`)
-  are complete.
+  are complete; Phase 13 (epistemic audits;
+  `docs/EPISTEMIC_AUDIT_DESIGN.md`) design accepted 2026-06-11,
+  implementation slices 13.1+ in progress.
 - **`docs/JOURNAL.md`** — chronological log of bugs, design decisions, and
   external-platform changes. **Add a tight entry** when fixing a non-obvious
   bug, making a second-guessable design choice, or working around a
@@ -194,6 +196,12 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
 - **`docs/CAPTURE_GUIDE.md`** — per-platform URL-shape/timing requirements
   (FB/IG/TikTok are finicky).
 - **`docs/NIP_DRAFT.md`** — the crowdsourced-metadata wire format.
+- **`docs/PHILOSOPHY.md`** — the **normative** constitution of the
+  Phase-13 epistemic auditor (v1.0.0). Consult it before any
+  structural, scoring, schema, or methodology change to audit
+  surfaces; when code and it conflict, it governs until amended.
+  When two of its principles conflict, document the tension and cite
+  them by number (e.g. "P9 over convenience").
 - **`CONTRIBUTING.md`** — release process (git-tag-driven via
   `.github/workflows/release.yml`) and the Firefox-floor rationale.
 
