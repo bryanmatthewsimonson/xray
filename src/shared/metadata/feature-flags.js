@@ -37,7 +37,15 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // kind 30054 assessments, kind 30055 claim relationships, and the
   // kind-1985 label mirror. Local capture/badges/rollups/export are
   // never gated — they're the product.
-  assessmentPublishing: false
+  assessmentPublishing: false,
+
+  // Phase 13 (docs/EPISTEMIC_AUDIT_DESIGN.md): gates the PUBLISH paths
+  // for the audit kinds (30056 module results, 30057 aggregate audits,
+  // and the 30058–30061 family as their slices land). Local
+  // import/render/ledger is never gated — the Phase 11 split. Audit
+  // EXECUTION additionally requires a user-supplied API key, which is
+  // its own consent gate on top of this flag.
+  epistemicAuditing: false
 });
 
 /**
