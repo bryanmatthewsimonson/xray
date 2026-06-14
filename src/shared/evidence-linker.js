@@ -35,7 +35,8 @@ import { Utils } from './utils.js';
 import { ClaimModel } from './claim-model.js';
 import { normalize as normalizeUrl } from './metadata/url-normalizer.js';
 import {
-    CLAIM_RELATIONSHIPS, isSymmetricRelationship, isValidSuggestedBy
+    CLAIM_RELATIONSHIPS, REVISION_RELATIONSHIPS,
+    isSymmetricRelationship, isValidSuggestedBy
 } from './assessment-taxonomy.js';
 import {
     isLocalClaimId, parseClaimCoord, assertValidClaimRef,
@@ -48,22 +49,37 @@ import {
 
 export const EVIDENCE_RELATIONSHIPS = CLAIM_RELATIONSHIPS;
 
+// Every relationship the linker will STORE: the Phase-11 four plus the
+// Phase-13 diachronic `revision/*` values. `EVIDENCE_RELATIONSHIPS`
+// (above) is deliberately the original four so the Phase-11 link picker
+// is unchanged; create() validates against this wider union.
+const ALL_LINK_RELATIONSHIPS = Object.freeze([
+    ...CLAIM_RELATIONSHIPS, ...REVISION_RELATIONSHIPS
+]);
+
 // Legacy `contextualizes` keeps label/icon entries so pre-11.1
-// records render; it is not offered for new links.
+// records render; it is not offered for new links. The `revision/*`
+// values get entries too so diachronic edges render.
 export const EVIDENCE_RELATIONSHIP_LABELS = {
-    contradicts:    'Contradicts',
-    supports:       'Supports',
-    updates:        'Updates',
-    duplicates:     'Duplicates',
-    contextualizes: 'Contextualizes'
+    contradicts:       'Contradicts',
+    supports:          'Supports',
+    updates:           'Updates',
+    duplicates:        'Duplicates',
+    contextualizes:    'Contextualizes',
+    'narrative-patch': 'Patches',
+    recharacterizes:   'Recharacterizes',
+    'walks-back':      'Walks back'
 };
 
 export const EVIDENCE_RELATIONSHIP_ICONS = {
-    contradicts:    '⚔',
-    supports:       '↗',
-    updates:        '↻',
-    duplicates:     '≡',
-    contextualizes: '◇'
+    contradicts:       '⚔',
+    supports:          '↗',
+    updates:           '↻',
+    duplicates:        '≡',
+    contextualizes:    '◇',
+    'narrative-patch': '▥',
+    recharacterizes:   '✎',
+    'walks-back':      '↩'
 };
 
 // ------------------------------------------------------------------
@@ -138,8 +154,8 @@ export async function generateEvidenceLinkId(sourceRef, targetRef, relationship)
 // ------------------------------------------------------------------
 
 function assertValidRelationship(relationship) {
-    if (!CLAIM_RELATIONSHIPS.includes(relationship)) {
-        throw new Error(`Invalid relationship: ${relationship} (expected one of ${CLAIM_RELATIONSHIPS.join(', ')})`);
+    if (!ALL_LINK_RELATIONSHIPS.includes(relationship)) {
+        throw new Error(`Invalid relationship: ${relationship} (expected one of ${ALL_LINK_RELATIONSHIPS.join(', ')})`);
     }
 }
 
