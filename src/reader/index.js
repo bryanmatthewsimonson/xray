@@ -31,6 +31,9 @@ import { openFindingModal, openBaselineModal } from '../shared/forensic-modal.js
 import { renderFindingsBar } from './findings-section.js';
 import { captureFromRange } from '../shared/metadata/anchor-capture.js';
 import { normalize as normalizeUrl } from '../shared/metadata/url-normalizer.js';
+import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
+import { importAuditJson } from '../shared/audit/import.js';
+import { AuditRunModel } from '../shared/audit/audit-model.js';
 
 const browserApi = typeof browser !== 'undefined' && browser.runtime ? browser : chrome;
 
@@ -147,9 +150,37 @@ async function loadArticle() {
     // (the portal's relay reconstructions, Phase 12.7): overwriting
     // the archive row here would reset its publishedToRelay marker and
     // break the portal's read-only guarantee.
+    //
+    // Phase 13.4: hash this capture (the canonical article hash — the
+    // `x` tag value) and compare against the prior archived record
+    // BEFORE the save replaces it. A different hash for the same URL
+    // is a detected content change (the stealth-edit surface) —
+    // sequenced, not racing, so the comparison reads the prior row.
     if (state.article && state.article.url && !(stored && stored.readOnly)) {
-        ArchiveCache.saveArticle({ article: state.article, source: 'capture' })
-            .catch((err) => console.warn('[X-Ray Reader] archive cache save failed:', err));
+        (async () => {
+            try {
+                state.articleHash = await canonicalArticleHash(
+                    EventBuilder.assembleArticleBody(state.article));
+                updateHashLine();
+                // The audit bar keys on the hash — refresh it now that
+                // the hash is known (init wired it before this resolved).
+                refreshAuditStatus().catch((err) =>
+                    console.warn('[X-Ray Reader] audit status failed:', err));
+            } catch (err) {
+                console.warn('[X-Ray Reader] article hash failed:', err);
+            }
+            try {
+                const prior = await ArchiveCache.getArticle(state.article.url);
+                if (prior && prior.articleHash && state.articleHash
+                        && prior.articleHash !== state.articleHash) {
+                    renderHashMismatchBanner(prior);
+                }
+            } catch (err) {
+                console.warn('[X-Ray Reader] hash check failed:', err);
+            }
+            ArchiveCache.saveArticle({ article: state.article, source: 'capture' })
+                .catch((err) => console.warn('[X-Ray Reader] archive cache save failed:', err));
+        })();
     }
 
     // Archive-reader affordance — if this capture looks paywalled OR
@@ -351,6 +382,18 @@ function loadArchivedArticle(archived, provenance) {
     state.htmlDraft     = archived.content  || ContentExtractor.markdownToHtml(state.markdownDraft);
     state.dirtySource   = 'reader';
 
+    // The hash line labels the visible body — the swapped-in archive
+    // is different text, so the load-time hash is wrong for it. Relay
+    // archives carry the PUBLISHED hash (carry, don't recompute: the
+    // HTML round trip doesn't byte-match); cache archives recompute.
+    state.articleHash = archived._articleHash || null;
+    state.hashDirty = false;
+    if (!state.articleHash) {
+        canonicalArticleHash(EventBuilder.assembleArticleBody(state.article))
+            .then((h) => { state.articleHash = h; updateHashLine(); })
+            .catch((err) => console.warn('[X-Ray Reader] archive hash failed:', err));
+    }
+
     // Re-render whatever view the user's currently in.
     switch (state.viewMode) {
         case 'reader':   renderReader();   break;
@@ -363,6 +406,80 @@ function loadArchivedArticle(archived, provenance) {
 // ------------------------------------------------------------------
 // Render — READER mode
 // ------------------------------------------------------------------
+
+// ------------------------------------------------------------------
+// Canonical article hash (Phase 13.4)
+// ------------------------------------------------------------------
+
+// Fill (or refresh) the small hash line under the article meta. The
+// hash computes async after first render, and mode switches re-render
+// the template — so this is callable from both paths.
+function updateHashLine() {
+    const el = $('#xr-article-hash');
+    if (!el) return;
+    if (!state.articleHash) { el.hidden = true; return; }
+    el.hidden = false;
+    if (state.hashDirty) {
+        el.title = 'The body was edited — the published hash is computed from the final text at publish time.';
+        el.textContent = 'content hash — edited, recomputed at publish';
+        return;
+    }
+    el.title = state.articleHash;
+    el.textContent = 'content hash ' + state.articleHash.slice(0, 16) + '…';
+}
+
+// Audit-bar status line (13.5): how many imported runs anchor to this
+// capture's hash. The full panel (scores, module rows) is 13.6 — this
+// just keeps the import affordance honest about what's stored.
+async function refreshAuditStatus() {
+    const el = $('#xr-audit-status');
+    if (!el) return;
+    if (!state.articleHash) {
+        el.textContent = 'No audit imported for this capture.';
+        return;
+    }
+    const runs = await AuditRunModel.getByArticleHash(state.articleHash);
+    if (!runs.length) {
+        el.textContent = 'No audit imported for this capture.';
+        return;
+    }
+    const latest = runs.slice().sort((a, b) => String(b.runAt).localeCompare(String(a.runAt)))[0];
+    const score = latest.aggregate && typeof latest.aggregate.final_score === 'number'
+        ? latest.aggregate.final_score : null;
+    const conf = latest.aggregate && typeof latest.aggregate.overall_confidence === 'number'
+        ? latest.aggregate.overall_confidence : null;
+    // Display rule (no naked numbers; <0.6 ⇒ needs human review).
+    const scoreLabel = score === null ? 'no aggregate score'
+        : (conf !== null && conf < 0.6) ? 'needs human review (confidence < 0.6)'
+            : `score ${score}` + (conf !== null ? ` · confidence ${conf}` : '');
+    el.textContent = `${runs.length} audit run${runs.length === 1 ? '' : 's'} stored — latest: ${scoreLabel}. Full panel arrives in 13.6.`;
+}
+
+// Stealth-edit surface: the same URL hashed differently on a prior
+// capture. Informational — the prior text stays in the archive; the
+// re-audit affordance arrives with the audit panel (13.6).
+function renderHashMismatchBanner(prior) {
+    let banner = $('#xr-hash-banner');
+    if (!banner) {
+        banner = document.createElement('aside');
+        banner.id = 'xr-hash-banner';
+        banner.className = 'xr-hash-banner';
+        const main = $('#xr-main');
+        if (!main || !main.parentElement) return;
+        main.parentElement.insertBefore(banner, main);
+    }
+    const ago = prior.cachedAt ? new Date(prior.cachedAt * 1000).toLocaleDateString() : 'earlier';
+    banner.innerHTML = `
+      <div class="xr-hash-banner__body">
+        <div class="xr-hash-banner__label">⚠️ Content changed since your last capture (${escapeHtml(ago)})</div>
+        <div class="xr-hash-banner__metric">The text hashes differently — the page was edited between captures. Your previous capture stays in the archive; audits anchor to the exact text they scored.</div>
+      </div>
+      <div class="xr-hash-banner__actions">
+        <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-hash-dismiss">Dismiss</button>
+      </div>
+    `;
+    $('#xr-hash-dismiss').addEventListener('click', () => banner.remove());
+}
 
 function renderReader() {
     const a = state.article;
@@ -378,6 +495,7 @@ function renderReader() {
             ${field('Published',   'publishedAt', fmtDate(a.publishedAt))}
             ${field('URL',         'url',         a.url)}
           </div>
+          <div class="xr-article__hash" id="xr-article-hash" hidden></div>
         </header>
         ${renderYouTubeHeader(a)}
         ${renderTikTokHeader(a)}
@@ -442,6 +560,10 @@ function renderReader() {
     // background — we don't block the main render on it.
     refreshClaimsBar().catch((err) => console.warn('[X-Ray Reader] claims-bar render failed:', err));
     refreshFindingsBar().catch((err) => console.warn('[X-Ray Reader] findings-bar render failed:', err));
+
+    // Re-fill the hash line — the template above recreates it hidden,
+    // and the hash (computed async at load) may already be known.
+    updateHashLine();
 
     // Wire metadata-field edits back to the article object.
     main.querySelectorAll('[contenteditable]').forEach((el) => {
@@ -1082,8 +1204,16 @@ function buildCaptureHints(a) {
     return hints;
 }
 
-function onReaderFieldInput() {
+function onReaderFieldInput(ev) {
     state.dirtySource = 'reader';
+    // Body edits change what publish will hash and stamp as the x
+    // tag — the load-time hash no longer labels the visible text.
+    // Honest display beats live recomputation against a half-synced
+    // draft: flag dirty, recompute at publish (13.4).
+    if (ev && ev.target && ev.target.dataset.field === 'content' && !state.hashDirty) {
+        state.hashDirty = true;
+        updateHashLine();
+    }
 }
 
 function onReaderFieldBlur(ev) {
@@ -1613,6 +1743,20 @@ async function publish() {
         } catch (_) { /* identity is enrichment, never a publish gate */ }
 
         const unsignedArticle = await EventBuilder.buildArticleEvent(article, entityRefs, userPubkey, [], authorAccountPubkey);
+
+        // 13.4: the event just built carries the canonical hash of the
+        // FINAL (possibly edited) body as its x tag. Stamp it on the
+        // article so the post-publish archive save records the hash of
+        // what was actually published — a carried stale _articleHash
+        // (relay-loaded archives) would otherwise mislabel the row —
+        // and refresh the hash line, which may have been edit-dirty.
+        const publishedXTag = unsignedArticle.tags.find((t) => t[0] === 'x');
+        if (publishedXTag && publishedXTag[1]) {
+            article._articleHash = publishedXTag[1];
+            state.articleHash = publishedXTag[1];
+            state.hashDirty = false;
+            updateHashLine();
+        }
 
         btn.textContent = totalEvents > 1 ? `Publishing (1/${totalEvents})…` : 'Publishing…';
         const articleResp = await browserApi.runtime.sendMessage({
@@ -2453,6 +2597,37 @@ async function init() {
     $('#xr-comments-include').addEventListener('change', (ev) => {
         state.comments.includeInPublish = ev.target.checked;
     });
+
+    // Epistemic-audit import (13.5): button → hidden file input →
+    // importAuditJson with the RQ1 gate (re-hash + schema-validate +
+    // match against THIS capture's hash). Local-only and ungated —
+    // publishing the audit events is 13.8, behind the flag.
+    $('#xr-audit-import').addEventListener('click', () => $('#xr-audit-file').click());
+    $('#xr-audit-file').addEventListener('change', async (ev) => {
+        const file = ev.target.files && ev.target.files[0];
+        ev.target.value = '';
+        if (!file) return;
+        // The capture-match half of the RQ1 gate NEEDS the capture's
+        // hash — without it (read-only portal opens, hash failure) an
+        // import would be silently ungated. Refuse rather than weaken;
+        // the options importer matches against the archive instead.
+        if (!state.articleHash) {
+            toast('This view has no capture hash to verify against — import from Settings → Advanced → Epistemic audits instead.', 'error', 7000);
+            return;
+        }
+        try {
+            const parsed = JSON.parse(await file.text());
+            const summary = await importAuditJson(parsed, { localArticleHash: state.articleHash });
+            const bits = [`${summary.modulesValid} module${summary.modulesValid === 1 ? '' : 's'} valid`];
+            if (summary.modulesFailed) bits.push(`${summary.modulesFailed} failed validation`);
+            if (summary.predictionsImported) bits.push(`${summary.predictionsImported} prediction${summary.predictionsImported === 1 ? '' : 's'}`);
+            toast(`Audit imported — ${bits.join(', ')}`, summary.modulesFailed ? 'warning' : 'success', 5000);
+            await refreshAuditStatus();
+        } catch (err) {
+            toast('Audit import failed: ' + (err && err.message), 'error', 7000);
+        }
+    });
+    refreshAuditStatus().catch((err) => console.warn('[X-Ray Reader] audit status failed:', err));
 
     // Kick off the platform-specific data fetch, if any.
     // Non-blocking — the reader is already interactive.

@@ -8,6 +8,9 @@ import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
 import { loadFlags, isEnabled, setOverride, resetOverrides } from '../shared/metadata/feature-flags.js';
+import { importAuditJson } from '../shared/audit/import.js';
+import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
+import { listArticles } from '../shared/archive-cache.js';
 
 const browserApi = (typeof browser !== 'undefined' && browser.runtime) ? browser : chrome;
 
@@ -417,6 +420,36 @@ async function exportKeypairs() {
     flash(document.getElementById('keypairs-status'), 'Exported.');
 }
 
+// Epistemic-audit import (13.5). The options-side gate is the archive
+// match: the audit must be about text the user actually captured
+// (current or a retained prior version). importAuditJson then applies
+// the RQ1 invariant — re-hash, schema-validate — before anything
+// persists. Local-only; publishing is 13.8 behind the flag.
+async function importAuditFromFile(file) {
+    const status = document.getElementById('audit-status');
+    try {
+        const parsed = JSON.parse(await file.text());
+        const body = parsed && parsed.article && parsed.article.body_markdown;
+        if (typeof body !== 'string' || !body) {
+            throw new Error('not a scorer export — article.body_markdown missing');
+        }
+        const claimed = await canonicalArticleHash(body);
+        const records = await listArticles();
+        const match = records.find((r) => r.articleHash === claimed
+            || (Array.isArray(r.priorVersions) && r.priorVersions.some((v) => v.articleHash === claimed)));
+        if (!match) {
+            throw new Error('no local capture matches this audit\'s article hash — capture the article first');
+        }
+        const summary = await importAuditJson(parsed, { localArticleHash: claimed });
+        const bits = [`${summary.modulesValid} modules valid`];
+        if (summary.modulesFailed) bits.push(`${summary.modulesFailed} failed validation`);
+        if (summary.predictionsImported) bits.push(`${summary.predictionsImported} predictions`);
+        flash(status, `Imported — ${bits.join(', ')}.`, summary.modulesFailed === 0);
+    } catch (e) {
+        flash(status, 'Import failed: ' + (e && e.message), false);
+    }
+}
+
 async function importKeypairsFromFile(file) {
     const status = document.getElementById('keypairs-status');
     try {
@@ -558,6 +591,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('keypairs-file').addEventListener('change', (e) => {
         const file = e.target.files && e.target.files[0];
         if (file) importKeypairsFromFile(file);
+        e.target.value = '';
+    });
+
+    document.getElementById('audit-import').addEventListener('click', () => {
+        document.getElementById('audit-file').click();
+    });
+    document.getElementById('audit-file').addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (file) importAuditFromFile(file);
         e.target.value = '';
     });
 

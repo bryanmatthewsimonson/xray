@@ -71,6 +71,364 @@ here:
 Design only at this point — no code yet; the taxonomy is meant to be reviewed
 before 14.1 lands.
 
+## 2026-06-11 — 13.5: the import gate, and what rejects vs what degrades
+
+**Tags:** design
+
+Slice 13.5 (`audit/import.js` + reader/options affordances). The
+calls worth a paper trail:
+
+- **Reject vs degrade is drawn at the badge.** A corrupt file
+  (claimed hash ≠ body), a capture mismatch (audit about text the
+  user never captured), or a contradictory aggregate (final >
+  min(raw, ceiling)) rejects the whole import — those poison the
+  badge record. A single module failing schema validation (or a
+  scorer-reported `_error`) degrades instead: stored as a failed run,
+  score null, the validation errors recorded as a caveat — the
+  scorer's own failure posture, because one flaky module shouldn't
+  discard seven paid ones. A file where EVERY module fails rejects.
+- **The options importer matches against retained prior versions
+  too** — an audit of last week's text is still an audit of text the
+  user captured; 13.4's `priorVersions` retention is what makes that
+  honest.
+- **The reader's status line obeys the display rules from day one**:
+  no naked numbers (score renders with confidence), and
+  confidence < 0.6 renders as "needs human review" — even in this
+  pre-panel stub, so 13.6 inherits a surface that never violated the
+  rule.
+- **`ceiling_source` defaults to `heuristic:source-quality/1.0` on
+  import** when the export predates the field — RQ2's canonical
+  pipeline source, which is what the vendored scorer actually does.
+  A *present-but-invalid* value rejects (the closed RQ2 grammar,
+  enforced at the door rather than at publish).
+- **The adversarial review confirmed the slice's one real gate
+  hole**: the reader passed `state.articleHash || null`, and the
+  hash is never computed for read-only portal opens — so on those
+  views ANY internally-consistent audit imported ungated while the
+  status line simultaneously said "no audit imported." The reader
+  now refuses without a capture hash (pointing at the
+  archive-matched options importer); the half-checked state was
+  worse than either honest extreme. Mutation testing also showed
+  module- and prediction-level auditor attribution was unasserted
+  (a silent fallback-to-pipeline would have flattened RQ3's
+  identity layer into the published events) — now pinned. Review
+  process note: seven verifier agents hit the session usage limit
+  mid-run; their finder-lens findings (prediction enums unvalidated,
+  never-publishable predictions, ceiling_source grammar, the
+  vacuous `.every`-on-empty rejection) were adjudicated by direct
+  code reading and all fixed — predictions now validate enums +
+  publishability at import and skip with counted reasons.
+
+---
+
+## 2026-06-11 — 13.4: the hash reaches the capture pipeline
+
+**Tags:** design
+
+Slice 13.4 puts the canonical article hash on shipping surfaces. The
+second-guessable calls:
+
+- **The hash input is the assembled publish-path body, not raw
+  `article.content`.** `assembleArticleBody` was extracted from
+  `buildArticleEvent` so the capture path (archive record), the
+  publish path (the `x` tag), and any future import path hash
+  identical bytes. Consequence, stated in the design and now true in
+  code: the video transcript-chunking loop is part of the content
+  address — a formatting tweak there changes video hashes and gets
+  the wire-change treatment.
+- **Header fields are newline-flattened, not rejected.** A title
+  smuggling `\n---\n` would forge the header terminator and leak the
+  Archived date into a third party's hash recomputation. Flattening
+  to spaces is a no-op for every real capture seen so far and keeps
+  capture unbreakable by hostile page titles. Pinned by a hostile-
+  title test asserting the strip invariant byte-for-byte:
+  `stripMetadataHeader(event.content) === assembleArticleBody(article)`.
+- **Relay reconstructions carry the published hash (`_articleHash`),
+  never recompute.** A markdown→HTML→markdown round trip does not
+  byte-match the original body; recomputing would mint a divergent
+  hash for the same published text.
+- **The reader's stealth-edit check is sequenced, not racing.** The
+  load path previously fire-and-forgot the archive save; the hash
+  comparison must read the PRIOR row, so hash → compare → save now
+  run in order inside one async block (still non-blocking for
+  render).
+- **Dependency note:** `archive-cache.js` now imports
+  `event-builder.js` (for the body assembly) — which transitively
+  probes `chrome.storage.local` at module load, so archive-cache
+  tests gained the event-builder tests' minimal chrome stub.
+- **The adversarial review caught the slice contradicting itself —
+  8 confirmed findings, one BLOCKING.** The banner told the user
+  "your previous capture stays in the archive" while the very next
+  line's `saveArticle` overwrote the single per-URL row — destroying
+  the only local copy of the text prior audits anchor to,
+  milliseconds after promising to keep it (and the design note had
+  explicitly committed to local survival, so softening the copy was
+  not an option). Fix: **bounded stealth-edit retention** — when a
+  re-capture's hash differs, the displaced `{article, articleHash,
+  cachedAt, displacedAt}` snapshots onto the row's `priorVersions`
+  (cap 3; the row still LRU-evicts as a unit). Also from the review:
+  the hash line went stale after "Load archive" (now refreshed from
+  the archive's carried hash, or recomputed) and after body edits
+  (now flagged "edited, recomputed at publish" — honest display over
+  live recomputation against a half-synced draft); republishing a
+  relay-loaded archive would have stamped the OLD carried hash into
+  the archive row beside a new event whose x tag differs (publish now
+  stamps the just-built event's x); a failed hash no longer inherits
+  the prior row's (a hash labels THIS body — inheriting mislabels);
+  and three mutation-verified test holes (per-call-site header
+  sanitization, the legacy fenced-transcript body — the only shape
+  that pins the strip regex's laziness — and the hash-failure path).
+
+---
+
+## 2026-06-11 — 13.3: the ledger kinds, and what a resolution must carry
+
+**Tags:** design
+
+Kinds 30058–30061 + `dossier.js` (slice 13.3). The calls worth a
+paper trail:
+
+- **30058 content is the prediction text and nothing else.** The
+  resolution criteria, horizon, and attribution all ride tags — so
+  the convergent `d` (`pred:<sha16(hash|norm(text))>`) is mechanically
+  recomputable from the event alone, and a re-extraction converges
+  instead of duplicating. Tempting as it was to put a richer JSON in
+  the content, every added byte would have broken `d`-recomputability.
+- **Resolutions and disputes require evidence at build time.** P3
+  applies recursively ("dispute filings, adjudications, and prediction
+  resolutions are equally evidence-bound") — so `evidence: []` throws,
+  in the builder, before anything could be signed. Likewise 30061's
+  `status` enum is just open/withdrawn: upheld/rejected are other
+  pubkeys' judgments and structurally cannot be filer-asserted.
+- **30060 enforces canonical beat slugs at build time** (RQ8):
+  `buildDossierSnapshotEvent` rejects aliases (`fed`) and unmapped
+  strings rather than normalizing silently — the caller should have
+  normalized deliberately, and a dossier minted from a typo would be
+  a permanent subject identity.
+- **Dossier math is a pure module** (`dossier.js`): same inputs, same
+  rollup, auditor-kind-blind (RQ3 pinned by test). The shrinkage
+  factor is returned with every rollup because it must be *published*,
+  not just applied (§4).
+- **The adversarial review (14 confirmed, 1 refuted-by-mutation)
+  earned its keep again.** The bug class from 13.2 recurred in a new
+  costume: typed `nostr_event` evidence emits plain `a`/`e` indexing
+  tags that are name-indistinguishable from the prediction/target
+  *reference* tags — a foreign 30061 with evidence tags serialized
+  first parsed the evidence article as the dispute target (reproduced
+  live), and the same id-confusion hit `predictionEventId`. Fix: the
+  reference `a`/`e` tags are now role-marked (`prediction`/`target`,
+  the 30055 house idiom) with evidence-excluding fallbacks for
+  foreign events. Also: the parser's attribution fallback to
+  `article_voice` would have silently booked a named source's
+  prediction against the *author's* dossier — attribution now rejects
+  like hedge does; `x` became required on 30059 (the prediction `d`
+  is a one-way hash, so an x-less resolution is invisible to article
+  queries); the nostr_event evidence value grammar is pinned to raw
+  coordinate/event-id (the three sources disagreed: naddr-or-nevent
+  vs coordinate-or-event-id vs unvalidated); and zero-article
+  dossiers went from allowed-but-unconstructible (articleCount 0
+  passed, the null median it implies threw) to explicitly never
+  published.
+
+---
+
+## 2026-06-11 — 13.2: the wire core enforces what the design promises
+
+**Tags:** design
+
+Kinds 30056/30057 (`src/shared/audit/builders.js` + NIP_DRAFT
+sections). The calls worth a paper trail:
+
+- **Builders validate findings BEFORE building.** `buildModuleResultEvent`
+  runs the slice-13.1 schema validator and throws on failure — the
+  RQ1 "never sign what you haven't verified" invariant moved as far
+  upstream as it can go. A consequence: `score`/`confidence`/`version`
+  are read from the validated findings rather than passed separately,
+  so the tags can never disagree with the content, and a
+  prediction_extraction event structurally cannot carry score tags.
+- **The firewall is enforced by construction, not convention** — the
+  builders emit a closed tag vocabulary, and tests pin that no audit
+  event ever carries `stance`/`rating-value`/`L`/`l`.
+- **`ceiling-binding` presence-is-the-signal.** The design note's
+  illustrative 30057 example showed the tag alongside a non-binding
+  raw/ceiling pair; the builder computes `raw > ceiling` and the NIP
+  text says "present ONLY when". The example was illustrative-sloppy;
+  the computed rule governs.
+- **Parsers demand the auditor block.** A 30056/30057 without a
+  parseable `auditor` tag is structurally unusable (null), because an
+  unattributed audit defeats the auditing-the-auditors layer — but
+  unknown auditor *kinds* are rejected rather than defaulted, same
+  posture as outcomes in 13.1.
+- **The three-lens adversarial review confirmed 19 findings (0
+  refuted), all fixed pre-PR.** The instructive ones: the canonical
+  30057 example in both the design note and the NIP draft was
+  *internally inconsistent* (score 64.5 / raw 71.2 / ceiling 80 with
+  `ceiling-binding: true` — binding requires raw > ceiling), now a
+  coherent binding trio and a builder invariant (`finalScore ≤
+  min(raw, ceiling)`, ≤ not == since pipeline degradation may lower
+  it); parser module detection trusted t-tag ORDER, which NIP-01
+  doesn't specify — `findings.module` (const-checked in the envelope)
+  is now authoritative with t-disagreement → null; `Date.parse` as an
+  "ISO-8601" gate accepts `"Jun 11 2026 (x|y)"` — a pipe-bearing
+  runAt would have corrupted the `|`-delimited `d` preimage, now a
+  strict regex; and beats reaching indexed `t` tags unvalidated could
+  collide with module names and poison the relay-side module filter.
+  Mutation testing again earned its keep: nine surviving-mutant test
+  holes (zero-score falsy drops, unparsed lineage roles, first-array-
+  element-only walker masking) now bite.
+
+---
+
+## 2026-06-11 — 13.1: the hash is parity-not-idempotence, and other slice-one calls
+
+**Tags:** design, pattern
+
+Slice 13.1 (`src/shared/audit/`) landed the model layer. The
+second-guessable calls:
+
+- **The canonical normalization is NOT idempotent — pinned, not
+  fixed.** Stripping the trailing space in `"\r \n"` manufactures a
+  fresh `\r\n` that a second pass would collapse. The vendored
+  scorer's algorithm has this property, so ours does too, verbatim:
+  the contract is *parity* (extension output ≡ CLI output, enforced by
+  extracting `normalizeMarkdown` from the vendored source at test
+  time), defined over exactly one pass. "Fixing" idempotence on either
+  side is a methodology change that forks every hash.
+- **Validator required-ness follows the design note's worked example,
+  not the prompts' canonical examples.** Discriminator enums, scoring
+  booleans, and every evidence quote are required; descriptive
+  enrichments (ids, notes, context) are typed but optional — a benign
+  model omission must not turn a paid run into a failed one. The one
+  strict block: module 04's seven summary counts (the ceiling
+  heuristic reads them by name). Module 08 *forbids* score/confidence
+  rather than omitting them — a scored prediction-extraction is
+  malformed.
+- **`beats-v1` ships as a JS module + JSON artifact with a sync
+  test**, not a JSON import — `with { type: 'json' }` needs Node
+  ≥20.10 and the engines floor is `>=20`; a two-file-one-test
+  arrangement has zero loader risk and keeps the published artifact.
+- **The adversarial review (three lenses, all findings
+  adversarially verified) caught three real correctness gaps** before
+  the PR: IndexedDB writes resolved on request success rather than
+  transaction commit (a silent-loss window on a ledger the module
+  itself calls precious); `IDBIndex.getAll(undefined)` is an
+  unbounded range, so an unguarded missing key would have widened
+  "audits for this article" into "the whole ledger"; and resolution
+  outcomes were stored unvalidated, where a typo'd outcome silently
+  degrades to "open" and vanishes from calibration. Plus the
+  humbling one: every "never bumps `updated`" test was tautological
+  (second-granularity timestamps) — mutation-verified, now
+  sentinel-based.
+
+---
+
+## 2026-06-11 — Phase 13 design accepted: the resolutions, and the recovered constitution
+
+**Tags:** design
+
+The maintainer answered all eight review questions in
+`docs/EPISTEMIC_AUDIT_DESIGN.md` (answers + dispositions now recorded
+in the note's resolutions section and threaded through its body) and
+delivered the originally-unrecovered philosophy prose — vendored
+verbatim and **normative** at `docs/PHILOSOPHY.md` (v1.0.0: twelve
+principles, red lines, decision heuristics; CLAUDE.md now instructs
+consulting it before structural changes). The calls a future reader
+will second-guess:
+
+- **The ceiling binds to the heuristic, not the model (RQ2).** The
+  knowability ceiling is the single most score-determinative scalar in
+  the aggregate, so it goes to the most *reproducible* source: the
+  versioned source-quality heuristic a third party can recompute
+  exactly (P12). The model's estimate is kept advisorily
+  (`model_estimated_ceiling`); the accumulated divergence between the
+  two is the design dataset for the eventually-dedicated knowability
+  module.
+- **Conflicts-supersede, exercised (RQ5).** The maintainer's answer
+  sketched append-only `d`s for resolutions/disputes and a windowed
+  dossier `d`; per his standing instruction ("your recommendations …
+  supercede"), the note's schemes stand — likewise the answer's
+  literal version-in-`d` constraint, generalized to
+  version-and/or-run-identity with the relaxation explicitly flagged. The P9 tension is documented
+  in the resolutions rather than silently resolved — the accepted
+  cost (a resolver's own earlier revision isn't relay-retained) is
+  stated, with the local ledger as mitigation.
+- **`calibration-v1` is specified, not activated (RQ4).** There was no
+  lost formula — the original prose fixed only P7's ordering
+  constraints. The Brier spec (hedge→probability mapping, clamped
+  dossier-only multiplier, ≥10-resolved display gate) is a *new,
+  published assumption*, logged from slice 13.1 and applied never,
+  until an explicit activation decision at ledger volume. Don't
+  "recover" what didn't exist.
+- **Beats are curated (RQ8).** Free-form beat tags silently shrink
+  dossier sample sizes and corrupt the shrinkage math — vocabulary is
+  methodology, so `beats-v1` is versioned in-repo with an alias map
+  (`crypto` deliberately ≠ `bitcoin`); free-form `t` tags never mint
+  dossier subjects.
+- **The kind block stays at 30056–30061 (RQ5).** The answer floated
+  reusing 30050–30055 if the old drafts were unpublished — inside
+  X-Ray they're *shipped kinds with live events* (9a/11), so reuse is
+  impossible. Upstream `nostr-protocol/nips` registry checked
+  2026-06-11: nothing touches 30056–30061.
+
+So-what: implementation starts at 13.1 with these as binding
+constraints, and PHILOSOPHY.md governs when code and principles
+conflict.
+
+---
+
+## 2026-06-11 — Phase 13 design: the calls a future reader will second-guess
+
+**Tags:** design
+
+`docs/EPISTEMIC_AUDIT_DESIGN.md` (design-note-only session; no code).
+The decisions most worth a paper trail:
+
+- **Numeric scores are back in — deliberately.** The rev-1 kickoff
+  reconstruction had *forbidden* numeric scores (reasoning from the
+  10.1 confidence-slider failure). The recovered framework
+  (`docs/auditor-prototype/`) scores 0–100 with per-score confidence, a
+  knowability ceiling, versioned methodology, and auditor identity —
+  the rev-2 brief reversed rev 1 because **the framework wins where
+  they conflict**. The design note's display rules (no score without
+  confidence, <0.6 renders as "needs human review", bands anchored to
+  the framework's own rubric, never centered on 50) are the guardrails
+  that made the 10.1 objection answerable rather than ignored.
+- **Kind remap 30050→30056 etc.** The framework's suggested kinds
+  30050–30055 were chosen before Phases 9a/11 shipped and every one is
+  now occupied in-repo. Six new kinds 30056–30061, same one-family-
+  per-kind shape. Not a framework deviation of substance — the schema
+  README itself says the numbers "should be claimed via NIP proposal."
+- **Run-unique `d` tags for module results/aggregates.** The schema
+  README said `d` = article hash; `audit-types.ts` mandates
+  "nothing overwrites prior audits." At one `d`, NIP-01 replacement
+  eats history — so the note resolves the framework's own internal
+  tension toward time-series (`d` includes `run_at`, recomputable from
+  the event's tags), and documents per-entity where latest-wins *is*
+  correct (resolutions, dossier snapshots).
+- **Import-then-sign, not CLI-signs.** The kickoff sketched the
+  companion-CLI stopgap as "emitting signed events the portal reads."
+  The note recommends the CLI emit *unsigned* audit JSON that the
+  extension imports, validates, and signs via the existing Signer —
+  keeps nsec handling out of Node entirely. Flagged as review
+  question 1 rather than decided silently.
+- **Hosted scorer endpoint refused for v1.** A server between a trust
+  tool and its users is a new trust dependency; local-first (user's
+  API key) staged through the CLI stopgap instead.
+- **Adversarial review before the PR** (three lenses: framework
+  fidelity / repo fidelity / scope): 1 high + ~8 medium confirmed
+  findings, all fixed — the high was hand-recomputability gaps in the
+  30057/30058 `d` formulas (fixed by pinning `auditor_id` to the
+  `auditor` tag's id slot and moving prediction resolution-criteria
+  out of `content` into a `criteria` tag); the most consequential
+  mediums: typed evidence (`kind`/`value`/`description`) restored on
+  30059/30061, badge bands realigned to the framework's published
+  rubric instead of invented breaks, the opt-in host-permission story
+  corrected (manifest already grants `<all_urls>` — the API key + flag
+  are the real consent gates), and video transcript formatting named
+  as part of the canonical hash input.
+
+---
+
 ## 2026-06-11 — Phase 12.7: what the adversarial review caught (two relay-sync bugs + a read-only breach)
 
 **Tags:** bug, design, pattern

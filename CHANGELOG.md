@@ -10,6 +10,57 @@ Sections per release: **Added** (new features), **Changed**
 
 ## [Unreleased]
 
+### Added
+
+- **Phase 13.5 — audit import (the v1 execution path).** Run the
+  vendored scorer CLI out-of-band, then import its JSON from the
+  Reader ("Import audit JSON…" under the open capture) or Settings →
+  Advanced → Epistemic audits (matched against the archive, including
+  retained prior versions). Imports enforce the never-sign-unverified
+  gate at the door: the article body is re-hashed against the claimed
+  hash, the audit must match a locally captured text, and every
+  module payload is schema-validated (failed modules are stored as
+  failed runs and excluded from aggregation). Importing is local-only
+  and ungated; publishing audit events remains a separate
+  `epistemicAuditing`-flagged step (slice 13.8).
+
+- **Phase 13.4 — capture-time canonical hashing.** ⚠️ **Wire-format
+  change to kind 30023 (additive)**: new articles carry the canonical
+  article hash as an indexed `x` tag — SHA-256 of the normalized body
+  markdown (the content after the metadata header), the anchor every
+  audit kind joins on (`docs/NIP_DRAFT.md` §30023 `x` extension).
+  Pre-13.4 events are unaffected (no `x`; consumers fall back to
+  `r`/`d`). Interpolated metadata-header fields (title/byline/site
+  name) are newline-flattened at build time so a hostile value cannot
+  forge the header terminator and skew third-party hash
+  recomputation — a no-op for every real capture seen so far. Archive
+  records gain an `articleHash` field; the reader shows the hash under
+  the article meta and a warning banner when a re-capture of the same
+  URL hashes differently (the stealth-edit surface). Displaced
+  versions are retained on the archive row (`priorVersions`, bounded
+  at 3) so the text prior audits anchor to genuinely survives a
+  re-capture — "capturing both versions is its own diagnostic."
+
+- **Phase 13.1–13.3 — epistemic-audit foundation** (flag-gated,
+  default off; `docs/EPISTEMIC_AUDIT_DESIGN.md`). The audit model
+  layer (`src/shared/audit/`): canonical article hash (byte-parity
+  with the vendored scorer's normalization), eight derived
+  findings-schema validators, the `xray-audits` IndexedDB ledger,
+  beats-v1 vocabulary, calibration-v1 math (logged, not activated),
+  dossier rollup math (published shrinkage) — and the wire layer:
+  builders + parsers for **six new event kinds** specified in
+  `docs/NIP_DRAFT.md`: 30056 AuditModuleResult, 30057 AggregateAudit,
+  30058 PredictionEntry, 30059 PredictionResolution, 30060
+  DossierSnapshot, 30061 AuditDispute (wire-format-only — no filing
+  UI or adjudication runtime). **Wire-format note for event
+  consumers:** the audit kinds carry the indexed `x` tag (SHA-256 of
+  normalized article markdown, NIP-94 precedent) as their article
+  anchor; audit events never carry assessment vocabulary (`stance`,
+  `L`/`l` labels) and MUST NOT be merged with 30051 fact-checks or
+  30054 assessments; 30059 resolutions and 30061 disputes require
+  typed evidence. Nothing publishes until the `epistemicAuditing`
+  flag (default `false`) is enabled; no UI ships in these slices.
+
 ### Fixed
 
 - **Hardening from the Phase 12.7 adversarial review** (three lenses,

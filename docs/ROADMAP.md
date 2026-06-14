@@ -62,9 +62,18 @@ Phase 12 ████████████████████  complete 
                                 portal (docs/PORTAL_DESIGN.md). 12.1–12.7
                                 shipped incl. adversarial-review fixes;
                                 §Phase 12 smoke-run pending
+Phase 13 ███████████░░░░░░░░░  in progress — epistemic audits
+                                (docs/EPISTEMIC_AUDIT_DESIGN.md; design
+                                accepted 2026-06-11, all eight review
+                                questions answered, the recovered
+                                philosophy vendored normatively at
+                                docs/PHILOSOPHY.md). Kinds 30056–30061
+                                confirmed; 13.1–13.5 merged, 13.6–13.9
+                                (panel / portal / publish / hardening)
+                                pending smoke-test
 Phase 14 ░░░░░░░░░░░░░░░░░░░░  design agreed 2026-06-14 — forensic findings:
                                 behavioral-pattern layer (docs/CRIMINOLOGY_DESIGN.md).
-                                14.1–14.5 not yet built
+                                builds on Phase 13; 14.1–14.2 built, 14.3–14.5 pending
 ```
 
 Parity with the v4.2 userscript is reached; the project now operates as a
@@ -919,6 +928,96 @@ Slices (one PR each):
   JOURNAL 2026-06-11), SMOKE_TEST §Phase 12, docs pass. — #55
 
 ---
+
+## Phase 13 — Epistemic audits 🚧 (in progress)
+
+The maintainer's epistemic-auditor framework — eight versioned
+surface-scan module prompts (headline-body fidelity, asymmetric
+language, number hygiene, source quality, internal coherence,
+definitional precision, omission, prediction extraction), a canonical
+data model (`audit-types.ts`: content-addressed articles, module
+results with confidence, aggregate audits under a knowability ceiling,
+a prediction ledger with resolutions, dossiers with Bayesian shrinkage,
+disputes, first-class auditor identity), and a working Node scorer —
+is recovered and vendored at
+[`docs/auditor-prototype/`](auditor-prototype/README.md) (PRs #58/#60).
+
+Phase 13 integrates it into X-Ray. The design note,
+[`docs/EPISTEMIC_AUDIT_DESIGN.md`](EPISTEMIC_AUDIT_DESIGN.md)
+(drafted 2026-06-11 from the rev-3 kickoff,
+[`docs/EPISTEMIC_AUDIT_KICKOFF.md`](EPISTEMIC_AUDIT_KICKOFF.md), and
+adversarially reviewed before its PR), proposes: six new kinds
+**30056–30061** (the framework's 30050–30055 are all taken in-repo); a
+canonical article hash (the scorer's normalization, byte-for-byte)
+carried as an indexed `x` tag; a local-first execution path via a
+companion CLI, import-then-sign (RQ1 confirmed it as the keeper
+architecture, not a stopgap; hosted endpoint refused for v1); a
+strict audit/assessment firewall; dossiers as derived portal views over
+published audit events; honest score display (no score without
+confidence, no aggregate without its ceiling, <0.6 confidence renders
+as "needs human review"); and a nine-slice implementation plan.
+
+**Status: design accepted 2026-06-11.** The maintainer answered all
+eight review questions (resolutions recorded and threaded in the
+design note) and delivered the previously-unrecovered philosophy
+prose, vendored **normatively** at
+[`docs/PHILOSOPHY.md`](PHILOSOPHY.md) (v1.0.0). Headline resolutions:
+import-then-sign confirmed as the keeper v1 architecture (hosted
+endpoint refused; re-validate-before-sign; producer ≠ publisher);
+the knowability ceiling binds to the versioned source-quality
+heuristic, the model's estimate riding advisorily; the
+guided-checklist tier is the first post-v1 slice, with an
+auditor-kind-agnostic invariant binding v1; `calibration-v1` (Brier)
+specified but logged-only until an explicit activation decision;
+kinds 30056–30061 confirmed (upstream registry checked clean
+2026-06-11) with the `d`-scheme constraint written into the draft
+NIP; beats become a curated versioned vocabulary (`beats-v1`).
+Implementation slices 13.1+ are in progress.
+
+- ✅ **13.1** Model + hashing + schemas + tests — canonical article
+  hash (vendored-scorer parity pinned by source-extracted vectors),
+  the eight derived findings validators (evidence-bound, module 08
+  score-forbidden), `xray-audits` IndexedDB ledger,
+  AuditRun/Prediction/Resolution models with the per-event publish
+  ledger, `beats-v1` vocabulary + alias normalizer, `calibration-v1`
+  math (logged, not activated), auditor-kind-parity tests;
+  three-lens adversarial review (7 confirmed findings fixed). — #62
+- ✅ **13.2** Wire audit core — `buildModuleResultEvent` (30056) +
+  `buildAggregateAuditEvent` (30057) with pure null-on-invalid
+  parsers (findings schema-validated before building — never sign
+  what you haven't verified; firewall held by construction: no
+  assessment vocabulary emitted), the `epistemicAuditing` flag
+  (default off), NIP_DRAFT §30056/§30057 incl. the canonical-hash
+  `x` tag and the RQ5 time-series `d` constraint, CHANGELOG
+  wire-change callout. — #63
+- ✅ **13.3** Wire ledger + governance kinds — builders + parsers for
+  30058 PredictionEntry (convergent text-hash `d`; content =
+  prediction text only, so `d` recomputes from the event), 30059
+  PredictionResolution (typed four-kind evidence tags, evidence-bound
+  — no evidence, no resolution), 30060 DossierSnapshot (cache
+  semantics; beat subjects MUST be canonical `beats-v1` slugs), 30061
+  AuditDispute (wire-format-only; filer-asserted status open/withdrawn
+  only); dossier rollup math (`dossier.js`: §4 shrinkage published
+  per rollup, per-module means, rate table + logged-not-activated
+  `calibration_v1`); NIP_DRAFT §30058–§30061 + the beat-vocabulary
+  clause. — #64
+- ✅ **13.4** Capture-time hashing — the canonical hash rides new
+  30023s as an indexed `x` tag (additive wire change, CHANGELOG
+  callout; NIP_DRAFT §30023 `x` extension); `assembleArticleBody`
+  extracted so capture and publish hash identical bytes;
+  header-field newline sanitization (terminator-forge defense);
+  `articleHash` on archive records; reader hash line + stealth-edit
+  mismatch banner (sequenced before the archive save so the
+  comparison reads the prior row). — #65
+- ✅ **13.5** Audit execution, v1 path — `audit/import.js` enforces
+  the RQ1 gate at the door: re-hash `body_markdown` vs the claimed
+  hash, match against the local capture, schema-validate every module
+  payload (failed/`_error` modules stored as failed runs — one bad
+  module never rejects the file; a contradictory aggregate does);
+  reader import bar (keyed to the open capture's hash, display-rule-
+  honest status line) + options Advanced importer (archive-matched,
+  incl. retained prior versions); scorer README import note. Imports
+  are local-only and ungated; publishing is 13.8. — #66
 
 ## Phase 14 — Forensic findings (behavioral-pattern layer) ⏳ design agreed
 

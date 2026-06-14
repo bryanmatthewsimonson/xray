@@ -56,3 +56,5 @@ The auditor isn't a separate project. It's the next phases.
 ---
 
 For the underlying philosophy (governing principles, dimensions, knowability, calibration multiplier, dispute mechanics, accessibility tiers), see the conversation that produced these deliverables. The TL;DR: an outsider with full transparency, modest claims, and a published method beats an insider with privileged access and unstated priors over a long enough timeframe — and these tools are the published method.
+
+*[Editor's note, 2026-06-11: that conversation's prose is recovered and vendored, normatively, at [`docs/PHILOSOPHY.md`](../PHILOSOPHY.md) (v1.0.0); the participation-tier prose ("accessibility tiers") is recorded separately, in the RQ3 resolution of [`docs/EPISTEMIC_AUDIT_DESIGN.md`](../EPISTEMIC_AUDIT_DESIGN.md).]*

@@ -11,6 +11,15 @@ import assert from 'node:assert/strict';
 // module's `globalThis.indexedDB` lookup lands on the fake.
 await import('fake-indexeddb/auto');
 
+// Since 13.4 the cache imports event-builder (for the canonical
+// article-hash body assembly), which transitively imports Storage —
+// and storage.js probes `chrome.storage.local` at module-load time.
+// Stub a minimal chrome global before importing (the
+// event-builder.test.mjs idiom).
+globalThis.chrome = globalThis.chrome || {
+    storage: { local: { get(_k, cb) { cb({}); }, set(_o, cb) { cb && cb(); }, remove(_k, cb) { cb && cb(); } } }
+};
+
 const {
     openArchiveDb, urlHash,
     saveArticle, getArticle, hasArticle, deleteArticle,

@@ -6,7 +6,7 @@ Web Content Annotations, Fact-Checks, and Topic Trust
 
 `draft` `optional`
 
-This NIP defines eight event kinds and one tag extension that together let users publish structured, anchored metadata about web content — atomized claims, annotations, fact-checks, ratings, personal assessments, claim relationships, topic-scoped trust assertions, and helpfulness votes — and lets readers query, rank, and surface that metadata in context.
+This NIP defines fourteen event kinds and two tag extensions that together let users publish structured, anchored metadata about web content — atomized claims, annotations, fact-checks, ratings, personal assessments, claim relationships, topic-scoped trust assertions, helpfulness votes, and epistemic-audit records (per-module surface-scan results, aggregate article audits, a prediction ledger with resolutions, dossier rollup snapshots, and audit disputes — content-addressed to the exact text scored) — and lets readers query, rank, and surface that metadata in context.
 
 It composes with rather than replaces:
 
@@ -335,6 +335,209 @@ Addressable. A typed link between two claims — the cross-source contradiction 
 - `r` tags carry each claim's `r` verbatim, `i` tags the normalized forms (values deduplicated when both claims share a URL); one `k` = `web` accompanies them. Relationship events anchor to the claims (via `a`), not to pages — the URL tags exist for `#r`-join convenience and MAY be omitted when an endpoint's URL is unknown.
 - Surfacing rule: a `contradicts` link SHOULD surface a warning indicator on **both** claims wherever they render.
 
+## Kind 30056 — AuditModuleResult
+
+Addressable. One surface-scan module's structured findings for one article text, under one versioned methodology, from one run. An epistemic audit examines the *published artifact's craft and support* — headline fidelity, language symmetry, number hygiene, source quality, internal coherence, definitional precision, omission geometry, prediction extraction — never the truth of its claims. The audited artifact is identified by content hash, not URL: outlets stealth-edit, and an audit must stay anchored to exactly the text it scored.
+
+```jsonc
+{
+  "kind": 30056,
+  "tags": [
+    ["d", "mod:<sha256(article_hash + '|' + module + '|' + module_version + '|' + run_at).slice(0,16)>"],
+    ["x", "<sha256 of normalized article markdown>"],
+    ["a", "30023:<capturer-pubkey>:<article-d>", "<relay-hint>"],   // optional article pointer
+    ["r", "<article-url-verbatim>"],
+    ["i", "<normalized-url>"], ["k", "web"],
+    ["t", "source_quality"],                 // the module name — indexed
+    ["module-version", "1.0"],
+    ["run-at", "2026-06-11T20:14:00Z"],
+    ["score", "62"],                         // 0–100; omitted by prediction_extraction
+    ["confidence", "0.78"],                  // 0.0–1.0; omitted by prediction_extraction
+    ["model-params", "temperature=0"],       // optional run metadata
+    ["auditor", "model", "anthropic/claude-sonnet-4-6"],
+    ["client", "<client>"]
+  ],
+  "content": "<the module's findings JSON + top-level evidence_quotes[] index>"
+}
+```
+
+- **`x` is the canonical article hash**: SHA-256 (lowercase hex) of the normalized article markdown — CRLF→LF, trailing spaces/tabs stripped per line, runs of 3+ newlines collapsed to 2, trailing whitespace stripped at end of input; defined over exactly **one** normalization pass, computed over the article body excluding any client metadata header. `x` is single-letter and relay-indexed (NIP-94 precedent: the SHA-256 of the thing); `{"kinds":[30056,30057],"#x":["<hash>"]}` is the one-filter "everything auditing this exact text" query. `r`/`i` are convenience joins that MAY go stale as URLs drift; the hash is the identity.
+- The `d` MUST be recomputable from the event's own tags: `mod:` + the first 16 hex of SHA-256 over `<x> | <t module name> | <module-version> | <run-at>` (`|`-joined, verbatim tag values).
+- **Time-series constraint (normative for every audit kind):** relays keep only the latest event per `(pubkey, kind, d)`, so audit-bearing `d`s MUST carry methodology version and/or run identity — a re-run or a version bump derives a NEW `d` (this scheme does so via `module-version` + `run-at`), prior-methodology audits persist as distinct addressable events, and supersession is expressed exclusively through explicit reference tags on the newer event, never through relay replacement. Republishing the same `d` is permitted only as an idempotent re-emit of the same run.
+- `t` carries the module name (one of the eight; relay-indexed). Additional `t` values MAY mirror the article's topic/beat tags; beat *semantics* for audit kinds derive from matching `t` values against the publisher's published beat vocabulary — collisions with generic hashtags are expected and harmless.
+- `score`/`confidence` mirror the content payload. `prediction_extraction` events carry **neither** — that module extracts a prediction ledger and is not scored.
+- `content` is the module's findings JSON: a shared envelope (`module`, `version`, `score` + `confidence` except on prediction_extraction, mandatory `auditor_caveats[]` — what this scan could not determine) plus per-module finding arrays in which **every finding carries a verbatim `evidence_quote`** from the audited text. A finding that cannot quote the words it is about does not exist. A deduplicated top-level `evidence_quotes[]` index rides beside the findings.
+- **Auditor identity tags**: `["auditor", "<model|human|pipeline|consensus>", "<id>"]`, plus repeatable `["auditor-constituent", "<kind>", "<id>"]` for pipeline/consensus auditors and an optional `["auditor-manifest", "<sha256>"]` (hash of the orchestration config: prompt set, weights, versions). Human auditors additionally carry an indexed `["p", "<pubkey>", "", "auditor"]`. The auditor tags record what *produced* the result; the signing pubkey records who *published* it. Human and machine auditors use identical wire shapes.
+- **Firewall:** an audit module result scores craft under a published methodology — never a claim's truth. It is a different aggregation signal from kind 30051 (FactCheck — a truth verdict) and kind 30054 (Assessment — a personal stance); consumers MUST NOT merge them. Audit kinds never carry `stance`, `rating-value`, or `L`/`l` assessment labels; 30051/30054 never carry `score`/`confidence`/`ceiling`.
+- Multi-letter tags (`module-version`, `run-at`, `score`, `confidence`, `auditor`, …) are not relay-indexed; standard queries filter on `#x` / `#a` / `#t` / `#p` + `kinds`, everything else client-side.
+
+## Kind 30057 — AggregateAudit
+
+Addressable. The combined article audit: per-module contributions under documented weights, capped by a **knowability ceiling** — the maximum score achievable given how verifiable the artifact's claims are in principle, so careful work on hard-to-verify topics is not penalized and easy topics cannot coast.
+
+```jsonc
+{
+  "kind": 30057,
+  "tags": [
+    ["d", "agg:<sha256(article_hash + '|' + auditor_id + '|' + run_at).slice(0,16)>"],
+    ["x", "<article-hash>"],
+    ["a", "30023:<capturer-pubkey>:<article-d>", "<relay-hint>"],
+    ["r", "<article-url-verbatim>"],
+    ["i", "<normalized-url>"], ["k", "web"],
+    ["run-at", "2026-06-11T20:14:05Z"],
+    ["score", "80"],                         // final, post-ceiling
+    ["raw-score", "85.4"],
+    ["ceiling", "80"],
+    ["ceiling-binding", "true"],             // present ONLY when raw > ceiling
+    ["ceiling-source", "heuristic:source-quality/1.0"],
+    ["confidence", "0.71"],
+    ["a", "30056:<auditor-pubkey>:<mod-d>", "<relay-hint>", "source_quality"],  // ×N modules
+    ["e", "<30056-event-id>", "<relay-hint>", "source_quality"],   // optional convenience
+    ["e", "<prior-30057-event-id>", "", "supersedes"],             // optional
+    ["e", "<dispute-event-id>", "", "resolves-dispute"],           // optional
+    ["auditor", "pipeline", "xray-auditor/0.1.0/anthropic/claude-sonnet-4-6"],
+    ["auditor-constituent", "model", "anthropic/claude-sonnet-4-6"],
+    ["client", "<client>"]
+  ],
+  "content": "{ \"module_contributions\": [...], \"knowability_notes\": \"...\", \"model_estimated_ceiling\": null, \"top_strengths\": [...], \"top_concerns\": [...] }"
+}
+```
+
+- The `d` MUST be recomputable from the event's own tags: `agg:` + the first 16 hex of SHA-256 over `<x> | <auditor id> | <run-at>`, where the auditor id is the `auditor` tag's third slot. The 30056 time-series constraint applies: every run is a new `d`; nothing overwrites.
+- **Ceiling semantics:** the reference aggregation sets `score = min(raw-score, ceiling)`; `score` MUST NOT exceed either `raw-score` or `ceiling` (pipeline-level degradation MAY lower it further). `ceiling-binding` is present only when `raw-score > ceiling` — presence is the signal. `ceiling-source` MUST state the ceiling's provenance: `heuristic:<name>/<version>` (deterministically recomputable from the referenced module results — the reference implementation's canonical source for pipeline runs), `model` (the auditing model's judgment — calibration runs), `module:<coordinate>` (a dedicated knowability module), or `human`. `model_estimated_ceiling` in the content is advisory and never binds.
+- **Module references are `a` coordinates first** (role-marked with the module name; durable across idempotent republish), with `e` ids as optional convenience. The weights publish inside `module_contributions`, so the aggregation is auditable from the event alone: weighted sum over present modules, renormalized, capped at the ceiling.
+- **Supersession is a forward reference:** a newer audit `e`-tags its predecessor with role `supersedes` (and role `resolves-dispute` when it answers an upheld challenge). The superseded audit is never edited and remains visible; consumers derive lineage by querying forward references.
+- **Disagreement is data:** multiple 30057s for the same `x` from different auditors are siblings. Consumers MUST NOT average them into a single consensus number; surface the spread.
+- A score SHOULD never render without its confidence, and an aggregate never without its ceiling context — the wire carries both precisely so displays have no excuse.
+- The 30056 firewall clause applies identically: consumers MUST NOT merge aggregate audit scores with 30051 verdicts or 30054 stances.
+
+## Kind 30058 — PredictionEntry
+
+Addressable. One testable prediction extracted from an article — the write side of the prediction ledger, the audit system's compounding long-game asset. Extracted at audit time, resolved later (possibly years later, possibly by a different auditor) via kind 30059.
+
+```jsonc
+{
+  "kind": 30058,
+  "tags": [
+    ["d", "pred:<sha256(article_hash + '|' + norm(prediction_text)).slice(0,16)>"],
+    ["x", "<article-hash>"],
+    ["a", "30023:<capturer-pubkey>:<article-d>", "<relay-hint>"],   // optional
+    ["a", "30040:<pubkey>:<claim-d>", "<relay-hint>", "claim"],     // optional — the atomized claim
+    ["r", "<article-url-verbatim>"], ["i", "<normalized-url>"], ["k", "web"],
+    ["prediction-type", "explicit"],     // explicit|implicit|conditional|negative|counterfactual
+    ["hedge", "confident"],              // confident|hedged|speculative — the calibration input
+    ["attribution", "named_source"],     // article_voice|named_source|vague_attribution
+    ["attributed-name", "<who, when named>"],          // optional
+    ["p", "<author-entity-pubkey>", "", "predicts"],   // optional, when tracked
+    ["condition", "<antecedent>"],                     // REQUIRED for conditional predictions
+    ["horizon", "by the end of the year"],
+    ["horizon-iso", "2026-12-31"],                     // optional, when computable
+    ["tractability", "publicly_resolvable"],           // publicly_resolvable|requires_private_info|ambiguous
+    ["quote", "<exact evidence quote from the article>"],
+    ["anchor", "<selector-json>"],                     // optional — W3C selector, the 30040 idiom
+    ["criteria", "<concrete, observable resolution criteria>"],
+    ["module-version", "1.0"],                         // prediction_extraction's version
+    ["auditor", "model", "anthropic/claude-sonnet-4-6"],
+    ["client", "<client>"]
+  ],
+  "content": "<the prediction text, restated clear and testable — NOTHING else>"
+}
+```
+
+- The `content` carries the prediction text and nothing else, precisely so the `d` is mechanically recomputable from the event: `pred:` + the first 16 hex of SHA-256 over `<x> | norm(content)`, where `norm` trims, collapses whitespace runs to single spaces, and lowercases (the kind-30040 claim-id discipline, exactly).
+- **The convergent `d` is deliberate**: re-extraction of the same restated text converges on one ledger record, so a resolution's `a` coordinate never retargets. Differently-phrased re-extractions mint sibling records (consumers group near-duplicates for display). The `d` includes the article hash, so a stealth-edited article's predictions are that text version's ledger.
+- `resolution_status` and any latest-resolution pointer are NOT wire fields — they derive client-side from kind-30059 events (mutable state does not belong on signed immutable records).
+- Predictions are NOT scored at extraction (no `score`/`confidence` tags, ever) — the ledger is graded by reality, via resolutions.
+- When a prediction is promoted to a kind-30040 claim, the entry carries the claim's `a` coordinate (role `claim`) and the claim SHOULD carry an `a` back-reference to this entry (role `prediction`) — lineage runs both directions.
+
+## Kind 30059 — PredictionResolution
+
+Addressable. The outcome of one prediction, judged against reality with evidence. One per (resolver, prediction): the `d` derives from the prediction coordinate alone, so a resolver revising their resolution replaces it (latest wins); different resolvers are different pubkeys and coexist.
+
+```jsonc
+{
+  "kind": 30059,
+  "tags": [
+    ["d", "res:<sha256(prediction_coordinate).slice(0,16)>"],
+    ["a", "30058:<extractor-pubkey>:<pred-d>", "<relay-hint>", "prediction"],
+    ["e", "<30058-event-id>", "<relay-hint>", "prediction"],   // optional
+    ["x", "<article-hash>"],                        // the predicting article
+    ["outcome", "false"],                           // true|false|partial|unresolvable
+    ["confidence", "0.9"],
+    ["resolved-at", "2027-01-15T00:00:00Z"],
+    ["evidence", "url", "<url>", "<description>"],                 // ×N — typed:
+    ["evidence", "nostr_event", "<coordinate-or-event-id>", "<description>"],
+    ["evidence", "document_hash", "<sha256>", "<description>"],
+    ["evidence", "quote", "<verbatim text>", "<description>"],
+    ["auditor", "human", "<resolver-pubkey>"],
+    ["p", "<resolver-pubkey>", "", "auditor"],
+    ["client", "<client>"]
+  ],
+  "content": "<markdown notes: what happened, why this outcome>"
+}
+```
+
+- **Resolutions are evidence-bound**: at least one typed `evidence` tag is REQUIRED — a resolution without verifiable references is returned, not published. Each entry carries kind, value, and description; `nostr_event` evidence values MUST be a raw `kind:pubkey:d` coordinate or a 64-hex event id (never bech32), and additionally emit a plain `a` (coordinate) or `e` (event id) tag for relay indexing.
+- The `d` MUST be recomputable: `res:` + the first 16 hex of SHA-256 over the role-marked `prediction` `a` tag's value, verbatim. The role markers on the reference `a`/`e` tags exist because typed `nostr_event` evidence also emits plain `a`/`e` indexing tags — consumers MUST prefer role-marked references and MUST NOT treat evidence-derived tags as the prediction reference.
+- Resolutions feed exactly one consumer: the calibration ledger (per-hedge resolution rates, and the published Brier-based calibration spec). A 30059 `outcome` judges whether a *specific prediction resolved against reality* — it is NOT a fact-check of any claim the prediction was atomized into. Consumers MUST NOT merge 30059 outcomes with 30051 ClaimReview verdicts or 30054 stances on a linked 30040.
+
+## Kind 30060 — DossierSnapshot
+
+Addressable. A materialized rollup of a subject's audit record — author, publication, beat, or publication×beat. **A cache, latest-wins by design**: the canonical truth is always the underlying audit events, and the snapshot carries every parameter (window, shrinkage constant, population mean) needed for any third party to re-derive it from scratch. Consumers MUST prefer re-derivation when they hold the underlying events.
+
+```jsonc
+{
+  "kind": 30060,
+  "tags": [
+    ["d", "dossier:<sha256(subject_kind + '|' + subject_id).slice(0,16)>"],
+    ["subject-kind", "publication_x_beat"],   // author|publication|beat|publication_x_beat
+    ["p", "<entity-pubkey>"],                 // author/publication(/×beat) subjects
+    ["t", "monetary-policy"],                 // beat(/×beat) subjects — a canonical vocabulary slug
+    ["window-start", "2026-01-01T00:00:00Z"],
+    ["window-end", "2026-06-11T00:00:00Z"],
+    ["article-count", "14"],
+    ["score-mean", "73.5"], ["score-median", "75"], ["score-stdev", "8.1"],
+    ["shrinkage-k", "10"], ["population-mean", "77"], ["shrinkage-factor", "0.42"],
+    ["auditor", "pipeline", "xray-auditor/0.1.0/anthropic/claude-sonnet-4-6"],
+    ["client", "<client>"]
+  ],
+  "content": "{ \"per_module_means\": {…}, \"predictions\": { \"total\":…, \"resolved\":…, \"calibration\": {…}, \"calibration_v1\": { \"mean_brier\":…, \"resolved_count\":…, \"multiplier\": null } }, \"top_named_sources\": […], \"corrections\": null }"
+}
+```
+
+- `subject_id` per kind: author/publication → the entity pubkey (the `p` tag); beat → the beat slug (the `t` tag); publication×beat → `<entity-pubkey>|<beat-slug>`. The `d` MUST be recomputable from the `subject-kind` tag plus those values.
+- **Beat subjects MUST be canonical slugs from the publisher's versioned beat vocabulary** — free-form topic tags ride audit events but never mint dossier subjects (fragmented beats silently shrink sample sizes and distort the shrinkage math on reputation-bearing rollups). Beat semantics derive from matching `t` values against that published vocabulary.
+- **Shrinkage is published, always**: rolled-up means are pulled toward the population mean (`shrunk = (n/(n+k))·raw + (k/(n+k))·population`), and the applied factor rides the wire — a raw three-article mean is never presented as a stable reputation.
+- `calibration_v1` in the content is informational: the published Brier-based calibration spec, logged so the wire shape is stable; the `multiplier` field stays `null` until an explicit activation decision, and is never applied retroactively to article scores.
+
+## Kind 30061 — AuditDispute
+
+Addressable. A challenge to an audit record — module result, aggregate audit, prediction resolution, or claim. Anyone may file, **with evidence**: challenges without evidence quotes or verifiable references are returned, not adjudicated.
+
+```jsonc
+{
+  "kind": 30061,
+  "tags": [
+    ["d", "dispute:<sha256(target_coordinate).slice(0,16)>"],
+    ["a", "<target coordinate>", "<relay-hint>", "target"],
+    ["e", "<target-event-id>", "<relay-hint>", "target"],   // optional
+    ["target-kind", "aggregate_audit"],   // module_result|aggregate_audit|prediction_resolution|claim
+    ["x", "<article-hash>"],              // when the target anchors to an article
+    ["status", "open"],                   // filer-asserted: open|withdrawn
+    ["contested", "<finding pointer: an evidence_quote or JSON path>"],   // ×N
+    ["evidence", "<kind>", "<value>", "<description>"],   // ×N — typed, as on 30059
+    ["auditor", "human", "<filer-pubkey>"],
+    ["p", "<filer-pubkey>", "", "auditor"],
+    ["client", "<client>"]
+  ],
+  "content": "<markdown dispute summary>"
+}
+```
+
+- One dispute per (filer, target): the `d` derives from the target coordinate verbatim (the role-marked `target` `a` tag — evidence-derived `a`/`e` tags are never the target reference), so the filer may amend pre-adjudication or withdraw (`status: withdrawn`); the filed record is otherwise stable.
+- **`status` is filer-asserted only** (`open`/`withdrawn`). Upheld/rejected outcomes are NOT wire fields here — they derive from adjudication events (a separate, future kind authored by other pubkeys) and from superseding audits that `e`-tag this dispute with role `resolves-dispute`. A dispute never edits its target; an upheld dispute produces a NEW audit that supersedes the original, and both remain visible.
+- A rejected dispute remains visible too — the record of what was challenged and survived is part of a score's credibility.
+
 ## Kind 30023 — `responds-to` tag (extension)
 
 A long-form article (kind 30023) MAY declare that it responds to one or more other pieces of content. Each response is a separate `responds-to` tag:
@@ -359,6 +562,16 @@ Consumers visiting a URL or NOSTR event that is the target of a `responds-to` SH
 
 Filtered client-side to events that carry a matching `responds-to` tag.
 
+## Kind 30023 — `x` tag (extension)
+
+A long-form article (kind 30023) SHOULD carry the canonical article hash of its own body as an indexed `x` tag (NIP-94 precedent: the SHA-256 of the thing):
+
+```
+["x", "<sha256 of the normalized article body markdown>"]
+```
+
+The hash input is the event `content` after stripping the client metadata header (the leading `---…---` block), normalized exactly as specified in the kind-30056 section — so any consumer can verify the tag from the event alone, and `{"kinds":[30023],"#x":["<hash>"]}` finds the article a set of audit events scored. Additive and optional: events published before this extension carry no `x` tag and join audit queries by `r`/`d` instead; a re-published edit derives a NEW hash, which is the point — the audit kinds anchor to the exact text they scored, and a hash change between captures of one URL is a detected content change, not an error.
+
 ## Querying
 
 A client wishing to display all metadata for a URL SHOULD issue these filters in parallel and merge the results:
@@ -366,6 +579,7 @@ A client wishing to display all metadata for a URL SHOULD issue these filters in
 ```jsonc
 [
   { "kinds": [30040, 30050, 30051, 30052, 30054, 30055], "#r": ["<url>"], "limit": 200 },
+  { "kinds": [30056, 30057, 30058], "#r": ["<url>"], "limit": 100 },
   { "kinds": [9802], "#r": ["<url>"], "limit": 100 },
   { "kinds": [1111], "#i": ["<url>"], "limit": 200 },
   { "kinds": [1985], "#r": ["<url>"], "limit": 100 },
@@ -383,6 +597,10 @@ Other standard queries:
 { "kinds": [30040, 30054], "#p": ["<entity-pubkey>"], "limit": 200 }   // claims about an entity + their assessments
 { "kinds": [30054, 30055], "#a": ["30040:<pubkey>:<d>"], "limit": 100 } // judgments + links targeting one claim
 { "kinds": [30054], "#l": ["misleading"], "limit": 100 }                // everything labeled `misleading`
+{ "kinds": [30056, 30057, 30058], "#x": ["<article-hash>"], "limit": 100 } // every audit of this exact text
+{ "kinds": [30057], "#t": ["monetary-policy"], "limit": 100 }           // aggregate audits on a beat
+{ "kinds": [30059], "#a": ["30058:<pubkey>:<d>"], "limit": 50 }         // resolutions of one prediction
+{ "kinds": [30061], "#a": ["30057:<pubkey>:<d>"], "limit": 50 }         // disputes targeting one audit
 ```
 
 A client wishing to display helpfulness aggregates for a set of metadata events SHOULD then issue a follow-up `#a` query against kind 9803 keyed by the addressable coordinates of those events.

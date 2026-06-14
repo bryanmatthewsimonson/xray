@@ -43,6 +43,17 @@
        with edit + delete affordances. -->
   <div id="xr-claims-host"></div>
 
+  <!-- Epistemic audit (Phase 13.5): CLI-audit import affordance. The
+       full audit panel arrives in 13.6; this hosts the import bar. -->
+  <section class="xr-audit" id="xr-audit">
+    <div class="xr-audit__bar">
+      <span class="xr-audit__label">Epistemic audit</span>
+      <span class="xr-audit__status" id="xr-audit-status">No audit imported for this capture.</span>
+      <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-audit-import">Import audit JSON…</button>
+      <input type="file" id="xr-audit-file" accept="application/json,.json" hidden />
+    </div>
+  </section>
+
   <!-- Forensic findings bar (Phase 14). Populated by reader/index.js:
        per-subject behavioral maneuvers, evidence-anchored, no verdict. -->
   <div id="xr-findings-host"></div>

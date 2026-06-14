@@ -113,3 +113,7 @@ Either path produces results in the same `audit-types.ts` shape, so downstream N
 - **No dispute mechanism.** The schema includes `AuditDispute` but the scorer doesn't yet handle re-scoring on dispute resolution.
 - **Single-auditor.** No multi-model consensus or human-in-the-loop. Production gains a lot from running the same article through Claude + GPT + a human and surfacing the disagreement.
 - **Knowability heuristic is crude.** It uses only source-quality findings. A dedicated knowability module (or beat-specific lookup table) would be more defensible.
+
+---
+
+*[X-Ray integration note, Phase 13.5: `--output audit.json` is X-Ray's import format. Import from the Reader ("Import audit JSON…" under the open capture — matched against that capture's canonical hash) or Settings → Advanced → Epistemic audits (matched against your archive, including retained prior versions). Imports re-hash `article.body_markdown` against `article.hash`, schema-validate every module payload (failed modules are stored as failed runs, excluded from aggregation), and refuse audits whose text you never captured. Importing is local-only; publishing the audit events is a separate, flag-gated step.]*
