@@ -1,4 +1,4 @@
-// Reader findings section — Phase 13.2 (docs/CRIMINOLOGY_DESIGN.md).
+// Reader findings section — Phase 14.2 (docs/CRIMINOLOGY_DESIGN.md).
 //
 // Renders the per-article "Forensic findings" bar beneath the claims
 // bar: a header with the capture affordances (+ Finding / Set baseline)

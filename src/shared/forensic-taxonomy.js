@@ -1,9 +1,9 @@
-// Forensic taxonomy — Phase 13.1 (docs/CRIMINOLOGY_DESIGN.md).
+// Forensic taxonomy — Phase 14.1 (docs/CRIMINOLOGY_DESIGN.md).
 //
 // Single source of truth for the behavioral-finding vocabulary: the
 // maneuver families (seeded from the criminology / thought-reform
 // canon), the subject role enum, and the evidence `basis` enum. Model
-// validation, the picker UI (13.2), the wire builders (13.3), and the
+// validation, the picker UI (14.2), the wire builders (14.3), and the
 // NIP draft all read from here — extending the vocabulary means editing
 // this file *and* the exhaustive-enum tests that pin it.
 //
@@ -21,7 +21,7 @@
 import { isValidSuggestedBy, REVISION_RELATIONSHIPS } from './assessment-taxonomy.js';
 
 // NIP-32 namespace the maneuvers publish under (`['L', <ns>]` +
-// `['l', <maneuver>, <ns>]` on kind 30056, mirrored to kind 1985).
+// `['l', <maneuver>, <ns>]` on kind 30062, mirrored to kind 1985).
 export const FORENSIC_MANEUVER_NAMESPACE = 'xray/forensic';
 
 /**

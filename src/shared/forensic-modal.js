@@ -1,4 +1,4 @@
-// Forensic finding modal — Phase 13.2 (docs/CRIMINOLOGY_DESIGN.md).
+// Forensic finding modal — Phase 14.2 (docs/CRIMINOLOGY_DESIGN.md).
 //
 // The capture UI for one behavioral finding: a subject + role, a single
 // maneuver from the canon-seeded taxonomy (+ a custom escape hatch), an

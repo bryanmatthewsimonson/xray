@@ -1428,7 +1428,7 @@ body {
   color: var(--xr-text-dim);
 }
 
-/* Forensic findings bar (Phase 13) — sibling of the claims bar. */
+/* Forensic findings bar (Phase 14) — sibling of the claims bar. */
 .xr-findings {
   max-width: var(--xr-reader-max-w);
   margin: 0 auto 16px;

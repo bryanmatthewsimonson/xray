@@ -1,4 +1,4 @@
-# Forensic findings — behavioral pattern analysis (Phase 13)
+# Forensic findings — behavioral pattern analysis (Phase 14)
 
 **Status:** design **agreed 2026-06-14**. Companion to — and deliberately
 *not* a fork of — the Phase 11 assessment layer
@@ -7,6 +7,15 @@ judges whether a *claim* is true, a **forensic finding** names a
 *behavioral maneuver* a subject performs around the truth — an evasion, a
 defense, a self-serving revision — and binds it to evidence, **without
 rendering a verdict on the subject's honesty or intent.**
+
+**Builds on Phase 13 (the epistemic audit; `docs/EPISTEMIC_AUDIT_KICKOFF.md`).**
+Phase 14 is a *separate* feature that sits on top of the epistemic-audit
+layer, which must merge to `main` first. The two are kept wire-disjoint on
+purpose: the audit owns kinds **`30056–30061`** and the `epistemicAuditing`
+flag, so this phase takes **`30062`** for its `BehavioralFinding` and the
+distinct `forensicPublishing` flag. (It reuses Phase 11's kind `30055` for
+the `revision/*` edges and kind `30054`/`1985` idioms — those are the
+assessment layer, not the audit's.)
 
 ## What this is, and why it's separate from assessments
 
@@ -17,10 +26,10 @@ person doing to the conversation?"* — narrowing an opponent's position,
 patching a damaged claim with a new story, redefining a word to dodge the
 evidence, changing their account once it's cornered.
 
-Phase 13 adds the **behavior layer**. The two compose:
+Phase 14 adds the **behavior layer**. The two compose:
 
 > *Claim:* "the Book of Abraham is a translation." → *Assessment (30054):*
-> `unsupported`, stance −1. → *Forensic findings (30056):*
+> `unsupported`, stance −1. → *Forensic findings (30062):*
 > `defense/definitional-retreat` anchored to the word *translation*, plus a
 > **diachronic revision** edge showing the word's meaning shifted *after*
 > the Egyptology evidence landed — to preserve the original conclusion.
@@ -54,11 +63,11 @@ analysis is different in three load-bearing ways:
 
 | Question | Decision |
 | --- | --- |
-| Artifact | **New kind `30056` (BehavioralFinding)** — addressable, one per (author, subject, maneuver, anchor-hash); targets a subject by `p`, carries an ordered evidence chain, a maneuver label under NIP-32-style `L`/`l` `xray/forensic` tags, with a **kind-1985 mirror** as the ecosystem-aggregation path. Parallels 30054, *not* an extension of it. |
+| Artifact | **New kind `30062` (BehavioralFinding)** — addressable, one per (author, subject, maneuver, anchor-hash); targets a subject by `p`, carries an ordered evidence chain, a maneuver label under NIP-32-style `L`/`l` `xray/forensic` tags, with a **kind-1985 mirror** as the ecosystem-aggregation path. Parallels 30054, *not* an extension of it. |
 | No score | A finding has **no stance, no confidence number.** Instead a bounded **`basis`** enum (`quoted` / `paraphrased` / `behavioral-cue` / `structural-inference`) records *how we know* — a real, checkable statement, not a subjective 0–100. |
 | Falsifiability | A `counter_note` (the exonerating / alternative read) is **required** to save any subject-implicating finding. Each maneuver ships with definition + **indicators** + **counter-indicators**. |
 | Subject + role | Reuses the **Phase 9 identity layer**; a finding references an identity + a `role` from a fixed enum. No new person/account object. |
-| Diachronic story-change | **Extend kind `30055`** with directional `revision/*` relationship values (`narrative-patch`, `recharacterizes`, `walks-back`) linking statement-then → statement-now by the same subject. Additive to a shipped kind; a 30056 finding may *characterize* such an edge. |
+| Diachronic story-change | **Extend kind `30055`** with directional `revision/*` relationship values (`narrative-patch`, `recharacterizes`, `walks-back`) linking statement-then → statement-now by the same subject. Additive to a shipped kind; a 30062 finding may *characterize* such an edge. |
 | Taxonomy | New **`src/shared/forensic-taxonomy.js`**, namespace **`xray/forensic`**, six maneuver families seeded from the canon (Sykes & Matza, Freyd/DARVO, Lifton, Popper/Lakatos/agnotology, Finkelhor/Craven, statement analysis). **Reuses** existing `fallacy/*` and `consistency/*` labels where they already coincide. |
 | Local-first | New `behavioral_findings` storage key; the existing `evidence_links` gains the `revision/*` values. Local capture always on; **publishing flag-gated** (`forensicPublishing`, default off). |
 | Report lenses | Dawn's **evidentiary / executive / survivor / editor** views are *render modes over the same findings* in the portal, not different data. |
@@ -176,7 +185,7 @@ link substrate** with three directional values:
 
 All three are **directional** (source = earlier statement, target = later),
 joining the existing `contradicts / supports / updates / duplicates`. The
-neutral edge says *"B revises A"*; an optional `30056` finding
+neutral edge says *"B revises A"*; an optional `30062` finding
 (`related_rel`) says *"this revision instantiates maneuver M by subject S,
 here is the evidence, here is the counter-read"* — keeping neutral-link and
 behavioral-characterization cleanly separated, per Rule 1.
@@ -220,7 +229,7 @@ Member values (v1 seeds all six families):
 *is* the existing `fallacy/strawman`; "false dilemma framing" *is*
 `fallacy/false-dilemma`; "moved goalposts," "flip-flop," and "contradicts
 prior statement" are the existing `consistency/*` labels. A finding may carry
-one of those existing values directly; Phase 13 only *adds* the behavioral /
+one of those existing values directly; Phase 14 only *adds* the behavioral /
 institutional families that have no home in the assessment taxonomy.
 
 ## Wire format (publish-ready, flag-gated)
@@ -231,11 +240,11 @@ the aggregation path, multi-letter tags (`role`, `maneuver-step`, `basis`,
 `suggested-by`) **not** relay-indexed (filtering is client-side on
 `#p`/`#l`/`#a` + `kinds`).
 
-### Kind `30056` — BehavioralFinding (new; addressable)
+### Kind `30062` — BehavioralFinding (new; addressable)
 
 ```jsonc
 {
-  "kind": 30056,
+  "kind": 30062,
   "tags": [
     ["d", "find:<sha256(subjectRef|maneuver|anchorsHash)[:16]>"],
     ["p", "<subject-pubkey>", "", "subject"],          // the profiled subject
@@ -282,12 +291,12 @@ join the `relationship` enum (directional). Additive and safe — old
 consumers ignore unknown relationship values, and the `d` hash already
 includes the relationship string so identity never collides. NIP draft §30055
 gains the three values + a note that they express a subject's diachronic
-account-change (and may be paired with a 30056 finding).
+account-change (and may be paired with a 30062 finding).
 
 ### Feature flag
 
 `FLAGS_DEFAULTS` gains **`forensicPublishing: false`** — gates the publish
-paths for `30056`, the `revision/*` 30055 emission, and the 1985 mirror.
+paths for `30062`, the `revision/*` 30055 emission, and the 1985 mirror.
 Local capture / baselines / rollups / export are *not* gated. The SW already
 accepts incoming events of every kind, unchanged.
 
@@ -315,27 +324,27 @@ whitelist.
   (validation-oriented), **editor** (prose draft) — hung on the existing
   entity-spokes / case-dashboard / inspector surfaces. A new
   `parseBehavioralFindingEvent` feeds the corpus query (kinds list gains
-  `30056`).
+  `30062`).
 
 ## Slice plan (one concern per PR; `claude/phase-13-*`)
 
-- **13.1 — Foundation (local-only, no wire).** `forensic-taxonomy.js` (six
+- **14.1 — Foundation (local-only, no wire).** `forensic-taxonomy.js` (six
   families + role enum + basis enum + the indicators/counter-indicators
   table), `forensic-model.js` + `behavioral_findings` store, baseline note
   store, validation + idempotency + exhaustive-enum tests. `evidence-linker.js`
   gains the three `revision/*` values. No UI, no wire.
-- **13.2 — Capture UI.** Finding modal (subject+role, ordered anchors,
+- **14.2 — Capture UI.** Finding modal (subject+role, ordered anchors,
   note/counter-note, basis), findings bar, baseline marking, revision-link
   flow. Draft PR for smoke-test.
-- **13.3 — Wire builders + NIP draft.** `buildBehavioralFindingEvent`
-  (30056) + `parseBehavioralFindingEvent` (+ first wire tests), 30055
-  `revision/*` emission, `forensicPublishing` flag, NIP_DRAFT.md §30056 +
+- **14.3 — Wire builders + NIP draft.** `buildBehavioralFindingEvent`
+  (30062) + `parseBehavioralFindingEvent` (+ first wire tests), 30055
+  `revision/*` emission, `forensicPublishing` flag, NIP_DRAFT.md §30062 +
   §30055 update + the "structural-observation, not verdict" framing,
   CHANGELOG + JOURNAL callouts.
-- **13.4 — Portal report lenses.** `parseBehavioralFindingEvent` in the
+- **14.4 — Portal report lenses.** `parseBehavioralFindingEvent` in the
   portal corpus query; subject/case lens views (evidentiary / executive /
   survivor / editor); reconciliation.
-- **13.5 — LLM assist (flag-gated).** A `suggested_by: llm:<model>` pass that
+- **14.5 — LLM assist (flag-gated).** A `suggested_by: llm:<model>` pass that
   proposes findings for human confirmation, enforcing the anchor +
   counter-note + basis discipline before a draft is acceptable.
 
@@ -372,7 +381,7 @@ Minifigs) as secondary runs.
 
 ## Questions decided 2026-06-14
 
-1. **Separate `30056` finding** (vs. extending 30054) — ✅ confirmed.
+1. **Separate `30062` finding** (vs. extending 30054) — ✅ confirmed.
 2. **Ship all six maneuver families** in the v1 seed — ✅ confirmed.
 3. **Keep the full `basis` enum** including `behavioral-cue`; no numeric
    score — ✅ confirmed.

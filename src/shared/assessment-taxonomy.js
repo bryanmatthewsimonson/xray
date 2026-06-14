@@ -103,12 +103,12 @@ export function isSymmetricRelationship(relationship) {
 }
 
 /**
- * Phase 13 (docs/CRIMINOLOGY_DESIGN.md) diachronic "story-change"
+ * Phase 14 (docs/CRIMINOLOGY_DESIGN.md) diachronic "story-change"
  * relationship values, additive to the kind-30055 link substrate.
  * All DIRECTIONAL: source = the earlier statement, target = the later.
  * Kept OUT of CLAIM_RELATIONSHIPS so the Phase-11 link picker is
  * unchanged; the linker validates against the union, and a forensic
- * finding (kind 30056) may characterize such an edge.
+ * finding (kind 30062) may characterize such an edge.
  *
  *   - narrative-patch  B is a new explanation added after A was damaged,
  *                      so A's conclusion survives ("covered, not solved")

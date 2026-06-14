@@ -19,16 +19,28 @@ or files, and the "so-what" for future readers.
 
 ---
 
-## 2026-06-14 — Phase 13: a behavior layer that deliberately renders no verdict
+## 2026-06-14 — Phase 14: a behavior layer that deliberately renders no verdict
 
 **Tags:** design
 
-Phase 13 (forensic findings, [`docs/CRIMINOLOGY_DESIGN.md`](CRIMINOLOGY_DESIGN.md))
+Phase 14 (forensic findings, [`docs/CRIMINOLOGY_DESIGN.md`](CRIMINOLOGY_DESIGN.md))
 adds a layer that names *maneuvers* a subject performs around the truth —
 evasions, immunizing defenses, self-serving revisions — as a companion to the
 Phase 11 assessment layer that grades *claims*. The framing is adapted, with
 attribution, from Dawn McCarty's "forensic criminology" segment on
 *Mormonism Live* ([`0axZ8EGLaxQ`](https://www.youtube.com/watch?v=0axZ8EGLaxQ)).
+
+**Renumbered 13 → 14 (and re-kinded `30056` → `30062`).** This work was first
+drafted as "Phase 13," but a separate, more-mature **Phase 13 = epistemic
+audit** already existed on its own branch chain (`claude/phase-13-*`,
+kinds `30056–30061`, `epistemicAuditing` flag) — built in parallel and not
+yet merged to `main`. To avoid colliding on both the phase number and the
+`30056` kind, this layer becomes **Phase 14** and takes **`30062`**. The two
+are deliberately distinct features; the criminology layer is meant to build
+*on top of* the epistemic audit, so its development is paused until the
+Phase 13 chain merges, then this branch rebases onto it. The forensic
+`revision/*` edges still ride Phase 11's kind `30055` (the assessment link
+substrate), which is unrelated to the audit's kinds.
 
 Two design choices are the ones a future reader might second-guess, recorded
 here:
@@ -45,7 +57,7 @@ here:
   states *how we know*, which is checkable; a 0–100 would not be. If a later
   contributor is tempted to add a severity number or drop the counter-note,
   this is the entry that says don't.
-- **Separate kind `30056`, not an extension of the `30054` assessment.** The
+- **Separate kind `30062`, not an extension of the `30054` assessment.** The
   unit differs in three ways that broke reuse: the subject is a
   person-in-a-role over time (not a claim), there is no stance, and maneuvers
   are often ordered *sequences* (grooming; patch-then-contain) needing an
@@ -57,7 +69,7 @@ here:
   that had no home in the truth-label taxonomy.
 
 Design only at this point — no code yet; the taxonomy is meant to be reviewed
-before 13.1 lands.
+before 14.1 lands.
 
 ## 2026-06-11 — Phase 12.7: what the adversarial review caught (two relay-sync bugs + a read-only breach)
 

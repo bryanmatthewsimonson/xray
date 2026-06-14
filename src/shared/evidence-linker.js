@@ -50,7 +50,7 @@ import {
 export const EVIDENCE_RELATIONSHIPS = CLAIM_RELATIONSHIPS;
 
 // Every relationship the linker will STORE: the Phase-11 four plus the
-// Phase-13 diachronic `revision/*` values. `EVIDENCE_RELATIONSHIPS`
+// Phase-14 diachronic `revision/*` values. `EVIDENCE_RELATIONSHIPS`
 // (above) is deliberately the original four so the Phase-11 link picker
 // is unchanged; create() validates against this wider union.
 const ALL_LINK_RELATIONSHIPS = Object.freeze([

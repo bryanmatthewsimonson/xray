@@ -62,9 +62,9 @@ Phase 12 ████████████████████  complete 
                                 portal (docs/PORTAL_DESIGN.md). 12.1–12.7
                                 shipped incl. adversarial-review fixes;
                                 §Phase 12 smoke-run pending
-Phase 13 ░░░░░░░░░░░░░░░░░░░░  design agreed 2026-06-14 — forensic findings:
+Phase 14 ░░░░░░░░░░░░░░░░░░░░  design agreed 2026-06-14 — forensic findings:
                                 behavioral-pattern layer (docs/CRIMINOLOGY_DESIGN.md).
-                                13.1–13.5 not yet built
+                                14.1–14.5 not yet built
 ```
 
 Parity with the v4.2 userscript is reached; the project now operates as a
@@ -920,12 +920,19 @@ Slices (one PR each):
 
 ---
 
-## Phase 13 — Forensic findings (behavioral-pattern layer) ⏳ design agreed
+## Phase 14 — Forensic findings (behavioral-pattern layer) ⏳ design agreed
 
-Where Phase 11 grades whether a *claim* is true, Phase 13 names what a
+**Builds on Phase 13 (the epistemic audit).** Phase 13 must land on `main`
+first; this layer sits on top of it and is a *distinct* feature. The two use
+**disjoint wire kinds** — the audit owns `30056–30061` (+ `epistemicAuditing`
+flag), so this layer takes **`30062`** for `BehavioralFinding` (+ a separate
+`forensicPublishing` flag). New criminology development is paused until the
+Phase 13 chain merges, at which point this branch rebases onto it.
+
+Where Phase 11 grades whether a *claim* is true, Phase 14 names what a
 *subject* is doing around the truth — an evasion, a defense, a self-serving
 revision — and binds it to evidence, **without a verdict on honesty or
-intent**. A **behavioral finding** (new kind `30056`) targets a subject (the
+intent**. A **behavioral finding** (new kind `30062`) targets a subject (the
 Phase 9 identity layer) in a declared **role** (apologist / critic /
 institution / witness / survivor), names a **maneuver** from a taxonomy
 seeded from the criminology / thought-reform canon (Sykes & Matza
@@ -947,20 +954,20 @@ Full design, wire formats, methodology rules, and the canon→vocabulary map:
 
 Slices (one PR each):
 
-- ⏳ **13.1** Foundation — `forensic-taxonomy.js` (six families + role/basis
+- ⏳ **14.1** Foundation — `forensic-taxonomy.js` (six families + role/basis
   enums + indicators/counter-indicators), `forensic-model.js` +
   `behavioral_findings` store, baselines, `evidence-linker.js` `revision/*`
   values; tests. No UI, no wire.
-- ⏳ **13.2** Capture UI — finding modal (subject+role, ordered anchors,
+- ⏳ **14.2** Capture UI — finding modal (subject+role, ordered anchors,
   note + required counter-note, basis), findings bar, baseline marking,
   revision-link flow.
-- ⏳ **13.3** Wire builders + NIP draft — `30056`
+- ⏳ **14.3** Wire builders + NIP draft — `30062`
   `buildBehavioralFindingEvent` + `parseBehavioralFindingEvent`, 30055
-  `revision/*` emission, `forensicPublishing` flag, §30056/§30055 NIP text
+  `revision/*` emission, `forensicPublishing` flag, §30062/§30055 NIP text
   with the "structural-observation, not verdict" framing.
-- ⏳ **13.4** Portal report lenses — corpus parser + subject/case lens views
+- ⏳ **14.4** Portal report lenses — corpus parser + subject/case lens views
   (evidentiary / executive / survivor / editor) + reconciliation.
-- ⏳ **13.5** LLM assist (flag-gated) — `suggested_by: llm:<model>` proposal
+- ⏳ **14.5** LLM assist (flag-gated) — `suggested_by: llm:<model>` proposal
   pass enforcing the anchor + counter-note + basis discipline.
 
 Acceptance demo: the source video itself

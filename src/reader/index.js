@@ -526,7 +526,7 @@ async function refreshClaimsBar() {
 }
 
 // ------------------------------------------------------------------
-// Forensic findings bar (Phase 13.2)
+// Forensic findings bar (Phase 14.2)
 // ------------------------------------------------------------------
 
 /** Tagged entities on this article become the subject choices. */

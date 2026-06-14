@@ -1,4 +1,4 @@
-// Forensic finding model — Phase 13.1 (docs/CRIMINOLOGY_DESIGN.md).
+// Forensic finding model — Phase 14.1 (docs/CRIMINOLOGY_DESIGN.md).
 //
 // A BehavioralFinding names a MANEUVER a subject performs around the
 // truth — an evasion, an immunizing defense, a self-serving revision —
@@ -21,8 +21,8 @@
 //
 // Storage: Storage.get('behavioral_findings', {}) keyed by finding id —
 // the same single-key id→record map as 'claim_assessments'. Baselines
-// live under 'forensic_baselines'. Wire mapping (kind 30056) lands in
-// slice 13.3; publishing is gated behind the `forensicPublishing` flag.
+// live under 'forensic_baselines'. Wire mapping (kind 30062) lands in
+// slice 14.3; publishing is gated behind the `forensicPublishing` flag.
 
 import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
@@ -118,8 +118,8 @@ async function anchorsHash(anchors) {
 
 /**
  * Deterministic id from (subjectKey | maneuver | anchorsHash). NOTE:
- * this is the LOCAL id; the kind-30056 wire d-tag hashes the subject
- * ref + maneuver + anchors at publish time (slice 13.3) — local ids
+ * this is the LOCAL id; the kind-30062 wire d-tag hashes the subject
+ * ref + maneuver + anchors at publish time (slice 14.3) — local ids
  * never hit the wire.
  */
 export async function generateFindingId(subjectKey, maneuver, anchors) {
@@ -267,7 +267,7 @@ export const ForensicModel = {
     },
 
     /**
-     * Record a successful kind-30056 publish. Does NOT bump `updated`,
+     * Record a successful kind-30062 publish. Does NOT bump `updated`,
      * so edits after a publish correctly re-emit next time.
      */
     markPublished: async (id, eventId, pubkey) => {

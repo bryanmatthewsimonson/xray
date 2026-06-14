@@ -1,4 +1,4 @@
-// Forensic finding model tests — Phase 13.1 (docs/CRIMINOLOGY_DESIGN.md).
+// Forensic finding model tests — Phase 14.1 (docs/CRIMINOLOGY_DESIGN.md).
 // Same chrome.storage.local shim pattern as assessment-model.test.mjs.
 
 import { test } from 'node:test';

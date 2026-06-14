@@ -1,4 +1,4 @@
-// Forensic findings render tests — Phase 13.2 (docs/CRIMINOLOGY_DESIGN.md).
+// Forensic findings render tests — Phase 14.2 (docs/CRIMINOLOGY_DESIGN.md).
 //
 // The modal itself is DOM-driven (smoke-tested manually), but the badge
 // strip and the reader findings bar are pure HTML-string builders, so
