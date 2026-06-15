@@ -118,6 +118,24 @@ export async function importAuditJson(json, { localArticleHash = null } = {}) {
     if (aggregate.ceiling_source != null && !isValidCeilingSource(aggregate.ceiling_source)) {
         throw fail(`aggregate.ceiling_source is not a valid provenance (got ${aggregate.ceiling_source})`);
     }
+    // Contribution rows feed the published 30057's content verbatim —
+    // the NIP's "aggregation is auditable from the event alone"
+    // property dies if a malformed weight/confidence silently coerces
+    // to 0 at publish. Rejected at the persistence boundary (P9).
+    if (aggregate.module_contributions != null) {
+        if (!Array.isArray(aggregate.module_contributions)) {
+            throw fail('aggregate.module_contributions must be an array when present');
+        }
+        for (const c of aggregate.module_contributions) {
+            const ok = c && typeof c.module === 'string'
+                && (c.score === null || (typeof c.score === 'number' && Number.isFinite(c.score)))
+                && typeof c.confidence === 'number' && Number.isFinite(c.confidence) && c.confidence >= 0 && c.confidence <= 1
+                && typeof c.weight === 'number' && Number.isFinite(c.weight) && c.weight >= 0 && c.weight <= 1;
+            if (!ok) {
+                throw fail(`aggregate.module_contributions has a malformed row (module ${c && c.module}) — score number|null, confidence/weight in [0,1] required`);
+            }
+        }
+    }
     const auditor = normalizeAuditor(aggregate.auditor, 'xray-auditor-import/unknown');
 
     // --- 3: per-module validation, failure posture per module --------------
@@ -178,8 +196,25 @@ export async function importAuditJson(json, { localArticleHash = null } = {}) {
             failedModules.push({ module, reason: 'score/confidence diverge from findings' });
             continue;
         }
+        // Same trust boundary for the VERSION: findings.version feeds
+        // the wire d (the builder derives the address from it), so a
+        // wrapper module_version diverging from it would mint
+        // 30056/30057 coordinates that never agree. Findings win;
+        // a present-and-different wrapper is the tamper signal.
+        const findingsVersion = r.findings.version;
+        if (typeof r.module_version === 'string' && r.module_version !== findingsVersion) {
+            storedResults.push({
+                ...base, score: null, confidence: null, findings: r.findings,
+                failed: true,
+                auditor_caveats: [...base.auditor_caveats,
+                    `wrapper module_version ${r.module_version} diverges from findings.version ${findingsVersion} — the wire address would dangle`]
+            });
+            failedModules.push({ module, reason: 'module_version diverges from findings.version' });
+            continue;
+        }
         storedResults.push({
             ...base,
+            module_version: findingsVersion,
             score: findingsScore,
             confidence: findingsConf,
             findings: r.findings,
@@ -260,6 +295,10 @@ export async function importAuditJson(json, { localArticleHash = null } = {}) {
             skippedPredictions.push({ text: candidate.text.slice(0, 60), reason });
             continue;
         }
+        // The extraction methodology's version, from this run's own
+        // prediction_extraction result — the published 30058 states
+        // the version that actually produced it, not a constant.
+        const extraction = storedResults.find((m) => m.module === 'prediction_extraction');
         await PredictionModel.create({
             articleHash: recomputed,
             text: candidate.text,
@@ -273,6 +312,7 @@ export async function importAuditJson(json, { localArticleHash = null } = {}) {
             criteria: candidate.criteria,
             tractability: candidate.tractability,
             evidence_quote: candidate.evidence_quote,
+            module_version: (extraction && extraction.module_version) || '1.0',
             auditor: normalizeAuditor(p.extracted_by, null) || auditor,
             extracted_at: p.extracted_at || aggregate.run_at
         });

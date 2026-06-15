@@ -829,8 +829,22 @@ export-included, not droppable.)
   atomized-claim `a` reference publishes **after that claim** — the
   Phase 11 claims-before-assessments rule, inherited verbatim
   (otherwise 30058s are independent); resolutions any time after their
-  prediction. The flag (`epistemicAuditing`) gates every publish path;
-  local capture/import/render is ungated — the Phase 11 split.
+  prediction. Ordering holds **on the wire, not just in the list**: a
+  referencer whose referent failed (or never published) this batch
+  defers to the next one rather than minting a dangling reference, and
+  a promoted 30058 carries the claim's *published* address — never the
+  current signing key's. The flag (`epistemicAuditing`) gates every
+  publish path; local capture/import/render is ungated — the Phase 11
+  split.
+- **Resolution identity rule (13.8):** a 30059 whose prediction
+  coordinate matches a *local* prediction but was minted under a
+  different pubkey is refused at publish — that address will never
+  exist (the local prediction publishes under the signing key); re-file
+  under the signing identity. A coordinate with **no** local
+  counterpart is someone else's published prediction, and resolving it
+  is a designed workflow — it publishes verbatim, anchored to the
+  *prediction's* article hash (`article_hash` on the resolution
+  record, stamped by the Resolve… form).
 
 ## Predictions as first-class records
 

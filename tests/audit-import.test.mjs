@@ -276,3 +276,59 @@ test('re-import is idempotent: same run converges, predictions never duplicate',
     assert.equal((await AuditRunModel.getByArticleHash(HASH)).length, 1);
     assert.equal((await PredictionModel.getByArticleHash(HASH)).length, 1);
 });
+
+// ------------------------------------------------------------------
+// 13.8 review hardening — version trust boundary + contribution rows
+// ------------------------------------------------------------------
+
+test('wrapper module_version diverging from findings.version fails the module (wire address would dangle)', async () => {
+    const json = scorerExport({
+        module_results: [coherenceResult({ module_version: '1.1' }), predictionExtraction()]
+    });
+    const summary = await importAuditJson(json, { localArticleHash: HASH });
+    assert.equal(summary.modulesFailed, 1);
+    assert.match(summary.failedModules[0].reason, /module_version diverges/);
+    const runs = await AuditRunModel.getByArticleHash(HASH);
+    const stored = runs[0].moduleResults.find((m) => m.module === 'internal_coherence');
+    assert.equal(stored.failed, true);
+    assert.equal(stored.score, null, 'failed posture — never publishes');
+});
+
+test('missing wrapper module_version adopts findings.version — the d-preimage source of truth', async () => {
+    const result = coherenceResult({
+        findings: {
+            module: 'internal_coherence', version: '1.2',
+            score: 74, confidence: 0.8,
+            auditor_caveats: ['x'], contradictions: [], logical_gaps: []
+        }
+    });
+    delete result.module_version;
+    const summary = await importAuditJson(
+        scorerExport({ module_results: [result, predictionExtraction()] }),
+        { localArticleHash: HASH });
+    assert.equal(summary.modulesFailed, 0);
+    const runs = await AuditRunModel.getByArticleHash(HASH);
+    const stored = runs[0].moduleResults.find((m) => m.module === 'internal_coherence');
+    assert.equal(stored.module_version, '1.2',
+        'stored version = findings.version, so every later address derivation agrees with the wire');
+});
+
+test('malformed module_contributions reject the import — never coerced to fabricated zeros at publish', async () => {
+    const json = scorerExport();
+    json.aggregate.module_contributions = [
+        { module: 'internal_coherence', score: 74, confidence: '0.8', weight: 0.1 }
+    ];
+    await assert.rejects(importAuditJson(json, { localArticleHash: HASH }), /malformed row/);
+});
+
+test('imported predictions persist the extraction methodology version from their own run', async () => {
+    const extraction = predictionExtraction();
+    extraction.findings.version = '1.3';
+    delete extraction.module_version;   // wrapper absent — findings win
+    await importAuditJson(
+        scorerExport({ module_results: [coherenceResult(), extraction] }),
+        { localArticleHash: HASH });
+    const preds = await PredictionModel.getByArticleHash(HASH);
+    assert.equal(preds[0].module_version, '1.3',
+        'the published 30058 states the version that actually produced it');
+});
