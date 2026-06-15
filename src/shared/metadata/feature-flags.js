@@ -45,7 +45,13 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // import/render/ledger is never gated — the Phase 11 split. Audit
   // EXECUTION additionally requires a user-supplied API key, which is
   // its own consent gate on top of this flag.
-  epistemicAuditing: false
+  epistemicAuditing: false,
+
+  // Phase 14 (docs/CRIMINOLOGY_DESIGN.md): gates the PUBLISH paths for
+  // kind 30062 behavioral findings, their kind-1985 maneuver mirror, and
+  // the `revision/*` story-change edges on kind 30055. Local capture /
+  // baselines / rollups are never gated — they're the product.
+  forensicPublishing: false
 });
 
 /**

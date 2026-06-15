@@ -33,8 +33,12 @@
 import { normalize } from './url-normalizer.js';
 import {
   ASSESSMENT_LABEL_NAMESPACE, isValidLabel, isValidStance,
-  isValidSuggestedBy, CLAIM_RELATIONSHIPS, isSymmetricRelationship
+  isValidSuggestedBy, CLAIM_RELATIONSHIPS, REVISION_RELATIONSHIPS,
+  isSymmetricRelationship
 } from '../assessment-taxonomy.js';
+import {
+  FORENSIC_MANEUVER_NAMESPACE, isValidManeuver, isValidRole, isValidBasis
+} from '../forensic-taxonomy.js';
 
 // ------------------------------------------------------------------
 // Common helpers
@@ -627,8 +631,12 @@ export async function buildClaimRelationshipEvent({
 } = {}) {
   assertClaimCoordinate(sourceCoord, 'buildClaimRelationshipEvent', 'sourceCoord');
   assertClaimCoordinate(targetCoord, 'buildClaimRelationshipEvent', 'targetCoord');
-  if (!CLAIM_RELATIONSHIPS.includes(relationship)) {
-    throw new Error(`buildClaimRelationshipEvent: relationship must be one of ${CLAIM_RELATIONSHIPS.join(', ')} (got ${relationship})`);
+  // Phase 14.3: the directional `revision/*` story-change values join the
+  // Phase-11 four on this kind. They are never symmetric, so the
+  // endpoint sort below correctly leaves source = earlier, target = later.
+  const ALL_RELATIONSHIPS = [...CLAIM_RELATIONSHIPS, ...REVISION_RELATIONSHIPS];
+  if (!ALL_RELATIONSHIPS.includes(relationship)) {
+    throw new Error(`buildClaimRelationshipEvent: relationship must be one of ${ALL_RELATIONSHIPS.join(', ')} (got ${relationship})`);
   }
   if (sourceCoord === targetCoord) {
     throw new Error('buildClaimRelationshipEvent: cannot link a claim to itself');
@@ -719,6 +727,194 @@ export function buildAssessmentMirrorEvent({
   if (claimUrl) tags.push(tag('r', claimUrl));
   tags.push(tag('client', 'xray'));
 
+  return {
+    event: { kind: 1985, created_at: createdAt, tags, content: '' },
+    body: '',
+    dTag: null
+  };
+}
+
+// ------------------------------------------------------------------
+// BehavioralFinding — kind 30062 (Phase 14.3; publish flag-gated)
+// ------------------------------------------------------------------
+
+// The content carries the structural `note` then the REQUIRED
+// `counter_note`, split by this stable heading. Parsers split on its
+// LAST occurrence, so a note that happens to contain the heading can't
+// swallow the appended counter-read.
+export const FORENSIC_COUNTER_HEADING = '### Counter-read';
+
+function cleanFindingSteps(anchors, fnName) {
+  if (!Array.isArray(anchors) || anchors.length === 0) {
+    throw new Error(`${fnName}: at least one evidence anchor (with a quote) required`);
+  }
+  return anchors.map((a, i) => {
+    const quote = String((a && a.quote) || '').trim();
+    if (!quote) throw new Error(`${fnName}: anchor ${i} needs a non-empty quote`);
+    const ts = a && (a.timestamp === 0 || a.timestamp) ? Number(a.timestamp) : null;
+    return {
+      quote,
+      selector: a && a.selector != null ? a.selector : null,
+      timestamp: Number.isFinite(ts) ? ts : null
+    };
+  });
+}
+
+/**
+ * Build an unsigned kind 30062 BehavioralFinding event (NIP draft
+ * §30062) — names a MANEUVER a subject performs around the truth and
+ * binds it to an ordered evidence chain. The companion to the kind-30054
+ * assessment: where an assessment grades a *claim*, a finding describes
+ * a *subject's* move, and renders NO verdict on honesty or intent.
+ *
+ * Firewall (enforced by construction, pinned by tests): the closed tag
+ * vocabulary never emits `stance`, `rating-value`, or the
+ * `xray/assessment` namespace — a forensic finding is a distinct
+ * aggregation signal that consumers MUST NOT merge with assessments.
+ *
+ * Wire rules (docs/CRIMINOLOGY_DESIGN.md §30062):
+ *   - the subject is referenced by `p` with a `subject` slot-4 marker;
+ *     the finding publishes against a RESOLVED subject pubkey, so local
+ *     subject refs (label/account) never hit the wire.
+ *   - `d` = find:<sha16(subjectPubkey|maneuver|anchorsHash)> is
+ *     recomputable from the event's own tags (`p` + `l` + the ordered
+ *     `maneuver-step` tags), so edits replace (NIP-01).
+ *   - `L`/`l` carry the maneuver under `xray/forensic`; a kind-1985
+ *     mirror (buildForensicFindingMirrorEvent) is the NIP-32 path.
+ *   - `maneuver-step` tags are ordered `[index, quote, selector-json,
+ *     timestamp]`; n>1 is a sequence. Multi-letter tags (`role`,
+ *     `maneuver-step`, `basis`, `suggested-by`) are not relay-indexed.
+ *   - `content` = the structural `note`, then the REQUIRED `counter_note`
+ *     under the `### Counter-read` heading (the falsifiability rule).
+ *
+ * @param {object} args
+ * @param {string} args.subjectPubkey       — 64-hex (required; the `p` subject)
+ * @param {string} args.maneuver            — taxonomy value (required)
+ * @param {string} args.role                — role enum (required)
+ * @param {Array<{quote,selector?,timestamp?}>} args.anchors — ordered, ≥1
+ * @param {string} args.counterNote         — REQUIRED (the alternative reading)
+ * @param {string} [args.note]              — structural rationale (markdown)
+ * @param {string} [args.basis='structural-inference']
+ * @param {string} [args.sourceUrl]         — verbatim, for `r`/`i`/`k`
+ * @param {string} [args.relationshipCoord] — optional `30055:…` revision edge
+ * @param {string} [args.suggestedBy='user']
+ * @param {number} [args.createdAt]
+ * @returns {Promise<{event, body, dTag}>}
+ */
+export async function buildBehavioralFindingEvent({
+  subjectPubkey,
+  maneuver,
+  role,
+  anchors = [],
+  counterNote,
+  note = '',
+  basis = 'structural-inference',
+  sourceUrl = '',
+  relationshipCoord = null,
+  suggestedBy = 'user',
+  createdAt = nowSeconds()
+} = {}) {
+  if (!/^[0-9a-f]{64}$/.test(String(subjectPubkey || ''))) {
+    throw new Error('buildBehavioralFindingEvent: subjectPubkey must be a 64-hex pubkey (a finding publishes against a resolved subject)');
+  }
+  if (!isValidManeuver(maneuver)) {
+    throw new Error(`buildBehavioralFindingEvent: invalid maneuver (got ${maneuver})`);
+  }
+  if (!isValidRole(role)) {
+    throw new Error(`buildBehavioralFindingEvent: invalid role (got ${role})`);
+  }
+  if (!isValidBasis(basis)) {
+    throw new Error(`buildBehavioralFindingEvent: invalid basis (got ${basis})`);
+  }
+  const cn = String(counterNote || '').trim();
+  if (!cn) {
+    throw new Error('buildBehavioralFindingEvent: counterNote required (the alternative reading)');
+  }
+  if (relationshipCoord != null && !/^30055:[0-9a-f]{64}:.+$/.test(String(relationshipCoord))) {
+    throw new Error(`buildBehavioralFindingEvent: relationshipCoord must be a 30055 coordinate (got ${relationshipCoord})`);
+  }
+  const provenance = assertSuggestedBy(suggestedBy, 'buildBehavioralFindingEvent');
+  const steps = cleanFindingSteps(anchors, 'buildBehavioralFindingEvent');
+
+  // anchorsHash over the wire-visible step data, so the `d` recomputes
+  // from the `maneuver-step` tags alone.
+  const preimage = steps.map((s) => [
+    s.quote,
+    s.selector ? JSON.stringify(s.selector) : '',
+    s.timestamp == null ? '' : String(s.timestamp)
+  ]);
+  const anchorsHash = await sha256Hex(JSON.stringify(preimage));
+  const dTag = 'find:' + (await sha16(`${subjectPubkey}|${maneuver}|${anchorsHash}`));
+
+  const tags = [
+    tag('d', dTag),
+    tag('p', subjectPubkey, '', 'subject'),
+    tag('L', FORENSIC_MANEUVER_NAMESPACE),
+    tag('l', maneuver, FORENSIC_MANEUVER_NAMESPACE),
+    tag('role', role)
+  ];
+  if (sourceUrl) {
+    tags.push(tag('r', sourceUrl));
+    tags.push(tag('i', normalize(sourceUrl)));
+    tags.push(tag('k', 'web'));
+  }
+  if (relationshipCoord) tags.push(tag('a', relationshipCoord));
+  steps.forEach((s, i) => {
+    tags.push(tag('maneuver-step', String(i), s.quote,
+      s.selector ? JSON.stringify(s.selector) : '',
+      s.timestamp == null ? '' : String(s.timestamp)));
+  });
+  tags.push(tag('basis', basis));
+  tags.push(tag('suggested-by', provenance));
+  tags.push(tag('client', 'xray'));
+
+  const body = `${String(note || '').trim()}\n\n${FORENSIC_COUNTER_HEADING}\n\n${cn}`;
+  return {
+    event: { kind: 30062, created_at: createdAt, tags, content: body },
+    body,
+    dTag
+  };
+}
+
+/**
+ * Build an unsigned kind 1985 label event mirroring a finding's
+ * maneuver — the NIP-32 ecosystem-aggregation path for forensic
+ * findings (NIP draft §30062).
+ *
+ * Unlike the assessment mirror (which omits `p` to avoid labeling the
+ * claim's author), this mirror DOES carry `p` = the subject: the
+ * maneuver label is *about* that person's move. The NIP text MUST frame
+ * these as structural observations carrying a required counter-read on
+ * the richer 30062 — never verdicts — and recommend consumers surface
+ * that counter-read. Emitted alongside a 30062 on its first publish,
+ * behind the same `forensicPublishing` flag.
+ *
+ * @param {object} args
+ * @param {string} args.subjectPubkey   — 64-hex (the labeled subject)
+ * @param {string} args.maneuver        — taxonomy value
+ * @param {string} [args.sourceUrl]     — verbatim, for the draft's `#r` query
+ * @param {number} [args.createdAt]
+ * @returns {{event, body, dTag: null}}  (kind 1985 is a regular event)
+ */
+export function buildForensicFindingMirrorEvent({
+  subjectPubkey,
+  maneuver,
+  sourceUrl = '',
+  createdAt = nowSeconds()
+} = {}) {
+  if (!/^[0-9a-f]{64}$/.test(String(subjectPubkey || ''))) {
+    throw new Error('buildForensicFindingMirrorEvent: subjectPubkey must be a 64-hex pubkey');
+  }
+  if (!isValidManeuver(maneuver)) {
+    throw new Error(`buildForensicFindingMirrorEvent: invalid maneuver (got ${maneuver})`);
+  }
+  const tags = [
+    tag('L', FORENSIC_MANEUVER_NAMESPACE),
+    tag('l', maneuver, FORENSIC_MANEUVER_NAMESPACE),
+    tag('p', subjectPubkey)
+  ];
+  if (sourceUrl) tags.push(tag('r', sourceUrl));
+  tags.push(tag('client', 'xray'));
   return {
     event: { kind: 1985, created_at: createdAt, tags, content: '' },
     body: '',

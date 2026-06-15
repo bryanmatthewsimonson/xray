@@ -12,6 +12,17 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 14.3 — forensic wire format (kind `30062`).** New
+  `buildBehavioralFindingEvent` (kind 30062 BehavioralFinding) +
+  `parseBehavioralFindingEvent` + a kind-1985 maneuver mirror, behind a
+  new `forensicPublishing` flag (default off). The directional
+  `revision/*` story-change values (`narrative-patch`,
+  `recharacterizes`, `walks-back`) join kind 30055. ⚠️ Wire-format
+  change: a new event kind and three new 30055 relationship values, both
+  specified in `docs/NIP_DRAFT.md` §30062/§30055. The audit/assessment
+  firewall holds by construction — a finding never carries `stance`,
+  `rating-value`, `score`, or the `xray/assessment` namespace.
+
 - **Phase 13.9 — hardening.** `docs/SMOKE_TEST.md` gains §Phase 13:
   the 24-step manual acceptance walk for the audit pipeline (import
   refusal cases, the display-rule checks, publish resume, the

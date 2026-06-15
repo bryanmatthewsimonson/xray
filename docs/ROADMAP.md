@@ -73,7 +73,7 @@ Phase 13 ███████████░░░░░░░░░  in progre
                                 pending smoke-test
 Phase 14 ░░░░░░░░░░░░░░░░░░░░  design agreed 2026-06-14 — forensic findings:
                                 behavioral-pattern layer (docs/CRIMINOLOGY_DESIGN.md).
-                                builds on Phase 13; 14.1–14.2 built, 14.3–14.5 pending
+                                builds on Phase 13; 14.1–14.3 built, 14.4–14.5 pending
 ```
 
 Parity with the v4.2 userscript is reached; the project now operates as a
@@ -1122,10 +1122,11 @@ Slices (one PR each):
 - ⏳ **14.2** Capture UI — finding modal (subject+role, ordered anchors,
   note + required counter-note, basis), findings bar, baseline marking,
   revision-link flow.
-- ⏳ **14.3** Wire builders + NIP draft — `30062`
-  `buildBehavioralFindingEvent` + `parseBehavioralFindingEvent`, 30055
-  `revision/*` emission, `forensicPublishing` flag, §30062/§30055 NIP text
-  with the "structural-observation, not verdict" framing.
+- ✅ **14.3** Wire builders + NIP draft — `30062`
+  `buildBehavioralFindingEvent` + `parseBehavioralFindingEvent` + the
+  kind-1985 maneuver mirror, 30055 `revision/*` emission, the
+  `forensicPublishing` flag, §30062/§30055 NIP text with the
+  "structural-observation, not verdict" framing + firewall clause.
 - ⏳ **14.4** Portal report lenses — corpus parser + subject/case lens views
   (evidentiary / executive / survivor / editor) + reconciliation.
 - ⏳ **14.5** LLM assist (flag-gated) — `suggested_by: llm:<model>` proposal

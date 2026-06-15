@@ -35,6 +35,71 @@ import {
 const FINDINGS_KEY  = 'behavioral_findings';
 const BASELINES_KEY = 'forensic_baselines';
 
+const FORENSIC_NAMESPACE = 'xray/forensic';
+const COUNTER_HEADING = '### Counter-read';
+
+// ------------------------------------------------------------------
+// Wire read-back (Phase 14.3)
+// ------------------------------------------------------------------
+
+/**
+ * Inverse of metadata/builders.js `buildBehavioralFindingEvent` —
+ * reconstruct a finding from a kind-30062 event, for the portal's
+ * read-back path. Pure and defensive (the parseAssessmentEvent style):
+ * returns null for a wrong-kind event or one with no maneuver (the
+ * structural minimum). `note`/`counter_note` split on the LAST
+ * `### Counter-read` heading in content; `maneuver-step` tags are read
+ * in their declared index order.
+ */
+export function parseBehavioralFindingEvent(event) {
+    if (!event || event.kind !== 30062) return null;
+    const tags = event.tags || [];
+    const first = (name) => { const t = tags.find((x) => x[0] === name); return t ? t[1] : ''; };
+
+    const lTag = tags.find((x) => x[0] === 'l' && x[2] === FORENSIC_NAMESPACE);
+    const maneuver = lTag ? lTag[1] : '';
+    if (!maneuver) return null;
+
+    const subjectP = tags.find((x) => x[0] === 'p' && x[3] === 'subject')
+        || tags.find((x) => x[0] === 'p');
+
+    const anchors = tags
+        .filter((x) => x[0] === 'maneuver-step')
+        .sort((a, b) => (Number(a[1]) || 0) - (Number(b[1]) || 0))
+        .map((x) => {
+            let selector = null;
+            if (x[3]) { try { selector = JSON.parse(x[3]); } catch (_) { /* stays null */ } }
+            const ts = x[4] !== undefined && x[4] !== '' ? Number(x[4]) : null;
+            return { quote: x[2] || '', selector, timestamp: Number.isFinite(ts) ? ts : null };
+        });
+
+    const content = event.content || '';
+    const idx = content.lastIndexOf(COUNTER_HEADING);
+    let note = content, counterNote = '';
+    if (idx >= 0) {
+        note = content.slice(0, idx).trim();
+        counterNote = content.slice(idx + COUNTER_HEADING.length).trim();
+    }
+
+    const relA = tags.find((x) => x[0] === 'a' && /^30055:/.test(x[1] || ''));
+    return {
+        id:                 first('d') || event.id || '',
+        subjectPubkey:      (subjectP && subjectP[1]) || null,
+        maneuver,
+        role:               first('role') || null,
+        anchors,
+        note,
+        counterNote,
+        basis:              first('basis') || null,
+        url:                first('r') || null,
+        relationshipCoord:  (relA && relA[1]) || null,
+        suggestedBy:        first('suggested-by') || 'user',
+        pubkey:             event.pubkey || '',
+        created_at:         event.created_at || 0,
+        eventId:            event.id || null
+    };
+}
+
 // ------------------------------------------------------------------
 // Subject ref + canonical key
 // ------------------------------------------------------------------
