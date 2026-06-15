@@ -160,6 +160,38 @@ test('malformed predictions are skipped with reasons, never imported or failed-t
     assert.equal((await PredictionModel.getByArticleHash(HASH)).length, 1);
 });
 
+test('top-level score/confidence diverging from validated findings fails the module — no naked authority', async () => {
+    const tampered = coherenceResult({ score: 95 });   // findings say 74
+    const summary = await importAuditJson(scorerExport({
+        module_results: [tampered, predictionExtraction()]
+    }), { localArticleHash: HASH });
+    assert.equal(summary.modulesFailed, 1);
+    assert.match(summary.failedModules[0].reason, /diverge from findings/);
+
+    // And the stored values come FROM the findings on the clean path.
+    await clear();
+    const clean = await importAuditJson(scorerExport(), { localArticleHash: HASH });
+    assert.equal(clean.modulesFailed, 0);
+    const run = (await AuditRunModel.getByArticleHash(HASH))[0];
+    const coherence = run.moduleResults.find((r) => r.module === 'internal_coherence');
+    assert.equal(coherence.score, 74);
+    assert.equal(coherence.confidence, 0.8);
+});
+
+test('ceiling_binding is DERIVED from raw vs ceiling — the file flag is never trusted', async () => {
+    // raw 92 > ceiling 80, final 80 — internally consistent, but the
+    // file lies about binding. The badge's cap context depends on
+    // this flag; derive it.
+    const hidden = scorerExport();
+    hidden.aggregate.raw_weighted_score = 92;
+    hidden.aggregate.final_score = 80;
+    hidden.aggregate.ceiling_binding = false;
+    await importAuditJson(hidden, { localArticleHash: HASH });
+    const run = (await AuditRunModel.getByArticleHash(HASH))[0];
+    assert.equal(run.aggregate.ceiling_binding, true,
+        'a tampered file cannot hide a binding ceiling');
+});
+
 test('an invalid ceiling_source rejects — provenance has a closed grammar (RQ2)', async () => {
     const bad = scorerExport();
     bad.aggregate.ceiling_source = 'banana';

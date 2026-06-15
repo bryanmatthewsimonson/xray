@@ -159,10 +159,29 @@ export async function importAuditJson(json, { localArticleHash = null } = {}) {
             failedModules.push({ module, reason: `schema validation (${errors.length} errors)` });
             continue;
         }
+        // Score/confidence come FROM the schema-validated findings —
+        // the wrapper's top-level copies sit outside every gate, and a
+        // divergent (tampered) pair would otherwise import cleanly and
+        // render as a naked, more-authoritative number (the exact
+        // score-theater failure the display rules exist to block).
+        const findingsScore = typeof r.findings.score === 'number' ? r.findings.score : null;
+        const findingsConf = typeof r.findings.confidence === 'number' ? r.findings.confidence : null;
+        const topDiverges = (typeof r.score === 'number' && findingsScore !== null && r.score !== findingsScore)
+            || (typeof r.confidence === 'number' && findingsConf !== null && r.confidence !== findingsConf);
+        if (topDiverges) {
+            storedResults.push({
+                ...base, score: null, confidence: null, findings: r.findings,
+                failed: true,
+                auditor_caveats: [...base.auditor_caveats,
+                    `top-level score/confidence diverge from the validated findings (${r.score}/${r.confidence} vs ${findingsScore}/${findingsConf}) — tampered or corrupt`]
+            });
+            failedModules.push({ module, reason: 'score/confidence diverge from findings' });
+            continue;
+        }
         storedResults.push({
             ...base,
-            score: typeof r.score === 'number' ? r.score : null,
-            confidence: typeof r.confidence === 'number' ? r.confidence : null,
+            score: findingsScore,
+            confidence: findingsConf,
             findings: r.findings,
             failed: false
         });
@@ -187,7 +206,12 @@ export async function importAuditJson(json, { localArticleHash = null } = {}) {
             raw_weighted_score: rawScore,
             knowability_ceiling: ceiling,
             knowability_notes: aggregate.knowability_notes || '',
-            ceiling_binding: aggregate.ceiling_binding === true,
+            // DERIVED, never trusted: the flag controls whether the
+            // badge shows its cap context, and a tampered file could
+            // hide a binding ceiling (or paint a spurious one). Both
+            // operands are validated above; the scorer's own
+            // definition is raw > ceiling.
+            ceiling_binding: rawScore > ceiling,
             // RQ2: the scorer's heuristic is the canonical pipeline
             // source; an import carrying its own source wins.
             ceiling_source: aggregate.ceiling_source || 'heuristic:source-quality/1.0',

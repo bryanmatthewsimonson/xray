@@ -28,7 +28,8 @@ import { buildAssessmentEvent, buildClaimRelationshipEvent, buildAssessmentMirro
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
 import { importAuditJson } from '../shared/audit/import.js';
-import { AuditRunModel } from '../shared/audit/audit-model.js';
+import { AuditRunModel, PredictionModel, staleModules } from '../shared/audit/audit-model.js';
+import { CURRENT_MODULE_VERSIONS } from '../shared/audit/findings-schemas.js';
 
 const browserApi = typeof browser !== 'undefined' && browser.runtime ? browser : chrome;
 
@@ -423,31 +424,286 @@ function updateHashLine() {
     el.textContent = 'content hash ' + state.articleHash.slice(0, 16) + '…';
 }
 
-// Audit-bar status line (13.5): how many imported runs anchor to this
-// capture's hash. The full panel (scores, module rows) is 13.6 — this
-// just keeps the import affordance honest about what's stored.
+// ------------------------------------------------------------------
+// Audit panel (13.6)
+// ------------------------------------------------------------------
+//
+// Display rules, every surface (docs/EPISTEMIC_AUDIT_DESIGN.md §"Score
+// display"): no naked numbers (a score renders with its confidence);
+// confidence < 0.6 renders as "needs human review", not a number; the
+// badge bands are the framework's own rubric — never centered on 50;
+// provenance one tap away; disagreement side-by-side, never averaged;
+// audit and assessment UI never visually merge.
+
+// The framework rubric bands (prompts/00; PHILOSOPHY §4).
+function auditBand(score) {
+    if (score >= 90) return { key: 'exemplary',    label: 'Exemplary' };
+    if (score >= 75) return { key: 'solid',        label: 'Solid' };
+    if (score >= 60) return { key: 'acceptable',   label: 'Acceptable, with concerns' };
+    if (score >= 40) return { key: 'significant',  label: 'Significant problems' };
+    if (score >= 20) return { key: 'severe',       label: 'Severe' };
+    return { key: 'catastrophic', label: 'Catastrophic' };
+}
+
+function scoreChipHtml(score, confidence) {
+    if (typeof score !== 'number') {
+        return '<span class="xr-audit__chip xr-audit__chip--failed">failed</span>';
+    }
+    // No naked numbers, no exceptions: a score whose confidence is
+    // UNKNOWN must not render cleaner than one whose confidence is
+    // 0.59 — unknown is below the review threshold by definition.
+    if (typeof confidence !== 'number') {
+        return '<span class="xr-audit__chip xr-audit__chip--review" title="this result carries no confidence value — treat as unreviewed">needs human review · no confidence recorded</span>';
+    }
+    if (confidence < 0.6) {
+        return '<span class="xr-audit__chip xr-audit__chip--review" title="confidence ' +
+            escapeHtml(String(confidence)) + ' — below the 0.6 reliability threshold">needs human review</span>';
+    }
+    return `<span class="xr-audit__score">${escapeHtml(String(score))} · conf ${escapeHtml(String(confidence))}</span>`;
+}
+
+function prettyModule(name) {
+    return String(name || '').replace(/_/g, ' ');
+}
+
+// Locate an evidence quote in the article body: selection-only (the
+// body is contenteditable and syncs htmlDraft — DOM mutation here
+// would pollute the draft). Whitespace-normalized search with a
+// single O(n) forward scan mapping normalized positions back to raw
+// offsets — per-character normalized indices, so the selection starts
+// ON the quote (never inside a collapsed whitespace run) and ends at
+// its true tail, across text-node boundaries.
+function locateQuoteInBody(quote) {
+    const body = $('.xr-article__body');
+    if (!body || !quote) return false;
+    const target = String(quote).replace(/\s+/g, ' ').trim();
+    if (!target) return false;
+    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    let full = '';
+    let n;
+    while ((n = walker.nextNode())) {
+        nodes.push({ node: n, start: full.length });
+        full += n.textContent;
+    }
+
+    // One pass: normalized string + the raw index of each normalized
+    // character. A whitespace run contributes one normalized space,
+    // attributed to the run's first raw char.
+    const rawIndexOfNorm = [];
+    let normStr = '';
+    let inWs = false;
+    for (let i = 0; i < full.length; i++) {
+        if (/\s/.test(full[i])) {
+            if (!inWs) { normStr += ' '; rawIndexOfNorm.push(i); inWs = true; }
+        } else {
+            normStr += full[i];
+            rawIndexOfNorm.push(i);
+            inWs = false;
+        }
+    }
+
+    const idx = normStr.indexOf(target);
+    if (idx === -1) return false;
+    const rawStart = rawIndexOfNorm[idx];
+    const rawEndInclusive = rawIndexOfNorm[idx + target.length - 1];
+
+    const nodeFor = (raw) => {
+        let lo = 0;
+        for (let i = 0; i < nodes.length; i++) {
+            if (nodes[i].start <= raw) lo = i; else break;
+        }
+        return nodes[lo];
+    };
+    const startHit = nodeFor(rawStart);
+    const endHit = nodeFor(rawEndInclusive);
+    if (!startHit || !endHit) return false;
+    try {
+        const range = document.createRange();
+        range.setStart(startHit.node, rawStart - startHit.start);
+        range.setEnd(endHit.node, Math.min(rawEndInclusive + 1 - endHit.start, endHit.node.textContent.length));
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        (startHit.node.parentElement || body).scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return true;
+    } catch (_) { return false; }
+}
+
+function renderModuleRow(r, staleSet) {
+    const quotes = (r.evidence_quotes || []).map((q) => q && q.quote).filter(Boolean);
+    const caveats = r.auditor_caveats || [];
+    const stale = staleSet.has(r.module);
+    return `
+      <details class="xr-audit__module">
+        <summary>
+          <span class="xr-audit__module-name">${escapeHtml(prettyModule(r.module))}</span>
+          <span class="xr-audit__module-version" title="methodology version">v${escapeHtml(r.module_version || '?')}</span>
+          ${stale ? '<span class="xr-audit__chip xr-audit__chip--stale">newer methodology available — re-audit offered</span>' : ''}
+          ${r.module === 'prediction_extraction'
+        ? '<span class="xr-audit__chip" title="not a scored dimension — feeds the ledger">unscored</span>'
+        : scoreChipHtml(r.score, r.confidence)}
+        </summary>
+        <div class="xr-audit__module-body">
+          <div class="xr-audit__provenance">auditor: ${escapeHtml(r.auditor ? `${r.auditor.kind} · ${r.auditor.id}` : 'unknown')} · run ${escapeHtml(r.run_at || '')}</div>
+          ${caveats.length ? `<div class="xr-audit__caveats"><strong>Caveats</strong> — what this scan could not determine:<ul>${caveats.map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul></div>` : ''}
+          ${quotes.length ? `<div class="xr-audit__quotes"><strong>Evidence quotes</strong> (click to locate):<ul>${quotes.map((q) => `<li><button type="button" class="xr-audit__quote" data-quote="${escapeHtml(q)}">“${escapeHtml(q.length > 120 ? q.slice(0, 120) + '…' : q)}”</button></li>`).join('')}</ul></div>` : ''}
+        </div>
+      </details>`;
+}
+
+function renderPredictionRow(p) {
+    const promoted = p.claim_ref && p.claim_ref.claim_id;
+    return `
+      <li class="xr-audit__prediction" data-pred-id="${escapeHtml(p.id)}">
+        <div class="xr-audit__prediction-text">${escapeHtml(p.text)}</div>
+        <div class="xr-audit__prediction-meta">
+          <span class="xr-audit__chip">${escapeHtml(p.type)}</span>
+          <span class="xr-audit__chip xr-audit__chip--hedge-${escapeHtml(p.hedge_level)}">${escapeHtml(p.hedge_level)}</span>
+          <span class="xr-audit__chip">${escapeHtml(p.tractability)}</span>
+          <span class="xr-audit__prediction-horizon">horizon: ${escapeHtml(p.horizon || 'unscheduled')}</span>
+          ${promoted
+        ? '<span class="xr-audit__chip xr-audit__chip--claimed" title="atomized into a kind-30040 claim">claim ✓</span>'
+        : `<button type="button" class="xr-reader__btn xr-reader__btn--ghost xr-audit__atomize" data-pred-id="${escapeHtml(p.id)}">Atomize as claim…</button>`}
+        </div>
+        <div class="xr-audit__prediction-criteria" title="resolution criteria">resolves when: ${escapeHtml(p.criteria || '—')}</div>
+      </li>`;
+}
+
+// Full panel render. Keyed strictly to the CURRENT capture hash; runs
+// anchored to retained prior versions surface as a re-audit offer,
+// never as scores for text they didn't score.
 async function refreshAuditStatus() {
-    const el = $('#xr-audit-status');
-    if (!el) return;
+    const statusEl = $('#xr-audit-status');
+    const bodyEl = $('#xr-audit-body');
+    if (!statusEl || !bodyEl) return;
     if (!state.articleHash) {
-        el.textContent = 'No audit imported for this capture.';
+        statusEl.textContent = 'No capture hash for this view — audits key on the exact text.';
+        bodyEl.innerHTML = '';
         return;
     }
+
     const runs = await AuditRunModel.getByArticleHash(state.articleHash);
+    const predictions = await PredictionModel.getByArticleHash(state.articleHash);
+
     if (!runs.length) {
-        el.textContent = 'No audit imported for this capture.';
+        statusEl.textContent = 'No audit imported for this capture.';
+        // Re-audit affordance: audits may anchor to a RETAINED PRIOR
+        // version of this URL's text (13.4 retention).
+        let priorNote = '';
+        try {
+            const record = state.article && state.article.url
+                ? await ArchiveCache.getArticle(state.article.url) : null;
+            const priorHashes = ((record && record.priorVersions) || [])
+                .map((v) => v.articleHash).filter(Boolean);
+            let priorRuns = 0;
+            for (const h of priorHashes) {
+                priorRuns += (await AuditRunModel.getByArticleHash(h)).length;
+            }
+            if (priorRuns > 0) {
+                priorNote = `<div class="xr-audit__prior-note">⚠️ ${priorRuns} audit run${priorRuns === 1 ? '' : 's'} anchor to a <em>previous version</em> of this text. Scores never transfer across edits — re-run the scorer CLI against the current capture and import the result (re-audit).</div>`;
+            }
+        } catch (_) { /* advisory only */ }
+        bodyEl.innerHTML = priorNote;
         return;
     }
-    const latest = runs.slice().sort((a, b) => String(b.runAt).localeCompare(String(a.runAt)))[0];
-    const score = latest.aggregate && typeof latest.aggregate.final_score === 'number'
-        ? latest.aggregate.final_score : null;
-    const conf = latest.aggregate && typeof latest.aggregate.overall_confidence === 'number'
-        ? latest.aggregate.overall_confidence : null;
-    // Display rule (no naked numbers; <0.6 ⇒ needs human review).
-    const scoreLabel = score === null ? 'no aggregate score'
-        : (conf !== null && conf < 0.6) ? 'needs human review (confidence < 0.6)'
-            : `score ${score}` + (conf !== null ? ` · confidence ${conf}` : '');
-    el.textContent = `${runs.length} audit run${runs.length === 1 ? '' : 's'} stored — latest: ${scoreLabel}. Full panel arrives in 13.6.`;
+
+    const sorted = runs.slice().sort((a, b) => String(b.runAt).localeCompare(String(a.runAt)));
+    const latest = sorted[0];
+    const others = sorted.slice(1);
+    const agg = latest.aggregate || {};
+    const score = typeof agg.final_score === 'number' ? agg.final_score : null;
+    const conf = typeof agg.overall_confidence === 'number' ? agg.overall_confidence : null;
+
+    statusEl.textContent = `${runs.length} audit run${runs.length === 1 ? '' : 's'} for this exact text.`;
+
+    // Badge per the display rules. A sub-0.6 confidence never renders
+    // a number, band color included — review-needed is the whole badge.
+    let badge;
+    if (score === null) {
+        badge = '<div class="xr-audit__badge xr-audit__badge--none">no aggregate score</div>';
+    } else if (conf !== null && conf < 0.6) {
+        badge = '<div class="xr-audit__badge xr-audit__badge--review">needs human review<span class="xr-audit__badge-sub">aggregate confidence ' + escapeHtml(String(conf)) + ' — below 0.6</span></div>';
+    } else {
+        const band = auditBand(score);
+        const ceilingLine = agg.ceiling_binding
+            ? `<span class="xr-audit__badge-sub">capped by knowability ${escapeHtml(String(agg.knowability_ceiling))}${agg.knowability_notes ? ' — ' + escapeHtml(agg.knowability_notes) : ''}</span>`
+            : '';
+        badge = `<div class="xr-audit__badge xr-audit__badge--${band.key}" title="${escapeHtml(band.label)}">` +
+            `${escapeHtml(String(score))}<span class="xr-audit__badge-conf">conf ${escapeHtml(String(conf))}</span>` +
+            `<span class="xr-audit__badge-band">${escapeHtml(band.label)}</span>${ceilingLine}</div>`;
+    }
+
+    const provenance = `<div class="xr-audit__provenance">auditor: ${escapeHtml(latest.auditor ? `${latest.auditor.kind} · ${latest.auditor.id}` : 'unknown')} · run ${escapeHtml(latest.runAt)} · ceiling source: ${escapeHtml(agg.ceiling_source || 'unknown')} · imported via ${escapeHtml(latest.source)}</div>`;
+
+    const staleSet = new Set(staleModules(latest, CURRENT_MODULE_VERSIONS).map((s) => s.module));
+    const moduleRows = (latest.moduleResults || []).map((r) => renderModuleRow(r, staleSet)).join('');
+
+    const predBlock = predictions.length
+        ? `<div class="xr-audit__predictions"><h3 class="xr-audit__h">Prediction ledger (${predictions.length})</h3><ul>${predictions.map(renderPredictionRow).join('')}</ul></div>`
+        : '';
+
+    // Disagreement is data: other runs render side-by-side, never
+    // averaged into the badge.
+    const othersBlock = others.length
+        ? `<div class="xr-audit__others"><h3 class="xr-audit__h">Other runs (side-by-side — never averaged)</h3><ul>${others.map((r) => {
+            const a = r.aggregate || {};
+            const s = typeof a.final_score === 'number' ? a.final_score : null;
+            const c = typeof a.overall_confidence === 'number' ? a.overall_confidence : null;
+            return `<li>${scoreChipHtml(s, c)} — ${escapeHtml(r.auditor ? r.auditor.id : 'unknown')} · ${escapeHtml(r.runAt)}</li>`;
+        }).join('')}</ul></div>`
+        : '';
+
+    bodyEl.innerHTML = `
+      ${badge}
+      ${provenance}
+      <div class="xr-audit__modules">${moduleRows}</div>
+      ${predBlock}
+      ${othersBlock}`;
+
+    // Wire quote-locate + atomize offers.
+    bodyEl.querySelectorAll('.xr-audit__quote').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            if (!locateQuoteInBody(btn.dataset.quote)) {
+                toast('Quote not found in the current text — the body may have been edited.', 'warning', 4000);
+            }
+        });
+    });
+    bodyEl.querySelectorAll('.xr-audit__atomize').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const pred = predictions.find((p) => p.id === btn.dataset.predId);
+            if (!pred) return;
+            // RQ6: offered action, never automatic — the ordinary claim
+            // pipeline with the user confirming. The promoted claim and
+            // the prediction link both ways.
+            const saved = await openClaimModal({
+                sourceUrl:    state.article.url,
+                initialText:  pred.text,
+                context:      pred.evidence_quote || '',
+                anchor:       pred.anchor || null,
+                initialAbout: state.lastClaimAbout || []
+            });
+            if (saved) {
+                await PredictionModel.setClaimRef(pred.id, {
+                    claim_id: saved.id,
+                    pred_d: 'pred:' + pred.id.slice('pred_'.length)
+                });
+                // Idempotent create may have returned an EXISTING,
+                // already-published claim — which the publish filter
+                // (updated > publishedAt) would skip, so the new
+                // back-reference would never reach the wire. Promotion
+                // changes the published event (it gains the a tag):
+                // that IS an edit — bump so it re-emits.
+                if (saved.publishedAt && !(saved.updated > saved.publishedAt)) {
+                    try { await ClaimModel.update(saved.id, {}); }
+                    catch (err) { console.warn('[X-Ray Reader] claim bump failed:', err); }
+                }
+                toast('Claim saved — it will back-reference this prediction at publish.', 'success', 4000);
+                await refreshClaimsBar();
+                await refreshAuditStatus();
+            }
+        });
+    });
 }
 
 // Stealth-edit surface: the same URL hashed differently on a prior
@@ -1649,6 +1905,12 @@ async function publish() {
 
         const unsignedArticle = await EventBuilder.buildArticleEvent(article, entityRefs, userPubkey, [], authorAccountPubkey);
 
+        // 13.6: predictions are keyed to the CAPTURE hash — snapshot
+        // it before the restamp below, or an edited-body publish would
+        // look the ledger up under the NEW hash, find nothing, and
+        // silently drop every promoted claim's back-reference.
+        const captureHashForLedger = state.articleHash;
+
         // 13.4: the event just built carries the canonical hash of the
         // FINAL (possibly edited) body as its x tag. Stamp it on the
         // article so the post-publish archive save records the hash of
@@ -1840,12 +2102,28 @@ async function publish() {
         const claimBatchBase = entityBatchBase + entitiesToPublish.length;
         const claimResults = { ok: 0, fail: 0, errors: [] };
         const entitiesDict = claimsToPublish.length > 0 ? await EntityModel.getAll() : {};
+        // RQ6 back-references (13.6): claims promoted from prediction-
+        // ledger entries carry an `a` pointer back to their 30058.
+        // Keyed by claim id from the predictions' claim_ref records;
+        // best-effort — a missing map never gates claim publishing.
+        let predictionRefByClaim = {};
+        if (claimsToPublish.length > 0 && captureHashForLedger) {
+            try {
+                const preds = await PredictionModel.getByArticleHash(captureHashForLedger);
+                for (const p of preds) {
+                    if (p.claim_ref && p.claim_ref.claim_id && p.claim_ref.pred_d) {
+                        predictionRefByClaim[p.claim_ref.claim_id] = { pred_d: p.claim_ref.pred_d };
+                    }
+                }
+            } catch (_) { /* enrichment only */ }
+        }
         for (let i = 0; i < claimsToPublish.length; i++) {
             const claim = claimsToPublish[i];
             btn.textContent = `Publishing (${claimBatchBase + i + 1}/${totalEvents})…`;
             try {
                 const unsigned = EventBuilder.buildClaimEvent(
-                    claim, article.url, article.title || 'Untitled', userPubkey, entitiesDict
+                    claim, article.url, article.title || 'Untitled', userPubkey, entitiesDict,
+                    predictionRefByClaim[claim.id] || null
                 );
                 const resp = await browserApi.runtime.sendMessage({
                     type:  'xray:capture:publish',

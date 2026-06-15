@@ -140,6 +140,34 @@ test('reconstructArticleFromEvent carries the published hash as _articleHash', a
     assert.equal(EventBuilder.reconstructArticleFromEvent(legacy)._articleHash, null);
 });
 
+test('a promoted claim back-references its prediction (RQ6, additive 30040 wire change)', async () => {
+    const claim = {
+        id: 'claim_1234567890abcdef',
+        text: 'Rates will fall by December.',
+        about: [], source: null, is_key: false, anchor: null
+    };
+    const withRef = EventBuilder.buildClaimEvent(
+        claim, 'https://example.com/story', 'A Story', PUBKEY, {},
+        { pred_d: 'pred:abcdef0123456789' });
+    const aTag = withRef.tags.find((t) => t[0] === 'a');
+    assert.deepEqual(aTag, ['a', `30058:${PUBKEY}:pred:abcdef0123456789`, '', 'prediction'],
+        'lineage runs both directions — the claim points back at the ledger entry');
+
+    // Additive and optional: unpromoted claims are byte-identical to
+    // the pre-13.6 shape (no a tag at all).
+    const without = EventBuilder.buildClaimEvent(
+        claim, 'https://example.com/story', 'A Story', PUBKEY, {});
+    assert.equal(without.tags.find((t) => t[0] === 'a'), undefined);
+});
+
+test('CURRENT_MODULE_VERSIONS covers every module (the staleness reference)', async () => {
+    const { CURRENT_MODULE_VERSIONS, MODULE_NAMES } = await import('../src/shared/audit/findings-schemas.js');
+    assert.deepEqual(Object.keys(CURRENT_MODULE_VERSIONS).sort(), [...MODULE_NAMES].sort());
+    for (const v of Object.values(CURRENT_MODULE_VERSIONS)) {
+        assert.match(v, /^\d+\.\d+(\.\d+)?$/);
+    }
+});
+
 test('archive records carry articleHash, agreeing with the publish-path x tag', async () => {
     await ArchiveCache.clear().catch(() => { /* fresh db */ });
     const article = articleFixture({ url: 'https://example.com/archived-story' });

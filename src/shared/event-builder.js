@@ -441,13 +441,23 @@ export const EventBuilder = {
   //
   // "What the network says about entity P" is then a single relay query:
   //   { kinds:[30040], "#p":[P_pubkey] }
-  buildClaimEvent: (claim, articleUrl, articleTitle, userPubkey, entities) => {
+  //
+  // `predictionRef` (Phase 13.6, RQ6 — additive optional): when this
+  // claim was promoted from a prediction-ledger entry, `{pred_d}` is
+  // the 30058's wire d, and the claim emits an `a` back-reference so
+  // lineage runs both directions. The coordinate's pubkey is the
+  // publisher's — predictions and their promoted claims share one
+  // signer in the v1 flow.
+  buildClaimEvent: (claim, articleUrl, articleTitle, userPubkey, entities, predictionRef = null) => {
     const dict = entities || {};
     const tags = [
       ['d', claim.id],
       ['r', articleUrl],
     ];
     if (articleTitle) tags.push(['title', articleTitle]);
+    if (predictionRef && predictionRef.pred_d) {
+      tags.push(['a', `30058:${userPubkey}:${predictionRef.pred_d}`, '', 'prediction']);
+    }
 
     // About entities — the queryable core.
     for (const eid of (Array.isArray(claim.about) ? claim.about : [])) {

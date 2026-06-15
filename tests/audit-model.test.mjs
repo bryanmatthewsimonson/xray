@@ -146,6 +146,40 @@ test('PredictionModel: idempotent create; publish and derive never bump updated'
     assert.equal(derived.updated, SENTINEL, 'derivation is enrichment, not an edit');
 });
 
+test('setClaimRef records the promotion link (RQ6) without bumping updated', async () => {
+    const pred = await PredictionModel.create({
+        articleHash: HASH, text: 'Promoted prediction.', hedge_level: 'hedged',
+        type: 'explicit', tractability: 'ambiguous', evidence_quote: 'q'
+    });
+    await savePrediction({ ...pred, updated: SENTINEL });
+    const linked = await PredictionModel.setClaimRef(pred.id, {
+        claim_id: 'claim_1234567890abcdef',
+        pred_d: 'pred:' + pred.id.slice('pred_'.length)
+    });
+    assert.equal(linked.claim_ref.claim_id, 'claim_1234567890abcdef');
+    assert.match(linked.claim_ref.pred_d, /^pred:[0-9a-f]{16}$/);
+    assert.equal(linked.updated, SENTINEL, 'promotion linking is enrichment, not an edit');
+
+    // PERSISTED, not just returned — both consumers (the panel chip
+    // and the publish-time back-ref map) re-read from the store.
+    const refetched = await PredictionModel.get(pred.id);
+    assert.equal(refetched.claim_ref.claim_id, 'claim_1234567890abcdef');
+    assert.equal(refetched.updated, SENTINEL);
+});
+
+test('pred_d string surgery equals the wire derivation — the lineage coordinate cannot drift', async () => {
+    // The reader derives the promoted claim's back-ref coordinate as
+    // 'pred:' + localId.slice('pred_'.length). That equals the wire d
+    // ONLY while generatePredictionId and derivePredictionEntryDTag
+    // share preimage and normalizer — pin the equation so either side
+    // drifting fails here instead of dangling published a-tags.
+    const { derivePredictionEntryDTag } = await import('../src/shared/audit/builders.js');
+    const text = '  Rates WILL fall   by December. ';
+    const localId = await generatePredictionId(HASH, text);
+    const surgery = 'pred:' + localId.slice('pred_'.length);
+    assert.equal(surgery, await derivePredictionEntryDTag(HASH, text));
+});
+
 test('deriveResolutionState: latest resolved_at wins; outcomes map to statuses', () => {
     assert.deepEqual(deriveResolutionState([]), { status: 'open', latestId: null });
     const state = deriveResolutionState([
