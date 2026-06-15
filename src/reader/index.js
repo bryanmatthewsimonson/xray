@@ -30,6 +30,7 @@ import { articleHash as canonicalArticleHash } from '../shared/audit/article-has
 import { importAuditJson } from '../shared/audit/import.js';
 import { AuditRunModel, PredictionModel, staleModules } from '../shared/audit/audit-model.js';
 import { CURRENT_MODULE_VERSIONS } from '../shared/audit/findings-schemas.js';
+import { auditBand, scoreChipHtml, prettyModule } from '../shared/audit/display.js';
 
 const browserApi = typeof browser !== 'undefined' && browser.runtime ? browser : chrome;
 
@@ -435,36 +436,9 @@ function updateHashLine() {
 // provenance one tap away; disagreement side-by-side, never averaged;
 // audit and assessment UI never visually merge.
 
-// The framework rubric bands (prompts/00; PHILOSOPHY §4).
-function auditBand(score) {
-    if (score >= 90) return { key: 'exemplary',    label: 'Exemplary' };
-    if (score >= 75) return { key: 'solid',        label: 'Solid' };
-    if (score >= 60) return { key: 'acceptable',   label: 'Acceptable, with concerns' };
-    if (score >= 40) return { key: 'significant',  label: 'Significant problems' };
-    if (score >= 20) return { key: 'severe',       label: 'Severe' };
-    return { key: 'catastrophic', label: 'Catastrophic' };
-}
-
-function scoreChipHtml(score, confidence) {
-    if (typeof score !== 'number') {
-        return '<span class="xr-audit__chip xr-audit__chip--failed">failed</span>';
-    }
-    // No naked numbers, no exceptions: a score whose confidence is
-    // UNKNOWN must not render cleaner than one whose confidence is
-    // 0.59 — unknown is below the review threshold by definition.
-    if (typeof confidence !== 'number') {
-        return '<span class="xr-audit__chip xr-audit__chip--review" title="this result carries no confidence value — treat as unreviewed">needs human review · no confidence recorded</span>';
-    }
-    if (confidence < 0.6) {
-        return '<span class="xr-audit__chip xr-audit__chip--review" title="confidence ' +
-            escapeHtml(String(confidence)) + ' — below the 0.6 reliability threshold">needs human review</span>';
-    }
-    return `<span class="xr-audit__score">${escapeHtml(String(score))} · conf ${escapeHtml(String(confidence))}</span>`;
-}
-
-function prettyModule(name) {
-    return String(name || '').replace(/_/g, ' ');
-}
+// Band/chip helpers live in shared/audit/display.js — ONE enforcement
+// point for the display rules across the reader and the portal
+// (imported at the top of this file).
 
 // Locate an evidence quote in the article body: selection-only (the
 // body is contenteditable and syncs htmlDraft — DOM mutation here

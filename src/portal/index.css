@@ -645,3 +645,119 @@ button.xr-badge--case { cursor: pointer; background: transparent; }
   color: var(--xr-text-dim);
   font-size: 12px;
 }
+
+/* ---------------- Phase 13.7: audit surfaces ----------------------------- */
+
+/* Audit chips on Library rows — bands follow the framework rubric;
+   "acceptable" (60–74) is deliberately NOT green. */
+.xr-badge--audit-exemplary   { color: var(--xr-success); border-color: var(--xr-success); }
+.xr-badge--audit-solid       { color: color-mix(in srgb, var(--xr-success) 65%, var(--xr-accent)); border-color: currentColor; }
+.xr-badge--audit-acceptable  { color: var(--xr-accent); border-color: var(--xr-accent); }
+.xr-badge--audit-significant { color: var(--xr-warning); border-color: var(--xr-warning); }
+.xr-badge--audit-severe      { color: color-mix(in srgb, var(--xr-danger) 70%, var(--xr-warning)); border-color: currentColor; }
+.xr-badge--audit-catastrophic{ color: var(--xr-danger); border-color: var(--xr-danger); }
+.xr-badge--audit-review      { color: var(--xr-text-dim); border-color: var(--xr-text-dim); }
+
+/* Predictions-due strip above the timeline. */
+.xr-predue {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--xr-border);
+  margin-bottom: 6px;
+}
+.xr-predue__label { font-weight: 600; color: var(--xr-text-dim); white-space: nowrap; }
+.xr-predue__item { display: inline-flex; align-items: center; gap: 6px; }
+.xr-predue__date { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--xr-warning); }
+.xr-predue__text { color: var(--xr-text); }
+.xr-predue__more { color: var(--xr-text-dim); }
+
+/* Inspector audit record. */
+.xr-inspector__audit { margin: 12px 0; }
+.xr-inspector__audit-run {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--xr-border);
+  font-size: 12px;
+}
+.xr-inspector__audit-ceiling { color: var(--xr-warning); }
+.xr-inspector__audit-lineage { color: var(--xr-text-dim); }
+
+/* Entity-view dossier block. */
+.xr-view__dossier {
+  margin: 10px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+  background: var(--xr-surface);
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.xr-view__dossier-line { color: var(--xr-text); }
+.xr-view__dossier-line--dim { color: var(--xr-text-dim); }
+.xr-view__dossier-modules { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Resolve… modal. */
+.xr-resolve {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 80;
+}
+.xr-resolve__card {
+  width: min(560px, 92vw);
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--xr-surface);
+  border: 1px solid var(--xr-border);
+  border-radius: 8px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+}
+.xr-resolve__title { margin: 0; font-size: 15px; }
+.xr-resolve__pred {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--xr-accent);
+  background: var(--xr-surface-2);
+  font-style: italic;
+}
+.xr-resolve__row { display: flex; align-items: center; gap: 8px; }
+.xr-resolve__input {
+  background: var(--xr-surface-2);
+  border: 1px solid var(--xr-border);
+  border-radius: 4px;
+  color: var(--xr-text);
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.xr-resolve__evrow { display: flex; gap: 6px; margin-bottom: 6px; }
+.xr-resolve__input--value { flex: 2; }
+.xr-resolve__input--desc { flex: 1; }
+.xr-resolve__notes {
+  min-height: 70px;
+  background: var(--xr-surface-2);
+  border: 1px solid var(--xr-border);
+  border-radius: 4px;
+  color: var(--xr-text);
+  padding: 6px 8px;
+  font-size: 12px;
+  resize: vertical;
+}
+.xr-resolve__error { color: var(--xr-danger); font-size: 12px; min-height: 14px; }
+.xr-resolve__actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.xr-inspector__audit-modules { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }

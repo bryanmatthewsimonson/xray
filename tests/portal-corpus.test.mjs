@@ -55,7 +55,10 @@ function reset(handler) {
 test('CONTENT_KINDS pins the full corpus kind list from the design note', () => {
     assert.deepEqual([...CONTENT_KINDS].sort((a, b) => a - b), [
         1985, 9803, 10002, 30023, 30040, 30041, 30050, 30051, 30052,
-        30053, 30054, 30055, 30078, 32125, 32126
+        30053, 30054, 30055,
+        // Phase 13.7: the audit family (docs/EPISTEMIC_AUDIT_DESIGN.md)
+        30056, 30057, 30058, 30059, 30060, 30061,
+        30078, 32125, 32126
     ]);
 });
 

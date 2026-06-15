@@ -1026,6 +1026,19 @@ Implementation slices 13.1+ are in progress.
   change, CHANGELOG callout), prior-version re-audit notice,
   staleness chips (`CURRENT_MODULE_VERSIONS` reference), other runs
   side-by-side (never averaged). — #67
+- 🔄 **13.7** Portal surfaces (draft PR for smoke-testing) — the
+  corpus fetches the audit family (30056–30061; kind-list pin updated
+  deliberately); Library gains `Audits`/`Predictions` facets and an
+  audit chip on article cards (hash-first join, URL fallback only for
+  pre-13.4 hashless events); inspector drawer shows the full audit
+  record per article (every run side-by-side, never averaged; local
+  unpublished runs marked); entity view gains the **Audit dossier**
+  block (derived, computed-on-open via `computeDossier`, shrinkage
+  shown with k/factor/population, rate table + informational
+  calibration-v1, unmapped-beat review list); timeline gains the
+  **predictions-due strip** (90-day window, merged published+local,
+  deduped) with the minimal **Resolve…** form (evidence-bound;
+  resolutions file locally, publish in 13.8). — #68
 
 ---
 

@@ -37,7 +37,8 @@ export const CONTENT_KINDS = [
     32126, // platform accounts
     10002, // NIP-65 relay list (signed by the xray:user sync key)
     30078, // entity-sync blobs (ciphertext; listed, never decrypted)
-    30050, 30051, 30052, 30053, 9803 // dormant metadata kinds (flag-gated writers)
+    30050, 30051, 30052, 30053, 9803, // dormant metadata kinds (flag-gated writers)
+    30056, 30057, 30058, 30059, 30060, 30061 // Phase 13 audit kinds (publish lands in 13.8; read always)
 ];
 
 // Mirrors the background service worker's hardcoded fallback
