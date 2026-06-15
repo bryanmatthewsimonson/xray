@@ -1018,6 +1018,68 @@ Implementation slices 13.1+ are in progress.
   honest status line) + options Advanced importer (archive-matched,
   incl. retained prior versions); scorer README import note. Imports
   are local-only and ungated; publishing is 13.8. — #66
+- 🔄 **13.6** Reader audit panel (draft PR for smoke-testing) —
+  aggregate badge on the framework rubric bands (no naked numbers;
+  confidence < 0.6 renders "needs human review" with no number and no
+  band color; ceiling context when binding; provenance line), eight
+  expandable module rows (caveats + click-to-locate evidence quotes,
+  selection-only — never mutates the contenteditable body), prediction
+  ledger list with **Atomize as claim** offers (RQ6: the promotion
+  links both ways — prediction `claim_ref` locally, and the promoted
+  claim's 30040 emits an `a` back-reference at publish; additive wire
+  change, CHANGELOG callout), prior-version re-audit notice,
+  staleness chips (`CURRENT_MODULE_VERSIONS` reference), other runs
+  side-by-side (never averaged). — #67
+- 🔄 **13.7** Portal surfaces (draft PR for smoke-testing) — the
+  corpus fetches the audit family (30056–30061; kind-list pin updated
+  deliberately); Library gains `Audits`/`Predictions` facets and an
+  audit chip on article cards (hash-first join, URL fallback only for
+  pre-13.4 hashless events); inspector drawer shows the full audit
+  record per article (every run side-by-side, never averaged; local
+  unpublished runs marked); entity view gains the **Audit dossier**
+  block (derived, computed-on-open via `computeDossier`, shrinkage
+  shown with k/factor/population, rate table + informational
+  calibration-v1, unmapped-beat review list); timeline gains the
+  **predictions-due strip** (90-day window, merged published+local,
+  deduped) with the minimal **Resolve…** form (evidence-bound;
+  resolutions file locally, publish in 13.8). — #68
+- 🔄 **13.8** Publish path (draft PR for smoke-testing) — flag-gated
+  (`epistemicAuditing`, default off, Options ▸ Advanced toggle with
+  public-visibility disclosure) ordered batch in the reader's publish
+  flow: 30056s → 30057 → 30058s → 30059s with per-event ledger marks
+  (resume never duplicates); referenced-before-referencer enforced on
+  the WIRE (aggregates defer when a module fails this batch, promoted
+  30058s defer until their claim has a published address — at that
+  address, not the signing key's), per-record hash anchoring (records
+  publish against their audited vintage, resumes survive the publish
+  restamp), per-entry build isolation (one malformed record never
+  blocks the batch, every skip counted into the summary), the
+  resolution identity rule (stale-identity filings refused with
+  re-file guidance; remote-prediction resolutions publish verbatim,
+  anchored via the new `article_hash` record field), import-side
+  version trust boundary (wrapper `module_version` must agree with
+  `findings.version` — the wire-address preimage), portal
+  reconciliation for 30056–30059 (30060/30061 stay no-ledger; 30060
+  snapshot publish deferred — portal stays read-only). — #69
+- 🔄 **13.9** Hardening (draft PR) — `SMOKE_TEST.md` §Phase 13 (the
+  24-step acceptance walk: capture → scorer → import gates → display
+  rules → atomize → flag-gated publish incl. resume + firewall →
+  portal surfaces → reconcile), docs-consistency pass, and the
+  **phase-wide multi-agent review** (7 cross-slice lenses, 68 agents:
+  46 confirmed / 15 refuted — on top of the eight per-slice rounds'
+  ~109). Headline fixes: the publish-path hash fork (double
+  htmlToMarkdown on `<`-bearing markdown — body mangled, published
+  `x` ≠ the audited hash; pre-Phase-13 bug promoted into the content
+  address by 13.4), relay-parser range-checking, import-gate parity
+  with the builders (strict run_at / 64-hex human auditors /
+  horizon_iso / evidence grammar — nothing imports that cannot
+  publish), publish-identity marks + stale-coordinate re-keying,
+  RQ6 lifecycle closure (late atomization re-emits, claim deletion
+  severs links, multi-vintage back-references, revised resolutions
+  re-publish, corrected re-imports update the ledger), dossier purity
+  (URL-joined + sub-0.6 contributions excluded), portal prior-vintage
+  joins + coordinate-based module joins, Resolve… for unscheduled
+  predictions, and the promised audit-ledger export. — #70
 
 ## Phase 14 — Forensic findings (behavioral-pattern layer) ⏳ design agreed
 

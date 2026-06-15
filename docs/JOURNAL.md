@@ -71,6 +71,330 @@ here:
 Design only at this point — no code yet; the taxonomy is meant to be reviewed
 before 14.1 lands.
 
+## 2026-06-12 — 13.9 follow-up: the phase-wide review ran — what eight slice reviews couldn't see
+
+**Tags:** bug, design, pattern
+
+The resumed phase-wide adversarial review (7 cross-slice lenses, 68
+agents) confirmed **46 findings, refuted 15** — including a class no
+per-slice review could structurally catch: bugs that live BETWEEN
+slices, where each side honors its own contract and the seam still
+breaks. The fixes, by root:
+
+- **THE blocking find — the publish-path hash forked from the capture
+  hash.** `assembleArticleBody` re-ran `htmlToMarkdown` whenever its
+  input contained `<` — and markdown legitimately contains `<` (small
+  inline images, code fences), so the reader's publish path
+  double-converted: body mangled on the wire, published `x` ≠ the
+  hash every audit anchors to, false stealth-edit banners on the next
+  unedited recapture, the import gate demanding a hash that exists
+  only on the wire. The conversion now runs once, ever — the publish
+  path marks its draft `_contentIsMarkdown` instead of sniffing, with
+  a load↔publish byte-parity test. Every per-slice review missed it
+  because each slice's tests call `assembleArticleBody` once per
+  input; only the cross-slice walk (capture → hash → publish →
+  re-import) exposes the two-pass handoff. The heuristic predates
+  Phase 13; 13.4 silently promoted it into the content address.
+- **The parsers were the third unguarded entrance.** Builders and the
+  import gate bound every number; the RELAY parser didn't — a hostile
+  30057 carrying score 99999 rendered as authoritative and could
+  poison the dossier. All audit-kind parsers now range-check
+  (out-of-range = never asserted = null → the review chip), hostile
+  contribution rows are dropped at parse, and import requires
+  contribution module names from the known vocabulary (which also
+  closes a `__proto__` prototype-chain lookup in the publish batch).
+- **Resolve… was unreachable for the designed import flow.** The
+  vendored scorer hard-codes `resolution_horizon_iso: null`, and only
+  horizon-dated predictions got the strip affordance — the acceptance
+  walk's resolution arm dead-ended on a count with no rows.
+  `predictionsDue` now returns the unscheduled open LIST and the
+  strip renders them with Resolve….
+- **Import-gate parity with the builders** — the lens that found the
+  same seam four ways: lenient `Date.parse` run_at (strict ISO now,
+  aggregate rejects / module fails), human auditor ids that weren't
+  64-hex pubkeys (treated as absent, fallback applies), `horizon_iso`
+  datetimes the 30058 builder refuses (degraded to null at the door),
+  bech32 `nostr_event` evidence the Resolve form accepted but the
+  builder rejects (validated at save). Posture: nothing imports that
+  cannot publish.
+- **Publish-identity hardening:** marks now record the publishing
+  pubkey; resume coordinates and the 30057's module references are
+  minted at the PUBLISHED address after an identity switch, not the
+  current key's. The stale-identity resolution skip became a re-key:
+  the machine re-files under the prediction's real address (live key
+  or this batch's signing key) instead of dead-ending the user with a
+  remedy the strip had already withdrawn.
+- **Lifecycle closure for RQ6:** late atomization re-emits the
+  published 30058 with its claim link (`claim_ref_at` vs
+  `publishedAt`, same-key only — replacement is an address property);
+  the claim-side back-reference map went multi-vintage (same
+  candidate set as the audit batch); deleting a claim now severs the
+  promotion links pointing at it; revised resolutions re-emit
+  (`updated > publishedAt` — the 13.1 contract the batch had ignored);
+  corrected re-imports actually replace the stored run and clear the
+  changed events' marks (stale marks over changed findings would have
+  frozen stale wire content forever), and both import UIs now say
+  already-imported / ledger-updated instead of reporting the fresh
+  parse over a stale ledger.
+- **Dossier purity:** URL-joined (advisory) audits no longer feed the
+  reputation rollup (counted as `excludedUrlJoined`); per-module means
+  exclude sub-0.6-confidence contributions — the aggregate-level rule,
+  applied per module. The aggregate also DEFERS when a scored module's
+  build refuses — a signed 30057 must not silently drop contribution
+  rows its final_score counted.
+- **Portal vintage-awareness:** 13.8 anchors published audit events to
+  the vintage they audited, and the replaceable 30023's `x` moves on
+  re-capture — the portal now falls back to PRIOR capture vintages
+  (still text-verified hash joins, marked "prior version"), and the
+  inspector joins module results by the 30057's own coordinate refs
+  instead of a runAt equality that never matched real scorer output
+  (per-module `run_at` ≠ aggregate `runAt`) and could be displaced by
+  a foreign same-runAt event.
+- Also: read-only portal opens keep the carried published hash (the
+  panel read "No capture hash" for exactly the audited article the
+  portal round-trips); the reader import bar accepts prior-vintage
+  matches like the options importer; the audit panel acknowledges
+  body edits ("for the CAPTURED text — the body has been edited");
+  the audit ledger got the export the design promised (Options ▸
+  Epistemic audits ▸ Export audit ledger); and seven doc/code drifts
+  were corrected (NIP reference-implementations, 30060 deferral
+  language, pub×beat `p` requirement, RQ5 semver note, dossier join
+  scope, SMOKE 13.10/13.13, CLAUDE.md's test count).
+
+The refuted 15 were dominated by one shape: accurate code citations
+whose triggering data no reachable path can produce (defensive
+fallbacks behind validating writers). The verifier instruction that a
+finding "contradicting a documented posture is refuted unless the
+posture itself is shown broken" earned its keep — and so did the
+finder instruction to ignore single-file findings: nearly everything
+confirmed was a seam.
+
+---
+
+## 2026-06-12 — 13.9: hardening, and an honest note about the review that didn't run
+
+**Tags:** design, pattern
+
+Final Phase 13 slice (draft PR). What it contains and one thing it
+doesn't:
+
+- **SMOKE_TEST §Phase 13** — the 24-step manual acceptance walk:
+  capture/hash → scorer CLI → import gates (refusal cases included:
+  hash mismatch, no local capture, score-divergence tamper) → display
+  rules as explicit check steps (no naked numbers, sub-0.6 review
+  chip, side-by-side never averaged, scores never transfer across
+  edits) → atomize → flag-gated publish (off-by-default verified
+  first, then resume/no-duplicates, the relay-outage retry, and the
+  stance/`rating-value`/`L`/`l` firewall on raw events) → portal
+  chips/inspector/dossier/Resolve → reconciliation. Surface names
+  verified against the actual DOM (the importer and toggle live under
+  Options ▸ Advanced ▸ Epistemic audits).
+- **Docs-consistency pass** by direct reading: NIP draft §30058/30059
+  already agree with what 13.8 publishes (the `claim`-marked
+  back-reference, `x` = the *predicting* article's hash, foreign
+  extractor pubkeys anticipated in the 30059 reference); the design
+  note carries the publish-ordering and resolution-identity rules
+  threaded in during 13.8; one SMOKE_TEST step was corrected before it
+  ever misled anyone (batch events can share `created_at` seconds, so
+  ordering is verified by reference resolution, not timestamps).
+- **Cross-slice seam checks, run manually:** reconcile's address
+  recomputation and the publish batch derive from the same inputs
+  (`run.articleHash`, findings-version-first) so they cannot disagree;
+  pre-13.8 records flow through 13.8 paths via fallbacks that degrade
+  to counted skips, never blocked batches; claims published before
+  11.1 (no `publishedPubkey`) self-heal — the 11.7 `needCoordIds`
+  republish stamps the pubkey, and the deferred 30058 follows one
+  batch later; the publish flag is re-read inside every publish call,
+  so mid-session toggles can't race the gate.
+- **The thing that didn't happen:** the planned phase-wide
+  multi-agent review lost all seven finder agents to API session
+  limits (the 13.5 failure mode, phase-sized this time). Rather than
+  fabricate coverage, the workflow script is saved with its run id
+  for a later resume, and the honest record stands: eight per-slice
+  adversarial rounds (design + 13.1–13.8) confirmed ~109 findings,
+  all fixed before their PRs — the phase has been reviewed
+  slice-by-slice, not yet wall-to-wall. If the resumed phase review
+  ever runs, its findings belong in a follow-up PR, not silently
+  folded into history.
+
+---
+
+## 2026-06-11 — 13.8: the publish batch, and what "ordered" has to mean on the wire
+
+**Tags:** design, bug
+
+Slice 13.8 (flag-gated audit publish, draft PR). The calls worth a
+paper trail:
+
+- **"Ordered" is a wire property, not a list property.** The first
+  cut emitted 30056s → 30057 → 30058s → 30059s in order and called it
+  done; the adversarial review (30 confirmed, 10 refuted) pulled the
+  thread: under PARTIAL failure the order still inverts — an
+  aggregate can land while its module result bounced, a promoted
+  30058 while its 30040 was rejected by every relay. Now an aggregate
+  defers when any of its run's module events failed this batch, a
+  resolution defers when its prediction failed or deferred, and a
+  promoted prediction defers until its claim has a **published
+  address** — `claimPubkeys` is read from the claim records *after*
+  the claims block runs, so "failed this batch" and "never published"
+  collapse into one check, and the back-reference is minted at the
+  claim's actual address (its `publishedPubkey`), never the current
+  signing key's. The marks make every deferral a next-batch retry,
+  not a loss.
+- **`findings.version` is the d-preimage source of truth.** The
+  builder derives the 30056 wire `d` from `findings.version`; the
+  batch and the reconcile ledger were deriving coordinates from the
+  WRAPPER's `module_version` — a divergent pair would have minted
+  30057 contribution coords pointing at addresses that never exist,
+  with both events happily on relays. Import now enforces agreement
+  (failed-module posture on divergence, findings win when the wrapper
+  is absent), and every derivation site reads findings-first. Same
+  trust boundary as the score/confidence gate, missed for the one
+  field that feeds an address.
+- **Per-record hash anchoring.** Records publish against the vintage
+  they audited (`run.articleHash`/`p.articleHash`), and the reader
+  gathers ledger records across every hash the article has carried
+  (current + archive + priorVersions) — otherwise the publish-time
+  restamp stranded a resumed batch, and an edited-body publish
+  silently dropped the whole thing.
+- **The resolution identity rule.** A 30059 whose coordinate matches
+  a local prediction under a different pubkey is refused (that
+  address will never exist — re-file under the signing identity); a
+  coordinate with no local counterpart is someone else's published
+  prediction and publishes verbatim, anchored to the prediction's own
+  article via the new `article_hash` field the Resolve… form now
+  stamps (and backfills on revision). The first cut refused ALL
+  foreign coordinates — which made the portal's "publishes with the
+  13.8 batch" promise false for the resolver-≠-predictor workflow the
+  design explicitly supports.
+- **One malformed record never blocks the batch.** assembleAuditBatch
+  isolates every build; a refused record is a counted skip with the
+  builder's reason, and the summary line carries `ok/count (skipped)`
+  — the import module's per-module posture, applied at publish. The
+  end-of-loop audit toast was deleted as dead: the summary toast
+  replaced it in the same tick (single-slot toast), which would have
+  hidden every skip explanation.
+- **Known gaps, decided not patched:** `xray:flags:reload` is
+  documented in two places but has no sender or listener — benign
+  today (the reader `loadFlags()`s before the gate) — left for a
+  flags-bus slice; the reader's defer-discipline loop is DOM-bound
+  and untested (the property contract it consumes is pinned in the
+  batch tests; SMOKE_TEST coverage lands in 13.9); 30060 snapshot
+  publish stays deferred (portal read-only).
+
+---
+
+## 2026-06-11 — 13.7: the portal joins, and what a dossier refuses to be
+
+**Tags:** design
+
+Slice 13.7 (portal audit surfaces, draft PR). The calls worth a
+paper trail:
+
+- **Hash-first joins, URL fallback only for hashless events.** An
+  audit chip on an article card means "this exact text was scored."
+  Pre-13.4 articles carry no `x` tag, so they fall back to the URL
+  join — and post-13.4 articles NEVER do, even when audits share
+  their URL: scores don't transfer across edits, full stop. Pinned by
+  test.
+- **The dossier rolls up the latest judgment per (article, auditor)**
+  — older runs by the same auditor are superseded judgments, not
+  extra data points; cross-auditor disagreement stays visible in the
+  inspector instead (side-by-side, never averaged). And no audited
+  articles → NO dossier, not an empty one at the population prior —
+  a dossier that is pure prior is noise dressed as reputation.
+- **`DEFAULT_POPULATION_MEAN = 77` is a published assumption**,
+  displayed in the dossier line every time it shrinks a mean
+  ("shrunk to 77.27 toward population 77, k=10, factor 0.91") — §4's
+  publish-the-shrinkage rule, applied literally.
+- **The Resolve… form derives unpublished-prediction coordinates
+  from the primary identity** — the v1 flow signs predictions and
+  resolutions with one key, so the coordinate the local resolution
+  keys on is the one the 13.8 publish will mint. No identity → the
+  affordance disables rather than guessing.
+- **The kind-list and TYPE_DEFS pins fired** when the corpus gained
+  the audit family — updated deliberately, which is exactly what
+  those pins are for.
+- **The adversarial review confirmed 20 findings (0 refuted), the
+  most of any slice — two blocking roots.** (1) The hash join was
+  DEAD in production: `buildItem` spreads extras flat, my joins read
+  the nested `item.extra.articleHash` my own test fixtures had
+  invented — every article silently fell to the URL join, local runs
+  never surfaced, and dossier predictions were always empty. Fixed
+  with a both-shapes accessor and, more importantly, a
+  production-pipeline test that builds events with the real builders
+  and runs them through `buildItems` — the seam can't silently split
+  again. (2) Locally-filed resolutions were invisible everywhere:
+  `updateDerived` had zero production callers, `listResolutions` was
+  never imported, and the strip re-offered Resolve… forever. Now the
+  resolve flow derives the prediction's status, merges the record
+  into the index, and the strip matches resolutions by sha16 identity
+  (so the coordinate's pubkey can't hide a local filing). Also from
+  the review: URL joins now carry an explicit "URL match — text
+  unverified" marker everywhere they render; sub-0.6 aggregates are
+  EXCLUDED from dossier rollups and counted as pending review (a new
+  design-note rule: a number the display refuses must not move a
+  reputation); the dossier line now distinguishes audited articles
+  from auditor judgments (shrinkage n = judgments, documented); the
+  inspector gained module rows + dispute lineage (`modulesByHash` had
+  zero consumers); case views gained the dossier block the design
+  assigned them; re-filing a resolution upserts instead of silently
+  returning the first record; and the resolver identity skips the
+  reserved sync key (with NIP-07, `identities[0]` IS the sync key —
+  a coordinate minted under it would never match the 13.8 publish).
+
+---
+
+## 2026-06-11 — 13.6: the audit panel, and where the promotion link lives
+
+**Tags:** design
+
+Slice 13.6 (reader audit panel, draft PR). The second-guessable calls:
+
+- **The RQ6 promotion link lives on the PREDICTION record, not the
+  claim record.** `ClaimModel` whitelists its fields (id-deriving
+  fields immutable, the rest enumerated) — extending it for one
+  enrichment field would touch shipped Phase-10 storage for no
+  gain. Instead `PredictionModel.setClaimRef` stores
+  `{claim_id, pred_d}` (enrichment, no `updated` bump), and the
+  publish loop builds a claim→prediction map from the predictions
+  side. `pred_d` is stored pre-derived (the wire `d` is the local id
+  with the prefix swapped) so `buildClaimEvent` stays synchronous.
+- **Quote-locate is selection-only.** The article body is
+  contenteditable and syncs `htmlDraft` — wrapping matches in mark
+  elements (the entity-tagger idiom) would pollute the draft with
+  audit chrome. A Range + Selection highlight scrolls and flashes
+  without mutating anything.
+- **A sub-0.6 aggregate renders NO band color.** The review chip IS
+  the badge — score, band, and color all suppressed, because a
+  colored "needs review" still smuggles a verdict.
+- **Audits anchored to retained prior versions surface as a re-audit
+  notice, never as scores** — scores don't transfer across edits;
+  the notice says exactly that and points at the CLI re-run.
+- **The adversarial review confirmed 8 findings (0 refuted), one
+  BLOCKING**: the publish flow restamps `state.articleHash` to the
+  newly built event's hash (13.4) BEFORE the claims loop builds the
+  RQ6 back-ref map (13.6) — on an edited-body publish the prediction
+  lookup ran under the wrong hash and every back-reference silently
+  dropped. Fixed by snapshotting the capture hash before the restamp.
+  Also caught: a score with UNKNOWN confidence rendered as a naked —
+  and therefore more authoritative — number than one at 0.59
+  (unknown now renders the review chip, and import takes
+  score/confidence FROM the validated findings, failing modules whose
+  top-level copies diverge); `ceiling_binding` was trusted from the
+  file though both operands are validated (now derived — a tampered
+  file can neither hide a binding ceiling nor paint a spurious one);
+  quote-locate had a measured 213ms O(n²) stall plus an off-by-N that
+  started selections inside collapsed whitespace (rewritten as one
+  O(n) scan with per-character index mapping, cross-node ranges);
+  atomizing onto an already-published claim never re-emitted (the
+  publish filter skips published-unedited claims — promotion now
+  bumps `updated`, because gaining the back-ref tag IS an edit); and
+  the pred_d string surgery now has a parity test against the wire
+  derivation so the lineage coordinate cannot silently drift.
+
+---
+
 ## 2026-06-11 — 13.5: the import gate, and what rejects vs what degrades
 
 **Tags:** design

@@ -37,8 +37,21 @@ test('normalizeEventBeats: canonical aggregates, aliases map, unmapped go to rev
 test('computeDossier: a worked rollup — every number recomputable by hand', () => {
     const rollup = computeDossier({
         aggregates: [
-            { finalScore: 80, moduleContributions: [{ module: 'omission', score: 75 }, { module: 'source_quality', score: 60 }] },
-            { finalScore: 70, moduleContributions: [{ module: 'omission', score: 65 }, { module: 'source_quality', score: null }] },
+            { finalScore: 80, moduleContributions: [
+                { module: 'omission', score: 75, confidence: 0.8 },
+                { module: 'source_quality', score: 60, confidence: 0.7 },
+                // Sub-0.6 confidence: a number the display rules
+                // refuse to show must not move a reputation — the
+                // aggregate-level rule, applied per module (13.9).
+                { module: 'internal_coherence', score: 95, confidence: 0.4 }
+            ] },
+            { finalScore: 70, moduleContributions: [
+                { module: 'omission', score: 65, confidence: 0.9 },
+                { module: 'source_quality', score: null, confidence: 0.9 },
+                // No confidence at all = unknown — unknown never
+                // feeds a mean.
+                { module: 'internal_coherence', score: 88 }
+            ] },
             { finalScore: 90, moduleContributions: [] }
         ],
         resolvedPredictions: [
@@ -59,7 +72,7 @@ test('computeDossier: a worked rollup — every number recomputable by hand', ()
     assert.equal(rollup.scoreMedian, 80);
     close(rollup.scoreStdev, 8.16, 'population stdev of 80/70/90');
     assert.deepEqual(rollup.perModuleMeans, { omission: 70, source_quality: 60 },
-        'null module scores excluded, not zeroed');
+        'null scores, sub-0.6-confidence scores, and confidence-less scores all excluded, never zeroed');
     assert.equal(rollup.predictions.total, 5);
     assert.equal(rollup.predictions.resolved, 2, 'unresolvable excluded everywhere');
     assert.equal(rollup.predictions.calibration.confident.rate, 0.5);

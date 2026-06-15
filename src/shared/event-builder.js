@@ -29,9 +29,16 @@ export const EventBuilder = {
   // gets the wire-change treatment (docs/EPISTEMIC_AUDIT_DESIGN.md
   // §"Canonical article hash").
   assembleArticleBody: (article) => {
-    // Convert content to markdown, preserving formatting and images
+    // Convert content to markdown, preserving formatting and images.
+    // `_contentIsMarkdown` is the EXPLICIT already-converted marker
+    // (set by the reader's publish path, whose draft is markdown):
+    // htmlToMarkdown is not idempotent, and markdown legitimately
+    // contains '<' (inline small-image tags, code fences) — sniffing
+    // would re-convert it, mangling the published body AND forking
+    // the publish-path hash from the capture hash every audit
+    // anchors to. Conversion runs ONCE per body, ever.
     let markdownContent = article.content || '';
-    if (markdownContent && markdownContent.includes('<')) {
+    if (markdownContent && markdownContent.includes('<') && !article._contentIsMarkdown) {
       markdownContent = ContentExtractor.htmlToMarkdown(markdownContent);
     }
 
@@ -441,13 +448,23 @@ export const EventBuilder = {
   //
   // "What the network says about entity P" is then a single relay query:
   //   { kinds:[30040], "#p":[P_pubkey] }
-  buildClaimEvent: (claim, articleUrl, articleTitle, userPubkey, entities) => {
+  //
+  // `predictionRef` (Phase 13.6, RQ6 — additive optional): when this
+  // claim was promoted from a prediction-ledger entry, `{pred_d}` is
+  // the 30058's wire d, and the claim emits an `a` back-reference so
+  // lineage runs both directions. The coordinate's pubkey is the
+  // publisher's — predictions and their promoted claims share one
+  // signer in the v1 flow.
+  buildClaimEvent: (claim, articleUrl, articleTitle, userPubkey, entities, predictionRef = null) => {
     const dict = entities || {};
     const tags = [
       ['d', claim.id],
       ['r', articleUrl],
     ];
     if (articleTitle) tags.push(['title', articleTitle]);
+    if (predictionRef && predictionRef.pred_d) {
+      tags.push(['a', `30058:${userPubkey}:${predictionRef.pred_d}`, '', 'prediction']);
+    }
 
     // About entities — the queryable core.
     for (const eid of (Array.isArray(claim.about) ? claim.about : [])) {

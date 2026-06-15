@@ -1844,6 +1844,118 @@ body {
   color: var(--xr-text-dim);
 }
 
+/* Panel body (13.6). Badge bands are the framework rubric — the scale
+   anchors at 70–85 normal, so "acceptable" (60–74) is deliberately NOT
+   green, and nothing below 75 reads as good. */
+
+.xr-audit__body { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+.xr-audit__body:empty { display: none; }
+
+.xr-audit__badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 26px;
+  font-weight: 700;
+  border: 1px solid var(--xr-border);
+  background: var(--xr-surface);
+}
+.xr-audit__badge-conf { font-size: 13px; font-weight: 500; color: var(--xr-text-dim); }
+.xr-audit__badge-band { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.xr-audit__badge-sub { flex-basis: 100%; font-size: 12px; font-weight: 500; color: var(--xr-text-dim); }
+
+.xr-audit__badge--exemplary   { border-left: 4px solid var(--xr-success); }
+.xr-audit__badge--solid       { border-left: 4px solid color-mix(in srgb, var(--xr-success) 65%, var(--xr-accent)); }
+.xr-audit__badge--acceptable  { border-left: 4px solid var(--xr-accent); }
+.xr-audit__badge--significant { border-left: 4px solid var(--xr-warning); }
+.xr-audit__badge--severe      { border-left: 4px solid color-mix(in srgb, var(--xr-danger) 70%, var(--xr-warning)); }
+.xr-audit__badge--catastrophic{ border-left: 4px solid var(--xr-danger); }
+.xr-audit__badge--review,
+.xr-audit__badge--none {
+  font-size: 15px;
+  font-weight: 600;
+  border-left: 4px solid var(--xr-text-dim);
+  color: var(--xr-text-dim);
+}
+
+.xr-audit__provenance { font-size: 11px; color: var(--xr-text-dim); }
+
+.xr-audit__chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid var(--xr-border);
+  background: var(--xr-surface-2);
+  color: var(--xr-text-dim);
+}
+.xr-audit__chip--review { border-color: var(--xr-warning); color: var(--xr-warning); }
+.xr-audit__chip--failed { border-color: var(--xr-danger); color: var(--xr-danger); }
+.xr-audit__chip--stale  { border-color: var(--xr-accent); color: var(--xr-accent); }
+.xr-audit__chip--claimed{ border-color: var(--xr-success); color: var(--xr-success); }
+.xr-audit__chip--hedge-confident { border-color: var(--xr-primary); color: var(--xr-primary); }
+
+.xr-audit__score { font-size: 13px; font-weight: 600; }
+
+.xr-audit__modules { display: flex; flex-direction: column; gap: 4px; }
+.xr-audit__module {
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+  background: var(--xr-surface);
+}
+.xr-audit__module > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+}
+.xr-audit__module-name { font-weight: 600; text-transform: capitalize; flex: 1; min-width: 160px; }
+.xr-audit__module-version { font-size: 11px; color: var(--xr-text-dim); }
+.xr-audit__module-body { padding: 0 12px 10px; font-size: 12px; display: flex; flex-direction: column; gap: 8px; }
+.xr-audit__caveats ul, .xr-audit__quotes ul { margin: 4px 0 0 18px; padding: 0; }
+.xr-audit__quote {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--xr-accent);
+  cursor: pointer;
+  text-align: left;
+}
+.xr-audit__quote:hover { text-decoration: underline; }
+
+.xr-audit__h { font-size: 13px; margin: 4px 0 6px; }
+.xr-audit__predictions ul, .xr-audit__others ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.xr-audit__prediction {
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: var(--xr-surface);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.xr-audit__prediction-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.xr-audit__prediction-horizon, .xr-audit__prediction-criteria { font-size: 11px; color: var(--xr-text-dim); }
+.xr-audit__others li { font-size: 12px; color: var(--xr-text-dim); }
+.xr-audit__prior-note {
+  font-size: 12px;
+  color: var(--xr-text);
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--xr-warning) 50%, transparent);
+  border-left: 3px solid var(--xr-warning);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--xr-warning) 8%, var(--xr-surface));
+}
+
 /* ---------------- Canonical-hash line + stealth-edit banner (13.4) ------- */
 
 .xr-article__hash {

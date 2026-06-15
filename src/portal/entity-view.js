@@ -13,6 +13,7 @@
 import { el, svgEl, clear, truncate, shortKey } from './dom.js';
 import { buildEgoGraph, layoutEgoGraph } from './graph.js';
 import { kindLabel } from './library.js';
+import { renderDossierBlock } from './dossier-block.js';
 
 const SIZE = 720;
 
@@ -39,7 +40,7 @@ const NODE_RADIUS = {
  *                                        onBack(), onExpand(type)}
  */
 export function renderEntityView(host, params) {
-    const { items, entityIndex, focusPubkey, expandedTypes, callbacks } = params;
+    const { items, entityIndex, focusPubkey, expandedTypes, callbacks, dossier, populationMean } = params;
     clear(host);
 
     const graph = buildEgoGraph(items, { focusPubkey, entityIndex, expandedTypes });
@@ -65,6 +66,9 @@ export function renderEntityView(host, params) {
     locate.placeholder = 'Locate in graph…';
     head.appendChild(locate);
     host.appendChild(head);
+
+    // --- Audit dossier (13.7) — shared block, also on case views.
+    renderDossierBlock(host, dossier, populationMean);
 
     if (graph.nodes.length === 0) {
         host.appendChild(el('p', 'xr-view__empty',

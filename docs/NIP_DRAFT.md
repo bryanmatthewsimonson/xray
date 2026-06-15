@@ -618,5 +618,5 @@ This NIP does not specify a ranking algorithm. Recommended approaches:
 
 ## Reference implementations
 
-- [x-ray browser extension](https://github.com/bryanmatthewsimonson/xray) — shipping kinds 30040 + 30050 + the `responds-to` extension; 30054/30055 builders implemented with publishing flag-gated (Phase 11); remaining kinds scaffolded.
+- [x-ray browser extension](https://github.com/bryanmatthewsimonson/xray) — shipping kinds 30040 + 30050 + the `responds-to` and `x` extensions; 30054/30055 builders with publishing flag-gated (Phase 11); 30056–30059 fully implemented — builders, parsers, a flag-gated ordered publish path, and portal read surfaces (Phase 13); 30060/30061 builders + parsers implemented, publish paths deferred (the dossier stays derived; disputes are wire-format-only in v1).
 - *(second client, TBD pre-merge)*

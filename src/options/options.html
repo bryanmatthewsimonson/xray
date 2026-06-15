@@ -235,6 +235,20 @@
 
       <hr />
       <h3 class="xr-opt__subhead">Epistemic audits</h3>
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-epistemic-auditing" />
+        <span>Publish audit events to relays</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Off by default. When on, the reader's Publish batch also emits
+        the published article's imported audit results (kinds
+        30056/30057), its prediction ledger entries (30058), and your
+        resolutions of its predictions (30059) — scoped to that one
+        article per publish, signed by your publishing identity, and
+        <strong>publicly visible to anyone with relay access</strong>.
+        A published low score is a public, attributed, disputable
+        record. Local import and rendering never need this switch.
+      </p>
       <p class="xr-opt__hint">
         Run the companion scorer CLI (<code>docs/auditor-prototype/scorer/</code>)
         against a captured article, then import its JSON here. Imports
@@ -245,6 +259,7 @@
       </p>
       <div class="xr-opt__actions">
         <button class="xr-opt__btn" id="audit-import">Import audit JSON…</button>
+        <button class="xr-opt__btn" id="audit-export">Export audit ledger…</button>
         <span class="xr-opt__status" id="audit-status"></span>
       </div>
       <input type="file" id="audit-file" accept="application/json" style="display:none" />

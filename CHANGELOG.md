@@ -12,6 +12,95 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 13.9 — hardening.** `docs/SMOKE_TEST.md` gains §Phase 13:
+  the 24-step manual acceptance walk for the audit pipeline (import
+  refusal cases, the display-rule checks, publish resume, the
+  audit/assessment firewall on raw events, portal surfaces,
+  reconciliation), plus a docs-consistency pass across the NIP draft,
+  design note, and options surfaces. The phase-wide adversarial
+  review (46 confirmed findings) then hardened the cross-slice seams:
+  Options gains **Export audit ledger** (the audit IndexedDB is
+  precious — audits cost money); the predictions strip offers
+  **Resolve…** for unscheduled predictions (the scorer never dates
+  horizons); corrected re-imports update the ledger and re-publish
+  changed events; the portal joins audits across prior capture
+  vintages (marked "prior version") and joins module results by
+  coordinate.
+
+### Fixed
+
+- **Publish-path hash fork (blocking, predates Phase 13).** Articles
+  whose converted markdown contained `<` (inline small images, code
+  fences) were converted to markdown TWICE at publish — mangling the
+  published body and stamping an `x` hash different from the capture
+  hash audits anchor to. One conversion ever, with a byte-parity
+  regression test.
+- **Hostile relay events bounded at parse.** 30056–30060 parsers now
+  range-check every numeric tag; out-of-range values parse as
+  never-asserted (the review chip), absurd aggregates refuse to parse,
+  malformed contribution rows are dropped.
+- **Import-gate parity with the wire builders** — strict ISO `run_at`,
+  64-hex human auditor ids, strict `horizon_iso`, validated
+  `nostr_event` evidence: nothing imports (or files) that cannot
+  publish.
+- **Publish-identity correctness** — ledger marks record the
+  publishing pubkey; resume coordinates and resolution references are
+  minted at published addresses after a signing-identity switch;
+  stale-identity resolutions are re-keyed instead of dead-ended.
+- **RQ6 lifecycle closure** — late atomization re-emits the published
+  30058 with its claim link; claim deletion severs promotion links;
+  the back-reference map covers all capture vintages; revised
+  resolutions re-publish; URL-joined and sub-0.6-confidence inputs no
+  longer move dossier reputation.
+
+- **Phase 13.8 — audit publish path.** A new `epistemicAuditing`
+  feature flag (default **off**, Options ▸ Advanced, with an explicit
+  public-visibility disclosure) lets the reader's Publish batch also
+  emit the published article's audit record: module results (30056),
+  the aggregate (30057), prediction ledger entries (30058, stamped
+  with the extraction methodology version that actually produced
+  them), and resolutions (30059 — including resolutions of *other
+  auditors'* predictions, anchored to the prediction's own article
+  hash). Ordering is enforced on the wire: referenced events always
+  land before their referencers, and anything whose referent failed
+  defers to the next publish via per-event ledger marks (a resumed
+  batch never duplicates, never orphans). One malformed record never
+  blocks the rest — every skip is counted and surfaced in the publish
+  summary. The portal's reconciliation panel now covers the audit
+  kinds (a published audit that vanishes from relays surfaces as
+  `missing`, like everything else). CLI import additionally enforces
+  the wrapper/findings `module_version` agreement — the field feeds
+  the wire address — and validates aggregate contribution rows at the
+  door. Kind-30060 dossier snapshots remain unpublished by design
+  (the portal stays read-only).
+
+- **Phase 13.7 — portal audit surfaces.** The portal corpus now
+  fetches the audit kinds (30056–30061); the Library gains Audits and
+  Predictions facets plus an audit chip on article cards (joined by
+  canonical hash — scores never transfer across edits); the item
+  inspector shows every audit run anchored to an article side-by-side
+  (never averaged), including local unpublished imports; entity views
+  gain a derived **Audit dossier** (shrinkage always shown with its
+  parameters; the per-hedge calibration rate table; calibration-v1
+  displayed as informational, never applied); and the timeline gains
+  a predictions-coming-due strip with an evidence-bound **Resolve…**
+  form (resolutions file locally; publishing is the flag-gated 13.8
+  step).
+
+- **Phase 13.6 — reader audit panel.** The imported audit renders
+  under the claims bar: aggregate badge on the framework's rubric
+  bands (a score never renders without its confidence; aggregate
+  confidence below 0.6 renders as "needs human review" with no
+  number; a binding knowability ceiling always shows its context and
+  provenance), expandable per-module rows with auditor caveats and
+  click-to-locate evidence quotes, the prediction ledger with
+  **Atomize as claim** offers, and side-by-side display of multiple
+  runs (never averaged). ⚠️ **Wire-format note (additive, kind
+  30040)**: a claim promoted from a prediction-ledger entry emits an
+  `a` back-reference to its kind-30058 prediction (4th-position role
+  `prediction`) — lineage runs both directions; unpromoted claims are
+  byte-identical to the previous shape.
+
 - **Phase 13.5 — audit import (the v1 execution path).** Run the
   vendored scorer CLI out-of-band, then import its JSON from the
   Reader ("Import audit JSON…" under the open capture) or Settings →

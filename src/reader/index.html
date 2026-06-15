@@ -43,8 +43,10 @@
        with edit + delete affordances. -->
   <div id="xr-claims-host"></div>
 
-  <!-- Epistemic audit (Phase 13.5): CLI-audit import affordance. The
-       full audit panel arrives in 13.6; this hosts the import bar. -->
+  <!-- Epistemic audit (Phase 13.5/13.6): import bar + audit panel.
+       Firewall note: this section never visually merges with the
+       claims/assessment UI above it — separate blocks, separate
+       provenance, separate color scales. -->
   <section class="xr-audit" id="xr-audit">
     <div class="xr-audit__bar">
       <span class="xr-audit__label">Epistemic audit</span>
@@ -52,6 +54,7 @@
       <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-audit-import">Import audit JSON…</button>
       <input type="file" id="xr-audit-file" accept="application/json,.json" hidden />
     </div>
+    <div class="xr-audit__body" id="xr-audit-body"></div>
   </section>
 
   <!-- Forensic findings bar (Phase 14). Populated by reader/index.js:

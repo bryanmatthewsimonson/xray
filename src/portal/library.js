@@ -17,6 +17,11 @@ import { parseClaimEvent } from '../shared/claim-model.js';
 import { parseAssessmentEvent } from '../shared/assessment-model.js';
 import { parseRelationshipEvent } from '../shared/evidence-linker.js';
 import { EventBuilder } from '../shared/event-builder.js';
+import {
+    parseModuleResultEvent, parseAggregateAuditEvent,
+    parsePredictionEntryEvent, parsePredictionResolutionEvent,
+    parseDossierSnapshotEvent, parseAuditDisputeEvent
+} from '../shared/audit/builders.js';
 
 // Tags written by this extension (current + userscript-era value).
 export const OUR_CLIENT_TAGS = new Set(['xray', 'nostr-article-capture']);
@@ -30,6 +35,8 @@ export const TYPE_DEFS = [
     { key: 'claim',      label: 'Claims' },
     { key: 'comment',    label: 'Comments' },
     { key: 'assessment', label: 'Assessments' },
+    { key: 'audit',      label: 'Audits' },
+    { key: 'prediction', label: 'Predictions' },
     { key: 'link',       label: 'Links' },
     { key: 'entity',     label: 'Entities' },
     { key: 'case',       label: 'Cases' },
@@ -53,7 +60,13 @@ const KIND_LABELS = {
     30051: 'Fact-check',
     30052: 'Rating',
     30053: 'Topic trust',
-    9803:  'Vote'
+    9803:  'Vote',
+    30056: 'Module result',
+    30057: 'Aggregate audit',
+    30058: 'Prediction',
+    30059: 'Resolution',
+    30060: 'Dossier',
+    30061: 'Dispute'
 };
 
 export function kindLabel(kind) {
@@ -99,6 +112,9 @@ function buildItem(record, entityIndex) {
             typeKey = 'article';
             title = firstTag(event, 'title') || '(untitled capture)';
             sub = domainOf(url) || url;
+            // 13.7: the canonical article hash (13.4's x tag) — the
+            // join key audit events anchor on. Null on pre-13.4 events.
+            extra.articleHash = firstTag(event, 'x') || null;
             haystack.push(title, sub, url, ...tagValues(event, 't'), firstTag(event, 'author'));
             break;
         }
@@ -205,6 +221,87 @@ function buildItem(record, entityIndex) {
             title = `${firstTag(event, 'entity-name') || '(entity)'} — ${firstTag(event, 'relationship') || 'related'}`;
             sub = url;
             haystack.push(firstTag(event, 'entity-name'), firstTag(event, 'relationship'));
+            break;
+        }
+        // ---- Phase 13 audit kinds (13.7) --------------------------
+        // Display rules hold even in list titles: a score never
+        // renders without its confidence, and sub-0.6 renders as
+        // "needs human review" — never a number.
+        case 30056: {
+            const m = parseModuleResultEvent(event);
+            if (m) {
+                typeKey = 'audit';
+                title = `Module result — ${m.module.replace(/_/g, ' ')}`;
+                sub = url || `article ${m.articleHash.slice(0, 16)}…`;
+                extra.articleHash = m.articleHash;
+                extra.auditRole = 'module';
+                extra.parsedModule = m;
+                haystack.push(m.module, m.articleHash);
+            }
+            break;
+        }
+        case 30057: {
+            const a = parseAggregateAuditEvent(event);
+            if (a) {
+                typeKey = 'audit';
+                const reviewNeeded = typeof a.confidence !== 'number' || a.confidence < 0.6;
+                title = reviewNeeded
+                    ? 'Aggregate audit — needs human review'
+                    : `Aggregate audit — ${a.finalScore} · conf ${a.confidence}`;
+                sub = url || `article ${a.articleHash.slice(0, 16)}…`;
+                extra.articleHash = a.articleHash;
+                extra.auditRole = 'aggregate';
+                extra.parsedAudit = a;
+                haystack.push(a.articleHash, a.ceilingSource);
+            }
+            break;
+        }
+        case 30058: {
+            const p = parsePredictionEntryEvent(event);
+            if (p) {
+                typeKey = 'prediction';
+                title = p.text;
+                sub = `prediction · ${p.hedgeLevel} · horizon ${p.horizonIso || p.horizon || 'unscheduled'}`;
+                extra.articleHash = p.articleHash;
+                extra.parsedPrediction = p;
+                haystack.push(p.text, p.hedgeLevel);
+            }
+            break;
+        }
+        case 30059: {
+            const r = parsePredictionResolutionEvent(event);
+            if (r) {
+                typeKey = 'prediction';
+                title = `Resolution — ${r.outcome}`;
+                sub = r.predictionCoord;
+                extra.articleHash = r.articleHash;
+                extra.parsedResolution = r;
+                haystack.push(r.outcome, r.predictionCoord);
+            }
+            break;
+        }
+        case 30060: {
+            const d = parseDossierSnapshotEvent(event);
+            if (d) {
+                typeKey = 'audit';
+                title = `Dossier snapshot — ${d.subjectKind}${d.beat ? ` · ${d.beat}` : ''}`;
+                sub = `window ${d.windowStart || '?'} → ${d.windowEnd || '?'}`;
+                extra.auditRole = 'dossier';
+                haystack.push(d.subjectKind, d.beat);
+            }
+            break;
+        }
+        case 30061: {
+            const dis = parseAuditDisputeEvent(event);
+            if (dis) {
+                typeKey = 'audit';
+                title = `Dispute — ${dis.status}`;
+                sub = dis.targetCoord;
+                extra.articleHash = dis.articleHash;
+                extra.auditRole = 'dispute';
+                extra.parsedDispute = dis;
+                haystack.push(dis.targetKind, dis.status);
+            }
             break;
         }
         default: {

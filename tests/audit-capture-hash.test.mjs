@@ -140,6 +140,34 @@ test('reconstructArticleFromEvent carries the published hash as _articleHash', a
     assert.equal(EventBuilder.reconstructArticleFromEvent(legacy)._articleHash, null);
 });
 
+test('a promoted claim back-references its prediction (RQ6, additive 30040 wire change)', async () => {
+    const claim = {
+        id: 'claim_1234567890abcdef',
+        text: 'Rates will fall by December.',
+        about: [], source: null, is_key: false, anchor: null
+    };
+    const withRef = EventBuilder.buildClaimEvent(
+        claim, 'https://example.com/story', 'A Story', PUBKEY, {},
+        { pred_d: 'pred:abcdef0123456789' });
+    const aTag = withRef.tags.find((t) => t[0] === 'a');
+    assert.deepEqual(aTag, ['a', `30058:${PUBKEY}:pred:abcdef0123456789`, '', 'prediction'],
+        'lineage runs both directions — the claim points back at the ledger entry');
+
+    // Additive and optional: unpromoted claims are byte-identical to
+    // the pre-13.6 shape (no a tag at all).
+    const without = EventBuilder.buildClaimEvent(
+        claim, 'https://example.com/story', 'A Story', PUBKEY, {});
+    assert.equal(without.tags.find((t) => t[0] === 'a'), undefined);
+});
+
+test('CURRENT_MODULE_VERSIONS covers every module (the staleness reference)', async () => {
+    const { CURRENT_MODULE_VERSIONS, MODULE_NAMES } = await import('../src/shared/audit/findings-schemas.js');
+    assert.deepEqual(Object.keys(CURRENT_MODULE_VERSIONS).sort(), [...MODULE_NAMES].sort());
+    for (const v of Object.values(CURRENT_MODULE_VERSIONS)) {
+        assert.match(v, /^\d+\.\d+(\.\d+)?$/);
+    }
+});
+
 test('archive records carry articleHash, agreeing with the publish-path x tag', async () => {
     await ArchiveCache.clear().catch(() => { /* fresh db */ });
     const article = articleFixture({ url: 'https://example.com/archived-story' });
@@ -214,4 +242,39 @@ test('hash failure never blocks archiving — and never inherits the prior hash'
     assert.equal(broken.articleHash, null);
     const reread = await ArchiveCache.getArticle(url);
     assert.equal(reread.articleHash, null, 'persisted, unhashed, honest');
+});
+
+// ------------------------------------------------------------------
+// 13.9 phase review (blocking): load↔publish hash parity. The reader
+// hashes the ONCE-converted markdown at load; publish feeds the
+// markdown draft back through assembleArticleBody. htmlToMarkdown is
+// NOT idempotent and markdown legitimately contains '<' (small
+// inline images, code fences) — without the explicit marker the
+// second pass mangles the body and forks the published x from the
+// hash every audit anchors to.
+// ------------------------------------------------------------------
+
+test('publish-path body is byte-identical to the load-path body when the markdown contains <', async () => {
+    const { ContentExtractor } = await import('../src/shared/content-extractor.js');
+    const html = '<h1>Heading</h1><p>By <img src="https://x.example/a.png" width="48"> Jane Doe</p>'
+        + '<p>Body paragraph one with <em>emphasis</em>.</p><p>Code: <code>&lt;div&gt;</code></p>';
+
+    // Load path: content is extractor HTML, converted once.
+    const loadBody = EventBuilder.assembleArticleBody(articleFixture({ content: html }));
+    assert.ok(loadBody.includes('<'), 'precondition: the converted markdown retains a literal <');
+
+    // Publish path: the reader derives the markdown draft and marks it.
+    const md = ContentExtractor.htmlToMarkdown(html);
+    const publishBody = EventBuilder.assembleArticleBody(articleFixture({
+        content: md, markdown: md, _contentIsMarkdown: true
+    }));
+
+    assert.equal(publishBody, loadBody,
+        'one conversion ever — the published x must equal the capture hash for an unedited body');
+});
+
+test('without the marker, markdown content containing < still converts (capture-time behavior unchanged)', () => {
+    const html = '<p>Hello <em>world</em></p>';
+    const viaHtml = EventBuilder.assembleArticleBody(articleFixture({ content: html }));
+    assert.ok(!viaHtml.includes('<em>'), 'HTML input is converted exactly as before');
 });

@@ -13,6 +13,82 @@ import { kindLabel } from './library.js';
 import { replaceableKey } from '../shared/nostr-events.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { Utils } from '../shared/utils.js';
+import { auditCardChipData } from '../shared/audit/display.js';
+
+// Audit section (13.7): every run anchored to this article —
+// side-by-side, never averaged (PHILOSOPHY P8) — with module results
+// and dispute lineage joined in. Display rules hold: no naked
+// numbers, review states carry no band, a binding ceiling always
+// shows its context; URL joins (pre-13.4 hashless articles) are
+// marked advisory.
+function renderAuditSection(host, audit) {
+    const { runs, joinedBy, vintage, modules = [], disputesByTarget } = audit;
+    const section = el('div', 'xr-inspector__audit');
+    section.appendChild(el('h3', 'xr-case__heading',
+        `Audit record — ${runs.length} run(s)${runs.length > 1 ? ' (side-by-side, never averaged)' : ''}`));
+    if (joinedBy === 'url') {
+        section.appendChild(el('div', 'xr-inspector__audit-lineage',
+            '⚠ joined by URL — this capture predates content hashing, so the audited text is unverified'));
+    } else if (vintage === 'prior') {
+        section.appendChild(el('div', 'xr-inspector__audit-lineage',
+            '⚠ anchored to an EARLIER capture of this article — the current text is unaudited; scores never transfer across edits'));
+    }
+    for (const a of runs) {
+        const row = el('div', 'xr-inspector__audit-run');
+        const chip = auditCardChipData({ final_score: a.finalScore, overall_confidence: a.confidence });
+        row.appendChild(el('span',
+            `xr-badge xr-badge--audit-${chip ? chip.bandKey : 'review'}`,
+            chip ? chip.text : 'no aggregate score'));
+        row.appendChild(el('span', 'xr-inspector__mono',
+            `${a.auditor ? `${a.auditor.kind} · ${a.auditor.id}` : 'unknown auditor'} · ${a.runAt || ''}${a.source === 'local' ? ' · local (unpublished)' : ''}`));
+        if (a.ceilingBinding) {
+            row.appendChild(el('div', 'xr-inspector__audit-ceiling',
+                `capped by knowability ${a.ceiling}${a.knowabilityNotes ? ` — ${a.knowabilityNotes}` : ''} (source: ${a.ceilingSource || 'unknown'})`));
+        }
+        // Module results: published 30056s matching this run, joined
+        // by COORDINATE — the 30057's role-marked module a-refs are
+        // the run's own statement of which events constitute it. A
+        // runAt join never matched real published events (the scorer
+        // stamps per-module run_at, the aggregate its own), and a
+        // same-runAt 30056 from another pubkey could displace the
+        // run's actual modules. Local runs fall back to the
+        // aggregate's own contributions.
+        const refCoords = new Set((a.moduleRefs || []).map((r) => r.coord));
+        const runModules = modules.filter((m) =>
+            m.eventId && m.pubkey && m.id && refCoords.has(`30056:${m.pubkey}:${m.id}`));
+        const moduleRows = runModules.length
+            ? runModules.map((m) => ({ name: m.module, version: m.moduleVersion, score: m.score, confidence: m.confidence }))
+            : (a.moduleContributions || []).map((c) => ({ name: c.module, version: null, score: c.score, confidence: c.confidence }));
+        if (moduleRows.length) {
+            const wrap = el('div', 'xr-inspector__audit-modules');
+            for (const m of moduleRows) {
+                const mChip = auditCardChipData({ final_score: m.score, overall_confidence: m.confidence });
+                wrap.appendChild(el('span', 'xr-badge',
+                    `${String(m.name || '').replace(/_/g, ' ')}${m.version ? ` v${m.version}` : ''}: `
+                    + (mChip ? mChip.text.replace(/^audit /, '').replace('audit: review', 'review') : (m.score === null ? 'unscored' : 'review'))));
+            }
+            row.appendChild(wrap);
+        }
+        if (a.supersedesEventId) {
+            row.appendChild(el('div', 'xr-inspector__audit-lineage',
+                `supersedes ${a.supersedesEventId.slice(0, 12)}… — the prior audit remains visible`));
+        }
+        if (a.resolvesDisputeEventId) {
+            row.appendChild(el('div', 'xr-inspector__audit-lineage',
+                `resolves dispute ${a.resolvesDisputeEventId.slice(0, 12)}…`));
+        }
+        // Disputes targeting this aggregate (30061s, wire-format-only
+        // in v1 — but a filed challenge must be visible where the
+        // score is).
+        const disputes = (a.coordinate && disputesByTarget) ? (disputesByTarget.get(a.coordinate) || []) : [];
+        for (const d of disputes) {
+            row.appendChild(el('div', 'xr-inspector__audit-lineage',
+                `⚠ dispute (${d.status}) filed by ${shortKey(d.pubkey || '')} — ${truncate(d.disputeSummary || '', 80)}`));
+        }
+        section.appendChild(row);
+    }
+    host.appendChild(section);
+}
 
 const STATUS_TEXT = {
     'confirmed':   ['✓ in ledger & on relays', 'xr-badge--agree'],
@@ -27,7 +103,7 @@ const STATUS_TEXT = {
  * @param {string} opts.status  reconciliation status for this event id
  * @param {function} opts.onClose
  */
-export function renderInspector(host, item, { status = 'no-ledger', onClose } = {}) {
+export function renderInspector(host, item, { status = 'no-ledger', onClose, audit = null } = {}) {
     clear(host);
     host.hidden = false;
 
@@ -111,6 +187,11 @@ export function renderInspector(host, item, { status = 'no-ledger', onClose } = 
         actions.appendChild(open);
     }
     host.appendChild(actions);
+
+    // 13.7: the audit record for articles, when any run anchors here.
+    if (audit && audit.runs && audit.runs.length > 0) {
+        renderAuditSection(host, audit);
+    }
 
     const details = el('details', 'xr-inspector__raw');
     details.open = true;
