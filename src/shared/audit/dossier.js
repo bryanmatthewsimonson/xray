@@ -105,11 +105,17 @@ export function computeDossier({
         ? shrink(rawMean, n, k, populationMean)
         : { shrunk: Number(populationMean.toFixed(2)), factor: 1 };
 
-    // Per-module means over every contribution that carried a score.
+    // Per-module means over every contribution that carried a score
+    // AT DISPLAYABLE CONFIDENCE: the sub-0.6 rule excludes whole
+    // aggregates from the rollup ("a number the display rules refuse
+    // must not move a reputation") — the same rule, per module. A
+    // contribution without a confidence is unknown, and unknown never
+    // feeds a mean.
     const byModule = {};
     for (const a of aggregates) {
         for (const c of (a && a.moduleContributions) || []) {
             if (typeof c.score !== 'number' || !Number.isFinite(c.score)) continue;
+            if (typeof c.confidence !== 'number' || c.confidence < 0.6) continue;
             (byModule[c.module] = byModule[c.module] || []).push(c.score);
         }
     }

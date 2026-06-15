@@ -495,6 +495,75 @@ deletes, or writes the local publish ledger.
 
 ---
 
+## Phase 13 — Epistemic audits
+
+The audit pipeline (docs/EPISTEMIC_AUDIT_DESIGN.md, normative
+constitution docs/PHILOSOPHY.md). Needs one captured article and the
+companion scorer CLI (`docs/auditor-prototype/scorer/` — an Anthropic
+API key and a few cents per run). Publishing is **off by default**;
+everything before 13.13 below must work with the flag off.
+
+**Setup: score an article**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 13.1 | Capture an article (any platform) → reader | ✅ the metadata header shows the `hash:` line (16-hex prefix); no "content changed" banner on a fresh capture |
+| 13.2 | Run the scorer CLI against the captured markdown → JSON output | ✅ JSON carries `article.hash` equal to the reader's hash line prefix (full hash in the file) |
+| 13.3 | Edit one character of the article body markdown → rerun the scorer | ✅ different hash — the audit is text-bound, not URL-bound |
+
+**Import (the RQ1 gate)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 13.4 | Options ▸ Advanced ▸ Epistemic audits → import the JSON | ✅ summary toast: modules valid/failed, predictions imported/skipped; re-import of the same file reports already-imported, never duplicates |
+| 13.5 | Import a JSON whose `article.hash` matches **no local capture** | ✅ refused with a clear error — audits must be about text you actually captured |
+| 13.6 | Hand-edit the JSON body or hash → import | ✅ refused (re-hash mismatch); tamper with one module's top-level `score` so it diverges from `findings.score` → that module imports as **failed**, the rest survive |
+| 13.7 | Reader → the same article → audit panel | ✅ aggregate badge with score **and** confidence; binding ceiling shows its provenance; per-module rows expand with caveats; evidence quotes click-to-locate in the body |
+
+**Display rules (PHILOSOPHY — check, don't skip)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 13.8 | Any score chip, reader or portal | ✅ **no naked numbers**: score always renders beside its confidence; aggregate confidence < 0.6 renders as "needs human review" with **no** number and no band color |
+| 13.9 | Two runs on one article (rerun the scorer, import both) | ✅ side-by-side, **never averaged**; each keeps its auditor + run time |
+| 13.10 | Edit the article body in the reader after import | ✅ the hash line flips to "edited, recomputed at publish" and the audit panel header changes to "for the CAPTURED text — the body has been edited"; after publish, the panel marks the run as anchored to the prior text — scores never transfer across edits |
+
+**Prediction ledger + atomization (RQ6)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 13.11 | Audit panel → prediction rows | ✅ each shows text, hedge, horizon, criteria; **Atomize as claim** is an offered action, never automatic |
+| 13.12 | Atomize one prediction → claims bar | ✅ a 30040 claim appears carrying the prediction's text; the ledger row shows the promotion link |
+
+**Publish batch (flag-gated — slice 13.8)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 13.13 | With the flag **off** (default), publish the article | ✅ no audit events in the summary; no events of kinds 30056–30061 reach relays (verify in the portal raw corpus). Exception by design: a claim atomized from a prediction still carries its `a` lineage tag pointing at the future 30058 coordinate — addressable references tolerate the referent arriving when the flag turns on |
+| 13.14 | Options ▸ Advanced → enable **Publish audit events to relays** | ✅ the disclosure states the per-article scope and public visibility; toggle persists across reloads |
+| 13.15 | Publish the article again | ✅ summary line gains `N/M audit events`; the portal corpus holds the 30056s, the 30057 (its `a` contributions resolve to the 30056 coordinates), and the 30058s; the atomized prediction's 30058 carries the `a` back-reference to its claim at the claim's **published** address |
+| 13.16 | Publish a second time without changes | ✅ everything audit-shaped reports as skipped (`already published`) — resume never duplicates |
+| 13.17 | Disable every write relay → publish → re-enable → publish | ✅ first attempt counts failures honestly (warning toast); second attempt publishes exactly the events that failed — per-event marks, no duplicates |
+| 13.18 | Check any published 30056/30057/30058/30059 raw JSON | ✅ carries `x` (article hash) + auditor tags; **never** `stance`, `rating-value`, `L`, or `l` — the audit/assessment firewall |
+
+**Portal surfaces + resolutions**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 13.19 | Portal → the audited article's card | ✅ audit chip (score + confidence) joined **by hash**; a pre-hash (URL-joined) event would wear an explicit "URL match — text unverified" marker |
+| 13.20 | Article row → inspector | ✅ audit section lists every run (published and local-only marked), module rows, dispute lineage when present |
+| 13.21 | An entity with audited articles → entity view | ✅ **Audit dossier** block: shrunk mean with k/factor/population stated in line; per-hedge calibration rate table; calibration-v1 marked informational; sub-0.6 runs counted as "pending review", excluded from the rollup |
+| 13.22 | Timeline → predictions-due strip → **Resolve…** | ✅ evidence-bound form (refuses without evidence); filing updates the strip immediately; the resolution publishes with the **next publish of that article** (13.8 batch) as a 30059 referencing the prediction's coordinate |
+| 13.23 | Reconciliation line after publishing audits | ✅ audit events count toward "ledger says N / relays confirm M"; removing the relay and resyncing moves them to **missing**, like every other ledgered kind |
+
+**Firefox**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 13.24 | Repeat 13.4, 13.7, 13.15, 13.19 on Firefox ≥128 | ✅ identical behavior |
+
+---
+
 ## Phase 6 — Entity sync
 
 Run on **Device A** (your normal profile) and **Device B** (a

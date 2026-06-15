@@ -120,6 +120,17 @@ export function openResolveForm(prediction) {
                 errLine.textContent = 'Resolutions are evidence-bound — add at least one evidence entry.';
                 return;
             }
+            // The wire grammar the header documents, enforced at the
+            // door: an nevent1…/naddr1… bech32 paste would file
+            // locally, show the prediction resolved, and then skip at
+            // every publish — the builder refuses non-raw values.
+            const badNostr = evidence.find((e) => e.kind === 'nostr_event'
+                && !/^[0-9a-f]{64}$/.test(e.value)
+                && !/^\d+:[0-9a-f]{64}:.+$/.test(e.value));
+            if (badNostr) {
+                errLine.textContent = 'nostr_event evidence must be a raw kind:pubkey:d coordinate or a 64-hex event id — not a bech32 (nevent1…/naddr1…) string.';
+                return;
+            }
             if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
                 errLine.textContent = 'Confidence must be a number between 0 and 1.';
                 return;

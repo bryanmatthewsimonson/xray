@@ -516,3 +516,50 @@ test('30057: finalScore 0 parses as 0, never as missing', async () => {
     assert.ok(parsed, 'a zero score is a valid event');
     assert.equal(parsed.finalScore, 0);
 });
+
+// ------------------------------------------------------------------
+// 13.9 phase review — the relay parsers range-check every number.
+// The builders and the import gate bound values at their doors; the
+// parser is the third entrance, and hostile relay events must not
+// render absurd values as authoritative.
+// ------------------------------------------------------------------
+
+test('parsers: out-of-range scores/confidence parse as null (module result) or refuse the event (aggregate)', async () => {
+    const { event: modEvent } = await buildModuleResultEvent({
+        articleHash: HASH, module: 'internal_coherence', runAt: RUN_AT,
+        findings: COHERENCE_FINDINGS, auditor: MODEL
+    });
+    const hostileMod = {
+        ...modEvent, id: '1'.repeat(64), pubkey: 'a'.repeat(64),
+        tags: modEvent.tags.map((t) =>
+            t[0] === 'score' ? ['score', '99999']
+                : t[0] === 'confidence' ? ['confidence', '-3'] : t)
+    };
+    const parsedMod = parseModuleResultEvent(hostileMod);
+    assert.ok(parsedMod, 'structurally fine — values are simply not asserted');
+    assert.equal(parsedMod.score, null, 'score 99999 is no score');
+    assert.equal(parsedMod.confidence, null, 'confidence -3 is no confidence — review chip, not a band');
+
+    const { event: aggEvent } = await buildAggregateAuditEvent(aggregateArgs());
+    const hostileAgg = {
+        ...aggEvent, id: '2'.repeat(64), pubkey: 'a'.repeat(64),
+        tags: aggEvent.tags.map((t) => t[0] === 'score' ? ['score', '4242424242'] : t)
+    };
+    assert.equal(parseAggregateAuditEvent(hostileAgg), null,
+        'an aggregate whose headline score is out of range is structurally unusable');
+});
+
+test('parser: hostile contribution rows in 30057 content are dropped, valid ones survive', async () => {
+    const { event } = await buildAggregateAuditEvent(aggregateArgs());
+    const content = JSON.parse(event.content);
+    content.module_contributions = [
+        { module: 'omission', score: 70, confidence: 0.8, weight: 0.15 },           // fine
+        { module: 'source_quality', score: 99999, confidence: 0.8, weight: 0.2 },   // absurd score
+        { module: 'internal_coherence', score: 60, confidence: 9, weight: 0.1 },    // absurd confidence
+        { module: 42, score: 60, confidence: 0.8, weight: 0.1 },                    // non-string module
+        null
+    ];
+    const parsed = parseAggregateAuditEvent({ ...event, id: '3'.repeat(64), pubkey: 'a'.repeat(64), content: JSON.stringify(content) });
+    assert.equal(parsed.moduleContributions.length, 1);
+    assert.equal(parsed.moduleContributions[0].module, 'omission');
+});

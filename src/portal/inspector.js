@@ -22,13 +22,16 @@ import { auditCardChipData } from '../shared/audit/display.js';
 // shows its context; URL joins (pre-13.4 hashless articles) are
 // marked advisory.
 function renderAuditSection(host, audit) {
-    const { runs, joinedBy, modules = [], disputesByTarget } = audit;
+    const { runs, joinedBy, vintage, modules = [], disputesByTarget } = audit;
     const section = el('div', 'xr-inspector__audit');
     section.appendChild(el('h3', 'xr-case__heading',
         `Audit record — ${runs.length} run(s)${runs.length > 1 ? ' (side-by-side, never averaged)' : ''}`));
     if (joinedBy === 'url') {
         section.appendChild(el('div', 'xr-inspector__audit-lineage',
             '⚠ joined by URL — this capture predates content hashing, so the audited text is unverified'));
+    } else if (vintage === 'prior') {
+        section.appendChild(el('div', 'xr-inspector__audit-lineage',
+            '⚠ anchored to an EARLIER capture of this article — the current text is unaudited; scores never transfer across edits'));
     }
     for (const a of runs) {
         const row = el('div', 'xr-inspector__audit-run');
@@ -42,10 +45,17 @@ function renderAuditSection(host, audit) {
             row.appendChild(el('div', 'xr-inspector__audit-ceiling',
                 `capped by knowability ${a.ceiling}${a.knowabilityNotes ? ` — ${a.knowabilityNotes}` : ''} (source: ${a.ceilingSource || 'unknown'})`));
         }
-        // Module results: published 30056s matching this run, with
-        // methodology versions (provenance rule 4); local runs fall
-        // back to the aggregate's own contributions.
-        const runModules = modules.filter((m) => m.runAt === a.runAt);
+        // Module results: published 30056s matching this run, joined
+        // by COORDINATE — the 30057's role-marked module a-refs are
+        // the run's own statement of which events constitute it. A
+        // runAt join never matched real published events (the scorer
+        // stamps per-module run_at, the aggregate its own), and a
+        // same-runAt 30056 from another pubkey could displace the
+        // run's actual modules. Local runs fall back to the
+        // aggregate's own contributions.
+        const refCoords = new Set((a.moduleRefs || []).map((r) => r.coord));
+        const runModules = modules.filter((m) =>
+            m.eventId && m.pubkey && m.id && refCoords.has(`30056:${m.pubkey}:${m.id}`));
         const moduleRows = runModules.length
             ? runModules.map((m) => ({ name: m.module, version: m.moduleVersion, score: m.score, confidence: m.confidence }))
             : (a.moduleContributions || []).map((c) => ({ name: c.module, version: null, score: c.score, confidence: c.confidence }));

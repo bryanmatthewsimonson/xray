@@ -19,6 +19,154 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-12 — 13.9 follow-up: the phase-wide review ran — what eight slice reviews couldn't see
+
+**Tags:** bug, design, pattern
+
+The resumed phase-wide adversarial review (7 cross-slice lenses, 68
+agents) confirmed **46 findings, refuted 15** — including a class no
+per-slice review could structurally catch: bugs that live BETWEEN
+slices, where each side honors its own contract and the seam still
+breaks. The fixes, by root:
+
+- **THE blocking find — the publish-path hash forked from the capture
+  hash.** `assembleArticleBody` re-ran `htmlToMarkdown` whenever its
+  input contained `<` — and markdown legitimately contains `<` (small
+  inline images, code fences), so the reader's publish path
+  double-converted: body mangled on the wire, published `x` ≠ the
+  hash every audit anchors to, false stealth-edit banners on the next
+  unedited recapture, the import gate demanding a hash that exists
+  only on the wire. The conversion now runs once, ever — the publish
+  path marks its draft `_contentIsMarkdown` instead of sniffing, with
+  a load↔publish byte-parity test. Every per-slice review missed it
+  because each slice's tests call `assembleArticleBody` once per
+  input; only the cross-slice walk (capture → hash → publish →
+  re-import) exposes the two-pass handoff. The heuristic predates
+  Phase 13; 13.4 silently promoted it into the content address.
+- **The parsers were the third unguarded entrance.** Builders and the
+  import gate bound every number; the RELAY parser didn't — a hostile
+  30057 carrying score 99999 rendered as authoritative and could
+  poison the dossier. All audit-kind parsers now range-check
+  (out-of-range = never asserted = null → the review chip), hostile
+  contribution rows are dropped at parse, and import requires
+  contribution module names from the known vocabulary (which also
+  closes a `__proto__` prototype-chain lookup in the publish batch).
+- **Resolve… was unreachable for the designed import flow.** The
+  vendored scorer hard-codes `resolution_horizon_iso: null`, and only
+  horizon-dated predictions got the strip affordance — the acceptance
+  walk's resolution arm dead-ended on a count with no rows.
+  `predictionsDue` now returns the unscheduled open LIST and the
+  strip renders them with Resolve….
+- **Import-gate parity with the builders** — the lens that found the
+  same seam four ways: lenient `Date.parse` run_at (strict ISO now,
+  aggregate rejects / module fails), human auditor ids that weren't
+  64-hex pubkeys (treated as absent, fallback applies), `horizon_iso`
+  datetimes the 30058 builder refuses (degraded to null at the door),
+  bech32 `nostr_event` evidence the Resolve form accepted but the
+  builder rejects (validated at save). Posture: nothing imports that
+  cannot publish.
+- **Publish-identity hardening:** marks now record the publishing
+  pubkey; resume coordinates and the 30057's module references are
+  minted at the PUBLISHED address after an identity switch, not the
+  current key's. The stale-identity resolution skip became a re-key:
+  the machine re-files under the prediction's real address (live key
+  or this batch's signing key) instead of dead-ending the user with a
+  remedy the strip had already withdrawn.
+- **Lifecycle closure for RQ6:** late atomization re-emits the
+  published 30058 with its claim link (`claim_ref_at` vs
+  `publishedAt`, same-key only — replacement is an address property);
+  the claim-side back-reference map went multi-vintage (same
+  candidate set as the audit batch); deleting a claim now severs the
+  promotion links pointing at it; revised resolutions re-emit
+  (`updated > publishedAt` — the 13.1 contract the batch had ignored);
+  corrected re-imports actually replace the stored run and clear the
+  changed events' marks (stale marks over changed findings would have
+  frozen stale wire content forever), and both import UIs now say
+  already-imported / ledger-updated instead of reporting the fresh
+  parse over a stale ledger.
+- **Dossier purity:** URL-joined (advisory) audits no longer feed the
+  reputation rollup (counted as `excludedUrlJoined`); per-module means
+  exclude sub-0.6-confidence contributions — the aggregate-level rule,
+  applied per module. The aggregate also DEFERS when a scored module's
+  build refuses — a signed 30057 must not silently drop contribution
+  rows its final_score counted.
+- **Portal vintage-awareness:** 13.8 anchors published audit events to
+  the vintage they audited, and the replaceable 30023's `x` moves on
+  re-capture — the portal now falls back to PRIOR capture vintages
+  (still text-verified hash joins, marked "prior version"), and the
+  inspector joins module results by the 30057's own coordinate refs
+  instead of a runAt equality that never matched real scorer output
+  (per-module `run_at` ≠ aggregate `runAt`) and could be displaced by
+  a foreign same-runAt event.
+- Also: read-only portal opens keep the carried published hash (the
+  panel read "No capture hash" for exactly the audited article the
+  portal round-trips); the reader import bar accepts prior-vintage
+  matches like the options importer; the audit panel acknowledges
+  body edits ("for the CAPTURED text — the body has been edited");
+  the audit ledger got the export the design promised (Options ▸
+  Epistemic audits ▸ Export audit ledger); and seven doc/code drifts
+  were corrected (NIP reference-implementations, 30060 deferral
+  language, pub×beat `p` requirement, RQ5 semver note, dossier join
+  scope, SMOKE 13.10/13.13, CLAUDE.md's test count).
+
+The refuted 15 were dominated by one shape: accurate code citations
+whose triggering data no reachable path can produce (defensive
+fallbacks behind validating writers). The verifier instruction that a
+finding "contradicting a documented posture is refuted unless the
+posture itself is shown broken" earned its keep — and so did the
+finder instruction to ignore single-file findings: nearly everything
+confirmed was a seam.
+
+---
+
+## 2026-06-12 — 13.9: hardening, and an honest note about the review that didn't run
+
+**Tags:** design, pattern
+
+Final Phase 13 slice (draft PR). What it contains and one thing it
+doesn't:
+
+- **SMOKE_TEST §Phase 13** — the 24-step manual acceptance walk:
+  capture/hash → scorer CLI → import gates (refusal cases included:
+  hash mismatch, no local capture, score-divergence tamper) → display
+  rules as explicit check steps (no naked numbers, sub-0.6 review
+  chip, side-by-side never averaged, scores never transfer across
+  edits) → atomize → flag-gated publish (off-by-default verified
+  first, then resume/no-duplicates, the relay-outage retry, and the
+  stance/`rating-value`/`L`/`l` firewall on raw events) → portal
+  chips/inspector/dossier/Resolve → reconciliation. Surface names
+  verified against the actual DOM (the importer and toggle live under
+  Options ▸ Advanced ▸ Epistemic audits).
+- **Docs-consistency pass** by direct reading: NIP draft §30058/30059
+  already agree with what 13.8 publishes (the `claim`-marked
+  back-reference, `x` = the *predicting* article's hash, foreign
+  extractor pubkeys anticipated in the 30059 reference); the design
+  note carries the publish-ordering and resolution-identity rules
+  threaded in during 13.8; one SMOKE_TEST step was corrected before it
+  ever misled anyone (batch events can share `created_at` seconds, so
+  ordering is verified by reference resolution, not timestamps).
+- **Cross-slice seam checks, run manually:** reconcile's address
+  recomputation and the publish batch derive from the same inputs
+  (`run.articleHash`, findings-version-first) so they cannot disagree;
+  pre-13.8 records flow through 13.8 paths via fallbacks that degrade
+  to counted skips, never blocked batches; claims published before
+  11.1 (no `publishedPubkey`) self-heal — the 11.7 `needCoordIds`
+  republish stamps the pubkey, and the deferred 30058 follows one
+  batch later; the publish flag is re-read inside every publish call,
+  so mid-session toggles can't race the gate.
+- **The thing that didn't happen:** the planned phase-wide
+  multi-agent review lost all seven finder agents to API session
+  limits (the 13.5 failure mode, phase-sized this time). Rather than
+  fabricate coverage, the workflow script is saved with its run id
+  for a later resume, and the honest record stands: eight per-slice
+  adversarial rounds (design + 13.1–13.8) confirmed ~109 findings,
+  all fixed before their PRs — the phase has been reviewed
+  slice-by-slice, not yet wall-to-wall. If the resumed phase review
+  ever runs, its findings belong in a follow-up PR, not silently
+  folded into history.
+
+---
+
 ## 2026-06-11 — 13.8: the publish batch, and what "ordered" has to mean on the wire
 
 **Tags:** design, bug

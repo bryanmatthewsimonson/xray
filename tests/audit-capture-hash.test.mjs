@@ -243,3 +243,38 @@ test('hash failure never blocks archiving — and never inherits the prior hash'
     const reread = await ArchiveCache.getArticle(url);
     assert.equal(reread.articleHash, null, 'persisted, unhashed, honest');
 });
+
+// ------------------------------------------------------------------
+// 13.9 phase review (blocking): load↔publish hash parity. The reader
+// hashes the ONCE-converted markdown at load; publish feeds the
+// markdown draft back through assembleArticleBody. htmlToMarkdown is
+// NOT idempotent and markdown legitimately contains '<' (small
+// inline images, code fences) — without the explicit marker the
+// second pass mangles the body and forks the published x from the
+// hash every audit anchors to.
+// ------------------------------------------------------------------
+
+test('publish-path body is byte-identical to the load-path body when the markdown contains <', async () => {
+    const { ContentExtractor } = await import('../src/shared/content-extractor.js');
+    const html = '<h1>Heading</h1><p>By <img src="https://x.example/a.png" width="48"> Jane Doe</p>'
+        + '<p>Body paragraph one with <em>emphasis</em>.</p><p>Code: <code>&lt;div&gt;</code></p>';
+
+    // Load path: content is extractor HTML, converted once.
+    const loadBody = EventBuilder.assembleArticleBody(articleFixture({ content: html }));
+    assert.ok(loadBody.includes('<'), 'precondition: the converted markdown retains a literal <');
+
+    // Publish path: the reader derives the markdown draft and marks it.
+    const md = ContentExtractor.htmlToMarkdown(html);
+    const publishBody = EventBuilder.assembleArticleBody(articleFixture({
+        content: md, markdown: md, _contentIsMarkdown: true
+    }));
+
+    assert.equal(publishBody, loadBody,
+        'one conversion ever — the published x must equal the capture hash for an unedited body');
+});
+
+test('without the marker, markdown content containing < still converts (capture-time behavior unchanged)', () => {
+    const html = '<p>Hello <em>world</em></p>';
+    const viaHtml = EventBuilder.assembleArticleBody(articleFixture({ content: html }));
+    assert.ok(!viaHtml.includes('<em>'), 'HTML input is converted exactly as before');
+});

@@ -332,3 +332,78 @@ test('imported predictions persist the extraction methodology version from their
     assert.equal(preds[0].module_version, '1.3',
         'the published 30058 states the version that actually produced it');
 });
+
+// ------------------------------------------------------------------
+// 13.9 phase review — import-gate parity with the builders
+// ------------------------------------------------------------------
+
+test('lenient aggregate run_at (Date.parse-valid, builder-invalid) rejects at the door', async () => {
+    for (const sloppy of ['2026-06-11T12:00:00', '2026-06-11 20:14:09Z', 'March 7, 2026']) {
+        const json = scorerExport();
+        json.aggregate.run_at = sloppy;
+        await assert.rejects(importAuditJson(json, { localArticleHash: HASH }),
+            /strict ISO-8601/, `must reject: ${sloppy}`);
+    }
+});
+
+test('lenient PER-MODULE run_at fails that module (the rest import) — no permanently unpublishable runs', async () => {
+    const summary = await importAuditJson(
+        scorerExport({ module_results: [coherenceResult({ run_at: '2026-06-11T12:00:00' }), predictionExtraction()] }),
+        { localArticleHash: HASH });
+    assert.equal(summary.modulesFailed, 1);
+    assert.match(summary.failedModules[0].reason, /strict ISO-8601/);
+    assert.equal(summary.modulesValid, 1);
+});
+
+test('human auditor with a non-64-hex id is treated as absent — the run falls back, never imports unpublishable', async () => {
+    const json = scorerExport();
+    json.aggregate.auditor = { kind: 'human', id: 'bryan' };
+    const summary = await importAuditJson(json, { localArticleHash: HASH });
+    assert.equal(summary.modulesFailed, 0);
+    const runs = await AuditRunModel.getByArticleHash(HASH);
+    assert.equal(runs[0].auditor.kind, 'pipeline',
+        'invalid human id → the import fallback, which the builders accept');
+});
+
+test('horizon_iso that is not strict YYYY-MM-DD degrades to null — the horizon STRING stays', async () => {
+    const json = scorerExport();
+    json.predictions[0].resolution_horizon_iso = '2026-12-31T00:00:00Z';
+    await importAuditJson(json, { localArticleHash: HASH });
+    const preds = await PredictionModel.getByArticleHash(HASH);
+    assert.equal(preds[0].horizon_iso, null);
+    assert.equal(preds[0].horizon, 'by December', 'display text survives');
+});
+
+test('corrected re-import (same run identity) updates the ledger and clears changed publish marks', async () => {
+    const first = await importAuditJson(scorerExport(), { localArticleHash: HASH });
+    assert.equal(first.alreadyImported, false);
+    // Mark the module published, then re-import a CORRECTED file
+    // whose findings changed for that module.
+    await AuditRunModel.markEventPublished(first.runId, 'mod:internal_coherence', 'e'.repeat(64), 'f'.repeat(64));
+    const corrected = scorerExport({
+        module_results: [
+            coherenceResult({
+                score: 80,
+                findings: {
+                    module: 'internal_coherence', version: '1.0',
+                    score: 80, confidence: 0.8,
+                    auditor_caveats: ['Corrected.'], contradictions: [], logical_gaps: []
+                }
+            }),
+            predictionExtraction()
+        ]
+    });
+    const second = await importAuditJson(corrected, { localArticleHash: HASH });
+    assert.equal(second.alreadyImported, true);
+    assert.equal(second.ledgerUpdated, true, 'the corrected contents replace the stale record');
+    const runs = await AuditRunModel.getByArticleHash(HASH);
+    const stored = runs[0].moduleResults.find((m) => m.module === 'internal_coherence');
+    assert.equal(stored.score, 80, 'the ledger holds the corrected findings');
+    assert.equal(runs[0].events['mod:internal_coherence'], undefined,
+        'the changed module\'s publish mark cleared — the next publish re-emits it');
+
+    // And a byte-identical third import is the no-op it claims.
+    const third = await importAuditJson(corrected, { localArticleHash: HASH });
+    assert.equal(third.alreadyImported, true);
+    assert.equal(third.ledgerUpdated, false);
+});

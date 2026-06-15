@@ -274,10 +274,12 @@ test('unpromoted prediction carries NO 30040 reference', async () => {
     assert.equal(tagsNamed(entries[0].event, 'a').filter((t) => t[1].startsWith('30040:')).length, 0);
 });
 
-test('stale-identity resolution is refused; remote-prediction and own-coordinate resolutions publish', async () => {
+test('stale-identity resolution is RE-KEYED to the prediction\'s real address; remote and own publish verbatim', async () => {
     // Same d as the local prediction, foreign pubkey: OUR prediction
-    // filed under an older signing identity — that address will never
-    // exist, refuse it.
+    // filed under an older signing identity. That address will never
+    // exist — the machine re-files under the address the prediction
+    // actually gets this batch, instead of dead-ending the user with
+    // a skip whose remedy (the strip's Resolve…) is already gone.
     const staleCoord = `30058:${OTHER_PK}:pred:${sha16(`${HASH}|rates will fall by december.`)}`;
     const stale = makeResolution({
         id: `res_${sha16(staleCoord)}`,
@@ -285,8 +287,8 @@ test('stale-identity resolution is refused; remote-prediction and own-coordinate
     });
     // Foreign pubkey AND no local prediction counterpart: someone
     // else's published prediction, resolved by this user — a designed
-    // workflow; the coordinate exists on relays. Publishes, anchored
-    // to the prediction's own article hash.
+    // workflow; the coordinate exists on relays. Publishes verbatim,
+    // anchored to the prediction's own article hash.
     const remoteCoord = `30058:${OTHER_PK}:pred:${'0'.repeat(16)}`;
     const remoteHash = 'b'.repeat(64);
     const remote = makeResolution({
@@ -294,21 +296,96 @@ test('stale-identity resolution is refused; remote-prediction and own-coordinate
         prediction_coord: remoteCoord,
         article_hash: remoteHash
     });
-    const { entries, skipped } = await assembleAuditBatch({
+    const { entries } = await assembleAuditBatch({
         articleHash: HASH, userPubkey: USER_PK,
         runs: [], predictions: [makePrediction()],
-        resolutions: [stale, remote, makeResolution()],
+        resolutions: [stale, remote],
         articleUrl: URL
     });
     const resolutionEntries = entries.filter((e) => e.label === 'resolution');
-    assert.equal(resolutionEntries.length, 2, 'remote + own publish; stale-identity is refused');
+    assert.equal(resolutionEntries.length, 2, 'both publish — one re-keyed, one verbatim');
     assert.deepEqual(firstTag(resolutionEntries[0].event, 'a'),
-        ['a', remoteCoord, '', 'prediction']);
-    assert.deepEqual(firstTag(resolutionEntries[0].event, 'x'), ['x', remoteHash],
-        'remote-prediction resolution anchors to ITS article, not the batch article');
+        ['a', OWN_PRED_COORD, '', 'prediction'],
+        'the stale coordinate is re-keyed to the signing identity');
+    assert.equal(resolutionEntries[0].mark.rekeyedCoord, OWN_PRED_COORD,
+        'the mark carries the re-key so the ledger record follows the wire');
     assert.deepEqual(firstTag(resolutionEntries[1].event, 'a'),
-        ['a', OWN_PRED_COORD, '', 'prediction']);
-    assert.ok(skipped.some((s) => /different pubkey/.test(s.reason)));
+        ['a', remoteCoord, '', 'prediction']);
+    assert.deepEqual(firstTag(resolutionEntries[1].event, 'x'), ['x', remoteHash],
+        'remote-prediction resolution anchors to ITS article, not the batch article');
+    assert.equal(resolutionEntries[1].mark.rekeyedCoord, undefined);
+});
+
+test('resolution of a prediction PUBLISHED under another key references that live address verbatim', async () => {
+    // The prediction already published under key A; signing now as B.
+    // The address 30058:A:… exists on relays — the resolution must
+    // reference it, not mint a B-address that will never exist.
+    const pred = makePrediction({
+        publishedAt: 100, publishedEventId: '4'.repeat(64), publishedPubkey: OTHER_PK
+    });
+    const liveCoord = `30058:${OTHER_PK}:pred:${sha16(`${HASH}|rates will fall by december.`)}`;
+    const res = makeResolution({
+        id: `res_${sha16(liveCoord)}`,
+        prediction_coord: liveCoord
+    });
+    const { entries, skipped } = await assembleAuditBatch({
+        articleHash: HASH, userPubkey: USER_PK,
+        runs: [], predictions: [pred], resolutions: [res], articleUrl: URL
+    });
+    assert.ok(skipped.some((s) => /already published/.test(s.reason)), 'the prediction itself resumes-skips');
+    assert.equal(entries.length, 1);
+    assert.deepEqual(firstTag(entries[0].event, 'a'), ['a', liveCoord, '', 'prediction']);
+    assert.equal(entries[0].mark.rekeyedCoord, undefined, 'no re-key — the address is live');
+});
+
+test('revised resolution re-emits (updated > publishedAt); unrevised resume-skips', async () => {
+    const revised = makeResolution({ publishedAt: 100, publishedEventId: '5'.repeat(64), updated: 200 });
+    const { entries } = await assembleAuditBatch({
+        articleHash: HASH, userPubkey: USER_PK,
+        runs: [], predictions: [makePrediction()], resolutions: [revised], articleUrl: URL
+    });
+    assert.equal(entries.filter((e) => e.label === 'resolution (revision)').length, 1,
+        'update() bumps `updated`; the same d replaces the prior event — the model contract');
+
+    const unrevised = makeResolution({ publishedAt: 200, publishedEventId: '5'.repeat(64), updated: 100 });
+    const second = await assembleAuditBatch({
+        articleHash: HASH, userPubkey: USER_PK,
+        runs: [], predictions: [makePrediction()], resolutions: [unrevised], articleUrl: URL
+    });
+    assert.equal(second.entries.filter((e) => e.label.startsWith('resolution')).length, 0);
+    assert.ok(second.skipped.some((s) => /already published/.test(s.reason)));
+});
+
+test('late atomization re-emits the published 30058 with its claim back-reference', async () => {
+    const pred = makePrediction({
+        publishedAt: 100, publishedEventId: '6'.repeat(64), publishedPubkey: USER_PK,
+        claim_ref: { claim_id: 'claim_late0000000001', pred_d: `pred:${sha16(`${HASH}|rates will fall by december.`)}` },
+        claim_ref_at: 200
+    });
+    const { entries } = await assembleAuditBatch({
+        articleHash: HASH, userPubkey: USER_PK,
+        runs: [], predictions: [pred], resolutions: [],
+        claimPubkeys: { claim_late0000000001: USER_PK },
+        articleUrl: URL
+    });
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].label, 'prediction (re-emit: claim link)');
+    const claimTag = entries[0].event.tags.find((t) => t[0] === 'a' && t[1].startsWith('30040:'));
+    assert.deepEqual(claimTag, ['a', `30040:${USER_PK}:claim_late0000000001`, '', 'claim']);
+});
+
+test('aggregate DEFERS when a scored module\'s build refuses — never publishes with silently dropped contributions', async () => {
+    const run = makeRun();
+    // Make the second scored module unbuildable while it imported as
+    // valid (strict-ISO run_at violation reachable via legacy records).
+    run.moduleResults[1].run_at = '2026-06-11 20:14:05';
+    const { entries, skipped } = await assembleAuditBatch({
+        articleHash: HASH, userPubkey: USER_PK,
+        runs: [run], predictions: [], resolutions: [], articleUrl: URL
+    });
+    assert.deepEqual(entries.map((e) => e.event.kind), [30056], 'only the healthy module publishes');
+    assert.ok(skipped.some((s) => /build refused/.test(s.reason)));
+    assert.ok(skipped.some((s) => /misstate the run/.test(s.reason)), 'the aggregate defers, counted');
 });
 
 test('one malformed record never blocks the batch — counted as a refused build', async () => {

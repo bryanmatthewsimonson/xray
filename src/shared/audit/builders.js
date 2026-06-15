@@ -86,6 +86,14 @@ function assertAuditor(auditor, fn) {
 // and feeds the `|`-delimited d preimage.
 const ISO8601_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 
+// Exported predicate so the IMPORT gate enforces the same grammar the
+// builders do — Date.parse alone admits timestamps that import
+// cleanly and then refuse to build forever (run_at feeds the
+// |-delimited d preimage, so strictness here is an address property).
+export function isStrictRunAt(runAt) {
+    return typeof runAt === 'string' && ISO8601_RE.test(runAt) && !Number.isNaN(Date.parse(runAt));
+}
+
 function assertRunAt(runAt, fn) {
     if (typeof runAt !== 'string' || !ISO8601_RE.test(runAt) || Number.isNaN(Date.parse(runAt))) {
         throw new Error(`${fn}: runAt must be an ISO-8601 timestamp string (got ${runAt})`);
@@ -403,6 +411,27 @@ function numberOrNull(raw) {
     return Number.isFinite(n) ? n : null;
 }
 
+// Range-checked variant for the PARSERS — the builders and the import
+// gate bound every number at their doors, which left the relay parser
+// as the one unguarded entrance: a hostile event carrying score
+// "99999" or confidence "-3" would otherwise render as authoritative
+// and feed the dossier math. Out of range = the value was never
+// asserted (null), and the display rules treat null as unknown.
+function boundedOrNull(raw, lo, hi) {
+    const n = numberOrNull(raw);
+    return n !== null && n >= lo && n <= hi ? n : null;
+}
+
+// Contribution rows ride in content (unsigned-shaped JSON) — keep
+// only rows the wire grammar could have produced.
+function cleanContributions(rows) {
+    if (!Array.isArray(rows)) return [];
+    return rows.filter((c) => c && typeof c.module === 'string'
+        && (c.score === null || (typeof c.score === 'number' && Number.isFinite(c.score) && c.score >= 0 && c.score <= 100))
+        && (c.confidence === undefined || (typeof c.confidence === 'number' && c.confidence >= 0 && c.confidence <= 1))
+        && (c.weight === undefined || (typeof c.weight === 'number' && c.weight >= 0 && c.weight <= 1)));
+}
+
 /**
  * Parse a kind-30056 event. Pure; returns null when structurally
  * unusable (wrong kind, missing d/x/module/version/run-at or auditor,
@@ -443,8 +472,8 @@ export function parseModuleResultEvent(event) {
         module,
         moduleVersion,
         runAt,
-        score: numberOrNull(firstTag(tags, 'score')),
-        confidence: numberOrNull(firstTag(tags, 'confidence')),
+        score: boundedOrNull(firstTag(tags, 'score'), 0, 100),
+        confidence: boundedOrNull(firstTag(tags, 'confidence'), 0, 1),
         modelParams: firstTag(tags, 'model-params') || null,
         ...auditorBlock,
         articleCoord: (articleA && articleA[1]) || null,
@@ -470,8 +499,8 @@ export function parseAggregateAuditEvent(event) {
     const id = firstTag(tags, 'd');
     const articleHash = firstTag(tags, 'x');
     const runAt = firstTag(tags, 'run-at');
-    const score = numberOrNull(firstTag(tags, 'score'));
-    const ceiling = numberOrNull(firstTag(tags, 'ceiling'));
+    const score = boundedOrNull(firstTag(tags, 'score'), 0, 100);
+    const ceiling = boundedOrNull(firstTag(tags, 'ceiling'), 0, 100);
     const ceilingSource = firstTag(tags, 'ceiling-source');
     const auditorBlock = parseAuditorBlock(tags);
     if (!id || !articleHash || !runAt || score === null || ceiling === null || !ceilingSource || !auditorBlock) {
@@ -495,11 +524,11 @@ export function parseAggregateAuditEvent(event) {
         articleHash,
         runAt,
         finalScore: score,
-        rawScore: numberOrNull(firstTag(tags, 'raw-score')),
+        rawScore: boundedOrNull(firstTag(tags, 'raw-score'), 0, 100),
         ceiling,
         ceilingBinding: firstTag(tags, 'ceiling-binding') === 'true',
         ceilingSource,
-        confidence: numberOrNull(firstTag(tags, 'confidence')),
+        confidence: boundedOrNull(firstTag(tags, 'confidence'), 0, 1),
         ...auditorBlock,
         articleCoord: (articleA && articleA[1]) || null,
         url: firstTag(tags, 'r') || null,
@@ -507,9 +536,11 @@ export function parseAggregateAuditEvent(event) {
         moduleRefs,
         supersedesEventId: eRole('supersedes'),
         resolvesDisputeEventId: eRole('resolves-dispute'),
-        moduleContributions: Array.isArray(content.module_contributions) ? content.module_contributions : [],
+        moduleContributions: cleanContributions(content.module_contributions),
         knowabilityNotes: content.knowability_notes || '',
-        modelEstimatedCeiling: typeof content.model_estimated_ceiling === 'number' ? content.model_estimated_ceiling : null,
+        modelEstimatedCeiling: (typeof content.model_estimated_ceiling === 'number'
+            && content.model_estimated_ceiling >= 0 && content.model_estimated_ceiling <= 100)
+            ? content.model_estimated_ceiling : null,
         topStrengths: Array.isArray(content.top_strengths) ? content.top_strengths : [],
         topConcerns: Array.isArray(content.top_concerns) ? content.top_concerns : [],
         pubkey: event.pubkey || '',
@@ -870,7 +901,7 @@ export function parsePredictionResolutionEvent(event) {
         predictionEventId: (predictionE && predictionE[1]) || null,
         articleHash: firstTag(tags, 'x') || null,
         outcome,
-        confidence: numberOrNull(firstTag(tags, 'confidence')),
+        confidence: boundedOrNull(firstTag(tags, 'confidence'), 0, 1),
         resolvedAt: firstTag(tags, 'resolved-at') || null,
         evidence: parseEvidenceTags(tags),
         notes: event.content || '',
@@ -1004,13 +1035,13 @@ export function parseDossierSnapshotEvent(event) {
         beat,
         windowStart: firstTag(tags, 'window-start') || null,
         windowEnd: firstTag(tags, 'window-end') || null,
-        articleCount: numberOrNull(firstTag(tags, 'article-count')),
-        scoreMean: numberOrNull(firstTag(tags, 'score-mean')),
-        scoreMedian: numberOrNull(firstTag(tags, 'score-median')),
-        scoreStdev: numberOrNull(firstTag(tags, 'score-stdev')),
-        shrinkageK: numberOrNull(firstTag(tags, 'shrinkage-k')),
-        populationMean: numberOrNull(firstTag(tags, 'population-mean')),
-        shrinkageFactor: numberOrNull(firstTag(tags, 'shrinkage-factor')),
+        articleCount: boundedOrNull(firstTag(tags, 'article-count'), 0, Number.MAX_SAFE_INTEGER),
+        scoreMean: boundedOrNull(firstTag(tags, 'score-mean'), 0, 100),
+        scoreMedian: boundedOrNull(firstTag(tags, 'score-median'), 0, 100),
+        scoreStdev: boundedOrNull(firstTag(tags, 'score-stdev'), 0, 100),
+        shrinkageK: boundedOrNull(firstTag(tags, 'shrinkage-k'), 0, Number.MAX_SAFE_INTEGER),
+        populationMean: boundedOrNull(firstTag(tags, 'population-mean'), 0, 100),
+        shrinkageFactor: boundedOrNull(firstTag(tags, 'shrinkage-factor'), 0, 1),
         perModuleMeans: content.per_module_means || {},
         predictions: content.predictions || null,
         topNamedSources: content.top_named_sources || null,

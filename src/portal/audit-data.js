@@ -151,25 +151,40 @@ export function mergeLocalResolutions(index, localResolutions) {
  *
  * @returns {{runs: Array, joinedBy: 'hash'|'url'|null}}
  */
-export function auditsForArticle(index, articleItem) {
+export function auditsForArticle(index, articleItem, priorHashesByUrl) {
     const hash = extraOf(articleItem).articleHash;
     if (hash) {
-        return { runs: index.aggregatesByHash.get(hash) || [], joinedBy: 'hash' };
+        const current = index.aggregatesByHash.get(hash) || [];
+        if (current.length) return { runs: current, joinedBy: 'hash', vintage: 'current' };
+        // 13.8 anchors published audit events to the vintage they
+        // audited, and the replaceable 30023's x moves on re-capture
+        // + republish — a current-hash-only join would silently lose
+        // every earlier audit. Prior capture vintages of the same URL
+        // are still TEXT-VERIFIED hash joins, to older text, and say
+        // so (vintage: 'prior').
+        const priors = (priorHashesByUrl && articleItem && articleItem.url)
+            ? (priorHashesByUrl.get(articleItem.url) || []) : [];
+        for (const ph of priors) {
+            if (ph === hash) continue;
+            const runs = index.aggregatesByHash.get(ph) || [];
+            if (runs.length) return { runs, joinedBy: 'hash', vintage: 'prior' };
+        }
+        return { runs: [], joinedBy: 'hash', vintage: 'current' };
     }
     const url = articleItem && articleItem.url;
     const runs = url ? (index.aggregatesByUrl.get(url) || []) : [];
-    return { runs, joinedBy: runs.length ? 'url' : null };
+    return { runs, joinedBy: runs.length ? 'url' : null, vintage: null };
 }
 
 /**
  * The latest aggregate for an article's card chip (or null), with the
  * join provenance so URL matches can carry their advisory marker.
  */
-export function latestAuditFor(index, articleItem) {
-    const { runs, joinedBy } = auditsForArticle(index, articleItem);
+export function latestAuditFor(index, articleItem, priorHashesByUrl) {
+    const { runs, joinedBy, vintage } = auditsForArticle(index, articleItem, priorHashesByUrl);
     if (!runs.length) return null;
     const a = runs[0];
-    return { final_score: a.finalScore, overall_confidence: a.confidence, joinedBy };
+    return { final_score: a.finalScore, overall_confidence: a.confidence, joinedBy, vintage };
 }
 
 /**
@@ -184,7 +199,7 @@ export function latestAuditFor(index, articleItem) {
  * Returns null when no usable aggregates exist (a dossier that is
  * pure prior is noise dressed as reputation).
  */
-export function dossierInputsForEntity(items, index, focusPubkey) {
+export function dossierInputsForEntity(items, index, focusPubkey, priorHashesByUrl) {
     const articles = (items || []).filter((i) => i.typeKey === 'article'
         && (i.event.tags || []).some((t) => t[0] === 'p' && t[1] === focusPubkey));
     if (!articles.length) return null;
@@ -194,9 +209,19 @@ export function dossierInputsForEntity(items, index, focusPubkey) {
     const auditedArticles = new Set();
     const unmappedBeats = new Set();
     let excludedForReview = 0;
+    let excludedUrlJoined = 0;
     for (const art of articles) {
-        const { runs } = auditsForArticle(index, art);
+        const { runs, joinedBy } = auditsForArticle(index, art, priorHashesByUrl);
         if (!runs.length) continue;
+        // URL joins are ADVISORY — "URL match, text unverified" on
+        // every chip that renders them. A reputation rollup is the
+        // one place an advisory join must NOT feed: scores would
+        // transfer across unverified text at full weight. Counted,
+        // never silently dropped.
+        if (joinedBy !== 'hash') {
+            excludedUrlJoined += runs.length;
+            continue;
+        }
         const artHash = extraOf(art).articleHash;
         if (artHash) hashes.add(artHash);
         // Latest USABLE judgment per auditor, per article — older runs
@@ -234,6 +259,7 @@ export function dossierInputsForEntity(items, index, focusPubkey) {
     return {
         auditedArticles: auditedArticles.size,
         excludedForReview,
+        excludedUrlJoined,
         aggregates: aggregates.map((a) => ({
             finalScore: a.finalScore,
             moduleContributions: a.moduleContributions || []
@@ -323,9 +349,19 @@ export function predictionsDue(index, localPredictions, { nowMs, windowDays = 90
         const t = Date.parse(p.horizonIso);
         return Number.isFinite(t) && t <= horizonLimit;
     }).sort((a, b) => String(a.horizonIso).localeCompare(String(b.horizonIso)));
-    const unscheduled = open.filter((p) => !p.horizonIso).length;
+    // Unscheduled open predictions are returned as a LIST, not just a
+    // count: the vendored scorer never emits horizon_iso (it
+    // hard-codes null), so for CLI-imported predictions the Resolve…
+    // affordance would otherwise be unreachable — the acceptance
+    // walk's resolution arm dead-ends on a count with no rows.
+    const unscheduledList = open.filter((p) => !p.horizonIso);
 
-    return { due, unscheduled, openCount: open.length };
+    return {
+        due,
+        unscheduled: unscheduledList.length,
+        unscheduledList,
+        openCount: open.length
+    };
 }
 
 /**

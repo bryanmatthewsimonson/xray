@@ -12,6 +12,47 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 13.9 — hardening.** `docs/SMOKE_TEST.md` gains §Phase 13:
+  the 24-step manual acceptance walk for the audit pipeline (import
+  refusal cases, the display-rule checks, publish resume, the
+  audit/assessment firewall on raw events, portal surfaces,
+  reconciliation), plus a docs-consistency pass across the NIP draft,
+  design note, and options surfaces. The phase-wide adversarial
+  review (46 confirmed findings) then hardened the cross-slice seams:
+  Options gains **Export audit ledger** (the audit IndexedDB is
+  precious — audits cost money); the predictions strip offers
+  **Resolve…** for unscheduled predictions (the scorer never dates
+  horizons); corrected re-imports update the ledger and re-publish
+  changed events; the portal joins audits across prior capture
+  vintages (marked "prior version") and joins module results by
+  coordinate.
+
+### Fixed
+
+- **Publish-path hash fork (blocking, predates Phase 13).** Articles
+  whose converted markdown contained `<` (inline small images, code
+  fences) were converted to markdown TWICE at publish — mangling the
+  published body and stamping an `x` hash different from the capture
+  hash audits anchor to. One conversion ever, with a byte-parity
+  regression test.
+- **Hostile relay events bounded at parse.** 30056–30060 parsers now
+  range-check every numeric tag; out-of-range values parse as
+  never-asserted (the review chip), absurd aggregates refuse to parse,
+  malformed contribution rows are dropped.
+- **Import-gate parity with the wire builders** — strict ISO `run_at`,
+  64-hex human auditor ids, strict `horizon_iso`, validated
+  `nostr_event` evidence: nothing imports (or files) that cannot
+  publish.
+- **Publish-identity correctness** — ledger marks record the
+  publishing pubkey; resume coordinates and resolution references are
+  minted at published addresses after a signing-identity switch;
+  stale-identity resolutions are re-keyed instead of dead-ended.
+- **RQ6 lifecycle closure** — late atomization re-emits the published
+  30058 with its claim link; claim deletion severs promotion links;
+  the back-reference map covers all capture vintages; revised
+  resolutions re-publish; URL-joined and sub-0.6-confidence inputs no
+  longer move dossier reputation.
+
 - **Phase 13.8 — audit publish path.** A new `epistemicAuditing`
   feature flag (default **off**, Options ▸ Advanced, with an explicit
   public-visibility disclosure) lets the reader's Publish batch also
