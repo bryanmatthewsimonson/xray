@@ -345,6 +345,22 @@ export const ForensicModel = {
         all[id] = record;
         await Storage.set(FINDINGS_KEY, all);
         return record;
+    },
+
+    /**
+     * Record a successful kind-1985 maneuver-mirror publish. Tracked
+     * SEPARATELY from `publishedAt` (kind 1985 is non-replaceable), so a
+     * rejected mirror retries while its 30062 stays published. Does not
+     * bump `updated`.
+     */
+    markMirrored: async (id) => {
+        const all = await Storage.get(FINDINGS_KEY, {});
+        const record = all[id];
+        if (!record) return null;
+        record.mirroredAt = Math.floor(Date.now() / 1000);
+        all[id] = record;
+        await Storage.set(FINDINGS_KEY, all);
+        return record;
     }
 };
 

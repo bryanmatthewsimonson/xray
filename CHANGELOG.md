@@ -23,6 +23,16 @@ Sections per release: **Added** (new features), **Changed**
   firewall holds by construction — a finding never carries `stance`,
   `rating-value`, `score`, or the `xray/assessment` namespace.
 
+- **Phase 14.3b — forensic publish wiring.** The reader's Publish flow
+  gains a flag-gated (`forensicPublishing`, default off) forensic batch:
+  behavioral findings (30062) → their kind-1985 maneuver mirrors → the
+  `revision/*` story-change edges (30055), each marked published in the
+  local ledger so a relay hiccup is resumable. A finding publishes
+  against a resolved subject pubkey (a tagged entity's keypair or an
+  external pubkey); subjects known only by label/handle wait for entity
+  linking. The `revision/*` edges moved out of the `assessmentPublishing`
+  link batch into this one.
+
 - **Phase 13.9 — hardening.** `docs/SMOKE_TEST.md` gains §Phase 13:
   the 24-step manual acceptance walk for the audit pipeline (import
   refusal cases, the display-rule checks, publish resume, the

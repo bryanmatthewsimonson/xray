@@ -1127,6 +1127,12 @@ Slices (one PR each):
   kind-1985 maneuver mirror, 30055 `revision/*` emission, the
   `forensicPublishing` flag, §30062/§30055 NIP text with the
   "structural-observation, not verdict" framing + firewall clause.
+- ✅ **14.3b** Publish wiring — `forensic-publish.js` selectors
+  (subject-pubkey resolution via the entity registry, staleness/mirror
+  gates) + a flag-gated reader publish batch (findings → mirrors →
+  revision edges), folded into the publish-summary. Revision edges leave
+  the `assessmentPublishing` link batch (they publish under
+  `forensicPublishing`).
 - ⏳ **14.4** Portal report lenses — corpus parser + subject/case lens views
   (evidentiary / executive / survivor / editor) + reconciliation.
 - ⏳ **14.5** LLM assist (flag-gated) — `suggested_by: llm:<model>` proposal
