@@ -564,6 +564,55 @@ everything before 13.13 below must work with the flag off.
 
 ---
 
+## Phase 14 — Forensic findings (behavioral-pattern layer)
+
+The criminology layer (`docs/CRIMINOLOGY_DESIGN.md`): name the
+*maneuvers* a subject performs around the truth, evidence-anchored, with
+**no verdict on intent**. Local-first; publishing stays off until the
+`forensicPublishing` flag is enabled (14.4 portal surfaces not yet
+built). The bar lives in the reader **under the claims bar and the
+Epistemic-audit bar** — three separate, firewalled blocks.
+
+**Capture + name a finding (reader)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 14.1 | Capture a page with named people making arguments (a debate/op-ed). Below the claims bar, find the **"Forensic findings"** section | ✅ empty-state prompt: "…name a maneuver and bind it to evidence. No verdicts — structure only, with a required counter-read." |
+| 14.2 | Select a person's name in the article → entity tagger → create/tag them as an entity (this becomes a selectable subject) | ✅ entity mark renders |
+| 14.3 | Select an offending span → **+ Finding** | ✅ modal "Name a maneuver" opens; the selected span is pre-filled as **Evidence step 1** |
+| 14.4 | In the modal: pick the **Subject** (your tagged entity) + a **Role** (apologist/critic/…); pick a **Maneuver** from the grouped picker | ✅ the guide block shows the maneuver's **definition + source citation + "Would make it NOT this:"** counter-indicators |
+| 14.5 | Confirm there is **no stance / score / confidence control** anywhere in the modal | ✅ none exists (the whole point) |
+| 14.6 | **+ evidence step** → 📍 → modal minimizes → select a second span → Done | ✅ a Step 2 row appears with the marked span; the badge later shows `·2` |
+| 14.7 | Fill **Basis** (`quoted`/…), an optional **Note**, leave **Counter-note blank**, Save | ✅ **blocked**: "A counter-note is required — give the alternative / exonerating reading." |
+| 14.8 | Clear the maneuver, Save | ✅ blocked: "Pick a maneuver." |
+| 14.9 | Clear all evidence quotes, Save | ✅ blocked: "Add at least one evidence step with a quote." |
+| 14.10 | Fill the counter-note → Save | ✅ a finding row appears: subject label + **maneuver/role/basis badges** + the lead quote |
+| 14.11 | **Set baseline…** → pick the subject → descriptive register note → Save | ✅ toast "Baseline saved" (no score field anywhere) |
+| 14.12 | ✎ edit the finding → change note/basis/role → Save; then 🗑 delete | ✅ edits persist; delete confirms and removes the row |
+| 14.13 | Reload the reader tab on the same URL | ✅ the finding reappears (matched to the article by its evidence-anchor source URL) |
+| 14.14 | DevTools console: `chrome.storage.local.get(['behavioral_findings','forensic_baselines'], console.log)` | ✅ records carry `subject_ref`, `role`, `maneuver`, ordered `anchors[]`, `counter_note`, `basis`, `suggested_by` — and **no** `stance`/`intent`/`confidence`/`lying` field |
+
+**Publish (flag-gated)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 14.15 | Settings → Advanced → Experimental: confirm **"Publish forensic findings"** is **unchecked** by default (`xray:flags` → `forensicPublishing` absent/false) | ✅ off by default |
+| 14.16 | With the flag **off**, Publish the article | ✅ summary names article/claims/etc. but **no `30062` / forensic-mirror / revision events** |
+| 14.17 | A finding whose subject is **only a label/handle** (not a tagged keyed entity) | ✅ does **not** publish even with the flag on — it waits for entity linking (the subject has no pubkey) |
+| 14.18 | Enable **`forensicPublishing`** → Publish on an article whose finding's subject **is** a tagged entity | ✅ a forensic sub-batch toast; summary lists `N findings` (+ `finding mirrors`) (+ `revision edges` if any); the finding row gains a **🌐** badge |
+| 14.19 | Re-publish with no changes | ✅ findings are **not** re-emitted (only fresh/edited; staleness gate) |
+| 14.20 | Inspect the published **kind-30062** on a relay explorer | ✅ carries `p`=subject (slot-4 `subject`), `l`=maneuver under **`xray/forensic`**, `role`, ordered `maneuver-step` tags, `basis`, and content = note + `### Counter-read`. **The firewall:** no `stance`, no `rating-value`, no `xray/assessment` label |
+| 14.21 | The finding's **kind-1985 mirror** | ✅ present once; `L`/`l` `xray/forensic` + `p`=subject + `r`; no `score`, no intent |
+| 14.22 | (If you created a `revision/*` edge between two published claims) inspect the **kind-30055** | ✅ `relationship` = `narrative-patch`/`recharacterizes`/`walks-back`, directional (source = earlier statement) |
+
+**Firefox**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 14.23 | Repeat 14.3, 14.7, 14.18 on Firefox ≥128 | ✅ identical behavior |
+
+---
+
 ## Phase 6 — Entity sync
 
 Run on **Device A** (your normal profile) and **Device B** (a

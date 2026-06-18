@@ -522,6 +522,8 @@ async function loadAdvanced() {
         isEnabled('assessmentPublishing');
     document.getElementById('pref-epistemic-auditing').checked =
         isEnabled('epistemicAuditing');
+    document.getElementById('pref-forensic-publishing').checked =
+        isEnabled('forensicPublishing');
 
     const overrides = prefs.config_overrides || {};
     document.getElementById('pref-cache-enabled').checked =
@@ -558,6 +560,8 @@ async function saveAdvanced() {
     await setOverride('assessmentPublishing', publishJudgments ? true : null);
     const publishAudits = document.getElementById('pref-epistemic-auditing').checked;
     await setOverride('epistemicAuditing', publishAudits ? true : null);
+    const publishFindings = document.getElementById('pref-forensic-publishing').checked;
+    await setOverride('forensicPublishing', publishFindings ? true : null);
 
     flash(document.getElementById('advanced-status'), 'Saved.');
 }
