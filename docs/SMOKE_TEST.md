@@ -579,7 +579,7 @@ Epistemic-audit bar** — three separate, firewalled blocks.
 |---|---|---|
 | 14.1 | Capture a page with named people making arguments (a debate/op-ed). Below the claims bar, find the **"Forensic findings"** section | ✅ empty-state prompt: "…name a maneuver and bind it to evidence. No verdicts — structure only, with a required counter-read." |
 | 14.2 | Select a person's name in the article → entity tagger → create/tag them as an entity (this becomes a selectable subject) | ✅ entity mark renders |
-| 14.3 | Select an offending span → **+ Finding** | ✅ modal "Name a maneuver" opens; the selected span is pre-filled as **Evidence step 1** |
+| 14.3 | Select an offending span → in the tagger popover click **🔎 Mark finding** (or scroll to the Forensic findings section → **+ Finding**) | ✅ modal "Name a maneuver" opens; the selected span is pre-filled as **Evidence step 1** |
 | 14.4 | In the modal: pick the **Subject** (your tagged entity) + a **Role** (apologist/critic/…); pick a **Maneuver** from the grouped picker | ✅ the guide block shows the maneuver's **definition + source citation + "Would make it NOT this:"** counter-indicators |
 | 14.5 | Confirm there is **no stance / score / confidence control** anywhere in the modal | ✅ none exists (the whole point) |
 | 14.6 | **+ evidence step** → 📍 → modal minimizes → select a second span → Done | ✅ a Step 2 row appears with the marked span; the badge later shows `·2` |

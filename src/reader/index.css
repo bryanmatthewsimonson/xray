@@ -1004,7 +1004,8 @@ body {
   border-top: 1px solid var(--xr-border);
 }
 
-.xr-tagger-popover__claim-btn {
+.xr-tagger-popover__claim-btn,
+.xr-tagger-popover__finding-btn {
   width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--xr-border);
@@ -1018,9 +1019,16 @@ body {
   transition: background 120ms ease, border-color 120ms ease;
 }
 
+.xr-tagger-popover__finding-btn { margin-top: 6px; }
+
 .xr-tagger-popover__claim-btn:hover {
   background: color-mix(in srgb, var(--xr-accent) 12%, transparent);
   border-color: color-mix(in srgb, var(--xr-accent) 50%, transparent);
+}
+
+.xr-tagger-popover__finding-btn:hover {
+  background: color-mix(in srgb, var(--xr-warning) 14%, transparent);
+  border-color: color-mix(in srgb, var(--xr-warning) 55%, transparent);
 }
 
 /* ---------------- claim marks in the article body (Phase 5 C2) ---------------- */

@@ -801,6 +801,21 @@ function renderReader() {
                 toast('Claim saved', 'success', 2000);
                 await refreshClaimsBar();
             }
+        },
+        onFinding: async ({ text, anchor }) => {
+            // Open the finding modal seeded with the selected span as the
+            // first evidence anchor — the discoverable path to naming a
+            // maneuver (the "+ Finding" bar button is the other).
+            const result = await openFindingModal({
+                subjectChoices: subjectChoicesFromArticle(),
+                anchorContext:  { container: $('.xr-article__body') },
+                seedAnchor:     { quote: text, selector: anchor },
+                sourceRef:      { url: state.article.url, title: state.article.title || '' }
+            });
+            if (result) {
+                toast(result.deleted ? 'Finding removed' : 'Finding saved', 'success', 1500);
+                await refreshFindingsBar();
+            }
         }
     });
 
