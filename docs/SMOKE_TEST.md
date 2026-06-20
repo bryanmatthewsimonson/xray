@@ -605,11 +605,20 @@ Epistemic-audit bar** — three separate, firewalled blocks.
 | 14.21 | The finding's **kind-1985 mirror** | ✅ present once; `L`/`l` `xray/forensic` + `p`=subject + `r`; no `score`, no intent |
 | 14.22 | (If you created a `revision/*` edge between two published claims) inspect the **kind-30055** | ✅ `relationship` = `narrative-patch`/`recharacterizes`/`walks-back`, directional (source = earlier statement) |
 
+**Portal (14.4)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 14.23 | Open the portal → **Library** → the **Findings** facet | ✅ published findings list with subject + maneuver; click one → inspector shows the maneuver, the evidence chain, and the **counter-read** (no score) |
+| 14.24 | Open the subject's **entity view** (the person you tagged) | ✅ a **Forensic findings** block beside the audit dossier, with a lens selector |
+| 14.25 | Toggle the four lenses — **Evidentiary / Executive / Survivor / Editor** | ✅ same findings, different renders: full evidence + counter-reads / a maneuver tally + one-liners / plain-language with the fair counter-read / a prose draft. **Never a score, never averaged** |
+| 14.26 | Reconciliation line after publishing a finding | ✅ the `30062` counts toward "ledger says N / relays confirm M"; removing the relay + resyncing moves it to **missing** |
+
 **Firefox**
 
 | # | Test | Pass criteria |
 |---|---|---|
-| 14.23 | Repeat 14.3, 14.7, 14.18 on Firefox ≥128 | ✅ identical behavior |
+| 14.27 | Repeat 14.3, 14.7, 14.18, 14.25 on Firefox ≥128 | ✅ identical behavior |
 
 ---
 

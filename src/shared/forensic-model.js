@@ -335,13 +335,17 @@ export const ForensicModel = {
      * Record a successful kind-30062 publish. Does NOT bump `updated`,
      * so edits after a publish correctly re-emit next time.
      */
-    markPublished: async (id, eventId, pubkey) => {
+    markPublished: async (id, eventId, pubkey, dTag) => {
         const all = await Storage.get(FINDINGS_KEY, {});
         const record = all[id];
         if (!record) return null;
         record.publishedAt = Math.floor(Date.now() / 1000);
         if (eventId) record.publishedEventId = eventId;
         if (pubkey)  record.publishedPubkey = pubkey;
+        // The wire d-tag (find:<sha16…>) — recorded so the portal can
+        // rebuild the 30062 coordinate for reconciliation without
+        // re-deriving the anchors hash.
+        if (dTag) record.publishedDTag = dTag;
         all[id] = record;
         await Storage.set(FINDINGS_KEY, all);
         return record;

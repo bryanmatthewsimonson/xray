@@ -25,6 +25,7 @@ import { ClaimModel } from '../shared/claim-model.js';
 import { AssessmentModel } from '../shared/assessment-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import { EntityModel } from '../shared/entity-model.js';
+import { ForensicModel } from '../shared/forensic-model.js';
 import { listArticles } from '../shared/archive-cache.js';
 import { listRuns, listPredictions, listResolutions } from '../shared/audit/audit-cache.js';
 import {
@@ -37,7 +38,7 @@ import { Utils } from '../shared/utils.js';
 
 // 30060 (snapshots) and 30061 (disputes) have no publish path in 13.8
 // — they stay 'no-ledger' below, never an anomaly.
-const LEDGERED_KINDS = new Set([30023, 30040, 30054, 30055, 0, 30056, 30057, 30058, 30059]);
+const LEDGERED_KINDS = new Set([30023, 30040, 30054, 30055, 0, 30056, 30057, 30058, 30059, 30062]);
 
 async function sha16(s) {
     return (await Crypto.sha256(String(s))).slice(0, 16);
@@ -230,6 +231,26 @@ export async function loadLocalLedger({ pubkeys = [] } = {}) {
             });
         }
     } catch (err) { Utils.error('Reconcile: resolution ledger scan failed', err); }
+
+    try {
+        const findings = await ForensicModel.getAll();
+        for (const f of Object.values(findings || {})) {
+            if (!f || !f.publishedAt || !f.publishedEventId) continue;
+            // The wire address rebuilds from the recorded d-tag +
+            // publishing pubkey; without a stored d-tag we still match by
+            // exact event id (the primary path).
+            const addrs = (f.publishedPubkey && f.publishedDTag)
+                ? [`30062:${f.publishedPubkey}:${f.publishedDTag}`] : [];
+            entries.push({
+                source: 'finding',
+                localId: f.id,
+                label: `${f.maneuver} (${(f.subject_ref && f.subject_ref.label) || ''})`.slice(0, 60),
+                publishedAt: f.publishedAt,
+                publishedEventId: f.publishedEventId,
+                addrs
+            });
+        }
+    } catch (err) { Utils.error('Reconcile: finding ledger scan failed', err); }
 
     return entries;
 }

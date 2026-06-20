@@ -73,7 +73,7 @@ Phase 13 ███████████░░░░░░░░░  in progre
                                 pending smoke-test
 Phase 14 ░░░░░░░░░░░░░░░░░░░░  design agreed 2026-06-14 — forensic findings:
                                 behavioral-pattern layer (docs/CRIMINOLOGY_DESIGN.md).
-                                builds on Phase 13; 14.1–14.3 built, 14.4–14.5 pending
+                                builds on Phase 13; 14.1–14.4 built, 14.5 pending
 ```
 
 Parity with the v4.2 userscript is reached; the project now operates as a
@@ -1133,8 +1133,12 @@ Slices (one PR each):
   revision edges), folded into the publish-summary. Revision edges leave
   the `assessmentPublishing` link batch (they publish under
   `forensicPublishing`).
-- ⏳ **14.4** Portal report lenses — corpus parser + subject/case lens views
-  (evidentiary / executive / survivor / editor) + reconciliation.
+- ✅ **14.4** Portal report lenses — `30062` joins the corpus + Library
+  "Findings" facet + inspector section; a **forensic-findings block** on
+  the subject/case views renders the four lenses (evidentiary / executive
+  / survivor / editor) over the same findings, never averaged; `30062`
+  joins `LEDGERED_KINDS` for reconciliation (the wire d-tag recorded at
+  publish).
 - ⏳ **14.5** LLM assist (flag-gated) — `suggested_by: llm:<model>` proposal
   pass enforcing the anchor + counter-note + basis discipline.
 

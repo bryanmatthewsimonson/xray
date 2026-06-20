@@ -2702,7 +2702,7 @@ async function publish() {
                 btn.textContent = `Publishing (${fBase + (++fStep)}/${totalEvents})…`;
                 let landed = false;
                 try {
-                    const { event: unsigned } = await buildBehavioralFindingEvent({
+                    const { event: unsigned, dTag } = await buildBehavioralFindingEvent({
                         subjectPubkey: sel.subjectPubkey,
                         maneuver:      sel.finding.maneuver,
                         role:          sel.finding.role,
@@ -2719,7 +2719,7 @@ async function publish() {
                         if (resp.results.successful > 0) {
                             findingResults.ok++;
                             landed = true;
-                            try { await ForensicModel.markPublished(sel.finding.id, resp.signedEvent?.id || null, userPubkey); }
+                            try { await ForensicModel.markPublished(sel.finding.id, resp.signedEvent?.id || null, userPubkey, dTag); }
                             catch (_) { /* best-effort */ }
                         } else {
                             findingResults.fail++;
