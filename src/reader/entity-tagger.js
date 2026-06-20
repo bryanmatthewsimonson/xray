@@ -32,6 +32,7 @@ let currentSelectionRange = null;
 let currentSelectionText  = '';
 let onTagCallback         = null;
 let onClaimCallback       = null;
+let onFindingCallback     = null;
 let taggerRoot            = null;
 
 /**
@@ -40,16 +41,18 @@ let taggerRoot            = null;
  *
  * @param {{
  *   container: HTMLElement,
- *   onTag:     (ref)  => void,
- *   onClaim?:  (info) => void  // called when the popover's "Add as
- *                              // claim" row is clicked; the reader
- *                              // opens the claim modal from there
+ *   onTag:      (ref)  => void,
+ *   onClaim?:   (info) => void, // the popover's "Add as claim" row
+ *   onFinding?: (info) => void  // the popover's "Mark finding" row —
+ *                               // the reader opens the finding modal
+ *                               // seeded with the selected span
  * }} opts
  */
-export function installEntityTagger({ container, onTag, onClaim }) {
+export function installEntityTagger({ container, onTag, onClaim, onFinding }) {
     if (!container) return () => {};
     onTagCallback = onTag;
     onClaimCallback = onClaim || null;
+    onFindingCallback = onFinding || null;
     taggerRoot = container;
 
     const onMouseUp = (ev) => {
@@ -150,6 +153,9 @@ function openPopover({ x, y, initialText }) {
         <button type="button" class="xr-tagger-popover__claim-btn" title="Open the claim form with this selection">
           📋 Add as claim
         </button>
+        <button type="button" class="xr-tagger-popover__finding-btn" title="Name a behavioral maneuver, anchored to this selection">
+          🔎 Mark finding
+        </button>
       </div>
     `;
 
@@ -227,6 +233,28 @@ function openPopover({ x, y, initialText }) {
             currentSelectionText  = '';
             if (typeof onClaimCallback === 'function') {
                 onClaimCallback({ text, context, anchor });
+            }
+        });
+    }
+
+    // "Mark finding" handoff — same cloned-range capture as the claim
+    // path, handed to the reader so it can open the finding modal with
+    // this span as the seed evidence anchor.
+    const findingBtn = popover.querySelector('.xr-tagger-popover__finding-btn');
+    if (findingBtn) {
+        findingBtn.addEventListener('click', () => {
+            const text = currentSelectionText;
+            const captured = currentSelectionRange
+                ? captureFromRange(currentSelectionRange, taggerRoot)
+                : null;
+            const anchor = captured ? captured.selectors : null;
+            closePopover();
+            const sel = window.getSelection();
+            if (sel) sel.removeAllRanges();
+            currentSelectionRange = null;
+            currentSelectionText  = '';
+            if (typeof onFindingCallback === 'function') {
+                onFindingCallback({ text, anchor });
             }
         });
     }

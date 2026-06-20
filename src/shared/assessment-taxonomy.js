@@ -102,6 +102,28 @@ export function isSymmetricRelationship(relationship) {
     return SYMMETRIC_RELATIONSHIPS.includes(relationship);
 }
 
+/**
+ * Phase 14 (docs/CRIMINOLOGY_DESIGN.md) diachronic "story-change"
+ * relationship values, additive to the kind-30055 link substrate.
+ * All DIRECTIONAL: source = the earlier statement, target = the later.
+ * Kept OUT of CLAIM_RELATIONSHIPS so the Phase-11 link picker is
+ * unchanged; the linker validates against the union, and a forensic
+ * finding (kind 30062) may characterize such an edge.
+ *
+ *   - narrative-patch  B is a new explanation added after A was damaged,
+ *                      so A's conclusion survives ("covered, not solved")
+ *   - recharacterizes  B redefines a key term from A to dodge evidence
+ *                      (the diachronic face of defense/definitional-retreat)
+ *   - walks-back       B retreats from / softens A once A was cornered
+ */
+export const REVISION_RELATIONSHIPS = Object.freeze([
+    'narrative-patch', 'recharacterizes', 'walks-back'
+]);
+
+export function isRevisionRelationship(relationship) {
+    return REVISION_RELATIONSHIPS.includes(relationship);
+}
+
 // ------------------------------------------------------------------
 // Provenance — the manual-now / LLM-ready seam.
 // ------------------------------------------------------------------

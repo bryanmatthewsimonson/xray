@@ -62,14 +62,18 @@ Phase 12 ████████████████████  complete 
                                 portal (docs/PORTAL_DESIGN.md). 12.1–12.7
                                 shipped incl. adversarial-review fixes;
                                 §Phase 12 smoke-run pending
-Phase 13 ███░░░░░░░░░░░░░░░░░  in progress — epistemic audits
+Phase 13 ███████████░░░░░░░░░  in progress — epistemic audits
                                 (docs/EPISTEMIC_AUDIT_DESIGN.md; design
                                 accepted 2026-06-11, all eight review
                                 questions answered, the recovered
                                 philosophy vendored normatively at
                                 docs/PHILOSOPHY.md). Kinds 30056–30061
-                                confirmed; implementation slices 13.1+
-                                under way
+                                confirmed; 13.1–13.5 merged, 13.6–13.9
+                                (panel / portal / publish / hardening)
+                                pending smoke-test
+Phase 14 ░░░░░░░░░░░░░░░░░░░░  design agreed 2026-06-14 — forensic findings:
+                                behavioral-pattern layer (docs/CRIMINOLOGY_DESIGN.md).
+                                builds on Phase 13; 14.1–14.4 built, 14.5 pending
 ```
 
 Parity with the v4.2 userscript is reached; the project now operates as a
@@ -1076,6 +1080,77 @@ Implementation slices 13.1+ are in progress.
   (URL-joined + sub-0.6 contributions excluded), portal prior-vintage
   joins + coordinate-based module joins, Resolve… for unscheduled
   predictions, and the promised audit-ledger export. — #70
+
+## Phase 14 — Forensic findings (behavioral-pattern layer) ⏳ design agreed
+
+**Builds on Phase 13 (the epistemic audit).** Phase 13 must land on `main`
+first; this layer sits on top of it and is a *distinct* feature. The two use
+**disjoint wire kinds** — the audit owns `30056–30061` (+ `epistemicAuditing`
+flag), so this layer takes **`30062`** for `BehavioralFinding` (+ a separate
+`forensicPublishing` flag). New criminology development is paused until the
+Phase 13 chain merges, at which point this branch rebases onto it.
+
+Where Phase 11 grades whether a *claim* is true, Phase 14 names what a
+*subject* is doing around the truth — an evasion, a defense, a self-serving
+revision — and binds it to evidence, **without a verdict on honesty or
+intent**. A **behavioral finding** (new kind `30062`) targets a subject (the
+Phase 9 identity layer) in a declared **role** (apologist / critic /
+institution / witness / survivor), names a **maneuver** from a taxonomy
+seeded from the criminology / thought-reform canon (Sykes & Matza
+neutralization, Freyd/DARVO, Lifton thought-reform, Popper/Lakatos immunizing
+defenses, Finkelhor/Craven grooming sequence, statement-analysis revision),
+and carries an **ordered evidence chain** plus a **required counter-note**
+(the alternative reading). No stance, no score — a bounded `basis` enum
+(`quoted` / `paraphrased` / `behavioral-cue` / `structural-inference`)
+records *how we know*. Diachronic story-changes extend kind `30055` with
+directional `revision/*` edges (`narrative-patch` / `recharacterizes` /
+`walks-back`). Local-first, publish-ready (flag-gated `forensicPublishing`,
+kind-1985 mirror), LLM-ready (`suggested_by`). The portal renders the same
+findings as Dawn McCarty's four report lenses (evidentiary / executive /
+survivor / editor). Companion to — not a fork of — the assessment layer.
+
+Full design, wire formats, methodology rules, and the canon→vocabulary map:
+[`docs/CRIMINOLOGY_DESIGN.md`](CRIMINOLOGY_DESIGN.md) — design agreed
+2026-06-14.
+
+Slices (one PR each):
+
+- ⏳ **14.1** Foundation — `forensic-taxonomy.js` (six families + role/basis
+  enums + indicators/counter-indicators), `forensic-model.js` +
+  `behavioral_findings` store, baselines, `evidence-linker.js` `revision/*`
+  values; tests. No UI, no wire.
+- ⏳ **14.2** Capture UI — finding modal (subject+role, ordered anchors,
+  note + required counter-note, basis), findings bar, baseline marking,
+  revision-link flow.
+- ✅ **14.3** Wire builders + NIP draft — `30062`
+  `buildBehavioralFindingEvent` + `parseBehavioralFindingEvent` + the
+  kind-1985 maneuver mirror, 30055 `revision/*` emission, the
+  `forensicPublishing` flag, §30062/§30055 NIP text with the
+  "structural-observation, not verdict" framing + firewall clause.
+- ✅ **14.3b** Publish wiring — `forensic-publish.js` selectors
+  (subject-pubkey resolution via the entity registry, staleness/mirror
+  gates) + a flag-gated reader publish batch (findings → mirrors →
+  revision edges), folded into the publish-summary. Revision edges leave
+  the `assessmentPublishing` link batch (they publish under
+  `forensicPublishing`).
+- ✅ **14.4** Portal report lenses — `30062` joins the corpus + Library
+  "Findings" facet + inspector section; a **forensic-findings block** on
+  the subject/case views renders the four lenses (evidentiary / executive
+  / survivor / editor) over the same findings, never averaged; `30062`
+  joins `LEDGERED_KINDS` for reconciliation (the wire d-tag recorded at
+  publish).
+- ⏳ **14.5** LLM assist (flag-gated, **in-extension Anthropic call**) — a
+  user-invoked pass that proposes **all** capture artifacts (entities,
+  claims, assessments, relationships, findings — and baselines / revision
+  edges) for human review, created with `suggested_by: llm:<model>`;
+  enforces the anchor + counter-note + basis discipline; nothing
+  auto-saves or auto-publishes. Implementation prompt:
+  [`docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md`](PHASE_14_5_LLM_ASSIST_KICKOFF.md).
+
+Acceptance demo: the source video itself
+([`0axZ8EGLaxQ`](https://www.youtube.com/watch?v=0axZ8EGLaxQ)) — profile both
+interlocutors (the symmetry check), with evidence chains, counter-notes, and
+diachronic revision edges visible across the four lenses.
 
 ---
 

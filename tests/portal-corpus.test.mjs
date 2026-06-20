@@ -58,6 +58,8 @@ test('CONTENT_KINDS pins the full corpus kind list from the design note', () => 
         30053, 30054, 30055,
         // Phase 13.7: the audit family (docs/EPISTEMIC_AUDIT_DESIGN.md)
         30056, 30057, 30058, 30059, 30060, 30061,
+        // Phase 14.4: behavioral findings (docs/CRIMINOLOGY_DESIGN.md)
+        30062,
         30078, 32125, 32126
     ]);
 });

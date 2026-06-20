@@ -18,6 +18,7 @@
 // snapshot canonicalizer — no storage access here.
 
 import { isLocalClaimId, parseClaimCoord, buildClaimCoord } from './claim-ref.js';
+import { REVISION_RELATIONSHIPS } from './assessment-taxonomy.js';
 
 /**
  * Wire-readiness of one claim ref. Returns
@@ -86,6 +87,9 @@ export function selectLinksToPublish({ links, claims, canon }) {
     const out = [];
     for (const link of Object.values(links || {})) {
         if (link.relationship === 'contextualizes') continue;
+        // The Phase-14 `revision/*` story-change edges publish under
+        // `forensicPublishing` (forensic-publish.js), not here.
+        if (REVISION_RELATIONSHIPS.includes(link.relationship)) continue;
         if (link.publishedAt && (link.updated || 0) <= link.publishedAt) continue;
         const source = claimWireInfo(claims, canon(link.source_claim_id), link.source_snapshot || {});
         const target = claimWireInfo(claims, canon(link.target_claim_id), link.target_snapshot || {});

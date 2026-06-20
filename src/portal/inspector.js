@@ -90,6 +90,34 @@ function renderAuditSection(host, audit) {
     host.appendChild(section);
 }
 
+// Behavioral finding (14.4): the named maneuver + its ordered evidence
+// chain + the REQUIRED counter-read. No score, no verdict — the field
+// table and this section never assert intent.
+function renderFindingSection(host, finding) {
+    const section = el('div', 'xr-inspector__finding');
+    section.appendChild(el('h3', 'xr-case__heading', 'Behavioral finding'));
+    section.appendChild(el('div', 'xr-inspector__mono',
+        `${finding.maneuver} · ${finding.role || 'subject'} · basis ${finding.basis || '—'}`
+        + (finding.subjectPubkey ? ` · subject ${shortKey(finding.subjectPubkey)}` : '')));
+    const anchors = finding.anchors || [];
+    section.appendChild(el('h4', 'xr-inspector__sub',
+        `Evidence (${anchors.length} step${anchors.length === 1 ? '' : 's'})`));
+    anchors.forEach((a, i) => {
+        if (!a.quote) return;
+        const row = el('div', 'xr-inspector__finding-anchor');
+        row.appendChild(el('span', 'xr-inspector__mono', `[${i}]`));
+        row.appendChild(el('span', null, truncate(a.quote, 140)));
+        section.appendChild(row);
+    });
+    if (finding.note) {
+        section.appendChild(el('h4', 'xr-inspector__sub', 'Note'));
+        section.appendChild(el('div', null, finding.note));
+    }
+    section.appendChild(el('h4', 'xr-inspector__sub', 'Counter-read (required)'));
+    section.appendChild(el('div', null, finding.counterNote || '—'));
+    host.appendChild(section);
+}
+
 const STATUS_TEXT = {
     'confirmed':   ['✓ in ledger & on relays', 'xr-badge--agree'],
     'remote-only': ['◌ remote-only — not in this device\'s ledger', 'xr-badge--case'],
@@ -191,6 +219,11 @@ export function renderInspector(host, item, { status = 'no-ledger', onClose, aud
     // 13.7: the audit record for articles, when any run anchors here.
     if (audit && audit.runs && audit.runs.length > 0) {
         renderAuditSection(host, audit);
+    }
+
+    // 14.4: the behavioral finding's maneuver + evidence chain + counter-read.
+    if (item.kind === 30062 && item.parsedFinding) {
+        renderFindingSection(host, item.parsedFinding);
     }
 
     const details = el('details', 'xr-inspector__raw');

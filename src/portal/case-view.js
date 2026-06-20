@@ -11,6 +11,7 @@ import { el, svgEl, clear, truncate } from './dom.js';
 import { kindLabel, TYPE_DEFS } from './library.js';
 import { buildBuckets } from './timeline.js';
 import { renderDossierBlock } from './dossier-block.js';
+import { renderFindingsBlock } from './findings-block.js';
 
 function latestAssessmentByCoord(items) {
     const map = new Map();
@@ -42,7 +43,7 @@ function contradictedCoords(items) {
  *                                      onOpenGraph(pubkey), onOpenItem(item)}
  */
 export function renderCaseView(host, params) {
-    const { items, entityIndex, casePubkey, callbacks, dossier, populationMean } = params;
+    const { items, entityIndex, casePubkey, callbacks, dossier, populationMean, findings = [] } = params;
     clear(host);
 
     const caseEnt = entityIndex[casePubkey];
@@ -89,6 +90,8 @@ export function renderCaseView(host, params) {
     // --- Audit dossier (13.7) — the design assigns the block to
     // entity AND case views; a case is a pubkey-keyed entity.
     renderDossierBlock(host, dossier, populationMean);
+    // --- Forensic findings (14.4) — the four lenses, beside the dossier.
+    renderFindingsBlock(host, findings, { subjectName: caseName || 'this case' });
 
     // --- publish-density strip ---
     const { buckets } = buildBuckets(everything);

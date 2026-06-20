@@ -12,6 +12,36 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 14.3 — forensic wire format (kind `30062`).** New
+  `buildBehavioralFindingEvent` (kind 30062 BehavioralFinding) +
+  `parseBehavioralFindingEvent` + a kind-1985 maneuver mirror, behind a
+  new `forensicPublishing` flag (default off). The directional
+  `revision/*` story-change values (`narrative-patch`,
+  `recharacterizes`, `walks-back`) join kind 30055. ⚠️ Wire-format
+  change: a new event kind and three new 30055 relationship values, both
+  specified in `docs/NIP_DRAFT.md` §30062/§30055. The audit/assessment
+  firewall holds by construction — a finding never carries `stance`,
+  `rating-value`, `score`, or the `xray/assessment` namespace.
+
+- **Phase 14.3b — forensic publish wiring.** The reader's Publish flow
+  gains a flag-gated (`forensicPublishing`, default off) forensic batch:
+  behavioral findings (30062) → their kind-1985 maneuver mirrors → the
+  `revision/*` story-change edges (30055), each marked published in the
+  local ledger so a relay hiccup is resumable. A finding publishes
+  against a resolved subject pubkey (a tagged entity's keypair or an
+  external pubkey); subjects known only by label/handle wait for entity
+  linking. The `revision/*` edges moved out of the `assessmentPublishing`
+  link batch into this one.
+
+- **Phase 14.4 — forensic portal lenses.** The "My Archive" portal reads
+  behavioral findings: kind `30062` joins the corpus query + a "Findings"
+  Library facet + an inspector section (maneuver + evidence chain +
+  counter-read). The subject (entity) and case views gain a
+  **forensic-findings block** that renders the same findings through four
+  report lenses — **evidentiary / executive / survivor / editor** — never
+  averaged or scored. `30062` joins the reconciliation ledger (the wire
+  d-tag is recorded at publish so the coordinate rebuilds).
+
 - **Phase 13.9 — hardening.** `docs/SMOKE_TEST.md` gains §Phase 13:
   the 24-step manual acceptance walk for the audit pipeline (import
   refusal cases, the display-rule checks, publish resume, the

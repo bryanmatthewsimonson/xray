@@ -704,6 +704,39 @@ button.xr-badge--case { cursor: pointer; background: transparent; }
 .xr-view__dossier-line--dim { color: var(--xr-text-dim); }
 .xr-view__dossier-modules { display: flex; gap: 6px; flex-wrap: wrap; }
 
+/* Forensic findings block (14.4) — the four lenses. */
+.xr-view__findings {
+  margin: 10px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--xr-border, #333);
+  border-left: 3px solid var(--xr-warning, #fbbf24);
+  border-radius: 6px;
+  background: var(--xr-surface);
+  font-size: 12px;
+}
+.xr-findings-lens { display: flex; gap: 4px; margin: 8px 0; flex-wrap: wrap; }
+.xr-findings-lens__btn {
+  padding: 3px 10px; border-radius: 999px; font-size: 11.5px; cursor: pointer;
+  background: var(--xr-surface-2, #2e2e2e); color: var(--xr-text); border: 1px solid var(--xr-border, #333);
+}
+.xr-findings-lens__btn--active {
+  border-color: var(--xr-warning, #fbbf24);
+  background: color-mix(in srgb, var(--xr-warning, #fbbf24) 20%, transparent);
+}
+.xr-findings-lens__body { display: flex; flex-direction: column; gap: 8px; }
+.xr-finding-lens-intro { color: var(--xr-text-dim); margin: 0; }
+.xr-finding-row { display: flex; flex-direction: column; gap: 4px; padding-bottom: 6px; border-bottom: 1px solid var(--xr-border, #333); }
+.xr-finding-row__head { font-weight: 600; }
+.xr-finding-row__quote { margin: 0; padding-left: 10px; border-left: 2px solid var(--xr-border, #333); color: var(--xr-text-dim); font-style: italic; }
+.xr-finding-row__note { color: var(--xr-text); }
+.xr-finding-row__counter { color: var(--xr-warning, #fbbf24); }
+.xr-finding-tally { display: flex; gap: 6px; flex-wrap: wrap; }
+.xr-finding-line { color: var(--xr-text-dim); }
+.xr-finding-editor { white-space: pre-wrap; font: inherit; margin: 0; color: var(--xr-text); }
+.xr-inspector__finding { margin-top: 12px; }
+.xr-inspector__sub { margin: 8px 0 4px; font-size: 12px; color: var(--xr-text-dim); }
+.xr-inspector__finding-anchor { display: flex; gap: 8px; font-size: 12px; }
+
 /* Resolve… modal. */
 .xr-resolve {
   position: fixed;

@@ -171,8 +171,11 @@ test('EMPTY_FILTERS and TYPE_DEFS are pinned', () => {
         ['article', 'claim', 'comment', 'assessment',
             // Phase 13.7 facets:
             'audit', 'prediction',
+            // Phase 14.4 facet:
+            'finding',
             'link', 'entity', 'case', 'account', 'other']);
     assert.equal(kindLabel(30040), 'Claim');
+    assert.equal(kindLabel(30062), 'Behavioral finding');
     assert.equal(kindLabel(12345), 'kind 12345');
 });
 

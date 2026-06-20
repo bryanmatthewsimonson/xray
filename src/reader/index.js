@@ -24,8 +24,14 @@ import { openAssessModal } from '../shared/assess-modal.js';
 import { AssessmentModel } from '../shared/assessment-model.js';
 import { makeClaimRefCanonicalizer } from '../shared/claim-ref.js';
 import { selectAssessmentsToPublish, selectLinksToPublish, selectMirrors } from '../shared/assessment-publish.js';
-import { buildAssessmentEvent, buildClaimRelationshipEvent, buildAssessmentMirrorEvent } from '../shared/metadata/builders.js';
+import { selectFindingsToPublish, selectFindingMirrors, selectRevisionEdgesToPublish } from '../shared/forensic-publish.js';
+import { buildAssessmentEvent, buildClaimRelationshipEvent, buildAssessmentMirrorEvent, buildBehavioralFindingEvent, buildForensicFindingMirrorEvent } from '../shared/metadata/builders.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
+import { ForensicModel } from '../shared/forensic-model.js';
+import { openFindingModal, openBaselineModal } from '../shared/forensic-modal.js';
+import { renderFindingsBar } from './findings-section.js';
+import { captureFromRange } from '../shared/metadata/anchor-capture.js';
+import { normalize as normalizeUrl } from '../shared/metadata/url-normalizer.js';
 import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
 import { importAuditJson } from '../shared/audit/import.js';
 import { AuditRunModel, PredictionModel, ResolutionModel, staleModules } from '../shared/audit/audit-model.js';
@@ -795,12 +801,28 @@ function renderReader() {
                 toast('Claim saved', 'success', 2000);
                 await refreshClaimsBar();
             }
+        },
+        onFinding: async ({ text, anchor }) => {
+            // Open the finding modal seeded with the selected span as the
+            // first evidence anchor — the discoverable path to naming a
+            // maneuver (the "+ Finding" bar button is the other).
+            const result = await openFindingModal({
+                subjectChoices: subjectChoicesFromArticle(),
+                anchorContext:  { container: $('.xr-article__body') },
+                seedAnchor:     { quote: text, selector: anchor },
+                sourceRef:      { url: state.article.url, title: state.article.title || '' }
+            });
+            if (result) {
+                toast(result.deleted ? 'Finding removed' : 'Finding saved', 'success', 1500);
+                await refreshFindingsBar();
+            }
         }
     });
 
     // Render the claims bar below the article body. Fires in the
     // background — we don't block the main render on it.
     refreshClaimsBar().catch((err) => console.warn('[X-Ray Reader] claims-bar render failed:', err));
+    refreshFindingsBar().catch((err) => console.warn('[X-Ray Reader] findings-bar render failed:', err));
 
     // Re-fill the hash line — the template above recreates it hidden,
     // and the hash (computed async at load) may already be known.
@@ -884,6 +906,95 @@ async function refreshClaimsBar() {
                 toast('Link removed', 'success', 1500);
                 await refreshClaimsBar();
             });
+        });
+    });
+}
+
+// ------------------------------------------------------------------
+// Forensic findings bar (Phase 14.2)
+// ------------------------------------------------------------------
+
+/** Tagged entities on this article become the subject choices. */
+function subjectChoicesFromArticle() {
+    const seen = new Set();
+    const choices = [];
+    for (const e of (state.article && state.article.entities) || []) {
+        if (!e.entity_id || seen.has(e.entity_id)) continue;
+        seen.add(e.entity_id);
+        choices.push({ key: e.entity_id, label: e.name || e.context || e.entity_id });
+    }
+    return choices;
+}
+
+/** The current article-body selection, as a seed anchor (quote + span). */
+function captureSelectionSeed() {
+    const body = $('.xr-article__body');
+    const sel = typeof window !== 'undefined' ? window.getSelection() : null;
+    if (!body || !sel || sel.rangeCount === 0) return null;
+    const range = sel.getRangeAt(0);
+    if (range.collapsed || !body.contains(range.commonAncestorContainer)) return null;
+    const quote = String(range.toString() || '').trim();
+    if (!quote) return null;
+    try {
+        const captured = captureFromRange(range, body);
+        return { quote, selector: captured ? captured.selectors : null };
+    } catch (_) { return { quote, selector: null }; }
+}
+
+/**
+ * Render the findings bar: findings whose evidence is anchored to this
+ * article's URL (findings are keyed by subject, not URL, so we match on
+ * the per-anchor source). Wires the capture affordances + row actions.
+ */
+async function refreshFindingsBar() {
+    const host = $('#xr-findings-host');
+    if (!host || !state.article || !state.article.url) return;
+
+    const url = normalizeUrl(state.article.url);
+    const all = await ForensicModel.getAll();
+    const findings = Object.values(all)
+        .filter((f) => (f.anchors || []).some((a) => a.source_ref && a.source_ref.url === url))
+        .sort((a, b) => (a.created || 0) - (b.created || 0));
+    host.innerHTML = renderFindingsBar(findings);
+
+    const anchorContext  = { container: $('.xr-article__body') };
+    const sourceRef      = { url: state.article.url, title: state.article.title || '' };
+    const subjectChoices = subjectChoicesFromArticle();
+
+    const addBtn = host.querySelector('#xr-findings-add');
+    if (addBtn) addBtn.addEventListener('click', async () => {
+        const seedAnchor = captureSelectionSeed();
+        const result = await openFindingModal({ subjectChoices, anchorContext, seedAnchor, sourceRef });
+        if (result) {
+            toast(result.deleted ? 'Finding removed' : 'Finding saved', 'success', 1500);
+            await refreshFindingsBar();
+        }
+    });
+
+    const baseBtn = host.querySelector('#xr-findings-baseline');
+    if (baseBtn) baseBtn.addEventListener('click', async () => {
+        const result = await openBaselineModal({ subjectChoices, sourceRef });
+        if (result) toast('Baseline saved', 'success', 1500);
+    });
+
+    host.querySelectorAll('.xr-findings__item').forEach((row) => {
+        const id = row.dataset.id;
+        const editBtn = row.querySelector('[data-action="edit"]');
+        const delBtn  = row.querySelector('[data-action="delete"]');
+        if (editBtn) editBtn.addEventListener('click', async () => {
+            const existing = await ForensicModel.get(id);
+            if (!existing) return;
+            const result = await openFindingModal({ subjectChoices, anchorContext, existing, sourceRef });
+            if (result) {
+                toast(result.deleted ? 'Finding removed' : 'Finding saved', 'success', 1500);
+                await refreshFindingsBar();
+            }
+        });
+        if (delBtn) delBtn.addEventListener('click', async () => {
+            if (!confirm('Delete this finding?')) return;
+            await ForensicModel.delete(id);
+            toast('Finding removed', 'success', 1500);
+            await refreshFindingsBar();
         });
     });
 }
@@ -2545,6 +2656,165 @@ async function publish() {
             }
         }
 
+        // ---- Forensic findings (Phase 14, flag-gated) -----------------
+        // Behind `forensicPublishing` (default off): behavioral findings
+        // (30062) + their kind-1985 maneuver mirrors + the `revision/*`
+        // story-change edges (30055). A finding publishes against a
+        // RESOLVED subject pubkey — a tagged entity's keypair or an
+        // external pubkey; a subject known only by label/handle waits for
+        // entity linking. Runs after claims so revision-edge endpoints
+        // resolve.
+        const findingResults = { ok: 0, fail: 0, errors: [] };
+        const fMirrorResults = { ok: 0, fail: 0, errors: [] };
+        const revEdgeResults = { ok: 0, fail: 0, errors: [] };
+        let findingSel = [], fMirrorSel = [], revEdgeSel = [];
+        if (isEnabled('forensicPublishing')) {
+            const [findingsAll, entitiesF, linksF, claimsF, canonF] = await Promise.all([
+                ForensicModel.getAll(), EntityModel.getAll(), EvidenceLinker.getAll(),
+                ClaimModel.getAll(), makeClaimRefCanonicalizer()
+            ]);
+            findingSel  = selectFindingsToPublish({ findings: findingsAll, entities: entitiesF });
+            fMirrorSel  = selectFindingMirrors({ findings: findingsAll, entities: entitiesF });
+            revEdgeSel  = selectRevisionEdgesToPublish({ links: linksF, claims: claimsF, canon: canonF });
+        }
+        const forensicTotal = findingSel.length + fMirrorSel.length + revEdgeSel.length;
+        if (forensicTotal > 0) {
+            const fBase = totalEvents;
+            totalEvents += forensicTotal;
+            let fStep = 0;
+            toast(`Also publishing forensic findings: ${findingSel.length} finding${findingSel.length === 1 ? '' : 's'}`
+                  + (fMirrorSel.length ? ` + ${fMirrorSel.length} mirror${fMirrorSel.length === 1 ? '' : 's'}` : '')
+                  + (revEdgeSel.length ? ` + ${revEdgeSel.length} revision edge${revEdgeSel.length === 1 ? '' : 's'}` : '')
+                  + '…', 'warning', 4000);
+
+            const sendForensic = async (unsigned) => {
+                unsigned.pubkey = userPubkey;
+                return await browserApi.runtime.sendMessage({
+                    type: 'xray:capture:publish', id: state.id, event: unsigned
+                });
+            };
+
+            // Findings (kind 30062). Track those whose 30062 failed this
+            // batch — their mirror must not emit (its target wouldn't be
+            // on relays).
+            const failed30062 = new Set();
+            for (const sel of findingSel) {
+                btn.textContent = `Publishing (${fBase + (++fStep)}/${totalEvents})…`;
+                let landed = false;
+                try {
+                    const { event: unsigned, dTag } = await buildBehavioralFindingEvent({
+                        subjectPubkey: sel.subjectPubkey,
+                        maneuver:      sel.finding.maneuver,
+                        role:          sel.finding.role,
+                        anchors:       sel.anchors,
+                        counterNote:   sel.finding.counter_note,
+                        note:          sel.finding.note,
+                        basis:         sel.finding.basis,
+                        sourceUrl:     sel.sourceUrl,
+                        suggestedBy:   sel.finding.suggested_by || 'user'
+                    });
+                    const resp = await sendForensic(unsigned);
+                    if (resp && resp.ok && resp.results) {
+                        recordRelayResults(resp.results);
+                        if (resp.results.successful > 0) {
+                            findingResults.ok++;
+                            landed = true;
+                            try { await ForensicModel.markPublished(sel.finding.id, resp.signedEvent?.id || null, userPubkey, dTag); }
+                            catch (_) { /* best-effort */ }
+                        } else {
+                            findingResults.fail++;
+                            findingResults.errors.push(`${sel.finding.maneuver}: no relays accepted`);
+                        }
+                    } else {
+                        findingResults.fail++;
+                        findingResults.errors.push(`${sel.finding.maneuver}: ${(resp && resp.error) || 'unknown'}`);
+                    }
+                } catch (err) {
+                    findingResults.fail++;
+                    findingResults.errors.push(`${sel.finding.maneuver}: ${err.message || String(err)}`);
+                    console.warn('[X-Ray Reader] finding publish failed:', sel.finding.id, err);
+                }
+                if (!landed) failed30062.add(sel.finding.id);
+                setProgress(fBase + fStep, totalEvents);
+                await sleep(BATCH_PUBLISH_DELAY_MS);
+            }
+
+            // Finding mirrors (kind 1985). Skip a candidate whose 30062
+            // was attempted this batch and failed.
+            for (const sel of fMirrorSel) {
+                btn.textContent = `Publishing (${fBase + (++fStep)}/${totalEvents})…`;
+                if (failed30062.has(sel.finding.id)) {
+                    setProgress(fBase + fStep, totalEvents);
+                    await sleep(BATCH_PUBLISH_DELAY_MS);
+                    continue;
+                }
+                try {
+                    const { event: unsigned } = buildForensicFindingMirrorEvent({
+                        subjectPubkey: sel.subjectPubkey,
+                        maneuver:      sel.maneuver,
+                        sourceUrl:     sel.sourceUrl
+                    });
+                    const resp = await sendForensic(unsigned);
+                    if (resp && resp.ok && resp.results) {
+                        recordRelayResults(resp.results);
+                        if (resp.results.successful > 0) {
+                            fMirrorResults.ok++;
+                            try { await ForensicModel.markMirrored(sel.finding.id); }
+                            catch (_) { /* best-effort */ }
+                        } else { fMirrorResults.fail++; fMirrorResults.errors.push('finding mirror: no relays accepted'); }
+                    } else {
+                        fMirrorResults.fail++;
+                        fMirrorResults.errors.push(`finding mirror: ${(resp && resp.error) || 'unknown'}`);
+                    }
+                } catch (err) {
+                    fMirrorResults.fail++;
+                    fMirrorResults.errors.push(`finding mirror: ${err.message || String(err)}`);
+                }
+                setProgress(fBase + fStep, totalEvents);
+                await sleep(BATCH_PUBLISH_DELAY_MS);
+            }
+
+            // Revision edges (kind 30055, the directional story-change links).
+            for (const sel of revEdgeSel) {
+                btn.textContent = `Publishing (${fBase + (++fStep)}/${totalEvents})…`;
+                try {
+                    const { event: unsigned } = await buildClaimRelationshipEvent({
+                        sourceCoord:   sel.source.coord,
+                        targetCoord:   sel.target.coord,
+                        relationship:  sel.link.relationship,
+                        sourceUrl:     sel.source.url,
+                        targetUrl:     sel.target.url,
+                        sourceEventId: sel.source.eventId,
+                        targetEventId: sel.target.eventId,
+                        note:          sel.link.note,
+                        suggestedBy:   sel.link.suggested_by || 'user'
+                    });
+                    const resp = await sendForensic(unsigned);
+                    if (resp && resp.ok && resp.results) {
+                        recordRelayResults(resp.results);
+                        if (resp.results.successful > 0) {
+                            revEdgeResults.ok++;
+                            try { await EvidenceLinker.markPublished(sel.link.id, resp.signedEvent?.id || null); }
+                            catch (_) { /* best-effort */ }
+                        } else {
+                            revEdgeResults.fail++;
+                            revEdgeResults.errors.push(`${sel.link.relationship} edge: no relays accepted`);
+                        }
+                    } else {
+                        revEdgeResults.fail++;
+                        revEdgeResults.errors.push(`${sel.link.relationship} edge: ${(resp && resp.error) || 'unknown'}`);
+                    }
+                } catch (err) {
+                    revEdgeResults.fail++;
+                    revEdgeResults.errors.push(`${sel.link.relationship} edge: ${err.message || String(err)}`);
+                    console.warn('[X-Ray Reader] revision-edge publish failed:', sel.link.id, err);
+                }
+                setProgress(fBase + fStep, totalEvents);
+                await sleep(BATCH_PUBLISH_DELAY_MS);
+            }
+            refreshFindingsBar().catch(() => {});
+        }
+
         // Build + surface the end-of-batch summary.
         showPublishSummary({
             includeComments,
@@ -2565,6 +2835,12 @@ async function publish() {
             jLinkCount: linkSel.length,
             auditResults,
             auditCount,
+            findingResults,
+            findingCount: findingSel.length,
+            fMirrorResults,
+            fMirrorCount: fMirrorSel.length,
+            revEdgeResults,
+            revEdgeCount: revEdgeSel.length,
             relayStats
         });
 
@@ -2757,6 +3033,9 @@ function showPublishSummary({
     assessResults, assessCount = 0, mirrorResults, mirrorCount = 0,
     jLinkResults, jLinkCount = 0,
     auditResults = { ok: 0, fail: 0, errors: [], skipped: 0 }, auditCount = 0,
+    findingResults = { ok: 0, fail: 0, errors: [] }, findingCount = 0,
+    fMirrorResults = { ok: 0, fail: 0, errors: [] }, fMirrorCount = 0,
+    revEdgeResults = { ok: 0, fail: 0, errors: [] }, revEdgeCount = 0,
     relayStats
 }) {
     // Console breakdown (always useful for debugging)
@@ -2770,6 +3049,9 @@ function showPublishSummary({
     if (mirrorResults && mirrorCount > 0)                    console.log('label mirrors:',  mirrorResults);
     if (jLinkResults && jLinkCount > 0)                      console.log('claim links:',    jLinkResults);
     if (auditResults && (auditCount > 0 || auditResults.errors.length > 0 || auditResults.skipped > 0)) console.log('audit events:', auditResults);
+    if (findingResults && findingCount > 0)                  console.log('findings:',       findingResults);
+    if (fMirrorResults && fMirrorCount > 0)                  console.log('finding mirrors:', fMirrorResults);
+    if (revEdgeResults && revEdgeCount > 0)                  console.log('revision edges:',  revEdgeResults);
     console.log('per relay:', Object.fromEntries(relayStats));
     console.groupEnd();
 
@@ -2786,6 +3068,9 @@ function showPublishSummary({
                     + ((mirrorResults && mirrorResults.fail) || 0)
                     + ((jLinkResults && jLinkResults.fail) || 0);
     const audFails  = (auditResults && auditResults.fail) || 0;
+    const forFails  = ((findingResults && findingResults.fail) || 0)
+                    + ((fMirrorResults && fMirrorResults.fail) || 0)
+                    + ((revEdgeResults && revEdgeResults.fail) || 0);
 
     const segments = [];
     segments.push(articleResults.successful > 0
@@ -2816,6 +3101,15 @@ function showPublishSummary({
         segments.push(`${auditResults.ok}/${auditCount} audit event${auditCount === 1 ? '' : 's'}`
             + (auditResults.skipped > 0 ? ` (${auditResults.skipped} skipped)` : ''));
     }
+    if (findingCount > 0) {
+        segments.push(`${findingResults.ok}/${findingCount} finding${findingCount === 1 ? '' : 's'}`);
+    }
+    if (fMirrorCount > 0) {
+        segments.push(`${fMirrorResults.ok}/${fMirrorCount} finding mirror${fMirrorCount === 1 ? '' : 's'}`);
+    }
+    if (revEdgeCount > 0) {
+        segments.push(`${revEdgeResults.ok}/${revEdgeCount} revision edge${revEdgeCount === 1 ? '' : 's'}`);
+    }
     let line = 'Published: ' + segments.join(', ') + '.';
 
     const acceptedAll = [...relayStats.values()].filter((s) => s.fail === 0 && s.ok > 0).length;
@@ -2828,7 +3122,7 @@ function showPublishSummary({
         line += ` Rejected by ${names} — consider removing in Options.`;
     }
 
-    const anyFail = dead.length > 0 || cmtFails > 0 || entFails > 0 || clmFails > 0 || relFails > 0 || jdgFails > 0 || audFails > 0;
+    const anyFail = dead.length > 0 || cmtFails > 0 || entFails > 0 || clmFails > 0 || relFails > 0 || jdgFails > 0 || audFails > 0 || forFails > 0;
     const level = (anyFail || articleResults.successful === 0)
         ? (articleResults.successful > 0 ? 'warning' : 'error')
         : 'success';

@@ -25,6 +25,7 @@ import { buildBuckets, brushRange } from './timeline.js';
 import { el, svgEl, clear, truncate, shortKey } from './dom.js';
 import { renderEntityView } from './entity-view.js';
 import { renderCaseView } from './case-view.js';
+import { findingsForEntity } from './forensic-data.js';
 import { loadLocalLedger, reconcile, countLocalOnly } from './reconcile.js';
 import { renderInspector } from './inspector.js';
 import {
@@ -655,6 +656,7 @@ function render() {
             dossier: state.auditIndex
                 ? computeEntityDossier(dossierInputsForEntity(state.items, state.auditIndex, state.view.pubkey, state.priorHashesByUrl))
                 : null,
+            findings: findingsForEntity(state.items, state.view.pubkey),
             populationMean: DEFAULT_POPULATION_MEAN,
             callbacks: viewCallbacks
         });
@@ -667,6 +669,7 @@ function render() {
             dossier: state.auditIndex
                 ? computeEntityDossier(dossierInputsForEntity(state.items, state.auditIndex, state.view.pubkey, state.priorHashesByUrl))
                 : null,
+            findings: findingsForEntity(state.items, state.view.pubkey),
             populationMean: DEFAULT_POPULATION_MEAN,
             callbacks: viewCallbacks
         });

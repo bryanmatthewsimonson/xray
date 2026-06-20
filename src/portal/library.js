@@ -22,6 +22,7 @@ import {
     parsePredictionEntryEvent, parsePredictionResolutionEvent,
     parseDossierSnapshotEvent, parseAuditDisputeEvent
 } from '../shared/audit/builders.js';
+import { parseBehavioralFindingEvent } from '../shared/forensic-model.js';
 
 // Tags written by this extension (current + userscript-era value).
 export const OUR_CLIENT_TAGS = new Set(['xray', 'nostr-article-capture']);
@@ -37,6 +38,7 @@ export const TYPE_DEFS = [
     { key: 'assessment', label: 'Assessments' },
     { key: 'audit',      label: 'Audits' },
     { key: 'prediction', label: 'Predictions' },
+    { key: 'finding',    label: 'Findings' },
     { key: 'link',       label: 'Links' },
     { key: 'entity',     label: 'Entities' },
     { key: 'case',       label: 'Cases' },
@@ -66,7 +68,8 @@ const KIND_LABELS = {
     30058: 'Prediction',
     30059: 'Resolution',
     30060: 'Dossier',
-    30061: 'Dispute'
+    30061: 'Dispute',
+    30062: 'Behavioral finding'
 };
 
 export function kindLabel(kind) {
@@ -301,6 +304,21 @@ function buildItem(record, entityIndex) {
                 extra.auditRole = 'dispute';
                 extra.parsedDispute = dis;
                 haystack.push(dis.targetKind, dis.status);
+            }
+            break;
+        }
+        // ---- Phase 14 behavioral finding (14.4) -------------------
+        case 30062: {
+            const f = parseBehavioralFindingEvent(event);
+            if (f) {
+                typeKey = 'finding';
+                const subj = (f.subjectPubkey && entityIndex[f.subjectPubkey]
+                    && entityIndex[f.subjectPubkey].name)
+                    || (f.subjectPubkey ? `${f.subjectPubkey.slice(0, 10)}…` : '(unknown subject)');
+                title = `Finding — ${f.maneuver}`;
+                sub = `${subj} · ${f.role || 'subject'}`;
+                extra.parsedFinding = f;
+                haystack.push(f.maneuver, f.role, f.subjectPubkey, subj, f.url);
             }
             break;
         }

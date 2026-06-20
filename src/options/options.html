@@ -265,6 +265,24 @@
       <input type="file" id="audit-file" accept="application/json" style="display:none" />
 
       <hr />
+      <h3 class="xr-opt__subhead">Forensic findings</h3>
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-forensic-publishing" />
+        <span>Publish forensic findings to relays</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Off by default. When on, the reader's Publish batch also emits your
+        behavioral findings — kind-30062 (the named maneuver + its evidence
+        chain + a required counter-read), a one-time kind-1985 maneuver
+        mirror, and any <code>revision/*</code> story-change edges
+        (kind-30055) — signed by your publishing identity and
+        <strong>publicly visible to anyone with relay access</strong>. A
+        finding names a <em>structure</em>, not a verdict; it labels the
+        subject's pubkey, so it only publishes for a subject you've tagged
+        as a keyed entity. Local capture always works regardless.
+      </p>
+
+      <hr />
       <h3 class="xr-opt__subhead">Power user</h3>
 
       <label class="xr-opt__field xr-opt__field--inline">

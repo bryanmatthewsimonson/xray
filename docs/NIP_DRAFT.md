@@ -6,7 +6,7 @@ Web Content Annotations, Fact-Checks, and Topic Trust
 
 `draft` `optional`
 
-This NIP defines fourteen event kinds and two tag extensions that together let users publish structured, anchored metadata about web content — atomized claims, annotations, fact-checks, ratings, personal assessments, claim relationships, topic-scoped trust assertions, helpfulness votes, and epistemic-audit records (per-module surface-scan results, aggregate article audits, a prediction ledger with resolutions, dossier rollup snapshots, and audit disputes — content-addressed to the exact text scored) — and lets readers query, rank, and surface that metadata in context.
+This NIP defines fifteen event kinds and two tag extensions that together let users publish structured, anchored metadata about web content — atomized claims, annotations, fact-checks, ratings, personal assessments, claim relationships, topic-scoped trust assertions, helpfulness votes, epistemic-audit records (per-module surface-scan results, aggregate article audits, a prediction ledger with resolutions, dossier rollup snapshots, and audit disputes — content-addressed to the exact text scored), and behavioral findings (named maneuvers a subject performs around the truth, evidence-anchored, with no verdict on intent) — and lets readers query, rank, and surface that metadata in context.
 
 It composes with rather than replaces:
 
@@ -329,7 +329,7 @@ Addressable. A typed link between two claims — the cross-source contradiction 
 }
 ```
 
-- `relationship` MUST be one of: `contradicts`, `supports`, `updates`, `duplicates`.
+- `relationship` MUST be one of: `contradicts`, `supports`, `updates`, `duplicates`, or the directional **`revision/*` story-change values** `narrative-patch`, `recharacterizes`, `walks-back` (Phase 14 / kind 30062). The latter three express how the *same subject's* account changed over time — `source` = the earlier statement, `target` = the later — and MAY be characterized by a kind-30062 finding (which references this link by `a` coordinate). They are never symmetric.
 - **`contradicts` and `duplicates` are symmetric**: the two coordinates MUST be sorted lexically — both in the `d` hash and in `a`-tag order — so the same logical link republishes the same `d` regardless of creation direction, and the `source`/`target` markers carry no meaning. **`supports` and `updates` are directional** (source → target) and hash in semantic order.
 - The `d` MUST be recomputable from the two `a` tags + `relationship`. The 4th-position markers on `a`/`e` follow the same role-marker idiom as `p` tags elsewhere in this NIP.
 - `r` tags carry each claim's `r` verbatim, `i` tags the normalized forms (values deduplicated when both claims share a URL); one `k` = `web` accompanies them. Relationship events anchor to the claims (via `a`), not to pages — the URL tags exist for `#r`-join convenience and MAY be omitted when an endpoint's URL is unknown.
@@ -538,6 +538,39 @@ Addressable. A challenge to an audit record — module result, aggregate audit, 
 - **`status` is filer-asserted only** (`open`/`withdrawn`). Upheld/rejected outcomes are NOT wire fields here — they derive from adjudication events (a separate, future kind authored by other pubkeys) and from superseding audits that `e`-tag this dispute with role `resolves-dispute`. A dispute never edits its target; an upheld dispute produces a NEW audit that supersedes the original, and both remain visible.
 - A rejected dispute remains visible too — the record of what was challenged and survived is part of a score's credibility.
 
+## Kind 30062 — BehavioralFinding
+
+Addressable. Names a **maneuver** a subject performs around the truth — an evasion, an immunizing defense, a self-serving revision — and binds it to an ordered evidence chain. It is the companion to kind 30054 (Assessment): where an assessment grades a *claim*, a finding describes a *subject's move*, and **renders no verdict on the subject's honesty or intent.**
+
+```jsonc
+{
+  "kind": 30062,
+  "tags": [
+    ["d", "find:<sha256(subjectPubkey + '|' + maneuver + '|' + anchorsHash).slice(0,16)>"],
+    ["p", "<subject-pubkey>", "", "subject"],
+    ["L", "xray/forensic"],
+    ["l", "defense/ad-hoc-patch", "xray/forensic"],
+    ["role", "apologist"],
+    ["r", "<source-url-verbatim>"], ["i", "<normalized-url>"], ["k", "web"],
+    ["a", "30055:<author>:<rel-d>"],                       // optional: a revision/* edge this characterizes
+    ["maneuver-step", "0", "<quote>", "<selector-json>", "<timestamp?>"],
+    ["maneuver-step", "1", "<quote>", "<selector-json>", "<timestamp?>"],
+    ["basis", "quoted"],
+    ["suggested-by", "user"],
+    ["client", "<client>"]
+  ],
+  "content": "<structural note>\n\n### Counter-read\n\n<the required alternative reading>"
+}
+```
+
+- The subject is referenced by `p` with a `subject` slot-4 marker. A finding publishes against a **resolved subject pubkey**; the local subject reference (a display label or platform handle) never hits the wire.
+- `l` carries the **maneuver** under the `xray/forensic` namespace. Values are drawn from a canon-seeded vocabulary (`neutralization/*`, `darvo/*`, `thought-reform/*`, `defense/*`, `grooming/*`) with the same custom-token escape hatch as kind 30054 labels; a maneuver MAY also reuse a 30054 `fallacy/*` or `consistency/*` value where the move *is* one of those.
+- `maneuver-step` tags are **ordered** `[index, quote, selector-json, timestamp]`; `n > 1` is a multi-step sequence (e.g. a grooming chain). `anchorsHash` = `sha256(JSON of [[quote, selector-json, timestamp], …])`, so the `d` is recomputable from the `maneuver-step` tags alone. Multi-letter tags (`role`, `maneuver-step`, `basis`, `suggested-by`) are not relay-indexed.
+- `basis` is one of `quoted` / `paraphrased` / `behavioral-cue` / `structural-inference` — *how we know*, in place of any numeric score. **There is no score, stance, or confidence on this kind**, by construction.
+- `content` carries the structural `note`, then the **REQUIRED counter-read** under the last `### Counter-read` heading — the alternative/exonerating reading. A finding with no counter-read is malformed.
+- **Firewall:** a behavioral finding is a distinct aggregation signal. It never carries `stance`, `rating-value`, `score`/`confidence`, or the `xray/assessment` namespace; consumers MUST NOT merge findings with assessments (30054), fact-checks (30051), or audits (30056–30061).
+- **NIP-32 mirror + the verdict caveat.** A kind-1985 event MAY mirror the maneuver (`L`/`l` `xray/forensic`, `p` = the subject, `r` = the source URL) as the plain-NIP-32 aggregation path. Unlike the 30054 mirror, this one *does* label a person's pubkey — so consumers SHOULD treat it as a **structural observation, not a verdict**, and SHOULD surface the richer 30062's required counter-read alongside it. The mirror carries no `score` and asserts no intent.
+
 ## Kind 30023 — `responds-to` tag (extension)
 
 A long-form article (kind 30023) MAY declare that it responds to one or more other pieces of content. Each response is a separate `responds-to` tag:
@@ -618,5 +651,5 @@ This NIP does not specify a ranking algorithm. Recommended approaches:
 
 ## Reference implementations
 
-- [x-ray browser extension](https://github.com/bryanmatthewsimonson/xray) — shipping kinds 30040 + 30050 + the `responds-to` and `x` extensions; 30054/30055 builders with publishing flag-gated (Phase 11); 30056–30059 fully implemented — builders, parsers, a flag-gated ordered publish path, and portal read surfaces (Phase 13); 30060/30061 builders + parsers implemented, publish paths deferred (the dossier stays derived; disputes are wire-format-only in v1).
+- [x-ray browser extension](https://github.com/bryanmatthewsimonson/xray) — shipping kinds 30040 + 30050 + the `responds-to` and `x` extensions; 30054/30055 builders with publishing flag-gated (Phase 11); 30056–30059 fully implemented — builders, parsers, a flag-gated ordered publish path, and portal read surfaces (Phase 13); 30060/30061 builders + parsers implemented, publish paths deferred (the dossier stays derived; disputes are wire-format-only in v1); 30062 behavioral-finding builder + parser + the kind-1985 mirror and the `revision/*` 30055 values, publishing flag-gated (Phase 14).
 - *(second client, TBD pre-merge)*
