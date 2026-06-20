@@ -8,6 +8,7 @@ import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
 import { loadFlags, isEnabled, setOverride, resetOverrides } from '../shared/metadata/feature-flags.js';
+import { LLM_MODELS, DEFAULT_LLM_MODEL, resolveModel, LLM_KEY_STORAGE, LLM_MODEL_STORAGE } from '../shared/llm-prompts.js';
 import { importAuditJson } from '../shared/audit/import.js';
 import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
 import { listRuns, listPredictions, listResolutions } from '../shared/audit/audit-cache.js';
@@ -50,10 +51,40 @@ function storageClearExtension() {
     const keys = [
         'publications', 'people', 'organizations',
         'preferences', 'keypair_registry',
-        'local_primary_identity', 'xr_signing_state'
+        'local_primary_identity', 'xr_signing_state',
+        // Phase 14.5: the LLM-assist secret key + model preference. The
+        // key is a secret, so "erase all" must clear it too.
+        LLM_KEY_STORAGE, LLM_MODEL_STORAGE
     ];
     return new Promise((resolve) => {
         browserApi.storage.local.remove(keys, () => resolve());
+    });
+}
+
+// ------------------------------------------------------------------
+// LLM assist — raw (un-wrapped) storage for the secret key + model.
+// The SW client reads these as PLAIN strings (not JSON), so write them
+// the same way. The key value is never echoed back into the page.
+// ------------------------------------------------------------------
+
+function llmRawGet(key) {
+    return new Promise((resolve) => {
+        browserApi.storage.local.get([key], (res) => {
+            const v = res ? res[key] : undefined;
+            resolve(typeof v === 'string' ? v : '');
+        });
+    });
+}
+
+function llmRawSet(key, value) {
+    return new Promise((resolve) => {
+        browserApi.storage.local.set({ [key]: value }, () => resolve());
+    });
+}
+
+function llmRawRemove(key) {
+    return new Promise((resolve) => {
+        browserApi.storage.local.remove([key], () => resolve());
     });
 }
 
@@ -525,6 +556,22 @@ async function loadAdvanced() {
     document.getElementById('pref-forensic-publishing').checked =
         isEnabled('forensicPublishing');
 
+    // LLM assist (Phase 14.5). The flag lives in feature-flags; the key
+    // + model live under their own chrome.storage.local keys. We never
+    // load the key VALUE back into the DOM — only whether one is set.
+    document.getElementById('pref-llm-assist').checked = isEnabled('llmAssist');
+    populateLlmModels();
+    const savedModel = resolveModel(await llmRawGet(LLM_MODEL_STORAGE));
+    document.getElementById('pref-llm-model').value = savedModel;
+    const hasKey = (await llmRawGet(LLM_KEY_STORAGE)).length > 0;
+    const keyStatus = document.getElementById('llm-key-status');
+    if (keyStatus) {
+        keyStatus.textContent = hasKey
+            ? 'A key is saved on this device.'
+            : 'No key saved yet.';
+    }
+    document.getElementById('pref-llm-key').value = '';
+
     const overrides = prefs.config_overrides || {};
     document.getElementById('pref-cache-enabled').checked =
         overrides.article_cache_enabled !== false;
@@ -563,7 +610,40 @@ async function saveAdvanced() {
     const publishFindings = document.getElementById('pref-forensic-publishing').checked;
     await setOverride('forensicPublishing', publishFindings ? true : null);
 
+    // LLM assist: flag + model preference always; the key only when the
+    // user typed a new one (blank leaves the saved key untouched).
+    const llmOn = document.getElementById('pref-llm-assist').checked;
+    await setOverride('llmAssist', llmOn ? true : null);
+    await llmRawSet(LLM_MODEL_STORAGE, document.getElementById('pref-llm-model').value || DEFAULT_LLM_MODEL);
+    const keyField = document.getElementById('pref-llm-key');
+    const typedKey = (keyField.value || '').trim();
+    if (typedKey) {
+        await llmRawSet(LLM_KEY_STORAGE, typedKey);
+        keyField.value = '';
+        const keyStatus = document.getElementById('llm-key-status');
+        if (keyStatus) keyStatus.textContent = 'A key is saved on this device.';
+    }
+
     flash(document.getElementById('advanced-status'), 'Saved.');
+}
+
+function populateLlmModels() {
+    const sel = document.getElementById('pref-llm-model');
+    if (!sel || sel.options.length > 0) return;
+    for (const m of LLM_MODELS) {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.label;
+        sel.appendChild(opt);
+    }
+}
+
+async function clearLlmKey() {
+    await llmRawRemove(LLM_KEY_STORAGE);
+    const keyStatus = document.getElementById('llm-key-status');
+    if (keyStatus) keyStatus.textContent = 'No key saved yet.';
+    document.getElementById('pref-llm-key').value = '';
+    flash(document.getElementById('llm-status'), 'Key cleared.');
 }
 
 async function clearAll() {
@@ -653,6 +733,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     document.getElementById('advanced-save').addEventListener('click', saveAdvanced);
+    document.getElementById('llm-key-clear').addEventListener('click', clearLlmKey);
     document.getElementById('clear-all').addEventListener('click', clearAll);
 });
 // Re-export for tests / debugging.
