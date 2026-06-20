@@ -23,6 +23,7 @@
 import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
 import { Utils } from './utils.js';
+import { isValidSuggestedBy } from './assessment-taxonomy.js';
 
 // ------------------------------------------------------------------
 // Enums — retained for rendering legacy + foreign (others') claims that
@@ -125,6 +126,14 @@ function cleanAbout(about) {
     return [...new Set(about.filter((id) => typeof id === 'string' && id))];
 }
 
+// Provenance seam ('user' | 'llm:<model>'). Phase 14.5 LLM-assist stamps
+// 'llm:<model>' on suggested claims; this is a LOCAL record field only —
+// the kind-30040 claim wire format is unchanged.
+function cleanSuggestedBy(value) {
+    const v = value === undefined || value === null ? 'user' : value;
+    return isValidSuggestedBy(v) ? v : 'user';
+}
+
 // Backfill thin fields for records written before slice 10.1, so old
 // claims render in the thin UI. Non-destructive (read-time only).
 function normalizeClaim(record) {
@@ -205,6 +214,7 @@ export const ClaimModel = {
             anchor:           fields.anchor || null,
             source_url:       sourceUrl,
             context:          fields.context || '',
+            suggested_by:     cleanSuggestedBy(fields.suggested_by),
             created:          now,
             updated:          now,
             publishedAt:      null,
