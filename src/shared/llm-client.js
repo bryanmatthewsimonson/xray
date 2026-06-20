@@ -22,6 +22,9 @@ import {
     LLM_KEY_STORAGE, LLM_MODEL_STORAGE,
     buildSuggestTool, buildSystemPrompt, buildUserPrompt
 } from './llm-prompts.js';
+import {
+    AUDIT_TOOL_NAME, buildAuditTool, buildAuditSystemPrompt, buildAuditUserPrompt, assembleAudit
+} from './audit/audit-prompt.js';
 
 // Re-exported for callers that wrote against the client (the keys are
 // defined in the pure prompts module so the Options page can share them).
@@ -34,6 +37,9 @@ const MAX_ARTICLE_CHARS = 120000;
 // proposal set; if the model still hits it we surface a clear error
 // rather than feeding truncated JSON to the validators.
 const MAX_OUTPUT_TOKENS = 8192;
+// A full eight-module audit is much larger than a proposal set (eight
+// nested findings payloads in one tool call), so it gets its own cap.
+const MAX_AUDIT_OUTPUT_TOKENS = 16384;
 
 // ------------------------------------------------------------------
 // Storage helpers (callback → promise; SW-safe)
@@ -97,6 +103,70 @@ function mapHttpError(status, bodyText) {
 }
 
 // ------------------------------------------------------------------
+// Shared request path
+// ------------------------------------------------------------------
+
+/**
+ * POST one Messages payload and return the parsed response. Handles
+ * network failure, HTTP errors, and unreadable bodies; the caller checks
+ * stop_reason and pulls its tool out. NEVER logs the key or request body.
+ *
+ * @returns {Promise<{ok:true, data:object} | {ok:false, error:string, status?:number}>}
+ */
+async function postMessages(payload, apiKey) {
+    let resp;
+    try {
+        resp = await fetch(ANTHROPIC_API_URL, {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': ANTHROPIC_VERSION,
+                // Browser-origin calls require this opt-in; CORS is enabled
+                // for it. The fetch runs in the SW, not a page with site CSP.
+                'anthropic-dangerous-direct-browser-access': 'true'
+            },
+            body: JSON.stringify(payload)
+        });
+    } catch (err) {
+        // Network failure — DO NOT include the key or request body.
+        Utils.error('[X-Ray LLM] network error:', err && err.message);
+        return { ok: false, error: 'Could not reach the Anthropic API (network error). Check your connection and host permissions.' };
+    }
+
+    if (!resp.ok) {
+        let bodyText = '';
+        try { bodyText = await resp.text(); } catch (_) { /* ignore */ }
+        const error = mapHttpError(resp.status, bodyText);
+        Utils.error('[X-Ray LLM] HTTP', resp.status, error);
+        return { ok: false, error, status: resp.status };
+    }
+
+    let data;
+    try {
+        data = await resp.json();
+    } catch (_) {
+        return { ok: false, error: 'Anthropic returned an unreadable response.' };
+    }
+    return { ok: true, data };
+}
+
+/**
+ * Pull a forced tool's `input` out of a Messages response, by tool name.
+ * Returns the input object, or null if no matching tool_use was found.
+ * Exported for unit tests (no network involved).
+ */
+export function extractToolInput(data, toolName) {
+    const blocks = (data && Array.isArray(data.content)) ? data.content : [];
+    for (const block of blocks) {
+        if (block && block.type === 'tool_use' && block.name === toolName) {
+            return block.input || {};
+        }
+    }
+    return null;
+}
+
+// ------------------------------------------------------------------
 // Public entry point
 // ------------------------------------------------------------------
 
@@ -146,40 +216,9 @@ export async function runSuggestionPass(req = {}) {
 
     Utils.log('[X-Ray LLM] suggestion pass:', { task, model, chars: articleText.length });
 
-    let resp;
-    try {
-        resp = await fetch(ANTHROPIC_API_URL, {
-            method: 'POST',
-            headers: {
-                'content-type': 'application/json',
-                'x-api-key': apiKey,
-                'anthropic-version': ANTHROPIC_VERSION,
-                // Browser-origin calls require this opt-in; CORS is enabled
-                // for it. The fetch runs in the SW, not a page with site CSP.
-                'anthropic-dangerous-direct-browser-access': 'true'
-            },
-            body: JSON.stringify(payload)
-        });
-    } catch (err) {
-        // Network failure — DO NOT include the key or request body.
-        Utils.error('[X-Ray LLM] network error:', err && err.message);
-        return { ok: false, error: 'Could not reach the Anthropic API (network error). Check your connection and host permissions.' };
-    }
-
-    if (!resp.ok) {
-        let bodyText = '';
-        try { bodyText = await resp.text(); } catch (_) { /* ignore */ }
-        const error = mapHttpError(resp.status, bodyText);
-        Utils.error('[X-Ray LLM] HTTP', resp.status, error);
-        return { ok: false, error, status: resp.status };
-    }
-
-    let data;
-    try {
-        data = await resp.json();
-    } catch (_) {
-        return { ok: false, error: 'Anthropic returned an unreadable response.' };
-    }
+    const res = await postMessages(payload, apiKey);
+    if (!res.ok) return res;
+    const data = res.data;
 
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, error: 'The model hit its output limit before finishing. Try a shorter article or fewer tasks.' };
@@ -214,4 +253,86 @@ export function extractProposals(data) {
         }
     }
     return null;
+}
+
+/**
+ * Run one user-invoked epistemic-audit pass: a single forced tool call
+ * that scores all eight dimensions, assembled into the canonical
+ * scorer-export shape the reader feeds to importAuditJson. The aggregate
+ * is computed in code, never taken from the model.
+ *
+ * Same two consent gates as Suggest (llmAssist flag + key). This never
+ * persists or publishes — the reader runs importAuditJson (which re-hashes
+ * and schema-validates) and publishing stays behind `epistemicAuditing`.
+ *
+ * @param {object} req
+ * @param {string} req.markdown        the article body markdown (the SAME
+ *                                     text the reader hashes for the gate)
+ * @param {object} [req.metadata]      headline / byline / url / etc.
+ * @param {string} [req.articleUrl]
+ * @param {string} [req.articleTitle]
+ * @returns {Promise<{ok:true, model:string, audit:object, usage?:object}
+ *                  | {ok:false, error:string, status?:number}>}
+ */
+export async function runAuditPass(req = {}) {
+    await loadFlags();
+    if (!isEnabled('llmAssist')) {
+        return { ok: false, error: 'LLM assist is off. Enable it in Options → Advanced → LLM assist.' };
+    }
+
+    const apiKey = await readApiKey();
+    if (!apiKey) {
+        return { ok: false, error: 'No Anthropic API key set. Add one in Options → Advanced → LLM assist.' };
+    }
+
+    const markdown = String(req.markdown || '').slice(0, MAX_ARTICLE_CHARS);
+    if (!markdown.trim()) {
+        return { ok: false, error: 'No article text to audit.' };
+    }
+
+    const model = await readModel();
+    const system = buildAuditSystemPrompt({ url: req.articleUrl || '', title: req.articleTitle || '' });
+    const userContent = buildAuditUserPrompt({ articleText: markdown });
+    const tool = buildAuditTool();
+
+    const payload = {
+        model,
+        max_tokens: MAX_AUDIT_OUTPUT_TOKENS,
+        system,
+        tools: [tool],
+        tool_choice: { type: 'tool', name: tool.name },
+        messages: [{ role: 'user', content: userContent }]
+    };
+
+    Utils.log('[X-Ray LLM] audit pass:', { model, chars: markdown.length });
+
+    const res = await postMessages(payload, apiKey);
+    if (!res.ok) return res;
+    const data = res.data;
+
+    if (data && data.stop_reason === 'max_tokens') {
+        return { ok: false, error: 'The model hit its output limit before finishing the audit. Try a shorter article.' };
+    }
+
+    const toolInput = extractToolInput(data, AUDIT_TOOL_NAME);
+    if (toolInput === null) {
+        return { ok: false, error: 'The model did not return a structured audit. Try again.' };
+    }
+
+    const usedModel = (data && data.model) || model;
+    let audit;
+    try {
+        audit = await assembleAudit({ toolInput, model: usedModel, markdown, metadata: req.metadata || {} });
+    } catch (err) {
+        Utils.error('[X-Ray LLM] audit assembly failed:', err && err.message);
+        return { ok: false, error: 'Could not assemble the audit from the model output.' };
+    }
+
+    Utils.log('[X-Ray LLM] audit modules:', audit.module_results.length);
+    return {
+        ok: true,
+        model: usedModel,
+        audit,
+        usage: data && data.usage ? data.usage : undefined
+    };
 }

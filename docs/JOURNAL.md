@@ -19,6 +19,57 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-20 — In-extension epistemic auditor (LLM execution path) — design
+
+Tags: `design`.
+
+Phase 13 shipped two audit paths: the out-of-band CLI scorer
+(`docs/auditor-prototype/scorer/scorer.js`) and the in-extension
+**import** firewall (`shared/audit/import.js`, slice 13.5). This adds a
+third — a **"Run audit"** button that runs the audit *inside* the
+extension via the 14.5 LLM plumbing — without loosening any invariant.
+
+Decisions worth second-guessing later:
+
+- **Single-shot, not eight calls.** One forced tool call emits all eight
+  modules (the orchestrator methodology,
+  `prompts/00-orchestrator-single-shot.md`). Cheaper and simpler, lower
+  rigor — so every module result carries a standing caveat saying so
+  (P12). The orchestrator's own JSON shape is a *simplified* `dimensions`
+  block that does **not** match `validateFindings`; using it directly
+  would import every module as FAILED. So the in-extension prompt drives
+  the **canonical per-module findings** instead, via a tool schema
+  **built from `findings-schemas.js`'s `PAYLOADS`** (now exported). One
+  source of truth: the model is guided by the exact shapes the validator
+  enforces.
+- **The aggregate is computed in code, never the model's.** `MODULE_WEIGHTS`,
+  the source-quality knowability-ceiling heuristic, and confidence
+  stacking are ported verbatim from the CLI scorer into
+  `shared/audit/audit-prompt.js`'s `buildAggregate`. The model supplies
+  only per-dimension score/confidence/findings (PHILOSOPHY §4: the
+  weights are public constants, not a model's opinion). The tool schema
+  deliberately has **no** aggregate field to fill.
+- **Reuse the firewall, don't fork it.** `assembleAudit` produces the
+  exact `{article, module_results, predictions, aggregate}` shape, and the
+  reader feeds it to the **same `importAuditJson`** the file importer
+  uses — same RQ1 hash gate (we send the SAME markdown we hash, so both
+  halves agree), same per-module schema validation, same failure posture.
+  `module`/`version` are injected at assembly (never model-supplied) and
+  wrapper score/version are set equal to findings' so import's tamper
+  check passes. An absent or malformed module imports as a FAILED result,
+  not a rejection.
+- **No constitution change.** §8 already makes a model a first-class
+  auditor (identity `anthropic/<model>`); methodology version stays `1.0`
+  because the findings schemas are unchanged. Running/importing are
+  local-only and ungated; **publishing stays behind `epistemicAuditing`**
+  (slice 13.8). Gating reuses the `llmAssist` flag + key, so flag-off or
+  no-key means no network call is reachable.
+
+Files: `shared/audit/audit-prompt.js` (new), `runAuditPass` /
+`extractToolInput` in `shared/llm-client.js`, `xray:audit:run` in the SW,
+the reader's `setupAuditRunControl` / `runAuditFromReader`,
+`tests/audit-llm.test.mjs`.
+
 ## 2026-06-20 — Phase 14.5: LLM-assist suggestions through the existing models
 
 **Tags:** design

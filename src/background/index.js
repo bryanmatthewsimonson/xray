@@ -26,7 +26,7 @@ import { NostrClient } from '../shared/nostr-client.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
-import { runSuggestionPass, getLlmConfig } from '../shared/llm-client.js';
+import { runSuggestionPass, runAuditPass, getLlmConfig } from '../shared/llm-client.js';
 
 // Pull the debug preference on SW startup. MV3 service workers sleep
 // and wake, so this runs each time the SW reloads. A chrome.storage
@@ -353,6 +353,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         runSuggestionPass(message.request || {}).then(
             (result) => sendResponse(result),
             (err) => sendResponse({ ok: false, error: (err && err.message) || 'LLM pass failed' })
+        );
+        return true; // async sendResponse
+    }
+
+    // Reader page → worker: run an in-extension epistemic-audit pass
+    // against the open article. Same home as Suggest (SW outside page
+    // CSP, key never leaves the SW), gated identically inside
+    // runAuditPass. Returns the canonical scorer-export object only —
+    // the reader runs importAuditJson (re-hash + schema-validate) and
+    // nothing is published here (that stays behind `epistemicAuditing`).
+    if (message.type === 'xray:audit:run') {
+        runAuditPass(message.request || {}).then(
+            (result) => sendResponse(result),
+            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Audit pass failed' })
         );
         return true; // async sendResponse
     }

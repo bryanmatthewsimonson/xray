@@ -57,6 +57,8 @@
     <div class="xr-audit__bar">
       <span class="xr-audit__label">Epistemic audit</span>
       <span class="xr-audit__status" id="xr-audit-status">No audit imported for this capture.</span>
+      <!-- In-extension auditor (LLM): hidden unless the llmAssist flag is on. -->
+      <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-audit-run" title="Run an epistemic audit with an LLM" hidden>Run audit</button>
       <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-audit-import">Import audit JSON…</button>
       <input type="file" id="xr-audit-file" accept="application/json,.json" hidden />
     </div>

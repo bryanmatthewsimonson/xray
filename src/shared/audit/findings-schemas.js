@@ -51,8 +51,13 @@ function obj(properties, required = []) { return { type: 'object', properties, r
 function strArr() { return arr(str()); }
 
 // --- per-module payload schemas (beyond the shared envelope) ----------------
+//
+// Exported so the in-extension auditor's LLM tool schema
+// (audit-prompt.js) is BUILT FROM these exact shapes — the model is
+// guided by the same definitions the validator enforces, so a clean
+// pass imports without failing. One source of truth, no drift.
 
-const PAYLOADS = {
+export const PAYLOADS = {
     headline_body_fidelity: obj({
         headline: quote(),
         subhead: nullableStr(),

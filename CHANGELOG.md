@@ -32,6 +32,26 @@ Sections per release: **Added** (new features), **Changed**
   `https://api.anthropic.com/*` host permission. `ClaimModel` and
   `EntityModel` gain a local-only `suggested_by` field (the kind-30040 /
   kind-0 wire formats are unchanged).
+- **In-extension epistemic auditor (the LLM execution path).** A
+  user-invoked **"Run audit"** button in the reader scores the open
+  capture against all eight epistemic-audit dimensions in a single forced
+  tool call to the Anthropic Messages API **from the background service
+  worker** (`runAuditPass`, `xray:audit:run`), then ingests the result
+  through the **existing `importAuditJson` firewall** — re-hashed against
+  the capture, every module schema-validated, the per-module failure
+  posture preserved. The LLM tool schema is **built from the validator's
+  `PAYLOADS`** (one source of truth, so a clean pass can't drift out of
+  schema), and the aggregate (weights, knowability ceiling, confidence
+  stacking) is **computed in code, never taken from the model**
+  (PHILOSOPHY §4); every run carries a standing "single-shot
+  orchestration — lower rigor" caveat (P12). Gated by the same
+  **`llmAssist`** flag + API key as Suggest; running and importing are
+  local-only, and **publishing stays behind `epistemicAuditing`**. No
+  PHILOSOPHY amendment — §8 already makes a model a first-class auditor
+  and the methodology version stays `1.0` (the findings schemas are
+  unchanged). New: `shared/audit/audit-prompt.js`; `runAuditPass` /
+  `extractToolInput` in `shared/llm-client.js`; the `xray:audit:run`
+  message; and a "Run audit" control in the reader's audit bar.
 - **Phase 14.3 — forensic wire format (kind `30062`).** New
   `buildBehavioralFindingEvent` (kind 30062 BehavioralFinding) +
   `parseBehavioralFindingEvent` + a kind-1985 maneuver mirror, behind a

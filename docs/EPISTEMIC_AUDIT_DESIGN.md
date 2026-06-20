@@ -394,6 +394,25 @@ architecture, not a stopgap.)*
   enforced in the model layer. (Sizing: two slices — key custody +
   consent UI, then the runner — staged behind the CLI path, not ridden
   into a v1 slice.)
+  - **Implemented (2026-06-20): the in-extension single-shot auditor.**
+    The runner now exists, riding the Phase-14.5 key custody + consent
+    gate (the `llmAssist` flag + the `xray:llm:key` secret) rather than a
+    second one. A reader **"Run audit"** button → `xray:audit:run` →
+    `runAuditPass` in the SW makes **one** forced tool call that scores
+    all eight modules (the orchestrator methodology), then
+    `assembleAudit` (`shared/audit/audit-prompt.js`) builds the canonical
+    `{article, module_results, predictions, aggregate}` and the reader
+    feeds it to the **same `importAuditJson`** the CLI path uses — the
+    RQ1 hash gate and per-module validation are reused verbatim. Two
+    invariants are load-bearing: the LLM tool schema is **built from
+    `findings-schemas.js`'s `PAYLOADS`** so a clean pass can't drift out
+    of schema, and the **aggregate is computed in code** (weights +
+    ceiling heuristic ported from the scorer), never taken from the
+    model (§4 / P4). Single-shot is the orchestrator's documented
+    lower-rigor tradeoff, so every module carries a standing caveat
+    (P12). No constitutional change: §8 already admits a model auditor,
+    and methodology version stays `1.0` (findings schemas unchanged).
+    Publishing remains slice 13.8, behind `epistemicAuditing`.
 - **(c) manual tier — the first post-v1 slice (RQ3).** The recovered
   tier spec (delivered with the RQ3 answer; `PHILOSOPHY.md` itself
   carries only §8's weight-follows-track-record mechanic) is five

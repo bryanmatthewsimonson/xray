@@ -520,6 +520,16 @@ everything before 13.13 below must work with the flag off.
 | 13.6 | Hand-edit the JSON body or hash → import | ✅ refused (re-hash mismatch); tamper with one module's top-level `score` so it diverges from `findings.score` → that module imports as **failed**, the rest survive |
 | 13.7 | Reader → the same article → audit panel | ✅ aggregate badge with score **and** confidence; binding ceiling shows its provenance; per-module rows expand with caveats; evidence quotes click-to-locate in the body |
 
+**Run audit — the in-extension LLM path (needs `llmAssist` on + an API key; see Phase 14.5 setup)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 13.7a | `llmAssist` **off** → reader audit bar | ✅ **no** "Run audit" button (only "Import audit JSON…") — no network call is reachable |
+| 13.7b | Enable `llmAssist` + save a key (Settings ▸ Advanced ▸ LLM assist), reopen the reader | ✅ "Run audit" appears enabled; with the flag on but **no** key it is **disabled** with a key hint |
+| 13.7c | Click **Run audit** on a fresh capture | ✅ button shows "⏳ Auditing…", then a summary toast (modules valid/failed, predictions); the audit panel fills exactly as an imported run does |
+| 13.7d | Expand the module rows | ✅ each carries the standing **"single-shot orchestration — lower rigor"** caveat; auditor reads `model · anthropic/<model>`; the aggregate's ceiling-source is `heuristic:source-quality/1.0` |
+| 13.7e | Edit one character of the body → **Run audit** again | ✅ binds to the edited text's hash (no capture-mismatch error); the prior run stays side-by-side, **never averaged** |
+
 **Display rules (PHILOSOPHY — check, don't skip)**
 
 | # | Test | Pass criteria |
