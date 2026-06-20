@@ -12,6 +12,26 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 14.5 — LLM assist (in-extension suggestion engine).** A
+  user-invoked pass that calls the Anthropic Messages API **from the
+  background service worker** and proposes capture artifacts — entities,
+  claims, assessments, claim relationships, and forensic findings (plus
+  baselines and `revision/*` edges) — for human review in a grouped
+  Accept / Edit / Reject panel in the reader. Every accepted artifact is
+  created through the **existing models** with provenance
+  `suggested_by: 'llm:<model>'`; **nothing auto-saves or auto-publishes**
+  (publishing stays behind the existing publish flags). Gated by a new
+  **`llmAssist`** flag (default off) **and** a user-supplied API key (a
+  second consent gate, since the article text leaves the device). The
+  existing model validators are the firewall — findings keep the
+  no-verdict discipline (a required counter-note, ≥1 quoted anchor, no
+  intent/score). New: `shared/llm-prompts.js`, `shared/llm-client.js`,
+  `shared/llm-proposals.js`, `reader/llm-review.js`; the
+  `xray:llm:suggest` / `xray:llm:config` messages; an Options →
+  Advanced → "LLM assist" section (key / model / flag); and the
+  `https://api.anthropic.com/*` host permission. `ClaimModel` and
+  `EntityModel` gain a local-only `suggested_by` field (the kind-30040 /
+  kind-0 wire formats are unchanged).
 - **Phase 14.3 — forensic wire format (kind `30062`).** New
   `buildBehavioralFindingEvent` (kind 30062 BehavioralFinding) +
   `parseBehavioralFindingEvent` + a kind-1985 maneuver mirror, behind a

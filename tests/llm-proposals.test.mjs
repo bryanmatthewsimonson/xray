@@ -279,6 +279,27 @@ test('resolveModel defaults unknown ids to the latest capable model', () => {
     assert.equal(resolveModel('claude-sonnet-4-6'), 'claude-sonnet-4-6');
 });
 
+test('llmAssist flag defaults OFF', async () => {
+    const { FLAGS_DEFAULTS } = await import('../src/shared/metadata/feature-flags.js');
+    assert.equal(FLAGS_DEFAULTS.llmAssist, false);
+});
+
+test('system prompt scopes by task: findings-only embeds the guide; entities-only does not', () => {
+    const findings = buildSystemPrompt({ task: 'findings' });
+    assert.match(findings, /MANEUVER GUIDE/);
+    const entities = buildSystemPrompt({ task: 'entities' });
+    assert.doesNotMatch(entities, /MANEUVER GUIDE/);
+    assert.match(entities, /people \/ organizations/i);
+});
+
+test('tool schema exposes every artifact kind', () => {
+    const tool = buildSuggestTool();
+    const kinds = tool.input_schema.properties.proposals.items.properties.kind.enum;
+    for (const k of ['entity', 'claim', 'assessment', 'relationship', 'finding', 'baseline', 'revision']) {
+        assert.ok(kinds.includes(k), `schema kind enum must include ${k}`);
+    }
+});
+
 // ---------------------------------------------------------------------
 // End-to-end "mock client" pass through the REAL models
 // ---------------------------------------------------------------------

@@ -95,7 +95,7 @@ extension approves in-context.
 **Message bus:** everything is `chrome.runtime` messages typed `xray:*`
 (e.g. `xray:capture`, `xray:capture:publish`, `xray:relay:publish`,
 `xray:relay:query`, `xray:sign`, `xray:youtube:fetch`,
-`xray:screenshot:capture`, `xray:flags:reload`). When adding a cross-context
+`xray:screenshot:capture`, `xray:flags:reload`, `xray:llm:suggest`). When adding a cross-context
 call, add an `xray:*` message rather than reaching across contexts directly.
 
 ### Shared layer (`src/shared/`)

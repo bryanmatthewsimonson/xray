@@ -19,6 +19,51 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-20 — Phase 14.5: LLM-assist suggestions through the existing models
+
+**Tags:** design
+
+Phase 14.5 ([`docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md`](PHASE_14_5_LLM_ASSIST_KICKOFF.md))
+adds a user-invoked Anthropic call that *proposes* capture artifacts.
+Decisions worth recording:
+
+- **The fetch lives in the service worker** (`shared/llm-client.js`),
+  not the reader page — same reason the relay pool does: page CSP would
+  block the call. Browser-origin requests need the
+  `anthropic-dangerous-direct-browser-access: true` header (CORS is
+  enabled for it); the SW already has the `api.anthropic.com` host
+  permission, so the response is readable.
+- **Two consent gates, key never leaves the SW.** The feature is off
+  behind `llmAssist`, and even on it does nothing without a user-supplied
+  key. The key lives under its own `chrome.storage.local` key
+  (`xray:llm:key`), is added to the "erase all" sweep, is never echoed
+  back into the Options page (we report only *whether* one is set), never
+  logged, and never in any export. The reader learns flag+key state via a
+  thin `xray:llm:config` snapshot (booleans + model id), so the key stays
+  in the SW.
+- **The kickoff assumed every model carried `suggested_by`; claims and
+  entities did not.** Rather than touch the kind-30040 / kind-0 wire
+  format (compat consequences), I added a **local-only** `suggested_by`
+  field to `ClaimModel.create` / `EntityModel.create` (default `'user'`,
+  validated). Assessments / links / findings already had the full seam,
+  wire included.
+- **Validation is two-tier.** `llm-proposals.validateProposal` mirrors
+  the model validators using the *same* exported predicates so the review
+  panel can show "rejected-with-reason" without writing; the model's
+  `create()` is still the ultimate firewall at accept. A finding with no
+  counter-note or no quoted anchor fails both — by construction there is
+  no intent/score field anywhere to supply.
+- **Edit is an inline editor, not a modal pre-fill.** The kickoff
+  suggested "open the matching capture modal pre-filled," but the finding
+  modal has no non-edit seed path and the assess/link modals collect their
+  own candidates — pre-filling unsaved proposals would have meant either
+  modal surgery or reimplementing the pickers (a parallel capture UI the
+  conventions warn against). A compact, data-driven inline editor over the
+  proposal's editable fields keeps one save path (the real models) and
+  flips provenance to `'user'` on a substantive edit. Structural fields
+  with rich pickers (label sets, maneuver groups) stay as proposed; the
+  user rejects + captures manually via the existing bars to change those.
+
 ## 2026-06-14 — Phase 14: a behavior layer that deliberately renders no verdict
 
 **Tags:** design
