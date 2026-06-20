@@ -1139,8 +1139,13 @@ Slices (one PR each):
   / survivor / editor) over the same findings, never averaged; `30062`
   joins `LEDGERED_KINDS` for reconciliation (the wire d-tag recorded at
   publish).
-- ⏳ **14.5** LLM assist (flag-gated) — `suggested_by: llm:<model>` proposal
-  pass enforcing the anchor + counter-note + basis discipline.
+- ⏳ **14.5** LLM assist (flag-gated, **in-extension Anthropic call**) — a
+  user-invoked pass that proposes **all** capture artifacts (entities,
+  claims, assessments, relationships, findings — and baselines / revision
+  edges) for human review, created with `suggested_by: llm:<model>`;
+  enforces the anchor + counter-note + basis discipline; nothing
+  auto-saves or auto-publishes. Implementation prompt:
+  [`docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md`](PHASE_14_5_LLM_ASSIST_KICKOFF.md).
 
 Acceptance demo: the source video itself
 ([`0axZ8EGLaxQ`](https://www.youtube.com/watch?v=0axZ8EGLaxQ)) — profile both
