@@ -26,7 +26,7 @@ import { NostrClient } from '../shared/nostr-client.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
-import { runSuggestionPass } from '../shared/llm-client.js';
+import { runSuggestionPass, getLlmConfig } from '../shared/llm-client.js';
 
 // Pull the debug preference on SW startup. MV3 service workers sleep
 // and wake, so this runs each time the SW reloads. A chrome.storage
@@ -353,6 +353,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         runSuggestionPass(message.request || {}).then(
             (result) => sendResponse(result),
             (err) => sendResponse({ ok: false, error: (err && err.message) || 'LLM pass failed' })
+        );
+        return true; // async sendResponse
+    }
+
+    // Reader page → worker: LLM-assist gating snapshot — whether the flag
+    // is on, whether a key is present (NEVER the key value), and the
+    // chosen model. The reader uses it to show/enable the Suggest control.
+    if (message.type === 'xray:llm:config') {
+        getLlmConfig().then(
+            (cfg) => sendResponse({ ok: true, ...cfg }),
+            () => sendResponse({ ok: false, enabled: false, hasKey: false })
         );
         return true; // async sendResponse
     }

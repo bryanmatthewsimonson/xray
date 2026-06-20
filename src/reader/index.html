@@ -17,6 +17,12 @@
       <button class="xr-reader__mode-btn"                              data-mode="preview"  role="tab" aria-selected="false">Preview</button>
     </nav>
     <div class="xr-reader__chrome-right">
+      <!-- LLM-assist (Phase 14.5): hidden unless the llmAssist flag is on.
+           Sends the article text to Anthropic and opens a review panel of
+           draft suggestions — nothing saves or publishes without Accept. -->
+      <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-suggest" title="Suggest capture artifacts with an LLM" hidden>
+        ✨ Suggest…
+      </button>
       <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-entities" title="Open entity browser in the side panel">
         👤 Entities
       </button>
