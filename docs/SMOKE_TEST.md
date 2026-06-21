@@ -526,9 +526,10 @@ everything before 13.13 below must work with the flag off.
 |---|---|---|
 | 13.7a | `llmAssist` **off** → reader audit bar | ✅ **no** "Run audit" button (only "Import audit JSON…") — no network call is reachable |
 | 13.7b | Enable `llmAssist` + save a key (Settings ▸ Advanced ▸ LLM assist), reopen the reader | ✅ "Run audit" appears enabled; with the flag on but **no** key it is **disabled** with a key hint |
-| 13.7c | Click **Run audit** on a fresh capture | ✅ button shows "⏳ Auditing…", then a summary toast (modules valid/failed, predictions); the audit panel fills exactly as an imported run does |
+| 13.7c | Click **Quick audit** on a fresh capture | ✅ button shows "⏳ Auditing…", then a summary toast (modules valid/failed, predictions); the audit panel fills exactly as an imported run does |
 | 13.7d | Expand the module rows | ✅ each carries the standing **"single-shot orchestration — lower rigor"** caveat; auditor reads `model · anthropic/<model>`; the aggregate's ceiling-source is `heuristic:source-quality/1.0` |
-| 13.7e | Edit one character of the body → **Run audit** again | ✅ binds to the edited text's hash (no capture-mismatch error); the prior run stays side-by-side, **never averaged** |
+| 13.7e | Edit one character of the body → **Quick audit** again | ✅ binds to the edited text's hash (no capture-mismatch error); the prior run stays side-by-side, **never averaged** |
+| 13.7f | Click **Thorough audit** → confirm the cost prompt | ✅ both audit buttons disable during the run; on completion the toast says "thorough"; module rows do **not** carry the single-shot caveat (per-dimension methodology); a module whose call fails shows as **failed**, the rest still produce an aggregate |
 
 **Display rules (PHILOSOPHY — check, don't skip)**
 

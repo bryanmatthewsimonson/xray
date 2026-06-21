@@ -413,6 +413,17 @@ architecture, not a stopgap.)*
     (P12). No constitutional change: §8 already admits a model auditor,
     and methodology version stays `1.0` (findings schemas unchanged).
     Publishing remains slice 13.8, behind `epistemicAuditing`.
+    - **Thorough (per-module) mode (2026-06-21).** The rigor upgrade: a
+      second reader button runs **one independent call per dimension**
+      (parallelized), each with the dimension's *full* methodology
+      vendored from `prompts/01-08` into `shared/audit/module-prompts.js`
+      — the orchestrator doc's production recommendation, ~8× the cost.
+      The eight outputs collect into the same `assembleAudit` +
+      `importAuditJson`, so only the *acquisition* changes; the firewall,
+      hash gate, and deterministic aggregate are identical. No standing
+      single-shot caveat (this is the rigorous path). The rigor ladder
+      above single-shot then continues: multi-run / model-ensemble
+      side-by-side (never averaged), then the human Audit tier (c).
 - **(c) manual tier — the first post-v1 slice (RQ3).** The recovered
   tier spec (delivered with the RQ3 answer; `PHILOSOPHY.md` itself
   carries only §8's weight-follows-track-record mechanic) is five

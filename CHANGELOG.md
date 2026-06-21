@@ -32,14 +32,20 @@ Sections per release: **Added** (new features), **Changed**
   `https://api.anthropic.com/*` host permission. `ClaimModel` and
   `EntityModel` gain a local-only `suggested_by` field (the kind-30040 /
   kind-0 wire formats are unchanged).
-- **In-extension epistemic auditor (the LLM execution path).** A
-  user-invoked **"Run audit"** button in the reader scores the open
-  capture against all eight epistemic-audit dimensions in a single forced
-  tool call to the Anthropic Messages API **from the background service
-  worker** (`runAuditPass`, `xray:audit:run`), then ingests the result
-  through the **existing `importAuditJson` firewall** — re-hashed against
-  the capture, every module schema-validated, the per-module failure
-  posture preserved. The LLM tool schema is **built from the validator's
+- **In-extension epistemic auditor (the LLM execution path).** Two
+  user-invoked reader buttons score the open capture against all eight
+  epistemic-audit dimensions via the Anthropic Messages API **from the
+  background service worker** (`runAuditPass`, `xray:audit:run`), then
+  ingest the result through the **existing `importAuditJson` firewall** —
+  re-hashed against the capture, every module schema-validated, the
+  per-module failure posture preserved. **Quick audit** is one forced
+  tool call (single-shot, cheaper); **Thorough audit** runs one
+  independent call per dimension in parallel, each with its **full
+  vendored methodology prompt** (`shared/audit/module-prompts.js`,
+  generated verbatim from `docs/auditor-prototype/prompts/01-08`) and its
+  own output budget — the orchestrator doc's production recommendation,
+  ~8× the cost. Single-shot runs carry a standing "lower rigor" caveat;
+  thorough runs do not. The LLM tool schema is **built from the validator's
   `PAYLOADS`** (one source of truth, so a clean pass can't drift out of
   schema), and the aggregate (weights, knowability ceiling, confidence
   stacking) is **computed in code, never taken from the model**

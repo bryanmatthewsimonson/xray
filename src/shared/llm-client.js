@@ -23,8 +23,11 @@ import {
     buildSuggestTool, buildSystemPrompt, buildUserPrompt
 } from './llm-prompts.js';
 import {
-    AUDIT_TOOL_NAME, buildAuditTool, buildAuditSystemPrompt, buildAuditUserPrompt, assembleAudit
+    AUDIT_TOOL_NAME, STANDING_SINGLE_SHOT_CAVEAT,
+    buildAuditTool, buildAuditSystemPrompt, buildAuditUserPrompt, assembleAudit,
+    buildSingleModuleTool, buildModuleSystemPrompt
 } from './audit/audit-prompt.js';
+import { MODULE_NAMES } from './audit/findings-schemas.js';
 
 // Re-exported for callers that wrote against the client (the keys are
 // defined in the pure prompts module so the Options page can share them).
@@ -40,6 +43,9 @@ const MAX_OUTPUT_TOKENS = 8192;
 // A full eight-module audit is much larger than a proposal set (eight
 // nested findings payloads in one tool call), so it gets its own cap.
 const MAX_AUDIT_OUTPUT_TOKENS = 16384;
+// The per-module ("thorough") path emits ONE module's findings per call,
+// so a smaller cap is plenty and keeps each call cheap.
+const MAX_MODULE_OUTPUT_TOKENS = 8192;
 
 // ------------------------------------------------------------------
 // Storage helpers (callback → promise; SW-safe)
@@ -291,6 +297,13 @@ export async function runAuditPass(req = {}) {
     }
 
     const model = await readModel();
+
+    // Thorough mode: one independent call per dimension, each with its
+    // full vendored methodology and its own output budget.
+    if (req.mode === 'per_module') {
+        return runPerModuleAudit({ apiKey, model, markdown, req });
+    }
+
     const system = buildAuditSystemPrompt({ url: req.articleUrl || '', title: req.articleTitle || '' });
     const userContent = buildAuditUserPrompt({ articleText: markdown });
     const tool = buildAuditTool();
@@ -322,7 +335,10 @@ export async function runAuditPass(req = {}) {
     const usedModel = (data && data.model) || model;
     let audit;
     try {
-        audit = await assembleAudit({ toolInput, model: usedModel, markdown, metadata: req.metadata || {} });
+        audit = await assembleAudit({
+            toolInput, model: usedModel, markdown, metadata: req.metadata || {},
+            standingCaveat: STANDING_SINGLE_SHOT_CAVEAT
+        });
     } catch (err) {
         Utils.error('[X-Ray LLM] audit assembly failed:', err && err.message);
         return { ok: false, error: 'Could not assemble the audit from the model output.' };
@@ -335,4 +351,61 @@ export async function runAuditPass(req = {}) {
         audit,
         usage: data && data.usage ? data.usage : undefined
     };
+}
+
+/**
+ * Thorough audit: eight independent module calls, run in parallel (they
+ * are blind to each other — that's the point), each with its full
+ * methodology prompt and a single-module tool. Successful modules are
+ * collected and handed to the SAME assembleAudit; a failed call simply
+ * leaves its module absent, which assembleAudit records as a FAILED
+ * result (the rest still produce an aggregate). No standing single-shot
+ * caveat — this IS the rigorous path.
+ */
+async function runPerModuleAudit({ apiKey, model, markdown, req }) {
+    Utils.log('[X-Ray LLM] thorough audit:', { model, chars: markdown.length, modules: MODULE_NAMES.length });
+    const userContent = buildAuditUserPrompt({ articleText: markdown });
+
+    const results = await Promise.all(MODULE_NAMES.map(async (name) => {
+        const tool = buildSingleModuleTool(name);
+        const payload = {
+            model,
+            max_tokens: MAX_MODULE_OUTPUT_TOKENS,
+            system: buildModuleSystemPrompt(name, { url: req.articleUrl || '', title: req.articleTitle || '' }),
+            tools: [tool],
+            tool_choice: { type: 'tool', name: tool.name },
+            messages: [{ role: 'user', content: userContent }]
+        };
+        const res = await postMessages(payload, apiKey);
+        if (!res.ok) { Utils.error('[X-Ray LLM] module failed', name, res.error); return { name }; }
+        const data = res.data;
+        if (data && data.stop_reason === 'max_tokens') { Utils.error('[X-Ray LLM] module truncated', name); return { name }; }
+        const input = extractToolInput(data, tool.name);
+        if (input === null) { Utils.error('[X-Ray LLM] module no tool output', name); return { name }; }
+        return { name, findings: input, usedModel: (data && data.model) || model };
+    }));
+
+    const modules = {};
+    let okCount = 0;
+    let usedModel = model;
+    for (const r of results) {
+        if (r.findings) { modules[r.name] = r.findings; usedModel = r.usedModel || usedModel; okCount += 1; }
+    }
+    if (okCount === 0) {
+        return { ok: false, error: 'Every module call failed — check your connection and key, then try again.' };
+    }
+
+    let audit;
+    try {
+        audit = await assembleAudit({
+            toolInput: { modules }, model: usedModel, markdown,
+            metadata: req.metadata || {}, standingCaveat: null
+        });
+    } catch (err) {
+        Utils.error('[X-Ray LLM] thorough assembly failed:', err && err.message);
+        return { ok: false, error: 'Could not assemble the audit from the model output.' };
+    }
+
+    Utils.log('[X-Ray LLM] thorough modules ok:', okCount);
+    return { ok: true, model: usedModel, audit, modulesOk: okCount };
 }

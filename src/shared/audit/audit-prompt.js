@@ -28,6 +28,7 @@ import { articleHash, normalizeForHash } from './article-hash.js';
 import {
     PAYLOADS, MODULE_NAMES, CURRENT_MODULE_VERSIONS, SCOREABLE_MODULES
 } from './findings-schemas.js';
+import { MODULE_PROMPTS } from './module-prompts.js';
 
 export const AUDIT_TOOL_NAME = 'emit_audit';
 
@@ -184,6 +185,39 @@ export function buildAuditUserPrompt({ articleText = '' } = {}) {
 }
 
 // ------------------------------------------------------------------
+// Per-module ("thorough") path: one call per dimension, each with its
+// FULL vendored methodology prompt and its own output budget — the
+// orchestrator doc's production recommendation. Output shape is forced
+// by a single-module tool (built from the same PAYLOADS).
+// ------------------------------------------------------------------
+
+/** A tool that emits ONE module's findings (envelope + payload). */
+export function buildSingleModuleTool(name) {
+    return {
+        name: `emit_${name}`,
+        description: `Emit the ${name} audit findings for the article, matching the schema. `
+            + 'Quote VERBATIM from the article in every evidence field.',
+        input_schema: moduleToolSchema(name)
+    };
+}
+
+/**
+ * System prompt for one module: the vendored 01-08 methodology verbatim,
+ * pointed at that module's tool. This is the rigor the single-shot prompt
+ * trades away — the full step-numbered methodology, one dimension at a time.
+ */
+export function buildModuleSystemPrompt(name, { url = '', title = '' } = {}) {
+    const methodology = MODULE_PROMPTS[name] || '';
+    const meta = (title || url)
+        ? `\n\nArticle under audit: ${title ? `"${title}"` : ''}${url ? ` <${url}>` : ''}`
+        : '';
+    const scored = name === 'prediction_extraction'
+        ? 'This module is NOT scored — do not emit a score or confidence.'
+        : 'Provide the 0-100 score and 0.0-1.0 confidence the methodology describes.';
+    return `${methodology}${meta}\n\nOUTPUT: use the emit_${name} tool and nothing else; fill its fields to match the schema rather than returning prose or JSON. Quote VERBATIM from the article in every evidence field. ${scored}`;
+}
+
+// ------------------------------------------------------------------
 // Assembly: tool output → canonical scorer-export shape
 // ------------------------------------------------------------------
 
@@ -313,9 +347,12 @@ function buildAggregate({ hash, byModule, model, runAt }) {
  *                                   text the reader hashes — the hash
  *                                   gate matches it against the capture)
  * @param {object} [params.metadata] headline / byline / url / etc.
+ * @param {string|null} [params.standingCaveat] a caveat prepended to every
+ *   module (the single-shot path passes its lower-rigor disclosure; the
+ *   per-module path passes null — there is nothing to apologize for).
  * @returns {Promise<{article, module_results, predictions, aggregate}>}
  */
-export async function assembleAudit({ toolInput, model, markdown, metadata = {} }) {
+export async function assembleAudit({ toolInput, model, markdown, metadata = {}, standingCaveat = null }) {
     const modulesIn = (toolInput && typeof toolInput.modules === 'object' && toolInput.modules) || {};
     const normalized = normalizeForHash(markdown);
     const hash = await articleHash(markdown);
@@ -330,12 +367,15 @@ export async function assembleAudit({ toolInput, model, markdown, metadata = {} 
         // Absent module → a FAILED result so the run still imports and
         // the gap is visible (the scorer's per-module failure posture).
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+            const absentCaveats = standingCaveat
+                ? [standingCaveat, 'module absent from model output']
+                : ['module absent from model output'];
             moduleResults.push({
                 article_hash: hash, module: name, module_version: version,
                 auditor: auditorModel, run_at: runAt, score: null, confidence: null,
                 findings: { error: 'module absent from model output' },
                 evidence_quotes: [],
-                auditor_caveats: [STANDING_SINGLE_SHOT_CAVEAT, 'module absent from model output'],
+                auditor_caveats: absentCaveats,
                 _error: true
             });
             continue;
@@ -351,7 +391,7 @@ export async function assembleAudit({ toolInput, model, markdown, metadata = {} 
         }
 
         const caveats = Array.isArray(raw.auditor_caveats) ? raw.auditor_caveats.slice() : [];
-        if (!caveats.includes(STANDING_SINGLE_SHOT_CAVEAT)) caveats.unshift(STANDING_SINGLE_SHOT_CAVEAT);
+        if (standingCaveat && !caveats.includes(standingCaveat)) caveats.unshift(standingCaveat);
         findings.auditor_caveats = caveats;
 
         const score = typeof findings.score === 'number' ? findings.score : null;

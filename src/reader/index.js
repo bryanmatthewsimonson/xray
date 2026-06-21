@@ -1086,40 +1086,58 @@ async function runSuggestPass() {
 }
 
 /**
- * In-extension epistemic auditor control (the LLM execution path beside
- * "Import audit JSON…"). Same gating as Suggest: absent unless the
- * llmAssist flag is on, disabled with a hint when on but keyless — so
- * flag-off OR no-key means no network call is reachable from here.
+ * In-extension epistemic auditor controls (the LLM execution path beside
+ * "Import audit JSON…"): a Quick (single-shot) and a Thorough (per-module)
+ * button. Same gating as Suggest: absent unless the llmAssist flag is on,
+ * disabled with a hint when on but keyless — so flag-off OR no-key means
+ * no network call is reachable from here.
  */
 async function setupAuditRunControl() {
-    const btn = $('#xr-audit-run');
-    if (!btn) return;
+    const quick = $('#xr-audit-run');
+    const thorough = $('#xr-audit-run-thorough');
+    if (!quick && !thorough) return;
     let cfg = {};
     try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:llm:config' }) || {}; }
     catch (_) { cfg = {}; }
 
-    if (!cfg.enabled) { btn.hidden = true; return; }   // flag off ⇒ absent
-    btn.hidden = false;
-    if (!cfg.hasKey) {
-        btn.disabled = true;
-        btn.title = 'Set an Anthropic API key in Options → Advanced → LLM assist';
-        return;
+    for (const btn of [quick, thorough]) {
+        if (!btn) continue;
+        if (!cfg.enabled) { btn.hidden = true; continue; }   // flag off ⇒ absent
+        btn.hidden = false;
+        if (!cfg.hasKey) {
+            btn.disabled = true;
+            btn.title = 'Set an Anthropic API key in Options → Advanced → LLM assist';
+        } else {
+            btn.disabled = false;   // title stays as the HTML default
+        }
     }
-    btn.disabled = false;
-    btn.title = 'Run an epistemic audit with an LLM (sends the article text to Anthropic)';
-    btn.addEventListener('click', runAuditFromReader);
+    if (cfg.enabled && cfg.hasKey) {
+        if (quick) quick.addEventListener('click', () => runAuditFromReader('single'));
+        if (thorough) thorough.addEventListener('click', () => runAuditFromReader('per_module'));
+    }
 }
 
 /**
- * Run the audit pass and ingest its result through the SAME firewall the
+ * Run an audit pass and ingest its result through the SAME firewall the
  * file importer uses. The SW returns the canonical scorer-export object;
  * importAuditJson re-hashes its body_markdown and matches it against this
  * capture's hash, then schema-validates every module. We send the EXACT
  * markdown we hash, so the gate binds the audit to the open text.
+ *
+ * @param {'single'|'per_module'} mode  single-shot (quick) or per-module
+ *   (thorough, ~8 independent calls).
  */
-async function runAuditFromReader() {
-    const btn = $('#xr-audit-run');
-    if (!btn || btn.disabled || !state.article) return;
+async function runAuditFromReader(mode = 'single') {
+    const quick = $('#xr-audit-run');
+    const thorough = $('#xr-audit-run-thorough');
+    const active = mode === 'per_module' ? thorough : quick;
+    if (!active || active.disabled || !state.article) return;
+
+    // Thorough mode spends ~8× — confirm before committing the user's key.
+    if (mode === 'per_module'
+        && !confirm('Thorough audit runs one LLM call per dimension (about 8 API calls — higher cost) for more rigor. Continue?')) {
+        return;
+    }
 
     const markdown = EventBuilder.assembleArticleBody(state.article);
     if (!markdown || !markdown.trim()) { toast('Nothing to audit yet.', 'error'); return; }
@@ -1134,14 +1152,18 @@ async function runAuditFromReader() {
         return;
     }
 
-    const original = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = '⏳ Auditing…';
+    // Disable BOTH controls during a run (no concurrent passes); label the
+    // active one.
+    const labels = new Map();
+    for (const b of [quick, thorough]) { if (b) { labels.set(b, b.textContent); b.disabled = true; } }
+    active.textContent = mode === 'per_module' ? '⏳ Auditing (thorough)…' : '⏳ Auditing…';
+
     let resp;
     try {
         resp = await browserApi.runtime.sendMessage({
             type: 'xray:audit:run',
             request: {
+                mode,
                 markdown,
                 articleUrl: state.article.url || '',
                 articleTitle: state.article.title || '',
@@ -1156,8 +1178,8 @@ async function runAuditFromReader() {
     } catch (err) {
         resp = { ok: false, error: (err && err.message) || String(err) };
     }
-    btn.textContent = original;
-    btn.disabled = false;
+
+    for (const b of [quick, thorough]) { if (b) { b.textContent = labels.get(b); b.disabled = false; } }
 
     if (!resp || !resp.ok) {
         toast('Audit failed: ' + ((resp && resp.error) || 'unknown error'), 'error', 7000);
@@ -1170,7 +1192,8 @@ async function runAuditFromReader() {
         if (summary.modulesFailed) bits.push(`${summary.modulesFailed} failed validation`);
         if (summary.predictionsImported) bits.push(`${summary.predictionsImported} prediction${summary.predictionsImported === 1 ? '' : 's'}`);
         if (summary.predictionsSkipped) bits.push(`${summary.predictionsSkipped} skipped`);
-        toast(`Audit complete (${resp.model}) — ${bits.join(', ')}`,
+        const how = mode === 'per_module' ? 'thorough' : 'quick';
+        toast(`Audit complete (${how}, ${resp.model}) — ${bits.join(', ')}`,
             summary.modulesFailed ? 'warning' : 'success', 6000);
         await refreshAuditStatus();
     } catch (err) {

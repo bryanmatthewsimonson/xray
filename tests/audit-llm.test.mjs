@@ -12,7 +12,8 @@ globalThis.chrome = globalThis.chrome || {
 };
 
 const {
-    buildAuditTool, assembleAudit, AUDIT_TOOL_NAME, STANDING_SINGLE_SHOT_CAVEAT, MODULE_WEIGHTS
+    buildAuditTool, assembleAudit, AUDIT_TOOL_NAME, STANDING_SINGLE_SHOT_CAVEAT, MODULE_WEIGHTS,
+    buildSingleModuleTool, buildModuleSystemPrompt
 } = await import('../src/shared/audit/audit-prompt.js');
 const { extractToolInput } = await import('../src/shared/llm-client.js');
 const { MODULE_NAMES, SCOREABLE_MODULES, validateFindings } = await import('../src/shared/audit/findings-schemas.js');
@@ -114,7 +115,10 @@ test('buildAuditTool: one schema per module, derived from PAYLOADS', () => {
 // --- assembly produces import-clean canonical output ------------------------
 
 test('assembleAudit: every module validates against its findings schema', async () => {
-    const audit = await assembleAudit({ toolInput: { modules: fullModules() }, model: MODEL, markdown: MD });
+    const audit = await assembleAudit({
+        toolInput: { modules: fullModules() }, model: MODEL, markdown: MD,
+        standingCaveat: STANDING_SINGLE_SHOT_CAVEAT
+    });
     assert.equal(audit.module_results.length, 8);
     for (const r of audit.module_results) {
         const { valid, errors } = validateFindings(r.module, r.findings);
@@ -221,6 +225,43 @@ test('assembleAudit: an absent module imports as a failed result, not a rejectio
     const summary = await importAuditJson(audit, { localArticleHash: await articleHash(MD) });
     assert.equal(summary.modulesFailed >= 1, true);
     assert.equal(summary.modulesValid, 7, 'the rest still import');
+});
+
+// --- per-module ("thorough") path --------------------------------------------
+
+test('buildSingleModuleTool + buildModuleSystemPrompt: one module, full methodology', () => {
+    const tool = buildSingleModuleTool('source_quality');
+    assert.equal(tool.name, 'emit_source_quality');
+    // input_schema IS the module's findings schema (envelope + payload).
+    assert.ok(tool.input_schema.required.includes('score'));
+    assert.ok(tool.input_schema.required.includes('summary'));
+
+    const sys = buildModuleSystemPrompt('source_quality', { title: 'A Story' });
+    assert.match(sys, /Module 04/, 'carries the vendored methodology');
+    assert.match(sys, /emit_source_quality/, 'points at its tool');
+
+    // 08 must tell the model not to score (envelope forbids it).
+    const pe = buildSingleModuleTool('prediction_extraction');
+    assert.ok(!pe.input_schema.required.includes('score'));
+    assert.match(buildModuleSystemPrompt('prediction_extraction', {}), /NOT scored/);
+});
+
+test('per-module assembly carries NO single-shot caveat, still round-trips', async () => {
+    const audit = await assembleAudit({
+        toolInput: { modules: fullModules() }, model: MODEL, markdown: MD,
+        standingCaveat: null
+    });
+    for (const r of audit.module_results) {
+        assert.ok(!r.findings.auditor_caveats.includes(STANDING_SINGLE_SHOT_CAVEAT),
+            `${r.module} should not carry the single-shot caveat in thorough mode`);
+    }
+    // The model's own per-module caveat survives.
+    const pe = audit.module_results.find((r) => r.module === 'prediction_extraction');
+    assert.ok(pe.findings.auditor_caveats.includes('Horizon approximate.'));
+
+    const summary = await importAuditJson(audit, { localArticleHash: await articleHash(MD) });
+    assert.equal(summary.modulesValid, 8);
+    assert.equal(summary.modulesFailed, 0);
 });
 
 // --- tool-output extraction --------------------------------------------------

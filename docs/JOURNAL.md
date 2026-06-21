@@ -19,6 +19,46 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-21 — Thorough (per-module) audit: the rigor upgrade
+
+Tags: `design`.
+
+Follow-up to the single-shot auditor: a **Thorough audit** mode that
+runs the orchestrator doc's recommended production path — **one
+independent model call per dimension**, each with the dimension's *full*
+methodology, instead of all eight sharing one pass. This is the answer to
+"how do we get maximum rigor" within the extension.
+
+- **Why it's more rigorous.** Single-shot spreads one context window and
+  one ~16k output budget across eight dimensions (attention dilution,
+  cross-contamination, truncation, a *condensed* methodology). Per-module
+  gives each dimension its own call, its own budget, the real
+  step-numbered methodology, and blindness to the others' judgments.
+- **Vendored prompts.** The methodology lives in
+  `docs/auditor-prototype/prompts/01-08`, which the extension can't read
+  at runtime, so `tools/gen-module-prompts.mjs` slices each at its
+  `# ARTICLE` marker (exactly the CLI's `loadPrompt`) and emits
+  `src/shared/audit/module-prompts.js` verbatim. Imported only by the SW
+  bundle (confirmed: 0 occurrences in the reader/content bundles), so the
+  reader stays lean.
+- **One aggregation path.** The eight per-module tool outputs are
+  collected into the same `{modules}` shape and handed to the SAME
+  `assembleAudit` + `importAuditJson` — the firewall, hash gate, and
+  deterministic aggregate are unchanged. A failed module call simply
+  leaves its module absent → recorded FAILED, the rest still aggregate.
+- **`standingCaveat` is now a parameter.** Single-shot passes its
+  lower-rigor disclosure; thorough passes `null` (nothing to apologize
+  for). The model's own per-module caveats flow in both modes.
+- **Tradeoffs.** ~8× cost and 8× article tokens; calls run in parallel so
+  latency stays ~one call, at the risk of a 429 on a tight key (a 429
+  fails that one module, not the run). A reader `confirm()` gates the
+  thorough button so the spend is never a surprise.
+
+Files: `shared/audit/module-prompts.js` (generated) + `tools/gen-module-prompts.mjs`,
+`buildSingleModuleTool` / `buildModuleSystemPrompt` + the `standingCaveat`
+param in `audit-prompt.js`, `runPerModuleAudit` in `llm-client.js`, the
+reader's two-button control, `tests/audit-llm.test.mjs`.
+
 ## 2026-06-20 — In-extension epistemic auditor (LLM execution path) — design
 
 Tags: `design`.
