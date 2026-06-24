@@ -134,6 +134,25 @@ when atomized into a specific proposition carrying:
   tractability — the field set in `docs/auditor-prototype/prompts/
   08-prediction-extraction.md`).
 - For `prediction`: a horizon. For facts: "already determinable."
+- `subject_role` — the proposition's relationship to the entity in `about`,
+  **orthogonal to `proposition_class`** (which types the proposition; this
+  types the *subject-relationship*). One of `stated` (the entity's own word —
+  a profession or commitment), `enacted` (the entity's deed — an action-fact
+  about them), or `ascribed` (a third party's characterization of the entity,
+  neither their word nor their deed). **Absence = `unclassified`. `ascribed`
+  and `unclassified` propositions are excluded from IntegrityFindings by
+  construction** — never default a substantive role, since that would
+  manufacture a word/deed reading the author did not assert. (An IntegrityFinding
+  matches a `stated` commitment/value against `enacted` action-facts about the
+  same entity; an `ascribed` claim is *about* the entity but is not theirs to
+  be held to.)
+- `occurred_at` / `occurred_precision` — the event-time of the deed or
+  utterance (Unix seconds), **distinct from `created`** (when the record was
+  made): it is what lets a deed be matched against the words contemporaneous
+  with it, and what the integrity timeline orders on (§3.4). `occurred_precision`
+  is `exact | day | month | year` — the same no-false-precision discipline as
+  the forensic `basis` enum, so a 1987 action never masquerades as a precise
+  timestamp.
 
 **Interpretations and bare values are not adjudicable as true/false** — only
 the *honesty of the reasoning* behind them is assessable (borrowed: never
@@ -237,7 +256,17 @@ action-facts, with:
   evidence is potential credit**, not penalty (borrowed, calibration ethos);
   only undisclosed reversal / post-hoc rationalization is negative — and
   that is already a forensic `walks-back` / `narrative-patch` (30062),
-  composed in, not re-invented.
+  composed in, not re-invented. The `constraint` cause is **evidence, not an
+  excuse**: a `broken`/`contradicted` match may carry a `constraint_ref` to a
+  *corroborated* action-fact (e.g. "the bill was blocked in committee," anchored
+  to a primary record) that **discounts** the finding — but the constraint
+  claim must clear the same corroboration/dispute bar as any other proposition,
+  so it is never a free pass.
+
+A finding is read as **pattern, not instance**: IntegrityFindings for an entity
+order on the matched action-facts' `occurred_at` (§3.1), so the integrity record
+is a time series (`src/portal/timeline.js`), not a gotcha. A single match is
+noise; a trend is a finding.
 
 **Value firewall (the sharp case).** For a `stated-value`, the system
 **never adjudicates the value as true or false** — values are not
@@ -273,6 +302,38 @@ records (e.g., "9 of 12 resolved high-standard commitments kept"),
 explicitly a lossy convenience, hard-gated by coverage, and **never an
 estimated evaluative score** — a ratio of measured outcomes with its
 coverage limit on its face, or it is not shown.
+
+**Asserter vs. subject — the defamation firewall (principle, not a v1
+deliverable).** Two populations must never be confused. A **subject** is a
+profiled entity an article is *about* (e.g. a public figure): they get the
+coverage-bound catalog above — sourced propositions, verdicts, and findings —
+and **never an auto-emitted person-grade or "liar"/"hypocrite" label**; the
+reader draws the conclusion (§5.3). An **asserter** is a *pubkey that signs*
+verdicts, findings, disputes, or predictions: their track record is a pure
+function of their own public events, recomputable by anyone from relays (the
+`reconcile.js` posture), never an authoritative stored score. Three principles
+constrain how any such record may ever be computed — they bind the design now
+even though the **record itself stays deferred** (Scope of v1; no reputation
+*display* or *weighting* ships in v1):
+
+- **Good-faith-wrong is not bad-faith.** *Wrong* + (well-calibrated **or**
+  retracted) is honest error and **must not be penalized like deception** —
+  punishing it manufactures the chilling effect that kills good-faith
+  participation. Only *wrong* + non-retraction + maneuvering (each evidenced by
+  existing primitives: resolution outcome, absence of an `updates`/supersession,
+  and 30062 `defense/*`/`neutralization/*` findings against the asserter's own
+  conduct) is bad-faith. The reputation layer **adds no new judgment** — it
+  composes already-signed, already-falsifiable evidence.
+- **Symmetric accountability — no free shots.** Assessments (30054), findings
+  (30062), and disputes (30061) are themselves signed claims; their *authors*
+  accrue records too (do the disputes they file survive? do their conduct edges
+  hold up?). You cannot weaponize the accusation machinery without standing on
+  it yourself.
+- **Reputation-eligibility gate.** Only claims that can be *wrong in a
+  resolvable way* count — predictions with pre-stated criteria, and corroborated
+  fact-claims. **Interpretations, stance, and values are never
+  reputation-eligible** (you cannot be "wrong" about a value in a way that
+  resolves); scoring them would just punish dissent — the same firewall as §3.1.
 
 ### §3.6 Precedent (primitive in, implementation deferred)
 
@@ -426,7 +487,25 @@ existing dossier-block / findings-block components).
   out of v1 scope. **Vocabulary reconciliation:** this doc's
   `proposition_class` (`event-fact` / `state-fact` / `interpretation` …) and
   match states (`fulfilled` / `broken` / `contradicted` …) are canonical;
-  `BONDING_NOTES.md`'s `enacted` / `ascribed` / `broken-by-conduct` terms
-  are an earlier framing of the same ideas, and its `INTEGRITY_DESIGN.md`
-  reference means **§3.4 of this doc** (the integrity layer lives here, not
-  in a separate file).
+  `BONDING_NOTES.md`'s `enacted` / `ascribed` terms now map onto this doc's
+  **`subject_role`** axis (§3.1 — `enacted` ≈ `subject_role: enacted` over an
+  `event-fact`/`state-fact`; `ascribed` ≈ `subject_role: ascribed`), and
+  `broken-by-conduct` ≈ a `contradicted` IntegrityFinding. Its
+  `INTEGRITY_DESIGN.md` reference means **§3.4 of this doc** (the integrity
+  layer lives here, not in a separate file).
+
+- **Lineage — the superseded `INTEGRITY_DESIGN.md` (v0).** This layer began as
+  a standalone integrity design that was folded into §3.4–§3.5 here. **Kept from
+  it:** the word/deed/`ascribed` subject axis (now `subject_role`, §3.1), the
+  `occurred_at` / `occurred_precision` event-time primitive (§3.1) and its
+  pattern-not-instance timeline read (§3.4), constraint-as-evidence
+  (`constraint_ref`, §3.4), and the asserter-reputation principles —
+  good-faith-wrong vs bad-faith, symmetric accountability, the asserter/subject
+  firewall, and the reputation-eligibility gate (§3.5). **Changed in the
+  supersession:** v0's *no-new-event-kinds* approach (a `role` tag plus conduct
+  *edges* on 30055) became this doc's first-class addressable kinds
+  `30063`/`30064` — because an adjudicated word-deed *match* deserves to be
+  disputable and supersedable, which a drawn edge is not; and v0's emergent
+  "fact = corroboration gradient" became the explicit evidence-tier +
+  standard-of-proof apparatus of §3.2–§3.3. There is **no separate
+  `INTEGRITY_DESIGN.md` file**; this is its canonical home.

@@ -43,9 +43,10 @@ prerequisite; bonding is a layer on top, not a parallel system.
 > use `enacted` / `ascribed` / `broken-by-conduct`. The canonical
 > vocabulary is that doc's `proposition_class` (`event-fact` /
 > `state-fact` / `prediction` / `stated-commitment` / `stated-value` /
-> `interpretation`) and match states (`fulfilled` / `broken` /
-> `consistent` / `contradicted` …). Read `enacted` ≈ `event-fact` /
-> `state-fact`, `ascribed` ≈ `interpretation` / `stated-value`,
+> `interpretation`) plus its **`subject_role`** axis (`stated` / `enacted` /
+> `ascribed`) and match states (`fulfilled` / `broken` / `consistent` /
+> `contradicted` …). Read `enacted` ≈ `subject_role: enacted` over an
+> `event-fact` / `state-fact`, `ascribed` ≈ `subject_role: ascribed`,
 > `broken-by-conduct` ≈ a `contradicted` IntegrityFinding.
 
 ## What makes it "truth-seeking," not just a prediction market

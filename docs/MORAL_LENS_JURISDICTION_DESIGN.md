@@ -83,6 +83,14 @@ This keeps the two layers from quietly competing: a `worldview` "ruling" that
 a factual claim is false would be truth-policing in perspectival costume, and
 is forbidden here.
 
+The firewall runs the other way too: a lens-reading is **never** an input to
+integrity or asserter reputation. The truth layer's own lineage notes the same
+boundary from the integrity side — its v0 (`INTEGRITY_DESIGN.md`, now
+`TRUTH_ADJUDICATION_DESIGN.md` §3.1) held that "integrity is orthogonal to
+morality… the moral axis's output is never a truth claim and never feeds
+integrity or reputation." This layer is that axis; it stays out of the
+reputation-eligible set (§3.5 of the truth doc) by construction.
+
 ---
 
 ## §4. Core concepts mapped to existing infrastructure
