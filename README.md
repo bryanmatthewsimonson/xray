@@ -12,18 +12,39 @@ has already said about it.*
 
 ## Status
 
-Phases 0–9 of the roadmap are complete (parity with the v4.2 userscript),
-plus a v0.5.x **post-parity cleanup** (de-FAB / single capture surface,
-settings consolidation, wire-format hygiene). The extension captures
-across every shipped platform handler, publishes events end-to-end, syncs
-entity data across devices, reconstructs paywalled content from cached or
-relay copies, and carries the wire-format foundation for crowdsourced
-URL metadata (annotations / fact-checks / topic-trust — see
-[`docs/NIP_DRAFT.md`](docs/NIP_DRAFT.md)) plus a stable cross-platform
-identity layer (captured commenters and post authors become dedup-able
-identities; cross-platform accounts can be collapsed into one person).
-The codebase operates as a pure WebExtension and is moving toward the
-next milestone — **claim tracking** (see [`docs/ROADMAP.md`](docs/ROADMAP.md)).
+**v0.6.0.** Phases 0–9 (parity with the v4.2 userscript) and the v0.5.x
+post-parity cleanup are complete, and the project has moved well past
+parity into its claim-tracking and epistemic-tooling milestones:
+
+- **Phases 10–11 — claims & assessments.** Atomized claim events
+  (`kind 30040`), typed claim↔claim relationships, and personal
+  assessments (graded stance + issue labels) — opinions to debate, never
+  automated truth verdicts.
+- **Phase 12 — "My Archive" portal.** A full-tab, read-only view of
+  everything you've published, reconciled against relays.
+- **Phase 13 — epistemic audits.** An eight-dimension audit of an
+  article's journalistic quality (headline fidelity, sourcing, omission,
+  …), governed by a normative constitution
+  ([`docs/PHILOSOPHY.md`](docs/PHILOSOPHY.md)): evidence-bound, calibrated,
+  with code-computed aggregates and a knowability ceiling — never naked
+  scores.
+- **Phase 14 — forensic findings.** A behavioral-pattern layer that names
+  structural *maneuvers* with a required counter-read and quoted evidence
+  — structure, never a verdict on intent.
+- **Phase 14.5 — LLM assist (opt-in).** A user-invoked **Suggest** pass
+  proposes capture artifacts (entities + claims by default) for review,
+  and an **in-extension epistemic auditor** runs the audit itself
+  (**Quick** single-shot or **Thorough** per-module). Both call the
+  Anthropic API only when you enable the `llmAssist` flag **and** supply
+  your own key; nothing auto-saves or auto-publishes.
+
+The extension still captures across every shipped platform handler,
+publishes end-to-end, syncs entity data across devices, reconstructs
+paywalled content from cached or relay copies, and carries the
+wire-format foundation for crowdsourced URL metadata (see
+[`docs/NIP_DRAFT.md`](docs/NIP_DRAFT.md)) and a cross-platform identity
+layer. Next up are Phases 15 (truth adjudication) and 16 (moral lens) —
+see [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 The [**roadmap**](docs/ROADMAP.md) tracks per-phase scope. The
 [**engineering journal**](docs/JOURNAL.md) logs significant bugs, design
@@ -61,9 +82,26 @@ manual checklist that exercises every shipped surface.
 - **Entity system** — per-entity keypairs (publications, people,
   organizations), text-selection tagger in the reader, side-panel
   entity browser, alias resolution, kind-0 profile publishing.
-- **Claims + evidence** — structured claim events (`kind 30040`),
-  entity relationships (`kind 32125`), evidence links
-  (`kind 30043`).
+- **Claims, assessments & relationships** — structured claim events
+  (`kind 30040`), entity↔article relationships (`kind 32125`), and typed
+  claim↔claim links + personal assessments (`kind 30055` / `30054`). The
+  old evidence `kind 30043` is retired. Stances and labels are opinions to
+  debate, never automated verdicts.
+- **Epistemic audits** — an eight-dimension journalistic-quality audit
+  (`kind 30056`–`30061`) governed by [`docs/PHILOSOPHY.md`](docs/PHILOSOPHY.md);
+  import a scorer-CLI JSON or run it in-extension (see LLM assist).
+  Aggregates are computed in code with a knowability ceiling; a score
+  never shows without its confidence.
+- **Forensic findings** — a behavioral-pattern layer (`kind 30062`) that
+  names structural maneuvers with a required counter-read and quoted
+  evidence — structure, not a verdict on intent.
+- **"My Archive" portal** — a full-tab, read-only view of everything
+  you've published, reconciled against relays.
+- **LLM assist (opt-in)** — a **Suggest** pass proposes capture artifacts
+  (entities + claims by default; relationships / assessments / findings
+  opt-in) and an **in-extension auditor** (Quick / Thorough) runs the
+  audit. Both require the `llmAssist` flag **and** your own Anthropic key;
+  every result is a draft you review, and nothing auto-saves or publishes.
 - **Entity sync across devices** — NIP-78 (`kind 30078`) with NIP-44 v2
   encrypt-to-self.
 - **Archive reader** — IndexedDB cache + paywall detection +
