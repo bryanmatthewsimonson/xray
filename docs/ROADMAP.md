@@ -73,7 +73,7 @@ Phase 13 ███████████░░░░░░░░░  in progre
                                 pending smoke-test
 Phase 14 ░░░░░░░░░░░░░░░░░░░░  design agreed 2026-06-14 — forensic findings:
                                 behavioral-pattern layer (docs/CRIMINOLOGY_DESIGN.md).
-                                builds on Phase 13; 14.1–14.4 built, 14.5 pending
+                                builds on Phase 13; 14.1–14.5 built
 Phase 15 ░░░░░░░░░░░░░░░░░░░░  design draft — truth adjudication: verdicts on
                                 propositions + words-vs-deeds integrity
                                 (docs/TRUTH_ADJUDICATION_DESIGN.md). Builds on
@@ -1143,12 +1143,16 @@ Slices (one PR each):
   / survivor / editor) over the same findings, never averaged; `30062`
   joins `LEDGERED_KINDS` for reconciliation (the wire d-tag recorded at
   publish).
-- ⏳ **14.5** LLM assist (flag-gated, **in-extension Anthropic call**) — a
+- ✅ **14.5** LLM assist (flag-gated, **in-extension Anthropic call**) — a
   user-invoked pass that proposes **all** capture artifacts (entities,
   claims, assessments, relationships, findings — and baselines / revision
   edges) for human review, created with `suggested_by: llm:<model>`;
   enforces the anchor + counter-note + basis discipline; nothing
-  auto-saves or auto-publishes. Implementation prompt:
+  auto-saves or auto-publishes. Off by default behind the `llmAssist`
+  flag + a user-supplied API key (the article text leaves the device).
+  `shared/llm-{prompts,client,proposals}.js` + `reader/llm-review.js`;
+  the `xray:llm:suggest` / `xray:llm:config` messages; Options →
+  Advanced → "LLM assist". Implementation prompt:
   [`docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md`](PHASE_14_5_LLM_ASSIST_KICKOFF.md).
 
 Acceptance demo: the source video itself

@@ -51,7 +51,17 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // kind 30062 behavioral findings, their kind-1985 maneuver mirror, and
   // the `revision/*` story-change edges on kind 30055. Local capture /
   // baselines / rollups are never gated — they're the product.
-  forensicPublishing: false
+  forensicPublishing: false,
+
+  // Phase 14.5 (docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md): gates the
+  // in-extension LLM-assist suggestion pass — the reader "Suggest…"
+  // control + the `xray:llm:suggest` background call to the Anthropic
+  // Messages API. Off by default, AND requires a user-supplied API key
+  // (a second consent gate, since the article text leaves the device).
+  // The feature only ever PROPOSES artifacts for human review; nothing
+  // auto-saves and nothing auto-publishes — publishing stays behind the
+  // existing assessmentPublishing / forensicPublishing flags.
+  llmAssist: false
 });
 
 /**

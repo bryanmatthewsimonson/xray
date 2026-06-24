@@ -50,7 +50,8 @@
     "declarativeNetRequest"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "<all_urls>",
+    "https://api.anthropic.com/*"
   ],
   "content_scripts": [
     {

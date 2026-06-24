@@ -30,6 +30,7 @@ import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { ForensicModel } from '../shared/forensic-model.js';
 import { openFindingModal, openBaselineModal } from '../shared/forensic-modal.js';
 import { renderFindingsBar } from './findings-section.js';
+import { openLlmReview } from './llm-review.js';
 import { captureFromRange } from '../shared/metadata/anchor-capture.js';
 import { normalize as normalizeUrl } from '../shared/metadata/url-normalizer.js';
 import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
@@ -996,6 +997,91 @@ async function refreshFindingsBar() {
             toast('Finding removed', 'success', 1500);
             await refreshFindingsBar();
         });
+    });
+}
+
+// ------------------------------------------------------------------
+// LLM assist (Phase 14.5) — Suggest control + review handoff
+// ------------------------------------------------------------------
+
+/**
+ * The article body text we both send to the model and resolve quotes
+ * against — same string, so the model's verbatim quotes anchor cleanly.
+ */
+function articleBodyText() {
+    const body = $('.xr-article__body');
+    const text = body ? (body.textContent || '') : '';
+    return text.trim() ? text : (state.markdownDraft || '');
+}
+
+/**
+ * Configure the Suggest control from the SW's gating snapshot. Absent
+ * when the flag is off; visible-but-disabled when on with no key — so
+ * either condition guarantees no network call is reachable from here.
+ */
+async function setupSuggestControl() {
+    const btn = $('#xr-suggest');
+    if (!btn) return;
+    let cfg = {};
+    try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:llm:config' }) || {}; }
+    catch (_) { cfg = {}; }
+
+    if (!cfg.enabled) { btn.hidden = true; return; }   // flag off ⇒ absent
+    btn.hidden = false;
+    if (!cfg.hasKey) {
+        btn.disabled = true;
+        btn.title = 'Set an Anthropic API key in Options → Advanced → LLM assist';
+        return;
+    }
+    btn.disabled = false;
+    btn.title = 'Suggest capture artifacts with an LLM (sends the article text to Anthropic)';
+    btn.addEventListener('click', runSuggestPass);
+}
+
+async function runSuggestPass() {
+    const btn = $('#xr-suggest');
+    if (!btn || btn.disabled || !state.article) return;
+    const articleText = articleBodyText();
+    if (!articleText.trim()) { toast('Nothing to analyze yet.', 'error'); return; }
+
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '✨ Thinking…';
+    let resp;
+    try {
+        resp = await browserApi.runtime.sendMessage({
+            type: 'xray:llm:suggest',
+            request: {
+                task: 'all',
+                articleText,
+                articleUrl: state.article.url || '',
+                articleTitle: state.article.title || ''
+            }
+        });
+    } catch (err) {
+        resp = { ok: false, error: (err && err.message) || String(err) };
+    }
+    btn.textContent = original;
+    btn.disabled = false;
+
+    if (!resp || !resp.ok) {
+        toast('Suggest failed: ' + ((resp && resp.error) || 'unknown error'), 'error', 6000);
+        return;
+    }
+    if (!Array.isArray(resp.proposals) || resp.proposals.length === 0) {
+        toast('The model returned no suggestions for this article.', 'success', 4000);
+        return;
+    }
+    await openLlmReview({
+        proposals:  resp.proposals,
+        model:      resp.model,
+        articleText,
+        sourceUrl:  state.article.url || '',
+        sourceRef:  { url: state.article.url || '', title: state.article.title || '' },
+        onAccepted: async () => {
+            await refreshClaimsBar().catch(() => {});
+            await refreshFindingsBar().catch(() => {});
+        }
     });
 }
 
@@ -3267,6 +3353,11 @@ async function init() {
     $('#xr-comments-include').addEventListener('change', (ev) => {
         state.comments.includeInPublish = ev.target.checked;
     });
+
+    // LLM-assist Suggest control (Phase 14.5). Absent unless the flag is
+    // on; disabled (with a hint) when on but no key — so flag-off OR
+    // no-key means zero network calls are possible from here.
+    setupSuggestControl().catch((err) => console.warn('[X-Ray Reader] suggest setup failed:', err));
 
     // Epistemic-audit import (13.5): button → hidden file input →
     // importAuditJson with the RQ1 gate (re-hash + schema-validate +

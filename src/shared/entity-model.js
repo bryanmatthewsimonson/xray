@@ -32,6 +32,7 @@ import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
 import { Utils } from './utils.js';
 import { LocalKeyManager } from './local-key-manager.js';
+import { isValidSuggestedBy } from './assessment-taxonomy.js';
 
 // `case` (Phase 11.1) models a real-world story under assessment —
 // "John Dehlin excommunication", "Bricks & Minifigs scandal" — so the
@@ -99,6 +100,14 @@ function assertValidName(name) {
     if (!trimmed) throw new Error('Entity name is required');
     if (trimmed.length > 200) throw new Error('Entity name too long (max 200 chars)');
     return trimmed;
+}
+
+// Provenance seam ('user' | 'llm:<model>'). Phase 14.5 LLM-assist stamps
+// 'llm:<model>' on suggested entities; this is a LOCAL record field only
+// — the kind-0 profile wire format is unchanged.
+function cleanSuggestedBy(value) {
+    const v = value === undefined || value === null ? 'user' : value;
+    return isValidSuggestedBy(v) ? v : 'user';
 }
 
 export const EntityModel = {
@@ -194,6 +203,7 @@ export const EntityModel = {
             nip05:        fields.nip05 || '',
             canonical_id: fields.canonical_id || null,
             keyName,
+            suggested_by: cleanSuggestedBy(fields.suggested_by),
             created: now,
             updated: now
         };

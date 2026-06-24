@@ -622,6 +622,62 @@ Epistemic-audit bar** — three separate, firewalled blocks.
 
 ---
 
+## Phase 14.5 — LLM assist (in-extension suggestions)
+
+A user-invoked pass that asks Anthropic's Claude to **propose** capture
+artifacts (entities, claims, assessments, relationships, findings — and
+baselines / revision edges) for review. Two consent gates: the
+`llmAssist` flag (off by default) **and** a user-supplied API key. Every
+item is a draft — nothing saves without Accept, nothing publishes.
+Requires a real Anthropic API key (`docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md`).
+
+**Gating (no key / no flag = no calls)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 14.5.1 | Fresh profile, flag off. Open a captured article in the reader | ✅ **no "✨ Suggest…" button** in the chrome; with DevTools Network open, no request to `api.anthropic.com` is possible |
+| 14.5.2 | Settings → Advanced → **LLM assist**: confirm the toggle is **unchecked** and "No key saved yet." | ✅ default off, no key |
+| 14.5.3 | Check **Enable LLM-assisted suggestions**, leave the key blank, Save → reopen the reader | ✅ the **✨ Suggest…** button is present but **disabled**, tooltip points to the key field; still zero network |
+| 14.5.4 | Paste an Anthropic key + pick a **Model**, Save. Confirm the key field clears and status reads "A key is saved." | ✅ key stored; reader's Suggest button now **enabled** |
+
+**Run a pass + review**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 14.5.5 | On an op-ed / debate with named people, click **✨ Suggest…** | ✅ button shows "✨ Thinking…", then a **Suggestions** modal opens grouped by Entities / Claims / Assessments / Relationships / Findings (and Baselines/Revisions if any); a model badge shows the model id |
+| 14.5.6 | Inspect a **Claim** proposal | ✅ summary shows the claim text + the about-entities it links; Accept / Edit / Reject buttons |
+| 14.5.7 | Inspect a **Finding** proposal | ✅ shows subject + maneuver + role/basis + a quoted lead + the **counter-read** (`↔ …`); **no stance/score/confidence anywhere** |
+| 14.5.8 | **Accept** an entity, then its claim, then a finding (or click **Accept all valid**) | ✅ rows flip to "✓ accepted"; the **claims bar** and **Forensic findings bar** gain the artifacts |
+| 14.5.9 | DevTools: `chrome.storage.local.get(['article_claims','behavioral_findings','entities'], console.log)` | ✅ accepted records carry `suggested_by: "llm:<model>"`; the finding has `counter_note`, `anchors[].quote`, and **no** `stance`/`intent`/`score` field |
+| 14.5.10 | Click a claim's tagged passage / a finding's evidence in the article body | ✅ the LLM's verbatim quote resolved to a real anchor (the span highlights / jumps) |
+
+**The firewall + Edit/Reject**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 14.5.11 | If the model returned a finding with a missing/empty counter-note (or no quoted anchor), find its row | ✅ shows **"✗ …counter-note / anchor"** rejected-with-reason, Accept **disabled** — it can never save in that state |
+| 14.5.12 | **Edit** a finding row → clear the **Counter-read** → Apply | ✅ the row re-validates to ✗ rejected (Accept disabled) |
+| 14.5.13 | **Edit** a claim's text → Apply | ✅ the row gains a **"✎ edited (you)"** badge; on Accept the stored claim is `suggested_by: "user"` (honest provenance) |
+| 14.5.14 | **Reject** a proposal | ✅ row dims to "✕ rejected"; nothing is stored for it |
+| 14.5.15 | Publishing is unaffected: with `assessmentPublishing` / `forensicPublishing` **off**, Publish | ✅ accepted LLM artifacts are **not** published (suggestion never publishes) |
+
+**Secret hygiene + errors**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 14.5.16 | Export entities / a case bundle (Options → Keypair registry / case export) | ✅ the export JSON contains **no** `xray:llm:key` and no key value |
+| 14.5.17 | With debug logging on, run a pass | ✅ console logs counts/model only — **never** the API key |
+| 14.5.18 | Temporarily set a bad key, run a pass | ✅ a clear toast ("the key was rejected (401/403)…"), no crash |
+| 14.5.19 | Options → Advanced → **Clear key**, then **Erase all** | ✅ "Key cleared."; after erase-all, `chrome.storage.local.get('xray:llm:key', console.log)` is empty and the flag is reset |
+
+**Firefox**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 14.5.20 | Repeat 14.5.4, 14.5.5, 14.5.8, 14.5.11 on Firefox ≥128 | ✅ identical behavior (the fetch runs in the SW; `anthropic-dangerous-direct-browser-access` header is sent) |
+
+---
+
 ## Phase 6 — Entity sync
 
 Run on **Device A** (your normal profile) and **Device B** (a
