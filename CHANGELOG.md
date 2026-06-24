@@ -10,6 +10,8 @@ Sections per release: **Added** (new features), **Changed**
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-06-24
+
 ### Added
 
 - **Phase 14.5 — LLM assist (in-extension suggestion engine).** A

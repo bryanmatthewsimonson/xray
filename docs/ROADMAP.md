@@ -62,26 +62,30 @@ Phase 12 ████████████████████  complete 
                                 portal (docs/PORTAL_DESIGN.md). 12.1–12.7
                                 shipped incl. adversarial-review fixes;
                                 §Phase 12 smoke-run pending
-Phase 13 ███████████░░░░░░░░░  in progress — epistemic audits
-                                (docs/EPISTEMIC_AUDIT_DESIGN.md; design
-                                accepted 2026-06-11, all eight review
-                                questions answered, the recovered
-                                philosophy vendored normatively at
-                                docs/PHILOSOPHY.md). Kinds 30056–30061
-                                confirmed; 13.1–13.5 merged, 13.6–13.9
-                                (panel / portal / publish / hardening)
-                                pending smoke-test
-Phase 14 ░░░░░░░░░░░░░░░░░░░░  design agreed 2026-06-14 — forensic findings:
-                                behavioral-pattern layer (docs/CRIMINOLOGY_DESIGN.md).
-                                builds on Phase 13; 14.1–14.5 built
+Phase 13 ████████████████████  complete — epistemic audits
+                                (docs/EPISTEMIC_AUDIT_DESIGN.md; normative
+                                constitution docs/PHILOSOPHY.md). Kinds
+                                30056–30061; CLI-import AND in-extension LLM
+                                execution paths; 13.1–13.9 shipped
+Phase 14 ████████████████████  complete — forensic findings:
+                                behavioral-pattern layer
+                                (docs/CRIMINOLOGY_DESIGN.md, kind 30062).
+                                14.1–14.5 shipped
+Phase 14.5 ████████████████░░  complete — in-extension LLM assist: a Suggest
+                                engine (entities/claims by default; the rest
+                                opt-in) + the epistemic auditor (Quick
+                                single-shot / Thorough per-module). Flag- +
+                                key-gated, opt-in, nothing auto-saves
 Phase 15 ░░░░░░░░░░░░░░░░░░░░  design draft — truth adjudication: verdicts on
                                 propositions + words-vs-deeds integrity
                                 (docs/TRUTH_ADJUDICATION_DESIGN.md). Builds on
                                 Phase 14; kinds 30063/30064 (30065 reserved)
 ```
 
-Parity with the v4.2 userscript is reached; the project now operates as a
-pure WebExtension and is moving past parity toward the claim-tracking goal.
+Parity with the v4.2 userscript is long reached; the project now ships
+claims, assessments, the "My Archive" portal, epistemic audits, forensic
+findings, and opt-in LLM assist (**v0.6.0**), and is moving on to truth
+adjudication (Phase 15) and the moral lens (Phase 16).
 
 ---
 
