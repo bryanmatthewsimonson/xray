@@ -19,6 +19,127 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-21 — Suggest defaults: extraction ON, judgment opt-in
+
+Tags: `design`.
+
+The Suggest pass used to always request `task: 'all'` — every artifact
+kind in one go. We now default to **Entities + Claims only**, with
+relationships, assessments, and forensic findings opt-in via Options
+checkboxes.
+
+The line is **extraction vs judgment**. The model is reliable and
+on-mission extracting what the article *contains* (who's named, what's
+asserted, each with a verbatim quote); it's unreliable and off-mission
+rendering *judgments* (a stance, a maneuver). The cost of a false
+positive is asymmetric: a wrong entity is a one-click reject, but a wrong
+*assessment* (an auto-suggested agree/disagree stance) or *finding* is the
+tool manufacturing the very verdict X-Ray exists not to render — and it
+biases the reviewer by pre-filling an opinion they're supposed to own.
+Relationships are held too: on a single captured article there are few
+real inter-claim links, so the yield is low while the FP surface is real;
+their value is cross-article (not yet wired), so they flip on later.
+
+Mechanism: `SUGGEST_DEFAULT_KINDS` + `normalizeSuggestKinds` /
+`categoryOfProposalKind` in `llm-prompts.js`; the pass both SCOPES the
+prompt to the enabled kinds (fewer off-target proposals, and the heavy
+maneuver guide is dropped when findings are off) and FILTERS the result
+(defense in depth). Stored under `xray:llm:suggest_kinds`; an explicit
+empty array is honored ("suggest nothing"), an absent key falls back to
+the defaults. Forensic findings stay reachable (a power-user can opt in)
+but are off by default until their definitions/guardrails mature.
+
+## 2026-06-21 — Thorough (per-module) audit: the rigor upgrade
+
+Tags: `design`.
+
+Follow-up to the single-shot auditor: a **Thorough audit** mode that
+runs the orchestrator doc's recommended production path — **one
+independent model call per dimension**, each with the dimension's *full*
+methodology, instead of all eight sharing one pass. This is the answer to
+"how do we get maximum rigor" within the extension.
+
+- **Why it's more rigorous.** Single-shot spreads one context window and
+  one ~16k output budget across eight dimensions (attention dilution,
+  cross-contamination, truncation, a *condensed* methodology). Per-module
+  gives each dimension its own call, its own budget, the real
+  step-numbered methodology, and blindness to the others' judgments.
+- **Vendored prompts.** The methodology lives in
+  `docs/auditor-prototype/prompts/01-08`, which the extension can't read
+  at runtime, so `tools/gen-module-prompts.mjs` slices each at its
+  `# ARTICLE` marker (exactly the CLI's `loadPrompt`) and emits
+  `src/shared/audit/module-prompts.js` verbatim. Imported only by the SW
+  bundle (confirmed: 0 occurrences in the reader/content bundles), so the
+  reader stays lean.
+- **One aggregation path.** The eight per-module tool outputs are
+  collected into the same `{modules}` shape and handed to the SAME
+  `assembleAudit` + `importAuditJson` — the firewall, hash gate, and
+  deterministic aggregate are unchanged. A failed module call simply
+  leaves its module absent → recorded FAILED, the rest still aggregate.
+- **`standingCaveat` is now a parameter.** Single-shot passes its
+  lower-rigor disclosure; thorough passes `null` (nothing to apologize
+  for). The model's own per-module caveats flow in both modes.
+- **Tradeoffs.** ~8× cost and 8× article tokens; calls run in parallel so
+  latency stays ~one call, at the risk of a 429 on a tight key (a 429
+  fails that one module, not the run). A reader `confirm()` gates the
+  thorough button so the spend is never a surprise.
+
+Files: `shared/audit/module-prompts.js` (generated) + `tools/gen-module-prompts.mjs`,
+`buildSingleModuleTool` / `buildModuleSystemPrompt` + the `standingCaveat`
+param in `audit-prompt.js`, `runPerModuleAudit` in `llm-client.js`, the
+reader's two-button control, `tests/audit-llm.test.mjs`.
+
+## 2026-06-20 — In-extension epistemic auditor (LLM execution path) — design
+
+Tags: `design`.
+
+Phase 13 shipped two audit paths: the out-of-band CLI scorer
+(`docs/auditor-prototype/scorer/scorer.js`) and the in-extension
+**import** firewall (`shared/audit/import.js`, slice 13.5). This adds a
+third — a **"Run audit"** button that runs the audit *inside* the
+extension via the 14.5 LLM plumbing — without loosening any invariant.
+
+Decisions worth second-guessing later:
+
+- **Single-shot, not eight calls.** One forced tool call emits all eight
+  modules (the orchestrator methodology,
+  `prompts/00-orchestrator-single-shot.md`). Cheaper and simpler, lower
+  rigor — so every module result carries a standing caveat saying so
+  (P12). The orchestrator's own JSON shape is a *simplified* `dimensions`
+  block that does **not** match `validateFindings`; using it directly
+  would import every module as FAILED. So the in-extension prompt drives
+  the **canonical per-module findings** instead, via a tool schema
+  **built from `findings-schemas.js`'s `PAYLOADS`** (now exported). One
+  source of truth: the model is guided by the exact shapes the validator
+  enforces.
+- **The aggregate is computed in code, never the model's.** `MODULE_WEIGHTS`,
+  the source-quality knowability-ceiling heuristic, and confidence
+  stacking are ported verbatim from the CLI scorer into
+  `shared/audit/audit-prompt.js`'s `buildAggregate`. The model supplies
+  only per-dimension score/confidence/findings (PHILOSOPHY §4: the
+  weights are public constants, not a model's opinion). The tool schema
+  deliberately has **no** aggregate field to fill.
+- **Reuse the firewall, don't fork it.** `assembleAudit` produces the
+  exact `{article, module_results, predictions, aggregate}` shape, and the
+  reader feeds it to the **same `importAuditJson`** the file importer
+  uses — same RQ1 hash gate (we send the SAME markdown we hash, so both
+  halves agree), same per-module schema validation, same failure posture.
+  `module`/`version` are injected at assembly (never model-supplied) and
+  wrapper score/version are set equal to findings' so import's tamper
+  check passes. An absent or malformed module imports as a FAILED result,
+  not a rejection.
+- **No constitution change.** §8 already makes a model a first-class
+  auditor (identity `anthropic/<model>`); methodology version stays `1.0`
+  because the findings schemas are unchanged. Running/importing are
+  local-only and ungated; **publishing stays behind `epistemicAuditing`**
+  (slice 13.8). Gating reuses the `llmAssist` flag + key, so flag-off or
+  no-key means no network call is reachable.
+
+Files: `shared/audit/audit-prompt.js` (new), `runAuditPass` /
+`extractToolInput` in `shared/llm-client.js`, `xray:audit:run` in the SW,
+the reader's `setupAuditRunControl` / `runAuditFromReader`,
+`tests/audit-llm.test.mjs`.
+
 ## 2026-06-20 — Phase 14.5: LLM-assist suggestions through the existing models
 
 **Tags:** design

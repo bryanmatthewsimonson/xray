@@ -291,12 +291,11 @@
       <p class="xr-opt__hint" style="margin-top:-8px">
         Off by default. When on <strong>and</strong> an API key is set, the
         reader gains a <strong>✨ Suggest…</strong> control that asks Anthropic's
-        Claude to propose entities, claims, assessments, relationships, and
-        forensic findings from the open article. <strong>The article text is
-        sent to Anthropic</strong> when you run a pass. Every suggestion is a
-        <strong>draft you review and confirm</strong> — nothing is saved or
-        published automatically, and publishing still requires the
-        experimental publish switches above.
+        Claude to propose capture artifacts (choose which types below) from the
+        open article. <strong>The article text is sent to Anthropic</strong>
+        when you run a pass. Every suggestion is a <strong>draft you review and
+        confirm</strong> — nothing is saved or published automatically, and
+        publishing still requires the experimental publish switches above.
       </p>
       <label class="xr-opt__field">
         <span class="xr-opt__label">Anthropic API key</span>
@@ -311,6 +310,16 @@
         <span class="xr-opt__label">Model</span>
         <select id="pref-llm-model"></select>
       </label>
+      <div class="xr-opt__field">
+        <span class="xr-opt__label">Suggest these artifact types</span>
+        <div id="pref-llm-kinds"></div>
+      </div>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Default: <strong>Entities</strong> + <strong>Claims</strong> — extraction
+        the model does reliably (high signal, low noise). Relationships,
+        assessments, and forensic findings are opt-in <em>judgments</em>:
+        higher false-positive rate, and X-Ray never renders them automatically.
+      </p>
       <div class="xr-opt__actions">
         <button class="xr-opt__btn" id="llm-key-clear">Clear key</button>
         <span class="xr-opt__status" id="llm-status"></span>

@@ -25,13 +25,46 @@ Sections per release: **Added** (new features), **Changed**
   second consent gate, since the article text leaves the device). The
   existing model validators are the firewall — findings keep the
   no-verdict discipline (a required counter-note, ≥1 quoted anchor, no
-  intent/score). New: `shared/llm-prompts.js`, `shared/llm-client.js`,
-  `shared/llm-proposals.js`, `reader/llm-review.js`; the
-  `xray:llm:suggest` / `xray:llm:config` messages; an Options →
-  Advanced → "LLM assist" section (key / model / flag); and the
-  `https://api.anthropic.com/*` host permission. `ClaimModel` and
-  `EntityModel` gain a local-only `suggested_by` field (the kind-30040 /
-  kind-0 wire formats are unchanged).
+  intent/score). **Which artifact types a pass proposes is configurable**
+  (Options → Advanced → LLM assist), defaulting to **Entities + Claims
+  only** — the extraction kinds the model does reliably. Relationships,
+  assessments, and forensic findings are **opt-in** judgments (higher
+  false-positive rate; auto-judgments are the thing X-Ray refuses to
+  render): the pass both scopes its prompt to the enabled kinds and
+  filters the result to them. New: `shared/llm-prompts.js`,
+  `shared/llm-client.js`, `shared/llm-proposals.js`,
+  `reader/llm-review.js`; the `xray:llm:suggest` / `xray:llm:config`
+  messages; an Options → Advanced → "LLM assist" section (key / model /
+  flag / per-kind toggles); and the `https://api.anthropic.com/*` host
+  permission. `ClaimModel` and `EntityModel` gain a local-only
+  `suggested_by` field (the kind-30040 / kind-0 wire formats are
+  unchanged).
+- **In-extension epistemic auditor (the LLM execution path).** Two
+  user-invoked reader buttons score the open capture against all eight
+  epistemic-audit dimensions via the Anthropic Messages API **from the
+  background service worker** (`runAuditPass`, `xray:audit:run`), then
+  ingest the result through the **existing `importAuditJson` firewall** —
+  re-hashed against the capture, every module schema-validated, the
+  per-module failure posture preserved. **Quick audit** is one forced
+  tool call (single-shot, cheaper); **Thorough audit** runs one
+  independent call per dimension in parallel, each with its **full
+  vendored methodology prompt** (`shared/audit/module-prompts.js`,
+  generated verbatim from `docs/auditor-prototype/prompts/01-08`) and its
+  own output budget — the orchestrator doc's production recommendation,
+  ~8× the cost. Single-shot runs carry a standing "lower rigor" caveat;
+  thorough runs do not. The LLM tool schema is **built from the validator's
+  `PAYLOADS`** (one source of truth, so a clean pass can't drift out of
+  schema), and the aggregate (weights, knowability ceiling, confidence
+  stacking) is **computed in code, never taken from the model**
+  (PHILOSOPHY §4); every run carries a standing "single-shot
+  orchestration — lower rigor" caveat (P12). Gated by the same
+  **`llmAssist`** flag + API key as Suggest; running and importing are
+  local-only, and **publishing stays behind `epistemicAuditing`**. No
+  PHILOSOPHY amendment — §8 already makes a model a first-class auditor
+  and the methodology version stays `1.0` (the findings schemas are
+  unchanged). New: `shared/audit/audit-prompt.js`; `runAuditPass` /
+  `extractToolInput` in `shared/llm-client.js`; the `xray:audit:run`
+  message; and a "Run audit" control in the reader's audit bar.
 - **Phase 14.3 — forensic wire format (kind `30062`).** New
   `buildBehavioralFindingEvent` (kind 30062 BehavioralFinding) +
   `parseBehavioralFindingEvent` + a kind-1985 maneuver mirror, behind a

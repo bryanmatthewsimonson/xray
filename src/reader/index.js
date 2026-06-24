@@ -1052,7 +1052,8 @@ async function runSuggestPass() {
         resp = await browserApi.runtime.sendMessage({
             type: 'xray:llm:suggest',
             request: {
-                task: 'all',
+                // Which artifact kinds to suggest is configured in Options
+                // (default: entities + claims); the SW reads it.
                 articleText,
                 articleUrl: state.article.url || '',
                 articleTitle: state.article.title || ''
@@ -1083,6 +1084,123 @@ async function runSuggestPass() {
             await refreshFindingsBar().catch(() => {});
         }
     });
+}
+
+/**
+ * In-extension epistemic auditor controls (the LLM execution path beside
+ * "Import audit JSON…"): a Quick (single-shot) and a Thorough (per-module)
+ * button. Same gating as Suggest: absent unless the llmAssist flag is on,
+ * disabled with a hint when on but keyless — so flag-off OR no-key means
+ * no network call is reachable from here.
+ */
+async function setupAuditRunControl() {
+    const quick = $('#xr-audit-run');
+    const thorough = $('#xr-audit-run-thorough');
+    if (!quick && !thorough) return;
+    let cfg = {};
+    try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:llm:config' }) || {}; }
+    catch (_) { cfg = {}; }
+
+    for (const btn of [quick, thorough]) {
+        if (!btn) continue;
+        if (!cfg.enabled) { btn.hidden = true; continue; }   // flag off ⇒ absent
+        btn.hidden = false;
+        if (!cfg.hasKey) {
+            btn.disabled = true;
+            btn.title = 'Set an Anthropic API key in Options → Advanced → LLM assist';
+        } else {
+            btn.disabled = false;   // title stays as the HTML default
+        }
+    }
+    if (cfg.enabled && cfg.hasKey) {
+        if (quick) quick.addEventListener('click', () => runAuditFromReader('single'));
+        if (thorough) thorough.addEventListener('click', () => runAuditFromReader('per_module'));
+    }
+}
+
+/**
+ * Run an audit pass and ingest its result through the SAME firewall the
+ * file importer uses. The SW returns the canonical scorer-export object;
+ * importAuditJson re-hashes its body_markdown and matches it against this
+ * capture's hash, then schema-validates every module. We send the EXACT
+ * markdown we hash, so the gate binds the audit to the open text.
+ *
+ * @param {'single'|'per_module'} mode  single-shot (quick) or per-module
+ *   (thorough, ~8 independent calls).
+ */
+async function runAuditFromReader(mode = 'single') {
+    const quick = $('#xr-audit-run');
+    const thorough = $('#xr-audit-run-thorough');
+    const active = mode === 'per_module' ? thorough : quick;
+    if (!active || active.disabled || !state.article) return;
+
+    // Thorough mode spends ~8× — confirm before committing the user's key.
+    if (mode === 'per_module'
+        && !confirm('Thorough audit runs one LLM call per dimension (about 8 API calls — higher cost) for more rigor. Continue?')) {
+        return;
+    }
+
+    const markdown = EventBuilder.assembleArticleBody(state.article);
+    if (!markdown || !markdown.trim()) { toast('Nothing to audit yet.', 'error'); return; }
+
+    // Hash the exact text we send; the SW hashes the same string, so both
+    // halves of the RQ1 gate (claimed-vs-body, capture-vs-audit) agree.
+    let localHash;
+    try { localHash = await canonicalArticleHash(markdown); }
+    catch (_) { localHash = state.articleHash; }
+    if (!localHash) {
+        toast('This view has no capture hash to verify against — open the capture this audit belongs to.', 'error', 7000);
+        return;
+    }
+
+    // Disable BOTH controls during a run (no concurrent passes); label the
+    // active one.
+    const labels = new Map();
+    for (const b of [quick, thorough]) { if (b) { labels.set(b, b.textContent); b.disabled = true; } }
+    active.textContent = mode === 'per_module' ? '⏳ Auditing (thorough)…' : '⏳ Auditing…';
+
+    let resp;
+    try {
+        resp = await browserApi.runtime.sendMessage({
+            type: 'xray:audit:run',
+            request: {
+                mode,
+                markdown,
+                articleUrl: state.article.url || '',
+                articleTitle: state.article.title || '',
+                metadata: {
+                    url: state.article.url || null,
+                    headline: state.article.title || null,
+                    byline: state.article.author || state.article.byline || null,
+                    publication_date: state.article.date || state.article.publishedTime || null
+                }
+            }
+        });
+    } catch (err) {
+        resp = { ok: false, error: (err && err.message) || String(err) };
+    }
+
+    for (const b of [quick, thorough]) { if (b) { b.textContent = labels.get(b); b.disabled = false; } }
+
+    if (!resp || !resp.ok) {
+        toast('Audit failed: ' + ((resp && resp.error) || 'unknown error'), 'error', 7000);
+        return;
+    }
+
+    try {
+        const summary = await importAuditJson(resp.audit, { localArticleHash: localHash });
+        const bits = [`${summary.modulesValid} module${summary.modulesValid === 1 ? '' : 's'} valid`];
+        if (summary.modulesFailed) bits.push(`${summary.modulesFailed} failed validation`);
+        if (summary.predictionsImported) bits.push(`${summary.predictionsImported} prediction${summary.predictionsImported === 1 ? '' : 's'}`);
+        if (summary.predictionsSkipped) bits.push(`${summary.predictionsSkipped} skipped`);
+        const how = mode === 'per_module' ? 'thorough' : 'quick';
+        toast(`Audit complete (${how}, ${resp.model}) — ${bits.join(', ')}`,
+            summary.modulesFailed ? 'warning' : 'success', 6000);
+        await refreshAuditStatus();
+    } catch (err) {
+        // importAuditJson is the firewall — surface its reason verbatim.
+        toast('Audit import failed: ' + (err && err.message), 'error', 7000);
+    }
 }
 
 async function openLinkClaim(sourceId, allClaimsOnArticle) {
@@ -3358,6 +3476,11 @@ async function init() {
     // on; disabled (with a hint) when on but no key — so flag-off OR
     // no-key means zero network calls are possible from here.
     setupSuggestControl().catch((err) => console.warn('[X-Ray Reader] suggest setup failed:', err));
+
+    // In-extension epistemic auditor (the LLM execution path). Same
+    // gating as Suggest; absent unless llmAssist is on. Publishing the
+    // resulting events stays behind `epistemicAuditing`.
+    setupAuditRunControl().catch((err) => console.warn('[X-Ray Reader] audit-run setup failed:', err));
 
     // Epistemic-audit import (13.5): button → hidden file input →
     // importAuditJson with the RQ1 gate (re-hash + schema-validate +

@@ -520,6 +520,17 @@ everything before 13.13 below must work with the flag off.
 | 13.6 | Hand-edit the JSON body or hash → import | ✅ refused (re-hash mismatch); tamper with one module's top-level `score` so it diverges from `findings.score` → that module imports as **failed**, the rest survive |
 | 13.7 | Reader → the same article → audit panel | ✅ aggregate badge with score **and** confidence; binding ceiling shows its provenance; per-module rows expand with caveats; evidence quotes click-to-locate in the body |
 
+**Run audit — the in-extension LLM path (needs `llmAssist` on + an API key; see Phase 14.5 setup)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 13.7a | `llmAssist` **off** → reader audit bar | ✅ **no** "Run audit" button (only "Import audit JSON…") — no network call is reachable |
+| 13.7b | Enable `llmAssist` + save a key (Settings ▸ Advanced ▸ LLM assist), reopen the reader | ✅ "Run audit" appears enabled; with the flag on but **no** key it is **disabled** with a key hint |
+| 13.7c | Click **Quick audit** on a fresh capture | ✅ button shows "⏳ Auditing…", then a summary toast (modules valid/failed, predictions); the audit panel fills exactly as an imported run does |
+| 13.7d | Expand the module rows | ✅ each carries the standing **"single-shot orchestration — lower rigor"** caveat; auditor reads `model · anthropic/<model>`; the aggregate's ceiling-source is `heuristic:source-quality/1.0` |
+| 13.7e | Edit one character of the body → **Quick audit** again | ✅ binds to the edited text's hash (no capture-mismatch error); the prior run stays side-by-side, **never averaged** |
+| 13.7f | Click **Thorough audit** → confirm the cost prompt | ✅ both audit buttons disable during the run; on completion the toast says "thorough"; module rows do **not** carry the single-shot caveat (per-dimension methodology); a module whose call fails shows as **failed**, the rest still produce an aggregate |
+
 **Display rules (PHILOSOPHY — check, don't skip)**
 
 | # | Test | Pass criteria |
@@ -625,11 +636,13 @@ Epistemic-audit bar** — three separate, firewalled blocks.
 ## Phase 14.5 — LLM assist (in-extension suggestions)
 
 A user-invoked pass that asks Anthropic's Claude to **propose** capture
-artifacts (entities, claims, assessments, relationships, findings — and
-baselines / revision edges) for review. Two consent gates: the
-`llmAssist` flag (off by default) **and** a user-supplied API key. Every
-item is a draft — nothing saves without Accept, nothing publishes.
-Requires a real Anthropic API key (`docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md`).
+artifacts for review. Which artifact types it proposes is configurable
+(Options → Advanced → LLM assist), defaulting to **Entities + Claims**;
+relationships, assessments, and forensic findings are opt-in. Two consent
+gates: the `llmAssist` flag (off by default) **and** a user-supplied API
+key. Every item is a draft — nothing saves without Accept, nothing
+publishes. Requires a real Anthropic API key
+(`docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md`).
 
 **Gating (no key / no flag = no calls)**
 
@@ -639,12 +652,14 @@ Requires a real Anthropic API key (`docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md`).
 | 14.5.2 | Settings → Advanced → **LLM assist**: confirm the toggle is **unchecked** and "No key saved yet." | ✅ default off, no key |
 | 14.5.3 | Check **Enable LLM-assisted suggestions**, leave the key blank, Save → reopen the reader | ✅ the **✨ Suggest…** button is present but **disabled**, tooltip points to the key field; still zero network |
 | 14.5.4 | Paste an Anthropic key + pick a **Model**, Save. Confirm the key field clears and status reads "A key is saved." | ✅ key stored; reader's Suggest button now **enabled** |
+| 14.5.4b | In **Suggest these artifact types**, confirm the defaults | ✅ **Entities + Claims checked**, Relationships / Assessments / Forensic findings **unchecked** |
 
 **Run a pass + review**
 
 | # | Test | Pass criteria |
 |---|---|---|
-| 14.5.5 | On an op-ed / debate with named people, click **✨ Suggest…** | ✅ button shows "✨ Thinking…", then a **Suggestions** modal opens grouped by Entities / Claims / Assessments / Relationships / Findings (and Baselines/Revisions if any); a model badge shows the model id |
+| 14.5.5 | On an op-ed / debate with named people, click **✨ Suggest…** (defaults) | ✅ button shows "✨ Thinking…", then a **Suggestions** modal opens with **only Entities + Claims** sections (no Assessments / Relationships / Findings); a model badge shows the model id |
+| 14.5.5b | Enable **Forensic findings** in Options, Save, re-run a pass | ✅ the modal now also shows a Findings section (and Baselines/Revisions if any) — opt-in kinds appear only once enabled |
 | 14.5.6 | Inspect a **Claim** proposal | ✅ summary shows the claim text + the about-entities it links; Accept / Edit / Reject buttons |
 | 14.5.7 | Inspect a **Finding** proposal | ✅ shows subject + maneuver + role/basis + a quoted lead + the **counter-read** (`↔ …`); **no stance/score/confidence anywhere** |
 | 14.5.8 | **Accept** an entity, then its claim, then a finding (or click **Accept all valid**) | ✅ rows flip to "✓ accepted"; the **claims bar** and **Forensic findings bar** gain the artifacts |
