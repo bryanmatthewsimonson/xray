@@ -142,6 +142,15 @@ orthodoxy enforcer. The `stated-value` class is the sharp case: see the
 §3.4 firewall — a value is **never** adjudicated true/false; only the
 **observable gap** between a value and an action is.
 
+> **Companion layer.** Declining to adjudicate is not the same as having
+> nothing to say. The proposition classes this firewall excludes —
+> `interpretation`, `stated-value`, and an article's `normative` / `framing`
+> work — are handled on the far side of the wall by **Phase 16 / moral-lens
+> evaluation** ([`docs/MORAL_LENS_JURISDICTION_DESIGN.md`](MORAL_LENS_JURISDICTION_DESIGN.md)),
+> which reconstructs *how named perspectives would read them* (never as
+> truth), grounded in cited authorities. The two layers are two sides of one
+> wall; "verdict" stays reserved for this side.
+
 ### §3.2 Evidence and attestation
 
 Each adjudicable proposition is anchored to evidence with a declared
