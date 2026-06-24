@@ -25,13 +25,20 @@ Sections per release: **Added** (new features), **Changed**
   second consent gate, since the article text leaves the device). The
   existing model validators are the firewall — findings keep the
   no-verdict discipline (a required counter-note, ≥1 quoted anchor, no
-  intent/score). New: `shared/llm-prompts.js`, `shared/llm-client.js`,
-  `shared/llm-proposals.js`, `reader/llm-review.js`; the
-  `xray:llm:suggest` / `xray:llm:config` messages; an Options →
-  Advanced → "LLM assist" section (key / model / flag); and the
-  `https://api.anthropic.com/*` host permission. `ClaimModel` and
-  `EntityModel` gain a local-only `suggested_by` field (the kind-30040 /
-  kind-0 wire formats are unchanged).
+  intent/score). **Which artifact types a pass proposes is configurable**
+  (Options → Advanced → LLM assist), defaulting to **Entities + Claims
+  only** — the extraction kinds the model does reliably. Relationships,
+  assessments, and forensic findings are **opt-in** judgments (higher
+  false-positive rate; auto-judgments are the thing X-Ray refuses to
+  render): the pass both scopes its prompt to the enabled kinds and
+  filters the result to them. New: `shared/llm-prompts.js`,
+  `shared/llm-client.js`, `shared/llm-proposals.js`,
+  `reader/llm-review.js`; the `xray:llm:suggest` / `xray:llm:config`
+  messages; an Options → Advanced → "LLM assist" section (key / model /
+  flag / per-kind toggles); and the `https://api.anthropic.com/*` host
+  permission. `ClaimModel` and `EntityModel` gain a local-only
+  `suggested_by` field (the kind-30040 / kind-0 wire formats are
+  unchanged).
 - **In-extension epistemic auditor (the LLM execution path).** Two
   user-invoked reader buttons score the open capture against all eight
   epistemic-audit dimensions via the Anthropic Messages API **from the

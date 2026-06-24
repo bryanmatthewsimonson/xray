@@ -1052,7 +1052,8 @@ async function runSuggestPass() {
         resp = await browserApi.runtime.sendMessage({
             type: 'xray:llm:suggest',
             request: {
-                task: 'all',
+                // Which artifact kinds to suggest is configured in Options
+                // (default: entities + claims); the SW reads it.
                 articleText,
                 articleUrl: state.article.url || '',
                 articleTitle: state.article.title || ''

@@ -8,7 +8,10 @@ import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
 import { loadFlags, isEnabled, setOverride, resetOverrides } from '../shared/metadata/feature-flags.js';
-import { LLM_MODELS, DEFAULT_LLM_MODEL, resolveModel, LLM_KEY_STORAGE, LLM_MODEL_STORAGE } from '../shared/llm-prompts.js';
+import {
+    LLM_MODELS, DEFAULT_LLM_MODEL, resolveModel, LLM_KEY_STORAGE, LLM_MODEL_STORAGE,
+    LLM_SUGGEST_KINDS_STORAGE, SUGGEST_KIND_LABELS, normalizeSuggestKinds
+} from '../shared/llm-prompts.js';
 import { importAuditJson } from '../shared/audit/import.js';
 import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
 import { listRuns, listPredictions, listResolutions } from '../shared/audit/audit-cache.js';
@@ -572,6 +575,18 @@ async function loadAdvanced() {
     }
     document.getElementById('pref-llm-key').value = '';
 
+    // Per-kind suggestion toggles (default: entities + claims).
+    populateLlmKinds();
+    const rawKinds = await new Promise((resolve) => {
+        browserApi.storage.local.get([LLM_SUGGEST_KINDS_STORAGE],
+            (res) => resolve(res ? res[LLM_SUGGEST_KINDS_STORAGE] : undefined));
+    });
+    const enabledKinds = normalizeSuggestKinds(rawKinds);
+    for (const { kind } of SUGGEST_KIND_LABELS) {
+        const cb = document.getElementById(`pref-llm-kind-${kind}`);
+        if (cb) cb.checked = enabledKinds.includes(kind);
+    }
+
     const overrides = prefs.config_overrides || {};
     document.getElementById('pref-cache-enabled').checked =
         overrides.article_cache_enabled !== false;
@@ -624,6 +639,16 @@ async function saveAdvanced() {
         if (keyStatus) keyStatus.textContent = 'A key is saved on this device.';
     }
 
+    // Enabled suggestion kinds — stored as an explicit array (an empty
+    // array is a valid "suggest nothing" choice; the pass surfaces that).
+    const checkedKinds = SUGGEST_KIND_LABELS
+        .map(({ kind }) => kind)
+        .filter((kind) => {
+            const cb = document.getElementById(`pref-llm-kind-${kind}`);
+            return cb && cb.checked;
+        });
+    await llmRawSet(LLM_SUGGEST_KINDS_STORAGE, checkedKinds);
+
     flash(document.getElementById('advanced-status'), 'Saved.');
 }
 
@@ -635,6 +660,29 @@ function populateLlmModels() {
         opt.value = m.id;
         opt.textContent = m.label;
         sel.appendChild(opt);
+    }
+}
+
+// Render the per-kind suggestion checkboxes from the single source of
+// truth (SUGGEST_KIND_LABELS). Built with DOM nodes (no innerHTML) so the
+// lint stays clean; labels/hints are static constants regardless.
+function populateLlmKinds() {
+    const host = document.getElementById('pref-llm-kinds');
+    if (!host || host.childElementCount > 0) return;
+    for (const { kind, label, hint } of SUGGEST_KIND_LABELS) {
+        const wrap = document.createElement('label');
+        wrap.className = 'xr-opt__field xr-opt__field--inline';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.id = `pref-llm-kind-${kind}`;
+        const span = document.createElement('span');
+        const strong = document.createElement('strong');
+        strong.textContent = label;
+        span.appendChild(strong);
+        span.appendChild(document.createTextNode(` — ${hint}`));
+        wrap.appendChild(cb);
+        wrap.appendChild(span);
+        host.appendChild(wrap);
     }
 }
 

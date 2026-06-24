@@ -636,11 +636,13 @@ Epistemic-audit bar** — three separate, firewalled blocks.
 ## Phase 14.5 — LLM assist (in-extension suggestions)
 
 A user-invoked pass that asks Anthropic's Claude to **propose** capture
-artifacts (entities, claims, assessments, relationships, findings — and
-baselines / revision edges) for review. Two consent gates: the
-`llmAssist` flag (off by default) **and** a user-supplied API key. Every
-item is a draft — nothing saves without Accept, nothing publishes.
-Requires a real Anthropic API key (`docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md`).
+artifacts for review. Which artifact types it proposes is configurable
+(Options → Advanced → LLM assist), defaulting to **Entities + Claims**;
+relationships, assessments, and forensic findings are opt-in. Two consent
+gates: the `llmAssist` flag (off by default) **and** a user-supplied API
+key. Every item is a draft — nothing saves without Accept, nothing
+publishes. Requires a real Anthropic API key
+(`docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md`).
 
 **Gating (no key / no flag = no calls)**
 
@@ -650,12 +652,14 @@ Requires a real Anthropic API key (`docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md`).
 | 14.5.2 | Settings → Advanced → **LLM assist**: confirm the toggle is **unchecked** and "No key saved yet." | ✅ default off, no key |
 | 14.5.3 | Check **Enable LLM-assisted suggestions**, leave the key blank, Save → reopen the reader | ✅ the **✨ Suggest…** button is present but **disabled**, tooltip points to the key field; still zero network |
 | 14.5.4 | Paste an Anthropic key + pick a **Model**, Save. Confirm the key field clears and status reads "A key is saved." | ✅ key stored; reader's Suggest button now **enabled** |
+| 14.5.4b | In **Suggest these artifact types**, confirm the defaults | ✅ **Entities + Claims checked**, Relationships / Assessments / Forensic findings **unchecked** |
 
 **Run a pass + review**
 
 | # | Test | Pass criteria |
 |---|---|---|
-| 14.5.5 | On an op-ed / debate with named people, click **✨ Suggest…** | ✅ button shows "✨ Thinking…", then a **Suggestions** modal opens grouped by Entities / Claims / Assessments / Relationships / Findings (and Baselines/Revisions if any); a model badge shows the model id |
+| 14.5.5 | On an op-ed / debate with named people, click **✨ Suggest…** (defaults) | ✅ button shows "✨ Thinking…", then a **Suggestions** modal opens with **only Entities + Claims** sections (no Assessments / Relationships / Findings); a model badge shows the model id |
+| 14.5.5b | Enable **Forensic findings** in Options, Save, re-run a pass | ✅ the modal now also shows a Findings section (and Baselines/Revisions if any) — opt-in kinds appear only once enabled |
 | 14.5.6 | Inspect a **Claim** proposal | ✅ summary shows the claim text + the about-entities it links; Accept / Edit / Reject buttons |
 | 14.5.7 | Inspect a **Finding** proposal | ✅ shows subject + maneuver + role/basis + a quoted lead + the **counter-read** (`↔ …`); **no stance/score/confidence anywhere** |
 | 14.5.8 | **Accept** an entity, then its claim, then a finding (or click **Accept all valid**) | ✅ rows flip to "✓ accepted"; the **claims bar** and **Forensic findings bar** gain the artifacts |

@@ -19,6 +19,36 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-06-21 — Suggest defaults: extraction ON, judgment opt-in
+
+Tags: `design`.
+
+The Suggest pass used to always request `task: 'all'` — every artifact
+kind in one go. We now default to **Entities + Claims only**, with
+relationships, assessments, and forensic findings opt-in via Options
+checkboxes.
+
+The line is **extraction vs judgment**. The model is reliable and
+on-mission extracting what the article *contains* (who's named, what's
+asserted, each with a verbatim quote); it's unreliable and off-mission
+rendering *judgments* (a stance, a maneuver). The cost of a false
+positive is asymmetric: a wrong entity is a one-click reject, but a wrong
+*assessment* (an auto-suggested agree/disagree stance) or *finding* is the
+tool manufacturing the very verdict X-Ray exists not to render — and it
+biases the reviewer by pre-filling an opinion they're supposed to own.
+Relationships are held too: on a single captured article there are few
+real inter-claim links, so the yield is low while the FP surface is real;
+their value is cross-article (not yet wired), so they flip on later.
+
+Mechanism: `SUGGEST_DEFAULT_KINDS` + `normalizeSuggestKinds` /
+`categoryOfProposalKind` in `llm-prompts.js`; the pass both SCOPES the
+prompt to the enabled kinds (fewer off-target proposals, and the heavy
+maneuver guide is dropped when findings are off) and FILTERS the result
+(defense in depth). Stored under `xray:llm:suggest_kinds`; an explicit
+empty array is honored ("suggest nothing"), an absent key falls back to
+the defaults. Forensic findings stay reachable (a power-user can opt in)
+but are off by default until their definitions/guardrails mature.
+
 ## 2026-06-21 — Thorough (per-module) audit: the rigor upgrade
 
 Tags: `design`.

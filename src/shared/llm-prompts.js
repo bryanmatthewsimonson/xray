@@ -62,6 +62,55 @@ export const SUGGEST_TASKS = Object.freeze([
     'all', 'entities', 'claims', 'assessments', 'relationships', 'findings'
 ]);
 
+// The selectable suggestion categories (SUGGEST_TASKS without the 'all'
+// convenience). Each maps to a rules block in buildSystemPrompt and a
+// checkbox in Options. Default ON = the EXTRACTION kinds only (entities,
+// claims); the JUDGMENT kinds (relationships, assessments, findings) are
+// opt-in. The rationale: a false-positive extraction is a one-click
+// reject, but a false-positive judgment is the tool manufacturing a
+// verdict — the exact thing X-Ray refuses to render automatically.
+export const SUGGEST_KINDS = Object.freeze(SUGGEST_TASKS.filter((t) => t !== 'all'));
+export const SUGGEST_DEFAULT_KINDS = Object.freeze(['entities', 'claims']);
+export const LLM_SUGGEST_KINDS_STORAGE = 'xray:llm:suggest_kinds';
+
+// Category metadata for the Options checkboxes (rendered in this order).
+export const SUGGEST_KIND_LABELS = Object.freeze([
+    { kind: 'entities', label: 'Entities',
+        hint: 'people, organizations, places, and things named in the text' },
+    { kind: 'claims', label: 'Claims',
+        hint: 'atomized assertions the article makes, each anchored to a verbatim quote' },
+    { kind: 'relationships', label: 'Relationships (evidence links)',
+        hint: 'typed links between claims — most useful across multiple articles' },
+    { kind: 'assessments', label: 'Assessments',
+        hint: 'a stance / issue labels on a claim — your judgment to own, not the model’s' },
+    { kind: 'findings', label: 'Forensic findings',
+        hint: 'structural maneuvers, plus baselines & story-change edges — experimental' }
+]);
+
+// Proposal kind → selectable category. Baselines and revisions ride with
+// the forensic-findings layer (the prompt bundles their rules with it).
+const PROPOSAL_KIND_TO_CATEGORY = Object.freeze({
+    entity: 'entities', claim: 'claims', assessment: 'assessments',
+    relationship: 'relationships', finding: 'findings',
+    baseline: 'findings', revision: 'findings'
+});
+
+/** The selectable category a raw proposal kind belongs to (or null). */
+export function categoryOfProposalKind(kind) {
+    return PROPOSAL_KIND_TO_CATEGORY[kind] || null;
+}
+
+/**
+ * Coerce a stored value into a valid enabled-kinds array. An ABSENT
+ * value (not an array) falls back to the defaults; an explicit array is
+ * filtered to known categories (and may be empty — the user turned
+ * everything off, which the caller treats as "nothing to suggest").
+ */
+export function normalizeSuggestKinds(value) {
+    if (!Array.isArray(value)) return SUGGEST_DEFAULT_KINDS.slice();
+    return value.filter((k) => SUGGEST_KINDS.includes(k));
+}
+
 // ------------------------------------------------------------------
 // Tool schema — one discriminated-union tool keyed by `kind`. We do NOT
 // use strict mode: the real firewall is each model's create() at accept
@@ -318,18 +367,24 @@ BASELINES (a subject's established register — secondary, descriptive prose, no
 }
 
 /**
- * Build the system prompt for a pass. `task` ('all' by default) selects
- * which artifact rules to embed; the heavy maneuver guide is only
- * included when findings are in scope, to bound tokens.
+ * Build the system prompt for a pass. `tasks` (an array of categories)
+ * selects which artifact rules to embed; the heavy maneuver guide is only
+ * included when findings are in scope, to bound tokens. `task` (a single
+ * string, 'all' by default) is kept for back-compat and is used only when
+ * `tasks` is not supplied.
  *
  * @param {object} [opts]
- * @param {string} [opts.task='all']
+ * @param {string[]} [opts.tasks]   enabled categories (preferred)
+ * @param {string} [opts.task='all'] single category, or 'all' (fallback)
  * @param {string} [opts.url]
  * @param {string} [opts.title]
  */
-export function buildSystemPrompt({ task = 'all', url = '', title = '' } = {}) {
-    const t = SUGGEST_TASKS.includes(task) ? task : 'all';
-    const wants = (kind) => t === 'all' || t === kind;
+export function buildSystemPrompt({ tasks = null, task = 'all', url = '', title = '' } = {}) {
+    const effective = Array.isArray(tasks)
+        ? tasks.filter((t) => SUGGEST_KINDS.includes(t))
+        : (task === 'all' ? SUGGEST_KINDS.slice()
+            : (SUGGEST_KINDS.includes(task) ? [task] : SUGGEST_KINDS.slice()));
+    const wants = (kind) => effective.includes(kind);
 
     const head = `You are X-Ray's capture assistant. You read an article a person has captured and propose structured "capture artifacts" — entities, claims, assessments, relationships, and forensic findings — for that person to review and confirm. X-Ray is an evidence tool: it records WHAT was said and the STRUCTURE of how it was argued, and it renders no automated verdicts on truth or intent.`;
 

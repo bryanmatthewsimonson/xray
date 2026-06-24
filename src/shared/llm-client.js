@@ -19,8 +19,9 @@ import { Utils } from './utils.js';
 import { loadFlags, isEnabled } from './metadata/feature-flags.js';
 import {
     ANTHROPIC_API_URL, ANTHROPIC_VERSION, resolveModel,
-    LLM_KEY_STORAGE, LLM_MODEL_STORAGE,
-    buildSuggestTool, buildSystemPrompt, buildUserPrompt
+    LLM_KEY_STORAGE, LLM_MODEL_STORAGE, LLM_SUGGEST_KINDS_STORAGE,
+    buildSuggestTool, buildSystemPrompt, buildUserPrompt,
+    normalizeSuggestKinds, categoryOfProposalKind
 } from './llm-prompts.js';
 import {
     AUDIT_TOOL_NAME, STANDING_SINGLE_SHOT_CAVEAT,
@@ -204,9 +205,19 @@ export async function runSuggestionPass(req = {}) {
         return { ok: false, error: 'No article text to analyze.' };
     }
 
+    // Which artifact categories to propose. Default ON = entities +
+    // claims (extraction); relationships / assessments / findings are
+    // opt-in via Options. We both SCOPE the prompt to the enabled kinds
+    // (fewer off-target proposals, smaller prompt) and FILTER the result
+    // (defense in depth — the model can't smuggle a disabled kind past it).
+    const enabledKinds = normalizeSuggestKinds(
+        (await storageGetRaw([LLM_SUGGEST_KINDS_STORAGE]))[LLM_SUGGEST_KINDS_STORAGE]);
+    if (enabledKinds.length === 0) {
+        return { ok: false, error: 'No suggestion types are enabled. Turn some on in Options → Advanced → LLM assist.' };
+    }
+
     const model = await readModel();
-    const task  = req.task || 'all';
-    const system = buildSystemPrompt({ task, url: req.articleUrl || '', title: req.articleTitle || '' });
+    const system = buildSystemPrompt({ tasks: enabledKinds, url: req.articleUrl || '', title: req.articleTitle || '' });
     const userContent = buildUserPrompt({ articleText, context: req.context || '' });
     const tool = buildSuggestTool();
 
@@ -220,7 +231,7 @@ export async function runSuggestionPass(req = {}) {
         messages: [{ role: 'user', content: userContent }]
     };
 
-    Utils.log('[X-Ray LLM] suggestion pass:', { task, model, chars: articleText.length });
+    Utils.log('[X-Ray LLM] suggestion pass:', { kinds: enabledKinds, model, chars: articleText.length });
 
     const res = await postMessages(payload, apiKey);
     if (!res.ok) return res;
@@ -235,11 +246,15 @@ export async function runSuggestionPass(req = {}) {
         return { ok: false, error: 'The model did not return a structured proposal set. Try again.' };
     }
 
-    Utils.log('[X-Ray LLM] proposals:', proposals.length);
+    // Drop anything outside the enabled categories (the model occasionally
+    // volunteers an off-target kind even when unasked).
+    const filtered = proposals.filter((p) => enabledKinds.includes(categoryOfProposalKind(p && p.kind)));
+
+    Utils.log('[X-Ray LLM] proposals:', filtered.length, 'of', proposals.length);
     return {
         ok: true,
         model: (data && data.model) || model,
-        proposals,
+        proposals: filtered,
         usage: data && data.usage ? data.usage : undefined
     };
 }
