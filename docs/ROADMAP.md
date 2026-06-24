@@ -1231,6 +1231,66 @@ Slices (one PR each; `claude/phase-15-*`):
 
 ---
 
+## Phase 16 — Moral-lens evaluation (lens-readings) 📝 design draft
+
+**The far side of the Phase-15 firewall, and an LLM-assist consumer.** Where
+Phase 15 §3.1 declares interpretations and bare values **not** adjudicable as
+true/false, this layer takes exactly those firewalled-off proposition classes
+— `normative` / `framing` / `interpretation` / `stated-value` — and does the
+only honest thing left: it **reconstructs how named perspectives would read
+them**, grounded in those perspectives' own authorities, and reports its
+evidentiary honesty as the payoff. It never asks "is A true?"; it asks "under
+jurisdiction J, how would A be read, on what authority?" `factual` assertions
+are **deferred to Phase 15** — this layer may only describe whether a
+jurisdiction's corpus asserts/denies/is silent, never pronounce the fact.
+
+A **jurisdiction** is `codified` (a legal code), `worldview` (a tradition,
+pluralism encoded — never one decree for "Christianity"), or `persona` (an
+author's corpus, with a non-negotiable **living-person guardrail**: published
+positions only, never private belief/motive/character). These map onto
+existing substrate — jurisdictions are **entities** (`entity-model.js`),
+authorities are **captured claims + W3C anchors** (`claim-model.js`), the
+target is a captured `30023`.
+
+**Derived/advisory only — no wire kind.** The opinion follows the
+`audit/dossier.js` computed-on-open pattern: the model pass isn't
+deterministic but its inputs are pinned (authorities by edition/locator,
+article hash, jurisdiction defs, prompt version), provenance
+`suggested_by: 'llm:<model>'`. **Nothing auto-saves; nothing publishes**
+(inherited from Phase 14.5). Gated by a new `moralLens` flag (default off)
+**plus** the API-key second consent gate, since article text leaves the
+device. Kind **`30066` is left free**; a shareable wire format is a deferred,
+separately-designed act.
+
+Three corrections to the source prompt are load-bearing: confidence is a
+**legitimate estimation** (fidelity of reconstruction, admissible under
+truth-doc §1's own carve-out — not a truth-verdict); the **surface framing is
+"lens-reading," not a court** ("verdict" stays reserved for Phase 15); and
+**panel composition is a P5 symmetry obligation** — which jurisdictions are
+empaneled, and why, is disclosed and a one-sided panel is flagged.
+
+Full design: [`docs/MORAL_LENS_JURISDICTION_DESIGN.md`](MORAL_LENS_JURISDICTION_DESIGN.md)
+— design draft.
+
+Slices (one PR each; `claude/phase-16-*`):
+
+- 📝 **16.0** Gate — Phase 14.5 LLM-assist (`llm-client.js`, `llmAssist`
+  flag, key consent) merged; this layer does not start before it.
+- 📝 **16.1** Jurisdiction model — entity-backed records; the three
+  definition templates; corpus-loading binding authorities to captured
+  claims + anchors; exhaustive-enum tests.
+- 📝 **16.2** Lens-reading engine — hardened system prompt + `llm-client`
+  call + structured-output parse; derived view, never saved.
+- 📝 **16.3** Surfaces — reader/portal rendering of the reconstruction +
+  integrity report + `panel_composition` disclosure; content-vs-framing split.
+- 📝 **16.4** Guardrails as tests — living-person guardrail;
+  symmetry/selection discipline (thin corpus → `silent`, unloaded → refuse,
+  one-sided panel → flag).
+- 📝 **(deferred)** publishable wire kind `30066`; persona-corpus tooling;
+  multi-target panels.
+
+---
+
 ## Abandonment criteria
 
 From issue #20 — bears repeating. At any phase boundary, if the cost
