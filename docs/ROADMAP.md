@@ -74,6 +74,10 @@ Phase 13 ███████████░░░░░░░░░  in progre
 Phase 14 ░░░░░░░░░░░░░░░░░░░░  design agreed 2026-06-14 — forensic findings:
                                 behavioral-pattern layer (docs/CRIMINOLOGY_DESIGN.md).
                                 builds on Phase 13; 14.1–14.4 built, 14.5 pending
+Phase 15 ░░░░░░░░░░░░░░░░░░░░  design draft — truth adjudication: verdicts on
+                                propositions + words-vs-deeds integrity
+                                (docs/TRUTH_ADJUDICATION_DESIGN.md). Builds on
+                                Phase 14; kinds 30063/30064 (30065 reserved)
 ```
 
 Parity with the v4.2 userscript is reached; the project now operates as a
@@ -1151,6 +1155,139 @@ Acceptance demo: the source video itself
 ([`0axZ8EGLaxQ`](https://www.youtube.com/watch?v=0axZ8EGLaxQ)) — profile both
 interlocutors (the symmetry check), with evidence chains, counter-notes, and
 diachronic revision edges visible across the four lenses.
+
+---
+
+## Phase 15 — Truth adjudication (verdicts + words-vs-deeds) 📝 design draft
+
+**Builds on Phase 14.** The Phase 14 forensic chain must land on `main`
+first; this layer composes its findings (`30062`) as a raw signal and takes
+the **next disjoint wire kinds** — **`30063`** `AdjudicatedVerdict` and
+**`30064`** `IntegrityFinding` (with **`30065`** reserved for a precedent
+citation), gated by a separate **`truthAdjudicationPublishing`** flag. New
+development is paused until the Phase 14 chain merges, at which point this
+branch rebases onto it.
+
+This is the **truth-verdict layer Phase 14 deliberately deferred** (its
+non-goals: "truth verdicts on subjects, intent attribution"). Where Phase 11
+registers a personal stance on a claim and Phase 14 names a *maneuver*
+without a verdict, Phase 15 **adjudicates whether an atomized proposition is
+true** — `established-true` / `established-false` / `contested` /
+`unresolved` / `insufficient-evidence` — on a declared common-law
+**standard of proof**, with verbatim two-sided evidence, tiered sources,
+adjudicator identity + mandatory caveats, and append-only supersession. Its
+**spine** (§1 of the design): *verdicts are descriptive states; every number
+is a reproducible **measurement** that shows its derivation, never an
+estimated score* — the deliberate departure from the epistemic audit's
+0-100 + knowability-ceiling. Its headline *use* is the **integrity
+application**: linking an adjudicated `stated-commitment` / `stated-value`
+to adjudicated **action-facts** (the corroborated convergence of
+*independent* attestations) and ruling the word-deed `match`
+(`fulfilled` / `broken` / `contradicted` …) as its own verdict — **intent
+never adjudicated**, values never policed as true/false, only the observable
+gap. Entity records are **dimension-separated and coverage-bound** (the
+coverage fraction caps every aggregate); the optional rollup is a lossy
+ratio of measured outcomes, never a fused score.
+
+**v1 scope** is authoring + wire + local records — the same posture Phases
+11/13/14 take. The client emits well-structured verdict events behind a flag
+and keeps dimension-separated local records; the **aggregation-layer
+defenses** (cross-author bridging, reputation/track-record weighting, Sybil
+resistance, capital bonding) are **deferred** — the wire carries the fields a
+future protocol layer would consume, but the client does not compute them,
+exactly as Phase 13 shipped `30061` wire-only. Disputes inherit that
+wire-only posture (no adjudication runtime in v1).
+
+Full design, the form-of-judgment spine, the pitfall→defense table, wire
+formats, and red lines:
+[`docs/TRUTH_ADJUDICATION_DESIGN.md`](TRUTH_ADJUDICATION_DESIGN.md) — design
+draft. The deferred bonded-resolution second act is parked in
+[`docs/BONDING_NOTES.md`](BONDING_NOTES.md).
+
+Slices (one PR each; `claude/phase-15-*`):
+
+- 📝 **15.1** Adjudicable-proposition model (local, no wire) —
+  `proposition_class` + `resolution_criteria` atomization over existing
+  claims; the interpretation/value firewall; exhaustive-enum tests.
+- 📝 **15.2** Evidence tiers + attestation graph — tiered evidence;
+  independent-attestation convergence for action-facts (composing 30055
+  `supports`); independence checks.
+- 📝 **15.3** Verdict model + dispute reuse — `AdjudicatedVerdict`
+  (descriptive states, standard-of-proof, verbatim evidence, caveats);
+  multi-adjudicator variance *surface*; supersession; reuse the `30061`
+  dispute wire format. No estimated-score path exists to build.
+- 📝 **15.4** Integrity application — `IntegrityFinding` (commitment/value
+  vs action match as a verdict; gap-decomposition; intent excluded; the
+  value firewall; revision-as-credit composing 30062).
+- 📝 **15.5** Entity record + coverage — dimension-separated descriptive
+  records; the coverage measurement + cap; the optional gated rollup;
+  calibration from resolved predictions (reusing `audit/calibration.js`).
+- 📝 **15.6** Wire + NIP draft (flag-gated) — `30063`/`30064` builders +
+  parsers; `truthAdjudicationPublishing` flag; NIP draft framing verdicts as
+  evidence-bound descriptive adjudications with required caveats; precedent
+  citation grammar reserved.
+- 📝 **(later)** Precedent + bridging weighting — stare-decisis corpus;
+  bridging-weighted standing (the deferred aggregation-layer tail).
+
+---
+
+## Phase 16 — Moral-lens evaluation (lens-readings) 📝 design draft
+
+**The far side of the Phase-15 firewall, and an LLM-assist consumer.** Where
+Phase 15 §3.1 declares interpretations and bare values **not** adjudicable as
+true/false, this layer takes exactly those firewalled-off proposition classes
+— `normative` / `framing` / `interpretation` / `stated-value` — and does the
+only honest thing left: it **reconstructs how named perspectives would read
+them**, grounded in those perspectives' own authorities, and reports its
+evidentiary honesty as the payoff. It never asks "is A true?"; it asks "under
+jurisdiction J, how would A be read, on what authority?" `factual` assertions
+are **deferred to Phase 15** — this layer may only describe whether a
+jurisdiction's corpus asserts/denies/is silent, never pronounce the fact.
+
+A **jurisdiction** is `codified` (a legal code), `worldview` (a tradition,
+pluralism encoded — never one decree for "Christianity"), or `persona` (an
+author's corpus, with a non-negotiable **living-person guardrail**: published
+positions only, never private belief/motive/character). These map onto
+existing substrate — jurisdictions are **entities** (`entity-model.js`),
+authorities are **captured claims + W3C anchors** (`claim-model.js`), the
+target is a captured `30023`.
+
+**Derived/advisory only — no wire kind.** The opinion follows the
+`audit/dossier.js` computed-on-open pattern: the model pass isn't
+deterministic but its inputs are pinned (authorities by edition/locator,
+article hash, jurisdiction defs, prompt version), provenance
+`suggested_by: 'llm:<model>'`. **Nothing auto-saves; nothing publishes**
+(inherited from Phase 14.5). Gated by a new `moralLens` flag (default off)
+**plus** the API-key second consent gate, since article text leaves the
+device. Kind **`30066` is left free**; a shareable wire format is a deferred,
+separately-designed act.
+
+Three corrections to the source prompt are load-bearing: confidence is a
+**legitimate estimation** (fidelity of reconstruction, admissible under
+truth-doc §1's own carve-out — not a truth-verdict); the **surface framing is
+"lens-reading," not a court** ("verdict" stays reserved for Phase 15); and
+**panel composition is a P5 symmetry obligation** — which jurisdictions are
+empaneled, and why, is disclosed and a one-sided panel is flagged.
+
+Full design: [`docs/MORAL_LENS_JURISDICTION_DESIGN.md`](MORAL_LENS_JURISDICTION_DESIGN.md)
+— design draft.
+
+Slices (one PR each; `claude/phase-16-*`):
+
+- 📝 **16.0** Gate — Phase 14.5 LLM-assist (`llm-client.js`, `llmAssist`
+  flag, key consent) merged; this layer does not start before it.
+- 📝 **16.1** Jurisdiction model — entity-backed records; the three
+  definition templates; corpus-loading binding authorities to captured
+  claims + anchors; exhaustive-enum tests.
+- 📝 **16.2** Lens-reading engine — hardened system prompt + `llm-client`
+  call + structured-output parse; derived view, never saved.
+- 📝 **16.3** Surfaces — reader/portal rendering of the reconstruction +
+  integrity report + `panel_composition` disclosure; content-vs-framing split.
+- 📝 **16.4** Guardrails as tests — living-person guardrail;
+  symmetry/selection discipline (thin corpus → `silent`, unloaded → refuse,
+  one-sided panel → flag).
+- 📝 **(deferred)** publishable wire kind `30066`; persona-corpus tooling;
+  multi-target panels.
 
 ---
 
