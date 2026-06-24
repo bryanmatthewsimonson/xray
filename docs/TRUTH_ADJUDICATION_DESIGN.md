@@ -164,6 +164,17 @@ deferred (§2).
 
 ### §3.3 The verdict (descriptive, measured — no estimated score)
 
+**Structure: single-author verdict, read-time aggregate.** A `30063` is
+**one author's** ruling on one proposition — an addressable event keyed to
+`(author, proposition)`, exactly as a `30054` assessment is one author's
+stance. There is no consensus event and no authoritative-adjudicator role.
+When several authors rule on the same proposition, **agreement, variance,
+and bridging are computed at read time** over their separate `30063`
+events and **never collapsed into a single number** (borrowed, P8). The
+`agreement`/`bridging` fields below therefore describe what a *reader* (or a
+future aggregation layer) derives across many verdicts — not a value any one
+event asserts about a crowd.
+
 For each adjudicable proposition, an **AdjudicatedVerdict**:
 
 - `verdict` (descriptive state): `established-true` | `established-false` |
@@ -173,12 +184,13 @@ For each adjudicable proposition, an **AdjudicatedVerdict**:
 - `evidence` — verbatim, both sides (borrowed, P3); tiers cited.
 - `adjudicator` identity + method + timestamp + **mandatory caveats** (what
   this verdict could not determine).
-- `agreement` — **measured**, not averaged: when multiple adjudicators rule,
-  publish each + the variance (borrowed, P8); never collapse to a consensus
-  number. *Wire-emittable in v1; the cross-author variance is computed at
-  the aggregation layer, not by the client.*
-- `bridging` — did adjudicators with divergent priors converge? *A measured
-  signal carried on the wire; weighting it into standing is deferred (§2).*
+- `agreement` — **measured**, not averaged: a reader holding many authors'
+  `30063` events on one proposition sees each verdict + the variance
+  (borrowed, P8); they are never collapsed to a consensus number. *Computed
+  read-time across single-author events; no event asserts it.*
+- `bridging` — did authors with divergent priors converge? *A read-time
+  signal over the same event set; weighting it into standing is deferred
+  (§2).*
 - disputable and **superseded, never overwritten**.
 
 The role the epistemic audit gives to a single estimated score is filled
@@ -365,10 +377,12 @@ chain having merged.
 - **15.2 — Evidence tiers + attestation graph.** Tiered evidence on
   propositions; the independent-attestation convergence for action-facts
   (composing 30055 `supports`); independence checks.
-- **15.3 — Verdict model + dispute reuse.** `AdjudicatedVerdict` (descriptive
-  states, standard-of-proof, verbatim evidence, caveats); multi-adjudicator
-  variance *surface* (emitted, not computed); supersession; reuse the
-  dispute wire format. No estimated-score path exists to build.
+- **15.3 — Verdict model + dispute reuse.** `AdjudicatedVerdict` as a
+  **single-author** addressable record keyed to `(author, proposition)`
+  (descriptive states, standard-of-proof, verbatim evidence, caveats);
+  read-time multi-author variance/bridging surface (derived, never an event
+  field); supersession; reuse the dispute wire format. No estimated-score
+  path exists to build.
 - **15.4 — Integrity application.** `IntegrityFinding` (commitment/value vs
   action match as a verdict; gap-decomposition; intent excluded; the
   value firewall; revision-as-credit composing 30062).
