@@ -227,6 +227,44 @@ test('assembleAudit: an absent module imports as a failed result, not a rejectio
     assert.equal(summary.modulesValid, 7, 'the rest still import');
 });
 
+test('round-trip: percentage-scale confidence is normalized, not rejected (regression)', async () => {
+    // The single-shot model sometimes emits confidence as a 0-100 PERCENTAGE
+    // instead of a 0.0-1.0 fraction. That used to poison the aggregate and make
+    // importAuditJson hard-throw ("aggregate.overall_confidence must be a number
+    // in [0, 1] (got 60)"), surfacing as the reader's "Audit import failed" toast.
+    // assembleAudit now recovers the fraction and notes the degrade (P12).
+    const mods = fullModules();
+    for (const name of Object.keys(mods)) {
+        if (name === 'prediction_extraction') continue;
+        mods[name].confidence = mods[name].confidence * 100;   // 0.8 -> 80, 0.6 -> 60, …
+    }
+    const audit = await assembleAudit({
+        toolInput: { modules: mods }, model: MODEL, markdown: MD,
+        standingCaveat: STANDING_SINGLE_SHOT_CAVEAT
+    });
+
+    // Recovered into [0,1] in the findings the firewall validates (so the
+    // module PASSES rather than failing) — and in the aggregate it feeds.
+    for (const r of audit.module_results) {
+        if (r.module === 'prediction_extraction') continue;
+        assert.ok(r.findings.confidence >= 0 && r.findings.confidence <= 1,
+            `${r.module} confidence normalized into [0,1]`);
+    }
+    assert.ok(audit.aggregate.overall_confidence >= 0 && audit.aggregate.overall_confidence <= 1);
+    for (const c of audit.aggregate.module_contributions) {
+        assert.ok(c.confidence >= 0 && c.confidence <= 1, `${c.module} contribution confidence in [0,1]`);
+    }
+    // Transparency: the normalization is surfaced as a caveat, not silent.
+    const noted = audit.module_results.some((r) =>
+        (r.findings.auditor_caveats || []).some((c) => /normalized into 0\.0-1\.0/.test(c)));
+    assert.ok(noted, 'normalization recorded as an auditor caveat (P12)');
+
+    // The whole point: it now IMPORTS cleanly (was a hard throw).
+    const summary = await importAuditJson(audit, { localArticleHash: await articleHash(MD) });
+    assert.equal(summary.modulesValid, 8, 'imports cleanly after normalization');
+    assert.equal(summary.modulesFailed, 0);
+});
+
 // --- per-module ("thorough") path --------------------------------------------
 
 test('buildSingleModuleTool + buildModuleSystemPrompt: one module, full methodology', () => {

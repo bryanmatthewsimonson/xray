@@ -102,8 +102,10 @@ function moduleToolSchema(name) {
         };
         properties.confidence = {
             type: 'number', minimum: 0, maximum: 1,
-            description: '0.0-1.0 confidence in this score given how much is evaluable from the '
-                + 'article alone. Lower it where surface evaluation is structurally limited.'
+            description: 'Confidence in this score as a DECIMAL FRACTION between 0.0 and 1.0 '
+                + '(e.g. 0.7 means 70% confident) — NOT a 0-100 percentage. It must never '
+                + 'exceed 1. Lower it where surface evaluation is structurally limited, given '
+                + 'how much is evaluable from the article alone.'
         };
         required.push('score', 'confidence');
     }
@@ -171,7 +173,7 @@ GOVERNING PRINCIPLES (non-negotiable):
 
 SCORING (dimensions 1-7 only; prediction_extraction is NOT scored):
 - 90-100 exemplary, affirmative best practice visible; 75-89 solid, minor issues; 60-74 acceptable with noticeable concerns; 40-59 significant problems; 20-39 severe; 0-19 catastrophic.
-- Each scored dimension also gets a confidence 0.0-1.0 reflecting how much is evaluable from the article alone.
+- Each scored dimension also gets a confidence expressed as a DECIMAL FRACTION between 0.0 and 1.0 (e.g. 0.7, never 70) reflecting how much is evaluable from the article alone. Confidence must never exceed 1.
 
 OUTPUT:
 - Use the ${AUDIT_TOOL_NAME} tool and nothing else. Fill every dimension under \`modules\`, each matching its schema.
@@ -244,6 +246,28 @@ export function collectEvidenceQuotes(findings) {
     return [...quotes].map((quote) => ({ quote }));
 }
 
+// Coerce a model-supplied score/confidence into the range the validator
+// AND the aggregate require, BEFORE either consumes it. A recoverable
+// model quirk (the common one: confidence emitted as a 0-100 percentage
+// rather than a 0.0-1.0 fraction) must degrade a number, never discard
+// the whole eight-module audit at the import firewall. This is NOT a
+// tamper-gate relaxation — import.js still validates everything; we are
+// keeping the value we hand it in-range so a quirk doesn't masquerade as
+// corruption. A non-number stays non-number (assembleAudit nulls it,
+// import takes the per-module failed posture).
+function clampScore(v) {
+    if (typeof v !== 'number' || !Number.isFinite(v)) return v;
+    return Math.max(0, Math.min(100, v));
+}
+function clampConfidence(v) {
+    if (typeof v !== 'number' || !Number.isFinite(v)) return v;
+    // Clearly a percentage (1 < v <= 100) → it's a 0-100 value the model
+    // mislabeled; recover the fraction. Anything still out of range
+    // (negatives, >100) clamps to the bound.
+    if (v > 1 && v <= 100) v = v / 100;
+    return Math.max(0, Math.min(1, v));
+}
+
 // The deterministic aggregate — scorer.js aggregate(), ported. The
 // knowability ceiling is derived from source_quality's summary counts;
 // the weighted score uses only the scoreable modules; confidence stacks
@@ -284,11 +308,12 @@ function buildAggregate({ hash, byModule, model, runAt }) {
             moduleContributions.push({ module: m, module_result_id: null, score: null, confidence: 0, weight: 0 });
             continue;
         }
-        weightedSum += r.score * weight;
+        const score = clampScore(r.score);
+        weightedSum += score * weight;
         totalWeightApplied += weight;
         moduleContributions.push({
             module: m, module_result_id: null,
-            score: r.score, confidence: typeof r.confidence === 'number' ? r.confidence : 0.5, weight
+            score, confidence: clampConfidence(typeof r.confidence === 'number' ? r.confidence : 0.5), weight
         });
     }
 
@@ -299,7 +324,7 @@ function buildAggregate({ hash, byModule, model, runAt }) {
     const successful = moduleContributions.filter((c) => c.score !== null);
     const minConfidence = successful.length ? Math.min(...successful.map((c) => c.confidence)) : 0;
     const successFraction = successful.length / SCOREABLE_MODULES.length;
-    const overallConfidence = Number((minConfidence * successFraction).toFixed(2));
+    const overallConfidence = clampConfidence(Number((minConfidence * successFraction).toFixed(2)));
 
     const topStrengths = [];
     const topConcerns = [];
@@ -393,6 +418,21 @@ export async function assembleAudit({ toolInput, model, markdown, metadata = {},
         const caveats = Array.isArray(raw.auditor_caveats) ? raw.auditor_caveats.slice() : [];
         if (standingCaveat && !caveats.includes(standingCaveat)) caveats.unshift(standingCaveat);
         findings.auditor_caveats = caveats;
+
+        // Normalize score/confidence IN the findings object so the wrapper,
+        // the validated findings, and buildAggregate all see one in-range
+        // value (and import's tamper check, which requires wrapper ===
+        // findings, still passes). A recovered percentage is noted so the
+        // degrade is transparent (P12), not silent.
+        if (name !== 'prediction_extraction') {
+            if (typeof findings.confidence === 'number'
+                && Number.isFinite(findings.confidence) && findings.confidence > 1) {
+                caveats.push(
+                    `confidence ${findings.confidence} was out of range and normalized into 0.0-1.0`);
+            }
+            findings.score = clampScore(findings.score);
+            findings.confidence = clampConfidence(findings.confidence);
+        }
 
         const score = typeof findings.score === 'number' ? findings.score : null;
         const confidence = typeof findings.confidence === 'number' ? findings.confidence : null;
