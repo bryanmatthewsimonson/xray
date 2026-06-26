@@ -114,6 +114,21 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Fixed
 
+- **In-extension single-shot ("Quick") audit: percentage-scale confidence
+  no longer sinks the whole import.** The single-shot model sometimes
+  emits a dimension's `confidence` as a 0–100 percentage instead of a
+  0.0–1.0 fraction; `buildAggregate` then produced an `overall_confidence`
+  (and module-contribution rows) outside `[0, 1]`, which `importAuditJson`
+  rejected wholesale — surfacing as the reader's "Audit import failed"
+  toast (Thorough mode was unaffected; each module had its own budget and
+  the firewall short-circuited on the aggregate first). `assembleAudit`
+  now normalizes a recovered percentage back into `[0, 1]` (and clamps
+  scores to `[0, 100]`) in the findings it builds, records the degrade as
+  an auditor caveat (P12, never silent), and the reader logs the full
+  import error to the console. The tamper firewall (hash gate,
+  ceiling-source, version/score divergence, schema validation) is
+  unchanged — a recoverable model quirk degrades a number instead of
+  masquerading as corruption.
 - **Publish-path hash fork (blocking, predates Phase 13).** Articles
   whose converted markdown contained `<` (inline small images, code
   fences) were converted to markdown TWICE at publish — mangling the

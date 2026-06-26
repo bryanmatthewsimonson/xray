@@ -1199,7 +1199,10 @@ async function runAuditFromReader(mode = 'single') {
         await refreshAuditStatus();
     } catch (err) {
         // importAuditJson is the firewall — surface its reason verbatim.
-        toast('Audit import failed: ' + (err && err.message), 'error', 7000);
+        // Log the full error (stack + the assembled audit) for diagnosis;
+        // the toast is the human-readable one-liner.
+        console.error('[xray] audit import failed', err, resp && resp.audit);
+        toast('Audit import failed: ' + ((err && err.message) || 'unknown error'), 'error', 7000);
     }
 }
 
