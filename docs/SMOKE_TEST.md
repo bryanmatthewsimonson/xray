@@ -195,7 +195,7 @@ clicking through every URL.
 | 0.3 | Reload extension after a build → no console errors in the SW log | ✅ the SW log under `chrome://extensions` → "Inspect views: service worker" is clean |
 | 0.4 | Click toolbar icon on a normal http page | ✅ captures the page → a reader tab opens (no popup window, no in-page panel) |
 | 0.5 | Click toolbar icon on `chrome://newtab` | ✅ Options page opens (fallback, since content script can't run there) |
-| 0.6 | Right-click toolbar icon | ✅ menu has Toggle Capture / Entity Browser / Settings… / View Keypair Registry / Export Keypair Registry / Capture tips |
+| 0.6 | Right-click toolbar icon | ✅ menu has Toggle Capture / Entity Browser / Settings… / Capture tips |
 
 ---
 
@@ -204,7 +204,6 @@ clicking through every URL.
 | # | Test | Pass criteria |
 |---|---|---|
 | 1.1 | `npm test -- --test-name-pattern crypto` | ✅ 13 crypto + 5 nip44 tests pass |
-| 1.2 | Settings → Keypair Registry → **View** | ✅ JSON of saved entity keypairs renders without error |
 
 ---
 
@@ -761,7 +760,7 @@ inside (so a relay copy exists).
 
 | # | Test | Pass criteria |
 |---|---|---|
-| C.1 | Right-click the toolbar icon | ✅ six X-Ray items: Toggle Capture, Entity Browser, Settings…, View Keypair Registry, Export Keypair Registry, Capture tips |
+| C.1 | Right-click the toolbar icon | ✅ four X-Ray items: Toggle Capture, Entity Browser, Settings…, Capture tips |
 | C.2 | Click each one — they should each dispatch without console error | ✅ |
 
 ---

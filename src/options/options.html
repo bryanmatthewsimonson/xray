@@ -19,8 +19,6 @@
     <nav class="xr-opt__tabs">
       <button class="xr-opt__tab xr-opt__tab--active" data-tab="relays">Relays</button>
       <button class="xr-opt__tab" data-tab="signing">Signing</button>
-      <button class="xr-opt__tab" data-tab="entities">Entities</button>
-      <button class="xr-opt__tab" data-tab="keypairs">Keypair Registry</button>
       <button class="xr-opt__tab" data-tab="advanced">Advanced</button>
     </nav>
   </header>
@@ -148,53 +146,6 @@
         <button class="xr-opt__btn xr-opt__btn--primary" id="signing-save">Save</button>
         <span class="xr-opt__status" id="signing-status"></span>
       </div>
-    </section>
-
-    <!-- ====== ENTITIES ====== -->
-    <section class="xr-opt__section" data-section="entities">
-      <h2>Entities</h2>
-      <p class="xr-opt__hint">
-        Publications, people and organizations referenced when building
-        metadata events. Edit as JSON; each is an object keyed by entity id.
-      </p>
-
-      <div class="xr-opt__field">
-        <span class="xr-opt__label">Publications</span>
-        <textarea id="entities-publications" rows="6" spellcheck="false"></textarea>
-      </div>
-      <div class="xr-opt__field">
-        <span class="xr-opt__label">People</span>
-        <textarea id="entities-people" rows="6" spellcheck="false"></textarea>
-      </div>
-      <div class="xr-opt__field">
-        <span class="xr-opt__label">Organizations</span>
-        <textarea id="entities-organizations" rows="6" spellcheck="false"></textarea>
-      </div>
-
-      <div class="xr-opt__actions">
-        <button class="xr-opt__btn xr-opt__btn--primary" id="entities-save">Save</button>
-        <span class="xr-opt__status" id="entities-status"></span>
-      </div>
-    </section>
-
-    <!-- ====== KEYPAIRS ====== -->
-    <section class="xr-opt__section" data-section="keypairs">
-      <h2>Keypair Registry</h2>
-      <p class="xr-opt__hint">
-        X-Ray keeps a registry of entity keypairs it has used to sign.
-        Export a backup, or import one from another device.
-        <strong>Private keys are included in the export — handle with care.</strong>
-      </p>
-
-      <div class="xr-opt__actions">
-        <button class="xr-opt__btn" id="keypairs-view">View</button>
-        <button class="xr-opt__btn" id="keypairs-export">Export JSON</button>
-        <button class="xr-opt__btn" id="keypairs-import">Import JSON…</button>
-        <input type="file" id="keypairs-file" accept="application/json" style="display:none" />
-        <span class="xr-opt__status" id="keypairs-status"></span>
-      </div>
-
-      <pre class="xr-opt__pre" id="keypairs-preview" style="display:none"></pre>
     </section>
 
     <!-- ====== ADVANCED ====== -->

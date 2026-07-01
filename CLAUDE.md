@@ -77,7 +77,7 @@ the single most important thing here.
    `chrome.storage.onChanged` listener every wake.
 3. **Extension pages** (`src/options/`, `src/reader/`, `src/sidepanel/`,
    `src/portal/`) — options is the single settings hub (Relays / Signing /
-   Entities / Keypair Registry / Advanced); reader renders the captured
+   Advanced); reader renders the captured
    article + publish flow; sidepanel is the entity browser; portal is the
    full-tab "My Archive" page (Phase 12) — a read-only view of everything
    published, reconciled against relays.
@@ -172,9 +172,11 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   128). Don't lower it; don't bump it without a dependency that requires it.
   `rules/csp-strip.json` strips CSP so the YouTube transcript fetch reaches
   `/api/timedtext`.
-- **Private keys:** the keypair registry in `chrome.storage.local` holds
-  private keys — never paste its contents into issues/logs/commits. Raw
-  event JSON is fine (`pubkey` is public by definition).
+- **Private keys:** `local_primary_identity` and the per-entity keys in
+  `LocalKeyManager` (`local_keys`) hold private keys in
+  `chrome.storage.local` — never paste their contents into
+  issues/logs/commits. Raw event JSON is fine (`pubkey` is public by
+  definition).
 - **Commit messages:** imperative present tense; `fix:`/`feat:`/`chore:`/
   `docs:`/`ci:` prefixes, scope in parens when useful
   (`fix(youtube): …`). One concern per PR.

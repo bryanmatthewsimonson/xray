@@ -55,8 +55,6 @@ const MENU_IDS = {
     OPEN_ENTITIES: 'xray:open-entities',
     OPEN_PORTAL: 'xray:open-portal',
     OPEN_SETTINGS: 'xray:open-settings',
-    EXPORT_KEYPAIRS: 'xray:export-keypairs',
-    VIEW_KEYPAIRS: 'xray:view-keypairs',
     CAPTURE_TIPS: 'xray:capture-tips'
 };
 
@@ -94,21 +92,6 @@ function registerContextMenus() {
         });
         chrome.contextMenus.create({
             id: 'xray:separator-1',
-            type: 'separator',
-            contexts: ['action']
-        });
-        chrome.contextMenus.create({
-            id: MENU_IDS.VIEW_KEYPAIRS,
-            title: 'View Keypair Registry',
-            contexts: ['action']
-        });
-        chrome.contextMenus.create({
-            id: MENU_IDS.EXPORT_KEYPAIRS,
-            title: 'Export Keypair Registry',
-            contexts: ['action']
-        });
-        chrome.contextMenus.create({
-            id: 'xray:separator-2',
             type: 'separator',
             contexts: ['action']
         });
@@ -200,9 +183,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (!tab || !tab.id) return;
 
     const messageForMenuId = {
-        [MENU_IDS.OPEN_CAPTURE]: { type: 'xray:capture' },
-        [MENU_IDS.EXPORT_KEYPAIRS]: { type: 'xray:exportKeypairs' },
-        [MENU_IDS.VIEW_KEYPAIRS]: { type: 'xray:viewKeypairs' }
+        [MENU_IDS.OPEN_CAPTURE]: { type: 'xray:capture' }
     };
 
     const message = messageForMenuId[info.menuItemId];

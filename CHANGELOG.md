@@ -112,6 +112,18 @@ Sections per release: **Added** (new features), **Changed**
   vintages (marked "prior version") and joins module results by
   coordinate.
 
+### Removed
+
+- **Two vestigial Settings tabs — "Entities" and "Keypair Registry".** Both
+  edited userscript-era `chrome.storage.local` stores
+  (`publications`/`people`/`organizations` and `keypair_registry`) that the
+  extension no longer reads, writes, or signs with — the live entity system
+  is `EntityModel` (the `entities` store + the Entity Browser side panel) and
+  entity keys are held by `LocalKeyManager` (`local_keys`). Removed the two
+  Options tabs, their dead `Storage` sub-object APIs, and the "View / Export
+  Keypair Registry" toolbar menu items + content-script handlers. "Erase all
+  data" still purges the legacy keys.
+
 ### Fixed
 
 - **In-extension single-shot ("Quick") audit: percentage-scale confidence

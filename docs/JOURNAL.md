@@ -19,6 +19,35 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-01 — Remove vestigial Entities + Keypair Registry settings tabs
+
+Tags: `design`.
+
+Two Options tabs turned out to be dead userscript-era holdovers, disconnected
+from the Phase 4/9 entity rework. A user found them ("these seem to do
+nothing") and a trace confirmed it:
+
+- **Entities tab** edited the `publications` / `people` / `organizations`
+  `chrome.storage.local` buckets — read/written ONLY by the tab itself. The
+  live entity system is `EntityModel` (the `entities` store), driven by the
+  reader tagger + the Entity Browser side panel; event-builder/metadata never
+  touched the buckets.
+- **Keypair Registry tab** edited `keypair_registry` — but nothing populates
+  it (no `Storage.keypairs.set` caller in normal use) and nothing signs with
+  it (no `keypairs.get` in any signing path). Per-entity keys live in
+  `LocalKeyManager` (`local_keys`); the primary identity is
+  `local_primary_identity`. So the registry was empty for everyone and inert
+  even if imported into.
+
+Removed: both Options tabs + sections, the dead `Storage.publications` /
+`people` / `organizations` / `keypairs` sub-object APIs, their getDefaults
+entries, and the "View / Export Keypair Registry" toolbar context-menu items +
+content-script handlers (`xray:viewKeypairs` / `xray:exportKeypairs`). The four
+legacy storage keys are KEPT in `storageClearExtension`'s list so "erase all
+data" still purges any lingering userscript-era data. Docs (README, CLAUDE.md,
+SMOKE_TEST) updated; the "Private keys" note now points at the real key stores.
+937 tests green, build + lint clean.
+
 ## 2026-06-21 — Suggest defaults: extraction ON, judgment opt-in
 
 Tags: `design`.

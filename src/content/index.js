@@ -160,8 +160,6 @@ function recordSigningState(method, pubkey = null) {
 // Wire message handler for background-service-worker commands.
 // The background worker dispatches:
 //   { type: 'xray:capture' }        — capture this page and open the reader
-//   { type: 'xray:exportKeypairs' } — export keypair registry
-//   { type: 'xray:viewKeypairs' }   — view keypair registry
 //   { type: 'xray:sign', event }    — sign an unsigned event via NIP-07.
 //                                    The SW uses this to round-trip the
 //                                    reader-page publish flow through
@@ -173,14 +171,6 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
             switch (msg && msg.type) {
                 case 'xray:capture':
                     UI.openReader();
-                    sendResponse({ ok: true });
-                    break;
-                case 'xray:exportKeypairs':
-                    UI.exportKeypairs();
-                    sendResponse({ ok: true });
-                    break;
-                case 'xray:viewKeypairs':
-                    UI.viewKeypairs();
                     sendResponse({ ok: true });
                     break;
                 case 'xray:getPubkey':
