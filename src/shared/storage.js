@@ -1,7 +1,7 @@
 // Storage wrapper. In the userscript this sat on top of GM_setValue /
 // GM_getValue / GM_deleteValue / GM_listValues. Here it sits on top of
 // chrome.storage.local. The outer API (Storage.get / set / delete / keys
-// and the publications/people/organizations/preferences/keypairs sub-objects)
+// and the preferences / primaryIdentity / platform-account sub-objects)
 // is preserved so callers don't change.
 //
 // Values are stored JSON-serialized just like the original script so that
@@ -60,10 +60,6 @@ export const Storage = (() => {
 
     initialize: async () => {
       const defaults = {
-        publications: {},
-        people: {},
-        organizations: {},
-        keypair_registry: {},
         platform_accounts: {},
         local_primary_identity: null,
         preferences: {
@@ -128,54 +124,6 @@ export const Storage = (() => {
       }
     },
 
-    publications: {
-      getAll: async () => await Store.get('publications', {}),
-      get:    async (id) => (await Store.get('publications', {}))[id] || null,
-      save:   async (id, data) => {
-        const pubs = await Store.get('publications', {});
-        pubs[id] = { ...data, updated: Math.floor(Date.now() / 1000) };
-        await Store.set('publications', pubs);
-        return pubs[id];
-      },
-      delete: async (id) => {
-        const pubs = await Store.get('publications', {});
-        delete pubs[id];
-        await Store.set('publications', pubs);
-      }
-    },
-
-    people: {
-      getAll: async () => await Store.get('people', {}),
-      get:    async (id) => (await Store.get('people', {}))[id] || null,
-      save:   async (id, data) => {
-        const people = await Store.get('people', {});
-        people[id] = { ...data, updated: Math.floor(Date.now() / 1000) };
-        await Store.set('people', people);
-        return people[id];
-      },
-      delete: async (id) => {
-        const people = await Store.get('people', {});
-        delete people[id];
-        await Store.set('people', people);
-      }
-    },
-
-    organizations: {
-      getAll: async () => await Store.get('organizations', {}),
-      get:    async (id) => (await Store.get('organizations', {}))[id] || null,
-      save:   async (id, data) => {
-        const orgs = await Store.get('organizations', {});
-        orgs[id] = { ...data, updated: Math.floor(Date.now() / 1000) };
-        await Store.set('organizations', orgs);
-        return orgs[id];
-      },
-      delete: async (id) => {
-        const orgs = await Store.get('organizations', {});
-        delete orgs[id];
-        await Store.set('organizations', orgs);
-      }
-    },
-
     preferences: {
       get: async ()        => await Store.get('preferences', {}),
       set: async (prefs)   => await Store.set('preferences', prefs),
@@ -186,9 +134,7 @@ export const Storage = (() => {
     },
 
     // The user's primary signing identity when signing_method === 'local'.
-    // Kept distinct from `keypair_registry` (which holds entity keys) so
-    // that an entity-keypair export never accidentally leaks the user's
-    // own nsec. Shape: { privateKey, pubkey, npub, nsec, created } | null.
+    // Shape: { privateKey, pubkey, npub, nsec, created } | null.
     primaryIdentity: {
       get: async () => await Store.get('local_primary_identity', null),
 
@@ -225,36 +171,6 @@ export const Storage = (() => {
       },
 
       clear: async () => await Store.set('local_primary_identity', null)
-    },
-
-    keypairs: {
-      getAll: async () => await Store.get('keypair_registry', {}),
-      get:    async (id) => (await Store.get('keypair_registry', {}))[id] || null,
-      save:   async (id, data) => {
-        const registry = await Store.get('keypair_registry', {});
-        registry[id] = { ...data, updated: Math.floor(Date.now() / 1000) };
-        await Store.set('keypair_registry', registry);
-        Utils.log('Saved keypair to registry:', id);
-        return registry[id];
-      },
-      delete: async (id) => {
-        const registry = await Store.get('keypair_registry', {});
-        delete registry[id];
-        await Store.set('keypair_registry', registry);
-      },
-      exportAll: async () => JSON.stringify(await Store.get('keypair_registry', {}), null, 2),
-      importAll: async (jsonStr) => {
-        try {
-          const imported = JSON.parse(jsonStr);
-          const registry = await Store.get('keypair_registry', {});
-          await Store.set('keypair_registry', { ...registry, ...imported });
-          Utils.log('Imported keypairs:', Object.keys(imported).length);
-          return true;
-        } catch (e) {
-          Utils.error('Failed to import keypairs:', e);
-          return false;
-        }
-      }
     },
 
     // -----------------------------------------------------------------

@@ -5,8 +5,7 @@
 // toolbar icon, the keyboard shortcut (Ctrl/Cmd+Shift+X), or the
 // right-click menu, and always opens the captured page in the reader
 // (one capture surface, no in-page chrome). What remains here is the
-// capture core (`openReader`), a transient error toast, and the
-// keypair-registry utilities the right-click menu invokes.
+// capture core (`openReader`) and a transient error toast.
 
 import { CONFIG } from '../shared/config.js';
 import { Utils } from '../shared/utils.js';
@@ -85,75 +84,4 @@ export const UI = {
       setTimeout(() => toast.remove(), 300);
     }, 3000);
   },
-
-  // Right-click menu → "Export Keypair Registry". Downloads the entity
-  // keypair registry as JSON (the user's primary nsec lives elsewhere and
-  // is never included — see storage.js).
-  exportKeypairs: async () => {
-    try {
-      const registry = await Storage.keypairs.getAll();
-      const count = Object.keys(registry).length;
-
-      if (count === 0) {
-        UI.showToast('No keypairs to export', 'warning');
-        return;
-      }
-
-      const exportData = {
-        exported_at: new Date().toISOString(),
-        version: CONFIG.version,
-        keypairs: registry
-      };
-
-      const jsonStr = JSON.stringify(exportData, null, 2);
-      const blob = new Blob([jsonStr], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `nostr-keypair-registry-${new Date().toISOString().split('T')[0]}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-
-      UI.showToast(`Exported ${count} keypairs to file`, 'success');
-      Utils.log('Exported keypair registry:', count, 'entries');
-    } catch (e) {
-      Utils.error('Failed to export keypairs:', e);
-      UI.showToast('Failed to export keypairs', 'error');
-    }
-  },
-
-  // Right-click menu → "View Keypair Registry". Logs the registry to the
-  // console and shows a short summary alert.
-  viewKeypairs: async () => {
-    try {
-      const registry = await Storage.keypairs.getAll();
-      const count = Object.keys(registry).length;
-
-      console.log('=== X-Ray Keypair Registry ===');
-      console.log('Total entries:', count);
-      console.log(JSON.stringify(registry, null, 2));
-
-      const publications = Object.entries(registry).filter(([, v]) => v.type === 'publication');
-      const people       = Object.entries(registry).filter(([, v]) => v.type === 'person');
-
-      let summary = `Keypair Registry: ${count} total\n`;
-      summary += `Publications: ${publications.length}\n`;
-      publications.forEach(([, data]) => {
-        summary += `   • ${data.name} (${data.domain || 'no domain'})\n`;
-        summary += `     pubkey: ${data.pubkey ? data.pubkey.substring(0, 16) + '...' : 'pending'}\n`;
-      });
-
-      summary += `People: ${people.length}\n`;
-      people.forEach(([, data]) => {
-        summary += `   • ${data.name}\n`;
-        summary += `     pubkey: ${data.pubkey ? data.pubkey.substring(0, 16) + '...' : 'pending'}\n`;
-      });
-
-      alert(summary + '\n\nFull details logged to browser console.');
-      UI.showToast(`Found ${count} keypairs - see console`, 'success');
-    } catch (e) {
-      Utils.error('Failed to view keypairs:', e);
-      UI.showToast('Failed to view keypairs', 'error');
-    }
-  }
 };

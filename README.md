@@ -166,8 +166,7 @@ Until you pick, capturing opens the **Settings → Signing** tab with a
 - **`Cmd/Ctrl + Shift + X`** captures from the keyboard.
 - **Right-click** a page (or the toolbar icon) → **Capture this page
   with X-Ray** does the same. The toolbar icon's right-click menu also
-  has: Entity Browser, Settings…, View Keypair Registry, Export Keypair
-  Registry, Capture tips.
+  has: Entity Browser, Settings…, Capture tips.
 - **Per-platform capture instructions** — Facebook, Instagram, and
   TikTok have URL-shape and timing requirements; see the
   [capture guide](docs/CAPTURE_GUIDE.md).
@@ -189,11 +188,6 @@ The Options page is the single home for configuration. Tabs:
   Generate / Import nsec / Show nsec / Reset. NIP-07 panel: detection
   status. NSecBunker panel: URL + Test connection. An always-visible
   *Active method* line shows the chosen method and current npub.
-- **Entities** — Publications, People, Organizations as JSON.
-- **Keypair Registry** — view, export (JSON), import. Holds
-  *entity* keypairs only — your primary signing identity (Local mode)
-  lives in a separate `local_primary_identity` key so an entity-key
-  export never leaks the user's nsec.
 - **Advanced** — a **Reader** group (archive banner sensitivity) and a
   **Power user** group (debug logging plus engine-tuning overrides for
   article cache enabled/budget, min content length, and max claim

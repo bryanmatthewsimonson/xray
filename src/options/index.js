@@ -52,8 +52,10 @@ function storageSet(key, value) {
 
 function storageClearExtension() {
     const keys = [
-        'publications', 'people', 'organizations',
-        'preferences', 'keypair_registry',
+        // Legacy userscript-era stores whose Settings tabs were removed —
+        // still cleared so "erase all" purges any data left over from before.
+        'publications', 'people', 'organizations', 'keypair_registry',
+        'preferences',
         'local_primary_identity', 'xr_signing_state',
         // Phase 14.5: the LLM-assist secret key + model preference. The
         // key is a secret, so "erase all" must clear it too.
@@ -397,64 +399,6 @@ async function bunkerTest() {
     }
 }
 
-// ------------------------------------------------------------------
-// Entities
-// ------------------------------------------------------------------
-
-async function loadEntities() {
-    const pubs = (await storageGet('publications')) || {};
-    const people = (await storageGet('people')) || {};
-    const orgs = (await storageGet('organizations')) || {};
-    document.getElementById('entities-publications').value = JSON.stringify(pubs, null, 2);
-    document.getElementById('entities-people').value = JSON.stringify(people, null, 2);
-    document.getElementById('entities-organizations').value = JSON.stringify(orgs, null, 2);
-}
-
-async function saveEntities() {
-    const status = document.getElementById('entities-status');
-    try {
-        const pubs = JSON.parse(document.getElementById('entities-publications').value || '{}');
-        const people = JSON.parse(document.getElementById('entities-people').value || '{}');
-        const orgs = JSON.parse(document.getElementById('entities-organizations').value || '{}');
-        if (typeof pubs !== 'object' || Array.isArray(pubs) ||
-            typeof people !== 'object' || Array.isArray(people) ||
-            typeof orgs !== 'object' || Array.isArray(orgs)) {
-            throw new Error('Each entity collection must be a JSON object keyed by id');
-        }
-        await storageSet('publications', pubs);
-        await storageSet('people', people);
-        await storageSet('organizations', orgs);
-        flash(status, 'Saved.');
-    } catch (e) {
-        flash(status, 'Invalid JSON: ' + (e && e.message), false);
-    }
-}
-
-// ------------------------------------------------------------------
-// Keypair registry
-// ------------------------------------------------------------------
-
-async function viewKeypairs() {
-    const registry = (await storageGet('keypair_registry')) || {};
-    const pre = document.getElementById('keypairs-preview');
-    pre.textContent = JSON.stringify(registry, null, 2);
-    pre.style.display = 'block';
-}
-
-async function exportKeypairs() {
-    const registry = (await storageGet('keypair_registry')) || {};
-    const blob = new Blob([JSON.stringify(registry, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `xray-keypairs-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    flash(document.getElementById('keypairs-status'), 'Exported.');
-}
-
 // Epistemic-audit import (13.5). The options-side gate is the archive
 // match: the audit must be about text the user actually captured
 // (current or a retained prior version). importAuditJson then applies
@@ -519,23 +463,6 @@ async function exportAuditLedger() {
         flash(status, `Exported ${runs.length} run(s), ${predictions.length} prediction(s), ${resolutions.length} resolution(s).`);
     } catch (e) {
         flash(status, 'Export failed: ' + (e && e.message), false);
-    }
-}
-
-async function importKeypairsFromFile(file) {
-    const status = document.getElementById('keypairs-status');
-    try {
-        const text = await file.text();
-        const imported = JSON.parse(text);
-        if (typeof imported !== 'object' || Array.isArray(imported)) {
-            throw new Error('Top-level JSON must be an object keyed by entity id');
-        }
-        const existing = (await storageGet('keypair_registry')) || {};
-        await storageSet('keypair_registry', { ...existing, ...imported });
-        flash(status, `Imported ${Object.keys(imported).length} keypairs.`);
-        viewKeypairs();
-    } catch (e) {
-        flash(status, 'Import failed: ' + (e && e.message), false);
     }
 }
 
@@ -700,8 +627,7 @@ async function clearAll() {
     // Reset experimental flags too — otherwise a wipe leaves the
     // public judgment-publishing path enabled.
     try { await resetOverrides(); } catch (_) { /* best-effort */ }
-    await Promise.all([loadRelays(), loadSigning(), loadEntities(), loadAdvanced()]);
-    document.getElementById('keypairs-preview').style.display = 'none';
+    await Promise.all([loadRelays(), loadSigning(), loadAdvanced()]);
 }
 
 // ------------------------------------------------------------------
@@ -713,7 +639,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     await Promise.all([
         loadRelays(),
         loadSigning(),
-        loadEntities(),
         loadAdvanced()
     ]);
 
@@ -754,19 +679,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('local-export-copy').addEventListener('click', localExportCopy);
     document.getElementById('local-reset').addEventListener('click', localReset);
     document.getElementById('bunker-test').addEventListener('click', bunkerTest);
-
-    document.getElementById('entities-save').addEventListener('click', saveEntities);
-
-    document.getElementById('keypairs-view').addEventListener('click', viewKeypairs);
-    document.getElementById('keypairs-export').addEventListener('click', exportKeypairs);
-    document.getElementById('keypairs-import').addEventListener('click', () => {
-        document.getElementById('keypairs-file').click();
-    });
-    document.getElementById('keypairs-file').addEventListener('change', (e) => {
-        const file = e.target.files && e.target.files[0];
-        if (file) importKeypairsFromFile(file);
-        e.target.value = '';
-    });
 
     document.getElementById('audit-import').addEventListener('click', () => {
         document.getElementById('audit-file').click();
