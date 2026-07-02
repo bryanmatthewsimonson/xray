@@ -76,10 +76,11 @@ Phase 14.5 ████████████████░░  complete — 
                                 opt-in) + the epistemic auditor (Quick
                                 single-shot / Thorough per-module). Flag- +
                                 key-gated, opt-in, nothing auto-saves
-Phase 15 ░░░░░░░░░░░░░░░░░░░░  design draft — truth adjudication: verdicts on
+Phase 15 ███░░░░░░░░░░░░░░░░░  in progress — truth adjudication: verdicts on
                                 propositions + words-vs-deeds integrity
                                 (docs/TRUTH_ADJUDICATION_DESIGN.md). Builds on
-                                Phase 14; kinds 30063/30064 (30065 reserved)
+                                Phase 14; kinds 30063/30064 (30065 reserved).
+                                15.1 adjudicable propositions shipped
 ```
 
 Parity with the v4.2 userscript is long reached; the project now ships
@@ -1166,7 +1167,7 @@ diachronic revision edges visible across the four lenses.
 
 ---
 
-## Phase 15 — Truth adjudication (verdicts + words-vs-deeds) 📝 design draft
+## Phase 15 — Truth adjudication (verdicts + words-vs-deeds) 🚧 (in progress)
 
 **Builds on Phase 14.** The Phase 14 forensic chain must land on `main`
 first; this layer composes its findings (`30062`) as a raw signal and takes
@@ -1214,9 +1215,11 @@ draft. The deferred bonded-resolution second act is parked in
 
 Slices (one PR each; `claude/phase-15-*`):
 
-- 📝 **15.1** Adjudicable-proposition model (local, no wire) —
+- ✅ **15.1** Adjudicable-proposition model (local, no wire) —
   `proposition_class` + `resolution_criteria` atomization over existing
-  claims; the interpretation/value firewall; exhaustive-enum tests.
+  claims (`truth-taxonomy.js` + `truth-adjudication-model.js`); the
+  interpretation/value firewall (`isTruthAdjudicable` /
+  `isIntegrityEligible`); exhaustive-enum tests.
 - 📝 **15.2** Evidence tiers + attestation graph — tiered evidence;
   independent-attestation convergence for action-facts (composing 30055
   `supports`); independence checks.

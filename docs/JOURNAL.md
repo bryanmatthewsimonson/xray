@@ -19,6 +19,44 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-02 — Phase 15.1: adjudicable-proposition modeling choices
+
+Tags: `design`.
+
+First Phase-15 slice (docs/TRUTH_ADJUDICATION_DESIGN.md §3.1,
+docs/PHASE_15_KICKOFF.md). Three second-guessable calls:
+
+- **Enum home: a new `src/shared/truth-taxonomy.js`**, not
+  `assessment-taxonomy.js` (the kickoff allowed either). Phase 15 will
+  add verdict states, standards of proof, and match states in 15.3/15.4;
+  parking the growing adjudication vocabulary inside Phase 11's label
+  file would blur two layers the design keeps distinct. Hedge levels,
+  tractabilities, and `isValidSuggestedBy` are **re-exported** from
+  `audit/builders.js` / `assessment-taxonomy.js` (same frozen instances,
+  pinned by test) so nothing forks.
+- **Id derivation: `prop_<sha16>` over `(claim_id | proposition_class)`**
+  — a proposition carries NO text of its own (§3.1 lists only the
+  adjudicability fields; the referenced 30040 claim carries the words),
+  so one claim atomizes to at most one proposition per class, and
+  `create()` is idempotent there. Consequence: `claim_id` and
+  `proposition_class` are immutable; reclassification is delete +
+  recreate, which is honest — it's a new adjudicability assertion, not
+  an edit.
+- **`resolution_criteria` reuses the 30058 field vocabulary verbatim**
+  (`criteria` / `horizon` / `horizon_iso` / `hedge_level` /
+  `tractability`), with two deliberate defaults: `tractability` falls
+  back to `'ambiguous'` (PredictionModel's honest don't-know), but
+  `hedge_level` defaults to **null**, NOT PredictionModel's `'hedged'` —
+  a hand-atomized fact proposition usually has no hedge to record, and
+  inventing one would be exactly the estimated-quantity §1 forbids.
+  Facts with no horizon get the `'already-determinable'` token (§3.1's
+  "already determinable", in the house hyphenated grammar).
+
+Also enforced beyond the kickoff's minimum list:
+`occurred_precision` without `occurred_at` rejects (precision on a
+missing time is as false as the reverse), and the firewall predicate
+fails **closed** — `isTruthAdjudicable` on an unknown class is `false`.
+
 ## 2026-07-01 — Remove vestigial Entities + Keypair Registry settings tabs
 
 Tags: `design`.

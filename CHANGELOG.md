@@ -10,6 +10,22 @@ Sections per release: **Added** (new features), **Changed**
 
 ## [Unreleased]
 
+### Added
+
+- **Phase 15.1 — adjudicable propositions (local model, no wire).** The
+  atomization gate of the truth-adjudication layer
+  (`docs/TRUTH_ADJUDICATION_DESIGN.md` §3.1): a claim becomes
+  *adjudicable* only as a proposition record carrying a
+  `proposition_class`, `resolution_criteria` (in the same field
+  vocabulary as banked 30058 prediction entries), an optional
+  `subject_role` (word/deed/ascribed — absence is `unclassified`, never
+  defaulted), and a no-false-precision event-time
+  (`occurred_at` + mandatory `occurred_precision`). Ships the firewall
+  predicates later slices key off: `interpretation` and `stated-value`
+  are **never truth-adjudicable**, and `ascribed`/`unclassified`
+  propositions are excluded from integrity findings **by construction**.
+  No verdict, score, wire kind, or flag in this slice.
+
 ## [0.6.0] — 2026-06-24
 
 ### Added
