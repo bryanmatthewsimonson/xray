@@ -19,6 +19,40 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-02 — Phase 15.4: how "intent is not adjudicated" survives `lie` being in the enum
+
+Tags: `design`.
+
+Fourth Phase-15 slice (docs/TRUTH_ADJUDICATION_DESIGN.md §3.4). The
+tension worth recording: §3.4's gap decomposition lists *lie* as a
+cause, but red line §5.2 forbids intent adjudication. The resolution
+implemented: **a gap cause is recordable only with a documented
+explanation** — non-empty note, evidence entries where they exist —
+so the system can record "he admitted on tape he knew it was false"
+(documented) but can never *infer* a lie from the gap alone
+(undocumented cause → rejected). Intent has no field; documentation
+is the gate. Related calls in the same slice:
+
+- **The same-entity rule resolves through the claims' `about`
+  entities** (word claim ∩ each deed claim must be non-empty; the
+  shared ids become the finding's `entity_ids`). A word claim with no
+  about-entity is rejected — an integrity finding with no subject is
+  meaningless, and defaulting one would manufacture it.
+- **Match vocabulary is per word class** (`fulfilled`/`broken` for
+  commitments, `consistent`/`contradicted` for values, honest states
+  common) — the value firewall in enum form: a value cannot be
+  "fulfilled" because it never promised anything, only professed.
+- **`constraint_ref` must resolve to an enacted action-fact
+  proposition** — the §3.4 "evidence, not an excuse" rule made
+  mechanical: the discounting constraint clears the same
+  proposition/attestation bar as anything else, and its corroboration
+  is readable via the 15.2 convergence measurement.
+- **`timelineForEntity` sorts chain heads on the earliest matched
+  deed's `occurred_at`, undated last** — the pattern-not-instance
+  read; a deed with no event-time cannot claim a place in the
+  timeline, which is the no-false-precision rule again from the
+  other side.
+
 ## 2026-07-02 — Phase 15.3: verdict chains are linear by id construction
 
 Tags: `design`.
