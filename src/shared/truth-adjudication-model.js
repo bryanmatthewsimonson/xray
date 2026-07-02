@@ -565,6 +565,42 @@ export const VerdictModel = {
     // superseding verdict; the history stays legible.
 
     /**
+     * Record a successful kind-30063 publish. A publish stamp is not
+     * an edit — `updated` is untouched, so post-publish supersessions
+     * correctly re-emit. `publishedPubkey` + `publishedDTag` let the
+     * portal rebuild the 30063 coordinate for reconciliation, and the
+     * event id is what a superseding ruling threads into its wire
+     * `e supersedes` marker.
+     */
+    markPublished: async (id, eventId, pubkey, dTag) => {
+        const all = await Storage.get(VERDICTS_KEY, {});
+        const record = all[id];
+        if (!record) return null;
+        record.publishedAt = Math.floor(Date.now() / 1000);
+        if (eventId) record.publishedEventId = eventId;
+        if (pubkey)  record.publishedPubkey = pubkey;
+        if (dTag)    record.publishedDTag = dTag;
+        all[id] = record;
+        await Storage.set(VERDICTS_KEY, all);
+        return record;
+    },
+
+    /**
+     * Record a successful kind-1985 verdict-mirror publish. Tracked
+     * separately from `publishedAt` (kind 1985 is non-replaceable), so
+     * a rejected mirror retries while its 30063 stays published.
+     */
+    markMirrored: async (id) => {
+        const all = await Storage.get(VERDICTS_KEY, {});
+        const record = all[id];
+        if (!record) return null;
+        record.mirroredAt = Math.floor(Date.now() / 1000);
+        all[id] = record;
+        await Storage.set(VERDICTS_KEY, all);
+        return record;
+    },
+
+    /**
      * Delete — chain head only, so history never silently loses an
      * interior ruling. Deleting the head re-opens its predecessor
      * (clears the pointer stamp).

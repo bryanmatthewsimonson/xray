@@ -12,6 +12,21 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 15.7 — truth-adjudication publish wiring.** The reader's
+  batch publish gains a `truthAdjudicationPublishing`-gated section
+  (after claims, so coordinates resolve): adjudicated verdicts
+  (30063), their kind-1985 claim-coordinate mirrors, and integrity
+  findings (30064), with per-kind results in the publish summary.
+  Selection (`truth-publish.js`, pure + unit-tested): **chain heads
+  only** (a superseded ruling never re-emits; its successor replaces
+  it on relays and threads the predecessor's event id as `e
+  supersedes`), the usual staleness gate, claims-must-be-published
+  gating for every referenced proposition, entity-keypair subject
+  resolution for findings, and **constraint-must-resolve** — a
+  finding never publishes with its discounting evidence stripped.
+  `VerdictModel`/`IntegrityModel` gain `markPublished` (+
+  `markMirrored` for verdicts) publish stamps.
+
 - **Phase 15.6 — the truth-adjudication wire (flag-gated).** New
   kinds **`30063` AdjudicatedVerdict** and **`30064`
   IntegrityFinding** (builders + parsers in `truth-builders.js`,
