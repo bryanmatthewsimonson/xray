@@ -902,7 +902,7 @@ async function refreshClaimsBar() {
                 ev.stopPropagation();
                 const linkId = btn.dataset.linkId;
                 if (!linkId) return;
-                if (!confirm('Remove this evidence link? Already-published kind-30043 stays on relays until NIP-09 delete (later phase).')) return;
+                if (!confirm('Remove this evidence link? Already-published link events stay on relays until NIP-09 delete (later phase).')) return;
                 await EvidenceLinker.delete(linkId);
                 toast('Link removed', 'success', 1500);
                 await refreshClaimsBar();

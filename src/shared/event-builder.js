@@ -2,12 +2,10 @@
 // See roadmap: #20, Phase 2: #13.
 //
 // Adaptation from upstream:
-//   - The userscript imports `RelayClient` for queryArticleFromRelays /
-//     getArchivedArticle. X-Ray's relay client lives in the background
-//     service worker (Phase 0), so those two methods route through a
-//     SW message instead of calling RelayClient directly.
-//   - Currently the archive-query paths are stubs (Phase 7: #18). The
-//     method signatures are preserved so callers don't change.
+//   - The userscript imports `RelayClient` for its archive-query methods
+//     (queryArticleFromRelays / getArchivedArticle). X-Ray dropped both:
+//     the relay client lives in the background service worker, and the
+//     archive path shipped in `archive-cache.js` + the reader (Phase 7).
 
 import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
@@ -881,26 +879,5 @@ export const EventBuilder = {
     }
 
     return article;
-  },
-
-  /**
-   * Query NOSTR relays for a kind 30023 event matching a URL.
-   * Stubbed until Phase 7 (#18) lands the Archive Reader. The method
-   * signature is preserved; real wiring will route the query through
-   * the background service worker's relay pool.
-   */
-  queryArticleFromRelays: async (_url, _userPubkey) => {
-    // TODO(Phase 7 / #18): send { type: 'xray:relay:query', filter, relays }
-    // to the background SW and reconstruct the article from the first
-    // matching kind-30023 event.
-    return null;
-  },
-
-  /**
-   * Get an archived article. Stubbed until Phase 7 (#18).
-   */
-  getArchivedArticle: async (_url, _userPubkey) => {
-    // TODO(Phase 7 / #18): IndexedDB cache lookup, then relay query.
-    return null;
   }
 };
