@@ -19,6 +19,31 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-02 — Phase 15.8: the firewall and supersession as UI facts
+
+Tags: `design`.
+
+Reader adjudication UI (`adjudicate-modal.js`, the assess-modal
+pattern — UI-in-shared, own injected styles, never content-script).
+Calls worth recording:
+
+- **Class chips ARE the proposition selector.** One proposition per
+  (claim, class) by id construction (15.1), so the six class chips
+  double as "load existing or start new" — no separate list UI, and
+  the idempotency the model guarantees is what makes this shape safe.
+- **The firewall is rendered, not just thrown.** Selecting
+  `interpretation`/`stated-value` swaps the entire ruling form for the
+  explainer; there is no disabled-but-visible verdict form to socially
+  pressure a workaround. Saving still records the proposition — the
+  classification is the point.
+- **A fresh ruling never seeds from the active one.** When a verdict
+  exists, Save becomes "Save superseding ruling" and the form starts
+  BLANK — pre-filling would train edit-by-supersession muscle memory,
+  and a superseding ruling should be re-derived, not tweaked.
+- No delete affordances in the modal (propositions or rulings): chain
+  deletion semantics live in the models and, later, the portal;
+  putting them next to a Save button invites casual history surgery.
+
 ## 2026-07-02 — Phase 15.7: what holds a truth event back from a publish batch
 
 Tags: `design`.

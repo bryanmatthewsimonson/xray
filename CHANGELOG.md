@@ -12,6 +12,20 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 15.8 — the reader adjudication UI.** Every claim row gains
+  a **🏛 Adjudicate** action opening the adjudicate modal: pick a
+  proposition class (one per claim+class — an existing proposition
+  loads for editing), set the subject role, resolution criteria,
+  horizon, and event-time, and — when the class is truth-adjudicable —
+  rule a verdict with a declared standard, verbatim evidence rows
+  (with optional tiers), and mandatory caveats. The §3.1 firewall is
+  a UI fact: `interpretation`/`stated-value` swap the ruling form for
+  an explainer. When an active ruling exists the form starts blank and
+  Save becomes **"Save superseding ruling"** — append-only surfaced
+  as an affordance. Claim rows show per-proposition badges (class +
+  active verdict state + 🌐 when published). SMOKE_TEST §Phase 15
+  gains UI rows 15.14–15.20 covering the full click-through walk.
+
 - **Phase 15.7 — truth-adjudication publish wiring.** The reader's
   batch publish gains a `truthAdjudicationPublishing`-gated section
   (after claims, so coordinates resolve): adjudicated verdicts
