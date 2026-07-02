@@ -23,8 +23,12 @@ Sections per release: **Added** (new features), **Changed**
   an explainer. When an active ruling exists the form starts blank and
   Save becomes **"Save superseding ruling"** — append-only surfaced
   as an affordance. Claim rows show per-proposition badges (class +
-  active verdict state + 🌐 when published). SMOKE_TEST §Phase 15
-  gains UI rows 15.14–15.20 covering the full click-through walk.
+  active verdict state + 🌐 when published). Options → Advanced gains
+  a **Truth adjudication** section with the
+  `truthAdjudicationPublishing` toggle (default off, with the
+  what-leaves-your-device disclosure, mirroring the forensic toggle).
+  SMOKE_TEST §Phase 15 gains UI rows 15.14–15.20 covering the full
+  click-through walk, publish included.
 
 - **Phase 15.7 — truth-adjudication publish wiring.** The reader's
   batch publish gains a `truthAdjudicationPublishing`-gated section

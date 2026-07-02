@@ -751,7 +751,7 @@ claim via the normal claim flow, then:
 | 15.17 | Save a new ruling (e.g. **Established true** with one evidence-for quote + a caveat) | ✅ toast "…(supersedes prior ruling)"; badge updates; re-open shows the new active ruling |
 | 15.18 | Pick **Stated value** or **Interpretation** as the class | ✅ the ruling section is replaced by the 🔥 firewall explainer; Save reads "Save proposition"; the badge reads "not truth-adjudicable" |
 | 15.19 | Ruling with **no caveats**, or **Contested** with one-sided evidence, or a **Prediction** with no horizon | ❌ the modal surfaces the model's error inline; nothing saves |
-| 15.20 | Flag on (`truthAdjudicationPublishing`, still console/storage — no Options toggle yet) → **Publish** | ✅ after the claim publishes, "Also publishing adjudications…" toast; summary gains `n/n verdict` + mirror segments; second publish re-emits nothing (staleness gate) |
+| 15.20 | Options → Advanced → **Truth adjudication** → check "Publish adjudicated verdicts…" → Save → reader **Publish** | ✅ after the claim publishes, "Also publishing adjudications…" toast; summary gains `n/n verdict` + mirror segments; second publish re-emits nothing (staleness gate); unchecking the toggle removes the adjudication segment entirely |
 
 **15.B — cleanup:**
 

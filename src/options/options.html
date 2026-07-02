@@ -234,6 +234,27 @@
       </p>
 
       <hr />
+      <h3 class="xr-opt__subhead">Truth adjudication</h3>
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-truth-publishing" />
+        <span>Publish adjudicated verdicts &amp; integrity findings to relays</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Off by default. When on, the reader's Publish batch also emits your
+        adjudicated verdicts — kind-30063 (a descriptive ruling on a
+        proposition, with its declared standard of proof, verbatim evidence,
+        and required caveats) plus a one-time kind-1985 mirror labeling the
+        claim — and your integrity findings (kind-30064, a subject's stated
+        words vs enacted deeds), signed by your publishing identity and
+        <strong>publicly visible to anyone with relay access</strong>. A
+        verdict attaches to a <em>proposition, never a person</em>; an
+        integrity finding labels the subject's pubkey, so it only publishes
+        for a subject tagged as a keyed entity, and only once every claim
+        it references is itself published. Local adjudication (the reader's
+        🏛 flow) always works regardless.
+      </p>
+
+      <hr />
       <h3 class="xr-opt__subhead">LLM assist</h3>
       <label class="xr-opt__field xr-opt__field--inline">
         <input type="checkbox" id="pref-llm-assist" />
