@@ -19,6 +19,37 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-02 — Phase 15.7: what holds a truth event back from a publish batch
+
+Tags: `design`.
+
+Publish wiring for 30063/30064 (`truth-publish.js` + the reader
+section, the forensic-publish pattern). The selection rules that
+weren't obvious:
+
+- **Chain heads only.** A superseded verdict/finding never re-emits —
+  its successor REPLACES it on relays (same author + `d`), so
+  publishing an interior chain link would resurrect a retracted
+  ruling. The predecessor's `publishedEventId` threads into the
+  successor's `e supersedes` marker when known; a local-only
+  supersession (predecessor never published) still publishes, with no
+  lineage marker — there is nothing on relays to point at.
+- **A constraint gap must resolve or the finding waits.** The 30064
+  builder requires `constraintCoord` for a constraint cause; publishing
+  without it would strip the very evidence that DISCOUNTS the finding
+  — the worst possible lossy cut. So an unpublished constraint
+  action-fact holds the whole finding for a later batch.
+- **`revision_ref` passes through only when it already is a 30055
+  coordinate.** The linker's `markPublished` records no wire d-tag, so
+  a local link id can't be rebuilt into a coordinate in v1. The
+  finding still publishes (the ref is auxiliary credit, unlike the
+  constraint); the limitation is documented rather than silent.
+- **Subject resolution mirrors forensic-publish**: the first
+  `entity_ids` entry with an entity keypair wins; an unkeyed subject
+  waits. And the verdict selector re-checks `isTruthAdjudicable`
+  defensively — even a hand-edited storage record can't push a value
+  verdict onto the wire.
+
 ## 2026-07-02 — Phase 15.6: two asymmetries in the truth wire, both deliberate
 
 Tags: `design`.

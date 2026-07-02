@@ -333,6 +333,24 @@ export const IntegrityModel = {
     // verdicts are append-only — a changed match is a superseding
     // finding.
 
+    /**
+     * Record a successful kind-30064 publish. Not an edit — `updated`
+     * is untouched. There is no markMirrored here: a 30064 has NO
+     * kind-1985 mirror, by design (see truth-builders.js).
+     */
+    markPublished: async (id, eventId, pubkey, dTag) => {
+        const all = await Storage.get(FINDINGS_KEY, {});
+        const record = all[id];
+        if (!record) return null;
+        record.publishedAt = Math.floor(Date.now() / 1000);
+        if (eventId) record.publishedEventId = eventId;
+        if (pubkey)  record.publishedPubkey = pubkey;
+        if (dTag)    record.publishedDTag = dTag;
+        all[id] = record;
+        await Storage.set(FINDINGS_KEY, all);
+        return record;
+    },
+
     /** Delete — chain head only; re-opens the predecessor. */
     delete: async (id) => {
         const all = await Storage.get(FINDINGS_KEY, {});
