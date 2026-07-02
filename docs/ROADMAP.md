@@ -76,12 +76,13 @@ Phase 14.5 ████████████████░░  complete — 
                                 opt-in) + the epistemic auditor (Quick
                                 single-shot / Thorough per-module). Flag- +
                                 key-gated, opt-in, nothing auto-saves
-Phase 15 ██████░░░░░░░░░░░░░░  in progress — truth adjudication: verdicts on
+Phase 15 ██████████░░░░░░░░░░  in progress — truth adjudication: verdicts on
                                 propositions + words-vs-deeds integrity
                                 (docs/TRUTH_ADJUDICATION_DESIGN.md). Builds on
                                 Phase 14; kinds 30063/30064 (30065 reserved).
                                 15.1 adjudicable propositions + 15.2 evidence
-                                tiers/attestation graph shipped
+                                tiers/attestation graph + 15.3 verdict model
+                                shipped
 ```
 
 Parity with the v4.2 userscript is long reached; the project now ships
@@ -1227,10 +1228,16 @@ Slices (one PR each; `claude/phase-15-*`):
   (`truth-attestation.js` — origin-group collapse, demonstrated-
   independence discipline, per-tier counts with full derivation);
   independence checks.
-- 📝 **15.3** Verdict model + dispute reuse — `AdjudicatedVerdict`
-  (descriptive states, standard-of-proof, verbatim evidence, caveats);
-  multi-adjudicator variance *surface*; supersession; reuse the `30061`
-  dispute wire format. No estimated-score path exists to build.
+- ✅ **15.3** Verdict model + dispute reuse — `AdjudicatedVerdict`
+  (`VerdictModel` in `truth-adjudication-model.js`: descriptive states,
+  declared standard-of-proof with §6 per-class defaults, verbatim
+  two-sided evidence with per-state adequacy, mandatory caveats, the
+  §3.1 firewall enforced at create); multi-adjudicator variance
+  *surface* (`verdictVariance`, derived, never collapsed); append-only
+  supersession (no update method; linear chains by id construction).
+  Dispute reuse is the `30061` wire format as-is — nothing new built;
+  the `30063` dispute target kind lands with the wire in 15.6. No
+  estimated-score path exists to build.
 - 📝 **15.4** Integrity application — `IntegrityFinding` (commitment/value
   vs action match as a verdict; gap-decomposition; intent excluded; the
   value firewall; revision-as-credit composing 30062).

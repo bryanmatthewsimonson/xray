@@ -692,6 +692,66 @@ publishes. Requires a real Anthropic API key
 
 ---
 
+## Phase 15 — Truth adjudication (model layer, 15.1–15.3)
+
+Slices 15.1–15.3 are **model-only** (no UI, no wire, no flag), so this
+section is a **console walk**, not a click-through: the extension must
+look and behave exactly as before, and the models are exercised from an
+extension page's DevTools. Dynamic `import()` is banned in the service
+worker — use the **options page** (right-click toolbar icon → Options →
+F12). On Firefox: `about:debugging` → X-Ray → **Inspect**, with the
+options page open.
+
+Paste each numbered block as a unit. Every `create` is idempotent, so
+re-running after a page reload converges on the same records.
+
+**15.A — setup (paste once per page load):**
+
+```js
+const { TruthAdjudicationModel, VerdictModel, verdictVariance } =
+    await import('/src/shared/truth-adjudication-model.js');
+const { attestProposition, convergenceForProposition } =
+    await import('/src/shared/truth-attestation.js');
+const { ClaimModel } = await import('/src/shared/claim-model.js');
+const { EvidenceLinker } = await import('/src/shared/evidence-linker.js');
+
+const claim = await ClaimModel.create({
+    text: 'The senator voted against the bill on March 3.',
+    source_url: 'https://example.com/article' });
+const prop = await TruthAdjudicationModel.create({
+    claim_id: claim.id, proposition_class: 'event-fact',
+    resolution_criteria: { criteria: 'The official roll-call record.' },
+    subject_role: 'enacted' });
+```
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 15.1 | 15.A, then `prop` | ✅ record has `proposition_class`, `resolution_criteria.horizon: 'already-determinable'`, `subject_role: 'enacted'`; no verdict/score field |
+| 15.2 | `await TruthAdjudicationModel.create({ claim_id: 'claim_doesnotexist00', proposition_class: 'event-fact', resolution_criteria: { criteria: 'x' } })` | ❌ throws `Claim not found` — the atomization gate |
+| 15.3 | `await TruthAdjudicationModel.create({ claim_id: claim.id, proposition_class: 'prediction', resolution_criteria: { criteria: 'x' } })` | ❌ throws `requires a resolution horizon` |
+| 15.4 | `await TruthAdjudicationModel.create({ claim_id: claim.id, proposition_class: 'state-fact', resolution_criteria: { criteria: 'x' }, occurred_at: 1614729600 })` | ❌ throws `no false precision` (occurred_at demands occurred_precision) |
+| 15.5 | Attest 3 sources: `rollCall` (tier-1, `origin_key: 'congress-roll-call-71'`), then two claims both on `origin_key: 'ap-wire'` — first with an `independence_note`, second with casing `'AP-Wire'` — plus one `'anon-blog'` claim with **no** note; then `await convergenceForProposition(prop.id)` | ✅ `total_attestations: 4, origin_count: 3, independent_count: 2, undemonstrated: ['anon-blog']`; `origin_groups` lists every link id + note (the derivation) |
+| 15.6 | `await EvidenceLinker.create({ source_claim_id: <any>, target_claim_id: claim.id, relationship: 'contradicts', attestation: { tier: 'tier-1', origin_key: 'x' } })` | ❌ throws `only valid on a supports link` |
+| 15.7 | `const verdict = await VerdictModel.create({ proposition_id: prop.id, verdict: 'established-true', evidence_for: [{ quote: 'Roll-call 71: Nay.', tier: 'tier-1' }], caveats: ['Could not verify a later motion.'] })` | ✅ `standard_of_proof: 'preponderance'` (defaulted per class AND declared); no score/confidence field |
+| 15.8 | Create a `stated-value` proposition on `claim`, then rule on it | ❌ `VerdictModel.create` throws `not adjudicable as true/false` — the §3.1 firewall; the *proposition* create succeeds (recording is legal, ruling is not) |
+| 15.9 | `await VerdictModel.create({ proposition_id: prop.id, verdict: 'established-true', evidence_for: [{ quote: 'x' }], caveats: [] })` | ❌ throws — caveats are mandatory |
+| 15.10 | `await VerdictModel.create({ proposition_id: prop.id, verdict: 'contested', evidence_for: [{ quote: 'x' }], caveats: ['y'] })` | ❌ throws `BOTH ways` — contested needs both sides |
+| 15.11 | Supersede: `const v2 = await VerdictModel.create({ proposition_id: prop.id, supersedes: verdict.id, verdict: 'contested', evidence_for: [{ quote: 'Roll-call 71: Nay.' }], evidence_against: [{ quote: 'Amended record shows a revote.' }], caveats: ['Conflicting records.'] })`, then `await VerdictModel.get(verdict.id)` | ✅ old record: `superseded_by: v2.id` and **nothing else changed**; `getActiveForProposition(prop.id)` returns `v2` |
+| 15.12 | `typeof VerdictModel.update` | ✅ `'undefined'` — append-only by construction |
+| 15.13 | `verdictVariance([{ verdict: 'established-true' }, { verdict: 'contested' }])` | ✅ per-state counts, `unanimous: false`; **no** consensus/score/mean field exists on the result |
+
+**15.B — cleanup:**
+
+```js
+chrome.storage.local.remove(['adjudicable_propositions', 'adjudicated_verdicts']);
+await EvidenceLinker.deleteForClaim(claim.id);
+// then ClaimModel.delete(...) for each test claim created above.
+// Only blanket-remove 'article_claims'/'evidence_links' on a disposable
+// profile — real captures share those keys.
+```
+
+---
+
 ## Phase 6 — Entity sync
 
 Run on **Device A** (your normal profile) and **Device B** (a

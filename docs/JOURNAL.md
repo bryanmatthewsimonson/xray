@@ -19,6 +19,40 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-02 — Phase 15.3: verdict chains are linear by id construction
+
+Tags: `design`.
+
+Third Phase-15 slice (docs/TRUTH_ADJUDICATION_DESIGN.md §3.3). The
+calls worth second-guessing:
+
+- **Supersession forks are impossible by construction, not by check.**
+  A verdict id hashes `(proposition_id | supersedes)` — the chain
+  position. A second attempt to supersede the same predecessor derives
+  the id of the existing successor and idempotently returns it,
+  untouched. The explicit "chains are linear" guard is therefore
+  belt-and-braces (unreachable through the API); the real invariant is
+  the id scheme. Corollary: `VerdictModel` has **no update method** —
+  a changed ruling, sharper caveats, or new evidence is a superseding
+  verdict, and `delete` is chain-head-only (re-opens the predecessor)
+  so history never silently loses an interior ruling.
+- **Evidence adequacy is per-state.** `established-true` requires
+  `evidence_for`, `established-false` requires `evidence_against`,
+  `contested` requires both; `unresolved` / `insufficient-evidence`
+  may cite nothing — forcing citations there would manufacture
+  evidence for the honest states, and their mandatory caveats carry
+  the why.
+- **The §6.1 open question (default standard of proof per class) is
+  settled at implementation** as `defaultStandardOfProof`: stated
+  commitments/values → `clear-and-convincing` (reputationally heavy
+  utterances), facts/predictions → `preponderance`. Always overridable;
+  the declared standard is stored on the record either way.
+- **"Dispute reuse" ships as posture, not code.** §3.3 reuses the
+  `30061` wire format as-is; a dispute cannot target a `30063`
+  coordinate before verdicts publish, so extending
+  `DISPUTE_TARGET_KINDS` with a verdict kind belongs to 15.6 (wire),
+  not here. Nothing dispute-shaped was rebuilt locally.
+
 ## 2026-07-02 — Phase 15.2: attestations live on the 30055 link, and the baseline needs no note
 
 Tags: `design`.
