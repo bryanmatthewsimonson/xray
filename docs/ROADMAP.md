@@ -76,13 +76,14 @@ Phase 14.5 ████████████████░░  complete — 
                                 opt-in) + the epistemic auditor (Quick
                                 single-shot / Thorough per-module). Flag- +
                                 key-gated, opt-in, nothing auto-saves
-Phase 15 ████████████████░░░░  in progress — truth adjudication: verdicts on
+Phase 15 ███████████████████░  in progress — truth adjudication: verdicts on
                                 propositions + words-vs-deeds integrity
-                                (docs/TRUTH_ADJUDICATION_DESIGN.md). Builds on
-                                Phase 14; kinds 30063/30064 (30065 reserved).
-                                15.1 propositions + 15.2 evidence/attestation
-                                + 15.3 verdicts + 15.4 integrity findings
-                                + 15.5 entity record/coverage shipped
+                                (docs/TRUTH_ADJUDICATION_DESIGN.md). Kinds
+                                30063/30064 (30065 reserved). 15.1–15.6 all
+                                shipped (models, attestation, verdicts,
+                                integrity, entity record, wire + flag);
+                                remaining: publish/read UI wiring + the
+                                deferred precedent/bridging tail
 ```
 
 Parity with the v4.2 userscript is long reached; the project now ships
@@ -1253,10 +1254,15 @@ Slices (one PR each; `claude/phase-15-*`):
   disclosed revisions + optional 30062 bridge); the coverage
   measurement (default undetermined) + cap; the optional
   coverage-gated rollup (a ratio sentence, never a score).
-- 📝 **15.6** Wire + NIP draft (flag-gated) — `30063`/`30064` builders +
-  parsers; `truthAdjudicationPublishing` flag; NIP draft framing verdicts as
-  evidence-bound descriptive adjudications with required caveats; precedent
-  citation grammar reserved.
+- ✅ **15.6** Wire + NIP draft (flag-gated) — `30063`/`30064` builders +
+  parsers (`truth-builders.js`, following the 30062 idioms; no `p` on
+  30063, no 1985 mirror for 30064, firewall enforced build- AND
+  read-side); `truthAdjudicationPublishing` flag; `30061`
+  `DISPUTE_TARGET_KINDS` extended with `verdict`/`integrity_finding`
+  (additive); NIP draft §30063/§30064 framing verdicts as
+  evidence-bound descriptive adjudications with required caveats;
+  `30065` + the `precedent` a-tag marker grammar reserved. Publish
+  paths + read UI wiring are follow-up work behind the flag.
 - 📝 **(later)** Precedent + bridging weighting — stare-decisis corpus;
   bridging-weighted standing (the deferred aggregation-layer tail).
 
