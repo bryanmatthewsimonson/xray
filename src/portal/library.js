@@ -23,6 +23,7 @@ import {
     parseDossierSnapshotEvent, parseAuditDisputeEvent
 } from '../shared/audit/builders.js';
 import { parseBehavioralFindingEvent } from '../shared/forensic-model.js';
+import { parseAdjudicatedVerdictEvent, parseIntegrityFindingEvent } from '../shared/truth-builders.js';
 
 // Tags written by this extension (current + userscript-era value).
 export const OUR_CLIENT_TAGS = new Set(['xray', 'nostr-article-capture']);
@@ -39,6 +40,8 @@ export const TYPE_DEFS = [
     { key: 'audit',      label: 'Audits' },
     { key: 'prediction', label: 'Predictions' },
     { key: 'finding',    label: 'Findings' },
+    { key: 'verdict',    label: 'Verdicts' },
+    { key: 'integrity',  label: 'Integrity' },
     { key: 'link',       label: 'Links' },
     { key: 'entity',     label: 'Entities' },
     { key: 'case',       label: 'Cases' },
@@ -69,7 +72,9 @@ const KIND_LABELS = {
     30059: 'Resolution',
     30060: 'Dossier',
     30061: 'Dispute',
-    30062: 'Behavioral finding'
+    30062: 'Behavioral finding',
+    30063: 'Adjudicated verdict',
+    30064: 'Integrity finding'
 };
 
 export function kindLabel(kind) {
@@ -319,6 +324,34 @@ function buildItem(record, entityIndex) {
                 sub = `${subj} · ${f.role || 'subject'}`;
                 extra.parsedFinding = f;
                 haystack.push(f.maneuver, f.role, f.subjectPubkey, subj, f.url);
+            }
+            break;
+        }
+        // ---- Phase 15 adjudicated verdict (read-back) --------------
+        case 30063: {
+            const v = parseAdjudicatedVerdictEvent(event);
+            if (v) {
+                typeKey = 'verdict';
+                title = `Verdict — ${v.verdict}`;
+                sub = `${v.propositionClass} · ${v.standardOfProof}`;
+                extra.parsedVerdict = v;
+                haystack.push(v.verdict, v.propositionClass, v.standardOfProof, v.claimCoord, v.url);
+            }
+            break;
+        }
+        // ---- Phase 15 integrity finding (read-back) ----------------
+        case 30064: {
+            const f = parseIntegrityFindingEvent(event);
+            if (f) {
+                typeKey = 'integrity';
+                const subj = (f.subjectPubkey && entityIndex[f.subjectPubkey]
+                    && entityIndex[f.subjectPubkey].name)
+                    || (f.subjectPubkey ? `${f.subjectPubkey.slice(0, 10)}…` : '(unknown subject)');
+                title = `Integrity — ${f.match}`;
+                sub = `${subj} · ${f.word ? f.word.class : ''}`;
+                extra.parsedIntegrity = f;
+                haystack.push(f.match, f.subjectPubkey, subj, f.word && f.word.class,
+                    f.standardOfProof, f.url);
             }
             break;
         }

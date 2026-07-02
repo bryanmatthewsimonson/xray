@@ -766,6 +766,15 @@ is follow-up work). In the options-page console, after 15.A:
 | 15.26 | Re-run with `{ coverage: declaredCoverage({assessed_count: 1, universe_estimate: 10, method: 'smoke fixture'}) }` | ✅ rollup counts + a sentence carrying "high-standard", the 1/10 coverage, and the method |
 | 15.27 | 30064 publish leg: with the flag on and the word/deed claims + a keyed entity published, Publish | ✅ summary shows `n/n integrity finding`; second publish re-emits nothing |
 
+**Read-back (15.9)** — needs published adjudications (rows 15.20/15.27):
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 15.28 | My Archive → fetch → Library | ✅ **Verdicts** / **Integrity** facets appear; published rulings list as `Verdict — <state>` / `Integrity — <match>`; clicking opens the inspector with evidence, standard, caveats, disclosure, and any precedent citations on the face |
+| 15.29 | My Archive → Reconcile | ✅ published verdicts/findings reconcile (in ledger & on relays); an unpublished chain head shows in the local-only counts; a superseded ruling never does |
+| 15.30 | Portal → entity view for the finding's subject | ✅ the **Integrity record** block renders: dimension counts beside their lists, the timeline ordered on deed event-time, calibration/corrections lines; declaring coverage (assessed/universe/method) unlocks the rollup sentence; without it the rollup line stays "no aggregate" |
+| 15.31 | Reader → 🏛 on the published claim → **Others' rulings** | ✅ fetches foreign 30063s for the selected class; shows each ruling + the spread ("disagreement is data"), never a consensus number; malformed rulings (the read-side adequacy nulls) simply don't appear |
+
 **Operator disciplines (v1)** — §2 defenses that ship as practice, not
 mechanism; follow them until tooling lands: seek **kept** commitments as
 hard as broken ones (balance-sheet symmetry — an entity record that only

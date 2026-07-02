@@ -19,6 +19,35 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-02 — Phase 15.9: read-back — the missing half, and one deliberate non-persistence
+
+Tags: `design`.
+
+The audit's headline gap ("write half done, read half missing") closes:
+portal corpus/reconcile/library/inspector learn 30063/30064, the
+entity view gains the §3.5 integrity-record block, and the adjudicate
+modal fetches others' rulings. Second-guessable calls:
+
+- **Coverage declarations are per-reading, never persisted.** The
+  portal's rollup form asks for assessed/universe/method each time.
+  Persisting a declaration would turn a reader's one-time assertion
+  into stored state that silently goes stale as new commitments
+  arrive — the exact back-door §6.3 warns about. Re-declaring is
+  deliberate friction, like the exhaustive-enum tests.
+- **Local-only counts exclude superseded rulings** (chain heads only):
+  a superseded verdict never publishes by design, so counting it as
+  "local only / never published" would manufacture a permanent
+  phantom problem in the reconcile view.
+- **Others' rulings dedupe by (author, d) keeping newest** — the
+  addressable-replacement semantics applied client-side, since relays
+  MAY return stale versions; and the read-side adequacy parsers mean
+  malformed foreign rulings are simply absent, with a UI note saying
+  so rather than pretending the relay set was clean.
+- The integrity block computes on open and removes itself when the
+  entity has no adjudication data — an empty scoreboard is not a
+  scoreboard (rendering zeros for everyone would read as universal
+  cleanliness, the §2 selection-bias trap in miniature).
+
 ## 2026-07-02 — Phase 15 conformance pass: what a 10-agent design audit caught
 
 Tags: `design`.

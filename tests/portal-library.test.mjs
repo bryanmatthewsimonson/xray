@@ -173,6 +173,8 @@ test('EMPTY_FILTERS and TYPE_DEFS are pinned', () => {
             'audit', 'prediction',
             // Phase 14.4 facet:
             'finding',
+            // Phase 15.9 facets:
+            'verdict', 'integrity',
             'link', 'entity', 'case', 'account', 'other']);
     assert.equal(kindLabel(30040), 'Claim');
     assert.equal(kindLabel(30062), 'Behavioral finding');
@@ -212,4 +214,39 @@ test('status facet filters on reconStatus; unannotated items read as no-ledger',
     assert.equal(win.remaining, items.length - 3);
     assert.deepEqual(pageWindow(items, 0).shown.length, items.length); // 0 = no cap
     assert.deepEqual(pageWindow([], 5), { shown: [], remaining: 0 });
+});
+
+test('library: 30063/30064 classify as verdict/integrity items with parsed payloads', async () => {
+    const { buildAdjudicatedVerdictEvent, buildIntegrityFindingEvent } =
+        await import('../src/shared/truth-builders.js');
+    const PK = 'a'.repeat(64);
+    const CLAIM = `30040:${PK}:claim_1234567890abcdef`;
+
+    const v = await buildAdjudicatedVerdictEvent({
+        claimCoord: CLAIM, propositionClass: 'event-fact', verdict: 'established-true',
+        resolutionCriteria: { criteria: 'Roll-call.' }, subjectRole: 'enacted',
+        evidenceFor: [{ quote: 'Roll-call 71: Nay.' }], caveats: ['later motion unchecked']
+    });
+    const vItem = buildItems([{ event: { ...v.event, pubkey: PK, id: 'e'.repeat(64) }, relays: [] }], { entityIndex: {} })[0];
+    assert.equal(vItem.typeKey, 'verdict');
+    assert.match(vItem.title, /Verdict — established-true/);
+    assert.ok(vItem.parsedVerdict);
+    assert.equal(kindLabel(30063), 'Adjudicated verdict');
+
+    const f = await buildIntegrityFindingEvent({
+        subjectPubkey: 'b'.repeat(64),
+        word: { coord: `30040:${PK}:claim_word0000000000`, class: 'stated-commitment' },
+        deeds: [{ coord: `30040:${PK}:claim_deed0000000000`, class: 'event-fact' }],
+        match: 'broken', evidenceFor: [{ quote: 'Roll-call 88: Yea.' }], caveats: ['one vote']
+    });
+    const fItem = buildItems([{ event: { ...f.event, pubkey: PK, id: 'f'.repeat(64) }, relays: [] }], { entityIndex: {} })[0];
+    assert.equal(fItem.typeKey, 'integrity');
+    assert.match(fItem.title, /Integrity — broken/);
+    assert.ok(fItem.parsedIntegrity);
+    assert.equal(kindLabel(30064), 'Integrity finding');
+
+    // A malformed 30063 (no caveats) degrades to 'other', never renders as a ruling.
+    const noCaveat = { ...v.event, tags: v.event.tags.filter((t) => t[0] !== 'caveat'), pubkey: PK, id: 'a'.repeat(64) };
+    const badItem = buildItems([{ event: noCaveat, relays: [] }], { entityIndex: {} })[0];
+    assert.equal(badItem.typeKey, 'other');
 });

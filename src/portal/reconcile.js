@@ -26,6 +26,8 @@ import { AssessmentModel } from '../shared/assessment-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import { EntityModel } from '../shared/entity-model.js';
 import { ForensicModel } from '../shared/forensic-model.js';
+import { VerdictModel } from '../shared/truth-adjudication-model.js';
+import { IntegrityModel } from '../shared/integrity-model.js';
 import { listArticles } from '../shared/archive-cache.js';
 import { listRuns, listPredictions, listResolutions } from '../shared/audit/audit-cache.js';
 import {
@@ -38,7 +40,7 @@ import { Utils } from '../shared/utils.js';
 
 // 30060 (snapshots) and 30061 (disputes) have no publish path in 13.8
 // — they stay 'no-ledger' below, never an anomaly.
-const LEDGERED_KINDS = new Set([30023, 30040, 30054, 30055, 0, 30056, 30057, 30058, 30059, 30062]);
+const LEDGERED_KINDS = new Set([30023, 30040, 30054, 30055, 0, 30056, 30057, 30058, 30059, 30062, 30063, 30064]);
 
 async function sha16(s) {
     return (await Crypto.sha256(String(s))).slice(0, 16);
@@ -252,6 +254,42 @@ export async function loadLocalLedger({ pubkeys = [] } = {}) {
         }
     } catch (err) { Utils.error('Reconcile: finding ledger scan failed', err); }
 
+    try {
+        // Phase 15: adjudicated verdicts (30063). Same posture as the
+        // 30062 block — address rebuilds from the recorded d-tag +
+        // publishing pubkey; event-id match is the primary path.
+        for (const v of await VerdictModel.list() || []) {
+            if (!v || !v.publishedAt || !v.publishedEventId) continue;
+            const addrs = (v.publishedPubkey && v.publishedDTag)
+                ? [`30063:${v.publishedPubkey}:${v.publishedDTag}`] : [];
+            entries.push({
+                source: 'verdict',
+                localId: v.id,
+                label: `${v.verdict} (${v.proposition_id})`.slice(0, 60),
+                publishedAt: v.publishedAt,
+                publishedEventId: v.publishedEventId,
+                addrs
+            });
+        }
+    } catch (err) { Utils.error('Reconcile: verdict ledger scan failed', err); }
+
+    try {
+        // Phase 15: integrity findings (30064).
+        for (const f of await IntegrityModel.list() || []) {
+            if (!f || !f.publishedAt || !f.publishedEventId) continue;
+            const addrs = (f.publishedPubkey && f.publishedDTag)
+                ? [`30064:${f.publishedPubkey}:${f.publishedDTag}`] : [];
+            entries.push({
+                source: 'integrity',
+                localId: f.id,
+                label: `${f.match} (${f.word_proposition_id})`.slice(0, 60),
+                publishedAt: f.publishedAt,
+                publishedEventId: f.publishedEventId,
+                addrs
+            });
+        }
+    } catch (err) { Utils.error('Reconcile: integrity ledger scan failed', err); }
+
     return entries;
 }
 
@@ -267,7 +305,8 @@ export async function loadLocalLedger({ pubkeys = [] } = {}) {
 export async function countLocalOnly() {
     const counts = {
         claim: 0, assessment: 0, link: 0, entity: 0, article: 0,
-        auditRun: 0, prediction: 0, resolution: 0, total: 0
+        auditRun: 0, prediction: 0, resolution: 0,
+        verdict: 0, integrity: 0, total: 0
     };
     const unpublished = (r) => r && (!r.publishedAt || !r.publishedEventId);
     try {
@@ -288,6 +327,18 @@ export async function countLocalOnly() {
         }
     } catch (_) { /* counted as zero */ }
     try {
+        // Verdicts/findings: only CHAIN HEADS count — a superseded
+        // ruling never publishes by design, so it is not "local only".
+        for (const v of await VerdictModel.list() || []) {
+            if (v && !v.superseded_by && unpublished(v)) counts.verdict++;
+        }
+    } catch (_) { /* counted as zero */ }
+    try {
+        for (const f of await IntegrityModel.list() || []) {
+            if (f && !f.superseded_by && unpublished(f)) counts.integrity++;
+        }
+    } catch (_) { /* counted as zero */ }
+    try {
         // A run is "local only" when NONE of its events went out — a
         // partially-published run is a `missing` problem, not this one.
         for (const run of (await listRuns()) || []) {
@@ -302,7 +353,8 @@ export async function countLocalOnly() {
         for (const r of (await listResolutions()) || []) if (unpublished(r)) counts.resolution++;
     } catch (_) { /* counted as zero */ }
     counts.total = counts.claim + counts.assessment + counts.link + counts.entity + counts.article
-                 + counts.auditRun + counts.prediction + counts.resolution;
+                 + counts.auditRun + counts.prediction + counts.resolution
+                 + counts.verdict + counts.integrity;
     return counts;
 }
 

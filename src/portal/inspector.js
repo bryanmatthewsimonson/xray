@@ -118,6 +118,92 @@ function renderFindingSection(host, finding) {
     host.appendChild(section);
 }
 
+// Phase 15 read-back: the adjudicated verdict, rendered with its
+// derivation on its face — state, declared standard, both evidence
+// sides, the REQUIRED caveats, and disclosure/citations when present.
+// No number is synthesized anywhere here (§1).
+function renderEvidenceList(section, label, entries) {
+    if (!entries || entries.length === 0) return;
+    section.appendChild(el('h4', 'xr-inspector__sub', `${label} (${entries.length})`));
+    entries.forEach((e) => {
+        const row = el('div', 'xr-inspector__finding-anchor');
+        row.appendChild(el('span', 'xr-inspector__mono', e.tier || '—'));
+        row.appendChild(el('span', null, truncate(e.quote, 140)));
+        section.appendChild(row);
+    });
+}
+
+function renderRulingCommon(section, parsed) {
+    renderEvidenceList(section, 'Evidence for', parsed.evidenceFor);
+    renderEvidenceList(section, 'Evidence against', parsed.evidenceAgainst);
+    section.appendChild(el('h4', 'xr-inspector__sub', 'Caveats (required)'));
+    (parsed.caveats || []).forEach((c) => section.appendChild(el('div', null, `• ${c}`)));
+    if (parsed.exposure) {
+        section.appendChild(el('h4', 'xr-inspector__sub', 'Adjudicator disclosure'));
+        section.appendChild(el('div', null, parsed.exposure));
+    }
+    if (parsed.precedents && parsed.precedents.length) {
+        section.appendChild(el('h4', 'xr-inspector__sub', 'Precedent citations (informational)'));
+        parsed.precedents.forEach((p) => section.appendChild(
+            el('div', 'xr-inspector__mono', `${p.weight}: ${truncate(p.coord, 60)}`)));
+    }
+    if (parsed.replyEventIds && parsed.replyEventIds.length) {
+        section.appendChild(el('h4', 'xr-inspector__sub', 'Subject replies'));
+        parsed.replyEventIds.forEach((id) => section.appendChild(
+            el('div', 'xr-inspector__mono', shortKey(id))));
+    }
+    if (parsed.supersedesEventId) {
+        section.appendChild(el('div', 'xr-inspector__mono',
+            `supersedes ${shortKey(parsed.supersedesEventId)} — append-only chain`));
+    }
+    if (parsed.rationale) {
+        section.appendChild(el('h4', 'xr-inspector__sub', 'Rationale'));
+        section.appendChild(el('div', null, parsed.rationale));
+    }
+}
+
+function renderVerdictSection(host, verdict) {
+    const section = el('div', 'xr-inspector__finding');
+    section.appendChild(el('h3', 'xr-case__heading', 'Adjudicated verdict'));
+    section.appendChild(el('div', 'xr-inspector__mono',
+        `${verdict.verdict} · standard ${verdict.standardOfProof} · ${verdict.propositionClass}`
+        + (verdict.method ? ` · ${verdict.method}` : '')));
+    section.appendChild(el('div', 'xr-inspector__mono',
+        `proposition claim: ${truncate(verdict.claimCoord, 70)}`));
+    if (verdict.criteria) {
+        section.appendChild(el('h4', 'xr-inspector__sub', 'Resolution criteria'));
+        section.appendChild(el('div', null, verdict.criteria
+            + (verdict.horizon ? ` (horizon: ${verdict.horizon})` : '')));
+    }
+    renderRulingCommon(section, verdict);
+    host.appendChild(section);
+}
+
+function renderIntegritySection(host, finding) {
+    const section = el('div', 'xr-inspector__finding');
+    section.appendChild(el('h3', 'xr-case__heading', 'Integrity finding (words vs deeds)'));
+    section.appendChild(el('div', 'xr-inspector__mono',
+        `match: ${finding.match} · standard ${finding.standardOfProof}`
+        + (finding.subjectPubkey ? ` · subject ${shortKey(finding.subjectPubkey)}` : '')));
+    section.appendChild(el('h4', 'xr-inspector__sub', 'Word (stated)'));
+    section.appendChild(el('div', 'xr-inspector__mono',
+        `${finding.word.class}: ${truncate(finding.word.coord, 70)}`));
+    section.appendChild(el('h4', 'xr-inspector__sub',
+        `Deeds (enacted, ${finding.deeds.length})`));
+    finding.deeds.forEach((d) => section.appendChild(
+        el('div', 'xr-inspector__mono', `${d.class}: ${truncate(d.coord, 70)}`)));
+    if (finding.gap) {
+        section.appendChild(el('h4', 'xr-inspector__sub', 'Gap decomposition (documented)'));
+        section.appendChild(el('div', null, `${finding.gap.cause}: ${finding.gap.note}`));
+        if (finding.gap.constraintCoord) {
+            section.appendChild(el('div', 'xr-inspector__mono',
+                `constraint (discounting evidence): ${truncate(finding.gap.constraintCoord, 60)}`));
+        }
+    }
+    renderRulingCommon(section, finding);
+    host.appendChild(section);
+}
+
 const STATUS_TEXT = {
     'confirmed':   ['✓ in ledger & on relays', 'xr-badge--agree'],
     'remote-only': ['◌ remote-only — not in this device\'s ledger', 'xr-badge--case'],
@@ -224,6 +310,15 @@ export function renderInspector(host, item, { status = 'no-ledger', onClose, aud
     // 14.4: the behavioral finding's maneuver + evidence chain + counter-read.
     if (item.kind === 30062 && item.parsedFinding) {
         renderFindingSection(host, item.parsedFinding);
+    }
+
+    // 15.9: adjudicated verdicts + integrity findings, derivation on
+    // their face (evidence, standard, caveats — §5.5).
+    if (item.kind === 30063 && item.parsedVerdict) {
+        renderVerdictSection(host, item.parsedVerdict);
+    }
+    if (item.kind === 30064 && item.parsedIntegrity) {
+        renderIntegritySection(host, item.parsedIntegrity);
     }
 
     const details = el('details', 'xr-inspector__raw');
