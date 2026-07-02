@@ -19,6 +19,37 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-02 — Phase 15.5: the entity record is computed, never stored — and the rollup gate is coverage.status
+
+Tags: `design`.
+
+Fifth Phase-15 slice (docs/TRUTH_ADJUDICATION_DESIGN.md §3.5). Calls:
+
+- **Derived-on-read, not stored** (`truth-entity-record.js` follows
+  the audit dossier's computed-on-open posture). An entity's record is
+  a pure function of the proposition/verdict/finding/claim stores;
+  persisting it would create a second source of truth that goes stale
+  the moment a verdict supersedes.
+- **Coverage is a caller-declared measurement, not stored state.**
+  `declaredCoverage({assessed_count, universe_estimate, method})`
+  throws on an undefended denominator (§6.3's open question honored
+  by refusing bare assertions); the default is `undetermined`, and
+  `optionalRollup` returns **null** unless coverage.status is
+  `declared` — the §5.4 no-aggregate-without-coverage red line as a
+  type gate. The rollup output is counts + a sentence with the
+  coverage fraction and method inline; deliberately no percentage
+  field exists.
+- **Unscoreable predictions are listed, never dropped**: a resolved
+  prediction with no recorded hedge is `no-hedge-recorded` (inventing
+  a hedge to make Brier computable would be the estimation §1
+  forbids); unresolved ones are `unresolved`. `calibrationV1`'s
+  `mean_brier` is admissible because its formula and inputs ship with
+  it — a measurement, not a score.
+- **The forensic bridge is caller-asserted.** Entity ids and forensic
+  `subject_ref`s are different keyspaces; `entityCorrectionRecord`
+  composes 30062 findings only when the caller passes the subject
+  ref, rather than guessing an identity join.
+
 ## 2026-07-02 — Phase 15.4: how "intent is not adjudicated" survives `lie` being in the enum
 
 Tags: `design`.
