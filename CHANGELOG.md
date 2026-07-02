@@ -12,6 +12,24 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 15.4 — the integrity application (words vs deeds).**
+  `IntegrityFinding` links a subject's **stated** commitment or value
+  to their **enacted** action-facts (same entity both sides, resolved
+  through the claims' about-entities) and adjudicates the observable
+  gap: `fulfilled`/`broken` for commitments, `consistent`/
+  `contradicted` for values (the value firewall in enum form), plus
+  the honest `unrelated`/`contested`/`insufficient` states. The match
+  **is a verdict** — declared standard of proof (defaults
+  clear-and-convincing), verbatim evidence with per-match adequacy,
+  mandatory caveats, append-only supersession. Gap decomposition
+  (`lie`/`revision`/`incapacity`/`constraint`/`misattribution`) is
+  recordable **only with documentation** — intent is never inferred;
+  `constraint` demands a corroborated action-fact ref (evidence, not
+  an excuse); disclosed `revision` composes the existing 30055/30062
+  edges as credit. `timelineForEntity` renders the record as a time
+  series ordered on the deeds' event-time — pattern, not gotcha.
+  Local records only; wire kind 30064 arrives flag-gated in 15.6.
+
 - **Phase 15.3 — the AdjudicatedVerdict model.** One author's ruling
   on one truth-adjudicable proposition, as a **descriptive state**
   (`established-true` / `established-false` / `contested` /

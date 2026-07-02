@@ -76,12 +76,12 @@ Phase 14.5 ████████████████░░  complete — 
                                 opt-in) + the epistemic auditor (Quick
                                 single-shot / Thorough per-module). Flag- +
                                 key-gated, opt-in, nothing auto-saves
-Phase 15 ██████████░░░░░░░░░░  in progress — truth adjudication: verdicts on
+Phase 15 █████████████░░░░░░░  in progress — truth adjudication: verdicts on
                                 propositions + words-vs-deeds integrity
                                 (docs/TRUTH_ADJUDICATION_DESIGN.md). Builds on
                                 Phase 14; kinds 30063/30064 (30065 reserved).
-                                15.1 adjudicable propositions + 15.2 evidence
-                                tiers/attestation graph + 15.3 verdict model
+                                15.1 propositions + 15.2 evidence/attestation
+                                + 15.3 verdicts + 15.4 integrity findings
                                 shipped
 ```
 
@@ -1238,9 +1238,14 @@ Slices (one PR each; `claude/phase-15-*`):
   Dispute reuse is the `30061` wire format as-is — nothing new built;
   the `30063` dispute target kind lands with the wire in 15.6. No
   estimated-score path exists to build.
-- 📝 **15.4** Integrity application — `IntegrityFinding` (commitment/value
-  vs action match as a verdict; gap-decomposition; intent excluded; the
-  value firewall; revision-as-credit composing 30062).
+- ✅ **15.4** Integrity application — `IntegrityFinding`
+  (`integrity-model.js`: stated words vs enacted deeds of the same
+  entity, match adjudicated as a verdict with per-word-class
+  vocabulary — the value firewall; documented-only gap-decomposition
+  with intent excluded; `constraint_ref` as corroborated evidence;
+  revision-as-credit via `revision_ref` composing 30055/30062;
+  append-only supersession; `timelineForEntity` pattern-not-instance
+  ordering on the deeds' `occurred_at`).
 - 📝 **15.5** Entity record + coverage — dimension-separated descriptive
   records; the coverage measurement + cap; the optional gated rollup;
   calibration from resolved predictions (reusing `audit/calibration.js`).

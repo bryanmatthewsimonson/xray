@@ -368,9 +368,11 @@ export async function generateVerdictId(propositionId, supersedes) {
  * Verbatim evidence entries, one side at a time. Each entry needs a
  * non-empty quote (evidence-bound, no exceptions); `tier` (§3.2),
  * `claim_ref`, and `source_ref` are optional but validated/normalized
- * when present, so the verdict ships citable derivation.
+ * when present, so the verdict ships citable derivation. Exported for
+ * integrity-model.js — a §3.4 match "is a verdict, not a drawn edge",
+ * so it carries evidence under exactly this discipline.
  */
-function cleanVerdictEvidence(entries, side) {
+export function cleanVerdictEvidence(entries, side) {
     if (entries === undefined || entries === null) return [];
     if (!Array.isArray(entries)) {
         throw new Error(`${side} must be an array of evidence entries`);
@@ -419,7 +421,8 @@ function assertEvidenceAdequacy(verdict, evidenceFor, evidenceAgainst) {
     }
 }
 
-function cleanCaveats(input) {
+/** Mandatory caveats — shared by verdicts (§3.3) and matches (§3.4). */
+export function cleanCaveats(input) {
     const arr = Array.isArray(input) ? input : (input ? [input] : []);
     const out = arr.map((c) => String(c || '').trim()).filter(Boolean);
     if (out.length === 0) {
@@ -428,7 +431,8 @@ function cleanCaveats(input) {
     return out;
 }
 
-function cleanAdjudicator(input) {
+/** Adjudicator identity — shared by verdicts and matches. */
+export function cleanAdjudicator(input) {
     if (input === undefined || input === null) return null;
     const rec = input;
     const label = String(rec.label || '').trim();

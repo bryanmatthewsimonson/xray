@@ -190,6 +190,88 @@ export function defaultStandardOfProof(propositionClass) {
 }
 
 // ------------------------------------------------------------------
+// Integrity match states — §3.4 (Phase 15.4). The match is itself a
+// VERDICT (standard of proof, verbatim evidence, caveats), not a
+// drawn edge. Commitments and values take different substantive
+// states; the honest states are common to both.
+// ------------------------------------------------------------------
+
+export const INTEGRITY_MATCH_STATES = Object.freeze([
+    'fulfilled', 'broken',           // stated-commitment vs deeds
+    'consistent', 'contradicted',    // stated-value vs deeds
+    'unrelated', 'contested', 'insufficient'   // common
+]);
+
+export const INTEGRITY_MATCH_LABELS = Object.freeze({
+    fulfilled:    'Fulfilled',
+    broken:       'Broken',
+    consistent:   'Consistent',
+    contradicted: 'Contradicted',
+    unrelated:    'Unrelated',
+    contested:    'Contested',
+    insufficient: 'Insufficient evidence'
+});
+
+const COMMON_MATCH_STATES = Object.freeze(['unrelated', 'contested', 'insufficient']);
+
+/**
+ * The match vocabulary a word-side class accepts: a commitment is
+ * fulfilled/broken, a value is consistent/contradicted — grading a
+ * value as "fulfilled" (or a promise as "contradicted") would blur
+ * the two firewalled semantics. Empty for anything that cannot sit
+ * on the word side.
+ */
+export function matchStatesForWordClass(wordClass) {
+    if (wordClass === 'stated-commitment') {
+        return ['fulfilled', 'broken', ...COMMON_MATCH_STATES];
+    }
+    if (wordClass === 'stated-value') {
+        return ['consistent', 'contradicted', ...COMMON_MATCH_STATES];
+    }
+    return [];
+}
+
+export function isValidMatchState(value) {
+    return INTEGRITY_MATCH_STATES.includes(value);
+}
+
+export function isValidMatchForWordClass(match, wordClass) {
+    return matchStatesForWordClass(wordClass).includes(match);
+}
+
+// The substantive gap states — the only ones a gap_decomposition may
+// attach to (there is no gap to decompose on fulfilled/consistent,
+// and the honest states haven't established one).
+export const GAP_MATCH_STATES = Object.freeze(['broken', 'contradicted']);
+
+/**
+ * Gap causes — §3.4. The analytic decomposition of a word-deed gap.
+ * The model records a cause ONLY with a documented explanation
+ * (non-empty note; evidence where it exists) — the system never
+ * infers one, which is how "intent is not adjudicated" survives
+ * `lie` being in the enum: undocumented, it is unrecordable.
+ * `revision` is potential CREDIT, not penalty (calibration ethos);
+ * `constraint` is evidence, not an excuse — it demands a
+ * corroborated action-fact ref that clears the same bar as any
+ * other proposition.
+ */
+export const GAP_CAUSES = Object.freeze([
+    'lie', 'revision', 'incapacity', 'constraint', 'misattribution'
+]);
+
+export const GAP_CAUSE_LABELS = Object.freeze({
+    lie:            'Documented knowing falsehood',
+    revision:       'Documented revision',
+    incapacity:     'Incapacity',
+    constraint:     'External constraint',
+    misattribution: 'Misattribution'
+});
+
+export function isValidGapCause(value) {
+    return GAP_CAUSES.includes(value);
+}
+
+// ------------------------------------------------------------------
 // The firewall (§3.1, §3.4, §5.7) — do not soften.
 // ------------------------------------------------------------------
 
