@@ -21,6 +21,7 @@ import * as ArchiveCache from '../shared/archive-cache.js';
 import { installEntityTagger, rehydrateEntityMarks } from './entity-tagger.js';
 import { openClaimModal, openEvidenceLinkModal, openOthersClaimsModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
 import { openAssessModal } from '../shared/assess-modal.js';
+import { openAdjudicateModal } from '../shared/adjudicate-modal.js';
 import { AssessmentModel } from '../shared/assessment-model.js';
 import { makeClaimRefCanonicalizer } from '../shared/claim-ref.js';
 import { selectAssessmentsToPublish, selectLinksToPublish, selectMirrors } from '../shared/assessment-publish.js';
@@ -884,6 +885,7 @@ async function refreshClaimsBar() {
         const delBtn    = row.querySelector('[data-action="delete"]');
         const linkBtn   = row.querySelector('[data-action="link"]');
         const assessBtn = row.querySelector('[data-action="assess"]');
+        const adjBtn    = row.querySelector('[data-action="adjudicate"]');
         if (editBtn) editBtn.addEventListener('click', () => openEditClaim(id));
         if (delBtn)  delBtn.addEventListener('click',  () => confirmDeleteClaim(id));
         if (linkBtn) linkBtn.addEventListener('click', () => openLinkClaim(id, claims));
@@ -896,6 +898,19 @@ async function refreshClaimsBar() {
             });
             if (result) {
                 toast(result.deleted ? 'Assessment removed' : 'Assessment saved', 'success', 1500);
+                await refreshClaimsBar();
+            }
+        });
+        if (adjBtn) adjBtn.addEventListener('click', async () => {
+            const claim = claims.find((c) => c.id === id);
+            const result = await openAdjudicateModal({
+                claimId:   id,
+                claimText: claim ? claim.text : ''
+            });
+            if (result) {
+                toast(result.verdict
+                    ? `Ruled: ${result.verdict.verdict}${result.verdict.supersedes ? ' (supersedes prior ruling)' : ''}`
+                    : 'Proposition saved', 'success', 2000);
                 await refreshClaimsBar();
             }
         });

@@ -33,6 +33,7 @@ import {
 import { EntityModel, ENTITY_ICONS } from '../shared/entity-model.js';
 import { resolveSelectors } from '../shared/metadata/anchor-resolver.js';
 import { openAssessModal, renderAssessmentBadges, assessmentsByCanonicalRef } from '../shared/assess-modal.js';
+import { renderAdjudicationBadges, adjudicationsByClaimId } from '../shared/adjudicate-modal.js';
 import { AssessmentModel } from '../shared/assessment-model.js';
 import { makeClaimRefCanonicalizer, isLocalClaimId } from '../shared/claim-ref.js';
 
@@ -580,8 +581,9 @@ export async function renderClaimsBar(claims) {
     // canonical-keyed map for the whole bar (Phase 11.3); the
     // canonicalizer also decides link direction (stored endpoint refs
     // may be coordinates that collapse to this claim's id).
-    const [assessMap, canon] = await Promise.all([
+    const [assessMap, adjudicationMap, canon] = await Promise.all([
         assessmentsByCanonicalRef(),
+        adjudicationsByClaimId(),
         makeClaimRefCanonicalizer()
     ]);
     const rows = await Promise.all(claims.map(async (c) => {
@@ -591,6 +593,7 @@ export async function renderClaimsBar(claims) {
             EvidenceLinker.getForClaim(c.id)
         ]);
         const assessment = assessMap.get(c.id) || null;
+        const adjudication = adjudicationMap.get(c.id) || null;
         const key = c.is_key
             ? `<span class="xr-claims__crux" title="Key claim — central to the piece">⭐ key</span>`
             : '';
@@ -656,6 +659,7 @@ export async function renderClaimsBar(claims) {
               ${pubDot}
               <div class="xr-claims__row-actions">
                 <button type="button" class="xr-claims__btn" data-action="assess" title="${assessment ? 'Edit your assessment' : 'Assess this claim'}">${assessment ? '⚖✓' : '⚖'}</button>
+                <button type="button" class="xr-claims__btn" data-action="adjudicate" title="${adjudication ? 'Adjudicate — propositions exist on this claim' : 'Adjudicate this claim (atomize + rule)'}">${adjudication ? '🏛✓' : '🏛'}</button>
                 <button type="button" class="xr-claims__btn" data-action="link" title="Link to another claim">🔗</button>
                 <button type="button" class="xr-claims__btn" data-action="edit" title="Edit claim">✎</button>
                 <button type="button" class="xr-claims__btn xr-claims__btn--danger" data-action="delete" title="Delete claim">🗑</button>
@@ -663,6 +667,7 @@ export async function renderClaimsBar(claims) {
             </div>
             <div class="xr-claims__text">${escapeHtml(c.text)}</div>
             ${renderAssessmentBadges(assessment)}
+            ${adjudication ? renderAdjudicationBadges(adjudication.propositions, adjudication.activeVerdictByPropId) : ''}
             ${aboutLine}
             ${sourceLine}
             ${linksBlock}

@@ -12,6 +12,33 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Build stamp in Settings.** The Settings header now shows exactly
+  which build is loaded — `v0.6.0 · <branch> @ <short-commit> · built
+  <UTC time>` (a `+dirty` marker when built from an uncommitted tree)
+  — injected at build time by esbuild and exposed via the new
+  `shared/build-info.js`. Ends the "am I running the build I think I
+  am?" ambiguity when loading unpacked branch builds; a header with
+  no stamp at all means a pre-stamp build. Degrades gracefully to the
+  manifest version when git isn't available at build time.
+
+- **Phase 15.8 — the reader adjudication UI.** Every claim row gains
+  a **🏛 Adjudicate** action opening the adjudicate modal: pick a
+  proposition class (one per claim+class — an existing proposition
+  loads for editing), set the subject role, resolution criteria,
+  horizon, and event-time, and — when the class is truth-adjudicable —
+  rule a verdict with a declared standard, verbatim evidence rows
+  (with optional tiers), and mandatory caveats. The §3.1 firewall is
+  a UI fact: `interpretation`/`stated-value` swap the ruling form for
+  an explainer. When an active ruling exists the form starts blank and
+  Save becomes **"Save superseding ruling"** — append-only surfaced
+  as an affordance. Claim rows show per-proposition badges (class +
+  active verdict state + 🌐 when published). Options → Advanced gains
+  a **Truth adjudication** section with the
+  `truthAdjudicationPublishing` toggle (default off, with the
+  what-leaves-your-device disclosure, mirroring the forensic toggle).
+  SMOKE_TEST §Phase 15 gains UI rows 15.14–15.20 covering the full
+  click-through walk, publish included.
+
 - **Phase 15.7 — truth-adjudication publish wiring.** The reader's
   batch publish gains a `truthAdjudicationPublishing`-gated section
   (after claims, so coordinates resolve): adjudicated verdicts

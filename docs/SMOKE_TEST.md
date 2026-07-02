@@ -740,6 +740,19 @@ const prop = await TruthAdjudicationModel.create({
 | 15.12 | `typeof VerdictModel.update` | ✅ `'undefined'` — append-only by construction |
 | 15.13 | `verdictVariance([{ verdict: 'established-true' }, { verdict: 'contested' }])` | ✅ per-state counts, `unanimous: false`; **no** consensus/score/mean field exists on the result |
 
+**Reader UI (15.8) — no console needed.** Capture any article, add a
+claim via the normal claim flow, then:
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 15.14 | Claims bar → the claim row shows a **🏛** action | ✅ button present beside ⚖; tooltip "Adjudicate this claim" |
+| 15.15 | 🏛 → pick **Event fact**, criteria "the official record", role **Enacted**, ruling **Insufficient evidence**, caveats one line → Save | ✅ toast "Ruled: insufficient-evidence"; the row gains a `📋 Event fact · ∅ Insufficient evidence` badge; 🏛 becomes 🏛✓ |
+| 15.16 | 🏛 again, same class | ✅ fields load the existing proposition; the banner shows the **active ruling** and Save reads "Save superseding ruling" |
+| 15.17 | Save a new ruling (e.g. **Established true** with one evidence-for quote + a caveat) | ✅ toast "…(supersedes prior ruling)"; badge updates; re-open shows the new active ruling |
+| 15.18 | Pick **Stated value** or **Interpretation** as the class | ✅ the ruling section is replaced by the 🔥 firewall explainer; Save reads "Save proposition"; the badge reads "not truth-adjudicable" |
+| 15.19 | Ruling with **no caveats**, or **Contested** with one-sided evidence, or a **Prediction** with no horizon | ❌ the modal surfaces the model's error inline; nothing saves |
+| 15.20 | Options → Advanced → **Truth adjudication** → check "Publish adjudicated verdicts…" → Save → reader **Publish** | ✅ after the claim publishes, "Also publishing adjudications…" toast; summary gains `n/n verdict` + mirror segments; second publish re-emits nothing (staleness gate); unchecking the toggle removes the adjudication segment entirely |
+
 **15.B — cleanup:**
 
 ```js

@@ -19,16 +19,44 @@
 import * as esbuild from 'esbuild';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = __dirname;
+
+// Build stamp — injected as the __XRAY_BUILD_INFO__ define so every
+// surface can show WHICH build is actually loaded (version alone is
+// ambiguous across feature branches; see shared/build-info.js). Best
+// effort: a missing git (e.g. a release tarball) degrades to the
+// version + timestamp. NOTE: in --watch mode the stamp is computed
+// once at watch start, not per incremental rebuild.
+function buildStamp() {
+    const git = (cmd) => {
+        try { return execSync(cmd, { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); }
+        catch (_) { return ''; }
+    };
+    let version = '';
+    try { version = JSON.parse(readFileSync(resolve(root, 'manifest.json'), 'utf8')).version || ''; }
+    catch (_) { /* stays '' */ }
+    const dirty = git('git status --porcelain') ? '+dirty' : '';
+    return {
+        version,
+        branch:  git('git rev-parse --abbrev-ref HEAD'),
+        commit:  git('git rev-parse --short HEAD') + dirty,
+        builtAt: new Date().toISOString()
+    };
+}
 
 const shared = {
     bundle: true,
     sourcemap: true,
     target: ['es2022'],
     logLevel: 'info',
-    legalComments: 'linked'
+    legalComments: 'linked',
+    define: {
+        __XRAY_BUILD_INFO__: JSON.stringify(JSON.stringify(buildStamp()))
+    }
 };
 
 /** @type {esbuild.BuildOptions[]} */

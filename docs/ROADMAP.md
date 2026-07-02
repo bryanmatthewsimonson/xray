@@ -79,12 +79,12 @@ Phase 14.5 ████████████████░░  complete — 
 Phase 15 ███████████████████░  in progress — truth adjudication: verdicts on
                                 propositions + words-vs-deeds integrity
                                 (docs/TRUTH_ADJUDICATION_DESIGN.md). Kinds
-                                30063/30064 (30065 reserved). 15.1–15.7 all
+                                30063/30064 (30065 reserved). 15.1–15.8 all
                                 shipped (models, attestation, verdicts,
                                 integrity, entity record, wire + flag,
-                                publish wiring); remaining: read-back/portal
-                                surfaces + the deferred precedent/bridging
-                                tail
+                                publish wiring, reader adjudication UI);
+                                remaining: read-back/portal surfaces + the
+                                deferred precedent/bridging tail
 ```
 
 Parity with the v4.2 userscript is long reached; the project now ships
@@ -1271,6 +1271,13 @@ Slices (one PR each; `claude/phase-15-*`):
   stamps on the verdict/integrity models; the flag-gated reader
   batch-publish section (30063 + 1985 mirror + 30064) and publish
   summary. Read-back/portal surfaces still to come.
+- ✅ **15.8** Reader adjudication UI — `adjudicate-modal.js` (class
+  chips as the one-per-(claim,class) selector; firewall as a UI fact —
+  interpretation/stated-value get the explainer, never a ruling form;
+  supersession-not-edit surfaced in the Save affordance; verbatim
+  evidence rows with tiers; mandatory-caveat field); claims-bar 🏛
+  action + per-proposition verdict badges; SMOKE_TEST §Phase 15 UI
+  rows. Portal read-back surfaces still to come.
 - 📝 **(later)** Precedent + bridging weighting — stare-decisis corpus;
   bridging-weighted standing (the deferred aggregation-layer tail).
 
