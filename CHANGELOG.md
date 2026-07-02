@@ -12,6 +12,22 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 15.3 — the AdjudicatedVerdict model.** One author's ruling
+  on one truth-adjudicable proposition, as a **descriptive state**
+  (`established-true` / `established-false` / `contested` /
+  `unresolved` / `insufficient-evidence`) on a **declared standard of
+  proof** (`preponderance` / `clear-and-convincing` /
+  `beyond-reasonable-doubt`, defaulted per proposition class), with
+  verbatim two-sided evidence (per-state adequacy enforced),
+  **mandatory caveats**, and **append-only supersession** — no update
+  method exists; a changed ruling is a new verdict chained onto the
+  old, which is never edited. The §3.1 firewall is enforced at create:
+  `interpretation` and `stated-value` propositions cannot receive a
+  verdict. Multi-author agreement is a read-time **variance surface**
+  (`verdictVariance`) — per-state counts with their derivation, never
+  a consensus number. No estimated score exists anywhere in the layer.
+  Local records only; wire kind 30063 arrives flag-gated in 15.6.
+
 - **Phase 15.2 — evidence tiers + attestation graph.** The §3.2 layer
   of the truth-adjudication design: a declared **evidence tier**
   (`tier-1` primary/official, `tier-2` independent reporting, `tier-3`

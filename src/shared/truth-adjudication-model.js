@@ -18,11 +18,13 @@
 //                            utterance, distinct from `created`; precision
 //                            is mandatory alongside it (no false precision)
 //
-// This slice stops at adjudic-ABLE, not adjudic-ATED: there is no
-// verdict field, no score, no wire kind, no flag. Verdicts are 15.3;
-// the integrity application is 15.4; wire is 15.6. The firewall
-// predicates (isTruthAdjudicable / isIntegrityEligible) live in
-// truth-taxonomy.js and later slices key off them.
+// The PROPOSITION record stops at adjudic-ABLE: it carries no verdict
+// field and no score. The adjudic-ATED layer is the separate
+// AdjudicatedVerdict record below (Phase 15.3, §3.3) — single-author,
+// append-only, superseded-never-overwritten — which consumes the
+// truth-taxonomy.js firewall predicates (isTruthAdjudicable /
+// isIntegrityEligible). The integrity application is 15.4; wire is
+// 15.6. No wire kind or flag exists in this file.
 //
 // The id hashes (claim_id | proposition_class), so create() is
 // idempotent — re-atomizing the same claim under the same class returns
@@ -38,14 +40,20 @@ import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
 import { Utils } from './utils.js';
 import { ClaimModel } from './claim-model.js';
+import { normalize as normalizeUrl } from './metadata/url-normalizer.js';
 import {
     PROPOSITION_CLASSES, isValidPropositionClass,
     SUBJECT_ROLE_UNCLASSIFIED, isValidSubjectRole,
     OCCURRED_PRECISIONS, isValidOccurredPrecision,
-    HEDGE_LEVELS, TRACTABILITIES, isValidSuggestedBy
+    HEDGE_LEVELS, TRACTABILITIES, isValidSuggestedBy,
+    EVIDENCE_TIERS, isValidEvidenceTier,
+    VERDICT_STATES, isValidVerdictState,
+    STANDARDS_OF_PROOF, isValidStandardOfProof, defaultStandardOfProof,
+    isTruthAdjudicable
 } from './truth-taxonomy.js';
 
 const PROPOSITIONS_KEY = 'adjudicable_propositions';
+const VERDICTS_KEY = 'adjudicated_verdicts';
 
 // The design's "already determinable" resolution path for facts, as a
 // storable token (the house lowercase-hyphenated grammar).
@@ -318,3 +326,289 @@ export const TruthAdjudicationModel = {
         return true;
     }
 };
+
+// ==================================================================
+// AdjudicatedVerdict — Phase 15.3 (docs/TRUTH_ADJUDICATION_DESIGN.md
+// §3.3). One author's ruling on one truth-adjudicable proposition:
+// a DESCRIPTIVE STATE on a declared standard of proof, with verbatim
+// two-sided evidence and MANDATORY caveats.
+//
+// Discipline, enforced here rather than documented:
+//   - The firewall: create() refuses a verdict on any proposition
+//     that isTruthAdjudicable rejects (interpretation / stated-value).
+//   - Evidence adequacy per state: established-true cites evidence
+//     FOR; established-false cites evidence AGAINST; contested cites
+//     BOTH; unresolved / insufficient-evidence may cite either or
+//     none — their caveats carry the why.
+//   - Append-only supersession (P9): there is NO update method. A
+//     change of ruling is a NEW verdict with `supersedes`; the old
+//     record is stamped `superseded_by` (a pointer, like a publish
+//     mark) and never edited. Chains are linear — a verdict that is
+//     already superseded cannot be superseded again.
+//   - No estimated score exists to store. Agreement/variance across
+//     MANY authors' verdicts is computed at read time
+//     (verdictVariance below) and never collapsed to a number.
+//
+// The id hashes (proposition_id | supersedes), so the root verdict of
+// a chain is idempotent and each superseding step keys off its
+// predecessor. Wire identity (kind 30063, keyed (author, proposition))
+// is a 15.6 concern; local ids never hit the wire.
+//
+// Storage: Storage.get('adjudicated_verdicts', {}) — the same
+// single-key id→record map as 'adjudicable_propositions'.
+// ==================================================================
+
+/** Deterministic verdict id from (proposition_id | supersedes). */
+export async function generateVerdictId(propositionId, supersedes) {
+    const hash = await Crypto.sha256(`${String(propositionId || '').trim()}|${String(supersedes || '')}`);
+    return `verdict_${hash.slice(0, 16)}`;
+}
+
+/**
+ * Verbatim evidence entries, one side at a time. Each entry needs a
+ * non-empty quote (evidence-bound, no exceptions); `tier` (§3.2),
+ * `claim_ref`, and `source_ref` are optional but validated/normalized
+ * when present, so the verdict ships citable derivation.
+ */
+function cleanVerdictEvidence(entries, side) {
+    if (entries === undefined || entries === null) return [];
+    if (!Array.isArray(entries)) {
+        throw new Error(`${side} must be an array of evidence entries`);
+    }
+    return entries.map((entry, i) => {
+        const rec = entry || {};
+        const quote = String(rec.quote || '').trim();
+        if (!quote) {
+            throw new Error(`${side}[${i}] needs a verbatim quote — evidence-bound, no exceptions`);
+        }
+        const tier = rec.tier === undefined || rec.tier === null ? null : rec.tier;
+        if (tier !== null && !isValidEvidenceTier(tier)) {
+            throw new Error(`${side}[${i}]: invalid evidence tier ${tier} (expected one of ${EVIDENCE_TIERS.join(', ')})`);
+        }
+        const src = rec.source_ref || {};
+        const rawUrl = src.url ? String(src.url) : '';
+        const source_ref = (src.url || src.coord || src.event_id || src.title) ? {
+            url:      rawUrl ? normalizeUrl(rawUrl) : '',
+            url_raw:  src.url_raw || rawUrl,
+            title:    src.title || null,
+            coord:    src.coord || null,
+            event_id: src.event_id || null
+        } : null;
+        return {
+            quote,
+            tier,
+            claim_ref: rec.claim_ref ? String(rec.claim_ref) : null,
+            source_ref,
+            note: rec.note ? String(rec.note) : ''
+        };
+    });
+}
+
+// The per-state adequacy rule: no verdict the reader cannot re-derive
+// (§5.5). The permanently-honest states carry their why in caveats
+// instead of manufactured citations.
+function assertEvidenceAdequacy(verdict, evidenceFor, evidenceAgainst) {
+    if (verdict === 'established-true' && evidenceFor.length === 0) {
+        throw new Error('An established-true verdict needs evidence_for — no verdict the reader cannot re-derive');
+    }
+    if (verdict === 'established-false' && evidenceAgainst.length === 0) {
+        throw new Error('An established-false verdict needs evidence_against — no verdict the reader cannot re-derive');
+    }
+    if (verdict === 'contested' && (evidenceFor.length === 0 || evidenceAgainst.length === 0)) {
+        throw new Error('A contested verdict means credible evidence BOTH ways — cite both sides');
+    }
+}
+
+function cleanCaveats(input) {
+    const arr = Array.isArray(input) ? input : (input ? [input] : []);
+    const out = arr.map((c) => String(c || '').trim()).filter(Boolean);
+    if (out.length === 0) {
+        throw new Error('A verdict needs caveats — what it could not determine is part of the ruling (§3.3)');
+    }
+    return out;
+}
+
+function cleanAdjudicator(input) {
+    if (input === undefined || input === null) return null;
+    const rec = input;
+    const label = String(rec.label || '').trim();
+    const pubkey = (typeof rec.pubkey === 'string' && /^[0-9a-f]{64}$/.test(rec.pubkey)) ? rec.pubkey : null;
+    if (!label && !pubkey) return null;
+    return { label: label || null, pubkey };
+}
+
+export const VerdictModel = {
+    get: async (id) => {
+        if (!id) return null;
+        const all = await Storage.get(VERDICTS_KEY, {});
+        return all[id] || null;
+    },
+
+    /** Every verdict, oldest first. */
+    list: async () => {
+        const all = await Storage.get(VERDICTS_KEY, {});
+        const out = Object.values(all);
+        out.sort((a, b) => (a.created || 0) - (b.created || 0));
+        return out;
+    },
+
+    /** The full supersession chain for a proposition, oldest first. */
+    getForProposition: async (propositionId) => {
+        if (!propositionId) return [];
+        const all = await Storage.get(VERDICTS_KEY, {});
+        const out = Object.values(all).filter((v) => v.proposition_id === propositionId);
+        out.sort((a, b) => (a.created || 0) - (b.created || 0));
+        return out;
+    },
+
+    /** The chain head — the one ruling not yet superseded (or null). */
+    getActiveForProposition: async (propositionId) => {
+        const chain = await VerdictModel.getForProposition(propositionId);
+        return chain.find((v) => !v.superseded_by) || null;
+    },
+
+    /**
+     * Rule on a proposition. Required: `proposition_id` (must exist
+     * AND pass the truth-adjudicability firewall), `verdict`
+     * (descriptive state), `caveats` (non-empty), and evidence
+     * adequate to the state. `standard_of_proof` defaults per
+     * proposition class (declared on the record either way).
+     * `supersedes` chains a new ruling onto an un-superseded
+     * predecessor for the same proposition. Idempotent on
+     * (proposition_id, supersedes).
+     */
+    create: async (fields) => {
+        const given = fields || {};
+
+        const propositionId = String(given.proposition_id || '').trim();
+        if (!propositionId) throw new Error('proposition_id is required — a verdict rules on a proposition');
+        const proposition = await TruthAdjudicationModel.get(propositionId);
+        if (!proposition) throw new Error(`Proposition not found: ${propositionId}`);
+        if (!isTruthAdjudicable(proposition)) {
+            throw new Error(`Proposition class '${proposition.proposition_class}' is not adjudicable as true/false — `
+                + 'the interpretation/value firewall (§3.1); only the reasoning or the word-deed gap is assessable');
+        }
+
+        const verdict = given.verdict;
+        if (!isValidVerdictState(verdict)) {
+            throw new Error(`Invalid verdict: ${verdict} (expected one of ${VERDICT_STATES.join(', ')})`);
+        }
+        const standard = given.standard_of_proof === undefined || given.standard_of_proof === null
+            ? defaultStandardOfProof(proposition.proposition_class)
+            : given.standard_of_proof;
+        if (!isValidStandardOfProof(standard)) {
+            throw new Error(`Invalid standard_of_proof: ${standard} (expected one of ${STANDARDS_OF_PROOF.join(', ')})`);
+        }
+
+        const evidenceFor = cleanVerdictEvidence(given.evidence_for, 'evidence_for');
+        const evidenceAgainst = cleanVerdictEvidence(given.evidence_against, 'evidence_against');
+        assertEvidenceAdequacy(verdict, evidenceFor, evidenceAgainst);
+        const caveats = cleanCaveats(given.caveats);
+
+        const supersedes = given.supersedes ? String(given.supersedes) : null;
+        const all = await Storage.get(VERDICTS_KEY, {});
+        const id = await generateVerdictId(propositionId, supersedes);
+        if (all[id]) return all[id];   // idempotent per chain position
+
+        if (supersedes) {
+            const prev = all[supersedes];
+            if (!prev) throw new Error(`Cannot supersede a missing verdict: ${supersedes}`);
+            if (prev.proposition_id !== propositionId) {
+                throw new Error('A superseding verdict must rule on the same proposition as its predecessor');
+            }
+            if (prev.superseded_by) {
+                throw new Error(`Verdict ${supersedes} is already superseded by ${prev.superseded_by} — chains are linear, supersede the head`);
+            }
+        }
+
+        const suggestedBy = given.suggested_by === undefined || given.suggested_by === null
+            ? 'user' : given.suggested_by;
+        if (!isValidSuggestedBy(suggestedBy)) {
+            throw new Error(`Invalid suggested_by: ${suggestedBy} (expected 'user' or 'llm:<model>')`);
+        }
+
+        const now = Math.floor(Date.now() / 1000);
+        const record = {
+            id,
+            proposition_id:    propositionId,
+            verdict,
+            standard_of_proof: standard,
+            evidence_for:      evidenceFor,
+            evidence_against:  evidenceAgainst,
+            caveats,
+            method:            String(given.method || '').trim(),
+            adjudicator:       cleanAdjudicator(given.adjudicator),
+            rationale:         String(given.rationale || ''),
+            supersedes,
+            superseded_by:     null,
+            suggested_by:      suggestedBy,
+            created:           now,
+            updated:           now
+        };
+        all[id] = record;
+        if (supersedes) {
+            // A pointer stamp on the predecessor (like a publish mark)
+            // — its ruling, evidence, and caveats are never edited.
+            all[supersedes] = { ...all[supersedes], superseded_by: id };
+        }
+        await Storage.set(VERDICTS_KEY, all);
+        Utils.log('Adjudicated verdict:', id, verdict, 'on', propositionId);
+        return record;
+    },
+
+    // Deliberately NO update(): a verdict is append-only (P9). A
+    // changed ruling, sharper caveats, or new evidence is a
+    // superseding verdict; the history stays legible.
+
+    /**
+     * Delete — chain head only, so history never silently loses an
+     * interior ruling. Deleting the head re-opens its predecessor
+     * (clears the pointer stamp).
+     */
+    delete: async (id) => {
+        const all = await Storage.get(VERDICTS_KEY, {});
+        const record = all[id];
+        if (!record) return false;
+        if (record.superseded_by) {
+            throw new Error(`Verdict ${id} is superseded by ${record.superseded_by} — delete the chain head first`);
+        }
+        if (record.supersedes && all[record.supersedes]) {
+            all[record.supersedes] = { ...all[record.supersedes], superseded_by: null };
+        }
+        delete all[id];
+        await Storage.set(VERDICTS_KEY, all);
+        return true;
+    }
+};
+
+/**
+ * The read-time agreement/variance SURFACE (§3.3) — what a reader
+ * holding many authors' verdicts on one proposition derives. Pure and
+ * derivational: per-state counts, standards represented, and the
+ * verdicts themselves — NEVER collapsed to a consensus number (P8:
+ * disagreement is data). No event asserts any of this; a future
+ * aggregation layer weights it, this client only surfaces it.
+ *
+ * @param {object[]} verdicts - verdict-shaped records (local or parsed)
+ * @returns {{total: number, by_state: object, by_standard: object,
+ *            states_present: string[], unanimous: boolean}}
+ */
+export function verdictVariance(verdicts) {
+    const list = (verdicts || []).filter((v) => v && isValidVerdictState(v.verdict));
+    const byState = {};
+    const byStandard = {};
+    for (const v of list) {
+        byState[v.verdict] = (byState[v.verdict] || 0) + 1;
+        if (v.standard_of_proof) {
+            byStandard[v.standard_of_proof] = (byStandard[v.standard_of_proof] || 0) + 1;
+        }
+    }
+    const statesPresent = VERDICT_STATES.filter((s) => byState[s]);
+    return {
+        total:          list.length,
+        by_state:       byState,
+        by_standard:    byStandard,
+        states_present: statesPresent,
+        unanimous:      list.length > 0 && statesPresent.length === 1
+    };
+}

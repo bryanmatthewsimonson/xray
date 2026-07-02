@@ -125,6 +125,71 @@ export function evidenceTierRank(tier) {
 }
 
 // ------------------------------------------------------------------
+// Verdict states — §3.3 (Phase 15.3). DESCRIPTIVE STATES, the §1
+// spine made concrete: a proposition is established, contested,
+// unresolved, or under-evidenced — never "73% true". There is no
+// score field anywhere in this vocabulary, deliberately.
+// ------------------------------------------------------------------
+
+export const VERDICT_STATES = Object.freeze([
+    'established-true',
+    'established-false',
+    'contested',              // credible evidence both ways
+    'unresolved',             // a permanent, honest state — never forced
+    'insufficient-evidence'   // first-class, not a failure mode
+]);
+
+export const VERDICT_STATE_LABELS = Object.freeze({
+    'established-true':      'Established true',
+    'established-false':     'Established false',
+    'contested':             'Contested',
+    'unresolved':            'Unresolved',
+    'insufficient-evidence': 'Insufficient evidence'
+});
+
+export function isValidVerdictState(value) {
+    return VERDICT_STATES.includes(value);
+}
+
+// ------------------------------------------------------------------
+// Standards of proof — §3.3, borrowed from common law. Declared per
+// verdict and met, never implied.
+// ------------------------------------------------------------------
+
+export const STANDARDS_OF_PROOF = Object.freeze([
+    'preponderance',
+    'clear-and-convincing',
+    'beyond-reasonable-doubt'
+]);
+
+export const STANDARD_OF_PROOF_LABELS = Object.freeze({
+    'preponderance':          'Preponderance of the evidence',
+    'clear-and-convincing':   'Clear and convincing',
+    'beyond-reasonable-doubt': 'Beyond reasonable doubt'
+});
+
+export function isValidStandardOfProof(value) {
+    return STANDARDS_OF_PROOF.includes(value);
+}
+
+/**
+ * The §6 open-question default, settled at implementation: stated
+ * commitments and values carry reputational weight for the subject,
+ * so their utterance-verdicts default to `clear-and-convincing`;
+ * facts and predictions default to `preponderance`. Always
+ * overridable per verdict — this is the default DECLARED standard,
+ * never a hidden one.
+ *
+ * @param {string} propositionClass
+ * @returns {string}
+ */
+export function defaultStandardOfProof(propositionClass) {
+    return (propositionClass === 'stated-commitment' || propositionClass === 'stated-value')
+        ? 'clear-and-convincing'
+        : 'preponderance';
+}
+
+// ------------------------------------------------------------------
 // The firewall (§3.1, §3.4, §5.7) — do not soften.
 // ------------------------------------------------------------------
 
