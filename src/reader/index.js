@@ -904,8 +904,10 @@ async function refreshClaimsBar() {
         if (adjBtn) adjBtn.addEventListener('click', async () => {
             const claim = claims.find((c) => c.id === id);
             const result = await openAdjudicateModal({
-                claimId:   id,
-                claimText: claim ? claim.text : ''
+                claimId:     id,
+                claimText:   claim ? claim.text : '',
+                relays:      await getConfiguredRelays(),
+                claimPubkey: (claim && claim.publishedPubkey) || null
             });
             if (result) {
                 toast(result.verdict

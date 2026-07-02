@@ -12,6 +12,23 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 15.9 — read-back + portal surfaces.** The read half of the
+  adjudication layer: My Archive now **fetches** kinds 30063/30064,
+  **reconciles** them against the local publish stamps (superseded
+  rulings never count as local-only), and renders them as Library
+  **Verdicts/Integrity facets** with inspector views that keep the
+  derivation on the face — evidence both sides, declared standard,
+  required caveats, adjudicator disclosure, precedent citations,
+  supersession chain. The portal **entity view** gains the
+  integrity-record block: dimension-separated records, the
+  deed-time-ordered timeline, calibration/corrections lines, and a
+  per-reading coverage declaration that unlocks the standard- and
+  coverage-gated rollup (declarations deliberately not persisted). The
+  adjudicate modal gains **Others' rulings**: foreign 30063s on the
+  proposition, deduped by author (addressable semantics), each shown
+  with the spread via `verdictVariance` — never a consensus number;
+  malformed rulings null-parse and are never shown.
+
 - **Phase 15 conformance pass (design-audit follow-up).** The §3.6
   **precedent citation field** lands (`precedents: [{ref, weight}]`,
   `binding`/`persuasive` defaulting down, wire `a … precedent <weight>`,

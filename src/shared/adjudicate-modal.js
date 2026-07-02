@@ -21,7 +21,8 @@
 // reader today and the portal later). Injects its own <style>
 // (xr-adjudicate-* only). Must NOT be imported by the content script.
 
-import { TruthAdjudicationModel, VerdictModel } from './truth-adjudication-model.js';
+import { TruthAdjudicationModel, VerdictModel, verdictVariance } from './truth-adjudication-model.js';
+import { parseAdjudicatedVerdictEvent } from './truth-builders.js';
 import {
     PROPOSITION_CLASSES, PROPOSITION_CLASS_LABELS,
     SUBJECT_ROLES, SUBJECT_ROLE_LABELS, SUBJECT_ROLE_UNCLASSIFIED,
@@ -146,11 +147,16 @@ export function linesToList(value) {
 /**
  * Open the adjudicate modal for one claim.
  *
- * @param {{ claimId: string, claimText?: string }} opts
+ * @param {{ claimId: string, claimText?: string,
+ *           relays?: string[], claimPubkey?: string|null }} opts
+ *   `relays` + `claimPubkey` (the claim's publishedPubkey) enable the
+ *   "Others' rulings" fetch — foreign 30063s on this proposition,
+ *   surfaced through verdictVariance (each ruling + the spread, never
+ *   a consensus number).
  * @returns {Promise<{proposition: object, verdict?: object} | null>}
  *   what was saved, or null on cancel.
  */
-export async function openAdjudicateModal({ claimId, claimText = '' }) {
+export async function openAdjudicateModal({ claimId, claimText = '', relays = [], claimPubkey = null }) {
     ensureStyles();
     const existingProps = await TruthAdjudicationModel.getByClaim(claimId);
     const byClass = new Map(existingProps.map((p) => [p.proposition_class, p]));
@@ -209,6 +215,10 @@ export async function openAdjudicateModal({ claimId, claimText = '' }) {
             $('.xr-adjudicate__verdict').hidden = !adjudicable;
             $('.xr-adjudicate__firewall').hidden = adjudicable;
             if (adjudicable) {
+                // Others' rulings need the claim's wire coordinate
+                // (published claim) + configured relays.
+                $('.xr-adjudicate__others-bar').hidden = !(claimPubkey && relays.length);
+                $('.xr-adjudicate__others').textContent = '';
                 $('.xr-adjudicate__standard').value = defaultStandardOfProof(cls);
                 state.activeVerdict = existing
                     ? await VerdictModel.getActiveForProposition(existing.id) : null;
@@ -300,6 +310,60 @@ export async function openAdjudicateModal({ claimId, claimText = '' }) {
         $('[data-action="add-against"]').addEventListener('click', () => {
             state.evidenceAgainst.push({ quote: '', tier: null });
             renderEvidence();
+        });
+
+        // ---- others' rulings (read-back: foreign 30063s on this
+        // proposition, each shown with the spread — never a consensus
+        // number; malformed events null-parse and are never shown) ----
+        const othersBtn = host.querySelector('[data-action="others"]');
+        if (othersBtn) othersBtn.addEventListener('click', () => {
+            const wrap = $('.xr-adjudicate__others');
+            if (!state.cls || !claimPubkey || !relays.length) return;
+            const coord = `30040:${claimPubkey}:${claimId}`;
+            wrap.textContent = `Querying ${relays.length} relay(s)…`;
+            chrome.runtime.sendMessage({
+                type: 'xray:relay:query',
+                relays,
+                filter: { kinds: [30063], '#a': [coord], limit: 100 },
+                timeoutMs: 6000
+            }, (resp) => {
+                if (!resp || !resp.ok) {
+                    wrap.textContent = `Query failed: ${(resp && resp.error) || 'no response from service worker'}`;
+                    return;
+                }
+                const byAuthorD = new Map();
+                for (const ev of resp.events || []) {
+                    const parsed = parseAdjudicatedVerdictEvent(ev);
+                    if (!parsed || parsed.propositionClass !== state.cls) continue;
+                    const key = `${parsed.pubkey}|${parsed.id}`;
+                    const prev = byAuthorD.get(key);
+                    if (!prev || (parsed.created_at || 0) > (prev.created_at || 0)) {
+                        byAuthorD.set(key, parsed);   // addressable: latest replaces
+                    }
+                }
+                const rulings = [...byAuthorD.values()];
+                wrap.innerHTML = '';
+                if (rulings.length === 0) {
+                    wrap.textContent = 'No rulings on the configured relays (malformed rulings are never shown).';
+                    return;
+                }
+                const variance = verdictVariance(rulings);
+                const summary = Object.entries(variance.by_state)
+                    .map(([s, n]) => `${escapeHtml(s)}: ${n}`).join(' · ');
+                const head = document.createElement('div');
+                head.className = 'xr-adjudicate__others-summary';
+                head.innerHTML = `${variance.total} ruling(s)${variance.unanimous ? ' — unanimous' : ' — disagreement is data'} · ${summary}`;
+                wrap.appendChild(head);
+                for (const r of rulings.slice(0, 10)) {
+                    const row = document.createElement('div');
+                    row.className = 'xr-adjudicate__others-row';
+                    row.textContent = `${r.verdict} · ${r.standardOfProof} · ${r.caveats.length} caveat(s)`
+                        + (r.exposure ? ' · disclosed interest' : '')
+                        + ` · ${r.pubkey.slice(0, 10)}…`;
+                    row.title = (r.caveats || []).join('\n');
+                    wrap.appendChild(row);
+                }
+            });
         });
 
         // ---- footer --------------------------------------------------
@@ -435,6 +499,10 @@ function buildHtml(claimText) {
           <div class="xr-adjudicate__verdict" hidden>
             <hr class="xr-adjudicate__rule" />
             <div class="xr-adjudicate__chain" hidden></div>
+            <div class="xr-adjudicate__others-bar" hidden>
+              <button type="button" class="xr-adjudicate__ev-add" data-action="others">🌐 Others' rulings on this proposition</button>
+              <div class="xr-adjudicate__others"></div>
+            </div>
             <div class="xr-adjudicate__field">
               <span class="xr-adjudicate__field-label">Ruling <em>(descriptive state — there is no score)</em></span>
               <div class="xr-adjudicate__states">${stateBtns}</div>
@@ -563,6 +631,11 @@ function ensureStyles() {
   background: var(--xr-surface-2, #2e2e2e); color: inherit; border: 1px solid var(--xr-border, #333); }
 .xr-adjudicate__ev-del { background: none; border: 1px solid var(--xr-border, #333); border-radius: 6px;
   color: inherit; cursor: pointer; font-size: 11px; padding: 3px 6px; }
+.xr-adjudicate__others-bar { margin-bottom: 12px; }
+.xr-adjudicate__others { margin-top: 6px; font-size: 12px; color: var(--xr-text-dim, #9a9a9a); }
+.xr-adjudicate__others-summary { margin-bottom: 4px; color: var(--xr-text, #e6e6e6); }
+.xr-adjudicate__others-row { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; padding: 1px 0; }
 .xr-adjudicate__btn { padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
   border: 1px solid var(--xr-border, #333); background: var(--xr-surface-2, #2e2e2e); color: inherit; }
 .xr-adjudicate__btn--primary { background: var(--xr-primary, #8b5cf6); border-color: var(--xr-primary, #8b5cf6); color: #fff; }

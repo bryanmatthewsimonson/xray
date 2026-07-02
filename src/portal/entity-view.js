@@ -15,6 +15,7 @@ import { buildEgoGraph, layoutEgoGraph } from './graph.js';
 import { kindLabel } from './library.js';
 import { renderDossierBlock } from './dossier-block.js';
 import { renderFindingsBlock } from './findings-block.js';
+import { renderIntegrityBlock } from './integrity-block.js';
 
 const SIZE = 720;
 
@@ -72,6 +73,9 @@ export function renderEntityView(host, params) {
     renderDossierBlock(host, dossier, populationMean);
     // --- Forensic findings (14.4) — the four lenses for this subject.
     renderFindingsBlock(host, findings, { subjectName: graph.focus.name });
+    // --- Integrity record (15.9) — §3.5's coverage-bound render seam;
+    // computes on open from local models, renders nothing when empty.
+    renderIntegrityBlock(host, (entityIndex[focusPubkey] || {}).entityId);
 
     if (graph.nodes.length === 0) {
         host.appendChild(el('p', 'xr-view__empty',
