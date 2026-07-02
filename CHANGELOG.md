@@ -12,6 +12,15 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Build stamp in Settings.** The Settings header now shows exactly
+  which build is loaded — `v0.6.0 · <branch> @ <short-commit> · built
+  <UTC time>` (a `+dirty` marker when built from an uncommitted tree)
+  — injected at build time by esbuild and exposed via the new
+  `shared/build-info.js`. Ends the "am I running the build I think I
+  am?" ambiguity when loading unpacked branch builds; a header with
+  no stamp at all means a pre-stamp build. Degrades gracefully to the
+  manifest version when git isn't available at build time.
+
 - **Phase 15.8 — the reader adjudication UI.** Every claim row gains
   a **🏛 Adjudicate** action opening the adjudicate modal: pick a
   proposition class (one per claim+class — an existing proposition

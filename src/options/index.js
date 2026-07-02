@@ -8,6 +8,7 @@ import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
 import { loadFlags, isEnabled, setOverride, resetOverrides } from '../shared/metadata/feature-flags.js';
+import { formatBuildInfo } from '../shared/build-info.js';
 import {
     LLM_MODELS, DEFAULT_LLM_MODEL, resolveModel, LLM_KEY_STORAGE, LLM_MODEL_STORAGE,
     LLM_SUGGEST_KINDS_STORAGE, SUGGEST_KIND_LABELS, normalizeSuggestKinds
@@ -639,6 +640,11 @@ async function clearAll() {
 // ------------------------------------------------------------------
 
 document.addEventListener('DOMContentLoaded', async () => {
+    // Build stamp in the header — removes "which build am I actually
+    // running?" ambiguity (version alone doesn't identify a branch build).
+    const buildEl = document.getElementById('xr-build-info');
+    if (buildEl) buildEl.textContent = formatBuildInfo();
+
     wireTabs();
     await Promise.all([
         loadRelays(),
