@@ -18,7 +18,7 @@ modules still carry userscript-era idioms (see Conventions).
 npm install            # required first — a fresh clone has no node_modules
 npm run build          # esbuild → dist/*.bundle.js (+ .map). No transpile step.
 npm run watch          # incremental rebuild
-npm test               # node --test tests/*.test.mjs  (851 tests, must be green)
+npm test               # node --test tests/*.test.mjs  (937 tests, must be green)
 npm run lint           # web-ext lint --self-hosted (what CI gates on)
 npm run version:set X  # bump package.json + manifest.json in lockstep
 npm run clean          # rm -rf dist
@@ -118,15 +118,18 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   that proxies to a tab.
 - **`crypto.js`** — real secp256k1 / BIP-340 Schnorr / bech32 / NIP-44 v2,
   unit-tested against the BIP-340 vectors. Don't hand-roll alternatives.
-- **`event-builder.js`** — builds the NOSTR events (NIP-23 `30023`, claims
+- **`event-builder.js`** — builds the NOSTR events (NIP-23 `30023` — now
+  carrying the canonical-article-hash `x` tag, Phase 13.4 — claims
   `30040`, comments `30041`, entity profiles `0`, entity↔article
   relationships `32125`, platform accounts `32126`, relay lists `10002`,
   entity-sync `30078`) and the archive-reader inverses. Evidence kind
   `30043` is retired (Phase 11); assessments `30054`, cross-claim
   relationships `30055`, and their kind-`1985` label mirrors are built in
-  `metadata/builders.js`. **Wire-format changes here have compatibility
-  consequences for anyone consuming X-Ray events — call them out
-  explicitly.**
+  `metadata/builders.js`; the epistemic-audit family `30056`–`30061` in
+  `audit/builders.js`; forensic findings `30062` in
+  `forensic-model.js`/`forensic-publish.js`. **Wire-format changes in any
+  of these have compatibility consequences for anyone consuming X-Ray
+  events — call them out explicitly.**
 - **`content-detector.js` / `content-extractor.js`** — URL+DOM platform
   detection; Readability + Turndown → Markdown.
 - **`platforms/`** — per-site handlers (`index.js` dispatches). They run in
@@ -183,13 +186,18 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
 
 ## Project docs (read these for non-trivial work)
 
-- **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 12
-  "My Archive" portal (v0.5.1) — Phases 10 (thin claims), 11 (assessments;
-  `docs/ASSESSMENTS_DESIGN.md`), and 12 (portal; `docs/PORTAL_DESIGN.md`)
-  are complete; Phase 13 (epistemic audits;
-  `docs/EPISTEMIC_AUDIT_DESIGN.md`) design accepted 2026-06-11,
-  slices 13.1–13.9 implemented as the stacked PR train #61–#70
-  (awaiting review + the SMOKE_TEST §Phase 13 walk).
+- **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 14.5
+  (v0.6.0). Complete and merged: Phases 10 (thin claims), 11 (assessments;
+  `docs/ASSESSMENTS_DESIGN.md`), 12 (portal; `docs/PORTAL_DESIGN.md`),
+  13 (epistemic audits, kinds `30056`–`30061`;
+  `docs/EPISTEMIC_AUDIT_DESIGN.md`), 14 (forensic findings, kind `30062`;
+  `docs/CRIMINOLOGY_DESIGN.md`), and 14.5 (in-extension LLM assist +
+  LLM auditor; `docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md`). Design drafts
+  with no code yet: Phase 15 (truth adjudication;
+  `docs/TRUTH_ADJUDICATION_DESIGN.md`) and Phase 16 (moral lens;
+  `docs/MORAL_LENS_JURISDICTION_DESIGN.md`). Several SMOKE_TEST section
+  walks (Phases 11–14) are still pending — they're manual and need a
+  human with a browser.
 - **`docs/JOURNAL.md`** — chronological log of bugs, design decisions, and
   external-platform changes. **Add a tight entry** when fixing a non-obvious
   bug, making a second-guessable design choice, or working around a
