@@ -49,6 +49,7 @@ import {
     EVIDENCE_TIERS, isValidEvidenceTier,
     VERDICT_STATES, isValidVerdictState,
     STANDARDS_OF_PROOF, isValidStandardOfProof, defaultStandardOfProof,
+    PRECEDENT_WEIGHTS, isValidPrecedentWeight,
     isTruthAdjudicable
 } from './truth-taxonomy.js';
 
@@ -431,6 +432,56 @@ export function cleanCaveats(input) {
     return out;
 }
 
+/**
+ * Precedent citations (§3.6) — the field that makes the record
+ * precedent-ready from the first verdict, while the stare-decisis
+ * implementation stays deferred. Each entry: `ref` (a prior verdict/
+ * finding — a local id or a 30063/30064 coordinate) + `weight`
+ * (binding | persuasive; defaults persuasive — an unweighted citation
+ * must not inflate itself). Shared by verdicts and matches.
+ */
+export function cleanPrecedents(input) {
+    if (input === undefined || input === null) return [];
+    if (!Array.isArray(input)) throw new Error('precedents must be an array of {ref, weight}');
+    return input.map((entry, i) => {
+        const rec = entry || {};
+        const ref = String(rec.ref || '').trim();
+        if (!ref) throw new Error(`precedents[${i}] needs a ref (a prior verdict/finding id or coordinate)`);
+        const weight = rec.weight === undefined || rec.weight === null ? 'persuasive' : rec.weight;
+        if (!isValidPrecedentWeight(weight)) {
+            throw new Error(`precedents[${i}]: invalid weight ${rec.weight} (expected ${PRECEDENT_WEIGHTS.join(' | ')})`);
+        }
+        return { ref, weight, note: rec.note ? String(rec.note) : '' };
+    });
+}
+
+/**
+ * Right-of-reply references (§2, defamation row) — subject-authored
+ * response EVENT IDS referenced from the ruling so the reply travels
+ * with it. Emittable in v1; the dedicated reply UI is deferred.
+ */
+export function cleanReplyRefs(input) {
+    if (input === undefined || input === null) return [];
+    if (!Array.isArray(input)) throw new Error('reply_refs must be an array of 64-hex event ids');
+    return input.map((raw, i) => {
+        const id = String(raw || '').trim().toLowerCase();
+        if (!/^[0-9a-f]{64}$/.test(id)) {
+            throw new Error(`reply_refs[${i}] must be a 64-hex event id (got ${raw})`);
+        }
+        return id;
+    });
+}
+
+/**
+ * Adjudicator exposure disclosure (§2, political-capture row:
+ * "adjudicator exposure published") — the author's relevant
+ * financial/political/relational interests, traveling WITH the
+ * ruling. Free text, optional; never inferred.
+ */
+export function cleanExposure(input) {
+    return String(input || '').trim();
+}
+
 /** Adjudicator identity — shared by verdicts and matches. */
 export function cleanAdjudicator(input) {
     if (input === undefined || input === null) return null;
@@ -542,6 +593,9 @@ export const VerdictModel = {
             caveats,
             method:            String(given.method || '').trim(),
             adjudicator:       cleanAdjudicator(given.adjudicator),
+            exposure:          cleanExposure(given.exposure),
+            precedents:        cleanPrecedents(given.precedents),
+            reply_refs:        cleanReplyRefs(given.reply_refs),
             rationale:         String(given.rationale || ''),
             supersedes,
             superseded_by:     null,
@@ -639,8 +693,12 @@ export function verdictVariance(verdicts) {
     const byStandard = {};
     for (const v of list) {
         byState[v.verdict] = (byState[v.verdict] || 0) + 1;
-        if (v.standard_of_proof) {
-            byStandard[v.standard_of_proof] = (byStandard[v.standard_of_proof] || 0) + 1;
+        // Accept both spellings: local records carry standard_of_proof,
+        // parsed wire events carry standardOfProof — this surface is
+        // exactly where the two populations meet.
+        const standard = v.standard_of_proof || v.standardOfProof;
+        if (standard) {
+            byStandard[standard] = (byStandard[standard] || 0) + 1;
         }
     }
     const statesPresent = VERDICT_STATES.filter((s) => byState[s]);

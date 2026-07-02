@@ -75,13 +75,38 @@ function supersededEventId(record, byId) {
     return (prev && prev.publishedEventId) || null;
 }
 
+const COORD_PRECEDENT_RE = /^3006[34]:[0-9a-f]{64}:.+$/;
+
+/**
+ * Resolve local precedent refs to wire coordinates. A ref that already
+ * IS a 30063/30064 coordinate passes through; a local verdict/finding
+ * id resolves via its publish stamps (publishedPubkey + publishedDTag);
+ * an unpublished local ref is omitted this batch — same posture as
+ * revision refs (auxiliary citation, the ruling still publishes).
+ */
+export function resolvePrecedentCoords(precedents, verdicts, findings) {
+    const out = [];
+    for (const p of precedents || []) {
+        if (COORD_PRECEDENT_RE.test(p.ref)) {
+            out.push({ coord: p.ref, weight: p.weight });
+            continue;
+        }
+        const rec = (verdicts && verdicts[p.ref]) || (findings && findings[p.ref]);
+        if (rec && rec.publishedPubkey && rec.publishedDTag) {
+            const kind = String(p.ref).startsWith('integrity_') ? 30064 : 30063;
+            out.push({ coord: `${kind}:${rec.publishedPubkey}:${rec.publishedDTag}`, weight: p.weight });
+        }
+    }
+    return out;
+}
+
 /**
  * Verdicts that are wire-ready and stale. Each entry:
  * `{ verdict, proposition, coord, url, supersedesEventId }`.
  * Defensive: a proposition that fails the truth-adjudicability
  * firewall never selects, even if a record somehow carries one.
  */
-export function selectVerdictsToPublish({ verdicts, propositions, claims, canon }) {
+export function selectVerdictsToPublish({ verdicts, propositions, claims, canon, findings = {} }) {
     const out = [];
     for (const v of Object.values(verdicts || {})) {
         if (!isChainHead(v) || !isStale(v)) continue;
@@ -94,6 +119,7 @@ export function selectVerdictsToPublish({ verdicts, propositions, claims, canon 
             proposition,
             coord: info.coord,
             url: info.url,
+            precedents: resolvePrecedentCoords(v.precedents, verdicts || {}, findings),
             supersedesEventId: supersededEventId(v, verdicts || {})
         });
     }
@@ -136,7 +162,7 @@ function sideRef(proposition, info) {
  *    revisionCoord, sourceUrl, supersedesEventId }` — word/deeds in
  * the builder's `{coord, class, occurredAt, occurredPrecision}` shape.
  */
-export function selectIntegrityFindingsToPublish({ findings, propositions, claims, entities, canon }) {
+export function selectIntegrityFindingsToPublish({ findings, propositions, claims, entities, canon, verdicts = {} }) {
     const out = [];
     const props = propositions || {};
     for (const f of Object.values(findings || {})) {
@@ -181,6 +207,7 @@ export function selectIntegrityFindingsToPublish({ findings, propositions, claim
             constraintCoord,
             revisionCoord,
             sourceUrl: wordInfo.url,
+            precedents: resolvePrecedentCoords(f.precedents, verdicts, findings || {}),
             supersedesEventId: supersededEventId(f, findings || {})
         });
     }

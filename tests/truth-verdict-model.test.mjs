@@ -299,3 +299,40 @@ test('variance: measured, listed, never collapsed to a number', () => {
     assert.equal(verdictVariance([]).total, 0);
     assert.equal(verdictVariance([]).unanimous, false);
 });
+
+test('verdict: citations — precedents, reply refs, exposure (Slice A conformance)', async () => {
+    resetState();
+    const prop = await seedProposition('event-fact');
+    const first = await VerdictModel.create(baseVerdict(prop.id));
+    const second = await seedProposition('state-fact');
+    const cited = await VerdictModel.create(baseVerdict(second.id, {
+        precedents: [{ ref: first.id, weight: 'binding' }, { ref: `30063:${'a'.repeat(64)}:verdict_x` }],
+        reply_refs: ['d'.repeat(64)],
+        exposure: 'Former staffer for the subject.'
+    }));
+    assert.equal(cited.precedents.length, 2);
+    assert.equal(cited.precedents[0].weight, 'binding');
+    assert.equal(cited.precedents[1].weight, 'persuasive', 'unweighted defaults DOWN');
+    assert.deepEqual(cited.reply_refs, ['d'.repeat(64)]);
+    assert.equal(cited.exposure, 'Former staffer for the subject.');
+
+    await assert.rejects(() => VerdictModel.create(baseVerdict(second.id, {
+        supersedes: cited.id, precedents: [{ ref: '', weight: 'binding' }]
+    })), /needs a ref/);
+    await assert.rejects(() => VerdictModel.create(baseVerdict(second.id, {
+        supersedes: cited.id, precedents: [{ ref: first.id, weight: 'decisive' }]
+    })), /invalid weight/);
+    await assert.rejects(() => VerdictModel.create(baseVerdict(second.id, {
+        supersedes: cited.id, reply_refs: ['short']
+    })), /64-hex event id/);
+});
+
+test('variance: accepts both local and parsed-wire standard spellings', () => {
+    const result = verdictVariance([
+        { verdict: 'established-true', standard_of_proof: 'preponderance' },   // local record
+        { verdict: 'established-true', standardOfProof: 'preponderance' }      // parsed 30063
+    ]);
+    assert.equal(result.total, 2);
+    assert.deepEqual(result.by_standard, { preponderance: 2 },
+        'the read-back population counts identically to the local one');
+});

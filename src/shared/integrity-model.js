@@ -45,11 +45,12 @@ import { Crypto } from './crypto.js';
 import { Utils } from './utils.js';
 import { ClaimModel } from './claim-model.js';
 import {
-    TruthAdjudicationModel, cleanVerdictEvidence, cleanCaveats, cleanAdjudicator
+    TruthAdjudicationModel, cleanVerdictEvidence, cleanCaveats, cleanAdjudicator,
+    cleanPrecedents, cleanReplyRefs, cleanExposure
 } from './truth-adjudication-model.js';
 import {
     integrityRole,
-    INTEGRITY_MATCH_STATES, isValidMatchForWordClass, matchStatesForWordClass,
+    INTEGRITY_MATCH_STATES, isValidMatchState, isValidMatchForWordClass, matchStatesForWordClass,
     GAP_MATCH_STATES, GAP_CAUSES, isValidGapCause,
     STANDARDS_OF_PROOF, isValidStandardOfProof, defaultStandardOfProof,
     isValidSuggestedBy
@@ -313,6 +314,9 @@ export const IntegrityModel = {
             gap,
             method:               String(given.method || '').trim(),
             adjudicator:          cleanAdjudicator(given.adjudicator),
+            exposure:             cleanExposure(given.exposure),
+            precedents:           cleanPrecedents(given.precedents),
+            reply_refs:           cleanReplyRefs(given.reply_refs),
             rationale:            String(given.rationale || ''),
             supersedes,
             superseded_by:        null,
@@ -403,3 +407,34 @@ export const IntegrityModel = {
         return out;
     }
 };
+
+/**
+ * The read-time agreement/variance SURFACE over integrity MATCHES —
+ * the §3.4 counterpart of verdictVariance ("the match is itself
+ * adjudicated (… adjudicator agreement …)"). Pure and derivational:
+ * per-match counts, standards represented, never a consensus number.
+ * Accepts local records and parsed wire events (match field on both;
+ * standard spelled either way).
+ *
+ * @param {object[]} findings - finding-shaped records (local or parsed)
+ * @returns {{total: number, by_match: object, by_standard: object,
+ *            matches_present: string[], unanimous: boolean}}
+ */
+export function matchVariance(findings) {
+    const list = (findings || []).filter((f) => f && isValidMatchState(f.match));
+    const byMatch = {};
+    const byStandard = {};
+    for (const f of list) {
+        byMatch[f.match] = (byMatch[f.match] || 0) + 1;
+        const standard = f.standard_of_proof || f.standardOfProof;
+        if (standard) byStandard[standard] = (byStandard[standard] || 0) + 1;
+    }
+    const matchesPresent = INTEGRITY_MATCH_STATES.filter((m) => byMatch[m]);
+    return {
+        total:           list.length,
+        by_match:        byMatch,
+        by_standard:     byStandard,
+        matches_present: matchesPresent,
+        unanimous:       list.length > 0 && matchesPresent.length === 1
+    };
+}

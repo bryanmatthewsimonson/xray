@@ -37,6 +37,7 @@ import {
     STANDARDS_OF_PROOF, isValidStandardOfProof, defaultStandardOfProof,
     INTEGRITY_MATCH_STATES, isValidMatchForWordClass, matchStatesForWordClass,
     GAP_MATCH_STATES, GAP_CAUSES, isValidGapCause,
+    PRECEDENT_WEIGHTS, isValidPrecedentWeight,
     isValidSuggestedBy
 } from './truth-taxonomy.js';
 
@@ -49,6 +50,7 @@ export const ADJUDICATION_NAMESPACE = 'xray/adjudication';
 
 const COORD_30040_RE = /^30040:[0-9a-f]{64}:.+$/;
 const COORD_30055_RE = /^30055:[0-9a-f]{64}:.+$/;
+const COORD_PRECEDENT_RE = /^3006[34]:[0-9a-f]{64}:.+$/;   // a prior 30063/30064
 const HEX64_RE = /^[0-9a-f]{64}$/;
 
 function nowSeconds() { return Math.floor(Date.now() / 1000); }
@@ -136,6 +138,53 @@ function sourceUrlTags(sourceUrl) {
     return [tag('r', sourceUrl), tag('i', normalizeUrl(sourceUrl)), tag('k', 'web')];
 }
 
+/**
+ * Shared §3.6 / §2 fields for both truth kinds:
+ *   - precedents [{coord, weight}] → ['a', coord, relay, 'precedent', weight]
+ *     (informational-only until 30065 ships; coord must be a prior
+ *     30063/30064; weight binding|persuasive)
+ *   - replyEventIds → ['e', id, relay, 'reply'] (the subject-authored
+ *     right-of-reply, referenced FROM the ruling)
+ *   - exposure → ['exposure', text] (adjudicator interests, published
+ *     with the ruling — never inferred)
+ */
+function citationTags({ precedents = [], replyEventIds = [], exposure = '' }, relayHint, fn) {
+    const tags = [];
+    if (!Array.isArray(precedents)) throw new Error(`${fn}: precedents must be an array`);
+    for (const [i, p] of precedents.entries()) {
+        const rec = p || {};
+        if (!COORD_PRECEDENT_RE.test(String(rec.coord || ''))) {
+            throw new Error(`${fn}: precedents[${i}].coord must be a 30063/30064 coordinate (got ${rec.coord})`);
+        }
+        const weight = rec.weight === undefined || rec.weight === null ? 'persuasive' : rec.weight;
+        if (!isValidPrecedentWeight(weight)) {
+            throw new Error(`${fn}: precedents[${i}].weight must be ${PRECEDENT_WEIGHTS.join(' | ')} (got ${rec.weight})`);
+        }
+        tags.push(tag('a', rec.coord, relayHint, 'precedent', weight));
+    }
+    if (!Array.isArray(replyEventIds)) throw new Error(`${fn}: replyEventIds must be an array`);
+    for (const [i, id] of replyEventIds.entries()) {
+        if (!HEX64_RE.test(String(id || ''))) {
+            throw new Error(`${fn}: replyEventIds[${i}] must be a 64-hex event id (got ${id})`);
+        }
+        tags.push(tag('e', id, relayHint, 'reply'));
+    }
+    const exposureText = String(exposure || '').trim();
+    if (exposureText) tags.push(tag('exposure', exposureText));
+    return tags;
+}
+
+function parseCitationTags(tags) {
+    const precedents = tags
+        .filter((t) => t[0] === 'a' && t[3] === 'precedent' && COORD_PRECEDENT_RE.test(t[1] || ''))
+        .map((t) => ({ coord: t[1], weight: isValidPrecedentWeight(t[4]) ? t[4] : 'persuasive' }));
+    const replyEventIds = tags
+        .filter((t) => t[0] === 'e' && t[3] === 'reply' && HEX64_RE.test(t[1] || ''))
+        .map((t) => t[1]);
+    const exposureTag = tags.find((t) => t[0] === 'exposure');
+    return { precedents, replyEventIds, exposure: (exposureTag && exposureTag[1]) || '' };
+}
+
 // ------------------------------------------------------------------
 // Kind 30063 — AdjudicatedVerdict
 // ------------------------------------------------------------------
@@ -189,6 +238,9 @@ export async function buildAdjudicatedVerdictEvent({
     occurredPrecision = null,
     method = '',
     rationale = '',
+    precedents = [],
+    replyEventIds = [],
+    exposure = '',
     supersedesEventId = null,
     sourceUrl = '',
     relayHint = '',
@@ -277,6 +329,7 @@ export async function buildAdjudicatedVerdictEvent({
     tags.push(...evidenceTags('evidence-against', cleanAgainst));
     for (const c of caveatList) tags.push(tag('caveat', c));
     if (method) tags.push(tag('method', String(method).trim()));
+    tags.push(...citationTags({ precedents, replyEventIds, exposure }, relayHint, FN));
     if (supersedesEventId) tags.push(tag('e', supersedesEventId, relayHint, 'supersedes'));
     tags.push(...sourceUrlTags(sourceUrl));
     tags.push(tag('suggested-by', provenance));
@@ -317,6 +370,16 @@ export function parseAdjudicatedVerdictEvent(event) {
     if (!isValidStandardOfProof(standard)) return null;
     if (caveats.length === 0) return null;
 
+    // Read-side evidence adequacy (§5.5 both directions): a foreign
+    // established-* ruling with no evidence on its carrying side — or
+    // a one-sided contested — is malformed and never admitted, exactly
+    // as the builder refuses to produce it.
+    const evidenceFor = parseEvidenceTags(tags, 'evidence-for');
+    const evidenceAgainst = parseEvidenceTags(tags, 'evidence-against');
+    if (verdict === 'established-true' && evidenceFor.length === 0) return null;
+    if (verdict === 'established-false' && evidenceAgainst.length === 0) return null;
+    if (verdict === 'contested' && (evidenceFor.length === 0 || evidenceAgainst.length === 0)) return null;
+
     const occurredTag = first('occurred');
     const occurredAt = occurredTag && occurredTag[1] !== '' ? Number(occurredTag[1]) : null;
     const supersedesE = tags.find((x) => x[0] === 'e' && x[3] === 'supersedes');
@@ -336,10 +399,11 @@ export function parseAdjudicatedVerdictEvent(event) {
         tractability:       TRACTABILITIES.includes(firstVal('tractability')) ? firstVal('tractability') : null,
         occurredAt:         Number.isInteger(occurredAt) ? occurredAt : null,
         occurredPrecision:  occurredTag && isValidOccurredPrecision(occurredTag[2]) ? occurredTag[2] : null,
-        evidenceFor:        parseEvidenceTags(tags, 'evidence-for'),
-        evidenceAgainst:    parseEvidenceTags(tags, 'evidence-against'),
+        evidenceFor,
+        evidenceAgainst,
         caveats,
         method:             firstVal('method') || '',
+        ...parseCitationTags(tags),
         supersedesEventId:  supersedesE ? supersedesE[1] : null,
         url:                firstVal('r') || null,
         rationale:          event.content || '',
@@ -447,6 +511,9 @@ export async function buildIntegrityFindingEvent({
     gap = null,
     method = '',
     rationale = '',
+    precedents = [],
+    replyEventIds = [],
+    exposure = '',
     supersedesEventId = null,
     sourceUrl = '',
     relayHint = '',
@@ -549,6 +616,7 @@ export async function buildIntegrityFindingEvent({
         if (gapClean.revisionCoord) tags.push(tag('a', gapClean.revisionCoord, relayHint, 'revision'));
     }
     if (method) tags.push(tag('method', String(method).trim()));
+    tags.push(...citationTags({ precedents, replyEventIds, exposure }, relayHint, FN));
     if (supersedesEventId) tags.push(tag('e', supersedesEventId, relayHint, 'supersedes'));
     tags.push(...sourceUrlTags(sourceUrl));
     tags.push(tag('suggested-by', provenance));
@@ -598,6 +666,13 @@ export function parseIntegrityFindingEvent(event) {
     if (!isValidStandardOfProof(standard)) return null;
     if (caveats.length === 0) return null;
 
+    // Read-side match-evidence adequacy, mirroring the builder.
+    const evidenceFor = parseEvidenceTags(tags, 'evidence-for');
+    const evidenceAgainst = parseEvidenceTags(tags, 'evidence-against');
+    const substantive = ['fulfilled', 'broken', 'consistent', 'contradicted'];
+    if (substantive.includes(match) && evidenceFor.length === 0) return null;
+    if (match === 'contested' && (evidenceFor.length === 0 || evidenceAgainst.length === 0)) return null;
+
     const gapTag = tags.find((x) => x[0] === 'gap-cause');
     const constraintA = tags.find((x) => x[0] === 'a' && x[3] === 'constraint');
     const revisionA = tags.find((x) => x[0] === 'a' && x[3] === 'revision');
@@ -610,8 +685,9 @@ export function parseIntegrityFindingEvent(event) {
         deeds,
         match,
         standardOfProof:   standard,
-        evidenceFor:       parseEvidenceTags(tags, 'evidence-for'),
-        evidenceAgainst:   parseEvidenceTags(tags, 'evidence-against'),
+        evidenceFor,
+        evidenceAgainst,
+        ...parseCitationTags(tags),
         caveats,
         gap: gapTag && isValidGapCause(gapTag[1]) ? {
             cause:           gapTag[1],

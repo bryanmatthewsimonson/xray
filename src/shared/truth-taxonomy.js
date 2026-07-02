@@ -189,6 +189,32 @@ export function defaultStandardOfProof(propositionClass) {
         : 'preponderance';
 }
 
+/**
+ * The "high-standard" bar the §3.5 rollup example sets ("9 of 12
+ * resolved high-standard commitments kept") — the rollup is coverage-
+ * AND standard-gated (§6 decided defaults), so preponderance-grade
+ * matches are excluded from it (listed, never silently dropped).
+ */
+export const HIGH_STANDARDS_OF_PROOF = Object.freeze([
+    'clear-and-convincing', 'beyond-reasonable-doubt'
+]);
+
+export function isHighStandardOfProof(value) {
+    return HIGH_STANDARDS_OF_PROOF.includes(value);
+}
+
+// ------------------------------------------------------------------
+// Precedent citations — §3.6 ("the field and the citation grammar
+// land now so the record is precedent-ready from the first verdict";
+// the stare-decisis IMPLEMENTATION stays deferred).
+// ------------------------------------------------------------------
+
+export const PRECEDENT_WEIGHTS = Object.freeze(['binding', 'persuasive']);
+
+export function isValidPrecedentWeight(value) {
+    return PRECEDENT_WEIGHTS.includes(value);
+}
+
 // ------------------------------------------------------------------
 // Integrity match states — §3.4 (Phase 15.4). The match is itself a
 // VERDICT (standard of proof, verbatim evidence, caveats), not a

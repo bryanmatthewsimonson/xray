@@ -1177,9 +1177,10 @@ diachronic revision edges visible across the four lenses.
 first; this layer composes its findings (`30062`) as a raw signal and takes
 the **next disjoint wire kinds** — **`30063`** `AdjudicatedVerdict` and
 **`30064`** `IntegrityFinding` (with **`30065`** reserved for a precedent
-citation), gated by a separate **`truthAdjudicationPublishing`** flag. New
-development is paused until the Phase 14 chain merges, at which point this
-branch rebases onto it.
+citation), gated by a separate **`truthAdjudicationPublishing`** flag. The
+Phase 14 chain merged in v0.6.0, clearing the dependency; 15.1–15.8 shipped
+as the stacked PR train #79→#86 (one slice per PR, each based on its
+predecessor's branch; merge in order from #79).
 
 This is the **truth-verdict layer Phase 14 deliberately deferred** (its
 non-goals: "truth verdicts on subjects, intent attribution"). Where Phase 11
@@ -1217,7 +1218,9 @@ formats, and red lines:
 draft. The deferred bonded-resolution second act is parked in
 [`docs/BONDING_NOTES.md`](BONDING_NOTES.md).
 
-Slices (one PR each; `claude/phase-15-*`):
+Slices (one PR each; `claude/phase-15-*` — the stacked train, in merge
+order: 15.1 #79, 15.2 #80, 15.3 #81, 15.4 #82, 15.5 #83, 15.6 #84,
+15.7 #85, 15.8 #86; conformance follow-up #87):
 
 - ✅ **15.1** Adjudicable-proposition model (local, no wire) —
   `proposition_class` + `resolution_criteria` atomization over existing

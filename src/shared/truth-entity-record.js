@@ -33,6 +33,7 @@ import { TruthAdjudicationModel, VerdictModel } from './truth-adjudication-model
 import { IntegrityModel } from './integrity-model.js';
 import { ForensicModel } from './forensic-model.js';
 import { calibrationRateTable, calibrationV1 } from './audit/calibration.js';
+import { isHighStandardOfProof } from './truth-taxonomy.js';
 
 // ------------------------------------------------------------------
 // Coverage
@@ -240,24 +241,39 @@ export async function entityIntegrityRecord(entityId, { coverage, subjectRef } =
 
 /**
  * The OPTIONAL single rollup (§3.5): a transparent, lossy ratio of
- * measured commitment outcomes — "9 of 12 resolved commitments kept"
- * — HARD-GATED by coverage: undetermined coverage ⇒ null, no
- * aggregate without a published denominator (§5.4). Only fulfilled
- * and broken are "resolved" (contested/insufficient/pending are not
- * outcomes); the output is counts and a sentence with the coverage
- * limit on its face — never a normalized 0-100 anything.
+ * measured commitment outcomes — "9 of 12 resolved high-standard
+ * commitments kept" — gated TWICE (§6 decided defaults: "coverage-
+ * and standard-gated"): undetermined coverage ⇒ null, no aggregate
+ * without a published denominator (§5.4); and only matches ruled at a
+ * HIGH standard (clear-and-convincing / beyond-reasonable-doubt)
+ * count — preponderance-grade matches are excluded and REPORTED, not
+ * silently dropped. Only fulfilled and broken are "resolved"
+ * (contested/insufficient/pending are not outcomes); the output is
+ * counts and a sentence with both limits on its face — never a
+ * normalized 0-100 anything.
  */
 export function optionalRollup(record) {
     if (!record || !record.coverage || record.coverage.status !== 'declared') return null;
-    const counts = (record.commitments && record.commitments.counts) || {};
-    const kept = counts.fulfilled || 0;
-    const resolved = kept + (counts.broken || 0);
+    const entries = (record.commitments && record.commitments.entries) || [];
+    let kept = 0;
+    let resolved = 0;
+    let belowStandard = 0;
+    for (const entry of entries) {
+        for (const m of entry.matches || []) {
+            if (m.match !== 'fulfilled' && m.match !== 'broken') continue;
+            if (!isHighStandardOfProof(m.standard_of_proof)) { belowStandard += 1; continue; }
+            resolved += 1;
+            if (m.match === 'fulfilled') kept += 1;
+        }
+    }
     const cov = record.coverage;
     return {
         kept,
         resolved,
+        below_standard_excluded: belowStandard,
         coverage: cov,
-        text: `${kept} of ${resolved} resolved commitments kept — coverage `
-            + `${cov.assessed_count}/${cov.universe_estimate} of the identified universe (${cov.method})`
+        text: `${kept} of ${resolved} resolved high-standard commitments kept`
+            + (belowStandard > 0 ? ` (${belowStandard} below-standard excluded)` : '')
+            + ` — coverage ${cov.assessed_count}/${cov.universe_estimate} of the identified universe (${cov.method})`
     };
 }

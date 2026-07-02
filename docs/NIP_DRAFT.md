@@ -594,6 +594,9 @@ Addressable. **One author's** ruling on one **adjudicable proposition** — an a
     ["evidence-against", "<verbatim quote>", "tier-3", "<url>"],
     ["caveat", "<what this ruling could not determine>"],
     ["method", "<how adjudicated>"],
+    ["a", "3006(3|4):<author>:<d>", "<relay-hint>", "precedent", "binding|persuasive"],
+    ["e", "<reply-event-id>", "<relay-hint>", "reply"],
+    ["exposure", "<adjudicator's relevant interests, disclosed>"],
     ["e", "<superseded-event-id>", "<relay-hint>", "supersedes"],
     ["r", "<source-url>"], ["i", "<normalized-url>"], ["k", "web"],
     ["suggested-by", "user"],
@@ -610,6 +613,9 @@ Addressable. **One author's** ruling on one **adjudicable proposition** — an a
 - **There is NO `p` tag on this kind.** Verdicts attach to propositions, not persons; any entity-level reading is the reader's own aggregation over proposition verdicts, coverage-capped.
 - `d` is keyed **(author, proposition)** — recomputable from the `a` coordinate + `proposition-class` alone — so a superseding ruling by the same author **replaces** (NIP-01 addressable) and chains by the `e … supersedes` marker; lineage stays legible without mutating prior events.
 - **Disputes** reuse kind 30061 with `target-kind: verdict` (an additive extension of that enum; clients predating it null-parse such disputes).
+- **Precedent citations** (`a … precedent <weight>`, weight `binding` | `persuasive`, defaulting to `persuasive` when absent — an unweighted citation never inflates itself) reference prior 30063/30064 rulings of the same proposition or match class. Informational only until kind 30065 ships; consumers MUST NOT treat them as authority.
+- **Right of reply** (`e … reply`) references a subject-authored response event FROM the ruling, so the reply travels with it; consumers SHOULD surface it alongside. A dedicated reply UI is out of scope here.
+- **`exposure`** discloses the adjudicator's relevant financial/political/relational interests, published WITH the ruling (the political-capture defense). It is author-asserted and optional; consumers SHOULD render it verbatim when present, and its absence is itself information.
 - **NIP-32 mirror.** A kind-1985 event MAY mirror the verdict state (`L`/`l` `xray/adjudication`, `a` = the claim coordinate, `r` = the source URL). Like the 30054 mirror — and unlike the 30062 one — it labels **content, never a pubkey**.
 
 ## Kind 30064 — IntegrityFinding
@@ -635,6 +641,9 @@ Addressable. The adjudicated **word-deed match**: links a subject's **stated** c
     ["gap-evidence", "<verbatim quote>", "tier-1", "<url>"],
     ["a", "30040:<author>:<constraint-d>", "<relay-hint>", "constraint"],
     ["a", "30055:<author>:<rel-d>", "<relay-hint>", "revision"],
+    ["a", "3006(3|4):<author>:<d>", "<relay-hint>", "precedent", "binding|persuasive"],
+    ["e", "<reply-event-id>", "<relay-hint>", "reply"],
+    ["exposure", "<adjudicator's relevant interests, disclosed>"],
     ["e", "<superseded-event-id>", "<relay-hint>", "supersedes"],
     ["r", "<source-url>"], ["i", "<normalized-url>"], ["k", "web"],
     ["suggested-by", "user"],
@@ -650,8 +659,9 @@ Addressable. The adjudicated **word-deed match**: links a subject's **stated** c
 - A finding is read as **pattern, not instance**: consumers SHOULD render an entity's findings as a time series ordered on the deeds' `occurred-at`, and SHOULD NOT surface a single match as a conclusion about the person.
 - **There is deliberately NO kind-1985 mirror for this kind.** A bare match-label on a person's pubkey, stripped of its evidence and caveats, is exactly the decontextualized person-grade this family forbids; the full 30064 is the only wire shape.
 - **Disputes** reuse kind 30061 with `target-kind: integrity_finding`.
+- **Precedent citations, right of reply, and `exposure`** carry the same grammar and semantics as on kind 30063.
 
-**Kind 30065 is RESERVED** for a future PrecedentCitation — a verdict/finding citing prior rulings of the same proposition or match class as `binding`/`persuasive` precedent (§stare-decisis, deferred). Until it ships, precedent MAY be expressed as an `a` tag on 30063/30064 with a slot-4 `precedent` marker; consumers MUST treat it as informational only.
+**Kind 30065 is RESERVED** for a future PrecedentCitation — a verdict/finding citing prior rulings of the same proposition or match class as `binding`/`persuasive` precedent (§stare-decisis, deferred). Until it ships, precedent MAY be expressed as an `a` tag on 30063/30064 with a slot-4 `precedent` marker and a slot-5 weight (`binding` | `persuasive`); consumers MUST treat it as informational only.
 
 ## Kind 30023 — `responds-to` tag (extension)
 
