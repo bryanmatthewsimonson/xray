@@ -12,6 +12,25 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 15.6 — the truth-adjudication wire (flag-gated).** New
+  kinds **`30063` AdjudicatedVerdict** and **`30064`
+  IntegrityFinding** (builders + parsers in `truth-builders.js`,
+  following the 30062 idioms; `30065` reserved for precedent).
+  Verdicts are keyed (author, proposition), carry the declared
+  standard, per-state two-sided evidence, and **required caveat
+  tags** — and **no `p` tag** (verdicts attach to propositions, not
+  persons); their kind-1985 mirror labels the claim coordinate, never
+  a pubkey. Integrity findings `p`-reference the subject but get **no
+  1985 mirror** — a match-label stripped of evidence and caveats is
+  the decontextualized person-grade the design forbids. The §3.1
+  firewall holds **on the wire in both directions**: a
+  value/interpretation verdict can neither be built nor parsed. Kind
+  `30061` dispute targets gain `verdict`/`integrity_finding`
+  (additive). Publishing sits behind the new
+  **`truthAdjudicationPublishing`** flag (default off; the service
+  worker still accepts all inbound kinds); the NIP draft gains
+  §30063/§30064. Publish-path and read-UI wiring are follow-up work.
+
 - **Phase 15.5 — the entity integrity record.** Dimension-separated,
   computed-on-read, never stored: the **commitment record** and
   **stated-value record** (each a count AND the list deriving it,

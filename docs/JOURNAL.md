@@ -19,6 +19,40 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-02 — Phase 15.6: two asymmetries in the truth wire, both deliberate
+
+Tags: `design`.
+
+Final planned Phase-15 slice — kinds `30063`/`30064` in a new
+`truth-builders.js` (the audit-family precedent of a per-family
+builder module; metadata/builders.js supplied the idioms, not the
+home). Two wire asymmetries someone will eventually question:
+
+- **30063 carries no `p` tag and gets a 1985 mirror; 30064 carries
+  `p` and gets NO mirror.** A verdict attaches to a proposition
+  (§5.3), so its mirror labels the claim coordinate — safe to
+  aggregate. An integrity match is genuinely *about* a person's
+  word-deed gap, so the subject `p` belongs on the full event — but a
+  bare 1985 match-label on a pubkey, stripped of evidence and
+  caveats, is precisely the decontextualized person-grade §3.5
+  forbids ("no number travels without its evidence and caveats").
+  So the mirror idiom from 30054/30062 is applied to one kind and
+  deliberately withheld from the other.
+- **The firewall is enforced read-side too.** `parseAdjudicatedVerdictEvent`
+  null-parses an event whose `proposition-class` is `interpretation`
+  or `stated-value`, and `parseIntegrityFindingEvent` null-parses a
+  match invalid for its word class — a malicious or buggy publisher
+  cannot make this client *render* a value-verdict, not merely not
+  emit one. Caveat tags are likewise structural: no caveat, no parse.
+
+Also: `DISPUTE_TARGET_KINDS` gained `verdict`/`integrity_finding`
+(additive — older clients null-parse such disputes, which is the
+correct conservative failure); wire supersession is NIP-01 addressable
+replacement + an `e supersedes` lineage marker (the local chain keeps
+full history; relays keep the current ruling per author, which is what
+addressable kinds mean); and 30065 stays reserved with the `precedent`
+a-tag marker grammar documented but unimplemented.
+
 ## 2026-07-02 — Phase 15.5: the entity record is computed, never stored — and the rollup gate is coverage.status
 
 Tags: `design`.

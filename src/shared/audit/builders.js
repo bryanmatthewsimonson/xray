@@ -569,7 +569,10 @@ export const TRACTABILITIES = Object.freeze(['publicly_resolvable', 'requires_pr
 export const RESOLUTION_OUTCOMES_WIRE = Object.freeze(['true', 'false', 'partial', 'unresolvable']);
 export const EVIDENCE_KINDS = Object.freeze(['url', 'nostr_event', 'document_hash', 'quote']);
 export const DOSSIER_SUBJECT_KINDS = Object.freeze(['author', 'publication', 'beat', 'publication_x_beat']);
-export const DISPUTE_TARGET_KINDS = Object.freeze(['module_result', 'aggregate_audit', 'prediction_resolution', 'claim']);
+// 'verdict' + 'integrity_finding' added in Phase 15.6 so a 30061 can
+// target 30063/30064 coordinates — additive: clients predating these
+// values null-parse such disputes (the parser checks this enum).
+export const DISPUTE_TARGET_KINDS = Object.freeze(['module_result', 'aggregate_audit', 'prediction_resolution', 'claim', 'verdict', 'integrity_finding']);
 export const DISPUTE_STATUSES = Object.freeze(['open', 'withdrawn']);   // filer-asserted only
 
 function assertEnum(value, allowed, name, fn) {

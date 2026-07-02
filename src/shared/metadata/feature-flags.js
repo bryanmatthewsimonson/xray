@@ -53,6 +53,12 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // baselines / rollups are never gated — they're the product.
   forensicPublishing: false,
 
+  // Phase 15 (docs/TRUTH_ADJUDICATION_DESIGN.md): gates the PUBLISH
+  // paths for kind 30063 adjudicated verdicts, their kind-1985 mirror,
+  // and kind 30064 integrity findings. Local atomization / verdicts /
+  // findings / entity records are never gated — they're the product.
+  truthAdjudicationPublishing: false,
+
   // Phase 14.5 (docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md): gates the
   // in-extension LLM-assist suggestion pass — the reader "Suggest…"
   // control + the `xray:llm:suggest` background call to the Anthropic
