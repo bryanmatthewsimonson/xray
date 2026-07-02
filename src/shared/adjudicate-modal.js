@@ -234,6 +234,7 @@ export async function openAdjudicateModal({ claimId, claimText = '' }) {
                 renderEvidence();
                 $('.xr-adjudicate__caveats').value = '';
                 $('.xr-adjudicate__method').value = '';
+                $('.xr-adjudicate__exposure').value = '';
                 $('.xr-adjudicate__rationale').value = '';
             } else {
                 state.activeVerdict = null;
@@ -343,6 +344,7 @@ export async function openAdjudicateModal({ claimId, claimText = '' }) {
                             .map((e) => ({ quote: e.quote, tier: e.tier })),
                         caveats:           linesToList($('.xr-adjudicate__caveats').value),
                         method:            $('.xr-adjudicate__method').value,
+                        exposure:          $('.xr-adjudicate__exposure').value,
                         rationale:         $('.xr-adjudicate__rationale').value,
                         supersedes:        state.activeVerdict ? state.activeVerdict.id : null
                     });
@@ -459,6 +461,10 @@ function buildHtml(claimText) {
             <label class="xr-adjudicate__field">
               <span class="xr-adjudicate__field-label">Method <em>(optional)</em></span>
               <input type="text" class="xr-adjudicate__method" placeholder="e.g. manual record check" />
+            </label>
+            <label class="xr-adjudicate__field">
+              <span class="xr-adjudicate__field-label">Disclosure <em>(optional — your relevant interests/priors; published WITH the ruling)</em></span>
+              <input type="text" class="xr-adjudicate__exposure" placeholder="e.g. donor to the subject's opponent in 2024" />
             </label>
             <label class="xr-adjudicate__field">
               <span class="xr-adjudicate__field-label">Rationale <em>(optional, markdown)</em></span>

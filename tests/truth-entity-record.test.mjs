@@ -223,11 +223,41 @@ test('rollup: hard-gated by declared coverage; a ratio with its limit on its fac
     const rollup = optionalRollup(declared);
     assert.equal(rollup.kept, 1);
     assert.equal(rollup.resolved, 2, 'fulfilled + broken only — contested/insufficient/pending are not outcomes');
-    assert.match(rollup.text, /1 of 2 resolved commitments kept/);
+    assert.equal(rollup.below_standard_excluded, 0, 'fixture matches default clear-and-convincing');
+    assert.match(rollup.text, /1 of 2 resolved high-standard commitments kept/);
     assert.match(rollup.text, /3\/12/, 'the coverage cap travels in the sentence');
     assert.match(rollup.text, /2024 platform document/, 'the method too');
     assert.equal('percentage' in rollup, false);
     assert.equal('score' in rollup, false);
+
+    // The STANDARD gate (§6 "coverage- and standard-gated"): a
+    // preponderance-grade match is excluded from the ratio and
+    // reported, never silently dropped.
+    const weakClaim = await ClaimModel.create({
+        text: 'I will fix the potholes.', source_url: 'https://example.com/potholes', about: [SEN]
+    });
+    const weakWord = await TruthAdjudicationModel.create({
+        claim_id: weakClaim.id, proposition_class: 'stated-commitment',
+        resolution_criteria: { criteria: 'City works records.' }, subject_role: 'stated'
+    });
+    const deedClaim = await ClaimModel.create({
+        text: 'Potholes on Main St repaired.', source_url: 'https://example.com/works', about: [SEN]
+    });
+    const weakDeed = await TruthAdjudicationModel.create({
+        claim_id: deedClaim.id, proposition_class: 'event-fact',
+        resolution_criteria: { criteria: 'City works records.' }, subject_role: 'enacted'
+    });
+    await IntegrityModel.create({
+        word_proposition_id: weakWord.id, deed_proposition_ids: [weakDeed.id],
+        match: 'fulfilled', standard_of_proof: 'preponderance',
+        evidence_for: [{ quote: 'Works log 2025-04-01.' }],
+        caveats: ['Single municipal record.']
+    });
+    const withWeak = optionalRollup(await entityIntegrityRecord(SEN, { coverage }));
+    assert.equal(withWeak.kept, 1, 'the preponderance fulfilled does NOT count');
+    assert.equal(withWeak.resolved, 2);
+    assert.equal(withWeak.below_standard_excluded, 1);
+    assert.match(withWeak.text, /1 below-standard excluded/);
 
     // Coverage is a measurement — undefended inputs are rejected.
     assert.throws(() => declaredCoverage({ assessed_count: -1, universe_estimate: 5, method: 'x' }),

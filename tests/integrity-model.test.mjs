@@ -362,3 +362,35 @@ test('integrity: timelineForEntity orders on the deeds\' occurred_at (pattern, n
     assert.equal((await IntegrityModel.getForEntity(SEN)).length, 4);
     assert.equal((await IntegrityModel.getForWordProposition(word.id)).length, 4);
 });
+
+test('integrity: matchVariance — the §3.4 agreement surface, never collapsed', async () => {
+    const { matchVariance } = await import('../src/shared/integrity-model.js');
+    const result = matchVariance([
+        { match: 'broken', standard_of_proof: 'clear-and-convincing' },
+        { match: 'broken', standardOfProof: 'clear-and-convincing' },   // parsed-wire spelling
+        { match: 'contested', standard_of_proof: 'preponderance' },
+        { match: 'not-a-match' },
+        null
+    ]);
+    assert.equal(result.total, 3);
+    assert.deepEqual(result.by_match, { broken: 2, contested: 1 });
+    assert.deepEqual(result.by_standard, { 'clear-and-convincing': 2, preponderance: 1 });
+    assert.equal(result.unanimous, false);
+    assert.equal('consensus' in result, false);
+    assert.equal('score' in result, false);
+    assert.equal(matchVariance([]).total, 0);
+});
+
+test('integrity: citations — precedents/reply/exposure ride the finding record', async () => {
+    resetState();
+    const word = await seedWord();
+    const deed = await seedDeed('Voted Yea on the tax.');
+    const f = await IntegrityModel.create(baseFinding(word.id, [deed.id], {
+        precedents: [{ ref: `30064:${'a'.repeat(64)}:integrity_x`, weight: 'persuasive' }],
+        reply_refs: ['e'.repeat(64)],
+        exposure: 'Covered this subject as a beat reporter.'
+    }));
+    assert.equal(f.precedents.length, 1);
+    assert.deepEqual(f.reply_refs, ['e'.repeat(64)]);
+    assert.equal(f.exposure, 'Covered this subject as a beat reporter.');
+});

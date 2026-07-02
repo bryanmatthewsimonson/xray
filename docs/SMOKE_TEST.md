@@ -692,12 +692,12 @@ publishes. Requires a real Anthropic API key
 
 ---
 
-## Phase 15 — Truth adjudication (model layer, 15.1–15.3)
+## Phase 15 — Truth adjudication (15.1–15.8)
 
-Slices 15.1–15.3 are **model-only** (no UI, no wire, no flag), so this
-section is a **console walk**, not a click-through: the extension must
-look and behave exactly as before, and the models are exercised from an
-extension page's DevTools. Dynamic `import()` is banned in the service
+Rows 15.1–15.13 are the **model console walk** (slices 15.1–15.3 have no
+UI of their own); rows 15.14–15.20 are the **reader click-through**
+(slice 15.8 + the publish path); rows 15.21+ cover the integrity/entity
+layers, which still author via console (UI is follow-up work). Dynamic `import()` is banned in the service
 worker — use the **options page** (right-click toolbar icon → Options →
 F12). On Firefox: `about:debugging` → X-Ray → **Inspect**, with the
 options page open.
@@ -753,10 +753,33 @@ claim via the normal claim flow, then:
 | 15.19 | Ruling with **no caveats**, or **Contested** with one-sided evidence, or a **Prediction** with no horizon | ❌ the modal surfaces the model's error inline; nothing saves |
 | 15.20 | Options → Advanced → **Truth adjudication** → check "Publish adjudicated verdicts…" → Save → reader **Publish** | ✅ after the claim publishes, "Also publishing adjudications…" toast; summary gains `n/n verdict` + mirror segments; second publish re-emits nothing (staleness gate); unchecking the toggle removes the adjudication segment entirely |
 
+**Integrity + entity record (15.4/15.5) — console walk** (authoring UI
+is follow-up work). In the options-page console, after 15.A:
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 15.21 | Create a word (stated-commitment, role `stated`) and a deed (event-fact, role `enacted`) whose claims share an `about` entity, then `IntegrityModel.create({word_proposition_id, deed_proposition_ids, match: 'broken', evidence_for: [{quote: '…'}], caveats: ['…']})` (import from `/src/shared/integrity-model.js`) | ✅ record with `standard_of_proof: 'clear-and-convincing'` (defaulted), `entity_ids` = the shared entity; no intent/score field |
+| 15.22 | Same create with `match: 'contradicted'` on the commitment word, or with an `ascribed` word | ❌ throws (per-word-class vocabulary; by-construction exclusion) |
+| 15.23 | `gap: { cause: 'lie', note: '' }` | ❌ throws "must be documented" — intent is never inferred |
+| 15.24 | `await IntegrityModel.timelineForEntity('<entity id>')` | ✅ chain heads ordered on the deeds' occurred_at, undated last |
+| 15.25 | `const { entityIntegrityRecord, declaredCoverage, optionalRollup } = await import('/src/shared/truth-entity-record.js')`; `optionalRollup(await entityIntegrityRecord('<entity id>'))` | ✅ `null` — no aggregate without declared coverage |
+| 15.26 | Re-run with `{ coverage: declaredCoverage({assessed_count: 1, universe_estimate: 10, method: 'smoke fixture'}) }` | ✅ rollup counts + a sentence carrying "high-standard", the 1/10 coverage, and the method |
+| 15.27 | 30064 publish leg: with the flag on and the word/deed claims + a keyed entity published, Publish | ✅ summary shows `n/n integrity finding`; second publish re-emits nothing |
+
+**Operator disciplines (v1)** — §2 defenses that ship as practice, not
+mechanism; follow them until tooling lands: seek **kept** commitments as
+hard as broken ones (balance-sheet symmetry — an entity record that only
+ever accretes `broken` is a selection-bias smell, not a finding); fill
+the ruling's **Disclosure** field whenever you have a relevant interest
+(adjudicator exposure); **bootstrap on high-knowability propositions**
+(court records, official rolls) before reputationally heavy ones; and if
+your verdicts never discomfort your own camp, treat your calibration as
+broken and audit your selection.
+
 **15.B — cleanup:**
 
 ```js
-chrome.storage.local.remove(['adjudicable_propositions', 'adjudicated_verdicts']);
+chrome.storage.local.remove(['adjudicable_propositions', 'adjudicated_verdicts', 'integrity_findings']);
 await EvidenceLinker.deleteForClaim(claim.id);
 // then ClaimModel.delete(...) for each test claim created above.
 // Only blanket-remove 'article_claims'/'evidence_links' on a disposable

@@ -1,5 +1,18 @@
 # Phase 15 — Truth adjudication — implementation prompt
 
+> **Post-implementation amendment (2026-07-02).** Phase 15 shipped as the
+> stacked PR train #79–#86 (+ conformance #87). Divergences from this
+> prompt, per its own "the design governs; fix the prompt" rule:
+> the Phase-15 enums live in a dedicated `src/shared/truth-taxonomy.js`
+> (the escape hatch below, journaled 2026-07-02), not
+> `assessment-taxonomy.js`; and two slices beyond §7's plan shipped —
+> **15.7 publish wiring** (selection + reader batch section + Options
+> toggle) and **15.8 reader adjudication UI** (the adjudicate modal +
+> claim-row badges). The "rest of Phase 15" summary at the end of this
+> file predates both. Remaining tail: read-back/portal surfaces,
+> integrity/attestation authoring UI, and the design's deferred
+> aggregation layer.
+
 > This file is the **handoff prompt** for the Claude Code session that
 > implements Phase 15. It is self-contained: read it, read the files it
 > points at, then build. Everything in the X-Ray repo's `CLAUDE.md`

@@ -12,6 +12,20 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 15 conformance pass (design-audit follow-up).** The §3.6
+  **precedent citation field** lands (`precedents: [{ref, weight}]`,
+  `binding`/`persuasive` defaulting down, wire `a … precedent <weight>`,
+  publish threading); **adjudicator exposure disclosure** and
+  **right-of-reply refs** ride verdicts and integrity findings (model +
+  wire + a modal Disclosure field); the parsers enforce **read-side
+  evidence adequacy** (malformed foreign rulings null-parse instead of
+  rendering); the entity-record rollup is now **standard-gated** as well
+  as coverage-gated (below-standard matches excluded and reported);
+  `verdictVariance` accepts both local and parsed field spellings and
+  `matchVariance` covers integrity findings. SMOKE_TEST §15 grows
+  integrity/entity rows (15.21–15.27) and the v1 **operator
+  disciplines**; ROADMAP/kickoff/EPISTACK stale claims corrected.
+
 - **Build stamp in Settings.** The Settings header now shows exactly
   which build is loaded — `v0.6.0 · <branch> @ <short-commit> · built
   <UTC time>` (a `+dirty` marker when built from an uncommitted tree)

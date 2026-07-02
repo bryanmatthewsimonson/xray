@@ -19,6 +19,49 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-02 — Phase 15 conformance pass: what a 10-agent design audit caught
+
+Tags: `design`.
+
+A section-by-section adversarial audit of TRUTH_ADJUDICATION_DESIGN.md
+against the shipped train surfaced gaps this slice closes; the calls:
+
+- **The §3.6 precedent FIELD now actually lands** ("the field and the
+  citation grammar land now so the record is precedent-ready") —
+  `precedents: [{ref, weight}]` on verdicts/findings, `binding |
+  persuasive` with **persuasive as the default** (an unweighted
+  citation must never inflate itself), wire `a … precedent <weight>`
+  slot-5, publish threading via the same resolve-or-omit posture as
+  revision refs. Implementation stays deferred; the field no longer is.
+- **Read-side evidence adequacy**: the parsers now null-parse an
+  evidence-less `established-*`/one-sided `contested` (30063) and an
+  evidence-less substantive match (30064). Previously build-side only —
+  the first foreign-event consumer would have rendered malformed
+  rulings; now malformed means invisible, both directions.
+- **§2 (v1) defenses that had shape but no surface**: adjudicator
+  `exposure` disclosure (field + wire tag + modal input — author-
+  asserted, never inferred), right-of-reply `reply_refs` (subject reply
+  event ids referenced FROM the ruling; the dedicated UI stays
+  deferred), and the rollup's missing **standard gate** (only
+  clear-and-convincing/beyond-reasonable-doubt matches count; below-
+  standard ones are excluded AND reported). Balance-sheet symmetry,
+  bootstrap-on-high-knowability, and camp-discomfort calibration ship
+  as documented **operator disciplines** (SMOKE_TEST §15) — honest
+  about being practice, not mechanism, in v1.
+- **`verdictVariance` accepts both field spellings**
+  (`standard_of_proof` local / `standardOfProof` parsed) — the latent
+  bug at exactly the seam where the two populations meet — and
+  `matchVariance` gives integrity findings the same never-collapsed
+  agreement surface.
+- Doc debt: SMOKE §15 now covers 15.4/15.5 (rows 15.21–15.27) and the
+  30064 publish leg; ROADMAP's stale "paused until Phase 14 merges"
+  paragraph replaced with the PR-train map; the kickoff carries its
+  post-implementation amendment per its own "fix the prompt" rule;
+  EPISTACK_ENTRY no longer claims Phase 15 is unbuilt. GitHub-issue
+  mirroring (ROADMAP step 5) remains dead-lettered since Phase 9 —
+  noted, not resurrected, pending a decision on whether the practice
+  survives.
+
 ## 2026-07-02 — Phase 15.8: the firewall and supersession as UI facts
 
 Tags: `design`.

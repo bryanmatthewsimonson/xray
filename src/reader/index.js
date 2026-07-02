@@ -3061,10 +3061,10 @@ async function publish() {
             const verdictsT = Object.fromEntries(verdictList.map((v) => [v.id, v]));
             const propsT = Object.fromEntries(propList.map((p) => [p.id, p]));
             const integrityT = Object.fromEntries(integrityList.map((f) => [f.id, f]));
-            verdictSel   = selectVerdictsToPublish({ verdicts: verdictsT, propositions: propsT, claims: claimsT, canon: canonT });
+            verdictSel   = selectVerdictsToPublish({ verdicts: verdictsT, propositions: propsT, claims: claimsT, canon: canonT, findings: integrityT });
             vMirrorSel   = selectVerdictMirrors({ verdicts: verdictsT, propositions: propsT, claims: claimsT, canon: canonT });
             integritySel = selectIntegrityFindingsToPublish({
-                findings: integrityT, propositions: propsT, claims: claimsT, entities: entitiesT, canon: canonT
+                findings: integrityT, propositions: propsT, claims: claimsT, entities: entitiesT, canon: canonT, verdicts: verdictsT
             });
         }
         const truthTotal = verdictSel.length + vMirrorSel.length + integritySel.length;
@@ -3112,6 +3112,9 @@ async function publish() {
                         occurredPrecision: sel.proposition.occurred_precision,
                         method:            sel.verdict.method,
                         rationale:         sel.verdict.rationale,
+                        precedents:        sel.precedents,
+                        replyEventIds:     sel.verdict.reply_refs || [],
+                        exposure:          sel.verdict.exposure || '',
                         supersedesEventId: sel.supersedesEventId,
                         sourceUrl:         sel.url,
                         suggestedBy:       sel.verdict.suggested_by || 'user'
@@ -3201,6 +3204,9 @@ async function publish() {
                         gap,
                         method:            sel.finding.method,
                         rationale:         sel.finding.rationale,
+                        precedents:        sel.precedents,
+                        replyEventIds:     sel.finding.reply_refs || [],
+                        exposure:          sel.finding.exposure || '',
                         supersedesEventId: sel.supersedesEventId,
                         sourceUrl:         sel.sourceUrl,
                         suggestedBy:       sel.finding.suggested_by || 'user'

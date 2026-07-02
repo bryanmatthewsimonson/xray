@@ -264,3 +264,76 @@ test('wire: kind constants, dispute targets extended, flag default off', () => {
     assert.equal(FLAGS_DEFAULTS.truthAdjudicationPublishing, false,
         'publish paths gated off by default; the SW always accepts inbound');
 });
+
+// --- Slice A conformance: citations, right-of-reply, exposure, read-side adequacy ---
+
+test('citations: precedents / reply refs / exposure round-trip on both kinds', async () => {
+    const PRECEDENT = `30063:${AUTHOR}:verdict_abcdef1234567890`;
+    const REPLY = 'c'.repeat(64);
+    const { event } = await buildAdjudicatedVerdictEvent(baseVerdictArgs({
+        precedents: [{ coord: PRECEDENT, weight: 'binding' }, { coord: `30064:${AUTHOR}:integrity_x` }],
+        replyEventIds: [REPLY],
+        exposure: 'Donor to the subject\'s opponent in 2024.'
+    }));
+    const pTags = event.tags.filter((t) => t[0] === 'a' && t[3] === 'precedent');
+    assert.equal(pTags.length, 2);
+    assert.equal(pTags[0][4], 'binding');
+    assert.equal(pTags[1][4], 'persuasive', 'an unweighted citation defaults DOWN, never up');
+    assert.deepEqual(event.tags.find((t) => t[0] === 'e' && t[3] === 'reply')[1], REPLY);
+    assert.equal(event.tags.find((t) => t[0] === 'exposure')[1], 'Donor to the subject\'s opponent in 2024.');
+
+    const parsed = parseAdjudicatedVerdictEvent({ ...event, pubkey: AUTHOR, id: 'e'.repeat(64) });
+    assert.deepEqual(parsed.precedents, [
+        { coord: PRECEDENT, weight: 'binding' },
+        { coord: `30064:${AUTHOR}:integrity_x`, weight: 'persuasive' }
+    ]);
+    assert.deepEqual(parsed.replyEventIds, [REPLY]);
+    assert.equal(parsed.exposure, 'Donor to the subject\'s opponent in 2024.');
+    assert.equal(parsed.supersedesEventId, null, 'reply e-tags never masquerade as supersession');
+
+    await assert.rejects(() => buildAdjudicatedVerdictEvent(baseVerdictArgs({
+        precedents: [{ coord: '30040:bad:kind' }]
+    })), /30063\/30064 coordinate/);
+    await assert.rejects(() => buildAdjudicatedVerdictEvent(baseVerdictArgs({
+        precedents: [{ coord: PRECEDENT, weight: 'decisive' }]
+    })), /binding \| persuasive/);
+    await assert.rejects(() => buildAdjudicatedVerdictEvent(baseVerdictArgs({
+        replyEventIds: ['nope']
+    })), /64-hex event id/);
+
+    // Same fields on 30064.
+    const finding = await buildIntegrityFindingEvent(baseFindingArgs({
+        precedents: [{ coord: PRECEDENT, weight: 'persuasive' }],
+        replyEventIds: [REPLY],
+        exposure: 'Former staffer for the subject.'
+    }));
+    const fParsed = parseIntegrityFindingEvent({ ...finding.event, pubkey: AUTHOR, id: 'e'.repeat(64) });
+    assert.equal(fParsed.precedents.length, 1);
+    assert.deepEqual(fParsed.replyEventIds, [REPLY]);
+    assert.equal(fParsed.exposure, 'Former staffer for the subject.');
+});
+
+test('read-side adequacy: evidence-less established/contested events null-parse', async () => {
+    const { event } = await buildAdjudicatedVerdictEvent(baseVerdictArgs());
+    const stripped = { ...event, tags: event.tags.filter((t) => t[0] !== 'evidence-for') };
+    assert.equal(parseAdjudicatedVerdictEvent(stripped), null,
+        'a foreign established-true with no evidence-for never renders');
+
+    const contested = await buildAdjudicatedVerdictEvent(baseVerdictArgs({
+        verdict: 'contested',
+        evidenceAgainst: [{ quote: 'Counter-record.' }]
+    }));
+    const oneSided = { ...contested.event, tags: contested.event.tags.filter((t) => t[0] !== 'evidence-against') };
+    assert.equal(parseAdjudicatedVerdictEvent(oneSided), null);
+
+    // The honest states still parse evidence-less.
+    const honest = await buildAdjudicatedVerdictEvent(baseVerdictArgs({
+        verdict: 'insufficient-evidence', evidenceFor: []
+    }));
+    assert.ok(parseAdjudicatedVerdictEvent({ ...honest.event, pubkey: AUTHOR, id: 'e'.repeat(64) }));
+
+    // 30064: a substantive match stripped of evidence-for null-parses.
+    const finding = await buildIntegrityFindingEvent(baseFindingArgs());
+    const fStripped = { ...finding.event, tags: finding.event.tags.filter((t) => t[0] !== 'evidence-for') };
+    assert.equal(parseIntegrityFindingEvent(fStripped), null);
+});
