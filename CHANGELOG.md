@@ -12,6 +12,22 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 15.5 — the entity integrity record.** Dimension-separated,
+  computed-on-read, never stored: the **commitment record** and
+  **stated-value record** (each a count AND the list deriving it,
+  `pending` included), the **calibration record** (Brier from
+  *resolved* predictions only, reusing `audit/calibration.js`;
+  hedge-less or unresolved predictions are listed unscoreable, never
+  silently dropped), and the **correction-behavior record**
+  (verdict/finding supersessions, disclosed revision-gaps as credit,
+  and the 30062 forensic bridge when the caller asserts the subject).
+  **Coverage** ships on every assembled record — default
+  "undetermined: sample, not census" — and **hard-gates the optional
+  rollup**: without a declared assessed/universe/method measurement,
+  `optionalRollup` returns null; with one, it returns counts and a
+  sentence with the coverage limit on its face. No fused score field
+  exists anywhere in the record.
+
 - **Phase 15.4 — the integrity application (words vs deeds).**
   `IntegrityFinding` links a subject's **stated** commitment or value
   to their **enacted** action-facts (same entity both sides, resolved

@@ -76,13 +76,13 @@ Phase 14.5 ████████████████░░  complete — 
                                 opt-in) + the epistemic auditor (Quick
                                 single-shot / Thorough per-module). Flag- +
                                 key-gated, opt-in, nothing auto-saves
-Phase 15 █████████████░░░░░░░  in progress — truth adjudication: verdicts on
+Phase 15 ████████████████░░░░  in progress — truth adjudication: verdicts on
                                 propositions + words-vs-deeds integrity
                                 (docs/TRUTH_ADJUDICATION_DESIGN.md). Builds on
                                 Phase 14; kinds 30063/30064 (30065 reserved).
                                 15.1 propositions + 15.2 evidence/attestation
                                 + 15.3 verdicts + 15.4 integrity findings
-                                shipped
+                                + 15.5 entity record/coverage shipped
 ```
 
 Parity with the v4.2 userscript is long reached; the project now ships
@@ -1246,9 +1246,13 @@ Slices (one PR each; `claude/phase-15-*`):
   revision-as-credit via `revision_ref` composing 30055/30062;
   append-only supersession; `timelineForEntity` pattern-not-instance
   ordering on the deeds' `occurred_at`).
-- 📝 **15.5** Entity record + coverage — dimension-separated descriptive
-  records; the coverage measurement + cap; the optional gated rollup;
-  calibration from resolved predictions (reusing `audit/calibration.js`).
+- ✅ **15.5** Entity record + coverage — dimension-separated descriptive
+  records (`truth-entity-record.js`: commitments/values as count+list,
+  calibration from resolved predictions reusing `audit/calibration.js`
+  with unscoreables listed, corrections composing supersessions +
+  disclosed revisions + optional 30062 bridge); the coverage
+  measurement (default undetermined) + cap; the optional
+  coverage-gated rollup (a ratio sentence, never a score).
 - 📝 **15.6** Wire + NIP draft (flag-gated) — `30063`/`30064` builders +
   parsers; `truthAdjudicationPublishing` flag; NIP draft framing verdicts as
   evidence-bound descriptive adjudications with required caveats; precedent
