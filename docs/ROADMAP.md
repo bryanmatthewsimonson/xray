@@ -79,13 +79,12 @@ Phase 14.5 ████████████████░░  complete — 
 Phase 15 ███████████████████░  in progress — truth adjudication: verdicts on
                                 propositions + words-vs-deeds integrity
                                 (docs/TRUTH_ADJUDICATION_DESIGN.md). Kinds
-                                30063/30064 (30065 reserved). 15.1–15.9 all
-                                shipped (models, attestation, verdicts,
+                                30063/30064 (30065 reserved). 15.1–15.10
+                                all shipped (models, attestation, verdicts,
                                 integrity, entity record, wire + flag,
-                                publish wiring, reader UI, conformance,
-                                read-back/portal); remaining: integrity/
-                                attestation authoring UI + the deferred
-                                precedent/bridging tail
+                                publish wiring, reader + authoring UI,
+                                conformance, read-back/portal); remaining:
+                                the deferred precedent/bridging tail only
 ```
 
 Parity with the v4.2 userscript is long reached; the project now ships
@@ -1293,6 +1292,14 @@ order: 15.1 #79, 15.2 #80, 15.3 #81, 15.4 #82, 15.5 #83, 15.6 #84,
   modal gains **Others' rulings** (foreign 30063s by claim coordinate,
   rendered through `verdictVariance` — each ruling + the spread, never
   a consensus).
+- ✅ **15.10** Authoring UI for the evidence + integrity layers — the
+  **integrity modal** (`integrity-modal.js`, hung on the claims bar:
+  word/deed pickers scoped by `integrityRole` + the same-entity rule,
+  per-word-class match chips, documented-gap section with a
+  constraint picker, supersession banner); **attestation fields** on
+  the supports-link flow (tier / origin key / independence note); the
+  adjudicate modal shows the **convergence measurement** for
+  propositions with attestation edges.
 - 📝 **(later)** Precedent + bridging weighting — stare-decisis corpus;
   bridging-weighted standing (the deferred aggregation-layer tail).
 

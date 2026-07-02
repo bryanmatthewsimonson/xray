@@ -22,6 +22,7 @@ import { installEntityTagger, rehydrateEntityMarks } from './entity-tagger.js';
 import { openClaimModal, openEvidenceLinkModal, openOthersClaimsModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
 import { openAssessModal } from '../shared/assess-modal.js';
 import { openAdjudicateModal } from '../shared/adjudicate-modal.js';
+import { openIntegrityModal } from '../shared/integrity-modal.js';
 import { AssessmentModel } from '../shared/assessment-model.js';
 import { makeClaimRefCanonicalizer } from '../shared/claim-ref.js';
 import { selectAssessmentsToPublish, selectLinksToPublish, selectMirrors } from '../shared/assessment-publish.js';
@@ -875,6 +876,18 @@ async function refreshClaimsBar() {
             // Assessing a "foreign" claim can touch one of OURS (its
             // coordinate collapses to the local id) — refresh badges.
             if (result && result.assessed) await refreshClaimsBar();
+        });
+    }
+
+    // Integrity finding authoring (15.10) — word-vs-deed matches over
+    // the adjudicated propositions; the modal collects candidates itself.
+    const integrityBtn = host.querySelector('#xr-claims-integrity');
+    if (integrityBtn) {
+        integrityBtn.addEventListener('click', async () => {
+            const finding = await openIntegrityModal();
+            if (finding) {
+                toast(`Integrity match ruled: ${finding.match}${finding.supersedes ? ' (supersedes prior finding)' : ''}`, 'success', 2000);
+            }
         });
     }
 

@@ -12,6 +12,20 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 15.10 — authoring UI for integrity findings + attestations.**
+  The claims bar gains **🤝 Integrity…**: pick a stated
+  commitment/value (only word-eligible propositions are offered), pick
+  enacted action-facts about the same entity, and rule the match with
+  the full verdict discipline — per-word-class chips, evidence rows,
+  mandatory caveats, documented-only gap decomposition with a
+  constraint picker, disclosure, and supersession when an active
+  finding exists. The 🔗 link flow gains **attestation fields** on
+  `supports` links (tier / origin key / independence note — attached
+  only when an origin is asserted), and the adjudicate modal shows the
+  **attestation convergence** line for propositions with attestation
+  edges. Every eligibility rule renders as the option space, with the
+  model validators as backstop.
+
 - **Phase 15.9 — read-back + portal surfaces.** The read half of the
   adjudication layer: My Archive now **fetches** kinds 30063/30064,
   **reconciles** them against the local publish stamps (superseded

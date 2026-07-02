@@ -34,6 +34,7 @@ import { EntityModel, ENTITY_ICONS } from '../shared/entity-model.js';
 import { resolveSelectors } from '../shared/metadata/anchor-resolver.js';
 import { openAssessModal, renderAssessmentBadges, assessmentsByCanonicalRef } from '../shared/assess-modal.js';
 import { renderAdjudicationBadges, adjudicationsByClaimId } from '../shared/adjudicate-modal.js';
+import { EVIDENCE_TIERS, EVIDENCE_TIER_LABELS } from '../shared/truth-taxonomy.js';
 import { AssessmentModel } from '../shared/assessment-model.js';
 import { makeClaimRefCanonicalizer, isLocalClaimId } from '../shared/claim-ref.js';
 
@@ -419,8 +420,12 @@ export function openEvidenceLinkModal({ sourceClaim }) {
                     b.classList.remove('xr-link-modal__rel-btn--active'));
                 btn.classList.add('xr-link-modal__rel-btn--active');
                 rel = btn.dataset.rel;
+                // Attestation metadata rides supports links only (15.2).
+                const attest = $('.xr-link-modal__attest');
+                if (attest) attest.hidden = rel !== 'supports';
             });
         });
+        { const attest = $('.xr-link-modal__attest'); if (attest) attest.hidden = rel !== 'supports'; }
 
         modal.querySelector('[data-action="save"]').addEventListener('click', async () => {
             if (!target) {
@@ -428,10 +433,19 @@ export function openEvidenceLinkModal({ sourceClaim }) {
                 return;
             }
             try {
+                // Attestation attaches only when the user asserts an
+                // origin — the linker validates the rest (tier, etc.).
+                const originKey = rel === 'supports' ? $('.xr-link-modal__attest-origin').value.trim() : '';
+                const attestation = originKey ? {
+                    tier:              $('.xr-link-modal__attest-tier').value || null,
+                    origin_key:        originKey,
+                    independence_note: $('.xr-link-modal__attest-indep').value.trim()
+                } : undefined;
                 const link = await EvidenceLinker.create({
                     source_claim_id: sourceClaim.id,
                     target_claim_id: target.ref,
                     relationship:    rel,
+                    attestation,
                     note:            $('.xr-link-modal__note').value.trim(),
                     // Foreign endpoints carry their snapshot so the link
                     // renders/exports without a relay round-trip; local
@@ -538,6 +552,21 @@ function buildLinkModalHtml(sourceClaim, candidates) {
           <div class="xr-claim-modal__field xr-link-modal__rel-row">
             <span class="xr-claim-modal__label">Relationship</span>
             <div class="xr-link-modal__rels">${relHtml}</div>
+          </div>
+
+          <div class="xr-claim-modal__field xr-link-modal__attest" hidden>
+            <span class="xr-claim-modal__label">Attestation <em>(optional, supports-only — marks the source claim as an
+              attesting artifact; §3.2: two outlets on one wire are ONE source)</em></span>
+            <div class="xr-link-modal__attest-row">
+              <select class="xr-link-modal__attest-tier">
+                <option value="">tier —</option>
+                ${EVIDENCE_TIERS.map((t) => `<option value="${t}">${escapeHtml(EVIDENCE_TIER_LABELS[t])}</option>`).join('')}
+              </select>
+              <input type="text" class="xr-link-modal__attest-origin" spellcheck="false"
+                     placeholder="origin key — the upstream this traces to (e.g. ap-wire)" />
+            </div>
+            <input type="text" class="xr-link-modal__attest-indep" spellcheck="false"
+                   placeholder="independence note — WHY this origin is independent of the others (demonstrated, not assumed)" />
           </div>
 
           <label class="xr-claim-modal__field">
@@ -681,6 +710,10 @@ export async function renderClaimsBar(claims) {
           <button type="button" class="xr-claims__others-btn" id="xr-claims-others"
                   title="Fetch kind-30040 events for this article from the configured relays">
             🌐 Others' claims
+          </button>
+          <button type="button" class="xr-claims__others-btn" id="xr-claims-integrity"
+                  title="Adjudicate a words-vs-deeds match from your stated/enacted propositions">
+            🤝 Integrity…
           </button>
         </header>
         <div class="xr-claims__list">${rows.join('')}</div>

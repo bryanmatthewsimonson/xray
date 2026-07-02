@@ -19,6 +19,23 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-02 — Phase 15.10: authoring UI — eligibility as the option list
+
+Tags: `design`.
+
+The integrity modal's central choice: **eligibility rules render as
+the option space, not as validation errors.** Only word-eligible
+propositions appear in the word list, deed candidates filter to the
+word's about-entities, match chips come from matchStatesForWordClass —
+so the §3.1/§3.4 exclusions (ascribed, unclassified, wrong-class
+matches, cross-entity pairs) are mostly unreachable rather than merely
+rejected; the model validators stay as the backstop. Attestation
+fields on the supports-link flow attach only when the author asserts
+an origin key (no origin, no attestation — never defaulted), and the
+adjudicate modal now surfaces the 15.2 convergence measurement for
+propositions that have attestation edges, closing the audit's
+"computed but invisible" note for convergence.
+
 ## 2026-07-02 — Phase 15.9: read-back — the missing half, and one deliberate non-persistence
 
 Tags: `design`.
