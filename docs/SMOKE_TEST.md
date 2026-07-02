@@ -775,6 +775,16 @@ is follow-up work). In the options-page console, after 15.A:
 | 15.30 | Portal → entity view for the finding's subject | ✅ the **Integrity record** block renders: dimension counts beside their lists, the timeline ordered on deed event-time, calibration/corrections lines; declaring coverage (assessed/universe/method) unlocks the rollup sentence; without it the rollup line stays "no aggregate" |
 | 15.31 | Reader → 🏛 on the published claim → **Others' rulings** | ✅ fetches foreign 30063s for the selected class; shows each ruling + the spread ("disagreement is data"), never a consensus number; malformed rulings (the read-side adequacy nulls) simply don't appear |
 
+**Authoring UI (15.10)** — replaces the 15.21-series console steps
+when preferred:
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 15.32 | Claims bar → **🤝 Integrity…** | ✅ modal lists only word-eligible propositions (stated commitments/values); picking one filters deeds to enacted facts sharing its entity; match chips match the word class |
+| 15.33 | Rule a `broken` match with a caveat; reopen with the same word+deeds | ✅ saved via toast; reopening shows the active match and "Save superseding finding" |
+| 15.34 | Gap: cause `constraint` with no pick, or any cause with no note | ❌ inline error (documented-only; constraint needs its corroborated action-fact) |
+| 15.35 | 🔗 link flow → relationship **supports** | ✅ the attestation fields appear (tier / origin key / independence note); filling an origin key saves attestation metadata; the adjudicate modal for the target's proposition then shows the convergence line ("N demonstrated-independent origin(s) of M …") |
+
 **Operator disciplines (v1)** — §2 defenses that ship as practice, not
 mechanism; follow them until tooling lands: seek **kept** commitments as
 hard as broken ones (balance-sheet symmetry — an entity record that only

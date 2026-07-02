@@ -23,6 +23,7 @@
 
 import { TruthAdjudicationModel, VerdictModel, verdictVariance } from './truth-adjudication-model.js';
 import { parseAdjudicatedVerdictEvent } from './truth-builders.js';
+import { convergenceForProposition } from './truth-attestation.js';
 import {
     PROPOSITION_CLASSES, PROPOSITION_CLASS_LABELS,
     SUBJECT_ROLES, SUBJECT_ROLE_LABELS, SUBJECT_ROLE_UNCLASSIFIED,
@@ -209,6 +210,22 @@ export async function openAdjudicateModal({ claimId, claimText = '', relays = []
             $('.xr-adjudicate__precision').value = (existing && existing.occurred_precision) || 'day';
             $('.xr-adjudicate__horizon-row').hidden = false;
             $('.xr-adjudicate__horizon-req').hidden = cls !== 'prediction';
+
+            // The §3.2 convergence measurement, when this proposition
+            // already has attestation edges (supports links with
+            // attestation metadata) — counts with their derivation.
+            const convergenceEl = $('.xr-adjudicate__convergence');
+            convergenceEl.hidden = true;
+            if (existing) {
+                convergenceForProposition(existing.id).then((c) => {
+                    if (state.cls !== cls || c.total_attestations === 0) return;
+                    convergenceEl.hidden = false;
+                    convergenceEl.textContent =
+                        `Attestation: ${c.independent_count} demonstrated-independent origin(s)`
+                        + ` of ${c.origin_count} (${c.total_attestations} attestation(s))`
+                        + (c.undemonstrated.length ? ` · undemonstrated: ${c.undemonstrated.join(', ')}` : '');
+                }).catch(() => { /* display only */ });
+            }
 
             // Verdict section vs the firewall explainer.
             const adjudicable = isTruthAdjudicable(cls);
@@ -488,6 +505,8 @@ function buildHtml(claimText) {
             <input type="date" class="xr-adjudicate__occurred" />
             <select class="xr-adjudicate__precision">${precisionOpts}</select>
           </div>
+
+          <div class="xr-adjudicate__convergence xr-adjudicate__others" hidden></div>
 
           <div class="xr-adjudicate__firewall" hidden>
             🔥 <strong>Not adjudicable as true/false.</strong> This class is recorded so the
