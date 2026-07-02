@@ -42,6 +42,7 @@ import {
     isLocalClaimId, parseClaimCoord, assertValidClaimRef,
     canonicalizeClaimRef, makeClaimRefCanonicalizer
 } from './claim-ref.js';
+import { EVIDENCE_TIERS, isValidEvidenceTier } from './truth-taxonomy.js';
 
 // ------------------------------------------------------------------
 // Enums
@@ -168,6 +169,45 @@ function assertValidSuggestedBy(value) {
 }
 
 /**
+ * Attestation metadata — Phase 15.2 (docs/TRUTH_ADJUDICATION_DESIGN.md
+ * §3.2). Optional, and only meaningful on a `supports` link: it marks
+ * the source claim as an ATTESTING ARTIFACT for the target, carrying
+ *
+ *   - tier              — declared evidence tier (tier-1/2/3)
+ *   - origin_key        — the upstream origin the artifact traces to
+ *                         (e.g. 'ap-wire', 'court-record-4:19-cv-01234').
+ *                         Two outlets on one wire share an origin_key
+ *                         and count as ONE source.
+ *   - independence_note — WHY this origin is independent of the
+ *                         proposition's other origins. Independence is
+ *                         demonstrated, not assumed: the convergence
+ *                         measurement (truth-attestation.js) does not
+ *                         count an undemonstrated origin as independent.
+ *
+ * Purely additive: links without it are untouched, and no wire change
+ * happens here (the 30055 event is unchanged until 15.6 decides).
+ */
+function cleanAttestation(input, relationship) {
+    if (input === undefined || input === null) return null;
+    if (relationship !== 'supports') {
+        throw new Error(`attestation metadata is only valid on a supports link (got ${relationship})`);
+    }
+    const given = input;
+    if (!isValidEvidenceTier(given.tier)) {
+        throw new Error(`Invalid attestation tier: ${given.tier} (expected one of ${EVIDENCE_TIERS.join(', ')})`);
+    }
+    const originKey = String(given.origin_key || '').trim().toLowerCase();
+    if (!originKey) {
+        throw new Error('attestation.origin_key is required — two outlets on one wire are one source');
+    }
+    return {
+        tier:              given.tier,
+        origin_key:        originKey,
+        independence_note: String(given.independence_note || '').trim()
+    };
+}
+
+/**
  * Endpoint snapshot: caller-supplied for foreign refs, auto-filled
  * from the claim registry for local ones. Null when neither source
  * has it (e.g. tests with fake ids) — renderers must tolerate that.
@@ -270,10 +310,11 @@ export const EvidenceLinker = {
      * unordered pair.
      */
     create: async ({ source_claim_id, target_claim_id, relationship, note, suggested_by,
-                     source_snapshot, target_snapshot }) => {
+                     source_snapshot, target_snapshot, attestation }) => {
         assertValidClaimRef(source_claim_id, 'source_claim_id');
         assertValidClaimRef(target_claim_id, 'target_claim_id');
         assertValidRelationship(relationship);
+        const attestationMeta = cleanAttestation(attestation, relationship);
 
         let source = await canonicalizeClaimRef(source_claim_id, 'source_claim_id');
         let target = await canonicalizeClaimRef(target_claim_id, 'target_claim_id');
@@ -317,6 +358,7 @@ export const EvidenceLinker = {
             relationship,
             note:            note || '',
             suggested_by:    assertValidSuggestedBy(suggested_by),
+            attestation:     attestationMeta,
             source_snapshot: await resolveSnapshot(source, sourceSnap),
             target_snapshot: await resolveSnapshot(target, targetSnap),
             created:         now,
@@ -332,7 +374,9 @@ export const EvidenceLinker = {
 
     /**
      * Patch a link. Source / target / relationship are IMMUTABLE —
-     * they derive the id. Only `note` can be edited in place. To
+     * they derive the id. Editable in place: `note`, and (on supports
+     * links) the `attestation` metadata — a re-assessed tier or a
+     * sharpened independence note is an edit, not a new edge. To
      * change anything structural, delete + recreate.
      */
     update: async (id, updates) => {
@@ -341,6 +385,9 @@ export const EvidenceLinker = {
         if (!record) throw new Error(`Evidence link not found: ${id}`);
         const patched = normalizeLink({ ...record });
         if ('note' in updates) patched.note = updates.note || '';
+        if ('attestation' in updates) {
+            patched.attestation = cleanAttestation(updates.attestation, record.relationship);
+        }
         patched.updated = Math.floor(Date.now() / 1000);
         all[id] = patched;
         await Storage.set('evidence_links', all);

@@ -19,6 +19,36 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-02 — Phase 15.2: attestations live on the 30055 link, and the baseline needs no note
+
+Tags: `design`.
+
+Second Phase-15 slice (docs/TRUTH_ADJUDICATION_DESIGN.md §3.2). Two
+second-guessable calls:
+
+- **An attestation is metadata ON a `supports` link, not a new record
+  type.** The design's implementation-seams note points §3.2 at
+  `evidence-linker.js` ("tiers, independence") and the slice plan says
+  the convergence composes 30055 `supports` — so each attesting
+  artifact is a captured claim, the edge to the proposition's
+  underlying claim is the existing supports link, and the §3.2 fields
+  (`tier`, `origin_key`, `independence_note`) ride the edge as an
+  optional validated `attestation` object. Additive only: plain links
+  are untouched, non-supports links reject the metadata, and the
+  30055 wire format is unchanged until 15.6 decides what (if anything)
+  of it publishes.
+- **The earliest origin group is the independence baseline.** "Independence
+  demonstrated, not assumed" needs an anchor: the first source has
+  nothing prior to be independent OF, so it counts without a note, and
+  every LATER origin group counts only if it carries an
+  `independence_note`. Undemonstrated groups are listed in the
+  measurement but excluded from `independent_count` — visible, not
+  counted. Created-at ties (second granularity — every test, and any
+  same-minute authoring session) break on first-appearance order,
+  never alphabetically; the first cut of this sorted ties by
+  `origin_key` and the end-to-end test immediately elected the wrong
+  baseline (`ap-wire` over the actually-first court record).
+
 ## 2026-07-02 — Phase 15.1: adjudicable-proposition modeling choices
 
 Tags: `design`.

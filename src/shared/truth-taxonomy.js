@@ -92,6 +92,39 @@ export function isValidOccurredPrecision(value) {
 }
 
 // ------------------------------------------------------------------
+// Evidence tiers — §3.2 (Phase 15.2). A declared, per-evidence claim
+// about PROVENANCE QUALITY, not a score: which rung of the sourcing
+// ladder the artifact sits on.
+// ------------------------------------------------------------------
+
+export const EVIDENCE_TIERS = Object.freeze([
+    'tier-1',   // primary / official: court records, roll-call votes,
+                // filings, datasets, signed records, primary recordings
+    'tier-2',   // independent reporting
+    'tier-3'    // single-source / anonymous / uncorroborated
+]);
+
+export const EVIDENCE_TIER_LABELS = Object.freeze({
+    'tier-1': 'Primary / official',
+    'tier-2': 'Independent reporting',
+    'tier-3': 'Single-source / uncorroborated'
+});
+
+export function isValidEvidenceTier(value) {
+    return EVIDENCE_TIERS.includes(value);
+}
+
+/**
+ * Numeric rank for comparing tiers (lower = stronger provenance).
+ * Used by the convergence measurement to report an origin group's
+ * BEST tier. Unknown tiers rank below everything (fails closed).
+ */
+export function evidenceTierRank(tier) {
+    const idx = EVIDENCE_TIERS.indexOf(tier);
+    return idx === -1 ? EVIDENCE_TIERS.length : idx;
+}
+
+// ------------------------------------------------------------------
 // The firewall (§3.1, §3.4, §5.7) — do not soften.
 // ------------------------------------------------------------------
 

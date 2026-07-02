@@ -12,6 +12,21 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 15.2 — evidence tiers + attestation graph.** The §3.2 layer
+  of the truth-adjudication design: a declared **evidence tier**
+  (`tier-1` primary/official, `tier-2` independent reporting, `tier-3`
+  single-source) plus `origin_key` and `independence_note` ride the
+  existing kind-30055 `supports` link as validated attestation
+  metadata, marking the source claim as an attesting artifact for a
+  proposition's underlying claim. `truth-attestation.js` adds the
+  authoring surface (`attestProposition`) and the **convergence
+  measurement**: origin groups collapse shared upstreams ("two outlets
+  on one wire are one source"), independence is **demonstrated, not
+  assumed** (the earliest origin is the baseline; later origins count
+  as independent only with a recorded independence note), and every
+  count ships its full derivation — groups, link ids, tiers, notes.
+  No wire change; local records only.
+
 - **Phase 15.1 — adjudicable propositions (local model, no wire).** The
   atomization gate of the truth-adjudication layer
   (`docs/TRUTH_ADJUDICATION_DESIGN.md` §3.1): a claim becomes

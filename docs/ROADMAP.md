@@ -76,11 +76,12 @@ Phase 14.5 ████████████████░░  complete — 
                                 opt-in) + the epistemic auditor (Quick
                                 single-shot / Thorough per-module). Flag- +
                                 key-gated, opt-in, nothing auto-saves
-Phase 15 ███░░░░░░░░░░░░░░░░░  in progress — truth adjudication: verdicts on
+Phase 15 ██████░░░░░░░░░░░░░░  in progress — truth adjudication: verdicts on
                                 propositions + words-vs-deeds integrity
                                 (docs/TRUTH_ADJUDICATION_DESIGN.md). Builds on
                                 Phase 14; kinds 30063/30064 (30065 reserved).
-                                15.1 adjudicable propositions shipped
+                                15.1 adjudicable propositions + 15.2 evidence
+                                tiers/attestation graph shipped
 ```
 
 Parity with the v4.2 userscript is long reached; the project now ships
@@ -1220,9 +1221,12 @@ Slices (one PR each; `claude/phase-15-*`):
   claims (`truth-taxonomy.js` + `truth-adjudication-model.js`); the
   interpretation/value firewall (`isTruthAdjudicable` /
   `isIntegrityEligible`); exhaustive-enum tests.
-- 📝 **15.2** Evidence tiers + attestation graph — tiered evidence;
-  independent-attestation convergence for action-facts (composing 30055
-  `supports`); independence checks.
+- ✅ **15.2** Evidence tiers + attestation graph — tiered evidence
+  (`EVIDENCE_TIERS` + attestation metadata on 30055 `supports` links);
+  independent-attestation convergence for action-facts
+  (`truth-attestation.js` — origin-group collapse, demonstrated-
+  independence discipline, per-tier counts with full derivation);
+  independence checks.
 - 📝 **15.3** Verdict model + dispute reuse — `AdjudicatedVerdict`
   (descriptive states, standard-of-proof, verbatim evidence, caveats);
   multi-adjudicator variance *surface*; supersession; reuse the `30061`
