@@ -19,6 +19,39 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-03 — Complex content lands: islands re-sanitize at render; PDF columns share baselines
+
+Tags: `design`, `bug`.
+
+Phase 18 C1–C4 implementation notes, the second-guessable parts:
+
+- **HTML islands are never trusted at render.** Complex tables and
+  MathML are preserved as fenced HTML inside the markdown — but
+  captured markdown round-trips through relays, so `markdownToHtml`
+  re-sanitizes every island body through the same allowlist serializer
+  that produced it (`content-islands.js`), and renders it as escaped
+  text when it can't. The fence is a display hint, not a trust
+  boundary. The serializer is deliberately canonical (fixed attribute
+  order, collapsed/trimmed whitespace, unknown elements unwrap,
+  script/style/etc. drop outright) so islands can't wobble the
+  canonical article hash.
+- **Two-column PDFs put both columns on the SAME baseline.** The
+  first layout-engine draft clustered runs by baseline only, which
+  interleaved the columns line-by-line. Lines now split at
+  gutter-sized x-gaps (≥ max(18pt, 1.5× font size)) before column
+  ordering. Caught by the synthetic-fixture tests, worth remembering
+  for any future run-geometry work.
+- **PDF page anchors ground against the extracted markdown**, not the
+  rendered body text — the pageMap indexes the markdown, and rendered
+  offsets differ. Page lookup re-grounds the quote via
+  quote-grounding against the markdown substrate (memoized index).
+- **Scans are refused, not mis-captured**: near-zero text density
+  throws with a pointer to the designed LLM transcription tier
+  (COMPLEX_CONTENT_DESIGN.md §6) — shipping a wrong capture silently
+  would be the provenance failure this whole train exists to prevent.
+
+---
+
 ## 2026-07-03 — Thin claims stay thin for display, not for provenance; entities keep their verbatim mentions
 
 Tags: `design`.

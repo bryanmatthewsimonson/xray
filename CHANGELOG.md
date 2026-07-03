@@ -30,14 +30,36 @@ Sections per release: **Added** (new features), **Changed**
   whose names token-match an existing same-type entity offer **"use
   existing"** (single candidate = default) instead of minting
   near-duplicate ids.
-- **Complex content capture design**
-  (`docs/COMPLEX_CONTENT_DESIGN.md`, design-only, ROADMAP Phase 18):
-  three tiers for PDFs / complex tables / scientific papers —
-  deterministic extractor upgrades (HTML-island tables, TeX recovery,
-  scholarly handlers), native PDF ingestion (pdf.js in the reader,
-  archived source bytes by hash, page-anchored claims), and a gated
-  LLM extraction assist constrained by a dual-substrate rule so model
-  output can never masquerade as document text.
+- **Complex content capture (Phase 18, slices C1–C4 + C2).**
+  Implements `docs/COMPLEX_CONTENT_DESIGN.md` §4–5:
+  - *Tables & math (C1)*: complex tables (rowspan/colspan, nested,
+    captions, multi-row headers, block cells) are preserved as
+    deterministic, sanitized HTML islands inside the markdown instead
+    of being GFM-mangled; KaTeX/MathJax-v2 math recovers the author's
+    TeX (`$…$`), MathJax-v3/raw MathML becomes sanitized math islands.
+    The renderer re-sanitizes island bodies through the same allowlist
+    (foreign markdown fences are never trusted); simple tables keep
+    the GFM path.
+  - *PDF capture (C3/C4)*: a toolbar click on a PDF tab now routes to
+    the reader's PDF path (content scripts can't run in PDF viewers);
+    the reader fetches the bytes (with an Import-file fallback),
+    archives the original in a new IndexedDB v3 `source_documents`
+    store keyed by `sha256(bytes)` (50MB cap), and extracts text with
+    a lazily-loaded pdf.js bundle. A pure layout engine reconstructs
+    lines/columns/paragraphs (gutter-aware two-column ordering,
+    header/footer removal, hyphenation reflow, size-based headings)
+    into markdown plus a per-page offset map; claims captured from a
+    PDF carry an additive `FragmentSelector` (`page=N`) anchor, and
+    the capture records `extraction` provenance
+    (`{method, source_hash, page_count}`). Scans without a text layer
+    are refused with a pointer to the designed (not yet built) LLM
+    transcription tier.
+  - *Scholarly metadata (C2)*: every capture now reads standard
+    citation meta tags (DOI, arXiv id+version, journal, authors,
+    date) into `article.scholar`; published 30023s gain additive
+    `doi` + NIP-73 `['i','doi:…']` and `arxiv` tags.
+  Remaining from the design: the LLM extraction assist (C5) and the
+  ar5iv-preferring arXiv handler.
 - **Entity corpus + smart management design**
   (`docs/ENTITY_CORPUS_DESIGN.md`, design-only): deterministic
   duplicate reporting + LLM entity audit over the existing alias

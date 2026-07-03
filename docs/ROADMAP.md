@@ -1415,24 +1415,35 @@ Epistack sprint, alongside/after Phase 16.
 
 ---
 
-## Phase 18 — Complex content capture (PDFs, tables, scientific papers) 📝 design only
+## Phase 18 — Complex content capture (PDFs, tables, scientific papers) 🚧 C1–C4 landed
 
 **`docs/COMPLEX_CONTENT_DESIGN.md`** (v0.1, 2026-07-03). Three tiers
 under one substrate rule (*the deterministic text layer is always the
-grounding substrate*): **Tier 1** — extractor upgrades: complex tables
-preserved as sanitized HTML islands instead of GFM mangling, math
-recovered as TeX from MathJax/KaTeX, `arxiv.js`/`pmc.js` handlers +
-DOI/Crossref enrichment; **Tier 2** — native PDF ingestion: background
-routes PDF tabs (today's sendMessage-failure dead end) to the reader,
-pdf.js parses there, layout reconstruction → markdown + page map,
-original bytes archived by `source_hash` (IndexedDB v3), page-anchored
-claims via additive `FragmentSelector`; **Tier 3** — LLM extraction
-assist behind `llmAssist`: structure-only reconstruction re-grounded
-span-by-span against the Tier-2 substrate (the quote-as-search-key
-contract, one level down), model transcription allowed only for pure
-scans and honestly labeled in a new `extraction` provenance record.
-Slices C1–C6 in the design doc; C1/C2 are independent quick wins.
-Sequenced after the Epistack sprint.
+grounding substrate*).
+
+- ✅ **C1** tables + math — complex tables preserved as canonical
+  sanitized HTML islands (re-sanitized at render; never trusted from
+  foreign markdown); KaTeX/MathJax-v2 TeX recovery; MathML islands
+  (`shared/content-islands.js`).
+- ✅ **C2 (light)** scholarly metadata — DOI/arXiv/journal/authors
+  from citation meta tags on every capture (`platforms/scholar-meta.js`);
+  additive `doi` + NIP-73 `i` + `arxiv` tags on 30023.
+  *(Deferred: ar5iv-preferring arXiv handler, PMC handler, Crossref.)*
+- ✅ **C3** PDF routing + acquisition — background routes PDF tabs to
+  the reader's `?pdf=` path (`shared/pdf-detect.js` + Content-Type
+  sniff); Import-file fallback; IndexedDB v3 `source_documents` store
+  (bytes by `sha256`, 50MB cap).
+- ✅ **C4** pdf.js extraction — lazy engine/worker bundles; pure
+  layout reconstruction (`shared/pdf-layout.js`: gutter-aware columns,
+  furniture removal, hyphenation reflow, headings) → markdown +
+  pageMap; `FragmentSelector` page anchors on claims; `extraction`
+  provenance record; scans refused with a pointer to C5.
+- 📝 **C5** LLM extraction assist (dual-substrate re-grounding;
+  scans-only transcription, honestly labeled) — designed, not built.
+- 📝 **C6** SMOKE §Phase 18 walk needs a human with a browser.
+
+Sequenced after the Epistack sprint (docs/code landed on the
+provenance train, PR #108).
 
 ---
 

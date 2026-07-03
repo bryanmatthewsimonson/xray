@@ -697,6 +697,34 @@ publishes. Requires a real Anthropic API key
 
 ---
 
+## Phase 18 — Complex content (tables, math, PDFs)
+
+**Tables & math (C1)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 18.1 | Capture a page with a complex table (rowspan/colspan or a caption — e.g. a Wikipedia comparison table) | ✅ the reader renders the table as a real table (not mangled pipes); the markdown pane shows it fenced in `<!--xr:island:table-->` with sanitized HTML |
+| 18.2 | Capture a page with a simple 2×2 grid table | ✅ it stays a GFM pipe table (no island) |
+| 18.3 | Capture a page with KaTeX or MathJax math (e.g. a technical blog) | ✅ markdown carries `$…$` / `$$…$$` TeX (KaTeX/MathJax-v2) or a `math` island (MathJax-v3/MathML) — never rendered glyph soup |
+| 18.4 | Publish 18.1's article, then reconstruct it from the relay (portal) | ✅ the island renders identically; hand-editing the fenced markdown to contain `<script>` renders as ESCAPED text, never as markup |
+
+**PDF capture (C3/C4)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 18.5 | Open a text PDF (e.g. an arXiv paper PDF) in a tab, click the X-Ray toolbar icon | ✅ the reader opens on the `?pdf=` path and shows extracted markdown — headings, paragraphs, two-column papers in correct reading order (left column before right) |
+| 18.6 | DevTools on the reader: inspect `state.article.extraction` | ✅ `{ method: "pdfjs-…", source_hash: <64-hex>, page_count, archived: true }`; the `source_documents` IndexedDB store holds the original bytes under that hash |
+| 18.7 | Select a sentence in the PDF capture → Add as claim → Accept, then inspect the claim's `anchor` | ✅ the selector array includes `{"type":"FragmentSelector","value":"page=N"}` with the right page |
+| 18.8 | Click the toolbar icon on a scanned (image-only) PDF | ✅ a clear error explains there is no text layer (LLM transcription is designed, not built) — no junk capture is created |
+| 18.9 | Load a PDF behind a login where refetch fails (or use `?pdf=import`) | ✅ the Import-file picker appears; picking the saved PDF captures it (URL provenance retained when known) |
+| 18.10 | Repeat 18.5 on Firefox ≥128 | ✅ identical behavior (routing normalizes Firefox's viewer URL; extraction runs in the reader page) |
+
+**Scholarly metadata (C2)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 18.11 | Capture a journal-article page (or arXiv abs page) and publish | ✅ `state.article.scholar` carries `doi`/`arxiv_id`/authors; the 30023 gains `['doi', …]`, `['i','doi:…']`, and/or `['arxiv', …]` tags; a plain blog capture gains none |
+
 ## Phase 15 — Truth adjudication (15.1–15.10)
 
 Rows 15.1–15.13 are the **model console walk** (slices 15.1–15.3 have no

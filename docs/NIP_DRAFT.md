@@ -47,7 +47,7 @@ The recommended selector types, in order of robustness preference:
 2. `TextPositionSelector` — `{ start, end }`: UTF-16 code-unit offsets into the rendered text content of the capture-time article body (the same text stream the sibling `TextQuoteSelector` was cut from). Emitted alongside a `TextQuoteSelector` by machine-grounded anchors (X-Ray's LLM-suggest path). Consumers MUST treat it as verification-only: resolve it only when the text at `[start, end)` reproduces the sibling `TextQuoteSelector`'s `exact` (allowing for that selector's >500-char `head … tail` truncation); on mismatch, skip it rather than guess — the offsets are meaningless against edited text.
 3. `RangeSelector` — `{ startContainer, startOffset, endContainer, endOffset }` with XPath. Faster on long documents but brittle to DOM restructuring.
 4. `CssSelector` — useful when the page has stable element ids/classes (e.g., paragraph ids on Substack).
-5. `FragmentSelector` — for media fragments only: `xywh=...` for images, `t=Ns` for time offsets in audio/video.
+5. `FragmentSelector` — media fragments (`xywh=...` for images, `t=Ns` for time offsets in audio/video) and, for captures extracted from PDF documents, RFC 3778 page fragments (`{ "conformsTo": "http://tools.ietf.org/rfc/rfc3778", "value": "page=N" }`) alongside the text selectors — page-level provenance for consumers that can cite it; skipped by resolvers that can't.
 
 Authors SHOULD include multiple selectors. Consumers SHOULD try them in order and treat the first match with confidence ≥ 0.7 as the resolution. Annotations whose selectors do not resolve on the current page are NOT discarded; they are surfaced as page-level annotations with a "could not be located" indicator.
 
