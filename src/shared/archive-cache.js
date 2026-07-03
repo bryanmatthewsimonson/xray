@@ -41,7 +41,7 @@ import { EventBuilder } from './event-builder.js';
 import { articleHash as canonicalArticleHash } from './audit/article-hash.js';
 
 const DB_NAME        = 'xray-archive';
-const DB_VERSION     = 2;     // v2 (Phase 9a) added metadata stores
+const DB_VERSION     = 3;     // v2 (Phase 9a) metadata stores; v3 (Phase 18) source documents
 const ARTICLES_STORE = 'articles';
 const MAX_ENTRIES    = 500;  // cheap starting budget; revisit if needed
 
@@ -59,6 +59,16 @@ export const FACTCHECKS_STORE  = 'factchecks';
 export const RATINGS_STORE     = 'ratings';
 export const HELPFULNESS_STORE = 'helpfulness';
 export const TRUST_GRAPH_STORE = 'trust_graph';
+
+// v3 (Phase 18 C3) — original source-document bytes (PDFs; later other
+// non-HTML formats), keyed by sha256(bytes). The archive holds the
+// EVIDENCE, not just our reading of it: a capture's `extraction`
+// record points here via `source_hash`.
+export const SOURCE_DOCS_STORE = 'source_documents';
+
+// Bytes above this cap are not archived (hash-only provenance) — see
+// COMPLEX_CONTENT_DESIGN.md §9 Q2.
+export const SOURCE_DOC_MAX_BYTES = 50 * 1024 * 1024;
 
 // Per-URL eviction caps for metadata. Once exceeded, oldest-first within
 // the urlHash bucket. A global cap (5000 across all urlHashes) drives
@@ -161,6 +171,14 @@ export function openArchiveDb() {
                     // identity profiles can host distinct graphs).
                     db.createObjectStore(TRUST_GRAPH_STORE, { keyPath: 'pubkey' });
                 }
+            }
+
+            // v3 — Phase 18 C3: original source-document bytes, keyed by
+            // sha256(bytes) so identical documents dedupe naturally.
+            if (oldVersion < 3 && !db.objectStoreNames.contains(SOURCE_DOCS_STORE)) {
+                const sd = db.createObjectStore(SOURCE_DOCS_STORE, { keyPath: 'hash' });
+                sd.createIndex('url',       'url',       { unique: false });
+                sd.createIndex('fetchedAt', 'fetchedAt', { unique: false });
             }
         };
         open.onsuccess = () => resolve(open.result);
@@ -387,4 +405,49 @@ export async function evictIfNeeded(max = MAX_ENTRIES) {
     for (const rec of toEvict) store.delete(rec.urlHash);
     await tx(transaction);
     return toEvict.length;
+}
+
+// ------------------------------------------------------------------
+// Source documents (v3 — Phase 18 C3)
+// ------------------------------------------------------------------
+
+/**
+ * Archive a source document's original bytes, keyed by sha256(bytes).
+ * Idempotent: an existing row for the hash is left untouched (the
+ * bytes are the identity). Oversized documents (> SOURCE_DOC_MAX_BYTES)
+ * are NOT stored — the caller keeps hash-only provenance.
+ *
+ * @param {{hash: string, bytes: ArrayBuffer, mime?: string, url?: string}} doc
+ * @returns {Promise<{stored: boolean, reason?: string}>}
+ */
+export async function putSourceDocument({ hash, bytes, mime = '', url = '' }) {
+    if (!hash || !bytes) return { stored: false, reason: 'missing hash or bytes' };
+    const size = bytes.byteLength || 0;
+    if (size > SOURCE_DOC_MAX_BYTES) return { stored: false, reason: 'too large' };
+    const db = await openArchiveDb();
+    const existing = await req(
+        db.transaction(SOURCE_DOCS_STORE).objectStore(SOURCE_DOCS_STORE).get(hash)
+    );
+    if (existing) return { stored: true };
+    const transaction = db.transaction(SOURCE_DOCS_STORE, 'readwrite');
+    transaction.objectStore(SOURCE_DOCS_STORE).put({
+        hash,
+        bytes,
+        mime,
+        url,
+        size,
+        fetchedAt: Math.floor(Date.now() / 1000)
+    });
+    await tx(transaction);
+    return { stored: true };
+}
+
+/** Fetch an archived source document by its bytes hash, or null. */
+export async function getSourceDocument(hash) {
+    if (!hash) return null;
+    const db = await openArchiveDb();
+    const row = await req(
+        db.transaction(SOURCE_DOCS_STORE).objectStore(SOURCE_DOCS_STORE).get(hash)
+    );
+    return row || null;
 }

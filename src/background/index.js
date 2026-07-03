@@ -27,6 +27,7 @@ import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
 import { runSuggestionPass, runAuditPass, getLlmConfig } from '../shared/llm-client.js';
+import { pdfDocumentUrl } from '../shared/pdf-detect.js';
 
 // Pull the debug preference on SW startup. MV3 service workers sleep
 // and wake, so this runs each time the SW reloads. A chrome.storage
@@ -137,9 +138,11 @@ function openPortal() {
 
 /**
  * Capture the active tab and open it in the reader. If the content
- * script isn't loaded (chrome://, file://, extension pages, the
- * WebStore…) fall back to opening the options page so the icon click is
- * never a no-op the user can't recover from.
+ * script isn't loaded, the tab may be a PDF (browsers never inject
+ * content scripts into their PDF viewers — Phase 18 C3): route those
+ * to the reader's PDF capture path. Anything else (chrome://, file://,
+ * extension pages, the WebStore…) falls back to opening the options
+ * page so the icon click is never a no-op the user can't recover from.
  */
 function captureActiveTab() {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -148,11 +151,39 @@ function captureActiveTab() {
             chrome.runtime.openOptionsPage?.();
             return;
         }
-        chrome.tabs.sendMessage(tab.id, { type: 'xray:capture' }).catch((err) => {
+        chrome.tabs.sendMessage(tab.id, { type: 'xray:capture' }).catch(async (err) => {
+            const pdfUrl = pdfDocumentUrl(tab.url || '') || await sniffPdfUrl(tab.url || '');
+            if (pdfUrl) {
+                openPdfReader(pdfUrl);
+                return;
+            }
             console.warn('[X-Ray] xray:capture delivery failed, opening Settings:', err && err.message);
             chrome.runtime.openOptionsPage?.();
         });
     });
+}
+
+/** Open the reader on its PDF capture path (Phase 18 C3). */
+function openPdfReader(pdfUrl) {
+    chrome.tabs.create({
+        url: chrome.runtime.getURL('src/reader/index.html') + '?pdf=' + encodeURIComponent(pdfUrl)
+    });
+}
+
+/**
+ * Content-Type sniff for PDF URLs without a .pdf extension. HEAD only,
+ * http(s) only, best-effort — a blocked or failing HEAD just means "not
+ * provably a PDF" and the caller falls through to Settings.
+ */
+async function sniffPdfUrl(url) {
+    if (!/^https?:/i.test(url || '')) return null;
+    try {
+        const resp = await fetch(url, { method: 'HEAD', credentials: 'include' });
+        const type = (resp.headers.get('content-type') || '').toLowerCase();
+        return type.includes('application/pdf') ? url : null;
+    } catch (_) {
+        return null;
+    }
 }
 
 chrome.runtime.onInstalled.addListener(registerContextMenus);

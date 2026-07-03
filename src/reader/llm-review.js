@@ -47,6 +47,7 @@ import {
     buildFindingInput, buildBaselineInput, findEntityMatches
 } from '../shared/llm-proposals.js';
 import { createGroundingIndex } from '../shared/quote-grounding.js';
+import { pageFragmentSelector } from '../shared/pdf-layout.js';
 
 const KIND_TITLES = {
     entity: 'Entities', claim: 'Claims', assessment: 'Assessments',
@@ -125,7 +126,7 @@ function truncate(s, n) {
  * @returns {Promise<{accepted: number}>}
  */
 export async function openLlmReview(opts) {
-    const { proposals, model, articleText = '', sourceUrl = '', articleHash = '', sourceRef = {}, onAccepted, onEntityTag } = opts;
+    const { proposals, model, articleText = '', sourceUrl = '', articleHash = '', sourceRef = {}, onAccepted, onEntityTag, pageForQuote } = opts;
     const suggestedByLlm = `llm:${model}`;
     const norm = normalizeProposals(proposals);
     // ONE grounding index for the whole panel — validation, badges, and
@@ -541,7 +542,14 @@ export async function openLlmReview(opts) {
                 case 'claim': {
                     // The builders duck-type the grounding index in the
                     // articleText slot — same text, memoized lookups.
-                    const c = await ClaimModel.create(buildClaimInput(p, { entityIdByRef, articleText: grounding, sourceUrl, articleHash, suggestedBy: sb }));
+                    const input = buildClaimInput(p, { entityIdByRef, articleText: grounding, sourceUrl, articleHash, suggestedBy: sb });
+                    // PDF captures: page-level provenance as an additive
+                    // FragmentSelector on the anchor (Phase 18 C4).
+                    if (typeof pageForQuote === 'function' && input.quote && Array.isArray(input.anchor)) {
+                        const page = pageForQuote(input.quote);
+                        if (page) input.anchor.push(pageFragmentSelector(page));
+                    }
+                    const c = await ClaimModel.create(input);
                     if (row.ref) claimIdByRef[row.ref] = c.id;
                     return;
                 }

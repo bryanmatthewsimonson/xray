@@ -37,6 +37,9 @@ import { ForensicModel } from '../shared/forensic-model.js';
 import { openFindingModal, openBaselineModal } from '../shared/forensic-modal.js';
 import { renderFindingsBar } from './findings-section.js';
 import { openLlmReview } from './llm-review.js';
+import { capturePdfToArticle } from './pdf-capture.js';
+import { pageOfOffset, pageFragmentSelector } from '../shared/pdf-layout.js';
+import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { captureFromRange } from '../shared/metadata/anchor-capture.js';
 import { normalize as normalizeUrl } from '../shared/metadata/url-normalizer.js';
 import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
@@ -115,6 +118,19 @@ function parseDate(str) {
 
 async function loadArticle() {
     const params = new URLSearchParams(location.search);
+
+    // Phase 18 C3/C4 — PDF capture path. Content scripts never run in
+    // the browsers' PDF viewers, so the background routes PDF tabs here
+    // with ?pdf=<url> (or ?pdf=import for a local file). The article is
+    // built IN the reader (fetch → archive bytes → pdf.js → layout
+    // reconstruction) and then adopted exactly like a normal capture.
+    const pdfParam = params.get('pdf');
+    if (pdfParam) {
+        state.id = 'pdf-' + Date.now().toString(36);
+        const article = await loadPdfArticle(pdfParam);
+        return adoptArticle(article, null);
+    }
+
     const id = params.get('id');
     if (!id) throw new Error('Missing ?id= parameter. Capture a page with the X-Ray toolbar icon (or Ctrl/Cmd+Shift+X).');
     state.id = id;
@@ -146,6 +162,11 @@ async function loadArticle() {
         );
     }
 
+    return adoptArticle(article, stored);
+}
+
+/** Shared adoption tail for every load path (session hand-off, PDF). */
+function adoptArticle(article, stored) {
     state.article = article;
     state.markdownDraft = article.markdown || article.content || '';
     state.htmlDraft = article.content || ContentExtractor.markdownToHtml(state.markdownDraft);
@@ -212,6 +233,83 @@ async function loadArticle() {
     // render on a network round-trip.
     setTimeout(() => checkArchiveAvailability().catch((err) =>
         console.warn('[X-Ray Reader] archive check failed:', err)), 100);
+}
+
+// ------------------------------------------------------------------
+// PDF capture path (Phase 18 C3/C4)
+// ------------------------------------------------------------------
+
+async function loadPdfArticle(pdfParam) {
+    if (pdfParam !== 'import') {
+        let target = null;
+        try {
+            const u = new URL(pdfParam);
+            if (u.protocol === 'https:' || u.protocol === 'http:') target = u.href;
+        } catch (_) { /* invalid — falls through */ }
+        if (!target) throw new Error('Invalid PDF URL.');
+        try {
+            return await capturePdfToArticle({ url: target });
+        } catch (err) {
+            // Auth-bound refetch (403/401), CORS-ish failures, scans —
+            // surface the reason and offer the local-file path.
+            const file = await pickPdfFile(
+                'Could not capture this PDF automatically: '
+                + ((err && err.message) || err) + ' '
+                + 'If it needs a login, save it from the browser and import the file:');
+            return capturePdfToArticle({ file, url: target });
+        }
+    }
+    const file = await pickPdfFile('Capture a PDF from a local file:');
+    return capturePdfToArticle({ file });
+}
+
+/** Minimal modal file picker; resolves with the chosen File. */
+function pickPdfFile(message) {
+    return new Promise((resolvePick, rejectPick) => {
+        const host = document.createElement('div');
+        host.className = 'xr-pdf-pick';
+        const card = document.createElement('div');
+        card.className = 'xr-pdf-pick__card';
+        const title = document.createElement('h2');
+        title.textContent = '📄 PDF capture';
+        const note = document.createElement('p');
+        note.textContent = message;
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.pdf,application/pdf';
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.textContent = 'Cancel';
+        card.append(title, note, input, cancel);
+        host.appendChild(card);
+        document.body.appendChild(host);
+
+        const close = () => { if (host.parentNode) host.parentNode.removeChild(host); };
+        input.addEventListener('change', () => {
+            const file = input.files && input.files[0];
+            if (!file) return;
+            close();
+            resolvePick(file);
+        });
+        cancel.addEventListener('click', () => {
+            close();
+            rejectPick(new Error('PDF capture cancelled.'));
+        });
+    });
+}
+
+// Page-level provenance (COMPLEX_CONTENT_DESIGN.md §5.4): the pageMap
+// indexes the EXTRACTED MARKDOWN, so page lookup grounds the quote
+// against that substrate (not the rendered body, whose offsets differ).
+let _pdfMdIndex = null;
+function pdfPageOfQuote(quote) {
+    const map = state.article && state.article.pageMap;
+    const md = state.article && state.article.markdown;
+    if (!Array.isArray(map) || map.length === 0 || !md || !quote) return null;
+    if (!_pdfMdIndex) _pdfMdIndex = createGroundingIndex(md);
+    const g = _pdfMdIndex.ground(String(quote));
+    if (g.status === 'missing') return null;
+    return pageOfOffset(map, g.start);
 }
 
 // ------------------------------------------------------------------
@@ -796,11 +894,14 @@ function renderReader() {
             state.dirtySource = 'reader';
         },
         onClaim: async ({ text, context, anchor }) => {
+            // PDF captures: page-level provenance rides as an additive
+            // FragmentSelector (resolvers that don't know it skip it).
+            const page = pdfPageOfQuote(text);
             const saved = await openClaimModal({
                 sourceUrl:   state.article.url,
                 initialText: text,
                 context,
-                anchor,
+                anchor: page ? [...(anchor || []), pageFragmentSelector(page)] : anchor,
                 // Text provenance: the selection IS the verbatim quote.
                 quote:       text,
                 articleHash: claimArticleHash(),
@@ -1127,6 +1228,8 @@ async function runSuggestPass() {
         articleText,
         sourceUrl:  state.article.url || '',
         articleHash: claimArticleHash() || '',
+        // PDF page anchors for accepted claims (null for non-PDFs).
+        pageForQuote: (q) => pdfPageOfQuote(q),
         sourceRef:  { url: state.article.url || '', title: state.article.title || '' },
         // Accepted entities are tagged onto the article with their
         // grounded verbatim mention — same ref shape (and same dedupe)

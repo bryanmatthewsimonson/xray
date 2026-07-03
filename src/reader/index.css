@@ -2214,6 +2214,20 @@ body {
   border: 1px solid var(--xr-border); border-radius: 6px;
   background: var(--xr-bg); color: var(--xr-text); max-width: 260px; }
 
+/* PDF capture file picker (Phase 18 C3) */
+.xr-pdf-pick { position: fixed; inset: 0; z-index: 10000;
+  background: rgba(0, 0, 0, 0.5); display: flex;
+  align-items: center; justify-content: center; }
+.xr-pdf-pick__card { background: var(--xr-surface); color: var(--xr-text);
+  border: 1px solid var(--xr-border); border-radius: 10px;
+  padding: 22px 26px; max-width: 480px; display: flex;
+  flex-direction: column; gap: 12px; }
+.xr-pdf-pick__card h2 { margin: 0; font-size: 17px; }
+.xr-pdf-pick__card p { margin: 0; font-size: 13.5px; color: var(--xr-text-dim); }
+.xr-pdf-pick__card button { align-self: flex-end; font: inherit; font-size: 13px;
+  padding: 6px 12px; cursor: pointer; border: 1px solid var(--xr-border);
+  border-radius: 7px; background: var(--xr-surface); color: var(--xr-text); }
+
 .xr-llm__row-actions { display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; }
 .xr-llm__btn { font: inherit; font-size: 13px; padding: 6px 12px; cursor: pointer;
   border: 1px solid var(--xr-border); border-radius: 7px; background: var(--xr-surface);

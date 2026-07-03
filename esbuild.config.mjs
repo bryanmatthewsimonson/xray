@@ -103,6 +103,25 @@ const configs = [
         outfile: resolve(root, 'dist/api-interceptor.bundle.js'),
         format: 'iife',
         platform: 'browser'
+    },
+
+    // --- pdf.js engine + worker (Phase 18 C4) ---
+    // The engine is ESM so the reader can dynamic-import it lazily
+    // (only when a PDF is captured); the worker bundles pdf.js's own
+    // worker as a classic-worker-compatible IIFE.
+    {
+        ...shared,
+        entryPoints: [resolve(root, 'src/reader/pdf-engine.js')],
+        outfile: resolve(root, 'dist/pdf-engine.bundle.js'),
+        format: 'esm',
+        platform: 'browser'
+    },
+    {
+        ...shared,
+        entryPoints: [resolve(root, 'src/reader/pdf-worker-entry.js')],
+        outfile: resolve(root, 'dist/pdf.worker.bundle.js'),
+        format: 'iife',
+        platform: 'browser'
     }
 ];
 
