@@ -46,17 +46,20 @@ merge, plus accumulated drift. Fixed in one chore PR:
   directly); `web-ext` added to devDependencies so `npm run lint`
   works outside CI (it was global-install-only, broken on fresh
   clones); stale "Phase 1" comment in ci.yml updated.
-- **Branch cleanup**: 63 fully-merged/superseded remote branches
-  deleted (verified by ancestry after unshallowing, or by per-file
-  content identity for pre-history-rewrite branches). Kept:
+- **Branch cleanup**: 64 remote branches verified fully
+  merged/superseded (by ancestry after unshallowing, or by per-file
+  content identity for pre-history-rewrite branches) and queued for
+  deletion — the automation credential gets HTTP 403 on ref deletion,
+  so the verified list + one-liner ship in PR #93 for the maintainer
+  to run. Kept:
   `feature/phase-9b-metadata-ui` — the only copy of the unbuilt
   live-page metadata overlay and the sole consumer of the
   intentionally-orphaned `metadata/ranker.js`/`trust-graph.js` modules
   on main. The one unique artifact on the dead
   `decentralized-trust-systems` branch was harvested to
   `docs/ideas/CONSENSUS_PROTOCOLS_PLAN.md` with a kind-collision
-  warning (its proposed 30050–30056 collide with live kinds) before
-  its branch was deleted.
+  warning (its proposed 30050–30056 collide with live kinds), so its
+  branch is safe to delete.
 - **CHANGELOG link refs**: `[Unreleased]` compared against `v0.5.0`
   and `[0.6.0]`/`[0.5.1]` had no link definitions. Root cause worth
   recording: **the v0.6.0 tag was never cut** — `release: v0.6.0`

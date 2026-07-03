@@ -76,7 +76,7 @@ unique 537-line design doc — the deferred aggregation / web-of-trust /
 bridging / Sybil layer — **stale as code (would revert Phases 8–15) and
 its proposed kinds 30050–30056 collide with live kinds**. *(Harvested
 2026-07-03 to `docs/ideas/CONSENSUS_PROTOCOLS_PLAN.md` with a renumber
-warning; the branch was then deleted.)* `feature/phase-9b-metadata-ui` (live-page read/annotate
+warning; its branch is verified safe to delete.)* `feature/phase-9b-metadata-ui` (live-page read/annotate
 overlay) is valuable but not needed for this entry. Everything else is
 merged or stale.
 
