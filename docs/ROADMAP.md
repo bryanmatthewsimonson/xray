@@ -1305,63 +1305,89 @@ order: 15.1 #79, 15.2 #80, 15.3 #81, 15.4 #82, 15.5 #83, 15.6 #84,
 
 ---
 
-## Phase 16 — Moral-lens evaluation (lens-readings) 📝 design draft
+## Phase 16 — Moral-lens evaluation (lens-readings) 📝 design amended, pre-implementation
 
 **The far side of the Phase-15 firewall, and an LLM-assist consumer.** Where
 Phase 15 §3.1 declares interpretations and bare values **not** adjudicable as
 true/false, this layer takes exactly those firewalled-off proposition classes
-— `normative` / `framing` / `interpretation` / `stated-value` — and does the
-only honest thing left: it **reconstructs how named perspectives would read
-them**, grounded in those perspectives' own authorities, and reports its
-evidentiary honesty as the payoff. It never asks "is A true?"; it asks "under
-jurisdiction J, how would A be read, on what authority?" `factual` assertions
-are **deferred to Phase 15** — this layer may only describe whether a
-jurisdiction's corpus asserts/denies/is silent, never pronounce the fact.
+and does the only honest thing left: it **reconstructs how named perspectives
+would read them**, grounded in those perspectives' own authorities, and
+reports its evidentiary honesty as the payoff. It never asks "is A true?"; it
+asks "under jurisdiction J, how would A be read, on what authority?" The
+engine types assertions with its own four-value lens enum — `factual` /
+`normative` / `evaluative` (covering Phase 15's `interpretation` +
+`stated-value`) / `framing`; `PROPOSITION_CLASSES` is never extended.
+`factual` assertions are **deferred to Phase 15** — this layer may only
+describe the corpus (`corpus_stance`: asserts/denies/silent) and never carries
+a `disposition` for them, schema-enforced.
 
 A **jurisdiction** is `codified` (a legal code), `worldview` (a tradition,
 pluralism encoded — never one decree for "Christianity"), or `persona` (an
 author's corpus, with a non-negotiable **living-person guardrail**: published
-positions only, never private belief/motive/character). These map onto
-existing substrate — jurisdictions are **entities** (`entity-model.js`),
-authorities are **captured claims + W3C anchors** (`claim-model.js`), the
-target is a captured `30023`.
+positions only, absence of a living-person bit **fails closed**, and social
+captures are inadmissible for living personas). Per the 16.0.5 amendment,
+jurisdictions live in a **local jurisdiction registry** (registry-primary;
+`entity_id` link optional and persona-only — codified/worldview jurisdictions
+get no entity record, no keypair, no kind-0 exposure). An **authority** is a
+bibliographic citation record (work/edition/ISBN/locator/language + capped
+excerpt + admissibility); a captured claim + W3C anchor is the web-only
+specialization. The target is a captured `30023`.
 
-**Derived/advisory only — no wire kind.** The opinion follows the
-`audit/dossier.js` computed-on-open pattern: the model pass isn't
-deterministic but its inputs are pinned (authorities by edition/locator,
-article hash, jurisdiction defs, prompt version), provenance
-`suggested_by: 'llm:<model>'`. **Nothing auto-saves; nothing publishes**
-(inherited from Phase 14.5). Gated by a new `moralLens` flag (default off)
-**plus** the API-key second consent gate, since article text leaves the
-device. Kind **`30066` is left free**; a shareable wire format is a deferred,
-separately-designed act.
+**Derived/advisory only — no wire kind.** A reading is computed **on explicit
+user invocation** (never on open — a lens pass is a paid, nondeterministic
+call; 14.5's "one pass per explicit user action" governs), session-cached per
+capture UUID, with **zero durable writes** (guard-tested). One bounded call
+**per jurisdiction** (the per-module audit pattern), panel composition
+assembled code-side; inputs are pinned (stored excerpts, article hash of
+exactly the text sent, `LENS_PROMPT_VERSION`) and carried in a `provenance`
+block. Gated by a new `moralLens` flag (default off) **plus** the API-key
+consent gate — extended to disclose that jurisdiction definitions and
+authority excerpts leave the device too — and independent of `llmAssist`.
+Kind **`30066` is left free**, machine-checked by the 16.4 guards.
 
 Three corrections to the source prompt are load-bearing: confidence is a
 **legitimate estimation** (fidelity of reconstruction, admissible under
 truth-doc §1's own carve-out — not a truth-verdict); the **surface framing is
-"lens-reading," not a court** ("verdict" stays reserved for Phase 15); and
-**panel composition is a P5 symmetry obligation** — which jurisdictions are
-empaneled, and why, is disclosed and a one-sided panel is flagged.
+"lens-reading," not a court** ("verdict" stays reserved for Phase 15; the
+per-jurisdiction "integrity report" is renamed **grounding report** because
+Phase 15 owns "Integrity"); and **panel composition is a P5 symmetry
+obligation** — which jurisdictions are empaneled, and why, is disclosed and a
+one-sided panel is flagged.
 
 Full design: [`docs/MORAL_LENS_JURISDICTION_DESIGN.md`](MORAL_LENS_JURISDICTION_DESIGN.md)
-— design draft.
+— amended 2026-07-03 (16.0.5) after the pre-implementation audit; the
+amendment governs where it and the 2026-06-24 draft disagree.
 
-Slices (one PR each; `claude/phase-16-*`):
+Slices (one PR each; `claude/phase-16-*`, stacked on `main` — and until the
+Phase 15 train #79–#89 merges, Phase 16 code imports nothing from
+`truth-*`/`integrity-*` modules; cross-vocabulary pins assert string
+literals):
 
-- 📝 **16.0** Gate — Phase 14.5 LLM-assist (`llm-client.js`, `llmAssist`
-  flag, key consent) merged; this layer does not start before it.
-- 📝 **16.1** Jurisdiction model — entity-backed records; the three
-  definition templates; corpus-loading binding authorities to captured
-  claims + anchors; exhaustive-enum tests.
-- 📝 **16.2** Lens-reading engine — hardened system prompt + `llm-client`
-  call + structured-output parse; derived view, never saved.
-- 📝 **16.3** Surfaces — reader/portal rendering of the reconstruction +
-  integrity report + `panel_composition` disclosure; content-vs-framing split.
-- 📝 **16.4** Guardrails as tests — living-person guardrail;
-  symmetry/selection discipline (thin corpus → `silent`, unloaded → refuse,
-  one-sided panel → flag).
+- ✅ **16.0** Gate — Phase 14.5 LLM-assist (`llm-client.js`, `llmAssist`
+  flag, key consent) merged.
+- ✅ **16.0.5** Design amendment — this docs-only slice: re-authored
+  templates/principles (Appendix A), jurisdiction registry + authority
+  record, lens taxonomy fix, grounding rename, gating/topology/caching/
+  provenance pinned, quoting discipline written down, slices re-scoped.
+- 📝 **16.1** Jurisdiction model — `lens-taxonomy.js` (dispositions,
+  jurisdiction types, lens assertion types; exhaustive-enum + literal
+  disjointness pins) + `jurisdiction-model.js` (registry, authority
+  records, admissibility rule, fail-closed living-person) + `moralLens`
+  flag. Console-first; templates as docs + fixtures; zero built-ins.
+- 📝 **16.2** Lens-reading engine — prompt module (`LENS_PROMPT_VERSION`) +
+  `runLensPass()` + `xray:lens:read`/`xray:lens:config` + `lens-schemas.js`
+  validate-or-reject + **pre-flight refusals in code** + session cache.
+- 📝 **16.3** Reader surface — lens bar (picker, Run + call-count cost
+  confirm), readings + grounding report + `panel_composition` disclosure,
+  content-vs-framing split, §5.1 note on every confidence chip, Options
+  toggle + extended consent copy; factual rows badge + `corpus_stance`
+  (🏛 routing into the adjudicate modal once the train merges). Portal
+  surface deferred.
+- 📝 **16.4** The test net — fixture validator suites, fetch-tripwire
+  pre-flight refusal tests, word-reservation pin, disjointness pins by
+  literal, no-`30066` guard, zero-durable-writes guard.
 - 📝 **(deferred)** publishable wire kind `30066`; persona-corpus tooling;
-  multi-target panels.
+  multi-target panels; portal surface; durable lens cache.
 
 ---
 
