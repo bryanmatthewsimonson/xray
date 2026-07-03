@@ -75,8 +75,9 @@ Other branches (triaged): `decentralized-trust-systems-m393u` holds one
 unique 537-line design doc — the deferred aggregation / web-of-trust /
 bridging / Sybil layer — **stale as code (would revert Phases 8–15) and
 its proposed kinds 30050–30056 collide with live kinds**. *(Harvested
-2026-07-03 to `docs/ideas/CONSENSUS_PROTOCOLS_PLAN.md` with a renumber
-warning; its branch is verified safe to delete.)* `feature/phase-9b-metadata-ui` (live-page read/annotate
+2026-07-03, then **dropped from the repo entirely by owner decision the
+same day** — the aggregation/consensus direction is not being pursued;
+its branch is verified safe to delete.)* `feature/phase-9b-metadata-ui` (live-page read/annotate
 overlay) is valuable but not needed for this entry. Everything else is
 merged or stale.
 
@@ -144,7 +145,9 @@ and deliberately spans the confident↔uncertain curve:
 ## 5. Deliverables (mapped to the rubric)
 
 1. **The live signed graph (centerpiece).** All three corpora published to
-   ≥2 durable public relays (≥1 self-hosted, no-auth): 30023 content-
+   **2–3 durable public relays** (self-hosting descoped 2026-07-03 —
+   no time to run infrastructure; the **bundled raw signed-event JSON is
+   the primary durability guarantee**, relays are the live demo): 30023 content-
    addressed sources, 30040 claims, 30055 contradiction/support/updates
    edges, 30054 assessments, 30056/30057 audits, 30058/30059 prediction
    ledger, 30062 forensic, **30063 verdicts, 30064 integrity**, 32126
@@ -211,7 +214,9 @@ and deliberately spans the confident↔uncertain curve:
   merged as #89, suite 1018 green)* + full gate
   (`npm test` / `build` / `web-ext lint`) + the pending Phase 15 SMOKE_TEST,
   specifically the 30063 author→sign→publish→portal-render round trip.
-  Freeze + self-host relays. **GATE:** if the merge can't go green, switch
+  Freeze + select public relays (verify they accept kinds 30040–30064
+  during the SMOKE §15 round trip — the first real publish doubles as
+  the relay-acceptance test). **GATE:** if the merge can't go green, switch
   to the substrate-only fallback now.
 - **Jul 4–8 (Day 2–6):** Eggs spine end-to-end incl. the confident-correct
   LDL-C verdict, the uncertain egg→CVD verdict, and attestation-convergence.
@@ -295,10 +300,14 @@ and deliberately spans the confident↔uncertain curve:
    only, documented gap-cause, intent never adjudicated, no `p`-tag on
    the verdicts; the headline COVID verdict stays
    "contested/undetermined."
-3. **Relays: DECIDED — self-host one no-auth relay + ~2 durable public
-   relays.** Raw signed-event JSON is bundled regardless, so a relay
-   outage can't falsify replayability. The explorer hosting box stays
-   upside-only (§5 deliverable 10).
+3. **Relays: RE-DECIDED 2026-07-03 — public relays only (2–3 durable),
+   no self-hosting.** Running relay infrastructure was descoped to
+   maximize time on X-Ray itself. Consequences accepted: public relays
+   may prune events or reject unfamiliar kinds — mitigated by
+   multi-relay publish, verifying kind acceptance during the SMOKE §15
+   round trip, and the bundled raw signed-event JSON, which is the
+   durability guarantee judges actually rely on. The explorer hosting
+   box stays upside-only (§5 deliverable 10).
 4. **LLM budget: DECIDED — ~$100 ceiling.** Sonnet-class for suggest
    passes and most audits; a handful of Opus-class thorough audits on
    the load-bearing spine sources; headroom for re-runs.
