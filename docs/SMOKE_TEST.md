@@ -810,6 +810,25 @@ await EvidenceLinker.deleteForClaim(claim.id);
 
 ---
 
+## Identity & workspace (profiles + fresh-workspace reset)
+
+All keyless. Settings ▸ Signing (Local method selected) + Settings ▸
+Advanced ▸ Workspace.
+
+| # | Test | Pass criteria |
+|---|---|---|
+| IW.1 | Signing ▸ Identity → **New identity…** → label "Epistack" → Generate & switch | ✅ Active line shows **Epistack** + a fresh npub; profile row appears marked ACTIVE; "Active method" line shows the new npub |
+| IW.2 | With a pre-existing unlabeled key active, **Save current as profile…** → "Personal" | ✅ row appears; Active line switches from "unsaved identity" to **Personal**; the save button disappears |
+| IW.3 | **Use** on the other profile | ✅ active row swaps; status warns that existing records keep their old stamps and points at Start fresh workspace |
+| IW.4 | **Remove** on the ACTIVE profile's row | ✅ no Remove button is offered on the active row at all |
+| IW.5 | **Import nsec…** with a known nsec + label | ✅ imports, saves, switches; same npub as the key's origin |
+| IW.6 | Advanced ▸ **Download backup (JSON)** | ✅ file downloads; contains `identity_profiles` and content stores; does **not** contain `xray:llm:key` |
+| IW.7 | Advanced ▸ **Start fresh workspace…** → type `RESET` | ✅ backup auto-downloads first; entities/claims/links/assessments/findings/adjudications/platform accounts empty; side panel and portal show empty state after reload; saved identities + relays + flags + LLM key intact |
+| IW.8 | After IW.7, capture any page and publish | ✅ publishes under the new npub; portal (after refresh) attributes nothing to it from before the reset |
+| IW.9 | Portal header | ✅ input reads "View another archive…"; **Identity settings** button opens the Options page; pasted viewer npubs are gone after IW.7 (they're workspace content) |
+
+---
+
 ## Phase 6 — Entity sync
 
 Run on **Device A** (your normal profile) and **Device B** (a

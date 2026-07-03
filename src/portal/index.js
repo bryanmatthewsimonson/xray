@@ -904,6 +904,12 @@ function wireChrome() {
         await boot();
     });
 
+    // Identity is MANAGED in Settings ▸ Signing; the input above only
+    // adds read-only viewer npubs for other archives.
+    $('#xr-identity-settings').addEventListener('click', () => {
+        try { chrome.runtime.openOptionsPage(); } catch (_) { /* non-extension context */ }
+    });
+
     let searchTimer = null;
     $('#xr-search').addEventListener('input', (e) => {
         clearTimeout(searchTimer);

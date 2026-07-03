@@ -18,13 +18,15 @@
     </div>
   </header>
 
-  <!-- Identity strip: who "me" is, with provenance chips, plus the
-       manual npub escape hatch (the NIP-07 story — see identity.js). -->
+  <!-- Identity strip: who "me" is, with provenance chips, plus a
+       read-only viewer input for OTHER archives (the NIP-07 story —
+       see identity.js). Identity is MANAGED in Settings ▸ Signing. -->
   <section class="xr-portal__identity" id="xr-identity">
     <div class="xr-portal__chips" id="xr-identity-chips"></div>
     <form class="xr-portal__add" id="xr-identity-form">
-      <input type="text" id="xr-identity-input" placeholder="npub1… or hex pubkey" autocomplete="off" />
-      <button type="submit" class="xr-portal__btn xr-portal__btn--ghost">Add identity</button>
+      <input type="text" id="xr-identity-input" placeholder="View another archive: npub1… or hex pubkey" autocomplete="off" />
+      <button type="submit" class="xr-portal__btn xr-portal__btn--ghost">Add viewer npub</button>
+      <button type="button" class="xr-portal__btn xr-portal__btn--ghost" id="xr-identity-settings" title="Identity is managed in Settings ▸ Signing">Identity settings</button>
     </form>
   </section>
 

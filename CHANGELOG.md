@@ -12,6 +12,24 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Identity profiles + fresh workspace.** Settings ▸ Signing is now the
+  single home for user identity: saved, labeled identities
+  (`identity_profiles`, keyed by pubkey) with a picker — New identity /
+  Import nsec / Save current / Use / Remove — while
+  `local_primary_identity` stays the one live slot every signing path
+  reads ("active" is derived, never stored twice). Settings ▸ Advanced
+  gains **Workspace**: a full JSON backup download (includes saved
+  identities and their private keys; never the LLM key) and **Start
+  fresh workspace** (typed confirmation, backup-first) that clears the
+  content stores — entities + their keypairs (incl. the `xray:user`
+  sync key), claims, evidence links, assessments, forensic findings,
+  truth adjudications, platform accounts, portal viewer npubs — plus
+  the `xray-archive`/`xray-audits` IndexedDB caches, and keeps
+  settings, relays, flags, the LLM key, and saved identities. The
+  portal's npub box is relabeled as the read-only viewer it is
+  ("View another archive") with an Identity-settings link. Rationale:
+  publish stamps live on records, so switching npub without a reset
+  would attribute the old npub's publishes to the new one.
 - **Phase 15.10 — authoring UI for integrity findings + attestations.**
   The claims bar gains **🤝 Integrity…**: pick a stated
   commitment/value (only word-eligible propositions are offered), pick

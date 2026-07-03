@@ -17,6 +17,7 @@ import { importAuditJson } from '../shared/audit/import.js';
 import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
 import { listRuns, listPredictions, listResolutions } from '../shared/audit/audit-cache.js';
 import { listArticles } from '../shared/archive-cache.js';
+import { IdentityProfiles, workspaceBackup, resetWorkspace } from '../shared/identity-profiles.js';
 
 const browserApi = (typeof browser !== 'undefined' && browser.runtime) ? browser : chrome;
 
@@ -306,17 +307,103 @@ async function refreshActiveLine() {
     }
 }
 
+function truncNpub(npub) {
+    return npub ? npub.slice(0, 14) + '…' + npub.slice(-6) : '—';
+}
+
 async function refreshLocalKeyState() {
     const el = document.getElementById('local-key-state');
-    const id = await storageGet('local_primary_identity');
-    if (id && id.npub) {
-        const truncated = id.npub.slice(0, 14) + '…' + id.npub.slice(-6);
-        el.innerHTML = `Current key: <code>${escapeAttr(truncated)}</code>`;
+    const { identity, profile, saved } = await IdentityProfiles.active();
+    if (identity && identity.npub) {
+        const label = saved ? escapeAttr(profile.label) : 'unsaved identity';
+        el.innerHTML = `Active: <strong>${label}</strong> — <code>${escapeAttr(truncNpub(identity.npub))}</code>`;
     } else {
-        el.textContent = 'No key yet.';
+        el.textContent = 'No key yet — create a new identity below.';
     }
+    document.getElementById('identity-save-current').style.display =
+        (identity && !saved) ? '' : 'none';
+    await renderIdentityList(identity);
     document.getElementById('local-export-row').style.display = 'none';
     document.getElementById('local-export-pre').textContent = '';
+}
+
+async function renderIdentityList(activeIdentity) {
+    const host = document.getElementById('identity-list');
+    const profiles = await IdentityProfiles.list();
+    if (!profiles.length) { host.innerHTML = ''; return; }
+    const activePk = activeIdentity ? activeIdentity.pubkey : null;
+    host.innerHTML = profiles.map((p) => {
+        const isActive = p.pubkey === activePk;
+        return `<div class="xr-opt__identity-row${isActive ? ' xr-opt__identity-row--active' : ''}" data-pubkey="${escapeAttr(p.pubkey)}">
+            <span class="xr-opt__identity-label">${escapeAttr(p.label)}</span>
+            <code class="xr-opt__identity-npub">${escapeAttr(truncNpub(p.npub))}</code>
+            ${isActive
+        ? '<span class="xr-opt__identity-active">active</span>'
+        : '<button type="button" class="xr-opt__btn xr-opt__btn--small" data-act="use">Use</button>'}
+            <button type="button" class="xr-opt__btn xr-opt__btn--small" data-act="copy">Copy npub</button>
+            ${isActive ? '' : '<button type="button" class="xr-opt__btn xr-opt__btn--small xr-opt__btn--danger" data-act="remove">Remove</button>'}
+        </div>`;
+    }).join('');
+    host.querySelectorAll('button[data-act]').forEach((btn) => {
+        btn.addEventListener('click', () => onIdentityAction(btn));
+    });
+}
+
+async function onIdentityAction(btn) {
+    const status = document.getElementById('local-status');
+    const row = btn.closest('.xr-opt__identity-row');
+    const pubkey = row && row.getAttribute('data-pubkey');
+    const act = btn.getAttribute('data-act');
+    try {
+        if (act === 'use') {
+            const profile = await IdentityProfiles.activate(pubkey);
+            flash(status, `Switched to "${profile.label}". New captures publish under this identity; existing records keep their old stamps — use Start fresh workspace (Advanced) for a clean slate.`);
+        } else if (act === 'copy') {
+            const all = await IdentityProfiles.getAll();
+            const p = all[pubkey];
+            if (p && p.npub) await navigator.clipboard.writeText(p.npub);
+            flash(status, 'npub copied.');
+            return;
+        } else if (act === 'remove') {
+            const all = await IdentityProfiles.getAll();
+            const p = all[pubkey];
+            if (!confirm(`Remove profile "${p ? p.label : pubkey}"? Its nsec is deleted with it — back it up first if you might need it again.`)) return;
+            await IdentityProfiles.remove(pubkey);
+            flash(status, 'Profile removed.');
+        }
+        await refreshLocalKeyState();
+        await refreshActiveLine();
+    } catch (e) {
+        flash(status, (e && e.message) || String(e), false);
+    }
+}
+
+async function identityCreate() {
+    const status = document.getElementById('local-status');
+    const label = document.getElementById('identity-new-label').value;
+    try {
+        const profile = await IdentityProfiles.create(label);
+        document.getElementById('identity-new-label').value = '';
+        document.getElementById('identity-new-row').style.display = 'none';
+        flash(status, `Created and switched to "${profile.label}".`);
+        await refreshLocalKeyState();
+        await refreshActiveLine();
+    } catch (e) {
+        flash(status, 'Create failed: ' + (e && e.message), false);
+    }
+}
+
+async function identitySaveCurrent() {
+    const status = document.getElementById('local-status');
+    const label = prompt('Label for the current identity (e.g. "Personal"):');
+    if (label === null) return;
+    try {
+        const profile = await IdentityProfiles.saveCurrent(label);
+        flash(status, `Saved as "${profile.label}".`);
+        await refreshLocalKeyState();
+    } catch (e) {
+        flash(status, 'Save failed: ' + (e && e.message), false);
+    }
 }
 
 async function refreshNip07State() {
@@ -331,26 +418,16 @@ async function refreshNip07State() {
     }
 }
 
-async function localGenerate() {
-    const status = document.getElementById('local-status');
-    try {
-        await Storage.primaryIdentity.generate();
-        flash(status, 'New key generated.');
-        await refreshLocalKeyState();
-        await refreshActiveLine();
-    } catch (e) {
-        flash(status, 'Generate failed: ' + (e && e.message), false);
-    }
-}
-
 async function localImport() {
     const status = document.getElementById('local-status');
     const value = document.getElementById('local-import-input').value;
+    const label = document.getElementById('local-import-label').value || 'Imported';
     try {
-        await Storage.primaryIdentity.importNsec(value);
+        const profile = await IdentityProfiles.importNsec(label, value);
         document.getElementById('local-import-input').value = '';
+        document.getElementById('local-import-label').value = '';
         document.getElementById('local-import-row').style.display = 'none';
-        flash(status, 'Key imported.');
+        flash(status, `Imported and switched to "${profile.label}".`);
         await refreshLocalKeyState();
         await refreshActiveLine();
     } catch (e) {
@@ -379,13 +456,56 @@ async function localExportCopy() {
     }
 }
 
-async function localReset() {
-    const status = document.getElementById('local-status');
-    if (!confirm('Erase the local signing key? You will not be able to sign with it again unless you have backed up the nsec.')) return;
-    await Storage.primaryIdentity.clear();
-    flash(status, 'Key cleared.');
-    await refreshLocalKeyState();
-    await refreshActiveLine();
+// ------------------------------------------------------------------
+// Workspace (Advanced): backup download + fresh-workspace reset
+// ------------------------------------------------------------------
+
+function downloadJson(obj, filename) {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+async function workspaceDownloadBackup() {
+    const status = document.getElementById('workspace-status');
+    try {
+        const snapshot = await workspaceBackup();
+        downloadJson(snapshot, `xray-workspace-${new Date().toISOString().slice(0, 10)}.json`);
+        flash(status, 'Backup downloaded. It contains private keys — store it like an nsec.');
+    } catch (e) {
+        flash(status, 'Backup failed: ' + (e && e.message), false);
+    }
+}
+
+async function workspaceResetFlow() {
+    const status = document.getElementById('workspace-status');
+    const typed = prompt(
+        'Start a fresh workspace?\n\n' +
+        'CLEARS: entities (+ their keypairs and the entity-sync key), claims, ' +
+        'evidence links, assessments, forensic findings, truth adjudications, ' +
+        'platform accounts, portal viewer npubs, the archive cache, and audit ' +
+        'records (audits cost money to recompute!).\n\n' +
+        'KEEPS: settings, relays, feature flags, the LLM key, and your saved ' +
+        'identities.\n\n' +
+        'A backup will download first. Type RESET to continue.');
+    if (typed === null) return;
+    if (String(typed).trim().toUpperCase() !== 'RESET') {
+        flash(status, 'Not reset — confirmation text did not match.', false);
+        return;
+    }
+    try {
+        downloadJson(await workspaceBackup(), `xray-workspace-${new Date().toISOString().slice(0, 10)}.json`);
+        const result = await resetWorkspace();
+        flash(status, `Fresh workspace: cleared ${result.cleared.length} stores and ${result.databases.length} caches. Reload any open X-Ray pages.`);
+        await refreshLocalKeyState();
+        await refreshActiveLine();
+    } catch (e) {
+        flash(status, 'Reset failed: ' + (e && e.message), false);
+    }
 }
 
 async function bunkerTest() {
@@ -679,7 +799,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     document.getElementById('signing-save').addEventListener('click', saveSigning);
 
-    document.getElementById('local-generate').addEventListener('click', localGenerate);
+    document.getElementById('identity-new-toggle').addEventListener('click', () => {
+        const row = document.getElementById('identity-new-row');
+        row.style.display = row.style.display === 'none' ? '' : 'none';
+    });
+    document.getElementById('identity-new-create').addEventListener('click', identityCreate);
+    document.getElementById('identity-save-current').addEventListener('click', identitySaveCurrent);
+    document.getElementById('workspace-backup').addEventListener('click', workspaceDownloadBackup);
+    document.getElementById('workspace-reset').addEventListener('click', workspaceResetFlow);
     document.getElementById('local-import-toggle').addEventListener('click', () => {
         const row = document.getElementById('local-import-row');
         row.style.display = row.style.display === 'none' ? '' : 'none';
@@ -687,7 +814,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('local-import-save').addEventListener('click', localImport);
     document.getElementById('local-export-toggle').addEventListener('click', localExportShow);
     document.getElementById('local-export-copy').addEventListener('click', localExportCopy);
-    document.getElementById('local-reset').addEventListener('click', localReset);
     document.getElementById('bunker-test').addEventListener('click', bunkerTest);
 
     document.getElementById('audit-import').addEventListener('click', () => {
