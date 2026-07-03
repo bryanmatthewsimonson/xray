@@ -170,7 +170,11 @@ and deliberately spans the confident↔uncertain curve:
 5. **Portal read surface + 6–8 min screencast.** The existing reader
    adjudicate modal + portal case dashboard + a minimal verdict-state-
    distribution view grouped by question/sub-question (additive, no new wire
-   kind). Screencast: capture → content-addressed source → claim atomization
+   kind). *Design for the upgraded case surface:
+   [`CASE_DOSSIER_DESIGN.md`](CASE_DOSSIER_DESIGN.md) — slices CD.1–CD.3
+   (shape-of-knowledge header, convergence-collapsed evidence table,
+   world-time timeline) satisfy this deliverable; CD.4–CD.5 are upside.*
+   Screencast: capture → content-addressed source → claim atomization
    → contradiction knot → 8-module audit → signed verdict distribution,
    ending on confident-correct LHC/LDL-C beside honest COVID "undetermined."
    → Q1.
