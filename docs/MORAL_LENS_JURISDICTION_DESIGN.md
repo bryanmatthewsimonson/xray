@@ -124,8 +124,10 @@ Three rules keep the vocabularies from bleeding into each other:
   into truth-policing in perspectival costume.
 
 The firewall runs the other way too: a lens-reading is **never** an input
-to integrity or asserter reputation. The truth layer enforces the same
-boundary from its side: its integrity findings (§3.4 of the truth doc) are
+to integrity or asserter reputation. Structurally this needs no rule at
+all — a lens-reading has no wire kind and is never a signed event, so
+nothing exists for an integrity record or a reputation computation to
+compose. The truth layer enforces the same boundary from its side: its integrity findings (§3.4 of the truth doc) are
 descriptive match states, and its reputation-eligibility gate (§3.5) is
 explicit that "interpretations, stance, and values are never
 reputation-eligible." This layer is the perspectival axis those gates
@@ -254,6 +256,29 @@ Amendment: `panel_composition` and `panel_comparison` are **assembled
 code-side** from the user's declared selection and the per-jurisdiction
 results — the model is never asked to characterize its own panel.
 
+The obligation runs one level further down (absorbed from the parallel
+design review in PR #91), because **the same actor who picks the panel
+also curates each jurisdiction's corpus.** A jurisdiction a fair observer
+expects to be sympathetic can still be loaded with a hand-picked,
+unrepresentative corpus so that even *that* tradition "rejects" the
+target — while every reading stays `grounding: direct-quote`, every
+grounded count stays high, and the panel disclosure reads balanced. The
+§7 hard stops defend *empty* and *silent* corpora; nothing there defends
+against a cherry-picked **full** one. So P5 extends top-to-bottom:
+
+- each jurisdiction carries a **`corpus_provenance`** disclosure — who
+  selected the authorities, from what candidate pool, on what basis —
+  assembled code-side from the registry record like the other
+  jurisdiction-identity fields (§7);
+- a single-author or single-edition corpus loaded for a multi-vocal
+  tradition is flagged as **thin representation**
+  (`grounding.thin_representation_flags`) — distinct from thin
+  *coverage*: a corpus can address every claim and still misrepresent
+  the tradition it speaks for;
+- `panel_composition.selection_basis` and `corpus_provenance` are read
+  as **self-attested by the curator**, never as an independent check —
+  the disclosure makes the curation auditable; it does not certify it.
+
 ---
 
 ## §6. Architecture and reuse — as amended
@@ -338,6 +363,7 @@ reconstruction. Per-jurisdiction objects come back one call at a time
     "id": "bell-hooks", "type": "persona|worldview|codified",
     "display_name": "…", "is_living_person": false,
     "authorities_loaded": [ { "authority_id": "…", "citation": "work+edition+locator", "language": "…", "coverage": "high|medium|low" } ],
+    "corpus_provenance": { "curated_by": "…", "candidate_pool": "…", "selection_basis": "self-attested — §5.3" },
     "internal_divisions": [ "…" ],
     "readings": [ {
       "claim_id": "c1",
@@ -358,13 +384,15 @@ reconstruction. Per-jurisdiction objects come back one call at a time
     "reconstruction_summary": "short narrative in the jurisdiction's voice",
     "grounding": {
       "grounded_count": 0, "inferred_count": 0,
-      "thin_coverage_flags": [ "…" ], "recommended_sources": [ "…" ],
+      "thin_coverage_flags": [ "…" ],
+      "thin_representation_flags": [ "single-source corpus for a multi-vocal tradition — §5.3" ],
+      "recommended_sources": [ "…" ],
       "truncation_flags": [ "…" ]
     }
   } ],
   "panel_composition": {
     "empaneled": [ "…" ],
-    "selection_basis": "why these jurisdictions (user-declared, assembled code-side)",
+    "selection_basis": "why these jurisdictions (self-attested by the curator, assembled code-side — §5.3)",
     "symmetry_flags": [ "no jurisdiction sympathetic to the target was loaded" ]
   },
   "panel_comparison": {
@@ -386,11 +414,11 @@ Contract rules (schema-enforced, not stylistic):
   never asked to re-echo them, removing the largest avoidable output-token
   cost and a fidelity failure mode.
 - The jurisdiction-identity fields — `is_living_person`, `display_name`,
-  `internal_divisions`, `authorities_loaded` — are likewise **stamped
-  code-side from the registry record**: injected into the prompt and
-  re-attached to the parsed output by code, never model-echoed (the
-  `audit-prompt.js` inject-never-ask idiom). The guardrail bit in
-  particular can therefore not be hallucinated.
+  `internal_divisions`, `authorities_loaded`, `corpus_provenance` — are
+  likewise **stamped code-side from the registry record**: injected into
+  the prompt and re-attached to the parsed output by code, never
+  model-echoed (the `audit-prompt.js` inject-never-ask idiom). The
+  guardrail bit in particular can therefore not be hallucinated.
 - A reading with an empty `authorities_cited` is valid only when its
   disposition is `silent` or `out-of-scope`; otherwise the validator
   rejects it (parse-time downgrade, not a prompt hope).
@@ -415,16 +443,16 @@ code-enforced set instead of hoping about model behavior:
 
 Branches `claude/phase-16-*`, one PR per slice, stacked on `main`.
 
-> **Base-branch constraint (audit-verified):** `origin/main` carries the
-> full Phase 14.5 substrate (`llm-client.js`, `llm-prompts.js`,
-> `llm-proposals.js` — byte-identical to the Phase 15 train tip) and the
-> 16.1 substrate (`entity-model.js`, `claim-model.js`, anchors,
-> `feature-flags.js`), but **none of Phase 15** while the #79–#89 train is
-> unmerged. Until the train merges, Phase 16 code imports **nothing** from
-> `truth-taxonomy.js`, `adjudicate-modal.js`, or any `truth-*`/
-> `integrity-*` module; cross-vocabulary disjointness pins assert against
-> **string literals**, not imports. The factual hand-off *routing* (16.3)
-> is the one deliberately train-dependent seam.
+> **Base-branch constraint — resolved 2026-07-03.** At audit time
+> `origin/main` carried the full Phase 14.5 substrate but none of
+> Phase 15 (the #79–#89 train was open), so the amendment originally
+> barred `truth-*`/`integrity-*` imports. **The train merged as #89 the
+> same day**, so Phase 15 modules are now on `main` and 16.x may import
+> them where genuinely needed (e.g. the 16.3 factual hand-off into
+> `adjudicate-modal.js`). One survival of the constraint is kept on
+> purpose: the cross-vocabulary disjointness pins still assert against
+> **string literals**, not imports — a pin that imports the enum it pins
+> can drift with it.
 
 - **16.0 — gate.** Phase 14.5 LLM-assist merged. ✅ satisfied.
 - **16.0.5 — this amendment.** Docs-only; encodes the pre-implementation
@@ -436,9 +464,8 @@ Branches `claude/phase-16-*`, one PR per slice, stacked on `main`.
   `jurisdiction-model.js`: the registry, authority records with
   `citation`/`excerpt`/`admissibility`, the Q1 admissibility rule,
   `is_living_person` fail-closed semantics. `moralLens` flag registered in
-  `FLAGS_DEFAULTS`. Console-first authoring (the console-walk convention
-  the Phase 15 train's SMOKE section introduces — it lands with the
-  #79–#89 merge); the
+  `FLAGS_DEFAULTS`. Console-first authoring (the `SMOKE_TEST.md`
+  §Phase 15 console-walk convention); the
   Appendix A templates ship as docs + test fixtures; **zero built-in
   jurisdictions**.
 - **16.2 — the lens-reading engine.** The system prompt module (authored
@@ -454,9 +481,9 @@ Branches `claude/phase-16-*`, one PR per slice, stacked on `main`.
   grounding report + `panel_composition` disclosure, the
   content-vs-framing split per reading, the §5.1 fidelity note on every
   confidence chip. Options toggle + extended consent copy. `factual` rows
-  render a "deferred to truth layer" badge + `corpus_stance` descriptor;
-  the 🏛 route into `adjudicate-modal.js` lands only once the Phase 15
-  train is merged. **The portal surface is deferred** — a never-persisted
+  render a "deferred to truth layer" badge + `corpus_stance` descriptor
+  and a 🏛 route into `adjudicate-modal.js` (on `main` since the train
+  merged). **The portal surface is deferred** — a never-persisted
   derived view has nothing to show in a relay-corpus portal.
 - **16.4 — the test net.** Fixture-driven validator suites over parsed §7
   outputs; fetch-tripwire unit tests proving pre-flight refusals fire
@@ -487,7 +514,7 @@ Branches `claude/phase-16-*`, one PR per slice, stacked on `main`.
    (`corpus_stance`, 16.2). The surface half lands at 16.3: factual rows
    get the "deferred to truth layer" badge + corpus-stance descriptor,
    and the 🏛 action funnels into the existing claim flow /
-   `adjudicate-modal.js` once the Phase 15 train merges.
+   `adjudicate-modal.js` (on `main` since the train merged).
 3. **Built-in vs user-authored jurisdictions — RESOLVED: zero built-ins.**
    The three templates ship as docs (Appendix A) + test fixtures only.
    This sidesteps the curated-set selection-bias exposure (P5) and the
@@ -527,10 +554,9 @@ anywhere in the repo. They now exist, here:
 ## §11. Smoke-test plan (rows land in `SMOKE_TEST.md` with the slices)
 
 Full §Phase 16 rows are added to `docs/SMOKE_TEST.md` as slices ship
-(16.A/16.B setup–cleanup console blocks — the convention the Phase 15
-train's SMOKE section introduces; the keyed/keyless split below follows
-§Phase 14.5, which is on `main`). The
-audit pre-drafted the skeleton; its load-bearing properties:
+(16.A/16.B setup–cleanup console blocks, the §Phase 15 convention; the
+keyed/keyless split below follows §Phase 14.5). The audit pre-drafted the
+skeleton; its load-bearing properties:
 
 - **Rows assert structure and guardrails, never specific dispositions** —
   the model pass is nondeterministic; a row that expects "rejects" is

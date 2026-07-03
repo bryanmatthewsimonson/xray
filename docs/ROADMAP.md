@@ -1352,16 +1352,18 @@ truth-doc §1's own carve-out — not a truth-verdict); the **surface framing is
 per-jurisdiction "integrity report" is renamed **grounding report** because
 Phase 15 owns "Integrity"); and **panel composition is a P5 symmetry
 obligation** — which jurisdictions are empaneled, and why, is disclosed and a
-one-sided panel is flagged.
+one-sided panel is flagged, with the obligation extending down to corpus
+curation (`corpus_provenance` disclosure, thin-representation flags,
+self-attested selection basis).
 
 Full design: [`docs/MORAL_LENS_JURISDICTION_DESIGN.md`](MORAL_LENS_JURISDICTION_DESIGN.md)
 — amended 2026-07-03 (16.0.5) after the pre-implementation audit; the
 amendment governs where it and the 2026-06-24 draft disagree.
 
-Slices (one PR each; `claude/phase-16-*`, stacked on `main` — and until the
-Phase 15 train #79–#89 merges, Phase 16 code imports nothing from
-`truth-*`/`integrity-*` modules; cross-vocabulary pins assert string
-literals):
+Slices (one PR each; `claude/phase-16-*`, stacked on `main`; the Phase 15
+train merged as #89, so 16.x may import `truth-*` modules where needed —
+but cross-vocabulary disjointness pins still assert string literals, not
+imports):
 
 - ✅ **16.0** Gate — Phase 14.5 LLM-assist (`llm-client.js`, `llmAssist`
   flag, key consent) merged.

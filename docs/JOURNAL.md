@@ -62,10 +62,22 @@ decisions; the second-guessable ones, with reasons:
   **grounding report** (Phase 15 owns "Integrity"), and the living-person
   guardrail fails closed (absent bit ⇒ treated as living), with social
   captures inadmissible for living personas.
-- **Base-branch constraint:** `origin/main` has the full 14.5 substrate
-  but zero Phase 15 files while the #79–#89 train is open, so 16.x
-  imports nothing from `truth-*`/`integrity-*` until it merges;
-  cross-vocabulary disjointness pins assert string literals.
+- **Base-branch constraint:** `origin/main` had the full 14.5 substrate
+  but zero Phase 15 files while the #79–#89 train was open, so the
+  amendment barred `truth-*`/`integrity-*` imports. The train merged as
+  #89 later the same day, dissolving the constraint — but the
+  cross-vocabulary disjointness pins deliberately keep asserting string
+  literals, not imports (a pin that imports the enum it pins drifts
+  with it).
+- **Absorbed from the parallel review (PR #91):** the P5 symmetry
+  obligation extends below panel selection to **corpus curation** — a
+  sympathetic-looking jurisdiction loaded with a cherry-picked corpus
+  defeats every per-reading honesty signal. New `corpus_provenance`
+  disclosure (code-stamped, self-attested) and
+  `thin_representation_flags` (distinct from thin *coverage*). #91's two
+  other design-doc hunks (the fabricated §3 lineage citation, the §5.2
+  misquote) had independently been caught and fixed by this amendment's
+  audit + review pass — convergent findings, differently worded.
 
 Files: `docs/MORAL_LENS_JURISDICTION_DESIGN.md`, `docs/ROADMAP.md`
 (§Phase 16). So-what: if 16.x code ever contradicts the amendment, the
