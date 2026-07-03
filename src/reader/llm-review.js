@@ -12,9 +12,21 @@
 //     `suggested_by: 'llm:<model>'`. The model's create() is the real
 //     validation firewall.
 //   - Edit toggles a compact inline form over the proposal's editable
-//     fields; applying an edit flips that proposal's provenance to
-//     'user' (honest record-keeping) and re-validates.
+//     fields — including the claim quote and finding evidence quotes,
+//     so an unlocatable quote can be re-anchored in place. Applying a
+//     content edit flips that proposal's provenance to 'user' (honest
+//     record-keeping); a quote-only edit keeps 'llm:<model>' — the
+//     assertion is still the model's, and the anchor is machine-
+//     verified against the article either way.
 //   - Reject discards it.
+//
+// Provenance is grounded (Phase 14.5 hardening): ONE grounding index is
+// built over the article text, every quote a proposal stakes provenance
+// on is located through it (exact → typography-normalized → guarded
+// fuzzy), each row shows how its quotes grounded, and displayed/stored
+// quote text is the ARTICLE'S OWN span — the model's rendition is only
+// a search key. A claim or finding whose quote cannot be located is
+// invalid (rejected-with-reason) until re-anchored.
 //
 // Nothing here saves without an explicit Accept, and nothing publishes —
 // publishing stays behind assessmentPublishing / forensicPublishing.
@@ -34,6 +46,7 @@ import {
     buildEntityInput, buildClaimInput, buildAssessmentInput, buildLinkInput,
     buildFindingInput, buildBaselineInput
 } from '../shared/llm-proposals.js';
+import { createGroundingIndex } from '../shared/quote-grounding.js';
 
 const KIND_TITLES = {
     entity: 'Entities', claim: 'Claims', assessment: 'Assessments',
@@ -42,8 +55,10 @@ const KIND_TITLES = {
 };
 
 // Compact, data-driven inline editor — the editable fields per kind.
-// Anchors / labels stay as proposed (the full pickers live in the +
-// capture modals); reject + capture manually to change those.
+// Quotes are editable in place (claims' quote, findings' anchor
+// quotes) so an unlocatable quote can be re-anchored without
+// rejecting the whole proposal; labels stay as proposed (the full
+// pickers live in the capture modals).
 const EDIT_FIELDS = {
     entity: [
         { key: 'name', label: 'Name', type: 'text' },
@@ -51,6 +66,7 @@ const EDIT_FIELDS = {
     ],
     claim: [
         { key: 'text', label: 'Claim text', type: 'textarea' },
+        { key: 'quote', label: 'Verbatim quote (checked against the article)', type: 'textarea' },
         { key: 'is_key', label: 'Key claim', type: 'checkbox' }
     ],
     assessment: [
@@ -69,6 +85,7 @@ const EDIT_FIELDS = {
         { key: 'role', label: 'Role', type: 'select', options: ROLES },
         { key: 'maneuver', label: 'Maneuver', type: 'text' },
         { key: 'basis', label: 'Basis', type: 'select', options: BASIS_VALUES },
+        { key: 'anchors', label: 'Evidence quotes (checked against the article)', type: 'anchors' },
         { key: 'note', label: 'Note', type: 'textarea' },
         { key: 'counter_note', label: 'Counter-read (required)', type: 'textarea' }
     ],
@@ -105,7 +122,10 @@ export function openLlmReview(opts) {
     const { proposals, model, articleText = '', sourceUrl = '', sourceRef = {}, onAccepted } = opts;
     const suggestedByLlm = `llm:${model}`;
     const norm = normalizeProposals(proposals);
-    const ctx = { claimRefs: norm.claimRefs, entityRefs: norm.entityRefs, entityLabelByRef: norm.entityLabelByRef };
+    // ONE grounding index for the whole panel — validation, badges, and
+    // the accept-time builders all locate quotes through it (memoized).
+    const grounding = createGroundingIndex(articleText);
+    const ctx = { claimRefs: norm.claimRefs, entityRefs: norm.entityRefs, entityLabelByRef: norm.entityLabelByRef, grounding };
 
     // Nice summaries: claim text by ref.
     const claimTextByRef = {};
@@ -144,6 +164,34 @@ export function openLlmReview(opts) {
             return validateProposal(row.prop, ctx);
         }
 
+        // How a quote grounded, as a chip. The displayed/stored text is
+        // the article's own span; the model's rendition survives only
+        // as the chip tooltip when it was repaired.
+        function anchorChip(g) {
+            if (!g || g.status === 'missing') {
+                return `<span class="xr-llm__anchor xr-llm__anchor--bad" title="This text could not be located in the article — edit the quote to match it exactly">⚓ not found in article</span>`;
+            }
+            if (g.status === 'exact') {
+                return `<span class="xr-llm__anchor xr-llm__anchor--ok" title="Found in the article verbatim">⚓ verbatim</span>`;
+            }
+            if (g.status === 'normalized') {
+                return `<span class="xr-llm__anchor xr-llm__anchor--ok" title="Found after normalizing punctuation/whitespace — the anchor stores the article's own text">⚓ verbatim (typography normalized)</span>`;
+            }
+            return `<span class="xr-llm__anchor xr-llm__anchor--warn" title="Close match (${Math.round(g.score * 100)}%) — the anchor stores the article's own text; check it says what the item needs">⚓ close match ${Math.round(g.score * 100)}%</span>`;
+        }
+
+        // Grounded quote display: the article's span when located, the
+        // model's text (flagged by the chip) when not.
+        function quoteHtml(quote, { max = 140 } = {}) {
+            const q = String(quote || '').trim();
+            if (!q) return '';
+            const g = grounding.ground(q);
+            const shown = g.status === 'missing' ? q : g.exact;
+            const repaired = g.status !== 'missing' && g.status !== 'exact' && g.exact !== q;
+            const tip = repaired ? ` title="Model wrote: ${escapeHtml(truncate(q, 300))}"` : '';
+            return `<blockquote class="xr-llm__quote"${tip}>${escapeHtml(truncate(shown, max))}</blockquote>${anchorChip(g)}`;
+        }
+
         function summarize(row) {
             const p = row.prop;
             switch (row.kind) {
@@ -153,20 +201,26 @@ export function openLlmReview(opts) {
                     const about = (p.about || []).map((r) => norm.entityLabelByRef[r]).filter(Boolean);
                     const star = p.is_key ? '⭐ ' : '';
                     const ab = about.length ? ` <span class="xr-llm__dim">about ${escapeHtml(about.join(', '))}</span>` : '';
-                    return `${star}${escapeHtml(truncate(p.text, 160))}${ab}`;
+                    return `${star}${escapeHtml(truncate(p.text, 160))}${ab}${quoteHtml(p.quote)}`;
                 }
                 case 'assessment': {
                     const st = (p.stance === null || p.stance === undefined) ? '' : `stance: ${escapeHtml(STANCE_LABELS[String(p.stance)] || String(p.stance))}`;
                     const labels = (p.labels || []).map((l) => l.label).filter(Boolean);
                     const lb = labels.length ? `labels: ${escapeHtml(labels.join(', '))}` : '';
-                    return `<span class="xr-llm__dim">on</span> ${escapeHtml(truncate(claimTextByRef[p.claim_ref] || p.claim_ref, 90))}<br><small>${[st, lb].filter(Boolean).join(' · ')}</small>`;
+                    // Label quotes are optional anchors: an unlocatable one
+                    // is saved WITHOUT an anchor (never fabricated) — say so.
+                    const lost = (p.labels || []).filter((l) => l && String(l.quote || '').trim()
+                        && grounding.ground(String(l.quote).trim()).status === 'missing').length;
+                    const warn = lost ? `<br><small class="xr-llm__anchor xr-llm__anchor--warn">⚓ ${lost} label quote${lost > 1 ? 's' : ''} not found — those labels save without an anchor</small>` : '';
+                    return `<span class="xr-llm__dim">on</span> ${escapeHtml(truncate(claimTextByRef[p.claim_ref] || p.claim_ref, 90))}<br><small>${[st, lb].filter(Boolean).join(' · ')}</small>${warn}`;
                 }
                 case 'relationship':
                 case 'revision':
                     return `${escapeHtml(truncate(claimTextByRef[p.source_claim_ref] || p.source_claim_ref, 60))} <strong>${escapeHtml(p.relationship)}</strong> ${escapeHtml(truncate(claimTextByRef[p.target_claim_ref] || p.target_claim_ref, 60))}`;
                 case 'finding': {
-                    const lead = (p.anchors && p.anchors[0] && p.anchors[0].quote) || '';
-                    return `<strong>${escapeHtml(subjectLabelOf(p, ctx) || '(subject)')}</strong> — <span class="xr-llm__man">${escapeHtml(p.maneuver || '?')}</span> <span class="xr-llm__dim">(${escapeHtml(p.role || '?')}, ${escapeHtml(p.basis || '?')})</span>${lead ? `<blockquote class="xr-llm__quote">${escapeHtml(truncate(lead, 140))}</blockquote>` : ''}<small class="xr-llm__counter">↔ ${escapeHtml(truncate(p.counter_note || '(no counter-read)', 140))}</small>`;
+                    const anchors = (p.anchors || []).filter((a) => a && String(a.quote || '').trim());
+                    const quotes = anchors.map((a) => quoteHtml(a.quote)).join('');
+                    return `<strong>${escapeHtml(subjectLabelOf(p, ctx) || '(subject)')}</strong> — <span class="xr-llm__man">${escapeHtml(p.maneuver || '?')}</span> <span class="xr-llm__dim">(${escapeHtml(p.role || '?')}, ${escapeHtml(p.basis || '?')})</span>${quotes}<small class="xr-llm__counter">↔ ${escapeHtml(truncate(p.counter_note || '(no counter-read)', 140))}</small>`;
                 }
                 case 'baseline':
                     return `<strong>${escapeHtml(subjectLabelOf(p, ctx) || '(subject)')}</strong> — ${escapeHtml(truncate(p.note, 160))}`;
@@ -195,6 +249,14 @@ export function openLlmReview(opts) {
                     const opts = [`<option value="" ${cur === null ? 'selected' : ''}>(no stance)</option>`]
                         .concat(STANCE_VALUES.map((v) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${escapeHtml(STANCE_LABELS[String(v)])}</option>`)).join('');
                     return `<label class="xr-llm__f"><span>${escapeHtml(f.label)}</span><select data-k="stance">${opts}</select></label>`;
+                }
+                if (f.type === 'anchors') {
+                    const anchors = Array.isArray(p.anchors) ? p.anchors : [];
+                    if (anchors.length === 0) return '';
+                    const areas = anchors.map((a, i) =>
+                        `<textarea data-k="anchor-quote" data-i="${i}" rows="2">${escapeHtml((a && a.quote) || '')}</textarea>`
+                    ).join('');
+                    return `<label class="xr-llm__f"><span>${escapeHtml(f.label)}</span>${areas}</label>`;
                 }
                 // text
                 return `<label class="xr-llm__f"><span>${escapeHtml(f.label)}</span><input type="text" data-k="${f.key}" value="${escapeHtml(p[f.key] || '')}"/></label>`;
@@ -225,7 +287,7 @@ export function openLlmReview(opts) {
                 <div class="xr-llm__row-main">
                   <div class="xr-llm__summary">${summarize(row)}</div>
                   ${badge}
-                  ${row.message ? `<div class="xr-llm__msg">${escapeHtml(row.message)}</div>` : ''}
+                  ${row.message ? `<div class="xr-llm__msg${row.messageKind === 'info' ? ' xr-llm__msg--info' : ''}">${escapeHtml(row.message)}</div>` : ''}
                   ${row.editing ? editorHtml(row) : ''}
                 </div>
                 ${actions}
@@ -259,7 +321,7 @@ export function openLlmReview(opts) {
                   <span class="xr-llm__gap"></span>
                   <button type="button" class="xr-llm__close" aria-label="Close">✕</button>
                 </header>
-                <p class="xr-llm__disclosure">These are <strong>drafts</strong> — nothing is saved until you Accept, and nothing is published. Accepted items appear in the claims / findings bars, tagged <code>suggested_by: ${escapeHtml(suggestedByLlm)}</code>.</p>
+                <p class="xr-llm__disclosure">These are <strong>drafts</strong> — nothing is saved until you Accept, and nothing is published. Every quote is checked against the article text (⚓): stored anchors carry the article's own words, and an item whose quote can't be located must be re-anchored (Edit) or rejected. Accepted items appear in the claims / findings bars, tagged <code>suggested_by: ${escapeHtml(suggestedByLlm)}</code>.</p>
                 <div class="xr-llm__body">${sectionsHtml()}</div>
                 <footer class="xr-llm__foot">
                   <span class="xr-llm__status">${acc} accepted</span>
@@ -291,17 +353,41 @@ export function openLlmReview(opts) {
 
         function applyEdit(row, el) {
             const fields = EDIT_FIELDS[row.kind] || [];
+            const changed = new Set();
             for (const f of fields) {
+                if (f.type === 'anchors') {
+                    el.querySelectorAll('[data-k="anchor-quote"]').forEach((ta) => {
+                        const i = Number(ta.dataset.i);
+                        const a = Array.isArray(row.prop.anchors) ? row.prop.anchors[i] : null;
+                        if (!a || String(a.quote || '') === ta.value) return;
+                        a.quote = ta.value;
+                        changed.add('anchors');
+                    });
+                    continue;
+                }
                 const input = el.querySelector(`[data-k="${f.key === 'stance' ? 'stance' : f.key}"]`);
                 if (!input) continue;
-                if (f.type === 'checkbox') row.prop[f.key] = input.checked;
-                else if (f.type === 'stance') row.prop.stance = input.value === '' ? null : Number(input.value);
-                else row.prop[f.key] = input.value;
+                if (f.type === 'checkbox') {
+                    const next = input.checked;
+                    if ((row.prop[f.key] === true) !== next) { row.prop[f.key] = next; changed.add(f.key); }
+                } else if (f.type === 'stance') {
+                    const next = input.value === '' ? null : Number(input.value);
+                    const cur = row.prop.stance === undefined ? null : row.prop.stance;
+                    if (cur !== next) { row.prop.stance = next; changed.add('stance'); }
+                } else {
+                    if (String(row.prop[f.key] ?? '') !== input.value) { row.prop[f.key] = input.value; changed.add(f.key); }
+                }
             }
-            // A substantive human edit ⇒ honest provenance.
-            row.suggestedBy = 'user';
+            // Provenance honesty: a substantive (content) edit makes the
+            // artifact the user's. A quote-only edit does NOT — the
+            // assertion is still the model's; the quote is just being
+            // re-anchored, and it is machine-verified either way.
+            const quoteOnly = changed.size > 0
+                && [...changed].every((k) => k === 'quote' || k === 'anchors');
+            if (changed.size > 0 && !quoteOnly) row.suggestedBy = 'user';
             row.editing = false;
-            row.message = '';
+            row.message = quoteOnly ? 'Quote re-checked against the article.' : '';
+            row.messageKind = quoteOnly ? 'info' : '';
             render();
         }
 
@@ -367,12 +453,14 @@ export function openLlmReview(opts) {
                     return;
                 }
                 case 'claim': {
-                    const c = await ClaimModel.create(buildClaimInput(p, { entityIdByRef, articleText, sourceUrl, suggestedBy: sb }));
+                    // The builders duck-type the grounding index in the
+                    // articleText slot — same text, memoized lookups.
+                    const c = await ClaimModel.create(buildClaimInput(p, { entityIdByRef, articleText: grounding, sourceUrl, suggestedBy: sb }));
                     if (row.ref) claimIdByRef[row.ref] = c.id;
                     return;
                 }
                 case 'assessment':
-                    await AssessmentModel.create(buildAssessmentInput(p, { claimIdByRef, articleText, suggestedBy: sb }));
+                    await AssessmentModel.create(buildAssessmentInput(p, { claimIdByRef, articleText: grounding, suggestedBy: sb }));
                     return;
                 case 'relationship':
                 case 'revision':
@@ -380,7 +468,7 @@ export function openLlmReview(opts) {
                     return;
                 case 'finding':
                     await ForensicModel.create(buildFindingInput(p, {
-                        articleText, sourceRef, suggestedBy: sb, subjectLabel: subjectLabelOf(p, ctx)
+                        articleText: grounding, sourceRef, suggestedBy: sb, subjectLabel: subjectLabelOf(p, ctx)
                     }));
                     return;
                 case 'baseline':

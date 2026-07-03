@@ -19,6 +19,47 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-03 — Suggest provenance is grounded: the model's quote is a search key, not evidence
+
+Tags: `design`, `bug`.
+
+The LLM Suggest anchor path leaked provenance: `resolveQuoteToSelectors`
+did a raw `indexOf` and, on a miss, still emitted a quote-only
+TextQuoteSelector containing text the article doesn't contain — a
+permanently orphaned anchor (the resolver requires an exact match). The
+claim validator never looked at the quote, and the review panel never
+displayed it, so a paraphrased "quote" (Opus in particular summarizes
+across passages) sailed through Accept with its provenance silently
+gone.
+
+Fix is a contract change, not a tolerance tweak
+(`shared/quote-grounding.js`): the model's quote is only a SEARCH KEY.
+It's located exact → typography-normalized (curly quotes/dashes/
+ellipsis/NBSP/case/whitespace, via a per-char offset map) → guarded
+fuzzy (token-F1 ≥ 0.8, ≥ 4 tokens, never for short quotes), and
+whatever tier hits, the stored anchor is rebuilt from the ARTICLE'S OWN
+bytes at the matched span (TextQuoteSelector with real prefix/suffix +
+a TextPositionSelector with raw offsets; the resolver only honors the
+position when the text there still reproduces the captured exact). A
+miss is a hard answer: with a grounding index in ctx, the proposal
+firewall rejects claims and findings whose quotes don't locate — the
+review panel shows ⚓ chips (verbatim / normalized / close-match % /
+not found), lets the user edit the quote in place to re-anchor, and
+"Accept all valid" can no longer take an ungrounded item. Claims store
+a local-only `anchor_provenance` (`method`/`score`/`model_quote`) so a
+repaired anchor keeps what the model originally wrote. Label quotes on
+assessments stay soft: an unlocatable one saves the label with NO
+anchor (never a fabricated one) and says so in the panel.
+
+Second-guessable calls, on purpose: (1) a quote-only edit does NOT flip
+`suggested_by` to `user` — the assertion is still the model's and the
+anchor is machine-verified either way; (2) the fuzzy tier repairs
+small drift (a dropped word, a "fixed" typo) rather than rejecting it,
+because the repaired span is real article text the human sees before
+accepting; wholesale paraphrase stays a hard reject.
+
+---
+
 ## 2026-07-03 — Sprint descopes: public relays only; consensus-protocols idea dropped
 
 Tags: `design`.

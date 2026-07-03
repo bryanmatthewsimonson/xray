@@ -134,6 +134,24 @@ function cleanSuggestedBy(value) {
     return isValidSuggestedBy(v) ? v : 'user';
 }
 
+// Anchor provenance (Phase 14.5 provenance hardening): HOW the anchor's
+// span was located in the article — { method: 'exact'|'normalized'|
+// 'fuzzy'|'manual', score, model_quote? }, where model_quote preserves
+// what the LLM originally wrote whenever the stored span was repaired
+// from it. LOCAL record field only; the kind-30040 `anchor` tag carries
+// just the selector array.
+function cleanAnchorProvenance(value) {
+    if (!value || typeof value !== 'object') return null;
+    const method = String(value.method || '').trim();
+    if (!method) return null;
+    const out = { method };
+    if (Number.isFinite(value.score)) out.score = value.score;
+    if (typeof value.model_quote === 'string' && value.model_quote.trim()) {
+        out.model_quote = value.model_quote.trim();
+    }
+    return out;
+}
+
 // Backfill thin fields for records written before slice 10.1, so old
 // claims render in the thin UI. Non-destructive (read-time only).
 function normalizeClaim(record) {
@@ -212,6 +230,7 @@ export const ClaimModel = {
             source,
             is_key:           isKey,
             anchor:           fields.anchor || null,
+            anchor_provenance: cleanAnchorProvenance(fields.anchor_provenance),
             source_url:       sourceUrl,
             context:          fields.context || '',
             suggested_by:     cleanSuggestedBy(fields.suggested_by),
@@ -245,6 +264,7 @@ export const ClaimModel = {
         }
         if ('is_key' in updates)  patched.is_key  = updates.is_key === true;
         if ('anchor' in updates)  patched.anchor  = updates.anchor || null;
+        if ('anchor_provenance' in updates) patched.anchor_provenance = cleanAnchorProvenance(updates.anchor_provenance);
         if ('context' in updates) patched.context = updates.context || '';
 
         patched.updated = Math.floor(Date.now() / 1000);

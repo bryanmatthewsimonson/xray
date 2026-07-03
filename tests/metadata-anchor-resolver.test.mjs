@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 const {
   resolveSelectors,
   resolveTextQuote,
+  resolveTextPosition,
   resolveRange,
   resolveCss,
   resolveXPath
@@ -442,4 +443,77 @@ test('perturbation: same exact appears twice on a page without prefix → orphan
     // no prefix or suffix to disambiguate
   }], root);
   assert.equal(result, null);
+});
+
+// ------------------------------------------------------------------
+// TextPositionSelector — Phase 14.5 provenance hardening
+// ------------------------------------------------------------------
+
+test('TextPosition: verified offsets → confidence 1.0', () => {
+  const root = fixture();
+  const full = root.textContent;
+  const exact = 'inflation, defined as the year-over-year change in cpi';
+  const start = full.indexOf(exact);
+  const result = resolveTextPosition(
+    { type: 'TextPositionSelector', start, end: start + exact.length },
+    root,
+    { exact }
+  );
+  assert.equal(result.confidence, 1.0);
+  assert.equal(result.selectorUsed, 'TextPositionSelector');
+  assert.deepEqual(result.range, { textStart: start, textEnd: start + exact.length });
+});
+
+test('TextPosition: offsets into changed text → null (never guess)', () => {
+  const root = fixture();
+  const result = resolveTextPosition(
+    { type: 'TextPositionSelector', start: 0, end: 10 },
+    root,
+    { exact: 'inflation, defined as' }
+  );
+  assert.equal(result, null);
+});
+
+test('TextPosition: no sibling exact to verify against → null', () => {
+  const root = fixture();
+  const result = resolveTextPosition(
+    { type: 'TextPositionSelector', start: 0, end: 10 },
+    root,
+    {}
+  );
+  assert.equal(result, null);
+});
+
+test('TextPosition: malformed offsets → null', () => {
+  const root = fixture();
+  const ctx = { exact: 'the federal' };
+  assert.equal(resolveTextPosition({ type: 'TextPositionSelector', start: -1, end: 5 }, root, ctx), null);
+  assert.equal(resolveTextPosition({ type: 'TextPositionSelector', start: 5, end: 5 }, root, ctx), null);
+  assert.equal(resolveTextPosition({ type: 'TextPositionSelector', start: 0, end: 99999 }, root, ctx), null);
+  assert.equal(resolveTextPosition({ type: 'TextPositionSelector', start: '0', end: 10 }, root, ctx), null);
+});
+
+test('TextPosition: verifies a truncated (head … tail) exact', () => {
+  const root = fixture();
+  const full = root.textContent;
+  const result = resolveTextPosition(
+    { type: 'TextPositionSelector', start: 0, end: full.length },
+    root,
+    { exact: full.slice(0, 20) + ' … ' + full.slice(-20) }
+  );
+  assert.equal(result.confidence, 1.0);
+});
+
+test('cascade: TextPosition disambiguates a repeated exact that orphans TextQuote', () => {
+  const t = text('inflation matters. inflation matters more. inflation again.');
+  const root = el('article', { children: [el('p', { children: [t] })] });
+  const full = root.textContent;
+  const second = full.indexOf('inflation', 1);
+  const result = resolveSelectors([
+    { type: 'TextQuoteSelector', exact: 'inflation' },   // ambiguous → null
+    { type: 'TextPositionSelector', start: second, end: second + 'inflation'.length }
+  ], root);
+  assert.equal(result.selectorUsed, 'TextPositionSelector');
+  assert.equal(result.confidence, 1.0);
+  assert.equal(result.range.textStart, second);
 });

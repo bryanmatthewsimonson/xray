@@ -11,7 +11,10 @@
 // The suggestion engine returns VERBATIM quotes (so the reader can
 // resolve them to anchors) and stamps nothing itself: provenance
 // (`suggested_by: 'llm:<model>'`) is applied at accept-time by the
-// reader, against the model id actually used.
+// reader, against the model id actually used. Quotes are machine-
+// checked against the article (shared/quote-grounding.js): a claim or
+// finding whose quote cannot be located cannot be accepted, so the
+// prompt is blunt with the model about what a quote must be.
 
 import {
     ASSESSMENT_LABEL_GROUPS, STANCE_LABELS, STANCE_VALUES,
@@ -162,8 +165,11 @@ export function buildSuggestTool() {
                             },
                             quote: {
                                 type: 'string',
-                                description: 'A VERBATIM span from the article that the claim is drawn '
-                                    + 'from — copied exactly so it can be located on the page (kind=claim).'
+                                description: 'REQUIRED for kind=claim: ONE contiguous VERBATIM span from '
+                                    + 'the article the claim is drawn from, copied character for character '
+                                    + '(keep punctuation, capitalization, typos). It is machine-checked '
+                                    + 'against the article text; a claim whose quote cannot be located '
+                                    + 'there is rejected.'
                             },
                             about: {
                                 type: 'array', items: { type: 'string' },
@@ -253,11 +259,12 @@ export function buildSuggestTool() {
                             anchors: {
                                 type: 'array',
                                 description: 'The ordered evidence chain (kind=finding) — at least one, each '
-                                    + 'with a VERBATIM quote.',
+                                    + 'with a VERBATIM quote. Every quote is machine-checked against the '
+                                    + 'article text; a finding with an unlocatable quote is rejected.',
                                 items: {
                                     type: 'object',
                                     properties: {
-                                        quote: { type: 'string', description: 'A verbatim span from the article.' },
+                                        quote: { type: 'string', description: 'ONE contiguous verbatim span copied exactly from the article.' },
                                         note:  { type: 'string', description: 'Optional note on this step.' }
                                     },
                                     required: ['quote']
@@ -308,7 +315,8 @@ function stanceMenu() {
 const RULES_ALL = `
 GROUND RULES (non-negotiable):
 - You PROPOSE; a human confirms every item. Nothing you return is saved or published automatically.
-- Quote VERBATIM. Every quote must be copied exactly from the article text, character for character, so it can be located on the page. Do not paraphrase inside a quote, do not add ellipses you didn't see, do not fix typos.
+- Quote VERBATIM. Every quote must be ONE contiguous span copied exactly from the article text, character for character — keep the article's punctuation, capitalization, and typos. Never paraphrase inside a quote, never merge separate sentences, never add ellipses you didn't see, never fix what the article got wrong.
+- Quotes are machine-checked. Each quote is located in the article text before an item can be accepted; an item whose quote cannot be found is rejected outright. Your conclusion may be your own words — the quote may not.
 - Be conservative. Prefer a few high-quality, well-anchored proposals over many weak ones. If the article does not support an artifact, omit it.
 - Use the propose_capture tool and nothing else.`;
 
@@ -320,7 +328,8 @@ ENTITIES (people / organizations / places / things / cases named in the text):
 function rulesClaims() {
     return `
 CLAIMS (atomized assertions the article makes or reports):
-- text is the assertion in clear, standalone form. quote is the VERBATIM span it is drawn from.
+- text is the assertion in clear, standalone form. quote is REQUIRED: the single contiguous VERBATIM span it is drawn from — a claim without a locatable quote is rejected.
+- If a conclusion rests on several passages, do not stitch them into one quote: anchor the claim to the single most load-bearing span, and propose the other passages as their own claims (atomize; you can link them with relationships).
 - about lists the entity refs the claim concerns (link to your entity proposals).
 - Give each claim a ref ("C1", "C2", …) so assessments and relationships can point at it.`;
 }

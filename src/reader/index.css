@@ -2199,6 +2199,14 @@ body {
 .xr-llm__badge--bad { background: rgba(248, 113, 113, 0.15); color: var(--xr-danger); }
 .xr-llm__badge--edit { background: rgba(139, 92, 246, 0.18); color: var(--xr-primary); }
 .xr-llm__msg { margin-top: 6px; font-size: 12px; color: var(--xr-danger); }
+.xr-llm__msg--info { color: var(--xr-text-dim); }
+
+/* Quote-grounding chips (Phase 14.5 provenance hardening) */
+.xr-llm__anchor { display: inline-block; margin: 2px 0 0; font-size: 11px;
+  padding: 1px 7px; border-radius: 10px; font-style: normal; }
+.xr-llm__anchor--ok   { background: rgba(52, 211, 153, 0.15); color: var(--xr-success); }
+.xr-llm__anchor--warn { background: rgba(251, 191, 36, 0.16); color: var(--xr-warning); }
+.xr-llm__anchor--bad  { background: rgba(248, 113, 113, 0.15); color: var(--xr-danger); }
 
 .xr-llm__row-actions { display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; }
 .xr-llm__btn { font: inherit; font-size: 13px; padding: 6px 12px; cursor: pointer;

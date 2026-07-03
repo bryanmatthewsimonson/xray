@@ -12,10 +12,17 @@
 //      isValidStance / ENTITY_TYPES / CLAIM_RELATIONSHIPS / …) so a bad
 //      proposal renders "rejected-with-reason" instead of being silently
 //      dropped. The ULTIMATE firewall is still each model's create(),
-//      which the reader calls at accept time.
-//   3. resolveQuoteToSelectors() — turn a verbatim quote into a W3C
-//      TextQuoteSelector array against the article body, so accepted
-//      claims/findings carry real anchors.
+//      which the reader calls at accept time. When ctx carries a
+//      grounding index it ALSO enforces the provenance discipline: a
+//      claim's quote and every finding anchor must locate in the
+//      article (quote-grounding.js) or the proposal is invalid.
+//   3. resolveQuoteToSelectors() — turn a quote into a W3C selector
+//      array against the article body. The model's quote is only a
+//      SEARCH KEY: on any match the selectors are rebuilt from the
+//      article's own characters (TextQuoteSelector with real
+//      prefix/suffix + TextPositionSelector with raw offsets), so an
+//      accepted anchor can never carry text the article doesn't
+//      contain.
 //   4. build*Input() — map a proposal onto the exact create() input for
 //      its model, given the accept-time ref→id maps.
 //
@@ -24,6 +31,7 @@
 // required, and at least one anchor must carry a non-empty quote.
 
 import { buildSelectors } from './metadata/anchor-capture.js';
+import { createGroundingIndex, isGroundingIndex } from './quote-grounding.js';
 import { ENTITY_TYPES } from './entity-model.js';
 import {
     isValidLabel, isValidStance, isValidSuggestedBy,
@@ -46,27 +54,46 @@ const PREFIX_SUFFIX = 40; // buildSelectors trims to 32; give it headroom.
 // Quote → anchor
 // ------------------------------------------------------------------
 
+// Accept either the article text or a prebuilt grounding index (the
+// review panel builds ONE index and reuses it across every proposal).
+function toGroundingIndex(groundingOrText) {
+    return isGroundingIndex(groundingOrText)
+        ? groundingOrText
+        : createGroundingIndex(String(groundingOrText || ''));
+}
+
 /**
- * Resolve a verbatim quote to a W3C selector array against the article
- * body text. Exact match yields a prefix+exact+suffix TextQuoteSelector;
- * a miss yields a quote-only selector (still resolvable when the exact
- * text is unique on the page). Pure.
+ * Resolve a quote to a W3C selector array against the article body
+ * text. The quote is a search key (exact → typography-normalized →
+ * guarded fuzzy, see quote-grounding.js); on any match the selectors
+ * are built from the ARTICLE'S OWN text at the matched span — a
+ * prefix+exact+suffix TextQuoteSelector plus a TextPositionSelector
+ * carrying the raw offsets. A miss yields a quote-only selector
+ * (found: false) so legacy callers keep their shape, but the
+ * suggest-flow validator treats it as unacceptable. Pure.
  *
  * @param {string} quote
- * @param {string} articleText
- * @returns {{selectors: Array<object>, found: boolean}}
+ * @param {string|object} articleText  raw text, or a grounding index
+ * @returns {{selectors: Array<object>, found: boolean, method: string,
+ *            score: number, exact: string}}
  */
 export function resolveQuoteToSelectors(quote, articleText) {
     const exact = String(quote || '').trim();
     if (!exact) return { selectors: [], found: false };
-    const text = String(articleText || '');
-    const idx = text.indexOf(exact);
-    if (idx < 0) {
-        return { selectors: buildSelectors({ exact }).selectors, found: false };
+    const index = toGroundingIndex(articleText);
+    const g = index.ground(exact);
+    if (g.status === 'missing') {
+        return {
+            selectors: buildSelectors({ exact }).selectors,
+            found: false, method: 'missing', score: 0, exact
+        };
     }
-    const prefix = text.slice(Math.max(0, idx - PREFIX_SUFFIX), idx);
-    const suffix = text.slice(idx + exact.length, idx + exact.length + PREFIX_SUFFIX);
-    return { selectors: buildSelectors({ exact, prefix, suffix }).selectors, found: true };
+    const text = index.text;
+    const prefix = text.slice(Math.max(0, g.start - PREFIX_SUFFIX), g.start);
+    const suffix = text.slice(g.end, g.end + PREFIX_SUFFIX);
+    const { selectors } = buildSelectors({ exact: g.exact, prefix, suffix });
+    selectors.push({ type: 'TextPositionSelector', start: g.start, end: g.end });
+    return { selectors, found: true, method: g.status, score: g.score, exact: g.exact };
 }
 
 // ------------------------------------------------------------------
@@ -126,7 +153,10 @@ export function subjectLabelOf(prop, ctx = {}) {
 
 /**
  * Validate a normalized proposal. `ctx` carries the sets of known
- * entity/claim refs (for dependency checks) and entityLabelByRef.
+ * entity/claim refs (for dependency checks), entityLabelByRef, and —
+ * in the suggest flow — `grounding` (a quote-grounding index), which
+ * arms the provenance firewall: a claim's quote and every finding
+ * anchor must locate in the article or the proposal is invalid.
  *
  * @returns {{ok: true} | {ok: false, reason: string}}
  */
@@ -144,6 +174,13 @@ export function validateProposal(prop, ctx = {}) {
         case 'claim': {
             if (!String(prop.text || '').trim()) return fail('Claim needs text');
             if (String(prop.text).trim().length > 2000) return fail('Claim text too long (max 2000)');
+            if (ctx.grounding) {
+                const quote = String(prop.quote || '').trim();
+                if (!quote) return fail('Claim needs a verbatim quote from the article');
+                if (ctx.grounding.ground(quote).status === 'missing') {
+                    return fail('Quote not found in the article — edit it to match the text exactly');
+                }
+            }
             return OK;
         }
         case 'assessment': {
@@ -178,6 +215,15 @@ export function validateProposal(prop, ctx = {}) {
             const anchors = Array.isArray(prop.anchors) ? prop.anchors : [];
             const quoted = anchors.filter((a) => a && String(a.quote || '').trim());
             if (quoted.length === 0) return fail('Finding needs at least one evidence anchor with a verbatim quote');
+            if (ctx.grounding) {
+                // Evidence quotes ARE the finding's provenance — every
+                // one must locate in the article.
+                for (const a of quoted) {
+                    if (ctx.grounding.ground(String(a.quote).trim()).status === 'missing') {
+                        return fail('Evidence quote not found in the article — edit it to match the text exactly');
+                    }
+                }
+            }
             // Rule 6 — the falsifiability discipline.
             if (!String(prop.counter_note || '').trim()) {
                 return fail('Finding needs a counter-note (the alternative reading)');
@@ -209,9 +255,16 @@ function validateLink(prop, claimRefs) {
 // expects. The reader calls the real model with the result.
 // ------------------------------------------------------------------
 
-function selectorsOrNull(quote, articleText) {
-    const sels = resolveQuoteToSelectors(quote, articleText).selectors;
-    return sels.length ? sels : null;
+// Ground a quote and return its anchor bundle, or null when the quote
+// does not locate. A miss stores NO anchor — an anchor whose text the
+// article doesn't contain is fabricated provenance, and the suggest
+// flow's validator blocks the artifacts (claims, findings) that
+// require one.
+function groundedAnchor(quote, groundingOrText) {
+    const q = String(quote || '').trim();
+    if (!q) return null;
+    const r = resolveQuoteToSelectors(q, groundingOrText);
+    return r.found ? r : null;
 }
 
 export function buildEntityInput(prop, { suggestedBy = 'user' } = {}) {
@@ -222,10 +275,18 @@ export function buildClaimInput(prop, { entityIdByRef = {}, articleText = '', so
     const about = (Array.isArray(prop.about) ? prop.about : [])
         .map((ref) => entityIdByRef[ref])
         .filter(Boolean);
+    const g = groundedAnchor(prop.quote, articleText);
     return {
         text:         String(prop.text || '').trim(),
         source_url:   sourceUrl,
-        anchor:       selectorsOrNull(prop.quote, articleText),
+        anchor:       g ? g.selectors : null,
+        // Local-only provenance of the anchor itself: how the quote was
+        // located, and — when it was repaired — what the model wrote.
+        anchor_provenance: g ? {
+            method: g.method,
+            score:  g.score,
+            ...(g.method !== 'exact' ? { model_quote: String(prop.quote || '').trim() } : {})
+        } : null,
         about,
         is_key:       prop.is_key === true,
         suggested_by: suggestedBy
@@ -233,11 +294,14 @@ export function buildClaimInput(prop, { entityIdByRef = {}, articleText = '', so
 }
 
 export function buildAssessmentInput(prop, { claimIdByRef = {}, articleText = '', suggestedBy = 'user' } = {}) {
-    const labels = (Array.isArray(prop.labels) ? prop.labels : []).map((l) => ({
-        label:        l.label,
-        anchor:       l && l.quote ? selectorsOrNull(l.quote, articleText) : null,
-        suggested_by: suggestedBy
-    }));
+    const labels = (Array.isArray(prop.labels) ? prop.labels : []).map((l) => {
+        const g = l && l.quote ? groundedAnchor(l.quote, articleText) : null;
+        return {
+            label:        l.label,
+            anchor:       g ? g.selectors : null,
+            suggested_by: suggestedBy
+        };
+    });
     return {
         claim_ref:    { claim_id: claimIdByRef[prop.claim_ref] },
         stance:       prop.stance === undefined ? null : prop.stance,
@@ -261,12 +325,17 @@ export function buildFindingInput(prop, { articleText = '', sourceRef = {}, sugg
     const label = subjectLabel || '';
     const anchors = (Array.isArray(prop.anchors) ? prop.anchors : [])
         .filter((a) => a && String(a.quote || '').trim())
-        .map((a) => ({
-            quote:      String(a.quote).trim(),
-            selector:   selectorsOrNull(a.quote, articleText),
-            source_ref: (sourceRef && sourceRef.url) ? { url: sourceRef.url, title: sourceRef.title || null } : null,
-            step_note:  String(a.note || '')
-        }));
+        .map((a) => {
+            const g = groundedAnchor(a.quote, articleText);
+            return {
+                // The stored quote is the ARTICLE'S text at the matched
+                // span, not the model's rendition of it.
+                quote:      g ? g.exact : String(a.quote).trim(),
+                selector:   g ? g.selectors : null,
+                source_ref: (sourceRef && sourceRef.url) ? { url: sourceRef.url, title: sourceRef.title || null } : null,
+                step_note:  String(a.note || '')
+            };
+        });
     return {
         subject_ref:  { label },
         role:         prop.role,

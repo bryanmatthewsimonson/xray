@@ -14,6 +14,12 @@
 //   2. RangeSelector — XPath start/end + offsets.
 //   3. CssSelector — anchor on the matched element; orient by exact.
 //
+// Phase 14.5 provenance hardening adds TextPositionSelector (raw
+// character offsets into the article text, emitted by the LLM-suggest
+// anchor path). It only resolves VERIFIED: the text at [start, end)
+// must reproduce the sibling TextQuoteSelector's `exact` — offsets
+// into changed text are rejected, never guessed at.
+//
 // Confidence scoring (Plan §6):
 //   1.00 = exact prefix+exact+suffix match
 //   0.90 = prefix+exact match, suffix differs by ≤4 chars
@@ -44,9 +50,14 @@ export function resolveSelectors(selectors, root, opts = {}) {
   if (!Array.isArray(selectors) || selectors.length === 0) return null;
   if (!root) return null;
 
+  // The exact text the anchor was built from, for selectors (like
+  // TextPositionSelector) that can only resolve by verification.
+  const tqs = selectors.find((s) => s && s.type === 'TextQuoteSelector');
+  const ctx = { exact: tqs ? String(tqs.exact || '') : '' };
+
   let best = null;
   for (const sel of selectors) {
-    const result = trySelector(sel, root);
+    const result = trySelector(sel, root, ctx);
     if (result && result.confidence >= threshold) {
       // First selector to clear threshold wins (per cascade order).
       return result;
@@ -61,14 +72,60 @@ export function resolveSelectors(selectors, root, opts = {}) {
 /**
  * Try a single selector. Returns null on failure.
  */
-function trySelector(sel, root) {
+function trySelector(sel, root, ctx = {}) {
   if (!sel || typeof sel.type !== 'string') return null;
   switch (sel.type) {
-    case 'TextQuoteSelector': return resolveTextQuote(sel, root);
-    case 'RangeSelector':     return resolveRange(sel, root);
-    case 'CssSelector':       return resolveCss(sel, root);
-    default:                  return null;
+    case 'TextQuoteSelector':    return resolveTextQuote(sel, root);
+    case 'TextPositionSelector': return resolveTextPosition(sel, root, ctx);
+    case 'RangeSelector':        return resolveRange(sel, root);
+    case 'CssSelector':          return resolveCss(sel, root);
+    default:                     return null;
   }
+}
+
+// ------------------------------------------------------------------
+// TextPositionSelector
+// ------------------------------------------------------------------
+
+/**
+ * Resolve a TextPositionSelector — raw [start, end) offsets into the
+ * root's text content — but ONLY when the text found there reproduces
+ * the anchor's captured `exact` (passed via ctx from the sibling
+ * TextQuoteSelector). An offset pair with no exact to verify against,
+ * or whose text no longer matches, returns null: a position into
+ * edited text points at the wrong span, and we don't guess.
+ *
+ * Verification tolerates the capture-side length cap: a >500-char
+ * exact is stored as `head … tail` (anchor-capture.truncateExact), so
+ * the span must start with head and end with tail.
+ */
+export function resolveTextPosition(sel, root, ctx = {}) {
+  if (!root) return null;
+  const start = sel.start;
+  const end = sel.end;
+  if (!Number.isInteger(start) || !Number.isInteger(end)) return null;
+  if (start < 0 || end <= start) return null;
+  const text = root.textContent || '';
+  if (end > text.length) return null;
+  const exact = String(ctx.exact || '');
+  if (!exact) return null;
+  if (!spanMatchesExact(text.slice(start, end), exact)) return null;
+  return {
+    range: { textStart: start, textEnd: end },
+    confidence: 1.0,
+    selectorUsed: 'TextPositionSelector'
+  };
+}
+
+function spanMatchesExact(span, exact) {
+  if (span === exact) return true;
+  // Truncated exact: 'head … tail' (see anchor-capture EXACT_LENGTH_CAP).
+  const m = /^([\s\S]+) … ([\s\S]+)$/.exec(exact);
+  if (!m) return false;
+  const head = m[1];
+  const tail = m[2];
+  return span.length >= head.length + tail.length
+    && span.startsWith(head) && span.endsWith(tail);
 }
 
 // ------------------------------------------------------------------

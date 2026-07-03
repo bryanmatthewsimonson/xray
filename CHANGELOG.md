@@ -12,6 +12,26 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Grounded provenance for LLM Suggest.** Every quote a suggestion
+  stakes provenance on is now machine-located in the article
+  (`shared/quote-grounding.js`: exact → typography-normalized → guarded
+  fuzzy with a hard threshold), and stored anchors are rebuilt from the
+  article's own text at the matched span — a TextQuoteSelector with
+  real prefix/suffix plus a new TextPositionSelector carrying raw
+  offsets (resolved only when verified against the captured exact).
+  Claims and forensic findings whose quotes can't be located are
+  rejected-with-reason and can't be accepted (or "Accept all"-ed); the
+  review panel shows per-quote ⚓ grounding chips, displays the
+  article's span (with the model's original a tooltip away), and lets
+  you edit claim/finding quotes in place to re-anchor. Accepted claims
+  keep a local-only `anchor_provenance` record (`method`, `score`, and
+  the model's original quote whenever the span was repaired).
+  Assessment label quotes that don't locate save the label without an
+  anchor — never a fabricated one. Wire note: the kind-30040 `anchor`
+  tag's selector array may now additionally contain
+  `{"type":"TextPositionSelector","start":…,"end":…}` — additive;
+  consumers that don't know the type skip it.
+
 - **Identity profiles + fresh workspace.** Settings ▸ Signing is now the
   single home for user identity: saved, labeled identities
   (`identity_profiles`, keyed by pubkey) with a picker — New identity /

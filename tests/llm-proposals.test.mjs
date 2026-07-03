@@ -202,24 +202,155 @@ test('validateProposal: a finding with a bad maneuver / role is rejected', () =>
 // quote → anchor
 // ---------------------------------------------------------------------
 
-test('resolveQuoteToSelectors: verbatim match yields a prefix/suffix TextQuoteSelector', () => {
+test('resolveQuoteToSelectors: verbatim match yields prefix/suffix TQS + position selector', () => {
     const r = P.resolveQuoteToSelectors('I care about the truth', ARTICLE_TEXT);
     assert.equal(r.found, true);
+    assert.equal(r.method, 'exact');
     const tqs = r.selectors.find((s) => s.type === 'TextQuoteSelector');
     assert.ok(tqs && tqs.exact === 'I care about the truth');
     assert.ok(tqs.prefix && tqs.suffix); // surrounding context captured
+    const tps = r.selectors.find((s) => s.type === 'TextPositionSelector');
+    assert.ok(tps, 'raw offsets recorded');
+    assert.equal(ARTICLE_TEXT.slice(tps.start, tps.end), 'I care about the truth');
+});
+
+test('resolveQuoteToSelectors: a drifted quote re-anchors to the ARTICLE\'S text', () => {
+    // The article has an em-dash; the model "quotes" it with a hyphen.
+    const r = P.resolveQuoteToSelectors('It does not matter whether it happened - it bears good fruit.', ARTICLE_TEXT);
+    assert.equal(r.found, true);
+    assert.equal(r.method, 'normalized');
+    const tqs = r.selectors.find((s) => s.type === 'TextQuoteSelector');
+    assert.equal(tqs.exact, 'It does not matter whether it happened — it bears good fruit.');
+    const tps = r.selectors.find((s) => s.type === 'TextPositionSelector');
+    assert.equal(ARTICLE_TEXT.slice(tps.start, tps.end), tqs.exact);
 });
 
 test('resolveQuoteToSelectors: a miss still yields a quote-only selector', () => {
     const r = P.resolveQuoteToSelectors('this phrase is absent', ARTICLE_TEXT);
     assert.equal(r.found, false);
+    assert.equal(r.method, 'missing');
     const tqs = r.selectors.find((s) => s.type === 'TextQuoteSelector');
     assert.ok(tqs && tqs.exact === 'this phrase is absent');
     assert.ok(!tqs.prefix && !tqs.suffix);
+    assert.ok(!r.selectors.some((s) => s.type === 'TextPositionSelector'));
 });
 
 test('resolveQuoteToSelectors: empty quote yields no selectors', () => {
     assert.deepEqual(P.resolveQuoteToSelectors('', ARTICLE_TEXT), { selectors: [], found: false });
+});
+
+test('resolveQuoteToSelectors: accepts a prebuilt grounding index', async () => {
+    const { createGroundingIndex } = await import('../src/shared/quote-grounding.js');
+    const index = createGroundingIndex(ARTICLE_TEXT);
+    const r = P.resolveQuoteToSelectors('The Church declined to comment.', index);
+    assert.equal(r.found, true);
+    assert.equal(r.method, 'exact');
+});
+
+// ---------------------------------------------------------------------
+// The grounding firewall (ctx.grounding armed — the suggest flow)
+// ---------------------------------------------------------------------
+
+const { createGroundingIndex } = await import('../src/shared/quote-grounding.js');
+const GROUND_CTX = { claimRefs: new Set(['C1']), grounding: createGroundingIndex(ARTICLE_TEXT) };
+
+test('grounding firewall: a claim with no quote is rejected', () => {
+    const v = P.validateProposal({ kind: 'claim', text: 'An assertion.' }, GROUND_CTX);
+    assert.equal(v.ok, false);
+    assert.match(v.reason, /quote/i);
+});
+
+test('grounding firewall: a claim whose quote is not in the article is rejected', () => {
+    const v = P.validateProposal(
+        { kind: 'claim', text: 'An assertion.', quote: 'a sentence the article never says' },
+        GROUND_CTX
+    );
+    assert.equal(v.ok, false);
+    assert.match(v.reason, /not found/i);
+});
+
+test('grounding firewall: typographic drift in a quote still validates', () => {
+    const v = P.validateProposal(
+        { kind: 'claim', text: 'An assertion.', quote: '"I care about the truth, not what the church says," he insisted.' },
+        GROUND_CTX
+    );
+    assert.equal(v.ok, true);
+});
+
+test('grounding firewall: a finding with an unlocatable evidence quote is rejected', () => {
+    const v = P.validateProposal({
+        kind: 'finding', subject_label: 'X', role: 'apologist',
+        maneuver: 'darvo/deny', basis: 'quoted', counter_note: 'maybe not',
+        anchors: [
+            { quote: 'It does not matter whether it happened — it bears good fruit.' },
+            { quote: 'evidence the article does not contain' }
+        ]
+    }, GROUND_CTX);
+    assert.equal(v.ok, false);
+    assert.match(v.reason, /not found/i);
+});
+
+test('grounding firewall: without ctx.grounding, legacy validation is unchanged', () => {
+    const v = P.validateProposal({ kind: 'claim', text: 'An assertion.' }, { claimRefs: new Set() });
+    assert.equal(v.ok, true);
+});
+
+// ---------------------------------------------------------------------
+// Builders honor grounding: anchors carry the article's bytes
+// ---------------------------------------------------------------------
+
+test('buildClaimInput: repaired quote → anchor from article bytes + provenance record', () => {
+    const input = P.buildClaimInput(
+        { text: 'T.', quote: 'It does not matter whether it happened - it bears good fruit.' },
+        { articleText: ARTICLE_TEXT, sourceUrl: URL, suggestedBy: SUGGESTED_BY }
+    );
+    const tqs = input.anchor.find((s) => s.type === 'TextQuoteSelector');
+    assert.equal(tqs.exact, 'It does not matter whether it happened — it bears good fruit.');
+    assert.equal(input.anchor_provenance.method, 'normalized');
+    assert.equal(input.anchor_provenance.model_quote,
+        'It does not matter whether it happened - it bears good fruit.');
+});
+
+test('buildClaimInput: exact quote → provenance method exact, no model_quote', () => {
+    const input = P.buildClaimInput(
+        { text: 'T.', quote: 'The Church declined to comment.' },
+        { articleText: ARTICLE_TEXT, sourceUrl: URL }
+    );
+    assert.equal(input.anchor_provenance.method, 'exact');
+    assert.ok(!('model_quote' in input.anchor_provenance));
+});
+
+test('buildClaimInput: unlocatable quote → NO anchor, NO fabricated selector', () => {
+    const input = P.buildClaimInput(
+        { text: 'T.', quote: 'entirely absent words' },
+        { articleText: ARTICLE_TEXT, sourceUrl: URL }
+    );
+    assert.equal(input.anchor, null);
+    assert.equal(input.anchor_provenance, null);
+});
+
+test('buildAssessmentInput: an unlocatable label quote saves the label WITHOUT an anchor', () => {
+    const input = P.buildAssessmentInput(
+        { claim_ref: 'C1', stance: -1, labels: [
+            { label: 'misleading', quote: 'it bears good fruit' },
+            { label: 'unsupported', quote: 'words the article never used' }
+        ] },
+        { claimIdByRef: { C1: 'claim_x' }, articleText: ARTICLE_TEXT }
+    );
+    assert.ok(Array.isArray(input.labels[0].anchor));
+    assert.equal(input.labels[1].anchor, null);
+    assert.equal(input.labels[1].label, 'unsupported');
+});
+
+test('buildFindingInput: anchor quotes are re-canonicalized to the article\'s text', () => {
+    const input = P.buildFindingInput(
+        { role: 'apologist', maneuver: 'darvo/deny', counter_note: 'c',
+          anchors: [{ quote: 'It does not matter whether it happened - it bears good fruit.' }] },
+        { articleText: ARTICLE_TEXT, sourceRef: { url: URL }, subjectLabel: 'X' }
+    );
+    assert.equal(input.anchors[0].quote,
+        'It does not matter whether it happened — it bears good fruit.');
+    assert.ok(input.anchors[0].selector.some((s) => s.type === 'TextPositionSelector'));
 });
 
 // ---------------------------------------------------------------------
@@ -272,6 +403,17 @@ test('system prompt embeds the maneuver guide, label taxonomy, and no-verdict di
     assert.match(sys, /misleading/);                          // an assessment label
     assert.match(sys, /never a fact verdict|never a verdict|PERSONAL/i);
     assert.match(sys, /VERBATIM/);                            // anchoring instruction
+});
+
+test('system prompt + schema state the machine-checked quote contract', () => {
+    const sys = buildSystemPrompt({ task: 'all' });
+    assert.match(sys, /machine-checked/i);
+    assert.match(sys, /quote is REQUIRED/);                   // claims rule
+    const tool = buildSuggestTool();
+    const props = tool.input_schema.properties.proposals.items.properties;
+    assert.match(props.quote.description, /REQUIRED for kind=claim/);
+    assert.match(props.quote.description, /machine-checked/);
+    assert.match(props.anchors.description, /machine-checked/);
 });
 
 test('resolveModel defaults unknown ids to the latest capable model', () => {
