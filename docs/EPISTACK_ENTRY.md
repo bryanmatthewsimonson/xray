@@ -69,8 +69,9 @@ adjudication) — see §4.
 1. **Single-document vs question-level.** X-Ray audits a *document's*
    epistemic quality and structures claims *across* documents; it does
    not yet emit a calibrated verdict on a *question* ("did COVID come
-   from a lab?"). That layer is now **built on the Phase 15 PR train**
-   (#79–#86, unmerged at time of writing — `docs/TRUTH_ADJUDICATION_DESIGN.md`,
+   from a lab?"). That layer is now **built and merged to `main`**
+   (developed as the PR train #79–#88, landed via **PR #89** on
+   2026-07-03 — `docs/TRUTH_ADJUDICATION_DESIGN.md`,
    kinds `30063`/`30064` implemented, flag-gated): adjudicable
    propositions with the interpretation/value firewall, descriptive
    verdicts on declared standards with mandatory caveats, words-vs-deeds
@@ -145,12 +146,13 @@ because there is no server.
 ### 5.5 Limitations (stated plainly)
 
 Single-document audit granularity; question-level verdicts exist as the
-Phase 15 layer (built, flag-gated, on the unmerged PR train —
+Phase 15 layer (built, flag-gated, **merged to `main` as PR #89** —
 single-author descriptive rulings; cross-author aggregation deferred);
 pairwise relations without argument-map aggregation; LLM
 audits are Anthropic-only and consent-gated; interactive capture bounds
-corpus size. Continuation-funding pitch: merge + harden Phase 15
-adjudication (read-back surfaces, aggregation layer) on this substrate.
+corpus size. Continuation-funding pitch: harden Phase 15
+adjudication in the wild (real-relay publish, aggregation layer) on
+this substrate.
 
 ## 6. Case-study plan and timeline (17 days)
 

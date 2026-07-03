@@ -19,6 +19,59 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-03 — Repo-wide cleanup sweep: docs caught up to the Phase 15 merge
+
+Tags: `pattern`, `design`.
+
+A four-auditor sweep (docs staleness, hygiene, plans-vs-reality, live
+gate) after the #89 merge found the docs lagging reality by exactly one
+merge, plus accumulated drift. Fixed in one chore PR:
+
+- **Stale-by-success claims**: CLAUDE.md said 937 tests (1018) and
+  "Phase 15: design draft, no code yet" (merged); README said 519 tests
+  and listed the removed Entities/Keypair-Registry options tabs; ROADMAP
+  violated its own keep-current rules (Phases 13/14 headers still
+  in-progress/design-agreed, Phase 15 "in progress"); SMOKE_TEST said
+  Phases 0–9, five bundles, 528 tests; NIP_DRAFT said "fifteen kinds"
+  (seventeen) and its query-filter recipe omitted 30062/30063;
+  EPISTACK_ENTRY/WIN_PLAN still called Phase 15 "unmerged." All
+  reconciled; the win plan's §2 premise is annotated DONE rather than
+  rewritten.
+- **Code fixes**: `config.js` version was stranded at `0.5.0` (only
+  consumer is the content-script log banner — now 0.6.0 with a
+  lockstep comment); the phantom `xray:flags:reload` comment in
+  feature-flags.js replaced with the real loadFlags-before-gate
+  pattern; the dead `xray:openSettings` listener removed from the SW
+  (no sender anywhere — context menus call `openOptionsPage()`
+  directly); `web-ext` added to devDependencies so `npm run lint`
+  works outside CI (it was global-install-only, broken on fresh
+  clones); stale "Phase 1" comment in ci.yml updated.
+- **Branch cleanup**: 64 remote branches verified fully
+  merged/superseded (by ancestry after unshallowing, or by per-file
+  content identity for pre-history-rewrite branches) and queued for
+  deletion — the automation credential gets HTTP 403 on ref deletion,
+  so the verified list + one-liner ship in PR #93 for the maintainer
+  to run. Kept:
+  `feature/phase-9b-metadata-ui` — the only copy of the unbuilt
+  live-page metadata overlay and the sole consumer of the
+  intentionally-orphaned `metadata/ranker.js`/`trust-graph.js` modules
+  on main. The one unique artifact on the dead
+  `decentralized-trust-systems` branch was harvested to
+  `docs/ideas/CONSENSUS_PROTOCOLS_PLAN.md` with a kind-collision
+  warning (its proposed 30050–30056 collide with live kinds), so its
+  branch is safe to delete.
+- **CHANGELOG link refs**: `[Unreleased]` compared against `v0.5.0`
+  and `[0.6.0]`/`[0.5.1]` had no link definitions. Root cause worth
+  recording: **the v0.6.0 tag was never cut** — `release: v0.6.0`
+  (`eee77e4`) bumped the manifest but nobody tagged, so `release.yml`
+  hasn't run since v0.5.1 and "v0.6.0" exists only as a manifest
+  string. The 0.6.0 link def points at the release commit as the
+  honest stand-in. So-what: cut a real tag (v0.7.0, since Phase 15
+  has since merged) before pinning any provenance-bearing artifact —
+  e.g. the Epistack capture run — to a build.
+
+---
+
 ## 2026-07-03 — Phase 16 design amendment (16.0.5) from the pre-implementation audit
 
 Tags: `design`.

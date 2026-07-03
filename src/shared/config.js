@@ -3,7 +3,9 @@
 // content/ui.js, background/index.js (indirectly via the above).
 
 export const CONFIG = {
-    version: '0.5.0',
+    // Kept in lockstep with manifest.json/package.json by
+    // `npm run version:set` (scripts/set-version.mjs).
+    version: '0.6.0',
     // Off by default — users who want noise can flip
     // `preferences.debug` in the options page Advanced tab.
     debug: false,

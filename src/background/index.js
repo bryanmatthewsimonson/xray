@@ -215,11 +215,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     // FAB / context-menu shortcuts that target the extension itself.
     // No tab routing needed; the SW just opens the relevant surface.
-    if (message.type === 'xray:openSettings') {
-        chrome.runtime.openOptionsPage?.();
-        sendResponse({ ok: true });
-        return false;
-    }
     if (message.type === 'xray:openEntities') {
         openEntityBrowser();
         sendResponse({ ok: true });

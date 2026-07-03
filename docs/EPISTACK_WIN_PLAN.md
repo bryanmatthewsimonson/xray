@@ -33,17 +33,18 @@ package (writeup length? repo mandatory? live demo? how many cases?);
 whether pre-existing commercial work is explicitly allowed; the judge
 panel.
 
-## 2. The single biggest fact: Phase 15 is already built
+## 2. The single biggest fact: Phase 15 is already built — and now merged
+
+> **Status update (2026-07-03):** this section's premise is complete.
+> The full train (15.1–15.10, developed as PRs #79–#88) **merged to
+> `main` via PR #89** with the suite green (1018 tests); the stale train
+> branches were deleted in the cleanup sweep. The "one gated merge away"
+> framing below is preserved for the record but the merge is DONE; what
+> remains from this plan is the capture run, relays, and the writeup.
 
 The truth-adjudication layer I wrote the kickoff for **exists in code** as a
-clean linear stack on `origin/claude/phase-15-adjudicate-ui` (slices
-15.1–15.8 + settings). **Verified 2026-07-02 against `origin/main`
-(834fa35): 11 ahead / 0 behind, merge-base = main's tip, `git merge-tree`
-shows zero conflicts — a genuine clean fast-forward.** (Note: local `main`
-may read stale at `eb9a41d`; `git fetch` first. Do not write "fast-forward"
-as a load-bearing claim in the judge-facing writeup — a judge checking a
-later HEAD sees a normal 3-way merge that still auto-resolves; say "merges
-cleanly, inert behind a default-off flag, verified green.")
+clean linear stack (slices 15.1–15.10). It merged cleanly, inert behind a
+default-off flag, verified green.
 
 It adds, all faithful to `TRUTH_ADJUDICATION_DESIGN.md`'s spine (descriptive
 verdicts, measurements-not-estimations, **no fused score anywhere**):
@@ -63,18 +64,19 @@ verdicts, measurements-not-estimations, **no fused score anywhere**):
 - Evidence tiers + **attestation-convergence** ("two outlets on one wire =
   one source"), dimension-separated **coverage-capped entity records**,
   reader adjudicate UI, publish path, `truthAdjudicationPublishing` flag
-  (default off). ~72 new tests (suite ~1009 total).
+  (default off). ~72 new tests (suite 1018 total on merged `main`).
 
-**This means the competition's literal headline deliverable — a calibrated
-per-proposition verdict anyone can replay, re-audit, or dispute — is one
-gated merge away, not a build.**
+**This means the competition's literal headline deliverable — a graded
+per-proposition verdict anyone can replay, re-audit, or dispute — is
+already on `main`, not a build.** (Per §3 fix 1, never brand it
+"calibrated" in the entry.)
 
 Other branches (triaged): `decentralized-trust-systems-m393u` holds one
-unique 537-line design doc (`Ideas/CONSENSUS-PROTOCOLS-PLAN.md`) — the
-deferred aggregation / web-of-trust / bridging / Sybil layer — **stale as
-code (would revert Phases 8–15) and its proposed kinds 30050–30056 collide
-with live kinds; harvest as the continuation-funding roadmap only,
-renumbered.** `feature/phase-9b-metadata-ui` (live-page read/annotate
+unique 537-line design doc — the deferred aggregation / web-of-trust /
+bridging / Sybil layer — **stale as code (would revert Phases 8–15) and
+its proposed kinds 30050–30056 collide with live kinds**. *(Harvested
+2026-07-03 to `docs/ideas/CONSENSUS_PROTOCOLS_PLAN.md` with a renumber
+warning; its branch is verified safe to delete.)* `feature/phase-9b-metadata-ui` (live-page read/annotate
 overlay) is valuable but not needed for this entry. Everything else is
 merged or stale.
 
@@ -204,7 +206,9 @@ and deliberately spans the confident↔uncertain curve:
 ## 6. Timeline (to July 19)
 
 - **Jul 2–3 (Day 0–1):** Task 0 — human fetch of flf.org rules + judging
-  criteria + submit EOI. **Merge `phase-15-adjudicate-ui`** + full gate
+  criteria *(DONE — `docs/epistack/` committed via #91/#92, authoritative
+  over §1)* + submit EOI. **Merge `phase-15-adjudicate-ui`** *(DONE —
+  merged as #89, suite 1018 green)* + full gate
   (`npm test` / `build` / `web-ext lint`) + the pending Phase 15 SMOKE_TEST,
   specifically the 30063 author→sign→publish→portal-render round trip.
   Freeze + self-host relays. **GATE:** if the merge can't go green, switch
@@ -306,7 +310,8 @@ and deliberately spans the confident↔uncertain curve:
 
 1. **You:** run Task 0 (fetch flf.org rules + judging-criteria doc; submit
    the EOI form) — it gates scope-freeze and I can't reach flf.org.
-2. **Me, on your go:** merge `phase-15-adjudicate-ui` to `main` behind its
+   *(Rules/criteria fetch DONE — `docs/epistack/`; EOI status unknown.)*
+2. **Me, on your go** *(DONE — merged as #89)*: merge `phase-15-adjudicate-ui` to `main` behind its
    default-off flag, run the full gate (test/build/lint) and report green
    before anything else; then stand up the capture run scaffolding.
 3. **You + browser:** the capture run itself (needs the extension loaded +
