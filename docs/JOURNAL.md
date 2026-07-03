@@ -19,6 +19,29 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-03 — Eggs worksheet surfaces the LDL-C confident-verdict source gap
+
+Tags: `design`.
+
+Slice 2 turned the eggs corpus into an ordered capture worksheet
+(`EPISTACK_EGGS_WORKSHEET.md`). Building it exposed a real gap worth
+recording rather than quietly working around: the win plan (§4, §5.2)
+leans on **"dietary cholesterol raises serum LDL-C → established-true"**
+as the entry's *confident-correct* half of the calibration curve, but
+the corpus is entirely **egg → CVD-outcome** sources — none of them is a
+controlled-feeding / metabolic-ward RCT establishing the narrower LDL-C
+sub-fact. Without such a source that verdict cannot honestly be rendered
+`established-true`.
+
+The worksheet flags this as an explicit open item with two closes —
+**add 1–2 verified controlled-feeding sources** (find a live PMC URL the
+way the corpus did for everything else; do **not** paste a citation from
+memory), or **scope the confident verdict to what the corpus supports /
+move the confident-correct showcase to LHC** (the win plan already pairs
+eggs-LDL-C and LHC as mutual insurance). Recording it here so the
+decision is deliberate; the worksheet does not fabricate a source to
+paper the gap.
+
 ## 2026-07-03 — Sprint descopes: public relays only; consensus-protocols idea dropped
 
 Tags: `design`.

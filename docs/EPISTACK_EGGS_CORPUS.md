@@ -2,7 +2,10 @@
 
 > Companion to [`docs/EPISTACK_ENTRY.md`](EPISTACK_ENTRY.md). This is the
 > ranked source list to capture with X-Ray for the "health effects of
-> eggs / dietary cholesterol" case study. The case was chosen because
+> eggs / dietary cholesterol" case study. The **operational checklist**
+> for actually running the captures (ordered waves, per-source tick
+> columns, edges, verdict targets) is
+> [`EPISTACK_EGGS_WORKSHEET.md`](EPISTACK_EGGS_WORKSHEET.md). The case was chosen because
 > egg-and-cholesterol nutrition science is a decades-long flip-flop with
 > **directly contradictory conclusions drawn from overlapping data** —
 > ideal for demonstrating `contradicts` / `supports` / `updates` claim
