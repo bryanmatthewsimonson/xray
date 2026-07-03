@@ -19,6 +19,44 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-03 — Identity profiles: one live slot, derived active, reset as the paired half
+
+Tags: `design`.
+
+For the Epistack sprint the maintainer wants a dedicated npub, which
+surfaced that "identity" lived in four places: the Signing tab's
+primary key, the reserved `xray:user` LocalKeyManager slot (signs
+30078/10002), the portal's pasted viewer npubs, and per-entity keypairs
+in the side panel. Decisions worth second-guessing later:
+
+- **`local_primary_identity` stays the ONE live slot.** Profiles
+  (`identity_profiles`, keyed by pubkey) are saved copies; "active" is
+  DERIVED by matching the live slot against the registry. No signing
+  path changed; no second source of truth to drift.
+- **Switching identity ≠ clean slate — by design.** Publish stamps live
+  on the records themselves (`publishedPubkeys`, ledger marks), so a
+  bare switch would make reconcile attribute the old npub's publishes
+  to the new one. The paired half is **Start fresh workspace**
+  (Advanced): clears the content stores + `xray-archive`/`xray-audits`
+  IndexedDB, keeps settings/relays/flags/LLM-key/saved identities. The
+  clear/keep/database lists are exported constants with exact pin
+  tests — a new content store that isn't added to the clear list fails
+  the suite.
+- **Entity keys are workspace content, not user identity.** Reset
+  clears `local_keys` (the `xray:user` sync key re-mints lazily); the
+  side panel's per-entity keys stay where they are. The portal npub box
+  is a read-only viewer for *other* archives — relabeled accordingly,
+  with identity management pointed at Settings ▸ Signing.
+- **Backups contain nsecs on purpose** (they're the user's own recovery
+  file; the UI says to treat it like an nsec). `xray:llm:key` is
+  excluded per its module's never-export rule; a pin test asserts the
+  exclusion.
+
+Files: `src/shared/identity-profiles.js`, options Signing/Advanced,
+`src/portal/index.{html,js}`, `tests/identity-profiles.test.mjs`.
+
+---
+
 ## 2026-07-03 — Repo-wide cleanup sweep: docs caught up to the Phase 15 merge
 
 Tags: `pattern`, `design`.

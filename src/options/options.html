@@ -95,21 +95,38 @@
         </label>
       </div>
 
-      <!-- Local panel -->
+      <!-- Local panel — the single home for user-identity management -->
       <div class="xr-opt__panel" id="signing-panel-local">
-        <h3 class="xr-opt__subhead">Local key</h3>
+        <h3 class="xr-opt__subhead">Identity</h3>
         <div id="local-key-state" class="xr-opt__hint">No key yet.</div>
+        <div id="identity-list" class="xr-opt__identity-list"></div>
         <div class="xr-opt__actions" style="margin-top:8px">
-          <button class="xr-opt__btn xr-opt__btn--primary" id="local-generate">Generate new key</button>
+          <button class="xr-opt__btn xr-opt__btn--primary" id="identity-new-toggle">New identity…</button>
           <button class="xr-opt__btn" id="local-import-toggle">Import nsec…</button>
+          <button class="xr-opt__btn" id="identity-save-current">Save current as profile…</button>
           <button class="xr-opt__btn" id="local-export-toggle">Show nsec…</button>
-          <button class="xr-opt__btn xr-opt__btn--danger" id="local-reset">Reset key</button>
+        </div>
+        <div class="xr-opt__field" id="identity-new-row" style="display:none; margin-top:8px">
+          <span class="xr-opt__label">Label for the new identity (e.g. "Epistack")</span>
+          <input type="text" id="identity-new-label" placeholder="Epistack" spellcheck="false" autocomplete="off" />
+          <div class="xr-opt__actions" style="margin-top:6px">
+            <button class="xr-opt__btn xr-opt__btn--primary" id="identity-new-create">Generate &amp; switch</button>
+          </div>
+          <p class="xr-opt__hint">
+            Generates a fresh keypair, saves it as a named profile, and
+            makes it the active signing identity. Existing local records
+            keep their old publish stamps — for a truly clean slate, run
+            <strong>Start fresh workspace</strong> (Advanced) after
+            switching.
+          </p>
         </div>
         <div class="xr-opt__field" id="local-import-row" style="display:none; margin-top:8px">
           <span class="xr-opt__label">nsec1… or 64-char hex</span>
           <input type="text" id="local-import-input" placeholder="nsec1…" spellcheck="false" autocomplete="off" />
+          <span class="xr-opt__label" style="margin-top:6px">Label</span>
+          <input type="text" id="local-import-label" placeholder="Personal" spellcheck="false" autocomplete="off" />
           <div class="xr-opt__actions" style="margin-top:6px">
-            <button class="xr-opt__btn xr-opt__btn--primary" id="local-import-save">Import</button>
+            <button class="xr-opt__btn xr-opt__btn--primary" id="local-import-save">Import &amp; switch</button>
           </div>
         </div>
         <div id="local-export-row" style="display:none; margin-top:8px">
@@ -118,6 +135,14 @@
           <button class="xr-opt__btn" id="local-export-copy">Copy</button>
         </div>
         <span class="xr-opt__status" id="local-status"></span>
+        <p class="xr-opt__hint" style="margin-top:10px">
+          This is the only place user identity is managed. Per-entity
+          keypairs live with each entity (side panel — entities sign
+          their own profiles). The entity-sync key (<code>xray:user</code>)
+          signs sync events only and is re-minted after a workspace
+          reset. The portal's npub box is a read-only viewer for
+          <em>other</em> archives, not an identity.
+        </p>
       </div>
 
       <!-- NIP-07 panel -->
@@ -169,6 +194,27 @@
         non-identical archive; "Only when richer" preserves the older
         paywall-shaped heuristic.
       </p>
+
+      <hr />
+      <h3 class="xr-opt__subhead">Workspace</h3>
+      <p class="xr-opt__hint">
+        A workspace is everything you have captured or authored:
+        entities (and their keypairs, including the entity-sync key),
+        claims, evidence links, assessments, forensic findings, truth
+        adjudications, platform accounts, the archive cache, and audit
+        records. Settings, relays, feature flags, the LLM key, and your
+        <strong>saved identities</strong> are not part of it.
+      </p>
+      <div class="xr-opt__actions">
+        <button class="xr-opt__btn" id="workspace-backup">Download backup (JSON)</button>
+        <button class="xr-opt__btn xr-opt__btn--danger" id="workspace-reset">Start fresh workspace…</button>
+      </div>
+      <p class="xr-opt__hint">
+        The backup contains your saved identities and their private
+        keys — treat the file like an nsec. Audit records cost money to
+        recompute; the reset flow offers the backup first.
+      </p>
+      <span class="xr-opt__status" id="workspace-status"></span>
 
       <hr />
       <h3 class="xr-opt__subhead">Experimental</h3>
