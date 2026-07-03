@@ -19,6 +19,39 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-03 — Case dossier CD.1: a pure model-spine assembler with a deliberate boundary
+
+Tags: `design`.
+
+`src/shared/case-dossier.js` `assembleCaseDossier(caseEntityId)` is the
+CD.1 orbit assembler (`docs/CASE_DOSSIER_DESIGN.md` §6): read-only,
+deterministic, no case-level score — the honest headline is the
+verdict-state *distribution* over the case's propositions
+(`verdictVariance` over the active chain heads), and verdicts join to
+propositions by `proposition_id`, never to a person.
+
+The second-guessable call is the **scope boundary**. The design's §3
+lists ingredients from two different substrates: the truth/claim/
+entity/link model (`chrome.storage.local`, fully deterministic) and the
+portal's library/archive index (article metadata, audit-cache keyed by
+article x-hash). CD.1 owns only the first. Concretely it **defers** the
+§3.1 prediction counts (scoping needs a url→x-hash index CD.1 doesn't
+hold) and the §3.3 **publication/capture** timeline axes (article/
+archive timestamps), emitting only the **world-time** and **judgment-
+time** axes — both pure functions of the truth model — plus an
+`article_urls` hook so CD.2/CD.3 join the rest without CD.1 taking an
+IndexedDB dependency. Same reasoning keeps the §3.4 evidence output at
+"articles by url + the `attestationConvergence` measurement"; the
+"grouped by origin" *collapse* and the per-article audit/capture chips
+are CD.2's render (they need the same portal index).
+
+Two joins are necessarily fuzzy and documented as best-effort: forensic
+findings key subjects by identity_id/pubkey/label (not entity_id), so
+they join to an orbit entity by exact pubkey/id or a normalized-label
+match; an unmatched finding is simply absent, not forced in. 13 fixture
+tests cover chain-head collapse, precision bands, convergence grouping,
+cluster components, determinism, and the side-effect-free contract.
+
 ## 2026-07-03 — Sprint descopes: public relays only; consensus-protocols idea dropped
 
 Tags: `design`.
