@@ -63,8 +63,8 @@ const ARTICLE_TEXT = [
 // The canned tool output — this stands in for a live API call.
 function mockProposals() {
     return [
-        { kind: 'entity', ref: 'E1', name: 'Jacob Hansen', entity_type: 'person' },
-        { kind: 'entity', ref: 'E2', name: 'The Church', entity_type: 'organization' },
+        { kind: 'entity', ref: 'E1', name: 'Jacob Hansen', entity_type: 'person', mention: 'Jacob Hansen' },
+        { kind: 'entity', ref: 'E2', name: 'The Church', entity_type: 'organization', mention: 'The Church' },
         {
             kind: 'claim', ref: 'C1',
             text: 'Hansen cares about truth over institutional approval.',
@@ -295,20 +295,70 @@ test('grounding firewall: without ctx.grounding, legacy validation is unchanged'
     assert.equal(v.ok, true);
 });
 
+test('grounding firewall: an entity needs a locatable verbatim mention', () => {
+    const noMention = P.validateProposal(
+        { kind: 'entity', name: 'Jacob Hansen', entity_type: 'person' }, GROUND_CTX);
+    assert.equal(noMention.ok, false);
+    assert.match(noMention.reason, /mention/i);
+
+    const fabricated = P.validateProposal(
+        { kind: 'entity', name: 'Jacob Hansen', entity_type: 'person', mention: 'Reverend Hansen of Utah' }, GROUND_CTX);
+    assert.equal(fabricated.ok, false);
+    assert.match(fabricated.reason, /not found/i);
+
+    // The display name may disambiguate; the mention must be verbatim.
+    const ok = P.validateProposal(
+        { kind: 'entity', name: 'Jacob Hansen (apologist)', entity_type: 'person', mention: 'Jacob Hansen' }, GROUND_CTX);
+    assert.equal(ok.ok, true);
+});
+
+// ---------------------------------------------------------------------
+// Entity dedupe candidates
+// ---------------------------------------------------------------------
+
+test('findEntityMatches: token containment either way, same type only', () => {
+    const registry = [
+        { id: 'e1', name: 'Elena Vargas', type: 'person' },
+        { id: 'e2', name: 'Mayor Elena Vargas', type: 'person' },
+        { id: 'e3', name: 'Elena Vargas', type: 'organization' },   // wrong type
+        { id: 'e4', name: 'Springfield City Council', type: 'organization' }
+    ];
+    // Proposed name is MORE specific than an existing row.
+    const up = P.findEntityMatches('Mayor Elena Vargas', 'person', registry);
+    assert.ok(up.some((e) => e.id === 'e1'));
+    assert.ok(up.some((e) => e.id === 'e2'));
+    assert.ok(!up.some((e) => e.id === 'e3'), 'type mismatch excluded');
+
+    // Proposed name is LESS specific.
+    const down = P.findEntityMatches('Elena Vargas', 'person', registry);
+    assert.ok(down.some((e) => e.id === 'e2'));
+
+    // Exact (case/punct-insensitive) match sorts first.
+    assert.equal(P.findEntityMatches('elena vargas', 'person', registry)[0].id, 'e1');
+
+    // No token overlap → no candidates.
+    assert.deepEqual(P.findEntityMatches('Dana Whitfield', 'person', registry), []);
+    assert.deepEqual(P.findEntityMatches('', 'person', registry), []);
+});
+
 // ---------------------------------------------------------------------
 // Builders honor grounding: anchors carry the article's bytes
 // ---------------------------------------------------------------------
 
 test('buildClaimInput: repaired quote → anchor from article bytes + provenance record', () => {
+    const HASH = 'd'.repeat(64);
     const input = P.buildClaimInput(
         { text: 'T.', quote: 'It does not matter whether it happened - it bears good fruit.' },
-        { articleText: ARTICLE_TEXT, sourceUrl: URL, suggestedBy: SUGGESTED_BY }
+        { articleText: ARTICLE_TEXT, sourceUrl: URL, articleHash: HASH, suggestedBy: SUGGESTED_BY }
     );
     const tqs = input.anchor.find((s) => s.type === 'TextQuoteSelector');
     assert.equal(tqs.exact, 'It does not matter whether it happened — it bears good fruit.');
     assert.equal(input.anchor_provenance.method, 'normalized');
     assert.equal(input.anchor_provenance.proposed_quote,
         'It does not matter whether it happened - it bears good fruit.');
+    // First-class text provenance: the ARTICLE's span, plus the version hash.
+    assert.equal(input.quote, 'It does not matter whether it happened — it bears good fruit.');
+    assert.equal(input.article_hash, HASH);
 });
 
 test('buildClaimInput: exact quote → provenance method exact, no proposed_quote', () => {
@@ -459,7 +509,7 @@ async function acceptAll(proposals) {
         created.entity.push(e);
     }
     for (const p of n.byKind.claim) {
-        const c = await ClaimModel.create(P.buildClaimInput(p, { entityIdByRef, articleText: ARTICLE_TEXT, sourceUrl: URL, suggestedBy: SUGGESTED_BY }));
+        const c = await ClaimModel.create(P.buildClaimInput(p, { entityIdByRef, articleText: ARTICLE_TEXT, sourceUrl: URL, articleHash: 'e'.repeat(64), suggestedBy: SUGGESTED_BY }));
         if (p.ref) claimIdByRef[p.ref] = c.id;
         created.claim.push(c);
     }
@@ -491,12 +541,15 @@ test('end-to-end: a canned pass creates every artifact tagged llm:<model>', asyn
     assert.equal(created.claim.length, 2);
     assert.equal(created.entity[0].suggested_by, SUGGESTED_BY);
 
-    // Claims carry resolved about-entities + a real anchor.
+    // Claims carry resolved about-entities + a real anchor + first-class
+    // text provenance (the article's own span and the version hash).
     const c1 = created.claim[0];
     assert.equal(c1.suggested_by, SUGGESTED_BY);
     assert.deepEqual(c1.about.sort(), [entityIdByRef.E1, entityIdByRef.E2].sort());
     assert.ok(Array.isArray(c1.anchor) && c1.anchor.some((s) => s.type === 'TextQuoteSelector'));
     assert.equal(c1.is_key, true);
+    assert.equal(c1.quote, '"I care about the truth, not what the church says," he insisted.');
+    assert.equal(c1.article_hash, 'e'.repeat(64));
 
     // Assessment, relationship, revision all tagged + linked.
     assert.equal(created.assessment[0].suggested_by, SUGGESTED_BY);

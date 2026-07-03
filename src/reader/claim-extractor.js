@@ -56,7 +56,7 @@ import { makeClaimRefCanonicalizer, isLocalClaimId } from '../shared/claim-ref.j
 export function openClaimModal(opts) {
     return new Promise((resolve) => {
         const { sourceUrl, initialText = '', initialClaim = null, context = '', anchor = null,
-                initialAbout = [] } = opts;
+                quote = null, articleHash = null, initialAbout = [] } = opts;
 
         const isEdit = !!initialClaim;
         const initial = initialClaim || {
@@ -77,7 +77,10 @@ export function openClaimModal(opts) {
             try {
                 const result = isEdit
                     ? await ClaimModel.update(initialClaim.id, saved)
-                    : await ClaimModel.create({ ...saved, source_url: sourceUrl, anchor });
+                    : await ClaimModel.create({
+                        ...saved, source_url: sourceUrl, anchor,
+                        quote, article_hash: articleHash
+                    });
                 closeModal();
                 resolve(result);
             } catch (err) {

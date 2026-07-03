@@ -685,6 +685,8 @@ async function refreshAuditStatus() {
                 initialText:  pred.text,
                 context:      pred.evidence_quote || '',
                 anchor:       pred.anchor || null,
+                quote:        pred.evidence_quote || null,
+                articleHash:  claimArticleHash(),
                 initialAbout: state.lastClaimAbout || []
             });
             if (saved) {
@@ -799,6 +801,9 @@ function renderReader() {
                 initialText: text,
                 context,
                 anchor,
+                // Text provenance: the selection IS the verbatim quote.
+                quote:       text,
+                articleHash: claimArticleHash(),
                 // Sticky default (Phase 11.3): a case-capture session tags
                 // dozens of claims with the same case entity + people.
                 initialAbout: state.lastClaimAbout || []
@@ -1049,6 +1054,15 @@ function articleBodyText() {
 }
 
 /**
+ * The canonical article hash to stamp on claims as text provenance —
+ * only while it still describes the current body (edits dirty it; the
+ * publish flow recomputes from the final text).
+ */
+function claimArticleHash() {
+    return (!state.hashDirty && state.articleHash) ? state.articleHash : null;
+}
+
+/**
  * Configure the Suggest control from the SW's gating snapshot. Absent
  * when the flag is off; visible-but-disabled when on with no key — so
  * either condition guarantees no network call is reachable from here.
@@ -1112,7 +1126,28 @@ async function runSuggestPass() {
         model:      resp.model,
         articleText,
         sourceUrl:  state.article.url || '',
+        articleHash: claimArticleHash() || '',
         sourceRef:  { url: state.article.url || '', title: state.article.title || '' },
+        // Accepted entities are tagged onto the article with their
+        // grounded verbatim mention — same ref shape (and same dedupe)
+        // as the manual selection tagger, so the publish flow p-tags
+        // them and the mention provenance survives.
+        onEntityTag: (ref) => {
+            if (!ref || !ref.entity_id) return;
+            if (!Array.isArray(state.article.entities)) state.article.entities = [];
+            const dup = state.article.entities.find((e) => e.entity_id === ref.entity_id);
+            if (dup) return;
+            state.article.entities.push(ref);
+            const body = $('.xr-article__body');
+            if (body && ref.context) {
+                rehydrateEntityMarks(body, [ref])
+                    .then(() => {
+                        state.htmlDraft = body.innerHTML;
+                        state.dirtySource = 'reader';
+                    })
+                    .catch(() => {});
+            }
+        },
         onAccepted: async () => {
             await refreshClaimsBar().catch(() => {});
             await refreshFindingsBar().catch(() => {});

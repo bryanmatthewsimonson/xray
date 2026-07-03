@@ -19,6 +19,41 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-03 — Thin claims stay thin for display, not for provenance; entities keep their verbatim mentions
+
+Tags: `design`.
+
+Follow-up to the grounding work, closing two more provenance holes the
+maintainer called out:
+
+- **Claims.** The thin redesign (Phase 10) buried the verbatim quote
+  inside the anchor selector JSON (truncated at 500 chars) and the
+  30040 wire round-trip dropped it entirely — `buildClaimEvent` wrote
+  an `anchor` tag that `parseClaimEvent` never read. Claims now carry
+  first-class `quote` + `article_hash` (the Phase 13.4 canonical hash,
+  binding the quote to the exact text version) locally and on the wire
+  (`quote`/`x`/`captured_at` tags, all additive), with the parse side
+  reading everything the build side writes. The deliberate part:
+  **thin stays thin in the UI** — these fields are auto-populated by
+  the capture paths (grounded span, manual selection), never new form
+  fields. `x` reuses the audit family's tag so one `#x` query now
+  joins an article version to its audits AND its claims.
+- **Entities.** The display name is allowed to disambiguate beyond the
+  article's wording ("Elena Vargas", not "the mayor") — but that
+  meant LLM-suggested entities lost WHERE the article named them, and
+  near-duplicate names minted duplicate ids (the id derives from the
+  name). Entity proposals now require a grounded verbatim `mention`;
+  accepting one tags the article with the same `{entity_id, context}`
+  ref the manual tagger produces (so the mention survives renames and
+  reaches the publish flow), and `findEntityMatches` offers
+  link-to-existing at accept time (single candidate = default choice)
+  instead of silently accumulating "Mayor Elena Vargas" next to
+  "Elena Vargas". Retroactive registry cleanup + the entity-as-
+  subscribable-corpus model are designed, not built:
+  `docs/ENTITY_CORPUS_DESIGN.md`.
+
+---
+
 ## 2026-07-03 — Suggest provenance is grounded: the model's quote is a search key, not evidence
 
 Tags: `design`, `bug`.

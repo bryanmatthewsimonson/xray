@@ -1397,6 +1397,24 @@ imports):
 
 ---
 
+## Phase 17 — Entity corpus & smart entity management 📝 design only
+
+**`docs/ENTITY_CORPUS_DESIGN.md`** (v0.1, 2026-07-03). Two halves:
+**(A)** registry hygiene — a deterministic duplicate report (name
+clusters, shared platform accounts, co-mention overlap) plus an
+LLM entity audit (`propose_entity_ops`: merge/rename/retype/split/
+external-id, evidence-cited, human-confirmed) over the existing
+`canonical_id` alias machinery; **(B)** the entity as a subscribable
+NOSTR corpus — entity-signed kind-1 mention notes on article publish,
+enriched kind-0 profiles with NIP-39 external ids, and a wire-first
+corpus view, behind a new `entityCorpusPublishing` flag (default off).
+Groundwork already merged with the Phase 14.5 provenance hardening:
+grounded entity mentions, suggest-time dedupe, and claim `quote`/`x`
+wire tags. Slices E1–E6 in the design doc. Sequenced after the
+Epistack sprint, alongside/after Phase 16.
+
+---
+
 ## Abandonment criteria
 
 From issue #20 — bears repeating. At any phase boundary, if the cost

@@ -661,9 +661,11 @@ publishes. Requires a real Anthropic API key
 | 14.5.5 | On an op-ed / debate with named people, click **✨ Suggest…** (defaults) | ✅ button shows "✨ Thinking…", then a **Suggestions** modal opens with **only Entities + Claims** sections (no Assessments / Relationships / Findings); a model badge shows the model id |
 | 14.5.5b | Enable **Forensic findings** in Options, Save, re-run a pass | ✅ the modal now also shows a Findings section (and Baselines/Revisions if any) — opt-in kinds appear only once enabled |
 | 14.5.6 | Inspect a **Claim** proposal | ✅ summary shows the claim text + the about-entities it links, the **quote it is drawn from**, and a **⚓ grounding chip** (verbatim / typography normalized / close match %); Accept / Edit / Reject buttons |
+| 14.5.6b | Inspect an **Entity** proposal | ✅ shows name · type, the **verbatim mention** with its ⚓ chip; if a same-type entity with a token-matching name already exists, a **"≈ may already exist"** select offers *Use existing* (defaulted when there is exactly one candidate) |
+| 14.5.6c | Accept an entity, then `chrome.storage.local` + the article: | ✅ *Use existing* links (no duplicate id minted, row notes "Linked to existing"); either way the article gains the entity ref with the **grounded mention as context** (the mention span highlights in the body) |
 | 14.5.7 | Inspect a **Finding** proposal | ✅ shows subject + maneuver + role/basis + a quoted lead + the **counter-read** (`↔ …`); **no stance/score/confidence anywhere** |
 | 14.5.8 | **Accept** an entity, then its claim, then a finding (or click **Accept all valid**) | ✅ rows flip to "✓ accepted"; the **claims bar** and **Forensic findings bar** gain the artifacts |
-| 14.5.9 | DevTools: `chrome.storage.local.get(['article_claims','behavioral_findings','entities'], console.log)` | ✅ accepted records carry `suggested_by: "llm:<model>"`; the finding has `counter_note`, `anchors[].quote`, and **no** `stance`/`intent`/`score` field |
+| 14.5.9 | DevTools: `chrome.storage.local.get(['article_claims','behavioral_findings','entities'], console.log)` | ✅ accepted records carry `suggested_by: "llm:<model>"`; accepted claims carry a first-class `quote` (the article's own text) and, when the body wasn't edited, an `article_hash`; the finding has `counter_note`, `anchors[].quote`, and **no** `stance`/`intent`/`score` field |
 | 14.5.10 | Click a claim's tagged passage / a finding's evidence in the article body | ✅ the LLM's verbatim quote resolved to a real anchor (the span highlights / jumps) |
 
 **The firewall + Edit/Reject**

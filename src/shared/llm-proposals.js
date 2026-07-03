@@ -169,6 +169,15 @@ export function validateProposal(prop, ctx = {}) {
             if (!ENTITY_TYPES.includes(prop.entity_type)) {
                 return fail(`Entity type must be one of: ${ENTITY_TYPES.join(', ')}`);
             }
+            if (ctx.grounding) {
+                // The mention is the entity's provenance in THIS article —
+                // the display name may disambiguate, the mention may not.
+                const mention = String(prop.mention || '').trim();
+                if (!mention) return fail('Entity needs a verbatim mention from the article');
+                if (ctx.grounding.ground(mention).status === 'missing') {
+                    return fail('Mention not found in the article — edit it to match the text exactly');
+                }
+            }
             return OK;
         }
         case 'claim': {
@@ -271,7 +280,55 @@ export function buildEntityInput(prop, { suggestedBy = 'user' } = {}) {
     return { name: String(prop.name || '').trim(), type: prop.entity_type, suggested_by: suggestedBy };
 }
 
-export function buildClaimInput(prop, { entityIdByRef = {}, articleText = '', sourceUrl = '', suggestedBy = 'user' } = {}) {
+// ------------------------------------------------------------------
+// Entity dedupe (accept-time)
+// ------------------------------------------------------------------
+
+function nameTokens(name) {
+    return new Set(
+        String(name || '')
+            .toLowerCase()
+            .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+            .split(/\s+/)
+            .filter(Boolean)
+    );
+}
+
+/**
+ * Registry candidates a proposed entity likely duplicates. Same type
+ * only; a candidate's name must token-equal the proposal or fully
+ * contain / be contained by it ("Mayor Elena Vargas" ↔ "Elena
+ * Vargas") — the disambiguation-word drift that mints duplicate ids.
+ * Deliberately deterministic and conservative: the human picks from
+ * the offered candidates, and the (designed) LLM entity audit handles
+ * retroactive cleanup. Pure.
+ *
+ * @param {string} name       proposed display name
+ * @param {string} type       proposed entity type
+ * @param {Array<object>} entities  registry rows ({id, name, type, …})
+ * @returns {Array<object>}   up to 3 candidates, exact-name match first,
+ *                            then shortest name first
+ */
+export function findEntityMatches(name, type, entities) {
+    const q = nameTokens(name);
+    if (q.size === 0) return [];
+    const scored = [];
+    for (const e of (Array.isArray(entities) ? entities : [])) {
+        if (!e || e.type !== type || !e.name) continue;
+        const t = nameTokens(e.name);
+        if (t.size === 0) continue;
+        const qInT = [...q].every((x) => t.has(x));
+        const tInQ = [...t].every((x) => q.has(x));
+        if (!qInT && !tInQ) continue;
+        scored.push({ entity: e, exact: qInT && tInQ });
+    }
+    scored.sort((a, b) =>
+        (b.exact ? 1 : 0) - (a.exact ? 1 : 0)
+        || String(a.entity.name).length - String(b.entity.name).length);
+    return scored.slice(0, 3).map((m) => m.entity);
+}
+
+export function buildClaimInput(prop, { entityIdByRef = {}, articleText = '', sourceUrl = '', articleHash = '', suggestedBy = 'user' } = {}) {
     const about = (Array.isArray(prop.about) ? prop.about : [])
         .map((ref) => entityIdByRef[ref])
         .filter(Boolean);
@@ -279,6 +336,11 @@ export function buildClaimInput(prop, { entityIdByRef = {}, articleText = '', so
     return {
         text:         String(prop.text || '').trim(),
         source_url:   sourceUrl,
+        // First-class text provenance: the grounded article span itself
+        // (never the model's rendition) + the article version it was
+        // located in.
+        quote:        g ? g.exact : null,
+        article_hash: articleHash || null,
         anchor:       g ? g.selectors : null,
         // Local-only provenance of the anchor itself: how the quote was
         // located, and — when the stored span was repaired — the quote

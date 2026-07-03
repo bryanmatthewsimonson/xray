@@ -68,11 +68,23 @@ Addressable. An atomized assertion extracted from web content: the claim text pl
     ["source", "<who said it>"],               // entity name or free text
     ["anchor", "<selector-json>"],             // W3C selector array for the exact span
     ["key", "true"],                           // present only on key claims
+    ["quote", "<verbatim article span>"],      // optional — the exact text the claim is drawn from
+    ["x", "<canonical article hash>"],         // optional — binds the quote to the exact article version
+    ["captured_at", "<unix seconds>"],         // optional — when the human captured the claim
     ["client", "<client>"]
   ],
   "content": "<the claim text>"
 }
 ```
+
+**Text provenance tags** (all optional, additive): `quote` is the
+verbatim span of the source article the claim is drawn from —
+untruncated, unlike the `anchor` selector's capped `exact`; `x` is the
+canonical article hash (the same value the epistemic-audit kinds join
+on via `#x`), binding the quote to the exact text version it was
+located in; `captured_at` records capture time, which `created_at`
+(publish time) does not. Consumers rendering a claim SHOULD prefer
+`quote` for display and use `anchor` for on-page location.
 
 The `d` tag is deterministic over the verbatim (trimmed) source URL and the whitespace-collapsed, casefolded claim text, so re-publishing an edited claim's metadata replaces rather than duplicates, and two captures of the same quote from the same page-as-captured by the *same* author coincide. (URL variants — tracking parameters, trailing slashes — derive distinct `d`s; the reference implementation does not normalize the URL input here.) Note that two **different** authors who capture the same quote derive the same `d` under different pubkeys — those are distinct addressable events, and consumers MUST treat the full `30040:<pubkey>:<d>` coordinate as the claim's identity.
 

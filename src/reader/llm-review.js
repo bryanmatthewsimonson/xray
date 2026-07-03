@@ -44,7 +44,7 @@ import { ROLES, BASIS_VALUES } from '../shared/forensic-taxonomy.js';
 import {
     normalizeProposals, validateProposal, subjectLabelOf, PROPOSAL_ORDER,
     buildEntityInput, buildClaimInput, buildAssessmentInput, buildLinkInput,
-    buildFindingInput, buildBaselineInput
+    buildFindingInput, buildBaselineInput, findEntityMatches
 } from '../shared/llm-proposals.js';
 import { createGroundingIndex } from '../shared/quote-grounding.js';
 
@@ -62,7 +62,8 @@ const KIND_TITLES = {
 const EDIT_FIELDS = {
     entity: [
         { key: 'name', label: 'Name', type: 'text' },
-        { key: 'entity_type', label: 'Type', type: 'select', options: ENTITY_TYPES }
+        { key: 'entity_type', label: 'Type', type: 'select', options: ENTITY_TYPES },
+        { key: 'mention', label: 'Verbatim mention (checked against the article)', type: 'textarea' }
     ],
     claim: [
         { key: 'text', label: 'Claim text', type: 'textarea' },
@@ -114,18 +115,30 @@ function truncate(s, n) {
  * @param {string} opts.model             the model id used (for provenance)
  * @param {string} opts.articleText       body text, for quote→anchor resolution
  * @param {string} opts.sourceUrl
+ * @param {string} [opts.articleHash]      canonical article hash — stamped on
+ *                                         accepted claims as text provenance
  * @param {object} [opts.sourceRef]        { url, title }
  * @param {function} [opts.onAccepted]     called after each accept (refresh bars)
+ * @param {function} [opts.onEntityTag]    called when an accepted entity should
+ *                                         be tagged onto the article ({entity_id,
+ *                                         type, name, context})
  * @returns {Promise<{accepted: number}>}
  */
-export function openLlmReview(opts) {
-    const { proposals, model, articleText = '', sourceUrl = '', sourceRef = {}, onAccepted } = opts;
+export async function openLlmReview(opts) {
+    const { proposals, model, articleText = '', sourceUrl = '', articleHash = '', sourceRef = {}, onAccepted, onEntityTag } = opts;
     const suggestedByLlm = `llm:${model}`;
     const norm = normalizeProposals(proposals);
     // ONE grounding index for the whole panel — validation, badges, and
     // the accept-time builders all locate quotes through it (memoized).
     const grounding = createGroundingIndex(articleText);
     const ctx = { claimRefs: norm.claimRefs, entityRefs: norm.entityRefs, entityLabelByRef: norm.entityLabelByRef, grounding };
+
+    // The existing registry, for accept-time dedupe: a proposed entity
+    // whose name token-matches an existing one (same type) is offered
+    // as "use existing" instead of minting a near-duplicate id.
+    let registry = [];
+    try { registry = Object.values(await EntityModel.getAll() || {}); }
+    catch (_) { registry = []; }
 
     // Nice summaries: claim text by ref.
     const claimTextByRef = {};
@@ -136,14 +149,28 @@ export function openLlmReview(opts) {
     const claimIdByRef = {};
 
     // One mutable row per proposal.
-    const rows = norm.all.map((p) => ({
-        pid: p.pid, kind: p.kind, ref: p.ref,
-        prop: { ...p },
-        status: 'pending',         // pending | accepted | rejected
-        suggestedBy: suggestedByLlm,
-        editing: false,
-        message: ''
-    }));
+    const rows = norm.all.map((p) => {
+        const row = {
+            pid: p.pid, kind: p.kind, ref: p.ref,
+            prop: { ...p },
+            status: 'pending',         // pending | accepted | rejected
+            suggestedBy: suggestedByLlm,
+            editing: false,
+            message: '',
+            messageKind: ''
+        };
+        if (p.kind === 'entity') refreshEntityMatches(row);
+        return row;
+    });
+
+    // Dedupe candidates for an entity row; a SINGLE candidate defaults
+    // the accept action to "use existing" (the accumulation problem),
+    // multiple candidates default to "create new" (the human picks).
+    function refreshEntityMatches(row) {
+        row.entityMatches = findEntityMatches(
+            String(row.prop.name || ''), row.prop.entity_type, registry);
+        row.entityChoice = row.entityMatches.length === 1 ? row.entityMatches[0].id : 'new';
+    }
     const rowByPid = new Map(rows.map((r) => [r.pid, r]));
 
     return new Promise((resolve) => {
@@ -197,8 +224,20 @@ export function openLlmReview(opts) {
         function summarize(row) {
             const p = row.prop;
             switch (row.kind) {
-                case 'entity':
-                    return `${escapeHtml(p.name || '(unnamed)')} <span class="xr-llm__dim">· ${escapeHtml(p.entity_type || '?')}</span>`;
+                case 'entity': {
+                    const base = `${escapeHtml(p.name || '(unnamed)')} <span class="xr-llm__dim">· ${escapeHtml(p.entity_type || '?')}</span>`;
+                    const mention = quoteHtml(p.mention, { max: 80 });
+                    let dedupe = '';
+                    if (row.status === 'pending' && row.entityMatches && row.entityMatches.length) {
+                        const options = [
+                            `<option value="new" ${row.entityChoice === 'new' ? 'selected' : ''}>Create new entity</option>`
+                        ].concat(row.entityMatches.map((e) =>
+                            `<option value="${escapeHtml(e.id)}" ${row.entityChoice === e.id ? 'selected' : ''}>Use existing: ${escapeHtml(e.name)}</option>`
+                        )).join('');
+                        dedupe = `<div class="xr-llm__dedupe"><span class="xr-llm__anchor xr-llm__anchor--warn" title="An entity with a token-matching name of the same type already exists — link it instead of minting a duplicate">≈ may already exist</span> <select data-act="entity-choice">${options}</select></div>`;
+                    }
+                    return base + mention + dedupe;
+                }
                 case 'claim': {
                     const about = (p.about || []).map((r) => norm.entityLabelByRef[r]).filter(Boolean);
                     const star = p.is_key ? '⭐ ' : '';
@@ -353,6 +392,8 @@ export function openLlmReview(opts) {
                 on('edit', () => { row.editing = true; render(); });
                 on('edit-cancel', () => { row.editing = false; row.message = ''; render(); });
                 on('edit-apply', () => applyEdit(row, el));
+                const choice = el.querySelector('[data-act="entity-choice"]');
+                if (choice) choice.addEventListener('change', () => { row.entityChoice = choice.value; });
             });
         }
 
@@ -390,8 +431,12 @@ export function openLlmReview(opts) {
             // assertion is still the model's; the quote is just being
             // re-anchored, and it is machine-verified either way.
             const quoteOnly = changed.size > 0
-                && [...changed].every((k) => k === 'quote' || k === 'anchors');
+                && [...changed].every((k) => k === 'quote' || k === 'anchors' || k === 'mention');
             if (changed.size > 0 && !quoteOnly) row.suggestedBy = 'user';
+            // Name/type edits change what the proposal duplicates.
+            if (row.kind === 'entity' && (changed.has('name') || changed.has('entity_type'))) {
+                refreshEntityMatches(row);
+            }
             row.editing = false;
             row.message = quoteOnly ? 'Quote re-checked against the article.' : '';
             row.messageKind = quoteOnly ? 'info' : '';
@@ -418,9 +463,10 @@ export function openLlmReview(opts) {
             const blocked = blockedReason(row);
             if (blocked) { row.message = blocked; render(); return; }
             try {
-                await createFor(row);
+                const note = await createFor(row);
                 row.status = 'accepted';
-                row.message = '';
+                row.message = note || '';
+                row.messageKind = note ? 'info' : '';
                 acceptedCount += 1;
                 if (typeof onAccepted === 'function') { try { await onAccepted(row.kind); } catch (_) { /* refresh best-effort */ } }
             } catch (err) {
@@ -438,9 +484,10 @@ export function openLlmReview(opts) {
                     if (blockedReason(row)) continue;
                     row.messageKind = '';
                     try {
-                        await createFor(row);
+                        const note = await createFor(row);
                         row.status = 'accepted';
-                        row.message = '';
+                        row.message = note || '';
+                        row.messageKind = note ? 'info' : '';
                         acceptedCount += 1;
                     } catch (err) {
                         row.message = (err && err.message) || String(err);
@@ -459,20 +506,42 @@ export function openLlmReview(opts) {
             render();
         }
 
-        // Funnel one accepted proposal through the real model.
+        // Funnel one accepted proposal through the real model. Returns
+        // an optional info note the accept path shows on the row.
         async function createFor(row) {
             const p = row.prop;
             const sb = row.suggestedBy;
             switch (row.kind) {
                 case 'entity': {
-                    const e = await EntityModel.create(buildEntityInput(p, { suggestedBy: sb }));
+                    // Link-or-create: "use existing" maps the ref onto the
+                    // registry row instead of minting a near-duplicate.
+                    let e = null;
+                    let note = '';
+                    if (row.entityChoice && row.entityChoice !== 'new') {
+                        e = await EntityModel.get(row.entityChoice);
+                        if (!e) throw new Error('The selected existing entity no longer exists');
+                        note = `Linked to existing: ${e.name}`;
+                    } else {
+                        e = await EntityModel.create(buildEntityInput(p, { suggestedBy: sb }));
+                    }
                     if (row.ref) entityIdByRef[row.ref] = e.id;
-                    return;
+                    // Tag the entity onto the article with its grounded
+                    // verbatim mention — the same ref shape the manual
+                    // selection tagger produces, so mention provenance
+                    // reaches the publish flow.
+                    if (typeof onEntityTag === 'function') {
+                        const mention = String(p.mention || '').trim();
+                        const g = mention ? grounding.ground(mention) : null;
+                        const context = (g && g.status !== 'missing') ? g.exact : mention;
+                        try { onEntityTag({ entity_id: e.id, type: e.type, name: e.name, context }); }
+                        catch (_) { /* tagging is best-effort; the entity is saved */ }
+                    }
+                    return note;
                 }
                 case 'claim': {
                     // The builders duck-type the grounding index in the
                     // articleText slot — same text, memoized lookups.
-                    const c = await ClaimModel.create(buildClaimInput(p, { entityIdByRef, articleText: grounding, sourceUrl, suggestedBy: sb }));
+                    const c = await ClaimModel.create(buildClaimInput(p, { entityIdByRef, articleText: grounding, sourceUrl, articleHash, suggestedBy: sb }));
                     if (row.ref) claimIdByRef[row.ref] = c.id;
                     return;
                 }

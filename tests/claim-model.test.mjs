@@ -215,3 +215,45 @@ test('claim: markPublished records the publishing pubkey (Phase 11.1)', async ()
     const again = await ClaimModel.markPublished(claim.id, 'f'.repeat(64));
     assert.equal(again.publishedPubkey, PUBKEY, 'pubkey survives a pubkey-less re-publish call');
 });
+
+// ---------------------------------------------------------------------
+// Text provenance (Phase 14.5 hardening): quote + article_hash
+// ---------------------------------------------------------------------
+
+test('claim: stores quote + article_hash, cleaned', async () => {
+    resetState();
+    const HASH = 'AB'.repeat(32);
+    const claim = await ClaimModel.create({
+        text: 'Provenance-bearing.', source_url: URL_A,
+        quote: '  the verbatim span  ', article_hash: HASH
+    });
+    assert.equal(claim.quote, 'the verbatim span');
+    assert.equal(claim.article_hash, 'ab'.repeat(32), 'hash lowercased');
+
+    // Bad values collapse to null, never garbage.
+    const bare = await ClaimModel.create({
+        text: 'No provenance.', source_url: URL_A,
+        quote: '   ', article_hash: 'not-a-hash'
+    });
+    assert.equal(bare.quote, null);
+    assert.equal(bare.article_hash, null);
+});
+
+test('claim: quote/article_hash are patchable, and quote is capped', async () => {
+    resetState();
+    const claim = await ClaimModel.create({ text: 'Patch me.', source_url: URL_A });
+    const patched = await ClaimModel.update(claim.id, {
+        quote: 'x'.repeat(5000), article_hash: 'f'.repeat(64)
+    });
+    assert.equal(patched.quote.length, 4000, 'quote capped at 4000');
+    assert.equal(patched.article_hash, 'f'.repeat(64));
+});
+
+test('parseClaimEvent: tolerates a malformed anchor tag', () => {
+    const c = parseClaimEvent({
+        tags: [['d', 'claim_x'], ['anchor', '{not json'], ['quote', 'q']],
+        content: 'T'
+    });
+    assert.equal(c.anchor, null);
+    assert.equal(c.quote, 'q');
+});

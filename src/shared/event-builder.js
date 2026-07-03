@@ -442,6 +442,13 @@ export const EventBuilder = {
   //     free text → ['source', text]
   //     null      → (the article — no tag)
   //   ['key', 'true']?   ['anchor', <selector-json>]?   ['client', 'xray']
+  //   text provenance (Phase 14.5 hardening — all additive/optional):
+  //     ['quote', <verbatim article span>]   the span the claim is drawn from
+  //     ['x', <canonical article hash>]      binds the quote to the exact
+  //                                          article version (joins the
+  //                                          audit family's `#x` queries)
+  //     ['captured_at', <unix seconds>]      when the human captured the
+  //                                          claim (created_at is publish time)
   //   content = claim text
   //
   // "What the network says about entity P" is then a single relay query:
@@ -488,6 +495,9 @@ export const EventBuilder = {
 
     if (claim.is_key) tags.push(['key', 'true']);
     if (claim.anchor) tags.push(['anchor', JSON.stringify(claim.anchor)]);
+    if (claim.quote) tags.push(['quote', claim.quote]);
+    if (claim.article_hash) tags.push(['x', claim.article_hash]);
+    if (claim.created) tags.push(['captured_at', String(claim.created)]);
     tags.push(['client', 'xray']);
 
     return {

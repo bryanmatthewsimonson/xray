@@ -12,6 +12,31 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **First-class claim text provenance.** Claims now carry the verbatim
+  `quote` they are drawn from (untruncated, auto-populated from the
+  grounded span or the manual selection — never typed by the user) and
+  the `article_hash` of the exact text version it was located in, plus
+  the existing capture timestamp. All three ride the kind-30040 wire as
+  additive optional tags (`quote`, `x` — joining the audit family's
+  `#x` queries — and `captured_at`), and `parseClaimEvent` reads them
+  (and the previously write-only `anchor` tag) back, so a claim that
+  round-trips through a relay keeps its full provenance chain.
+- **Grounded entity mentions + dedupe at accept.** LLM entity
+  proposals now require a machine-checked verbatim `mention` (the
+  display name may disambiguate — the mention may not), and accepting
+  one tags the article with the grounded span exactly like the manual
+  selection tagger, so the publish flow p-tags it and mention
+  provenance survives display-name changes. At accept time, proposals
+  whose names token-match an existing same-type entity offer **"use
+  existing"** (single candidate = default) instead of minting
+  near-duplicate ids.
+- **Entity corpus + smart management design**
+  (`docs/ENTITY_CORPUS_DESIGN.md`, design-only): deterministic
+  duplicate reporting + LLM entity audit over the existing alias
+  machinery, and the NOSTR entity-corpus model — entity-signed kind-1
+  mention notes, enriched kind-0 profiles with NIP-39 external ids,
+  and a wire-first corpus view — gated behind a future
+  `entityCorpusPublishing` flag.
 - **Grounded provenance for LLM Suggest.** Every quote a suggestion
   stakes provenance on is now machine-located in the article
   (`shared/quote-grounding.js`: exact → typography-normalized → guarded

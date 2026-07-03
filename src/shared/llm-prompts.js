@@ -153,10 +153,22 @@ export function buildSuggestTool() {
                                     + 'or claim ("C1"), so other proposals can reference it.'
                             },
                             // entity
-                            name: { type: 'string', description: 'Entity display name (kind=entity).' },
+                            name: {
+                                type: 'string',
+                                description: 'Entity display name (kind=entity). May add disambiguation '
+                                    + 'beyond the article’s wording ("Elena Vargas", not "the mayor").'
+                            },
                             entity_type: {
                                 type: 'string', enum: ENTITY_TYPES,
                                 description: 'Entity type (kind=entity).'
+                            },
+                            mention: {
+                                type: 'string',
+                                description: 'REQUIRED for kind=entity: ONE contiguous VERBATIM span where '
+                                    + 'the article names this entity, copied character for character. It is '
+                                    + 'machine-checked against the article text; an entity whose mention '
+                                    + 'cannot be located there is rejected. name may differ from mention — '
+                                    + 'mention may not differ from the article.'
                             },
                             // claim
                             text: {
@@ -322,6 +334,8 @@ GROUND RULES (non-negotiable):
 
 const RULES_ENTITIES = `
 ENTITIES (people / organizations / places / things / cases named in the text):
+- name is the DISPLAY name — disambiguate when helpful ("Elena Vargas", not "the mayor"), and reuse the same name for the same real-world entity across proposals.
+- mention is REQUIRED: the single verbatim span where the text names this entity. An entity whose mention cannot be located in the article is rejected.
 - Give each a short local ref ("E1", "E2", …) so claims and findings can point at it.
 - type must be one of: ${ENTITY_TYPES.join(', ')}.`;
 
