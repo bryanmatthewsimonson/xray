@@ -1,7 +1,8 @@
 # X-Ray — End-to-end smoke test
 
 Manual walkthrough that exercises every shipped surface across
-Phases 0–9 + the v0.5.x cleanup. Aim for ~20 minutes per browser.
+Phases 0–15 + the v0.5.x cleanup. The §0–§9 core takes ~20 minutes per
+browser; a full pass through the Phase 11–15 sections is a half-day.
 Run before any release tag, after any cross-cutting refactor, and
 when adding a contributor.
 
@@ -21,8 +22,8 @@ This doc replaces the v1-era checklist that lived on issue #1.
 git clone …
 cd xray
 npm install
-npm run build           # produces dist/*.bundle.js (5 bundles)
-npm test                # 528/528 should pass
+npm run build           # produces dist/*.bundle.js (7 bundles)
+npm test                # 1018/1018 should pass
 ```
 
 ### Chrome / Chromium / Brave / Edge
@@ -190,8 +191,8 @@ clicking through every URL.
 
 | # | Test | Pass criteria |
 |---|---|---|
-| 0.1 | `npm run build` exits 0 with no errors | ✅ all five bundles emitted under `dist/` (content, background, options, sidepanel, reader) plus `api-interceptor` |
-| 0.2 | `npm test` exits 0 | ✅ 521/521 (or current-on-main count) passing |
+| 0.1 | `npm run build` exits 0 with no errors | ✅ all seven bundles emitted under `dist/` (content, background, options, sidepanel, reader, portal, api-interceptor) |
+| 0.2 | `npm test` exits 0 | ✅ 1018/1018 (or current-on-main count) passing |
 | 0.3 | Reload extension after a build → no console errors in the SW log | ✅ the SW log under `chrome://extensions` → "Inspect views: service worker" is clean |
 | 0.4 | Click toolbar icon on a normal http page | ✅ captures the page → a reader tab opens (no popup window, no in-page panel) |
 | 0.5 | Click toolbar icon on `chrome://newtab` | ✅ Options page opens (fallback, since content script can't run there) |
@@ -692,12 +693,13 @@ publishes. Requires a real Anthropic API key
 
 ---
 
-## Phase 15 — Truth adjudication (15.1–15.8)
+## Phase 15 — Truth adjudication (15.1–15.10)
 
 Rows 15.1–15.13 are the **model console walk** (slices 15.1–15.3 have no
 UI of their own); rows 15.14–15.20 are the **reader click-through**
 (slice 15.8 + the publish path); rows 15.21+ cover the integrity/entity
-layers, which still author via console (UI is follow-up work). Dynamic `import()` is banned in the service
+layers (integrity authoring got its 🤝 modal in 15.10; the console walk
+remains the canonical row set). Dynamic `import()` is banned in the service
 worker — use the **options page** (right-click toolbar icon → Options →
 F12). On Firefox: `about:debugging` → X-Ray → **Inspect**, with the
 options page open.
@@ -753,8 +755,9 @@ claim via the normal claim flow, then:
 | 15.19 | Ruling with **no caveats**, or **Contested** with one-sided evidence, or a **Prediction** with no horizon | ❌ the modal surfaces the model's error inline; nothing saves |
 | 15.20 | Options → Advanced → **Truth adjudication** → check "Publish adjudicated verdicts…" → Save → reader **Publish** | ✅ after the claim publishes, "Also publishing adjudications…" toast; summary gains `n/n verdict` + mirror segments; second publish re-emits nothing (staleness gate); unchecking the toggle removes the adjudication segment entirely |
 
-**Integrity + entity record (15.4/15.5) — console walk** (authoring UI
-is follow-up work). In the options-page console, after 15.A:
+**Integrity + entity record (15.4/15.5) — console walk** (the 🤝
+integrity modal shipped in 15.10; these console rows remain the
+canonical model-level checks). In the options-page console, after 15.A:
 
 | # | Test | Pass criteria |
 |---|---|---|

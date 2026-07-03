@@ -18,13 +18,13 @@ modules still carry userscript-era idioms (see Conventions).
 npm install            # required first — a fresh clone has no node_modules
 npm run build          # esbuild → dist/*.bundle.js (+ .map). No transpile step.
 npm run watch          # incremental rebuild
-npm test               # node --test tests/*.test.mjs  (937 tests, must be green)
+npm test               # node --test tests/*.test.mjs  (1018 tests, must be green)
 npm run lint           # web-ext lint --self-hosted (what CI gates on)
 npm run version:set X  # bump package.json + manifest.json in lockstep
 npm run clean          # rm -rf dist
 ```
 
-- **Run a single test file:** `node --test tests/youtube.test.mjs`
+- **Run a single test file:** `node --test tests/youtube-comments.test.mjs`
 - **Tests fail with `ERR_MODULE_NOT_FOUND` (`@mozilla/readability`, etc.)
   if you skipped `npm install`** — that's the #1 false alarm in a fresh
   container, not a real regression.
@@ -94,7 +94,7 @@ extension approves in-context.
 
 **Message bus:** everything is `chrome.runtime` messages typed `xray:*`
 (e.g. `xray:capture`, `xray:capture:publish`, `xray:relay:publish`,
-`xray:relay:query`, `xray:sign`, `xray:youtube:fetch`,
+`xray:relay:query`, `xray:sign`, `xray:youtube:fetchTranscript`,
 `xray:screenshot:capture`, `xray:llm:suggest`, `xray:audit:run`). When adding a cross-context
 call, add an `xray:*` message rather than reaching across contexts directly.
 
@@ -127,7 +127,10 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   relationships `30055`, and their kind-`1985` label mirrors are built in
   `metadata/builders.js`; the epistemic-audit family `30056`–`30061` in
   `audit/builders.js`; forensic findings `30062` in
-  `forensic-model.js`/`forensic-publish.js`. **Wire-format changes in any
+  `forensic-model.js`/`forensic-publish.js`; truth adjudication —
+  verdicts `30063` (with a kind-`1985` mirror on the claim coordinate)
+  and integrity findings `30064` (deliberately no mirror), `30065`
+  reserved — in `truth-builders.js`. **Wire-format changes in any
   of these have compatibility consequences for anyone consuming X-Ray
   events — call them out explicitly.**
 - **`content-detector.js` / `content-extractor.js`** — URL+DOM platform
@@ -145,8 +148,18 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
 - **`identity/`** (Phase 9) — cross-platform identity layer: captured
   commenters/authors become dedup-able identities, and cross-platform
   accounts can be collapsed into one person.
+- **Truth adjudication (Phase 15)** — `truth-taxonomy.js` (proposition
+  classes, verdict states, standards of proof, the §3.1 firewall
+  predicates), `truth-adjudication-model.js` (propositions + append-only
+  verdict chains), `integrity-model.js` (words-vs-deeds findings),
+  `truth-attestation.js` (evidence tiers + convergence),
+  `truth-entity-record.js` (computed-on-read entity records),
+  `truth-publish.js` (publish selection), `adjudicate-modal.js` /
+  `integrity-modal.js` (reader authoring UI). Publishing is gated behind
+  `truthAdjudicationPublishing` (default off).
 - Also: `nostr-client.js` (relay pool, used from background),
-  `archive-cache.js` (IndexedDB + paywall reconstruction).
+  `archive-cache.js` (IndexedDB + paywall reconstruction),
+  `build-info.js` (the build stamp shown on the Options page).
 
 ## Conventions
 
@@ -186,18 +199,22 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
 
 ## Project docs (read these for non-trivial work)
 
-- **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 14.5
-  (v0.6.0). Complete and merged: Phases 10 (thin claims), 11 (assessments;
-  `docs/ASSESSMENTS_DESIGN.md`), 12 (portal; `docs/PORTAL_DESIGN.md`),
-  13 (epistemic audits, kinds `30056`–`30061`;
+- **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 15
+  (manifest still says v0.6.0 — untagged; see CONTRIBUTING for the
+  tag-driven release process). Complete and merged: Phases 10 (thin
+  claims), 11 (assessments; `docs/ASSESSMENTS_DESIGN.md`), 12 (portal;
+  `docs/PORTAL_DESIGN.md`), 13 (epistemic audits, kinds `30056`–`30061`;
   `docs/EPISTEMIC_AUDIT_DESIGN.md`), 14 (forensic findings, kind `30062`;
-  `docs/CRIMINOLOGY_DESIGN.md`), and 14.5 (in-extension LLM assist +
-  LLM auditor; `docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md`). Design drafts
-  with no code yet: Phase 15 (truth adjudication;
-  `docs/TRUTH_ADJUDICATION_DESIGN.md`) and Phase 16 (moral lens;
-  `docs/MORAL_LENS_JURISDICTION_DESIGN.md`). Several SMOKE_TEST section
-  walks (Phases 11–14) are still pending — they're manual and need a
-  human with a browser.
+  `docs/CRIMINOLOGY_DESIGN.md`), 14.5 (in-extension LLM assist +
+  LLM auditor; `docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md`), and 15 (truth
+  adjudication, kinds `30063`/`30064`, merged as PR #89;
+  `docs/TRUTH_ADJUDICATION_DESIGN.md` — its precedent/bridging tail is
+  deferred). Design-only: Phase 16 (moral lens;
+  `docs/MORAL_LENS_JURISDICTION_DESIGN.md`, amended 2026-07-03 — the
+  amendment governs). The FLF Epistack competition sprint
+  (`docs/EPISTACK_WIN_PLAN.md`, deadline 2026-07-19) outranks Phase 16
+  until it ships. Several SMOKE_TEST section walks (Phases 11–15) are
+  still pending — they're manual and need a human with a browser.
 - **`docs/JOURNAL.md`** — chronological log of bugs, design decisions, and
   external-platform changes. **Add a tight entry** when fixing a non-obvious
   bug, making a second-guessable design choice, or working around a
@@ -212,7 +229,10 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   structural, scoring, schema, or methodology change to audit
   surfaces; when code and it conflict, it governs until amended.
   When two of its principles conflict, document the tension and cite
-  them by number (e.g. "P9 over convenience").
+  them by number (e.g. "P9 over convenience"). Scope note: it governs
+  the audit family (`30056`–`30061`); Phase 15 truth verdicts operate
+  under `TRUTH_ADJUDICATION_DESIGN.md`'s own form-of-judgment (§1/§5)
+  — deliberately no 0–100 score or knowability ceiling there.
 - **`CONTRIBUTING.md`** — release process (git-tag-driven via
   `.github/workflows/release.yml`) and the Firefox-floor rationale.
 

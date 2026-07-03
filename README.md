@@ -43,8 +43,11 @@ publishes end-to-end, syncs entity data across devices, reconstructs
 paywalled content from cached or relay copies, and carries the
 wire-format foundation for crowdsourced URL metadata (see
 [`docs/NIP_DRAFT.md`](docs/NIP_DRAFT.md)) and a cross-platform identity
-layer. Next up are Phases 15 (truth adjudication) and 16 (moral lens) —
-see [`docs/ROADMAP.md`](docs/ROADMAP.md).
+layer — plus **truth adjudication** (Phase 15, kinds `30063`/`30064`):
+per-proposition verdicts on a declared standard of proof and
+words-vs-deeds integrity findings, publish-gated behind a default-off
+flag. Next up is Phase 16 (moral lens) — see
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 The [**roadmap**](docs/ROADMAP.md) tracks per-phase scope. The
 [**engineering journal**](docs/JOURNAL.md) logs significant bugs, design
@@ -227,8 +230,7 @@ produces `dist/*.bundle.js`, which the manifest loads).
 │   │                              Markdown / Preview tabs, publish
 │   │                              flow, comment tree render, claims)
 │   ├── options/                   single settings hub (Relays /
-│   │                              Signing / Entities / Keypair
-│   │                              Registry / Advanced)
+│   │                              Signing / Advanced)
 │   ├── sidepanel/                 entity browser
 │   └── shared/
 │       ├── config.js              defaults + applyConfigOverrides()
@@ -242,9 +244,9 @@ produces `dist/*.bundle.js`, which the manifest loads).
 │       ├── content-detector.js    URL + DOM platform detection
 │       ├── content-extractor.js   Readability + Turndown +
 │       │                          markdown→HTML
-│       ├── event-builder.js       NIP-23 / 30040 / 30041 / 30043 /
-│       │                          32125 builders + archive-reader
-│       │                          inverse
+│       ├── event-builder.js       NIP-23 / 30040 / 30041 / 32125
+│       │                          builders + archive-reader inverse
+│       │                          (30063/30064 in truth-builders.js)
 │       ├── nostr-client.js        relay pool (used from background)
 │       ├── nsecbunker-client.js   remote signer
 │       ├── local-key-manager.js   in-browser entity-keypair registry
@@ -267,7 +269,7 @@ produces `dist/*.bundle.js`, which the manifest loads).
 │           ├── instagram.js       og-meta + DOM scrape + GraphQL
 │           ├── tiktok.js          three SSR shapes + screenshot
 │           └── comment-extractor.js  generic WordPress / Disqus probe
-└── tests/                         node --test suite (519 passing)
+└── tests/                         node --test suite (1018 passing)
 ```
 
 ## Permissions
@@ -288,10 +290,11 @@ produces `dist/*.bundle.js`, which the manifest loads).
 - **Build:** `npm install`, then `npm run build` to produce
   `dist/*.bundle.js` and `dist/*.bundle.js.map`. esbuild handles all
   bundling; no transpile step. `npm run watch` for incremental.
-- **Tests:** `npm test` runs `node --test tests/*.test.mjs`. **519
+- **Tests:** `npm test` runs `node --test tests/*.test.mjs`. **1018
   tests** today, covering crypto, event-builder, every platform
   handler, entity sync, claim model, archive cache, the Signer
-  façade, and the URL normalizer.
+  façade, the URL normalizer, and the assessment / audit / forensic /
+  truth-adjudication model and wire layers.
 - **MAIN-world bridge** — `src/page/nip07-bridge.js` is injected into
   the page's main world (`content_scripts[0].world: "MAIN"` in the
   manifest) and exposes `window.nostr` to the extension via tagged

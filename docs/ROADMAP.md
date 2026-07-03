@@ -76,21 +76,24 @@ Phase 14.5 ████████████████░░  complete — 
                                 opt-in) + the epistemic auditor (Quick
                                 single-shot / Thorough per-module). Flag- +
                                 key-gated, opt-in, nothing auto-saves
-Phase 15 ███████████████████░  in progress — truth adjudication: verdicts on
+Phase 15 ████████████████████  complete — truth adjudication: verdicts on
                                 propositions + words-vs-deeds integrity
                                 (docs/TRUTH_ADJUDICATION_DESIGN.md). Kinds
                                 30063/30064 (30065 reserved). 15.1–15.10
-                                all shipped (models, attestation, verdicts,
-                                integrity, entity record, wire + flag,
-                                publish wiring, reader + authoring UI,
-                                conformance, read-back/portal); remaining:
-                                the deferred precedent/bridging tail only
+                                merged to main as PR #89; §Phase 15
+                                smoke-run pending; the precedent/bridging
+                                tail is deferred by design
 ```
 
 Parity with the v4.2 userscript is long reached; the project now ships
 claims, assessments, the "My Archive" portal, epistemic audits, forensic
-findings, and opt-in LLM assist (**v0.6.0**), and is moving on to truth
-adjudication (Phase 15) and the moral lens (Phase 16).
+findings, opt-in LLM assist, and truth adjudication (Phase 15, merged as
+PR #89 — the manifest still says **v0.6.0**; no tag has been cut since
+v0.5.1, so a v0.7.0 release is due). Next in phase order is the moral
+lens (Phase 16, design amended 16.0.5) — but **the FLF Epistack
+competition sprint (`docs/EPISTACK_WIN_PLAN.md`, deadline 2026-07-19)
+outranks Phase 16 until it ships**: the sprint exercises Phase 15 in the
+wild; Phase 16 is not on its critical path.
 
 ---
 
@@ -942,7 +945,7 @@ Slices (one PR each):
 
 ---
 
-## Phase 13 — Epistemic audits 🚧 (in progress)
+## Phase 13 — Epistemic audits ✅ shipped
 
 The maintainer's epistemic-auditor framework — eight versioned
 surface-scan module prompts (headline-body fidelity, asymmetric
@@ -1031,7 +1034,7 @@ Implementation slices 13.1+ are in progress.
   honest status line) + options Advanced importer (archive-matched,
   incl. retained prior versions); scorer README import note. Imports
   are local-only and ungated; publishing is 13.8. — #66
-- 🔄 **13.6** Reader audit panel (draft PR for smoke-testing) —
+- ✅ **13.6** Reader audit panel —
   aggregate badge on the framework rubric bands (no naked numbers;
   confidence < 0.6 renders "needs human review" with no number and no
   band color; ceiling context when binding; provenance line), eight
@@ -1043,7 +1046,7 @@ Implementation slices 13.1+ are in progress.
   change, CHANGELOG callout), prior-version re-audit notice,
   staleness chips (`CURRENT_MODULE_VERSIONS` reference), other runs
   side-by-side (never averaged). — #67
-- 🔄 **13.7** Portal surfaces (draft PR for smoke-testing) — the
+- ✅ **13.7** Portal surfaces — the
   corpus fetches the audit family (30056–30061; kind-list pin updated
   deliberately); Library gains `Audits`/`Predictions` facets and an
   audit chip on article cards (hash-first join, URL fallback only for
@@ -1056,7 +1059,7 @@ Implementation slices 13.1+ are in progress.
   **predictions-due strip** (90-day window, merged published+local,
   deduped) with the minimal **Resolve…** form (evidence-bound;
   resolutions file locally, publish in 13.8). — #68
-- 🔄 **13.8** Publish path (draft PR for smoke-testing) — flag-gated
+- ✅ **13.8** Publish path — flag-gated
   (`epistemicAuditing`, default off, Options ▸ Advanced toggle with
   public-visibility disclosure) ordered batch in the reader's publish
   flow: 30056s → 30057 → 30058s → 30059s with per-event ledger marks
@@ -1074,7 +1077,7 @@ Implementation slices 13.1+ are in progress.
   `findings.version` — the wire-address preimage), portal
   reconciliation for 30056–30059 (30060/30061 stay no-ledger; 30060
   snapshot publish deferred — portal stays read-only). — #69
-- 🔄 **13.9** Hardening (draft PR) — `SMOKE_TEST.md` §Phase 13 (the
+- ✅ **13.9** Hardening — `SMOKE_TEST.md` §Phase 13 (the
   24-step acceptance walk: capture → scorer → import gates → display
   rules → atomize → flag-gated publish incl. resume + firewall →
   portal surfaces → reconcile), docs-consistency pass, and the
@@ -1094,14 +1097,13 @@ Implementation slices 13.1+ are in progress.
   joins + coordinate-based module joins, Resolve… for unscheduled
   predictions, and the promised audit-ledger export. — #70
 
-## Phase 14 — Forensic findings (behavioral-pattern layer) ⏳ design agreed
+## Phase 14 — Forensic findings (behavioral-pattern layer) ✅ shipped
 
-**Builds on Phase 13 (the epistemic audit).** Phase 13 must land on `main`
-first; this layer sits on top of it and is a *distinct* feature. The two use
-**disjoint wire kinds** — the audit owns `30056–30061` (+ `epistemicAuditing`
-flag), so this layer takes **`30062`** for `BehavioralFinding` (+ a separate
-`forensicPublishing` flag). New criminology development is paused until the
-Phase 13 chain merges, at which point this branch rebases onto it.
+**Builds on Phase 13 (the epistemic audit).** This layer sits on top of it
+and is a *distinct* feature. The two use **disjoint wire kinds** — the
+audit owns `30056–30061` (+ `epistemicAuditing` flag), so this layer takes
+**`30062`** for `BehavioralFinding` (+ a separate `forensicPublishing`
+flag). Shipped in v0.6.0 alongside the Phase 13 chain.
 
 Where Phase 11 grades whether a *claim* is true, Phase 14 names what a
 *subject* is doing around the truth — an evasion, a defense, a self-serving
@@ -1128,11 +1130,11 @@ Full design, wire formats, methodology rules, and the canon→vocabulary map:
 
 Slices (one PR each):
 
-- ⏳ **14.1** Foundation — `forensic-taxonomy.js` (six families + role/basis
+- ✅ **14.1** Foundation — `forensic-taxonomy.js` (six families + role/basis
   enums + indicators/counter-indicators), `forensic-model.js` +
   `behavioral_findings` store, baselines, `evidence-linker.js` `revision/*`
   values; tests. No UI, no wire.
-- ⏳ **14.2** Capture UI — finding modal (subject+role, ordered anchors,
+- ✅ **14.2** Capture UI — finding modal (subject+role, ordered anchors,
   note + required counter-note, basis), findings bar, baseline marking,
   revision-link flow.
 - ✅ **14.3** Wire builders + NIP draft — `30062`
@@ -1171,16 +1173,18 @@ diachronic revision edges visible across the four lenses.
 
 ---
 
-## Phase 15 — Truth adjudication (verdicts + words-vs-deeds) 🚧 (in progress)
+## Phase 15 — Truth adjudication (verdicts + words-vs-deeds) ✅ merged (PR #89)
 
-**Builds on Phase 14.** The Phase 14 forensic chain must land on `main`
-first; this layer composes its findings (`30062`) as a raw signal and takes
-the **next disjoint wire kinds** — **`30063`** `AdjudicatedVerdict` and
-**`30064`** `IntegrityFinding` (with **`30065`** reserved for a precedent
-citation), gated by a separate **`truthAdjudicationPublishing`** flag. The
-Phase 14 chain merged in v0.6.0, clearing the dependency; 15.1–15.8 shipped
-as the stacked PR train #79→#86 (one slice per PR, each based on its
-predecessor's branch; merge in order from #79).
+**Builds on Phase 14.** This layer composes the forensic findings
+(`30062`) as a raw signal and takes the **next disjoint wire kinds** —
+**`30063`** `AdjudicatedVerdict` and **`30064`** `IntegrityFinding` (with
+**`30065`** reserved for a precedent citation), gated by a separate
+**`truthAdjudicationPublishing`** flag (default off). Slices 15.1–15.10
+were developed as the stacked PR train #79→#88 and **landed on `main` in
+one unit via PR #89** (2026-07-03); the train PRs were closed superseded.
+The §Phase 15 SMOKE walk — especially the 30063 author→sign→publish→
+portal round trip against a real relay — is still pending and gates
+flipping the flag for any real publish.
 
 This is the **truth-verdict layer Phase 14 deliberately deferred** (its
 non-goals: "truth verdicts on subjects, intent attribution"). Where Phase 11
@@ -1218,9 +1222,9 @@ formats, and red lines:
 draft. The deferred bonded-resolution second act is parked in
 [`docs/BONDING_NOTES.md`](BONDING_NOTES.md).
 
-Slices (one PR each; `claude/phase-15-*` — the stacked train, in merge
-order: 15.1 #79, 15.2 #80, 15.3 #81, 15.4 #82, 15.5 #83, 15.6 #84,
-15.7 #85, 15.8 #86; conformance follow-up #87):
+Slices (developed one PR each on the `claude/phase-15-*` stacked train —
+15.1 #79 … 15.8 #86, conformance #87, read-back #88, authoring UI on the
+train tip — all merged together via **PR #89**):
 
 - ✅ **15.1** Adjudicable-proposition model (local, no wire) —
   `proposition_class` + `resolution_criteria` atomization over existing

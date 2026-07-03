@@ -71,8 +71,9 @@ export const FLAGS_DEFAULTS = Object.freeze({
 });
 
 /**
- * In-memory flag cache. Populated by `loadFlags`; refreshed when the
- * SW receives a `xray:flags:reload` ping. Read with `isEnabled()`.
+ * In-memory flag cache. Populated by `loadFlags`. There is no reload
+ * broadcast — callers `await loadFlags()` immediately before each
+ * `isEnabled()` gate so a sleeping/woken SW never reads stale flags.
  */
 let _flags = { ...FLAGS_DEFAULTS };
 

@@ -6,7 +6,7 @@ Web Content Annotations, Fact-Checks, and Topic Trust
 
 `draft` `optional`
 
-This NIP defines fifteen event kinds and two tag extensions that together let users publish structured, anchored metadata about web content — atomized claims, annotations, fact-checks, ratings, personal assessments, claim relationships, topic-scoped trust assertions, helpfulness votes, epistemic-audit records (per-module surface-scan results, aggregate article audits, a prediction ledger with resolutions, dossier rollup snapshots, and audit disputes — content-addressed to the exact text scored), and behavioral findings (named maneuvers a subject performs around the truth, evidence-anchored, with no verdict on intent) — and lets readers query, rank, and surface that metadata in context.
+This NIP defines seventeen event kinds and two tag extensions that together let users publish structured, anchored metadata about web content — atomized claims, annotations, fact-checks, ratings, personal assessments, claim relationships, topic-scoped trust assertions, helpfulness votes, epistemic-audit records (per-module surface-scan results, aggregate article audits, a prediction ledger with resolutions, dossier rollup snapshots, and audit disputes — content-addressed to the exact text scored), behavioral findings (named maneuvers a subject performs around the truth, evidence-anchored, with no verdict on intent), adjudicated verdicts (descriptive truth-states on atomized propositions, on a declared standard of proof, with two-sided evidence and mandatory caveats — attached to the proposition, never a person), and integrity findings (words-vs-deeds match states with documented gap causes, intent never adjudicated) — and lets readers query, rank, and surface that metadata in context.
 
 It composes with rather than replaces:
 
@@ -704,7 +704,7 @@ A client wishing to display all metadata for a URL SHOULD issue these filters in
 ```jsonc
 [
   { "kinds": [30040, 30050, 30051, 30052, 30054, 30055], "#r": ["<url>"], "limit": 200 },
-  { "kinds": [30056, 30057, 30058], "#r": ["<url>"], "limit": 100 },
+  { "kinds": [30056, 30057, 30058, 30062, 30063], "#r": ["<url>"], "limit": 100 },
   { "kinds": [9802], "#r": ["<url>"], "limit": 100 },
   { "kinds": [1111], "#i": ["<url>"], "limit": 200 },
   { "kinds": [1985], "#r": ["<url>"], "limit": 100 },

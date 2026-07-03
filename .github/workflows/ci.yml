@@ -51,8 +51,9 @@ jobs:
         run: npm run build
 
       - name: Run unit tests
-        # Phase 1 lands the crypto test suite; until then there's nothing
-        # under tests/ and `node --test` is a no-op.
+        # The compgen guard predates the test suite (Phase 1 hadn't
+        # landed tests/ yet); harmless now, keeps hypothetical
+        # test-less branches green.
         run: |
           if compgen -G "tests/*.test.*" > /dev/null; then
             npm test
