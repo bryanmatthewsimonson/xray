@@ -19,6 +19,73 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-03 — Phase 16 design amendment (16.0.5) from the pre-implementation audit
+
+Tags: `design`.
+
+A pre-implementation audit of `MORAL_LENS_JURISDICTION_DESIGN.md` (six
+area reviews + a completeness pass) found the 2026-06-24 draft not
+implementable as written. The amendment (docs-only, no code) records the
+decisions; the second-guessable ones, with reasons:
+
+- **The source prompt never existed in the repo.** The draft "carried
+  forward verbatim" templates and principles from a
+  moral-lens-jurisdiction prompt draft that was never committed. Rather
+  than block on recovering it, Appendix A re-authors the eight principles
+  and three definition templates from the design's own descriptions —
+  now the normative input to 16.2. (Same fix for the phantom "X-Ray's
+  copyright rules" citation: §10 writes the quoting discipline down,
+  500-char excerpt cap per the anchor `EXACT_LENGTH_CAP` precedent.)
+- **Jurisdictions are registry-primary, not entities.** §4's "nothing new
+  at the storage layer" was false: `ENTITY_TYPES` has no fit for a legal
+  code or a tradition, entity records have no home for jurisdiction
+  fields, and entity creation mints keypairs + kind-0/browser exposure
+  that "Christianity" must not inherit. A local jurisdiction registry
+  (platformAccounts precedent) holds the records; `entity_id` is an
+  optional persona-only link. Corpus is never bound via `claim.about[]` —
+  that would sweep lens artifacts into truth/case surfaces.
+- **Authorities are citation-first.** "Captured claim + W3C anchor"
+  cannot cite a book, scripture, or statute; the authority record carries
+  a bibliographic citation (work/edition/ISBN/locator/language), with
+  claim+anchor as the web-only specialization.
+- **Lens typing is its own enum.** `normative`/`framing` never become
+  proposition classes; `LENS_ASSERTION_TYPES` adds `evaluative` to cover
+  the two classes Phase 15 actually hands over (`interpretation`,
+  `stated-value`); `factual` rows get `corpus_stance` and may not carry a
+  `disposition` (schema-enforced) — the firewall survives contact with
+  the model by construction, not by prompt hope.
+- **"Computed-on-open" became "computed on explicit invoke."** The
+  dossier pattern is free and deterministic; a lens pass is a paid,
+  nondeterministic API call, and 14.5's "one pass per explicit user
+  action" governs. Session cache only; zero durable writes,
+  guard-tested. The per-jurisdiction "integrity report" was renamed
+  **grounding report** (Phase 15 owns "Integrity"), and the living-person
+  guardrail fails closed (absent bit ⇒ treated as living), with social
+  captures inadmissible for living personas.
+- **Base-branch constraint:** `origin/main` had the full 14.5 substrate
+  but zero Phase 15 files while the #79–#89 train was open, so the
+  amendment barred `truth-*`/`integrity-*` imports. The train merged as
+  #89 later the same day, dissolving the constraint — but the
+  cross-vocabulary disjointness pins deliberately keep asserting string
+  literals, not imports (a pin that imports the enum it pins drifts
+  with it).
+- **Absorbed from the parallel review (PR #91):** the P5 symmetry
+  obligation extends below panel selection to **corpus curation** — a
+  sympathetic-looking jurisdiction loaded with a cherry-picked corpus
+  defeats every per-reading honesty signal. New `corpus_provenance`
+  disclosure (code-stamped, self-attested) and
+  `thin_representation_flags` (distinct from thin *coverage*). #91's two
+  other design-doc hunks (the fabricated §3 lineage citation, the §5.2
+  misquote) had independently been caught and fixed by this amendment's
+  audit + review pass — convergent findings, differently worded.
+
+Files: `docs/MORAL_LENS_JURISDICTION_DESIGN.md`, `docs/ROADMAP.md`
+(§Phase 16). So-what: if 16.x code ever contradicts the amendment, the
+amendment governs — and the original prompt draft, if it surfaces, gets
+reconciled against Appendix A, not the other way around.
+
+---
+
 ## 2026-07-02 — Phase 15.10: authoring UI — eligibility as the option list
 
 Tags: `design`.
