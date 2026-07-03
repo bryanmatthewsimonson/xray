@@ -19,6 +19,352 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-02 — Phase 15.10: authoring UI — eligibility as the option list
+
+Tags: `design`.
+
+The integrity modal's central choice: **eligibility rules render as
+the option space, not as validation errors.** Only word-eligible
+propositions appear in the word list, deed candidates filter to the
+word's about-entities, match chips come from matchStatesForWordClass —
+so the §3.1/§3.4 exclusions (ascribed, unclassified, wrong-class
+matches, cross-entity pairs) are mostly unreachable rather than merely
+rejected; the model validators stay as the backstop. Attestation
+fields on the supports-link flow attach only when the author asserts
+an origin key (no origin, no attestation — never defaulted), and the
+adjudicate modal now surfaces the 15.2 convergence measurement for
+propositions that have attestation edges, closing the audit's
+"computed but invisible" note for convergence.
+
+## 2026-07-02 — Phase 15.9: read-back — the missing half, and one deliberate non-persistence
+
+Tags: `design`.
+
+The audit's headline gap ("write half done, read half missing") closes:
+portal corpus/reconcile/library/inspector learn 30063/30064, the
+entity view gains the §3.5 integrity-record block, and the adjudicate
+modal fetches others' rulings. Second-guessable calls:
+
+- **Coverage declarations are per-reading, never persisted.** The
+  portal's rollup form asks for assessed/universe/method each time.
+  Persisting a declaration would turn a reader's one-time assertion
+  into stored state that silently goes stale as new commitments
+  arrive — the exact back-door §6.3 warns about. Re-declaring is
+  deliberate friction, like the exhaustive-enum tests.
+- **Local-only counts exclude superseded rulings** (chain heads only):
+  a superseded verdict never publishes by design, so counting it as
+  "local only / never published" would manufacture a permanent
+  phantom problem in the reconcile view.
+- **Others' rulings dedupe by (author, d) keeping newest** — the
+  addressable-replacement semantics applied client-side, since relays
+  MAY return stale versions; and the read-side adequacy parsers mean
+  malformed foreign rulings are simply absent, with a UI note saying
+  so rather than pretending the relay set was clean.
+- The integrity block computes on open and removes itself when the
+  entity has no adjudication data — an empty scoreboard is not a
+  scoreboard (rendering zeros for everyone would read as universal
+  cleanliness, the §2 selection-bias trap in miniature).
+
+## 2026-07-02 — Phase 15 conformance pass: what a 10-agent design audit caught
+
+Tags: `design`.
+
+A section-by-section adversarial audit of TRUTH_ADJUDICATION_DESIGN.md
+against the shipped train surfaced gaps this slice closes; the calls:
+
+- **The §3.6 precedent FIELD now actually lands** ("the field and the
+  citation grammar land now so the record is precedent-ready") —
+  `precedents: [{ref, weight}]` on verdicts/findings, `binding |
+  persuasive` with **persuasive as the default** (an unweighted
+  citation must never inflate itself), wire `a … precedent <weight>`
+  slot-5, publish threading via the same resolve-or-omit posture as
+  revision refs. Implementation stays deferred; the field no longer is.
+- **Read-side evidence adequacy**: the parsers now null-parse an
+  evidence-less `established-*`/one-sided `contested` (30063) and an
+  evidence-less substantive match (30064). Previously build-side only —
+  the first foreign-event consumer would have rendered malformed
+  rulings; now malformed means invisible, both directions.
+- **§2 (v1) defenses that had shape but no surface**: adjudicator
+  `exposure` disclosure (field + wire tag + modal input — author-
+  asserted, never inferred), right-of-reply `reply_refs` (subject reply
+  event ids referenced FROM the ruling; the dedicated UI stays
+  deferred), and the rollup's missing **standard gate** (only
+  clear-and-convincing/beyond-reasonable-doubt matches count; below-
+  standard ones are excluded AND reported). Balance-sheet symmetry,
+  bootstrap-on-high-knowability, and camp-discomfort calibration ship
+  as documented **operator disciplines** (SMOKE_TEST §15) — honest
+  about being practice, not mechanism, in v1.
+- **`verdictVariance` accepts both field spellings**
+  (`standard_of_proof` local / `standardOfProof` parsed) — the latent
+  bug at exactly the seam where the two populations meet — and
+  `matchVariance` gives integrity findings the same never-collapsed
+  agreement surface.
+- Doc debt: SMOKE §15 now covers 15.4/15.5 (rows 15.21–15.27) and the
+  30064 publish leg; ROADMAP's stale "paused until Phase 14 merges"
+  paragraph replaced with the PR-train map; the kickoff carries its
+  post-implementation amendment per its own "fix the prompt" rule;
+  EPISTACK_ENTRY no longer claims Phase 15 is unbuilt. GitHub-issue
+  mirroring (ROADMAP step 5) remains dead-lettered since Phase 9 —
+  noted, not resurrected, pending a decision on whether the practice
+  survives.
+
+## 2026-07-02 — Phase 15.8: the firewall and supersession as UI facts
+
+Tags: `design`.
+
+Reader adjudication UI (`adjudicate-modal.js`, the assess-modal
+pattern — UI-in-shared, own injected styles, never content-script).
+Calls worth recording:
+
+- **Class chips ARE the proposition selector.** One proposition per
+  (claim, class) by id construction (15.1), so the six class chips
+  double as "load existing or start new" — no separate list UI, and
+  the idempotency the model guarantees is what makes this shape safe.
+- **The firewall is rendered, not just thrown.** Selecting
+  `interpretation`/`stated-value` swaps the entire ruling form for the
+  explainer; there is no disabled-but-visible verdict form to socially
+  pressure a workaround. Saving still records the proposition — the
+  classification is the point.
+- **A fresh ruling never seeds from the active one.** When a verdict
+  exists, Save becomes "Save superseding ruling" and the form starts
+  BLANK — pre-filling would train edit-by-supersession muscle memory,
+  and a superseding ruling should be re-derived, not tweaked.
+- No delete affordances in the modal (propositions or rulings): chain
+  deletion semantics live in the models and, later, the portal;
+  putting them next to a Save button invites casual history surgery.
+
+## 2026-07-02 — Phase 15.7: what holds a truth event back from a publish batch
+
+Tags: `design`.
+
+Publish wiring for 30063/30064 (`truth-publish.js` + the reader
+section, the forensic-publish pattern). The selection rules that
+weren't obvious:
+
+- **Chain heads only.** A superseded verdict/finding never re-emits —
+  its successor REPLACES it on relays (same author + `d`), so
+  publishing an interior chain link would resurrect a retracted
+  ruling. The predecessor's `publishedEventId` threads into the
+  successor's `e supersedes` marker when known; a local-only
+  supersession (predecessor never published) still publishes, with no
+  lineage marker — there is nothing on relays to point at.
+- **A constraint gap must resolve or the finding waits.** The 30064
+  builder requires `constraintCoord` for a constraint cause; publishing
+  without it would strip the very evidence that DISCOUNTS the finding
+  — the worst possible lossy cut. So an unpublished constraint
+  action-fact holds the whole finding for a later batch.
+- **`revision_ref` passes through only when it already is a 30055
+  coordinate.** The linker's `markPublished` records no wire d-tag, so
+  a local link id can't be rebuilt into a coordinate in v1. The
+  finding still publishes (the ref is auxiliary credit, unlike the
+  constraint); the limitation is documented rather than silent.
+- **Subject resolution mirrors forensic-publish**: the first
+  `entity_ids` entry with an entity keypair wins; an unkeyed subject
+  waits. And the verdict selector re-checks `isTruthAdjudicable`
+  defensively — even a hand-edited storage record can't push a value
+  verdict onto the wire.
+
+## 2026-07-02 — Phase 15.6: two asymmetries in the truth wire, both deliberate
+
+Tags: `design`.
+
+Final planned Phase-15 slice — kinds `30063`/`30064` in a new
+`truth-builders.js` (the audit-family precedent of a per-family
+builder module; metadata/builders.js supplied the idioms, not the
+home). Two wire asymmetries someone will eventually question:
+
+- **30063 carries no `p` tag and gets a 1985 mirror; 30064 carries
+  `p` and gets NO mirror.** A verdict attaches to a proposition
+  (§5.3), so its mirror labels the claim coordinate — safe to
+  aggregate. An integrity match is genuinely *about* a person's
+  word-deed gap, so the subject `p` belongs on the full event — but a
+  bare 1985 match-label on a pubkey, stripped of evidence and
+  caveats, is precisely the decontextualized person-grade §3.5
+  forbids ("no number travels without its evidence and caveats").
+  So the mirror idiom from 30054/30062 is applied to one kind and
+  deliberately withheld from the other.
+- **The firewall is enforced read-side too.** `parseAdjudicatedVerdictEvent`
+  null-parses an event whose `proposition-class` is `interpretation`
+  or `stated-value`, and `parseIntegrityFindingEvent` null-parses a
+  match invalid for its word class — a malicious or buggy publisher
+  cannot make this client *render* a value-verdict, not merely not
+  emit one. Caveat tags are likewise structural: no caveat, no parse.
+
+Also: `DISPUTE_TARGET_KINDS` gained `verdict`/`integrity_finding`
+(additive — older clients null-parse such disputes, which is the
+correct conservative failure); wire supersession is NIP-01 addressable
+replacement + an `e supersedes` lineage marker (the local chain keeps
+full history; relays keep the current ruling per author, which is what
+addressable kinds mean); and 30065 stays reserved with the `precedent`
+a-tag marker grammar documented but unimplemented.
+
+## 2026-07-02 — Phase 15.5: the entity record is computed, never stored — and the rollup gate is coverage.status
+
+Tags: `design`.
+
+Fifth Phase-15 slice (docs/TRUTH_ADJUDICATION_DESIGN.md §3.5). Calls:
+
+- **Derived-on-read, not stored** (`truth-entity-record.js` follows
+  the audit dossier's computed-on-open posture). An entity's record is
+  a pure function of the proposition/verdict/finding/claim stores;
+  persisting it would create a second source of truth that goes stale
+  the moment a verdict supersedes.
+- **Coverage is a caller-declared measurement, not stored state.**
+  `declaredCoverage({assessed_count, universe_estimate, method})`
+  throws on an undefended denominator (§6.3's open question honored
+  by refusing bare assertions); the default is `undetermined`, and
+  `optionalRollup` returns **null** unless coverage.status is
+  `declared` — the §5.4 no-aggregate-without-coverage red line as a
+  type gate. The rollup output is counts + a sentence with the
+  coverage fraction and method inline; deliberately no percentage
+  field exists.
+- **Unscoreable predictions are listed, never dropped**: a resolved
+  prediction with no recorded hedge is `no-hedge-recorded` (inventing
+  a hedge to make Brier computable would be the estimation §1
+  forbids); unresolved ones are `unresolved`. `calibrationV1`'s
+  `mean_brier` is admissible because its formula and inputs ship with
+  it — a measurement, not a score.
+- **The forensic bridge is caller-asserted.** Entity ids and forensic
+  `subject_ref`s are different keyspaces; `entityCorrectionRecord`
+  composes 30062 findings only when the caller passes the subject
+  ref, rather than guessing an identity join.
+
+## 2026-07-02 — Phase 15.4: how "intent is not adjudicated" survives `lie` being in the enum
+
+Tags: `design`.
+
+Fourth Phase-15 slice (docs/TRUTH_ADJUDICATION_DESIGN.md §3.4). The
+tension worth recording: §3.4's gap decomposition lists *lie* as a
+cause, but red line §5.2 forbids intent adjudication. The resolution
+implemented: **a gap cause is recordable only with a documented
+explanation** — non-empty note, evidence entries where they exist —
+so the system can record "he admitted on tape he knew it was false"
+(documented) but can never *infer* a lie from the gap alone
+(undocumented cause → rejected). Intent has no field; documentation
+is the gate. Related calls in the same slice:
+
+- **The same-entity rule resolves through the claims' `about`
+  entities** (word claim ∩ each deed claim must be non-empty; the
+  shared ids become the finding's `entity_ids`). A word claim with no
+  about-entity is rejected — an integrity finding with no subject is
+  meaningless, and defaulting one would manufacture it.
+- **Match vocabulary is per word class** (`fulfilled`/`broken` for
+  commitments, `consistent`/`contradicted` for values, honest states
+  common) — the value firewall in enum form: a value cannot be
+  "fulfilled" because it never promised anything, only professed.
+- **`constraint_ref` must resolve to an enacted action-fact
+  proposition** — the §3.4 "evidence, not an excuse" rule made
+  mechanical: the discounting constraint clears the same
+  proposition/attestation bar as anything else, and its corroboration
+  is readable via the 15.2 convergence measurement.
+- **`timelineForEntity` sorts chain heads on the earliest matched
+  deed's `occurred_at`, undated last** — the pattern-not-instance
+  read; a deed with no event-time cannot claim a place in the
+  timeline, which is the no-false-precision rule again from the
+  other side.
+
+## 2026-07-02 — Phase 15.3: verdict chains are linear by id construction
+
+Tags: `design`.
+
+Third Phase-15 slice (docs/TRUTH_ADJUDICATION_DESIGN.md §3.3). The
+calls worth second-guessing:
+
+- **Supersession forks are impossible by construction, not by check.**
+  A verdict id hashes `(proposition_id | supersedes)` — the chain
+  position. A second attempt to supersede the same predecessor derives
+  the id of the existing successor and idempotently returns it,
+  untouched. The explicit "chains are linear" guard is therefore
+  belt-and-braces (unreachable through the API); the real invariant is
+  the id scheme. Corollary: `VerdictModel` has **no update method** —
+  a changed ruling, sharper caveats, or new evidence is a superseding
+  verdict, and `delete` is chain-head-only (re-opens the predecessor)
+  so history never silently loses an interior ruling.
+- **Evidence adequacy is per-state.** `established-true` requires
+  `evidence_for`, `established-false` requires `evidence_against`,
+  `contested` requires both; `unresolved` / `insufficient-evidence`
+  may cite nothing — forcing citations there would manufacture
+  evidence for the honest states, and their mandatory caveats carry
+  the why.
+- **The §6.1 open question (default standard of proof per class) is
+  settled at implementation** as `defaultStandardOfProof`: stated
+  commitments/values → `clear-and-convincing` (reputationally heavy
+  utterances), facts/predictions → `preponderance`. Always overridable;
+  the declared standard is stored on the record either way.
+- **"Dispute reuse" ships as posture, not code.** §3.3 reuses the
+  `30061` wire format as-is; a dispute cannot target a `30063`
+  coordinate before verdicts publish, so extending
+  `DISPUTE_TARGET_KINDS` with a verdict kind belongs to 15.6 (wire),
+  not here. Nothing dispute-shaped was rebuilt locally.
+
+## 2026-07-02 — Phase 15.2: attestations live on the 30055 link, and the baseline needs no note
+
+Tags: `design`.
+
+Second Phase-15 slice (docs/TRUTH_ADJUDICATION_DESIGN.md §3.2). Two
+second-guessable calls:
+
+- **An attestation is metadata ON a `supports` link, not a new record
+  type.** The design's implementation-seams note points §3.2 at
+  `evidence-linker.js` ("tiers, independence") and the slice plan says
+  the convergence composes 30055 `supports` — so each attesting
+  artifact is a captured claim, the edge to the proposition's
+  underlying claim is the existing supports link, and the §3.2 fields
+  (`tier`, `origin_key`, `independence_note`) ride the edge as an
+  optional validated `attestation` object. Additive only: plain links
+  are untouched, non-supports links reject the metadata, and the
+  30055 wire format is unchanged until 15.6 decides what (if anything)
+  of it publishes.
+- **The earliest origin group is the independence baseline.** "Independence
+  demonstrated, not assumed" needs an anchor: the first source has
+  nothing prior to be independent OF, so it counts without a note, and
+  every LATER origin group counts only if it carries an
+  `independence_note`. Undemonstrated groups are listed in the
+  measurement but excluded from `independent_count` — visible, not
+  counted. Created-at ties (second granularity — every test, and any
+  same-minute authoring session) break on first-appearance order,
+  never alphabetically; the first cut of this sorted ties by
+  `origin_key` and the end-to-end test immediately elected the wrong
+  baseline (`ap-wire` over the actually-first court record).
+
+## 2026-07-02 — Phase 15.1: adjudicable-proposition modeling choices
+
+Tags: `design`.
+
+First Phase-15 slice (docs/TRUTH_ADJUDICATION_DESIGN.md §3.1,
+docs/PHASE_15_KICKOFF.md). Three second-guessable calls:
+
+- **Enum home: a new `src/shared/truth-taxonomy.js`**, not
+  `assessment-taxonomy.js` (the kickoff allowed either). Phase 15 will
+  add verdict states, standards of proof, and match states in 15.3/15.4;
+  parking the growing adjudication vocabulary inside Phase 11's label
+  file would blur two layers the design keeps distinct. Hedge levels,
+  tractabilities, and `isValidSuggestedBy` are **re-exported** from
+  `audit/builders.js` / `assessment-taxonomy.js` (same frozen instances,
+  pinned by test) so nothing forks.
+- **Id derivation: `prop_<sha16>` over `(claim_id | proposition_class)`**
+  — a proposition carries NO text of its own (§3.1 lists only the
+  adjudicability fields; the referenced 30040 claim carries the words),
+  so one claim atomizes to at most one proposition per class, and
+  `create()` is idempotent there. Consequence: `claim_id` and
+  `proposition_class` are immutable; reclassification is delete +
+  recreate, which is honest — it's a new adjudicability assertion, not
+  an edit.
+- **`resolution_criteria` reuses the 30058 field vocabulary verbatim**
+  (`criteria` / `horizon` / `horizon_iso` / `hedge_level` /
+  `tractability`), with two deliberate defaults: `tractability` falls
+  back to `'ambiguous'` (PredictionModel's honest don't-know), but
+  `hedge_level` defaults to **null**, NOT PredictionModel's `'hedged'` —
+  a hand-atomized fact proposition usually has no hedge to record, and
+  inventing one would be exactly the estimated-quantity §1 forbids.
+  Facts with no horizon get the `'already-determinable'` token (§3.1's
+  "already determinable", in the house hyphenated grammar).
+
+Also enforced beyond the kickoff's minimum list:
+`occurred_precision` without `occurred_at` rejects (precision on a
+missing time is as false as the reverse), and the firewall predicate
+fails **closed** — `isTruthAdjudicable` on an unknown class is `false`.
+
 ## 2026-07-01 — Remove vestigial Entities + Keypair Registry settings tabs
 
 Tags: `design`.

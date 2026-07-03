@@ -692,6 +692,121 @@ publishes. Requires a real Anthropic API key
 
 ---
 
+## Phase 15 — Truth adjudication (15.1–15.8)
+
+Rows 15.1–15.13 are the **model console walk** (slices 15.1–15.3 have no
+UI of their own); rows 15.14–15.20 are the **reader click-through**
+(slice 15.8 + the publish path); rows 15.21+ cover the integrity/entity
+layers, which still author via console (UI is follow-up work). Dynamic `import()` is banned in the service
+worker — use the **options page** (right-click toolbar icon → Options →
+F12). On Firefox: `about:debugging` → X-Ray → **Inspect**, with the
+options page open.
+
+Paste each numbered block as a unit. Every `create` is idempotent, so
+re-running after a page reload converges on the same records.
+
+**15.A — setup (paste once per page load):**
+
+```js
+const { TruthAdjudicationModel, VerdictModel, verdictVariance } =
+    await import('/src/shared/truth-adjudication-model.js');
+const { attestProposition, convergenceForProposition } =
+    await import('/src/shared/truth-attestation.js');
+const { ClaimModel } = await import('/src/shared/claim-model.js');
+const { EvidenceLinker } = await import('/src/shared/evidence-linker.js');
+
+const claim = await ClaimModel.create({
+    text: 'The senator voted against the bill on March 3.',
+    source_url: 'https://example.com/article' });
+const prop = await TruthAdjudicationModel.create({
+    claim_id: claim.id, proposition_class: 'event-fact',
+    resolution_criteria: { criteria: 'The official roll-call record.' },
+    subject_role: 'enacted' });
+```
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 15.1 | 15.A, then `prop` | ✅ record has `proposition_class`, `resolution_criteria.horizon: 'already-determinable'`, `subject_role: 'enacted'`; no verdict/score field |
+| 15.2 | `await TruthAdjudicationModel.create({ claim_id: 'claim_doesnotexist00', proposition_class: 'event-fact', resolution_criteria: { criteria: 'x' } })` | ❌ throws `Claim not found` — the atomization gate |
+| 15.3 | `await TruthAdjudicationModel.create({ claim_id: claim.id, proposition_class: 'prediction', resolution_criteria: { criteria: 'x' } })` | ❌ throws `requires a resolution horizon` |
+| 15.4 | `await TruthAdjudicationModel.create({ claim_id: claim.id, proposition_class: 'state-fact', resolution_criteria: { criteria: 'x' }, occurred_at: 1614729600 })` | ❌ throws `no false precision` (occurred_at demands occurred_precision) |
+| 15.5 | Attest 3 sources: `rollCall` (tier-1, `origin_key: 'congress-roll-call-71'`), then two claims both on `origin_key: 'ap-wire'` — first with an `independence_note`, second with casing `'AP-Wire'` — plus one `'anon-blog'` claim with **no** note; then `await convergenceForProposition(prop.id)` | ✅ `total_attestations: 4, origin_count: 3, independent_count: 2, undemonstrated: ['anon-blog']`; `origin_groups` lists every link id + note (the derivation) |
+| 15.6 | `await EvidenceLinker.create({ source_claim_id: <any>, target_claim_id: claim.id, relationship: 'contradicts', attestation: { tier: 'tier-1', origin_key: 'x' } })` | ❌ throws `only valid on a supports link` |
+| 15.7 | `const verdict = await VerdictModel.create({ proposition_id: prop.id, verdict: 'established-true', evidence_for: [{ quote: 'Roll-call 71: Nay.', tier: 'tier-1' }], caveats: ['Could not verify a later motion.'] })` | ✅ `standard_of_proof: 'preponderance'` (defaulted per class AND declared); no score/confidence field |
+| 15.8 | Create a `stated-value` proposition on `claim`, then rule on it | ❌ `VerdictModel.create` throws `not adjudicable as true/false` — the §3.1 firewall; the *proposition* create succeeds (recording is legal, ruling is not) |
+| 15.9 | `await VerdictModel.create({ proposition_id: prop.id, verdict: 'established-true', evidence_for: [{ quote: 'x' }], caveats: [] })` | ❌ throws — caveats are mandatory |
+| 15.10 | `await VerdictModel.create({ proposition_id: prop.id, verdict: 'contested', evidence_for: [{ quote: 'x' }], caveats: ['y'] })` | ❌ throws `BOTH ways` — contested needs both sides |
+| 15.11 | Supersede: `const v2 = await VerdictModel.create({ proposition_id: prop.id, supersedes: verdict.id, verdict: 'contested', evidence_for: [{ quote: 'Roll-call 71: Nay.' }], evidence_against: [{ quote: 'Amended record shows a revote.' }], caveats: ['Conflicting records.'] })`, then `await VerdictModel.get(verdict.id)` | ✅ old record: `superseded_by: v2.id` and **nothing else changed**; `getActiveForProposition(prop.id)` returns `v2` |
+| 15.12 | `typeof VerdictModel.update` | ✅ `'undefined'` — append-only by construction |
+| 15.13 | `verdictVariance([{ verdict: 'established-true' }, { verdict: 'contested' }])` | ✅ per-state counts, `unanimous: false`; **no** consensus/score/mean field exists on the result |
+
+**Reader UI (15.8) — no console needed.** Capture any article, add a
+claim via the normal claim flow, then:
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 15.14 | Claims bar → the claim row shows a **🏛** action | ✅ button present beside ⚖; tooltip "Adjudicate this claim" |
+| 15.15 | 🏛 → pick **Event fact**, criteria "the official record", role **Enacted**, ruling **Insufficient evidence**, caveats one line → Save | ✅ toast "Ruled: insufficient-evidence"; the row gains a `📋 Event fact · ∅ Insufficient evidence` badge; 🏛 becomes 🏛✓ |
+| 15.16 | 🏛 again, same class | ✅ fields load the existing proposition; the banner shows the **active ruling** and Save reads "Save superseding ruling" |
+| 15.17 | Save a new ruling (e.g. **Established true** with one evidence-for quote + a caveat) | ✅ toast "…(supersedes prior ruling)"; badge updates; re-open shows the new active ruling |
+| 15.18 | Pick **Stated value** or **Interpretation** as the class | ✅ the ruling section is replaced by the 🔥 firewall explainer; Save reads "Save proposition"; the badge reads "not truth-adjudicable" |
+| 15.19 | Ruling with **no caveats**, or **Contested** with one-sided evidence, or a **Prediction** with no horizon | ❌ the modal surfaces the model's error inline; nothing saves |
+| 15.20 | Options → Advanced → **Truth adjudication** → check "Publish adjudicated verdicts…" → Save → reader **Publish** | ✅ after the claim publishes, "Also publishing adjudications…" toast; summary gains `n/n verdict` + mirror segments; second publish re-emits nothing (staleness gate); unchecking the toggle removes the adjudication segment entirely |
+
+**Integrity + entity record (15.4/15.5) — console walk** (authoring UI
+is follow-up work). In the options-page console, after 15.A:
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 15.21 | Create a word (stated-commitment, role `stated`) and a deed (event-fact, role `enacted`) whose claims share an `about` entity, then `IntegrityModel.create({word_proposition_id, deed_proposition_ids, match: 'broken', evidence_for: [{quote: '…'}], caveats: ['…']})` (import from `/src/shared/integrity-model.js`) | ✅ record with `standard_of_proof: 'clear-and-convincing'` (defaulted), `entity_ids` = the shared entity; no intent/score field |
+| 15.22 | Same create with `match: 'contradicted'` on the commitment word, or with an `ascribed` word | ❌ throws (per-word-class vocabulary; by-construction exclusion) |
+| 15.23 | `gap: { cause: 'lie', note: '' }` | ❌ throws "must be documented" — intent is never inferred |
+| 15.24 | `await IntegrityModel.timelineForEntity('<entity id>')` | ✅ chain heads ordered on the deeds' occurred_at, undated last |
+| 15.25 | `const { entityIntegrityRecord, declaredCoverage, optionalRollup } = await import('/src/shared/truth-entity-record.js')`; `optionalRollup(await entityIntegrityRecord('<entity id>'))` | ✅ `null` — no aggregate without declared coverage |
+| 15.26 | Re-run with `{ coverage: declaredCoverage({assessed_count: 1, universe_estimate: 10, method: 'smoke fixture'}) }` | ✅ rollup counts + a sentence carrying "high-standard", the 1/10 coverage, and the method |
+| 15.27 | 30064 publish leg: with the flag on and the word/deed claims + a keyed entity published, Publish | ✅ summary shows `n/n integrity finding`; second publish re-emits nothing |
+
+**Read-back (15.9)** — needs published adjudications (rows 15.20/15.27):
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 15.28 | My Archive → fetch → Library | ✅ **Verdicts** / **Integrity** facets appear; published rulings list as `Verdict — <state>` / `Integrity — <match>`; clicking opens the inspector with evidence, standard, caveats, disclosure, and any precedent citations on the face |
+| 15.29 | My Archive → Reconcile | ✅ published verdicts/findings reconcile (in ledger & on relays); an unpublished chain head shows in the local-only counts; a superseded ruling never does |
+| 15.30 | Portal → entity view for the finding's subject | ✅ the **Integrity record** block renders: dimension counts beside their lists, the timeline ordered on deed event-time, calibration/corrections lines; declaring coverage (assessed/universe/method) unlocks the rollup sentence; without it the rollup line stays "no aggregate" |
+| 15.31 | Reader → 🏛 on the published claim → **Others' rulings** | ✅ fetches foreign 30063s for the selected class; shows each ruling + the spread ("disagreement is data"), never a consensus number; malformed rulings (the read-side adequacy nulls) simply don't appear |
+
+**Authoring UI (15.10)** — replaces the 15.21-series console steps
+when preferred:
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 15.32 | Claims bar → **🤝 Integrity…** | ✅ modal lists only word-eligible propositions (stated commitments/values); picking one filters deeds to enacted facts sharing its entity; match chips match the word class |
+| 15.33 | Rule a `broken` match with a caveat; reopen with the same word+deeds | ✅ saved via toast; reopening shows the active match and "Save superseding finding" |
+| 15.34 | Gap: cause `constraint` with no pick, or any cause with no note | ❌ inline error (documented-only; constraint needs its corroborated action-fact) |
+| 15.35 | 🔗 link flow → relationship **supports** | ✅ the attestation fields appear (tier / origin key / independence note); filling an origin key saves attestation metadata; the adjudicate modal for the target's proposition then shows the convergence line ("N demonstrated-independent origin(s) of M …") |
+
+**Operator disciplines (v1)** — §2 defenses that ship as practice, not
+mechanism; follow them until tooling lands: seek **kept** commitments as
+hard as broken ones (balance-sheet symmetry — an entity record that only
+ever accretes `broken` is a selection-bias smell, not a finding); fill
+the ruling's **Disclosure** field whenever you have a relevant interest
+(adjudicator exposure); **bootstrap on high-knowability propositions**
+(court records, official rolls) before reputationally heavy ones; and if
+your verdicts never discomfort your own camp, treat your calibration as
+broken and audit your selection.
+
+**15.B — cleanup:**
+
+```js
+chrome.storage.local.remove(['adjudicable_propositions', 'adjudicated_verdicts', 'integrity_findings']);
+await EvidenceLinker.deleteForClaim(claim.id);
+// then ClaimModel.delete(...) for each test claim created above.
+// Only blanket-remove 'article_claims'/'evidence_links' on a disposable
+// profile — real captures share those keys.
+```
+
+---
+
 ## Phase 6 — Entity sync
 
 Run on **Device A** (your normal profile) and **Device B** (a

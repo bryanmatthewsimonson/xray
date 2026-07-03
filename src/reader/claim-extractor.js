@@ -33,6 +33,8 @@ import {
 import { EntityModel, ENTITY_ICONS } from '../shared/entity-model.js';
 import { resolveSelectors } from '../shared/metadata/anchor-resolver.js';
 import { openAssessModal, renderAssessmentBadges, assessmentsByCanonicalRef } from '../shared/assess-modal.js';
+import { renderAdjudicationBadges, adjudicationsByClaimId } from '../shared/adjudicate-modal.js';
+import { EVIDENCE_TIERS, EVIDENCE_TIER_LABELS } from '../shared/truth-taxonomy.js';
 import { AssessmentModel } from '../shared/assessment-model.js';
 import { makeClaimRefCanonicalizer, isLocalClaimId } from '../shared/claim-ref.js';
 
@@ -418,8 +420,12 @@ export function openEvidenceLinkModal({ sourceClaim }) {
                     b.classList.remove('xr-link-modal__rel-btn--active'));
                 btn.classList.add('xr-link-modal__rel-btn--active');
                 rel = btn.dataset.rel;
+                // Attestation metadata rides supports links only (15.2).
+                const attest = $('.xr-link-modal__attest');
+                if (attest) attest.hidden = rel !== 'supports';
             });
         });
+        { const attest = $('.xr-link-modal__attest'); if (attest) attest.hidden = rel !== 'supports'; }
 
         modal.querySelector('[data-action="save"]').addEventListener('click', async () => {
             if (!target) {
@@ -427,10 +433,19 @@ export function openEvidenceLinkModal({ sourceClaim }) {
                 return;
             }
             try {
+                // Attestation attaches only when the user asserts an
+                // origin — the linker validates the rest (tier, etc.).
+                const originKey = rel === 'supports' ? $('.xr-link-modal__attest-origin').value.trim() : '';
+                const attestation = originKey ? {
+                    tier:              $('.xr-link-modal__attest-tier').value || null,
+                    origin_key:        originKey,
+                    independence_note: $('.xr-link-modal__attest-indep').value.trim()
+                } : undefined;
                 const link = await EvidenceLinker.create({
                     source_claim_id: sourceClaim.id,
                     target_claim_id: target.ref,
                     relationship:    rel,
+                    attestation,
                     note:            $('.xr-link-modal__note').value.trim(),
                     // Foreign endpoints carry their snapshot so the link
                     // renders/exports without a relay round-trip; local
@@ -539,6 +554,21 @@ function buildLinkModalHtml(sourceClaim, candidates) {
             <div class="xr-link-modal__rels">${relHtml}</div>
           </div>
 
+          <div class="xr-claim-modal__field xr-link-modal__attest" hidden>
+            <span class="xr-claim-modal__label">Attestation <em>(optional, supports-only — marks the source claim as an
+              attesting artifact; §3.2: two outlets on one wire are ONE source)</em></span>
+            <div class="xr-link-modal__attest-row">
+              <select class="xr-link-modal__attest-tier">
+                <option value="">tier —</option>
+                ${EVIDENCE_TIERS.map((t) => `<option value="${t}">${escapeHtml(EVIDENCE_TIER_LABELS[t])}</option>`).join('')}
+              </select>
+              <input type="text" class="xr-link-modal__attest-origin" spellcheck="false"
+                     placeholder="origin key — the upstream this traces to (e.g. ap-wire)" />
+            </div>
+            <input type="text" class="xr-link-modal__attest-indep" spellcheck="false"
+                   placeholder="independence note — WHY this origin is independent of the others (demonstrated, not assumed)" />
+          </div>
+
           <label class="xr-claim-modal__field">
             <span class="xr-claim-modal__label">Note <em>(optional — stored with the link)</em></span>
             <textarea class="xr-link-modal__note" rows="2"
@@ -580,8 +610,9 @@ export async function renderClaimsBar(claims) {
     // canonical-keyed map for the whole bar (Phase 11.3); the
     // canonicalizer also decides link direction (stored endpoint refs
     // may be coordinates that collapse to this claim's id).
-    const [assessMap, canon] = await Promise.all([
+    const [assessMap, adjudicationMap, canon] = await Promise.all([
         assessmentsByCanonicalRef(),
+        adjudicationsByClaimId(),
         makeClaimRefCanonicalizer()
     ]);
     const rows = await Promise.all(claims.map(async (c) => {
@@ -591,6 +622,7 @@ export async function renderClaimsBar(claims) {
             EvidenceLinker.getForClaim(c.id)
         ]);
         const assessment = assessMap.get(c.id) || null;
+        const adjudication = adjudicationMap.get(c.id) || null;
         const key = c.is_key
             ? `<span class="xr-claims__crux" title="Key claim — central to the piece">⭐ key</span>`
             : '';
@@ -656,6 +688,7 @@ export async function renderClaimsBar(claims) {
               ${pubDot}
               <div class="xr-claims__row-actions">
                 <button type="button" class="xr-claims__btn" data-action="assess" title="${assessment ? 'Edit your assessment' : 'Assess this claim'}">${assessment ? '⚖✓' : '⚖'}</button>
+                <button type="button" class="xr-claims__btn" data-action="adjudicate" title="${adjudication ? 'Adjudicate — propositions exist on this claim' : 'Adjudicate this claim (atomize + rule)'}">${adjudication ? '🏛✓' : '🏛'}</button>
                 <button type="button" class="xr-claims__btn" data-action="link" title="Link to another claim">🔗</button>
                 <button type="button" class="xr-claims__btn" data-action="edit" title="Edit claim">✎</button>
                 <button type="button" class="xr-claims__btn xr-claims__btn--danger" data-action="delete" title="Delete claim">🗑</button>
@@ -663,6 +696,7 @@ export async function renderClaimsBar(claims) {
             </div>
             <div class="xr-claims__text">${escapeHtml(c.text)}</div>
             ${renderAssessmentBadges(assessment)}
+            ${adjudication ? renderAdjudicationBadges(adjudication.propositions, adjudication.activeVerdictByPropId) : ''}
             ${aboutLine}
             ${sourceLine}
             ${linksBlock}
@@ -676,6 +710,10 @@ export async function renderClaimsBar(claims) {
           <button type="button" class="xr-claims__others-btn" id="xr-claims-others"
                   title="Fetch kind-30040 events for this article from the configured relays">
             🌐 Others' claims
+          </button>
+          <button type="button" class="xr-claims__others-btn" id="xr-claims-integrity"
+                  title="Adjudicate a words-vs-deeds match from your stated/enacted propositions">
+            🤝 Integrity…
           </button>
         </header>
         <div class="xr-claims__list">${rows.join('')}</div>

@@ -60,6 +60,8 @@ test('CONTENT_KINDS pins the full corpus kind list from the design note', () => 
         30056, 30057, 30058, 30059, 30060, 30061,
         // Phase 14.4: behavioral findings (docs/CRIMINOLOGY_DESIGN.md)
         30062,
+        // Phase 15.9: adjudicated verdicts + integrity findings
+        30063, 30064,
         30078, 32125, 32126
     ]);
 });

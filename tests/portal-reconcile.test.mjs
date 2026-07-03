@@ -350,3 +350,71 @@ test('loadLocalLedger: the 30056 address derives from findings.version, not the 
     assert.deepEqual(entry.addrs, [`30056:${PK_A}:${d}`],
         'the builder derives the wire d from findings.version — the ledger must recompute the same way');
 });
+
+// --- Phase 15.9: verdict + integrity ledger scans ------------------------
+
+test('loadLocalLedger: published verdicts/integrity findings rebuild their 3006x addrs', async () => {
+    _stateStore.clear();
+    const { TruthAdjudicationModel, VerdictModel } = await import('../src/shared/truth-adjudication-model.js');
+    const { IntegrityModel } = await import('../src/shared/integrity-model.js');
+    const { ClaimModel } = await import('../src/shared/claim-model.js');
+
+    const claim = await ClaimModel.create({
+        text: 'The senator voted against the bill.',
+        source_url: 'https://example.com/a', about: ['entity_x']
+    });
+    const prop = await TruthAdjudicationModel.create({
+        claim_id: claim.id, proposition_class: 'event-fact',
+        resolution_criteria: { criteria: 'Roll-call.' }, subject_role: 'enacted'
+    });
+    const v = await VerdictModel.create({
+        proposition_id: prop.id, verdict: 'insufficient-evidence',
+        caveats: ['single source']
+    });
+    await VerdictModel.markPublished(v.id, 'e'.repeat(64), PK_A, 'verdict_dtag_16char');
+
+    const word = await TruthAdjudicationModel.create({
+        claim_id: (await ClaimModel.create({
+            text: 'I will vote against every tax.', source_url: 'https://example.com/w', about: ['entity_x']
+        })).id,
+        proposition_class: 'stated-commitment',
+        resolution_criteria: { criteria: 'Recording.' }, subject_role: 'stated'
+    });
+    const f = await IntegrityModel.create({
+        word_proposition_id: word.id, deed_proposition_ids: [prop.id],
+        match: 'broken', evidence_for: [{ quote: 'Roll-call 88: Yea.' }],
+        caveats: ['one vote']
+    });
+    await IntegrityModel.markPublished(f.id, 'f'.repeat(64), PK_A, 'integrity_dtag_16ch');
+
+    const ledger = await loadLocalLedger({ pubkeys: [PK_A] });
+    const vEntry = ledger.find((e) => e.source === 'verdict');
+    assert.ok(vEntry, 'verdicts are ledgered');
+    assert.deepEqual(vEntry.addrs, [`30063:${PK_A}:verdict_dtag_16char`]);
+    const iEntry = ledger.find((e) => e.source === 'integrity');
+    assert.ok(iEntry, 'integrity findings are ledgered');
+    assert.deepEqual(iEntry.addrs, [`30064:${PK_A}:integrity_dtag_16ch`]);
+});
+
+test('countLocalOnly: unpublished chain heads count; superseded rulings never do', async () => {
+    _stateStore.clear();
+    const { TruthAdjudicationModel, VerdictModel } = await import('../src/shared/truth-adjudication-model.js');
+    const { ClaimModel } = await import('../src/shared/claim-model.js');
+    const claim = await ClaimModel.create({
+        text: 'Another claim.', source_url: 'https://example.com/b'
+    });
+    const prop = await TruthAdjudicationModel.create({
+        claim_id: claim.id, proposition_class: 'event-fact',
+        resolution_criteria: { criteria: 'x' }, subject_role: 'enacted'
+    });
+    const v1 = await VerdictModel.create({
+        proposition_id: prop.id, verdict: 'unresolved', caveats: ['waiting']
+    });
+    await VerdictModel.create({
+        proposition_id: prop.id, supersedes: v1.id, verdict: 'insufficient-evidence',
+        caveats: ['still thin']
+    });
+    const counts = await countLocalOnly();
+    assert.equal(counts.verdict, 1, 'only the chain head — a superseded ruling never publishes by design');
+    assert.ok(counts.total >= 1);
+});

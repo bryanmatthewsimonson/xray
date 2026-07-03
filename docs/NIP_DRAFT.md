@@ -571,6 +571,98 @@ Addressable. Names a **maneuver** a subject performs around the truth — an eva
 - **Firewall:** a behavioral finding is a distinct aggregation signal. It never carries `stance`, `rating-value`, `score`/`confidence`, or the `xray/assessment` namespace; consumers MUST NOT merge findings with assessments (30054), fact-checks (30051), or audits (30056–30061).
 - **NIP-32 mirror + the verdict caveat.** A kind-1985 event MAY mirror the maneuver (`L`/`l` `xray/forensic`, `p` = the subject, `r` = the source URL) as the plain-NIP-32 aggregation path. Unlike the 30054 mirror, this one *does* label a person's pubkey — so consumers SHOULD treat it as a **structural observation, not a verdict**, and SHOULD surface the richer 30062's required counter-read alongside it. The mirror carries no `score` and asserts no intent.
 
+## Kind 30063 — AdjudicatedVerdict
+
+Addressable. **One author's** ruling on one **adjudicable proposition** — an atomized claim (kind 30040) typed by a `proposition-class` — as a **descriptive state** on a **declared standard of proof**, with verbatim two-sided evidence and **required caveats**. There is no consensus event, no authoritative-adjudicator role, and **no numeric truth anywhere on this kind**: when several authors rule on one proposition, agreement and variance are computed at read time over their separate 30063 events and never collapsed into a number.
+
+```jsonc
+{
+  "kind": 30063,
+  "tags": [
+    ["d", "verdict:<sha256(claimCoord + '|' + propositionClass).slice(0,16)>"],
+    ["a", "30040:<author>:<claim-d>", "<relay-hint>", "proposition-claim"],
+    ["L", "xray/adjudication"],
+    ["l", "established-true", "xray/adjudication"],
+    ["proposition-class", "event-fact"],
+    ["subject-role", "enacted"],
+    ["criteria", "<what evidence settles it>"],
+    ["horizon", "<descriptive or ISO>"], ["horizon-iso", "YYYY-MM-DD"],   // horizon REQUIRED for prediction
+    ["hedge", "confident"], ["tractability", "publicly_resolvable"],      // optional, the 30058 vocabulary
+    ["occurred", "<unix-seconds>", "day"],                                 // event-time + REQUIRED precision
+    ["standard", "preponderance"],
+    ["evidence-for", "<verbatim quote>", "tier-1", "<url>", "<30040-coord>"],
+    ["evidence-against", "<verbatim quote>", "tier-3", "<url>"],
+    ["caveat", "<what this ruling could not determine>"],
+    ["method", "<how adjudicated>"],
+    ["a", "3006(3|4):<author>:<d>", "<relay-hint>", "precedent", "binding|persuasive"],
+    ["e", "<reply-event-id>", "<relay-hint>", "reply"],
+    ["exposure", "<adjudicator's relevant interests, disclosed>"],
+    ["e", "<superseded-event-id>", "<relay-hint>", "supersedes"],
+    ["r", "<source-url>"], ["i", "<normalized-url>"], ["k", "web"],
+    ["suggested-by", "user"],
+    ["client", "<client>"]
+  ],
+  "content": "<rationale markdown>"
+}
+```
+
+- `l` carries the verdict state under `xray/adjudication`: `established-true` | `established-false` | `contested` | `unresolved` | `insufficient-evidence`. `unresolved` and `insufficient-evidence` are **first-class, permanently honest states** — never forced to resolve.
+- **The firewall (build- and read-side):** `proposition-class` MUST be one of `event-fact` | `state-fact` | `prediction` | `stated-commitment`. A verdict on an `interpretation` or `stated-value` proposition is **malformed** — interpretations and bare values are not adjudicable as true/false; consumers MUST reject such events rather than render them. (For a `stated-commitment`, `established-true` means *the commitment was really made as quoted* — never that it was wise.)
+- **Evidence adequacy is per-state:** `established-true` MUST cite `evidence-for`; `established-false` MUST cite `evidence-against`; `contested` MUST cite both. Evidence entries are `[quote, tier, url, 30040-coord]` with the tier ladder `tier-1` (primary/official) / `tier-2` (independent reporting) / `tier-3` (single-source/uncorroborated). The honest states may cite nothing — their `caveat` tags carry the why.
+- **`caveat` tags (≥1) are structural, not decorative.** A verdict with no caveat is malformed: what the ruling could not determine travels with it, so no state can be quoted away from its limits.
+- **There is NO `p` tag on this kind.** Verdicts attach to propositions, not persons; any entity-level reading is the reader's own aggregation over proposition verdicts, coverage-capped.
+- `d` is keyed **(author, proposition)** — recomputable from the `a` coordinate + `proposition-class` alone — so a superseding ruling by the same author **replaces** (NIP-01 addressable) and chains by the `e … supersedes` marker; lineage stays legible without mutating prior events.
+- **Disputes** reuse kind 30061 with `target-kind: verdict` (an additive extension of that enum; clients predating it null-parse such disputes).
+- **Precedent citations** (`a … precedent <weight>`, weight `binding` | `persuasive`, defaulting to `persuasive` when absent — an unweighted citation never inflates itself) reference prior 30063/30064 rulings of the same proposition or match class. Informational only until kind 30065 ships; consumers MUST NOT treat them as authority.
+- **Right of reply** (`e … reply`) references a subject-authored response event FROM the ruling, so the reply travels with it; consumers SHOULD surface it alongside. A dedicated reply UI is out of scope here.
+- **`exposure`** discloses the adjudicator's relevant financial/political/relational interests, published WITH the ruling (the political-capture defense). It is author-asserted and optional; consumers SHOULD render it verbatim when present, and its absence is itself information.
+- **NIP-32 mirror.** A kind-1985 event MAY mirror the verdict state (`L`/`l` `xray/adjudication`, `a` = the claim coordinate, `r` = the source URL). Like the 30054 mirror — and unlike the 30062 one — it labels **content, never a pubkey**.
+
+## Kind 30064 — IntegrityFinding
+
+Addressable. The adjudicated **word-deed match**: links a subject's **stated** commitment or value (their word — a 30040 claim atomized as `stated-commitment`/`stated-value` with subject-role `stated`) to one or more of their **enacted** action-facts (their deeds), and rules the observable gap. The match **is a verdict, not a drawn edge** — it carries the same standard-of-proof / evidence / caveat / supersession apparatus as kind 30063. `ascribed` words (a third party's characterization) are not the subject's to be held to and MUST NOT appear as the word side.
+
+```jsonc
+{
+  "kind": 30064,
+  "tags": [
+    ["d", "integrity:<sha256(wordCoord + '|' + wordClass + '|' + sortedDeedKey).slice(0,16)>"],
+    ["p", "<subject-pubkey>", "", "subject"],
+    ["L", "xray/adjudication"],
+    ["l", "broken", "xray/adjudication"],
+    ["word", "30040:<author>:<word-d>", "stated-commitment", "<occurred-at>", "day"],
+    ["a", "30040:<author>:<word-d>", "<relay-hint>", "word"],
+    ["deed", "30040:<author>:<deed-d>", "event-fact", "<occurred-at>", "day"],
+    ["a", "30040:<author>:<deed-d>", "<relay-hint>", "deed"],
+    ["standard", "clear-and-convincing"],
+    ["evidence-for", "<verbatim quote>", "tier-1", "<url>"],
+    ["caveat", "<limit of this match>"],
+    ["gap-cause", "constraint", "<the documented explanation>"],
+    ["gap-evidence", "<verbatim quote>", "tier-1", "<url>"],
+    ["a", "30040:<author>:<constraint-d>", "<relay-hint>", "constraint"],
+    ["a", "30055:<author>:<rel-d>", "<relay-hint>", "revision"],
+    ["a", "3006(3|4):<author>:<d>", "<relay-hint>", "precedent", "binding|persuasive"],
+    ["e", "<reply-event-id>", "<relay-hint>", "reply"],
+    ["exposure", "<adjudicator's relevant interests, disclosed>"],
+    ["e", "<superseded-event-id>", "<relay-hint>", "supersedes"],
+    ["r", "<source-url>"], ["i", "<normalized-url>"], ["k", "web"],
+    ["suggested-by", "user"],
+    ["client", "<client>"]
+  ],
+  "content": "<rationale markdown>"
+}
+```
+
+- **Match vocabulary is per word class** — `fulfilled`/`broken` for a `stated-commitment`, `consistent`/`contradicted` for a `stated-value`, with `unrelated`/`contested`/`insufficient` common to both. A `contradicted` commitment or a `fulfilled` value is malformed. **The value firewall:** for a `stated-value` the match adjudicates only the observable gap between the stated value and documented deeds — the value itself is never ruled true/false, on this kind or any other.
+- `word`/`deed` tags carry `[coord, proposition-class, occurred-at, occurred-precision]`; the deed's event-time (distinct from `created_at`) is what integrity timelines order on, under the same no-false-precision rule as 30063's `occurred` (a time without a declared precision is malformed). `d` is recomputable from the `word` + `deed` tags alone; **deed order is not identity** (the deed key sorts). Each coordinate is mirrored as an indexed `a` tag with a slot-4 marker.
+- **`gap-cause` is DOCUMENTED or absent.** One of `lie` / `revision` / `incapacity` / `constraint` / `misattribution`, attaching only to a `broken`/`contradicted` match, and it MUST carry a non-empty documented explanation — an undocumented cause is an intent inference, and **intent is never adjudicated** (there is no intent field to smuggle it into). `constraint` additionally requires an `a … constraint` reference to a **corroborated action-fact** (the constraint is evidence that discounts the finding, not an excuse, and clears the same corroboration bar as any proposition). A disclosed `revision` MAY cite the 30055 `revision/*` edge it composes (`a … revision`) — disclosed revision on new evidence is potential **credit**; undisclosed reversal is already a 30062 `walks-back`/`narrative-patch`, composed, not re-invented.
+- A finding is read as **pattern, not instance**: consumers SHOULD render an entity's findings as a time series ordered on the deeds' `occurred-at`, and SHOULD NOT surface a single match as a conclusion about the person.
+- **There is deliberately NO kind-1985 mirror for this kind.** A bare match-label on a person's pubkey, stripped of its evidence and caveats, is exactly the decontextualized person-grade this family forbids; the full 30064 is the only wire shape.
+- **Disputes** reuse kind 30061 with `target-kind: integrity_finding`.
+- **Precedent citations, right of reply, and `exposure`** carry the same grammar and semantics as on kind 30063.
+
+**Kind 30065 is RESERVED** for a future PrecedentCitation — a verdict/finding citing prior rulings of the same proposition or match class as `binding`/`persuasive` precedent (§stare-decisis, deferred). Until it ships, precedent MAY be expressed as an `a` tag on 30063/30064 with a slot-4 `precedent` marker and a slot-5 weight (`binding` | `persuasive`); consumers MUST treat it as informational only.
+
 ## Kind 30023 — `responds-to` tag (extension)
 
 A long-form article (kind 30023) MAY declare that it responds to one or more other pieces of content. Each response is a separate `responds-to` tag:
@@ -651,5 +743,5 @@ This NIP does not specify a ranking algorithm. Recommended approaches:
 
 ## Reference implementations
 
-- [x-ray browser extension](https://github.com/bryanmatthewsimonson/xray) — shipping kinds 30040 + 30050 + the `responds-to` and `x` extensions; 30054/30055 builders with publishing flag-gated (Phase 11); 30056–30059 fully implemented — builders, parsers, a flag-gated ordered publish path, and portal read surfaces (Phase 13); 30060/30061 builders + parsers implemented, publish paths deferred (the dossier stays derived; disputes are wire-format-only in v1); 30062 behavioral-finding builder + parser + the kind-1985 mirror and the `revision/*` 30055 values, publishing flag-gated (Phase 14).
+- [x-ray browser extension](https://github.com/bryanmatthewsimonson/xray) — shipping kinds 30040 + 30050 + the `responds-to` and `x` extensions; 30054/30055 builders with publishing flag-gated (Phase 11); 30056–30059 fully implemented — builders, parsers, a flag-gated ordered publish path, and portal read surfaces (Phase 13); 30060/30061 builders + parsers implemented, publish paths deferred (the dossier stays derived; disputes are wire-format-only in v1); 30062 behavioral-finding builder + parser + the kind-1985 mirror and the `revision/*` 30055 values, publishing flag-gated (Phase 14); 30063/30064 adjudicated-verdict + integrity-finding builders + parsers and the 30063 kind-1985 mirror, publish paths behind `truthAdjudicationPublishing` (Phase 15; 30065 reserved; local adjudication models shipped, publish/read UI wiring deferred).
 - *(second client, TBD pre-merge)*

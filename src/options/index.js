@@ -8,6 +8,7 @@ import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
 import { loadFlags, isEnabled, setOverride, resetOverrides } from '../shared/metadata/feature-flags.js';
+import { formatBuildInfo } from '../shared/build-info.js';
 import {
     LLM_MODELS, DEFAULT_LLM_MODEL, resolveModel, LLM_KEY_STORAGE, LLM_MODEL_STORAGE,
     LLM_SUGGEST_KINDS_STORAGE, SUGGEST_KIND_LABELS, normalizeSuggestKinds
@@ -485,6 +486,8 @@ async function loadAdvanced() {
         isEnabled('epistemicAuditing');
     document.getElementById('pref-forensic-publishing').checked =
         isEnabled('forensicPublishing');
+    document.getElementById('pref-truth-publishing').checked =
+        isEnabled('truthAdjudicationPublishing');
 
     // LLM assist (Phase 14.5). The flag lives in feature-flags; the key
     // + model live under their own chrome.storage.local keys. We never
@@ -551,6 +554,8 @@ async function saveAdvanced() {
     await setOverride('epistemicAuditing', publishAudits ? true : null);
     const publishFindings = document.getElementById('pref-forensic-publishing').checked;
     await setOverride('forensicPublishing', publishFindings ? true : null);
+    const publishVerdicts = document.getElementById('pref-truth-publishing').checked;
+    await setOverride('truthAdjudicationPublishing', publishVerdicts ? true : null);
 
     // LLM assist: flag + model preference always; the key only when the
     // user typed a new one (blank leaves the saved key untouched).
@@ -635,6 +640,11 @@ async function clearAll() {
 // ------------------------------------------------------------------
 
 document.addEventListener('DOMContentLoaded', async () => {
+    // Build stamp in the header — removes "which build am I actually
+    // running?" ambiguity (version alone doesn't identify a branch build).
+    const buildEl = document.getElementById('xr-build-info');
+    if (buildEl) buildEl.textContent = formatBuildInfo();
+
     wireTabs();
     await Promise.all([
         loadRelays(),

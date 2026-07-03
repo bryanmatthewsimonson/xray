@@ -76,10 +76,15 @@ Phase 14.5 ████████████████░░  complete — 
                                 opt-in) + the epistemic auditor (Quick
                                 single-shot / Thorough per-module). Flag- +
                                 key-gated, opt-in, nothing auto-saves
-Phase 15 ░░░░░░░░░░░░░░░░░░░░  design draft — truth adjudication: verdicts on
+Phase 15 ███████████████████░  in progress — truth adjudication: verdicts on
                                 propositions + words-vs-deeds integrity
-                                (docs/TRUTH_ADJUDICATION_DESIGN.md). Builds on
-                                Phase 14; kinds 30063/30064 (30065 reserved)
+                                (docs/TRUTH_ADJUDICATION_DESIGN.md). Kinds
+                                30063/30064 (30065 reserved). 15.1–15.10
+                                all shipped (models, attestation, verdicts,
+                                integrity, entity record, wire + flag,
+                                publish wiring, reader + authoring UI,
+                                conformance, read-back/portal); remaining:
+                                the deferred precedent/bridging tail only
 ```
 
 Parity with the v4.2 userscript is long reached; the project now ships
@@ -1166,15 +1171,16 @@ diachronic revision edges visible across the four lenses.
 
 ---
 
-## Phase 15 — Truth adjudication (verdicts + words-vs-deeds) 📝 design draft
+## Phase 15 — Truth adjudication (verdicts + words-vs-deeds) 🚧 (in progress)
 
 **Builds on Phase 14.** The Phase 14 forensic chain must land on `main`
 first; this layer composes its findings (`30062`) as a raw signal and takes
 the **next disjoint wire kinds** — **`30063`** `AdjudicatedVerdict` and
 **`30064`** `IntegrityFinding` (with **`30065`** reserved for a precedent
-citation), gated by a separate **`truthAdjudicationPublishing`** flag. New
-development is paused until the Phase 14 chain merges, at which point this
-branch rebases onto it.
+citation), gated by a separate **`truthAdjudicationPublishing`** flag. The
+Phase 14 chain merged in v0.6.0, clearing the dependency; 15.1–15.8 shipped
+as the stacked PR train #79→#86 (one slice per PR, each based on its
+predecessor's branch; merge in order from #79).
 
 This is the **truth-verdict layer Phase 14 deliberately deferred** (its
 non-goals: "truth verdicts on subjects, intent attribution"). Where Phase 11
@@ -1212,28 +1218,88 @@ formats, and red lines:
 draft. The deferred bonded-resolution second act is parked in
 [`docs/BONDING_NOTES.md`](BONDING_NOTES.md).
 
-Slices (one PR each; `claude/phase-15-*`):
+Slices (one PR each; `claude/phase-15-*` — the stacked train, in merge
+order: 15.1 #79, 15.2 #80, 15.3 #81, 15.4 #82, 15.5 #83, 15.6 #84,
+15.7 #85, 15.8 #86; conformance follow-up #87):
 
-- 📝 **15.1** Adjudicable-proposition model (local, no wire) —
+- ✅ **15.1** Adjudicable-proposition model (local, no wire) —
   `proposition_class` + `resolution_criteria` atomization over existing
-  claims; the interpretation/value firewall; exhaustive-enum tests.
-- 📝 **15.2** Evidence tiers + attestation graph — tiered evidence;
-  independent-attestation convergence for action-facts (composing 30055
-  `supports`); independence checks.
-- 📝 **15.3** Verdict model + dispute reuse — `AdjudicatedVerdict`
-  (descriptive states, standard-of-proof, verbatim evidence, caveats);
-  multi-adjudicator variance *surface*; supersession; reuse the `30061`
-  dispute wire format. No estimated-score path exists to build.
-- 📝 **15.4** Integrity application — `IntegrityFinding` (commitment/value
-  vs action match as a verdict; gap-decomposition; intent excluded; the
-  value firewall; revision-as-credit composing 30062).
-- 📝 **15.5** Entity record + coverage — dimension-separated descriptive
-  records; the coverage measurement + cap; the optional gated rollup;
-  calibration from resolved predictions (reusing `audit/calibration.js`).
-- 📝 **15.6** Wire + NIP draft (flag-gated) — `30063`/`30064` builders +
-  parsers; `truthAdjudicationPublishing` flag; NIP draft framing verdicts as
-  evidence-bound descriptive adjudications with required caveats; precedent
-  citation grammar reserved.
+  claims (`truth-taxonomy.js` + `truth-adjudication-model.js`); the
+  interpretation/value firewall (`isTruthAdjudicable` /
+  `isIntegrityEligible`); exhaustive-enum tests.
+- ✅ **15.2** Evidence tiers + attestation graph — tiered evidence
+  (`EVIDENCE_TIERS` + attestation metadata on 30055 `supports` links);
+  independent-attestation convergence for action-facts
+  (`truth-attestation.js` — origin-group collapse, demonstrated-
+  independence discipline, per-tier counts with full derivation);
+  independence checks.
+- ✅ **15.3** Verdict model + dispute reuse — `AdjudicatedVerdict`
+  (`VerdictModel` in `truth-adjudication-model.js`: descriptive states,
+  declared standard-of-proof with §6 per-class defaults, verbatim
+  two-sided evidence with per-state adequacy, mandatory caveats, the
+  §3.1 firewall enforced at create); multi-adjudicator variance
+  *surface* (`verdictVariance`, derived, never collapsed); append-only
+  supersession (no update method; linear chains by id construction).
+  Dispute reuse is the `30061` wire format as-is — nothing new built;
+  the `30063` dispute target kind lands with the wire in 15.6. No
+  estimated-score path exists to build.
+- ✅ **15.4** Integrity application — `IntegrityFinding`
+  (`integrity-model.js`: stated words vs enacted deeds of the same
+  entity, match adjudicated as a verdict with per-word-class
+  vocabulary — the value firewall; documented-only gap-decomposition
+  with intent excluded; `constraint_ref` as corroborated evidence;
+  revision-as-credit via `revision_ref` composing 30055/30062;
+  append-only supersession; `timelineForEntity` pattern-not-instance
+  ordering on the deeds' `occurred_at`).
+- ✅ **15.5** Entity record + coverage — dimension-separated descriptive
+  records (`truth-entity-record.js`: commitments/values as count+list,
+  calibration from resolved predictions reusing `audit/calibration.js`
+  with unscoreables listed, corrections composing supersessions +
+  disclosed revisions + optional 30062 bridge); the coverage
+  measurement (default undetermined) + cap; the optional
+  coverage-gated rollup (a ratio sentence, never a score).
+- ✅ **15.6** Wire + NIP draft (flag-gated) — `30063`/`30064` builders +
+  parsers (`truth-builders.js`, following the 30062 idioms; no `p` on
+  30063, no 1985 mirror for 30064, firewall enforced build- AND
+  read-side); `truthAdjudicationPublishing` flag; `30061`
+  `DISPUTE_TARGET_KINDS` extended with `verdict`/`integrity_finding`
+  (additive); NIP draft §30063/§30064 framing verdicts as
+  evidence-bound descriptive adjudications with required caveats;
+  `30065` + the `precedent` a-tag marker grammar reserved. Publish
+  paths + read UI wiring are follow-up work behind the flag.
+- ✅ **15.7** Publish wiring (follow-up to 15.6) — `truth-publish.js`
+  pure selections (chain heads only; claims-published gating;
+  entity-keypair subject resolution; constraint-must-resolve;
+  supersedes event-id threading); `markPublished`/`markMirrored`
+  stamps on the verdict/integrity models; the flag-gated reader
+  batch-publish section (30063 + 1985 mirror + 30064) and publish
+  summary. Read-back/portal surfaces still to come.
+- ✅ **15.8** Reader adjudication UI — `adjudicate-modal.js` (class
+  chips as the one-per-(claim,class) selector; firewall as a UI fact —
+  interpretation/stated-value get the explainer, never a ruling form;
+  supersession-not-edit surfaced in the Save affordance; verbatim
+  evidence rows with tiers; mandatory-caveat field); claims-bar 🏛
+  action + per-proposition verdict badges; SMOKE_TEST §Phase 15 UI
+  rows. Portal read-back surfaces still to come.
+- ✅ **15.9** Read-back + portal surfaces — the portal fetches and
+  reconciles `30063`/`30064` (`corpus.js` kinds, `reconcile.js` ledger
+  scans via the publish stamps, local-only chain-head counts); Library
+  gains Verdicts/Integrity facets with inspector renderers (derivation
+  on the face: evidence, standard, caveats, disclosure, precedents,
+  supersession); the entity view gains the §3.5 **integrity-record
+  block** (`integrity-block.js`: dimension records, timeline,
+  per-reading coverage declaration → the gated rollup); the adjudicate
+  modal gains **Others' rulings** (foreign 30063s by claim coordinate,
+  rendered through `verdictVariance` — each ruling + the spread, never
+  a consensus).
+- ✅ **15.10** Authoring UI for the evidence + integrity layers — the
+  **integrity modal** (`integrity-modal.js`, hung on the claims bar:
+  word/deed pickers scoped by `integrityRole` + the same-entity rule,
+  per-word-class match chips, documented-gap section with a
+  constraint picker, supersession banner); **attestation fields** on
+  the supports-link flow (tier / origin key / independence note); the
+  adjudicate modal shows the **convergence measurement** for
+  propositions with attestation edges.
 - 📝 **(later)** Precedent + bridging weighting — stare-decisis corpus;
   bridging-weighted standing (the deferred aggregation-layer tail).
 

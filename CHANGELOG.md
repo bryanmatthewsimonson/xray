@@ -10,6 +10,193 @@ Sections per release: **Added** (new features), **Changed**
 
 ## [Unreleased]
 
+### Added
+
+- **Phase 15.10 — authoring UI for integrity findings + attestations.**
+  The claims bar gains **🤝 Integrity…**: pick a stated
+  commitment/value (only word-eligible propositions are offered), pick
+  enacted action-facts about the same entity, and rule the match with
+  the full verdict discipline — per-word-class chips, evidence rows,
+  mandatory caveats, documented-only gap decomposition with a
+  constraint picker, disclosure, and supersession when an active
+  finding exists. The 🔗 link flow gains **attestation fields** on
+  `supports` links (tier / origin key / independence note — attached
+  only when an origin is asserted), and the adjudicate modal shows the
+  **attestation convergence** line for propositions with attestation
+  edges. Every eligibility rule renders as the option space, with the
+  model validators as backstop.
+
+- **Phase 15.9 — read-back + portal surfaces.** The read half of the
+  adjudication layer: My Archive now **fetches** kinds 30063/30064,
+  **reconciles** them against the local publish stamps (superseded
+  rulings never count as local-only), and renders them as Library
+  **Verdicts/Integrity facets** with inspector views that keep the
+  derivation on the face — evidence both sides, declared standard,
+  required caveats, adjudicator disclosure, precedent citations,
+  supersession chain. The portal **entity view** gains the
+  integrity-record block: dimension-separated records, the
+  deed-time-ordered timeline, calibration/corrections lines, and a
+  per-reading coverage declaration that unlocks the standard- and
+  coverage-gated rollup (declarations deliberately not persisted). The
+  adjudicate modal gains **Others' rulings**: foreign 30063s on the
+  proposition, deduped by author (addressable semantics), each shown
+  with the spread via `verdictVariance` — never a consensus number;
+  malformed rulings null-parse and are never shown.
+
+- **Phase 15 conformance pass (design-audit follow-up).** The §3.6
+  **precedent citation field** lands (`precedents: [{ref, weight}]`,
+  `binding`/`persuasive` defaulting down, wire `a … precedent <weight>`,
+  publish threading); **adjudicator exposure disclosure** and
+  **right-of-reply refs** ride verdicts and integrity findings (model +
+  wire + a modal Disclosure field); the parsers enforce **read-side
+  evidence adequacy** (malformed foreign rulings null-parse instead of
+  rendering); the entity-record rollup is now **standard-gated** as well
+  as coverage-gated (below-standard matches excluded and reported);
+  `verdictVariance` accepts both local and parsed field spellings and
+  `matchVariance` covers integrity findings. SMOKE_TEST §15 grows
+  integrity/entity rows (15.21–15.27) and the v1 **operator
+  disciplines**; ROADMAP/kickoff/EPISTACK stale claims corrected.
+
+- **Build stamp in Settings.** The Settings header now shows exactly
+  which build is loaded — `v0.6.0 · <branch> @ <short-commit> · built
+  <UTC time>` (a `+dirty` marker when built from an uncommitted tree)
+  — injected at build time by esbuild and exposed via the new
+  `shared/build-info.js`. Ends the "am I running the build I think I
+  am?" ambiguity when loading unpacked branch builds; a header with
+  no stamp at all means a pre-stamp build. Degrades gracefully to the
+  manifest version when git isn't available at build time.
+
+- **Phase 15.8 — the reader adjudication UI.** Every claim row gains
+  a **🏛 Adjudicate** action opening the adjudicate modal: pick a
+  proposition class (one per claim+class — an existing proposition
+  loads for editing), set the subject role, resolution criteria,
+  horizon, and event-time, and — when the class is truth-adjudicable —
+  rule a verdict with a declared standard, verbatim evidence rows
+  (with optional tiers), and mandatory caveats. The §3.1 firewall is
+  a UI fact: `interpretation`/`stated-value` swap the ruling form for
+  an explainer. When an active ruling exists the form starts blank and
+  Save becomes **"Save superseding ruling"** — append-only surfaced
+  as an affordance. Claim rows show per-proposition badges (class +
+  active verdict state + 🌐 when published). Options → Advanced gains
+  a **Truth adjudication** section with the
+  `truthAdjudicationPublishing` toggle (default off, with the
+  what-leaves-your-device disclosure, mirroring the forensic toggle).
+  SMOKE_TEST §Phase 15 gains UI rows 15.14–15.20 covering the full
+  click-through walk, publish included.
+
+- **Phase 15.7 — truth-adjudication publish wiring.** The reader's
+  batch publish gains a `truthAdjudicationPublishing`-gated section
+  (after claims, so coordinates resolve): adjudicated verdicts
+  (30063), their kind-1985 claim-coordinate mirrors, and integrity
+  findings (30064), with per-kind results in the publish summary.
+  Selection (`truth-publish.js`, pure + unit-tested): **chain heads
+  only** (a superseded ruling never re-emits; its successor replaces
+  it on relays and threads the predecessor's event id as `e
+  supersedes`), the usual staleness gate, claims-must-be-published
+  gating for every referenced proposition, entity-keypair subject
+  resolution for findings, and **constraint-must-resolve** — a
+  finding never publishes with its discounting evidence stripped.
+  `VerdictModel`/`IntegrityModel` gain `markPublished` (+
+  `markMirrored` for verdicts) publish stamps.
+
+- **Phase 15.6 — the truth-adjudication wire (flag-gated).** New
+  kinds **`30063` AdjudicatedVerdict** and **`30064`
+  IntegrityFinding** (builders + parsers in `truth-builders.js`,
+  following the 30062 idioms; `30065` reserved for precedent).
+  Verdicts are keyed (author, proposition), carry the declared
+  standard, per-state two-sided evidence, and **required caveat
+  tags** — and **no `p` tag** (verdicts attach to propositions, not
+  persons); their kind-1985 mirror labels the claim coordinate, never
+  a pubkey. Integrity findings `p`-reference the subject but get **no
+  1985 mirror** — a match-label stripped of evidence and caveats is
+  the decontextualized person-grade the design forbids. The §3.1
+  firewall holds **on the wire in both directions**: a
+  value/interpretation verdict can neither be built nor parsed. Kind
+  `30061` dispute targets gain `verdict`/`integrity_finding`
+  (additive). Publishing sits behind the new
+  **`truthAdjudicationPublishing`** flag (default off; the service
+  worker still accepts all inbound kinds); the NIP draft gains
+  §30063/§30064. Publish-path and read-UI wiring are follow-up work.
+
+- **Phase 15.5 — the entity integrity record.** Dimension-separated,
+  computed-on-read, never stored: the **commitment record** and
+  **stated-value record** (each a count AND the list deriving it,
+  `pending` included), the **calibration record** (Brier from
+  *resolved* predictions only, reusing `audit/calibration.js`;
+  hedge-less or unresolved predictions are listed unscoreable, never
+  silently dropped), and the **correction-behavior record**
+  (verdict/finding supersessions, disclosed revision-gaps as credit,
+  and the 30062 forensic bridge when the caller asserts the subject).
+  **Coverage** ships on every assembled record — default
+  "undetermined: sample, not census" — and **hard-gates the optional
+  rollup**: without a declared assessed/universe/method measurement,
+  `optionalRollup` returns null; with one, it returns counts and a
+  sentence with the coverage limit on its face. No fused score field
+  exists anywhere in the record.
+
+- **Phase 15.4 — the integrity application (words vs deeds).**
+  `IntegrityFinding` links a subject's **stated** commitment or value
+  to their **enacted** action-facts (same entity both sides, resolved
+  through the claims' about-entities) and adjudicates the observable
+  gap: `fulfilled`/`broken` for commitments, `consistent`/
+  `contradicted` for values (the value firewall in enum form), plus
+  the honest `unrelated`/`contested`/`insufficient` states. The match
+  **is a verdict** — declared standard of proof (defaults
+  clear-and-convincing), verbatim evidence with per-match adequacy,
+  mandatory caveats, append-only supersession. Gap decomposition
+  (`lie`/`revision`/`incapacity`/`constraint`/`misattribution`) is
+  recordable **only with documentation** — intent is never inferred;
+  `constraint` demands a corroborated action-fact ref (evidence, not
+  an excuse); disclosed `revision` composes the existing 30055/30062
+  edges as credit. `timelineForEntity` renders the record as a time
+  series ordered on the deeds' event-time — pattern, not gotcha.
+  Local records only; wire kind 30064 arrives flag-gated in 15.6.
+
+- **Phase 15.3 — the AdjudicatedVerdict model.** One author's ruling
+  on one truth-adjudicable proposition, as a **descriptive state**
+  (`established-true` / `established-false` / `contested` /
+  `unresolved` / `insufficient-evidence`) on a **declared standard of
+  proof** (`preponderance` / `clear-and-convincing` /
+  `beyond-reasonable-doubt`, defaulted per proposition class), with
+  verbatim two-sided evidence (per-state adequacy enforced),
+  **mandatory caveats**, and **append-only supersession** — no update
+  method exists; a changed ruling is a new verdict chained onto the
+  old, which is never edited. The §3.1 firewall is enforced at create:
+  `interpretation` and `stated-value` propositions cannot receive a
+  verdict. Multi-author agreement is a read-time **variance surface**
+  (`verdictVariance`) — per-state counts with their derivation, never
+  a consensus number. No estimated score exists anywhere in the layer.
+  Local records only; wire kind 30063 arrives flag-gated in 15.6.
+
+- **Phase 15.2 — evidence tiers + attestation graph.** The §3.2 layer
+  of the truth-adjudication design: a declared **evidence tier**
+  (`tier-1` primary/official, `tier-2` independent reporting, `tier-3`
+  single-source) plus `origin_key` and `independence_note` ride the
+  existing kind-30055 `supports` link as validated attestation
+  metadata, marking the source claim as an attesting artifact for a
+  proposition's underlying claim. `truth-attestation.js` adds the
+  authoring surface (`attestProposition`) and the **convergence
+  measurement**: origin groups collapse shared upstreams ("two outlets
+  on one wire are one source"), independence is **demonstrated, not
+  assumed** (the earliest origin is the baseline; later origins count
+  as independent only with a recorded independence note), and every
+  count ships its full derivation — groups, link ids, tiers, notes.
+  No wire change; local records only.
+
+- **Phase 15.1 — adjudicable propositions (local model, no wire).** The
+  atomization gate of the truth-adjudication layer
+  (`docs/TRUTH_ADJUDICATION_DESIGN.md` §3.1): a claim becomes
+  *adjudicable* only as a proposition record carrying a
+  `proposition_class`, `resolution_criteria` (in the same field
+  vocabulary as banked 30058 prediction entries), an optional
+  `subject_role` (word/deed/ascribed — absence is `unclassified`, never
+  defaulted), and a no-false-precision event-time
+  (`occurred_at` + mandatory `occurred_precision`). Ships the firewall
+  predicates later slices key off: `interpretation` and `stated-value`
+  are **never truth-adjudicable**, and `ascribed`/`unclassified`
+  propositions are excluded from integrity findings **by construction**.
+  No verdict, score, wire kind, or flag in this slice.
+
 ## [0.6.0] — 2026-06-24
 
 ### Added

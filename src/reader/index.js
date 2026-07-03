@@ -21,10 +21,16 @@ import * as ArchiveCache from '../shared/archive-cache.js';
 import { installEntityTagger, rehydrateEntityMarks } from './entity-tagger.js';
 import { openClaimModal, openEvidenceLinkModal, openOthersClaimsModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
 import { openAssessModal } from '../shared/assess-modal.js';
+import { openAdjudicateModal } from '../shared/adjudicate-modal.js';
+import { openIntegrityModal } from '../shared/integrity-modal.js';
 import { AssessmentModel } from '../shared/assessment-model.js';
 import { makeClaimRefCanonicalizer } from '../shared/claim-ref.js';
 import { selectAssessmentsToPublish, selectLinksToPublish, selectMirrors } from '../shared/assessment-publish.js';
 import { selectFindingsToPublish, selectFindingMirrors, selectRevisionEdgesToPublish } from '../shared/forensic-publish.js';
+import { selectVerdictsToPublish, selectVerdictMirrors, selectIntegrityFindingsToPublish, wireEvidence } from '../shared/truth-publish.js';
+import { buildAdjudicatedVerdictEvent, buildVerdictMirrorEvent, buildIntegrityFindingEvent } from '../shared/truth-builders.js';
+import { TruthAdjudicationModel, VerdictModel } from '../shared/truth-adjudication-model.js';
+import { IntegrityModel } from '../shared/integrity-model.js';
 import { buildAssessmentEvent, buildClaimRelationshipEvent, buildAssessmentMirrorEvent, buildBehavioralFindingEvent, buildForensicFindingMirrorEvent } from '../shared/metadata/builders.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { ForensicModel } from '../shared/forensic-model.js';
@@ -873,6 +879,18 @@ async function refreshClaimsBar() {
         });
     }
 
+    // Integrity finding authoring (15.10) — word-vs-deed matches over
+    // the adjudicated propositions; the modal collects candidates itself.
+    const integrityBtn = host.querySelector('#xr-claims-integrity');
+    if (integrityBtn) {
+        integrityBtn.addEventListener('click', async () => {
+            const finding = await openIntegrityModal();
+            if (finding) {
+                toast(`Integrity match ruled: ${finding.match}${finding.supersedes ? ' (supersedes prior finding)' : ''}`, 'success', 2000);
+            }
+        });
+    }
+
     // Wire per-row actions.
     host.querySelectorAll('.xr-claims__item').forEach((row) => {
         const id = row.dataset.id;
@@ -880,6 +898,7 @@ async function refreshClaimsBar() {
         const delBtn    = row.querySelector('[data-action="delete"]');
         const linkBtn   = row.querySelector('[data-action="link"]');
         const assessBtn = row.querySelector('[data-action="assess"]');
+        const adjBtn    = row.querySelector('[data-action="adjudicate"]');
         if (editBtn) editBtn.addEventListener('click', () => openEditClaim(id));
         if (delBtn)  delBtn.addEventListener('click',  () => confirmDeleteClaim(id));
         if (linkBtn) linkBtn.addEventListener('click', () => openLinkClaim(id, claims));
@@ -892,6 +911,21 @@ async function refreshClaimsBar() {
             });
             if (result) {
                 toast(result.deleted ? 'Assessment removed' : 'Assessment saved', 'success', 1500);
+                await refreshClaimsBar();
+            }
+        });
+        if (adjBtn) adjBtn.addEventListener('click', async () => {
+            const claim = claims.find((c) => c.id === id);
+            const result = await openAdjudicateModal({
+                claimId:     id,
+                claimText:   claim ? claim.text : '',
+                relays:      await getConfiguredRelays(),
+                claimPubkey: (claim && claim.publishedPubkey) || null
+            });
+            if (result) {
+                toast(result.verdict
+                    ? `Ruled: ${result.verdict.verdict}${result.verdict.supersedes ? ' (supersedes prior ruling)' : ''}`
+                    : 'Proposition saved', 'success', 2000);
                 await refreshClaimsBar();
             }
         });
@@ -3022,6 +3056,201 @@ async function publish() {
             refreshFindingsBar().catch(() => {});
         }
 
+        // ---- Truth adjudication (Phase 15, flag-gated) ----------------
+        // Behind `truthAdjudicationPublishing` (default off): adjudicated
+        // verdicts (30063) + their kind-1985 claim-coordinate mirrors +
+        // integrity findings (30064 — no mirror, by design). Chain heads
+        // only; a verdict/finding waits until its propositions' claims
+        // are published (the coordinates are the wire identity), and an
+        // integrity finding additionally needs its subject entity keyed.
+        // Runs after claims for exactly that reason.
+        const verdictResults   = { ok: 0, fail: 0, errors: [] };
+        const vMirrorResults   = { ok: 0, fail: 0, errors: [] };
+        const integrityResults = { ok: 0, fail: 0, errors: [] };
+        let verdictSel = [], vMirrorSel = [], integritySel = [];
+        if (isEnabled('truthAdjudicationPublishing')) {
+            const [verdictList, propList, integrityList, claimsT, entitiesT, canonT] = await Promise.all([
+                VerdictModel.list(), TruthAdjudicationModel.list(), IntegrityModel.list(),
+                ClaimModel.getAll(), EntityModel.getAll(), makeClaimRefCanonicalizer()
+            ]);
+            const verdictsT = Object.fromEntries(verdictList.map((v) => [v.id, v]));
+            const propsT = Object.fromEntries(propList.map((p) => [p.id, p]));
+            const integrityT = Object.fromEntries(integrityList.map((f) => [f.id, f]));
+            verdictSel   = selectVerdictsToPublish({ verdicts: verdictsT, propositions: propsT, claims: claimsT, canon: canonT, findings: integrityT });
+            vMirrorSel   = selectVerdictMirrors({ verdicts: verdictsT, propositions: propsT, claims: claimsT, canon: canonT });
+            integritySel = selectIntegrityFindingsToPublish({
+                findings: integrityT, propositions: propsT, claims: claimsT, entities: entitiesT, canon: canonT, verdicts: verdictsT
+            });
+        }
+        const truthTotal = verdictSel.length + vMirrorSel.length + integritySel.length;
+        if (truthTotal > 0) {
+            const tBase = totalEvents;
+            totalEvents += truthTotal;
+            let tStep = 0;
+            toast(`Also publishing adjudications: ${verdictSel.length} verdict${verdictSel.length === 1 ? '' : 's'}`
+                  + (vMirrorSel.length ? ` + ${vMirrorSel.length} mirror${vMirrorSel.length === 1 ? '' : 's'}` : '')
+                  + (integritySel.length ? ` + ${integritySel.length} integrity finding${integritySel.length === 1 ? '' : 's'}` : '')
+                  + '…', 'warning', 4000);
+
+            const sendTruth = async (unsigned) => {
+                unsigned.pubkey = userPubkey;
+                return await browserApi.runtime.sendMessage({
+                    type: 'xray:capture:publish', id: state.id, event: unsigned
+                });
+            };
+
+            // Verdicts (kind 30063). Track failures so their mirror
+            // doesn't emit against a coordinate that isn't on relays.
+            const failed30063 = new Set();
+            for (const sel of verdictSel) {
+                btn.textContent = `Publishing (${tBase + (++tStep)}/${totalEvents})…`;
+                let landed = false;
+                try {
+                    const rc = sel.proposition.resolution_criteria || {};
+                    const { event: unsigned, dTag } = await buildAdjudicatedVerdictEvent({
+                        claimCoord:        sel.coord,
+                        propositionClass:  sel.proposition.proposition_class,
+                        verdict:           sel.verdict.verdict,
+                        caveats:           sel.verdict.caveats,
+                        evidenceFor:       wireEvidence(sel.verdict.evidence_for),
+                        evidenceAgainst:   wireEvidence(sel.verdict.evidence_against),
+                        standardOfProof:   sel.verdict.standard_of_proof,
+                        resolutionCriteria: {
+                            criteria:     rc.criteria,
+                            horizon:      rc.horizon,
+                            horizonIso:   rc.horizon_iso,
+                            hedgeLevel:   rc.hedge_level,
+                            tractability: rc.tractability
+                        },
+                        subjectRole:       sel.proposition.subject_role,
+                        occurredAt:        sel.proposition.occurred_at,
+                        occurredPrecision: sel.proposition.occurred_precision,
+                        method:            sel.verdict.method,
+                        rationale:         sel.verdict.rationale,
+                        precedents:        sel.precedents,
+                        replyEventIds:     sel.verdict.reply_refs || [],
+                        exposure:          sel.verdict.exposure || '',
+                        supersedesEventId: sel.supersedesEventId,
+                        sourceUrl:         sel.url,
+                        suggestedBy:       sel.verdict.suggested_by || 'user'
+                    });
+                    const resp = await sendTruth(unsigned);
+                    if (resp && resp.ok && resp.results) {
+                        recordRelayResults(resp.results);
+                        if (resp.results.successful > 0) {
+                            verdictResults.ok++;
+                            landed = true;
+                            try { await VerdictModel.markPublished(sel.verdict.id, resp.signedEvent?.id || null, userPubkey, dTag); }
+                            catch (_) { /* best-effort */ }
+                        } else {
+                            verdictResults.fail++;
+                            verdictResults.errors.push(`${sel.verdict.verdict}: no relays accepted`);
+                        }
+                    } else {
+                        verdictResults.fail++;
+                        verdictResults.errors.push(`${sel.verdict.verdict}: ${(resp && resp.error) || 'unknown'}`);
+                    }
+                } catch (err) {
+                    verdictResults.fail++;
+                    verdictResults.errors.push(`${sel.verdict.verdict}: ${err.message || String(err)}`);
+                    console.warn('[X-Ray Reader] verdict publish failed:', sel.verdict.id, err);
+                }
+                if (!landed) failed30063.add(sel.verdict.id);
+                setProgress(tBase + tStep, totalEvents);
+                await sleep(BATCH_PUBLISH_DELAY_MS);
+            }
+
+            // Verdict mirrors (kind 1985 — labels the claim coordinate,
+            // never a pubkey). Skip a candidate whose 30063 failed this
+            // batch.
+            for (const sel of vMirrorSel) {
+                btn.textContent = `Publishing (${tBase + (++tStep)}/${totalEvents})…`;
+                if (failed30063.has(sel.verdict.id)) {
+                    setProgress(tBase + tStep, totalEvents);
+                    await sleep(BATCH_PUBLISH_DELAY_MS);
+                    continue;
+                }
+                try {
+                    const { event: unsigned } = buildVerdictMirrorEvent({
+                        claimCoord: sel.coord,
+                        verdict:    sel.verdict.verdict,
+                        sourceUrl:  sel.url
+                    });
+                    const resp = await sendTruth(unsigned);
+                    if (resp && resp.ok && resp.results) {
+                        recordRelayResults(resp.results);
+                        if (resp.results.successful > 0) {
+                            vMirrorResults.ok++;
+                            try { await VerdictModel.markMirrored(sel.verdict.id); }
+                            catch (_) { /* best-effort */ }
+                        } else { vMirrorResults.fail++; vMirrorResults.errors.push('verdict mirror: no relays accepted'); }
+                    } else {
+                        vMirrorResults.fail++;
+                        vMirrorResults.errors.push(`verdict mirror: ${(resp && resp.error) || 'unknown'}`);
+                    }
+                } catch (err) {
+                    vMirrorResults.fail++;
+                    vMirrorResults.errors.push(`verdict mirror: ${err.message || String(err)}`);
+                }
+                setProgress(tBase + tStep, totalEvents);
+                await sleep(BATCH_PUBLISH_DELAY_MS);
+            }
+
+            // Integrity findings (kind 30064 — full event only, no mirror).
+            for (const sel of integritySel) {
+                btn.textContent = `Publishing (${tBase + (++tStep)}/${totalEvents})…`;
+                try {
+                    const gap = sel.finding.gap ? {
+                        cause:          sel.finding.gap.cause,
+                        note:           sel.finding.gap.note,
+                        evidence:       wireEvidence(sel.finding.gap.evidence),
+                        constraintCoord: sel.constraintCoord || undefined,
+                        revisionCoord:  sel.revisionCoord || undefined
+                    } : null;
+                    const { event: unsigned, dTag } = await buildIntegrityFindingEvent({
+                        subjectPubkey:     sel.subjectPubkey,
+                        word:              sel.word,
+                        deeds:             sel.deeds,
+                        match:             sel.finding.match,
+                        caveats:           sel.finding.caveats,
+                        evidenceFor:       wireEvidence(sel.finding.evidence_for),
+                        evidenceAgainst:   wireEvidence(sel.finding.evidence_against),
+                        standardOfProof:   sel.finding.standard_of_proof,
+                        gap,
+                        method:            sel.finding.method,
+                        rationale:         sel.finding.rationale,
+                        precedents:        sel.precedents,
+                        replyEventIds:     sel.finding.reply_refs || [],
+                        exposure:          sel.finding.exposure || '',
+                        supersedesEventId: sel.supersedesEventId,
+                        sourceUrl:         sel.sourceUrl,
+                        suggestedBy:       sel.finding.suggested_by || 'user'
+                    });
+                    const resp = await sendTruth(unsigned);
+                    if (resp && resp.ok && resp.results) {
+                        recordRelayResults(resp.results);
+                        if (resp.results.successful > 0) {
+                            integrityResults.ok++;
+                            try { await IntegrityModel.markPublished(sel.finding.id, resp.signedEvent?.id || null, userPubkey, dTag); }
+                            catch (_) { /* best-effort */ }
+                        } else {
+                            integrityResults.fail++;
+                            integrityResults.errors.push(`${sel.finding.match}: no relays accepted`);
+                        }
+                    } else {
+                        integrityResults.fail++;
+                        integrityResults.errors.push(`${sel.finding.match}: ${(resp && resp.error) || 'unknown'}`);
+                    }
+                } catch (err) {
+                    integrityResults.fail++;
+                    integrityResults.errors.push(`${sel.finding.match}: ${err.message || String(err)}`);
+                    console.warn('[X-Ray Reader] integrity publish failed:', sel.finding.id, err);
+                }
+                setProgress(tBase + tStep, totalEvents);
+                await sleep(BATCH_PUBLISH_DELAY_MS);
+            }
+        }
+
         // Build + surface the end-of-batch summary.
         showPublishSummary({
             includeComments,
@@ -3048,6 +3277,12 @@ async function publish() {
             fMirrorCount: fMirrorSel.length,
             revEdgeResults,
             revEdgeCount: revEdgeSel.length,
+            verdictResults,
+            verdictCount: verdictSel.length,
+            vMirrorResults,
+            vMirrorCount: vMirrorSel.length,
+            integrityResults,
+            integrityCount: integritySel.length,
             relayStats
         });
 
@@ -3243,6 +3478,9 @@ function showPublishSummary({
     findingResults = { ok: 0, fail: 0, errors: [] }, findingCount = 0,
     fMirrorResults = { ok: 0, fail: 0, errors: [] }, fMirrorCount = 0,
     revEdgeResults = { ok: 0, fail: 0, errors: [] }, revEdgeCount = 0,
+    verdictResults = { ok: 0, fail: 0, errors: [] }, verdictCount = 0,
+    vMirrorResults = { ok: 0, fail: 0, errors: [] }, vMirrorCount = 0,
+    integrityResults = { ok: 0, fail: 0, errors: [] }, integrityCount = 0,
     relayStats
 }) {
     // Console breakdown (always useful for debugging)
@@ -3259,6 +3497,9 @@ function showPublishSummary({
     if (findingResults && findingCount > 0)                  console.log('findings:',       findingResults);
     if (fMirrorResults && fMirrorCount > 0)                  console.log('finding mirrors:', fMirrorResults);
     if (revEdgeResults && revEdgeCount > 0)                  console.log('revision edges:',  revEdgeResults);
+    if (verdictResults && verdictCount > 0)                  console.log('verdicts:',        verdictResults);
+    if (vMirrorResults && vMirrorCount > 0)                  console.log('verdict mirrors:', vMirrorResults);
+    if (integrityResults && integrityCount > 0)              console.log('integrity findings:', integrityResults);
     console.log('per relay:', Object.fromEntries(relayStats));
     console.groupEnd();
 
@@ -3278,6 +3519,9 @@ function showPublishSummary({
     const forFails  = ((findingResults && findingResults.fail) || 0)
                     + ((fMirrorResults && fMirrorResults.fail) || 0)
                     + ((revEdgeResults && revEdgeResults.fail) || 0);
+    const truFails  = ((verdictResults && verdictResults.fail) || 0)
+                    + ((vMirrorResults && vMirrorResults.fail) || 0)
+                    + ((integrityResults && integrityResults.fail) || 0);
 
     const segments = [];
     segments.push(articleResults.successful > 0
@@ -3317,6 +3561,15 @@ function showPublishSummary({
     if (revEdgeCount > 0) {
         segments.push(`${revEdgeResults.ok}/${revEdgeCount} revision edge${revEdgeCount === 1 ? '' : 's'}`);
     }
+    if (verdictCount > 0) {
+        segments.push(`${verdictResults.ok}/${verdictCount} verdict${verdictCount === 1 ? '' : 's'}`);
+    }
+    if (vMirrorCount > 0) {
+        segments.push(`${vMirrorResults.ok}/${vMirrorCount} verdict mirror${vMirrorCount === 1 ? '' : 's'}`);
+    }
+    if (integrityCount > 0) {
+        segments.push(`${integrityResults.ok}/${integrityCount} integrity finding${integrityCount === 1 ? '' : 's'}`);
+    }
     let line = 'Published: ' + segments.join(', ') + '.';
 
     const acceptedAll = [...relayStats.values()].filter((s) => s.fail === 0 && s.ok > 0).length;
@@ -3329,7 +3582,7 @@ function showPublishSummary({
         line += ` Rejected by ${names} — consider removing in Options.`;
     }
 
-    const anyFail = dead.length > 0 || cmtFails > 0 || entFails > 0 || clmFails > 0 || relFails > 0 || jdgFails > 0 || audFails > 0 || forFails > 0;
+    const anyFail = dead.length > 0 || cmtFails > 0 || entFails > 0 || clmFails > 0 || relFails > 0 || jdgFails > 0 || audFails > 0 || forFails > 0 || truFails > 0;
     const level = (anyFail || articleResults.successful === 0)
         ? (articleResults.successful > 0 ? 'warning' : 'error')
         : 'success';

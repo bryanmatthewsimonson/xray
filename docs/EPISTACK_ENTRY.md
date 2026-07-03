@@ -69,12 +69,14 @@ adjudication) — see §4.
 1. **Single-document vs question-level.** X-Ray audits a *document's*
    epistemic quality and structures claims *across* documents; it does
    not yet emit a calibrated verdict on a *question* ("did COVID come
-   from a lab?"). That layer is designed (Phase 15, truth adjudication —
-   `docs/TRUTH_ADJUDICATION_DESIGN.md`, kinds `30063`/`30064` reserved)
-   but unbuilt. Framing: the substrate is the submission; adjudication
-   is the funded-continuation pitch. **Optional stretch:** implement
-   slice 15.1 (local adjudicable-proposition model, no wire kind) so the
-   demo ends with per-proposition status, clearly labeled prototype.
+   from a lab?"). That layer is now **built on the Phase 15 PR train**
+   (#79–#86, unmerged at time of writing — `docs/TRUTH_ADJUDICATION_DESIGN.md`,
+   kinds `30063`/`30064` implemented, flag-gated): adjudicable
+   propositions with the interpretation/value firewall, descriptive
+   verdicts on declared standards with mandatory caveats, words-vs-deeds
+   integrity findings, a coverage-capped entity record, and reader UI.
+   The original stretch goal (slice 15.1) is exceeded; the demo can end
+   with per-proposition rulings, clearly labeled experimental.
 2. **No argument-map aggregation.** `30055` edges are pairwise; there is
    no Bayesian/argumentative roll-up. Same framing as (1).
 3. **Corpus scale.** Capture is interactive (a human with a browser per
@@ -142,11 +144,13 @@ because there is no server.
 
 ### 5.5 Limitations (stated plainly)
 
-Single-document audit granularity; no question-level verdict yet (Phase
-15 designed, unbuilt); pairwise relations without aggregation; LLM
+Single-document audit granularity; question-level verdicts exist as the
+Phase 15 layer (built, flag-gated, on the unmerged PR train —
+single-author descriptive rulings; cross-author aggregation deferred);
+pairwise relations without argument-map aggregation; LLM
 audits are Anthropic-only and consent-gated; interactive capture bounds
-corpus size. Continuation-funding pitch: build Phase 15 adjudication on
-this substrate.
+corpus size. Continuation-funding pitch: merge + harden Phase 15
+adjudication (read-back surfaces, aggregation layer) on this substrate.
 
 ## 6. Case-study plan and timeline (17 days)
 
