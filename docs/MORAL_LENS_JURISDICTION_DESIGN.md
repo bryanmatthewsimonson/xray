@@ -200,7 +200,8 @@ string next to `LENS_PROMPT_VERSION` so it cannot silently disappear.
 The source prompt's "Online Court of Justice / rulings / verdicts /
 opinion" metaphor collides with the truth layer's reserved word
 **"verdict"** and X-Ray's under-claiming posture (`CRIMINOLOGY_DESIGN.md`'s
-"structural observations, not verdicts"). The *structure* is kept; the
+"structural observations with required counter-reads, never verdicts").
+The *structure* is kept; the
 surface vocabulary changes — and, new in this amendment, the renames are
 binding on code, not just prose:
 
@@ -331,7 +332,8 @@ reconstruction. Per-jurisdiction objects come back one call at a time
 {
   "provenance": { "model": "…", "prompt_version": "…", "run_at": "…" },
   "target": { "title": "…", "url": "…|null", "content_hash": "…",
-    "claims": [ { "id": "c1", "text": "verbatim", "type": "factual|normative|evaluative|framing" } ] },
+    "claims": [ { "id": "c1", "text": "verbatim", "type": "normative" },
+                { "id": "c2", "text": "verbatim", "type": "factual" } ] },
   "jurisdictions": [ {
     "id": "bell-hooks", "type": "persona|worldview|codified",
     "display_name": "…", "is_living_person": false,
@@ -340,12 +342,18 @@ reconstruction. Per-jurisdiction objects come back one call at a time
     "readings": [ {
       "claim_id": "c1",
       "disposition": "endorses|rejects|partially-endorses|reframes|out-of-scope|silent",
-      "corpus_stance": "asserts|denies|silent",
       "reasoning": "in the jurisdiction's own logic",
       "authorities_cited": [ { "authority_id": "…", "locator": "…", "grounding": "direct-quote|paraphrase|inference" } ],
       "content_vs_framing": "how substance vs. framing fare, separately",
       "confidence": "high|medium|low",
       "confidence_rationale": "coverage + unity + inference load (fidelity, not feeling — §5.1)"
+    }, {
+      "claim_id": "c2",
+      "corpus_stance": "asserts|denies|silent",
+      "reasoning": "what the loaded corpus says, descriptively — a factual claim never carries a disposition (§3.2)",
+      "authorities_cited": [ { "authority_id": "…", "locator": "…", "grounding": "direct-quote|paraphrase|inference" } ],
+      "confidence": "high|medium|low",
+      "confidence_rationale": "…"
     } ],
     "reconstruction_summary": "short narrative in the jurisdiction's voice",
     "grounding": {
@@ -377,6 +385,12 @@ Contract rules (schema-enforced, not stylistic):
   user selected — the model receives claim ids + text as input and is
   never asked to re-echo them, removing the largest avoidable output-token
   cost and a fidelity failure mode.
+- The jurisdiction-identity fields — `is_living_person`, `display_name`,
+  `internal_divisions`, `authorities_loaded` — are likewise **stamped
+  code-side from the registry record**: injected into the prompt and
+  re-attached to the parsed output by code, never model-echoed (the
+  `audit-prompt.js` inject-never-ask idiom). The guardrail bit in
+  particular can therefore not be hallucinated.
 - A reading with an empty `authorities_cited` is valid only when its
   disposition is `silent` or `out-of-scope`; otherwise the validator
   rejects it (parse-time downgrade, not a prompt hope).
@@ -422,7 +436,9 @@ Branches `claude/phase-16-*`, one PR per slice, stacked on `main`.
   `jurisdiction-model.js`: the registry, authority records with
   `citation`/`excerpt`/`admissibility`, the Q1 admissibility rule,
   `is_living_person` fail-closed semantics. `moralLens` flag registered in
-  `FLAGS_DEFAULTS`. Console-first authoring (the §Phase 15 pattern); the
+  `FLAGS_DEFAULTS`. Console-first authoring (the console-walk convention
+  the Phase 15 train's SMOKE section introduces — it lands with the
+  #79–#89 merge); the
   Appendix A templates ship as docs + test fixtures; **zero built-in
   jurisdictions**.
 - **16.2 — the lens-reading engine.** The system prompt module (authored
@@ -511,7 +527,9 @@ anywhere in the repo. They now exist, here:
 ## §11. Smoke-test plan (rows land in `SMOKE_TEST.md` with the slices)
 
 Full §Phase 16 rows are added to `docs/SMOKE_TEST.md` as slices ship
-(16.A/16.B setup–cleanup console blocks, the §Phase 15 pattern). The
+(16.A/16.B setup–cleanup console blocks — the convention the Phase 15
+train's SMOKE section introduces; the keyed/keyless split below follows
+§Phase 14.5, which is on `main`). The
 audit pre-drafted the skeleton; its load-bearing properties:
 
 - **Rows assert structure and guardrails, never specific dispositions** —
