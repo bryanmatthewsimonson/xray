@@ -338,3 +338,88 @@ and deliberately spans the confident↔uncertain curve:
    before anything else; then stand up the capture run scaffolding.
 3. **You + browser:** the capture run itself (needs the extension loaded +
    your API key).
+
+## 11. Relay shortlist (public relays only)
+
+> Added 2026-07-03 (sprint slice 1). **Amends §9.3:** self-hosting is
+> descoped — the entry publishes to **public relays only**. This is a
+> *candidate* shortlist to prepare the human round trip; it does **not**
+> preempt it. **Final selection is confirmed by the SMOKE §Phase 15
+> round trip** (author → sign → publish → portal-render under the
+> Epistack identity), which doubles as the public-relay kind-acceptance
+> test for kinds `30040`–`30064`. Per the sprint hard constraints, the
+> **bundled raw signed-event JSON is the durability guarantee; relays
+> are the live demo** — so a relay outage or a prune can never falsify
+> "replayable by anyone."
+
+### 11.1 Why arbitrary-kind acceptance is the load-bearing question
+
+X-Ray publishes a wide range of **non-standard high kinds**: `30023`
+(long-form), `30040`/`30041` (claims/comments), `30054`/`30055`
+(assessments/relationships), `30056`–`30061` (epistemic audit family),
+`30062` (forensic), `30063`/`30064` (truth verdicts / integrity),
+`32125`/`32126` (relationships / platform accounts), `30078` (app
+data), `10002` (relay list), plus their `1985` label mirrors. Many
+relays whitelist kinds or reject unknown ones; `purplepag.es`, for
+instance, is deliberately restricted to profile/relay-list kinds and
+would drop nearly everything we publish.
+
+The shortlist below is chosen on one technical fact, **verified
+2026-07-03 by fetching each relay's NIP-11 information document
+directly**: they all run **[strfry](https://github.com/hoytech/strfry)**,
+whose storage model is **kind-agnostic** — it does not whitelist kinds.
+The only event-lifetime mechanism strfry honors is **NIP-40 expiration**,
+and X-Ray sets **no `expiration` tag**, so nothing we publish is
+auto-expired. strfry has **no default auto-prune** of ordinary
+(non-ephemeral, non-expiring) events; retention past that is
+**operator discretion** (disk/cost-driven), which is exactly why the
+bundled JSON — not any relay — is the durability guarantee.
+
+### 11.2 The candidate relays (all free, no-auth, no-payment; strfry)
+
+Verified from each relay's live NIP-11 document on 2026-07-03. Operator
+diversity is deliberate: four **independent operators** with different
+failure modes (one project-lead, one community, one hobbyist, one
+company), so no single operator outage sinks the demo.
+
+| Relay | Operator (independent) | Software (NIP-11) | Writes | In config defaults? |
+|---|---|---|---|---|
+| `wss://relay.damus.io` | Will Casarin / **Damus** (`npub1xtscya…`) | strfry 1.1.0 | free, no auth/payment | yes — enabled |
+| `wss://nos.lol` | **community** relay (`npub1chad…`); "generally accepts notes, except spammy ones" | strfry 1.1.0 | free, no auth/payment | yes — enabled |
+| `wss://offchain.pub` | independent operator (`npub1an3nz…`) | strfry 1.1.0 | free, no auth/payment | **no — add for operator diversity** |
+| `wss://relay.primal.net` | **Primal** (company; client + caching infra) | strfry 1.0.3 | free, no auth/payment | no — add as the well-resourced fourth |
+
+All four advertise `supported_nips` including 1/2/9/11/40/70 and
+Negentropy v1; **none** advertises `auth_required`, `payment_required`,
+or `restricted_writes`. High kinds are not enumerated in `supported_nips`
+(that list is about protocol features, not stored kinds) — kind
+acceptance follows from strfry's kind-agnostic storage, and is the
+thing the round trip confirms end to end.
+
+### 11.3 Supporting roles (not part of the publish shortlist)
+
+- **`wss://relay.nostr.band`** *(config default, enabled)* — an
+  **indexer / search** relay. Keep it as a **read/query/reconciliation**
+  target (the portal's reconcile pass), not a primary publish target:
+  its NIP-11 did not answer a direct fetch on 2026-07-03, so its
+  arbitrary-kind **write** acceptance is unconfirmed. If used for
+  publish at all, confirm it in the round trip first.
+- **`wss://nostr.wine`** *(config default, disabled)* — a **paid**
+  relay (write access is subscription-gated, ~10k sats/month) that
+  markets reliability and retention. Optional **belt-and-suspenders
+  live retention** if you want it, but it is **not** free/no-auth and
+  is **not needed**: the bundled JSON already guarantees durability.
+  Leave disabled unless you deliberately opt into the paid tier.
+
+### 11.4 What slice 1 does and does not settle
+
+- **Settles:** the four free relays above all accept X-Ray's
+  non-standard kinds by construction (strfry, kind-agnostic, no
+  expiration tags emitted), under four independent operators; retention
+  is operator-discretion and therefore never the durability story.
+- **Defers to the human round trip:** the actual publish/accept of a
+  live `30063` verdict and its `1985` mirror on each relay; whether
+  `relay.nostr.band` accepts writes of these kinds; the final 3–4 the
+  entry names. To enable the two non-default candidates, add
+  `wss://offchain.pub` and `wss://relay.primal.net` in Settings ▸
+  Relays (write-enabled) before the round trip.

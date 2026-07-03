@@ -19,6 +19,31 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-03 — Relay shortlist: the acceptance question is "does it run strfry", not "does it list the kind"
+
+Tags: `design`, `external`.
+
+Sprint slice 1 picked the candidate public relays for the Epistack
+publish (win plan §11). The non-obvious finding, verified by fetching
+each relay's NIP-11 document directly: **X-Ray's non-standard high
+kinds are accepted or rejected on the relay's storage model, not on
+anything in `supported_nips`.** `relay.damus.io`, `nos.lol`,
+`offchain.pub`, and `relay.primal.net` all run **strfry**, whose store
+is **kind-agnostic** — it does not whitelist kinds, and the only
+lifetime mechanism it honors is NIP-40 expiration, which X-Ray never
+emits. So kinds `30056`–`30064`, `32125`/`32126`, etc. are stored even
+though no relay's `supported_nips` mentions them. Contrast
+`purplepag.es`, which is deliberately restricted to profile/relay-list
+kinds and would drop nearly everything.
+
+Two consequences worth remembering: (1) **retention is operator
+discretion** — strfry has no default auto-prune of ordinary events, but
+disk/cost pressure lets an operator prune, which is *why* the bundled
+raw JSON, not any relay, is the durability guarantee; (2) `supported_nips`
+is a feature list, not a stored-kind list — don't read a missing high
+kind there as a rejection. The live SMOKE §Phase 15 round trip is still
+the real acceptance test; slice 1 only prepares it.
+
 ## 2026-07-03 — Sprint descopes: public relays only; consensus-protocols idea dropped
 
 Tags: `design`.
