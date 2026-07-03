@@ -46,7 +46,7 @@ firewall rejects claims and findings whose quotes don't locate — the
 review panel shows ⚓ chips (verbatim / normalized / close-match % /
 not found), lets the user edit the quote in place to re-anchor, and
 "Accept all valid" can no longer take an ungrounded item. Claims store
-a local-only `anchor_provenance` (`method`/`score`/`model_quote`) so a
+a local-only `anchor_provenance` (`method`/`score`/`proposed_quote`) so a
 repaired anchor keeps what the model originally wrote. Label quotes on
 assessments stay soft: an unlocatable one saves the label with NO
 anchor (never a fabricated one) and says so in the panel.

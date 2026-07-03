@@ -44,9 +44,10 @@ Annotations and fact-checks may anchor to a specific span within a target. Selec
 The recommended selector types, in order of robustness preference:
 
 1. `TextQuoteSelector` — `{ exact, prefix, suffix }`. The author captures ~32 characters of context on each side of the selection. The consumer searches `prefix + exact + suffix` first, falling back to `exact` alone with a uniqueness check. Robust to DOM and CSS changes.
-2. `RangeSelector` — `{ startContainer, startOffset, endContainer, endOffset }` with XPath. Faster on long documents but brittle to DOM restructuring.
-3. `CssSelector` — useful when the page has stable element ids/classes (e.g., paragraph ids on Substack).
-4. `FragmentSelector` — for media fragments only: `xywh=...` for images, `t=Ns` for time offsets in audio/video.
+2. `TextPositionSelector` — `{ start, end }`: UTF-16 code-unit offsets into the rendered text content of the capture-time article body (the same text stream the sibling `TextQuoteSelector` was cut from). Emitted alongside a `TextQuoteSelector` by machine-grounded anchors (X-Ray's LLM-suggest path). Consumers MUST treat it as verification-only: resolve it only when the text at `[start, end)` reproduces the sibling `TextQuoteSelector`'s `exact` (allowing for that selector's >500-char `head … tail` truncation); on mismatch, skip it rather than guess — the offsets are meaningless against edited text.
+3. `RangeSelector` — `{ startContainer, startOffset, endContainer, endOffset }` with XPath. Faster on long documents but brittle to DOM restructuring.
+4. `CssSelector` — useful when the page has stable element ids/classes (e.g., paragraph ids on Substack).
+5. `FragmentSelector` — for media fragments only: `xywh=...` for images, `t=Ns` for time offsets in audio/video.
 
 Authors SHOULD include multiple selectors. Consumers SHOULD try them in order and treat the first match with confidence ≥ 0.7 as the resolution. Annotations whose selectors do not resolve on the current page are NOT discarded; they are surfaced as page-level annotations with a "could not be located" indicator.
 

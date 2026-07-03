@@ -185,6 +185,22 @@ test('normalizeWithMap: leading/trailing whitespace dropped, runs collapsed', ()
     assert.equal(norm, 'a b');
 });
 
+test('normalizeWithMap: astral chars keep the map aligned (per code unit)', () => {
+    // Each emoji is 2 UTF-16 units; the map must carry 2 entries or
+    // every offset after it shifts (regression: spans came back
+    // off-by-N after emoji/CJK-ext characters).
+    const art = 'Intro 🎉👍 café naïve… Then the mayor said “we never lied” at the hearing. End.';
+    const { norm, rawStart } = normalizeWithMap(art);
+    assert.equal(rawStart.length, norm.length);
+    const r = groundQuote('the mayor said "we never lied" at the hearing', art);
+    assert.equal(r.status, 'normalized');
+    assert.equal(r.exact, 'the mayor said “we never lied” at the hearing');
+    assert.equal(art.slice(r.start, r.end), r.exact);
+    // Boundary drift: curly quotes as the first AND last characters.
+    const r2 = groundQuote('"we never lied"', art);
+    assert.equal(r2.exact, '“we never lied”');
+});
+
 // ---------------------------------------------------------------------
 // Multi-occurrence + scale smoke
 // ---------------------------------------------------------------------

@@ -136,9 +136,10 @@ function cleanSuggestedBy(value) {
 
 // Anchor provenance (Phase 14.5 provenance hardening): HOW the anchor's
 // span was located in the article — { method: 'exact'|'normalized'|
-// 'fuzzy'|'manual', score, model_quote? }, where model_quote preserves
-// what the LLM originally wrote whenever the stored span was repaired
-// from it. LOCAL record field only; the kind-30040 `anchor` tag carries
+// 'fuzzy'|'manual', score, proposed_quote? }, where proposed_quote
+// preserves the quote text the span was located FROM whenever it was
+// repaired (the artifact-level suggested_by records whose text that
+// was). LOCAL record field only; the kind-30040 `anchor` tag carries
 // just the selector array.
 function cleanAnchorProvenance(value) {
     if (!value || typeof value !== 'object') return null;
@@ -146,8 +147,8 @@ function cleanAnchorProvenance(value) {
     if (!method) return null;
     const out = { method };
     if (Number.isFinite(value.score)) out.score = value.score;
-    if (typeof value.model_quote === 'string' && value.model_quote.trim()) {
-        out.model_quote = value.model_quote.trim();
+    if (typeof value.proposed_quote === 'string' && value.proposed_quote.trim()) {
+        out.proposed_quote = value.proposed_quote.trim();
     }
     return out;
 }

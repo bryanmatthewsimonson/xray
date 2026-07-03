@@ -117,15 +117,25 @@ export function resolveTextPosition(sel, root, ctx = {}) {
   };
 }
 
+// Mirrors anchor-capture's truncateExact: a >500-char selection is
+// stored as exactly head(200) + ' … ' + tail(200). Only that precise
+// shape gets head/tail verification — an exact that merely CONTAINS
+// ' … ' is real article text and must match strictly, otherwise a
+// drifted span could false-verify (or a legit long anchor be split at
+// the wrong marker).
+const TRUNC_HEAD = 200;
+const TRUNC_TAIL = 200;
+const TRUNC_MARKER = ' … ';
+const TRUNC_CAP = 500; // anchor-capture EXACT_LENGTH_CAP
+
 function spanMatchesExact(span, exact) {
   if (span === exact) return true;
-  // Truncated exact: 'head … tail' (see anchor-capture EXACT_LENGTH_CAP).
-  const m = /^([\s\S]+) … ([\s\S]+)$/.exec(exact);
-  if (!m) return false;
-  const head = m[1];
-  const tail = m[2];
-  return span.length >= head.length + tail.length
-    && span.startsWith(head) && span.endsWith(tail);
+  if (exact.length !== TRUNC_HEAD + TRUNC_MARKER.length + TRUNC_TAIL) return false;
+  if (exact.slice(TRUNC_HEAD, TRUNC_HEAD + TRUNC_MARKER.length) !== TRUNC_MARKER) return false;
+  const head = exact.slice(0, TRUNC_HEAD);
+  const tail = exact.slice(TRUNC_HEAD + TRUNC_MARKER.length);
+  // Truncation only ever fires for selections longer than the cap.
+  return span.length > TRUNC_CAP && span.startsWith(head) && span.endsWith(tail);
 }
 
 // ------------------------------------------------------------------

@@ -281,11 +281,14 @@ export function buildClaimInput(prop, { entityIdByRef = {}, articleText = '', so
         source_url:   sourceUrl,
         anchor:       g ? g.selectors : null,
         // Local-only provenance of the anchor itself: how the quote was
-        // located, and — when it was repaired — what the model wrote.
+        // located, and — when the stored span was repaired — the quote
+        // text it was located FROM. Deliberately not "model_quote": a
+        // user may have re-anchored the quote in review, and the
+        // artifact-level suggested_by / edit flow records who.
         anchor_provenance: g ? {
             method: g.method,
             score:  g.score,
-            ...(g.method !== 'exact' ? { model_quote: String(prop.quote || '').trim() } : {})
+            ...(g.method !== 'exact' ? { proposed_quote: String(prop.quote || '').trim() } : {})
         } : null,
         about,
         is_key:       prop.is_key === true,

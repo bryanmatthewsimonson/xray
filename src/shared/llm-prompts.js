@@ -316,7 +316,7 @@ const RULES_ALL = `
 GROUND RULES (non-negotiable):
 - You PROPOSE; a human confirms every item. Nothing you return is saved or published automatically.
 - Quote VERBATIM. Every quote must be ONE contiguous span copied exactly from the article text, character for character — keep the article's punctuation, capitalization, and typos. Never paraphrase inside a quote, never merge separate sentences, never add ellipses you didn't see, never fix what the article got wrong.
-- Quotes are machine-checked. Each quote is located in the article text before an item can be accepted; an item whose quote cannot be found is rejected outright. Your conclusion may be your own words — the quote may not.
+- Quotes are machine-checked. Each quote is located in the article text before an item can be accepted: a claim or finding whose quote cannot be found is rejected outright, and an assessment label whose quote cannot be found is saved without its anchor. Your conclusion may be your own words — the quote may not.
 - Be conservative. Prefer a few high-quality, well-anchored proposals over many weak ones. If the article does not support an artifact, omit it.
 - Use the propose_capture tool and nothing else.`;
 

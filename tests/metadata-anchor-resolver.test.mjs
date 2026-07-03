@@ -493,15 +493,41 @@ test('TextPosition: malformed offsets → null', () => {
   assert.equal(resolveTextPosition({ type: 'TextPositionSelector', start: '0', end: 10 }, root, ctx), null);
 });
 
-test('TextPosition: verifies a truncated (head … tail) exact', () => {
-  const root = fixture();
-  const full = root.textContent;
+test('TextPosition: verifies the capture-side truncated exact shape (200 … 200)', () => {
+  // truncateExact stores >500-char selections as head(200)+' … '+tail(200).
+  const long = 'a'.repeat(260) + ' middle section here ' + 'b'.repeat(260);
+  const root = el('article', { children: [el('p', { children: [text(long)] })] });
+  const exact = long.slice(0, 200) + ' … ' + long.slice(-200);
   const result = resolveTextPosition(
-    { type: 'TextPositionSelector', start: 0, end: full.length },
+    { type: 'TextPositionSelector', start: 0, end: long.length },
     root,
-    { exact: full.slice(0, 20) + ' … ' + full.slice(-20) }
+    { exact }
   );
   assert.equal(result.confidence, 1.0);
+});
+
+test('TextPosition: an exact merely CONTAINING " … " gets strict matching, not head/tail', () => {
+  // The article itself contains ' … '; the exact is real (short) text,
+  // NOT a truncation. A different span that happens to share head/tail
+  // around the marker must not verify.
+  const t = 'Alpha … beta gamma. Alpha … beta DRIFTED TEXT gamma.';
+  const root = el('article', { children: [el('p', { children: [text(t)] })] });
+  const exact = 'Alpha … beta gamma.';
+  // Offsets point at the second (different) sentence.
+  const start = t.indexOf('Alpha', 5);
+  const result = resolveTextPosition(
+    { type: 'TextPositionSelector', start, end: t.length },
+    root,
+    { exact }
+  );
+  assert.equal(result, null);
+  // The true span still verifies via strict equality.
+  const ok = resolveTextPosition(
+    { type: 'TextPositionSelector', start: 0, end: exact.length },
+    root,
+    { exact }
+  );
+  assert.equal(ok.confidence, 1.0);
 });
 
 test('cascade: TextPosition disambiguates a repeated exact that orphans TextQuote', () => {

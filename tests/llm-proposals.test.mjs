@@ -307,17 +307,17 @@ test('buildClaimInput: repaired quote → anchor from article bytes + provenance
     const tqs = input.anchor.find((s) => s.type === 'TextQuoteSelector');
     assert.equal(tqs.exact, 'It does not matter whether it happened — it bears good fruit.');
     assert.equal(input.anchor_provenance.method, 'normalized');
-    assert.equal(input.anchor_provenance.model_quote,
+    assert.equal(input.anchor_provenance.proposed_quote,
         'It does not matter whether it happened - it bears good fruit.');
 });
 
-test('buildClaimInput: exact quote → provenance method exact, no model_quote', () => {
+test('buildClaimInput: exact quote → provenance method exact, no proposed_quote', () => {
     const input = P.buildClaimInput(
         { text: 'T.', quote: 'The Church declined to comment.' },
         { articleText: ARTICLE_TEXT, sourceUrl: URL }
     );
     assert.equal(input.anchor_provenance.method, 'exact');
-    assert.ok(!('model_quote' in input.anchor_provenance));
+    assert.ok(!('proposed_quote' in input.anchor_provenance));
 });
 
 test('buildClaimInput: unlocatable quote → NO anchor, NO fabricated selector', () => {

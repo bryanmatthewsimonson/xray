@@ -214,6 +214,12 @@ The system prompt MUST embed, per task:
   resolve with a tolerant text-find, and if it fails, keep the proposal
   with the quote but a null selector (the model layer already tolerates a
   quote-only anchor — except findings, which need the quote non-empty).
+  *[Superseded by the provenance hardening (JOURNAL 2026-07-03): quotes
+  are grounded via `shared/quote-grounding.js` (exact → typography-
+  normalized → guarded fuzzy) and anchors are rebuilt from the article's
+  own bytes. A claim or finding whose quote cannot be located is now
+  rejected in review — never stored with a fabricated or null anchor;
+  only assessment label quotes keep the save-without-anchor fallback.]*
 - **Provenance honesty**: don't relabel an LLM proposal as `user` just
   because it passed through a modal; only the user's substantive edits
   should change provenance. Keep `isValidSuggestedBy` happy

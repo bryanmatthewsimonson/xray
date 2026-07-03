@@ -660,7 +660,7 @@ publishes. Requires a real Anthropic API key
 |---|---|---|
 | 14.5.5 | On an op-ed / debate with named people, click **✨ Suggest…** (defaults) | ✅ button shows "✨ Thinking…", then a **Suggestions** modal opens with **only Entities + Claims** sections (no Assessments / Relationships / Findings); a model badge shows the model id |
 | 14.5.5b | Enable **Forensic findings** in Options, Save, re-run a pass | ✅ the modal now also shows a Findings section (and Baselines/Revisions if any) — opt-in kinds appear only once enabled |
-| 14.5.6 | Inspect a **Claim** proposal | ✅ summary shows the claim text + the about-entities it links; Accept / Edit / Reject buttons |
+| 14.5.6 | Inspect a **Claim** proposal | ✅ summary shows the claim text + the about-entities it links, the **quote it is drawn from**, and a **⚓ grounding chip** (verbatim / typography normalized / close match %); Accept / Edit / Reject buttons |
 | 14.5.7 | Inspect a **Finding** proposal | ✅ shows subject + maneuver + role/basis + a quoted lead + the **counter-read** (`↔ …`); **no stance/score/confidence anywhere** |
 | 14.5.8 | **Accept** an entity, then its claim, then a finding (or click **Accept all valid**) | ✅ rows flip to "✓ accepted"; the **claims bar** and **Forensic findings bar** gain the artifacts |
 | 14.5.9 | DevTools: `chrome.storage.local.get(['article_claims','behavioral_findings','entities'], console.log)` | ✅ accepted records carry `suggested_by: "llm:<model>"`; the finding has `counter_note`, `anchors[].quote`, and **no** `stance`/`intent`/`score` field |
@@ -673,6 +673,8 @@ publishes. Requires a real Anthropic API key
 | 14.5.11 | If the model returned a finding with a missing/empty counter-note (or no quoted anchor), find its row | ✅ shows **"✗ …counter-note / anchor"** rejected-with-reason, Accept **disabled** — it can never save in that state |
 | 14.5.12 | **Edit** a finding row → clear the **Counter-read** → Apply | ✅ the row re-validates to ✗ rejected (Accept disabled) |
 | 14.5.13 | **Edit** a claim's text → Apply | ✅ the row gains a **"✎ edited (you)"** badge; on Accept the stored claim is `suggested_by: "user"` (honest provenance) |
+| 14.5.13b | **Edit** a claim's **quote** to text that is NOT in the article → Apply | ✅ the row re-validates to **"✗ Quote not found in the article…"**, its chip reads **⚓ not found**, and Accept is disabled (Accept-all skips it) |
+| 14.5.13c | Fix that quote back to real article text (or paste a curly-quote/em-dash variant of it) → Apply | ✅ chip returns to **⚓ verbatim** (or *typography normalized*), the message "Quote re-checked against the article." shows, provenance **stays** `llm:<model>` (quote-only edits don't flip it); on Accept the stored anchor's `exact` is the **article's own text**, and a repaired claim carries `anchor_provenance` with the proposed quote it was located from |
 | 14.5.14 | **Reject** a proposal | ✅ row dims to "✕ rejected"; nothing is stored for it |
 | 14.5.15 | Publishing is unaffected: with `assessmentPublishing` / `forensicPublishing` **off**, Publish | ✅ accepted LLM artifacts are **not** published (suggestion never publishes) |
 

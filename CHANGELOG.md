@@ -27,10 +27,14 @@ Sections per release: **Added** (new features), **Changed**
   keep a local-only `anchor_provenance` record (`method`, `score`, and
   the model's original quote whenever the span was repaired).
   Assessment label quotes that don't locate save the label without an
-  anchor — never a fabricated one. Wire note: the kind-30040 `anchor`
-  tag's selector array may now additionally contain
-  `{"type":"TextPositionSelector","start":…,"end":…}` — additive;
-  consumers that don't know the type skip it.
+  anchor — never a fabricated one. Wire note (additive): selector
+  arrays emitted by the suggest path — the kind-30040 `anchor` tag,
+  kind-30054 `label-anchor` tags, and kind-30062 `maneuver-step`
+  selectors — may now also contain
+  `{"type":"TextPositionSelector","start":…,"end":…}` (UTF-16
+  code-unit offsets into the capture-time article body text;
+  verification-only semantics documented in `docs/NIP_DRAFT.md`
+  §Selectors). Consumers that don't know the type skip it.
 
 - **Identity profiles + fresh workspace.** Settings ▸ Signing is now the
   single home for user identity: saved, labeled identities

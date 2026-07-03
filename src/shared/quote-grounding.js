@@ -37,10 +37,15 @@
 // status.
 
 // Fuzzy guardrails: quotes shorter than MIN_FUZZY_TOKENS words never
-// fuzzy-match (too easy to land on the wrong sentence), and a candidate
-// span must score at least FUZZY_MIN_SCORE (token-F1: in-order overlap
-// balanced against span dilution) to count as found.
+// fuzzy-match (too easy to land on the wrong sentence), quotes longer
+// than MAX_FUZZY_TOKENS never fuzzy-match either (the LCS pass is
+// quadratic in the quote length and runs synchronously in the review
+// panel's render path — a near-article-length "quote" is a bad quote,
+// not a repair candidate), and a candidate span must score at least
+// FUZZY_MIN_SCORE (token-F1: in-order overlap balanced against span
+// dilution) to count as found.
 export const MIN_FUZZY_TOKENS = 4;
+export const MAX_FUZZY_TOKENS = 256;
 export const FUZZY_MIN_SCORE = 0.8;
 const MAX_FUZZY_CANDIDATES = 24;
 
@@ -92,7 +97,13 @@ export function normalizeWithMap(text) {
         else if (DASHES.has(ch)) mapped = '-';
         else if (ch === '…') mapped = '...';
         else mapped = ch.toLowerCase();
-        for (const oc of mapped) { out.push(oc); rawStart.push(i); rawEnd.push(next); }
+        // Push per UTF-16 CODE UNIT (not per code point): the map is
+        // indexed by norm-string positions, and indexOf works in code
+        // units — an astral char must contribute two entries or every
+        // offset after it shifts.
+        for (let u = 0; u < mapped.length; u++) {
+            out.push(mapped[u]); rawStart.push(i); rawEnd.push(next);
+        }
         i = next;
     }
     while (out.length && out[out.length - 1] === ' ') { out.pop(); rawStart.pop(); rawEnd.pop(); }
@@ -171,7 +182,7 @@ export function createGroundingIndex(articleText) {
     function fuzzyGround(qn) {
         const qTokens = tokensOf(qn).map((t) => t.t);
         const w = qTokens.length;
-        if (w < MIN_FUZZY_TOKENS || tokens.length === 0) return MISSING;
+        if (w < MIN_FUZZY_TOKENS || w > MAX_FUZZY_TOKENS || tokens.length === 0) return MISSING;
 
         // Prefilter: rolling bag-overlap of quote tokens over article
         // windows of the quote's length. O(article tokens).

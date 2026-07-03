@@ -181,14 +181,16 @@ export function openLlmReview(opts) {
         }
 
         // Grounded quote display: the article's span when located, the
-        // model's text (flagged by the chip) when not.
+        // proposed text (flagged by the chip) when not. The tooltip is
+        // deliberately neutral about WHO wrote the proposed quote — it
+        // may be the model's, or the user's after a re-anchor edit.
         function quoteHtml(quote, { max = 140 } = {}) {
             const q = String(quote || '').trim();
             if (!q) return '';
             const g = grounding.ground(q);
             const shown = g.status === 'missing' ? q : g.exact;
             const repaired = g.status !== 'missing' && g.status !== 'exact' && g.exact !== q;
-            const tip = repaired ? ` title="Model wrote: ${escapeHtml(truncate(q, 300))}"` : '';
+            const tip = repaired ? ` title="Located from: ${escapeHtml(truncate(q, 300))}"` : '';
             return `<blockquote class="xr-llm__quote"${tip}>${escapeHtml(truncate(shown, max))}</blockquote>${anchorChip(g)}`;
         }
 
@@ -311,7 +313,10 @@ export function openLlmReview(opts) {
         function render() {
             const total = rows.length;
             const acc = rows.filter((r) => r.status === 'accepted').length;
-            const pendingValid = rows.filter((r) => r.status === 'pending' && validityOf(r).ok).length;
+            // Blocked rows (dependency not yet accepted) don't count as
+            // acceptable — the button label must converge to what a
+            // click can actually do.
+            const pendingValid = rows.filter((r) => r.status === 'pending' && validityOf(r).ok && !blockedReason(r)).length;
             host.innerHTML = `
               <div class="xr-llm__backdrop"></div>
               <div class="xr-llm__card" role="dialog" aria-label="LLM suggestions">
@@ -368,8 +373,10 @@ export function openLlmReview(opts) {
                 const input = el.querySelector(`[data-k="${f.key === 'stance' ? 'stance' : f.key}"]`);
                 if (!input) continue;
                 if (f.type === 'checkbox') {
+                    // Truthiness, mirroring how the checkbox is RENDERED —
+                    // a schema-drifted truthy value must not read as a change.
                     const next = input.checked;
-                    if ((row.prop[f.key] === true) !== next) { row.prop[f.key] = next; changed.add(f.key); }
+                    if (Boolean(row.prop[f.key]) !== next) { row.prop[f.key] = next; changed.add(f.key); }
                 } else if (f.type === 'stance') {
                     const next = input.value === '' ? null : Number(input.value);
                     const cur = row.prop.stance === undefined ? null : row.prop.stance;
@@ -405,6 +412,7 @@ export function openLlmReview(opts) {
 
         async function acceptRow(row) {
             if (row.status !== 'pending') return;
+            row.messageKind = '';
             const v = validityOf(row);
             if (!v.ok) { row.message = v.reason; render(); return; }
             const blocked = blockedReason(row);
@@ -428,6 +436,7 @@ export function openLlmReview(opts) {
                 for (const row of rows.filter((r) => r.kind === kind && r.status === 'pending')) {
                     if (!validityOf(row).ok) continue;
                     if (blockedReason(row)) continue;
+                    row.messageKind = '';
                     try {
                         await createFor(row);
                         row.status = 'accepted';
@@ -437,6 +446,14 @@ export function openLlmReview(opts) {
                         row.message = (err && err.message) || String(err);
                     }
                 }
+            }
+            // Anything still pending-and-valid was skipped because a
+            // dependency didn't make it (e.g. its claim failed the
+            // grounding firewall) — say so instead of leaving it mute.
+            for (const row of rows) {
+                if (row.status !== 'pending' || !validityOf(row).ok) continue;
+                const blocked = blockedReason(row);
+                if (blocked) { row.message = blocked; row.messageKind = ''; }
             }
             if (typeof onAccepted === 'function') { try { await onAccepted('all'); } catch (_) { /* best-effort */ } }
             render();
