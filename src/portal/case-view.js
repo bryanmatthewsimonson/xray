@@ -13,6 +13,7 @@ import { buildBuckets } from './timeline.js';
 import { renderDossierBlock } from './dossier-block.js';
 import { renderFindingsBlock } from './findings-block.js';
 import { renderCaseDossierBlock } from './case-dossier-block.js';
+import { renderCaseTimelineBlock } from './case-timeline-block.js';
 
 function latestAssessmentByCoord(items) {
     const map = new Map();
@@ -92,6 +93,10 @@ export function renderCaseView(host, params) {
     // convergence-collapsed evidence, computed on read from the local
     // truth model for this case entity (async-fills; sync render path).
     if (caseEnt && caseEnt.entityId) renderCaseDossierBlock(host, caseEnt.entityId);
+
+    // --- Case timeline (CD.3) — world-time spine with precision bands +
+    // publication/capture/judgment overlays + cross-axis gap callouts.
+    if (caseEnt && caseEnt.entityId) renderCaseTimelineBlock(host, caseEnt.entityId, caseItems);
 
     // --- Audit dossier (13.7) — the design assigns the block to
     // entity AND case views; a case is a pubkey-keyed entity.

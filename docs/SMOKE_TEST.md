@@ -826,6 +826,22 @@ tagged to one case entity), then open that case in **My Archive**.
 | CD2.5 | Read the **Evidence** block | If any orbit `supports` links carry attestation, an **independence banner** ("K independent origin(s) of N") + per-origin chips (baseline / independent / undemonstrated) render; article rows list each source URL with its claim count. Correlated coverage is surfaced, **never** counted as independent |
 | CD2.6 | Open a case with **no** propositions | The block still renders, honestly: "No propositions ruled yet — 0 atomized across M claim(s) in K article(s)" |
 
+## Case timeline (CD.3 — four axes + gap callouts)
+
+Portal case view, `docs/CASE_DOSSIER_DESIGN.md` §3.3. Same local-case
+prerequisite as CD.2 (propositions with `occurred_at` + `occurred_precision`;
+published 30023 articles with a `published_at` tag give the publication
+axis). The block renders just below the case-dossier block.
+
+| # | Step | Expect |
+|---|---|---|
+| CD3.1 | Open a case with dated propositions | A **Timeline — four axes** block; an SVG spine with one row per present axis |
+| CD3.2 | Read the axis toggles | Checkboxes for **World time / Publication / Capture / Judgment**, each with its event count; unchecking hides that row |
+| CD3.3 | Inspect a **year-precision** world event | It renders as a **year-wide band**, not a one-day tick (no false precision); month/day precision give proportionally narrower bands |
+| CD3.4 | Hover an event | Tooltip names its axis + label (proposition class / article title / verdict state) |
+| CD3.5 | Read the **Gap callouts** | Where the data supports it: `published-before-occurred` (an article predates the event it describes), `story-changed-after-event` (a dated proposition's ruling was superseded), `capture-long-after-publication` (captured >30 days after publication) |
+| CD3.6 | Open a case with **no dated events** | The block renders "No dated events in this case yet." — never a fabricated spine |
+
 ---
 
 ## Identity & workspace (profiles + fresh-workspace reset)

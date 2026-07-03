@@ -840,3 +840,32 @@ button.xr-badge--case { cursor: pointer; background: transparent; }
 .xr-case-dossier__article-url { color: var(--xr-primary); text-decoration: none; word-break: break-all; }
 .xr-case-dossier__article-url:hover { text-decoration: underline; }
 .xr-case-dossier__article-n { color: var(--xr-text-dim); }
+
+/* --- Case timeline (CD.3, docs/CASE_DOSSIER_DESIGN.md §3.3) --- */
+.xr-case-timeline {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--xr-border);
+  border-radius: 10px;
+  background: var(--xr-surface);
+}
+.xr-case-timeline__loading { color: var(--xr-text-dim); font-size: 13px; margin: 0; }
+.xr-case-timeline__axes { display: flex; flex-wrap: wrap; gap: 12px; margin: 6px 0 10px; }
+.xr-case-timeline__axis { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; }
+.xr-axis--world       { color: var(--xr-text); }
+.xr-axis--publication { color: var(--xr-accent); }
+.xr-axis--capture     { color: var(--xr-primary); }
+.xr-axis--judgment    { color: var(--xr-success); }
+.xr-case-timeline__spine { width: 100%; overflow-x: auto; }
+.xr-case-timeline__svg { width: 100%; height: auto; display: block; }
+.xr-tl-ev--world       { fill: var(--xr-text-dim); opacity: 0.85; }
+.xr-tl-ev--publication { fill: var(--xr-accent); }
+.xr-tl-ev--capture     { fill: var(--xr-primary); }
+.xr-tl-ev--judgment    { fill: var(--xr-success); }
+.xr-case-timeline__gaps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.xr-case-timeline__gaps-head { margin: 0 0 2px; font-size: 13px; color: var(--xr-warning); }
+.xr-case-timeline__gap { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.xr-case-timeline__gap-detail { color: var(--xr-text-dim); }
+.xr-gap--published-before-occurred .xr-chip { color: var(--xr-warning); border-color: var(--xr-warning); }
+.xr-gap--story-changed-after-event .xr-chip { color: var(--xr-accent); border-color: var(--xr-accent); }
+.xr-gap--capture-long-after-publication .xr-chip { color: var(--xr-text-dim); border-color: var(--xr-text-dim); }

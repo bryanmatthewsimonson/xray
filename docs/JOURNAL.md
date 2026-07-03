@@ -19,6 +19,37 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-03 — Case dossier CD.3: precision bands geometric, publication/capture joined from library items
+
+Tags: `design`.
+
+CD.3 renders the four-axis case timeline
+(`src/portal/case-timeline-block.js`, `docs/CASE_DOSSIER_DESIGN.md` §3.3).
+Notes worth keeping:
+
+- **Precision bands are the no-false-precision rule made geometric.**
+  `precisionBand(at, precision)` floors to the UTC year/month/day and
+  returns `[start, end)`, so a year-precision world event renders as a
+  **year-wide band**, never a fake day-tick. All time math is UTC (like
+  `timeline.js`), so it's deterministic in tests via `Date.UTC`.
+- **The two axes CD.1 deferred are joined here from the portal library
+  items** the case view already holds — publication from the 30023
+  `published_at` tag, capture from the event `created_at`. This is
+  exactly the boundary CD.1's header documented: the render slice that
+  holds the library index supplies publication/capture; CD.1 stays
+  IndexedDB-free. (Capture uses the publish-to-NOSTR `created_at` as the
+  available proxy; the true archive-cache capture timestamp is a later
+  refinement.)
+- **Gap callouts name a concrete article/proposition**, not a vague
+  "there's a gap": `published-before-occurred` joins an article's
+  publication date to its proposition's `occurred_at` (via the claim's
+  source_url), `story-changed-after-event` fires on a superseded dated
+  proposition, `capture-long-after-publication` on a >30-day
+  publication→capture lag. Pure helpers (precisionBand / publicationOf /
+  caseTimeline / detectGaps) are unit-tested (9 cases); the SVG renderer
+  with axis toggles + gap list was exercised end-to-end against the real
+  assembler via the stub-document harness.
+
 ## 2026-07-03 — Case dossier CD.2: async-inside-sync render, convergence surfaced not remapped
 
 Tags: `design`.
