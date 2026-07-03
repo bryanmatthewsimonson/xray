@@ -14,6 +14,9 @@ reach `flf.org` directly — these were supplied by the maintainer).
   cases serve: knowledge as a commons, objective structural/provenance
   layers vs. late-binding subjective assessment. Source:
   <https://flf.org/projects/epistack/>.
+- **[`JUDGING_CRITERIA.md`](JUDGING_CRITERIA.md)** — the **authoritative
+  rubric** (competition appendix): the seven scoring dimensions, the prize
+  tiers, and the judges' notes. This is what submissions are scored on.
 
 ## Status: these govern
 
@@ -34,12 +37,17 @@ against them is a follow-up.)
   (stepping-stones: a **comparative analysis**, or a **critique with
   counterexamples**). Demonstrate on **at least two** cases; the tooling
   should be general (judged against other cases too).
-- **Judging — what they care about most (verbatim):** *"Would this actually
-  help someone reason better about this case? Does it generalize? Does it
-  scale with improvements to AI or more compute? Does it compound, with
-  multiple people or teams building on each others' work?"* Plus the linked
-  [Judging Criteria](https://docs.google.com/document/d/1wtKAjpvEiMWn-RpFDi_2Vqcvt5i3sCFPmUt3MtsKOjo/edit?tab=t.v8o9nnadfvtm)
-  doc and [general contest rules](https://docs.google.com/document/d/1rTX-Z23HuR68E9CKn87FmrMin9w_rOFjStr3HgzwlXA/edit).
+- **Judging — the full rubric is now in [`JUDGING_CRITERIA.md`](JUDGING_CRITERIA.md).**
+  Seven dimensions (epistemic uplift; generalizability; compounding &
+  shareability; scalability; methodological transparency; adversarial
+  robustness; insight contribution) and three prize tiers (Transformative
+  $35k–$50k / Strong $15k–$35k / Promising $5k–$15k). **The load-bearing bar
+  (dimension 1 + judges' notes): "meaningfully better than off-the-shelf
+  deep research / a careful Claude Code investigation on the same
+  sub-question" — judges anchor against that baseline and are told to *run
+  it, not just read it*.** Still external: the
+  [general contest rules](https://docs.google.com/document/d/1rTX-Z23HuR68E9CKn87FmrMin9w_rOFjStr3HgzwlXA/edit)
+  (IP/licensing/eligibility fine print).
 - **Layer framing:** ingestion → structure → assessment, from Sourbut &
   Goldhaber's [*A Full Epistemic Stack*](https://www.lesswrong.com/posts/DMswzhPQqkqx2XAma/a-full-epistemic-stack-knowledge-commons-for-the-21st-1).
 - **Prizes:** ~$200k pool; $5k–$50k per entry; multiple $50k possible;
