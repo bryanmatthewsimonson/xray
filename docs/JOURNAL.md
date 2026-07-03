@@ -19,6 +19,37 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-03 — Case dossier CD.2: async-inside-sync render, convergence surfaced not remapped
+
+Tags: `design`.
+
+CD.2 hangs the Phase-15 shape-of-knowledge header + evidence view on the
+portal case view (`src/portal/case-dossier-block.js`, wired into
+`case-view.js` after the artifact rollup). Two second-guessable calls:
+
+- **Async-inside-sync render.** `assembleCaseDossier` (CD.1) is async and
+  reads the local truth model; the portal's `render()` path is
+  synchronous and pubkey-keyed. Rather than thread `await` through
+  `render()`, the block appends a container synchronously and fills it
+  when the assembler resolves (a microtask — the local read is fast).
+  The local entity id comes from `entityIndex[casePubkey].entityId`,
+  which the portal already carries. No `index.js` change; the sync render
+  path stays sync.
+- **"Convergence-collapsed" is surfaced, not remapped.** The design
+  §3.4 wants correlated coverage collapsed. CD.1's `attestationConvergence`
+  groups *supports-links* by origin_key, which does not cleanly map back
+  to individual articles without a fragile join. So the evidence block
+  renders the **independence measurement itself** (K independent origins
+  of N, per-origin baseline/independent/undemonstrated chips) beside the
+  per-article rows — the honest collapse (correlated coverage never
+  counts as independent) without inventing an origin→article remap. Finer
+  per-origin article nesting can come later.
+
+Presentation logic (`shapeOfKnowledge` / `evidenceView`) is pure and
+unit-tested (7 cases); the thin DOM renderer was exercised end-to-end
+against the real CD.1 assembler via a stub-document harness. No case
+score anywhere; coverage is stated on its face.
+
 ## 2026-07-03 — Case dossier CD.1: a pure model-spine assembler with a deliberate boundary
 
 Tags: `design`.

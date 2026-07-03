@@ -12,6 +12,7 @@ import { kindLabel, TYPE_DEFS } from './library.js';
 import { buildBuckets } from './timeline.js';
 import { renderDossierBlock } from './dossier-block.js';
 import { renderFindingsBlock } from './findings-block.js';
+import { renderCaseDossierBlock } from './case-dossier-block.js';
 
 function latestAssessmentByCoord(items) {
     const map = new Map();
@@ -86,6 +87,11 @@ export function renderCaseView(host, params) {
         rollup.appendChild(el('span', 'xr-badge', `${def.label}: ${n}`));
     }
     host.appendChild(rollup);
+
+    // --- Case dossier (CD.2) — the Phase-15 shape-of-knowledge header +
+    // convergence-collapsed evidence, computed on read from the local
+    // truth model for this case entity (async-fills; sync render path).
+    if (caseEnt && caseEnt.entityId) renderCaseDossierBlock(host, caseEnt.entityId);
 
     // --- Audit dossier (13.7) — the design assigns the block to
     // entity AND case views; a case is a pubkey-keyed entity.

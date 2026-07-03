@@ -810,6 +810,24 @@ await EvidenceLinker.deleteForClaim(claim.id);
 
 ---
 
+## Case dossier (CD.2 — shape of knowledge + evidence)
+
+Portal case view, `docs/CASE_DOSSIER_DESIGN.md` §3.1/§3.4. Needs a
+**local** case entity with claims → propositions → verdicts (author them
+via the reader adjudicate modal or the Phase 15 console walk above, all
+tagged to one case entity), then open that case in **My Archive**.
+
+| # | Step | Expect |
+|---|---|---|
+| CD2.1 | Open the portal, focus a case that has local propositions/verdicts | A **Shape of knowledge** block appears just under the artifact rollup |
+| CD2.2 | Read the distribution row | One count **chip per verdict state present** (Established true / false / Contested / Unresolved / Insufficient), in that canonical order — **no single "case score"** anywhere |
+| CD2.3 | Check atomized-but-unruled | If some propositions have no verdict, an **"Atomized, unruled: N"** chip shows; the coverage line always reads `articles · claims · with propositions · propositions · entities` (coverage on its face) |
+| CD2.4 | Read the standards chips | The **standards of proof** in play are listed (preponderance ≠ beyond reasonable doubt), never merged |
+| CD2.5 | Read the **Evidence** block | If any orbit `supports` links carry attestation, an **independence banner** ("K independent origin(s) of N") + per-origin chips (baseline / independent / undemonstrated) render; article rows list each source URL with its claim count. Correlated coverage is surfaced, **never** counted as independent |
+| CD2.6 | Open a case with **no** propositions | The block still renders, honestly: "No propositions ruled yet — 0 atomized across M claim(s) in K article(s)" |
+
+---
+
 ## Identity & workspace (profiles + fresh-workspace reset)
 
 All keyless. Settings ▸ Signing (Local method selected) + Settings ▸
