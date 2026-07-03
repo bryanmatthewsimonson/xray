@@ -153,6 +153,19 @@ export const EventBuilder = {
       tags.push(['author', article.byline]);
     }
 
+    // Phase 18 C2 — scholarly identity (additive/optional): a DOI rides
+    // as a greppable `doi` tag plus its NIP-73 external-id form
+    // (['i', 'doi:<lowercase>']); an arXiv id as `arxiv`. Metadata the
+    // publisher embedded, never inferred.
+    if (article.scholar && article.scholar.doi) {
+      tags.push(['doi', article.scholar.doi]);
+      tags.push(['i', 'doi:' + article.scholar.doi.toLowerCase()]);
+    }
+    if (article.scholar && article.scholar.arxiv_id) {
+      const v = article.scholar.arxiv_version ? 'v' + article.scholar.arxiv_version : '';
+      tags.push(['arxiv', article.scholar.arxiv_id + v]);
+    }
+
     // Phase 9 identity: reference the post author's stable PlatformAccount
     // pubkey, so the article is joined to the same identity used for that
     // author's comments and (Phase IV) their canonical person.

@@ -33,6 +33,7 @@ import * as tiktok    from './tiktok.js';
 import * as instagram from './instagram.js';
 import * as facebook  from './facebook.js';
 import { extractGenericComments } from './comment-extractor.js';
+import { extractScholarlyMeta } from './scholar-meta.js';
 
 /** @typedef {{ synthesize?: () => Promise<object|null>, enrich?: (article: object) => Promise<object|null> | object|null }} PlatformHandler */
 
@@ -110,6 +111,18 @@ export async function enrichArticleForPlatform(article, platform) {
             }
         } catch (err) {
             console.warn('[X-Ray] Generic comment extraction failed:', err);
+        }
+    }
+    // Phase 18 C2 — scholarly metadata (DOI / arXiv / journal /
+    // citation authors) from standard meta tags. Generic like the
+    // comment pass: a no-op on non-scholarly pages.
+    if (!enriched.scholar && typeof document !== 'undefined') {
+        try {
+            const scholar = extractScholarlyMeta(document,
+                (typeof window !== 'undefined' && window.location && window.location.href) || '');
+            if (scholar) enriched.scholar = scholar;
+        } catch (err) {
+            console.warn('[X-Ray] Scholarly metadata extraction failed:', err);
         }
     }
     return enriched;
