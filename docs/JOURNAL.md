@@ -19,6 +19,28 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-03 — Sprint descopes: public relays only; consensus-protocols idea dropped
+
+Tags: `design`.
+
+Two owner decisions, same day as the scope freeze:
+
+- **No self-hosted relay.** Running relay infrastructure was cut to
+  maximize time on X-Ray itself; the Epistack graph publishes to 2–3
+  durable public relays. The honest durability story was always the
+  bundled raw signed-event JSON (relays are the live demo, not the
+  archive); the first real 30063 publish (SMOKE §15 round trip) now
+  doubles as the public-relay kind-acceptance test for 30040–30064.
+- **`docs/ideas/CONSENSUS_PROTOCOLS_PLAN.md` deleted** (harvested from
+  the dead trust-systems branch only days before). The
+  aggregation/web-of-trust/bridging direction is not being pursued —
+  team collaboration will run on roster-scoped trust (you invited
+  them), not computed consensus. Anyone needing the old text can
+  recover it from PR #93's history; the repo should not advertise a
+  direction the owner has ruled out.
+
+---
+
 ## 2026-07-03 — Identity profiles: one live slot, derived active, reset as the paired half
 
 Tags: `design`.
