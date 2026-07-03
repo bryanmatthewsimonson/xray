@@ -1415,6 +1415,27 @@ Epistack sprint, alongside/after Phase 16.
 
 ---
 
+## Phase 18 — Complex content capture (PDFs, tables, scientific papers) 📝 design only
+
+**`docs/COMPLEX_CONTENT_DESIGN.md`** (v0.1, 2026-07-03). Three tiers
+under one substrate rule (*the deterministic text layer is always the
+grounding substrate*): **Tier 1** — extractor upgrades: complex tables
+preserved as sanitized HTML islands instead of GFM mangling, math
+recovered as TeX from MathJax/KaTeX, `arxiv.js`/`pmc.js` handlers +
+DOI/Crossref enrichment; **Tier 2** — native PDF ingestion: background
+routes PDF tabs (today's sendMessage-failure dead end) to the reader,
+pdf.js parses there, layout reconstruction → markdown + page map,
+original bytes archived by `source_hash` (IndexedDB v3), page-anchored
+claims via additive `FragmentSelector`; **Tier 3** — LLM extraction
+assist behind `llmAssist`: structure-only reconstruction re-grounded
+span-by-span against the Tier-2 substrate (the quote-as-search-key
+contract, one level down), model transcription allowed only for pure
+scans and honestly labeled in a new `extraction` provenance record.
+Slices C1–C6 in the design doc; C1/C2 are independent quick wins.
+Sequenced after the Epistack sprint.
+
+---
+
 ## Abandonment criteria
 
 From issue #20 — bears repeating. At any phase boundary, if the cost

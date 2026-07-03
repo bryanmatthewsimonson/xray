@@ -30,6 +30,14 @@ Sections per release: **Added** (new features), **Changed**
   whose names token-match an existing same-type entity offer **"use
   existing"** (single candidate = default) instead of minting
   near-duplicate ids.
+- **Complex content capture design**
+  (`docs/COMPLEX_CONTENT_DESIGN.md`, design-only, ROADMAP Phase 18):
+  three tiers for PDFs / complex tables / scientific papers —
+  deterministic extractor upgrades (HTML-island tables, TeX recovery,
+  scholarly handlers), native PDF ingestion (pdf.js in the reader,
+  archived source bytes by hash, page-anchored claims), and a gated
+  LLM extraction assist constrained by a dual-substrate rule so model
+  output can never masquerade as document text.
 - **Entity corpus + smart management design**
   (`docs/ENTITY_CORPUS_DESIGN.md`, design-only): deterministic
   duplicate reporting + LLM entity audit over the existing alias
