@@ -286,31 +286,40 @@ and deliberately spans the confident↔uncertain curve:
 - **Stale competition facts:** Task 0 before scope-freeze; never repeat the
   digest's git hashes or "fast-forward" as load-bearing in the writeup.
 
-## 9. Open decisions for the user
+## 9. Open decisions for the user — ALL DECIDED 2026-07-03 (scope freeze)
 
-1. **Scope:** three cases (eggs+COVID+LHC) as recommended, or two
-   (eggs+COVID) for more slack? LHC is the descope lever.
-2. **Consent to publish the COVID IntegrityFinding naming EcoHealth** at
-   all? Most novel artifact, highest legal/reputational surface — your risk
-   appetite decides (ship / lower-exposure substitute / omit).
-3. **Relays:** which public relays to trust; stand up a self-hosted relay
-   (recommended) and/or a hosting box for the explorer? Ongoing cost +
-   exposure.
-4. **Anthropic API key + LLM budget** for ~30–45 sources (auditor is
-   Anthropic-only, consent-gated, article text leaves the device).
-5. **Individual vs team**, and the **open-source license** — pending Task 0
-   IP/eligibility terms.
-6. **Accept the mid-point descope gate + substrate fallback** (a
-   downgraded-but-shipped entry beats a rushed full one)?
-7. **Sign off on honest-calibration framing** — headline COVID verdict as
-   "undetermined, capped by withheld data," and explicit under-claiming on
-   the not-yet-activated Brier track record.
+1. **Scope: DECIDED — all three cases, depth-scoped** as recommended
+   (eggs deep spine / COVID bounded 2–3 propositions / LHC thin single
+   proposition). LHC remains the descope lever at the §6 mid-point gate.
+2. **EcoHealth IntegrityFinding: DECIDED — ship it.** Institution-level
+   only, documented gap-cause, intent never adjudicated, no `p`-tag on
+   the verdicts; the headline COVID verdict stays
+   "contested/undetermined."
+3. **Relays: DECIDED — self-host one no-auth relay + ~2 durable public
+   relays.** Raw signed-event JSON is bundled regardless, so a relay
+   outage can't falsify replayability. The explorer hosting box stays
+   upside-only (§5 deliverable 10).
+4. **LLM budget: DECIDED — ~$100 ceiling.** Sonnet-class for suggest
+   passes and most audits; a handful of Opus-class thorough audits on
+   the load-bearing spine sources; headroom for re-runs.
+5. **Entry identity: DECIDED — individual entry, existing MIT license.**
+   The fetched rules admit individuals and teams; the IP fine print
+   lives in the linked contest-rules doc — re-verify it at submission
+   time.
+6. **Descope gate: ACCEPTED as written** — mid-point gate ~Jul 9; the
+   substrate fallback stays ready (a downgraded-but-shipped entry beats
+   a rushed full one).
+7. **Honest-calibration framing: SIGNED OFF** — headline COVID verdict
+   "contested/undetermined, capped by withheld data"; the word
+   "calibrated" is never applied to X-Ray's own output; the Brier loop
+   is disclosed as logged-not-activated.
 
 ## 10. Immediate next actions
 
 1. **You:** run Task 0 (fetch flf.org rules + judging-criteria doc; submit
    the EOI form) — it gates scope-freeze and I can't reach flf.org.
-   *(Rules/criteria fetch DONE — `docs/epistack/`; EOI status unknown.)*
+   *(Rules/criteria fetch DONE — `docs/epistack/`; §9 scope-freeze
+   DECIDED 2026-07-03; EOI status unknown — submit if not yet done.)*
 2. **Me, on your go** *(DONE — merged as #89)*: merge `phase-15-adjudicate-ui` to `main` behind its
    default-off flag, run the full gate (test/build/lint) and report green
    before anything else; then stand up the capture run scaffolding.
