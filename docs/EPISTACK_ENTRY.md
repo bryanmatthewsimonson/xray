@@ -5,6 +5,14 @@
 > 2026-07-19**. This doc is both the internal plan and the skeleton of
 > the submission writeup — §5 is the part that becomes the entry.
 >
+> **Superseded for the final writeup (2026-07-03):** the rubric-mapped
+> ≤10-page structure now lives in
+> [`EPISTACK_WRITEUP_SKELETON.md`](EPISTACK_WRITEUP_SKELETON.md), with the
+> dimension-1 baseline in
+> [`EPISTACK_BASELINE_COMPARISON.md`](EPISTACK_BASELINE_COMPARISON.md).
+> This doc stays as history + the layer-mapping reference; **its §4.1
+> self-cap is void** — the verdict layer shipped (Phase 15, PR #89).
+>
 > **Sourcing caveat:** competition details below were assembled from the
 > announcement and its mirrors via search summaries (the drafting
 > environment could not fetch flf.org directly). Before submitting,

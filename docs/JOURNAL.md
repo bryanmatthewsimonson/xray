@@ -19,6 +19,32 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-03 — Entry writeup: build-to-rubric skeleton + a fair baseline
+
+Tags: `design`.
+
+Slice 7 staged the two entry documents the deadline needs:
+`EPISTACK_WRITEUP_SKELETON.md` (the ≤10-page structure, mapped 1:1 to the
+authoritative 7-dimension rubric + each named desideratum) and
+`EPISTACK_BASELINE_COMPARISON.md` (dimension 1's "meaningfully better than
+off-the-shelf deep research" answered head-on). Calls worth keeping:
+
+- **The baseline is reproduced, not strawmanned.** The appendix writes out
+  a genuinely good deep-research answer to the eggs question first — then
+  argues the difference is *provenance / tamper-evidence / per-source audit
+  / forkability*, NOT a better point estimate. On "should I eat eggs" the
+  two answers deliberately converge; the uplift is that X-Ray's survives
+  adversarial pressure, handoff, and time. This keeps the honest-
+  calibration guardrail (never claim a better estimate; never call X-Ray's
+  output "calibrated").
+- **The old §4.1 self-cap is declared void, once.** The skeleton states the
+  verdict layer as *shipped* (Phase 15, PR #89), not aspirational, and
+  points `EPISTACK_ENTRY.md` at the new skeleton so there's one live
+  writeup source, not two drifting ones.
+- **Everything run-dependent is a `TBD-run` marker**, collected into a
+  fill-in checklist, so the capture run has an explicit worklist and the
+  writeup can't accidentally ship a fabricated number.
+
 ## 2026-07-03 — Sprint descopes: public relays only; consensus-protocols idea dropped
 
 Tags: `design`.
