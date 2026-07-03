@@ -19,6 +19,31 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-03 — Demo staging: three self-verifying scripts, same code as ships
+
+Tags: `design`.
+
+`demos/` holds the entry's compounding/robustness demos (win plan §5.4):
+content-addressing tamper, n=2 disagreeing verdict, relay replay. Two
+choices worth recording:
+
+- **Self-verifying, not just illustrative.** Each script asserts its
+  invariant and exits non-zero on failure, and `tests/demos.test.mjs`
+  runs all three as subprocesses under `npm test`. So the claims the
+  entry makes ("a content edit breaks the binding", "disagreement is
+  never averaged", "the graph replays without the extension") are gated
+  by CI, not just prose.
+- **Same code as ships, where it matters.** The tamper demo imports the
+  real `articleHash`; the n=2 demo imports the real `verdictVariance` —
+  so what a judge runs is the wire behaviour, not a reimplementation. The
+  n=2 demo needs a one-line `chrome` shim only so `storage.js` *loads*
+  outside a browser (it never reads storage). The relay-replay consumer
+  is the exception on purpose: it inlines a bech32 npub→hex decode and
+  uses only the global `WebSocket`, so it proves "replayable by anyone
+  with no dependencies." Its `--self-test` verifies the pure parts
+  offline (this environment can't assume relay egress); the live path is
+  the judge's to run against the published graph.
+
 ## 2026-07-03 — Sprint descopes: public relays only; consensus-protocols idea dropped
 
 Tags: `design`.
