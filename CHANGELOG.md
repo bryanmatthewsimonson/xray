@@ -12,6 +12,17 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **PDF extraction-quality warnings (Phase 18 C4.1).** The layout
+  engine now reports when reconstruction degraded instead of
+  presenting it as clean: `extraction.warnings` flags `sparse-pages`
+  (pages with no text layer inside an otherwise texty document —
+  likely scans whose content is missing from the capture) and
+  `shredded-text` (runs that never joined into normal lines), and the
+  reader banners them with the affected page ranges and a pointer to
+  the archived original (`source_hash`). Design notes folded into
+  `COMPLEX_CONTENT_DESIGN.md`: the figures/captions gap (§9 Q6) and
+  the companion-CLI adoption path for server-class document tooling
+  (Docling/GROBID — never in-extension, never hidden).
 - **Entities bar** (userscript parity): the reader shows every entity
   tagged on the article as a chip row above the claims bar — icon +
   current registry name + type, with the verbatim mention as the

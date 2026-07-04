@@ -168,6 +168,12 @@ async function loadArticle() {
 /** Shared adoption tail for every load path (session hand-off, PDF). */
 function adoptArticle(article, stored) {
     state.article = article;
+
+    // PDF captures: surface the layout engine's quality warnings
+    // (missing text layers, failed paragraph merging) before anyone
+    // quotes from an affected passage.
+    try { renderExtractionWarningsBanner(); }
+    catch (err) { console.warn('[X-Ray Reader] extraction banner failed:', err); }
     state.markdownDraft = article.markdown || article.content || '';
     state.htmlDraft = article.content || ContentExtractor.markdownToHtml(state.markdownDraft);
 
@@ -860,6 +866,38 @@ function renderHashMismatchBanner(prior) {
       </div>
     `;
     $('#xr-hash-dismiss').addEventListener('click', () => banner.remove());
+}
+
+/**
+ * Extraction-quality banner (Phase 18 C4.1) — surfaces the layout
+ * engine's warnings on PDF captures: sparse (likely scanned) pages
+ * whose content is missing, and pages where line→paragraph merging
+ * failed. "Degrade, never drop" needs this honesty layer: a shaky
+ * extraction presented as clean is a provenance failure.
+ */
+function renderExtractionWarningsBanner() {
+    const warnings = state.article && state.article.extraction && state.article.extraction.warnings;
+    if (!Array.isArray(warnings) || warnings.length === 0) return;
+    let banner = $('#xr-extract-banner');
+    if (!banner) {
+        banner = document.createElement('aside');
+        banner.id = 'xr-extract-banner';
+        banner.className = 'xr-hash-banner';
+        const main = $('#xr-main');
+        if (!main || !main.parentElement) return;
+        main.parentElement.insertBefore(banner, main);
+    }
+    banner.innerHTML = `
+      <div class="xr-hash-banner__body">
+        <div class="xr-hash-banner__label">⚠️ Extraction quality warning${warnings.length > 1 ? 's' : ''}</div>
+        ${warnings.map((w) => `<div class="xr-hash-banner__metric">${escapeHtml(w.message)}</div>`).join('')}
+        <div class="xr-hash-banner__metric">The original PDF is archived (source_hash ${escapeHtml(String(state.article.extraction.source_hash || '').slice(0, 12))}…) — verify against it before relying on affected passages.</div>
+      </div>
+      <div class="xr-hash-banner__actions">
+        <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-extract-dismiss">Dismiss</button>
+      </div>
+    `;
+    $('#xr-extract-dismiss').addEventListener('click', () => banner.remove());
 }
 
 function renderReader() {

@@ -60,6 +60,13 @@ documents a case capture most needs.
 
 - No server-side conversion service — everything runs in the
   extension (or, gated, through the user's own Anthropic key).
+  *Adoption note:* heavyweight document-AI stacks (Docling, GROBID,
+  pdfplumber-class tooling) are Python/Java server software and can
+  never run in-extension. If a future corpus genuinely needs
+  GROBID-quality scientific parsing, the sanctioned shape is a
+  **user-run companion CLI** producing JSON the extension imports and
+  validates — exactly the epistemic-auditor scorer precedent — never
+  a hidden service. Out of scope for every slice below.
 - No general OCR stack (tesseract.js + WASM + language data is ~10MB
   of bundle and MV3 CSP friction); scanned documents route through
   the Tier-3 LLM path instead, honestly labeled.
@@ -210,11 +217,20 @@ case (and is the fully-offline path).
   HTML captures — the whole grounding/claims/audit stack works
   unchanged.
 
-### 5.5 Known limits (by design)
+### 5.5 Known limits (by design) + quality honesty
 
 Encrypted PDFs: fail with a clear message. Pure-scan PDFs (no text
 layer): detected (near-empty text content) and offered the Tier-3
 path. Forms/annotations: out of scope v1.
+
+**Quality warnings (C4.1, shipped):** "degrade, never drop" needs an
+honesty layer — a shaky extraction silently presented as clean is a
+provenance failure. The layout engine emits `extraction.warnings`
+(`{code, pages, message}`): `sparse-pages` (pages with no text layer
+inside a document that provably has one — likely scanned pages whose
+content is *missing*) and `shredded-text` (many tiny lines — run
+joining failed; reconstruction unreliable). The reader banners them
+with a pointer to the archived original bytes.
 
 ## 6. Tier 3 — LLM extraction assist
 
@@ -326,3 +342,11 @@ unlock; C5 only after C4's substrate exists (the rule requires it).
    approximation next to an HTML-island table for grep-ability of
    published markdown — leaning no (two renderings of one table is
    two chances to disagree).
+6. **Figures and captions in PDFs.** The Tier-2 path currently drops
+   images entirely — a real gap for papers and reports where the
+   figure IS the evidence. pdf.js can enumerate page image XObjects;
+   captions pair by proximity ("Figure N" lines below/above the
+   image region). Archiving figure bitmaps alongside the source
+   bytes (they're already inside them) vs. extracting them as
+   first-class capture objects needs its own slice; the screenshot
+   pipeline (`xray:screenshot:capture`) is the likely renderer.

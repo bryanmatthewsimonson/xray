@@ -718,6 +718,7 @@ publishes. Requires a real Anthropic API key
 |---|---|---|
 | 18.5 | Open a text PDF (e.g. an arXiv paper PDF) in a tab, click the X-Ray toolbar icon | ✅ the reader opens on the `?pdf=` path and shows extracted markdown — headings, paragraphs, two-column papers in correct reading order (left column before right) |
 | 18.6 | DevTools on the reader: inspect `state.article.extraction` | ✅ `{ method: "pdfjs-…", source_hash: <64-hex>, page_count, archived: true }`; the `source_documents` IndexedDB store holds the original bytes under that hash |
+| 18.6b | Capture a PDF with SOME scanned pages (or a form-heavy/glyph-shredded one) | ✅ a **⚠️ Extraction quality** banner above the article names the affected pages ("little or no text layer… content is missing" / "short fragments… verify quotes"), cites the `source_hash`, and dismisses; a clean text PDF shows no banner (and `extraction.warnings` is absent) |
 | 18.7 | Select a sentence in the PDF capture → Add as claim → Accept, then inspect the claim's `anchor` | ✅ the selector array includes `{"type":"FragmentSelector","value":"page=N"}` with the right page |
 | 18.8 | Click the toolbar icon on a scanned (image-only) PDF | ✅ a clear error explains there is no text layer (LLM transcription is designed, not built) — no junk capture is created |
 | 18.9 | Load a PDF behind a login where refetch fails (or use `?pdf=import`) | ✅ the Import-file picker appears; picking the saved PDF captures it (URL provenance retained when known) |

@@ -1438,6 +1438,10 @@ grounding substrate*).
   furniture removal, hyphenation reflow, headings) → markdown +
   pageMap; `FragmentSelector` page anchors on claims; `extraction`
   provenance record; scans refused with a pointer to C5.
+- ✅ **C4.1** extraction-quality honesty — `extraction.warnings`
+  (`sparse-pages`: scanned pages whose content is missing;
+  `shredded-text`: run joining failed) surfaced as a reader banner
+  with a pointer to the archived original bytes.
 - 📝 **C5** LLM extraction assist (dual-substrate re-grounding;
   scans-only transcription, honestly labeled) — designed, not built.
 - 📝 **C6** SMOKE §Phase 18 walk needs a human with a browser.

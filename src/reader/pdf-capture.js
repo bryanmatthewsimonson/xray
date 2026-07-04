@@ -111,7 +111,7 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
             + '(COMPLEX_CONTENT_DESIGN.md §6).');
     }
 
-    const { markdown, pageMap, stats } = buildDocumentFromPages(pages);
+    const { markdown, pageMap, warnings, stats } = buildDocumentFromPages(pages);
     if (!markdown.trim()) throw new Error('No text could be reconstructed from this PDF.');
 
     const fileName = decodeURIComponent((sourceUrl.split('/').pop() || '')
@@ -134,7 +134,10 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
             source_hash: sourceHash,
             page_count: doc.numPages,
             archived,
-            furniture_dropped: stats.furnitureDropped
+            furniture_dropped: stats.furnitureDropped,
+            // Quality honesty (C4.1): present only when something looked
+            // shaky — the reader banners these.
+            ...(warnings && warnings.length ? { warnings } : {})
         }
     };
 }

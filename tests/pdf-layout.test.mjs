@@ -176,3 +176,55 @@ test('pdfDocumentUrl: direct, wrapper, and non-PDF shapes', () => {
     assert.equal(looksLikePdfUrl('https://x.test/a.pdf?x=1'), true);
     assert.equal(looksLikePdfUrl('https://x.test/a.pdfx'), false);
 });
+
+// ------------------------------------------------------------------
+// Extraction-quality warnings (C4.1)
+// ------------------------------------------------------------------
+
+test('warnings: a clean document produces none', () => {
+    const pages = [1, 2, 3].map((n) => page([
+        run(`Page ${n} has a healthy paragraph with plenty of words in it`, 72, 700),
+        run('and a second line that merges into the same paragraph nicely', 72, 686),
+        run('plus a third line to keep the density realistic here', 72, 672)
+    ]));
+    const { warnings } = buildDocumentFromPages(pages);
+    assert.deepEqual(warnings, []);
+});
+
+test('warnings: sparse pages inside a texty document are flagged with page ranges', () => {
+    const texty = (n) => page([run(
+        'A substantial page with a long paragraph of body text that easily clears the sparse threshold because it has many characters. '.repeat(3),
+        72, 700
+    )]);
+    const blank = page([]);
+    const { warnings } = buildDocumentFromPages([texty(1), blank, blank, texty(4), blank]);
+    const sparse = warnings.find((w) => w.code === 'sparse-pages');
+    assert.ok(sparse, 'sparse-pages warning present');
+    assert.deepEqual(sparse.pages, [2, 3, 5]);
+    assert.match(sparse.message, /2–3, 5/);
+    assert.match(sparse.message, /missing/i);
+});
+
+test('warnings: an all-scan document is NOT flagged sparse (the scan refusal path owns it)', () => {
+    const { warnings } = buildDocumentFromPages([page([]), page([]), page([])]);
+    assert.equal(warnings.find((w) => w.code === 'sparse-pages'), undefined);
+});
+
+test('warnings: shredded text (many tiny lines) is flagged', () => {
+    // 24 lines of ~7 chars each: runs never joined into normal lines.
+    const items = [];
+    for (let i = 0; i < 24; i++) {
+        items.push(run(`Frag ${i}`, 72, 700 - i * 14));
+    }
+    const { warnings } = buildDocumentFromPages([page(items)]);
+    const shred = warnings.find((w) => w.code === 'shredded-text');
+    assert.ok(shred, 'shredded-text warning present');
+    assert.deepEqual(shred.pages, [1]);
+    assert.match(shred.message, /verify quotes/i);
+    // A normal texty page does not trip it.
+    const clean = buildDocumentFromPages([page(
+        Array.from({ length: 24 }, (_, i) =>
+            run(`A perfectly ordinary body-text line number ${i} with plenty of characters in it`, 72, 700 - i * 14))
+    )]);
+    assert.equal(clean.warnings.find((w) => w.code === 'shredded-text'), undefined);
+});

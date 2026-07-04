@@ -40,6 +40,14 @@ const HEAD_H1_FACTOR          = 1.6;   // × median body size
 const HEAD_H2_FACTOR          = 1.25;
 const HEADING_MAX_WORDS       = 14;
 
+// Extraction-quality heuristics (C4.1): reconstruction degrades rather
+// than drops, but the USER must be told when it degraded — a shaky
+// extraction silently presented as clean is a provenance failure.
+const SPARSE_PAGE_CHARS = 50;   // page text below this ≈ no text layer
+const SPARSE_TEXTY_PAGE = 200;  // …flagged only when SOME page proves a real text layer exists
+const SHRED_MIN_LINES   = 20;   // shredded-text check needs enough lines
+const SHRED_MEAN_CHARS  = 20;   // mean line length below this = runs didn't join
+
 // ------------------------------------------------------------------
 // Lines
 // ------------------------------------------------------------------
@@ -260,6 +268,7 @@ export function buildDocumentFromPages(pages) {
 
     let markdown = '';
     const pageMap = [];
+    const pageStats = [];
     list.forEach((page, pi) => {
         const ordered = orderPageLines(pageLines[pi], page);
         const paras = paragraphsOfPage(ordered, bodySize);
@@ -274,9 +283,83 @@ export function buildDocumentFromPages(pages) {
             markdown += prefix + text;
         }
         pageMap.push({ page: pi + 1, start: emitted ? start : markdown.length, end: markdown.length });
+        pageStats.push({
+            page: pi + 1,
+            chars: ordered.reduce((s, l) => s + l.text.length, 0),
+            lines: ordered.length,
+            paras: paras.length
+        });
     });
 
-    return { markdown, pageMap, stats: { chars: markdown.length, furnitureDropped } };
+    return {
+        markdown, pageMap,
+        warnings: extractionWarnings(pageStats),
+        stats: { chars: markdown.length, furnitureDropped }
+    };
+}
+
+/**
+ * Extraction-quality warnings (C4.1) — the honesty layer over "degrade,
+ * never drop". Each warning: { code, pages: number[], message }.
+ *
+ *   sparse-pages   pages with (near-)no text layer in a document that
+ *                  provably HAS one elsewhere (≥1 texty page) — likely
+ *                  scanned/image pages; their content is MISSING from
+ *                  the capture. All-scan documents are not flagged
+ *                  here: the scan-refusal path owns those.
+ *   shredded-text  many lines with a tiny mean length — text runs
+ *                  didn't join into normal lines (glyph-per-run PDFs,
+ *                  forms, aggressive gutter splits); reconstruction is
+ *                  unreliable. (Poetry/lyrics trip this legitimately —
+ *                  it is a verify-me flag, not a verdict.)
+ */
+export function extractionWarnings(pageStats) {
+    const warnings = [];
+    const list = Array.isArray(pageStats) ? pageStats : [];
+    if (list.length === 0) return warnings;
+
+    const hasTextyPage = list.some((p) => p.chars >= SPARSE_TEXTY_PAGE);
+    if (hasTextyPage) {
+        const sparse = list.filter((p) => p.chars < SPARSE_PAGE_CHARS).map((p) => p.page);
+        if (sparse.length) {
+            warnings.push({
+                code: 'sparse-pages',
+                pages: sparse,
+                message: `Page${sparse.length > 1 ? 's' : ''} ${formatPageList(sparse)} `
+                    + `${sparse.length > 1 ? 'have' : 'has'} little or no text layer (possibly scanned `
+                    + 'images) — that content is missing from this capture.'
+            });
+        }
+    }
+
+    const shredded = list
+        .filter((p) => p.lines >= SHRED_MIN_LINES && (p.chars / p.lines) < SHRED_MEAN_CHARS)
+        .map((p) => p.page);
+    if (shredded.length) {
+        warnings.push({
+            code: 'shredded-text',
+            pages: shredded,
+            message: `Text extracted as short fragments on page${shredded.length > 1 ? 's' : ''} `
+                + `${formatPageList(shredded)} — line/paragraph reconstruction may be unreliable; `
+                + 'verify quotes against the archived original.'
+        });
+    }
+    return warnings;
+}
+
+/** Compact page-list formatting: [1,2,3,7] → "1–3, 7". */
+function formatPageList(pages) {
+    const out = [];
+    let start = null;
+    let prev = null;
+    for (const p of pages) {
+        if (start === null) { start = prev = p; continue; }
+        if (p === prev + 1) { prev = p; continue; }
+        out.push(start === prev ? `${start}` : `${start}–${prev}`);
+        start = prev = p;
+    }
+    if (start !== null) out.push(start === prev ? `${start}` : `${start}–${prev}`);
+    return out.join(', ');
 }
 
 /** 1-based page containing markdown offset `offset`, or null. */
