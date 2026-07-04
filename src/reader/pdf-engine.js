@@ -4,4 +4,4 @@
 // pdf-capture.js only when a PDF is actually captured, so the ~1.5MB
 // engine never weighs down the ordinary reader load. Its worker is the
 // sibling dist/pdf.worker.bundle.js (see pdf-worker-entry.js).
-export { getDocument, GlobalWorkerOptions, version } from 'pdfjs-dist';
+export { getDocument, GlobalWorkerOptions, version, OPS } from 'pdfjs-dist';

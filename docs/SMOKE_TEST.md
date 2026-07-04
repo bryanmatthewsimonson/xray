@@ -723,6 +723,8 @@ publishes. Requires a real Anthropic API key
 | 18.8 | Click the toolbar icon on a scanned (image-only) PDF | ✅ a clear error explains there is no text layer (LLM transcription is designed, not built) — no junk capture is created |
 | 18.9 | Load a PDF behind a login where refetch fails (or use `?pdf=import`) | ✅ the Import-file picker appears; picking the saved PDF captures it (URL provenance retained when known) |
 | 18.10 | Repeat 18.5 on Firefox ≥128 | ✅ identical behavior (routing normalizes Firefox's viewer URL; extraction runs in the reader page) |
+| 18.12 | Capture a figure-bearing PDF (e.g. a paper with charts/photos) | ✅ figures appear in the article inline, roughly where they sit on the page, with a caption or `Figure (page N)` alt; `state.article.extraction.figures` is the count; the `source_documents` store holds each figure as a PNG keyed by its sha256, and the markdown carries `![alt](xray-figure:<sha256>)` refs |
+| 18.13 | Capture a PDF whose image-only page has NO text layer | ✅ the page's image is captured and shown, and that page is **not** listed in the `sparse-pages` warning (its content was captured); a page with neither text nor figure still is |
 
 **Scholarly metadata (C2)**
 

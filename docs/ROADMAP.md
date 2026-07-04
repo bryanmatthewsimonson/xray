@@ -1415,7 +1415,7 @@ Epistack sprint, alongside/after Phase 16.
 
 ---
 
-## Phase 18 — Complex content capture (PDFs, tables, scientific papers) 🚧 C1–C4 landed
+## Phase 18 — Complex content capture (PDFs, tables, scientific papers) 🚧 C1–C4.2 landed
 
 **`docs/COMPLEX_CONTENT_DESIGN.md`** (v0.1, 2026-07-03). Three tiers
 under one substrate rule (*the deterministic text layer is always the
@@ -1442,6 +1442,14 @@ grounding substrate*).
   (`sparse-pages`: scanned pages whose content is missing;
   `shredded-text`: run joining failed) surfaced as a reader banner
   with a pointer to the archived original bytes.
+- ✅ **C4.2** PDF figures — page image XObjects extracted via an
+  operator-list transform walk (`reader/pdf-capture.js`), archived as
+  content-addressed PNGs in `source_documents`, and placed into the
+  reading-order markdown by vertical position with proximity captions
+  (`pdf-layout.js#mergeFigures`); rendered `![alt](xray-figure:<sha256>)`
+  → blob URL at read time. Size/furniture/count guards; an image-only
+  page is no longer flagged `sparse-pages`. *(Deferred: OCR inside
+  figures; vector-drawn charts with no image XObject.)*
 - 📝 **C5** LLM extraction assist (dual-substrate re-grounding;
   scans-only transcription, honestly labeled) — designed, not built.
 - 📝 **C6** SMOKE §Phase 18 walk needs a human with a browser.

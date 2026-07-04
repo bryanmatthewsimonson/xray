@@ -304,6 +304,30 @@ function pickPdfFile(message) {
     });
 }
 
+/**
+ * Archived PDF figures (C4.2): markdown carries content-addressed
+ * `xray-figure:<sha256>` image URLs; this resolves them to live blob
+ * URLs from the source_documents byte archive. The durable identity
+ * stays on data-xray-figure so body→markdown round-trips re-emit the
+ * content address, never the session blob URL. Evicted bytes leave
+ * the alt text showing — degraded, visible, never wrong.
+ */
+async function hydrateFigureImages(root) {
+    if (!root) return;
+    const imgs = root.querySelectorAll('img[src^="xray-figure:"]');
+    for (const img of imgs) {
+        const hash = img.getAttribute('src').slice('xray-figure:'.length);
+        if (!/^[0-9a-f]{64}$/.test(hash)) continue;
+        img.setAttribute('data-xray-figure', hash);
+        try {
+            const row = await ArchiveCache.getSourceDocument(hash);
+            if (!row || !row.bytes) continue;
+            const url = URL.createObjectURL(new Blob([row.bytes], { type: row.mime || 'image/png' }));
+            img.src = url;
+        } catch (_) { /* alt text remains — honest degradation */ }
+    }
+}
+
 // Page-level provenance (COMPLEX_CONTENT_DESIGN.md §5.4): the pageMap
 // indexes the EXTRACTED MARKDOWN, so page lookup grounds the quote
 // against that substrate (not the rendered body, whose offsets differ).
@@ -937,6 +961,11 @@ function renderReader() {
         rehydrateEntityMarks(body, state.article.entities)
             .catch((err) => console.warn('[X-Ray Reader] rehydrate failed:', err));
     }
+
+    // Archived PDF figures (C4.2): swap content-addressed
+    // xray-figure: srcs for live blob URLs from the byte archive.
+    hydrateFigureImages(body)
+        .catch((err) => console.warn('[X-Ray Reader] figure hydrate failed:', err));
 
     // Mount the entity tagger on the article body. Its onTag callback
     // pushes the resolved ref onto the article's entity list and marks

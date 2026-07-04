@@ -16,6 +16,15 @@ import { putSourceDocument } from '../shared/archive-cache.js';
 import { buildDocumentFromPages, textDensity } from '../shared/pdf-layout.js';
 import { ContentExtractor } from '../shared/content-extractor.js';
 
+// Figure extraction bounds (C4.2). Displayed size is in PDF points,
+// intrinsic size in pixels; both floors skip decorations. A hash that
+// recurs on ≥ FIGURE_FURNITURE_PAGES pages is page furniture (logos,
+// watermarks) — dropped like repeating header text.
+const FIGURE_MIN_POINTS = 40;
+const FIGURE_MIN_PIXELS = 40;
+const FIGURE_FURNITURE_PAGES = 3;
+const FIGURE_MAX_COUNT = 40;
+
 const browserApi = (typeof browser !== 'undefined') ? browser : chrome;
 
 /** sha256 (lowercase hex) over raw bytes. */
@@ -38,6 +47,115 @@ function loadEngine() {
         return engine;
     })();
     return _enginePromise;
+}
+
+// ------------------------------------------------------------------
+// Figure extraction (C4.2) — image XObjects from the operator list
+// ------------------------------------------------------------------
+
+// 2×3 matrix multiply (PDF transform composition).
+function matMul(m1, m2) {
+    return [
+        m1[0] * m2[0] + m1[2] * m2[1],
+        m1[1] * m2[0] + m1[3] * m2[1],
+        m1[0] * m2[2] + m1[2] * m2[3],
+        m1[1] * m2[2] + m1[3] * m2[3],
+        m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
+        m1[1] * m2[4] + m1[3] * m2[5] + m1[5]
+    ];
+}
+
+// Resolve a decoded image object from the page (falls back to the
+// document-common store). pdf.js resolves these asynchronously.
+function getPageObject(page, name) {
+    return new Promise((resolve) => {
+        try {
+            page.objs.get(name, resolve);
+        } catch (_) {
+            try { page.commonObjs.get(name, resolve); }
+            catch (_) { resolve(null); }
+        }
+    });
+}
+
+// Decoded image → PNG bytes. Handles both decode shapes pdf.js emits:
+// an ImageBitmap (modern path) or raw {data, width, height} channels.
+async function imageToPngBytes(img) {
+    if (!img) return null;
+    const width = img.width || (img.bitmap && img.bitmap.width);
+    const height = img.height || (img.bitmap && img.bitmap.height);
+    if (!width || !height) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (img.bitmap) {
+        ctx.drawImage(img.bitmap, 0, 0);
+    } else if (img.data) {
+        const channels = Math.round(img.data.length / (width * height));
+        const rgba = new Uint8ClampedArray(width * height * 4);
+        if (channels === 4) {
+            rgba.set(img.data);
+        } else if (channels === 3) {
+            for (let i = 0, j = 0; j < img.data.length; i += 4, j += 3) {
+                rgba[i] = img.data[j]; rgba[i + 1] = img.data[j + 1];
+                rgba[i + 2] = img.data[j + 2]; rgba[i + 3] = 255;
+            }
+        } else if (channels === 1) {
+            for (let i = 0, j = 0; j < img.data.length; i += 4, j += 1) {
+                rgba[i] = rgba[i + 1] = rgba[i + 2] = img.data[j]; rgba[i + 3] = 255;
+            }
+        } else {
+            return null;
+        }
+        ctx.putImageData(new ImageData(rgba, width, height), 0, 0);
+    } else {
+        return null;
+    }
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    return blob ? await blob.arrayBuffer() : null;
+}
+
+/**
+ * Extract a page's displayed images: walk the operator list tracking
+ * the transform stack, decode each paintImageXObject, and return
+ * placement + PNG bytes. Best-effort by design — any failure yields
+ * fewer figures, never a failed capture.
+ *
+ * @returns {Promise<Array<{bytes: ArrayBuffer, x,y,w,h: number, px: number}>>}
+ */
+async function extractPageFigures(page, OPS) {
+    const out = [];
+    let opList;
+    try { opList = await page.getOperatorList(); }
+    catch (_) { return out; }
+
+    let ctm = [1, 0, 0, 1, 0, 0];
+    const stack = [];
+    for (let i = 0; i < opList.fnArray.length; i++) {
+        const fn = opList.fnArray[i];
+        const args = opList.argsArray[i];
+        if (fn === OPS.save) { stack.push(ctm.slice()); continue; }
+        if (fn === OPS.restore) { ctm = stack.pop() || [1, 0, 0, 1, 0, 0]; continue; }
+        if (fn === OPS.transform) { ctm = matMul(ctm, args); continue; }
+        if (fn !== OPS.paintImageXObject) continue;
+
+        // The image fills the unit square under the current transform;
+        // for the (typical) axis-aligned case that is:
+        const w = Math.abs(ctm[0]);
+        const h = Math.abs(ctm[3]);
+        if (w < FIGURE_MIN_POINTS || h < FIGURE_MIN_POINTS) continue;
+        try {
+            const img = await getPageObject(page, args[0]);
+            if (!img) continue;
+            const px = Math.min(img.width || 0, img.height || 0);
+            if (px < FIGURE_MIN_PIXELS) continue;
+            const bytes = await imageToPngBytes(img);
+            if (!bytes) continue;
+            out.push({ bytes, x: ctm[4], y: ctm[5], w, h, px });
+        } catch (_) { /* skip this image */ }
+    }
+    return out;
 }
 
 /**
@@ -82,13 +200,47 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
     const doc = await engine.getDocument({ data: bytes.slice(0) }).promise;
 
     const pages = [];
+    const figuresByHash = new Map();   // hash → { bytes, pages: Set<number> }
+    let figureCount = 0;
+    let figuresCapped = false;
     for (let p = 1; p <= doc.numPages; p++) {
         const page = await doc.getPage(p);
         const viewport = page.getViewport({ scale: 1 });
         const tc = await page.getTextContent();
+
+        // Figures (C4.2) — best-effort, capped, deduped by content hash.
+        // Some PDFs paint the same XObject twice on one page (clip-split
+        // renders); a page shows each distinct image once.
+        let figures = [];
+        if (figureCount < FIGURE_MAX_COUNT) {
+            try {
+                const raw = await extractPageFigures(page, engine.OPS);
+                const seenOnPage = new Set();
+                for (const fig of raw) {
+                    if (figureCount >= FIGURE_MAX_COUNT) { figuresCapped = true; break; }
+                    const hash = await sha256Bytes(fig.bytes);
+                    if (seenOnPage.has(hash)) continue;
+                    seenOnPage.add(hash);
+                    let entry = figuresByHash.get(hash);
+                    if (!entry) {
+                        entry = { bytes: fig.bytes, pages: new Set() };
+                        figuresByHash.set(hash, entry);
+                    }
+                    entry.pages.add(p);
+                    figures.push({ hash, x: fig.x, y: fig.y, w: fig.w, h: fig.h });
+                    figureCount += 1;
+                }
+            } catch (err) {
+                console.warn('[X-Ray PDF] figure extraction failed on page', p, err);
+            }
+        } else {
+            figuresCapped = true;
+        }
+
         pages.push({
             width: viewport.width,
             height: viewport.height,
+            figures,
             items: (tc.items || [])
                 .filter((i) => typeof i.str === 'string')
                 .map((i) => ({
@@ -99,6 +251,31 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
                     h: i.height || Math.abs(i.transform[3]) || 10
                 }))
         });
+    }
+
+    // Furniture pass: an identical image on many pages is a logo or
+    // watermark, not a figure (the image analogue of repeating header
+    // text). Then archive the survivors, content-addressed.
+    const furniture = new Set();
+    for (const [hash, entry] of figuresByHash) {
+        if (entry.pages.size >= FIGURE_FURNITURE_PAGES) furniture.add(hash);
+    }
+    let archivedFigures = 0;
+    for (const page of pages) {
+        page.figures = (page.figures || []).filter((f) => !furniture.has(f.hash));
+        for (const fig of page.figures) fig.ref = 'xray-figure:' + fig.hash;
+    }
+    for (const [hash, entry] of figuresByHash) {
+        if (furniture.has(hash)) continue;
+        try {
+            const res = await putSourceDocument({
+                hash, bytes: entry.bytes, mime: 'image/png',
+                url: `pdf-figure:${sourceHash}`
+            });
+            if (res.stored) archivedFigures += 1;
+        } catch (err) {
+            console.warn('[X-Ray PDF] figure archive failed (continuing):', err);
+        }
     }
 
     let info = {};
@@ -135,6 +312,9 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
             page_count: doc.numPages,
             archived,
             furniture_dropped: stats.furnitureDropped,
+            // Figures (C4.2): count of archived, content-addressed images.
+            ...(archivedFigures ? { figures: archivedFigures } : {}),
+            ...(figuresCapped ? { figures_capped: true } : {}),
             // Quality honesty (C4.1): present only when something looked
             // shaky — the reader banners these.
             ...(warnings && warnings.length ? { warnings } : {})

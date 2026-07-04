@@ -541,6 +541,15 @@ export const ContentExtractor = {
         turndown.addRule('images', {
           filter: 'img',
           replacement: (content, node) => {
+            // Phase 18 C4.2 — archived PDF figures render with a
+            // session-scoped blob: src; the durable identity is the
+            // content address in data-xray-figure. Round-trip THAT,
+            // never the blob URL.
+            const figureHash = node.getAttribute('data-xray-figure');
+            if (figureHash) {
+              const figAlt = node.getAttribute('alt') || '';
+              return `![${figAlt}](xray-figure:${figureHash})`;
+            }
             let src = node.getAttribute('src') || '';
             
             // Fallback to data-src, data-lazy-src, srcset

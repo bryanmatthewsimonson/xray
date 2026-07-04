@@ -220,7 +220,7 @@ function paragraphsOfPage(orderedLines, bodySize) {
             || gap <= 0                                   // column/band jump
             || gap > medGap * PARA_GAP_FACTOR;
         if (newBlock) {
-            current = { heading, text: line.text };
+            current = { heading, text: line.text, yTop: line.y };
             paras.push(current);
         } else if (/\w-$/.test(current.text) && /^[a-z]/.test(line.text)) {
             // Reflow a line-break hyphenation: "convo-" + "luted".
@@ -231,6 +231,65 @@ function paragraphsOfPage(orderedLines, bodySize) {
         prev = line;
     }
     return paras;
+}
+
+// ------------------------------------------------------------------
+// Figures (C4.2) — placement + caption pairing
+// ------------------------------------------------------------------
+
+const CAPTION_RE = /^(fig(ure)?\.?|table|chart|exhibit)\b/i;
+const CAPTION_BELOW_PT = 60;   // caption search window below the figure
+const ALT_MAX = 140;
+
+/**
+ * Merge a page's figures (from pdf-capture: {ref, x, y, w, h}) into
+ * its paragraph stream by vertical position, emitting each as a
+ * markdown image block whose URL is the figure's content address
+ * (`xray-figure:<sha256>`). Alt text is the nearest caption-looking
+ * line just below the figure, else "Figure (page N)".
+ */
+function mergeFigures(paras, page, lines, pageNo) {
+    const figures = (page && Array.isArray(page.figures) ? page.figures : [])
+        .filter((f) => f && f.ref)
+        .map((f) => ({
+            figure: true,
+            yTop: f.y + f.h,
+            text: `![${figureAlt(f, lines, pageNo)}](${f.ref})`
+        }))
+        .sort((a, b) => b.yTop - a.yTop);
+    if (figures.length === 0) return paras;
+
+    const out = [];
+    let fi = 0;
+    for (const para of paras) {
+        while (fi < figures.length && figures[fi].yTop >= (para.yTop ?? -Infinity)) {
+            out.push(figures[fi]); fi += 1;
+        }
+        out.push(para);
+    }
+    while (fi < figures.length) { out.push(figures[fi]); fi += 1; }
+    return out;
+}
+
+function figureAlt(fig, lines, pageNo) {
+    let best = null;
+    for (const line of lines || []) {
+        if (line.furniture || !CAPTION_RE.test(line.text)) continue;
+        const below = fig.y - line.y;                  // PDF y-up: caption sits below
+        if (below < 0 || below > CAPTION_BELOW_PT) continue;
+        if (!best || below < best.below) best = { below, text: line.text };
+    }
+    const raw = best ? best.text : `Figure (page ${pageNo})`;
+    // Alt text lives inside ![…] and is later interpolated into an
+    // alt="…" attribute by markdownToHtml (which doesn't escape quotes).
+    // Keep it bracket-, newline-, and double-quote-free so neither the
+    // markdown nor the HTML attribute can be broken by a caption.
+    const clean = raw
+        .replace(/"/g, "'")
+        .replace(/[[\]\n]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return clean.length > ALT_MAX ? clean.slice(0, ALT_MAX - 1) + '…' : clean;
 }
 
 function headingLevel(line, bodySize) {
@@ -272,12 +331,13 @@ export function buildDocumentFromPages(pages) {
     list.forEach((page, pi) => {
         const ordered = orderPageLines(pageLines[pi], page);
         const paras = paragraphsOfPage(ordered, bodySize);
+        const blocks = mergeFigures(paras, page, pageLines[pi], pi + 1);
         let start = markdown.length;      // empty pages span zero chars
         let emitted = false;
-        for (const para of paras) {
-            const text = para.text.trim();
+        for (const block of blocks) {
+            const text = block.text.trim();
             if (!text) continue;
-            const prefix = para.heading === 1 ? '# ' : para.heading === 2 ? '## ' : '';
+            const prefix = block.heading === 1 ? '# ' : block.heading === 2 ? '## ' : '';
             if (markdown) markdown += '\n\n';
             if (!emitted) { start = markdown.length; emitted = true; }
             markdown += prefix + text;
@@ -287,7 +347,8 @@ export function buildDocumentFromPages(pages) {
             page: pi + 1,
             chars: ordered.reduce((s, l) => s + l.text.length, 0),
             lines: ordered.length,
-            paras: paras.length
+            paras: paras.length,
+            figures: (page && Array.isArray(page.figures)) ? page.figures.length : 0
         });
     });
 
@@ -302,11 +363,14 @@ export function buildDocumentFromPages(pages) {
  * Extraction-quality warnings (C4.1) — the honesty layer over "degrade,
  * never drop". Each warning: { code, pages: number[], message }.
  *
- *   sparse-pages   pages with (near-)no text layer in a document that
- *                  provably HAS one elsewhere (≥1 texty page) — likely
- *                  scanned/image pages; their content is MISSING from
- *                  the capture. All-scan documents are not flagged
- *                  here: the scan-refusal path owns those.
+ *   sparse-pages   pages with (near-)no text layer AND no captured
+ *                  figure, in a document that provably HAS a text layer
+ *                  elsewhere (≥1 texty page) — likely scanned/image
+ *                  pages whose content is MISSING from the capture. A
+ *                  page whose only content is an image we archived
+ *                  (C4.2) is captured, so it is not flagged. All-scan
+ *                  documents are not flagged here: the scan-refusal
+ *                  path owns those.
  *   shredded-text  many lines with a tiny mean length — text runs
  *                  didn't join into normal lines (glyph-per-run PDFs,
  *                  forms, aggressive gutter splits); reconstruction is
@@ -320,7 +384,13 @@ export function extractionWarnings(pageStats) {
 
     const hasTextyPage = list.some((p) => p.chars >= SPARSE_TEXTY_PAGE);
     if (hasTextyPage) {
-        const sparse = list.filter((p) => p.chars < SPARSE_PAGE_CHARS).map((p) => p.page);
+        // A page with (near-)no text layer is only "missing content" if it
+        // also has no captured figure (C4.2). An image-only page whose
+        // image we archived is captured — just not as text — so don't
+        // flag it as missing.
+        const sparse = list
+            .filter((p) => p.chars < SPARSE_PAGE_CHARS && !(p.figures > 0))
+            .map((p) => p.page);
         if (sparse.length) {
             warnings.push({
                 code: 'sparse-pages',

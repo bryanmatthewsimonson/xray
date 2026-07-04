@@ -12,6 +12,7 @@ import {
     buildDocumentFromPages, pageOfOffset, pageFragmentSelector, textDensity
 } from '../src/shared/pdf-layout.js';
 import { pdfDocumentUrl, looksLikePdfUrl } from '../src/shared/pdf-detect.js';
+import { ContentExtractor } from '../src/shared/content-extractor.js';
 
 const W = 612;
 const H = 792;
@@ -227,4 +228,88 @@ test('warnings: shredded text (many tiny lines) is flagged', () => {
             run(`A perfectly ordinary body-text line number ${i} with plenty of characters in it`, 72, 700 - i * 14))
     )]);
     assert.equal(clean.warnings.find((w) => w.code === 'shredded-text'), undefined);
+});
+
+// ------------------------------------------------------------------
+// Figures (C4.2) — placement + captions
+// ------------------------------------------------------------------
+
+test('figures: placed between paragraphs by vertical position', () => {
+    const p = page([
+        run('Paragraph above the figure with words', 72, 700),
+        run('that continues on a second line', 72, 686),
+        run('Paragraph below the figure with words', 72, 400),
+        run('that also continues on a second line', 72, 386)
+    ]);
+    p.figures = [{ ref: 'xray-figure:' + 'a'.repeat(64), x: 72, y: 480, w: 300, h: 150 }];
+    const { markdown } = buildDocumentFromPages([p]);
+    const above = markdown.indexOf('above the figure');
+    const img = markdown.indexOf('![Figure (page 1)](xray-figure:');
+    const below = markdown.indexOf('below the figure');
+    assert.ok(above >= 0 && img >= 0 && below >= 0);
+    assert.ok(above < img && img < below, 'figure sits between the paragraphs');
+});
+
+test('figures: nearest caption line below becomes the alt text', () => {
+    const p = page([
+        run('Body paragraph with plenty of words here', 72, 700),
+        run('Figure 2: Bayes factors by evidence tier', 72, 430)   // just below the figure
+    ]);
+    p.figures = [{ ref: 'xray-figure:' + 'b'.repeat(64), x: 72, y: 460, w: 300, h: 180 }];
+    const { markdown } = buildDocumentFromPages([p]);
+    assert.ok(markdown.includes('![Figure 2: Bayes factors by evidence tier](xray-figure:'));
+});
+
+test('figures: image-only page still emits, and pageMap covers it', () => {
+    const p1 = page([run('Text page one with several words', 72, 700)]);
+    const p2 = page([]);
+    p2.figures = [{ ref: 'xray-figure:' + 'c'.repeat(64), x: 72, y: 300, w: 400, h: 300 }];
+    const { markdown, pageMap } = buildDocumentFromPages([p1, p2]);
+    const img = markdown.indexOf('![Figure (page 2)]');
+    assert.ok(img >= 0);
+    assert.ok(img >= pageMap[1].start && img < pageMap[1].end, 'figure offsets belong to page 2');
+});
+
+test('figures: an image-only page is NOT flagged sparse (its image was captured)', () => {
+    const texty = page([run(
+        'A substantial page with a long paragraph of body text that easily clears the sparse threshold because it has many characters. '.repeat(3),
+        72, 700
+    )]);
+    const imageOnly = page([]);          // no text layer…
+    imageOnly.figures = [{ ref: 'xray-figure:' + 'e'.repeat(64), x: 72, y: 300, w: 400, h: 300 }];  // …but a captured figure
+    const blank = page([]);              // truly empty — still flagged
+    const { warnings } = buildDocumentFromPages([texty, imageOnly, blank]);
+    const sparse = warnings.find((w) => w.code === 'sparse-pages');
+    assert.ok(sparse, 'sparse-pages warning present for the genuinely empty page');
+    assert.deepEqual(sparse.pages, [3], 'page 2 (image-only) is excused; page 3 (blank) is flagged');
+});
+
+test('figures: alt text is bracket-safe and capped', () => {
+    const p = page([
+        run('Figure 1: ' + 'x[]'.repeat(80), 72, 430)
+    ]);
+    p.figures = [{ ref: 'xray-figure:' + 'd'.repeat(64), x: 72, y: 460, w: 300, h: 180 }];
+    const { markdown } = buildDocumentFromPages([p]);
+    const alt = /!\[([^\]]*)\]/.exec(markdown);
+    assert.ok(alt, 'image emitted');
+    assert.ok(!alt[1].includes('['), 'no brackets in alt');
+    assert.ok(alt[1].length <= 140);
+});
+
+test('figures: a caption with double quotes cannot break the alt attribute', () => {
+    const p = page([
+        run('Body paragraph with plenty of words to anchor', 72, 700),
+        run('Figure 3: The "smoking gun" chart of case counts', 72, 430)
+    ]);
+    p.figures = [{ ref: 'xray-figure:' + 'f'.repeat(64), x: 72, y: 460, w: 300, h: 180 }];
+    const { markdown } = buildDocumentFromPages([p]);
+    const alt = /!\[([^\]]*)\]/.exec(markdown);
+    assert.ok(alt, 'image emitted');
+    assert.ok(!alt[1].includes('"'), 'no double quotes survive into the alt');
+    assert.match(alt[1], /smoking gun/, 'caption text otherwise preserved');
+    // …and the rendered HTML attribute stays well-formed.
+    const html = ContentExtractor.markdownToHtml(markdown);
+    const img = /<img src="xray-figure:f+" alt="([^"]*)">/.exec(html);
+    assert.ok(img, 'img tag with an intact alt attribute');
+    assert.match(img[1], /smoking gun/);
 });

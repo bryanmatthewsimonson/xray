@@ -342,11 +342,25 @@ unlock; C5 only after C4's substrate exists (the rule requires it).
    approximation next to an HTML-island table for grep-ability of
    published markdown — leaning no (two renderings of one table is
    two chances to disagree).
-6. **Figures and captions in PDFs.** The Tier-2 path currently drops
-   images entirely — a real gap for papers and reports where the
-   figure IS the evidence. pdf.js can enumerate page image XObjects;
-   captions pair by proximity ("Figure N" lines below/above the
-   image region). Archiving figure bitmaps alongside the source
-   bytes (they're already inside them) vs. extracting them as
-   first-class capture objects needs its own slice; the screenshot
-   pipeline (`xray:screenshot:capture`) is the likely renderer.
+6. **Figures and captions in PDFs — shipped (C4.2).** The Tier-2 path
+   originally dropped images entirely — a real gap for papers and
+   reports where the figure IS the evidence. Now `pdf-capture.js` walks
+   each page's operator list tracking the transform stack, decodes every
+   `paintImageXObject`, and archives the survivors as PNGs in the
+   `source_documents` store, content-addressed by sha256. Placement:
+   `pdf-layout.js#mergeFigures` inserts each figure into the reading-order
+   paragraph stream by its top-of-image `y`, so it lands where it sits on
+   the page; the alt text is the nearest caption-shaped line
+   (`/^(fig(ure)?|table|chart|exhibit)/i`) just below it, else
+   `Figure (page N)`. The markdown carries a content-addressed reference
+   `![alt](xray-figure:<sha256>)`; the reader hydrates those to blob URLs
+   at render time (`hydrateFigureImages`). Guards: a min displayed size
+   (40pt) and min pixels (40) skip rules/decorations; an identical image
+   on ≥3 pages is furniture (logos/watermarks) and dropped like repeating
+   header text; a per-document cap (40) bounds pathological decks. Bytes
+   ride inside the archived source PDF already, so this adds a *derived*
+   representation, not new provenance — the source hash still governs.
+   A page whose only content is a captured figure is no longer flagged
+   `sparse-pages` (C4.1): its content was captured, just not as text.
+   Not done: OCR of text *inside* figures, and vector-graphic figures
+   (charts drawn with path ops, no image XObject) — those remain a gap.

@@ -12,6 +12,29 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **PDF figures are now captured (Phase 18 C4.2).** Earlier PDF capture
+  extracted only the text layer, dropping every image — a real loss for
+  papers and reports where the figure *is* the evidence. `pdf-capture.js`
+  now walks each page's operator list tracking the transform stack,
+  decodes every displayed image, and archives the survivors as PNGs in
+  the `source_documents` store, content-addressed by sha256. Each figure
+  is placed into the reading-order markdown by its position on the page,
+  captioned from the nearest `Figure/Table/…`-shaped line just below it
+  (else `Figure (page N)`), and rendered from a blob URL when the reader
+  opens. Guards keep it honest: a minimum displayed size and pixel count
+  skip rules and decorations, an identical image repeating on ≥3 pages is
+  treated as furniture (logos/watermarks) and dropped, and a per-document
+  cap bounds pathological files. A page whose only content is a captured
+  figure is no longer flagged `sparse-pages` — its content *was* captured,
+  just not as text. **Wire note (additive):** published `30023` markdown
+  from a figure-bearing PDF may now contain content-addressed image
+  references of the form `![alt](xray-figure:<sha256>)`. These resolve
+  against the local `source_documents` archive; a consumer without the
+  archived bytes should treat an unresolved `xray-figure:` URI as a
+  placeholder (the alt text is the fallback), exactly as it would any
+  missing image. No new tag kinds; no change to existing tags. Not done:
+  OCR of text inside figures, and vector-drawn charts (path ops, no image
+  XObject) — those remain a gap (`COMPLEX_CONTENT_DESIGN.md` §9 Q6).
 - **PDF extraction-quality warnings (Phase 18 C4.1).** The layout
   engine now reports when reconstruction degraded instead of
   presenting it as clean: `extraction.warnings` flags `sparse-pages`

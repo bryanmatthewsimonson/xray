@@ -19,6 +19,51 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-04 — PDF figures via operator-list transform walk (Phase 18 C4.2)
+
+Tags: `design`, `pattern`.
+
+Earlier PDF capture dropped every image. Recovering them turned on a
+few non-obvious choices worth recording:
+
+- **Placement comes from the operator list, not the text content.**
+  `page.getTextContent()` gives glyph positions but says nothing about
+  images. To know *where* a figure sits (so it can be interleaved into
+  the reading-order paragraph stream) you have to replay the page's
+  operator list yourself, tracking the CTM: `save`/`restore` push/pop a
+  matrix stack, `transform` composes (2×3 multiply), and at each
+  `paintImageXObject` the current matrix's `[a,d]` are the displayed
+  width/height in points and `[e,f]` the position. The unit-square
+  convention means `|ctm[0]|`/`|ctm[3]|` are the on-page size directly.
+  `pdf-layout.js#mergeFigures` then inserts each figure by its
+  top-of-image `y` between paragraphs. Verified against the real
+  `will_decision.pdf` (14 figures, all landing at sensible points) with
+  a Node harness replicating the exact walk before trusting the
+  in-extension path.
+- **Two decode shapes.** pdf.js hands back either an `ImageBitmap`
+  (`img.bitmap`) or raw `{data,width,height}` with 1/3/4 channels; both
+  go through a canvas → `toBlob('image/png')`. Channel count is inferred
+  from `data.length / (w*h)` — 3ch (RGB) and 1ch (gray) are expanded to
+  RGBA before `putImageData`.
+- **Same-image dedupe is content-addressed and layered.** A page can
+  paint one XObject twice (clip-split renders) → dedupe within a page by
+  sha256 so it shows once. An identical image on ≥3 pages is furniture
+  (logos/watermarks) and is dropped wholesale — the image analogue of
+  the repeating-header-text furniture pass. Survivors are archived in
+  `source_documents` keyed by their hash, and the markdown references
+  them as `![alt](xray-figure:<sha256>)`, hydrated to a blob URL at
+  render. This is a *derived* representation: the bytes already live
+  inside the archived source PDF, so the source hash still governs
+  provenance — the figure PNGs are a convenience, not new evidence.
+- **C4.1 interaction:** an image-only page used to trip the
+  `sparse-pages` "content is missing" warning. Now that its image is
+  captured, that warning would be a lie, so `extractionWarnings` excuses
+  any sparse page that carries a captured figure. A page with neither
+  text nor figure is still flagged.
+- **Known gaps:** no OCR of text *inside* a figure, and vector-drawn
+  charts (path ops, no image XObject) aren't captured — those need the
+  screenshot/render path, deferred.
+
 ## 2026-07-03 — Complex content lands: islands re-sanitize at render; PDF columns share baselines
 
 Tags: `design`, `bug`.
