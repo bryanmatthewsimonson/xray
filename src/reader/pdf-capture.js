@@ -66,38 +66,71 @@ function matMul(m1, m2) {
 }
 
 // Resolve a decoded image object from the page (falls back to the
-// document-common store). pdf.js resolves these asynchronously.
+// document-common store). pdf.js resolves these asynchronously via a
+// callback; some builds only send large images at render time, so a
+// timeout keeps a never-resolved object from wedging the whole capture
+// — it becomes a skipped figure (visible in figures_diag), not a hang.
+const OBJECT_RESOLVE_TIMEOUT_MS = 8000;
 function getPageObject(page, name) {
     return new Promise((resolve) => {
+        let settled = false;
+        const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+        setTimeout(() => done(null), OBJECT_RESOLVE_TIMEOUT_MS);
         try {
-            page.objs.get(name, resolve);
+            page.objs.get(name, done);
         } catch (_) {
-            try { page.commonObjs.get(name, resolve); }
-            catch (_) { resolve(null); }
+            try { page.commonObjs.get(name, done); }
+            catch (_) { done(null); }
         }
     });
 }
 
-// Decoded image → PNG bytes. Handles both decode shapes pdf.js emits:
-// an ImageBitmap (modern path) or raw {data, width, height} channels.
+// Is `v` a drawImage-able source (ImageBitmap / canvas)? Treated by
+// duck-typing so it works even where the global constructors differ.
+function isDrawable(v) {
+    if (!v || typeof v !== 'object') return false;
+    if (typeof ImageBitmap !== 'undefined' && v instanceof ImageBitmap) return true;
+    if (typeof OffscreenCanvas !== 'undefined' && v instanceof OffscreenCanvas) return true;
+    if (typeof HTMLCanvasElement !== 'undefined' && v instanceof HTMLCanvasElement) return true;
+    // Duck-type: has width/height and looks bitmap-ish (has close()) or is a canvas.
+    return typeof v.width === 'number' && typeof v.height === 'number'
+        && (typeof v.close === 'function' || typeof v.getContext === 'function');
+}
+
+// Decoded image → PNG bytes. pdf.js 6.x hands back image objects in
+// several shapes depending on the worker/OffscreenCanvas path:
+//   • the object IS an ImageBitmap/canvas (bare drawable),
+//   • { bitmap: <drawable>, width, height }  (OffscreenCanvas path),
+//   • { data: <TypedArray>, width, height, kind }  (raw channels; kind is
+//     pdf.js ImageKind — 1 GRAYSCALE_1BPP(packed), 2 RGB_24BPP, 3 RGBA_32BPP).
+// We handle all of them; unknown shapes return null (figure is skipped,
+// never a failed capture).
 async function imageToPngBytes(img) {
     if (!img) return null;
-    const width = img.width || (img.bitmap && img.bitmap.width);
-    const height = img.height || (img.bitmap && img.bitmap.height);
+
+    const drawable = isDrawable(img) ? img
+        : (img.bitmap && isDrawable(img.bitmap)) ? img.bitmap : null;
+    const width = img.width || (drawable && drawable.width);
+    const height = img.height || (drawable && drawable.height);
     if (!width || !height) return null;
+
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d');
-    if (img.bitmap) {
-        ctx.drawImage(img.bitmap, 0, 0);
-    } else if (img.data) {
-        const channels = Math.round(img.data.length / (width * height));
+
+    if (drawable) {
+        ctx.drawImage(drawable, 0, 0, width, height);
+    } else if (img.data && img.data.length) {
         const rgba = new Uint8ClampedArray(width * height * 4);
+        // Prefer pdf.js's own ImageKind when present; else infer channels.
+        const kind = img.kind;
+        const channels = kind === 2 ? 3 : kind === 3 ? 4
+            : Math.round(img.data.length / (width * height));
         if (channels === 4) {
-            rgba.set(img.data);
+            rgba.set(img.data.subarray ? img.data.subarray(0, rgba.length) : img.data);
         } else if (channels === 3) {
-            for (let i = 0, j = 0; j < img.data.length; i += 4, j += 3) {
+            for (let i = 0, j = 0; j + 2 < img.data.length; i += 4, j += 3) {
                 rgba[i] = img.data[j]; rgba[i + 1] = img.data[j + 1];
                 rgba[i + 2] = img.data[j + 2]; rgba[i + 3] = 255;
             }
@@ -122,9 +155,15 @@ async function imageToPngBytes(img) {
  * placement + PNG bytes. Best-effort by design — any failure yields
  * fewer figures, never a failed capture.
  *
+ * `stats` (optional) accumulates diagnostic counts across pages:
+ *   seen     candidate images that cleared the on-page size filter
+ *   resolved candidates whose decoded object came back from pdf.js
+ *   decoded  candidates that produced PNG bytes
+ * The gap between these three localizes any figure loss.
+ *
  * @returns {Promise<Array<{bytes: ArrayBuffer, x,y,w,h: number, px: number}>>}
  */
-async function extractPageFigures(page, OPS) {
+async function extractPageFigures(page, OPS, stats) {
     const out = [];
     let opList;
     try { opList = await page.getOperatorList(); }
@@ -145,14 +184,19 @@ async function extractPageFigures(page, OPS) {
         const w = Math.abs(ctm[0]);
         const h = Math.abs(ctm[3]);
         if (w < FIGURE_MIN_POINTS || h < FIGURE_MIN_POINTS) continue;
+        if (stats) stats.seen += 1;
         try {
             const img = await getPageObject(page, args[0]);
             if (!img) continue;
-            const px = Math.min(img.width || 0, img.height || 0);
-            if (px < FIGURE_MIN_PIXELS) continue;
+            if (stats) stats.resolved += 1;
+            // Intrinsic pixels — read from the wrapper or its drawable.
+            const iw = img.width || (img.bitmap && img.bitmap.width) || 0;
+            const ih = img.height || (img.bitmap && img.bitmap.height) || 0;
+            if (Math.min(iw, ih) < FIGURE_MIN_PIXELS) continue;
             const bytes = await imageToPngBytes(img);
             if (!bytes) continue;
-            out.push({ bytes, x: ctm[4], y: ctm[5], w, h, px });
+            if (stats) stats.decoded += 1;
+            out.push({ bytes, x: ctm[4], y: ctm[5], w, h, px: Math.min(iw, ih) });
         } catch (_) { /* skip this image */ }
     }
     return out;
@@ -201,6 +245,7 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
 
     const pages = [];
     const figuresByHash = new Map();   // hash → { bytes, pages: Set<number> }
+    const figureStats = { seen: 0, resolved: 0, decoded: 0 };
     let figureCount = 0;
     let figuresCapped = false;
     for (let p = 1; p <= doc.numPages; p++) {
@@ -214,7 +259,7 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
         let figures = [];
         if (figureCount < FIGURE_MAX_COUNT) {
             try {
-                const raw = await extractPageFigures(page, engine.OPS);
+                const raw = await extractPageFigures(page, engine.OPS, figureStats);
                 const seenOnPage = new Set();
                 for (const fig of raw) {
                     if (figureCount >= FIGURE_MAX_COUNT) { figuresCapped = true; break; }
@@ -278,6 +323,17 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
         }
     }
 
+    // Self-diagnosis: if we saw candidate images but archived none, the
+    // loss is in object resolution or PNG encoding (env-specific pdf.js
+    // image shapes). Surface it loudly and stash the counts on the record
+    // so `state.article.extraction.figures_diag` explains a silent miss.
+    const figuresMissed = figureStats.seen > 0 && archivedFigures === 0;
+    if (figuresMissed) {
+        console.warn('[X-Ray PDF] figures seen but none captured:',
+            `seen=${figureStats.seen} resolved=${figureStats.resolved} `
+            + `decoded=${figureStats.decoded} archived=${archivedFigures}`);
+    }
+
     let info = {};
     try { info = (await doc.getMetadata())?.info || {}; } catch (_) { /* optional */ }
 
@@ -315,6 +371,9 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
             // Figures (C4.2): count of archived, content-addressed images.
             ...(archivedFigures ? { figures: archivedFigures } : {}),
             ...(figuresCapped ? { figures_capped: true } : {}),
+            // Diagnostic: only when candidates were seen but none survived,
+            // so a silent figure miss is self-explaining on the record.
+            ...(figuresMissed ? { figures_diag: { ...figureStats } } : {}),
             // Quality honesty (C4.1): present only when something looked
             // shaky — the reader banners these.
             ...(warnings && warnings.length ? { warnings } : {})
