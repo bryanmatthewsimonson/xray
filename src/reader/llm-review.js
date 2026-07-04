@@ -336,14 +336,23 @@ export async function openLlmReview(opts) {
               </div>`;
         }
 
+        // Rows a click can actually accept right now, per kind.
+        function acceptableOf(kind) {
+            return rows.filter((r) => r.kind === kind && r.status === 'pending'
+                && validityOf(r).ok && !blockedReason(r)).length;
+        }
+
         function sectionsHtml() {
             const parts = [];
             for (const kind of PROPOSAL_ORDER) {
                 const list = rows.filter((r) => r.kind === kind);
                 if (list.length === 0) continue;
-                const pending = list.filter((r) => r.status === 'pending').length;
+                const acceptable = acceptableOf(kind);
+                const sectionBtn = acceptable > 0
+                    ? `<button type="button" class="xr-llm__btn xr-llm__btn--section" data-act="accept-kind" data-kind="${kind}">Accept all ${escapeHtml((KIND_TITLES[kind] || kind).toLowerCase())} (${acceptable})</button>`
+                    : '';
                 parts.push(`<section class="xr-llm__section">
-                    <h3 class="xr-llm__section-title">${escapeHtml(KIND_TITLES[kind] || kind)} <span class="xr-llm__dim">(${list.length})</span></h3>
+                    <h3 class="xr-llm__section-title">${escapeHtml(KIND_TITLES[kind] || kind)} <span class="xr-llm__dim">(${list.length})</span>${sectionBtn}</h3>
                     ${list.map(rowHtml).join('')}
                   </section>`);
             }
@@ -357,6 +366,11 @@ export async function openLlmReview(opts) {
             // acceptable — the button label must converge to what a
             // click can actually do.
             const pendingValid = rows.filter((r) => r.status === 'pending' && validityOf(r).ok && !blockedReason(r)).length;
+            // Re-rendering replaces the whole card; keep the review
+            // list's scroll position so an Accept doesn't yank the user
+            // back to the top.
+            const prevBody = host.querySelector('.xr-llm__body');
+            const scrollTop = prevBody ? prevBody.scrollTop : 0;
             host.innerHTML = `
               <div class="xr-llm__backdrop"></div>
               <div class="xr-llm__card" role="dialog" aria-label="LLM suggestions">
@@ -376,6 +390,8 @@ export async function openLlmReview(opts) {
                 </footer>
               </div>`;
             wire();
+            const newBody = host.querySelector('.xr-llm__body');
+            if (newBody && scrollTop) newBody.scrollTop = scrollTop;
         }
 
         function wire() {
@@ -383,6 +399,9 @@ export async function openLlmReview(opts) {
             host.querySelector('.xr-llm__backdrop').addEventListener('click', close);
             host.querySelector('[data-act="done"]').addEventListener('click', close);
             host.querySelector('[data-act="accept-all"]').addEventListener('click', acceptAllValid);
+            host.querySelectorAll('[data-act="accept-kind"]').forEach((btn) => {
+                btn.addEventListener('click', () => acceptAllOf([btn.dataset.kind]));
+            });
 
             host.querySelectorAll('.xr-llm__row').forEach((el) => {
                 const row = rowByPid.get(el.dataset.pid);
@@ -478,8 +497,17 @@ export async function openLlmReview(opts) {
         }
 
         async function acceptAllValid() {
-            // Dependency order so refs resolve as we go.
-            for (const kind of PROPOSAL_ORDER) {
+            return acceptAllOf(PROPOSAL_ORDER);
+        }
+
+        /**
+         * Accept every acceptable row of the given kinds — the whole
+         * panel (footer button) or one section ("Accept all entities").
+         * Kinds process in dependency order regardless of input order.
+         */
+        async function acceptAllOf(kinds) {
+            const wanted = PROPOSAL_ORDER.filter((k) => kinds.includes(k));
+            for (const kind of wanted) {
                 for (const row of rows.filter((r) => r.kind === kind && r.status === 'pending')) {
                     if (!validityOf(row).ok) continue;
                     if (blockedReason(row)) continue;
@@ -495,10 +523,11 @@ export async function openLlmReview(opts) {
                     }
                 }
             }
-            // Anything still pending-and-valid was skipped because a
-            // dependency didn't make it (e.g. its claim failed the
-            // grounding firewall) — say so instead of leaving it mute.
+            // Anything still pending-and-valid in the PROCESSED kinds was
+            // skipped because a dependency didn't make it (e.g. its claim
+            // failed the grounding firewall) — say so, don't leave it mute.
             for (const row of rows) {
+                if (!wanted.includes(row.kind)) continue;
                 if (row.status !== 'pending' || !validityOf(row).ok) continue;
                 const blocked = blockedReason(row);
                 if (blocked) { row.message = blocked; row.messageKind = ''; }

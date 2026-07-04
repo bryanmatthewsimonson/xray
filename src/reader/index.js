@@ -18,7 +18,7 @@ import { recordAccount, extractPostAuthor } from '../shared/identity/account-reg
 import { ClaimModel, exactFromAnchor } from '../shared/claim-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import * as ArchiveCache from '../shared/archive-cache.js';
-import { installEntityTagger, rehydrateEntityMarks } from './entity-tagger.js';
+import { installEntityTagger, rehydrateEntityMarks, renderEntitiesBar } from './entity-tagger.js';
 import { openClaimModal, openEvidenceLinkModal, openOthersClaimsModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
 import { openAssessModal } from '../shared/assess-modal.js';
 import { openAdjudicateModal } from '../shared/adjudicate-modal.js';
@@ -918,6 +918,7 @@ function renderReader() {
             // Sync htmlDraft with whatever the mark wrap did to the body.
             state.htmlDraft = body.innerHTML;
             state.dirtySource = 'reader';
+            refreshEntitiesBar().catch(() => {});
         },
         onClaim: async ({ text, context, anchor }) => {
             // PDF captures: page-level provenance rides as an additive
@@ -961,6 +962,7 @@ function renderReader() {
     // Render the claims bar below the article body. Fires in the
     // background — we don't block the main render on it.
     refreshClaimsBar().catch((err) => console.warn('[X-Ray Reader] claims-bar render failed:', err));
+    refreshEntitiesBar().catch((err) => console.warn('[X-Ray Reader] entities-bar render failed:', err));
     refreshFindingsBar().catch((err) => console.warn('[X-Ray Reader] findings-bar render failed:', err));
 
     // Re-fill the hash line — the template above recreates it hidden,
@@ -984,6 +986,47 @@ function renderReader() {
  * edit / delete row actions. Also rehydrates visual `xr-claim` marks
  * on the body for each claim whose text still appears verbatim.
  */
+/**
+ * Entities bar — the tagged-entities summary (userscript parity).
+ * Chips resolve fresh registry records; clicking one locates the
+ * entity's mention in the body (mark → verbatim mention text).
+ */
+async function refreshEntitiesBar() {
+    const host = $('#xr-entities-host');
+    if (!host) return;
+    const refs = (state.article && state.article.entities) || [];
+    try {
+        host.innerHTML = await renderEntitiesBar(refs);
+    } catch (err) {
+        console.warn('[X-Ray Reader] entities-bar render failed:', err);
+        return;
+    }
+    host.querySelectorAll('.xr-entities__chip').forEach((chip) => {
+        chip.addEventListener('click', () => {
+            const ref = refs.find((r) => r && r.entity_id === chip.dataset.entityId);
+            if (ref) locateEntityInBody(ref);
+        });
+    });
+}
+
+function locateEntityInBody(ref) {
+    const body = $('.xr-article__body');
+    if (!body || !ref) return;
+    let mark = null;
+    try { mark = body.querySelector(`.xr-entity[data-entity-id="${CSS.escape(ref.entity_id)}"]`); }
+    catch (_) { /* fall through to text search */ }
+    if (mark) {
+        mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        mark.classList.add('xr-entity--flash');
+        setTimeout(() => mark.classList.remove('xr-entity--flash'), 1600);
+        return;
+    }
+    const mention = String(ref.context || '').trim();
+    if (mention && locateQuoteInBody(mention)) return;
+    if (ref.name && locateQuoteInBody(ref.name)) return;
+    toast('Could not locate this entity’s mention — the body may have been edited since tagging.', 'error', 3500);
+}
+
 async function refreshClaimsBar() {
     const host = $('#xr-claims-host');
     if (!host || !state.article || !state.article.url) return;
@@ -1283,6 +1326,7 @@ async function runSuggestPass() {
                     })
                     .catch(() => {});
             }
+            refreshEntitiesBar().catch(() => {});
         },
         onAccepted: async () => {
             await refreshClaimsBar().catch(() => {});

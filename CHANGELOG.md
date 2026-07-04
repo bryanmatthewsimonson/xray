@@ -12,6 +12,18 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Entities bar** (userscript parity): the reader shows every entity
+  tagged on the article as a chip row above the claims bar — icon +
+  current registry name + type, with the verbatim mention as the
+  tooltip; clicking a chip locates the mention in the body (mark
+  pulse, or text selection). Updates live as the manual tagger and
+  LLM-suggest accepts add entities.
+- **Review-panel ergonomics:** accepting a suggestion no longer
+  scrolls the list back to the top (scroll position survives
+  re-renders), and each section header gains an **"Accept all
+  <kind> (N)"** button so you can take, say, every entity without
+  also accepting the claims — counts reflect only rows a click can
+  actually accept, and dependency-blocked rows explain themselves.
 - **Claims bar shows the quote, and claims click through to the
   article.** Every claim row now displays the verbatim quote it is
   drawn from (the stored `quote`, falling back to the anchor's exact

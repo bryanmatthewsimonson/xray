@@ -413,6 +413,55 @@ function wrapFirstTextOccurrence(container, needle, entity) {
 }
 
 // ------------------------------------------------------------------
+// Entities bar (the tagged-entities summary — the claims-bar sibling)
+// ------------------------------------------------------------------
+
+/**
+ * Render the article's tagged entities as a chip row. Each ref is
+ * `{entity_id, type, name, context}` (context = the verbatim mention);
+ * the current registry record is resolved so renames/merges display
+ * fresh, with the ref's own data as the fallback. Chips carry
+ * `data-entity-id` — the reader wires click-to-locate.
+ *
+ * @param {Array<object>} entityRefs  state.article.entities
+ * @returns {Promise<string>} section HTML
+ */
+export async function renderEntitiesBar(entityRefs) {
+    const refs = Array.isArray(entityRefs) ? entityRefs.filter((r) => r && r.entity_id) : [];
+    if (refs.length === 0) {
+        return `
+          <section class="xr-entities" id="xr-entities-bar">
+            <header class="xr-entities__head">
+              <h2 class="xr-entities__title">Entities</h2>
+            </header>
+            <div class="xr-entities__empty">No entities tagged on this article yet. Select a name in the body to tag it.</div>
+          </section>`;
+    }
+    const chips = await Promise.all(refs.map(async (ref) => {
+        let entity = null;
+        try { entity = await EntityModel.get(ref.entity_id); } catch (_) { /* fall back to ref */ }
+        const name = (entity && entity.name) || ref.name || '(unnamed)';
+        const type = (entity && entity.type) || ref.type || '';
+        const icon = ENTITY_ICONS[type] || '🔷';
+        const mention = String(ref.context || '').trim();
+        const mentionNote = mention && mention !== name ? ` — mentioned as “${mention}”` : '';
+        return `<button type="button" class="xr-entities__chip" data-entity-id="${escapeAttr(ref.entity_id)}"
+                    title="${escapeAttr(`${type}: ${name}${mentionNote}. Click to show in the article.`)}">
+                  <span class="xr-entities__chip-icon">${icon}</span>
+                  <span class="xr-entities__chip-name">${escapeHtml(name)}</span>
+                  <span class="xr-entities__chip-type">${escapeHtml(type)}</span>
+                </button>`;
+    }));
+    return `
+      <section class="xr-entities" id="xr-entities-bar">
+        <header class="xr-entities__head">
+          <h2 class="xr-entities__title">Entities <span class="xr-entities__count">${refs.length}</span></h2>
+        </header>
+        <div class="xr-entities__chips">${chips.join('')}</div>
+      </section>`;
+}
+
+// ------------------------------------------------------------------
 // Helpers
 // ------------------------------------------------------------------
 

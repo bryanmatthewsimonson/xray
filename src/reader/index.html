@@ -44,6 +44,11 @@
     </div>
   </main>
 
+  <!-- Entities bar. Populated by reader/index.js via the entity tagger:
+       one chip per entity tagged on THIS article, with its verbatim
+       mention as the tooltip and click-to-locate in the body. -->
+  <div id="xr-entities-host"></div>
+
   <!-- Claims bar. Populated by reader/index.js via the claim extractor.
        Hosts one card per claim attached to this article's source_url,
        with edit + delete affordances. -->

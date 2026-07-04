@@ -1601,6 +1601,36 @@ body {
   0%   { background: color-mix(in srgb, var(--xr-accent) 45%, transparent); }
   100% { background: color-mix(in srgb, var(--xr-accent) 10%, transparent); }
 }
+.xr-entity--flash {
+  animation: xr-claim-flash 1.5s ease-out;
+}
+
+/* ---------------- entities bar (tagged-entities summary) ---------------- */
+
+.xr-entities {
+  max-width: 720px;
+  margin: 18px auto 0;
+  padding: 14px 18px;
+  border: 1px solid var(--xr-border);
+  border-radius: 10px;
+  background: var(--xr-surface);
+}
+.xr-entities__head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.xr-entities__title { margin: 0; font-size: 15px; font-weight: 600; }
+.xr-entities__count {
+  font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 10px;
+  background: color-mix(in srgb, var(--xr-accent) 14%, transparent); color: var(--xr-accent);
+}
+.xr-entities__empty { font-size: 13px; color: var(--xr-text-dim); }
+.xr-entities__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.xr-entities__chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font: inherit; font-size: 13px; padding: 4px 10px; cursor: pointer;
+  border: 1px solid var(--xr-border); border-radius: 14px;
+  background: var(--xr-surface-2); color: var(--xr-text);
+}
+.xr-entities__chip:hover { border-color: var(--xr-accent); }
+.xr-entities__chip-type { font-size: 11px; color: var(--xr-text-dim); }
 
 .xr-claims__triple {
   font-size: 13px;
@@ -2214,7 +2244,9 @@ body {
 .xr-llm__empty { color: var(--xr-text-dim); padding: 20px 0; text-align: center; }
 .xr-llm__section { margin: 12px 0; }
 .xr-llm__section-title { margin: 0 0 6px; font-size: 13px; text-transform: uppercase;
-  letter-spacing: 0.04em; color: var(--xr-text-dim); }
+  letter-spacing: 0.04em; color: var(--xr-text-dim);
+  display: flex; align-items: center; gap: 6px; }
+.xr-llm__section-title .xr-llm__btn--section { text-transform: none; letter-spacing: normal; }
 .xr-llm__dim { color: var(--xr-text-dim); font-weight: normal; }
 
 .xr-llm__row { display: flex; gap: 12px; align-items: flex-start;
@@ -2274,6 +2306,7 @@ body {
 .xr-llm__btn--primary { background: var(--xr-primary); border-color: var(--xr-primary); color: #fff; }
 .xr-llm__btn--primary:hover:not(:disabled) { background: var(--xr-primary-hover); }
 .xr-llm__btn--ghost { background: none; }
+.xr-llm__btn--section { margin-left: auto; font-size: 12px; padding: 3px 10px; }
 
 .xr-llm__editor { margin-top: 8px; padding: 8px; border-top: 1px dashed var(--xr-border);
   display: flex; flex-direction: column; gap: 6px; }
