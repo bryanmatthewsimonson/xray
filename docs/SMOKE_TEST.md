@@ -667,6 +667,7 @@ publishes. Requires a real Anthropic API key
 | 14.5.8 | **Accept** an entity, then its claim, then a finding (or click **Accept all valid**) | ✅ rows flip to "✓ accepted"; the **claims bar** and **Forensic findings bar** gain the artifacts |
 | 14.5.9 | DevTools: `chrome.storage.local.get(['article_claims','behavioral_findings','entities'], console.log)` | ✅ accepted records carry `suggested_by: "llm:<model>"`; accepted claims carry a first-class `quote` (the article's own text) and, when the body wasn't edited, an `article_hash`; the finding has `counter_note`, `anchors[].quote`, and **no** `stance`/`intent`/`score` field |
 | 14.5.10 | Click a claim's tagged passage / a finding's evidence in the article body | ✅ the LLM's verbatim quote resolved to a real anchor (the span highlights / jumps) |
+| 14.5.10b | In the **claims bar**, each accepted claim shows its **verbatim quote** (italic block under the claim text; PDF captures add a `p. N` pill). Click the quote or the claim text | ✅ the article scrolls to the passage — the rehydrated mark pulses, or the quote text gets selected; a claim whose passage no longer exists shows a clear "could not locate" toast |
 
 **The firewall + Edit/Reject**
 

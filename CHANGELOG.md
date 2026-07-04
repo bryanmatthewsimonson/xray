@@ -12,6 +12,15 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Claims bar shows the quote, and claims click through to the
+  article.** Every claim row now displays the verbatim quote it is
+  drawn from (the stored `quote`, falling back to the anchor's exact
+  for older records; PDF captures add a `p. N` page pill), and
+  clicking the quote or the claim text jumps to the passage in the
+  body — via the anchor-precise mark (with a pulse) when it resolved,
+  else by selecting the stored quote. Mark rehydration is also
+  quote-first now: an LLM claim's `text` is a summary that never
+  appears in the article, so pre-quote fallbacks silently failed.
 - **First-class claim text provenance.** Claims now carry the verbatim
   `quote` they are drawn from (untruncated, auto-populated from the
   grounded span or the manual selection — never typed by the user) and

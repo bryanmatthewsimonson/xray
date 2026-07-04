@@ -22,7 +22,9 @@
 
 import {
     ClaimModel,
-    CLAIM_TYPE_ICONS
+    CLAIM_TYPE_ICONS,
+    exactFromAnchor,
+    pageFromAnchor
 } from '../shared/claim-model.js';
 import {
     EvidenceLinker,
@@ -683,6 +685,18 @@ export async function renderClaimsBar(claims) {
                 }))).join('')
               }</div>`
             : '';
+        // Text provenance (Phase 14.5 hardening): the verbatim quote the
+        // claim is drawn from — first-class `quote` field, with the
+        // anchor's exact as the fallback for pre-hardening records.
+        // Clickable (data-action="locate") to jump to the passage.
+        const quoteText = String(c.quote || exactFromAnchor(c.anchor) || '').trim();
+        const pdfPage = pageFromAnchor(c.anchor);
+        const quoteLine = quoteText
+            ? `<blockquote class="xr-claims__quote" data-action="locate"
+                   title="Show this passage in the article">“${
+                   escapeHtml(quoteText.length > 240 ? quoteText.slice(0, 239) + '…' : quoteText)
+               }”${pdfPage ? ` <span class="xr-claims__page" title="PDF page">p. ${pdfPage}</span>` : ''}</blockquote>`
+            : '';
         return `
           <article class="xr-claims__item ${c.is_key ? 'xr-claims__item--crux' : ''}" data-id="${escapeHtml(c.id)}">
             <div class="xr-claims__row-top">
@@ -697,7 +711,8 @@ export async function renderClaimsBar(claims) {
                 <button type="button" class="xr-claims__btn xr-claims__btn--danger" data-action="delete" title="Delete claim">🗑</button>
               </div>
             </div>
-            <div class="xr-claims__text">${escapeHtml(c.text)}</div>
+            <div class="xr-claims__text" data-action="locate" title="Show this claim's passage in the article">${escapeHtml(c.text)}</div>
+            ${quoteLine}
             ${renderAssessmentBadges(assessment)}
             ${adjudication ? renderAdjudicationBadges(adjudication.propositions, adjudication.activeVerdictByPropId) : ''}
             ${aboutLine}
@@ -1000,7 +1015,10 @@ export function rehydrateClaimMarks(container, claims) {
                 continue;
             }
         }
-        wrapFirstTextOccurrence(container, claim.text, claim);
+        // Quote-first fallback: the stored quote IS article text (the
+        // grounding contract), whereas an LLM claim's `text` is the
+        // model's summary and never appears in the body.
+        wrapFirstTextOccurrence(container, claim.quote || claim.text, claim);
     }
 }
 

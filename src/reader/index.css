@@ -1564,6 +1564,43 @@ body {
   font-weight: 500;
   line-height: 1.4;
 }
+.xr-claims__text[data-action="locate"] { cursor: pointer; }
+.xr-claims__text[data-action="locate"]:hover { text-decoration: underline dotted; }
+
+/* The verbatim quote the claim is drawn from (Phase 14.5 hardening) —
+   clickable: jumps to the passage in the article. */
+.xr-claims__quote {
+  margin: 5px 0 2px;
+  padding-left: 10px;
+  border-left: 2px solid color-mix(in srgb, var(--xr-accent) 55%, transparent);
+  color: var(--xr-text-dim);
+  font-style: italic;
+  font-size: 12.5px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+.xr-claims__quote:hover {
+  color: var(--xr-text);
+  border-left-color: var(--xr-accent);
+}
+.xr-claims__page {
+  display: inline-block;
+  font-style: normal;
+  font-size: 11px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--xr-accent) 14%, transparent);
+  color: var(--xr-accent);
+}
+
+/* Locate flash — pulses the in-body claim mark after a bar click. */
+.xr-claim--flash {
+  animation: xr-claim-flash 1.5s ease-out;
+}
+@keyframes xr-claim-flash {
+  0%   { background: color-mix(in srgb, var(--xr-accent) 45%, transparent); }
+  100% { background: color-mix(in srgb, var(--xr-accent) 10%, transparent); }
+}
 
 .xr-claims__triple {
   font-size: 13px;

@@ -15,7 +15,7 @@ import { EventBuilder } from '../shared/event-builder.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { EntityModel, installEntityStorageBridge } from '../shared/entity-model.js';
 import { recordAccount, extractPostAuthor } from '../shared/identity/account-registry.js';
-import { ClaimModel } from '../shared/claim-model.js';
+import { ClaimModel, exactFromAnchor } from '../shared/claim-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import * as ArchiveCache from '../shared/archive-cache.js';
 import { installEntityTagger, rehydrateEntityMarks } from './entity-tagger.js';
@@ -627,6 +627,32 @@ function locateQuoteInBody(quote) {
     } catch (_) { return false; }
 }
 
+/**
+ * Jump from a claims-bar row to the claim's passage in the article
+ * (Phase 14.5 hardening — the stored quote makes this reliable for
+ * LLM-suggested claims, whose `text` is a summary that never appears
+ * in the body). Cascade: the rehydrated mark (anchor-precise) →
+ * select the stored verbatim quote → the claim text itself (manual
+ * claims often quote it verbatim).
+ */
+function locateClaimInBody(claim) {
+    const body = $('.xr-article__body');
+    if (!body || !claim) return;
+    let mark = null;
+    try { mark = body.querySelector(`.xr-claim[data-claim-id="${CSS.escape(claim.id)}"]`); }
+    catch (_) { /* CSS.escape unavailable — fall through to text search */ }
+    if (mark) {
+        mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        mark.classList.add('xr-claim--flash');
+        setTimeout(() => mark.classList.remove('xr-claim--flash'), 1600);
+        return;
+    }
+    const quote = String(claim.quote || exactFromAnchor(claim.anchor) || '').trim();
+    if (quote && locateQuoteInBody(quote)) return;
+    if (locateQuoteInBody(claim.text)) return;
+    toast('Could not locate this claim’s passage — the body may have been edited since capture.', 'error', 3500);
+}
+
 function renderModuleRow(r, staleSet) {
     const quotes = (r.evidence_quotes || []).map((q) => q && q.quote).filter(Boolean);
     const caveats = r.auditor_caveats || [];
@@ -1005,6 +1031,13 @@ async function refreshClaimsBar() {
         const linkBtn   = row.querySelector('[data-action="link"]');
         const assessBtn = row.querySelector('[data-action="assess"]');
         const adjBtn    = row.querySelector('[data-action="adjudicate"]');
+        // Claim text + quote both jump to the passage in the article.
+        row.querySelectorAll('[data-action="locate"]').forEach((el) => {
+            el.addEventListener('click', () => {
+                const claim = claims.find((c) => c.id === id);
+                if (claim) locateClaimInBody(claim);
+            });
+        });
         if (editBtn) editBtn.addEventListener('click', () => openEditClaim(id));
         if (delBtn)  delBtn.addEventListener('click',  () => confirmDeleteClaim(id));
         if (linkBtn) linkBtn.addEventListener('click', () => openLinkClaim(id, claims));

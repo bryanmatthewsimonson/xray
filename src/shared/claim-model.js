@@ -119,6 +119,25 @@ export function parseClaimEvent(event) {
 }
 
 // ------------------------------------------------------------------
+// Anchor readers (pure) — display helpers over the selector array
+// ------------------------------------------------------------------
+
+/** The TextQuoteSelector exact from an anchor array, or ''. */
+export function exactFromAnchor(anchor) {
+    if (!Array.isArray(anchor)) return '';
+    const tqs = anchor.find((s) => s && s.type === 'TextQuoteSelector');
+    return (tqs && tqs.exact) || '';
+}
+
+/** The PDF page number from an anchor's FragmentSelector, or null. */
+export function pageFromAnchor(anchor) {
+    if (!Array.isArray(anchor)) return null;
+    const fs = anchor.find((s) => s && s.type === 'FragmentSelector'
+        && /^page=\d+$/.test(String(s.value || '')));
+    return fs ? Number(String(fs.value).slice(5)) : null;
+}
+
+// ------------------------------------------------------------------
 // Validation
 // ------------------------------------------------------------------
 

@@ -257,3 +257,18 @@ test('parseClaimEvent: tolerates a malformed anchor tag', () => {
     assert.equal(c.anchor, null);
     assert.equal(c.quote, 'q');
 });
+
+test('anchor readers: exactFromAnchor + pageFromAnchor (display helpers)', async () => {
+    const { exactFromAnchor, pageFromAnchor } = await import('../src/shared/claim-model.js');
+    const anchor = [
+        { type: 'TextQuoteSelector', exact: 'the verbatim span', prefix: 'p', suffix: 's' },
+        { type: 'TextPositionSelector', start: 10, end: 27 },
+        { type: 'FragmentSelector', conformsTo: 'http://tools.ietf.org/rfc/rfc3778', value: 'page=7' }
+    ];
+    assert.equal(exactFromAnchor(anchor), 'the verbatim span');
+    assert.equal(pageFromAnchor(anchor), 7);
+    assert.equal(exactFromAnchor(null), '');
+    assert.equal(pageFromAnchor([{ type: 'FragmentSelector', value: 'xywh=1,2,3,4' }]), null,
+        'media fragments are not pages');
+    assert.equal(pageFromAnchor([]), null);
+});
