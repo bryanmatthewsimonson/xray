@@ -110,6 +110,21 @@ function cleanSuggestedBy(value) {
     return isValidSuggestedBy(v) ? v : 'user';
 }
 
+/**
+ * Foreign keyless entities (Knowledge Sharing KS.3): a record carrying
+ * a `foreign_pubkey` and no local key gets a synthesized READ-ONLY
+ * keypair shape — pubkey/npub only — so every existing p-tag read path
+ * works unchanged and the user's claims/judgments about the entity tag
+ * the foreign pubkey. `privateKey: null` is the read-only marker:
+ * signing paths must check `keypair.privateKey`, never just `keypair`.
+ */
+function synthesizeForeignKeypair(record) {
+    if (!record || record.keyName || !record.foreign_pubkey) return null;
+    let npub = null;
+    try { npub = Crypto.hexToNpub(record.foreign_pubkey); } catch (_) { /* npub is cosmetic */ }
+    return { pubkey: record.foreign_pubkey, privateKey: null, npub, nsec: null };
+}
+
 export const EntityModel = {
     /**
      * Return the merged entity record for `id`, or null if not found.
@@ -131,7 +146,7 @@ export const EntityModel = {
                 privateKey: key.privateKey,
                 npub:       key.npub,
                 nsec:       key.nsec
-            } : null
+            } : synthesizeForeignKeypair(record)
         };
     },
 
@@ -147,7 +162,7 @@ export const EntityModel = {
                     privateKey: key.privateKey,
                     npub:       key.npub,
                     nsec:       key.nsec
-                } : null
+                } : synthesizeForeignKeypair(record)
             };
         }
         return out;
@@ -233,7 +248,15 @@ export const EntityModel = {
         // SECURITY: keyName is ALWAYS derived from the id — never taken
         // from the row. A caller-supplied keyName could bind the record
         // to the reserved `xray:user` primary-identity slot.
-        const keyName = `entity:${row.id}`;
+        const derivedKeyName = `entity:${row.id}`;
+        // Foreign keyless rows (KS.3): a row carrying a foreign_pubkey
+        // imports keyless — unless a local key is already installed
+        // under this id (never downgrade a keyed entity to foreign).
+        const foreignPubkey = (typeof row.foreign_pubkey === 'string'
+            && /^[0-9a-f]{64}$/i.test(row.foreign_pubkey)
+            && !LocalKeyManager.getKey(derivedKeyName))
+            ? row.foreign_pubkey.toLowerCase() : null;
+        const keyName = foreignPubkey ? null : derivedKeyName;
 
         const all = await Storage.get('entities', {});
         const existing = all[row.id];
@@ -247,6 +270,7 @@ export const EntityModel = {
                 nip05:        row.nip05 || existing.nip05 || '',
                 canonical_id: row.canonical_id || existing.canonical_id || null,
                 keyName,
+                foreign_pubkey: foreignPubkey || (keyName ? null : existing.foreign_pubkey) || null,
                 updated:      now
             };
         } else {
@@ -258,12 +282,79 @@ export const EntityModel = {
                 nip05:        row.nip05 || '',
                 canonical_id: row.canonical_id || null,
                 keyName,
+                foreign_pubkey: foreignPubkey,
                 created:      now,
                 updated:      now
             };
         }
         await Storage.set('entities', all);
         return await EntityModel.get(row.id);
+    },
+
+    /** True when the record is a foreign keyless entity (KS.3). */
+    isForeign: (record) => !!(record && !record.keyName && record.foreign_pubkey),
+
+    /**
+     * Adopt a FOREIGN entity — another user's entity pubkey — as a
+     * local keyless record (Knowledge Sharing KS.3, adopt-on-sight).
+     *
+     * The id derives from the PUBKEY (`sha256('foreign:'+pk)`),
+     * deliberately not from (type, name): a foreign "Donald Trump"
+     * must never silently collide with the user's own — the adopt-time
+     * name-collision prompt owns that merge decision (pass
+     * `canonicalId` to adopt-as-alias). Re-adopting the same pubkey
+     * refreshes the displayable fields. If the pubkey already belongs
+     * to a locally KEYED entity, that entity is returned — never
+     * shadow yourself.
+     *
+     * @param {{name: string, type: string, pubkey: string,
+     *          description?: string, canonicalId?: string|null,
+     *          adoptedFrom?: {pubkey?: string}|null}} fields
+     */
+    importForeign: async ({ name, type, pubkey, description = '', canonicalId = null, adoptedFrom = null } = {}) => {
+        const cleanName = assertValidName(name);
+        assertValidType(type);
+        if (typeof pubkey !== 'string' || !/^[0-9a-f]{64}$/i.test(pubkey)) {
+            throw new Error('importForeign: pubkey must be 64 hex chars');
+        }
+        const pk = pubkey.toLowerCase();
+
+        const all = await Storage.get('entities', {});
+        for (const record of Object.values(all)) {
+            if (!record.keyName) continue;
+            const key = LocalKeyManager.getKey(record.keyName);
+            if (key && key.pubkey === pk) return await EntityModel.get(record.id);
+        }
+
+        if (canonicalId) {
+            const canonical = all[canonicalId];
+            if (!canonical) throw new Error(`canonical_id not found: ${canonicalId}`);
+            if (canonical.type !== type) throw new Error(`canonical_id points to a ${canonical.type} entity; this entity is a ${type}`);
+        }
+
+        const hash = await Crypto.sha256('foreign:' + pk);
+        const id = `entity_${hash.slice(0, 16)}`;
+        const existing = all[id];
+        const now = Math.floor(Date.now() / 1000);
+        all[id] = {
+            id,
+            name:         cleanName,
+            type,
+            description:  description || (existing && existing.description) || '',
+            nip05:        '',
+            canonical_id: canonicalId || (existing && existing.canonical_id) || null,
+            keyName:      null,
+            foreign_pubkey: pk,
+            adopted_from: (adoptedFrom && adoptedFrom.pubkey)
+                ? { pubkey: adoptedFrom.pubkey, at: now }
+                : (existing && existing.adopted_from) || { pubkey: null, at: now },
+            suggested_by: 'user',
+            created:      (existing && existing.created) || now,
+            updated:      now
+        };
+        await Storage.set('entities', all);
+        Utils.log('Adopted foreign entity:', id, cleanName, type, pk.slice(0, 8) + '…');
+        return await EntityModel.get(id);
     },
 
     /**
