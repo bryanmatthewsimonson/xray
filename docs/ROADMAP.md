@@ -90,10 +90,11 @@ claims, assessments, the "My Archive" portal, epistemic audits, forensic
 findings, opt-in LLM assist, and truth adjudication (Phase 15, merged as
 PR #89 — the manifest still says **v0.6.0**; no tag has been cut since
 v0.5.1, so a v0.7.0 release is due). Next in phase order is the moral
-lens (Phase 16, design amended 16.0.5) — but **the FLF Epistack
-competition sprint (`docs/EPISTACK_WIN_PLAN.md`, deadline 2026-07-19)
-outranks Phase 16 until it ships**: the sprint exercises Phase 15 in the
-wild; Phase 16 is not on its critical path.
+lens (Phase 16, design amended 16.0.5), currently parked: the **FLF
+Epistack competition (deadline 2026-07-19) is being pursued
+maintainer-driven from real use cases (COVID first)**, exercising
+Phase 15 in the wild. There is no committed sprint plan — the tool is
+tailored from that experience; Phase 16 is not on its critical path.
 
 ---
 

@@ -211,10 +211,12 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   `docs/TRUTH_ADJUDICATION_DESIGN.md` — its precedent/bridging tail is
   deferred). Design-only: Phase 16 (moral lens;
   `docs/MORAL_LENS_JURISDICTION_DESIGN.md`, amended 2026-07-03 — the
-  amendment governs). The FLF Epistack competition sprint
-  (`docs/EPISTACK_WIN_PLAN.md`, deadline 2026-07-19) outranks Phase 16
-  until it ships. Several SMOKE_TEST section walks (Phases 11–15) are
-  still pending — they're manual and need a human with a browser.
+  amendment governs), currently parked. The FLF Epistack competition
+  (deadline 2026-07-19) is being pursued **maintainer-driven from real
+  use cases (COVID first)** — there is no committed sprint plan; the tool
+  is tailored from that experience. Several SMOKE_TEST section walks
+  (Phases 11–15) are still pending — they're manual and need a human with
+  a browser.
 - **`docs/JOURNAL.md`** — chronological log of bugs, design decisions, and
   external-platform changes. **Add a tight entry** when fixing a non-obvious
   bug, making a second-guessable design choice, or working around a
