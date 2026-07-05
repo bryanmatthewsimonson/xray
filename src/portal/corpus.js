@@ -99,8 +99,19 @@ async function backfillRelay(relayUrl, baseFilter, collect, onProgress) {
             return { ok: false, error: stat.error || 'relay unreachable', pages };
         }
         const events = Array.isArray(resp.events) ? resp.events : [];
+        const invalid = typeof resp.invalid === 'number' ? resp.invalid : 0;
         pages++;
-        if (events.length === 0) break;
+        if (events.length === 0) {
+            // KS.1: a page whose events were ALL dropped by signature
+            // verification is not proof the relay is drained — older
+            // valid history may sit behind the poisoned window. Flag
+            // truncation so the sync cursor never records a clean pass.
+            if (invalid > 0) {
+                Utils.log('Portal corpus: page fully dropped by verification on', relayUrl, '— marking truncated');
+                return { ok: true, pages, truncated: true };
+            }
+            break;
+        }
         let oldest = Infinity;
         let fresh = 0;
         for (const ev of events) {
@@ -113,7 +124,13 @@ async function backfillRelay(relayUrl, baseFilter, collect, onProgress) {
         // `until` is inclusive, so the boundary page always re-serves
         // events we already hold — a page with nothing NEW means this
         // relay is drained (or capped inside one second; see header).
-        if (fresh === 0) break;
+        if (fresh === 0) {
+            if (invalid > 0) {
+                Utils.log('Portal corpus:', invalid, 'event(s) dropped by verification on', relayUrl, 'with nothing fresh — marking truncated');
+                return { ok: true, pages, truncated: true };
+            }
+            break;
+        }
         if (!Number.isFinite(oldest)) break;
         if (pages >= MAX_PAGES_PER_QUERY) {
             Utils.log('Portal corpus: page ceiling hit on', relayUrl, '— older events not fetched');

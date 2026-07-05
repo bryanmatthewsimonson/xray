@@ -27,7 +27,7 @@ import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { Crypto } from '../shared/crypto.js';
 import { dedupeReplaceable } from '../shared/nostr-events.js';
 import { equivalencePubkeys } from '../shared/entity-equivalence.js';
-import { FEED_HOP1_KINDS, claimCoords, buildJudgmentFilter, assembleFeed } from '../shared/entity-feed.js';
+import { buildFeedFilters, claimCoords, buildJudgmentFilter, assembleFeed } from '../shared/entity-feed.js';
 import { pushEntities, pullEntities, clearRemote, pushRelayList, pullRelayList, normalizeRelayUrl } from '../shared/entity-sync.js';
 
 // Reserved key name in LocalKeyManager for the user's primary
@@ -343,7 +343,7 @@ function renderDetail(entity) {
     if (state.networkClaims && state.networkClaims.entityId === entity.id) {
         paintNetworkClaims(entity, state.networkClaims.events, state.networkClaims.byRelay)
             .catch(() => {});
-        if (state.networkClaims.feed) paintNetworkExtra(entity, state.networkClaims.feed);
+        if (state.networkClaims.feed) paintNetworkExtra(entity, state.networkClaims.feed, { hop2Failed: !!state.networkClaims.hop2Failed });
     }
 
     // Phase 11.6 — case export (case entities only).
@@ -422,29 +422,59 @@ async function loadNetworkClaims(entity) {
     const query = (filter, timeoutMs) => new Promise((resolve) => {
         chrome.runtime.sendMessage({ type: 'xray:relay:query', relays, filter, timeoutMs }, resolve);
     });
-    const hop1 = await query({ kinds: [...FEED_HOP1_KINDS], '#p': eq.pubkeys, limit: 300 }, 6000);
-    if (!hop1 || !hop1.ok) {
-        host.innerHTML = `<div class="xr-side__canonical-none">Query failed: ${escapeHtml((hop1 && hop1.error) || 'no response from service worker')}</div>`;
+
+    // Hop 1: a dedicated 30040 filter (claims keep their pre-KS.4
+    // relay window) + the other kinds, in parallel.
+    const [claimsFilter, otherFilter] = buildFeedFilters(eq.pubkeys);
+    const [claimsResp, otherResp] = await Promise.all([
+        query(claimsFilter, 6000),
+        query(otherFilter, 6000)
+    ]);
+    if (!claimsResp || !claimsResp.ok) {
+        host.innerHTML = `<div class="xr-side__canonical-none">Query failed: ${escapeHtml((claimsResp && claimsResp.error) || 'no response from service worker')}</div>`;
         return;
     }
-    // Judgment hop: assessments/links/verdicts on the discovered
-    // claims. Verdicts (30063) carry no p tag by design, so this hop
-    // is their only route into the feed.
-    const judgmentFilter = buildJudgmentFilter(claimCoords(hop1.events));
-    let hop2Events = [];
-    if (judgmentFilter) {
-        const hop2 = await query(judgmentFilter, 6000);
-        if (hop2 && hop2.ok && Array.isArray(hop2.events)) hop2Events = hop2.events;
-    }
-    const feed = assembleFeed(hop1.events, hop2Events, { knownPubkeys: eq.pubkeys });
-    // The claims list keeps its Phase 10.4 renderer (latest-per-
-    // coordinate dedup + assess wiring, unchanged).
-    const events = dedupeReplaceable((hop1.events || []).filter((ev) => ev && ev.kind === 30040));
-    state.networkClaims = { entityId: entity.id, events, byRelay: hop1.byRelay, feed };
-    paintNetworkClaims(entity, events, hop1.byRelay).catch((err) => {
+    const otherEvents = (otherResp && otherResp.ok && Array.isArray(otherResp.events)) ? otherResp.events : [];
+    const hop1Events = [...(claimsResp.events || []), ...otherEvents];
+
+    // Adopt candidates exclude EVERY locally known wire pubkey — your
+    // other entities and already-adopted foreign keys are not
+    // "unknown", and re-listing them invites a rename-clobbering
+    // re-adopt.
+    const knownPubkeys = new Set(eq.pubkeys);
+    try {
+        for (const e of Object.values(await EntityModel.getAll())) {
+            if (e && e.keypair && e.keypair.pubkey) knownPubkeys.add(e.keypair.pubkey);
+        }
+    } catch (_) { /* fall back to the equivalence set */ }
+
+    // Paint everything hop 1 gives us now; judgments patch in below.
+    const events = dedupeReplaceable(claimsResp.events || []);
+    let feed = assembleFeed(hop1Events, [], { knownPubkeys: [...knownPubkeys] });
+    state.networkClaims = { entityId: entity.id, events, byRelay: claimsResp.byRelay, feed };
+    paintNetworkClaims(entity, events, claimsResp.byRelay).catch((err) => {
         host.innerHTML = `<div class="xr-side__canonical-none">Render failed: ${escapeHtml(err.message || String(err))}</div>`;
     });
     paintNetworkExtra(entity, feed);
+
+    // Hop 2: assessments/links/verdicts on the discovered claims.
+    // Verdicts (30063) carry no p tag by design, so this hop is their
+    // only route into the feed — a failure must not masquerade as
+    // "no judgments exist".
+    const judgmentFilter = buildJudgmentFilter(claimCoords(claimsResp.events || []));
+    if (!judgmentFilter) return;
+    const hop2 = await query(judgmentFilter, 6000);
+    const stale = !state.networkClaims || state.networkClaims.entityId !== entity.id;
+    if (hop2 && hop2.ok && Array.isArray(hop2.events)) {
+        feed = assembleFeed(hop1Events, hop2.events, { knownPubkeys: [...knownPubkeys] });
+        if (!stale) {
+            state.networkClaims.feed = feed;
+            paintNetworkExtra(entity, feed);
+        }
+    } else if (!stale) {
+        state.networkClaims.hop2Failed = true;
+        paintNetworkExtra(entity, feed, { hop2Failed: true });
+    }
 }
 
 // Replaceable-event dedup now lives in shared/nostr-events.js (Phase
@@ -568,10 +598,13 @@ function feedAuthor(ev) {
     return `👤 ${escapeHtml((ev.pubkey || '').slice(0, 12))}…`;
 }
 
-function paintNetworkExtra(entity, feed) {
+function paintNetworkExtra(entity, feed, { hop2Failed = false } = {}) {
     const host = $('#xr-network-extra');
     if (!host) return;
     const groups = [];
+    if (hop2Failed) {
+        groups.push(`<div class="xr-side__canonical-none">⚠ Judgment lookup failed — assessments, links, and verdicts on these claims may be missing. Reload to retry.</div>`);
+    }
 
     groups.push(feedGroup('📰 Articles', feed.articles.map(({ event, parsed }) => feedRow(
         parsed.url
@@ -659,7 +692,7 @@ async function adoptForeignPubkey(pubkey, contextEntity) {
             const newest = [...resp.events].sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0];
             const content = JSON.parse(newest.content || '{}');
             if (content.name) name = String(content.name).slice(0, 200);
-            const m = /^(person|organization|place|thing|case) entity created by X-Ray/.exec(content.about || '');
+            const m = new RegExp('^(' + ENTITY_TYPES.join('|') + ') entity created by X-Ray').exec(content.about || '');
             if (m) type = m[1];
         }
     } catch (_) { /* offline adopt still works — name falls back to the pubkey prefix */ }
@@ -685,7 +718,23 @@ async function adoptForeignPubkey(pubkey, contextEntity) {
 
     try {
         const adopted = await EntityModel.importForeign({ name, type, pubkey, canonicalId });
-        toast(`Adopted ${adopted.name}${canonicalId ? ' as an alias' : ''}`, 'success');
+        if (!EntityModel.isForeign(adopted)) {
+            // importForeign returned an existing locally KEYED entity
+            // (never shadow yourself) — canonicalId was NOT applied.
+            // Honor an alias request with an explicit local alias link.
+            if (canonicalId && adopted.id !== canonicalId) {
+                try {
+                    await EntityModel.linkAlias(adopted.id, canonicalId);
+                    toast(`Linked your entity "${adopted.name}" as an alias`, 'success');
+                } catch (err) {
+                    toast(`That key belongs to your entity "${adopted.name}" — alias link failed: ${err.message || err}`, 'error');
+                }
+            } else {
+                toast(`That key already belongs to your entity "${adopted.name}"`, 'success');
+            }
+        } else {
+            toast(`Adopted ${adopted.name}${canonicalId ? ' as an alias' : ''}`, 'success');
+        }
         const fresh = await EntityModel.get(contextEntity.id);
         if (fresh) await loadNetworkClaims(fresh);   // re-run: the adopted key joins the set
     } catch (err) {
@@ -1225,6 +1274,15 @@ async function handleImport(file) {
                     canonical_id: row.canonical_id || null
                 });
                 updated++;
+            } else if (row.foreign_pubkey) {
+                // Foreign keyless entity (KS.3): routing it through
+                // create() would mint a bogus local keypair under a
+                // (type,name)-derived id — the rendezvous pubkey and
+                // the pubkey-derived id must survive the round trip.
+                try {
+                    await EntityModel.importRecord(row);
+                    added++;
+                } catch (_) { /* malformed row → skip */ }
             } else {
                 try {
                     await EntityModel.create({
@@ -1557,7 +1615,7 @@ async function runPull(userKey) {
         // the sync body and replaces the #xr-sync-log element, so any
         // log content set before this call is wiped.
         setSyncLog(`
-          <div>Fetched <strong>${out.fetched}</strong> events (deduped across relays).
+          <div>Fetched <strong>${out.fetched}</strong> events (deduped across relays${out.invalid ? `; <strong>${out.invalid}</strong> dropped failing signature verification` : ''}).
                Added <strong>${out.added}</strong>, updated <strong>${out.updated}</strong>,
                unchanged ${out.unchanged}, malformed ${out.malformed}, failed ${out.failed}.${legacyNote}</div>
           ${formatBreakdown}

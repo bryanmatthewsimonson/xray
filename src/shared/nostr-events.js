@@ -75,61 +75,73 @@ export function dedupeReplaceable(events) {
 // refresh). A cache hit still recomputes the id hash — an event whose
 // content does not hash to its claimed id is dropped even when that
 // id verified before — so the cache only ever skips the expensive
-// Schnorr math, never the content-integrity check.
+// Schnorr math, never the content-integrity check. queryRelays keeps
+// multiple relay copies per id and takes the first VALID one, so a
+// forged frame can't censor an honest relay's copy of the same id.
 
 import { Crypto } from './crypto.js';
 
 const VERIFIED_IDS_MAX = 20000;
 const _verifiedIds = new Set(); // insertion-ordered → cheap FIFO eviction
 
+async function verifyOne(ev) {
+    if (!ev
+        || typeof ev.id !== 'string'
+        || typeof ev.pubkey !== 'string'
+        || typeof ev.sig !== 'string') {
+        return false;
+    }
+    try {
+        if (_verifiedIds.has(ev.id)) {
+            // Cache hit: skip Schnorr, keep the hash check.
+            return (await Crypto.getEventHash(ev)) === ev.id;
+        }
+        const ok = await Crypto.verifySignature(ev);
+        if (ok) {
+            _verifiedIds.add(ev.id);
+            if (_verifiedIds.size > VERIFIED_IDS_MAX) {
+                _verifiedIds.delete(_verifiedIds.values().next().value);
+            }
+        }
+        return ok;
+    } catch (_) {
+        return false;
+    }
+}
+
 /**
  * Partition events into signature-valid and dropped.
  *
- * Verification is chunked with an event-loop yield between chunks so
- * a large portal sync doesn't starve the service worker.
+ * A flat loop is enough for the service worker: every event's
+ * verification awaits real async crypto (WebCrypto digests), so the
+ * event loop breathes between events without extra timer machinery.
  *
  * @param {Array<object>} events
- * @param {{chunkSize?: number}} [opts]
  * @returns {Promise<{valid: Array<object>, dropped: number}>}
  */
-export async function verifyEvents(events, { chunkSize = 25 } = {}) {
+export async function verifyEvents(events) {
     const list = Array.isArray(events) ? events : [];
     const valid = [];
     let dropped = 0;
-
-    for (let i = 0; i < list.length; i += chunkSize) {
-        const chunk = list.slice(i, i + chunkSize);
-        for (const ev of chunk) {
-            if (!ev
-                || typeof ev.id !== 'string'
-                || typeof ev.pubkey !== 'string'
-                || typeof ev.sig !== 'string') {
-                dropped++;
-                continue;
-            }
-            let ok = false;
-            try {
-                if (_verifiedIds.has(ev.id)) {
-                    // Cache hit: skip Schnorr, keep the hash check.
-                    ok = (await Crypto.getEventHash(ev)) === ev.id;
-                } else {
-                    ok = await Crypto.verifySignature(ev);
-                    if (ok) {
-                        _verifiedIds.add(ev.id);
-                        if (_verifiedIds.size > VERIFIED_IDS_MAX) {
-                            _verifiedIds.delete(_verifiedIds.values().next().value);
-                        }
-                    }
-                }
-            } catch (_) {
-                ok = false;
-            }
-            if (ok) valid.push(ev);
-            else dropped++;
-        }
-        if (i + chunkSize < list.length) {
-            await new Promise((resolve) => setTimeout(resolve, 0));
-        }
+    for (const ev of list) {
+        if (await verifyOne(ev)) valid.push(ev);
+        else dropped++;
     }
     return { valid, dropped };
+}
+
+/**
+ * First signature-valid event among relay-delivered copies sharing one
+ * id, in arrival order — or null when none verifies. Companion to
+ * queryRelays' censorship guard: a forged frame reusing a real event's
+ * id must not suppress an honest relay's valid copy.
+ *
+ * @param {Array<object>} copies
+ * @returns {Promise<object|null>}
+ */
+export async function firstValidEvent(copies) {
+    for (const ev of Array.isArray(copies) ? copies : []) {
+        if (await verifyOne(ev)) return ev;
+    }
+    return null;
 }

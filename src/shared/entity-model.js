@@ -249,17 +249,22 @@ export const EntityModel = {
         // from the row. A caller-supplied keyName could bind the record
         // to the reserved `xray:user` primary-identity slot.
         const derivedKeyName = `entity:${row.id}`;
-        // Foreign keyless rows (KS.3): a row carrying a foreign_pubkey
-        // imports keyless — unless a local key is already installed
-        // under this id (never downgrade a keyed entity to foreign).
-        const foreignPubkey = (typeof row.foreign_pubkey === 'string'
-            && /^[0-9a-f]{64}$/i.test(row.foreign_pubkey)
-            && !LocalKeyManager.getKey(derivedKeyName))
-            ? row.foreign_pubkey.toLowerCase() : null;
-        const keyName = foreignPubkey ? null : derivedKeyName;
 
         const all = await Storage.get('entities', {});
         const existing = all[row.id];
+        // Foreign keyless rows (KS.3): a row carrying a foreign_pubkey
+        // imports keyless — unless a local key is already installed
+        // under this id (never downgrade a keyed entity to foreign).
+        // An EXISTING foreign record also keeps its wire pubkey when
+        // the row lacks the field (a bundle round-tripped through a
+        // pre-KS.3 build must not strip the binding).
+        const rowForeign = (typeof row.foreign_pubkey === 'string'
+            && /^[0-9a-f]{64}$/i.test(row.foreign_pubkey))
+            ? row.foreign_pubkey.toLowerCase() : null;
+        const existingForeign = (existing && !existing.keyName && existing.foreign_pubkey) || null;
+        const foreignPubkey = !LocalKeyManager.getKey(derivedKeyName)
+            ? (rowForeign || existingForeign) : null;
+        const keyName = foreignPubkey ? null : derivedKeyName;
         const now = Math.floor(Date.now() / 1000);
         if (existing) {
             all[row.id] = {
@@ -270,7 +275,7 @@ export const EntityModel = {
                 nip05:        row.nip05 || existing.nip05 || '',
                 canonical_id: row.canonical_id || existing.canonical_id || null,
                 keyName,
-                foreign_pubkey: foreignPubkey || (keyName ? null : existing.foreign_pubkey) || null,
+                foreign_pubkey: foreignPubkey,
                 updated:      now
             };
         } else {
@@ -293,6 +298,35 @@ export const EntityModel = {
 
     /** True when the record is a foreign keyless entity (KS.3). */
     isForeign: (record) => !!(record && !record.keyName && record.foreign_pubkey),
+
+    /**
+     * The alias FAMILY of an entity: every entity whose canonical
+     * chain resolves to the same root. Pure in-memory walk over a
+     * single registry snapshot (pass `records` to reuse one you
+     * already hold) — resolveAlias-per-candidate would cost a full
+     * chrome.storage read per hop.
+     */
+    aliasFamily: async (entityId, records = null) => {
+        const all = records || await Storage.get('entities', {});
+        const rootOf = (rec) => {
+            let cur = rec;
+            const seen = new Set([cur.id]);
+            for (let i = 0; i < 8 && cur.canonical_id; i++) {
+                const next = all[cur.canonical_id];
+                if (!next || seen.has(next.id)) break;
+                seen.add(next.id);
+                cur = next;
+            }
+            return cur.id;
+        };
+        const me = all[entityId];
+        if (!me) return { rootId: null, ids: [] };
+        const rootId = rootOf(me);
+        const ids = Object.values(all)
+            .filter((rec) => rec && rec.id && rootOf(rec) === rootId)
+            .map((rec) => rec.id);
+        return { rootId, ids };
+    },
 
     /**
      * Adopt a FOREIGN entity — another user's entity pubkey — as a

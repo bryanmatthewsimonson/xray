@@ -21,6 +21,7 @@
 //            v1 limit (design doc §12.2).
 
 import { dedupeReplaceable } from './nostr-events.js';
+import { EventBuilder } from './event-builder.js';
 import { parseClaimEvent } from './claim-model.js';
 import { parseAssessmentEvent } from './assessment-model.js';
 import { parseRelationshipEvent } from './evidence-linker.js';
@@ -36,11 +37,19 @@ export const FEED_HOP2_KINDS = [30054, 30055, 30063, 1985];
 // adopt-on-sight candidate discovery.
 const NON_ENTITY_P_ROLES = new Set(['author', 'commenter', 'account', 'auditor']);
 
-/** Hop-1 relay filters for an equivalence pubkey set. */
-export function buildFeedFilters(pubkeys, { limit = 300 } = {}) {
+/**
+ * Hop-1 relay filters for an equivalence pubkey set. Claims get their
+ * own filter so high-volume kinds (articles, labels, accounts) never
+ * crowd 30040s out of a shared newest-first relay window — the claims
+ * list must keep at least its pre-KS.4 coverage.
+ */
+export function buildFeedFilters(pubkeys, { claimLimit = 200, limit = 300 } = {}) {
     const pks = [...new Set((pubkeys || []).filter(Boolean))];
     if (pks.length === 0) return [];
-    return [{ kinds: [...FEED_HOP1_KINDS], '#p': pks, limit }];
+    return [
+        { kinds: [30040], '#p': pks, limit: claimLimit },
+        { kinds: FEED_HOP1_KINDS.filter((k) => k !== 30040), '#p': pks, limit }
+    ];
 }
 
 /** Addressable coordinates of the kind-30040 claims in an event set. */
@@ -77,22 +86,6 @@ function parseArticleMeta(event) {
         url:        firstTag(event, 'r'),
         hash:       firstTag(event, 'x') || null,
         created_at: event.created_at || 0
-    };
-}
-
-/** Minimal 32126 row incl. the KS.2 linked-entity pubkey tag. */
-function parseAccountRow(event) {
-    if (!event || event.kind !== 32126) return null;
-    const key = firstTag(event, 'd');
-    if (!key) return null;
-    const linkP = (event.tags || []).find((t) => Array.isArray(t) && t[0] === 'p' && t[3] === 'linked-entity');
-    return {
-        key,
-        platform:           firstTag(event, 'account-platform'),
-        handle:             firstTag(event, 'account-username'),
-        displayName:        firstTag(event, 'account-name'),
-        linkedEntityPubkey: linkP ? linkP[1] : null,
-        created_at:         event.created_at || 0
     };
 }
 
@@ -145,10 +138,20 @@ function collectCandidatePubkeys(event, known, out) {
  */
 export function assembleFeed(hop1Events, hop2Events = [], { knownPubkeys = [] } = {}) {
     const known = new Set((knownPubkeys || []).map((pk) => String(pk).toLowerCase()));
-    const events = dedupeReplaceable([
+    // Id-level dedup FIRST: the two hops are separate relay queries,
+    // and a regular-kind event (1985) matching both #p and #a comes
+    // back from each — dedupeReplaceable keeps every regular event.
+    const seenIds = new Set();
+    const merged = [];
+    for (const ev of [
         ...(Array.isArray(hop1Events) ? hop1Events : []),
         ...(Array.isArray(hop2Events) ? hop2Events : [])
-    ]);
+    ]) {
+        if (!ev || (ev.id && seenIds.has(ev.id))) continue;
+        if (ev.id) seenIds.add(ev.id);
+        merged.push(ev);
+    }
+    const events = dedupeReplaceable(merged);
 
     const feed = {
         articles: [], accounts: [], claims: [], assessments: [], links: [],
@@ -165,7 +168,7 @@ export function assembleFeed(hop1Events, hop2Events = [], { knownPubkeys = [] } 
             switch (ev.kind) {
                 case 30023: parsed = parseArticleMeta(ev);            bucket = feed.articles;    break;
                 case 30040: parsed = parseClaimEvent(ev);             bucket = feed.claims;      break;
-                case 32126: parsed = parseAccountRow(ev);             bucket = feed.accounts;    break;
+                case 32126: parsed = EventBuilder.reconstructPlatformAccount(ev); bucket = feed.accounts; break;
                 case 30054: parsed = parseAssessmentEvent(ev);        bucket = feed.assessments; break;
                 case 30055: parsed = parseRelationshipEvent(ev);      bucket = feed.links;       break;
                 case 30062: parsed = parseBehavioralFindingEvent(ev); bucket = feed.findings;    break;

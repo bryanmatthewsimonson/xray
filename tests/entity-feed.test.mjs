@@ -41,12 +41,26 @@ function ev(kind, tags, over = {}) {
     };
 }
 
-test('buildFeedFilters: one #p filter over the hop-1 kinds', () => {
-    const [f] = buildFeedFilters([ENTITY_PK, ENTITY_PK, null]);
-    assert.deepEqual(f.kinds, FEED_HOP1_KINDS);
-    assert.deepEqual(f['#p'], [ENTITY_PK]);
-    assert.equal(typeof f.limit, 'number');
+test('buildFeedFilters: dedicated claims filter + the other hop-1 kinds', () => {
+    const filters = buildFeedFilters([ENTITY_PK, ENTITY_PK, null]);
+    assert.equal(filters.length, 2);
+    const [claims, other] = filters;
+    assert.deepEqual(claims.kinds, [30040]);
+    assert.deepEqual(claims['#p'], [ENTITY_PK]);
+    assert.deepEqual(other.kinds, FEED_HOP1_KINDS.filter((k) => k !== 30040));
+    assert.deepEqual(other['#p'], [ENTITY_PK]);
+    assert.equal(typeof claims.limit, 'number');
+    assert.equal(typeof other.limit, 'number');
     assert.deepEqual(buildFeedFilters([]), []);
+});
+
+test('assembleFeed: an event returned by both hops renders once', () => {
+    const label = ev(1985, [['L', 'xray/assessment'], ['l', 'misleading', 'xray/assessment'],
+        ['p', ENTITY_PK, '', 'about'], ['a', `30040:${PK_A}:claim_1`]]);
+    const copy = { ...label };                 // same id, second query
+    const feed = assembleFeed([label], [copy]);
+    assert.equal(feed.labels.length, 1);
+    assert.equal(feed.authors.get(PK_A), 1);
 });
 
 test('claimCoords: coordinates from 30040s, deduped + capped', () => {
@@ -75,6 +89,7 @@ test('assembleFeed: groups per kind', async () => {
     const article = ev(30023, [['title', 'T'], ['r', 'https://example.com/a'], ['x', 'f'.repeat(64)]]);
     const claim = ev(30040, [['d', 'claim_1'], ['claim-text', 'A said B'], ['r', 'https://example.com/a']]);
     const account = ev(32126, [['d', 'twitter:jane'], ['account-platform', 'twitter'],
+        ['account-id', 'jane'],
         ['p', 'c'.repeat(64), '', 'account'], ['p', ENTITY_PK, '', 'linked-entity']]);
     const assessment = ev(30054, [['d', 'assess_1'], ['a', `30040:${PK_A}:claim_1`], ['stance', '1']]);
     const link = ev(30055, [['d', 'rel_1'], ['relationship', 'contradicts'],

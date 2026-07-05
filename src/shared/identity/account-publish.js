@@ -16,17 +16,20 @@
 
 import { Storage } from '../storage.js';
 import { EntityModel } from '../entity-model.js';
-import { accountsForEntity } from './account-registry.js';
 
 /**
  * Select the PlatformAccount records to publish for this run.
  *
  * Union of (a) accounts touched (materialized) by this capture and
- * (b) accounts linked to any of the run's entities, alias-resolved so
- * an account linked to a run entity's canonical also surfaces. Each
- * selection carries the linked entity's wire pubkey when the link
- * resolves, so the builder can emit the role-marked
+ * (b) accounts linked to any member of a run entity's alias family
+ * (EntityModel.aliasFamily — the same family the KS.4 equivalence set
+ * uses). Each selection carries the linked entity's wire pubkey when
+ * the link resolves, so the builder can emit the role-marked
  * `['p', <entityPubkey>, '', 'linked-entity']` tag.
+ *
+ * Exactly two storage reads (accounts + entities snapshots); the
+ * joins are in-memory, matching the pure-selector shape of
+ * assessment-publish.js / truth-publish.js.
  *
  * @param {object}   opts
  * @param {string[]} [opts.touchedAccountKeys]  "<platform>:<stableId>"
@@ -34,27 +37,29 @@ import { accountsForEntity } from './account-registry.js';
  * @returns {Promise<Array<{account: object, linkedEntityPubkey: string|null}>>}
  */
 export async function selectAccountsToPublish({ touchedAccountKeys = [], entityIds = [] } = {}) {
-    const byKey = new Map();
+    const [accountsAll, entitiesAll] = await Promise.all([
+        Storage.platformAccounts.getAll(),
+        EntityModel.getAll()
+    ]);
 
+    const byKey = new Map();
     for (const key of touchedAccountKeys) {
         if (!key || byKey.has(key)) continue;
-        const rec = await Storage.platformAccounts.get(key);
+        const rec = accountsAll[key];
         if (rec) byKey.set(key, rec);
     }
 
+    const familyIds = new Set();
     for (const id of entityIds) {
-        if (!id) continue;
-        const family = [id];
-        try {
-            const entity = await EntityModel.get(id);
-            if (entity) {
-                const canonical = await EntityModel.resolveAlias(entity);
-                if (canonical && canonical.id && canonical.id !== id) family.push(canonical.id);
-            }
-        } catch (_) { /* selection is enrichment; skip on lookup failure */ }
-        for (const eid of family) {
-            for (const rec of await accountsForEntity(eid)) {
-                if (rec && rec.key && !byKey.has(rec.key)) byKey.set(rec.key, rec);
+        if (!id || !entitiesAll[id]) continue;
+        const { ids } = await EntityModel.aliasFamily(id, entitiesAll);
+        for (const fid of ids) familyIds.add(fid);
+    }
+    if (familyIds.size > 0) {
+        for (const rec of Object.values(accountsAll)) {
+            if (rec && rec.key && rec.linkedEntityId
+                && familyIds.has(rec.linkedEntityId) && !byKey.has(rec.key)) {
+                byKey.set(rec.key, rec);
             }
         }
     }
@@ -63,12 +68,10 @@ export async function selectAccountsToPublish({ touchedAccountKeys = [], entityI
     for (const account of byKey.values()) {
         let linkedEntityPubkey = null;
         if (account.linkedEntityId) {
-            try {
-                const entity = await EntityModel.get(account.linkedEntityId);
-                if (entity && entity.keypair && entity.keypair.pubkey) {
-                    linkedEntityPubkey = entity.keypair.pubkey;
-                }
-            } catch (_) { /* dangling link publishes without the pubkey tag */ }
+            const entity = entitiesAll[account.linkedEntityId];
+            if (entity && entity.keypair && entity.keypair.pubkey) {
+                linkedEntityPubkey = entity.keypair.pubkey;
+            }
         }
         out.push({ account, linkedEntityPubkey });
     }

@@ -311,6 +311,18 @@ test('importRecord: foreign_pubkey passes through keyless', async () => {
     assert.ok(EntityModel.isForeign(e));
 });
 
+test('importRecord: a row without foreign_pubkey keeps an existing foreign binding', async () => {
+    resetState();
+    const pk = '8'.repeat(64);
+    const foreign = await EntityModel.importForeign({ name: 'Round Trip Rita', type: 'person', pubkey: pk });
+    // A bundle row round-tripped through a pre-KS.3 build loses the field.
+    const e = await EntityModel.importRecord({ id: foreign.id, name: 'Round Trip Rita', type: 'person' });
+    assert.equal(e.foreign_pubkey, pk);
+    assert.equal(e.keyName, null);
+    assert.equal(e.keypair.pubkey, pk);
+    assert.ok(EntityModel.isForeign(e));
+});
+
 test('importRecord: never downgrades a keyed entity to foreign', async () => {
     resetState();
     const mine = await EntityModel.create({ name: 'Keyed Kate', type: 'person' });
