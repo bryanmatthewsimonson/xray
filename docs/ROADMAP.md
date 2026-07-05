@@ -1309,6 +1309,41 @@ train tip — all merged together via **PR #89**):
 
 ---
 
+## Knowledge sharing (KS) — cross-user substrate 🚧 KS.1–KS.4 shipped
+
+**Design:** [`KNOWLEDGE_SHARING_DESIGN.md`](KNOWLEDGE_SHARING_DESIGN.md) —
+the generalization of TEAM_CASE_DESIGN's follow machinery: the
+cross-user rendezvous ladder, per-reader entity equivalence, and one
+follow/incorporation engine scoped by case or entity. Constraints
+carried over: no aggregation / consensus / reputation; zero new wire
+kinds; single-user untouched.
+
+- ✅ **KS.1** Verify-on-ingest — every event returned by `queryRelays`
+  is BIP-340-verified (id hash + Schnorr) before callers see it;
+  additive `invalid` drop count. Closed a real hole: no read path
+  called `Crypto.verifySignature`.
+- ✅ **KS.2** Kind-32126 platform-account publishing behind
+  `platformAccountPublishing` (default off) + the additive role-marked
+  `linked-entity` pubkey tag — the deterministic cross-user person
+  rendezvous becomes queryable.
+- ✅ **KS.3** Foreign keyless entities (`EntityModel.importForeign`,
+  pubkey-derived ids, synthesized read-only keypairs) + adopt-on-sight
+  with the alias/separate prompt; case bundles round-trip them.
+- ✅ **KS.4** Side-panel "Network activity" feed over the entity's
+  equivalence set (self + alias family + adopted foreign + linked
+  account pubkeys), two-hop (`#p`, then `#a` for judgments/verdicts),
+  read-only, with adopt candidates surfaced.
+- 📝 **KS.5** Follow sets + incorporation queue, case+entity scoped
+  (implements TEAM_CASE TC.2 against the design's §5 engine spec).
+- 📝 **KS.6** Thin coordination — review-request labels, awareness
+  strip, re-broadcast-who-you-follow (≈ TC.4).
+- 📝 **KS.7** NIP-65 relay widening + confirmed-OK publish for
+  identity kinds (⊂ TC.1/TC.4).
+- 📝 **KS.8 (deferred)** trust-graph wiring as a reader-side feed
+  filter.
+
+---
+
 ## Phase 16 — Moral-lens evaluation (lens-readings) 📝 design amended, pre-implementation
 
 **The far side of the Phase-15 firewall, and an LLM-assist consumer.** Where
