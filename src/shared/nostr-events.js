@@ -60,3 +60,76 @@ export function dedupeReplaceable(events) {
     }
     return out;
 }
+
+// ---------------------------------------------------------------------
+// Verify-on-ingest (Knowledge Sharing KS.1).
+//
+// Relay-supplied events are untrusted input: `queryRelays` accepts any
+// frame with an `.id`, and until KS.1 nothing in any read path called
+// `Crypto.verifySignature`. Every event handed back to a caller must
+// pass BIP-340 verification (id = hash of the serialized event, and
+// the Schnorr signature binds that id to its pubkey).
+//
+// A module-level cache of already-verified event ids keeps repeat
+// syncs cheap (the portal re-fetches overlapping pages on every
+// refresh). A cache hit still recomputes the id hash — an event whose
+// content does not hash to its claimed id is dropped even when that
+// id verified before — so the cache only ever skips the expensive
+// Schnorr math, never the content-integrity check.
+
+import { Crypto } from './crypto.js';
+
+const VERIFIED_IDS_MAX = 20000;
+const _verifiedIds = new Set(); // insertion-ordered → cheap FIFO eviction
+
+/**
+ * Partition events into signature-valid and dropped.
+ *
+ * Verification is chunked with an event-loop yield between chunks so
+ * a large portal sync doesn't starve the service worker.
+ *
+ * @param {Array<object>} events
+ * @param {{chunkSize?: number}} [opts]
+ * @returns {Promise<{valid: Array<object>, dropped: number}>}
+ */
+export async function verifyEvents(events, { chunkSize = 25 } = {}) {
+    const list = Array.isArray(events) ? events : [];
+    const valid = [];
+    let dropped = 0;
+
+    for (let i = 0; i < list.length; i += chunkSize) {
+        const chunk = list.slice(i, i + chunkSize);
+        for (const ev of chunk) {
+            if (!ev
+                || typeof ev.id !== 'string'
+                || typeof ev.pubkey !== 'string'
+                || typeof ev.sig !== 'string') {
+                dropped++;
+                continue;
+            }
+            let ok = false;
+            try {
+                if (_verifiedIds.has(ev.id)) {
+                    // Cache hit: skip Schnorr, keep the hash check.
+                    ok = (await Crypto.getEventHash(ev)) === ev.id;
+                } else {
+                    ok = await Crypto.verifySignature(ev);
+                    if (ok) {
+                        _verifiedIds.add(ev.id);
+                        if (_verifiedIds.size > VERIFIED_IDS_MAX) {
+                            _verifiedIds.delete(_verifiedIds.values().next().value);
+                        }
+                    }
+                }
+            } catch (_) {
+                ok = false;
+            }
+            if (ok) valid.push(ev);
+            else dropped++;
+        }
+        if (i + chunkSize < list.length) {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+    }
+    return { valid, dropped };
+}

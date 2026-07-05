@@ -599,7 +599,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             return false;
         }
         NostrClient.queryRelays(relays, filter, timeout)
-            .then((out) => sendResponse({ ok: true, events: out.events, byRelay: out.byRelay }))
+            .then((out) => sendResponse({ ok: true, events: out.events, byRelay: out.byRelay, invalid: out.invalid }))
             .catch((err) => sendResponse({ ok: false, error: err && err.message }));
         return true; // async
     }

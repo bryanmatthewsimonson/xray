@@ -5,6 +5,7 @@
 
 import { Utils } from './utils.js';
 import { CONFIG } from './config.js';
+import { verifyEvents } from './nostr-events.js';
 
 export const NostrClient = {
   connections: new Map(),
@@ -203,7 +204,7 @@ export const NostrClient = {
    * @param {string[]} relayUrls
    * @param {object}   filter        a NIP-01 filter object
    * @param {number}   timeoutMs     default 5000
-   * @returns {Promise<{events, byRelay}>}
+   * @returns {Promise<{events, byRelay, invalid}>}
    */
   queryRelays: async (relayUrls, filter, timeoutMs = 5000) => {
     const subId = 'xr_' + Math.random().toString(36).slice(2, 10);
@@ -213,7 +214,7 @@ export const NostrClient = {
 
     return await new Promise((resolve) => {
       let resolved = false;
-      const finish = () => {
+      const finish = async () => {
         if (resolved) return;
         resolved = true;
         // Send CLOSE to any relay whose socket is still open.
@@ -223,9 +224,18 @@ export const NostrClient = {
           }
         }
         NostrClient.subscriptions.delete(subId);
+        // Verify-on-ingest (KS.1): relays are untrusted input — drop
+        // anything that fails BIP-340 verification before the caller
+        // sees it. `invalid` is additive; existing consumers
+        // destructure only `events`/`byRelay`.
+        const { valid, dropped } = await verifyEvents([...events.values()]);
+        if (dropped > 0) {
+          Utils.log('queryRelays: dropped', dropped, 'event(s) failing signature verification');
+        }
         resolve({
-          events: [...events.values()],
-          byRelay: Object.fromEntries(byRelay.entries())
+          events: valid,
+          byRelay: Object.fromEntries(byRelay.entries()),
+          invalid: dropped
         });
       };
 
