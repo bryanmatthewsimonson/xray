@@ -97,14 +97,52 @@ function isDrawable(v) {
         && (typeof v.close === 'function' || typeof v.getContext === 'function');
 }
 
+// Paint `paint(ctx)` onto a width×height canvas and return PNG bytes
+// (or null if encoding produced nothing).
+async function canvasToPng(width, height, paint) {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    try { paint(canvas.getContext('2d')); }
+    catch (_) { return null; }
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    const bytes = blob ? await blob.arrayBuffer() : null;
+    return bytes && bytes.byteLength ? bytes : null;
+}
+
+// Raw channel data → RGBA (or null for an unknown layout). `kind` is
+// pdf.js ImageKind — 2 RGB_24BPP, 3 RGBA_32BPP; else channels are inferred.
+function channelsToRgba(data, width, height, kind) {
+    if (!data || !data.length) return null;
+    const rgba = new Uint8ClampedArray(width * height * 4);
+    const channels = kind === 2 ? 3 : kind === 3 ? 4
+        : Math.round(data.length / (width * height));
+    if (channels === 4) {
+        rgba.set(data.subarray ? data.subarray(0, rgba.length) : data);
+    } else if (channels === 3) {
+        for (let i = 0, j = 0; j + 2 < data.length; i += 4, j += 3) {
+            rgba[i] = data[j]; rgba[i + 1] = data[j + 1];
+            rgba[i + 2] = data[j + 2]; rgba[i + 3] = 255;
+        }
+    } else if (channels === 1) {
+        for (let i = 0, j = 0; j < data.length; i += 4, j += 1) {
+            rgba[i] = rgba[i + 1] = rgba[i + 2] = data[j]; rgba[i + 3] = 255;
+        }
+    } else {
+        return null;
+    }
+    return rgba;
+}
+
 // Decoded image → PNG bytes. pdf.js 6.x hands back image objects in
 // several shapes depending on the worker/OffscreenCanvas path:
 //   • the object IS an ImageBitmap/canvas (bare drawable),
 //   • { bitmap: <drawable>, width, height }  (OffscreenCanvas path),
-//   • { data: <TypedArray>, width, height, kind }  (raw channels; kind is
-//     pdf.js ImageKind — 1 GRAYSCALE_1BPP(packed), 2 RGB_24BPP, 3 RGBA_32BPP).
-// We handle all of them; unknown shapes return null (figure is skipped,
-// never a failed capture).
+//   • { data: <TypedArray>, width, height, kind }  (raw channels),
+//   • { data, bitmap, width, height }  (both — but the bitmap can be
+//     dimensionless/flaky, so we fall back to the raw data).
+// We try the bitmap first, then the raw channels; unknown shapes return
+// null (figure is skipped, never a failed capture).
 async function imageToPngBytes(img) {
     if (!img) return null;
 
@@ -114,39 +152,22 @@ async function imageToPngBytes(img) {
     const height = img.height || (drawable && drawable.height);
     if (!width || !height) return null;
 
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-
+    // Strategy 1: draw the decoded bitmap/canvas.
     if (drawable) {
-        ctx.drawImage(drawable, 0, 0, width, height);
-    } else if (img.data && img.data.length) {
-        const rgba = new Uint8ClampedArray(width * height * 4);
-        // Prefer pdf.js's own ImageKind when present; else infer channels.
-        const kind = img.kind;
-        const channels = kind === 2 ? 3 : kind === 3 ? 4
-            : Math.round(img.data.length / (width * height));
-        if (channels === 4) {
-            rgba.set(img.data.subarray ? img.data.subarray(0, rgba.length) : img.data);
-        } else if (channels === 3) {
-            for (let i = 0, j = 0; j + 2 < img.data.length; i += 4, j += 3) {
-                rgba[i] = img.data[j]; rgba[i + 1] = img.data[j + 1];
-                rgba[i + 2] = img.data[j + 2]; rgba[i + 3] = 255;
-            }
-        } else if (channels === 1) {
-            for (let i = 0, j = 0; j < img.data.length; i += 4, j += 1) {
-                rgba[i] = rgba[i + 1] = rgba[i + 2] = img.data[j]; rgba[i + 3] = 255;
-            }
-        } else {
-            return null;
-        }
-        ctx.putImageData(new ImageData(rgba, width, height), 0, 0);
-    } else {
-        return null;
+        const bytes = await canvasToPng(width, height,
+            (ctx) => ctx.drawImage(drawable, 0, 0, width, height));
+        if (bytes) return bytes;
+        // Bitmap draw produced nothing (seen with dimensionless bitmaps) —
+        // fall through to the raw channel data if we have it.
     }
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
-    return blob ? await blob.arrayBuffer() : null;
+
+    // Strategy 2: raw channel data.
+    const rgba = channelsToRgba(img.data, width, height, img.kind);
+    if (rgba) {
+        return canvasToPng(width, height,
+            (ctx) => ctx.putImageData(new ImageData(rgba, width, height), 0, 0));
+    }
+    return null;
 }
 
 /**

@@ -35,6 +35,21 @@ Sections per release: **Added** (new features), **Changed**
   missing image. No new tag kinds; no change to existing tags. Not done:
   OCR of text inside figures, and vector-drawn charts (path ops, no image
   XObject) — those remain a gap (`COMPLEX_CONTENT_DESIGN.md` §9 Q6).
+
+### Fixed
+
+- **PDF figures (and any operator-list work) on older browsers.** pdf.js
+  6.1.200 calls `Map.prototype.getOrInsertComputed` (inside
+  `getOperatorList`, among others) and `Math.sumPrecise` unconditionally —
+  both are recent TC39 proposals absent from the Firefox 128 floor and
+  older Chrome, where `getOperatorList()` threw and figure extraction
+  silently produced *zero* figures while the text layer still captured. A
+  new `pdf-collection-polyfill.js` shims those methods and is imported
+  first by both the engine and worker entries. Verified end-to-end by
+  driving the built bundles in headless Chromium against a real
+  figure-bearing PDF (0 → 14/15 figures recovered). The image decoder also
+  now falls back from a flaky/dimensionless `ImageBitmap` to raw channel
+  data.
 - **PDF extraction-quality warnings (Phase 18 C4.1).** The layout
   engine now reports when reconstruction degraded instead of
   presenting it as clean: `extraction.warnings` flags `sparse-pages`

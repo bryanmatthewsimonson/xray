@@ -19,6 +19,47 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-05 — pdf.js 6.x needs `Map.getOrInsertComputed` / `Math.sumPrecise` polyfills (figures returned zero)
+
+Tags: `bug`, `external`.
+
+C4.2 figure extraction shipped green on CI and passed a Node harness, but
+in a real browser produced **zero figures** while text captured fine. The
+Node harness hid it: pdf.js runs a *fake worker* (main-thread) there, and
+`node --test` never touches the built bundles at all.
+
+Reproduced by driving the actual built `dist/pdf-engine.bundle.js` + worker
+in headless Chromium (Playwright) against the real PDF. `getOperatorList()`
+threw `this._intentStates.getOrInsertComputed is not a function`. pdf.js
+**6.1.200 calls `Map.prototype.getOrInsertComputed` unconditionally** (15
+sites, incl. `getOperatorList`), and `Math.sumPrecise` for text metrics —
+both are bleeding-edge TC39 proposals **absent from the Firefox 128 floor
+and older Chrome** (the harness's bundled Chromium among them). Our figure
+path calls `getOperatorList()`; its `try/catch` swallowed the throw and
+returned no figures. The text path uses a different call, so it survived —
+which is exactly why the failure looked so selective.
+
+Fix: `src/reader/pdf-collection-polyfill.js` shims
+`Map`/`WeakMap.prototype.getOrInsert{,Computed}` and `Math.sumPrecise`
+(Kahan-Neumaier), imported FIRST by both `pdf-engine.js` (main thread) and
+`pdf-worker-entry.js` (worker) so the methods exist before pdf.js runs in
+either context. Idempotent, no-op where native. With it, the same harness
+recovers 14/15 figures, all decoding to PNG. This is load-bearing for the
+stated Firefox-128 floor — without it, `getOperatorList()` (hence figure
+extraction, and any future operator-list work) is broken on FF128.
+
+Two follow-on notes worth keeping:
+- **The browser image object shape differs from Node's.** Real worker +
+  OffscreenCanvas hands back `{ data, width, height, bitmap, … }` with an
+  `ImageBitmap`; Node's fake worker returned `{ data, … }` only. The
+  decoder now tries the bitmap, then falls back to raw channels — because
+  one image (page 20) came back as a *dimensionless* bitmap with empty
+  data and can't be recovered either way (14/15; the capture never fails).
+- **Test the built bundle in a browser, not just modules in Node.** Every
+  bug here (this, and the earlier decode-shape issues) lived in the exact
+  gap `node --test` and CI can't see. A Playwright smoke over the bundles
+  would have caught it pre-merge.
+
 ## 2026-07-04 — PDF figures via operator-list transform walk (Phase 18 C4.2)
 
 Tags: `design`, `pattern`.
