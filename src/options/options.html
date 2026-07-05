@@ -303,6 +303,23 @@
       </p>
 
       <hr />
+      <h3 class="xr-opt__subhead">Identity sharing</h3>
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-account-publishing" />
+        <span>Publish platform-account identity events (kind 32126)</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Off by default. When on, the reader's Publish batch also emits a
+        kind-32126 record for each platform account this capture touched
+        (post author, commenters) and each account linked to a tagged
+        entity — the cross-user rendezvous: anyone can then discover your
+        capture of an account and which entity <em>you</em> say it belongs
+        to. <strong>Your captured-account → entity links become
+        public.</strong> For adversarial casework, prefer per-case
+        identities (Signing tab).
+      </p>
+
+      <hr />
       <h3 class="xr-opt__subhead">LLM assist</h3>
       <label class="xr-opt__field xr-opt__field--inline">
         <input type="checkbox" id="pref-llm-assist" />
