@@ -608,6 +608,8 @@ async function loadAdvanced() {
         isEnabled('forensicPublishing');
     document.getElementById('pref-truth-publishing').checked =
         isEnabled('truthAdjudicationPublishing');
+    document.getElementById('pref-account-publishing').checked =
+        isEnabled('platformAccountPublishing');
 
     // LLM assist (Phase 14.5). The flag lives in feature-flags; the key
     // + model live under their own chrome.storage.local keys. We never
@@ -676,6 +678,8 @@ async function saveAdvanced() {
     await setOverride('forensicPublishing', publishFindings ? true : null);
     const publishVerdicts = document.getElementById('pref-truth-publishing').checked;
     await setOverride('truthAdjudicationPublishing', publishVerdicts ? true : null);
+    const publishAccounts = document.getElementById('pref-account-publishing').checked;
+    await setOverride('platformAccountPublishing', publishAccounts ? true : null);
 
     // LLM assist: flag + model preference always; the key only when the
     // user typed a new one (blank leaves the saved key untouched).

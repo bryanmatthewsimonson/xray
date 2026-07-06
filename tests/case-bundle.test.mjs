@@ -202,3 +202,45 @@ test('bundle: SECURITY — a crafted keyName cannot bind/plant the primary ident
     assert.equal(LocalKeyManager.getKey('xray:user').pubkey, victimPrimary,
         'primary identity is untouched');
 });
+
+// ── Foreign keyless entities in bundles (Knowledge Sharing KS.3) ──────
+
+test('bundle round-trips a foreign keyless entity', async () => {
+    resetState();
+    const kase = await EntityModel.create({ name: 'Foreign Case', type: 'case' });
+    const foreign = await EntityModel.importForeign({ name: 'Foreign Fiona', type: 'person', pubkey: 'a'.repeat(64) });
+    await ClaimModel.create({
+        text: 'Fiona did a thing.',
+        source_url: 'https://example.com/f',
+        about: [kase.id, foreign.id]
+    });
+
+    const bundle = await collectCaseBundle(kase.id);
+    const row = bundle.entities.find((r) => r.id === foreign.id);
+    assert.ok(row, 'foreign entity exports');
+    assert.equal(row.privkey, null);
+    assert.equal(row.foreign_pubkey, 'a'.repeat(64));
+
+    resetState();   // the collaborator's fresh install
+    const report = await importCaseBundle(JSON.parse(buildCaseBundleJson(bundle, 1700000000)));
+    assert.equal(report.conflicts.length, 0);
+    const imported = await EntityModel.get(foreign.id);
+    assert.ok(EntityModel.isForeign(imported));
+    assert.equal(imported.keypair.pubkey, 'a'.repeat(64));
+    assert.equal(imported.keypair.privateKey, null);
+});
+
+test('bundle keyed rows are unchanged by the foreign field', async () => {
+    resetState();
+    const kase = await EntityModel.create({ name: 'Keyed Case', type: 'case' });
+    const person = await EntityModel.create({ name: 'Keyed Kai', type: 'person' });
+    await ClaimModel.create({
+        text: 'Kai did a thing.',
+        source_url: 'https://example.com/k',
+        about: [kase.id, person.id]
+    });
+    const bundle = await collectCaseBundle(kase.id);
+    const row = bundle.entities.find((r) => r.id === person.id);
+    assert.equal(row.foreign_pubkey, null);
+    assert.ok(row.privkey);
+});

@@ -18,7 +18,7 @@ modules still carry userscript-era idioms (see Conventions).
 npm install            # required first — a fresh clone has no node_modules
 npm run build          # esbuild → dist/*.bundle.js (+ .map). No transpile step.
 npm run watch          # incremental rebuild
-npm test               # node --test tests/*.test.mjs  (1018 tests, must be green)
+npm test               # node --test tests/*.test.mjs  (1089 tests, must be green)
 npm run lint           # web-ext lint --self-hosted (what CI gates on)
 npm run version:set X  # bump package.json + manifest.json in lockstep
 npm run clean          # rm -rf dist

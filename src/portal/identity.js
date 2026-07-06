@@ -114,6 +114,12 @@ export async function resolveIdentities() {
     try {
         const all = await EntityModel.getAll();
         for (const entity of Object.values(all || {})) {
+            // Foreign keyless entities (KS.3) synthesize a read-only
+            // keypair; their pubkeys belong to OTHER users and must
+            // not enter the "my entity keys" set — the Q2 kind-0
+            // fetch would present a stranger's profile as the user's,
+            // and every adoption would churn the sync cursor.
+            if (EntityModel.isForeign(entity)) continue;
             const pk = entity && entity.keypair && entity.keypair.pubkey;
             if (typeof pk !== 'string' || !HEX64.test(pk)) continue;
             entities.push({ pubkey: pk, entityId: entity.id, name: entity.name || '', type: entity.type || '' });

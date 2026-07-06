@@ -15,6 +15,7 @@ import { EventBuilder } from '../shared/event-builder.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { EntityModel, installEntityStorageBridge } from '../shared/entity-model.js';
 import { recordAccount, extractPostAuthor } from '../shared/identity/account-registry.js';
+import { selectAccountsToPublish } from '../shared/identity/account-publish.js';
 import { ClaimModel } from '../shared/claim-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import * as ArchiveCache from '../shared/archive-cache.js';
@@ -2256,12 +2257,16 @@ async function publish() {
         // PlatformAccount (where the platform exposes a stable id) and
         // reference its pubkey on the article. Best-effort — null author
         // or no stable id just means no author p-tag, as before.
+        const touchedAccountKeys = [];   // KS.2: accounts this run materialized
         let authorAccountPubkey = null;
         try {
             const postAuthor = extractPostAuthor(article);
             if (postAuthor) {
                 const acct = await recordAccount(postAuthor.platform, postAuthor.raw, { seenOnUrl: article.url });
-                if (acct) authorAccountPubkey = acct.accountPubkey;
+                if (acct) {
+                    authorAccountPubkey = acct.accountPubkey;
+                    if (acct.key) touchedAccountKeys.push(acct.key);
+                }
             }
         } catch (_) { /* identity is enrichment, never a publish gate */ }
 
@@ -2346,7 +2351,10 @@ async function publish() {
                 const commenterAccount = await recordAccount(
                     state.comments.platform, c.author, { seenOnUrl: articleUrl }
                 );
-                if (commenterAccount) commenterPubkey = commenterAccount.accountPubkey;
+                if (commenterAccount) {
+                    commenterPubkey = commenterAccount.accountPubkey;
+                    if (commenterAccount.key) touchedAccountKeys.push(commenterAccount.key);
+                }
 
                 const unsignedComment = EventBuilder.buildCommentEvent({
                     id:            dTag,
@@ -2572,6 +2580,66 @@ async function publish() {
             if (i < relationshipsToPublish.length - 1) await sleep(BATCH_PUBLISH_DELAY_MS);
         }
 
+        // ---- Platform-account identity events (kind-32126) -------------
+        // (Knowledge Sharing KS.2 — behind the platformAccountPublishing
+        // flag, default off.) The deterministic cross-user person
+        // rendezvous: publishes this run's touched accounts plus the
+        // accounts linked to this run's entities. Addressable (d = the
+        // account key), so a re-publish replaces in place — no ledger.
+        await loadFlags();
+        const accountResults = { ok: 0, fail: 0, errors: [] };
+        let accountSel = [];
+        if (isEnabled('platformAccountPublishing')) {
+            try {
+                const runEntityIds = [...new Set([
+                    ...entityRefs.map((r) => r && r.entity_id).filter(Boolean),
+                    ...entitiesToPublish.map((e) => e.id)
+                ])];
+                accountSel = await selectAccountsToPublish({
+                    touchedAccountKeys,
+                    entityIds: runEntityIds
+                });
+            } catch (err) {
+                console.warn('[X-Ray Reader] account selection failed:', err);
+            }
+        }
+        const accountBase = relBatchBase + relationshipsToPublish.length;
+        if (accountSel.length > 0) {
+            totalEvents += accountSel.length;
+            for (let i = 0; i < accountSel.length; i++) {
+                const { account, linkedEntityPubkey } = accountSel[i];
+                btn.textContent = `Publishing (${accountBase + i + 1}/${totalEvents})…`;
+                try {
+                    const unsigned = EventBuilder.buildPlatformAccountEvent(
+                        account, userPubkey, linkedEntityPubkey
+                    );
+                    const resp = await browserApi.runtime.sendMessage({
+                        type:  'xray:capture:publish',
+                        id:    state.id,
+                        event: unsigned
+                    });
+                    if (resp && resp.ok && resp.results) {
+                        recordRelayResults(resp.results);
+                        if (resp.results.successful > 0) {
+                            accountResults.ok++;
+                        } else {
+                            accountResults.fail++;
+                            accountResults.errors.push(`${account.key}: no relays accepted`);
+                        }
+                    } else {
+                        accountResults.fail++;
+                        accountResults.errors.push(`${account.key}: ${(resp && resp.error) || 'unknown'}`);
+                    }
+                } catch (err) {
+                    accountResults.fail++;
+                    accountResults.errors.push(`${account.key}: ${err.message || String(err)}`);
+                    console.warn('[X-Ray Reader] account publish failed:', account.key, err);
+                }
+                setProgress(accountBase + i + 1, totalEvents);
+                if (i < accountSel.length - 1) await sleep(BATCH_PUBLISH_DELAY_MS);
+            }
+        }
+
         // ---- Judgments: assessments + mirrors + claim links ------------
         // (Phase 11.7 — behind the assessmentPublishing flag, default
         // off.) Runs AFTER the claims batch: claims published above
@@ -2595,7 +2663,7 @@ async function publish() {
             mirrorSel = selectMirrors({ assessments: assessmentsAll, claims: claimsAll, canon });
             linkSel   = selectLinksToPublish({ links: linksAll, claims: claimsAll, canon });
         }
-        const judgmentBase = relBatchBase + relationshipsToPublish.length;
+        const judgmentBase = accountBase + accountSel.length;
         let judgmentStep = 0;
         if (assessSel.length + mirrorSel.length + linkSel.length > 0) {
             totalEvents += assessSel.length + mirrorSel.length + linkSel.length;
@@ -3263,6 +3331,8 @@ async function publish() {
             claimCount: claimsToPublish.length,
             relationshipResults,
             relationshipCount: relationshipsToPublish.length,
+            accountResults,
+            accountCount: accountSel.length,
             assessResults,
             assessCount: assessSel.length,
             mirrorResults,
@@ -3346,7 +3416,7 @@ async function resolveEntitiesToPublish(entityIds) {
         seen.add(id);
         const entity = await EntityModel.get(id);
         if (!entity)           return;        // dangling ref
-        if (!entity.keypair)   return;        // no private key — can't sign
+        if (!entity.keypair || !entity.keypair.privateKey) return; // keyless/foreign — can't sign
         // Skip if already on-network AND unedited since. `update()`
         // bumps `updated`; `markPublished()` does not. So any local
         // edit the user has made since the last publish will
@@ -3472,6 +3542,7 @@ function showPublishSummary({
     includeComments, totalEvents, articleResults,
     commentResults, entityResults, entityCount,
     claimResults, claimCount, relationshipResults, relationshipCount,
+    accountResults = { ok: 0, fail: 0, errors: [] }, accountCount = 0,
     assessResults, assessCount = 0, mirrorResults, mirrorCount = 0,
     jLinkResults, jLinkCount = 0,
     auditResults = { ok: 0, fail: 0, errors: [], skipped: 0 }, auditCount = 0,
@@ -3490,6 +3561,7 @@ function showPublishSummary({
     if (entityResults && entityCount > 0)                    console.log('entities:',       entityResults);
     if (claimResults  && claimCount  > 0)                    console.log('claims:',         claimResults);
     if (relationshipResults && relationshipCount > 0)        console.log('relationships:',  relationshipResults);
+    if (accountResults && accountCount > 0)                  console.log('platform accounts:', accountResults);
     if (assessResults && assessCount > 0)                    console.log('assessments:',    assessResults);
     if (mirrorResults && mirrorCount > 0)                    console.log('label mirrors:',  mirrorResults);
     if (jLinkResults && jLinkCount > 0)                      console.log('claim links:',    jLinkResults);
@@ -3512,6 +3584,7 @@ function showPublishSummary({
     const cmtFails  = (commentResults      && commentResults.fail)      || 0;
     const clmFails  = (claimResults        && claimResults.fail)        || 0;
     const relFails  = (relationshipResults && relationshipResults.fail) || 0;
+    const acctFails = (accountResults      && accountResults.fail)      || 0;
     const jdgFails  = ((assessResults && assessResults.fail) || 0)
                     + ((mirrorResults && mirrorResults.fail) || 0)
                     + ((jLinkResults && jLinkResults.fail) || 0);
@@ -3538,6 +3611,9 @@ function showPublishSummary({
     }
     if (relationshipCount > 0) {
         segments.push(`${relationshipResults.ok}/${relationshipResults.ok + relationshipResults.fail} relationship${relationshipCount === 1 ? '' : 's'}`);
+    }
+    if (accountCount > 0) {
+        segments.push(`${accountResults.ok}/${accountCount} platform account${accountCount === 1 ? '' : 's'}`);
     }
     if (assessCount > 0) {
         segments.push(`${assessResults.ok}/${assessCount} assessment${assessCount === 1 ? '' : 's'}`);
@@ -3582,7 +3658,7 @@ function showPublishSummary({
         line += ` Rejected by ${names} — consider removing in Options.`;
     }
 
-    const anyFail = dead.length > 0 || cmtFails > 0 || entFails > 0 || clmFails > 0 || relFails > 0 || jdgFails > 0 || audFails > 0 || forFails > 0 || truFails > 0;
+    const anyFail = dead.length > 0 || cmtFails > 0 || entFails > 0 || clmFails > 0 || relFails > 0 || acctFails > 0 || jdgFails > 0 || audFails > 0 || forFails > 0 || truFails > 0;
     const level = (anyFail || articleResults.successful === 0)
         ? (articleResults.successful > 0 ? 'warning' : 'error')
         : 'success';

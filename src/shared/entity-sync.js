@@ -225,7 +225,7 @@ export async function pullEntities({ userPrivkey, relays, timeoutMs = 8000 }) {
     // Cheap insurance against the second variant — derived once.
     const nip04HashedSecret = await Crypto.sha256(nip04SharedSecret);
 
-    const { events, byRelay } = await NostrClient.queryRelays(
+    const { events, byRelay, invalid } = await NostrClient.queryRelays(
         relays,
         { kinds: [30078], authors: [userPubkey], '#L': SYNC_LABELS_READ, limit: 500 },
         timeoutMs
@@ -248,6 +248,10 @@ export async function pullEntities({ userPrivkey, relays, timeoutMs = 8000 }) {
         malformed:    0,
         failed:       0,
         legacyNip04:  0,
+        // KS.1: events failing BIP-340 verification are dropped inside
+        // queryRelays — surfaced here so "received 12, fetched 11"
+        // has a visible explanation in the sync log.
+        invalid:      typeof invalid === 'number' ? invalid : 0,
         nip04Total,
         nip44Total,
         byRelay:      byRelay || {}

@@ -743,3 +743,45 @@ body.xr-side {
   display: flex;
   gap: 8px;
 }
+
+/* Knowledge Sharing KS.3/KS.4 — foreign entities + the network feed */
+.xr-side__foreign-badge {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--xr-surface-2, rgba(148, 163, 184, 0.15));
+  color: var(--xr-text-dim);
+  border: 1px dashed var(--xr-border, rgba(148, 163, 184, 0.4));
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.xr-side__feed-group {
+  margin-top: 8px;
+  border: 1px solid var(--xr-border, rgba(148, 163, 184, 0.25));
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+.xr-side__feed-group > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--xr-text);
+  padding: 4px 0;
+}
+.xr-side__feed-row {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--xr-text);
+  padding: 5px 0 5px 8px;
+  border-top: 1px solid var(--xr-border, rgba(148, 163, 184, 0.15));
+}
+.xr-side__feed-meta {
+  font-size: 10.5px;
+  color: var(--xr-text-dim);
+  margin-top: 2px;
+}
+.xr-side__adopt-chip {
+  margin-left: 8px;
+}
