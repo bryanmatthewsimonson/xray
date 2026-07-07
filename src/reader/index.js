@@ -129,6 +129,19 @@ async function loadArticle() {
     if (pdfParam) {
         state.id = 'pdf-' + Date.now().toString(36);
         const article = await loadPdfArticle(pdfParam);
+        // Register a TABLESS session record: the background publish
+        // handlers look captures up by id, and without this record a
+        // PDF capture could never publish ("Session record missing").
+        // sourceTabId is null by construction — there is no source tab
+        // (content scripts never run in PDF viewers) — which routes
+        // signing through the worker's Signer façade instead of a tab.
+        await new Promise((resolve) => {
+            const area = browserApi.storage.session || browserApi.storage.local;
+            area.set({
+                ['xray:article:' + state.id]:
+                    { article, sourceTabId: null, createdAt: Date.now(), readOnly: false }
+            }, () => resolve());
+        });
         return adoptArticle(article, null);
     }
 

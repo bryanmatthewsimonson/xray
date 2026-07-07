@@ -28,6 +28,7 @@ import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/su
 import { handleScreenshotCapture } from '../shared/screenshot.js';
 import { runSuggestionPass, runAuditPass, getLlmConfig } from '../shared/llm-client.js';
 import { pdfDocumentUrl } from '../shared/pdf-detect.js';
+import { Signer } from '../shared/signer.js';
 
 // Pull the debug preference on SW startup. MV3 service workers sleep
 // and wake, so this runs each time the SW reloads. A chrome.storage
@@ -317,6 +318,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 area.get(['xray:article:' + id], (res) => r(res && res['xray:article:' + id]));
             });
             if (!record) return sendResponse({ ok: false, error: 'Session record missing' });
+            // Tabless captures (PDFs — content scripts never run in the
+            // browsers' PDF viewers, so there is no source tab) resolve
+            // the pubkey right here via the Signer façade. Local and
+            // NSecBunker work in the worker; NIP-07 needs a page.
+            if (record.sourceTabId == null) {
+                try {
+                    return sendResponse({ ok: true, pubkey: await Signer.getPublicKey() });
+                } catch (err) {
+                    return sendResponse({ ok: false, error: tablessSignError(err) });
+                }
+            }
             try {
                 const resp = await chrome.tabs.sendMessage(record.sourceTabId, { type: 'xray:getPubkey' });
                 if (!resp || !resp.ok) {
@@ -950,6 +962,20 @@ async function captureTranscriptInPage() {
     };
 }
 
+/**
+ * Map a Signer failure on the tabless (PDF) signing path to a message
+ * the user can act on. NIP-07 structurally can't work here: the signer
+ * extension lives in web pages, and PDF captures have none.
+ */
+function tablessSignError(err) {
+    const msg = (err && err.message) || String(err);
+    if (/nip-?07|not available in this context/i.test(msg)) {
+        return 'NIP-07 signing needs a normal web page, which a PDF capture does not have. '
+            + 'Switch Settings → Signing to Local (or NSecBunker) to publish PDF captures.';
+    }
+    return msg;
+}
+
 async function handleCapturePublish(id, unsignedEvent) {
     // 1. Pull the source-tab id from the session-storage record the FAB
     //    click saved. That's where the content script + NIP-07 bridge live.
@@ -962,18 +988,29 @@ async function handleCapturePublish(id, unsignedEvent) {
     }
     const sourceTabId = record.sourceTabId;
 
-    // 2. Ask that tab to sign via its NIP-07 bridge.
+    // 2. Sign. Tabless captures (the PDF reader path — no content
+    //    script, no NIP-07 bridge) sign right here via the Signer
+    //    façade; everything else routes through the source tab's
+    //    NIP-07 bridge as before.
     let signed;
-    try {
-        signed = await chrome.tabs.sendMessage(sourceTabId, {
-            type: 'xray:sign',
-            event: unsignedEvent
-        });
-    } catch (err) {
-        return {
-            ok: false,
-            error: 'Source tab unreachable (likely closed). Keep the article tab open while publishing.'
-        };
+    if (sourceTabId == null) {
+        try {
+            signed = { ok: true, event: await Signer.signEvent(unsignedEvent) };
+        } catch (err) {
+            return { ok: false, error: tablessSignError(err) };
+        }
+    } else {
+        try {
+            signed = await chrome.tabs.sendMessage(sourceTabId, {
+                type: 'xray:sign',
+                event: unsignedEvent
+            });
+        } catch (err) {
+            return {
+                ok: false,
+                error: 'Source tab unreachable (likely closed). Keep the article tab open while publishing.'
+            };
+        }
     }
     if (!signed || !signed.ok || !signed.event) {
         return { ok: false, error: (signed && signed.error) || 'Signing failed' };

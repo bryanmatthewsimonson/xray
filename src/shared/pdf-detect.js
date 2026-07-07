@@ -38,7 +38,20 @@ export function pdfDocumentUrl(tabUrl) {
     let u;
     try { u = new URL(String(tabUrl || '')); } catch (_) { return null; }
 
-    // Wrapper pages (pdf.js viewer.html and friends): unwrap file=/src=.
+    // Direct document URL FIRST. A URL that itself names a PDF is the
+    // document — a `file=`/`src=` param on it is the document's own
+    // query string, not a viewer wrapper. Unwrapping before this check
+    // let `https://host/real.pdf?file=<decoy>` capture the decoy: a
+    // wrong-document provenance failure.
+    if ((u.protocol === 'https:' || u.protocol === 'http:') && /\.pdf$/i.test(u.pathname)) {
+        return u.href;
+    }
+
+    // Wrapper pages: unwrap file=/src= ONLY when the outer URL looks
+    // like a pdf.js-style viewer shell. An arbitrary web page carrying
+    // a pdf-ish `file=` param (error pages, search results) must not
+    // be treated as a viewer.
+    if (!isViewerShellUrl(u)) return null;
     for (const param of ['file', 'src']) {
         const raw = u.searchParams.get(param);
         if (!raw) continue;
@@ -49,10 +62,18 @@ export function pdfDocumentUrl(tabUrl) {
             return inner.href;
         }
     }
-
-    // Direct document URL.
-    if ((u.protocol === 'https:' || u.protocol === 'http:') && /\.pdf$/i.test(u.pathname)) {
-        return u.href;
-    }
     return null;
+}
+
+// A URL shaped like a PDF viewer shell: an extension/resource-hosted
+// viewer (Firefox's pdf.js wrapper, extension viewers), or an html
+// page whose filename says viewer (pdf.js's canonical web/viewer.html
+// and publisher-embedded copies).
+function isViewerShellUrl(u) {
+    if (u.protocol === 'chrome-extension:' || u.protocol === 'moz-extension:'
+        || u.protocol === 'edge-extension:' || u.protocol === 'resource:') {
+        return true;
+    }
+    const last = (u.pathname.split('/').pop() || '').toLowerCase();
+    return /viewer[^/]*\.x?html?$/.test(last) || /^pdf(js)?[^/]*\.x?html?$/.test(last);
 }

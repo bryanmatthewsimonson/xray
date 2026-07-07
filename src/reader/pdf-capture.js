@@ -74,14 +74,24 @@ const OBJECT_RESOLVE_TIMEOUT_MS = 8000;
 function getPageObject(page, name) {
     return new Promise((resolve) => {
         let settled = false;
-        const done = (v) => { if (!settled) { settled = true; resolve(v); } };
-        setTimeout(() => done(null), OBJECT_RESOLVE_TIMEOUT_MS);
-        try {
-            page.objs.get(name, done);
-        } catch (_) {
-            try { page.commonObjs.get(name, done); }
-            catch (_) { done(null); }
-        }
+        let timer = null;
+        const done = (v) => {
+            if (settled) return;
+            settled = true;
+            if (timer) clearTimeout(timer);
+            resolve(v);
+        };
+        timer = setTimeout(() => done(null), OBJECT_RESOLVE_TIMEOUT_MS);
+        // pdf.js keeps globally-cached objects (images reused across
+        // pages — logos, repeated figures) in the DOCUMENT store under
+        // `g_`-prefixed ids and page-local objects in `page.objs`; it
+        // dispatches on the prefix and so must we. Asking the wrong
+        // store never throws — the callback just never fires, which
+        // burned the full timeout per repeated image and hid repeats
+        // from the figure-furniture detector.
+        const store = String(name || '').startsWith('g_') ? page.commonObjs : page.objs;
+        try { store.get(name, done); }
+        catch (_) { done(null); }
     });
 }
 
