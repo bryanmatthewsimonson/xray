@@ -313,3 +313,147 @@ test('figures: a caption with double quotes cannot break the alt attribute', () 
     assert.ok(img, 'img tag with an intact alt attribute');
     assert.match(img[1], /smoking gun/);
 });
+
+// ------------------------------------------------------------------
+// Bug-fix regressions (PR #108 follow-up)
+// ------------------------------------------------------------------
+
+test('hyphen reflow: compound hyphens survive, soft breaks drop', () => {
+    const p = page([
+        run('the state-of-the-', 72, 700),
+        run('art method is long-', 72, 686),
+        run('term and convo-', 72, 672),
+        run('luted overall', 72, 658)
+    ]);
+    const { markdown } = buildDocumentFromPages([p]);
+    assert.ok(markdown.includes('state-of-the-art'), markdown);
+    // "long-" + "term": the pre-hyphen word carries no earlier hyphen —
+    // ambiguous even for humans; the soft-break rule applies.
+    assert.ok(markdown.includes('longterm') || markdown.includes('long-term'));
+    assert.ok(markdown.includes('convoluted'), markdown);
+});
+
+test('hyphen reflow: digit ranges keep the hyphen, no space injected', () => {
+    const p = page([
+        run('the war of 1914-', 72, 700),
+        run('1918 reshaped Europe', 72, 686)
+    ]);
+    const { markdown } = buildDocumentFromPages([p]);
+    assert.ok(markdown.includes('1914-1918'), markdown);
+});
+
+test('hyphen reflow: non-ASCII continuations reflow too', () => {
+    const p = page([
+        run('a na-', 72, 700),
+        run('ïve reading', 72, 686)
+    ]);
+    const { markdown } = buildDocumentFromPages([p]);
+    assert.ok(markdown.includes('naïve'), markdown);
+});
+
+test('narrow-gutter two-column page (LaTeX 10pt) reads columns, not baselines', () => {
+    // Both columns' text shares each baseline; the 10pt gutter is far
+    // below the naive split threshold — only the structural pass sees it.
+    const items = [];
+    for (let i = 0; i < 8; i++) {
+        const y = 700 - i * 14;
+        items.push({ str: `left${i} alpha beta`, x: 72, y, w: 223, h: 10 });
+        items.push({ str: `right${i} gamma delta`, x: 305, y, w: 235, h: 10 });
+    }
+    const { markdown } = buildDocumentFromPages([page(items)]);
+    assert.ok(markdown.indexOf('left7') < markdown.indexOf('right0'),
+        'left column must finish before the right column starts:\n' + markdown);
+    assert.ok(!/left0[^\n]*right0/.test(markdown.split('\n\n')[0] || '') || markdown.indexOf('left7') < markdown.indexOf('right0'));
+});
+
+test('IEEE 18.0pt gutter splits at the boundary (>=, not >)', () => {
+    const items = [];
+    for (let i = 0; i < 8; i++) {
+        const y = 700 - i * 14;
+        // left ends at x=294, right starts at 312: gap exactly 18.0
+        items.push({ str: `left${i} words here`, x: 72, y, w: 222, h: 12 });
+        items.push({ str: `right${i} words here`, x: 312, y, w: 222, h: 12 });
+    }
+    const { markdown } = buildDocumentFromPages([page(items)]);
+    assert.ok(markdown.indexOf('left7') < markdown.indexOf('right0'),
+        'columns interleaved:\n' + markdown);
+});
+
+test('a spanning title stays whole above a narrow-gutter split', () => {
+    const items = [{ str: 'A Grand Unified Title', x: 150, y: 730, w: 300, h: 18 }];
+    for (let i = 0; i < 8; i++) {
+        const y = 700 - i * 14;
+        items.push({ str: `left${i} alpha beta`, x: 72, y, w: 223, h: 10 });
+        items.push({ str: `right${i} gamma delta`, x: 305, y, w: 235, h: 10 });
+    }
+    const { markdown } = buildDocumentFromPages([page(items)]);
+    assert.ok(markdown.includes('A Grand Unified Title'), markdown);
+    assert.ok(markdown.indexOf('A Grand Unified Title') < markdown.indexOf('left0'));
+});
+
+test('figure at the top of the right column lands in the right column', () => {
+    const items = [];
+    for (let i = 0; i < 6; i++) {
+        const y = 700 - i * 14;
+        items.push({ str: `left${i} alpha beta gamma`, x: 72, y, w: 200, h: 10 });
+    }
+    for (let i = 0; i < 3; i++) {
+        const y = 560 - i * 14;   // right column text below its figure
+        items.push({ str: `right${i} delta epsilon`, x: 340, y, w: 200, h: 10 });
+    }
+    const p = { width: W, height: H, items,
+        figures: [{ ref: 'xray-figure:' + 'a'.repeat(64), x: 340, y: 580, w: 180, h: 110 }] };
+    const { markdown } = buildDocumentFromPages([p]);
+    const figAt = markdown.indexOf('xray-figure:');
+    assert.ok(figAt > markdown.indexOf('left5'),
+        'figure must not precede the left column:\n' + markdown);
+    assert.ok(figAt < markdown.indexOf('right0'),
+        'figure heads its own (right) column:\n' + markdown);
+});
+
+test('pageOfOffset: a textless leading page owns no offsets', () => {
+    const empty = page([]);
+    const texty = page([run('Real content starts here', 72, 700)]);
+    const { markdown, pageMap } = buildDocumentFromPages([empty, texty]);
+    assert.ok(markdown.startsWith('Real content'));
+    assert.equal(pageOfOffset(pageMap, 0), 2);
+});
+
+test('furniture: a margin year in a short document is content, not a page number', () => {
+    const mk = () => page([
+        run('2024', 300, 30),               // bottom margin, 2-page doc
+        run('Body text for the letter', 72, 700)
+    ]);
+    const { markdown } = buildDocumentFromPages([mk(), mk()]);
+    assert.ok(markdown.includes('2024'), markdown);
+});
+
+test('furniture: real page numbers in a long document still drop', () => {
+    const pages = [1, 2, 3, 4].map((n) => page([
+        run(String(n), 300, 30),
+        run(`Body of page ${n} with words`, 72, 700)
+    ]));
+    const { markdown } = buildDocumentFromPages(pages);
+    assert.ok(!/^\d$/m.test(markdown), markdown);
+});
+
+test('pdfDocumentUrl: a direct .pdf URL wins over its own file=/src= params', () => {
+    assert.equal(
+        pdfDocumentUrl('https://host.test/real.pdf?file=https%3A%2F%2Fother.test%2Fdecoy.pdf'),
+        'https://host.test/real.pdf?file=https%3A%2F%2Fother.test%2Fdecoy.pdf');
+    assert.equal(
+        pdfDocumentUrl('https://host.test/real.pdf?src=/other/decoy.pdf'),
+        'https://host.test/real.pdf?src=/other/decoy.pdf');
+});
+
+test('pdfDocumentUrl: file=/src= unwraps only for viewer-shaped shells', () => {
+    // Not a viewer: an arbitrary page carrying a pdf-ish param.
+    assert.equal(pdfDocumentUrl('https://host.test/search?file=https%3A%2F%2Fother.test%2Fdoc.pdf'), null);
+    // Viewer shells: pdf.js-style viewer.html and extension viewers.
+    assert.equal(
+        pdfDocumentUrl('https://host.test/pdfjs/web/viewer.html?file=https%3A%2F%2Fdocs.test%2Fpaper.pdf'),
+        'https://docs.test/paper.pdf');
+    assert.equal(
+        pdfDocumentUrl('chrome-extension://abcdef/content/viewer.html?file=https%3A%2F%2Fdocs.test%2Fpaper.pdf'),
+        'https://docs.test/paper.pdf');
+});

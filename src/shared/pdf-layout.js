@@ -21,8 +21,16 @@
 //                   and right halves reads left column first; lines
 //                   spanning both halves (title, abstract) split the
 //                   page into bands, each ordered independently.
+//                   Narrow gutters (LaTeX 10pt, IEEE 18pt) that the
+//                   per-baseline gap split can't see are found
+//                   structurally: a consistent x-band of gaps across
+//                   many baselines is a gutter; per-line word gaps
+//                   are not.
 //   4. paragraphs — merged by baseline gaps and indent cues;
-//                   line-break hyphens reflowed.
+//                   line-break hyphens reflowed. Figures (C4.2) ride
+//                   the same reading order as pseudo-lines, so a
+//                   right-column figure lands in the right column's
+//                   text, not at the top of the page.
 //   5. headings   — unusually large, short lines become #/## heads.
 //
 // This intentionally targets the common one- and two-column text PDF
@@ -33,8 +41,12 @@ const LINE_Y_TOLERANCE_FACTOR = 0.4;   // × run height, baseline clustering
 const WORD_GAP_FACTOR         = 0.18;  // × run height, space insertion
 const GUTTER_GAP_FACTOR       = 1.5;   // × run height, min column-gutter split
 const GUTTER_GAP_MIN          = 18;    // pt — never split below this gap
+const STRUCT_GUTTER_MIN       = 6;     // pt — a CONSISTENT gap this wide is a gutter
+const STRUCT_GUTTER_SHARE     = 0.35;  // fraction of baselines that must show it
+const STRUCT_BUCKET_PT        = 4;     // gutter-center bucketing granularity
 const MARGIN_BAND             = 0.08;  // top/bottom fraction for furniture
 const FURNITURE_MIN_PAGES     = 3;
+const PAGE_NUMBER_SLACK       = 20;    // bare digits ≤ pages+slack can be page numbers
 const PARA_GAP_FACTOR         = 1.55;  // × median line gap
 const HEAD_H1_FACTOR          = 1.6;   // × median body size
 const HEAD_H2_FACTOR          = 1.25;
@@ -51,6 +63,27 @@ const SHRED_MEAN_CHARS  = 20;   // mean line length below this = runs didn't joi
 // ------------------------------------------------------------------
 // Lines
 // ------------------------------------------------------------------
+
+// Assemble a line's text + extent from its x-sorted items. Shared by
+// the baseline pass and the structural-gutter re-split.
+function finalizeLine(line) {
+    let text = '';
+    let prev = null;
+    for (const it of line.items) {
+        if (prev) {
+            const gap = it.x - (prev.x + prev.w);
+            if (gap > Math.max(1, it.h * WORD_GAP_FACTOR) && !text.endsWith(' ')) text += ' ';
+        }
+        text += it.str;
+        prev = it;
+    }
+    line.text = text.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+    line.x0 = line.items[0].x;
+    const last = line.items[line.items.length - 1];
+    line.x1 = last.x + last.w;
+    line.h = Math.max(...line.items.map((i) => i.h));
+    return line;
+}
 
 function linesOfPage(page) {
     const items = (page.items || [])
@@ -75,7 +108,9 @@ function linesOfPage(page) {
 
     // 2. Split each baseline at gutter-sized x-gaps — two-column pages
     //    put BOTH columns' text on the same baseline, and merging them
-    //    would interleave the columns line by line.
+    //    would interleave the columns line by line. (>= so a gap of
+    //    exactly GUTTER_GAP_MIN — IEEE's 0.25in gutter is 18.0pt on
+    //    the nose — still splits.)
     const lines = [];
     for (const cluster of clusters) {
         cluster.items.sort((a, b) => a.x - b.x);
@@ -84,7 +119,7 @@ function linesOfPage(page) {
         for (const it of cluster.items) {
             const gap = prevIt ? it.x - (prevIt.x + prevIt.w) : 0;
             const gutter = Math.max(GUTTER_GAP_MIN, it.h * GUTTER_GAP_FACTOR);
-            if (!segment || gap > gutter) {
+            if (!segment || gap >= gutter) {
                 segment = { y: cluster.y, items: [it] };
                 lines.push(segment);
             } else {
@@ -95,23 +130,7 @@ function linesOfPage(page) {
     }
 
     // 3. Text per line segment.
-    for (const line of lines) {
-        let text = '';
-        let prev = null;
-        for (const it of line.items) {
-            if (prev) {
-                const gap = it.x - (prev.x + prev.w);
-                if (gap > Math.max(1, it.h * WORD_GAP_FACTOR) && !text.endsWith(' ')) text += ' ';
-            }
-            text += it.str;
-            prev = it;
-        }
-        line.text = text.replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
-        line.x0 = line.items[0].x;
-        const last = line.items[line.items.length - 1];
-        line.x1 = last.x + last.w;
-        line.h = Math.max(...line.items.map((i) => i.h));
-    }
+    for (const line of lines) finalizeLine(line);
     return lines.filter((l) => l.text !== '');
 }
 
@@ -147,7 +166,16 @@ function markFurniture(pages, pageLines) {
         for (const line of lines) {
             if (!inMargin(line, pages[pi])) continue;
             const repeating = (counts.get(furnitureSignature(line.text)) || 0) >= threshold;
-            const pageNumber = /^\d{1,4}$/.test(line.text);
+            // A bare number is a page number only where page numbers are
+            // possible: a multi-page document, and a value in page-number
+            // range. A year dateline ("2024") or street number in the
+            // margin of a 2-page letter is content, not furniture.
+            // (Offset numbering — a report whose pages run 103–112 — is
+            // caught by the repeating branch: digits are #-stripped in
+            // the signature, so consecutive page numbers repeat.)
+            const pageNumber = /^\d{1,4}$/.test(line.text)
+                && pages.length >= FURNITURE_MIN_PAGES
+                && Number(line.text) <= pages.length + PAGE_NUMBER_SLACK;
             if (repeating || pageNumber) { line.furniture = true; dropped += 1; }
         }
     });
@@ -158,19 +186,92 @@ function markFurniture(pages, pageLines) {
 // Columns
 // ------------------------------------------------------------------
 
+function detectTwoCol(body, W) {
+    const spanning = (l) => l.x0 < W * 0.45 && l.x1 > W * 0.60;
+    const nonSpan = body.filter((l) => !spanning(l));
+    const left = nonSpan.filter((l) => l.x0 < W * 0.45).length;
+    const right = nonSpan.length - left;
+    return nonSpan.length >= 6
+        && left >= nonSpan.length * 0.3 && right >= nonSpan.length * 0.3;
+}
+
+/**
+ * A structural gutter: an x-band in the middle of the page where a
+ * gap of ≥ STRUCT_GUTTER_MIN pt recurs at a CONSISTENT position across
+ * many baselines. Word gaps in justified text can be that wide, but
+ * their positions vary line to line; a real column gutter does not.
+ * Returns the gutter's x center, or null.
+ */
+function structuralGutterX(lines, W) {
+    const buckets = new Map();
+    let baselines = 0;
+    for (const line of lines) {
+        baselines += 1;
+        let prev = null;
+        for (const it of line.items || []) {
+            if (prev) {
+                const gapStart = prev.x + prev.w;
+                const gap = it.x - gapStart;
+                if (gap >= STRUCT_GUTTER_MIN && gapStart > W * 0.3 && it.x < W * 0.7) {
+                    const key = Math.round(((gapStart + it.x) / 2) / STRUCT_BUCKET_PT);
+                    buckets.set(key, (buckets.get(key) || 0) + 1);
+                }
+            }
+            prev = it;
+        }
+    }
+    if (baselines < 6) return null;
+    let bestKey = null;
+    let bestCount = 0;
+    for (const [key, count] of buckets) {
+        // Adjacent buckets merge so ragged column edges still line up.
+        const c = count + (buckets.get(key - 1) || 0) + (buckets.get(key + 1) || 0);
+        if (c > bestCount) { bestCount = c; bestKey = key; }
+    }
+    if (bestKey === null || bestCount < Math.max(4, baselines * STRUCT_GUTTER_SHARE)) return null;
+    return bestKey * STRUCT_BUCKET_PT;
+}
+
+// Split a line at the structural gutter — but only when its items
+// actually leave a gutter-sized gap there. A genuinely spanning line
+// (title, abstract) has text ACROSS the band and stays whole, which
+// is what makes it a band separator downstream.
+function splitLineAtGutter(line, gx) {
+    const items = line.items || [];
+    if (items.length < 2) return [line];
+    const leftItems = items.filter((it) => (it.x + (it.w || 0) / 2) < gx);
+    const rightItems = items.filter((it) => (it.x + (it.w || 0) / 2) >= gx);
+    if (!leftItems.length || !rightItems.length) return [line];
+    const lastLeft = leftItems[leftItems.length - 1];
+    const gap = rightItems[0].x - (lastLeft.x + (lastLeft.w || 0));
+    if (gap < STRUCT_GUTTER_MIN) return [line];
+    return [
+        finalizeLine({ y: line.y, items: leftItems }),
+        finalizeLine({ y: line.y, items: rightItems })
+    ];
+}
+
 function orderPageLines(lines, page) {
     const W = page.width || 612;
+    let body = lines.filter((l) => !l.furniture);
+
+    // Narrow-gutter rescue: LaTeX's default \columnsep is 10pt and
+    // IEEE's gutter 18pt — below or at the naive per-baseline split
+    // threshold, so both columns' text survives as full-width lines
+    // and would interleave sentence by sentence. If the page doesn't
+    // already read as two columns, look for a structural gutter and
+    // re-split the straddling lines at it.
+    if (!detectTwoCol(body, W)) {
+        const textBody = body.filter((l) => !l.figure);
+        const gx = structuralGutterX(textBody, W);
+        if (gx !== null) {
+            body = body.flatMap((l) => (l.figure ? [l] : splitLineAtGutter(l, gx)));
+        }
+    }
+    if (!detectTwoCol(body, W)) return body;   // one column: already in y-order
+
     const spanning = (l) => l.x0 < W * 0.45 && l.x1 > W * 0.60;
     const side = (l) => (l.x0 < W * 0.45 ? 'left' : 'right');
-
-    const body = lines.filter((l) => !l.furniture);
-    const nonSpan = body.filter((l) => !spanning(l));
-    const left = nonSpan.filter((l) => side(l) === 'left').length;
-    const right = nonSpan.filter((l) => side(l) === 'right').length;
-    const twoCol = nonSpan.length >= 6
-        && left >= nonSpan.length * 0.3 && right >= nonSpan.length * 0.3;
-
-    if (!twoCol) return body;   // already in y-order
 
     // Bands: spanning lines cut the page; inside a band, read the left
     // column top-to-bottom, then the right.
@@ -212,6 +313,14 @@ function paragraphsOfPage(orderedLines, bodySize) {
     let current = null;
     let prev = null;
     for (const line of orderedLines) {
+        // Figures (C4.2) are always their own block — never merged or
+        // hyphen-joined into a text paragraph.
+        if (line.figure) {
+            paras.push({ heading: 0, figure: true, text: line.text, yTop: line.y });
+            current = null;
+            prev = line;
+            continue;
+        }
         const heading = headingLevel(line, bodySize);
         const gap = prev ? prev.y - line.y : 0;
         const newBlock = !current
@@ -222,9 +331,19 @@ function paragraphsOfPage(orderedLines, bodySize) {
         if (newBlock) {
             current = { heading, text: line.text, yTop: line.y };
             paras.push(current);
-        } else if (/\w-$/.test(current.text) && /^[a-z]/.test(line.text)) {
-            // Reflow a line-break hyphenation: "convo-" + "luted".
-            current.text = current.text.slice(0, -1) + line.text;
+        } else if (/[\p{L}\d]-$/u.test(current.text) && /^[\p{Ll}\d]/u.test(line.text)) {
+            // Reflow a line-break hyphenation — but keep the hyphen when
+            // it is (probably) lexical: the broken word already carries
+            // another hyphen ("state-of-the-" + "art" → "state-of-the-
+            // art"), or both sides are digits ("1914-" + "1918"). A bare
+            // soft break drops it: "convo-" + "luted" → "convoluted".
+            const lastWord = current.text.slice(0, -1).split(/\s+/).pop() || '';
+            const digitJoin = /\d-$/.test(current.text) && /^\d/.test(line.text);
+            if (digitJoin || lastWord.includes('-')) {
+                current.text += line.text;
+            } else {
+                current.text = current.text.slice(0, -1) + line.text;
+            }
         } else {
             current.text += ' ' + line.text;
         }
@@ -234,7 +353,7 @@ function paragraphsOfPage(orderedLines, bodySize) {
 }
 
 // ------------------------------------------------------------------
-// Figures (C4.2) — placement + caption pairing
+// Figures (C4.2) — pseudo-lines in the reading order
 // ------------------------------------------------------------------
 
 const CAPTION_RE = /^(fig(ure)?\.?|table|chart|exhibit)\b/i;
@@ -242,39 +361,31 @@ const CAPTION_BELOW_PT = 60;   // caption search window below the figure
 const ALT_MAX = 140;
 
 /**
- * Merge a page's figures (from pdf-capture: {ref, x, y, w, h}) into
- * its paragraph stream by vertical position, emitting each as a
- * markdown image block whose URL is the figure's content address
- * (`xray-figure:<sha256>`). Alt text is the nearest caption-looking
- * line just below the figure, else "Figure (page N)".
+ * A page's figures (from pdf-capture: {ref, x, y, w, h}) as pseudo-
+ * lines that flow through the SAME ordering machinery as text: a
+ * column figure sorts into its column's band by its top edge, and a
+ * full-width figure acts as a band separator — exactly like a
+ * spanning title. (The previous merge assumed paragraphs stayed
+ * y-descending, which two-column reordering breaks: a right-column
+ * figure landed before all left-column text.)
  */
-function mergeFigures(paras, page, lines, pageNo) {
-    const figures = (page && Array.isArray(page.figures) ? page.figures : [])
+function figureLines(page, lines, pageNo) {
+    return (page && Array.isArray(page.figures) ? page.figures : [])
         .filter((f) => f && f.ref)
         .map((f) => ({
             figure: true,
-            yTop: f.y + f.h,
-            text: `![${figureAlt(f, lines, pageNo)}](${f.ref})`
-        }))
-        .sort((a, b) => b.yTop - a.yTop);
-    if (figures.length === 0) return paras;
-
-    const out = [];
-    let fi = 0;
-    for (const para of paras) {
-        while (fi < figures.length && figures[fi].yTop >= (para.yTop ?? -Infinity)) {
-            out.push(figures[fi]); fi += 1;
-        }
-        out.push(para);
-    }
-    while (fi < figures.length) { out.push(figures[fi]); fi += 1; }
-    return out;
+            text: `![${figureAlt(f, lines, pageNo)}](${f.ref})`,
+            y: f.y + f.h,               // top edge — sorts above lower text
+            x0: f.x,
+            x1: f.x + f.w,
+            h: 0
+        }));
 }
 
 function figureAlt(fig, lines, pageNo) {
     let best = null;
     for (const line of lines || []) {
-        if (line.furniture || !CAPTION_RE.test(line.text)) continue;
+        if (line.furniture || line.figure || !CAPTION_RE.test(line.text)) continue;
         const below = fig.y - line.y;                  // PDF y-up: caption sits below
         if (below < 0 || below > CAPTION_BELOW_PT) continue;
         if (!best || below < best.below) best = { below, text: line.text };
@@ -329,12 +440,15 @@ export function buildDocumentFromPages(pages) {
     const pageMap = [];
     const pageStats = [];
     list.forEach((page, pi) => {
-        const ordered = orderPageLines(pageLines[pi], page);
+        const figs = figureLines(page, pageLines[pi], pi + 1);
+        const combined = figs.length
+            ? [...pageLines[pi], ...figs].sort((a, b) => b.y - a.y || (a.x0 || 0) - (b.x0 || 0))
+            : pageLines[pi];
+        const ordered = orderPageLines(combined, page);
         const paras = paragraphsOfPage(ordered, bodySize);
-        const blocks = mergeFigures(paras, page, pageLines[pi], pi + 1);
         let start = markdown.length;      // empty pages span zero chars
         let emitted = false;
-        for (const block of blocks) {
+        for (const block of paras) {
             const text = block.text.trim();
             if (!text) continue;
             const prefix = block.heading === 1 ? '# ' : block.heading === 2 ? '## ' : '';
@@ -345,8 +459,8 @@ export function buildDocumentFromPages(pages) {
         pageMap.push({ page: pi + 1, start: emitted ? start : markdown.length, end: markdown.length });
         pageStats.push({
             page: pi + 1,
-            chars: ordered.reduce((s, l) => s + l.text.length, 0),
-            lines: ordered.length,
+            chars: ordered.reduce((s, l) => s + (l.figure ? 0 : l.text.length), 0),
+            lines: ordered.filter((l) => !l.figure).length,
             paras: paras.length,
             figures: (page && Array.isArray(page.figures)) ? page.figures.length : 0
         });
@@ -432,11 +546,16 @@ function formatPageList(pages) {
     return out.join(', ');
 }
 
-/** 1-based page containing markdown offset `offset`, or null. */
+/**
+ * 1-based page containing markdown offset `offset`, or null. Pages
+ * that emitted no text own no offsets — a blank scan cover must not
+ * claim the first character of the document.
+ */
 export function pageOfOffset(pageMap, offset) {
     if (!Array.isArray(pageMap) || !Number.isFinite(offset) || offset < 0) return null;
     for (const entry of pageMap) {
-        if (offset >= entry.start && offset < Math.max(entry.end, entry.start + 1)) return entry.page;
+        if (entry.end <= entry.start) continue;   // textless page
+        if (offset >= entry.start && offset < entry.end) return entry.page;
     }
     return null;
 }
