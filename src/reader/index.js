@@ -50,6 +50,10 @@ import { listResolutions as listAuditResolutions } from '../shared/audit/audit-c
 import { assembleAuditBatch } from '../shared/audit/publish-batch.js';
 import { CURRENT_MODULE_VERSIONS } from '../shared/audit/findings-schemas.js';
 import { auditBand, scoreChipHtml, prettyModule } from '../shared/audit/display.js';
+import { JurisdictionModel } from '../shared/jurisdiction-model.js';
+import { lensTypeForPropositionClass } from '../shared/lens-taxonomy.js';
+import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/lens-engine.js';
+import { renderLensSetup, renderJurisdictionCard, renderJurisdictionFailure, renderPanelSummary } from './lens-section.js';
 
 const browserApi = typeof browser !== 'undefined' && browser.runtime ? browser : chrome;
 
@@ -1545,6 +1549,238 @@ async function runAuditFromReader(mode = 'single') {
         console.error('[xray] audit import failed', err, resp && resp.audit);
         toast('Audit import failed: ' + ((err && err.message) || 'unknown error'), 'error', 7000);
     }
+}
+
+// ------------------------------------------------------------------
+// Lens readings (Phase 16.3, docs/MORAL_LENS_JURISDICTION_DESIGN.md)
+// ------------------------------------------------------------------
+
+/**
+ * Lens-readings control. Same gating shape as the audit control but a
+ * DIFFERENT flag: the whole section is absent unless `moralLens` is on
+ * (independent of llmAssist — "flag off → no UI anywhere"); on but
+ * keyless leaves Run visible-but-disabled with the key hint. A run
+ * cached for this capture in session storage re-renders without any
+ * API call.
+ */
+async function setupLensControl() {
+    const section = $('#xr-lensread');
+    const run = $('#xr-lensread-run');
+    if (!section || !run) return;
+    let cfg = {};
+    try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:lens:config' }) || {}; }
+    catch (_) { cfg = {}; }
+
+    if (!cfg.enabled) { section.hidden = true; return; }   // flag off ⇒ no UI anywhere
+    section.hidden = false;
+    run.hidden = false;
+    if (!cfg.hasKey) {
+        run.disabled = true;
+        run.title = 'Set an Anthropic API key in Options → Advanced → LLM assist';
+    } else {
+        run.disabled = false;   // title stays as the HTML default
+        run.addEventListener('click', () => openLensSetup().catch((err) => {
+            console.warn('[X-Ray Reader] lens setup failed:', err);
+        }));
+    }
+
+    // Re-render a session-cached run (derived view — no new API call).
+    try {
+        const cached = await getCachedLensRun(state.id);
+        if (cached && cached.panel) renderLensRun(cached);
+    } catch (_) { /* cache is best-effort */ }
+}
+
+function lensStatus(text) {
+    const el = $('#xr-lensread-status');
+    if (el) el.textContent = text;
+}
+
+/**
+ * Default lens type for a claim: the §3.1 mapping when the claim has
+ * been atomized — any truth-adjudicable proposition makes it 'factual'
+ * (failing toward the firewall: a factual assertion gets a corpus
+ * stance, never a disposition) — else 'evaluative'. Always
+ * user-overridable in the setup form; the chosen typing lives only in
+ * this run's output, never on the claim record.
+ */
+async function lensDefaultType(claimId) {
+    try {
+        const propositions = await TruthAdjudicationModel.getByClaim(claimId);
+        if (propositions.some((p) => lensTypeForPropositionClass(p.proposition_class) === 'factual')) {
+            return 'factual';
+        }
+        for (const p of propositions) {
+            const t = lensTypeForPropositionClass(p.proposition_class);
+            if (t) return t;
+        }
+    } catch (_) { /* fall through to the default */ }
+    return 'evaluative';
+}
+
+async function openLensSetup() {
+    const body = $('#xr-lensread-body');
+    if (!body || !state.article) return;
+    const jurisdictions = await JurisdictionModel.list();
+    const claims = await ClaimModel.getBySourceUrl(state.article.url);
+    const typed = [];
+    for (const c of claims) {
+        typed.push({ id: c.id, text: c.text, type: await lensDefaultType(c.id) });
+    }
+    body.innerHTML = renderLensSetup({ jurisdictions, claims: typed });
+    const cancel = body.querySelector('[data-role="lens-cancel"]');
+    if (cancel) cancel.addEventListener('click', () => { body.innerHTML = ''; });
+    const go = body.querySelector('[data-role="lens-go"]');
+    if (go) go.addEventListener('click', () => runLensFromReader().catch((err) => {
+        console.warn('[X-Ray Reader] lens run failed:', err);
+        toast('Lens run failed: ' + ((err && err.message) || 'unknown error'), 'error', 7000);
+    }));
+}
+
+/**
+ * Run the panel: one xray:lens:read message per jurisdiction (§6 —
+ * partial results render as they land, each message resets the SW
+ * idle timer, one failure never aborts the panel), then assemble the
+ * §7 panel code-side and session-cache it.
+ */
+async function runLensFromReader() {
+    const body = $('#xr-lensread-body');
+    const run = $('#xr-lensread-run');
+    if (!body || !state.article) return;
+
+    const juriIds = [...body.querySelectorAll('[data-role="lens-juri"]:checked')].map((el) => el.value);
+    const claimIds = new Set([...body.querySelectorAll('[data-role="lens-claim"]:checked')].map((el) => el.value));
+    const typeByClaim = {};
+    body.querySelectorAll('[data-role="lens-claim-type"]').forEach((sel) => { typeByClaim[sel.dataset.claim] = sel.value; });
+    const basisInput = body.querySelector('[data-role="lens-basis"]');
+    const basis = basisInput ? basisInput.value : '';
+
+    if (juriIds.length === 0) { toast('Pick at least one jurisdiction.', 'warning'); return; }
+    if (claimIds.size === 0) { toast('Pick at least one claim to read.', 'warning'); return; }
+
+    const allClaims = await ClaimModel.getBySourceUrl(state.article.url);
+    const claims = allClaims.filter((c) => claimIds.has(c.id))
+        .map((c) => ({ id: c.id, text: c.text, type: typeByClaim[c.id] || 'evaluative' }));
+
+    // Cost confirm states the call count and the mid-run risk (§6).
+    const n = juriIds.length;
+    if (!confirm(`Lens reading runs one LLM call per jurisdiction — ${n} API call${n === 1 ? '' : 's'} for this panel. `
+        + 'Closing the reader mid-run drops any paid results. Continue?')) {
+        return;
+    }
+
+    const articleText = EventBuilder.assembleArticleBody(state.article);
+    if (!articleText || !articleText.trim()) { toast('Nothing to read yet.', 'error'); return; }
+
+    if (run) run.disabled = true;
+    body.innerHTML = '';
+    lensStatus(`Reading under ${n} jurisdiction${n === 1 ? '' : 's'}… (0/${n})`);
+
+    const readings = [];
+    const failures = [];
+    let provenance = null;
+    let contentHash = null;
+    let done = 0;
+
+    for (const jid of juriIds) {
+        const juri = await JurisdictionModel.get(jid);
+        const displayName = (juri && juri.display_name) || jid;
+        let resp;
+        try {
+            resp = await browserApi.runtime.sendMessage({
+                type: 'xray:lens:read',
+                request: {
+                    jurisdictionId: jid,
+                    articleText,
+                    articleUrl: state.article.url || '',
+                    articleTitle: state.article.title || '',
+                    claims
+                }
+            });
+        } catch (err) {
+            resp = { ok: false, error: (err && err.message) || String(err) };
+        }
+        done += 1;
+        lensStatus(`Reading under ${n} jurisdiction${n === 1 ? '' : 's'}… (${done}/${n})`);
+        if (resp && resp.ok) {
+            readings.push(resp.reading);
+            provenance = resp.provenance;
+            contentHash = (resp.target && resp.target.content_hash) || contentHash;
+            body.insertAdjacentHTML('beforeend', renderJurisdictionCard(resp.reading, claims));
+        } else {
+            const failure = { displayName, error: (resp && resp.error) || 'unknown error', refused: !!(resp && resp.refused) };
+            failures.push(failure);
+            body.insertAdjacentHTML('beforeend', renderJurisdictionFailure(failure));
+        }
+        wireLensActions(body);
+    }
+
+    if (run) run.disabled = false;
+
+    if (readings.length === 0) {
+        lensStatus('Lens pass failed — no jurisdiction produced a reading.');
+        return;
+    }
+
+    const panel = assembleLensPanel({
+        target: {
+            title: state.article.title || null,
+            url: state.article.url || null,
+            content_hash: contentHash,
+            claims
+        },
+        jurisdictionReadings: readings,
+        selectionBasis: basis,
+        provenance
+    });
+    body.insertAdjacentHTML('beforeend', renderPanelSummary(panel));
+    lensStatus(`${readings.length}/${n} jurisdiction${n === 1 ? '' : 's'} read${failures.length ? `, ${failures.length} failed` : ''}.`);
+
+    // Session cache only: re-opening within the session re-renders
+    // without a new API call; nothing is ever durably written.
+    try { await cacheLensRun(state.id, { panel, failures }); }
+    catch (_) { /* cache is best-effort */ }
+}
+
+/** Re-render a cached run. */
+function renderLensRun(cached) {
+    const body = $('#xr-lensread-body');
+    if (!body) return;
+    const panel = cached.panel;
+    const claims = (panel.target && panel.target.claims) || [];
+    body.innerHTML = '';
+    for (const reading of panel.jurisdictions || []) {
+        body.insertAdjacentHTML('beforeend', renderJurisdictionCard(reading, claims));
+    }
+    for (const f of cached.failures || []) {
+        body.insertAdjacentHTML('beforeend', renderJurisdictionFailure(f));
+    }
+    body.insertAdjacentHTML('beforeend', renderPanelSummary(panel));
+    const count = (panel.jurisdictions || []).length;
+    lensStatus(`${count} jurisdiction reading${count === 1 ? '' : 's'} (cached this session).`);
+    wireLensActions(body);
+}
+
+/** The factual-row 🏛 route into the truth layer's flow (§9 Q2). */
+function wireLensActions(body) {
+    body.querySelectorAll('[data-action="lens-adjudicate"]').forEach((btn) => {
+        if (btn.dataset.wired) return;
+        btn.dataset.wired = '1';
+        btn.addEventListener('click', async () => {
+            const claim = await ClaimModel.get(btn.dataset.claim);
+            if (!claim) { toast('Claim not found — it may have been deleted.', 'error'); return; }
+            const result = await openAdjudicateModal({
+                claimId:     claim.id,
+                claimText:   claim.text || '',
+                relays:      await getConfiguredRelays(),
+                claimPubkey: claim.publishedPubkey || null
+            });
+            if (result) {
+                toast('Adjudication recorded in the truth layer.', 'success', 2000);
+                await refreshClaimsBar().catch(() => {});
+            }
+        });
+    });
 }
 
 async function openLinkClaim(sourceId, allClaimsOnArticle) {
@@ -4119,6 +4355,7 @@ async function init() {
     // gating as Suggest; absent unless llmAssist is on. Publishing the
     // resulting events stays behind `epistemicAuditing`.
     setupAuditRunControl().catch((err) => console.warn('[X-Ray Reader] audit-run setup failed:', err));
+    setupLensControl().catch((err) => console.warn('[X-Ray Reader] lens setup failed:', err));
 
     // Epistemic-audit import (13.5): button → hidden file input →
     // importAuditJson with the RQ1 gate (re-hash + schema-validate +

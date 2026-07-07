@@ -74,7 +74,18 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // the deterministic cross-user person rendezvous. Publishing
   // discloses your captured-account → entity link graph, so it is
   // opt-in. The local account registry is never gated.
-  platformAccountPublishing: false
+  platformAccountPublishing: false,
+
+  // Phase 16 (docs/MORAL_LENS_JURISDICTION_DESIGN.md §6): gates the
+  // reader's lens-reading surface — the per-jurisdiction perspectival
+  // reading of normative/evaluative/framing assertions. Independent of
+  // `llmAssist` (its `enabled` bit means Suggest, a different consent),
+  // and additionally requires the user-supplied API key: a lens pass
+  // sends the article text PLUS the jurisdiction definitions and
+  // captured authority excerpts to Anthropic. Derived view only —
+  // nothing is durably saved, nothing is published, no wire kind
+  // exists (30066 is left free, guard-tested).
+  moralLens: false
 });
 
 /**

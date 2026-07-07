@@ -1,8 +1,8 @@
 # X-Ray — End-to-end smoke test
 
 Manual walkthrough that exercises every shipped surface across
-Phases 0–15 + the v0.5.x cleanup. The §0–§9 core takes ~20 minutes per
-browser; a full pass through the Phase 11–15 sections is a half-day.
+Phases 0–16 + the v0.5.x cleanup. The §0–§9 core takes ~20 minutes per
+browser; a full pass through the Phase 11–16 sections is a half-day.
 Run before any release tag, after any cross-cutting refactor, and
 when adding a contributor.
 
@@ -23,7 +23,7 @@ git clone …
 cd xray
 npm install
 npm run build           # produces dist/*.bundle.js (7 bundles)
-npm test                # 1018/1018 should pass
+npm test                # 1272/1272 should pass
 ```
 
 ### Chrome / Chromium / Brave / Edge
@@ -850,6 +850,101 @@ await EvidenceLinker.deleteForClaim(claim.id);
 // then ClaimModel.delete(...) for each test claim created above.
 // Only blanket-remove 'article_claims'/'evidence_links' on a disposable
 // profile — real captures share those keys.
+```
+
+---
+
+## Phase 16 — Moral lens (lens-readings, 16.1–16.4)
+
+Rows 16.1–16.9 are **keyless** (registry authoring + gating negatives +
+the code-enforced pre-flight refusals — no network is reachable from any
+of them); rows 16.10+ need a **real Anthropic API key** and spend real
+tokens — run them on a **short op-ed with a cheap model** (Options →
+Advanced → LLM assist → Model). Dynamic `import()` is banned in the
+service worker — use the **options page** console (right-click toolbar
+icon → Options → F12). On Firefox: `about:debugging` → X-Ray →
+**Inspect**, with the options page open.
+
+Paste each numbered block as a unit. Jurisdiction `create` throws on an
+id collision — re-running after a page reload is a no-op error, not
+divergence (delete via 16.B first if re-seeding).
+
+**16.A — setup (paste once per page load):**
+
+```js
+const { JurisdictionModel, treatAsLiving, admissibleAuthorities } =
+    await import('/src/shared/jurisdiction-model.js');
+const { lensPreflightRefusal } = await import('/src/shared/lens-engine.js');
+const { ClaimModel } = await import('/src/shared/claim-model.js');
+
+// A worldview lens with pluralism encoded (Appendix A.2 template).
+const christianity = await JurisdictionModel.create({
+    jurisdiction_type: 'worldview',
+    display_name: 'Christianity (multi-tradition)',
+    internal_divisions: ['Catholic social teaching', 'Reformed'],
+    corpus_provenance: { curated_by: 'me', selection_basis: 'texts the target essay itself invokes' },
+    corpus: [{
+        citation: { work: 'Bible (NRSV)', edition: 'NRSV Updated Edition, 2021',
+                    locator: 'Matthew 20:25-28', tradition: 'shared', language: 'en' },
+        excerpt: 'whoever wishes to be first among you must be your slave',
+        admissibility: 'published-scripture' }] });
+
+// A living persona with ONLY a social capture loaded — the guardrail bait.
+const living = await JurisdictionModel.create({
+    jurisdiction_type: 'persona', display_name: 'Living Author',
+    is_living_person: true,
+    corpus: [{ citation: { work: 'x.com post', locator: 'status/123' },
+               excerpt: 'a tweet', admissibility: 'social-capture' }] });
+
+// A persona whose living bit was never set — must be TREATED as living.
+const unknownBit = await JurisdictionModel.create({
+    jurisdiction_type: 'persona', display_name: 'Unknown Author' });
+```
+
+**Registry + guardrails (16.1 — all console, all keyless):**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 16.1 | `await JurisdictionModel.list()` | ✅ three records; `christianity.id === 'christianity-multi-tradition'` (slug ids); codified/worldview rows have `is_living_person: null` and NO entity/keypair anywhere |
+| 16.2 | `await JurisdictionModel.create({ jurisdiction_type: 'worldview', display_name: 'X', entity_id: 'entity_abc' })` | ❌ throws `entity_id is persona-only` |
+| 16.3 | `await JurisdictionModel.addAuthority(christianity.id, { citation: { work: 'W', locator: 'L' }, excerpt: 'a'.repeat(501), admissibility: 'published-book' })` | ❌ throws `exceeds 500 characters … never silently truncated` |
+| 16.4 | `treatAsLiving(unknownBit)` / `treatAsLiving(christianity)` | ✅ `true` (absent bit fails closed) / `false` (never applies to a worldview) |
+| 16.5 | `admissibleAuthorities(living)` | ✅ `[]` — the social capture is inadmissible for a living persona |
+| 16.6 | `lensPreflightRefusal(living)` / `lensPreflightRefusal(unknownBit)` | ✅ `{ code: 'living-person-ungrounded', … }` both — refused in code, before any network call |
+| 16.7 | `chrome.storage.local.get('lens_jurisdictions', console.log)` | ✅ the registry map, id→record — a plain local registry; no kind-0, no relay traffic |
+
+**Gating negatives (reader + options — keyless):**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 16.8 | `moralLens` flag OFF (default): capture any page → reader | ✅ **no lens UI anywhere** (the whole "Lens readings" section is absent); Options → Advanced shows the Moral lens block with its consent copy stating the article text **plus jurisdiction definitions and authority excerpts** are sent |
+| 16.8b | Enable Moral lens in Options (no API key saved) → re-open reader | ✅ section appears; **Run lens reading…** disabled with the "Set an Anthropic API key" hint — flag-on/keyless means no call is reachable |
+| 16.8c | Key saved but `llmAssist` OFF | ✅ lens control fully live — the two flags are independent gates; Suggest/audit buttons stay hidden |
+| 16.9 | With flag+key on: Run → pick ONLY `Living Author` + any claim → Run reading | ✅ cost confirm states **1 API call**; the card renders **refused pre-flight** with the living-person message; devtools Network shows **zero** api.anthropic.com requests |
+
+**Keyed rows (real key, short op-ed, cheap model):**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 16.10 | Capture a short op-ed; capture 2–3 claims incl. one factual (e.g. a dated vote); Run lens → pick `christianity` + all claims; type the factual claim as **Factual** | ✅ confirm names the call count; per-jurisdiction card renders with readings — **structure asserted, never specific dispositions** (the pass is nondeterministic) |
+| 16.11 | Every confidence chip | ✅ carries "fidelity, not truth" + the full §5.1 note on hover — on EVERY chip |
+| 16.12 | The factual claim's row | ✅ "deferred to truth layer" badge + a corpus-stance descriptor (asserts/denies/silent) — **never** a disposition; 🏛 opens the adjudicate modal on that claim |
+| 16.13 | A claim the corpus can't address | ✅ reads `silent` (never a guess) with recommended sources in the grounding report |
+| 16.14 | Panel composition block | ✅ empaneled list + selection basis (or "not stated"); running ONLY a hostile lens produces the ⚠ one-sided-panel symmetry flag |
+| 16.15 | Grounding report | ✅ grounded/inference-only counts; single-work multi-vocal corpus shows the §5.3 thin-representation flag |
+| 16.16 | Derived-only guarantees, after a successful run | ✅ `chrome.storage.local.get(null, o => console.log(Object.keys(o)))` shows **no new keys** vs before the run; publish summary has **no lens segment**; `chrome.storage.session.get(null, console.log)` shows the `xray:lensread:<id>` cache |
+| 16.17 | Close the reader tab mid-run → re-capture the page → reader | ✅ dropped results are gone (the confirm warned about this); re-opening the SAME capture id within the session re-renders the cached panel with **no** new API call |
+| 16.18 | Bad key (edit the saved key to garbage) → Run | ✅ per-jurisdiction card fails with the 401/403 message pointing at Options; the rest of the panel still completes |
+| 16.19 | Oversized target (a very long capture, >120k chars) → Run | ✅ the grounding report carries the truncation flag — never silent |
+| 16.20 | Long panel (4+ jurisdictions) with the SW devtools open | ✅ each per-jurisdiction call arrives as its own message (SW log); the worker survives the whole run; partial failures render failed-with-reason while the rest complete |
+| 16.21 | Repeat 16.8, 16.9, 16.12 on Firefox ≥128 | ✅ identical behavior (the background page is an event page there, not a service worker) |
+
+**16.B — cleanup:**
+
+```js
+chrome.storage.local.remove(['lens_jurisdictions']);
+// The session cache (xray:lensread:*) dies with the browser session on
+// its own. Then ClaimModel.delete(...) for any test claims created.
 ```
 
 ---

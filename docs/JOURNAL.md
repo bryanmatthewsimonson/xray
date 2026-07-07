@@ -19,6 +19,64 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-07 — Phase 16.1–16.4: moral-lens implementation choices
+
+Tags: `design`.
+
+Phase 16 landed as one PR (16.1–16.4 on one branch rather than the
+stacked train — the slices are small and the 16.4 guards only make
+sense against the whole surface). Everything follows the 16.0.5
+amendment; the second-guessable calls it left open, decided here:
+
+- **Lens assertion typing is code-side and user-controlled, never
+  model-assigned.** The §7 disposition/`corpus_stance` exclusivity is
+  enforced at parse time, which requires knowing each claim's type
+  BEFORE validation — a model-assigned type could evade the §3.2
+  firewall by mistyping a factual claim as evaluative. Defaults: a
+  claim with any truth-adjudicable proposition defaults to `factual`
+  (failing toward the firewall); `interpretation`/`stated-value`
+  propositions default to `evaluative`; un-atomized claims default to
+  `evaluative` with the type select visible in the setup form. The
+  chosen typing lives only in the run's output, never on the claim.
+- **The grounding report's numbers are computed, not model-echoed:**
+  grounded/inference-only counts from the citations' grounding levels,
+  per-authority `coverage` from citation frequency (≥ half the claims →
+  high), `thin_representation_flags` from the deterministic v1 rule
+  (declared multi-vocal worldview + single-work corpus). The model
+  supplies only `thin_coverage_flags` + `recommended_sources` — its own
+  honesty flags.
+- **The session cache deliberately breaks the house
+  `storage.session || storage.local` fallback idiom.** Falling back
+  would durably write a derived view and void the zero-durable-writes
+  guarantee; no session area (nothing modern) simply means no cache.
+- **The §5.3 symmetry flag is a deterministic proxy:** a panel where
+  every jurisdiction's dispositions run more `rejects` than
+  `endorses`/`partially-endorses` flags as possibly one-sided. Crude by
+  design — the disclosure is the product, the flag is a nudge.
+- **Registry ids are display-name slugs** (`bell-hooks`), matching the
+  §7 examples; authority ids hash (citation|excerpt) so re-authoring
+  converges. `lens_jurisdictions` joined `WORKSPACE_CLEAR_KEYS` (and
+  its pin test) so backup/reset cover corpora.
+- **The tiny-schema walker moved** from `audit/findings-schemas.js` to
+  `shared/schema-walker.js` (verbatim; audit tests unchanged) so
+  `lens-schemas.js` shares it instead of forking.
+- The Q1 `admissibility` enum was authored here (nine values; the
+  editorially-published subset is everything but `social-capture`) —
+  the design named examples, not the enum.
+
+Files: `src/shared/lens-taxonomy.js`, `src/shared/jurisdiction-model.js`,
+`src/shared/lens-schemas.js`, `src/shared/lens-prompt.js`,
+`src/shared/lens-engine.js`, `src/shared/schema-walker.js`,
+`src/shared/llm-client.js` (`runLensPass`/`getLensConfig`),
+`src/background/index.js` (`xray:lens:*`), `src/reader/lens-section.js`,
+`tests/lens-*.test.mjs`. So-what: if lens behavior ever contradicts
+`docs/MORAL_LENS_JURISDICTION_DESIGN.md` (as amended), the doc governs;
+the deterministic computations above are implementation choices and are
+fair game to revisit — but the parse-time firewall enforcement and the
+no-local-fallback cache are load-bearing, not style.
+
+---
+
 ## 2026-07-07 — PDF + figures bug sweep: nineteen fixes across the Phase 18 stack
 
 Tags: `bug`, `design`.

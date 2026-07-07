@@ -26,7 +26,7 @@ import { NostrClient } from '../shared/nostr-client.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
-import { runSuggestionPass, runAuditPass, getLlmConfig } from '../shared/llm-client.js';
+import { runSuggestionPass, runAuditPass, getLlmConfig, runLensPass, getLensConfig } from '../shared/llm-client.js';
 import { pdfDocumentUrl } from '../shared/pdf-detect.js';
 import { Signer } from '../shared/signer.js';
 
@@ -436,6 +436,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // chosen model. The reader uses it to show/enable the Suggest control.
     if (message.type === 'xray:llm:config') {
         getLlmConfig().then(
+            (cfg) => sendResponse({ ok: true, ...cfg }),
+            () => sendResponse({ ok: false, enabled: false, hasKey: false })
+        );
+        return true; // async sendResponse
+    }
+
+    // Reader page → worker: run ONE jurisdiction's lens reading
+    // (Phase 16). Same home as Suggest/Audit (SW outside page CSP, key
+    // never leaves the SW) but a DIFFERENT gate: the `moralLens` flag,
+    // independent of `llmAssist`, checked inside runLensPass along with
+    // the pre-flight refusals (ungrounded jurisdiction, living-person
+    // guardrail — enforced in code before any network call). One
+    // message per jurisdiction, so partial panels render incrementally
+    // and each call resets the MV3 idle timer. Nothing is saved or
+    // published here — the result is a derived view the reader
+    // session-caches.
+    if (message.type === 'xray:lens:read') {
+        runLensPass(message.request || {}).then(
+            (result) => sendResponse(result),
+            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Lens pass failed' })
+        );
+        return true; // async sendResponse
+    }
+
+    // Reader page → worker: lens gating snapshot — whether the
+    // `moralLens` flag is on, whether a key is present (NEVER the key
+    // value), and the chosen model.
+    if (message.type === 'xray:lens:config') {
+        getLensConfig().then(
             (cfg) => sendResponse({ ok: true, ...cfg }),
             () => sendResponse({ ok: false, enabled: false, hasKey: false })
         );

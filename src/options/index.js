@@ -611,6 +611,9 @@ async function loadAdvanced() {
     document.getElementById('pref-account-publishing').checked =
         isEnabled('platformAccountPublishing');
 
+    // Moral lens (Phase 16) — independent of llmAssist; shares the key.
+    document.getElementById('pref-moral-lens').checked = isEnabled('moralLens');
+
     // LLM assist (Phase 14.5). The flag lives in feature-flags; the key
     // + model live under their own chrome.storage.local keys. We never
     // load the key VALUE back into the DOM — only whether one is set.
@@ -680,6 +683,11 @@ async function saveAdvanced() {
     await setOverride('truthAdjudicationPublishing', publishVerdicts ? true : null);
     const publishAccounts = document.getElementById('pref-account-publishing').checked;
     await setOverride('platformAccountPublishing', publishAccounts ? true : null);
+
+    // Moral lens (Phase 16): checked → explicit override on; unchecked →
+    // clear the override back to the default (off).
+    const lensOn = document.getElementById('pref-moral-lens').checked;
+    await setOverride('moralLens', lensOn ? true : null);
 
     // LLM assist: flag + model preference always; the key only when the
     // user typed a new one (blank leaves the saved key untouched).

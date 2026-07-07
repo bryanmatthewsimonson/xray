@@ -75,6 +75,22 @@
        per-subject behavioral maneuvers, evidence-anchored, no verdict. -->
   <div id="xr-findings-host"></div>
 
+  <!-- Lens readings (Phase 16): per-jurisdiction perspectival readings
+       of the selected claims, grounded in each jurisdiction's own
+       loaded corpus — never a truth call. Hidden unless the moralLens
+       flag is on. Derived view only: session-cached, never durably
+       saved, no wire kind. Firewall note: like the audit section, this
+       block never visually merges with the claims/assessment UI —
+       separate block, separate provenance, separate vocabulary. -->
+  <section class="xr-lensread" id="xr-lensread" hidden>
+    <div class="xr-lensread__bar">
+      <span class="xr-lensread__label">Lens readings</span>
+      <span class="xr-lensread__status" id="xr-lensread-status">No lens pass run for this capture.</span>
+      <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-lensread-run" title="Read selected claims under selected jurisdictions — one LLM call per jurisdiction" hidden>Run lens reading…</button>
+    </div>
+    <div class="xr-lensread__body" id="xr-lensread-body"></div>
+  </section>
+
   <!-- Comments section. Shown only when the article has a postId from
        a platform that supports comment capture (Substack today). The
        inner HTML is populated by reader/index.js. -->
