@@ -69,7 +69,10 @@ export async function collectCaseBundle(caseEntityId) {
             // The collaboration payload. Reference-only entities (no
             // local key) export without one — the importer gets the
             // record but can't sign for it.
-            privkey:      (e.keypair && e.keypair.privateKey) || null
+            privkey:      (e.keypair && e.keypair.privateKey) || null,
+            // Foreign keyless entities (KS.3) round-trip their wire
+            // pubkey so the importer keeps referencing it.
+            foreign_pubkey: e.foreign_pubkey || null
         });
     }
 

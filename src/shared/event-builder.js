@@ -694,7 +694,7 @@ export const EventBuilder = {
   // The `d` tag IS the account key (`<platform>:<stableId>`), so re-
   // publishing an updated record (new display name, a fresh entity link)
   // replaces in place per NIP-01 addressable-event semantics.
-  buildPlatformAccountEvent: (account, userPubkey) => {
+  buildPlatformAccountEvent: (account, userPubkey, linkedEntityPubkey = null) => {
     if (!account || !account.key || !account.accountPubkey) {
       throw new Error('buildPlatformAccountEvent: account.key + account.accountPubkey required');
     }
@@ -709,6 +709,13 @@ export const EventBuilder = {
     if (account.profileUrl)  tags.push(['r', account.profileUrl]);
     if (account.verified)    tags.push(['account-verified', 'true']);
     if (account.linkedEntityId) tags.push(['linked-entity', account.linkedEntityId]);
+    // KS.2 wire addition (docs/KNOWLEDGE_SHARING_DESIGN.md §10): the
+    // linking user's entity WIRE pubkey as a role-marked p tag. The
+    // `linked-entity` id string above is reader-local; this makes
+    // account → entity resolution a one-hop relay query for strangers.
+    if (linkedEntityPubkey && /^[0-9a-f]{64}$/i.test(linkedEntityPubkey)) {
+      tags.push(['p', linkedEntityPubkey, '', 'linked-entity']);
+    }
     tags.push(['client', 'xray']);
 
     return {
@@ -731,6 +738,7 @@ export const EventBuilder = {
       return t ? t[1] : null;
     };
     const pTag = event.tags.find((x) => Array.isArray(x) && x[0] === 'p' && x[3] === 'account');
+    const linkPTag = event.tags.find((x) => Array.isArray(x) && x[0] === 'p' && x[3] === 'linked-entity');
     const key = get('d');
     const accountPubkey = pTag ? pTag[1] : null;
     const platform = get('account-platform');
@@ -745,7 +753,8 @@ export const EventBuilder = {
       displayName: get('account-name') || '',
       profileUrl: get('r') || '',
       verified: get('account-verified') === 'true',
-      linkedEntityId: get('linked-entity') || null
+      linkedEntityId: get('linked-entity') || null,
+      linkedEntityPubkey: linkPTag ? linkPTag[1] : null
     };
   },
 

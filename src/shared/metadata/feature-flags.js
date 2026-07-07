@@ -67,7 +67,14 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // The feature only ever PROPOSES artifacts for human review; nothing
   // auto-saves and nothing auto-publishes — publishing stays behind the
   // existing assessmentPublishing / forensicPublishing flags.
-  llmAssist: false
+  llmAssist: false,
+
+  // Knowledge Sharing KS.2 (docs/KNOWLEDGE_SHARING_DESIGN.md §3): gates
+  // the PUBLISH path for kind 32126 platform-account identity events —
+  // the deterministic cross-user person rendezvous. Publishing
+  // discloses your captured-account → entity link graph, so it is
+  // opt-in. The local account registry is never gated.
+  platformAccountPublishing: false
 });
 
 /**

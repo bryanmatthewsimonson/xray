@@ -6,7 +6,7 @@ Web Content Annotations, Fact-Checks, and Topic Trust
 
 `draft` `optional`
 
-This NIP defines seventeen event kinds and two tag extensions that together let users publish structured, anchored metadata about web content — atomized claims, annotations, fact-checks, ratings, personal assessments, claim relationships, topic-scoped trust assertions, helpfulness votes, epistemic-audit records (per-module surface-scan results, aggregate article audits, a prediction ledger with resolutions, dossier rollup snapshots, and audit disputes — content-addressed to the exact text scored), behavioral findings (named maneuvers a subject performs around the truth, evidence-anchored, with no verdict on intent), adjudicated verdicts (descriptive truth-states on atomized propositions, on a declared standard of proof, with two-sided evidence and mandatory caveats — attached to the proposition, never a person), and integrity findings (words-vs-deeds match states with documented gap causes, intent never adjudicated) — and lets readers query, rank, and surface that metadata in context.
+This NIP defines eighteen event kinds and two tag extensions that together let users publish structured, anchored metadata about web content — atomized claims, annotations, fact-checks, ratings, personal assessments, claim relationships, topic-scoped trust assertions, helpfulness votes, epistemic-audit records (per-module surface-scan results, aggregate article audits, a prediction ledger with resolutions, dossier rollup snapshots, and audit disputes — content-addressed to the exact text scored), behavioral findings (named maneuvers a subject performs around the truth, evidence-anchored, with no verdict on intent), adjudicated verdicts (descriptive truth-states on atomized propositions, on a declared standard of proof, with two-sided evidence and mandatory caveats — attached to the proposition, never a person), integrity findings (words-vs-deeds match states with documented gap causes, intent never adjudicated), and cross-platform account records (a captured platform account materialized under a deterministic derived pubkey, carrying the author's claimed account→entity link) — and lets readers query, rank, and surface that metadata in context.
 
 It composes with rather than replaces:
 
@@ -676,6 +676,48 @@ Addressable. The adjudicated **word-deed match**: links a subject's **stated** c
 
 **Kind 30065 is RESERVED** for a future PrecedentCitation — a verdict/finding citing prior rulings of the same proposition or match class as `binding`/`persuasive` precedent (§stare-decisis, deferred). Until it ships, precedent MAY be expressed as an `a` tag on 30063/30064 with a slot-4 `precedent` marker and a slot-5 weight (`binding` | `persuasive`); consumers MUST treat it as informational only.
 
+## Kind 32126 — PlatformAccount
+
+An addressable event that materializes a captured social-platform account as a NOSTR-queryable identity reference, authored by the capturing user.
+
+The account's identifying pubkey is **derived, deterministic, and identical for every user**:
+
+```
+account_pubkey = secp256k1_pubkey( sha256( "xray:platform-account:v1:" + platform + ":" + stable_id ) )
+```
+
+where `platform` is the lowercased platform slug (`twitter`, `youtube`, `substack`, `instagram`, `facebook`, `tiktok`) and `stable_id` is the platform's most stable identifier for the account (channel id, numeric user id, or handle, per platform). Anyone who knows the handle can derive the same pubkey — that is the rendezvous: every capturer's articles (`p` role `author`) and comments (`p` role `commenter`) reference the same account pubkey with zero coordination.
+
+**The derived pubkey is an identifier, never a signer.** The private scalar is discarded at derivation and no event is ever signed with it. Clients MUST NOT treat events *authored by* a derived account pubkey as authentic account activity.
+
+Tags:
+
+- `d` (required) — the account key `<platform>:<stable_id>`; republishing replaces in place per NIP-01.
+- `p`, role `account` (required) — the derived account pubkey.
+- `account-platform`, `account-id` (required) — platform slug + stable id, mirrored for non-indexed reads.
+- `account-username`, `account-name`, `r` (profile URL), `account-verified` (optional) — display metadata.
+- `linked-entity` (optional) — the author's **local** entity id string for the person/organization they consider this account to belong to. Reader-local; third parties cannot resolve it.
+- `p`, role `linked-entity` (optional) — the wire pubkey of that entity, making account → entity resolution a one-hop relay query.
+
+The entity link is the author's *claim*, not a registry fact: two users MAY link the same account to different entity pubkeys, and consumers MUST attribute each link to its event's author and render disagreements side by side, never merged.
+
+```jsonc
+{
+  "kind": 32126,
+  "tags": [
+    ["d", "twitter:jack"],
+    ["p", "<derived account pubkey>", "", "account"],
+    ["account-platform", "twitter"],
+    ["account-id", "jack"],
+    ["account-username", "jack"],
+    ["linked-entity", "entity_1234abcd5678ef90"],
+    ["p", "<author's entity wire pubkey>", "", "linked-entity"],
+    ["client", "xray"]
+  ],
+  "content": ""
+}
+```
+
 ## Kind 30023 — `responds-to` tag (extension)
 
 A long-form article (kind 30023) MAY declare that it responds to one or more other pieces of content. Each response is a separate `responds-to` tag:
@@ -739,6 +781,9 @@ Other standard queries:
 { "kinds": [30057], "#t": ["monetary-policy"], "limit": 100 }           // aggregate audits on a beat
 { "kinds": [30059], "#a": ["30058:<pubkey>:<d>"], "limit": 50 }         // resolutions of one prediction
 { "kinds": [30061], "#a": ["30057:<pubkey>:<d>"], "limit": 50 }         // disputes targeting one audit
+{ "kinds": [32126], "#d": ["twitter:jack"], "limit": 50 }               // who captured @jack + whom they say @jack is
+{ "kinds": [32126], "#p": ["<derived-account-pubkey>"], "limit": 50 }   // same rendezvous, by derived pubkey
+{ "kinds": [30023, 30040, 32126, 30054, 30062, 30064, 1985], "#p": ["<equivalence-pubkeys…>"], "limit": 300 } // entity feed, hop 1 (a reader's equivalence set)
 ```
 
 A client wishing to display helpfulness aggregates for a set of metadata events SHOULD then issue a follow-up `#a` query against kind 9803 keyed by the addressable coordinates of those events.
@@ -749,6 +794,10 @@ This NIP makes events public by default. Clients MUST clearly indicate at publis
 
 Reading metadata is private — relay queries do not authenticate the reader — provided the relay is not under [NIP-42](42.md) authentication. Clients SHOULD avoid using NIP-42-authenticated relays for metadata read queries unless the user has explicitly enabled such a relay.
 
+Relay-supplied events are untrusted input. Clients MUST verify each incoming event — the id equals the hash of the serialized event, and the BIP-340 signature binds that id to its `pubkey` — before rendering, storing, or acting on it. The reference implementation enforces this at its single relay-read choke point.
+
+Publishing kind 32126 discloses the author's captured-account → entity link graph. Clients MUST keep that publish path opt-in and state what it reveals at enable time.
+
 This NIP does not specify a ranking algorithm. Recommended approaches:
 
 - **First-order trust** — show events from authors in the user's [NIP-02](02.md) contact list and/or the user's TopicTrust list, hide others by default.
@@ -756,5 +805,5 @@ This NIP does not specify a ranking algorithm. Recommended approaches:
 
 ## Reference implementations
 
-- [x-ray browser extension](https://github.com/bryanmatthewsimonson/xray) — shipping kinds 30040 + 30050 + the `responds-to` and `x` extensions; 30054/30055 builders with publishing flag-gated (Phase 11); 30056–30059 fully implemented — builders, parsers, a flag-gated ordered publish path, and portal read surfaces (Phase 13); 30060/30061 builders + parsers implemented, publish paths deferred (the dossier stays derived; disputes are wire-format-only in v1); 30062 behavioral-finding builder + parser + the kind-1985 mirror and the `revision/*` 30055 values, publishing flag-gated (Phase 14); 30063/30064 adjudicated-verdict + integrity-finding builders + parsers and the 30063 kind-1985 mirror, publish paths behind `truthAdjudicationPublishing` (Phase 15; 30065 reserved; local adjudication models shipped, publish/read UI wiring deferred).
+- [x-ray browser extension](https://github.com/bryanmatthewsimonson/xray) — shipping kinds 30040 + 30050 + the `responds-to` and `x` extensions; 30054/30055 builders with publishing flag-gated (Phase 11); 30056–30059 fully implemented — builders, parsers, a flag-gated ordered publish path, and portal read surfaces (Phase 13); 30060/30061 builders + parsers implemented, publish paths deferred (the dossier stays derived; disputes are wire-format-only in v1); 30062 behavioral-finding builder + parser + the kind-1985 mirror and the `revision/*` 30055 values, publishing flag-gated (Phase 14); 30063/30064 adjudicated-verdict + integrity-finding builders + parsers and the 30063 kind-1985 mirror, publish paths behind `truthAdjudicationPublishing` (Phase 15; 30065 reserved; local adjudication models shipped, publish/read UI wiring deferred); 32126 platform-account records with the derived-pubkey rendezvous and the `linked-entity` pubkey tag, publishing behind `platformAccountPublishing`, plus verify-on-ingest enforced on every relay read (Knowledge Sharing KS.1–KS.4).
 - *(second client, TBD pre-merge)*

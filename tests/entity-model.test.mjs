@@ -240,3 +240,105 @@ test('entity: buildArticleEvent name-tags every entity type per entityTypeToTag'
         assert.deepEqual(tag, expected, `kind-30023 name tag for entity type '${type}'`);
     }
 });
+
+// ── Foreign keyless entities (Knowledge Sharing KS.3) ─────────────────
+
+test('importForeign: creates a keyless record with a synthesized keypair', async () => {
+    resetState();
+    const pk = 'a'.repeat(64);
+    const e = await EntityModel.importForeign({ name: 'Jane Remote', type: 'person', pubkey: pk });
+    assert.match(e.id, /^entity_[0-9a-f]{16}$/);
+    assert.equal(e.keyName, null);
+    assert.equal(e.foreign_pubkey, pk);
+    assert.equal(e.keypair.pubkey, pk);
+    assert.equal(e.keypair.privateKey, null);
+    assert.equal(e.keypair.nsec, null);
+    assert.ok(e.keypair.npub && e.keypair.npub.startsWith('npub1'));
+    assert.ok(EntityModel.isForeign(e));
+});
+
+test('importForeign: id derives from the pubkey, not (type, name)', async () => {
+    resetState();
+    const local = await EntityModel.create({ name: 'Donald Trump', type: 'person' });
+    const foreign = await EntityModel.importForeign({ name: 'Donald Trump', type: 'person', pubkey: 'b'.repeat(64) });
+    assert.notEqual(foreign.id, local.id);   // never silently collides with yours
+    assert.ok(!EntityModel.isForeign(local));
+});
+
+test('importForeign: re-adopt refreshes displayables, keeps identity', async () => {
+    resetState();
+    const pk = 'c'.repeat(64);
+    const first = await EntityModel.importForeign({ name: 'Old Name', type: 'person', pubkey: pk });
+    const second = await EntityModel.importForeign({ name: 'New Name', type: 'person', pubkey: pk, description: 'now with a bio' });
+    assert.equal(second.id, first.id);
+    assert.equal(second.name, 'New Name');
+    assert.equal(second.description, 'now with a bio');
+    assert.equal(second.created, first.created);
+});
+
+test('importForeign: adopting your own keyed pubkey returns the existing entity', async () => {
+    resetState();
+    const mine = await EntityModel.create({ name: 'Me Person', type: 'person' });
+    const adopted = await EntityModel.importForeign({ name: 'Someone Else', type: 'person', pubkey: mine.keypair.pubkey });
+    assert.equal(adopted.id, mine.id);
+    assert.ok(!EntityModel.isForeign(adopted));
+});
+
+test('importForeign: validates pubkey, type, and canonical type-match', async () => {
+    resetState();
+    await assert.rejects(() => EntityModel.importForeign({ name: 'X', type: 'person', pubkey: 'nope' }));
+    await assert.rejects(() => EntityModel.importForeign({ name: 'X', type: 'alien', pubkey: 'd'.repeat(64) }));
+    const org = await EntityModel.create({ name: 'Acme', type: 'organization' });
+    await assert.rejects(() => EntityModel.importForeign({ name: 'X', type: 'person', pubkey: 'd'.repeat(64), canonicalId: org.id }));
+});
+
+test('importForeign: adopt-as-alias joins the alias family', async () => {
+    resetState();
+    const mine = await EntityModel.create({ name: 'Jane Local', type: 'person' });
+    const foreign = await EntityModel.importForeign({ name: 'Jane Remote', type: 'person', pubkey: 'e'.repeat(64), canonicalId: mine.id });
+    assert.equal(foreign.canonical_id, mine.id);
+    const resolved = await EntityModel.resolveAlias(foreign);
+    assert.equal(resolved.id, mine.id);
+});
+
+test('importRecord: foreign_pubkey passes through keyless', async () => {
+    resetState();
+    const row = { id: 'entity_' + '1'.repeat(16), name: 'Foreign Row', type: 'person', foreign_pubkey: 'f'.repeat(64) };
+    const e = await EntityModel.importRecord(row);
+    assert.equal(e.keyName, null);
+    assert.equal(e.keypair.pubkey, 'f'.repeat(64));
+    assert.equal(e.keypair.privateKey, null);
+    assert.ok(EntityModel.isForeign(e));
+});
+
+test('importRecord: a row without foreign_pubkey keeps an existing foreign binding', async () => {
+    resetState();
+    const pk = '8'.repeat(64);
+    const foreign = await EntityModel.importForeign({ name: 'Round Trip Rita', type: 'person', pubkey: pk });
+    // A bundle row round-tripped through a pre-KS.3 build loses the field.
+    const e = await EntityModel.importRecord({ id: foreign.id, name: 'Round Trip Rita', type: 'person' });
+    assert.equal(e.foreign_pubkey, pk);
+    assert.equal(e.keyName, null);
+    assert.equal(e.keypair.pubkey, pk);
+    assert.ok(EntityModel.isForeign(e));
+});
+
+test('importRecord: never downgrades a keyed entity to foreign', async () => {
+    resetState();
+    const mine = await EntityModel.create({ name: 'Keyed Kate', type: 'person' });
+    const e = await EntityModel.importRecord({ id: mine.id, name: 'Keyed Kate', type: 'person', foreign_pubkey: 'a'.repeat(64) });
+    assert.equal(e.keyName, `entity:${mine.id}`);
+    assert.equal(e.keypair.pubkey, mine.keypair.pubkey);
+    assert.equal(e.keypair.privateKey, mine.keypair.privateKey);
+    assert.ok(!EntityModel.isForeign(e));
+});
+
+test('getAll: merges foreign keypairs too', async () => {
+    resetState();
+    await EntityModel.create({ name: 'Local Larry', type: 'person' });
+    await EntityModel.importForeign({ name: 'Foreign Fred', type: 'person', pubkey: '9'.repeat(64) });
+    const all = await EntityModel.getAll();
+    const fred = Object.values(all).find((e) => e.name === 'Foreign Fred');
+    assert.equal(fred.keypair.pubkey, '9'.repeat(64));
+    assert.equal(fred.keypair.privateKey, null);
+});

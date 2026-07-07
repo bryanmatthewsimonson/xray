@@ -957,6 +957,23 @@ If you have ESR 128 handy, repeat F.1–F.3.
 
 ---
 
+## Knowledge sharing (KS.1–KS.4)
+
+KS.1/KS.4 are keyless-runnable (console fixtures, the Phase 15
+convention); KS.2/KS.3 want two identity profiles (or two browser
+profiles) to simulate two users.
+
+| # | Test | Pass criteria |
+|---|---|---|
+| KS.1 | From any extension page console: `chrome.runtime.sendMessage({type:'xray:relay:query', relays:['wss://relay.damus.io'], filter:{kinds:[1],limit:5}}, console.log)` | ✅ response carries `events` **and** `invalid`; SW console logs a drop count only when nonzero |
+| KS.2 | Options ▸ Advanced ▸ Identity sharing → enable → capture + publish a YouTube video whose channel account is linked to a person entity | ✅ publish toast counts "N platform account(s)"; relay query `{kinds:[32126],"#d":["youtube:<channelId>"]}` returns the record with `p …account` AND `p …linked-entity` tags; portal reconcile classes it `no-ledger` |
+| KS.3 | Side panel → entity detail → **Network activity** → Load from relays → "🔑 Unknown entity keys referenced" → **Adopt…** (choose separate) | ✅ new entity appears with the 🔑 foreign badge; keypair block shows npub, no nsec reveal; publish status says its kind-0 is authored by its owner; sync **⬆ Push** counts it skipped |
+| KS.3b | Adopt the same key again, choosing alias of the viewed entity | ✅ no duplicate record (same entity id); it becomes an alias; the feed re-runs wider |
+| KS.4 | Entity with a linked platform account → **Network activity** → Load from relays | ✅ loading line says "across K keys" (K > 1); claims keep the ⚖ Assess flow; extra kinds render as collapsed groups; loading writes nothing to local models |
+| KS.4b | With all flags at defaults, publish any capture | ✅ event count identical to a pre-KS build (no 32126 arm); single-user flows unchanged |
+
+---
+
 ## Reporting
 
 For each defect found:

@@ -214,6 +214,38 @@ accepting; wholesale paraphrase stays a hard reject.
 
 ---
 
+## 2026-07-05 — Verify-on-ingest + the 32126 rendezvous (Knowledge Sharing KS.1–KS.4)
+
+Tags: `bug`, `design`.
+
+- **The bug half (KS.1):** `Crypto.verifySignature` existed, was
+  BIP-340-vector-tested — and was called by nothing. Every read path
+  trusted relays blindly (`queryRelays` accepted any frame with an
+  `.id`). Verification now runs inside `queryRelays`' `finish()`:
+  that one choke point covers the portal, side panel, reader,
+  adjudicate modal, and archive reconstruct — and also entity-sync,
+  which calls `NostrClient` directly from the side panel and would
+  bypass a fix placed in the `xray:relay:query` handler. A verified-id
+  LRU keeps portal re-syncs cheap; cache hits still re-check the id
+  hash, so a cached id can never launder tampered content.
+- **The design half (KS.2/KS.3):** the deterministic platform-account
+  pubkey was the only cross-user person identifier on the wire, and
+  nothing published it — kind 32126 had zero publish callers since
+  Phase 9. It now publishes flag-gated (default off),
+  republish-every-run: it's addressable (`d` = account key) and the
+  portal already classed it `no-ledger`, so no publish ledger exists.
+  Foreign entity ids derive from `sha256('foreign:'+pubkey)`, NOT the
+  deterministic `(type, name)` recipe — the latter would make a
+  stranger's "Donald Trump" silently collide with yours; the
+  adopt-time prompt owns that merge decision.
+- Design doc: `KNOWLEDGE_SHARING_DESIGN.md` (now governs the
+  follow/incorporation engine; TEAM_CASE keeps the case-specific
+  parts). Wire changes are exhaustively its §10: 32126 gains its first
+  publisher + one additive role-marked p tag. `NIP_DRAFT.md` gained
+  the 32126 section and the verify-on-ingest consumer rule.
+
+---
+
 ## 2026-07-03 — Sprint descopes: public relays only; consensus-protocols idea dropped
 
 Tags: `design`.

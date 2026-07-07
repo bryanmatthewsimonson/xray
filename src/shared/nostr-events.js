@@ -60,3 +60,88 @@ export function dedupeReplaceable(events) {
     }
     return out;
 }
+
+// ---------------------------------------------------------------------
+// Verify-on-ingest (Knowledge Sharing KS.1).
+//
+// Relay-supplied events are untrusted input: `queryRelays` accepts any
+// frame with an `.id`, and until KS.1 nothing in any read path called
+// `Crypto.verifySignature`. Every event handed back to a caller must
+// pass BIP-340 verification (id = hash of the serialized event, and
+// the Schnorr signature binds that id to its pubkey).
+//
+// A module-level cache of already-verified event ids keeps repeat
+// syncs cheap (the portal re-fetches overlapping pages on every
+// refresh). A cache hit still recomputes the id hash — an event whose
+// content does not hash to its claimed id is dropped even when that
+// id verified before — so the cache only ever skips the expensive
+// Schnorr math, never the content-integrity check. queryRelays keeps
+// multiple relay copies per id and takes the first VALID one, so a
+// forged frame can't censor an honest relay's copy of the same id.
+
+import { Crypto } from './crypto.js';
+
+const VERIFIED_IDS_MAX = 20000;
+const _verifiedIds = new Set(); // insertion-ordered → cheap FIFO eviction
+
+async function verifyOne(ev) {
+    if (!ev
+        || typeof ev.id !== 'string'
+        || typeof ev.pubkey !== 'string'
+        || typeof ev.sig !== 'string') {
+        return false;
+    }
+    try {
+        if (_verifiedIds.has(ev.id)) {
+            // Cache hit: skip Schnorr, keep the hash check.
+            return (await Crypto.getEventHash(ev)) === ev.id;
+        }
+        const ok = await Crypto.verifySignature(ev);
+        if (ok) {
+            _verifiedIds.add(ev.id);
+            if (_verifiedIds.size > VERIFIED_IDS_MAX) {
+                _verifiedIds.delete(_verifiedIds.values().next().value);
+            }
+        }
+        return ok;
+    } catch (_) {
+        return false;
+    }
+}
+
+/**
+ * Partition events into signature-valid and dropped.
+ *
+ * A flat loop is enough for the service worker: every event's
+ * verification awaits real async crypto (WebCrypto digests), so the
+ * event loop breathes between events without extra timer machinery.
+ *
+ * @param {Array<object>} events
+ * @returns {Promise<{valid: Array<object>, dropped: number}>}
+ */
+export async function verifyEvents(events) {
+    const list = Array.isArray(events) ? events : [];
+    const valid = [];
+    let dropped = 0;
+    for (const ev of list) {
+        if (await verifyOne(ev)) valid.push(ev);
+        else dropped++;
+    }
+    return { valid, dropped };
+}
+
+/**
+ * First signature-valid event among relay-delivered copies sharing one
+ * id, in arrival order — or null when none verifies. Companion to
+ * queryRelays' censorship guard: a forged frame reusing a real event's
+ * id must not suppress an honest relay's valid copy.
+ *
+ * @param {Array<object>} copies
+ * @returns {Promise<object|null>}
+ */
+export async function firstValidEvent(copies) {
+    for (const ev of Array.isArray(copies) ? copies : []) {
+        if (await verifyOne(ev)) return ev;
+    }
+    return null;
+}

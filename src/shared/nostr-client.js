@@ -5,6 +5,7 @@
 
 import { Utils } from './utils.js';
 import { CONFIG } from './config.js';
+import { firstValidEvent } from './nostr-events.js';
 
 export const NostrClient = {
   connections: new Map(),
@@ -203,17 +204,17 @@ export const NostrClient = {
    * @param {string[]} relayUrls
    * @param {object}   filter        a NIP-01 filter object
    * @param {number}   timeoutMs     default 5000
-   * @returns {Promise<{events, byRelay}>}
+   * @returns {Promise<{events, byRelay, invalid}>}
    */
   queryRelays: async (relayUrls, filter, timeoutMs = 5000) => {
     const subId = 'xr_' + Math.random().toString(36).slice(2, 10);
-    const events  = new Map();                            // id → event
+    const events  = new Map();                            // id → [copies]
     const byRelay = new Map();                            // url → { received, eose }
     for (const url of relayUrls) byRelay.set(url, { received: 0, eose: false });
 
     return await new Promise((resolve) => {
       let resolved = false;
-      const finish = () => {
+      const finish = async () => {
         if (resolved) return;
         resolved = true;
         // Send CLOSE to any relay whose socket is still open.
@@ -223,9 +224,27 @@ export const NostrClient = {
           }
         }
         NostrClient.subscriptions.delete(subId);
+        // Verify-on-ingest (KS.1): relays are untrusted input — only
+        // BIP-340-valid events reach the caller. Copies of one id are
+        // verified in arrival order and the first VALID one wins, so
+        // a forged frame that races in reusing a real event's id
+        // cannot censor an honest relay's copy. `invalid` counts ids
+        // with no valid copy; additive — existing consumers
+        // destructure only `events`/`byRelay`.
+        const valid = [];
+        let dropped = 0;
+        for (const copies of events.values()) {
+          const ev = await firstValidEvent(copies);
+          if (ev) valid.push(ev);
+          else dropped++;
+        }
+        if (dropped > 0) {
+          Utils.log('queryRelays: dropped', dropped, 'event id(s) with no signature-valid copy');
+        }
         resolve({
-          events: [...events.values()],
-          byRelay: Object.fromEntries(byRelay.entries())
+          events: valid,
+          byRelay: Object.fromEntries(byRelay.entries()),
+          invalid: dropped
         });
       };
 
@@ -234,10 +253,12 @@ export const NostrClient = {
           if (!event || !event.id) return;
           const stat = byRelay.get(url);
           if (stat) stat.received++;
-          // Dedup across relays: first wins, subsequent matching
-          // ids are ignored. Ids are BIP-340 hashes, so collisions
-          // are cryptographically improbable.
-          if (!events.has(event.id)) events.set(event.id, event);
+          // Keep a few copies per id (relays may disagree — one may
+          // serve a forged frame under a real id). Verification at
+          // finish picks the first valid copy; capping bounds memory.
+          const copies = events.get(event.id);
+          if (!copies) events.set(event.id, [event]);
+          else if (copies.length < 3) copies.push(event);
         },
         onEose: (url) => {
           const stat = byRelay.get(url);

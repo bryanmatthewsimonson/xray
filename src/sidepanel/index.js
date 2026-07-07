@@ -26,6 +26,8 @@ import { accountsForEntity, listUnlinkedAccounts, linkAccountToEntity, unlinkAcc
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { Crypto } from '../shared/crypto.js';
 import { dedupeReplaceable } from '../shared/nostr-events.js';
+import { equivalencePubkeys } from '../shared/entity-equivalence.js';
+import { buildFeedFilters, claimCoords, buildJudgmentFilter, assembleFeed } from '../shared/entity-feed.js';
 import { pushEntities, pullEntities, clearRemote, pushRelayList, pullRelayList, normalizeRelayUrl } from '../shared/entity-sync.js';
 
 // Reserved key name in LocalKeyManager for the user's primary
@@ -195,11 +197,15 @@ async function openDetail(id) {
 function renderDetail(entity) {
     const target = $('#xr-detail');
     const canonical = entity.canonical_id ? state.entities[entity.canonical_id] : null;
-    const pubInfo = entity.publishedAt
-        ? `✓ Published ${fmtRelative(entity.publishedAt)}` +
-          (entity.publishedEventId ? ` — event <code>${escapeHtml(entity.publishedEventId.slice(0, 16))}…</code>` : '')
-        : `Not yet published. The kind-0 profile event will be signed + broadcast on the next article publish that tags this entity.`;
-    const typeBadge = `<span class="xr-side__type-badge xr-side__type-badge--${entity.type}">${ENTITY_ICONS[entity.type]} ${escapeHtml(entity.type)}</span>`;
+    const isForeign = EntityModel.isForeign(entity);
+    const pubInfo = isForeign
+        ? `Foreign entity — its kind-0 profile is authored by its owner. Your claims and judgments about it reference its pubkey directly.`
+        : entity.publishedAt
+            ? `✓ Published ${fmtRelative(entity.publishedAt)}` +
+              (entity.publishedEventId ? ` — event <code>${escapeHtml(entity.publishedEventId.slice(0, 16))}…</code>` : '')
+            : `Not yet published. The kind-0 profile event will be signed + broadcast on the next article publish that tags this entity.`;
+    const typeBadge = `<span class="xr-side__type-badge xr-side__type-badge--${entity.type}">${ENTITY_ICONS[entity.type]} ${escapeHtml(entity.type)}</span>`
+        + (isForeign ? ` <span class="xr-side__foreign-badge" title="Adopted from the network — you don't hold this entity's key">🔑 foreign · read-only</span>` : '');
 
     target.innerHTML = `
       <h2 class="xr-side__detail-title">${escapeHtml(entity.name)}</h2>
@@ -240,8 +246,8 @@ function renderDetail(entity) {
         </div>
         <div class="xr-side__key-row">
           <span class="xr-side__key-label">nsec</span>
-          <code class="xr-side__key-value" id="xr-nsec-value">••••••••••••••••</code>
-          <button type="button" class="xr-side__ghost-btn" id="xr-reveal-nsec">Reveal</button>
+          <code class="xr-side__key-value" id="xr-nsec-value">${entity.keypair && entity.keypair.privateKey ? '••••••••••••••••' : "— you don't hold this entity's key"}</code>
+          ${entity.keypair && entity.keypair.privateKey ? '<button type="button" class="xr-side__ghost-btn" id="xr-reveal-nsec">Reveal</button>' : ''}
         </div>
       </div>
 
@@ -259,11 +265,12 @@ function renderDetail(entity) {
       </div>
 
       <div class="xr-side__network-claims">
-        <h3>Claims about this entity</h3>
-        <p class="xr-side__hint">What the network has published about ${escapeHtml(entity.name)} — kind-30040 claims that reference this entity's key, across your configured relays.</p>
+        <h3>Network activity about this entity</h3>
+        <p class="xr-side__hint">What the network has published about ${escapeHtml(entity.name)} — claims, articles, judgments, and identity events referencing any key in this entity's equivalence set (its own, its aliases', adopted foreign keys, linked platform accounts). Read-only: nothing imports without your say-so.</p>
         <div id="xr-network-claims">
           <button type="button" class="xr-side__ghost-btn" id="xr-load-network-claims">Load from relays</button>
         </div>
+        <div id="xr-network-extra"></div>
       </div>
 
       <div class="xr-side__inconsistencies">
@@ -336,6 +343,7 @@ function renderDetail(entity) {
     if (state.networkClaims && state.networkClaims.entityId === entity.id) {
         paintNetworkClaims(entity, state.networkClaims.events, state.networkClaims.byRelay)
             .catch(() => {});
+        if (state.networkClaims.feed) paintNetworkExtra(entity, state.networkClaims.feed, { hop2Failed: !!state.networkClaims.hop2Failed });
     }
 
     // Phase 11.6 — case export (case entities only).
@@ -353,7 +361,7 @@ function renderDetail(entity) {
         if (entity.keypair && entity.keypair.npub) copyToClipboard(entity.keypair.npub);
     });
     const revealBtn = $('#xr-reveal-nsec');
-    revealBtn.addEventListener('click', () => {
+    if (revealBtn) revealBtn.addEventListener('click', () => {
         if (!entity.keypair || !entity.keypair.nsec) return;
         const el = $('#xr-nsec-value');
         if (el.textContent === entity.keypair.nsec) {
@@ -398,8 +406,10 @@ function getQueryRelays() {
 async function loadNetworkClaims(entity) {
     const host = $('#xr-network-claims');
     if (!host) return;
-    const pubkey = entity.keypair && entity.keypair.pubkey;
-    if (!pubkey) {
+    // KS.4: query across the entity's full equivalence set — its own
+    // key plus alias/foreign member keys and linked account pubkeys.
+    const eq = await equivalencePubkeys(entity.id);
+    if (eq.pubkeys.length === 0) {
         host.innerHTML = `<div class="xr-side__canonical-none">This entity has no keypair, so the network can't reference it yet.</div>`;
         return;
     }
@@ -408,26 +418,63 @@ async function loadNetworkClaims(entity) {
         host.innerHTML = `<div class="xr-side__canonical-none">No relays configured — add some in Settings → Relays.</div>`;
         return;
     }
-    host.innerHTML = `<div class="xr-side__net-loading">Querying ${relays.length} relay${relays.length === 1 ? '' : 's'}…</div>`;
-    chrome.runtime.sendMessage({
-        type: 'xray:relay:query',
-        relays,
-        filter: { kinds: [30040], '#p': [pubkey], limit: 200 },
-        timeoutMs: 6000
-    }, (resp) => {
-        if (!resp || !resp.ok) {
-            host.innerHTML = `<div class="xr-side__canonical-none">Query failed: ${escapeHtml((resp && resp.error) || 'no response from service worker')}</div>`;
-            return;
-        }
-        // Replaceable-event dedup (Phase 11.5): queryRelays dedups by
-        // event id only, so a republished claim appears once per
-        // version — keep the latest per (kind, pubkey, d).
-        const events = dedupeReplaceable(resp.events);
-        state.networkClaims = { entityId: entity.id, events, byRelay: resp.byRelay };
-        paintNetworkClaims(entity, events, resp.byRelay).catch((err) => {
-            host.innerHTML = `<div class="xr-side__canonical-none">Render failed: ${escapeHtml(err.message || String(err))}</div>`;
-        });
+    host.innerHTML = `<div class="xr-side__net-loading">Querying ${relays.length} relay${relays.length === 1 ? '' : 's'} across ${eq.pubkeys.length} key${eq.pubkeys.length === 1 ? '' : 's'}…</div>`;
+    const query = (filter, timeoutMs) => new Promise((resolve) => {
+        chrome.runtime.sendMessage({ type: 'xray:relay:query', relays, filter, timeoutMs }, resolve);
     });
+
+    // Hop 1: a dedicated 30040 filter (claims keep their pre-KS.4
+    // relay window) + the other kinds, in parallel.
+    const [claimsFilter, otherFilter] = buildFeedFilters(eq.pubkeys);
+    const [claimsResp, otherResp] = await Promise.all([
+        query(claimsFilter, 6000),
+        query(otherFilter, 6000)
+    ]);
+    if (!claimsResp || !claimsResp.ok) {
+        host.innerHTML = `<div class="xr-side__canonical-none">Query failed: ${escapeHtml((claimsResp && claimsResp.error) || 'no response from service worker')}</div>`;
+        return;
+    }
+    const otherEvents = (otherResp && otherResp.ok && Array.isArray(otherResp.events)) ? otherResp.events : [];
+    const hop1Events = [...(claimsResp.events || []), ...otherEvents];
+
+    // Adopt candidates exclude EVERY locally known wire pubkey — your
+    // other entities and already-adopted foreign keys are not
+    // "unknown", and re-listing them invites a rename-clobbering
+    // re-adopt.
+    const knownPubkeys = new Set(eq.pubkeys);
+    try {
+        for (const e of Object.values(await EntityModel.getAll())) {
+            if (e && e.keypair && e.keypair.pubkey) knownPubkeys.add(e.keypair.pubkey);
+        }
+    } catch (_) { /* fall back to the equivalence set */ }
+
+    // Paint everything hop 1 gives us now; judgments patch in below.
+    const events = dedupeReplaceable(claimsResp.events || []);
+    let feed = assembleFeed(hop1Events, [], { knownPubkeys: [...knownPubkeys] });
+    state.networkClaims = { entityId: entity.id, events, byRelay: claimsResp.byRelay, feed };
+    paintNetworkClaims(entity, events, claimsResp.byRelay).catch((err) => {
+        host.innerHTML = `<div class="xr-side__canonical-none">Render failed: ${escapeHtml(err.message || String(err))}</div>`;
+    });
+    paintNetworkExtra(entity, feed);
+
+    // Hop 2: assessments/links/verdicts on the discovered claims.
+    // Verdicts (30063) carry no p tag by design, so this hop is their
+    // only route into the feed — a failure must not masquerade as
+    // "no judgments exist".
+    const judgmentFilter = buildJudgmentFilter(claimCoords(claimsResp.events || []));
+    if (!judgmentFilter) return;
+    const hop2 = await query(judgmentFilter, 6000);
+    const stale = !state.networkClaims || state.networkClaims.entityId !== entity.id;
+    if (hop2 && hop2.ok && Array.isArray(hop2.events)) {
+        feed = assembleFeed(hop1Events, hop2.events, { knownPubkeys: [...knownPubkeys] });
+        if (!stale) {
+            state.networkClaims.feed = feed;
+            paintNetworkExtra(entity, feed);
+        }
+    } else if (!stale) {
+        state.networkClaims.hop2Failed = true;
+        paintNetworkExtra(entity, feed, { hop2Failed: true });
+    }
 }
 
 // Replaceable-event dedup now lives in shared/nostr-events.js (Phase
@@ -526,6 +573,173 @@ function renderNetworkClaimRow(c, ev, assessMap, canon) {
         ${source}
         ${src}
       </article>`;
+}
+
+// ------------------------------------------------------------------
+// Network activity beyond claims (Knowledge Sharing KS.4) — read-only
+// collapsed groups per kind, plus adopt-on-sight (KS.3) for entity
+// keys the feed references that aren't in the equivalence set yet.
+// ------------------------------------------------------------------
+
+function feedGroup(title, rows) {
+    if (!rows.length) return '';
+    return `
+      <details class="xr-side__feed-group">
+        <summary>${title} <span class="xr-side__net-author-count">${rows.length}</span></summary>
+        ${rows.join('')}
+      </details>`;
+}
+
+function feedRow(main, meta) {
+    return `<article class="xr-side__feed-row"><div>${main}</div>${meta ? `<div class="xr-side__feed-meta">${meta}</div>` : ''}</article>`;
+}
+
+function feedAuthor(ev) {
+    return `👤 ${escapeHtml((ev.pubkey || '').slice(0, 12))}…`;
+}
+
+function paintNetworkExtra(entity, feed, { hop2Failed = false } = {}) {
+    const host = $('#xr-network-extra');
+    if (!host) return;
+    const groups = [];
+    if (hop2Failed) {
+        groups.push(`<div class="xr-side__canonical-none">⚠ Judgment lookup failed — assessments, links, and verdicts on these claims may be missing. Reload to retry.</div>`);
+    }
+
+    groups.push(feedGroup('📰 Articles', feed.articles.map(({ event, parsed }) => feedRow(
+        parsed.url
+            ? `<a class="xr-side__net-src" href="${escapeHtml(parsed.url)}" target="_blank" rel="noopener">${escapeHtml(parsed.title)}</a>`
+            : escapeHtml(parsed.title),
+        `${feedAuthor(event)}${parsed.hash ? ' · content-addressed' : ''}${parsed.created_at ? ' · ' + escapeHtml(fmtRelative(parsed.created_at)) : ''}`
+    ))));
+
+    groups.push(feedGroup('🪪 Platform accounts', feed.accounts.map(({ event, parsed }) => feedRow(
+        `<code>${escapeHtml(parsed.key)}</code>${parsed.displayName ? ' — ' + escapeHtml(parsed.displayName) : ''}`,
+        `${feedAuthor(event)} · ${parsed.linkedEntityPubkey
+            ? `links entity <code>${escapeHtml(parsed.linkedEntityPubkey.slice(0, 12))}…</code>`
+            : 'unlinked'}`
+    ))));
+
+    groups.push(feedGroup('⚖ Assessments', feed.assessments.map(({ event, parsed }) => feedRow(
+        `${parsed.stance !== null && parsed.stance !== undefined ? `stance ${parsed.stance > 0 ? '+' : ''}${escapeHtml(String(parsed.stance))}` : 'assessment'}`
+            + (parsed.labels && parsed.labels.length ? ' · ' + parsed.labels.map((l) => escapeHtml(l.label)).join(', ') : ''),
+        `${feedAuthor(event)} · on <code>${escapeHtml((parsed.claimCoord || '').slice(0, 28))}…</code>`
+    ))));
+
+    groups.push(feedGroup('🔗 Claim links', feed.links.map(({ event, parsed }) => feedRow(
+        escapeHtml(parsed.relationship || 'link'),
+        `${feedAuthor(event)} · <code>${escapeHtml((parsed.source.coord || '').slice(0, 22))}…</code> → <code>${escapeHtml((parsed.target.coord || '').slice(0, 22))}…</code>`
+    ))));
+
+    groups.push(feedGroup('🔍 Forensic findings', feed.findings.map(({ event, parsed }) => feedRow(
+        escapeHtml(parsed.maneuver) + (parsed.role ? ` · ${escapeHtml(parsed.role)}` : ''),
+        feedAuthor(event)
+    ))));
+
+    groups.push(feedGroup('🏛 Verdicts', feed.verdicts.map(({ event, parsed }) => feedRow(
+        `<strong>${escapeHtml(parsed.verdict)}</strong> · ${escapeHtml(parsed.standardOfProof)} · ${parsed.caveats.length} caveat${parsed.caveats.length === 1 ? '' : 's'}`,
+        `${feedAuthor(event)} · on <code>${escapeHtml((parsed.claimCoord || '').slice(0, 28))}…</code>`
+    ))));
+
+    groups.push(feedGroup('📏 Integrity findings', feed.integrity.map(({ event, parsed }) => feedRow(
+        escapeHtml(parsed.match || 'finding'),
+        feedAuthor(event)
+    ))));
+
+    groups.push(feedGroup('🏷 Labels', feed.labels.map(({ event, parsed }) => feedRow(
+        `${escapeHtml(parsed.namespace || '')} · ${parsed.values.map(escapeHtml).join(', ')}`,
+        feedAuthor(event)
+    ))));
+
+    // Adopt-on-sight: entity-ish pubkeys the feed references that are
+    // outside the equivalence set. Adopting is always a prompt (KS.3).
+    if (feed.candidates.length) {
+        const rows = feed.candidates.map((c) => feedRow(
+            `<code>${escapeHtml(c.pubkey.slice(0, 16))}…</code> <span class="xr-side__feed-meta">${escapeHtml(c.roles.join(', '))} · ${c.count} ref${c.count === 1 ? '' : 's'}</span>
+             <button type="button" class="xr-side__ghost-btn xr-side__adopt-chip" data-action="adopt-foreign" data-pubkey="${escapeHtml(c.pubkey)}">Adopt…</button>`,
+            null
+        ));
+        groups.push(feedGroup('🔑 Unknown entity keys referenced', rows));
+    }
+
+    const html = groups.join('');
+    host.innerHTML = html || '';
+    host.querySelectorAll('[data-action="adopt-foreign"]').forEach((btn) => {
+        btn.addEventListener('click', () => adoptForeignPubkey(btn.dataset.pubkey, entity));
+    });
+}
+
+/**
+ * Adopt-on-sight (KS.3): turn a foreign entity pubkey into a local
+ * keyless entity record. Fetches its kind-0 for a name/type proposal,
+ * then prompts — adopt-as-alias of the viewed entity (same type only),
+ * adopt-separate, or cancel. Misattribution is a deliberate act.
+ */
+async function adoptForeignPubkey(pubkey, contextEntity) {
+    if (!pubkey || !/^[0-9a-f]{64}$/i.test(pubkey)) return;
+    const relays = await getQueryRelays();
+    let name = pubkey.slice(0, 12) + '…';
+    let type = contextEntity.type;
+    try {
+        const resp = await new Promise((resolve) => {
+            chrome.runtime.sendMessage({
+                type: 'xray:relay:query', relays,
+                filter: { kinds: [0], authors: [pubkey], limit: 1 },
+                timeoutMs: 5000
+            }, resolve);
+        });
+        if (resp && resp.ok && resp.events && resp.events.length) {
+            const newest = [...resp.events].sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0];
+            const content = JSON.parse(newest.content || '{}');
+            if (content.name) name = String(content.name).slice(0, 200);
+            const m = new RegExp('^(' + ENTITY_TYPES.join('|') + ') entity created by X-Ray').exec(content.about || '');
+            if (m) type = m[1];
+        }
+    } catch (_) { /* offline adopt still works — name falls back to the pubkey prefix */ }
+
+    const clash = Object.values(state.entities || {}).find((e) =>
+        e && e.type === type
+        && String(e.name).trim().toLowerCase() === String(name).trim().toLowerCase()
+        && !(e.foreign_pubkey === pubkey.toLowerCase()));
+    const clashNote = clash ? `\n\n⚠ You already have a ${type} named "${clash.name}" — adopting keeps them SEPARATE unless you alias them.` : '';
+
+    let canonicalId = null;
+    if (type === contextEntity.type) {
+        const asAlias = confirm(`Adopt "${name}" (${type}, key ${pubkey.slice(0, 12)}…) as an ALIAS of "${contextEntity.name}"?\n\nOK — their claims and judgments join this entity's network view.\nCancel — you'll be offered a separate adopt instead.${clashNote}`);
+        if (asAlias) {
+            const root = await EntityModel.resolveAlias(contextEntity);
+            canonicalId = (root && root.id) || contextEntity.id;
+        } else if (!confirm(`Adopt "${name}" as a SEPARATE read-only foreign entity?${clashNote}`)) {
+            return;
+        }
+    } else if (!confirm(`Adopt "${name}" (${type}, key ${pubkey.slice(0, 12)}…) as a read-only foreign entity?${clashNote}`)) {
+        return;
+    }
+
+    try {
+        const adopted = await EntityModel.importForeign({ name, type, pubkey, canonicalId });
+        if (!EntityModel.isForeign(adopted)) {
+            // importForeign returned an existing locally KEYED entity
+            // (never shadow yourself) — canonicalId was NOT applied.
+            // Honor an alias request with an explicit local alias link.
+            if (canonicalId && adopted.id !== canonicalId) {
+                try {
+                    await EntityModel.linkAlias(adopted.id, canonicalId);
+                    toast(`Linked your entity "${adopted.name}" as an alias`, 'success');
+                } catch (err) {
+                    toast(`That key belongs to your entity "${adopted.name}" — alias link failed: ${err.message || err}`, 'error');
+                }
+            } else {
+                toast(`That key already belongs to your entity "${adopted.name}"`, 'success');
+            }
+        } else {
+            toast(`Adopted ${adopted.name}${canonicalId ? ' as an alias' : ''}`, 'success');
+        }
+        const fresh = await EntityModel.get(contextEntity.id);
+        if (fresh) await loadNetworkClaims(fresh);   // re-run: the adopted key joins the set
+    } catch (err) {
+        toast('Adopt failed: ' + (err.message || err), 'error');
+    }
 }
 
 // ------------------------------------------------------------------
@@ -1060,6 +1274,15 @@ async function handleImport(file) {
                     canonical_id: row.canonical_id || null
                 });
                 updated++;
+            } else if (row.foreign_pubkey) {
+                // Foreign keyless entity (KS.3): routing it through
+                // create() would mint a bogus local keypair under a
+                // (type,name)-derived id — the rendezvous pubkey and
+                // the pubkey-derived id must survive the round trip.
+                try {
+                    await EntityModel.importRecord(row);
+                    added++;
+                } catch (_) { /* malformed row → skip */ }
             } else {
                 try {
                     await EntityModel.create({
@@ -1392,7 +1615,7 @@ async function runPull(userKey) {
         // the sync body and replaces the #xr-sync-log element, so any
         // log content set before this call is wiped.
         setSyncLog(`
-          <div>Fetched <strong>${out.fetched}</strong> events (deduped across relays).
+          <div>Fetched <strong>${out.fetched}</strong> events (deduped across relays${out.invalid ? `; <strong>${out.invalid}</strong> dropped failing signature verification` : ''}).
                Added <strong>${out.added}</strong>, updated <strong>${out.updated}</strong>,
                unchanged ${out.unchanged}, malformed ${out.malformed}, failed ${out.failed}.${legacyNote}</div>
           ${formatBreakdown}

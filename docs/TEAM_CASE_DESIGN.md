@@ -24,6 +24,16 @@
 > per-reader ("you follow them"); the single-user researcher remains a
 > first-class use case (everything here is additive view configuration).
 > **Zero new wire kinds.**
+>
+> **Amendment (2026-07-05):** the follow/incorporation ENGINE is
+> generalized to case- **and** entity-scoped follows in
+> [`KNOWLEDGE_SHARING_DESIGN.md`](KNOWLEDGE_SHARING_DESIGN.md), which
+> now governs the engine (its §5). TC.1's foreign-entity half shipped
+> as KS.3 (`EntityModel.importForeign`, adopt-on-sight); TC.2
+> implements the KS.5 engine spec. The case-specific parts here — the
+> case anchor (§2.1), custody (§6), the roster extension (§8), dossier
+> integration (TC.3), escrow (TC.5) — remain authoritative in this
+> document.
 
 X-Ray is already multi-user at the wire layer — every artifact is a
 signed, content-addressed NOSTR event on shared relays — and

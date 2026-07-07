@@ -90,10 +90,11 @@ claims, assessments, the "My Archive" portal, epistemic audits, forensic
 findings, opt-in LLM assist, and truth adjudication (Phase 15, merged as
 PR #89 — the manifest still says **v0.6.0**; no tag has been cut since
 v0.5.1, so a v0.7.0 release is due). Next in phase order is the moral
-lens (Phase 16, design amended 16.0.5) — but **the FLF Epistack
-competition sprint (`docs/EPISTACK_WIN_PLAN.md`, deadline 2026-07-19)
-outranks Phase 16 until it ships**: the sprint exercises Phase 15 in the
-wild; Phase 16 is not on its critical path.
+lens (Phase 16, design amended 16.0.5), currently parked: the **FLF
+Epistack competition (deadline 2026-07-19) is being pursued
+maintainer-driven from real use cases (COVID first)**, exercising
+Phase 15 in the wild. There is no committed sprint plan — the tool is
+tailored from that experience; Phase 16 is not on its critical path.
 
 ---
 
@@ -1306,6 +1307,41 @@ train tip — all merged together via **PR #89**):
   propositions with attestation edges.
 - 📝 **(later)** Precedent + bridging weighting — stare-decisis corpus;
   bridging-weighted standing (the deferred aggregation-layer tail).
+
+---
+
+## Knowledge sharing (KS) — cross-user substrate 🚧 KS.1–KS.4 shipped
+
+**Design:** [`KNOWLEDGE_SHARING_DESIGN.md`](KNOWLEDGE_SHARING_DESIGN.md) —
+the generalization of TEAM_CASE_DESIGN's follow machinery: the
+cross-user rendezvous ladder, per-reader entity equivalence, and one
+follow/incorporation engine scoped by case or entity. Constraints
+carried over: no aggregation / consensus / reputation; zero new wire
+kinds; single-user untouched.
+
+- ✅ **KS.1** Verify-on-ingest — every event returned by `queryRelays`
+  is BIP-340-verified (id hash + Schnorr) before callers see it;
+  additive `invalid` drop count. Closed a real hole: no read path
+  called `Crypto.verifySignature`.
+- ✅ **KS.2** Kind-32126 platform-account publishing behind
+  `platformAccountPublishing` (default off) + the additive role-marked
+  `linked-entity` pubkey tag — the deterministic cross-user person
+  rendezvous becomes queryable.
+- ✅ **KS.3** Foreign keyless entities (`EntityModel.importForeign`,
+  pubkey-derived ids, synthesized read-only keypairs) + adopt-on-sight
+  with the alias/separate prompt; case bundles round-trip them.
+- ✅ **KS.4** Side-panel "Network activity" feed over the entity's
+  equivalence set (self + alias family + adopted foreign + linked
+  account pubkeys), two-hop (`#p`, then `#a` for judgments/verdicts),
+  read-only, with adopt candidates surfaced.
+- 📝 **KS.5** Follow sets + incorporation queue, case+entity scoped
+  (implements TEAM_CASE TC.2 against the design's §5 engine spec).
+- 📝 **KS.6** Thin coordination — review-request labels, awareness
+  strip, re-broadcast-who-you-follow (≈ TC.4).
+- 📝 **KS.7** NIP-65 relay widening + confirmed-OK publish for
+  identity kinds (⊂ TC.1/TC.4).
+- 📝 **KS.8 (deferred)** trust-graph wiring as a reader-side feed
+  filter.
 
 ---
 

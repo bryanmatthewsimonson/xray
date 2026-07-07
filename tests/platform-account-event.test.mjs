@@ -118,3 +118,34 @@ test('buildArticleEvent: no author p-tag when omitted (back-compat)', async () =
   // The display-name `author` tag is unaffected.
   assert.ok(evt.tags.find((t) => t[0] === 'author' && t[1] === 'Jane'));
 });
+
+// ── KS.2: the linked-entity pubkey p-tag ───────────────────────────────
+
+test('buildPlatformAccountEvent: emits the linked-entity p-tag when given', async () => {
+  const rec = await makeAccountRecord(normalizeAuthor('twitter', { handle: 'jane' }), { now: 1, linkedEntityId: 'entity_jane' });
+  const entityPk = 'b'.repeat(64);
+  const evt = EventBuilder.buildPlatformAccountEvent(rec, USER, entityPk);
+  const linkP = evt.tags.find((t) => t[0] === 'p' && t[3] === 'linked-entity');
+  assert.deepEqual(linkP, ['p', entityPk, '', 'linked-entity']);
+  // the account p-tag is untouched
+  const acctP = evt.tags.find((t) => t[0] === 'p' && t[3] === 'account');
+  assert.equal(acctP[1], rec.accountPubkey);
+});
+
+test('buildPlatformAccountEvent: omits the linked-entity p-tag when null/invalid', async () => {
+  const rec = await makeAccountRecord(normalizeAuthor('twitter', { handle: 'jane' }), { now: 1 });
+  for (const bad of [null, undefined, 'not-hex', 'ff']) {
+    const evt = EventBuilder.buildPlatformAccountEvent(rec, USER, bad);
+    assert.equal(evt.tags.find((t) => t[0] === 'p' && t[3] === 'linked-entity'), undefined);
+  }
+});
+
+test('reconstructPlatformAccount: picks up linkedEntityPubkey (inverse)', async () => {
+  const rec = await makeAccountRecord(normalizeAuthor('youtube', { channelId: 'UCx' }), { now: 1, linkedEntityId: 'entity_x' });
+  const entityPk = 'c'.repeat(64);
+  const back = EventBuilder.reconstructPlatformAccount(EventBuilder.buildPlatformAccountEvent(rec, USER, entityPk));
+  assert.equal(back.linkedEntityPubkey, entityPk);
+  assert.equal(back.accountPubkey, rec.accountPubkey);
+  const backNone = EventBuilder.reconstructPlatformAccount(EventBuilder.buildPlatformAccountEvent(rec, USER));
+  assert.equal(backNone.linkedEntityPubkey, null);
+});
