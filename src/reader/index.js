@@ -326,8 +326,16 @@ function pickPdfFile(message) {
  * content address, never the session blob URL. Evicted bytes leave
  * the alt text showing — degraded, visible, never wrong.
  */
+let _figureBlobUrls = [];
 async function hydrateFigureImages(root) {
     if (!root) return;
+    // Blob URLs from the previous render pin their bytes for the whole
+    // tab lifetime unless revoked — re-renders (edits, publish) would
+    // otherwise stack a full figure set per pass.
+    for (const url of _figureBlobUrls) {
+        try { URL.revokeObjectURL(url); } catch (_) { /* already gone */ }
+    }
+    _figureBlobUrls = [];
     const imgs = root.querySelectorAll('img[src^="xray-figure:"]');
     for (const img of imgs) {
         const hash = img.getAttribute('src').slice('xray-figure:'.length);
@@ -337,6 +345,7 @@ async function hydrateFigureImages(root) {
             const row = await ArchiveCache.getSourceDocument(hash);
             if (!row || !row.bytes) continue;
             const url = URL.createObjectURL(new Blob([row.bytes], { type: row.mime || 'image/png' }));
+            _figureBlobUrls.push(url);
             img.src = url;
         } catch (_) { /* alt text remains — honest degradation */ }
     }
