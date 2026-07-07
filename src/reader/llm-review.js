@@ -12,9 +12,21 @@
 //     `suggested_by: 'llm:<model>'`. The model's create() is the real
 //     validation firewall.
 //   - Edit toggles a compact inline form over the proposal's editable
-//     fields; applying an edit flips that proposal's provenance to
-//     'user' (honest record-keeping) and re-validates.
+//     fields — including the claim quote and finding evidence quotes,
+//     so an unlocatable quote can be re-anchored in place. Applying a
+//     content edit flips that proposal's provenance to 'user' (honest
+//     record-keeping); a quote-only edit keeps 'llm:<model>' — the
+//     assertion is still the model's, and the anchor is machine-
+//     verified against the article either way.
 //   - Reject discards it.
+//
+// Provenance is grounded (Phase 14.5 hardening): ONE grounding index is
+// built over the article text, every quote a proposal stakes provenance
+// on is located through it (exact → typography-normalized → guarded
+// fuzzy), each row shows how its quotes grounded, and displayed/stored
+// quote text is the ARTICLE'S OWN span — the model's rendition is only
+// a search key. A claim or finding whose quote cannot be located is
+// invalid (rejected-with-reason) until re-anchored.
 //
 // Nothing here saves without an explicit Accept, and nothing publishes —
 // publishing stays behind assessmentPublishing / forensicPublishing.
@@ -32,8 +44,10 @@ import { ROLES, BASIS_VALUES } from '../shared/forensic-taxonomy.js';
 import {
     normalizeProposals, validateProposal, subjectLabelOf, PROPOSAL_ORDER,
     buildEntityInput, buildClaimInput, buildAssessmentInput, buildLinkInput,
-    buildFindingInput, buildBaselineInput
+    buildFindingInput, buildBaselineInput, findEntityMatches
 } from '../shared/llm-proposals.js';
+import { createGroundingIndex } from '../shared/quote-grounding.js';
+import { pageFragmentSelector } from '../shared/pdf-layout.js';
 
 const KIND_TITLES = {
     entity: 'Entities', claim: 'Claims', assessment: 'Assessments',
@@ -42,15 +56,19 @@ const KIND_TITLES = {
 };
 
 // Compact, data-driven inline editor — the editable fields per kind.
-// Anchors / labels stay as proposed (the full pickers live in the +
-// capture modals); reject + capture manually to change those.
+// Quotes are editable in place (claims' quote, findings' anchor
+// quotes) so an unlocatable quote can be re-anchored without
+// rejecting the whole proposal; labels stay as proposed (the full
+// pickers live in the capture modals).
 const EDIT_FIELDS = {
     entity: [
         { key: 'name', label: 'Name', type: 'text' },
-        { key: 'entity_type', label: 'Type', type: 'select', options: ENTITY_TYPES }
+        { key: 'entity_type', label: 'Type', type: 'select', options: ENTITY_TYPES },
+        { key: 'mention', label: 'Verbatim mention (checked against the article)', type: 'textarea' }
     ],
     claim: [
         { key: 'text', label: 'Claim text', type: 'textarea' },
+        { key: 'quote', label: 'Verbatim quote (checked against the article)', type: 'textarea' },
         { key: 'is_key', label: 'Key claim', type: 'checkbox' }
     ],
     assessment: [
@@ -69,6 +87,7 @@ const EDIT_FIELDS = {
         { key: 'role', label: 'Role', type: 'select', options: ROLES },
         { key: 'maneuver', label: 'Maneuver', type: 'text' },
         { key: 'basis', label: 'Basis', type: 'select', options: BASIS_VALUES },
+        { key: 'anchors', label: 'Evidence quotes (checked against the article)', type: 'anchors' },
         { key: 'note', label: 'Note', type: 'textarea' },
         { key: 'counter_note', label: 'Counter-read (required)', type: 'textarea' }
     ],
@@ -97,15 +116,30 @@ function truncate(s, n) {
  * @param {string} opts.model             the model id used (for provenance)
  * @param {string} opts.articleText       body text, for quote→anchor resolution
  * @param {string} opts.sourceUrl
+ * @param {string} [opts.articleHash]      canonical article hash — stamped on
+ *                                         accepted claims as text provenance
  * @param {object} [opts.sourceRef]        { url, title }
  * @param {function} [opts.onAccepted]     called after each accept (refresh bars)
+ * @param {function} [opts.onEntityTag]    called when an accepted entity should
+ *                                         be tagged onto the article ({entity_id,
+ *                                         type, name, context})
  * @returns {Promise<{accepted: number}>}
  */
-export function openLlmReview(opts) {
-    const { proposals, model, articleText = '', sourceUrl = '', sourceRef = {}, onAccepted } = opts;
+export async function openLlmReview(opts) {
+    const { proposals, model, articleText = '', sourceUrl = '', articleHash = '', sourceRef = {}, onAccepted, onEntityTag, pageForQuote } = opts;
     const suggestedByLlm = `llm:${model}`;
     const norm = normalizeProposals(proposals);
-    const ctx = { claimRefs: norm.claimRefs, entityRefs: norm.entityRefs, entityLabelByRef: norm.entityLabelByRef };
+    // ONE grounding index for the whole panel — validation, badges, and
+    // the accept-time builders all locate quotes through it (memoized).
+    const grounding = createGroundingIndex(articleText);
+    const ctx = { claimRefs: norm.claimRefs, entityRefs: norm.entityRefs, entityLabelByRef: norm.entityLabelByRef, grounding };
+
+    // The existing registry, for accept-time dedupe: a proposed entity
+    // whose name token-matches an existing one (same type) is offered
+    // as "use existing" instead of minting a near-duplicate id.
+    let registry = [];
+    try { registry = Object.values(await EntityModel.getAll() || {}); }
+    catch (_) { registry = []; }
 
     // Nice summaries: claim text by ref.
     const claimTextByRef = {};
@@ -116,14 +150,28 @@ export function openLlmReview(opts) {
     const claimIdByRef = {};
 
     // One mutable row per proposal.
-    const rows = norm.all.map((p) => ({
-        pid: p.pid, kind: p.kind, ref: p.ref,
-        prop: { ...p },
-        status: 'pending',         // pending | accepted | rejected
-        suggestedBy: suggestedByLlm,
-        editing: false,
-        message: ''
-    }));
+    const rows = norm.all.map((p) => {
+        const row = {
+            pid: p.pid, kind: p.kind, ref: p.ref,
+            prop: { ...p },
+            status: 'pending',         // pending | accepted | rejected
+            suggestedBy: suggestedByLlm,
+            editing: false,
+            message: '',
+            messageKind: ''
+        };
+        if (p.kind === 'entity') refreshEntityMatches(row);
+        return row;
+    });
+
+    // Dedupe candidates for an entity row; a SINGLE candidate defaults
+    // the accept action to "use existing" (the accumulation problem),
+    // multiple candidates default to "create new" (the human picks).
+    function refreshEntityMatches(row) {
+        row.entityMatches = findEntityMatches(
+            String(row.prop.name || ''), row.prop.entity_type, registry);
+        row.entityChoice = row.entityMatches.length === 1 ? row.entityMatches[0].id : 'new';
+    }
     const rowByPid = new Map(rows.map((r) => [r.pid, r]));
 
     return new Promise((resolve) => {
@@ -144,29 +192,77 @@ export function openLlmReview(opts) {
             return validateProposal(row.prop, ctx);
         }
 
+        // How a quote grounded, as a chip. The displayed/stored text is
+        // the article's own span; the model's rendition survives only
+        // as the chip tooltip when it was repaired.
+        function anchorChip(g) {
+            if (!g || g.status === 'missing') {
+                return `<span class="xr-llm__anchor xr-llm__anchor--bad" title="This text could not be located in the article — edit the quote to match it exactly">⚓ not found in article</span>`;
+            }
+            if (g.status === 'exact') {
+                return `<span class="xr-llm__anchor xr-llm__anchor--ok" title="Found in the article verbatim">⚓ verbatim</span>`;
+            }
+            if (g.status === 'normalized') {
+                return `<span class="xr-llm__anchor xr-llm__anchor--ok" title="Found after normalizing punctuation/whitespace — the anchor stores the article's own text">⚓ verbatim (typography normalized)</span>`;
+            }
+            return `<span class="xr-llm__anchor xr-llm__anchor--warn" title="Close match (${Math.round(g.score * 100)}%) — the anchor stores the article's own text; check it says what the item needs">⚓ close match ${Math.round(g.score * 100)}%</span>`;
+        }
+
+        // Grounded quote display: the article's span when located, the
+        // proposed text (flagged by the chip) when not. The tooltip is
+        // deliberately neutral about WHO wrote the proposed quote — it
+        // may be the model's, or the user's after a re-anchor edit.
+        function quoteHtml(quote, { max = 140 } = {}) {
+            const q = String(quote || '').trim();
+            if (!q) return '';
+            const g = grounding.ground(q);
+            const shown = g.status === 'missing' ? q : g.exact;
+            const repaired = g.status !== 'missing' && g.status !== 'exact' && g.exact !== q;
+            const tip = repaired ? ` title="Located from: ${escapeHtml(truncate(q, 300))}"` : '';
+            return `<blockquote class="xr-llm__quote"${tip}>${escapeHtml(truncate(shown, max))}</blockquote>${anchorChip(g)}`;
+        }
+
         function summarize(row) {
             const p = row.prop;
             switch (row.kind) {
-                case 'entity':
-                    return `${escapeHtml(p.name || '(unnamed)')} <span class="xr-llm__dim">· ${escapeHtml(p.entity_type || '?')}</span>`;
+                case 'entity': {
+                    const base = `${escapeHtml(p.name || '(unnamed)')} <span class="xr-llm__dim">· ${escapeHtml(p.entity_type || '?')}</span>`;
+                    const mention = quoteHtml(p.mention, { max: 80 });
+                    let dedupe = '';
+                    if (row.status === 'pending' && row.entityMatches && row.entityMatches.length) {
+                        const options = [
+                            `<option value="new" ${row.entityChoice === 'new' ? 'selected' : ''}>Create new entity</option>`
+                        ].concat(row.entityMatches.map((e) =>
+                            `<option value="${escapeHtml(e.id)}" ${row.entityChoice === e.id ? 'selected' : ''}>Use existing: ${escapeHtml(e.name)}</option>`
+                        )).join('');
+                        dedupe = `<div class="xr-llm__dedupe"><span class="xr-llm__anchor xr-llm__anchor--warn" title="An entity with a token-matching name of the same type already exists — link it instead of minting a duplicate">≈ may already exist</span> <select data-act="entity-choice">${options}</select></div>`;
+                    }
+                    return base + mention + dedupe;
+                }
                 case 'claim': {
                     const about = (p.about || []).map((r) => norm.entityLabelByRef[r]).filter(Boolean);
                     const star = p.is_key ? '⭐ ' : '';
                     const ab = about.length ? ` <span class="xr-llm__dim">about ${escapeHtml(about.join(', '))}</span>` : '';
-                    return `${star}${escapeHtml(truncate(p.text, 160))}${ab}`;
+                    return `${star}${escapeHtml(truncate(p.text, 160))}${ab}${quoteHtml(p.quote)}`;
                 }
                 case 'assessment': {
                     const st = (p.stance === null || p.stance === undefined) ? '' : `stance: ${escapeHtml(STANCE_LABELS[String(p.stance)] || String(p.stance))}`;
                     const labels = (p.labels || []).map((l) => l.label).filter(Boolean);
                     const lb = labels.length ? `labels: ${escapeHtml(labels.join(', '))}` : '';
-                    return `<span class="xr-llm__dim">on</span> ${escapeHtml(truncate(claimTextByRef[p.claim_ref] || p.claim_ref, 90))}<br><small>${[st, lb].filter(Boolean).join(' · ')}</small>`;
+                    // Label quotes are optional anchors: an unlocatable one
+                    // is saved WITHOUT an anchor (never fabricated) — say so.
+                    const lost = (p.labels || []).filter((l) => l && String(l.quote || '').trim()
+                        && grounding.ground(String(l.quote).trim()).status === 'missing').length;
+                    const warn = lost ? `<br><small class="xr-llm__anchor xr-llm__anchor--warn">⚓ ${lost} label quote${lost > 1 ? 's' : ''} not found — those labels save without an anchor</small>` : '';
+                    return `<span class="xr-llm__dim">on</span> ${escapeHtml(truncate(claimTextByRef[p.claim_ref] || p.claim_ref, 90))}<br><small>${[st, lb].filter(Boolean).join(' · ')}</small>${warn}`;
                 }
                 case 'relationship':
                 case 'revision':
                     return `${escapeHtml(truncate(claimTextByRef[p.source_claim_ref] || p.source_claim_ref, 60))} <strong>${escapeHtml(p.relationship)}</strong> ${escapeHtml(truncate(claimTextByRef[p.target_claim_ref] || p.target_claim_ref, 60))}`;
                 case 'finding': {
-                    const lead = (p.anchors && p.anchors[0] && p.anchors[0].quote) || '';
-                    return `<strong>${escapeHtml(subjectLabelOf(p, ctx) || '(subject)')}</strong> — <span class="xr-llm__man">${escapeHtml(p.maneuver || '?')}</span> <span class="xr-llm__dim">(${escapeHtml(p.role || '?')}, ${escapeHtml(p.basis || '?')})</span>${lead ? `<blockquote class="xr-llm__quote">${escapeHtml(truncate(lead, 140))}</blockquote>` : ''}<small class="xr-llm__counter">↔ ${escapeHtml(truncate(p.counter_note || '(no counter-read)', 140))}</small>`;
+                    const anchors = (p.anchors || []).filter((a) => a && String(a.quote || '').trim());
+                    const quotes = anchors.map((a) => quoteHtml(a.quote)).join('');
+                    return `<strong>${escapeHtml(subjectLabelOf(p, ctx) || '(subject)')}</strong> — <span class="xr-llm__man">${escapeHtml(p.maneuver || '?')}</span> <span class="xr-llm__dim">(${escapeHtml(p.role || '?')}, ${escapeHtml(p.basis || '?')})</span>${quotes}<small class="xr-llm__counter">↔ ${escapeHtml(truncate(p.counter_note || '(no counter-read)', 140))}</small>`;
                 }
                 case 'baseline':
                     return `<strong>${escapeHtml(subjectLabelOf(p, ctx) || '(subject)')}</strong> — ${escapeHtml(truncate(p.note, 160))}`;
@@ -195,6 +291,14 @@ export function openLlmReview(opts) {
                     const opts = [`<option value="" ${cur === null ? 'selected' : ''}>(no stance)</option>`]
                         .concat(STANCE_VALUES.map((v) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${escapeHtml(STANCE_LABELS[String(v)])}</option>`)).join('');
                     return `<label class="xr-llm__f"><span>${escapeHtml(f.label)}</span><select data-k="stance">${opts}</select></label>`;
+                }
+                if (f.type === 'anchors') {
+                    const anchors = Array.isArray(p.anchors) ? p.anchors : [];
+                    if (anchors.length === 0) return '';
+                    const areas = anchors.map((a, i) =>
+                        `<textarea data-k="anchor-quote" data-i="${i}" rows="2">${escapeHtml((a && a.quote) || '')}</textarea>`
+                    ).join('');
+                    return `<label class="xr-llm__f"><span>${escapeHtml(f.label)}</span>${areas}</label>`;
                 }
                 // text
                 return `<label class="xr-llm__f"><span>${escapeHtml(f.label)}</span><input type="text" data-k="${f.key}" value="${escapeHtml(p[f.key] || '')}"/></label>`;
@@ -225,11 +329,17 @@ export function openLlmReview(opts) {
                 <div class="xr-llm__row-main">
                   <div class="xr-llm__summary">${summarize(row)}</div>
                   ${badge}
-                  ${row.message ? `<div class="xr-llm__msg">${escapeHtml(row.message)}</div>` : ''}
+                  ${row.message ? `<div class="xr-llm__msg${row.messageKind === 'info' ? ' xr-llm__msg--info' : ''}">${escapeHtml(row.message)}</div>` : ''}
                   ${row.editing ? editorHtml(row) : ''}
                 </div>
                 ${actions}
               </div>`;
+        }
+
+        // Rows a click can actually accept right now, per kind.
+        function acceptableOf(kind) {
+            return rows.filter((r) => r.kind === kind && r.status === 'pending'
+                && validityOf(r).ok && !blockedReason(r)).length;
         }
 
         function sectionsHtml() {
@@ -237,9 +347,12 @@ export function openLlmReview(opts) {
             for (const kind of PROPOSAL_ORDER) {
                 const list = rows.filter((r) => r.kind === kind);
                 if (list.length === 0) continue;
-                const pending = list.filter((r) => r.status === 'pending').length;
+                const acceptable = acceptableOf(kind);
+                const sectionBtn = acceptable > 0
+                    ? `<button type="button" class="xr-llm__btn xr-llm__btn--section" data-act="accept-kind" data-kind="${kind}">Accept all ${escapeHtml((KIND_TITLES[kind] || kind).toLowerCase())} (${acceptable})</button>`
+                    : '';
                 parts.push(`<section class="xr-llm__section">
-                    <h3 class="xr-llm__section-title">${escapeHtml(KIND_TITLES[kind] || kind)} <span class="xr-llm__dim">(${list.length})</span></h3>
+                    <h3 class="xr-llm__section-title">${escapeHtml(KIND_TITLES[kind] || kind)} <span class="xr-llm__dim">(${list.length})</span>${sectionBtn}</h3>
                     ${list.map(rowHtml).join('')}
                   </section>`);
             }
@@ -249,7 +362,15 @@ export function openLlmReview(opts) {
         function render() {
             const total = rows.length;
             const acc = rows.filter((r) => r.status === 'accepted').length;
-            const pendingValid = rows.filter((r) => r.status === 'pending' && validityOf(r).ok).length;
+            // Blocked rows (dependency not yet accepted) don't count as
+            // acceptable — the button label must converge to what a
+            // click can actually do.
+            const pendingValid = rows.filter((r) => r.status === 'pending' && validityOf(r).ok && !blockedReason(r)).length;
+            // Re-rendering replaces the whole card; keep the review
+            // list's scroll position so an Accept doesn't yank the user
+            // back to the top.
+            const prevBody = host.querySelector('.xr-llm__body');
+            const scrollTop = prevBody ? prevBody.scrollTop : 0;
             host.innerHTML = `
               <div class="xr-llm__backdrop"></div>
               <div class="xr-llm__card" role="dialog" aria-label="LLM suggestions">
@@ -259,7 +380,7 @@ export function openLlmReview(opts) {
                   <span class="xr-llm__gap"></span>
                   <button type="button" class="xr-llm__close" aria-label="Close">✕</button>
                 </header>
-                <p class="xr-llm__disclosure">These are <strong>drafts</strong> — nothing is saved until you Accept, and nothing is published. Accepted items appear in the claims / findings bars, tagged <code>suggested_by: ${escapeHtml(suggestedByLlm)}</code>.</p>
+                <p class="xr-llm__disclosure">These are <strong>drafts</strong> — nothing is saved until you Accept, and nothing is published. Every quote is checked against the article text (⚓): stored anchors carry the article's own words, and an item whose quote can't be located must be re-anchored (Edit) or rejected. Accepted items appear in the claims / findings bars, tagged <code>suggested_by: ${escapeHtml(suggestedByLlm)}</code>.</p>
                 <div class="xr-llm__body">${sectionsHtml()}</div>
                 <footer class="xr-llm__foot">
                   <span class="xr-llm__status">${acc} accepted</span>
@@ -269,6 +390,8 @@ export function openLlmReview(opts) {
                 </footer>
               </div>`;
             wire();
+            const newBody = host.querySelector('.xr-llm__body');
+            if (newBody && scrollTop) newBody.scrollTop = scrollTop;
         }
 
         function wire() {
@@ -276,6 +399,9 @@ export function openLlmReview(opts) {
             host.querySelector('.xr-llm__backdrop').addEventListener('click', close);
             host.querySelector('[data-act="done"]').addEventListener('click', close);
             host.querySelector('[data-act="accept-all"]').addEventListener('click', acceptAllValid);
+            host.querySelectorAll('[data-act="accept-kind"]').forEach((btn) => {
+                btn.addEventListener('click', () => acceptAllOf([btn.dataset.kind]));
+            });
 
             host.querySelectorAll('.xr-llm__row').forEach((el) => {
                 const row = rowByPid.get(el.dataset.pid);
@@ -286,22 +412,54 @@ export function openLlmReview(opts) {
                 on('edit', () => { row.editing = true; render(); });
                 on('edit-cancel', () => { row.editing = false; row.message = ''; render(); });
                 on('edit-apply', () => applyEdit(row, el));
+                const choice = el.querySelector('[data-act="entity-choice"]');
+                if (choice) choice.addEventListener('change', () => { row.entityChoice = choice.value; });
             });
         }
 
         function applyEdit(row, el) {
             const fields = EDIT_FIELDS[row.kind] || [];
+            const changed = new Set();
             for (const f of fields) {
+                if (f.type === 'anchors') {
+                    el.querySelectorAll('[data-k="anchor-quote"]').forEach((ta) => {
+                        const i = Number(ta.dataset.i);
+                        const a = Array.isArray(row.prop.anchors) ? row.prop.anchors[i] : null;
+                        if (!a || String(a.quote || '') === ta.value) return;
+                        a.quote = ta.value;
+                        changed.add('anchors');
+                    });
+                    continue;
+                }
                 const input = el.querySelector(`[data-k="${f.key === 'stance' ? 'stance' : f.key}"]`);
                 if (!input) continue;
-                if (f.type === 'checkbox') row.prop[f.key] = input.checked;
-                else if (f.type === 'stance') row.prop.stance = input.value === '' ? null : Number(input.value);
-                else row.prop[f.key] = input.value;
+                if (f.type === 'checkbox') {
+                    // Truthiness, mirroring how the checkbox is RENDERED —
+                    // a schema-drifted truthy value must not read as a change.
+                    const next = input.checked;
+                    if (Boolean(row.prop[f.key]) !== next) { row.prop[f.key] = next; changed.add(f.key); }
+                } else if (f.type === 'stance') {
+                    const next = input.value === '' ? null : Number(input.value);
+                    const cur = row.prop.stance === undefined ? null : row.prop.stance;
+                    if (cur !== next) { row.prop.stance = next; changed.add('stance'); }
+                } else {
+                    if (String(row.prop[f.key] ?? '') !== input.value) { row.prop[f.key] = input.value; changed.add(f.key); }
+                }
             }
-            // A substantive human edit ⇒ honest provenance.
-            row.suggestedBy = 'user';
+            // Provenance honesty: a substantive (content) edit makes the
+            // artifact the user's. A quote-only edit does NOT — the
+            // assertion is still the model's; the quote is just being
+            // re-anchored, and it is machine-verified either way.
+            const quoteOnly = changed.size > 0
+                && [...changed].every((k) => k === 'quote' || k === 'anchors' || k === 'mention');
+            if (changed.size > 0 && !quoteOnly) row.suggestedBy = 'user';
+            // Name/type edits change what the proposal duplicates.
+            if (row.kind === 'entity' && (changed.has('name') || changed.has('entity_type'))) {
+                refreshEntityMatches(row);
+            }
             row.editing = false;
-            row.message = '';
+            row.message = quoteOnly ? 'Quote re-checked against the article.' : '';
+            row.messageKind = quoteOnly ? 'info' : '';
             render();
         }
 
@@ -319,14 +477,16 @@ export function openLlmReview(opts) {
 
         async function acceptRow(row) {
             if (row.status !== 'pending') return;
+            row.messageKind = '';
             const v = validityOf(row);
             if (!v.ok) { row.message = v.reason; render(); return; }
             const blocked = blockedReason(row);
             if (blocked) { row.message = blocked; render(); return; }
             try {
-                await createFor(row);
+                const note = await createFor(row);
                 row.status = 'accepted';
-                row.message = '';
+                row.message = note || '';
+                row.messageKind = note ? 'info' : '';
                 acceptedCount += 1;
                 if (typeof onAccepted === 'function') { try { await onAccepted(row.kind); } catch (_) { /* refresh best-effort */ } }
             } catch (err) {
@@ -337,42 +497,93 @@ export function openLlmReview(opts) {
         }
 
         async function acceptAllValid() {
-            // Dependency order so refs resolve as we go.
-            for (const kind of PROPOSAL_ORDER) {
+            return acceptAllOf(PROPOSAL_ORDER);
+        }
+
+        /**
+         * Accept every acceptable row of the given kinds — the whole
+         * panel (footer button) or one section ("Accept all entities").
+         * Kinds process in dependency order regardless of input order.
+         */
+        async function acceptAllOf(kinds) {
+            const wanted = PROPOSAL_ORDER.filter((k) => kinds.includes(k));
+            for (const kind of wanted) {
                 for (const row of rows.filter((r) => r.kind === kind && r.status === 'pending')) {
                     if (!validityOf(row).ok) continue;
                     if (blockedReason(row)) continue;
+                    row.messageKind = '';
                     try {
-                        await createFor(row);
+                        const note = await createFor(row);
                         row.status = 'accepted';
-                        row.message = '';
+                        row.message = note || '';
+                        row.messageKind = note ? 'info' : '';
                         acceptedCount += 1;
                     } catch (err) {
                         row.message = (err && err.message) || String(err);
                     }
                 }
             }
+            // Anything still pending-and-valid in the PROCESSED kinds was
+            // skipped because a dependency didn't make it (e.g. its claim
+            // failed the grounding firewall) — say so, don't leave it mute.
+            for (const row of rows) {
+                if (!wanted.includes(row.kind)) continue;
+                if (row.status !== 'pending' || !validityOf(row).ok) continue;
+                const blocked = blockedReason(row);
+                if (blocked) { row.message = blocked; row.messageKind = ''; }
+            }
             if (typeof onAccepted === 'function') { try { await onAccepted('all'); } catch (_) { /* best-effort */ } }
             render();
         }
 
-        // Funnel one accepted proposal through the real model.
+        // Funnel one accepted proposal through the real model. Returns
+        // an optional info note the accept path shows on the row.
         async function createFor(row) {
             const p = row.prop;
             const sb = row.suggestedBy;
             switch (row.kind) {
                 case 'entity': {
-                    const e = await EntityModel.create(buildEntityInput(p, { suggestedBy: sb }));
+                    // Link-or-create: "use existing" maps the ref onto the
+                    // registry row instead of minting a near-duplicate.
+                    let e = null;
+                    let note = '';
+                    if (row.entityChoice && row.entityChoice !== 'new') {
+                        e = await EntityModel.get(row.entityChoice);
+                        if (!e) throw new Error('The selected existing entity no longer exists');
+                        note = `Linked to existing: ${e.name}`;
+                    } else {
+                        e = await EntityModel.create(buildEntityInput(p, { suggestedBy: sb }));
+                    }
                     if (row.ref) entityIdByRef[row.ref] = e.id;
-                    return;
+                    // Tag the entity onto the article with its grounded
+                    // verbatim mention — the same ref shape the manual
+                    // selection tagger produces, so mention provenance
+                    // reaches the publish flow.
+                    if (typeof onEntityTag === 'function') {
+                        const mention = String(p.mention || '').trim();
+                        const g = mention ? grounding.ground(mention) : null;
+                        const context = (g && g.status !== 'missing') ? g.exact : mention;
+                        try { onEntityTag({ entity_id: e.id, type: e.type, name: e.name, context }); }
+                        catch (_) { /* tagging is best-effort; the entity is saved */ }
+                    }
+                    return note;
                 }
                 case 'claim': {
-                    const c = await ClaimModel.create(buildClaimInput(p, { entityIdByRef, articleText, sourceUrl, suggestedBy: sb }));
+                    // The builders duck-type the grounding index in the
+                    // articleText slot — same text, memoized lookups.
+                    const input = buildClaimInput(p, { entityIdByRef, articleText: grounding, sourceUrl, articleHash, suggestedBy: sb });
+                    // PDF captures: page-level provenance as an additive
+                    // FragmentSelector on the anchor (Phase 18 C4).
+                    if (typeof pageForQuote === 'function' && input.quote && Array.isArray(input.anchor)) {
+                        const page = pageForQuote(input.quote);
+                        if (page) input.anchor.push(pageFragmentSelector(page));
+                    }
+                    const c = await ClaimModel.create(input);
                     if (row.ref) claimIdByRef[row.ref] = c.id;
                     return;
                 }
                 case 'assessment':
-                    await AssessmentModel.create(buildAssessmentInput(p, { claimIdByRef, articleText, suggestedBy: sb }));
+                    await AssessmentModel.create(buildAssessmentInput(p, { claimIdByRef, articleText: grounding, suggestedBy: sb }));
                     return;
                 case 'relationship':
                 case 'revision':
@@ -380,7 +591,7 @@ export function openLlmReview(opts) {
                     return;
                 case 'finding':
                     await ForensicModel.create(buildFindingInput(p, {
-                        articleText, sourceRef, suggestedBy: sb, subjectLabel: subjectLabelOf(p, ctx)
+                        articleText: grounding, sourceRef, suggestedBy: sb, subjectLabel: subjectLabelOf(p, ctx)
                     }));
                     return;
                 case 'baseline':

@@ -153,6 +153,19 @@ export const EventBuilder = {
       tags.push(['author', article.byline]);
     }
 
+    // Phase 18 C2 — scholarly identity (additive/optional): a DOI rides
+    // as a greppable `doi` tag plus its NIP-73 external-id form
+    // (['i', 'doi:<lowercase>']); an arXiv id as `arxiv`. Metadata the
+    // publisher embedded, never inferred.
+    if (article.scholar && article.scholar.doi) {
+      tags.push(['doi', article.scholar.doi]);
+      tags.push(['i', 'doi:' + article.scholar.doi.toLowerCase()]);
+    }
+    if (article.scholar && article.scholar.arxiv_id) {
+      const v = article.scholar.arxiv_version ? 'v' + article.scholar.arxiv_version : '';
+      tags.push(['arxiv', article.scholar.arxiv_id + v]);
+    }
+
     // Phase 9 identity: reference the post author's stable PlatformAccount
     // pubkey, so the article is joined to the same identity used for that
     // author's comments and (Phase IV) their canonical person.
@@ -442,6 +455,13 @@ export const EventBuilder = {
   //     free text → ['source', text]
   //     null      → (the article — no tag)
   //   ['key', 'true']?   ['anchor', <selector-json>]?   ['client', 'xray']
+  //   text provenance (Phase 14.5 hardening — all additive/optional):
+  //     ['quote', <verbatim article span>]   the span the claim is drawn from
+  //     ['x', <canonical article hash>]      binds the quote to the exact
+  //                                          article version (joins the
+  //                                          audit family's `#x` queries)
+  //     ['captured_at', <unix seconds>]      when the human captured the
+  //                                          claim (created_at is publish time)
   //   content = claim text
   //
   // "What the network says about entity P" is then a single relay query:
@@ -488,6 +508,9 @@ export const EventBuilder = {
 
     if (claim.is_key) tags.push(['key', 'true']);
     if (claim.anchor) tags.push(['anchor', JSON.stringify(claim.anchor)]);
+    if (claim.quote) tags.push(['quote', claim.quote]);
+    if (claim.article_hash) tags.push(['x', claim.article_hash]);
+    if (claim.created) tags.push(['captured_at', String(claim.created)]);
     tags.push(['client', 'xray']);
 
     return {

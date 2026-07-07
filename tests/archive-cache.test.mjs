@@ -147,3 +147,41 @@ test('archive: relay-sourced entry flagged differently from captures', async () 
     });
     assert.equal(saved.source, 'relay');
 });
+
+// ---------------------------------------------------------------------
+// Source documents (v3 — Phase 18 C3)
+// ---------------------------------------------------------------------
+
+test('source documents: put/get round-trip, idempotent, keyed by hash', async () => {
+    const { putSourceDocument, getSourceDocument } = await import('../src/shared/archive-cache.js');
+    const bytes = new TextEncoder().encode('%PDF-1.7 fake body').buffer;
+    const hash = 'a'.repeat(64);
+
+    const first = await putSourceDocument({ hash, bytes, mime: 'application/pdf', url: 'https://x.test/a.pdf' });
+    assert.equal(first.stored, true);
+
+    const row = await getSourceDocument(hash);
+    assert.ok(row);
+    assert.equal(row.mime, 'application/pdf');
+    assert.equal(row.url, 'https://x.test/a.pdf');
+    assert.equal(row.size, bytes.byteLength);
+    assert.equal(new TextDecoder().decode(row.bytes), '%PDF-1.7 fake body');
+
+    // Idempotent: a second put for the same hash leaves the row alone.
+    const again = await putSourceDocument({ hash, bytes, mime: 'application/pdf', url: 'https://elsewhere.test/b.pdf' });
+    assert.equal(again.stored, true);
+    assert.equal((await getSourceDocument(hash)).url, 'https://x.test/a.pdf');
+
+    assert.equal(await getSourceDocument('f'.repeat(64)), null);
+    assert.equal(await getSourceDocument(''), null);
+});
+
+test('source documents: oversized bytes are refused (hash-only provenance)', async () => {
+    const { putSourceDocument, getSourceDocument, SOURCE_DOC_MAX_BYTES } =
+        await import('../src/shared/archive-cache.js');
+    const fake = { byteLength: SOURCE_DOC_MAX_BYTES + 1 };
+    const res = await putSourceDocument({ hash: 'b'.repeat(64), bytes: fake, mime: 'application/pdf' });
+    assert.equal(res.stored, false);
+    assert.match(res.reason, /large/i);
+    assert.equal(await getSourceDocument('b'.repeat(64)), null);
+});

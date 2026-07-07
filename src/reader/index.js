@@ -16,10 +16,10 @@ import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { EntityModel, installEntityStorageBridge } from '../shared/entity-model.js';
 import { recordAccount, extractPostAuthor } from '../shared/identity/account-registry.js';
 import { selectAccountsToPublish } from '../shared/identity/account-publish.js';
-import { ClaimModel } from '../shared/claim-model.js';
+import { ClaimModel, exactFromAnchor } from '../shared/claim-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import * as ArchiveCache from '../shared/archive-cache.js';
-import { installEntityTagger, rehydrateEntityMarks } from './entity-tagger.js';
+import { installEntityTagger, rehydrateEntityMarks, renderEntitiesBar } from './entity-tagger.js';
 import { openClaimModal, openEvidenceLinkModal, openOthersClaimsModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
 import { openAssessModal } from '../shared/assess-modal.js';
 import { openAdjudicateModal } from '../shared/adjudicate-modal.js';
@@ -38,6 +38,9 @@ import { ForensicModel } from '../shared/forensic-model.js';
 import { openFindingModal, openBaselineModal } from '../shared/forensic-modal.js';
 import { renderFindingsBar } from './findings-section.js';
 import { openLlmReview } from './llm-review.js';
+import { capturePdfToArticle } from './pdf-capture.js';
+import { pageOfOffset, pageFragmentSelector } from '../shared/pdf-layout.js';
+import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { captureFromRange } from '../shared/metadata/anchor-capture.js';
 import { normalize as normalizeUrl } from '../shared/metadata/url-normalizer.js';
 import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
@@ -116,6 +119,19 @@ function parseDate(str) {
 
 async function loadArticle() {
     const params = new URLSearchParams(location.search);
+
+    // Phase 18 C3/C4 — PDF capture path. Content scripts never run in
+    // the browsers' PDF viewers, so the background routes PDF tabs here
+    // with ?pdf=<url> (or ?pdf=import for a local file). The article is
+    // built IN the reader (fetch → archive bytes → pdf.js → layout
+    // reconstruction) and then adopted exactly like a normal capture.
+    const pdfParam = params.get('pdf');
+    if (pdfParam) {
+        state.id = 'pdf-' + Date.now().toString(36);
+        const article = await loadPdfArticle(pdfParam);
+        return adoptArticle(article, null);
+    }
+
     const id = params.get('id');
     if (!id) throw new Error('Missing ?id= parameter. Capture a page with the X-Ray toolbar icon (or Ctrl/Cmd+Shift+X).');
     state.id = id;
@@ -147,7 +163,18 @@ async function loadArticle() {
         );
     }
 
+    return adoptArticle(article, stored);
+}
+
+/** Shared adoption tail for every load path (session hand-off, PDF). */
+function adoptArticle(article, stored) {
     state.article = article;
+
+    // PDF captures: surface the layout engine's quality warnings
+    // (missing text layers, failed paragraph merging) before anyone
+    // quotes from an affected passage.
+    try { renderExtractionWarningsBanner(); }
+    catch (err) { console.warn('[X-Ray Reader] extraction banner failed:', err); }
     state.markdownDraft = article.markdown || article.content || '';
     state.htmlDraft = article.content || ContentExtractor.markdownToHtml(state.markdownDraft);
 
@@ -213,6 +240,107 @@ async function loadArticle() {
     // render on a network round-trip.
     setTimeout(() => checkArchiveAvailability().catch((err) =>
         console.warn('[X-Ray Reader] archive check failed:', err)), 100);
+}
+
+// ------------------------------------------------------------------
+// PDF capture path (Phase 18 C3/C4)
+// ------------------------------------------------------------------
+
+async function loadPdfArticle(pdfParam) {
+    if (pdfParam !== 'import') {
+        let target = null;
+        try {
+            const u = new URL(pdfParam);
+            if (u.protocol === 'https:' || u.protocol === 'http:') target = u.href;
+        } catch (_) { /* invalid — falls through */ }
+        if (!target) throw new Error('Invalid PDF URL.');
+        try {
+            return await capturePdfToArticle({ url: target });
+        } catch (err) {
+            // Auth-bound refetch (403/401), CORS-ish failures, scans —
+            // surface the reason and offer the local-file path.
+            const file = await pickPdfFile(
+                'Could not capture this PDF automatically: '
+                + ((err && err.message) || err) + ' '
+                + 'If it needs a login, save it from the browser and import the file:');
+            return capturePdfToArticle({ file, url: target });
+        }
+    }
+    const file = await pickPdfFile('Capture a PDF from a local file:');
+    return capturePdfToArticle({ file });
+}
+
+/** Minimal modal file picker; resolves with the chosen File. */
+function pickPdfFile(message) {
+    return new Promise((resolvePick, rejectPick) => {
+        const host = document.createElement('div');
+        host.className = 'xr-pdf-pick';
+        const card = document.createElement('div');
+        card.className = 'xr-pdf-pick__card';
+        const title = document.createElement('h2');
+        title.textContent = '📄 PDF capture';
+        const note = document.createElement('p');
+        note.textContent = message;
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.pdf,application/pdf';
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.textContent = 'Cancel';
+        card.append(title, note, input, cancel);
+        host.appendChild(card);
+        document.body.appendChild(host);
+
+        const close = () => { if (host.parentNode) host.parentNode.removeChild(host); };
+        input.addEventListener('change', () => {
+            const file = input.files && input.files[0];
+            if (!file) return;
+            close();
+            resolvePick(file);
+        });
+        cancel.addEventListener('click', () => {
+            close();
+            rejectPick(new Error('PDF capture cancelled.'));
+        });
+    });
+}
+
+/**
+ * Archived PDF figures (C4.2): markdown carries content-addressed
+ * `xray-figure:<sha256>` image URLs; this resolves them to live blob
+ * URLs from the source_documents byte archive. The durable identity
+ * stays on data-xray-figure so body→markdown round-trips re-emit the
+ * content address, never the session blob URL. Evicted bytes leave
+ * the alt text showing — degraded, visible, never wrong.
+ */
+async function hydrateFigureImages(root) {
+    if (!root) return;
+    const imgs = root.querySelectorAll('img[src^="xray-figure:"]');
+    for (const img of imgs) {
+        const hash = img.getAttribute('src').slice('xray-figure:'.length);
+        if (!/^[0-9a-f]{64}$/.test(hash)) continue;
+        img.setAttribute('data-xray-figure', hash);
+        try {
+            const row = await ArchiveCache.getSourceDocument(hash);
+            if (!row || !row.bytes) continue;
+            const url = URL.createObjectURL(new Blob([row.bytes], { type: row.mime || 'image/png' }));
+            img.src = url;
+        } catch (_) { /* alt text remains — honest degradation */ }
+    }
+}
+
+// Page-level provenance (COMPLEX_CONTENT_DESIGN.md §5.4): the pageMap
+// indexes the EXTRACTED MARKDOWN, so page lookup grounds the quote
+// against that substrate (not the rendered body, whose offsets differ).
+let _pdfMdIndex = null;
+function pdfPageOfQuote(quote) {
+    const map = state.article && state.article.pageMap;
+    const md = state.article && state.article.markdown;
+    if (!Array.isArray(map) || map.length === 0 || !md || !quote) return null;
+    if (!_pdfMdIndex) _pdfMdIndex = createGroundingIndex(md);
+    const g = _pdfMdIndex.ground(String(quote));
+    if (g.status === 'missing') return null;
+    return pageOfOffset(map, g.start);
 }
 
 // ------------------------------------------------------------------
@@ -530,6 +658,32 @@ function locateQuoteInBody(quote) {
     } catch (_) { return false; }
 }
 
+/**
+ * Jump from a claims-bar row to the claim's passage in the article
+ * (Phase 14.5 hardening — the stored quote makes this reliable for
+ * LLM-suggested claims, whose `text` is a summary that never appears
+ * in the body). Cascade: the rehydrated mark (anchor-precise) →
+ * select the stored verbatim quote → the claim text itself (manual
+ * claims often quote it verbatim).
+ */
+function locateClaimInBody(claim) {
+    const body = $('.xr-article__body');
+    if (!body || !claim) return;
+    let mark = null;
+    try { mark = body.querySelector(`.xr-claim[data-claim-id="${CSS.escape(claim.id)}"]`); }
+    catch (_) { /* CSS.escape unavailable — fall through to text search */ }
+    if (mark) {
+        mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        mark.classList.add('xr-claim--flash');
+        setTimeout(() => mark.classList.remove('xr-claim--flash'), 1600);
+        return;
+    }
+    const quote = String(claim.quote || exactFromAnchor(claim.anchor) || '').trim();
+    if (quote && locateQuoteInBody(quote)) return;
+    if (locateQuoteInBody(claim.text)) return;
+    toast('Could not locate this claim’s passage — the body may have been edited since capture.', 'error', 3500);
+}
+
 function renderModuleRow(r, staleSet) {
     const quotes = (r.evidence_quotes || []).map((q) => q && q.quote).filter(Boolean);
     const caveats = r.auditor_caveats || [];
@@ -686,6 +840,8 @@ async function refreshAuditStatus() {
                 initialText:  pred.text,
                 context:      pred.evidence_quote || '',
                 anchor:       pred.anchor || null,
+                quote:        pred.evidence_quote || null,
+                articleHash:  claimArticleHash(),
                 initialAbout: state.lastClaimAbout || []
             });
             if (saved) {
@@ -737,6 +893,38 @@ function renderHashMismatchBanner(prior) {
     $('#xr-hash-dismiss').addEventListener('click', () => banner.remove());
 }
 
+/**
+ * Extraction-quality banner (Phase 18 C4.1) — surfaces the layout
+ * engine's warnings on PDF captures: sparse (likely scanned) pages
+ * whose content is missing, and pages where line→paragraph merging
+ * failed. "Degrade, never drop" needs this honesty layer: a shaky
+ * extraction presented as clean is a provenance failure.
+ */
+function renderExtractionWarningsBanner() {
+    const warnings = state.article && state.article.extraction && state.article.extraction.warnings;
+    if (!Array.isArray(warnings) || warnings.length === 0) return;
+    let banner = $('#xr-extract-banner');
+    if (!banner) {
+        banner = document.createElement('aside');
+        banner.id = 'xr-extract-banner';
+        banner.className = 'xr-hash-banner';
+        const main = $('#xr-main');
+        if (!main || !main.parentElement) return;
+        main.parentElement.insertBefore(banner, main);
+    }
+    banner.innerHTML = `
+      <div class="xr-hash-banner__body">
+        <div class="xr-hash-banner__label">⚠️ Extraction quality warning${warnings.length > 1 ? 's' : ''}</div>
+        ${warnings.map((w) => `<div class="xr-hash-banner__metric">${escapeHtml(w.message)}</div>`).join('')}
+        <div class="xr-hash-banner__metric">The original PDF is archived (source_hash ${escapeHtml(String(state.article.extraction.source_hash || '').slice(0, 12))}…) — verify against it before relying on affected passages.</div>
+      </div>
+      <div class="xr-hash-banner__actions">
+        <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-extract-dismiss">Dismiss</button>
+      </div>
+    `;
+    $('#xr-extract-dismiss').addEventListener('click', () => banner.remove());
+}
+
 function renderReader() {
     const a = state.article;
     const main = $('#xr-main');
@@ -775,6 +963,11 @@ function renderReader() {
             .catch((err) => console.warn('[X-Ray Reader] rehydrate failed:', err));
     }
 
+    // Archived PDF figures (C4.2): swap content-addressed
+    // xray-figure: srcs for live blob URLs from the byte archive.
+    hydrateFigureImages(body)
+        .catch((err) => console.warn('[X-Ray Reader] figure hydrate failed:', err));
+
     // Mount the entity tagger on the article body. Its onTag callback
     // pushes the resolved ref onto the article's entity list and marks
     // state as dirty so the publish path picks it up. The onClaim
@@ -793,13 +986,20 @@ function renderReader() {
             // Sync htmlDraft with whatever the mark wrap did to the body.
             state.htmlDraft = body.innerHTML;
             state.dirtySource = 'reader';
+            refreshEntitiesBar().catch(() => {});
         },
         onClaim: async ({ text, context, anchor }) => {
+            // PDF captures: page-level provenance rides as an additive
+            // FragmentSelector (resolvers that don't know it skip it).
+            const page = pdfPageOfQuote(text);
             const saved = await openClaimModal({
                 sourceUrl:   state.article.url,
                 initialText: text,
                 context,
-                anchor,
+                anchor: page ? [...(anchor || []), pageFragmentSelector(page)] : anchor,
+                // Text provenance: the selection IS the verbatim quote.
+                quote:       text,
+                articleHash: claimArticleHash(),
                 // Sticky default (Phase 11.3): a case-capture session tags
                 // dozens of claims with the same case entity + people.
                 initialAbout: state.lastClaimAbout || []
@@ -830,6 +1030,7 @@ function renderReader() {
     // Render the claims bar below the article body. Fires in the
     // background — we don't block the main render on it.
     refreshClaimsBar().catch((err) => console.warn('[X-Ray Reader] claims-bar render failed:', err));
+    refreshEntitiesBar().catch((err) => console.warn('[X-Ray Reader] entities-bar render failed:', err));
     refreshFindingsBar().catch((err) => console.warn('[X-Ray Reader] findings-bar render failed:', err));
 
     // Re-fill the hash line — the template above recreates it hidden,
@@ -853,6 +1054,47 @@ function renderReader() {
  * edit / delete row actions. Also rehydrates visual `xr-claim` marks
  * on the body for each claim whose text still appears verbatim.
  */
+/**
+ * Entities bar — the tagged-entities summary (userscript parity).
+ * Chips resolve fresh registry records; clicking one locates the
+ * entity's mention in the body (mark → verbatim mention text).
+ */
+async function refreshEntitiesBar() {
+    const host = $('#xr-entities-host');
+    if (!host) return;
+    const refs = (state.article && state.article.entities) || [];
+    try {
+        host.innerHTML = await renderEntitiesBar(refs);
+    } catch (err) {
+        console.warn('[X-Ray Reader] entities-bar render failed:', err);
+        return;
+    }
+    host.querySelectorAll('.xr-entities__chip').forEach((chip) => {
+        chip.addEventListener('click', () => {
+            const ref = refs.find((r) => r && r.entity_id === chip.dataset.entityId);
+            if (ref) locateEntityInBody(ref);
+        });
+    });
+}
+
+function locateEntityInBody(ref) {
+    const body = $('.xr-article__body');
+    if (!body || !ref) return;
+    let mark = null;
+    try { mark = body.querySelector(`.xr-entity[data-entity-id="${CSS.escape(ref.entity_id)}"]`); }
+    catch (_) { /* fall through to text search */ }
+    if (mark) {
+        mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        mark.classList.add('xr-entity--flash');
+        setTimeout(() => mark.classList.remove('xr-entity--flash'), 1600);
+        return;
+    }
+    const mention = String(ref.context || '').trim();
+    if (mention && locateQuoteInBody(mention)) return;
+    if (ref.name && locateQuoteInBody(ref.name)) return;
+    toast('Could not locate this entity’s mention — the body may have been edited since tagging.', 'error', 3500);
+}
+
 async function refreshClaimsBar() {
     const host = $('#xr-claims-host');
     if (!host || !state.article || !state.article.url) return;
@@ -900,6 +1142,13 @@ async function refreshClaimsBar() {
         const linkBtn   = row.querySelector('[data-action="link"]');
         const assessBtn = row.querySelector('[data-action="assess"]');
         const adjBtn    = row.querySelector('[data-action="adjudicate"]');
+        // Claim text + quote both jump to the passage in the article.
+        row.querySelectorAll('[data-action="locate"]').forEach((el) => {
+            el.addEventListener('click', () => {
+                const claim = claims.find((c) => c.id === id);
+                if (claim) locateClaimInBody(claim);
+            });
+        });
         if (editBtn) editBtn.addEventListener('click', () => openEditClaim(id));
         if (delBtn)  delBtn.addEventListener('click',  () => confirmDeleteClaim(id));
         if (linkBtn) linkBtn.addEventListener('click', () => openLinkClaim(id, claims));
@@ -1050,6 +1299,15 @@ function articleBodyText() {
 }
 
 /**
+ * The canonical article hash to stamp on claims as text provenance —
+ * only while it still describes the current body (edits dirty it; the
+ * publish flow recomputes from the final text).
+ */
+function claimArticleHash() {
+    return (!state.hashDirty && state.articleHash) ? state.articleHash : null;
+}
+
+/**
  * Configure the Suggest control from the SW's gating snapshot. Absent
  * when the flag is off; visible-but-disabled when on with no key — so
  * either condition guarantees no network call is reachable from here.
@@ -1113,7 +1371,31 @@ async function runSuggestPass() {
         model:      resp.model,
         articleText,
         sourceUrl:  state.article.url || '',
+        articleHash: claimArticleHash() || '',
+        // PDF page anchors for accepted claims (null for non-PDFs).
+        pageForQuote: (q) => pdfPageOfQuote(q),
         sourceRef:  { url: state.article.url || '', title: state.article.title || '' },
+        // Accepted entities are tagged onto the article with their
+        // grounded verbatim mention — same ref shape (and same dedupe)
+        // as the manual selection tagger, so the publish flow p-tags
+        // them and the mention provenance survives.
+        onEntityTag: (ref) => {
+            if (!ref || !ref.entity_id) return;
+            if (!Array.isArray(state.article.entities)) state.article.entities = [];
+            const dup = state.article.entities.find((e) => e.entity_id === ref.entity_id);
+            if (dup) return;
+            state.article.entities.push(ref);
+            const body = $('.xr-article__body');
+            if (body && ref.context) {
+                rehydrateEntityMarks(body, [ref])
+                    .then(() => {
+                        state.htmlDraft = body.innerHTML;
+                        state.dirtySource = 'reader';
+                    })
+                    .catch(() => {});
+            }
+            refreshEntitiesBar().catch(() => {});
+        },
         onAccepted: async () => {
             await refreshClaimsBar().catch(() => {});
             await refreshFindingsBar().catch(() => {});

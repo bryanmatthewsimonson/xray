@@ -2,6 +2,10 @@ import { CONFIG } from './config.js';
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
+import {
+  isComplexTable, sanitizeIslandNode, sanitizeIslandString,
+  wrapIsland, islandPattern
+} from './content-islands.js';
 
 export const ContentExtractor = {
   // Extract article using Readability (bundled via npm)
@@ -466,10 +470,86 @@ export const ContentExtractor = {
       // Use GFM plugin for tables, strikethrough, task lists
       turndown.use(gfm);
 
+        // Phase 18 C1 — complex tables (rowspan/colspan, nested,
+        // captions, multi-row headers, block cells) can't survive GFM;
+        // preserve them as sanitized HTML islands instead of mangling.
+        // Simple grids still take the GFM pipe-table path (addRule
+        // outranks the plugin only where this filter matches).
+        turndown.addRule('complexTable', {
+          filter: (node) => node.nodeName === 'TABLE' && isComplexTable(node),
+          replacement: (content, node) => {
+            const html = sanitizeIslandNode(node, 'table');
+            return html ? '\n\n' + wrapIsland(html, 'table') + '\n\n' : content;
+          }
+        });
+
+        // Phase 18 C1 — math. Recover the author's TeX where the
+        // renderer preserved it (KaTeX annotation, MathJax v2 script
+        // tags); fall back to a sanitized MathML island; never emit
+        // the rendered glyph soup.
+        turndown.addRule('katexMath', {
+          filter: (node) => node.nodeName === 'SPAN' && node.classList &&
+            (node.classList.contains('katex-display') || node.classList.contains('katex')),
+          replacement: (content, node) => {
+            const display = node.classList.contains('katex-display');
+            const ann = node.querySelector && node.querySelector('annotation[encoding="application/x-tex"]');
+            const tex = ann && ann.textContent ? ann.textContent.trim() : '';
+            if (tex) return display ? `\n\n$$${tex}$$\n\n` : `$${tex}$`;
+            const math = node.querySelector && node.querySelector('math');
+            const island = math ? sanitizeIslandNode(math, 'math') : '';
+            if (island) return (display ? '\n\n' : ' ') + wrapIsland(island, 'math') + (display ? '\n\n' : ' ');
+            return content;
+          }
+        });
+        turndown.addRule('mathjax2Source', {
+          filter: (node) => node.nodeName === 'SCRIPT' && /^math\/tex/.test(node.getAttribute('type') || ''),
+          replacement: (content, node) => {
+            const tex = (node.textContent || '').trim();
+            if (!tex) return '';
+            const display = /mode\s*=\s*display/.test(node.getAttribute('type') || '');
+            return display ? `\n\n$$${tex}$$\n\n` : `$${tex}$`;
+          }
+        });
+        // MathJax v2 renders alongside its source script — drop the
+        // rendered copies so the TeX isn't emitted twice.
+        turndown.addRule('mathjax2Rendered', {
+          filter: (node) => node.classList
+            && (node.classList.contains('MathJax') || node.classList.contains('MathJax_Preview')
+                || node.classList.contains('MathJax_Display')),
+          replacement: () => ''
+        });
+        turndown.addRule('mathjax3Container', {
+          filter: (node) => node.nodeName === 'MJX-CONTAINER',
+          replacement: (content, node) => {
+            const display = node.getAttribute('display') === 'true';
+            const math = node.querySelector && node.querySelector('math');
+            const island = math ? sanitizeIslandNode(math, 'math') : '';
+            if (island) return (display ? '\n\n' : ' ') + wrapIsland(island, 'math') + (display ? '\n\n' : ' ');
+            const label = node.getAttribute('aria-label') || '';
+            return label ? ` ${label} ` : '';
+          }
+        });
+        turndown.addRule('mathmlIsland', {
+          filter: (node) => node.nodeName.toLowerCase() === 'math',
+          replacement: (content, node) => {
+            const island = sanitizeIslandNode(node, 'math');
+            return island ? ' ' + wrapIsland(island, 'math') + ' ' : content;
+          }
+        });
+
         // Preserve images with alt text and src (with lazy-load fallback)
         turndown.addRule('images', {
           filter: 'img',
           replacement: (content, node) => {
+            // Phase 18 C4.2 — archived PDF figures render with a
+            // session-scoped blob: src; the durable identity is the
+            // content address in data-xray-figure. Round-trip THAT,
+            // never the blob URL.
+            const figureHash = node.getAttribute('data-xray-figure');
+            if (figureHash) {
+              const figAlt = node.getAttribute('alt') || '';
+              return `![${figAlt}](xray-figure:${figureHash})`;
+            }
             let src = node.getAttribute('src') || '';
             
             // Fallback to data-src, data-lazy-src, srcset
@@ -774,6 +854,16 @@ export const ContentExtractor = {
     if (!markdown) return '';
     let html = markdown;
 
+    // Phase 18 C1 — pull HTML islands (complex tables / MathML) out
+    // BEFORE escaping. They are re-sanitized through the allowlist at
+    // injection below: markdown may be foreign (relay round-trips),
+    // so the fence is never a trust boundary.
+    const islands = [];
+    html = html.replace(islandPattern(), (m, profile, body) => {
+      islands.push({ profile, body });
+      return `\u0000XRISLAND${islands.length - 1}\u0000`;
+    });
+
     // Escape HTML entities in the source (but preserve existing HTML-like structures minimally)
     html = html.replace(/&/g, '&amp;');
     html = html.replace(/</g, '&lt;');
@@ -856,6 +946,21 @@ export const ContentExtractor = {
       }
       return `<p>${block}</p>`;
     }).filter(Boolean).join('\n\n');
+
+    // Phase 18 C1 — inject islands, re-sanitized. A block-level island
+    // that got paragraph-wrapped is unwrapped first; a body that can't
+    // be sanitized renders as escaped text, never as markup.
+    if (islands.length) {
+      html = html.replace(/<p>(\u0000XRISLAND\d+\u0000)<\/p>/g, '$1');
+      html = html.replace(/\u0000XRISLAND(\d+)\u0000/g, (m, i) => {
+        const island = islands[Number(i)];
+        if (!island) return '';
+        const safe = sanitizeIslandString(island.body, island.profile);
+        if (safe != null) return safe;
+        return island.body
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      });
+    }
 
     return html;
   },

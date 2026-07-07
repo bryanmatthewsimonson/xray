@@ -75,8 +75,15 @@ export async function generateClaimId(sourceUrl, text) {
  * `entity …about`, `source`, `key`) and the legacy one (`claim-text`,
  * `subject`/`object`, `claimant`, `crux`). Pure; no DOM, no storage.
  *
+ * Text provenance (Phase 14.5 hardening) reads back everything the
+ * builder emits — `quote` (verbatim article span), `anchor` (W3C
+ * selector JSON), `x` (canonical article hash), `captured_at` — so a
+ * claim that round-trips through a relay keeps its provenance chain.
+ *
  * @param {{tags?: Array, content?: string, pubkey?: string, created_at?: number, id?: string}} event
- * @returns {{id, text, about: string[], source: string, isKey: boolean, url, title, pubkey, created_at}}
+ * @returns {{id, text, about: string[], source: string, isKey: boolean, url, title,
+ *            quote: string, anchor: Array|null, articleHash: string, capturedAt: number,
+ *            pubkey, created_at}}
  */
 export function parseClaimEvent(event) {
     const tags = (event && event.tags) || [];
@@ -86,17 +93,48 @@ export function parseClaimEvent(event) {
     // the legacy subject/object tags.
     let about = tags.filter((x) => x[0] === 'entity' && x[2] === 'about').map((x) => x[1]);
     if (about.length === 0) about = [...valsOf('subject'), ...valsOf('object')];
+    let anchor = null;
+    const anchorJson = first('anchor');
+    if (anchorJson) {
+        try {
+            const parsed = JSON.parse(anchorJson);
+            if (Array.isArray(parsed) && parsed.length) anchor = parsed;
+        } catch (_) { /* malformed foreign anchor — display without one */ }
+    }
     return {
-        id:         first('d') || (event && event.id) || '',
-        text:       first('claim-text') || (event && event.content) || '',
+        id:          first('d') || (event && event.id) || '',
+        text:        first('claim-text') || (event && event.content) || '',
         about,
-        source:     first('source') || first('claimant') || '',
-        isKey:      first('key') === 'true' || first('crux') === 'true',
-        url:        first('r') || '',
-        title:      first('title') || '',
-        pubkey:     (event && event.pubkey) || '',
-        created_at: (event && event.created_at) || 0
+        source:      first('source') || first('claimant') || '',
+        isKey:       first('key') === 'true' || first('crux') === 'true',
+        url:         first('r') || '',
+        title:       first('title') || '',
+        quote:       first('quote') || '',
+        anchor,
+        articleHash: first('x') || '',
+        capturedAt:  Number(first('captured_at')) || 0,
+        pubkey:      (event && event.pubkey) || '',
+        created_at:  (event && event.created_at) || 0
     };
+}
+
+// ------------------------------------------------------------------
+// Anchor readers (pure) — display helpers over the selector array
+// ------------------------------------------------------------------
+
+/** The TextQuoteSelector exact from an anchor array, or ''. */
+export function exactFromAnchor(anchor) {
+    if (!Array.isArray(anchor)) return '';
+    const tqs = anchor.find((s) => s && s.type === 'TextQuoteSelector');
+    return (tqs && tqs.exact) || '';
+}
+
+/** The PDF page number from an anchor's FragmentSelector, or null. */
+export function pageFromAnchor(anchor) {
+    if (!Array.isArray(anchor)) return null;
+    const fs = anchor.find((s) => s && s.type === 'FragmentSelector'
+        && /^page=\d+$/.test(String(s.value || '')));
+    return fs ? Number(String(fs.value).slice(5)) : null;
 }
 
 // ------------------------------------------------------------------
@@ -132,6 +170,46 @@ function cleanAbout(about) {
 function cleanSuggestedBy(value) {
     const v = value === undefined || value === null ? 'user' : value;
     return isValidSuggestedBy(v) ? v : 'user';
+}
+
+// Text provenance (Phase 14.5 provenance hardening): the thin claim
+// stays thin for DISPLAY, but the record carries the full provenance
+// chain — `quote` is the verbatim article span the claim is drawn from
+// (first-class, untruncated; the anchor's TextQuoteSelector caps its
+// copy at 500 chars), and `article_hash` is the canonical article hash
+// (Phase 13.4 `x` value) of the text the quote was located in, binding
+// the claim to the exact version it came from. Both are auto-populated
+// by the capture paths, never typed by the user.
+const QUOTE_MAX = 4000;
+
+function cleanQuote(value) {
+    const q = String(value || '').trim();
+    if (!q) return null;
+    return q.length > QUOTE_MAX ? q.slice(0, QUOTE_MAX) : q;
+}
+
+function cleanArticleHash(value) {
+    const h = String(value || '').trim().toLowerCase();
+    return /^[0-9a-f]{64}$/.test(h) ? h : null;
+}
+
+// Anchor provenance (Phase 14.5 provenance hardening): HOW the anchor's
+// span was located in the article — { method: 'exact'|'normalized'|
+// 'fuzzy'|'manual', score, proposed_quote? }, where proposed_quote
+// preserves the quote text the span was located FROM whenever it was
+// repaired (the artifact-level suggested_by records whose text that
+// was). LOCAL record field only; the kind-30040 `anchor` tag carries
+// just the selector array.
+function cleanAnchorProvenance(value) {
+    if (!value || typeof value !== 'object') return null;
+    const method = String(value.method || '').trim();
+    if (!method) return null;
+    const out = { method };
+    if (Number.isFinite(value.score)) out.score = value.score;
+    if (typeof value.proposed_quote === 'string' && value.proposed_quote.trim()) {
+        out.proposed_quote = value.proposed_quote.trim();
+    }
+    return out;
 }
 
 // Backfill thin fields for records written before slice 10.1, so old
@@ -212,6 +290,9 @@ export const ClaimModel = {
             source,
             is_key:           isKey,
             anchor:           fields.anchor || null,
+            anchor_provenance: cleanAnchorProvenance(fields.anchor_provenance),
+            quote:            cleanQuote(fields.quote),
+            article_hash:     cleanArticleHash(fields.article_hash),
             source_url:       sourceUrl,
             context:          fields.context || '',
             suggested_by:     cleanSuggestedBy(fields.suggested_by),
@@ -245,6 +326,9 @@ export const ClaimModel = {
         }
         if ('is_key' in updates)  patched.is_key  = updates.is_key === true;
         if ('anchor' in updates)  patched.anchor  = updates.anchor || null;
+        if ('anchor_provenance' in updates) patched.anchor_provenance = cleanAnchorProvenance(updates.anchor_provenance);
+        if ('quote' in updates)   patched.quote   = cleanQuote(updates.quote);
+        if ('article_hash' in updates) patched.article_hash = cleanArticleHash(updates.article_hash);
         if ('context' in updates) patched.context = updates.context || '';
 
         patched.updated = Math.floor(Date.now() / 1000);

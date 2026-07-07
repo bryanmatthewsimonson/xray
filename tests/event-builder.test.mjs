@@ -317,3 +317,38 @@ test('buildCommentEvent tag vocabulary is pinned (parser contract)', () => {
         'r', 'reaction-count', 'reply-to', 'restack-count', 'title'
     ]);
 });
+
+test('buildClaimEvent — text-provenance tags round-trip through parseClaimEvent', async () => {
+    const { parseClaimEvent } = await import('../src/shared/claim-model.js');
+    const HASH = 'c'.repeat(64);
+    const claim = {
+        id: 'claim_prov', text: 'The audit never arrived.',
+        about: [], source: null, is_key: false,
+        quote: 'We never received the audit — not once…',
+        article_hash: HASH,
+        anchor: [{ type: 'TextQuoteSelector', exact: 'We never received the audit — not once…', prefix: 'said: “', suffix: '” and' },
+                 { type: 'TextPositionSelector', start: 34, end: 74 }],
+        created: 1751500000
+    };
+    const ev = EventBuilder.buildClaimEvent(claim, 'https://x.test/a', 'T', PUBKEY, {});
+
+    assert.deepEqual(ev.tags.find((t) => t[0] === 'quote'), ['quote', claim.quote]);
+    assert.deepEqual(ev.tags.find((t) => t[0] === 'x'), ['x', HASH]);
+    assert.deepEqual(ev.tags.find((t) => t[0] === 'captured_at'), ['captured_at', '1751500000']);
+
+    // The inverse read recovers the full provenance chain.
+    const parsed = parseClaimEvent(ev);
+    assert.equal(parsed.quote, claim.quote);
+    assert.equal(parsed.articleHash, HASH);
+    assert.equal(parsed.capturedAt, 1751500000);
+    assert.ok(Array.isArray(parsed.anchor));
+    assert.equal(parsed.anchor.find((s) => s.type === 'TextPositionSelector').start, 34);
+});
+
+test('buildClaimEvent — provenance tags are absent when the claim has none (no empty tags)', () => {
+    const claim = { id: 'claim_bare', text: 'A.', about: [], source: null, is_key: false };
+    const ev = EventBuilder.buildClaimEvent(claim, 'https://x.test/a', '', PUBKEY, {});
+    for (const name of ['quote', 'x', 'captured_at', 'anchor']) {
+        assert.equal(ev.tags.find((t) => t[0] === name), undefined, `no ${name} tag`);
+    }
+});

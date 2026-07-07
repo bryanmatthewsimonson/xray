@@ -1433,6 +1433,68 @@ imports):
 
 ---
 
+## Phase 17 — Entity corpus & smart entity management 📝 design only
+
+**`docs/ENTITY_CORPUS_DESIGN.md`** (v0.1, 2026-07-03). Two halves:
+**(A)** registry hygiene — a deterministic duplicate report (name
+clusters, shared platform accounts, co-mention overlap) plus an
+LLM entity audit (`propose_entity_ops`: merge/rename/retype/split/
+external-id, evidence-cited, human-confirmed) over the existing
+`canonical_id` alias machinery; **(B)** the entity as a subscribable
+NOSTR corpus — entity-signed kind-1 mention notes on article publish,
+enriched kind-0 profiles with NIP-39 external ids, and a wire-first
+corpus view, behind a new `entityCorpusPublishing` flag (default off).
+Groundwork already merged with the Phase 14.5 provenance hardening:
+grounded entity mentions, suggest-time dedupe, and claim `quote`/`x`
+wire tags. Slices E1–E6 in the design doc. Sequenced after the
+Epistack sprint, alongside/after Phase 16.
+
+---
+
+## Phase 18 — Complex content capture (PDFs, tables, scientific papers) 🚧 C1–C4.2 landed
+
+**`docs/COMPLEX_CONTENT_DESIGN.md`** (v0.1, 2026-07-03). Three tiers
+under one substrate rule (*the deterministic text layer is always the
+grounding substrate*).
+
+- ✅ **C1** tables + math — complex tables preserved as canonical
+  sanitized HTML islands (re-sanitized at render; never trusted from
+  foreign markdown); KaTeX/MathJax-v2 TeX recovery; MathML islands
+  (`shared/content-islands.js`).
+- ✅ **C2 (light)** scholarly metadata — DOI/arXiv/journal/authors
+  from citation meta tags on every capture (`platforms/scholar-meta.js`);
+  additive `doi` + NIP-73 `i` + `arxiv` tags on 30023.
+  *(Deferred: ar5iv-preferring arXiv handler, PMC handler, Crossref.)*
+- ✅ **C3** PDF routing + acquisition — background routes PDF tabs to
+  the reader's `?pdf=` path (`shared/pdf-detect.js` + Content-Type
+  sniff); Import-file fallback; IndexedDB v3 `source_documents` store
+  (bytes by `sha256`, 50MB cap).
+- ✅ **C4** pdf.js extraction — lazy engine/worker bundles; pure
+  layout reconstruction (`shared/pdf-layout.js`: gutter-aware columns,
+  furniture removal, hyphenation reflow, headings) → markdown +
+  pageMap; `FragmentSelector` page anchors on claims; `extraction`
+  provenance record; scans refused with a pointer to C5.
+- ✅ **C4.1** extraction-quality honesty — `extraction.warnings`
+  (`sparse-pages`: scanned pages whose content is missing;
+  `shredded-text`: run joining failed) surfaced as a reader banner
+  with a pointer to the archived original bytes.
+- ✅ **C4.2** PDF figures — page image XObjects extracted via an
+  operator-list transform walk (`reader/pdf-capture.js`), archived as
+  content-addressed PNGs in `source_documents`, and placed into the
+  reading-order markdown by vertical position with proximity captions
+  (`pdf-layout.js#mergeFigures`); rendered `![alt](xray-figure:<sha256>)`
+  → blob URL at read time. Size/furniture/count guards; an image-only
+  page is no longer flagged `sparse-pages`. *(Deferred: OCR inside
+  figures; vector-drawn charts with no image XObject.)*
+- 📝 **C5** LLM extraction assist (dual-substrate re-grounding;
+  scans-only transcription, honestly labeled) — designed, not built.
+- 📝 **C6** SMOKE §Phase 18 walk needs a human with a browser.
+
+Sequenced after the Epistack sprint (docs/code landed on the
+provenance train, PR #108).
+
+---
+
 ## Abandonment criteria
 
 From issue #20 — bears repeating. At any phase boundary, if the cost

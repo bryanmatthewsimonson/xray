@@ -44,9 +44,10 @@ Annotations and fact-checks may anchor to a specific span within a target. Selec
 The recommended selector types, in order of robustness preference:
 
 1. `TextQuoteSelector` — `{ exact, prefix, suffix }`. The author captures ~32 characters of context on each side of the selection. The consumer searches `prefix + exact + suffix` first, falling back to `exact` alone with a uniqueness check. Robust to DOM and CSS changes.
-2. `RangeSelector` — `{ startContainer, startOffset, endContainer, endOffset }` with XPath. Faster on long documents but brittle to DOM restructuring.
-3. `CssSelector` — useful when the page has stable element ids/classes (e.g., paragraph ids on Substack).
-4. `FragmentSelector` — for media fragments only: `xywh=...` for images, `t=Ns` for time offsets in audio/video.
+2. `TextPositionSelector` — `{ start, end }`: UTF-16 code-unit offsets into the rendered text content of the capture-time article body (the same text stream the sibling `TextQuoteSelector` was cut from). Emitted alongside a `TextQuoteSelector` by machine-grounded anchors (X-Ray's LLM-suggest path). Consumers MUST treat it as verification-only: resolve it only when the text at `[start, end)` reproduces the sibling `TextQuoteSelector`'s `exact` (allowing for that selector's >500-char `head … tail` truncation); on mismatch, skip it rather than guess — the offsets are meaningless against edited text.
+3. `RangeSelector` — `{ startContainer, startOffset, endContainer, endOffset }` with XPath. Faster on long documents but brittle to DOM restructuring.
+4. `CssSelector` — useful when the page has stable element ids/classes (e.g., paragraph ids on Substack).
+5. `FragmentSelector` — media fragments (`xywh=...` for images, `t=Ns` for time offsets in audio/video) and, for captures extracted from PDF documents, RFC 3778 page fragments (`{ "conformsTo": "http://tools.ietf.org/rfc/rfc3778", "value": "page=N" }`) alongside the text selectors — page-level provenance for consumers that can cite it; skipped by resolvers that can't.
 
 Authors SHOULD include multiple selectors. Consumers SHOULD try them in order and treat the first match with confidence ≥ 0.7 as the resolution. Annotations whose selectors do not resolve on the current page are NOT discarded; they are surfaced as page-level annotations with a "could not be located" indicator.
 
@@ -67,11 +68,23 @@ Addressable. An atomized assertion extracted from web content: the claim text pl
     ["source", "<who said it>"],               // entity name or free text
     ["anchor", "<selector-json>"],             // W3C selector array for the exact span
     ["key", "true"],                           // present only on key claims
+    ["quote", "<verbatim article span>"],      // optional — the exact text the claim is drawn from
+    ["x", "<canonical article hash>"],         // optional — binds the quote to the exact article version
+    ["captured_at", "<unix seconds>"],         // optional — when the human captured the claim
     ["client", "<client>"]
   ],
   "content": "<the claim text>"
 }
 ```
+
+**Text provenance tags** (all optional, additive): `quote` is the
+verbatim span of the source article the claim is drawn from —
+untruncated, unlike the `anchor` selector's capped `exact`; `x` is the
+canonical article hash (the same value the epistemic-audit kinds join
+on via `#x`), binding the quote to the exact text version it was
+located in; `captured_at` records capture time, which `created_at`
+(publish time) does not. Consumers rendering a claim SHOULD prefer
+`quote` for display and use `anchor` for on-page location.
 
 The `d` tag is deterministic over the verbatim (trimmed) source URL and the whitespace-collapsed, casefolded claim text, so re-publishing an edited claim's metadata replaces rather than duplicates, and two captures of the same quote from the same page-as-captured by the *same* author coincide. (URL variants — tracking parameters, trailing slashes — derive distinct `d`s; the reference implementation does not normalize the URL input here.) Note that two **different** authors who capture the same quote derive the same `d` under different pubkeys — those are distinct addressable events, and consumers MUST treat the full `30040:<pubkey>:<d>` coordinate as the claim's identity.
 

@@ -1,0 +1,315 @@
+// PDF layout-reconstruction tests — Phase 18 C4
+// (docs/COMPLEX_CONTENT_DESIGN.md §5.3).
+//
+// Pure module over synthetic positioned runs — no pdf.js in tests.
+// Fixtures mimic pdf.js getTextContent geometry: PDF user space,
+// origin bottom-left, y = baseline, h = font size.
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+    buildDocumentFromPages, pageOfOffset, pageFragmentSelector, textDensity
+} from '../src/shared/pdf-layout.js';
+import { pdfDocumentUrl, looksLikePdfUrl } from '../src/shared/pdf-detect.js';
+import { ContentExtractor } from '../src/shared/content-extractor.js';
+
+const W = 612;
+const H = 792;
+
+// A run; width approximated from text length.
+function run(str, x, y, h = 10) {
+    return { str, x, y, w: str.length * h * 0.5, h };
+}
+
+function page(items) {
+    return { width: W, height: H, items };
+}
+
+// ------------------------------------------------------------------
+// Lines + paragraphs
+// ------------------------------------------------------------------
+
+test('single column: lines merge into paragraphs, big gaps split them', () => {
+    const p = page([
+        run('First paragraph line one', 72, 700),
+        run('continues on line two.', 72, 686),
+        // gap of 3 line-heights → new paragraph
+        run('Second paragraph starts here', 72, 640),
+        run('and also continues.', 72, 626)
+    ]);
+    const { markdown } = buildDocumentFromPages([p]);
+    const paras = markdown.split('\n\n');
+    assert.equal(paras.length, 2);
+    assert.equal(paras[0], 'First paragraph line one continues on line two.');
+    assert.equal(paras[1], 'Second paragraph starts here and also continues.');
+});
+
+test('split runs on one baseline join with sensible spacing', () => {
+    const p = page([
+        // Two runs, tiny gap (same word continues): no space inserted.
+        { str: 'convo', x: 72, y: 700, w: 30, h: 10 },
+        { str: 'cation', x: 102.5, y: 700, w: 30, h: 10 },
+        // Real word gap (well under the column-gutter threshold): space.
+        { str: 'next', x: 138, y: 700, w: 20, h: 10 }
+    ]);
+    const { markdown } = buildDocumentFromPages([p]);
+    assert.equal(markdown, 'convocation next');
+});
+
+test('line-break hyphenation reflows', () => {
+    const p = page([
+        run('This word is convo-', 72, 700),
+        run('luted but reflows.', 72, 686)
+    ]);
+    const { markdown } = buildDocumentFromPages([p]);
+    assert.ok(markdown.includes('convoluted but reflows.'));
+});
+
+// ------------------------------------------------------------------
+// Two-column reading order
+// ------------------------------------------------------------------
+
+test('two columns read left column first, then right', () => {
+    const leftX = 72;
+    const rightX = 330;
+    const items = [];
+    for (let i = 0; i < 6; i++) items.push(run(`L${i} left column text here`, leftX, 700 - i * 14));
+    for (let i = 0; i < 6; i++) items.push(run(`R${i} right column text here`, rightX, 700 - i * 14));
+    const { markdown } = buildDocumentFromPages([page(items)]);
+    const l5 = markdown.indexOf('L5');
+    const r0 = markdown.indexOf('R0');
+    assert.ok(l5 >= 0 && r0 >= 0);
+    assert.ok(l5 < r0, 'all left-column text precedes right-column text');
+});
+
+test('a spanning line (title) stays before both columns', () => {
+    const items = [
+        // Wide title across both columns, larger font.
+        { str: 'A Grand Unified Title', x: 100, y: 750, w: 400, h: 18 }
+    ];
+    for (let i = 0; i < 5; i++) items.push(run(`L${i} body text in left col`, 72, 700 - i * 14));
+    for (let i = 0; i < 5; i++) items.push(run(`R${i} body text in right col`, 330, 700 - i * 14));
+    const { markdown } = buildDocumentFromPages([page(items)]);
+    assert.ok(markdown.indexOf('A Grand Unified Title') < markdown.indexOf('L0'));
+    assert.ok(markdown.indexOf('L4') < markdown.indexOf('R0'));
+    assert.match(markdown, /^# A Grand Unified Title/, 'oversized short line becomes a heading');
+});
+
+// ------------------------------------------------------------------
+// Furniture
+// ------------------------------------------------------------------
+
+test('repeating headers/footers and page numbers drop', () => {
+    const mk = (n) => page([
+        run('The Journal of Examples', 72, 780),          // header (top margin)
+        run(`Body text of page ${n} with words`, 72, 500),
+        run(String(n), 300, 20)                            // bare page number
+    ]);
+    const { markdown, stats } = buildDocumentFromPages([mk(1), mk(2), mk(3), mk(4)]);
+    assert.ok(!markdown.includes('The Journal of Examples'), 'repeating header dropped');
+    assert.ok(markdown.includes('Body text of page 2'), 'body survives');
+    assert.ok(!/^\d$/m.test(markdown), 'bare page numbers dropped');
+    assert.ok(stats.furnitureDropped >= 8);
+});
+
+// ------------------------------------------------------------------
+// Page map
+// ------------------------------------------------------------------
+
+test('pageMap offsets index the markdown; pageOfOffset resolves', () => {
+    const pages = [
+        page([run('Alpha page one text', 72, 700)]),
+        page([run('Beta page two text', 72, 700)])
+    ];
+    const { markdown, pageMap } = buildDocumentFromPages(pages);
+    assert.equal(pageMap.length, 2);
+    const beta = markdown.indexOf('Beta');
+    assert.equal(pageOfOffset(pageMap, 0), 1);
+    assert.equal(pageOfOffset(pageMap, beta), 2);
+    assert.equal(pageOfOffset(pageMap, -1), null);
+    assert.equal(pageOfOffset(null, 5), null);
+    assert.equal(markdown.slice(pageMap[1].start, pageMap[1].end), 'Beta page two text');
+});
+
+test('pageFragmentSelector shape', () => {
+    assert.deepEqual(pageFragmentSelector(7), {
+        type: 'FragmentSelector',
+        conformsTo: 'http://tools.ietf.org/rfc/rfc3778',
+        value: 'page=7'
+    });
+});
+
+// ------------------------------------------------------------------
+// Degenerate inputs + scan detection
+// ------------------------------------------------------------------
+
+test('empty/degenerate pages neither crash nor emit junk', () => {
+    const { markdown, pageMap } = buildDocumentFromPages([page([]), page([run('x y z words', 72, 700)])]);
+    assert.ok(markdown.includes('x y z words'));
+    assert.equal(pageMap.length, 2);
+    assert.equal(pageMap[0].start, pageMap[0].end, 'empty page spans zero chars');
+    assert.deepEqual(buildDocumentFromPages([]).pageMap, []);
+    assert.equal(buildDocumentFromPages(null).markdown, '');
+});
+
+test('textDensity: scans read near zero, text PDFs do not', () => {
+    assert.equal(textDensity([page([]), page([])]), 0);
+    assert.ok(textDensity([page([run('plenty of extractable text here', 72, 700)])]) > 8);
+});
+
+// ------------------------------------------------------------------
+// PDF tab detection (C3)
+// ------------------------------------------------------------------
+
+test('pdfDocumentUrl: direct, wrapper, and non-PDF shapes', () => {
+    assert.equal(pdfDocumentUrl('https://x.test/paper.pdf'), 'https://x.test/paper.pdf');
+    assert.equal(pdfDocumentUrl('https://x.test/paper.PDF?dl=1#page=2'), 'https://x.test/paper.PDF?dl=1#page=2');
+    assert.equal(
+        pdfDocumentUrl('chrome-extension://abc/viewer.html?file=' + encodeURIComponent('https://x.test/a.pdf')),
+        'https://x.test/a.pdf');
+    assert.equal(pdfDocumentUrl('https://x.test/article.html'), null);
+    assert.equal(pdfDocumentUrl('file:///home/me/a.pdf'), null, 'non-http(s) not fetchable');
+    assert.equal(
+        pdfDocumentUrl('https://viewer.test/v?file=' + encodeURIComponent('file:///etc/passwd.pdf')),
+        null, 'wrapper pointing at file: refused');
+    assert.equal(pdfDocumentUrl('not a url'), null);
+    assert.equal(looksLikePdfUrl('https://x.test/a.pdf?x=1'), true);
+    assert.equal(looksLikePdfUrl('https://x.test/a.pdfx'), false);
+});
+
+// ------------------------------------------------------------------
+// Extraction-quality warnings (C4.1)
+// ------------------------------------------------------------------
+
+test('warnings: a clean document produces none', () => {
+    const pages = [1, 2, 3].map((n) => page([
+        run(`Page ${n} has a healthy paragraph with plenty of words in it`, 72, 700),
+        run('and a second line that merges into the same paragraph nicely', 72, 686),
+        run('plus a third line to keep the density realistic here', 72, 672)
+    ]));
+    const { warnings } = buildDocumentFromPages(pages);
+    assert.deepEqual(warnings, []);
+});
+
+test('warnings: sparse pages inside a texty document are flagged with page ranges', () => {
+    const texty = (n) => page([run(
+        'A substantial page with a long paragraph of body text that easily clears the sparse threshold because it has many characters. '.repeat(3),
+        72, 700
+    )]);
+    const blank = page([]);
+    const { warnings } = buildDocumentFromPages([texty(1), blank, blank, texty(4), blank]);
+    const sparse = warnings.find((w) => w.code === 'sparse-pages');
+    assert.ok(sparse, 'sparse-pages warning present');
+    assert.deepEqual(sparse.pages, [2, 3, 5]);
+    assert.match(sparse.message, /2–3, 5/);
+    assert.match(sparse.message, /missing/i);
+});
+
+test('warnings: an all-scan document is NOT flagged sparse (the scan refusal path owns it)', () => {
+    const { warnings } = buildDocumentFromPages([page([]), page([]), page([])]);
+    assert.equal(warnings.find((w) => w.code === 'sparse-pages'), undefined);
+});
+
+test('warnings: shredded text (many tiny lines) is flagged', () => {
+    // 24 lines of ~7 chars each: runs never joined into normal lines.
+    const items = [];
+    for (let i = 0; i < 24; i++) {
+        items.push(run(`Frag ${i}`, 72, 700 - i * 14));
+    }
+    const { warnings } = buildDocumentFromPages([page(items)]);
+    const shred = warnings.find((w) => w.code === 'shredded-text');
+    assert.ok(shred, 'shredded-text warning present');
+    assert.deepEqual(shred.pages, [1]);
+    assert.match(shred.message, /verify quotes/i);
+    // A normal texty page does not trip it.
+    const clean = buildDocumentFromPages([page(
+        Array.from({ length: 24 }, (_, i) =>
+            run(`A perfectly ordinary body-text line number ${i} with plenty of characters in it`, 72, 700 - i * 14))
+    )]);
+    assert.equal(clean.warnings.find((w) => w.code === 'shredded-text'), undefined);
+});
+
+// ------------------------------------------------------------------
+// Figures (C4.2) — placement + captions
+// ------------------------------------------------------------------
+
+test('figures: placed between paragraphs by vertical position', () => {
+    const p = page([
+        run('Paragraph above the figure with words', 72, 700),
+        run('that continues on a second line', 72, 686),
+        run('Paragraph below the figure with words', 72, 400),
+        run('that also continues on a second line', 72, 386)
+    ]);
+    p.figures = [{ ref: 'xray-figure:' + 'a'.repeat(64), x: 72, y: 480, w: 300, h: 150 }];
+    const { markdown } = buildDocumentFromPages([p]);
+    const above = markdown.indexOf('above the figure');
+    const img = markdown.indexOf('![Figure (page 1)](xray-figure:');
+    const below = markdown.indexOf('below the figure');
+    assert.ok(above >= 0 && img >= 0 && below >= 0);
+    assert.ok(above < img && img < below, 'figure sits between the paragraphs');
+});
+
+test('figures: nearest caption line below becomes the alt text', () => {
+    const p = page([
+        run('Body paragraph with plenty of words here', 72, 700),
+        run('Figure 2: Bayes factors by evidence tier', 72, 430)   // just below the figure
+    ]);
+    p.figures = [{ ref: 'xray-figure:' + 'b'.repeat(64), x: 72, y: 460, w: 300, h: 180 }];
+    const { markdown } = buildDocumentFromPages([p]);
+    assert.ok(markdown.includes('![Figure 2: Bayes factors by evidence tier](xray-figure:'));
+});
+
+test('figures: image-only page still emits, and pageMap covers it', () => {
+    const p1 = page([run('Text page one with several words', 72, 700)]);
+    const p2 = page([]);
+    p2.figures = [{ ref: 'xray-figure:' + 'c'.repeat(64), x: 72, y: 300, w: 400, h: 300 }];
+    const { markdown, pageMap } = buildDocumentFromPages([p1, p2]);
+    const img = markdown.indexOf('![Figure (page 2)]');
+    assert.ok(img >= 0);
+    assert.ok(img >= pageMap[1].start && img < pageMap[1].end, 'figure offsets belong to page 2');
+});
+
+test('figures: an image-only page is NOT flagged sparse (its image was captured)', () => {
+    const texty = page([run(
+        'A substantial page with a long paragraph of body text that easily clears the sparse threshold because it has many characters. '.repeat(3),
+        72, 700
+    )]);
+    const imageOnly = page([]);          // no text layer…
+    imageOnly.figures = [{ ref: 'xray-figure:' + 'e'.repeat(64), x: 72, y: 300, w: 400, h: 300 }];  // …but a captured figure
+    const blank = page([]);              // truly empty — still flagged
+    const { warnings } = buildDocumentFromPages([texty, imageOnly, blank]);
+    const sparse = warnings.find((w) => w.code === 'sparse-pages');
+    assert.ok(sparse, 'sparse-pages warning present for the genuinely empty page');
+    assert.deepEqual(sparse.pages, [3], 'page 2 (image-only) is excused; page 3 (blank) is flagged');
+});
+
+test('figures: alt text is bracket-safe and capped', () => {
+    const p = page([
+        run('Figure 1: ' + 'x[]'.repeat(80), 72, 430)
+    ]);
+    p.figures = [{ ref: 'xray-figure:' + 'd'.repeat(64), x: 72, y: 460, w: 300, h: 180 }];
+    const { markdown } = buildDocumentFromPages([p]);
+    const alt = /!\[([^\]]*)\]/.exec(markdown);
+    assert.ok(alt, 'image emitted');
+    assert.ok(!alt[1].includes('['), 'no brackets in alt');
+    assert.ok(alt[1].length <= 140);
+});
+
+test('figures: a caption with double quotes cannot break the alt attribute', () => {
+    const p = page([
+        run('Body paragraph with plenty of words to anchor', 72, 700),
+        run('Figure 3: The "smoking gun" chart of case counts', 72, 430)
+    ]);
+    p.figures = [{ ref: 'xray-figure:' + 'f'.repeat(64), x: 72, y: 460, w: 300, h: 180 }];
+    const { markdown } = buildDocumentFromPages([p]);
+    const alt = /!\[([^\]]*)\]/.exec(markdown);
+    assert.ok(alt, 'image emitted');
+    assert.ok(!alt[1].includes('"'), 'no double quotes survive into the alt');
+    assert.match(alt[1], /smoking gun/, 'caption text otherwise preserved');
+    // …and the rendered HTML attribute stays well-formed.
+    const html = ContentExtractor.markdownToHtml(markdown);
+    const img = /<img src="xray-figure:f+" alt="([^"]*)">/.exec(html);
+    assert.ok(img, 'img tag with an intact alt attribute');
+    assert.match(img[1], /smoking gun/);
+});

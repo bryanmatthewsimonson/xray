@@ -660,11 +660,17 @@ publishes. Requires a real Anthropic API key
 |---|---|---|
 | 14.5.5 | On an op-ed / debate with named people, click **✨ Suggest…** (defaults) | ✅ button shows "✨ Thinking…", then a **Suggestions** modal opens with **only Entities + Claims** sections (no Assessments / Relationships / Findings); a model badge shows the model id |
 | 14.5.5b | Enable **Forensic findings** in Options, Save, re-run a pass | ✅ the modal now also shows a Findings section (and Baselines/Revisions if any) — opt-in kinds appear only once enabled |
-| 14.5.6 | Inspect a **Claim** proposal | ✅ summary shows the claim text + the about-entities it links; Accept / Edit / Reject buttons |
+| 14.5.6 | Inspect a **Claim** proposal | ✅ summary shows the claim text + the about-entities it links, the **quote it is drawn from**, and a **⚓ grounding chip** (verbatim / typography normalized / close match %); Accept / Edit / Reject buttons |
+| 14.5.6b | Inspect an **Entity** proposal | ✅ shows name · type, the **verbatim mention** with its ⚓ chip; if a same-type entity with a token-matching name already exists, a **"≈ may already exist"** select offers *Use existing* (defaulted when there is exactly one candidate) |
+| 14.5.6c | Accept an entity, then `chrome.storage.local` + the article: | ✅ *Use existing* links (no duplicate id minted, row notes "Linked to existing"); either way the article gains the entity ref with the **grounded mention as context** (the mention span highlights in the body) |
 | 14.5.7 | Inspect a **Finding** proposal | ✅ shows subject + maneuver + role/basis + a quoted lead + the **counter-read** (`↔ …`); **no stance/score/confidence anywhere** |
 | 14.5.8 | **Accept** an entity, then its claim, then a finding (or click **Accept all valid**) | ✅ rows flip to "✓ accepted"; the **claims bar** and **Forensic findings bar** gain the artifacts |
-| 14.5.9 | DevTools: `chrome.storage.local.get(['article_claims','behavioral_findings','entities'], console.log)` | ✅ accepted records carry `suggested_by: "llm:<model>"`; the finding has `counter_note`, `anchors[].quote`, and **no** `stance`/`intent`/`score` field |
+| 14.5.8b | Scroll down the suggestions list, Accept a row mid-list | ✅ the list **stays where you were** — no jump back to the top |
+| 14.5.8c | Click a section header's **"Accept all entities (N)"** button | ✅ only that section's valid rows accept (claims/assessments untouched); the count reflects what a click can actually do; dependency-blocked rows in an accepted section show why |
+| 14.5.8d | After accepting entities, check above the claims bar | ✅ an **Entities bar** lists each tagged entity as a chip (icon + name + type, mention in the tooltip); clicking a chip scrolls to the mention in the body (mark pulses, or the mention text is selected); manual tagger tags appear there too |
+| 14.5.9 | DevTools: `chrome.storage.local.get(['article_claims','behavioral_findings','entities'], console.log)` | ✅ accepted records carry `suggested_by: "llm:<model>"`; accepted claims carry a first-class `quote` (the article's own text) and, when the body wasn't edited, an `article_hash`; the finding has `counter_note`, `anchors[].quote`, and **no** `stance`/`intent`/`score` field |
 | 14.5.10 | Click a claim's tagged passage / a finding's evidence in the article body | ✅ the LLM's verbatim quote resolved to a real anchor (the span highlights / jumps) |
+| 14.5.10b | In the **claims bar**, each accepted claim shows its **verbatim quote** (italic block under the claim text; PDF captures add a `p. N` pill). Click the quote or the claim text | ✅ the article scrolls to the passage — the rehydrated mark pulses, or the quote text gets selected; a claim whose passage no longer exists shows a clear "could not locate" toast |
 
 **The firewall + Edit/Reject**
 
@@ -673,6 +679,8 @@ publishes. Requires a real Anthropic API key
 | 14.5.11 | If the model returned a finding with a missing/empty counter-note (or no quoted anchor), find its row | ✅ shows **"✗ …counter-note / anchor"** rejected-with-reason, Accept **disabled** — it can never save in that state |
 | 14.5.12 | **Edit** a finding row → clear the **Counter-read** → Apply | ✅ the row re-validates to ✗ rejected (Accept disabled) |
 | 14.5.13 | **Edit** a claim's text → Apply | ✅ the row gains a **"✎ edited (you)"** badge; on Accept the stored claim is `suggested_by: "user"` (honest provenance) |
+| 14.5.13b | **Edit** a claim's **quote** to text that is NOT in the article → Apply | ✅ the row re-validates to **"✗ Quote not found in the article…"**, its chip reads **⚓ not found**, and Accept is disabled (Accept-all skips it) |
+| 14.5.13c | Fix that quote back to real article text (or paste a curly-quote/em-dash variant of it) → Apply | ✅ chip returns to **⚓ verbatim** (or *typography normalized*), the message "Quote re-checked against the article." shows, provenance **stays** `llm:<model>` (quote-only edits don't flip it); on Accept the stored anchor's `exact` is the **article's own text**, and a repaired claim carries `anchor_provenance` with the proposed quote it was located from |
 | 14.5.14 | **Reject** a proposal | ✅ row dims to "✕ rejected"; nothing is stored for it |
 | 14.5.15 | Publishing is unaffected: with `assessmentPublishing` / `forensicPublishing` **off**, Publish | ✅ accepted LLM artifacts are **not** published (suggestion never publishes) |
 
@@ -692,6 +700,37 @@ publishes. Requires a real Anthropic API key
 | 14.5.20 | Repeat 14.5.4, 14.5.5, 14.5.8, 14.5.11 on Firefox ≥128 | ✅ identical behavior (the fetch runs in the SW; `anthropic-dangerous-direct-browser-access` header is sent) |
 
 ---
+
+## Phase 18 — Complex content (tables, math, PDFs)
+
+**Tables & math (C1)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 18.1 | Capture a page with a complex table (rowspan/colspan or a caption — e.g. a Wikipedia comparison table) | ✅ the reader renders the table as a real table (not mangled pipes); the markdown pane shows it fenced in `<!--xr:island:table-->` with sanitized HTML |
+| 18.2 | Capture a page with a simple 2×2 grid table | ✅ it stays a GFM pipe table (no island) |
+| 18.3 | Capture a page with KaTeX or MathJax math (e.g. a technical blog) | ✅ markdown carries `$…$` / `$$…$$` TeX (KaTeX/MathJax-v2) or a `math` island (MathJax-v3/MathML) — never rendered glyph soup |
+| 18.4 | Publish 18.1's article, then reconstruct it from the relay (portal) | ✅ the island renders identically; hand-editing the fenced markdown to contain `<script>` renders as ESCAPED text, never as markup |
+
+**PDF capture (C3/C4)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 18.5 | Open a text PDF (e.g. an arXiv paper PDF) in a tab, click the X-Ray toolbar icon | ✅ the reader opens on the `?pdf=` path and shows extracted markdown — headings, paragraphs, two-column papers in correct reading order (left column before right) |
+| 18.6 | DevTools on the reader: inspect `state.article.extraction` | ✅ `{ method: "pdfjs-…", source_hash: <64-hex>, page_count, archived: true }`; the `source_documents` IndexedDB store holds the original bytes under that hash |
+| 18.6b | Capture a PDF with SOME scanned pages (or a form-heavy/glyph-shredded one) | ✅ a **⚠️ Extraction quality** banner above the article names the affected pages ("little or no text layer… content is missing" / "short fragments… verify quotes"), cites the `source_hash`, and dismisses; a clean text PDF shows no banner (and `extraction.warnings` is absent) |
+| 18.7 | Select a sentence in the PDF capture → Add as claim → Accept, then inspect the claim's `anchor` | ✅ the selector array includes `{"type":"FragmentSelector","value":"page=N"}` with the right page |
+| 18.8 | Click the toolbar icon on a scanned (image-only) PDF | ✅ a clear error explains there is no text layer (LLM transcription is designed, not built) — no junk capture is created |
+| 18.9 | Load a PDF behind a login where refetch fails (or use `?pdf=import`) | ✅ the Import-file picker appears; picking the saved PDF captures it (URL provenance retained when known) |
+| 18.10 | Repeat 18.5 on Firefox ≥128 | ✅ identical behavior (routing normalizes Firefox's viewer URL; extraction runs in the reader page) |
+| 18.12 | Capture a figure-bearing PDF (e.g. a paper with charts/photos) | ✅ figures appear in the article inline, roughly where they sit on the page, with a caption or `Figure (page N)` alt; `state.article.extraction.figures` is the count; the `source_documents` store holds each figure as a PNG keyed by its sha256, and the markdown carries `![alt](xray-figure:<sha256>)` refs |
+| 18.13 | Capture a PDF whose image-only page has NO text layer | ✅ the page's image is captured and shown, and that page is **not** listed in the `sparse-pages` warning (its content was captured); a page with neither text nor figure still is |
+
+**Scholarly metadata (C2)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 18.11 | Capture a journal-article page (or arXiv abs page) and publish | ✅ `state.article.scholar` carries `doi`/`arxiv_id`/authors; the 30023 gains `['doi', …]`, `['i','doi:…']`, and/or `['arxiv', …]` tags; a plain blog capture gains none |
 
 ## Phase 15 — Truth adjudication (15.1–15.10)
 

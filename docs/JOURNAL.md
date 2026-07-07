@@ -19,6 +19,201 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-05 — pdf.js 6.x needs `Map.getOrInsertComputed` / `Math.sumPrecise` polyfills (figures returned zero)
+
+Tags: `bug`, `external`.
+
+C4.2 figure extraction shipped green on CI and passed a Node harness, but
+in a real browser produced **zero figures** while text captured fine. The
+Node harness hid it: pdf.js runs a *fake worker* (main-thread) there, and
+`node --test` never touches the built bundles at all.
+
+Reproduced by driving the actual built `dist/pdf-engine.bundle.js` + worker
+in headless Chromium (Playwright) against the real PDF. `getOperatorList()`
+threw `this._intentStates.getOrInsertComputed is not a function`. pdf.js
+**6.1.200 calls `Map.prototype.getOrInsertComputed` unconditionally** (15
+sites, incl. `getOperatorList`), and `Math.sumPrecise` for text metrics —
+both are bleeding-edge TC39 proposals **absent from the Firefox 128 floor
+and older Chrome** (the harness's bundled Chromium among them). Our figure
+path calls `getOperatorList()`; its `try/catch` swallowed the throw and
+returned no figures. The text path uses a different call, so it survived —
+which is exactly why the failure looked so selective.
+
+Fix: `src/reader/pdf-collection-polyfill.js` shims
+`Map`/`WeakMap.prototype.getOrInsert{,Computed}` and `Math.sumPrecise`
+(Kahan-Neumaier), imported FIRST by both `pdf-engine.js` (main thread) and
+`pdf-worker-entry.js` (worker) so the methods exist before pdf.js runs in
+either context. Idempotent, no-op where native. With it, the same harness
+recovers 14/15 figures, all decoding to PNG. This is load-bearing for the
+stated Firefox-128 floor — without it, `getOperatorList()` (hence figure
+extraction, and any future operator-list work) is broken on FF128.
+
+Two follow-on notes worth keeping:
+- **The browser image object shape differs from Node's.** Real worker +
+  OffscreenCanvas hands back `{ data, width, height, bitmap, … }` with an
+  `ImageBitmap`; Node's fake worker returned `{ data, … }` only. The
+  decoder now tries the bitmap, then falls back to raw channels — because
+  one image (page 20) came back as a *dimensionless* bitmap with empty
+  data and can't be recovered either way (14/15; the capture never fails).
+- **Test the built bundle in a browser, not just modules in Node.** Every
+  bug here (this, and the earlier decode-shape issues) lived in the exact
+  gap `node --test` and CI can't see. A Playwright smoke over the bundles
+  would have caught it pre-merge.
+
+## 2026-07-04 — PDF figures via operator-list transform walk (Phase 18 C4.2)
+
+Tags: `design`, `pattern`.
+
+Earlier PDF capture dropped every image. Recovering them turned on a
+few non-obvious choices worth recording:
+
+- **Placement comes from the operator list, not the text content.**
+  `page.getTextContent()` gives glyph positions but says nothing about
+  images. To know *where* a figure sits (so it can be interleaved into
+  the reading-order paragraph stream) you have to replay the page's
+  operator list yourself, tracking the CTM: `save`/`restore` push/pop a
+  matrix stack, `transform` composes (2×3 multiply), and at each
+  `paintImageXObject` the current matrix's `[a,d]` are the displayed
+  width/height in points and `[e,f]` the position. The unit-square
+  convention means `|ctm[0]|`/`|ctm[3]|` are the on-page size directly.
+  `pdf-layout.js#mergeFigures` then inserts each figure by its
+  top-of-image `y` between paragraphs. Verified against the real
+  `will_decision.pdf` (14 figures, all landing at sensible points) with
+  a Node harness replicating the exact walk before trusting the
+  in-extension path.
+- **Two decode shapes.** pdf.js hands back either an `ImageBitmap`
+  (`img.bitmap`) or raw `{data,width,height}` with 1/3/4 channels; both
+  go through a canvas → `toBlob('image/png')`. Channel count is inferred
+  from `data.length / (w*h)` — 3ch (RGB) and 1ch (gray) are expanded to
+  RGBA before `putImageData`.
+- **Same-image dedupe is content-addressed and layered.** A page can
+  paint one XObject twice (clip-split renders) → dedupe within a page by
+  sha256 so it shows once. An identical image on ≥3 pages is furniture
+  (logos/watermarks) and is dropped wholesale — the image analogue of
+  the repeating-header-text furniture pass. Survivors are archived in
+  `source_documents` keyed by their hash, and the markdown references
+  them as `![alt](xray-figure:<sha256>)`, hydrated to a blob URL at
+  render. This is a *derived* representation: the bytes already live
+  inside the archived source PDF, so the source hash still governs
+  provenance — the figure PNGs are a convenience, not new evidence.
+- **C4.1 interaction:** an image-only page used to trip the
+  `sparse-pages` "content is missing" warning. Now that its image is
+  captured, that warning would be a lie, so `extractionWarnings` excuses
+  any sparse page that carries a captured figure. A page with neither
+  text nor figure is still flagged.
+- **Known gaps:** no OCR of text *inside* a figure, and vector-drawn
+  charts (path ops, no image XObject) aren't captured — those need the
+  screenshot/render path, deferred.
+
+## 2026-07-03 — Complex content lands: islands re-sanitize at render; PDF columns share baselines
+
+Tags: `design`, `bug`.
+
+Phase 18 C1–C4 implementation notes, the second-guessable parts:
+
+- **HTML islands are never trusted at render.** Complex tables and
+  MathML are preserved as fenced HTML inside the markdown — but
+  captured markdown round-trips through relays, so `markdownToHtml`
+  re-sanitizes every island body through the same allowlist serializer
+  that produced it (`content-islands.js`), and renders it as escaped
+  text when it can't. The fence is a display hint, not a trust
+  boundary. The serializer is deliberately canonical (fixed attribute
+  order, collapsed/trimmed whitespace, unknown elements unwrap,
+  script/style/etc. drop outright) so islands can't wobble the
+  canonical article hash.
+- **Two-column PDFs put both columns on the SAME baseline.** The
+  first layout-engine draft clustered runs by baseline only, which
+  interleaved the columns line-by-line. Lines now split at
+  gutter-sized x-gaps (≥ max(18pt, 1.5× font size)) before column
+  ordering. Caught by the synthetic-fixture tests, worth remembering
+  for any future run-geometry work.
+- **PDF page anchors ground against the extracted markdown**, not the
+  rendered body text — the pageMap indexes the markdown, and rendered
+  offsets differ. Page lookup re-grounds the quote via
+  quote-grounding against the markdown substrate (memoized index).
+- **Scans are refused, not mis-captured**: near-zero text density
+  throws with a pointer to the designed LLM transcription tier
+  (COMPLEX_CONTENT_DESIGN.md §6) — shipping a wrong capture silently
+  would be the provenance failure this whole train exists to prevent.
+
+---
+
+## 2026-07-03 — Thin claims stay thin for display, not for provenance; entities keep their verbatim mentions
+
+Tags: `design`.
+
+Follow-up to the grounding work, closing two more provenance holes the
+maintainer called out:
+
+- **Claims.** The thin redesign (Phase 10) buried the verbatim quote
+  inside the anchor selector JSON (truncated at 500 chars) and the
+  30040 wire round-trip dropped it entirely — `buildClaimEvent` wrote
+  an `anchor` tag that `parseClaimEvent` never read. Claims now carry
+  first-class `quote` + `article_hash` (the Phase 13.4 canonical hash,
+  binding the quote to the exact text version) locally and on the wire
+  (`quote`/`x`/`captured_at` tags, all additive), with the parse side
+  reading everything the build side writes. The deliberate part:
+  **thin stays thin in the UI** — these fields are auto-populated by
+  the capture paths (grounded span, manual selection), never new form
+  fields. `x` reuses the audit family's tag so one `#x` query now
+  joins an article version to its audits AND its claims.
+- **Entities.** The display name is allowed to disambiguate beyond the
+  article's wording ("Elena Vargas", not "the mayor") — but that
+  meant LLM-suggested entities lost WHERE the article named them, and
+  near-duplicate names minted duplicate ids (the id derives from the
+  name). Entity proposals now require a grounded verbatim `mention`;
+  accepting one tags the article with the same `{entity_id, context}`
+  ref the manual tagger produces (so the mention survives renames and
+  reaches the publish flow), and `findEntityMatches` offers
+  link-to-existing at accept time (single candidate = default choice)
+  instead of silently accumulating "Mayor Elena Vargas" next to
+  "Elena Vargas". Retroactive registry cleanup + the entity-as-
+  subscribable-corpus model are designed, not built:
+  `docs/ENTITY_CORPUS_DESIGN.md`.
+
+---
+
+## 2026-07-03 — Suggest provenance is grounded: the model's quote is a search key, not evidence
+
+Tags: `design`, `bug`.
+
+The LLM Suggest anchor path leaked provenance: `resolveQuoteToSelectors`
+did a raw `indexOf` and, on a miss, still emitted a quote-only
+TextQuoteSelector containing text the article doesn't contain — a
+permanently orphaned anchor (the resolver requires an exact match). The
+claim validator never looked at the quote, and the review panel never
+displayed it, so a paraphrased "quote" (Opus in particular summarizes
+across passages) sailed through Accept with its provenance silently
+gone.
+
+Fix is a contract change, not a tolerance tweak
+(`shared/quote-grounding.js`): the model's quote is only a SEARCH KEY.
+It's located exact → typography-normalized (curly quotes/dashes/
+ellipsis/NBSP/case/whitespace, via a per-char offset map) → guarded
+fuzzy (token-F1 ≥ 0.8, ≥ 4 tokens, never for short quotes), and
+whatever tier hits, the stored anchor is rebuilt from the ARTICLE'S OWN
+bytes at the matched span (TextQuoteSelector with real prefix/suffix +
+a TextPositionSelector with raw offsets; the resolver only honors the
+position when the text there still reproduces the captured exact). A
+miss is a hard answer: with a grounding index in ctx, the proposal
+firewall rejects claims and findings whose quotes don't locate — the
+review panel shows ⚓ chips (verbatim / normalized / close-match % /
+not found), lets the user edit the quote in place to re-anchor, and
+"Accept all valid" can no longer take an ungrounded item. Claims store
+a local-only `anchor_provenance` (`method`/`score`/`proposed_quote`) so a
+repaired anchor keeps what the model originally wrote. Label quotes on
+assessments stay soft: an unlocatable one saves the label with NO
+anchor (never a fabricated one) and says so in the panel.
+
+Second-guessable calls, on purpose: (1) a quote-only edit does NOT flip
+`suggested_by` to `user` — the assertion is still the model's and the
+anchor is machine-verified either way; (2) the fuzzy tier repairs
+small drift (a dropped word, a "fixed" typo) rather than rejecting it,
+because the repaired span is real article text the human sees before
+accepting; wholesale paraphrase stays a hard reject.
+
+---
+
 ## 2026-07-05 — Verify-on-ingest + the 32126 rendezvous (Knowledge Sharing KS.1–KS.4)
 
 Tags: `bug`, `design`.
@@ -48,6 +243,8 @@ Tags: `bug`, `design`.
   parts). Wire changes are exhaustively its §10: 32126 gains its first
   publisher + one additive role-marked p tag. `NIP_DRAFT.md` gained
   the 32126 section and the verify-on-ingest consumer rule.
+
+---
 
 ## 2026-07-03 — Sprint descopes: public relays only; consensus-protocols idea dropped
 

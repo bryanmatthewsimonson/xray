@@ -12,6 +12,155 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **PDF figures are now captured (Phase 18 C4.2).** Earlier PDF capture
+  extracted only the text layer, dropping every image — a real loss for
+  papers and reports where the figure *is* the evidence. `pdf-capture.js`
+  now walks each page's operator list tracking the transform stack,
+  decodes every displayed image, and archives the survivors as PNGs in
+  the `source_documents` store, content-addressed by sha256. Each figure
+  is placed into the reading-order markdown by its position on the page,
+  captioned from the nearest `Figure/Table/…`-shaped line just below it
+  (else `Figure (page N)`), and rendered from a blob URL when the reader
+  opens. Guards keep it honest: a minimum displayed size and pixel count
+  skip rules and decorations, an identical image repeating on ≥3 pages is
+  treated as furniture (logos/watermarks) and dropped, and a per-document
+  cap bounds pathological files. A page whose only content is a captured
+  figure is no longer flagged `sparse-pages` — its content *was* captured,
+  just not as text. **Wire note (additive):** published `30023` markdown
+  from a figure-bearing PDF may now contain content-addressed image
+  references of the form `![alt](xray-figure:<sha256>)`. These resolve
+  against the local `source_documents` archive; a consumer without the
+  archived bytes should treat an unresolved `xray-figure:` URI as a
+  placeholder (the alt text is the fallback), exactly as it would any
+  missing image. No new tag kinds; no change to existing tags. Not done:
+  OCR of text inside figures, and vector-drawn charts (path ops, no image
+  XObject) — those remain a gap (`COMPLEX_CONTENT_DESIGN.md` §9 Q6).
+
+### Fixed
+
+- **PDF figures (and any operator-list work) on older browsers.** pdf.js
+  6.1.200 calls `Map.prototype.getOrInsertComputed` (inside
+  `getOperatorList`, among others) and `Math.sumPrecise` unconditionally —
+  both are recent TC39 proposals absent from the Firefox 128 floor and
+  older Chrome, where `getOperatorList()` threw and figure extraction
+  silently produced *zero* figures while the text layer still captured. A
+  new `pdf-collection-polyfill.js` shims those methods and is imported
+  first by both the engine and worker entries. Verified end-to-end by
+  driving the built bundles in headless Chromium against a real
+  figure-bearing PDF (0 → 14/15 figures recovered). The image decoder also
+  now falls back from a flaky/dimensionless `ImageBitmap` to raw channel
+  data.
+- **PDF extraction-quality warnings (Phase 18 C4.1).** The layout
+  engine now reports when reconstruction degraded instead of
+  presenting it as clean: `extraction.warnings` flags `sparse-pages`
+  (pages with no text layer inside an otherwise texty document —
+  likely scans whose content is missing from the capture) and
+  `shredded-text` (runs that never joined into normal lines), and the
+  reader banners them with the affected page ranges and a pointer to
+  the archived original (`source_hash`). Design notes folded into
+  `COMPLEX_CONTENT_DESIGN.md`: the figures/captions gap (§9 Q6) and
+  the companion-CLI adoption path for server-class document tooling
+  (Docling/GROBID — never in-extension, never hidden).
+- **Entities bar** (userscript parity): the reader shows every entity
+  tagged on the article as a chip row above the claims bar — icon +
+  current registry name + type, with the verbatim mention as the
+  tooltip; clicking a chip locates the mention in the body (mark
+  pulse, or text selection). Updates live as the manual tagger and
+  LLM-suggest accepts add entities.
+- **Review-panel ergonomics:** accepting a suggestion no longer
+  scrolls the list back to the top (scroll position survives
+  re-renders), and each section header gains an **"Accept all
+  <kind> (N)"** button so you can take, say, every entity without
+  also accepting the claims — counts reflect only rows a click can
+  actually accept, and dependency-blocked rows explain themselves.
+- **Claims bar shows the quote, and claims click through to the
+  article.** Every claim row now displays the verbatim quote it is
+  drawn from (the stored `quote`, falling back to the anchor's exact
+  for older records; PDF captures add a `p. N` page pill), and
+  clicking the quote or the claim text jumps to the passage in the
+  body — via the anchor-precise mark (with a pulse) when it resolved,
+  else by selecting the stored quote. Mark rehydration is also
+  quote-first now: an LLM claim's `text` is a summary that never
+  appears in the article, so pre-quote fallbacks silently failed.
+- **First-class claim text provenance.** Claims now carry the verbatim
+  `quote` they are drawn from (untruncated, auto-populated from the
+  grounded span or the manual selection — never typed by the user) and
+  the `article_hash` of the exact text version it was located in, plus
+  the existing capture timestamp. All three ride the kind-30040 wire as
+  additive optional tags (`quote`, `x` — joining the audit family's
+  `#x` queries — and `captured_at`), and `parseClaimEvent` reads them
+  (and the previously write-only `anchor` tag) back, so a claim that
+  round-trips through a relay keeps its full provenance chain.
+- **Grounded entity mentions + dedupe at accept.** LLM entity
+  proposals now require a machine-checked verbatim `mention` (the
+  display name may disambiguate — the mention may not), and accepting
+  one tags the article with the grounded span exactly like the manual
+  selection tagger, so the publish flow p-tags it and mention
+  provenance survives display-name changes. At accept time, proposals
+  whose names token-match an existing same-type entity offer **"use
+  existing"** (single candidate = default) instead of minting
+  near-duplicate ids.
+- **Complex content capture (Phase 18, slices C1–C4 + C2).**
+  Implements `docs/COMPLEX_CONTENT_DESIGN.md` §4–5:
+  - *Tables & math (C1)*: complex tables (rowspan/colspan, nested,
+    captions, multi-row headers, block cells) are preserved as
+    deterministic, sanitized HTML islands inside the markdown instead
+    of being GFM-mangled; KaTeX/MathJax-v2 math recovers the author's
+    TeX (`$…$`), MathJax-v3/raw MathML becomes sanitized math islands.
+    The renderer re-sanitizes island bodies through the same allowlist
+    (foreign markdown fences are never trusted); simple tables keep
+    the GFM path.
+  - *PDF capture (C3/C4)*: a toolbar click on a PDF tab now routes to
+    the reader's PDF path (content scripts can't run in PDF viewers);
+    the reader fetches the bytes (with an Import-file fallback),
+    archives the original in a new IndexedDB v3 `source_documents`
+    store keyed by `sha256(bytes)` (50MB cap), and extracts text with
+    a lazily-loaded pdf.js bundle. A pure layout engine reconstructs
+    lines/columns/paragraphs (gutter-aware two-column ordering,
+    header/footer removal, hyphenation reflow, size-based headings)
+    into markdown plus a per-page offset map; claims captured from a
+    PDF carry an additive `FragmentSelector` (`page=N`) anchor, and
+    the capture records `extraction` provenance
+    (`{method, source_hash, page_count}`). Scans without a text layer
+    are refused with a pointer to the designed (not yet built) LLM
+    transcription tier.
+  - *Scholarly metadata (C2)*: every capture now reads standard
+    citation meta tags (DOI, arXiv id+version, journal, authors,
+    date) into `article.scholar`; published 30023s gain additive
+    `doi` + NIP-73 `['i','doi:…']` and `arxiv` tags.
+  Remaining from the design: the LLM extraction assist (C5) and the
+  ar5iv-preferring arXiv handler.
+- **Entity corpus + smart management design**
+  (`docs/ENTITY_CORPUS_DESIGN.md`, design-only): deterministic
+  duplicate reporting + LLM entity audit over the existing alias
+  machinery, and the NOSTR entity-corpus model — entity-signed kind-1
+  mention notes, enriched kind-0 profiles with NIP-39 external ids,
+  and a wire-first corpus view — gated behind a future
+  `entityCorpusPublishing` flag.
+- **Grounded provenance for LLM Suggest.** Every quote a suggestion
+  stakes provenance on is now machine-located in the article
+  (`shared/quote-grounding.js`: exact → typography-normalized → guarded
+  fuzzy with a hard threshold), and stored anchors are rebuilt from the
+  article's own text at the matched span — a TextQuoteSelector with
+  real prefix/suffix plus a new TextPositionSelector carrying raw
+  offsets (resolved only when verified against the captured exact).
+  Claims and forensic findings whose quotes can't be located are
+  rejected-with-reason and can't be accepted (or "Accept all"-ed); the
+  review panel shows per-quote ⚓ grounding chips, displays the
+  article's span (with the model's original a tooltip away), and lets
+  you edit claim/finding quotes in place to re-anchor. Accepted claims
+  keep a local-only `anchor_provenance` record (`method`, `score`, and
+  the model's original quote whenever the span was repaired).
+  Assessment label quotes that don't locate save the label without an
+  anchor — never a fabricated one. Wire note (additive): selector
+  arrays emitted by the suggest path — the kind-30040 `anchor` tag,
+  kind-30054 `label-anchor` tags, and kind-30062 `maneuver-step`
+  selectors — may now also contain
+  `{"type":"TextPositionSelector","start":…,"end":…}` (UTF-16
+  code-unit offsets into the capture-time article body text;
+  verification-only semantics documented in `docs/NIP_DRAFT.md`
+  §Selectors). Consumers that don't know the type skip it.
+
 - **Identity profiles + fresh workspace.** Settings ▸ Signing is now the
   single home for user identity: saved, labeled identities
   (`identity_profiles`, keyed by pubkey) with a picker — New identity /
