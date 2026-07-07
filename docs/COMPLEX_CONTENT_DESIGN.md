@@ -219,6 +219,15 @@ case (and is the fully-offline path).
 
 ### 5.5 Known limits (by design) + quality honesty
 
+**Named extraction limits (2026-07-07, documented-not-fixed):** RTL
+text (reading order within lines and column order are LTR-only);
+captions ABOVE tables (the caption window searches below the figure
+only); superscript footnote markers can emit before their sentence
+(they cluster as their own baseline); a large title wrapped over two
+lines emits two `#` headings; vector-graphic figures (charts drawn
+with path operators, no image XObject) are not captured. Each is a
+verify-against-the-archived-original case, not a silent corruption.
+
 Encrypted PDFs: fail with a clear message. Pure-scan PDFs (no text
 layer): detected (near-empty text content) and offered the Tier-3
 path. Forms/annotations: out of scope v1.

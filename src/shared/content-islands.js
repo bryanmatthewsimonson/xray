@@ -120,7 +120,12 @@ export function sanitizeIslandNode(node, profile) {
 function serializeElement(node, p) {
     const tag = tagOf(node);
     if (DROP.has(tag)) return '';
-    const allowedAttrs = p.tags[tag];
+    // Own-property lookup only: a hostile island named <constructor>
+    // (or <tostring>…) would otherwise hit Object.prototype through
+    // the profile literal, pass the "allowed tag" branch, and throw on
+    // the non-iterable attr list — killing the whole capture.
+    const allowedAttrs = Object.prototype.hasOwnProperty.call(p.tags, tag)
+        ? p.tags[tag] : undefined;
     if (allowedAttrs === undefined) {
         // Unknown element — unwrap.
         return serializeChildren(node, p, false);

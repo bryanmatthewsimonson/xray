@@ -725,6 +725,11 @@ publishes. Requires a real Anthropic API key
 | 18.10 | Repeat 18.5 on Firefox ≥128 | ✅ identical behavior (routing normalizes Firefox's viewer URL; extraction runs in the reader page) |
 | 18.12 | Capture a figure-bearing PDF (e.g. a paper with charts/photos) | ✅ figures appear in the article inline, roughly where they sit on the page, with a caption or `Figure (page N)` alt; `state.article.extraction.figures` is the count; the `source_documents` store holds each figure as a PNG keyed by its sha256, and the markdown carries `![alt](xray-figure:<sha256>)` refs |
 | 18.13 | Capture a PDF whose image-only page has NO text layer | ✅ the page's image is captured and shown, and that page is **not** listed in the `sparse-pages` warning (its content was captured); a page with neither text nor figure still is |
+| 18.14 | With Signing = **Local**, publish a PDF capture (article + a claim) | ✅ publish succeeds end-to-end (no "Session record missing"); with Signing = NIP-07 the error says to switch to Local/NSecBunker for PDF captures |
+| 18.15 | Right-click a PDF tab → **Capture this page with X-Ray** | ✅ the PDF reader opens (same as the toolbar icon) — not the Settings page |
+| 18.16 | Open a local `file:///…/doc.pdf` tab → toolbar icon | ✅ the reader opens on the Import-file picker (`?pdf=import`); picking the file captures it and the archive row's URL is `file:///imported/<hash16>/…` (two different files named alike don't collide) |
+| 18.17 | Open `https://…/real.pdf?file=<url-encoded other PDF>` → toolbar icon | ✅ the capture is of **real.pdf** (check `state.article.url`), never the `file=` target |
+| 18.18 | Capture a two-column LaTeX/IEEE paper (10–18pt gutter) with a figure in the right column | ✅ reading order is left column then right; the figure appears within the right column's text, not at the top of the page |
 
 **Scholarly metadata (C2)**
 

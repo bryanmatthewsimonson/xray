@@ -129,6 +129,19 @@ async function loadArticle() {
     if (pdfParam) {
         state.id = 'pdf-' + Date.now().toString(36);
         const article = await loadPdfArticle(pdfParam);
+        // Register a TABLESS session record: the background publish
+        // handlers look captures up by id, and without this record a
+        // PDF capture could never publish ("Session record missing").
+        // sourceTabId is null by construction — there is no source tab
+        // (content scripts never run in PDF viewers) — which routes
+        // signing through the worker's Signer façade instead of a tab.
+        await new Promise((resolve) => {
+            const area = browserApi.storage.session || browserApi.storage.local;
+            area.set({
+                ['xray:article:' + state.id]:
+                    { article, sourceTabId: null, createdAt: Date.now(), readOnly: false }
+            }, () => resolve());
+        });
         return adoptArticle(article, null);
     }
 
@@ -313,8 +326,16 @@ function pickPdfFile(message) {
  * content address, never the session blob URL. Evicted bytes leave
  * the alt text showing — degraded, visible, never wrong.
  */
+let _figureBlobUrls = [];
 async function hydrateFigureImages(root) {
     if (!root) return;
+    // Blob URLs from the previous render pin their bytes for the whole
+    // tab lifetime unless revoked — re-renders (edits, publish) would
+    // otherwise stack a full figure set per pass.
+    for (const url of _figureBlobUrls) {
+        try { URL.revokeObjectURL(url); } catch (_) { /* already gone */ }
+    }
+    _figureBlobUrls = [];
     const imgs = root.querySelectorAll('img[src^="xray-figure:"]');
     for (const img of imgs) {
         const hash = img.getAttribute('src').slice('xray-figure:'.length);
@@ -324,6 +345,7 @@ async function hydrateFigureImages(root) {
             const row = await ArchiveCache.getSourceDocument(hash);
             if (!row || !row.bytes) continue;
             const url = URL.createObjectURL(new Blob([row.bytes], { type: row.mime || 'image/png' }));
+            _figureBlobUrls.push(url);
             img.src = url;
         } catch (_) { /* alt text remains — honest degradation */ }
     }
@@ -916,7 +938,9 @@ function renderExtractionWarningsBanner() {
       <div class="xr-hash-banner__body">
         <div class="xr-hash-banner__label">⚠️ Extraction quality warning${warnings.length > 1 ? 's' : ''}</div>
         ${warnings.map((w) => `<div class="xr-hash-banner__metric">${escapeHtml(w.message)}</div>`).join('')}
-        <div class="xr-hash-banner__metric">The original PDF is archived (source_hash ${escapeHtml(String(state.article.extraction.source_hash || '').slice(0, 12))}…) — verify against it before relying on affected passages.</div>
+        <div class="xr-hash-banner__metric">${state.article.extraction.archived
+            ? `The original PDF is archived (source_hash ${escapeHtml(String(state.article.extraction.source_hash || '').slice(0, 12))}…) — verify against it before relying on affected passages.`
+            : `The original PDF could NOT be archived (too large or storage full) — keep your own copy to verify affected passages against (source_hash ${escapeHtml(String(state.article.extraction.source_hash || '').slice(0, 12))}…).`}</div>
       </div>
       <div class="xr-hash-banner__actions">
         <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-extract-dismiss">Dismiss</button>

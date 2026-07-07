@@ -290,8 +290,10 @@ export async function saveArticle({ article, source = 'capture', publishedToRela
     await tx(transaction);
 
     // Eviction runs on a fresh transaction so a slow LRU pass doesn't
-    // stretch the primary write's duration.
+    // stretch the primary write's duration. The source-document pruner
+    // rides along: nothing else ever deletes from that store.
     evictIfNeeded().catch((err) => Utils.error('archive-cache: eviction failed', err));
+    pruneSourceOrphans().catch((err) => Utils.error('archive-cache: source prune failed', err));
 
     return record;
 }
@@ -440,6 +442,56 @@ export async function putSourceDocument({ hash, bytes, mime = '', url = '' }) {
     });
     await tx(transaction);
     return { stored: true };
+}
+
+/**
+ * Delete source-document rows no capture references (Phase 18
+ * hygiene): the store had no eviction path at all, so failed or
+ * abandoned captures accumulated PDF bytes and figure PNGs forever.
+ * Referenced = an article row whose `extraction.source_hash` names
+ * the document, or a figure row (url `pdf-figure:<sourceHash>`) whose
+ * parent document is referenced. Rows younger than PRUNE_MIN_AGE_S
+ * are kept unconditionally — during a capture the bytes land moments
+ * before the article row does, and the pruner must never race a
+ * capture running in another tab.
+ *
+ * @returns {Promise<number>} rows deleted
+ */
+const PRUNE_MIN_AGE_S = 30 * 60;
+export async function pruneSourceOrphans() {
+    const articles = await listArticles();
+    const referenced = new Set();
+    for (const rec of articles) {
+        const hash = rec && rec.article && rec.article.extraction
+            && rec.article.extraction.source_hash;
+        if (hash) referenced.add(hash);
+    }
+    const db = await openArchiveDb();
+    const cutoff = Math.floor(Date.now() / 1000) - PRUNE_MIN_AGE_S;
+    const transaction = db.transaction(SOURCE_DOCS_STORE, 'readwrite');
+    const store = transaction.objectStore(SOURCE_DOCS_STORE);
+    let pruned = 0;
+    await new Promise((resolve, reject) => {
+        // Cursor, not getAll: rows carry up-to-50MB byte payloads and
+        // must be materialized one at a time.
+        const cur = store.openCursor();
+        cur.onsuccess = () => {
+            const cursor = cur.result;
+            if (!cursor) return resolve();
+            const row = cursor.value || {};
+            const parent = String(row.url || '').startsWith('pdf-figure:')
+                ? String(row.url).slice('pdf-figure:'.length)
+                : null;
+            const keep = (row.fetchedAt || 0) > cutoff
+                || referenced.has(row.hash)
+                || (parent !== null && referenced.has(parent));
+            if (!keep) { cursor.delete(); pruned += 1; }
+            cursor.continue();
+        };
+        cur.onerror = () => reject(cur.error);
+    });
+    await tx(transaction);
+    return pruned;
 }
 
 /** Fetch an archived source document by its bytes hash, or null. */
