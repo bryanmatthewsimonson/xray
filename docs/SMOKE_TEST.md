@@ -23,7 +23,7 @@ git clone …
 cd xray
 npm install
 npm run build           # produces dist/*.bundle.js (7 bundles)
-npm test                # 1272/1272 should pass
+npm test                # 1277/1277 should pass
 ```
 
 ### Chrome / Chromium / Brave / Edge

@@ -77,8 +77,17 @@ export const MODEL_OUTPUT_SCHEMA = obj({
     reconstruction_summary: quote({
         description: 'A short narrative of the whole reading, in the jurisdiction\'s voice.'
     }),
-    thin_coverage_flags: strArr(),
-    recommended_sources: strArr()
+    thin_coverage_flags: {
+        ...strArr(),
+        description: 'Honest coverage limits: claims the corpus addresses only thinly or '
+            + 'obliquely, and any cited locator you could not anchor to a named edition '
+            + '(name the authority and why).'
+    },
+    recommended_sources: {
+        ...strArr(),
+        description: 'What would need to be loaded into the corpus to read the silent or '
+            + 'thinly-covered claims properly.'
+    }
 }, ['readings', 'reconstruction_summary']);
 
 // ------------------------------------------------------------------

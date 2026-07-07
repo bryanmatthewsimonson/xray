@@ -261,4 +261,37 @@ test('lens-schemas: a conformant full panel validates; missing disclosure fails'
 test('lens-schemas: MODEL_OUTPUT_SCHEMA is JSON-serializable (it ships as the tool input_schema)', () => {
     const roundTrip = JSON.parse(JSON.stringify(MODEL_OUTPUT_SCHEMA));
     assert.deepEqual(roundTrip, MODEL_OUTPUT_SCHEMA, 'no RegExp/function nodes — the API gets exactly this');
+    // The authored field guidance must actually reach the API — quote()
+    // once dropped its extras silently.
+    const reading = MODEL_OUTPUT_SCHEMA.properties.readings.items;
+    assert.ok(reading.properties.authorities_cited.items.properties.authority_id.description,
+        'authority_id carries its corpus-block guidance');
+    assert.ok(reading.properties.reasoning.description, 'reasoning carries its steelman guidance');
+    assert.ok(reading.properties.confidence_rationale.description);
+    assert.ok(MODEL_OUTPUT_SCHEMA.properties.reconstruction_summary.description);
+    assert.ok(MODEL_OUTPUT_SCHEMA.properties.thin_coverage_flags.description,
+        'the model is told what thin_coverage_flags is for (§7 hard-stop row 4)');
+});
+
+test('lens-schemas: exclusivity re-check covers the reverse direction on assembled shapes', () => {
+    const smuggled = assembledJurisdiction();
+    smuggled.readings[0] = {
+        ...goodReadingNormalized(),
+        corpus_stance: 'asserts'                 // corpus_stance on a normative claim
+    };
+    const v = validateJurisdictionReading(smuggled, { claims: CLAIMS });
+    assert.equal(v.valid, false);
+    assert.match(v.errors[0].message, /reserved for factual assertions/);
+});
+
+test('lens-schemas: panel-level exclusivity re-check rejects a smuggled cached violation', () => {
+    const panel = assembledPanel();
+    panel.jurisdictions[0].readings[1] = {
+        ...goodFactualNormalized(),
+        disposition: 'rejects'                   // factual claim c2 given a disposition, panel-deep
+    };
+    delete panel.jurisdictions[0].readings[1].corpus_stance;
+    const v = validateLensPanel(panel);
+    assert.equal(v.valid, false, 'a cached panel cannot smuggle a firewall violation');
+    assert.match(v.errors.map((e) => e.message).join(' '), /never carries a disposition/);
 });

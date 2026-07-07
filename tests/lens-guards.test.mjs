@@ -27,7 +27,9 @@ const lensSchemas = await import('../src/shared/lens-schemas.js');
 const lensPrompt = await import('../src/shared/lens-prompt.js');
 const jurisdictionModel = await import('../src/shared/jurisdiction-model.js');
 const lensEngine = await import('../src/shared/lens-engine.js');
+const lensSection = await import('../src/reader/lens-section.js');
 const { FLAGS_DEFAULTS } = await import('../src/shared/metadata/feature-flags.js');
+const { WORKSPACE_CLEAR_KEYS } = await import('../src/shared/identity-profiles.js');
 
 const RESERVED = /verdict|ruling|opinion|court|integrity/i;
 
@@ -41,7 +43,8 @@ test('guard: no Phase 16 module exports a reserved word (§5.2)', () => {
         'lens-schemas': lensSchemas,
         'lens-prompt': lensPrompt,
         'jurisdiction-model': jurisdictionModel,
-        'lens-engine': lensEngine
+        'lens-engine': lensEngine,
+        'lens-section': lensSection
     };
     for (const [name, mod] of Object.entries(modules)) {
         for (const key of Object.keys(mod)) {
@@ -50,11 +53,29 @@ test('guard: no Phase 16 module exports a reserved word (§5.2)', () => {
     }
 });
 
-test('guard: Phase 16 storage keys carry no reserved word (§5.2)', () => {
-    // The registry key + the session-cache prefix, pinned as literals.
+test('guard: Phase 16 storage keys carry no reserved word and stay workspace-covered (§5.2)', () => {
+    // The ACTUAL keys the modules use — not test-local copies.
     assert.equal(lensEngine.LENS_SESSION_PREFIX, 'xray:lensread:');
-    assert.doesNotMatch('lens_jurisdictions', RESERVED);
+    assert.equal(jurisdictionModel.JURISDICTIONS_KEY, 'lens_jurisdictions');
+    assert.doesNotMatch(jurisdictionModel.JURISDICTIONS_KEY, RESERVED);
     assert.doesNotMatch(lensEngine.LENS_SESSION_PREFIX, RESERVED);
+    // Renaming the registry key must not silently orphan workspace
+    // backup/reset coverage.
+    assert.ok(WORKSPACE_CLEAR_KEYS.includes(jurisdictionModel.JURISDICTIONS_KEY),
+        'the registry key is in WORKSPACE_CLEAR_KEYS');
+});
+
+test('guard: the options + reader lens HTML blocks carry no reserved word (§5.2 user-visible strings)', async () => {
+    const optionsHtml = await readFile(new URL('../src/options/options.html', import.meta.url), 'utf8');
+    const lensBlock = optionsHtml.split('<h3 class="xr-opt__subhead">Moral lens</h3>')[1];
+    assert.ok(lensBlock, 'the Moral lens block exists in options.html');
+    assert.doesNotMatch(lensBlock.split('<h3')[0], RESERVED, 'options.html Moral lens block');
+
+    const readerHtml = await readFile(new URL('../src/reader/index.html', import.meta.url), 'utf8');
+    const sectionStart = readerHtml.indexOf('id="xr-lensread"');
+    assert.ok(sectionStart > -1, 'the lens section exists in reader index.html');
+    const section = readerHtml.slice(sectionStart, readerHtml.indexOf('</section>', sectionStart));
+    assert.doesNotMatch(section, RESERVED, 'reader index.html lens section');
 });
 
 // ------------------------------------------------------------------
@@ -125,11 +146,19 @@ test('guard: no builder in src/ emits kind 30066, and no constant reserves it', 
     const emitted = new Set();
     for await (const file of walkJs(srcRoot)) {
         const text = await readFile(file, 'utf8');
-        for (const m of text.matchAll(/\bkind\s*:\s*(\d{1,5})\b/g)) emitted.add(Number(m[1]));
-        for (const m of text.matchAll(/\bKIND_[A-Z_]+\s*=\s*(\d{1,5})\b/g)) emitted.add(Number(m[1]));
+        // Emission sites: `kind: N` literals and `x.kind = N` assignments.
+        for (const m of text.matchAll(/\bkind\s*[:=]\s*(\d{1,5})\b/g)) emitted.add(Number(m[1]));
+        // Constant reservations, BOTH naming conventions the repo uses:
+        // KIND_X (audit/truth builders) and X_KIND (claim-ref's
+        // CLAIM_KIND) — a suffix-style `LENS_KIND = 30066` must not
+        // slip past this scan.
+        for (const m of text.matchAll(/\b(?:[A-Z][A-Z0-9_]*_)?KIND(?:_[A-Z0-9][A-Z0-9_]*)?\s*=\s*(\d{1,5})\b/g)) {
+            emitted.add(Number(m[1]));
+        }
     }
     assert.ok(emitted.has(30023), 'sanity: the scan sees the article kind');
     assert.ok(emitted.has(30063), 'sanity: the scan sees the Phase 15 kinds');
+    assert.ok(emitted.has(30040), 'sanity: the scan sees suffix-style constants (CLAIM_KIND)');
     assert.equal(emitted.has(30066), false,
         'kind 30066 is left FREE — a shareable lens-reading is a separately-designed act (§9 Q4)');
 });

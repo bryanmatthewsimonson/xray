@@ -170,7 +170,12 @@ async function postMessages(payload, apiKey, { signal } = {}) {
     let data;
     try {
         data = await resp.json();
-    } catch (_) {
+    } catch (err) {
+        // The abort can also fire mid-body — that is still a timeout,
+        // not a malformed response.
+        if (err && err.name === 'AbortError') {
+            return { ok: false, timeout: true, error: 'The Anthropic call was aborted before completing (timeout).' };
+        }
         return { ok: false, error: 'Anthropic returned an unreadable response.' };
     }
     return { ok: true, data };

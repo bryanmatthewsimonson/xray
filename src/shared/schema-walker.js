@@ -20,9 +20,9 @@
 // --- schema builder helpers --------------------------------------------------
 
 export function str(extra = {}) { return { type: 'string', ...extra }; }
-export function quote() { return { type: 'string', minLength: 1 }; }
+export function quote(extra = {}) { return { type: 'string', minLength: 1, ...extra }; }
 export function nullableStr(extra = {}) { return { type: ['string', 'null'], ...extra }; }
-export function nullableQuote() { return { type: ['string', 'null'], minLength: 1 }; }
+export function nullableQuote(extra = {}) { return { type: ['string', 'null'], minLength: 1, ...extra }; }
 export function int(extra = {}) { return { type: 'integer', ...extra }; }
 export function bool() { return { type: 'boolean' }; }
 export function en(values) { return { type: 'string', enum: values }; }

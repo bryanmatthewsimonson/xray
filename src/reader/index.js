@@ -1637,6 +1637,11 @@ async function openLensSetup() {
     }));
 }
 
+// Re-entry guard: the setup form's Run button stays in the DOM while
+// the first click awaits storage, so a double-click would start two
+// concurrent panels (2×N paid calls). One run at a time.
+let lensRunInFlight = false;
+
 /**
  * Run the panel: one xray:lens:read message per jurisdiction (§6 —
  * partial results render as they land, each message resets the SW
@@ -1646,7 +1651,16 @@ async function openLensSetup() {
 async function runLensFromReader() {
     const body = $('#xr-lensread-body');
     const run = $('#xr-lensread-run');
-    if (!body || !state.article) return;
+    if (!body || !state.article || lensRunInFlight) return;
+    lensRunInFlight = true;
+    try {
+        await runLensPanel(body, run);
+    } finally {
+        lensRunInFlight = false;
+    }
+}
+
+async function runLensPanel(body, run) {
 
     const juriIds = [...body.querySelectorAll('[data-role="lens-juri"]:checked')].map((el) => el.value);
     const claimIds = new Set([...body.querySelectorAll('[data-role="lens-claim"]:checked')].map((el) => el.value));
@@ -1708,7 +1722,13 @@ async function runLensFromReader() {
             contentHash = (resp.target && resp.target.content_hash) || contentHash;
             body.insertAdjacentHTML('beforeend', renderJurisdictionCard(resp.reading, claims));
         } else {
-            const failure = { displayName, error: (resp && resp.error) || 'unknown error', refused: !!(resp && resp.refused) };
+            const failure = {
+                displayName,
+                type: (juri && juri.jurisdiction_type) || null,
+                error: (resp && resp.error) || 'unknown error',
+                refused: !!(resp && resp.refused),
+                code: (resp && resp.code) || null
+            };
             failures.push(failure);
             body.insertAdjacentHTML('beforeend', renderJurisdictionFailure(failure));
         }
@@ -1730,6 +1750,7 @@ async function runLensFromReader() {
             claims
         },
         jurisdictionReadings: readings,
+        failures,
         selectionBasis: basis,
         provenance
     });

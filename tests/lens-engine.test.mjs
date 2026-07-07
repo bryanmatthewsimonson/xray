@@ -100,15 +100,25 @@ function enableLens({ withKey = false } = {}) {
     if (withKey) _stateStore.set('xray:llm:key', 'sk-test');
 }
 
+// Recorded fetch calls from the mock — {url, payload} per call, so
+// tests can assert the endpoint, the call count, and what the request
+// actually carried (the consent copy promises excerpts leave the
+// device only inside a lens call).
+let fetchCalls = [];
+
 /** A canned Messages API success carrying one emit_lens_reading tool_use. */
 function mockModelResponse(input, { stopReason = 'tool_use', model = 'claude-opus-4-8' } = {}) {
-    globalThis.fetch = async () => ({
-        ok: true,
-        json: async () => ({
-            model, stop_reason: stopReason,
-            content: input === null ? [] : [{ type: 'tool_use', name: LENS_TOOL_NAME, input }]
-        })
-    });
+    fetchCalls = [];
+    globalThis.fetch = async (url, opts) => {
+        fetchCalls.push({ url, payload: JSON.parse((opts && opts.body) || '{}') });
+        return {
+            ok: true,
+            json: async () => ({
+                model, stop_reason: stopReason,
+                content: input === null ? [] : [{ type: 'tool_use', name: LENS_TOOL_NAME, input }]
+            })
+        };
+    };
 }
 
 function goodToolInput(authId) {
@@ -239,6 +249,17 @@ test('runLensPass: assembles the §7 object — identity stamped from the regist
     assert.deepEqual(r.provenance.prompt_version, LENS_PROMPT_VERSION);
     assert.match(r.target.content_hash, /^[0-9a-f]{64}$/);
     assert.equal(r.target.truncated, false);
+
+    // Transport honesty: exactly ONE bounded call per jurisdiction, to
+    // the Anthropic endpoint, carrying the forced tool + the corpus
+    // excerpt and claim ids the prompt promises.
+    assert.equal(fetchCalls.length, 1, 'one call per jurisdiction — never more');
+    assert.equal(fetchCalls[0].url, 'https://api.anthropic.com/v1/messages');
+    const payload = fetchCalls[0].payload;
+    assert.equal(payload.tool_choice.name, 'emit_lens_reading');
+    assert.match(payload.system, /whoever wishes to be first among you/, 'the stored excerpt rides the system prompt');
+    assert.match(payload.messages[0].content, /claim_id: c1/, 'claim ids ride the user turn');
+    assert.match(payload.messages[0].content, /Body text\./, 'the article text rides the user turn');
 });
 
 test('runLensPass: oversized input is truncated AND surfaced — never silent (§6)', async () => {
@@ -311,6 +332,47 @@ function readingStub(name, dispositionByClaim) {
             thin_representation_flags: [], recommended_sources: [], truncation_flags: [], rejected_readings: [] }
     };
 }
+
+test('panel: empaneled discloses the DECLARED selection — failed/refused lenses included (§5.3)', () => {
+    const comp = assemblePanelComposition({
+        jurisdictionReadings: [readingStub('Hostile Lens', { c1: 'rejects' })],
+        failures: [
+            { displayName: 'Sympathetic Lens', type: 'persona', refused: true, code: 'living-person-ungrounded' },
+            { displayName: 'Broken Lens', type: 'worldview', refused: false },
+            { displayName: 'Declined Lens', type: 'worldview', refused: true, code: 'model-refusal' }
+        ],
+        selectionBasis: ''
+    });
+    assert.deepEqual(comp.empaneled, [
+        'Hostile Lens (worldview)',
+        'Sympathetic Lens (persona) — refused pre-flight, no reading',
+        'Broken Lens (worldview) — failed, no reading',
+        'Declined Lens (worldview) — declined by the model, no reading'
+    ], 'a lens that produced no reading is disclosed, never dropped from the record');
+});
+
+test('panel: multi-work single-strand corpus for a multi-vocal tradition is thin representation (§5.3)', async () => {
+    resetState();
+    const j = await JurisdictionModel.create({
+        jurisdiction_type: 'worldview',
+        display_name: 'One-Strand Tradition',
+        internal_divisions: ['Strand A', 'Strand B'],
+        corpus: [{
+            citation: { work: 'Work One', locator: 'p. 1', tradition: 'Strand A' },
+            excerpt: 'x', admissibility: 'published-book'
+        }, {
+            citation: { work: 'Work Two', locator: 'p. 2', tradition: 'Strand A' },
+            excerpt: 'y', admissibility: 'published-book'
+        }]
+    });
+    const { reading } = assembleJurisdictionReading({
+        jurisdiction: j,
+        toolInput: { readings: [], reconstruction_summary: 's' },
+        claims: CLAIMS
+    });
+    assert.equal(reading.grounding.thin_representation_flags.length, 1);
+    assert.match(reading.grounding.thin_representation_flags[0], /one strand/);
+});
 
 test('panel: an all-hostile panel gets the §5.3 symmetry flag; a mixed one does not', () => {
     const hostileOnly = assemblePanelComposition({

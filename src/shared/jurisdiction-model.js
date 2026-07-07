@@ -48,7 +48,9 @@ import {
     ADMISSIBILITIES, isValidAdmissibility, isAdmissibleForLivingPersona
 } from './lens-taxonomy.js';
 
-const JURISDICTIONS_KEY = 'lens_jurisdictions';
+// Exported so the 16.4 guards pin the ACTUAL key (word reservation +
+// WORKSPACE_CLEAR_KEYS membership), not a test-local copy of it.
+export const JURISDICTIONS_KEY = 'lens_jurisdictions';
 
 // §10 — the anchor-capture EXACT_LENGTH_CAP precedent.
 export const AUTHORITY_EXCERPT_CAP = 500;

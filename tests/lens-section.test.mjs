@@ -85,11 +85,20 @@ test('lens-section: a living persona card discloses the guardrail', () => {
     assert.match(html, /living person — published positions only/);
 });
 
-test('lens-section: failures render failed-with-reason; refusals say so', () => {
-    const html = renderJurisdictionFailure({ displayName: 'Empty Lens', error: 'not grounded', refused: true });
-    assert.match(html, /xr-lensread__card--failed/);
-    assert.match(html, /refused pre-flight/);
-    assert.match(html, /not grounded/);
+test('lens-section: failures render failed-with-reason; the refusal kinds stay distinct', () => {
+    const preflight = renderJurisdictionFailure({
+        displayName: 'Empty Lens', error: 'not grounded', refused: true, code: 'not-grounded'
+    });
+    assert.match(preflight, /xr-lensread__card--failed/);
+    assert.match(preflight, /refused pre-flight/);
+    assert.match(preflight, /not grounded/);
+    // A model-side guardrail declined AFTER a network call — its own
+    // state (§6), never labeled as a pre-flight refusal.
+    const modelSide = renderJurisdictionFailure({
+        displayName: 'X', error: 'the model declined', refused: true, code: 'model-refusal'
+    });
+    assert.match(modelSide, /declined by the model/);
+    assert.doesNotMatch(modelSide, /pre-flight/);
     const plain = renderJurisdictionFailure({ displayName: 'X', error: 'network sad' });
     assert.match(plain, />failed</);
 });
@@ -138,6 +147,8 @@ test('lens-section: no reserved word in any rendered user-visible string (§5.2)
         renderLensSetup({ jurisdictions: [], claims: [] })
     ].join('');
     // "truth layer" is a reference to Phase 15, allowed; the reserved
-    // court-vocabulary words are not.
-    assert.doesNotMatch(all, /verdict|ruling|opinion|court(?!esy)/i);
+    // court-vocabulary words are not — all five of §5.2's list. Phase 15
+    // owns "Integrity"; the per-jurisdiction honesty report is the
+    // GROUNDING report here, and this pin keeps the rename binding.
+    assert.doesNotMatch(all, /verdict|ruling|opinion|court|integrity/i);
 });

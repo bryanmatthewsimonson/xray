@@ -160,8 +160,11 @@ export function assembleJurisdictionReading({ jurisdiction, toolInput, claims, t
 
     // §5.3 thin representation — distinct from thin COVERAGE: a corpus
     // can address every claim and still misrepresent the tradition it
-    // speaks for. Deterministic v1 rule: a declared multi-vocal
-    // worldview whose admissible corpus draws on a single work.
+    // speaks for. Deterministic v1 rules for a declared multi-vocal
+    // worldview: (a) the whole admissible corpus draws on a single
+    // work; (b) every tradition-tagged authority comes from one strand
+    // (the §4 citation shape has no author field, so single-STRAND is
+    // the storable proxy for the spec's "single-author" case).
     const thinRepresentation = [];
     const divisions = Array.isArray(jurisdiction.internal_divisions) ? jurisdiction.internal_divisions : [];
     if (jurisdiction.jurisdiction_type === 'worldview' && divisions.length >= 2) {
@@ -169,6 +172,13 @@ export function assembleJurisdictionReading({ jurisdiction, toolInput, claims, t
         if (works.size <= 1) {
             thinRepresentation.push(
                 `single-work corpus for a multi-vocal tradition (${divisions.length} internal divisions declared) — §5.3 thin representation`);
+        }
+        const strands = new Set(admissible
+            .map((a) => (a.citation && a.citation.tradition) || null)
+            .filter((t) => t !== null));
+        if (works.size > 1 && strands.size === 1) {
+            thinRepresentation.push(
+                `every tradition-tagged authority comes from one strand ("${[...strands][0]}") of a tradition with ${divisions.length} declared divisions — §5.3 thin representation`);
         }
     }
 
@@ -220,15 +230,34 @@ function truncateText(s, n) {
 }
 
 /**
- * The P5 symmetry disclosure. `selectionBasis` is the user's own
- * declared basis — read as SELF-ATTESTED by the curator, never an
- * independent check (§5.3). The symmetry flag uses a deterministic
- * proxy: a panel where every jurisdiction's dispositions run
+ * The P5 symmetry disclosure, assembled from the user's DECLARED
+ * selection and the per-jurisdiction results (§5.3): `empaneled` lists
+ * every jurisdiction the user selected — a lens that failed or was
+ * refused pre-flight is disclosed as such, never silently dropped from
+ * the record (dropping it would misstate the panel that was actually
+ * convened). `selectionBasis` is the user's own declared basis — read
+ * as SELF-ATTESTED by the curator, never an independent check. The
+ * symmetry flag uses a deterministic proxy over the SUCCESSFUL
+ * readings: a panel where every jurisdiction's dispositions run
  * predominantly against the target (more rejects than endorses) is
  * flagged as possibly one-sided.
+ *
+ * @param {object} params
+ * @param {Array<object>} params.jurisdictionReadings  assembled §7 results
+ * @param {Array<{displayName, type?, refused?, code?}>} [params.failures]
+ *   the selected jurisdictions that produced no reading
+ * @param {string} [params.selectionBasis]
  */
-export function assemblePanelComposition({ jurisdictionReadings = [], selectionBasis = '' } = {}) {
-    const empaneled = jurisdictionReadings.map((j) => `${j.display_name} (${j.type})`);
+export function assemblePanelComposition({ jurisdictionReadings = [], failures = [], selectionBasis = '' } = {}) {
+    const failureNote = (f) => {
+        if (!f.refused) return 'failed, no reading';
+        return f.code === 'model-refusal'
+            ? 'declined by the model, no reading'
+            : 'refused pre-flight, no reading';
+    };
+    const empaneled = jurisdictionReadings.map((j) => `${j.display_name} (${j.type})`)
+        .concat(failures.map((f) =>
+            `${f.displayName}${f.type ? ` (${f.type})` : ''} — ${failureNote(f)}`));
 
     const symmetryFlags = [];
     const withDispositions = jurisdictionReadings.filter((j) =>
@@ -288,15 +317,17 @@ export function assemblePanelComparison({ jurisdictionReadings = [], claims = []
 
 /**
  * The full §7 panel object from incremental per-jurisdiction results.
- * `provenance` comes from the transport layer (last successful call
- * wins — model + LENS_PROMPT_VERSION + run_at).
+ * `failures` (selected jurisdictions that produced no reading) join
+ * the empanelment disclosure — §5.3. `provenance` comes from the
+ * transport layer (last successful call wins — model +
+ * LENS_PROMPT_VERSION + run_at).
  */
-export function assembleLensPanel({ target, jurisdictionReadings = [], selectionBasis = '', provenance }) {
+export function assembleLensPanel({ target, jurisdictionReadings = [], failures = [], selectionBasis = '', provenance }) {
     return {
         provenance,
         target,
         jurisdictions: jurisdictionReadings,
-        panel_composition: assemblePanelComposition({ jurisdictionReadings, selectionBasis }),
+        panel_composition: assemblePanelComposition({ jurisdictionReadings, failures, selectionBasis }),
         panel_comparison: assemblePanelComparison({ jurisdictionReadings, claims: (target && target.claims) || [] })
     };
 }

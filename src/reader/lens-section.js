@@ -220,14 +220,19 @@ export function renderJurisdictionCard(reading, claims = []) {
 
 /**
  * A failed jurisdiction renders as failed-with-reason while the rest
- * of the panel completes (§6).
+ * of the panel completes (§6). The badge keeps the refusal kinds
+ * distinct: a code-enforced PRE-FLIGHT refusal never made a network
+ * call; a model-side guardrail declined AFTER one (its own state, §6).
  */
-export function renderJurisdictionFailure({ displayName, error, refused = false }) {
+export function renderJurisdictionFailure({ displayName, error, refused = false, code = null }) {
+    const badge = refused
+        ? (code === 'model-refusal' ? 'declined by the model' : 'refused pre-flight')
+        : 'failed';
     return `
       <article class="xr-lensread__card xr-lensread__card--failed">
         <header class="xr-lensread__card-head">
           <span class="xr-lensread__name">${escapeHtml(displayName)}</span>
-          <span class="xr-lensread__badge xr-lensread__badge--failed">${refused ? 'refused pre-flight' : 'failed'}</span>
+          <span class="xr-lensread__badge xr-lensread__badge--failed">${badge}</span>
         </header>
         <p class="xr-lensread__error">${escapeHtml(error)}</p>
       </article>`;
