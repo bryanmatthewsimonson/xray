@@ -183,3 +183,24 @@ test('markdownToHtml: a hostile fence in foreign markdown cannot inject', async 
     const html = ContentExtractor.markdownToHtml(md);
     assert.ok(!html.includes('<script'), 'no live script');
 });
+
+// ------------------------------------------------------------------
+// Prototype-pollution regression (PR #108 follow-up)
+// ------------------------------------------------------------------
+
+test('sanitizer: hostile prototype-named elements unwrap instead of crashing', () => {
+    // `constructor`/`toString` resolve through Object.prototype on a
+    // plain profile literal; treating them as "allowed tags" made the
+    // attr loop throw and killed the WHOLE capture at extract time.
+    for (const hostile of ['constructor', 'toString', 'hasOwnProperty']) {
+        const t = el('table', {}, [
+            el('tr', {}, [el('td', {}, [el(hostile, {}, [text('payload')])])])
+        ]);
+        const out = sanitizeIslandNode(t, 'table');
+        assert.ok(out.includes('payload'), out);            // content survives, unwrapped
+        assert.ok(!out.includes('<' + hostile), out);       // tag never serializes
+    }
+    const m = el('math', {}, [el('constructor', {}, [text('x')])]);
+    const out = sanitizeIslandNode(m, 'math');
+    assert.ok(out.includes('x') && !out.includes('<constructor'), out);
+});

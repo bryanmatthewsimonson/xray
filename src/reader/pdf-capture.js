@@ -76,7 +76,7 @@ function matMul(m1, m2) {
 // figure then merged a full height away from where it sits) and sized
 // 90°-rotated images (extent in b/c, a≈d≈0) to ~zero, silently
 // dropping them at the size filter.
-function unitSquareBBox(ctm) {
+export function unitSquareBBox(ctm) {
     const [a, b, c, d, e, f] = ctm;
     const xs = [e, e + a, e + c, e + a + c];
     const ys = [f, f + b, f + d, f + b + d];

@@ -38,6 +38,42 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Fixed
 
+- **PDF + figures bug sweep (Phase 18 follow-up, 19 fixes).** The big
+  four: PDF captures can now actually **publish** (the `?pdf=` path
+  never registered a session record and signing proxied to a source
+  tab that structurally cannot exist — tabless captures now sign in
+  the worker via the Signer façade; NIP-07 gets an actionable error);
+  `pdfDocumentUrl` no longer lets `real.pdf?file=<decoy>` capture the
+  decoy (direct URLs win; wrapper unwrap requires a viewer-shaped
+  shell); a hostile `<constructor>` element inside a table/math island
+  no longer kills the whole capture (own-property allowlist lookup);
+  and globally-cached pdf.js images (`g_` ids — anything on ≥2 pages)
+  resolve from the right store instead of burning an 8s timeout per
+  page and blinding the logo-furniture detector. Layout: structural
+  narrow-gutter detection (LaTeX 10pt / IEEE 18pt two-column PDFs no
+  longer interleave line-by-line), compound/digit/unicode-safe hyphen
+  reflow, figures flow through reading order as pseudo-lines (a
+  right-column figure no longer lands at char 0), page anchors skip
+  textless pages, and margin years in short documents stop being
+  eaten as page numbers. Capture: Form-XObject transforms honored
+  (wrong CTM + state leak), corner-true bboxes (top-down and rotated
+  draws), the scan gate runs before figure work, bytes/figures are
+  archived only after success, the figure cap applies post-furniture,
+  figures are content-addressed by decoded RGBA pixels instead of
+  browser-dependent PNG encoder output (byte-identical PDFs no longer
+  fork the canonical `x`), per-page `cleanup()` + `doc.destroy()` and
+  blob-URL revocation plug the memory leaks, `%`-bearing filenames no
+  longer throw after a finished extraction, and local imports key
+  identity on the content hash so two different `report.pdf`s stop
+  colliding. Routing/storage: the context-menu capture on a PDF tab
+  opens the PDF reader (was: Settings), local `file://` PDFs route to
+  the Import picker (previously unreachable), HEAD-rejecting servers
+  still sniff as PDFs, the extraction-quality banner stops claiming an
+  archive exists when archiving failed, and `pruneSourceOrphans`
+  gives the `source_documents` store its first cleanup path.
+
+### Fixed
+
 - **PDF figures (and any operator-list work) on older browsers.** pdf.js
   6.1.200 calls `Map.prototype.getOrInsertComputed` (inside
   `getOperatorList`, among others) and `Math.sumPrecise` unconditionally —

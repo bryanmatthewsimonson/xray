@@ -19,6 +19,55 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-07 — PDF + figures bug sweep: nineteen fixes across the Phase 18 stack
+
+Tags: `bug`, `design`.
+
+A three-angle adversarial review of PR #108 (every finding verified by
+executing the modules) surfaced 19 real bugs; all fixed same-day. The
+ones worth remembering:
+
+- **The publish path was structurally dead for PDFs.** `?pdf=` never
+  wrote the session record, and signing always proxied to
+  `record.sourceTabId` — a tab that cannot exist, since no content
+  script runs in a PDF viewer (the feature's own premise). Tabless
+  records (`sourceTabId: null`) now sign in the worker via the Signer
+  façade. Lesson: a capture surface that bypasses the content script
+  must be walked through the whole publish path, not just render.
+- **Wrong-document capture:** `pdfDocumentUrl` unwrapped `file=`/`src=`
+  wrapper params before checking the URL itself, so
+  `real.pdf?file=<decoy>` captured the decoy. Order matters when one
+  URL can name two documents; the direct read now wins and unwrapping
+  requires a viewer-shaped shell.
+- **pdf.js store dispatch:** globally-cached images (`g_`-prefixed —
+  anything on ≥2 pages) live in `commonObjs`, and asking `page.objs`
+  for them never throws OR calls back. The 'fallback' catch was dead
+  code; every repeated image burned an 8s timeout per page and the
+  logo-furniture detector never saw a repeat. When pdf.js dispatches
+  on a prefix, so must we.
+- **Encoder-dependent content addresses:** figures were hashed by
+  their `canvas.toBlob` PNG bytes; PNG encoders differ across
+  browsers/versions, and those refs ride inside the markdown that
+  feeds the canonical `x` — byte-identical PDFs forked their article
+  hash. Figures are now addressed by sha256 of decoded RGBA pixels.
+  Residual (documented): JPEG decoder drift across engines can still
+  vary pixels; caps can vary figure inclusion.
+- **Figures now flow through reading order as pseudo-lines** instead
+  of a post-hoc y-scan that assumed y-descending paragraphs (false
+  after two-column reordering — a right-column figure landed at char
+  0). Narrow gutters (LaTeX 10pt, IEEE 18.0pt) are found structurally:
+  a consistent mid-page x-band of gaps across baselines is a gutter;
+  word gaps wander, gutters don't.
+- **Archive-after-success:** source bytes/figures were archived before
+  the scan-refusal gate, permanently orphaning blobs in a store that
+  had no eviction path at all. Bytes now land only after
+  reconstruction succeeds, and `pruneSourceOrphans` (30-min grace)
+  rides the eviction hook.
+
+Known limits documented instead of fixed (design §5.5): RTL reading
+order, captions above tables, superscript markers emitted before
+their line, multi-line headings splitting, vector-graphic figures.
+
 ## 2026-07-05 — pdf.js 6.x needs `Map.getOrInsertComputed` / `Math.sumPrecise` polyfills (figures returned zero)
 
 Tags: `bug`, `external`.
