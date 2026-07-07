@@ -152,16 +152,45 @@ function captureActiveTab() {
             chrome.runtime.openOptionsPage?.();
             return;
         }
-        chrome.tabs.sendMessage(tab.id, { type: 'xray:capture' }).catch(async (err) => {
-            const pdfUrl = pdfDocumentUrl(tab.url || '') || await sniffPdfUrl(tab.url || '');
-            if (pdfUrl) {
-                openPdfReader(pdfUrl);
-                return;
-            }
-            console.warn('[X-Ray] xray:capture delivery failed, opening Settings:', err && err.message);
-            chrome.runtime.openOptionsPage?.();
-        });
+        chrome.tabs.sendMessage(tab.id, { type: 'xray:capture' })
+            .catch((err) => routeCaptureFallback(tab, err));
     });
+}
+
+/**
+ * Shared fallback when the content script is unreachable: PDF tabs
+ * route to the reader's PDF path — http(s) documents via ?pdf=<url>,
+ * local file:// PDFs via the ?pdf=import picker (the reader can't
+ * fetch file: URLs, but the user can hand it the file). Everything
+ * else opens Settings so the action is never a silent no-op. Used by
+ * the toolbar/keyboard path AND the context-menu capture item — the
+ * menu used to dead-end PDF tabs at the options page.
+ */
+async function routeCaptureFallback(tab, err) {
+    const url = (tab && tab.url) || '';
+    const pdfUrl = pdfDocumentUrl(url) || await sniffPdfUrl(url);
+    if (pdfUrl) {
+        openPdfReader(pdfUrl);
+        return;
+    }
+    if (isLocalPdfUrl(url)) {
+        chrome.tabs.create({
+            url: chrome.runtime.getURL('src/reader/index.html') + '?pdf=import'
+        });
+        return;
+    }
+    console.warn('[X-Ray] xray:capture delivery failed, opening Settings:', err && err.message);
+    chrome.runtime.openOptionsPage?.();
+}
+
+/** A locally-opened PDF tab (file://…/doc.pdf). */
+function isLocalPdfUrl(url) {
+    try {
+        const u = new URL(String(url || ''));
+        return u.protocol === 'file:' && /\.pdf$/i.test(u.pathname);
+    } catch (_) {
+        return false;
+    }
 }
 
 /** Open the reader on its PDF capture path (Phase 18 C3). */
@@ -179,7 +208,17 @@ function openPdfReader(pdfUrl) {
 async function sniffPdfUrl(url) {
     if (!/^https?:/i.test(url || '')) return null;
     try {
-        const resp = await fetch(url, { method: 'HEAD', credentials: 'include' });
+        let resp = await fetch(url, { method: 'HEAD', credentials: 'include' });
+        if (!resp.ok) {
+            // Some servers reject HEAD (405); a 1-byte ranged GET gets
+            // the same headers without pulling the document.
+            resp = await fetch(url, {
+                method: 'GET', credentials: 'include',
+                headers: { Range: 'bytes=0-0' }
+            });
+            try { resp.body && resp.body.cancel(); } catch (_) { /* headers suffice */ }
+            if (!resp.ok) return null;
+        }
         const type = (resp.headers.get('content-type') || '').toLowerCase();
         return type.includes('application/pdf') ? url : null;
     } catch (_) {
@@ -222,10 +261,12 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (!message) return;
 
     chrome.tabs.sendMessage(tab.id, message).catch(err => {
-        // Content script may not be loaded on this page (e.g. chrome:// URLs).
+        // Content script may not be loaded on this page (e.g. chrome://
+        // URLs — or a PDF tab, which routes to the PDF reader exactly
+        // like the toolbar path instead of dead-ending at Settings).
         console.warn('[X-Ray] Failed to deliver context-menu command:', err);
         if (message.type === 'xray:capture') {
-            chrome.runtime.openOptionsPage?.();
+            routeCaptureFallback(tab, err);
         }
     });
 });

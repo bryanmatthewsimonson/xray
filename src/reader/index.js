@@ -938,7 +938,9 @@ function renderExtractionWarningsBanner() {
       <div class="xr-hash-banner__body">
         <div class="xr-hash-banner__label">⚠️ Extraction quality warning${warnings.length > 1 ? 's' : ''}</div>
         ${warnings.map((w) => `<div class="xr-hash-banner__metric">${escapeHtml(w.message)}</div>`).join('')}
-        <div class="xr-hash-banner__metric">The original PDF is archived (source_hash ${escapeHtml(String(state.article.extraction.source_hash || '').slice(0, 12))}…) — verify against it before relying on affected passages.</div>
+        <div class="xr-hash-banner__metric">${state.article.extraction.archived
+            ? `The original PDF is archived (source_hash ${escapeHtml(String(state.article.extraction.source_hash || '').slice(0, 12))}…) — verify against it before relying on affected passages.`
+            : `The original PDF could NOT be archived (too large or storage full) — keep your own copy to verify affected passages against (source_hash ${escapeHtml(String(state.article.extraction.source_hash || '').slice(0, 12))}…).`}</div>
       </div>
       <div class="xr-hash-banner__actions">
         <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-extract-dismiss">Dismiss</button>
