@@ -579,3 +579,41 @@ test('pdfDocumentUrl: fragments are dropped — #page=3 is not identity', () => 
         pdfDocumentUrl('https://host.test/pdfjs/web/viewer.html?file=https%3A%2F%2Fdocs.test%2Fpaper.pdf%23page%3D7'),
         'https://docs.test/paper.pdf');
 });
+
+test('markdownToHtml: ordered lists keep their start number (filing paragraphs)', () => {
+    const html = ContentExtractor.markdownToHtml('14. The defendant knew\n\n15. Internal emails show');
+    assert.match(html, /<ol start="14">/);
+    assert.match(html, /<ol start="15">/);
+    // …and the reader round trip preserves the numbers instead of
+    // renumbering every numbered paragraph to "1."
+    const rt = ContentExtractor.htmlToMarkdown(html);
+    assert.match(rt, /^14\.\s+The defendant knew/m);
+    assert.match(rt, /^15\.\s+Internal emails show/m);
+});
+
+test('figure alt: markdown metacharacters are neutralized', () => {
+    const p = page([
+        run('Figure 3: the `raw` data with *stars* and under_scores', 100, 240, 10)
+    ]);
+    p.figures = [{ ref: 'xray-figure:' + 'a'.repeat(64), x: 100, y: 250, w: 200, h: 150 }];
+    const { markdown } = buildDocumentFromPages([p]);
+    const alt = /!\[([^\]]*)\]/.exec(markdown)[1];
+    assert.ok(!/[`*_[\]"]/.test(alt), `alt must carry no markdown metachars: ${alt}`);
+    assert.match(alt, /Figure 3: the raw data/);
+});
+
+test('googleDrivePdfUrl: Drive PDF previews map to the direct-download URL', async () => {
+    const { googleDrivePdfUrl } = await import('../src/shared/pdf-detect.js');
+    assert.equal(
+        googleDrivePdfUrl('https://drive.google.com/file/d/1YhmkYB32RpGsXvQTsX4xZ0Yul1wiwh8Z/view',
+            'will_decision.pdf - Google Drive'),
+        'https://drive.google.com/uc?export=download&id=1YhmkYB32RpGsXvQTsX4xZ0Yul1wiwh8Z');
+    assert.equal(
+        googleDrivePdfUrl('https://drive.google.com/open?id=abc_123-XYZ', 'report.pdf'),
+        'https://drive.google.com/uc?export=download&id=abc_123-XYZ');
+    // Drive previews many types — only .pdf-titled tabs route.
+    assert.equal(googleDrivePdfUrl('https://drive.google.com/file/d/abc/view', 'holiday.mp4 - Google Drive'), null);
+    // Not Drive / not a file link.
+    assert.equal(googleDrivePdfUrl('https://docs.google.com/document/d/abc/edit', 'x.pdf'), null);
+    assert.equal(googleDrivePdfUrl('https://drive.google.com/drive/my-drive', 'x.pdf'), null);
+});

@@ -16,6 +16,7 @@
 import { putSourceDocument } from '../shared/archive-cache.js';
 import { buildDocumentFromPages, textDensity } from '../shared/pdf-layout.js';
 import { ContentExtractor } from '../shared/content-extractor.js';
+import { extractScholarlyMeta } from '../shared/platforms/scholar-meta.js';
 
 // Figure extraction bounds (C4.2). Displayed size is in PDF points,
 // intrinsic size in pixels; both floors skip decorations. A hash that
@@ -427,7 +428,20 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
     // the loading task: pdf.js 6.x removed PDFDocumentProxy.destroy()
     // (teardown lives on the task), and calling a method that isn't
     // there inside a swallow-all catch silently skipped cleanup.
-    const loadingTask = engine.getDocument({ data: bytes.slice(0) });
+    //
+    // The asset URLs (copied into dist/ by the build) are load-bearing:
+    // without cMapUrl a predefined-CMap (CJK) PDF extracts ZERO text
+    // and is falsely refused as a scan; without wasmUrl JBIG2/JPEG2000
+    // images (archival scans, some publishers) can never decode — even
+    // pdf.js's no-wasm fallback module resolves relative to wasmUrl.
+    const loadingTask = engine.getDocument({
+        data: bytes.slice(0),
+        cMapUrl: browserApi.runtime.getURL('dist/cmaps/'),
+        cMapPacked: true,
+        standardFontDataUrl: browserApi.runtime.getURL('dist/standard_fonts/'),
+        wasmUrl: browserApi.runtime.getURL('dist/wasm/'),
+        iccUrl: browserApi.runtime.getURL('dist/iccs/')
+    });
     let doc;
     try {
         doc = await loadingTask.promise;
@@ -586,6 +600,12 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
                 + `decoded=${figureStats.decoded} archived=${archivedFigures}`);
         }
 
+        // Scholarly identity from the URL shape (C2): a PDF has no meta
+        // tags, but arxiv.org/pdf/... and doi.org links name the work —
+        // the identity should not depend on capturing the abs page
+        // instead of the document itself.
+        const scholar = extractScholarlyMeta({ querySelectorAll: () => [] }, sourceUrl);
+
         let fileName = '';
         try {
             fileName = decodeURIComponent((sourceUrl.split('/').pop() || '')
@@ -608,6 +628,7 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
             contentType: 'pdf',
             platform: 'pdf',
             entities: [],
+            ...(scholar ? { scholar } : {}),
             pageMap,
             extraction: {
                 method: 'pdfjs-' + (engine.version || ''),

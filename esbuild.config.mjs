@@ -20,7 +20,7 @@ import * as esbuild from 'esbuild';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, cpSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = __dirname;
@@ -127,7 +127,22 @@ const configs = [
 
 const watch = process.argv.includes('--watch');
 
+// pdf.js runtime assets (Phase 18): predefined CMaps (CJK text
+// extraction), standard font metrics, wasm decoders (JBIG2 / JPEG2000
+// / ICC), and ICC profiles — copied verbatim next to the bundles.
+// pdf-capture hands their extension URLs to getDocument; without them
+// a CJK PDF extracts zero text (and is falsely refused as a scan) and
+// JBIG2/JPX figures can never decode (even pdf.js's no-wasm fallback
+// resolves relative to wasmUrl).
+function copyPdfAssets() {
+    const src = resolve(root, 'node_modules/pdfjs-dist');
+    for (const dir of ['cmaps', 'standard_fonts', 'wasm', 'iccs']) {
+        cpSync(resolve(src, dir), resolve(root, 'dist', dir), { recursive: true });
+    }
+}
+
 async function build() {
+    copyPdfAssets();
     if (watch) {
         const contexts = await Promise.all(configs.map((c) => esbuild.context(c)));
         await Promise.all(contexts.map((c) => c.watch()));

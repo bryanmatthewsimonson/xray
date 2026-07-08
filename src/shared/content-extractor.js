@@ -923,13 +923,20 @@ export const ContentExtractor = {
       return `<ul>\n${items}\n</ul>\n`;
     });
 
-    // Ordered lists — collect consecutive numbered items
+    // Ordered lists — collect consecutive numbered items. The start
+    // number is preserved via the <ol start> attribute (turndown reads
+    // it back), so a filing's "14./15./23." numbered paragraphs are
+    // not silently renumbered to "1." by a display/publish round trip
+    // — paragraph-number citations are load-bearing in legal documents.
     html = html.replace(/(?:^\d+\. .+$\n?)+/gm, (block) => {
-      const items = block.trim().split('\n').map(line => {
+      const lines = block.trim().split('\n');
+      const start = parseInt(lines[0], 10);
+      const items = lines.map(line => {
         const text = line.replace(/^\d+\. /, '');
         return `<li>${text}</li>`;
       }).join('\n');
-      return `<ol>\n${items}\n</ol>\n`;
+      const startAttr = Number.isFinite(start) && start !== 1 ? ` start="${start}"` : '';
+      return `<ol${startAttr}>\n${items}\n</ol>\n`;
     });
 
     // Line breaks (two trailing spaces)

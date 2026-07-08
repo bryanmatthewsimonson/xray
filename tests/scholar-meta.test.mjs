@@ -82,3 +82,13 @@ test('arxiv: old-style (pre-2007) ids match from URLs — 7 digits, subject clas
     assert.equal(b.arxiv_id, 'hep-th/9901001');
     assert.equal(b.arxiv_version, 3);
 });
+
+test('arxiv: hyphenated/long subject classes match (cond-mat.mes-hall)', () => {
+    const a = extractScholarlyMeta(doc([]), 'https://arxiv.org/abs/cond-mat.mes-hall/0212413');
+    assert.equal(a.arxiv_id, 'cond-mat.mes-hall/0212413');
+});
+
+test('doi: URL query strings and fragments are not part of the DOI', () => {
+    const a = extractScholarlyMeta(doc([]), 'https://doi.org/10.1234/abc.567?utm_source=x#frag');
+    assert.equal(a.doi, '10.1234/abc.567');
+});

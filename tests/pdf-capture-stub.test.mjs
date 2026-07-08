@@ -222,3 +222,15 @@ test('isDrawable: VideoFrame-shaped objects are drawable (Chrome JPEG path)', ()
     assert.equal(isDrawable({ displayWidth: 640, displayHeight: 480 }), false);
     assert.equal(isDrawable(null), false);
 });
+
+test('pdf capture: scholarly identity from the URL shape (arXiv PDFs)', async () => {
+    const doc = stubDoc([stubPage({
+        viewport: PORTRAIT,
+        items: [textItem('Enough text to clear the scan gate easily', 72, 700)]
+    })]);
+    globalThis.__stubPdfEngine = { doc };
+    const file = new File([new TextEncoder().encode('%PDF-arxiv')], 'p.pdf');
+    const article = await capturePdfToArticle({ file, url: 'https://arxiv.org/pdf/2401.12345v2' });
+    assert.equal(article.scholar.arxiv_id, '2401.12345');
+    assert.equal(article.scholar.arxiv_version, 2);
+});

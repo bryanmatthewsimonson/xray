@@ -73,6 +73,33 @@ export function pdfDocumentUrl(tabUrl) {
     return null;
 }
 
+/**
+ * Google Drive PDF preview → the document's direct-download URL, or
+ * null. Drive's preview is a text/html web app (NOT an application/pdf
+ * document), so neither the content-type guard nor the background's
+ * sendMessage-failure fallback can route it — capturing it as HTML
+ * scraped the viewer chrome ("Page 2 of 27" became the title) and
+ * shredded the text layer line-per-paragraph. Drive previews many
+ * file types, so this routes only when the tab title names a .pdf;
+ * the reader's fetch carries cookies, so files the user can see
+ * usually download (a virus-scan interstitial or auth wall fails
+ * pdf.js parse and falls back to the import picker, with the reason).
+ *
+ * @param {string} tabUrl    the drive.google.com tab URL
+ * @param {string} [title]   the tab/document title ("name.pdf - Google Drive")
+ * @returns {string|null}
+ */
+export function googleDrivePdfUrl(tabUrl, title = '') {
+    let u;
+    try { u = new URL(String(tabUrl || '')); } catch (_) { return null; }
+    if (u.hostname !== 'drive.google.com') return null;
+    const m = /^\/file\/d\/([\w-]+)/.exec(u.pathname);
+    const id = (m && m[1])
+        || (u.pathname === '/open' ? u.searchParams.get('id') : null);
+    if (!id || !/\.pdf\b/i.test(String(title || ''))) return null;
+    return 'https://drive.google.com/uc?export=download&id=' + encodeURIComponent(id);
+}
+
 // A URL shaped like a PDF viewer shell: an extension/resource-hosted
 // viewer (Firefox's pdf.js wrapper, extension viewers), or an html
 // page whose filename says viewer (pdf.js's canonical web/viewer.html

@@ -12,6 +12,7 @@ import { Utils } from '../shared/utils.js';
 import { Storage } from '../shared/storage.js';
 import { ContentExtractor } from '../shared/content-extractor.js';
 import { ContentDetector } from '../shared/content-detector.js';
+import { googleDrivePdfUrl } from '../shared/pdf-detect.js';
 import { captureForPlatform, enrichArticleForPlatform, detectPlatformFromDom } from '../shared/platforms/index.js';
 
 export const UI = {
@@ -28,6 +29,28 @@ export const UI = {
   // here via the `xray:capture` message.
   openReader: async () => {
     try {
+      // 0. PDF viewer shells that DO host content scripts. The PDF
+      //    routing design assumes browsers never inject content scripts
+      //    into their PDF viewers — true for Chrome and Firefox, FALSE
+      //    for Edge's viewer. There, sendMessage succeeds, the
+      //    background's PDF fallback never fires, and Readability ran
+      //    against viewer chrome ("Could not extract an article…").
+      //    A document served as application/pdf IS the PDF: hand off.
+      if (document.contentType === 'application/pdf') {
+        await chrome.runtime.sendMessage({ type: 'xray:pdf:open', url: location.href });
+        return;
+      }
+      // Google Drive's PDF preview is a text/html web app around the
+      // document — capturing it as HTML scraped viewer chrome ("Page 2
+      // of 27" became the title) and shredded the text layer line by
+      // line. Route the DOCUMENT (direct-download URL) to the PDF
+      // pipeline instead.
+      const drivePdf = googleDrivePdfUrl(location.href, document.title);
+      if (drivePdf) {
+        await chrome.runtime.sendMessage({ type: 'xray:pdf:open', url: drivePdf });
+        return;
+      }
+
       // 1. Platform detection first — some platforms (YouTube, Twitter)
       //    aren't article-shaped and need to be synthesized from scratch
       //    rather than run through Readability.

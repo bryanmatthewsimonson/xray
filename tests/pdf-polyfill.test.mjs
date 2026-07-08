@@ -63,3 +63,8 @@ test('polyfill: Uint8Array base64 round-trips (the shapes pdf.js uses)', () => {
     // Spec: ASCII whitespace in the input is ignored on decode.
     assert.deepEqual([...Uint8Array.fromBase64(' A A ==')], [...Uint8Array.fromBase64('AA==')]);
 });
+
+test('polyfill: Uint8Array.toHex — the worker fingerprints getter needs it on every load', () => {
+    assert.equal(Uint8Array.from([0, 15, 16, 255]).toHex(), '000f10ff');
+    assert.equal(new Uint8Array(0).toHex(), '');
+});

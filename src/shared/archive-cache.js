@@ -181,7 +181,18 @@ export function openArchiveDb() {
                 sd.createIndex('fetchedAt', 'fetchedAt', { unique: false });
             }
         };
-        open.onsuccess = () => resolve(open.result);
+        open.onsuccess = () => {
+            const db = open.result;
+            // Without this, a long-lived reader/portal tab holds its
+            // connection forever and any indexedDB.deleteDatabase (the
+            // workspace-reset flow) or version upgrade blocks
+            // indefinitely — the reset silently never completes.
+            db.onversionchange = () => {
+                try { db.close(); } catch (_) { /* already closing */ }
+                _dbPromise = null;
+            };
+            resolve(db);
+        };
         open.onerror   = () => reject(open.error);
     });
     return _dbPromise;
@@ -291,9 +302,13 @@ export async function saveArticle({ article, source = 'capture', publishedToRela
 
     // Eviction runs on a fresh transaction so a slow LRU pass doesn't
     // stretch the primary write's duration. The source-document pruner
-    // rides along: nothing else ever deletes from that store.
+    // rides along (nothing else ever deletes from that store) but
+    // THROTTLED: a prune pass materializes every source row's bytes
+    // (up to 50MB each) plus the whole articles store — paying that on
+    // every reader open and publish is main-thread jank for a job whose
+    // grace window is 30 minutes anyway.
     evictIfNeeded().catch((err) => Utils.error('archive-cache: eviction failed', err));
-    pruneSourceOrphans().catch((err) => Utils.error('archive-cache: source prune failed', err));
+    maybePruneSourceOrphans().catch((err) => Utils.error('archive-cache: source prune failed', err));
 
     return record;
 }
@@ -311,11 +326,15 @@ export async function getArticle(url) {
     if (!record) return null;
 
     // Bump lastAccessed in a second transaction so reads stay cheap.
+    // Re-read INSIDE the write transaction: writing back the record
+    // this function already holds would race a concurrent saveArticle
+    // (another tab publishing) and silently revert its fields.
     (async () => {
         try {
             const bumpTx = db.transaction(ARTICLES_STORE, 'readwrite');
-            const bumped = { ...record, lastAccessed: Math.floor(Date.now() / 1000) };
-            bumpTx.objectStore(ARTICLES_STORE).put(bumped);
+            const store = bumpTx.objectStore(ARTICLES_STORE);
+            const fresh = await req(store.get(hash));
+            if (fresh) store.put({ ...fresh, lastAccessed: Math.floor(Date.now() / 1000) });
             await tx(bumpTx);
         } catch (_) { /* best-effort */ }
     })();
@@ -430,7 +449,20 @@ export async function putSourceDocument({ hash, bytes, mime = '', url = '' }) {
     const existing = await req(
         db.transaction(SOURCE_DOCS_STORE).objectStore(SOURCE_DOCS_STORE).get(hash)
     );
-    if (existing) return { stored: true };
+    if (existing) {
+        // Refresh the timestamp: the pruner's grace window must protect
+        // a RE-capture in progress too — with the original fetchedAt, a
+        // concurrent prune (fire-and-forget from any tab's saveArticle)
+        // could delete the bytes between this dedupe hit and the
+        // article row landing, leaving `archived: true` a lie.
+        try {
+            const touch = db.transaction(SOURCE_DOCS_STORE, 'readwrite');
+            touch.objectStore(SOURCE_DOCS_STORE)
+                .put({ ...existing, fetchedAt: Math.floor(Date.now() / 1000) });
+            await tx(touch);
+        } catch (_) { /* best-effort */ }
+        return { stored: true };
+    }
     const transaction = db.transaction(SOURCE_DOCS_STORE, 'readwrite');
     transaction.objectStore(SOURCE_DOCS_STORE).put({
         hash,
@@ -463,7 +495,18 @@ export async function putSourceDocument({ hash, bytes, mime = '', url = '' }) {
  * @returns {Promise<number>} rows deleted
  */
 const PRUNE_MIN_AGE_S = 30 * 60;
+const PRUNE_INTERVAL_MS = 10 * 60 * 1000;
 const FIGURE_REF_RE = /xray-figure:([0-9a-f]{64})/g;
+
+// Rate-limited wrapper for the fire-and-forget saveArticle path; direct
+// pruneSourceOrphans() calls (tests, explicit maintenance) always run.
+let _lastPruneAt = 0;
+async function maybePruneSourceOrphans() {
+    if (Date.now() - _lastPruneAt < PRUNE_INTERVAL_MS) return 0;
+    _lastPruneAt = Date.now();
+    return pruneSourceOrphans();
+}
+
 export async function pruneSourceOrphans() {
     const articles = await listArticles();
     const referenced = new Set();

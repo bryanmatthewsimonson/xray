@@ -460,10 +460,14 @@ function figureAlt(fig, lines, pageNo) {
     // Alt text lives inside ![…] and is later interpolated into an
     // alt="…" attribute by markdownToHtml (which doesn't escape quotes).
     // Keep it bracket-, newline-, and double-quote-free so neither the
-    // markdown nor the HTML attribute can be broken by a caption.
+    // markdown nor the HTML attribute can be broken by a caption — and
+    // free of inline-markdown metacharacters (` * _): markdownToHtml's
+    // code/emphasis passes run over the whole document, so a stray
+    // backtick in a caption could open a code span that swallows the
+    // image markup entirely.
     const clean = raw
         .replace(/"/g, "'")
-        .replace(/[[\]\n]/g, ' ')
+        .replace(/[[\]\n`*_]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
     return clean.length > ALT_MAX ? clean.slice(0, ALT_MAX - 1) + '…' : clean;
