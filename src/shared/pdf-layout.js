@@ -38,6 +38,8 @@
 // emit their text in y-order — degraded, never dropped.
 
 const LINE_Y_TOLERANCE_FACTOR = 0.4;   // × run height, baseline clustering
+const SUPERSUB_SIZE_RATIO     = 0.8;   // size mismatch that marks a sub/superscript
+const SUPERSUB_OVERLAP        = 0.4;   // × smaller height, min vertical band overlap
 const WORD_GAP_FACTOR         = 0.18;  // × run height, space insertion
 const GUTTER_GAP_FACTOR       = 1.5;   // × run height, min column-gutter split
 const GUTTER_GAP_MIN          = 18;    // pt — never split below this gap
@@ -46,6 +48,7 @@ const STRUCT_GUTTER_SHARE     = 0.35;  // fraction of baselines that must show i
 const STRUCT_BUCKET_PT        = 4;     // gutter-center bucketing granularity
 const MARGIN_BAND             = 0.08;  // top/bottom fraction for furniture
 const FURNITURE_MIN_PAGES     = 3;
+const FURNITURE_Y_BAND        = 6;     // pt — repeats must sit at a consistent y
 const PAGE_NUMBER_SLACK       = 20;    // bare digits ≤ pages+slack can be page numbers
 const PARA_GAP_FACTOR         = 1.55;  // × median line gap
 const HEAD_H1_FACTOR          = 1.6;   // × median body size
@@ -72,7 +75,11 @@ function finalizeLine(line) {
     for (const it of line.items) {
         if (prev) {
             const gap = it.x - (prev.x + prev.w);
-            if (gap > Math.max(1, it.h * WORD_GAP_FACTOR) && !text.endsWith(' ')) text += ' ';
+            // Scale the space threshold by the SMALLER of the adjacent
+            // runs: sizing it off the right run alone swallowed a real
+            // word gap in front of a taller run (inline size changes).
+            const ref = Math.min(prev.h || 10, it.h || 10);
+            if (gap > Math.max(1, ref * WORD_GAP_FACTOR) && !text.endsWith(' ')) text += ' ';
         }
         text += it.str;
         prev = it;
@@ -94,15 +101,45 @@ function linesOfPage(page) {
         }))
         .sort((a, b) => b.y - a.y || a.x - b.x);
 
-    // 1. Cluster runs by baseline.
+    // 1. Cluster runs by baseline. The plain tolerance (scaled by the
+    //    RUN's own height) catches same-size runs; sub/superscripts sit
+    //    a few points off the baseline with a much smaller height, so
+    //    their tolerance missed and the "2" of H2O / mc2 became its own
+    //    line (reordering the quote text). They are recognized by the
+    //    size MISMATCH plus vertical band overlap — two stacked
+    //    same-size lines under tight leading overlap slightly but never
+    //    mismatch, so they still split.
     const clusters = [];
     for (const item of items) {
-        const tol = Math.max(2, item.h * LINE_Y_TOLERANCE_FACTOR);
         const cluster = clusters.length ? clusters[clusters.length - 1] : null;
-        if (cluster && Math.abs(cluster.y - item.y) <= tol) {
+        let merge = false;
+        if (cluster) {
+            const tol = Math.max(2, item.h * LINE_Y_TOLERANCE_FACTOR);
+            if (Math.abs(cluster.y - item.y) <= tol) {
+                merge = true;
+            } else {
+                const small = Math.min(item.h, cluster.hMax);
+                const large = Math.max(item.h, cluster.hMax);
+                const overlap = Math.min(cluster.bandHi, item.y + item.h)
+                    - Math.max(cluster.bandLo, item.y);
+                merge = small < large * SUPERSUB_SIZE_RATIO
+                    && overlap >= small * SUPERSUB_OVERLAP;
+            }
+        }
+        if (merge) {
             cluster.items.push(item);
+            cluster.bandLo = Math.min(cluster.bandLo, item.y);
+            cluster.bandHi = Math.max(cluster.bandHi, item.y + item.h);
+            // Anchor the cluster's baseline on its dominant (tallest)
+            // run — a superscript that arrives first must not become
+            // the whole line's baseline.
+            if (item.h > cluster.hMax) { cluster.hMax = item.h; cluster.y = item.y; }
         } else {
-            clusters.push({ y: item.y, items: [item] });
+            clusters.push({
+                y: item.y, hMax: item.h,
+                bandLo: item.y, bandHi: item.y + item.h,
+                items: [item]
+            });
         }
     }
 
@@ -148,16 +185,27 @@ function inMargin(line, page) {
     return line.y >= top || line.y <= bottom;
 }
 
+// Signature key scoped to the margin side, so a running head and a
+// same-text footer are tracked (and y-checked) independently.
+function marginKey(line, page) {
+    const side = line.y >= page.height * (1 - MARGIN_BAND) ? 'top' : 'bottom';
+    return side + '|' + furnitureSignature(line.text);
+}
+
 function markFurniture(pages, pageLines) {
-    const counts = new Map();
+    const counts = new Map();   // side|sig → { n, yMin, yMax }
     pageLines.forEach((lines, pi) => {
         const seen = new Set();
         for (const line of lines) {
             if (!inMargin(line, pages[pi])) continue;
-            const sig = furnitureSignature(line.text);
-            if (!sig || seen.has(sig)) continue;
-            seen.add(sig);
-            counts.set(sig, (counts.get(sig) || 0) + 1);
+            const key = marginKey(line, pages[pi]);
+            if (key.endsWith('|') || seen.has(key)) continue;
+            seen.add(key);
+            let entry = counts.get(key);
+            if (!entry) { entry = { n: 0, yMin: line.y, yMax: line.y }; counts.set(key, entry); }
+            entry.n += 1;
+            entry.yMin = Math.min(entry.yMin, line.y);
+            entry.yMax = Math.max(entry.yMax, line.y);
         }
     });
     const threshold = Math.max(FURNITURE_MIN_PAGES, Math.ceil(pages.length * 0.4));
@@ -165,7 +213,13 @@ function markFurniture(pages, pageLines) {
     pageLines.forEach((lines, pi) => {
         for (const line of lines) {
             if (!inMargin(line, pages[pi])) continue;
-            const repeating = (counts.get(furnitureSignature(line.text)) || 0) >= threshold;
+            // Real headers/footers repeat at a FIXED position; margin
+            // content that merely repeats modulo digits (a brief's
+            // "N Ibid., at M." footnote line) wanders with the stack
+            // height — the y-band check keeps it as content.
+            const entry = counts.get(marginKey(line, pages[pi]));
+            const repeating = !!entry && entry.n >= threshold
+                && (entry.yMax - entry.yMin) <= FURNITURE_Y_BAND;
             // A bare number is a page number only where page numbers are
             // possible: a multi-page document, and a value in page-number
             // range. A year dateline ("2024") or street number in the
@@ -265,7 +319,13 @@ function orderPageLines(lines, page) {
         const textBody = body.filter((l) => !l.figure);
         const gx = structuralGutterX(textBody, W);
         if (gx !== null) {
-            body = body.flatMap((l) => (l.figure ? [l] : splitLineAtGutter(l, gx)));
+            const split = body.flatMap((l) => (l.figure ? [l] : splitLineAtGutter(l, gx)));
+            // Adopt the split ONLY if the halves then classify as two
+            // columns. An off-center gutter the column classifier can't
+            // resolve (sidebars near 0.3–0.45W) otherwise left the page
+            // as shredded half-lines in y-order — strictly worse than
+            // the interleave it started with.
+            if (detectTwoCol(split, W)) body = split;
         }
     }
     if (!detectTwoCol(body, W)) return body;   // one column: already in y-order
@@ -331,15 +391,21 @@ function paragraphsOfPage(orderedLines, bodySize) {
         if (newBlock) {
             current = { heading, text: line.text, yTop: line.y };
             paras.push(current);
-        } else if (/[\p{L}\d]-$/u.test(current.text) && /^[\p{Ll}\d]/u.test(line.text)) {
+        } else if (/[\p{L}\d]-$/u.test(current.text) && /^[\p{Ll}\p{Lu}\d]/u.test(line.text)) {
             // Reflow a line-break hyphenation — but keep the hyphen when
-            // it is (probably) lexical: the broken word already carries
-            // another hyphen ("state-of-the-" + "art" → "state-of-the-
-            // art"), or both sides are digits ("1914-" + "1918"). A bare
-            // soft break drops it: "convo-" + "luted" → "convoluted".
+            // it is (probably) lexical. Hyphenation only ever breaks a
+            // word between LETTERS (syllables), so a digit on either
+            // side is a compound or range ("COVID-" + "19", "3-" +
+            // "year", "1914-" + "1918"); an uppercase continuation is a
+            // name compound ("Navier-" + "Stokes" — previously space-
+            // joined into "Navier- Stokes"); and a word already carrying
+            // another hyphen keeps its last one ("state-of-the-" +
+            // "art"). Only the bare lowercase letter-letter soft break
+            // drops it: "convo-" + "luted" → "convoluted".
             const lastWord = current.text.slice(0, -1).split(/\s+/).pop() || '';
-            const digitJoin = /\d-$/.test(current.text) && /^\d/.test(line.text);
-            if (digitJoin || lastWord.includes('-')) {
+            const digitTouch = /\d-$/.test(current.text) || /^\d/.test(line.text);
+            const upperCont = /^\p{Lu}/u.test(line.text);
+            if (digitTouch || upperCont || lastWord.includes('-')) {
                 current.text += line.text;
             } else {
                 current.text = current.text.slice(0, -1) + line.text;
@@ -403,12 +469,30 @@ function figureAlt(fig, lines, pageNo) {
     return clean.length > ALT_MAX ? clean.slice(0, ALT_MAX - 1) + '…' : clean;
 }
 
+// The size that formats MOST of a line's text (char-weighted median of
+// its runs' heights). line.h is the MAX run height, which let a single
+// oversized glyph — a dropcap, an inline symbol — promote an ordinary
+// body line to a heading.
+function dominantSize(line) {
+    const items = line.items || [];
+    if (!items.length) return line.h || 0;
+    const sorted = [...items].sort((a, b) => (a.h || 0) - (b.h || 0));
+    const total = sorted.reduce((s, i) => s + i.str.length, 0);
+    let acc = 0;
+    for (const it of sorted) {
+        acc += it.str.length;
+        if (acc * 2 >= total) return it.h || 0;
+    }
+    return line.h || 0;
+}
+
 function headingLevel(line, bodySize) {
     if (!bodySize) return 0;
     const words = line.text.split(/\s+/).length;
     if (words > HEADING_MAX_WORDS) return 0;
-    if (line.h >= bodySize * HEAD_H1_FACTOR) return 1;
-    if (line.h >= bodySize * HEAD_H2_FACTOR) return 2;
+    const size = dominantSize(line);
+    if (size >= bodySize * HEAD_H1_FACTOR) return 1;
+    if (size >= bodySize * HEAD_H2_FACTOR) return 2;
     return 0;
 }
 
@@ -460,6 +544,10 @@ export function buildDocumentFromPages(pages) {
         pageStats.push({
             page: pi + 1,
             chars: ordered.reduce((s, l) => s + (l.figure ? 0 : l.text.length), 0),
+            // Pre-furniture count: a page whose only text is a running
+            // header still HAS a working text layer — the sparse-pages
+            // warning must not call its content "missing".
+            rawChars: pageLines[pi].reduce((s, l) => s + l.text.length, 0),
             lines: ordered.filter((l) => !l.figure).length,
             paras: paras.length,
             figures: (page && Array.isArray(page.figures)) ? page.figures.length : 0
@@ -503,7 +591,7 @@ export function extractionWarnings(pageStats) {
         // image we archived is captured — just not as text — so don't
         // flag it as missing.
         const sparse = list
-            .filter((p) => p.chars < SPARSE_PAGE_CHARS && !(p.figures > 0))
+            .filter((p) => (p.rawChars ?? p.chars) < SPARSE_PAGE_CHARS && !(p.figures > 0))
             .map((p) => p.page);
         if (sparse.length) {
             warnings.push({

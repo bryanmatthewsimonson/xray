@@ -457,3 +457,111 @@ test('pdfDocumentUrl: file=/src= unwraps only for viewer-shaped shells', () => {
         pdfDocumentUrl('chrome-extension://abcdef/content/viewer.html?file=https%3A%2F%2Fdocs.test%2Fpaper.pdf'),
         'https://docs.test/paper.pdf');
 });
+
+// ------------------------------------------------------------------
+// Post-#111 fixes: hyphen boundaries, sub/superscripts, dropcaps,
+// furniture position-consistency, honest sparse counting, gutters
+// the column classifier cannot resolve.
+// ------------------------------------------------------------------
+
+test('hyphen reflow: letter-digit boundaries keep the lexical hyphen', () => {
+    const p = page([
+        run('patients with COVID-', 72, 700),
+        run('19 were admitted over a 3-', 72, 686),
+        run('year horizon', 72, 672)
+    ]);
+    const { markdown } = buildDocumentFromPages([p]);
+    assert.ok(markdown.includes('COVID-19'), markdown);
+    assert.ok(markdown.includes('3-year'), markdown);
+});
+
+test('hyphen reflow: uppercase continuation joins the compound, no phantom space', () => {
+    const p = page([
+        run('solutions of the Navier-', 72, 700),
+        run('Stokes equations', 72, 686)
+    ]);
+    const { markdown } = buildDocumentFromPages([p]);
+    assert.equal(markdown, 'solutions of the Navier-Stokes equations');
+});
+
+test('sub/superscripts stay inline on their visual line', () => {
+    const p = page([
+        { str: 'the H', x: 72, y: 700, w: 30, h: 12 },
+        { str: '2', x: 102, y: 697, w: 5, h: 6 },       // subscript, below baseline
+        { str: 'O molecule is small', x: 107, y: 700, w: 120, h: 12 },
+        { str: 'and the E=mc', x: 72, y: 680, w: 80, h: 12 },
+        { str: '2', x: 152, y: 685, w: 5, h: 6 },       // superscript, above baseline
+        { str: 'equation holds', x: 160, y: 680, w: 90, h: 12 }
+    ]);
+    const { markdown } = buildDocumentFromPages([p]);
+    assert.equal(markdown, 'the H2O molecule is small and the E=mc2 equation holds');
+});
+
+test('a dropcap does not promote its body line to a heading', () => {
+    const p = page([
+        { str: 'T', x: 72, y: 700, w: 20, h: 30 },
+        { str: 'he committee met in ordinary session to consider', x: 92, y: 700, w: 300, h: 12 },
+        run('the annual budget for the following year in detail', 72, 680, 12),
+        run('and further ordinary paragraph text follows here now', 72, 660, 12),
+        run('plus more body text to give the page a median size', 72, 640, 12)
+    ]);
+    const { markdown } = buildDocumentFromPages([p]);
+    assert.ok(!markdown.startsWith('#'), markdown);
+    assert.ok(markdown.startsWith('The committee met'), markdown);
+});
+
+test('real headings still promote (dominant size, not max glyph)', () => {
+    const p = page([
+        { str: 'Section Title', x: 72, y: 700, w: 140, h: 20 },
+        run('Ordinary body text follows the heading here', 72, 670, 10),
+        run('and continues with more ordinary body text', 72, 656, 10),
+        run('plus a third line of ordinary body content', 72, 642, 10)
+    ]);
+    const { markdown } = buildDocumentFromPages([p]);
+    assert.match(markdown, /^# Section Title/);
+});
+
+test('furniture: margin content repeating modulo digits at VARYING y is kept', () => {
+    const pages = [1, 2, 3, 4, 5].map((n) => page([
+        run(`Body paragraph text of page ${n} discussing the case`, 72, 690),
+        // fixed-position footer — real furniture
+        run(`CASE NO. 23-cv-0${n}`, 72, 24, 9),
+        // last footnote line — wanders with the stack height
+        run(`${n + 10} Ibid., at ${300 + n}.`, 72, 40 + (n % 3) * 8, 9)
+    ]));
+    const { markdown } = buildDocumentFromPages(pages);
+    assert.ok(!markdown.includes('CASE NO.'), markdown);
+    assert.ok(markdown.includes('Ibid., at 301.'), markdown);
+});
+
+test('warnings: a page whose only text was dropped as furniture is not "missing"', () => {
+    const furn = (p) => [
+        run('ACME QUARTERLY REPORT — CONFIDENTIAL DRAFT', 72, 770, 9),
+        run('© 2025 Acme Corporation. All rights reserved worldwide.', 72, 20, 9)
+    ];
+    const texty = (n) => page([
+        ...Array.from({ length: 20 }, (_, i) =>
+            run('A long line of perfectly ordinary body text for the page', 72, 700 - i * 16, 12)),
+        ...furn(n)
+    ]);
+    const { warnings } = buildDocumentFromPages([texty(1), texty(2), texty(3), page(furn(4))]);
+    assert.equal(warnings.find((w) => w.code === 'sparse-pages'), undefined,
+        'a header/footer-only page has a working text layer — nothing is missing');
+});
+
+test('an off-center gutter the classifier cannot resolve does not shred lines', () => {
+    // A consistent NARROW gap at ~0.32W recurs across baselines (so the
+    // structural-gutter pass finds it and would split), but both halves
+    // start left of the 45% column boundary — the two-column pass
+    // cannot reorder them. The page must fall back to whole lines in
+    // y-order, not split halves.
+    const lines = Array.from({ length: 8 }, (_, i) => [
+        { str: `left snippet ${i}`, x: 72, y: 700 - i * 14, w: 120, h: 10 },
+        { str: `right long content column text ${i}`, x: 200, y: 700 - i * 14, w: 260, h: 10 }
+    ]).flat();
+    const { markdown } = buildDocumentFromPages([page(lines)]);
+    for (let i = 0; i < 8; i++) {
+        assert.ok(markdown.includes(`left snippet ${i} right long content column text ${i}`),
+            `line ${i} stayed whole: ${markdown}`);
+    }
+});
