@@ -305,9 +305,87 @@ function splitLineAtGutter(line, gx) {
     ];
 }
 
+// Baseline → number of line-segments at that y (a table row's cells,
+// split apart at their inter-column gaps by linesOfPage). Figures are
+// not cells.
+function baselineSegmentCounts(body) {
+    const byY = new Map();
+    for (const l of body) {
+        if (l.figure) continue;
+        const key = Math.round(l.y / 3);
+        byY.set(key, (byY.get(key) || 0) + 1);
+    }
+    return byY;
+}
+
+// Does the page contain an aligned GRID (a table)? Signalled by a
+// baseline carrying 3+ segments — two-column PROSE is exactly two
+// columns and never reaches three, so this can't be confused with it.
+// A table otherwise gets column-band read, which reads every label
+// top-to-bottom and then the value columns as a diagonal, destroying
+// the row↔value links a reader needs to quote a cell. Fires when the
+// page is grid-dominant OR carries a contiguous run of ≥4 grid rows (an
+// embedded table on an otherwise prose page — the mean-length dilution
+// the extraction warning would also miss).
+function hasGrid(body) {
+    const byY = baselineSegmentCounts(body);
+    if (byY.size < 3) return false;
+    const keys = [...byY.keys()].sort((a, b) => b - a);   // top to bottom
+    const gridRows = keys.filter((k) => byY.get(k) >= 3).length;
+    if (gridRows >= byY.size * 0.5) return true;
+    let run = 0;
+    for (const k of keys) {
+        run = byY.get(k) >= 3 ? run + 1 : 0;
+        if (run >= 4) return true;
+    }
+    return false;
+}
+
+// Collapse a grid page's multi-cell baselines back into rows: order
+// each row's cells left-to-right and join them (middle dot, so column
+// boundaries survive into the markdown and a quote of one cell still
+// grounds). Single-segment baselines are prose around the table and
+// pass through untouched. Each row is its own block (row: true).
+function mergeGridRows(body) {
+    const groups = new Map();
+    const singles = [];
+    for (const l of body) {
+        if (l.figure) { singles.push(l); continue; }
+        const key = Math.round(l.y / 3);
+        let g = groups.get(key);
+        if (!g) { g = { y: l.y, cells: [] }; groups.set(key, g); }
+        g.cells.push(l);
+    }
+    const out = [...singles];
+    for (const g of groups.values()) {
+        if (g.cells.length >= 2) {
+            g.cells.sort((a, b) => (a.x0 || 0) - (b.x0 || 0));
+            out.push({
+                row: true,
+                y: g.y,
+                x0: g.cells[0].x0,
+                x1: g.cells[g.cells.length - 1].x1,
+                h: Math.max(...g.cells.map((c) => c.h || 10)),
+                text: g.cells.map((c) => c.text).filter(Boolean).join(' · ')
+            });
+        } else {
+            out.push(g.cells[0]);   // prose line — unchanged
+        }
+    }
+    return out.sort((a, b) => b.y - a.y);
+}
+
 function orderPageLines(lines, page) {
     const W = page.width || 612;
     let body = lines.filter((l) => !l.furniture);
+
+    // Aligned grid (table): read it row-by-row before the two-column
+    // logic can column-band it into a scrambled diagonal. Checked FIRST
+    // — on a mixed prose+table page detectTwoCol itself misfires (a
+    // value column reads as a right column), so gating on it would let
+    // the table scramble. Genuine two-column PROSE never reaches three
+    // segments on a baseline, so hasGrid can't confuse the two.
+    if (hasGrid(body)) return mergeGridRows(body);
 
     // Narrow-gutter rescue: LaTeX's default \columnsep is 10pt and
     // IEEE's gutter 18pt — below or at the naive per-baseline split
@@ -377,6 +455,14 @@ function paragraphsOfPage(orderedLines, bodySize) {
         // hyphen-joined into a text paragraph.
         if (line.figure) {
             paras.push({ heading: 0, figure: true, text: line.text, yTop: line.y });
+            current = null;
+            prev = line;
+            continue;
+        }
+        // Grid rows (a reconstructed table row) are their own block too —
+        // merging consecutive rows would re-scramble the table.
+        if (line.row) {
+            paras.push({ heading: 0, row: true, text: line.text, yTop: line.y });
             current = null;
             prev = line;
             continue;
