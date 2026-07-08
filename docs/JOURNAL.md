@@ -19,6 +19,66 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-08 — PDF stack, round three: the reader's draft machine was the last corruption source
+
+Tags: `bug`, `design`.
+
+The adversarial workflow's final lenses (wire round-trip, build layer,
+reader integration, storage) landed after the second sweep merged
+(#113). The through-line of this round: **the capture pipeline was
+clean, but the reader's draft-state machine un-cleaned it.**
+
+- **`dirtySource: 'reader'` was a mandatory turndown round trip.** The
+  reader's draft machine assumes the HTML body is canonical unless the
+  user edits markdown — so every untouched PDF publish recomputed the
+  body as `htmlToMarkdown(markdownToHtml(markdown))`. That renumbered
+  a filing's "14./15./23." numbered paragraphs to "1." on the wire
+  (markdownToHtml discarded list start numbers; turndown renumbered
+  from 1) and salted the body with escape backslashes that shifted
+  every pageMap anchor. PDFs now adopt with `dirtySource: 'markdown'`
+  (the reconstruction IS the capture; `content` is derived), the
+  capture hash covers the same body publish ships, and markdownToHtml
+  preserves `<ol start>` so numbered paragraphs survive display and
+  genuine edits alike. Lesson: when a pipeline has one canonical text
+  and several derived views, every default that silently re-derives
+  the canonical from a view is a corruption vector.
+- **Durable identity must live where snapshots happen.** Figure imgs
+  were re-hydrated by matching `src^="xray-figure:"`, but htmlDraft
+  snapshots the body AFTER hydration (entity tagging, field blur) —
+  so re-renders injected imgs whose src was an already-revoked blob
+  URL and figures broke permanently. Re-hydration now keys on
+  `data-xray-figure`, which survives every snapshot.
+- **The publish copy is not the archive copy.** Publishing stored the
+  event-shaped article (markdown in `content`) into the archive row;
+  "Load archive" injected that markdown as HTML — a garbled, escaped
+  single line with figures as literal text — while keeping the raw
+  capture's pageMap against the round-tripped body (confidently wrong
+  page anchors). The archive now stores a reader-shaped copy and drops
+  pageMap when the saved markdown is no longer the text it indexes.
+- **pdf.js needs its data files, not just its code.** No `cMapUrl` →
+  predefined-CMap (CJK) PDFs extracted zero text and were refused as
+  "scans"; no `wasmUrl` → JBIG2/JPEG2000 could never decode (the
+  no-wasm fallback ALSO resolves relative to `wasmUrl`). The build now
+  copies `cmaps/`, `standard_fonts/`, `wasm/`, `iccs/` into `dist/`.
+  And one more missing-API kill: the worker's `fingerprints` getter
+  calls `Uint8Array.prototype.toHex` during `GetDocRequest` — round
+  two's scan grepped `fromHex` but not `toHex`, so capture stayed dead
+  on Firefox 128–132 / Chrome ≤139 until this round's shim.
+- Storage hygiene: archive DB connections now close on
+  `versionchange` (a workspace reset used to block forever on the
+  reader's open handle); the `lastAccessed` bump re-reads inside its
+  write transaction instead of writing back a stale record; re-capture
+  dedupe hits refresh the pruner's grace window; the prune pass is
+  throttled (it materializes every stored byte payload).
+
+Deferred, deliberately: page anchors for quotes duplicated across
+pages still resolve to the first occurrence (the grounding API has no
+prefix/suffix context yet — the claim's own TextQuoteSelector stays
+correct, and the FragmentSelector is additive); `<embed>`-wrapped PDFs
+on HTML pages have no capture path (feature, not bug); alpha-bearing
+drawable hashes remain theoretically browser-dependent (accepted in
+#111's design).
+
 ## 2026-07-08 — PDF stack, second sweep: the bugs that survived the first one
 
 Tags: `bug`, `external`.

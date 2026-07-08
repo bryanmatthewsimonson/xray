@@ -59,6 +59,50 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Fixed
 
+- **PDF stack, round three: the reader's draft machine and the last
+  platform gaps.** Compatibility: `Uint8Array.prototype.toHex` shim —
+  pdf.js's worker calls it in the `fingerprints` getter during the
+  FIRST step of every document load, so capture was still dead on
+  Firefox 128–132 / Chrome ≤139 even with `Promise.try` shimmed; the
+  build now also ships pdf.js's runtime assets (`dist/cmaps/`,
+  `dist/standard_fonts/`, `dist/wasm/`, `dist/iccs/`, ~4MB) — without
+  cMaps a CJK PDF extracted zero text and was falsely refused as "a
+  scan", and without wasm JBIG2/JPEG2000 figures could never decode.
+  Provenance/reader: unedited PDF publishes now ship the reconstructed
+  markdown byte-exact (the draft machine force-round-tripped it
+  through turndown, renumbering a filing's "14./15./23." paragraphs
+  to "1." on the wire and salting the body with escape backslashes
+  that shifted every pageMap anchor; the capture hash now covers the
+  same body the publish ships); `markdownToHtml` preserves ordered-
+  list start numbers via `<ol start>`; figures survive edit/view
+  round-trips (re-hydration now keys on `data-xray-figure`, not the
+  revoked blob URL); the post-publish archive row is reader-shaped
+  again (it stored markdown in `content`, so "Load archive" rendered
+  a published PDF as one garbled escaped line, paired with a stale
+  pageMap); loading an archived version invalidates the page-anchor
+  grounding index and carries the `extraction` record forward (a
+  relay-reconstructed adoption dropped `source_hash`, letting the
+  pruner delete the original PDF bytes out from under a live
+  article); a failed session-record write (quota) is surfaced at
+  capture time instead of as a baffling publish error. Storage:
+  archive connections close on `versionchange` (workspace reset no
+  longer hangs forever); the `lastAccessed` bump re-reads inside its
+  transaction (no more lost-update clobbering of publish metadata);
+  re-captures refresh the pruner's grace window; the orphan-prune
+  pass is throttled to one run per 10 minutes. Metadata: figure alt
+  text is markdown-metacharacter-safe (a caption's backtick could
+  swallow the image markup into a code span); hyphenated/long arXiv
+  subject classes (`cond-mat.mes-hall/0212413`) match; DOI extraction
+  from `doi.org` URLs drops query/fragment; and **direct PDF captures
+  now carry URL-derived scholarly identity** (`arxiv.org/pdf/<id>`,
+  `doi.org/…` PDFs get `scholar.arxiv_id`/`doi` and the corresponding
+  30023 tags — previously only the HTML abs page did). **Behavior
+  note:** the canonical `x` of an unedited PDF capture is now the
+  hash of the reconstructed markdown itself, not of its turndown
+  round trip — previously captured PDFs will show one "content
+  changed" banner on their first re-capture (expected supersession,
+  same posture as the figure-hash change in #111).
+
 - **PDF capture was dead on Firefox ESR 128–133.** pdf.js 6.x calls
   `Promise.try` (Firefox 134+/Chrome 128+) inside `MessageHandler` —
   the main↔worker RPC that every pdf.js request crosses — so on the
