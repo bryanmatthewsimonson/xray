@@ -13,7 +13,11 @@
 // getAttribute).
 
 const DOI_RE = /\b(10\.\d{4,9}\/[^\s"'<>]+)/;
-const ARXIV_ABS_RE = /arxiv\.org\/(?:abs|pdf)\/([a-z-]+(?:\.[A-Z]{2})?\/?\d{4}\.?\d{4,5}|\d{4}\.\d{4,5})(v\d+)?/i;
+// Two id generations: new-style `2401.12345` (YYMM.NNNNN, 2007+) and
+// old-style `hep-th/9901001` / `math.GT/0309136` (archive.subject/YYMMNNN,
+// SEVEN digits — the earlier pattern demanded eight and never matched a
+// pre-2007 paper's URL).
+const ARXIV_ABS_RE = /arxiv\.org\/(?:abs|pdf)\/((?:[a-z-]+(?:\.[A-Z]{2})?\/\d{7})|\d{4}\.\d{4,5})(v\d+)?/i;
 
 function metaContent(doc, names) {
     const metas = doc.querySelectorAll ? doc.querySelectorAll('meta') : [];

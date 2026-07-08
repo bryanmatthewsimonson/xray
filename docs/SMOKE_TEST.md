@@ -730,6 +730,10 @@ publishes. Requires a real Anthropic API key
 | 18.16 | Open a local `file:///…/doc.pdf` tab → toolbar icon | ✅ the reader opens on the Import-file picker (`?pdf=import`); picking the file captures it and the archive row's URL is `file:///imported/<hash16>/…` (two different files named alike don't collide) |
 | 18.17 | Open `https://…/real.pdf?file=<url-encoded other PDF>` → toolbar icon | ✅ the capture is of **real.pdf** (check `state.article.url`), never the `file=` target |
 | 18.18 | Capture a two-column LaTeX/IEEE paper (10–18pt gutter) with a figure in the right column | ✅ reading order is left column then right; the figure appears within the right column's text, not at the top of the page |
+| 18.19 | Capture a PDF containing a `/Rotate 90` (landscape) page with text | ✅ the rotated page's text reads as real lines in visual order — not jammed/interleaved fragments; a claim quoted from that page grounds and carries the right page anchor |
+| 18.20 | On **Chrome**, capture a PDF whose figures are JPEG photographs (most scanned-photo reports) | ✅ the photos are captured as figures (pre-fix: Chrome's ImageDecoder hands back a `VideoFrame` and every JPEG figure was dropped); `extraction.figures` ≥ 1 |
+| 18.21 | On **Firefox ESR 128–133**, capture any PDF | ✅ capture works at all (pdf.js calls `Promise.try` in its worker RPC; without the shim the first `getDocument` throws and nothing loads) |
+| 18.22 | Toolbar-capture a PDF link carrying a fragment (`…/paper.pdf#page=3`) and separately the bare URL | ✅ both open the same capture identity — `state.article.url` has no `#page=…`, one archive row, one d-tag |
 
 **Scholarly metadata (C2)**
 
