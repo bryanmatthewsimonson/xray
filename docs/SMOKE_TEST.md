@@ -734,6 +734,12 @@ publishes. Requires a real Anthropic API key
 | 18.20 | On **Chrome**, capture a PDF whose figures are JPEG photographs (most scanned-photo reports) | ✅ the photos are captured as figures (pre-fix: Chrome's ImageDecoder hands back a `VideoFrame` and every JPEG figure was dropped); `extraction.figures` ≥ 1 |
 | 18.21 | On **Firefox ESR 128–133**, capture any PDF | ✅ capture works at all (pdf.js calls `Promise.try` in its worker RPC; without the shim the first `getDocument` throws and nothing loads) |
 | 18.22 | Toolbar-capture a PDF link carrying a fragment (`…/paper.pdf#page=3`) and separately the bare URL | ✅ both open the same capture identity — `state.article.url` has no `#page=…`, one archive row, one d-tag |
+| 18.23 | Capture a figure-bearing PDF, tag one entity in the body, switch to Markdown view and back to Reader | ✅ figures still render (pre-fix: the view round-trip revoked their blob URLs and they broke permanently) |
+| 18.24 | Capture a PDF whose paragraphs are numbered (a filing: "14. …", "15. …"), publish WITHOUT editing | ✅ the published 30023 body carries the original numbers and matches `state.article.markdown` byte-for-byte (no "1." renumbering, no escape backslashes); the reader body shows the real numbers |
+| 18.25 | Publish a PDF capture, close the tab, re-open the same `?pdf=` URL and click "Load archive" | ✅ the body renders as an article (not raw markdown text); figures render; claims still get page anchors |
+| 18.26 | Capture a CJK (Japanese/Chinese) PDF | ✅ text extracts (pre-fix: zero text and a false "likely a scan" refusal — predefined CMaps now ship in `dist/cmaps/`) |
+| 18.27 | Capture a PDF with JBIG2/JPEG2000 images (archival scan with a text layer) | ✅ such figures decode and archive (wasm decoders now ship in `dist/wasm/`) |
+| 18.28 | Capture `https://arxiv.org/pdf/<id>` directly (no .pdf suffix) | ✅ the capture carries `state.article.scholar.arxiv_id` and the published 30023 gains the `arxiv`/`i` tags — identity no longer depends on capturing the abs page |
 
 **Scholarly metadata (C2)**
 

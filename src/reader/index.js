@@ -144,7 +144,20 @@ async function loadArticle() {
             area.set({
                 ['xray:article:' + state.id]:
                     { article, sourceTabId: null, createdAt: Date.now(), readOnly: false }
-            }, () => resolve());
+            }, () => {
+                // A quota-full session store fails SILENTLY here and
+                // surfaces minutes later as a baffling "Session record
+                // missing" at publish — say so now, while the user can
+                // still connect cause and effect.
+                const err = browserApi.runtime && browserApi.runtime.lastError;
+                if (err) {
+                    console.warn('[X-Ray Reader] session record write failed:', err.message);
+                    toast('Could not register this capture for publishing ('
+                        + err.message + ') — publish will fail until the browser is restarted.',
+                    'error', 8000);
+                }
+                resolve();
+            });
         });
         return adoptArticle(article, null);
     }
@@ -195,6 +208,17 @@ function adoptArticle(article, stored) {
     state.markdownDraft = article.markdown || article.content || '';
     state.htmlDraft = article.content || ContentExtractor.markdownToHtml(state.markdownDraft);
 
+    // PDFs: the reconstructed markdown IS the capture — `content` is a
+    // rendering derived from it. Marking the markdown draft canonical
+    // makes an untouched capture publish it byte-exact instead of
+    // round-tripping the derived HTML back through turndown, which
+    // renumbered a filing's "14./15./23." paragraphs to "1." on the
+    // wire and salted the body with escape backslashes that shifted
+    // every pageMap anchor.
+    if (article.contentType === 'pdf' && article.markdown) {
+        state.dirtySource = 'markdown';
+    }
+
     // Tagged-entity refs stored on the article get round-tripped through
     // the session-storage hand-off. Ensure the field exists so the
     // tagger and publish paths can write to it without null-guards.
@@ -217,7 +241,7 @@ function adoptArticle(article, stored) {
         (async () => {
             try {
                 state.articleHash = await canonicalArticleHash(
-                    EventBuilder.assembleArticleBody(state.article));
+                    EventBuilder.assembleArticleBody(hashableArticle(state.article)));
                 updateHashLine();
                 // The audit bar keys on the hash — refresh it now that
                 // the hash is known (init wired it before this resolved).
@@ -235,8 +259,17 @@ function adoptArticle(article, stored) {
             } catch (err) {
                 console.warn('[X-Ray Reader] hash check failed:', err);
             }
-            ArchiveCache.saveArticle({ article: state.article, source: 'capture' })
-                .catch((err) => console.warn('[X-Ray Reader] archive cache save failed:', err));
+            // Attach the computed hash so the archive row records the
+            // same identity the reader displays — archive-cache would
+            // otherwise re-derive it from the article's HTML content,
+            // which for PDFs is a turndown round trip with a DIFFERENT
+            // hash, and every revisit would false-flag a stealth edit.
+            ArchiveCache.saveArticle({
+                article: state.articleHash
+                    ? { ...state.article, _articleHash: state.articleHash }
+                    : state.article,
+                source: 'capture'
+            }).catch((err) => console.warn('[X-Ray Reader] archive cache save failed:', err));
         })();
     } else if (stored && stored.readOnly && state.article && state.article._articleHash) {
         // Read-only opens (the portal's relay reconstructions) skip
@@ -340,9 +373,17 @@ async function hydrateFigureImages(root) {
         try { URL.revokeObjectURL(url); } catch (_) { /* already gone */ }
     }
     _figureBlobUrls = [];
-    const imgs = root.querySelectorAll('img[src^="xray-figure:"]');
+    // Select by durable identity as well as by content-address src:
+    // htmlDraft is snapshotted from the ALREADY-HYDRATED body (entity
+    // tagging, field blur), so re-renders inject imgs whose src is a
+    // — just revoked — blob URL. Matching only `xray-figure:` srcs
+    // left those permanently broken; data-xray-figure survives every
+    // snapshot and lets each pass mint fresh URLs for them.
+    const imgs = root.querySelectorAll('img[src^="xray-figure:"], img[data-xray-figure]');
     for (const img of imgs) {
-        const hash = img.getAttribute('src').slice('xray-figure:'.length);
+        const src = img.getAttribute('src') || '';
+        const hash = img.getAttribute('data-xray-figure')
+            || (src.startsWith('xray-figure:') ? src.slice('xray-figure:'.length) : '');
         if (!/^[0-9a-f]{64}$/.test(hash)) continue;
         img.setAttribute('data-xray-figure', hash);
         try {
@@ -355,15 +396,32 @@ async function hydrateFigureImages(root) {
     }
 }
 
+// The body the canonical hash covers must be the body publish ships.
+// For PDFs that is the reconstructed markdown itself (`content` is a
+// derived rendering); hashing the turndown round trip of the derived
+// HTML would fork the capture hash from the published x tag.
+function hashableArticle(article) {
+    return (article && article.contentType === 'pdf' && article.markdown)
+        ? { ...article, content: article.markdown, _contentIsMarkdown: true }
+        : article;
+}
+
 // Page-level provenance (COMPLEX_CONTENT_DESIGN.md §5.4): the pageMap
 // indexes the EXTRACTED MARKDOWN, so page lookup grounds the quote
 // against that substrate (not the rendered body, whose offsets differ).
+// The index is invalidated whenever a different article body is
+// adopted (Load archive) — grounding in one text while paging in
+// another yields confidently wrong page numbers.
 let _pdfMdIndex = null;
+let _pdfMdIndexSource = null;
 function pdfPageOfQuote(quote) {
     const map = state.article && state.article.pageMap;
     const md = state.article && state.article.markdown;
     if (!Array.isArray(map) || map.length === 0 || !md || !quote) return null;
-    if (!_pdfMdIndex) _pdfMdIndex = createGroundingIndex(md);
+    if (!_pdfMdIndex || _pdfMdIndexSource !== md) {
+        _pdfMdIndex = createGroundingIndex(md);
+        _pdfMdIndexSource = md;
+    }
     const g = _pdfMdIndex.ground(String(quote));
     if (g.status === 'missing') return null;
     return pageOfOffset(map, g.start);
@@ -546,7 +604,15 @@ function loadArchivedArticle(archived, provenance) {
         // Preserve the URL / id bridging so publish + session paths
         // stay consistent with the tab this reader was opened from.
         url: state.article.url,
-        entities: state.article.entities || []
+        entities: state.article.entities || [],
+        // The extraction record names this URL's SOURCE DOCUMENT
+        // (extraction.source_hash keys the archived original bytes).
+        // Relay reconstructions don't carry it; adopting one without
+        // the carry-over meant a later publish overwrote the archive
+        // row hashless and the orphan pruner deleted the original PDF
+        // bytes while the article still lived.
+        ...(archived.extraction ? {} : (state.article.extraction
+            ? { extraction: state.article.extraction } : {}))
     };
     // Tag the article object with archive provenance for the publish
     // flow's awareness + any downstream consumers that care.
@@ -558,6 +624,11 @@ function loadArchivedArticle(archived, provenance) {
     state.markdownDraft = archived.markdown || archived.content || '';
     state.htmlDraft     = archived.content  || ContentExtractor.markdownToHtml(state.markdownDraft);
     state.dirtySource   = 'reader';
+    // Same rule as adoptArticle: an archived PDF's markdown is the
+    // canonical body — republish must not turndown-round-trip it.
+    if (state.article.contentType === 'pdf' && archived.markdown) {
+        state.dirtySource = 'markdown';
+    }
 
     // The hash line labels the visible body — the swapped-in archive
     // is different text, so the load-time hash is wrong for it. Relay
@@ -566,7 +637,7 @@ function loadArchivedArticle(archived, provenance) {
     state.articleHash = archived._articleHash || null;
     state.hashDirty = false;
     if (!state.articleHash) {
-        canonicalArticleHash(EventBuilder.assembleArticleBody(state.article))
+        canonicalArticleHash(EventBuilder.assembleArticleBody(hashableArticle(state.article)))
             .then((h) => { state.articleHash = h; updateHashLine(); })
             .catch((err) => console.warn('[X-Ray Reader] archive hash failed:', err));
     }
@@ -1013,7 +1084,12 @@ function renderReader() {
             if (!dup) state.article.entities.push(ref);
             // Sync htmlDraft with whatever the mark wrap did to the body.
             state.htmlDraft = body.innerHTML;
-            state.dirtySource = 'reader';
+            // Tag wraps are text-neutral (a span around existing text).
+            // For PDFs the markdown draft stays canonical — flipping to
+            // 'reader' here would force the destructive turndown round
+            // trip at publish for zero wire benefit (spans don't survive
+            // it anyway).
+            if (state.article.contentType !== 'pdf') state.dirtySource = 'reader';
             refreshEntitiesBar().catch(() => {});
         },
         onClaim: async ({ text, context, anchor }) => {
@@ -1418,7 +1494,8 @@ async function runSuggestPass() {
                 rehydrateEntityMarks(body, [ref])
                     .then(() => {
                         state.htmlDraft = body.innerHTML;
-                        state.dirtySource = 'reader';
+                        // Text-neutral wrap — see the tagger's onTag.
+                        if (state.article.contentType !== 'pdf') state.dirtySource = 'reader';
                     })
                     .catch(() => {});
             }
@@ -2874,8 +2951,25 @@ async function publish() {
         // the `publishedToRelay` flag is honest.
         if (articleResults.successful > 0) {
             const publishedEventId = articleResp.signedEvent && articleResp.signedEvent.id;
+            // Archive a READER-shaped copy, not the publish copy: the
+            // publish copy holds MARKDOWN in `content` (for the event
+            // body), but Load-archive injects `content` as HTML — a
+            // published PDF re-opened from the archive rendered as one
+            // garbled escaped line with its figures as literal text.
+            // pageMap rides along only while the saved markdown is
+            // still the text its offsets index; an edited draft would
+            // pair fresh text with stale offsets and yield confidently
+            // wrong page anchors.
+            const archivedArticle = {
+                ...article,
+                content: ContentExtractor.markdownToHtml(state.markdownDraft)
+            };
+            delete archivedArticle._contentIsMarkdown;
+            if (state.markdownDraft !== (state.article.markdown || '')) {
+                delete archivedArticle.pageMap;
+            }
             ArchiveCache.saveArticle({
-                article,
+                article:          archivedArticle,
                 source:           'capture',
                 publishedToRelay: true,
                 publishedEventId: publishedEventId || null
