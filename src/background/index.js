@@ -205,16 +205,24 @@ function openPdfReader(pdfUrl) {
  * http(s) only, best-effort — a blocked or failing HEAD just means "not
  * provably a PDF" and the caller falls through to Settings.
  */
+const SNIFF_TIMEOUT_MS = 5000;
 async function sniffPdfUrl(url) {
     if (!/^https?:/i.test(url || '')) return null;
     try {
-        let resp = await fetch(url, { method: 'HEAD', credentials: 'include' });
+        // Bounded: without a timeout an unresponsive server left the
+        // toolbar click/shortcut hanging silently for the platform's
+        // full network timeout before anything opened.
+        let resp = await fetch(url, {
+            method: 'HEAD', credentials: 'include',
+            signal: AbortSignal.timeout(SNIFF_TIMEOUT_MS)
+        });
         if (!resp.ok) {
             // Some servers reject HEAD (405); a 1-byte ranged GET gets
             // the same headers without pulling the document.
             resp = await fetch(url, {
                 method: 'GET', credentials: 'include',
-                headers: { Range: 'bytes=0-0' }
+                headers: { Range: 'bytes=0-0' },
+                signal: AbortSignal.timeout(SNIFF_TIMEOUT_MS)
             });
             try { resp.body && resp.body.cancel(); } catch (_) { /* headers suffice */ }
             if (!resp.ok) return null;

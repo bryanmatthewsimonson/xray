@@ -155,3 +155,14 @@ test('pdf capture: source bytes archived under their sha256, recorded on extract
     assert.equal(row.mime, 'application/pdf');
     assert.equal(new TextDecoder().decode(row.bytes), '%PDF-1.7 stub-bytes-for-archive');
 });
+
+test('pdf capture: a fragment on the source URL does not fork the identity', async () => {
+    const doc = stubDoc([stubPage({
+        viewport: PORTRAIT,
+        items: [textItem('Enough text to clear the scan gate easily', 72, 700)]
+    })]);
+    globalThis.__stubPdfEngine = { doc };
+    const file = new File([new TextEncoder().encode('%PDF-frag')], 'x.pdf');
+    const article = await capturePdfToArticle({ file, url: 'https://docs.test/paper.pdf#page=3' });
+    assert.equal(article.url, 'https://docs.test/paper.pdf');
+});

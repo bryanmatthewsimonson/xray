@@ -43,7 +43,14 @@ export function pdfDocumentUrl(tabUrl) {
     // query string, not a viewer wrapper. Unwrapping before this check
     // let `https://host/real.pdf?file=<decoy>` capture the decoy: a
     // wrong-document provenance failure.
+    //
+    // The fragment is dropped everywhere here: `#page=3` is a viewer
+    // instruction, never sent to the server — same bytes, same
+    // document. Keeping it forked the capture identity (the d-tag is
+    // a hash of the RAW url), so a deep link and the bare URL yielded
+    // two competing article events for one PDF.
     if ((u.protocol === 'https:' || u.protocol === 'http:') && /\.pdf$/i.test(u.pathname)) {
+        u.hash = '';
         return u.href;
     }
 
@@ -59,6 +66,7 @@ export function pdfDocumentUrl(tabUrl) {
         try { inner = new URL(raw, u.href); } catch (_) { continue; }
         if ((inner.protocol === 'https:' || inner.protocol === 'http:')
             && /\.pdf$/i.test(inner.pathname)) {
+            inner.hash = '';
             return inner.href;
         }
     }

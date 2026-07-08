@@ -344,6 +344,14 @@ async function extractPageFigures(page, OPS, stats, viewport) {
 export async function capturePdfToArticle({ url = '', file = null } = {}) {
     let bytes;
     let sourceUrl = url;
+    // Fragment ≠ identity: `#page=3` is a viewer instruction the server
+    // never sees — same bytes, same document. The d-tag hashes the RAW
+    // url, so a carried fragment would fork the article identity (and
+    // the archive row) between a deep link and the bare URL.
+    try {
+        const u = new URL(sourceUrl);
+        if (u.hash) { u.hash = ''; sourceUrl = u.href; }
+    } catch (_) { /* file imports have no url */ }
     if (file) {
         bytes = await file.arrayBuffer();
     } else {

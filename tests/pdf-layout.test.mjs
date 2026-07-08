@@ -164,7 +164,9 @@ test('textDensity: scans read near zero, text PDFs do not', () => {
 
 test('pdfDocumentUrl: direct, wrapper, and non-PDF shapes', () => {
     assert.equal(pdfDocumentUrl('https://x.test/paper.pdf'), 'https://x.test/paper.pdf');
-    assert.equal(pdfDocumentUrl('https://x.test/paper.PDF?dl=1#page=2'), 'https://x.test/paper.PDF?dl=1#page=2');
+    // Query survives (it can name the document); the fragment is a
+    // viewer instruction and is dropped — see the fragment test below.
+    assert.equal(pdfDocumentUrl('https://x.test/paper.PDF?dl=1#page=2'), 'https://x.test/paper.PDF?dl=1');
     assert.equal(
         pdfDocumentUrl('chrome-extension://abc/viewer.html?file=' + encodeURIComponent('https://x.test/a.pdf')),
         'https://x.test/a.pdf');
@@ -564,4 +566,16 @@ test('an off-center gutter the classifier cannot resolve does not shred lines', 
         assert.ok(markdown.includes(`left snippet ${i} right long content column text ${i}`),
             `line ${i} stayed whole: ${markdown}`);
     }
+});
+
+test('pdfDocumentUrl: fragments are dropped — #page=3 is not identity', () => {
+    assert.equal(
+        pdfDocumentUrl('https://docs.test/paper.pdf#page=3'),
+        'https://docs.test/paper.pdf');
+    assert.equal(
+        pdfDocumentUrl('https://docs.test/paper.pdf?rev=2#page=3&zoom=200'),
+        'https://docs.test/paper.pdf?rev=2');
+    assert.equal(
+        pdfDocumentUrl('https://host.test/pdfjs/web/viewer.html?file=https%3A%2F%2Fdocs.test%2Fpaper.pdf%23page%3D7'),
+        'https://docs.test/paper.pdf');
 });
