@@ -29,6 +29,13 @@ const FIGURE_MIN_PIXELS = 40;
 const FIGURE_FURNITURE_PAGES = 3;
 const FIGURE_MAX_COUNT = 40;
 const PAGE_FIGURE_MAX = 12;
+// Distinct figures whose PNG BYTES are retained during the document
+// walk. Page membership is tracked for every hash (the furniture pass
+// needs it), but holding decoded PNGs for a 500-page catalog's
+// thousands of distinct images kept gigabytes live; only the first
+// FIGURE_MAX_COUNT non-furniture figures can ever be archived, so a
+// generous multiple bounds memory without starving the archive.
+const FIGURE_BYTES_MAX = 256;
 
 const browserApi = (typeof browser !== 'undefined') ? browser : chrome;
 
@@ -85,6 +92,23 @@ export function unitSquareBBox(ctm) {
     return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
 }
 
+// Figure bbox in the VIEWED page's y-up space: compose the viewport
+// transform (which is where pdf.js applies /Rotate and the MediaBox
+// origin — operator CTMs are raw user space) over the placement CTM,
+// take the bbox in the viewport's y-down space, and flip back to the
+// y-up convention the layout engine shares with the text items. On a
+// /Rotate 90 page the raw-CTM bbox landed in coordinates the text no
+// longer occupied — figures placed against the wrong lines/captions.
+export function viewportBBox(ctm, viewport) {
+    const down = unitSquareBBox(matMul(viewport.transform, ctm));
+    return {
+        x: down.x,
+        y: viewport.height - (down.y + down.h),
+        w: down.w,
+        h: down.h
+    };
+}
+
 // Resolve a decoded image object. pdf.js keeps globally-cached objects
 // (images reused across pages — logos, repeated figures) in the
 // DOCUMENT-level store under `g_`-prefixed ids and page-local objects
@@ -110,16 +134,33 @@ function getPageObject(page, name) {
     });
 }
 
-// Is `v` a drawImage-able source (ImageBitmap / canvas)? Treated by
-// duck-typing so it works even where the global constructors differ.
-function isDrawable(v) {
+// Is `v` a drawImage-able source (ImageBitmap / canvas / VideoFrame)?
+// Treated by duck-typing so it works even where the global constructors
+// differ. VideoFrame matters: Chrome's pdf.js decodes JPEGs through
+// ImageDecoder and hands back { data: null, bitmap: <VideoFrame> } —
+// and a VideoFrame has NO width/height (only displayWidth/codedWidth),
+// so the bitmap duck-type alone rejected it and every JPEG photograph
+// figure was silently dropped on Chrome. Exported for tests.
+export function isDrawable(v) {
     if (!v || typeof v !== 'object') return false;
     if (typeof ImageBitmap !== 'undefined' && v instanceof ImageBitmap) return true;
     if (typeof OffscreenCanvas !== 'undefined' && v instanceof OffscreenCanvas) return true;
     if (typeof HTMLCanvasElement !== 'undefined' && v instanceof HTMLCanvasElement) return true;
-    // Duck-type: has width/height and looks bitmap-ish (has close()) or is a canvas.
-    return typeof v.width === 'number' && typeof v.height === 'number'
-        && (typeof v.close === 'function' || typeof v.getContext === 'function');
+    if (typeof VideoFrame !== 'undefined' && v instanceof VideoFrame) return true;
+    // Duck-types: bitmap-ish (width/height + close()), canvas-ish
+    // (getContext), or VideoFrame-ish (displayWidth/Height + close()).
+    if (typeof v.width === 'number' && typeof v.height === 'number'
+        && (typeof v.close === 'function' || typeof v.getContext === 'function')) {
+        return true;
+    }
+    return typeof v.displayWidth === 'number' && typeof v.displayHeight === 'number'
+        && typeof v.close === 'function';
+}
+
+// Intrinsic pixel size of a drawable, across its API families.
+function drawableDim(v, axis) {
+    if (!v) return 0;
+    return (axis === 'w' ? (v.width || v.displayWidth) : (v.height || v.displayHeight)) || 0;
 }
 
 // Paint `paint(ctx)` onto a width×height canvas; return PNG bytes plus
@@ -141,10 +182,29 @@ async function canvasToPng(width, height, paint) {
 }
 
 // Raw channel data → RGBA (or null for an unknown layout). `kind` is
-// pdf.js ImageKind — 2 RGB_24BPP, 3 RGBA_32BPP; else channels are inferred.
-function channelsToRgba(data, width, height, kind) {
+// pdf.js ImageKind — 1 GRAYSCALE_1BPP (packed bits, rows padded to a
+// byte boundary, MSB first, 1 = white), 2 RGB_24BPP, 3 RGBA_32BPP;
+// else channels are inferred. Exported for tests.
+export function channelsToRgba(data, width, height, kind) {
     if (!data || !data.length) return null;
     const rgba = new Uint8ClampedArray(width * height * 4);
+    if (kind === 1) {
+        // 1-bit line art (scanned diagrams, fax-style charts). Inferring
+        // channels from data.length rounded this to 0 and dropped the
+        // figure; expand the bits the way pdf.js's own canvas path does.
+        const rowBytes = Math.ceil(width / 8);
+        if (data.length < rowBytes * height) return null;
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const bit = (data[y * rowBytes + (x >> 3)] >> (7 - (x & 7))) & 1;
+                const v = bit ? 255 : 0;
+                const o = (y * width + x) * 4;
+                rgba[o] = rgba[o + 1] = rgba[o + 2] = v;
+                rgba[o + 3] = 255;
+            }
+        }
+        return rgba;
+    }
     const channels = kind === 2 ? 3 : kind === 3 ? 4
         : Math.round(data.length / (width * height));
     if (channels === 4) {
@@ -184,20 +244,23 @@ async function imageToFigure(img) {
 
     const drawable = isDrawable(img) ? img
         : (img.bitmap && isDrawable(img.bitmap)) ? img.bitmap : null;
-    const width = img.width || (drawable && drawable.width);
-    const height = img.height || (drawable && drawable.height);
+    const width = img.width || drawableDim(drawable, 'w');
+    const height = img.height || drawableDim(drawable, 'h');
     if (!width || !height) return null;
 
-    // Strategy 1: draw the decoded bitmap/canvas.
+    // Strategy 1: draw the decoded bitmap/canvas/frame. Only the
+    // decoded RGBA pixels are an acceptable hash input — when
+    // getImageData fails (oversize canvas) the PNG container bytes are
+    // encoder-dependent, which is the exact cross-browser x-fork #111
+    // removed; fall through to the raw data (or skip) instead.
     if (drawable) {
         const png = await canvasToPng(width, height,
             (ctx) => ctx.drawImage(drawable, 0, 0, width, height));
-        if (png) {
-            const hash = await sha256Bytes(png.pixels ? png.pixels.buffer : png.bytes);
-            return { bytes: png.bytes, hash };
+        if (png && png.pixels) {
+            return { bytes: png.bytes, hash: await sha256Bytes(png.pixels.buffer) };
         }
-        // Bitmap draw produced nothing (seen with dimensionless bitmaps) —
-        // fall through to the raw channel data if we have it.
+        // Draw produced nothing (dimensionless bitmaps) or pixels were
+        // unreadable — fall through to the raw channel data if any.
     }
 
     // Strategy 2: raw channel data. Hash the source RGBA directly —
@@ -226,8 +289,12 @@ async function imageToFigure(img) {
  * The gap between these three localizes any figure loss.
  *
  * @returns {Promise<Array<{bytes: ArrayBuffer, hash: string, x,y,w,h: number, px: number}>>}
+ *
+ * Exported for tests (the CTM walk is unreachable through stubs
+ * otherwise; pdf.js arg shapes — Float32Array matrices, annotation
+ * spans — have already diverged from naive expectations once).
  */
-async function extractPageFigures(page, OPS, stats) {
+export async function extractPageFigures(page, OPS, stats, viewport) {
     const out = [];
     let opList;
     try { opList = await page.getOperatorList(); }
@@ -235,9 +302,22 @@ async function extractPageFigures(page, OPS, stats) {
 
     let ctm = [1, 0, 0, 1, 0, 0];
     const stack = [];
+    let annotationDepth = 0;
     for (let i = 0; i < opList.fnArray.length; i++) {
         const fn = opList.fnArray[i];
         const args = opList.argsArray[i];
+        // Annotation appearance streams (stamps, signatures, widgets)
+        // ride the SAME operator list, bracketed by begin/endAnnotation
+        // with their own transform regime. They are not page content —
+        // and walking their ops both mis-measured their images under
+        // the page CTM and let their `cm`s corrupt every later
+        // placement on the page. Skip the whole span.
+        if (fn === OPS.beginAnnotation) { annotationDepth += 1; continue; }
+        if (fn === OPS.endAnnotation) {
+            annotationDepth = Math.max(0, annotationDepth - 1);
+            continue;
+        }
+        if (annotationDepth > 0) continue;
         if (fn === OPS.save) { stack.push(ctm.slice()); continue; }
         if (fn === OPS.restore) { ctm = stack.pop() || [1, 0, 0, 1, 0, 0]; continue; }
         if (fn === OPS.transform) { ctm = matMul(ctm, args); continue; }
@@ -246,11 +326,13 @@ async function extractPageFigures(page, OPS, stats) {
         // so). Publisher PDFs routinely wrap figures in forms —
         // ignoring these ops measured such figures under the wrong CTM
         // and let a form-internal `cm` corrupt every later placement
-        // on the page.
+        // on the page. NOTE: pdf.js 6.x ships the matrix as a
+        // Float32Array (it even transfers its buffer) — an
+        // Array.isArray guard here silently disabled the concat.
         if (fn === OPS.paintFormXObjectBegin) {
             stack.push(ctm.slice());
             const m = args && args[0];
-            if (Array.isArray(m) && m.length === 6) ctm = matMul(ctm, m);
+            if (m && m.length === 6) ctm = matMul(ctm, m);
             continue;
         }
         if (fn === OPS.paintFormXObjectEnd) {
@@ -259,8 +341,12 @@ async function extractPageFigures(page, OPS, stats) {
         }
         const isRepeat = fn === OPS.paintImageXObjectRepeat;
         if (fn !== OPS.paintImageXObject && !isRepeat) continue;
+        // Decode-work bound, as the constant's contract promises: past
+        // the per-page cap, stop resolving/decoding — the caller could
+        // never keep more than PAGE_FIGURE_MAX anyway.
+        if (out.length >= PAGE_FIGURE_MAX) break;
 
-        let box = unitSquareBBox(ctm);
+        let imgCtm = ctm;
         if (isRepeat) {
             // Repeat ops tile one XObject at several positions
             // (args: id, scaleX, scaleY, positions). Best-effort: one
@@ -268,8 +354,9 @@ async function extractPageFigures(page, OPS, stats) {
             // filter and place the figure once in reading order.
             const sx = Math.abs(Number(args && args[1])) || 1;
             const sy = Math.abs(Number(args && args[2])) || 1;
-            box = { ...box, w: box.w * sx, h: box.h * sy };
+            imgCtm = matMul(ctm, [sx, 0, 0, sy, 0, 0]);
         }
+        const box = viewportBBox(imgCtm, viewport);
         if (box.w < FIGURE_MIN_POINTS || box.h < FIGURE_MIN_POINTS) continue;
         if (stats) stats.seen += 1;
         try {
@@ -277,8 +364,8 @@ async function extractPageFigures(page, OPS, stats) {
             if (!img) continue;
             if (stats) stats.resolved += 1;
             // Intrinsic pixels — read from the wrapper or its drawable.
-            const iw = img.width || (img.bitmap && img.bitmap.width) || 0;
-            const ih = img.height || (img.bitmap && img.bitmap.height) || 0;
+            const iw = img.width || drawableDim(img.bitmap, 'w') || 0;
+            const ih = img.height || drawableDim(img.bitmap, 'h') || 0;
             if (Math.min(iw, ih) < FIGURE_MIN_PIXELS) continue;
             const fig = await imageToFigure(img);
             if (!fig) continue;
@@ -307,6 +394,14 @@ async function extractPageFigures(page, OPS, stats) {
 export async function capturePdfToArticle({ url = '', file = null } = {}) {
     let bytes;
     let sourceUrl = url;
+    // Fragment ≠ identity: `#page=3` is a viewer instruction the server
+    // never sees — same bytes, same document. The d-tag hashes the RAW
+    // url, so a carried fragment would fork the article identity (and
+    // the archive row) between a deep link and the bare URL.
+    try {
+        const u = new URL(sourceUrl);
+        if (u.hash) { u.hash = ''; sourceUrl = u.href; }
+    } catch (_) { /* file imports have no url */ }
     if (file) {
         bytes = await file.arrayBuffer();
     } else {
@@ -328,32 +423,56 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
     }
 
     const engine = await loadEngine();
-    // pdf.js transfers the buffer to its worker — hand it a copy.
-    const doc = await engine.getDocument({ data: bytes.slice(0) }).promise;
+    // pdf.js transfers the buffer to its worker — hand it a copy. Keep
+    // the loading task: pdf.js 6.x removed PDFDocumentProxy.destroy()
+    // (teardown lives on the task), and calling a method that isn't
+    // there inside a swallow-all catch silently skipped cleanup.
+    const loadingTask = engine.getDocument({ data: bytes.slice(0) });
+    let doc;
     try {
+        doc = await loadingTask.promise;
         // Pass 1 — text only. The scan gate must run BEFORE any figure
         // work or archival: refusing a 300-page scan after decoding and
         // storing its images wasted minutes and left orphaned blobs.
         const pages = [];
         const pageProxies = [];
+        const pageViewports = [];
         for (let p = 1; p <= doc.numPages; p++) {
             const page = await doc.getPage(p);
             pageProxies.push(page);
             const viewport = page.getViewport({ scale: 1 });
+            pageViewports.push(viewport);
             const tc = await page.getTextContent();
             pages.push({
                 width: viewport.width,
                 height: viewport.height,
                 figures: [],
+                // getTextContent transforms are RAW user space — pdf.js
+                // applies /Rotate (and the MediaBox origin) only in the
+                // viewport. Mapping through the viewport (then back to
+                // y-up) is what keeps a /Rotate 90 page's visual lines
+                // as lines: raw coords put every chunk of a rotated
+                // line on a different baseline and the reconstruction
+                // shredded/interleaved them — quote-corrupting output.
+                // Identity for the common unrotated origin-0 page.
                 items: (tc.items || [])
                     .filter((i) => typeof i.str === 'string')
-                    .map((i) => ({
-                        str: i.str,
-                        x: i.transform[4],
-                        y: i.transform[5],
-                        w: i.width || 0,
-                        h: i.height || Math.abs(i.transform[3]) || 10
-                    }))
+                    .map((i) => {
+                        const [vx, vy] = viewport.convertToViewportPoint(
+                            i.transform[4], i.transform[5]);
+                        return {
+                            str: i.str,
+                            x: vx,
+                            y: viewport.height - vy,
+                            w: i.width || 0,
+                            // Rotated text matrices zero transform[3];
+                            // the font-size vector magnitude covers all
+                            // orientations.
+                            h: i.height
+                                || Math.hypot(i.transform[2], i.transform[3])
+                                || 10
+                        };
+                    })
             });
         }
 
@@ -376,7 +495,8 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
             const page = pageProxies[p - 1];
             const figures = pages[p - 1].figures;
             try {
-                const raw = await extractPageFigures(page, engine.OPS, figureStats);
+                const raw = await extractPageFigures(
+                page, engine.OPS, figureStats, pageViewports[p - 1]);
                 const seenOnPage = new Set();
                 for (const fig of raw) {
                     if (figures.length >= PAGE_FIGURE_MAX) break;
@@ -384,7 +504,12 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
                     seenOnPage.add(fig.hash);
                     let entry = figuresByHash.get(fig.hash);
                     if (!entry) {
-                        entry = { bytes: fig.bytes, pages: new Set() };
+                        entry = {
+                            // Past the retention cap, keep counting pages
+                            // (furniture detection) but drop the payload.
+                            bytes: figuresByHash.size < FIGURE_BYTES_MAX ? fig.bytes : null,
+                            pages: new Set()
+                        };
                         figuresByHash.set(fig.hash, entry);
                     }
                     entry.pages.add(p);
@@ -438,7 +563,7 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
         }
         let archivedFigures = 0;
         for (const [hash, entry] of figuresByHash) {
-            if (!referenced.has(hash)) continue;
+            if (!referenced.has(hash) || !entry.bytes) continue;
             try {
                 const res = await putSourceDocument({
                     hash, bytes: entry.bytes, mime: 'image/png',
@@ -506,7 +631,9 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
         // until the document is destroyed; without this, a large PDF's
         // full-resolution images stayed live for the tab's lifetime —
         // and the throw paths (scan refusal, empty text) leaked the
-        // worker document entirely.
-        try { doc.destroy(); } catch (_) { /* teardown is best-effort */ }
+        // worker document entirely. Teardown is the LOADING TASK's job
+        // in pdf.js 6.x — PDFDocumentProxy has no destroy() there.
+        try { await loadingTask.destroy(); }
+        catch (_) { /* teardown is best-effort */ }
     }
 }

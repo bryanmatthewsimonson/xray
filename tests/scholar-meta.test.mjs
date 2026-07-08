@@ -74,3 +74,11 @@ test('30023 builder emits additive doi/i/arxiv tags from article.scholar', async
         assert.equal(bare.tags.find((t) => t[0] === name), undefined, `no ${name} tag`);
     }
 });
+
+test('arxiv: old-style (pre-2007) ids match from URLs — 7 digits, subject classes', () => {
+    const a = extractScholarlyMeta(doc([]), 'https://arxiv.org/abs/math.GT/0309136');
+    assert.equal(a.arxiv_id, 'math.GT/0309136');
+    const b = extractScholarlyMeta(doc([]), 'https://arxiv.org/pdf/hep-th/9901001v3');
+    assert.equal(b.arxiv_id, 'hep-th/9901001');
+    assert.equal(b.arxiv_version, 3);
+});
