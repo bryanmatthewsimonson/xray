@@ -28,6 +28,18 @@ export const UI = {
   // here via the `xray:capture` message.
   openReader: async () => {
     try {
+      // 0. PDF viewer shells that DO host content scripts. The PDF
+      //    routing design assumes browsers never inject content scripts
+      //    into their PDF viewers — true for Chrome and Firefox, FALSE
+      //    for Edge's viewer. There, sendMessage succeeds, the
+      //    background's PDF fallback never fires, and Readability ran
+      //    against viewer chrome ("Could not extract an article…").
+      //    A document served as application/pdf IS the PDF: hand off.
+      if (document.contentType === 'application/pdf') {
+        await chrome.runtime.sendMessage({ type: 'xray:pdf:open', url: location.href });
+        return;
+      }
+
       // 1. Platform detection first — some platforms (YouTube, Twitter)
       //    aren't article-shaped and need to be synthesized from scratch
       //    rather than run through Readability.

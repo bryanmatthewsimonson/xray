@@ -331,6 +331,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     // Content script → worker: open the reader page in a new tab,
     // with the extracted article pre-loaded via session storage.
+    // Content script → worker: the tab is a PDF viewer that hosts
+    // content scripts (Edge — Chrome and Firefox never inject there,
+    // and their PDF tabs arrive via the sendMessage-failure fallback
+    // instead). Route to the reader's PDF path, same as that fallback.
+    if (message.type === 'xray:pdf:open') {
+        let pdfUrl = pdfDocumentUrl(message.url);
+        if (!pdfUrl) {
+            // Suffix-less document URLs (arxiv.org/pdf/<id>): the viewer
+            // itself proves the content type — no sniff needed. Fragments
+            // are viewer instructions, never identity.
+            try {
+                const u = new URL(String(message.url || ''));
+                if (u.protocol === 'https:' || u.protocol === 'http:') {
+                    u.hash = '';
+                    pdfUrl = u.href;
+                }
+            } catch (_) { /* falls through */ }
+        }
+        if (pdfUrl) openPdfReader(pdfUrl);
+        else chrome.runtime.openOptionsPage?.();
+        sendResponse({ ok: !!pdfUrl });
+        return false;
+    }
+
     if (message.type === 'xray:reader:open') {
         const { id, article } = message;
         if (!id || !article) {
