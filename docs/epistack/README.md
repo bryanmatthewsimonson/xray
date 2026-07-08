@@ -20,12 +20,11 @@ reach `flf.org` directly — these were supplied by the maintainer).
 
 ## Status: these govern
 
-These documents **supersede the search-reconstructed competition facts** in
-[`../EPISTACK_ENTRY.md`](../EPISTACK_ENTRY.md) §1 and
-[`../EPISTACK_WIN_PLAN.md`](../EPISTACK_WIN_PLAN.md) §1, both of which
-carried a "verify against flf.org before submitting" caveat. Where the plan
-and these sources disagree, **these sources govern.** (Reconciling the plan
-against them is a follow-up.)
+These documents are the **authoritative competition facts**;
+[`../EPISTACK_ENTRY.md`](../EPISTACK_ENTRY.md) (the entry plan +
+writeup skeleton) has been reconciled against them and cites them
+directly. Where any internal doc and these sources disagree, **these
+sources govern.**
 
 ## What the authoritative text pins down that the plan did not
 
@@ -63,6 +62,8 @@ against them is a follow-up.)
 
 X-Ray targets all three layers, with the **structure** and **provenance**
 work as the compounding/commons core the vision emphasizes, and the
-Phase-13 audit + Phase-15 verdicts as the **assessment** layer. The eggs
-case is the built-out spine; COVID and LHC are the varied-profile
-companions. See [`../EPISTACK_WIN_PLAN.md`](../EPISTACK_WIN_PLAN.md).
+Phase-13 audit + Phase-15 verdicts as the **assessment** layer. The
+COVID-origins case is the deep worked example; eggs is the bounded
+second case; LHC is a pass. See
+[`../EPISTACK_ENTRY.md`](../EPISTACK_ENTRY.md) and
+[`../EPISTACK_RUNBOOK.md`](../EPISTACK_RUNBOOK.md).

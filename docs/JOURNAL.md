@@ -19,6 +19,45 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-08 — Epistack submission plan re-based: relays are the artifact
+
+Tags: `design`.
+
+A full plan review against the codebase (3-agent inventory) found 7 of
+the 07-03 sprint queue's 10 items never started, the entry doc stale,
+and the release un-cut — while the substrate itself is shipped and the
+maintainer is mid-COVID capture run. Re-planned with the owner;
+decisions worth second-guessing later:
+
+- **Nothing from the deleted win plan is treated as frozen.** Its
+  removal (#109) was anti-overfitting, not a pivot; every inherited
+  decision was re-argued on merits. Outcomes that *changed*: a
+  self-hosted relay is now a documented contingency (trigger: fewer
+  than 3 public relays accept+retain our kinds), no longer banned; the
+  CD.1–CD.3 dossier is back on the table merits-first (the investigator
+  needs the assembled view; Phase-12's flat case view predates
+  Phases 13–15), pure module first, shed CD.3→CD.2 under pressure,
+  CD.1 kept.
+- **No export/bundle tool — owner decision.** A planned
+  raw-signed-event NDJSON exporter was cut: wrapping the corpus in
+  files hides the design's core property. The live public relays ARE
+  the artifact; the consumer story is any NOSTR client or the short
+  WebSocket snippet now embedded in the entry doc. Durability
+  = multi-relay redundancy, probed early (runbook §1).
+- **Case scope: COVID deep + eggs bounded (6–10 sources), LHC pass.**
+  The competition wants ≥2 cases; eggs rides the ready corpus doc via
+  a half-day worksheet (`EPISTACK_EGGS_WORKSHEET.md`).
+- **Compounding is demonstrated, not promised**: a second-investigator
+  walkthrough (fresh workspace + second identity profile → pull corpus
+  → adopt entity → publish disagreeing judgment, side-by-side render)
+  uses only shipped features — KS.5 stays unbuilt.
+- Docs re-based: `EPISTACK_ENTRY.md` rewritten (COVID-first,
+  rubric-coverage map, honest-gaps framing — late-binding assessment
+  by design, graded-not-calibrated); `EPISTACK_RUNBOOK.md` (probe /
+  smoke / v0.7.0 / publish / walkthrough); stale "WIN_PLAN outranks"
+  headers fixed in COMPLEX_CONTENT (C1–C4.2 are in fact shipped),
+  CASE_DOSSIER, ENTITY_CORPUS; kickoff marked superseded.
+
 ## 2026-07-08 — PDF tables: read the grid row-by-row, don't column-band it
 
 Tags: `bug`, `design`.

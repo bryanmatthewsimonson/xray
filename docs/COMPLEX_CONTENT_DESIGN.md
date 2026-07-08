@@ -1,8 +1,11 @@
 # Complex Content Capture — Design (PDFs, tables, scientific papers)
 
-**Status: DESIGN ONLY** (v0.1, 2026-07-03). Nothing in this document is
-implemented. The FLF Epistack sprint (`docs/EPISTACK_WIN_PLAN.md`)
-outranks this work until it ships. Slices at the end.
+**Status: C1–C4.2 SHIPPED** (design v0.1, 2026-07-03; status updated
+2026-07-08). Tables/math islands, scholarly metadata, PDF routing +
+pdf.js extraction, extraction-quality warnings, and PDF figures are
+implemented and merged (see `ROADMAP.md` §Phase 18 for the landed/
+deferred split). **C5 (LLM extraction assist) and C6 (SMOKE walk)
+remain design-only.** Slices at the end.
 
 Related: `docs/CAPTURE_GUIDE.md` (per-platform capture),
 `docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md` (LLM assist + consent gates),

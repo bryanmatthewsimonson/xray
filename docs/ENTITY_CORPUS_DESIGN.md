@@ -1,9 +1,10 @@
 # Entity Corpus & Smart Entity Management — Design
 
-**Status: DESIGN ONLY** (v0.1, 2026-07-03). No code in this document is
-implemented except where explicitly marked *(shipped)*. The FLF Epistack
-sprint (`docs/EPISTACK_WIN_PLAN.md`) outranks this work until it ships;
-slices below are sized to start afterward.
+**Status: DESIGN ONLY** (v0.1, 2026-07-03; pointer updated
+2026-07-08). No code in this document is implemented except where
+explicitly marked *(shipped)*. Sequenced after the Epistack submission
+window (see `docs/EPISTACK_ENTRY.md`); slices below are sized to start
+afterward.
 
 Related: `docs/CLAIMS_REDESIGN.md` (thin claims), `docs/NIP_DRAFT.md`
 (wire formats), `docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md` (LLM assist),
