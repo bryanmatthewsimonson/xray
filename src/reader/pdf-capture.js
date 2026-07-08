@@ -427,7 +427,20 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
     // the loading task: pdf.js 6.x removed PDFDocumentProxy.destroy()
     // (teardown lives on the task), and calling a method that isn't
     // there inside a swallow-all catch silently skipped cleanup.
-    const loadingTask = engine.getDocument({ data: bytes.slice(0) });
+    //
+    // The asset URLs (copied into dist/ by the build) are load-bearing:
+    // without cMapUrl a predefined-CMap (CJK) PDF extracts ZERO text
+    // and is falsely refused as a scan; without wasmUrl JBIG2/JPEG2000
+    // images (archival scans, some publishers) can never decode — even
+    // pdf.js's no-wasm fallback module resolves relative to wasmUrl.
+    const loadingTask = engine.getDocument({
+        data: bytes.slice(0),
+        cMapUrl: browserApi.runtime.getURL('dist/cmaps/'),
+        cMapPacked: true,
+        standardFontDataUrl: browserApi.runtime.getURL('dist/standard_fonts/'),
+        wasmUrl: browserApi.runtime.getURL('dist/wasm/'),
+        iccUrl: browserApi.runtime.getURL('dist/iccs/')
+    });
     let doc;
     try {
         doc = await loadingTask.promise;

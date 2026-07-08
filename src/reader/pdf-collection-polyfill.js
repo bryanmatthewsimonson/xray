@@ -13,6 +13,11 @@
 //     positioning where missing.
 //   - Uint8Array.fromBase64 / prototype.toBase64 (Firefox 133 /
 //     Chrome 140): attachment, signature, and XFA content paths.
+//   - Uint8Array.prototype.toHex (Firefox 133 / Chrome 140): the
+//     worker's `fingerprints` getter, awaited during GetDocRequest —
+//     the FIRST step of every document load, so without it every PDF
+//     dies on Firefox 128–132 and Chrome ≤139 even with Promise.try
+//     shimmed.
 //
 // Side-effect module: imported FIRST by both pdf-engine.js (main thread)
 // and pdf-worker-entry.js (worker), so the methods exist before pdf.js
@@ -96,6 +101,20 @@ if (typeof Uint8Array.prototype.toBase64 !== 'function') {
                 bin += String.fromCharCode.apply(null, this.subarray(i, i + CHUNK));
             }
             return btoa(bin);
+        },
+        configurable: true,
+        writable: true
+    });
+}
+
+if (typeof Uint8Array.prototype.toHex !== 'function') {
+    Object.defineProperty(Uint8Array.prototype, 'toHex', {
+        value: function toHex() {
+            let out = '';
+            for (let i = 0; i < this.length; i++) {
+                out += this[i].toString(16).padStart(2, '0');
+            }
+            return out;
         },
         configurable: true,
         writable: true
