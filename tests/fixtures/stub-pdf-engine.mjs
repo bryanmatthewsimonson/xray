@@ -12,7 +12,8 @@ export const version = 'stub';
 export const OPS = {
     save: 1, restore: 2, transform: 3,
     paintImageXObject: 4, paintImageXObjectRepeat: 5,
-    paintFormXObjectBegin: 6, paintFormXObjectEnd: 7
+    paintFormXObjectBegin: 6, paintFormXObjectEnd: 7,
+    beginAnnotation: 8, endAnnotation: 9
 };
 
 export function getDocument() {

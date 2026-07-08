@@ -166,3 +166,59 @@ test('pdf capture: a fragment on the source URL does not fork the identity', asy
     const article = await capturePdfToArticle({ file, url: 'https://docs.test/paper.pdf#page=3' });
     assert.equal(article.url, 'https://docs.test/paper.pdf');
 });
+
+// --- operator-walk contracts (extractPageFigures) --------------------
+
+const { extractPageFigures, isDrawable } = await import('../src/reader/pdf-capture.js');
+const { OPS } = await import('./fixtures/stub-pdf-engine.mjs');
+
+function opsPage(fnArray, argsArray) {
+    return {
+        getOperatorList: async () => ({ fnArray, argsArray }),
+        objs: { get(_n, cb) { cb(null); } },
+        commonObjs: { get(_n, cb) { cb(null); } },
+        cleanup() {}
+    };
+}
+
+test('operator walk: Float32Array Form-XObject matrix is honored', async () => {
+    // pdf.js 6.x ships the /Matrix as a Float32Array (it transfers the
+    // buffer) — an Array.isArray guard silently skipped the concat and
+    // the 100pt-scaled image below stayed 1×1, filtered before it was
+    // ever counted.
+    const page = opsPage(
+        [OPS.paintFormXObjectBegin, OPS.paintImageXObject, OPS.paintFormXObjectEnd],
+        [[new Float32Array([100, 0, 0, 100, 50, 50]), null], ['img1'], []]);
+    const stats = { seen: 0, resolved: 0, decoded: 0 };
+    await extractPageFigures(page, OPS, stats, PORTRAIT);
+    assert.equal(stats.seen, 1, 'the form-scaled image must clear the size filter');
+});
+
+test('operator walk: annotation spans are skipped and cannot corrupt the CTM', async () => {
+    // A stamp annotation's appearance stream rides the same operator
+    // list between begin/endAnnotation. Its image is not page content,
+    // and its `cm` must not leak into later page placements.
+    const page = opsPage(
+        [OPS.beginAnnotation, OPS.transform, OPS.paintImageXObject, OPS.endAnnotation,
+         OPS.transform, OPS.paintImageXObject],
+        [[], [100, 0, 0, 100, 0, 0], ['a1'], [],
+         [50, 0, 0, 50, 10, 10], ['p1']]);
+    const stats = { seen: 0, resolved: 0, decoded: 0 };
+    await extractPageFigures(page, OPS, stats, PORTRAIT);
+    // Only the page-content image counts, at ITS transform (50pt) —
+    // the pre-fix walk saw two (annotation image at 100pt, then the
+    // page image at a corrupted 100×50 CTM).
+    assert.equal(stats.seen, 1);
+});
+
+test('isDrawable: VideoFrame-shaped objects are drawable (Chrome JPEG path)', () => {
+    // Chrome's ImageDecoder JPEG path yields { data: null, bitmap:
+    // <VideoFrame> } — and VideoFrame has displayWidth/displayHeight,
+    // NOT width/height, so the bitmap duck-type alone rejected it and
+    // every JPEG photograph figure was dropped.
+    assert.equal(isDrawable({ displayWidth: 640, displayHeight: 480, close() {} }), true);
+    assert.equal(isDrawable({ width: 10, height: 10, close() {} }), true);
+    assert.equal(isDrawable({ width: 10, height: 10 }), false);
+    assert.equal(isDrawable({ displayWidth: 640, displayHeight: 480 }), false);
+    assert.equal(isDrawable(null), false);
+});
