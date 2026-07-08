@@ -287,3 +287,18 @@ test('prune: displaced prior versions keep their source bytes and figures', asyn
         'displaced version\'s source bytes are still local evidence');
     assert.ok(await getSourceDocument(FIG1), 'displaced version\'s figure kept');
 });
+
+test('prune: a re-captured document is protected by a refreshed grace window', async () => {
+    const { putSourceDocument, getSourceDocument, pruneSourceOrphans } =
+        await import('../src/shared/archive-cache.js');
+    await resetStore();
+    const HASH = 'e3'.repeat(32);
+    await putSourceDocument({ hash: HASH, bytes: new ArrayBuffer(8), mime: 'application/pdf', url: 'https://r.test/doc.pdf' });
+    await ageSourceRows();   // simulate: first capture was long ago, row unreferenced
+    // Re-capture dedupe hit — must refresh fetchedAt so a concurrent
+    // prune can't delete the bytes before the article row lands.
+    await putSourceDocument({ hash: HASH, bytes: new ArrayBuffer(8), mime: 'application/pdf', url: 'https://r.test/doc.pdf' });
+    await pruneSourceOrphans();
+    assert.ok(await getSourceDocument(HASH),
+        'bytes of an in-flight re-capture must survive the pruner');
+});
