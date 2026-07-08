@@ -449,22 +449,41 @@ export async function putSourceDocument({ hash, bytes, mime = '', url = '' }) {
  * hygiene): the store had no eviction path at all, so failed or
  * abandoned captures accumulated PDF bytes and figure PNGs forever.
  * Referenced = an article row whose `extraction.source_hash` names
- * the document, or a figure row (url `pdf-figure:<sourceHash>`) whose
- * parent document is referenced. Rows younger than PRUNE_MIN_AGE_S
- * are kept unconditionally — during a capture the bytes land moments
- * before the article row does, and the pruner must never race a
- * capture running in another tab.
+ * the document, a figure the article's body cites (`xray-figure:` in
+ * its markdown/content — figures dedupe by content hash ACROSS
+ * documents, so a row's `pdf-figure:` parent url names only the first
+ * PDF that stored it; when that parent's article goes, the shared
+ * figure must survive for the others), or a figure row
+ * (url `pdf-figure:<sourceHash>`) whose parent document is
+ * referenced. Rows younger than PRUNE_MIN_AGE_S are kept
+ * unconditionally — during a capture the bytes land moments before
+ * the article row does, and the pruner must never race a capture
+ * running in another tab.
  *
  * @returns {Promise<number>} rows deleted
  */
 const PRUNE_MIN_AGE_S = 30 * 60;
+const FIGURE_REF_RE = /xray-figure:([0-9a-f]{64})/g;
 export async function pruneSourceOrphans() {
     const articles = await listArticles();
     const referenced = new Set();
-    for (const rec of articles) {
-        const hash = rec && rec.article && rec.article.extraction
-            && rec.article.extraction.source_hash;
+    const addArticleRefs = (article) => {
+        if (!article || typeof article !== 'object') return;
+        const hash = article.extraction && article.extraction.source_hash;
         if (hash) referenced.add(hash);
+        for (const body of [article.markdown, article.content]) {
+            if (typeof body !== 'string' || !body) continue;
+            for (const m of body.matchAll(FIGURE_REF_RE)) referenced.add(m[1]);
+        }
+    };
+    for (const rec of articles) {
+        addArticleRefs(rec && rec.article);
+        // Displaced versions (13.4 stealth-edit retention) are still
+        // local evidence — their source bytes/figures stay archived
+        // for as long as the row retains the snapshot.
+        for (const pv of (rec && Array.isArray(rec.priorVersions) ? rec.priorVersions : [])) {
+            addArticleRefs(pv && pv.article);
+        }
     }
     const db = await openArchiveDb();
     const cutoff = Math.floor(Date.now() / 1000) - PRUNE_MIN_AGE_S;

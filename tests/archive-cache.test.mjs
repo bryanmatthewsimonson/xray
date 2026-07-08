@@ -185,3 +185,105 @@ test('source documents: oversized bytes are refused (hash-only provenance)', asy
     assert.match(res.reason, /large/i);
     assert.equal(await getSourceDocument('b'.repeat(64)), null);
 });
+
+// Age every source-document row past the pruner's 30-minute grace so
+// pruneSourceOrphans actually considers it.
+async function ageSourceRows() {
+    const { openArchiveDb } = await import('../src/shared/archive-cache.js');
+    const db = await openArchiveDb();
+    const t = db.transaction('source_documents', 'readwrite');
+    const store = t.objectStore('source_documents');
+    await new Promise((resolve, reject) => {
+        const cur = store.openCursor();
+        cur.onsuccess = () => {
+            const c = cur.result;
+            if (!c) return resolve();
+            c.update({ ...c.value, fetchedAt: 1000 });
+            c.continue();
+        };
+        cur.onerror = () => reject(cur.error);
+    });
+}
+
+test('prune: a figure shared across PDFs survives while ANY article cites it', async () => {
+    const { putSourceDocument, getSourceDocument, pruneSourceOrphans } =
+        await import('../src/shared/archive-cache.js');
+    await resetStore();
+    const HASH_A = 'a1'.repeat(32);   // PDF A — its article row is gone
+    const HASH_B = 'b1'.repeat(32);   // PDF B — article row still live
+    const FIG = 'f1'.repeat(32);      // figure appearing in BOTH PDFs
+
+    await putSourceDocument({ hash: HASH_A, bytes: new ArrayBuffer(8), mime: 'application/pdf', url: 'https://a.test/a.pdf' });
+    // Figure stored during A's capture: its url records A as parent.
+    await putSourceDocument({ hash: FIG, bytes: new ArrayBuffer(8), mime: 'image/png', url: 'pdf-figure:' + HASH_A });
+    await putSourceDocument({ hash: HASH_B, bytes: new ArrayBuffer(8), mime: 'application/pdf', url: 'https://b.test/b.pdf' });
+    // B's capture of the same figure dedupes onto the existing row —
+    // the parent url still names A.
+    await putSourceDocument({ hash: FIG, bytes: new ArrayBuffer(8), mime: 'image/png', url: 'pdf-figure:' + HASH_B });
+
+    // Only B's article exists; its markdown cites the shared figure.
+    await saveArticle({
+        article: {
+            url: 'https://b.test/b.pdf', title: 'B', contentType: 'pdf',
+            markdown: 'Intro\n\n![Figure 1](xray-figure:' + FIG + ')\n\nBody',
+            content: 'Intro figure body',
+            extraction: { source_hash: HASH_B }
+        }
+    });
+
+    await ageSourceRows();
+    await pruneSourceOrphans();
+
+    assert.equal(await getSourceDocument(HASH_A), null, 'unreferenced PDF bytes pruned');
+    assert.ok(await getSourceDocument(HASH_B), 'referenced PDF bytes kept');
+    assert.ok(await getSourceDocument(FIG),
+        'figure cited by a live article must survive its first parent\'s eviction');
+});
+
+test('prune: displaced prior versions keep their source bytes and figures', async () => {
+    const { putSourceDocument, getSourceDocument, pruneSourceOrphans } =
+        await import('../src/shared/archive-cache.js');
+    await resetStore();
+    const S1 = 'a2'.repeat(32);
+    const S2 = 'b2'.repeat(32);
+    const FIG1 = 'c2'.repeat(32);
+    const FIG2 = 'd2'.repeat(32);
+    for (const [hash, mime, url] of [
+        [S1, 'application/pdf', 'https://v.test/doc.pdf'],
+        [S2, 'application/pdf', 'https://v.test/doc.pdf'],
+        [FIG1, 'image/png', 'pdf-figure:' + S1],
+        [FIG2, 'image/png', 'pdf-figure:' + S2]
+    ]) {
+        await putSourceDocument({ hash, bytes: new ArrayBuffer(8), mime, url });
+    }
+
+    // v1 capture, then a re-capture with different content — v1 is
+    // displaced into priorVersions (13.4 stealth-edit retention).
+    await saveArticle({
+        article: {
+            url: 'https://v.test/doc.pdf', title: 'v1', contentType: 'pdf',
+            markdown: 'v1 body ![f](xray-figure:' + FIG1 + ')',
+            content: 'v1 body',
+            extraction: { source_hash: S1 }
+        }
+    });
+    await saveArticle({
+        article: {
+            url: 'https://v.test/doc.pdf', title: 'v2', contentType: 'pdf',
+            markdown: 'v2 body ![f](xray-figure:' + FIG2 + ')',
+            content: 'v2 body different',
+            extraction: { source_hash: S2 }
+        }
+    });
+    const rec = await getArticle('https://v.test/doc.pdf');
+    assert.equal((rec.priorVersions || []).length, 1, 'v1 snapshot retained');
+
+    await ageSourceRows();
+    await pruneSourceOrphans();
+
+    assert.ok(await getSourceDocument(S2), 'current version bytes kept');
+    assert.ok(await getSourceDocument(FIG2), 'current version figure kept');
+    assert.ok(await getSourceDocument(S1),
+        'displaced version\'s source bytes are still local evidence');
+    assert.ok(await getSourceDocument(FIG1), 'displaced version\'s figure kept');
+});
