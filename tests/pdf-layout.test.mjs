@@ -601,3 +601,19 @@ test('figure alt: markdown metacharacters are neutralized', () => {
     assert.ok(!/[`*_[\]"]/.test(alt), `alt must carry no markdown metachars: ${alt}`);
     assert.match(alt, /Figure 3: the raw data/);
 });
+
+test('googleDrivePdfUrl: Drive PDF previews map to the direct-download URL', async () => {
+    const { googleDrivePdfUrl } = await import('../src/shared/pdf-detect.js');
+    assert.equal(
+        googleDrivePdfUrl('https://drive.google.com/file/d/1YhmkYB32RpGsXvQTsX4xZ0Yul1wiwh8Z/view',
+            'will_decision.pdf - Google Drive'),
+        'https://drive.google.com/uc?export=download&id=1YhmkYB32RpGsXvQTsX4xZ0Yul1wiwh8Z');
+    assert.equal(
+        googleDrivePdfUrl('https://drive.google.com/open?id=abc_123-XYZ', 'report.pdf'),
+        'https://drive.google.com/uc?export=download&id=abc_123-XYZ');
+    // Drive previews many types — only .pdf-titled tabs route.
+    assert.equal(googleDrivePdfUrl('https://drive.google.com/file/d/abc/view', 'holiday.mp4 - Google Drive'), null);
+    // Not Drive / not a file link.
+    assert.equal(googleDrivePdfUrl('https://docs.google.com/document/d/abc/edit', 'x.pdf'), null);
+    assert.equal(googleDrivePdfUrl('https://drive.google.com/drive/my-drive', 'x.pdf'), null);
+});

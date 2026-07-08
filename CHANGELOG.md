@@ -59,6 +59,16 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Fixed
 
+- **Google Drive PDF previews route to the PDF pipeline.** Drive's
+  preview is a text/html web app around the document, so it dodged
+  both PDF-routing guards: capturing it scraped the viewer chrome
+  ("Page 2 of 27" became the article title) and shredded the text
+  layer line-per-paragraph. When a `drive.google.com/file/d/…` tab's
+  title names a `.pdf`, the capture now routes the document's
+  direct-download URL into the PDF pipeline (cookies ride along, so
+  files the user can see download; anything else falls back to the
+  import picker with the reason).
+
 - **PDF stack, round three: the reader's draft machine and the last
   platform gaps.** Compatibility: `Uint8Array.prototype.toHex` shim —
   pdf.js's worker calls it in the `fingerprints` getter during the

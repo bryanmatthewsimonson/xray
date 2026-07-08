@@ -741,6 +741,7 @@ publishes. Requires a real Anthropic API key
 | 18.27 | Capture a PDF with JBIG2/JPEG2000 images (archival scan with a text layer) | ✅ such figures decode and archive (wasm decoders now ship in `dist/wasm/`) |
 | 18.28 | Capture `https://arxiv.org/pdf/<id>` directly (no .pdf suffix) | ✅ the capture carries `state.article.scholar.arxiv_id` and the published 30023 gains the `arxiv`/`i` tags — identity no longer depends on capturing the abs page |
 | 18.29 | On **Edge**, open any PDF tab → toolbar icon | ✅ the PDF reader opens (Edge's viewer hosts content scripts, so the sendMessage-failure fallback never fires there — pre-fix the toast said "Could not extract an article from this page") |
+| 18.30 | Open a PDF in **Google Drive's preview** (`drive.google.com/file/d/…/view`) → toolbar icon | ✅ the PDF reader opens on the DOCUMENT (real title, all pages, pageMap) — not an HTML scrape of the viewer titled "Page N of M" with line-per-paragraph text; a Drive preview of a non-PDF file still captures as a normal page |
 
 **Scholarly metadata (C2)**
 
