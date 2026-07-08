@@ -18,7 +18,7 @@ modules still carry userscript-era idioms (see Conventions).
 npm install            # required first — a fresh clone has no node_modules
 npm run build          # esbuild → dist/*.bundle.js (+ .map). No transpile step.
 npm run watch          # incremental rebuild
-npm test               # node --test tests/*.test.mjs  (1089 tests, must be green)
+npm test               # node --test tests/*.test.mjs  (1277 tests, must be green)
 npm run lint           # web-ext lint --self-hosted (what CI gates on)
 npm run version:set X  # bump package.json + manifest.json in lockstep
 npm run clean          # rm -rf dist
@@ -157,6 +157,19 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   `truth-publish.js` (publish selection), `adjudicate-modal.js` /
   `integrity-modal.js` (reader authoring UI). Publishing is gated behind
   `truthAdjudicationPublishing` (default off).
+- **Moral lens (Phase 16)** — `lens-taxonomy.js` (jurisdiction types,
+  the four lens assertion types, dispositions, admissibility),
+  `jurisdiction-model.js` (the local jurisdiction registry — key
+  `lens_jurisdictions`; zero built-ins), `lens-schemas.js` (the §7
+  contract validators, over the shared `schema-walker.js`),
+  `lens-prompt.js` (`LENS_PROMPT_VERSION`), `lens-engine.js` (pre-flight
+  refusals, code-side assembly, panel composition, the session-ONLY
+  cache — deliberately no `storage.local` fallback),
+  `reader/lens-section.js` (pure HTML renderers). One `xray:lens:read`
+  call per jurisdiction; gated by `moralLens` + the API key,
+  independent of `llmAssist`. **No wire kind** — 30066 stays free and
+  the 16.4 guards machine-check it; "Verdict/Ruling/Opinion/Court/
+  Integrity" never appear in lens exports, storage keys, or UI strings.
 - Also: `nostr-client.js` (relay pool, used from background),
   `archive-cache.js` (IndexedDB + paywall reconstruction),
   `build-info.js` (the build stamp shown on the Options page).
@@ -199,23 +212,24 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
 
 ## Project docs (read these for non-trivial work)
 
-- **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 15
+- **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 16
   (manifest still says v0.6.0 — untagged; see CONTRIBUTING for the
   tag-driven release process). Complete and merged: Phases 10 (thin
   claims), 11 (assessments; `docs/ASSESSMENTS_DESIGN.md`), 12 (portal;
   `docs/PORTAL_DESIGN.md`), 13 (epistemic audits, kinds `30056`–`30061`;
   `docs/EPISTEMIC_AUDIT_DESIGN.md`), 14 (forensic findings, kind `30062`;
   `docs/CRIMINOLOGY_DESIGN.md`), 14.5 (in-extension LLM assist +
-  LLM auditor; `docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md`), and 15 (truth
+  LLM auditor; `docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md`), 15 (truth
   adjudication, kinds `30063`/`30064`, merged as PR #89;
   `docs/TRUTH_ADJUDICATION_DESIGN.md` — its precedent/bridging tail is
-  deferred). Design-only: Phase 16 (moral lens;
+  deferred), and 16 (moral lens, NO wire kind — derived view only;
   `docs/MORAL_LENS_JURISDICTION_DESIGN.md`, amended 2026-07-03 — the
-  amendment governs), currently parked. The FLF Epistack competition
+  amendment governs; its wire-kind/portal/durable-cache tail is
+  deferred). The FLF Epistack competition
   (deadline 2026-07-19) is being pursued **maintainer-driven from real
   use cases (COVID first)** — there is no committed sprint plan; the tool
   is tailored from that experience. Several SMOKE_TEST section walks
-  (Phases 11–15) are still pending — they're manual and need a human with
+  (Phases 11–16) are still pending — they're manual and need a human with
   a browser.
 - **`docs/JOURNAL.md`** — chronological log of bugs, design decisions, and
   external-platform changes. **Add a tight entry** when fixing a non-obvious

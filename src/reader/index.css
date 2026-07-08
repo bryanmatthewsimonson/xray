@@ -2320,3 +2320,205 @@ body {
 .xr-llm__foot { display: flex; align-items: center; gap: 10px;
   padding: 12px 18px; border-top: 1px solid var(--xr-border); }
 .xr-llm__status { color: var(--xr-text-dim); font-size: 13px; }
+
+/* ---------------- Lens readings (Phase 16.3) ----------------------------
+   Perspectival readings under named jurisdictions — never a truth call.
+   Firewall note: separate block, separate vocabulary, separate colors
+   from the claims/assessment and audit surfaces above it. */
+
+.xr-lensread {
+  max-width: var(--xr-reader-max-w);
+  margin: 18px auto 0;
+}
+
+.xr-lensread__bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: var(--xr-surface);
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+}
+
+.xr-lensread__label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--xr-text-dim);
+}
+
+.xr-lensread__status {
+  flex: 1;
+  min-width: 200px;
+  font-size: 12px;
+  color: var(--xr-text-dim);
+}
+
+.xr-lensread__body { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+.xr-lensread__body:empty { display: none; }
+
+.xr-lensread__dim { color: var(--xr-text-dim); font-weight: 400; }
+.xr-lensread__h {
+  margin: 10px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--xr-text-dim);
+}
+.xr-lensread__empty {
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--xr-text-dim);
+  border: 1px dashed var(--xr-border);
+  border-radius: 6px;
+}
+
+/* Run setup form */
+.xr-lensread__setup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  padding: 12px 14px;
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+  background: var(--xr-surface);
+  font-size: 13px;
+}
+.xr-lensread__setup-col { flex: 1; min-width: 260px; }
+.xr-lensread__pick { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+.xr-lensread__pick--claim { justify-content: space-between; }
+.xr-lensread__pick-main { display: flex; align-items: center; gap: 8px; flex: 1; }
+.xr-lensread__pick select {
+  font-size: 12px;
+  background: var(--xr-surface-2);
+  color: var(--xr-text);
+  border: 1px solid var(--xr-border);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+.xr-lensread__basis { flex-basis: 100%; display: flex; flex-direction: column; gap: 4px; margin-top: 8px; font-size: 12px; color: var(--xr-text-dim); }
+.xr-lensread__basis input {
+  background: var(--xr-surface-2);
+  color: var(--xr-text);
+  border: 1px solid var(--xr-border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+.xr-lensread__setup-actions { flex-basis: 100%; display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+
+/* Per-jurisdiction cards */
+.xr-lensread__card {
+  border: 1px solid var(--xr-border);
+  border-left: 4px solid var(--xr-primary);
+  border-radius: 8px;
+  background: var(--xr-surface);
+  padding: 12px 14px;
+  font-size: 13px;
+}
+.xr-lensread__card--failed { border-left-color: var(--xr-danger); }
+.xr-lensread__card-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.xr-lensread__name { font-size: 15px; font-weight: 600; }
+.xr-lensread__divisions { margin: 6px 0 0; font-size: 12px; color: var(--xr-text-dim); }
+.xr-lensread__summary { margin: 8px 0; font-style: italic; }
+.xr-lensread__error { margin: 8px 0 0; color: var(--xr-danger); font-size: 12px; }
+
+.xr-lensread__readings { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.xr-lensread__reading {
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+  background: var(--xr-surface-2);
+  padding: 8px 10px;
+}
+.xr-lensread__reading--factual { border-style: dashed; }
+.xr-lensread__claim { font-weight: 600; margin-bottom: 6px; }
+.xr-lensread__row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.xr-lensread__reasoning { margin: 6px 0 0; }
+.xr-lensread__cvf { margin: 6px 0 0; font-size: 12px; }
+.xr-lensread__rationale { margin: 4px 0 0; font-size: 11px; color: var(--xr-text-dim); }
+.xr-lensread__stance { font-size: 12px; color: var(--xr-text-dim); }
+.xr-lensread__row-btn {
+  background: none;
+  border: 1px solid var(--xr-border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 1px 6px;
+}
+.xr-lensread__row-btn:hover { border-color: var(--xr-primary); }
+
+/* Disposition badges — a lens palette, NOT the audit score bands. */
+.xr-lensread__badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--xr-border);
+  background: var(--xr-surface);
+}
+.xr-lensread__badge--endorses           { border-color: var(--xr-success); color: var(--xr-success); }
+.xr-lensread__badge--partially-endorses { border-color: color-mix(in srgb, var(--xr-success) 55%, var(--xr-warning)); color: color-mix(in srgb, var(--xr-success) 55%, var(--xr-warning)); }
+.xr-lensread__badge--rejects            { border-color: var(--xr-danger); color: var(--xr-danger); }
+.xr-lensread__badge--reframes           { border-color: var(--xr-accent); color: var(--xr-accent); }
+.xr-lensread__badge--out-of-scope,
+.xr-lensread__badge--silent             { border-color: var(--xr-text-dim); color: var(--xr-text-dim); }
+.xr-lensread__badge--deferred           { border-color: var(--xr-primary); color: var(--xr-primary); }
+.xr-lensread__badge--failed             { border-color: var(--xr-danger); color: var(--xr-danger); }
+
+/* Confidence chips — every one carries the §5.1 fidelity note (title). */
+.xr-lensread__chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid var(--xr-border);
+  background: var(--xr-surface);
+  color: var(--xr-text-dim);
+  cursor: help;
+}
+.xr-lensread__chip--high   { border-color: var(--xr-success); }
+.xr-lensread__chip--medium { border-color: var(--xr-warning); }
+.xr-lensread__chip--low    { border-color: var(--xr-danger); }
+
+/* Citations + grounding levels */
+.xr-lensread__citations { margin: 6px 0 0; padding-left: 18px; font-size: 12px; }
+.xr-lensread__grounding {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  border: 1px solid var(--xr-border);
+}
+.xr-lensread__grounding--direct-quote { border-color: var(--xr-success); color: var(--xr-success); }
+.xr-lensread__grounding--paraphrase   { border-color: var(--xr-accent); color: var(--xr-accent); }
+.xr-lensread__grounding--inference    { border-color: var(--xr-warning); color: var(--xr-warning); }
+
+/* Corpus + grounding report disclosures */
+.xr-lensread__corpus,
+.xr-lensread__grounding-report { margin-top: 8px; font-size: 12px; }
+.xr-lensread__corpus > summary,
+.xr-lensread__grounding-report > summary { cursor: pointer; color: var(--xr-text-dim); }
+.xr-lensread__flags { margin: 6px 0 0; padding-left: 18px; }
+.xr-lensread__flag--truncation { color: var(--xr-warning); }
+.xr-lensread__flag--thin       { color: var(--xr-warning); }
+.xr-lensread__flag--rejected   { color: var(--xr-danger); }
+.xr-lensread__flag--symmetry   { color: var(--xr-warning); }
+.xr-lensread__sources { margin-top: 6px; }
+
+/* Panel disclosure */
+.xr-lensread__panel {
+  border: 1px solid var(--xr-border);
+  border-radius: 8px;
+  background: var(--xr-surface);
+  padding: 12px 14px;
+  font-size: 13px;
+}
+.xr-lensread__divergences code,
+.xr-lensread__flag code { font-size: 11px; }
+.xr-lensread__provenance { margin: 10px 0 0; font-size: 11px; color: var(--xr-text-dim); }

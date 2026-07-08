@@ -44,7 +44,8 @@ export const WORKSPACE_CLEAR_KEYS = Object.freeze([
     'adjudicated_verdicts',     // Phase 15 verdict chains
     'integrity_findings',       // Phase 15 words-vs-deeds findings
     'platform_accounts',        // Phase 9 account registry
-    'portal_identities'         // portal viewer npubs (pasted, read-only)
+    'portal_identities',        // portal viewer npubs (pasted, read-only)
+    'lens_jurisdictions'        // Phase 16 jurisdiction registry + corpora
 ]);
 
 // What reset deliberately KEEPS — configuration and identity. Exported

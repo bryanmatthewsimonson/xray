@@ -83,18 +83,28 @@ Phase 15 ████████████████████  complete 
                                 merged to main as PR #89; §Phase 15
                                 smoke-run pending; the precedent/bridging
                                 tail is deferred by design
+Phase 16 ████████████████████  complete — moral lens: per-jurisdiction
+                                lens-readings of normative/evaluative/
+                                framing assertions, grounded in each
+                                jurisdiction's own corpus
+                                (docs/MORAL_LENS_JURISDICTION_DESIGN.md).
+                                No wire kind — 30066 left free,
+                                guard-tested; derived view only, behind
+                                the moralLens flag. 16.1–16.4 in one PR;
+                                §Phase 16 smoke-run pending
 ```
 
 Parity with the v4.2 userscript is long reached; the project now ships
 claims, assessments, the "My Archive" portal, epistemic audits, forensic
 findings, opt-in LLM assist, and truth adjudication (Phase 15, merged as
 PR #89 — the manifest still says **v0.6.0**; no tag has been cut since
-v0.5.1, so a v0.7.0 release is due). Next in phase order is the moral
-lens (Phase 16, design amended 16.0.5), currently parked: the **FLF
-Epistack competition (deadline 2026-07-19) is being pursued
-maintainer-driven from real use cases (COVID first)**, exercising
-Phase 15 in the wild. There is no committed sprint plan — the tool is
-tailored from that experience; Phase 16 is not on its critical path.
+v0.5.1, so a v0.7.0 release is due), plus the moral lens (Phase 16,
+16.1–16.4 implemented per the 16.0.5 amendment; §Phase 16 smoke-run
+pending). The **FLF Epistack competition (deadline 2026-07-19) is being
+pursued maintainer-driven from real use cases (COVID first)**,
+exercising Phase 15 in the wild. There is no committed sprint plan —
+the tool is tailored from that experience; Phase 16 is not on its
+critical path.
 
 ---
 
@@ -1345,7 +1355,7 @@ kinds; single-user untouched.
 
 ---
 
-## Phase 16 — Moral-lens evaluation (lens-readings) 📝 design amended, pre-implementation
+## Phase 16 — Moral-lens evaluation (lens-readings) ✅ shipped — smoke run pending
 
 **The far side of the Phase-15 firewall, and an LLM-assist consumer.** Where
 Phase 15 §3.1 declares interpretations and bare values **not** adjudicable as
@@ -1411,21 +1421,22 @@ imports):
   templates/principles (Appendix A), jurisdiction registry + authority
   record, lens taxonomy fix, grounding rename, gating/topology/caching/
   provenance pinned, quoting discipline written down, slices re-scoped.
-- 📝 **16.1** Jurisdiction model — `lens-taxonomy.js` (dispositions,
+- ✅ **16.1** Jurisdiction model — `lens-taxonomy.js` (dispositions,
   jurisdiction types, lens assertion types; exhaustive-enum + literal
   disjointness pins) + `jurisdiction-model.js` (registry, authority
   records, admissibility rule, fail-closed living-person) + `moralLens`
   flag. Console-first; templates as docs + fixtures; zero built-ins.
-- 📝 **16.2** Lens-reading engine — prompt module (`LENS_PROMPT_VERSION`) +
+- ✅ **16.2** Lens-reading engine — prompt module (`LENS_PROMPT_VERSION`) +
   `runLensPass()` + `xray:lens:read`/`xray:lens:config` + `lens-schemas.js`
-  validate-or-reject + **pre-flight refusals in code** + session cache.
-- 📝 **16.3** Reader surface — lens bar (picker, Run + call-count cost
+  validate-or-reject + **pre-flight refusals in code** + session cache
+  (the shared schema walker was factored out of `findings-schemas.js`
+  into `schema-walker.js`, behavior unchanged).
+- ✅ **16.3** Reader surface — lens bar (picker, Run + call-count cost
   confirm), readings + grounding report + `panel_composition` disclosure,
   content-vs-framing split, §5.1 note on every confidence chip, Options
   toggle + extended consent copy; factual rows badge + `corpus_stance`
-  (🏛 routing into the adjudicate modal once the train merges). Portal
-  surface deferred.
-- 📝 **16.4** The test net — fixture validator suites, fetch-tripwire
+  (🏛 routing into the adjudicate modal). Portal surface deferred.
+- ✅ **16.4** The test net — fixture validator suites, fetch-tripwire
   pre-flight refusal tests, word-reservation pin, disjointness pins by
   literal, no-`30066` guard, zero-durable-writes guard.
 - 📝 **(deferred)** publishable wire kind `30066`; persona-corpus tooling;

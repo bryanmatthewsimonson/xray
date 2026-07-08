@@ -363,6 +363,27 @@
       </div>
 
       <hr />
+      <h3 class="xr-opt__subhead">Moral lens</h3>
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-moral-lens" />
+        <span>Enable lens readings in the reader (per-jurisdiction perspectival readings)</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Off by default, and independent of LLM assist above. When on
+        <strong>and</strong> an Anthropic API key is set (same key field as
+        LLM assist), the reader gains a <strong>Lens readings</strong> bar
+        that reads selected claims under jurisdictions you author yourself —
+        none ship built-in. <strong>A lens pass sends the article text
+        <em>plus the jurisdiction definitions and captured authority
+        excerpts</em> to Anthropic</strong> — one API call per empaneled
+        jurisdiction. Readings are perspectival reconstructions grounded in
+        each jurisdiction's own loaded corpus; they never say whether
+        anything is true (that stays with the truth layer). Nothing is
+        durably saved and nothing is published — results live only for the
+        browser session.
+      </p>
+
+      <hr />
       <h3 class="xr-opt__subhead">Power user</h3>
 
       <label class="xr-opt__field xr-opt__field--inline">

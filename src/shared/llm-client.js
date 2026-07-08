@@ -29,6 +29,14 @@ import {
     buildSingleModuleTool, buildModuleSystemPrompt
 } from './audit/audit-prompt.js';
 import { MODULE_NAMES } from './audit/findings-schemas.js';
+import {
+    LENS_PROMPT_VERSION, LENS_TOOL_NAME,
+    buildLensTool, buildLensSystemPrompt, buildLensUserPrompt
+} from './lens-prompt.js';
+import { lensPreflightRefusal, assembleJurisdictionReading } from './lens-engine.js';
+import { JurisdictionModel, treatAsLiving, admissibleAuthorities } from './jurisdiction-model.js';
+import { isValidLensAssertionType, LENS_ASSERTION_TYPES } from './lens-taxonomy.js';
+import { articleHash } from './audit/article-hash.js';
 
 // Re-exported for callers that wrote against the client (the keys are
 // defined in the pure prompts module so the Options page can share them).
@@ -47,6 +55,12 @@ const MAX_AUDIT_OUTPUT_TOKENS = 16384;
 // The per-module ("thorough") path emits ONE module's findings per call,
 // so a smaller cap is plenty and keeps each call cheap.
 const MAX_MODULE_OUTPUT_TOKENS = 8192;
+// A lens pass emits ONE jurisdiction's readings per call (§6 call
+// topology), so the per-module cap size is right for it too.
+const MAX_LENS_OUTPUT_TOKENS = 8192;
+// Each lens call is bounded so a hung request cannot permanently
+// disable the reader's lens control (§6).
+const LENS_TIMEOUT_MS = 120000;
 
 // ------------------------------------------------------------------
 // Storage helpers (callback → promise; SW-safe)
@@ -118,9 +132,9 @@ function mapHttpError(status, bodyText) {
  * network failure, HTTP errors, and unreadable bodies; the caller checks
  * stop_reason and pulls its tool out. NEVER logs the key or request body.
  *
- * @returns {Promise<{ok:true, data:object} | {ok:false, error:string, status?:number}>}
+ * @returns {Promise<{ok:true, data:object} | {ok:false, error:string, status?:number, timeout?:boolean}>}
  */
-async function postMessages(payload, apiKey) {
+async function postMessages(payload, apiKey, { signal } = {}) {
     let resp;
     try {
         resp = await fetch(ANTHROPIC_API_URL, {
@@ -133,9 +147,13 @@ async function postMessages(payload, apiKey) {
                 // for it. The fetch runs in the SW, not a page with site CSP.
                 'anthropic-dangerous-direct-browser-access': 'true'
             },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            signal
         });
     } catch (err) {
+        if (err && err.name === 'AbortError') {
+            return { ok: false, timeout: true, error: 'The Anthropic call was aborted before completing (timeout).' };
+        }
         // Network failure — DO NOT include the key or request body.
         Utils.error('[X-Ray LLM] network error:', err && err.message);
         return { ok: false, error: 'Could not reach the Anthropic API (network error). Check your connection and host permissions.' };
@@ -152,7 +170,12 @@ async function postMessages(payload, apiKey) {
     let data;
     try {
         data = await resp.json();
-    } catch (_) {
+    } catch (err) {
+        // The abort can also fire mid-body — that is still a timeout,
+        // not a malformed response.
+        if (err && err.name === 'AbortError') {
+            return { ok: false, timeout: true, error: 'The Anthropic call was aborted before completing (timeout).' };
+        }
         return { ok: false, error: 'Anthropic returned an unreadable response.' };
     }
     return { ok: true, data };
@@ -423,4 +446,182 @@ async function runPerModuleAudit({ apiKey, model, markdown, req }) {
 
     Utils.log('[X-Ray LLM] thorough modules ok:', okCount);
     return { ok: true, model: usedModel, audit, modulesOk: okCount };
+}
+
+// ------------------------------------------------------------------
+// Lens-reading pass — Phase 16.2
+// (docs/MORAL_LENS_JURISDICTION_DESIGN.md §6, §7)
+// ------------------------------------------------------------------
+
+/**
+ * Non-secret gating snapshot for the reader's lens control. NOT
+ * `getLlmConfig` — its `enabled` bit means `llmAssist`, which is a
+ * different consent gate; the lens is gated by `moralLens` (and the
+ * same key).
+ */
+export async function getLensConfig() {
+    await loadFlags();
+    const [key, model] = await Promise.all([readApiKey(), readModel()]);
+    return { enabled: isEnabled('moralLens'), hasKey: key.length > 0, model };
+}
+
+/** Coerce the reader-supplied claim set into the §7 target shape. */
+function normalizeLensClaims(value) {
+    if (!Array.isArray(value)) return { error: 'No claims selected for the lens pass.' };
+    const claims = [];
+    for (const c of value) {
+        const id = c && typeof c.id === 'string' ? c.id.trim() : '';
+        const text = c && typeof c.text === 'string' ? c.text.trim() : '';
+        const type = c && c.type;
+        if (!id || !text) return { error: 'Every lens claim needs an id and its verbatim text.' };
+        if (!isValidLensAssertionType(type)) {
+            return { error: `Invalid lens assertion type "${type}" for claim ${id} (expected one of ${LENS_ASSERTION_TYPES.join(', ')}).` };
+        }
+        claims.push({ id, text, type });
+    }
+    if (claims.length === 0) return { error: 'No claims selected for the lens pass.' };
+    return { claims };
+}
+
+/**
+ * Run ONE jurisdiction's lens reading (§6 call topology: the reader
+ * sends one xray:lens:read message per empaneled jurisdiction, so
+ * partial results render incrementally and each message resets the
+ * MV3 idle timer).
+ *
+ * Gate order is load-bearing:
+ *   1. the `moralLens` flag (independent of `llmAssist`),
+ *   2. input shape,
+ *   3. the PRE-FLIGHT REFUSALS (ungrounded jurisdiction, living-person
+ *      guardrail) — before the key gate, so they are testable without
+ *      a key and no network is reachable past them,
+ *   4. the API key,
+ *   5. the bounded network call.
+ *
+ * Never persists anything: the result is a derived view the reader
+ * session-caches (lens-engine.js). Input truncation is surfaced in the
+ * grounding report's truncation_flags — never silent (§6).
+ *
+ * @param {object} req
+ * @param {string} req.jurisdictionId   registry id of the jurisdiction
+ * @param {string} req.articleText      the target text (hashed as sent)
+ * @param {string} [req.articleTitle]
+ * @param {string} [req.articleUrl]
+ * @param {Array<{id, text, type}>} req.claims  the code-side target set
+ * @returns {Promise<{ok:true, model, reading, provenance, target, usage?}
+ *                  | {ok:false, error, refused?:boolean, code?:string, status?:number}>}
+ */
+export async function runLensPass(req = {}) {
+    await loadFlags();
+    if (!isEnabled('moralLens')) {
+        return { ok: false, error: 'Moral lens is off. Enable it in Options → Advanced → Moral lens.' };
+    }
+
+    const norm = normalizeLensClaims(req.claims);
+    if (norm.error) return { ok: false, error: norm.error };
+    const claims = norm.claims;
+
+    const rawText = String(req.articleText || '');
+    if (!rawText.trim()) {
+        return { ok: false, error: 'No article text to read.' };
+    }
+
+    const jurisdictionId = String(req.jurisdictionId || '').trim();
+    const jurisdiction = await JurisdictionModel.get(jurisdictionId);
+    if (!jurisdiction) {
+        return { ok: false, error: `Unknown jurisdiction: ${jurisdictionId || '(none)'} — author it in the registry first.` };
+    }
+
+    // Pre-flight hard stops — code, pre-call, BEFORE the key gate (§7).
+    const refusal = lensPreflightRefusal(jurisdiction);
+    if (refusal) {
+        return { ok: false, refused: true, code: refusal.code, error: refusal.message };
+    }
+
+    const apiKey = await readApiKey();
+    if (!apiKey) {
+        return { ok: false, error: 'No Anthropic API key set. Add one in Options → Advanced → LLM assist.' };
+    }
+
+    // The pinned input: the text actually sent, hashed as sent. A slice
+    // is surfaced in the grounding report — never silent (§6).
+    const sentText = rawText.slice(0, MAX_ARTICLE_CHARS);
+    const truncationFlags = rawText.length > sentText.length
+        ? [`article text truncated to ${MAX_ARTICLE_CHARS} of ${rawText.length} characters — readings cover the truncated text only`]
+        : [];
+    const contentHash = await articleHash(sentText);
+
+    const model = await readModel();
+    const tool = buildLensTool();
+    const payload = {
+        model,
+        max_tokens: MAX_LENS_OUTPUT_TOKENS,
+        system: buildLensSystemPrompt({
+            jurisdiction,
+            authorities: admissibleAuthorities(jurisdiction),
+            living: treatAsLiving(jurisdiction)
+        }),
+        tools: [tool],
+        tool_choice: { type: 'tool', name: tool.name },
+        messages: [{
+            role: 'user',
+            content: buildLensUserPrompt({
+                articleText: sentText,
+                articleTitle: req.articleTitle || '',
+                articleUrl: req.articleUrl || '',
+                claims
+            })
+        }]
+    };
+
+    Utils.log('[X-Ray LLM] lens pass:', { jurisdiction: jurisdictionId, model, claims: claims.length, chars: sentText.length });
+
+    // Bounded call — a hung request must not disable the lens control.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), LENS_TIMEOUT_MS);
+    let res;
+    try {
+        res = await postMessages(payload, apiKey, { signal: controller.signal });
+    } finally {
+        clearTimeout(timer);
+    }
+    if (!res.ok) {
+        if (res.timeout) {
+            return { ok: false, error: `The lens call for "${jurisdiction.display_name}" timed out. Try again, or select fewer claims.` };
+        }
+        return res;
+    }
+    const data = res.data;
+
+    // A guardrail firing is its own state — never the generic
+    // "Try again" (§6).
+    if (data && data.stop_reason === 'refusal') {
+        return {
+            ok: false, refused: true, code: 'model-refusal',
+            error: 'The model declined to produce this reading (a model-side safety guardrail, not a key or network problem). Try different claims or a different jurisdiction.'
+        };
+    }
+    if (data && data.stop_reason === 'max_tokens') {
+        return { ok: false, error: 'The model hit its output limit before finishing this reading. Select fewer claims and try again.' };
+    }
+
+    const toolInput = extractToolInput(data, LENS_TOOL_NAME);
+    if (toolInput === null) {
+        return { ok: false, error: 'The model did not return a structured reading for this jurisdiction. Run the pass again.' };
+    }
+
+    const usedModel = (data && data.model) || model;
+    const { reading } = assembleJurisdictionReading({ jurisdiction, toolInput, claims, truncationFlags });
+
+    Utils.log('[X-Ray LLM] lens readings:', reading.readings.length, 'valid,',
+        reading.grounding.rejected_readings.length, 'rejected/absent');
+
+    return {
+        ok: true,
+        model: usedModel,
+        reading,
+        provenance: { model: usedModel, prompt_version: LENS_PROMPT_VERSION, run_at: new Date().toISOString() },
+        target: { content_hash: contentHash, truncated: truncationFlags.length > 0 },
+        usage: data && data.usage ? data.usage : undefined
+    };
 }

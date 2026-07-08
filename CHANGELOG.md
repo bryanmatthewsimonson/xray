@@ -12,6 +12,27 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Moral lens — per-jurisdiction lens-readings (Phase 16, 16.1–16.4).**
+  The reader gains an opt-in **Lens readings** bar (new `moralLens` flag,
+  default off, independent of LLM assist; the Anthropic key is a second
+  consent gate) that reconstructs how named perspectives —
+  **jurisdictions** you author yourself in a local registry (`codified`
+  legal codes / `worldview` traditions / `persona` author corpora; zero
+  ship built-in) — would read selected claims, grounded ONLY in each
+  jurisdiction's loaded corpus of cited authorities. It answers "how
+  would perspective J read this, on what authority?" and never "is this
+  true": factual assertions are deferred to the truth layer (a
+  descriptive corpus stance + a 🏛 route into the adjudicate modal,
+  never a disposition — schema-enforced), a living-person persona reads
+  published positions only (absent living bit fails closed; refusal
+  happens in code before any network call), every confidence chip
+  carries the fidelity-not-truth note, and the panel disclosure flags
+  one-sided lens selection. One bounded API call per empaneled
+  jurisdiction, with a call-count cost confirm. **Wire note (none,
+  deliberately):** lens-readings are a derived view — session-cached per
+  capture, zero durable writes, nothing published; kind `30066` stays
+  free, and 16.4 guard tests machine-check both properties.
+
 - **PDF figures are now captured (Phase 18 C4.2).** Earlier PDF capture
   extracted only the text layer, dropping every image — a real loss for
   papers and reports where the figure *is* the evidence. `pdf-capture.js`

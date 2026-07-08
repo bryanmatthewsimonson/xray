@@ -28,27 +28,17 @@
 // The walker is hand-rolled — the repo takes no schema-library
 // dependency; these shapes need only type/enum/const/required/range/
 // minLength checks. Unknown extra fields are tolerated (models add
-// color; tolerance here never weakens the required core).
+// color; tolerance here never weakens the required core). Since
+// Phase 16.2 the walker + schema vocabulary live in
+// ../schema-walker.js, shared with the lens-reading schemas
+// (lens-schemas.js) — one walker, no fork; behavior is unchanged.
+
+import {
+    str, quote, nullableStr, nullableQuote, int, bool, en, arr, obj, strArr,
+    typeOf, walk
+} from '../schema-walker.js';
 
 const SEVERITY = ['low', 'medium', 'high'];
-
-// --- tiny schema vocabulary -------------------------------------------------
-// type: 'string'|'number'|'integer'|'boolean'|'object'|'array', or an
-// array of those plus 'null'; const; enum; minimum/maximum (numbers);
-// minLength (strings — applied only when the value IS a string, so
-// ['string','null'] fields stay nullable); pattern; items; properties;
-// required.
-
-function str(extra = {}) { return { type: 'string', ...extra }; }
-function quote() { return { type: 'string', minLength: 1 }; }
-function nullableStr(extra = {}) { return { type: ['string', 'null'], ...extra }; }
-function nullableQuote() { return { type: ['string', 'null'], minLength: 1 }; }
-function int(extra = {}) { return { type: 'integer', ...extra }; }
-function bool() { return { type: 'boolean' }; }
-function en(values) { return { type: 'string', enum: values }; }
-function arr(items) { return { type: 'array', items }; }
-function obj(properties, required = []) { return { type: 'object', properties, required }; }
-function strArr() { return arr(str()); }
 
 // --- per-module payload schemas (beyond the shared envelope) ----------------
 //
@@ -307,67 +297,6 @@ export const SCOREABLE_MODULES = Object.freeze(
 );
 
 const SEMVER_PATTERN = /^\d+\.\d+(\.\d+)?$/;
-
-// --- walker ------------------------------------------------------------------
-
-function typeOf(value) {
-    if (value === null) return 'null';
-    if (Array.isArray(value)) return 'array';
-    return typeof value;
-}
-
-function typeMatches(value, type) {
-    const t = typeOf(value);
-    if (type === 'integer') return t === 'number' && Number.isInteger(value);
-    if (type === 'number') return t === 'number' && Number.isFinite(value);
-    return t === type;
-}
-
-function walk(value, schema, path, errors) {
-    const types = Array.isArray(schema.type) ? schema.type : (schema.type ? [schema.type] : null);
-    if (types && !types.some((t) => typeMatches(value, t))) {
-        errors.push({ path, message: `expected ${types.join('|')}, got ${typeOf(value)}` });
-        return;
-    }
-    if (value === null) return;   // nullable and null — nothing further to check
-
-    if ('const' in schema && value !== schema.const) {
-        errors.push({ path, message: `expected "${schema.const}", got "${value}"` });
-    }
-    if (schema.enum && !schema.enum.includes(value)) {
-        errors.push({ path, message: `"${value}" not in [${schema.enum.join(', ')}]` });
-    }
-    if (typeof value === 'string') {
-        if (schema.minLength !== undefined && value.length < schema.minLength) {
-            errors.push({ path, message: `shorter than minLength ${schema.minLength}` });
-        }
-        if (schema.pattern && !schema.pattern.test(value)) {
-            errors.push({ path, message: `does not match ${schema.pattern}` });
-        }
-    }
-    if (typeof value === 'number') {
-        if (schema.minimum !== undefined && value < schema.minimum) {
-            errors.push({ path, message: `below minimum ${schema.minimum}` });
-        }
-        if (schema.maximum !== undefined && value > schema.maximum) {
-            errors.push({ path, message: `above maximum ${schema.maximum}` });
-        }
-    }
-    if (Array.isArray(value) && schema.items) {
-        value.forEach((item, i) => walk(item, schema.items, `${path}[${i}]`, errors));
-    }
-    if (typeOf(value) === 'object' && schema.properties) {
-        for (const key of schema.required || []) {
-            if (!(key in value)) {
-                errors.push({ path: `${path}.${key}`, message: 'required field missing' });
-            }
-        }
-        for (const [key, sub] of Object.entries(schema.properties)) {
-            if (key in value) walk(value[key], sub, `${path}.${key}`, errors);
-        }
-        // Unknown extra fields are tolerated by design.
-    }
-}
 
 // --- public API ---------------------------------------------------------------
 
