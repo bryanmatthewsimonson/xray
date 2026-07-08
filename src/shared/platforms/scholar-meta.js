@@ -14,10 +14,12 @@
 
 const DOI_RE = /\b(10\.\d{4,9}\/[^\s"'<>]+)/;
 // Two id generations: new-style `2401.12345` (YYMM.NNNNN, 2007+) and
-// old-style `hep-th/9901001` / `math.GT/0309136` (archive.subject/YYMMNNN,
-// SEVEN digits — the earlier pattern demanded eight and never matched a
-// pre-2007 paper's URL).
-const ARXIV_ABS_RE = /arxiv\.org\/(?:abs|pdf)\/((?:[a-z-]+(?:\.[A-Z]{2})?\/\d{7})|\d{4}\.\d{4,5})(v\d+)?/i;
+// old-style `hep-th/9901001` / `math.GT/0309136` /
+// `cond-mat.mes-hall/0212413` (archive.subject/YYMMNNN, SEVEN digits —
+// the earliest pattern demanded eight and never matched a pre-2007
+// paper's URL; subject classes are 2–12 letters and may themselves be
+// hyphenated, so a two-letter class assumption missed mes-hall etc.).
+const ARXIV_ABS_RE = /arxiv\.org\/(?:abs|pdf)\/((?:[a-z-]+(?:\.[a-z-]{2,12})?\/\d{7})|\d{4}\.\d{4,5})(v\d+)?/i;
 
 function metaContent(doc, names) {
     const metas = doc.querySelectorAll ? doc.querySelectorAll('meta') : [];
@@ -64,7 +66,10 @@ export function extractScholarlyMeta(doc, url = '') {
 
     const doi = cleanDoi(
         metaContent(doc, ['citation_doi', 'dc.identifier', 'prism.doi', 'bepress_citation_doi'])
-        || (String(url).includes('doi.org/') ? url : '')
+        // URL query/fragment (utm params, #anchors) are never part of
+        // the DOI — cut them before the match or they ride into the
+        // doi tag and the NIP-73 i tag.
+        || (String(url).includes('doi.org/') ? String(url).split(/[?#]/)[0] : '')
     );
     if (doi) out.doi = doi;
 

@@ -16,6 +16,7 @@
 import { putSourceDocument } from '../shared/archive-cache.js';
 import { buildDocumentFromPages, textDensity } from '../shared/pdf-layout.js';
 import { ContentExtractor } from '../shared/content-extractor.js';
+import { extractScholarlyMeta } from '../shared/platforms/scholar-meta.js';
 
 // Figure extraction bounds (C4.2). Displayed size is in PDF points,
 // intrinsic size in pixels; both floors skip decorations. A hash that
@@ -599,6 +600,12 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
                 + `decoded=${figureStats.decoded} archived=${archivedFigures}`);
         }
 
+        // Scholarly identity from the URL shape (C2): a PDF has no meta
+        // tags, but arxiv.org/pdf/... and doi.org links name the work —
+        // the identity should not depend on capturing the abs page
+        // instead of the document itself.
+        const scholar = extractScholarlyMeta({ querySelectorAll: () => [] }, sourceUrl);
+
         let fileName = '';
         try {
             fileName = decodeURIComponent((sourceUrl.split('/').pop() || '')
@@ -621,6 +628,7 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
             contentType: 'pdf',
             platform: 'pdf',
             entities: [],
+            ...(scholar ? { scholar } : {}),
             pageMap,
             extraction: {
                 method: 'pdfjs-' + (engine.version || ''),
