@@ -59,6 +59,18 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Fixed
 
+- **PDF tables reconstruct row-by-row instead of scrambling.** An
+  aligned grid (a Bayesian evidence table, a results table) was read
+  column-by-column — every row label collapsed into one paragraph and
+  the value columns spilled out as a row-offset diagonal, destroying
+  the link between a row and its values. The layout engine now detects
+  an aligned grid (a baseline carrying 3+ cell-segments, which
+  two-column prose never reaches) and reads it row-by-row, joining each
+  row's cells with a middle dot; prose around an embedded table still
+  flows normally. Two-column label/value tables and pretty pipe-table
+  rendering remain out of scope (the dot-joined row is quotable, not an
+  HTML table).
+
 - **Google Drive PDF previews route to the PDF pipeline.** Drive's
   preview is a text/html web app around the document, so it dodged
   both PDF-routing guards: capturing it scraped the viewer chrome

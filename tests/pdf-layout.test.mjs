@@ -617,3 +617,71 @@ test('googleDrivePdfUrl: Drive PDF previews map to the direct-download URL', asy
     assert.equal(googleDrivePdfUrl('https://docs.google.com/document/d/abc/edit', 'x.pdf'), null);
     assert.equal(googleDrivePdfUrl('https://drive.google.com/drive/my-drive', 'x.pdf'), null);
 });
+
+// ------------------------------------------------------------------
+// Tables (aligned grids) — reconstruct row-by-row, not column-band.
+// ------------------------------------------------------------------
+
+function tableRow(cells, y) {
+    // cells: [[str, x], …] — each cell a separate run at the same baseline.
+    return cells.map(([str, x]) => ({ str, x, y, w: str.length * 5, h: 11 }));
+}
+
+test('a 3-column table reconstructs row-by-row with row↔value links intact', () => {
+    const rows = [
+        [['evidence', 100], ['Bayes', 360], ['log-odds', 470]],
+        [['prior', 100], ['0.30225', 360], ['-1.2', 470]],
+        [['location of first SSE', 100], ['13.48', 360], ['2.6', 470]],
+        [['12 nucleotide insert', 100], ['50', 360], ['3.91', 470]],
+        [['CGGCGG', 100], ['10.68376', 360], ['2.37', 470]],
+        [['total', 100], ['234015', 360], ['12.36314', 470]]
+    ];
+    const items = [];
+    let y = 700;
+    for (const r of rows) { items.push(...tableRow(r, y)); y -= 16; }
+    const { markdown } = buildDocumentFromPages([page(items)]);
+    // Each row's cells stay on one line, left-to-right — NOT the
+    // pre-fix column-band read that put every label in one paragraph
+    // and the numbers in a scrambled diagonal.
+    assert.match(markdown, /prior · 0\.30225 · -1\.2/);
+    assert.match(markdown, /12 nucleotide insert · 50 · 3\.91/);
+    assert.match(markdown, /total · 234015 · 12\.36314/);
+    // The label column is NOT collapsed into one run.
+    assert.ok(!/evidence prior location/.test(markdown), 'labels not column-banded');
+});
+
+test('a table embedded in prose: the table gridifies, the prose still flows', () => {
+    const items = [];
+    let y = 720;
+    for (let i = 0; i < 4; i++) { items.push({ str: `Intro prose sentence ${i} runs the full column width here`, x: 72, y, w: 440, h: 11 }); y -= 15; }
+    y -= 20;
+    const rows = [
+        [['evidence', 100], ['Bayes', 360], ['log-odds', 470]],
+        [['prior', 100], ['0.30225', 360], ['-1.2', 470]],
+        [['FCS', 100], ['2', 360], ['0.69', 470]],
+        [['12 nucleotide insert', 100], ['50', 360], ['3.91', 470]],
+        [['total', 100], ['234015', 360], ['12.36314', 470]]
+    ];
+    for (const r of rows) { items.push(...tableRow(r, y)); y -= 16; }
+    y -= 20;
+    for (let i = 0; i < 4; i++) { items.push({ str: `Trailing prose line ${i} discusses the positive log-odds terms`, x: 72, y, w: 440, h: 11 }); y -= 15; }
+    const { markdown } = buildDocumentFromPages([page(items)]);
+    const flat = markdown.replace(/\n/g, ' ');
+    assert.match(flat, /Intro prose sentence 0.*sentence 3/, 'intro prose merges into a paragraph');
+    assert.match(markdown, /12 nucleotide insert · 50 · 3\.91/, 'table row stays intact');
+    assert.match(flat, /Trailing prose line 0.*line 3/, 'trailing prose merges into a paragraph');
+});
+
+test('two-column prose with SHARED baselines is not mistaken for a table', () => {
+    const items = [];
+    let y = 720;
+    for (let i = 0; i < 12; i++) {
+        items.push({ str: `Left column sentence ${i} continues with several ordinary words`, x: 60, y, w: 220, h: 10 });
+        items.push({ str: `Right column sentence ${i} also continues with several words`, x: 320, y, w: 220, h: 10 });
+        y -= 14;
+    }
+    const { markdown } = buildDocumentFromPages([page(items)]);
+    assert.ok(!markdown.includes(' · '), 'not dot-joined as a table');
+    assert.ok(markdown.indexOf('Left column sentence 11') < markdown.indexOf('Right column sentence 0'),
+        'columns read left-then-right, not interleaved row-by-row');
+});

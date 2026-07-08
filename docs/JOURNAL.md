@@ -19,6 +19,44 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-08 — PDF tables: read the grid row-by-row, don't column-band it
+
+Tags: `bug`, `design`.
+
+Field report (screenshot): a Rootclaim-style Bayesian evidence table
+(evidence / Bayes / log-odds, 17 rows) captured as a scrambled
+diagonal — every label collapsed into one paragraph, then the two
+value columns spilled out row-offset ("log-odds 0.30225", "-1.2
+13.48", …). Root cause: a table's label column reads as "left" and
+its value columns as "right", so `detectTwoCol` misfired and the
+column-band reader walked the whole label column top-to-bottom, then
+the values as a diagonal — destroying the row↔value links, which for
+an evidence tool is a provenance failure (you can't quote "12
+nucleotide insert = 50, log-odds 3.91").
+
+Fix: detect an aligned GRID and read it row-by-row. The signal that
+can't be confused with prose is **a baseline carrying 3+ segments** —
+`linesOfPage` splits a table row into one segment per cell at the
+inter-column gaps, and two-column prose is exactly two columns, never
+three. `hasGrid` fires when the page is grid-dominant OR carries a
+run of ≥4 grid rows (an embedded table on a prose page — the
+mean-length dilution the shredded-text warning would also miss).
+`mergeGridRows` then joins each row's cells left-to-right with a
+middle dot (column boundaries survive into the markdown; a single-cell
+quote still grounds) and emits each row as its own block; 1-segment
+prose lines around the table pass through and flow normally.
+
+Checked FIRST, before the two-column logic: on a mixed prose+table
+page `detectTwoCol` itself misfires (a value column reads as a right
+column), so gating the grid handler on `!detectTwoCol` let the table
+scramble anyway. A genuine two-column prose paper never reaches three
+segments, so grid detection is the safe primary. Not solved: 2-column
+label/value tables (ambiguous with prose columns by segment count —
+left to the extraction warning), and pretty pipe-table markdown (the
+dot-join is quotable, not rendered as an HTML table). Verified against
+table-only, embedded-table, and shared-baseline two-column fixtures
+plus the full suite.
+
 ## 2026-07-08 — PDF stack, round three: the reader's draft machine was the last corruption source
 
 Tags: `bug`, `design`.
