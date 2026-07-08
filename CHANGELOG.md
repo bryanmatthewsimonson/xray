@@ -59,6 +59,62 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Fixed
 
+- **PDF capture was dead on Firefox ESR 128–133.** pdf.js 6.x calls
+  `Promise.try` (Firefox 134+/Chrome 128+) inside `MessageHandler` —
+  the main↔worker RPC that every pdf.js request crosses — so on the
+  extension's own declared Firefox 128 floor the very first
+  `getDocument` message threw and no PDF could be captured at all.
+  `pdf-collection-polyfill.js` (already shimming
+  `Map.getOrInsertComputed` and `Math.sumPrecise` for exactly this
+  class of problem) now also shims `Promise.try` and
+  `Uint8Array.fromBase64`/`toBase64` (Firefox 133+/Chrome 140+; used
+  on pdf.js's attachment, signature, and XFA paths), in both the main
+  thread and the worker.
+
+- **PDF stack: second adversarial sweep (post-#111).** Capture: pdf.js
+  6.x removed `PDFDocumentProxy.destroy()` — the swallow-all catch
+  around `doc.destroy()` silently skipped teardown, resurrecting the
+  worker-document leak #111 plugged; cleanup now goes through
+  `loadingTask.destroy()`. `/Rotate 90/270` pages reconstructed as
+  shredded, interleaved text (pdf.js text/operator coordinates are raw
+  user space; the rotation lives in the viewport) — text and figure
+  coordinates now map through the viewport, which also normalizes
+  offset-MediaBox pages. Figures: Chrome's ImageDecoder JPEG path
+  hands back a `VideoFrame` (no `width`/`height` — only
+  `displayWidth`) and every JPEG photograph figure was silently
+  dropped on Chrome; the Form-XObject `/Matrix` arrives as a
+  `Float32Array`, so the `Array.isArray` guard had silently disabled
+  the #111 form-transform fix; annotation appearance streams (stamps,
+  signatures) no longer corrupt the CTM walk or masquerade as page
+  figures; 1-bit line art (`GRAYSCALE_1BPP`) decodes instead of being
+  dropped; the per-page figure cap now actually bounds decode work,
+  PNG bytes are retained for at most 256 distinct figures, and the
+  oversize-canvas path no longer falls back to encoder-dependent PNG
+  bytes for the content address. Identity/routing: `#page=3`-style
+  fragments no longer fork the capture identity (the d-tag hashes the
+  raw URL; fragments never reach the server); the content-type sniff
+  is bounded by a 5s timeout so a hung server can't stall the toolbar
+  click. Layout: lexical hyphens survive letter↔digit line breaks
+  (`COVID-19`, `3-year`) and uppercase continuations
+  (`Navier-Stokes`); sub/superscripts stay on their visual line
+  (`H2O` no longer shreds); a dropcap no longer promotes its body
+  line to a heading; wandering margin footnotes (`12 Ibid., at 340.`)
+  are no longer eaten as furniture (repeats must hold a fixed
+  y-position); header-only pages aren't reported as "content
+  missing"; an off-center gutter the column classifier can't resolve
+  no longer shreds lines it can't reorder. Storage: the
+  source-document pruner keeps figures cited by ANY live article
+  (figures dedupe across documents but the row's `pdf-figure:` url
+  names only the first parent — evicting that parent's article
+  destroyed the figure for everyone else) and keeps the source
+  bytes/figures of displaced `priorVersions` snapshots (the 13.4
+  "capturing both versions" promise). Scholarly metadata: old-style
+  arXiv ids (`hep-th/9901001`) now match from URLs. No wire-format
+  changes; a re-capture of an affected PDF (rotated pages,
+  hyphen/subscript text, restored figures) yields better markdown and
+  therefore a different canonical `x` — expected supersession, not
+  stealth-edit.
+
 - **PDF + figures bug sweep (Phase 18 follow-up, 19 fixes).** The big
   four: PDF captures can now actually **publish** (the `?pdf=` path
   never registered a session record and signing proxied to a source

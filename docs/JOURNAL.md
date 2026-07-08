@@ -19,6 +19,80 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-08 — PDF stack, second sweep: the bugs that survived the first one
+
+Tags: `bug`, `external`.
+
+A second adversarial pass over the Phase 18 PDF stack (multi-lens
+agent fan-out, every finding verified by executing the module or
+pdf.js itself before fixing). The ones worth remembering:
+
+- **pdf.js 6.x has no `PDFDocumentProxy.destroy()`.** Teardown moved
+  to the loading task; our `try { doc.destroy(); } catch (_) {}`
+  swallowed the `TypeError` and skipped cleanup entirely —
+  resurrecting the exact worker-document leak the previous sweep
+  claimed to fix. Lesson: a best-effort catch around a *method call*
+  hides API drift; when a vendored API changes shape, the catch turns
+  a loud break into a silent regression. Verify the method exists in
+  the pinned version (we now call `loadingTask.destroy()`, and the
+  stub-engine test asserts it fires on success AND refusal paths).
+- **Coordinates: pdf.js rotation lives in the viewport, not the
+  data.** `getTextContent` transforms and operator-list CTMs are raw
+  PDF user space; `/Rotate` and the MediaBox origin are applied only
+  by `PageViewport`. We consumed raw coordinates against
+  rotation-swapped viewport dimensions, so a `/Rotate 90` page (a
+  landscape exhibit in a filing, a rotated scan with a text layer)
+  reconstructed as shredded, interleaved, quote-corrupting text — on
+  an evidence tool's highest-stakes documents. All coordinates now
+  map through `viewport.convertToViewportPoint` / a composed
+  viewport transform (`viewportBBox`), then flip back to the layout
+  engine's y-up convention. Identity for unrotated origin-0 pages.
+- **Content-hash dedupe vs per-row provenance:** figure rows are
+  keyed by pixel hash and shared ACROSS documents, but the row's
+  `pdf-figure:<parent>` url names only the FIRST document that stored
+  it. The orphan pruner keyed liveness on that parent, so evicting the
+  first article deleted the figure out from under every other article
+  citing it. When identity is content-addressed, liveness has to be
+  computed from the *citing* side (scan article bodies for
+  `xray-figure:` refs), not from a single stored back-pointer.
+- **Furniture needs position, not just repetition.** The
+  digit-stripped signature (`"12 Ibid., at 340."` → `"# ibid., at #."`)
+  made every repeating footnote tail in a legal brief "furniture".
+  Real headers/footers repeat at a *fixed y*; content that repeats
+  modulo digits wanders with the stack height. The y-band check (6pt,
+  per margin side) separates them cleanly.
+- **pdf.js's actual arg shapes are typed, transferable, and new-API
+  hungry.** Three more instances of the same lesson as `destroy()`:
+  the Form-XObject `/Matrix` is a `Float32Array` (an `Array.isArray`
+  guard silently disabled #111's form-transform fix); Chrome's
+  ImageDecoder JPEG path yields a `VideoFrame` — which has NO
+  `width`/`height`, only `displayWidth` — so the drawable duck-type
+  dropped every JPEG photo figure on Chrome; and `MessageHandler`
+  calls `Promise.try` (Firefox 134+) on EVERY main↔worker message, so
+  PDF capture was entirely dead on the Firefox 128–133 ESR floor
+  until the polyfill grew that shim. When consuming a vendored lib's
+  internals, grep the PINNED build for the shapes, don't trust the
+  docs — `tests/pdf-capture-realpdf.test.mjs` now pins the whole
+  contract end-to-end against the real engine.
+- Smaller but real: letter↔digit hyphen breaks lost their lexical
+  hyphen (`COVID-19` → `COVID19` — hyphenation only ever splits
+  letters from letters, so a digit on either side means the hyphen is
+  content); sub/superscript runs split off their line (`H2O` → `H O
+  … 2`) — size-mismatched runs now merge by vertical band overlap;
+  dropcaps promoted body lines to headings (dominant char-weighted
+  size, not max glyph); 1-bit line art (`GRAYSCALE_1BPP` packed rows)
+  was silently dropped by channel inference; annotation appearance
+  streams corrupted the operator walk's CTM; `#page=3` fragments
+  forked the capture identity (the d-tag hashes the raw URL);
+  old-style arXiv ids never matched (the regex wanted 8 digits,
+  pre-2007 ids have 7).
+
+Files: `src/reader/pdf-capture.js`, `src/shared/pdf-layout.js`,
+`src/shared/archive-cache.js`; regression tests in
+`tests/pdf-capture-stub.test.mjs` (stub-engine end-to-end),
+`tests/pdf-capture-geometry.test.mjs`, `tests/pdf-layout.test.mjs`,
+`tests/archive-cache.test.mjs`.
+
 ## 2026-07-07 — Phase 16.1–16.4: moral-lens implementation choices
 
 Tags: `design`.
