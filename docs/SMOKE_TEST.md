@@ -224,6 +224,15 @@ piece — anything Readability handles cleanly).
 | 2.7 | Click **Publish** → signing happens via the Active method (toast says "Signing locally…" for Local, prompts a signer extension for NIP-07, talks to the bunker for NSecBunker) → toast reports per-relay results | ✅ at least one configured relay accepts |
 | 2.8 | Look up the published article on a NOSTR client (e.g. snort, primal, nostr.band) by your npub → the kind-30023 should be there | ✅ event id matches the toast; pubkey matches the Active method's npub |
 
+**URL identity — archive/mirror captures (url-identity.js; LIVE-SITE check — the archive.today DOM markers cannot be verified from tests)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 2.9 | Capture an article via a Wayback snapshot (`web.archive.org/web/<ts>/<url>`) | ✅ reader URL field shows the ORIGINAL url; the note under the byline reads "captured via web.archive.org · original: <url>" |
+| 2.10 | Capture a **short-code** archive.today snapshot (`archive.ph/<code>`) | ✅ the original is recovered from the page's own markers (`input#HIDDEN_URL` / header "saved from" link) and shown in the note; if archive.today has changed its DOM, the note must degrade to "original URL not recovered" — NEVER show a wrong original (then update `archiveTodayDomOriginal`) |
+| 2.11 | Publish an archive capture → inspect the event | ✅ first `r` = the original URL; one `capture-url` tag with the archive address; a second `r` with the archive address AFTER the primary |
+| 2.12 | Capture an arXiv `/pdf/` link | ✅ article URL reads `arxiv.org/abs/<id>`; capture note names the pdf variant |
+
 ---
 
 ## Phase 3 — Platform handlers

@@ -290,6 +290,10 @@ export async function saveArticle({ article, source = 'capture', publishedToRela
         url,
         article,
         articleHash:      contentHash,
+        // Archive/mirror provenance (url-identity.js): the address the
+        // capture was fetched from when it differs from the identity
+        // URL above. Plain optional field — older rows simply lack it.
+        captureUrl:       article.capture_url || null,
         priorVersions,
         cachedAt:         existing ? existing.cachedAt : now,
         lastAccessed:     now,

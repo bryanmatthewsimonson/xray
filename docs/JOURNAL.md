@@ -19,6 +19,50 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-09 — One normalizer, and archive captures re-key to their originals
+
+Tags: `design`.
+
+Two identity fixes that belong together, both from the COVID capture
+run (archive.is / Wayback / arXiv captures forking the corpus):
+
+**Normalizer unification (maintainer decision: now, not deferred).**
+`ContentExtractor.normalizeUrl` — which keys article identity and
+30023 `d` tags via `getCanonicalUrl` — had its own tracking-param list
+(no param sorting, a keep-some-anchors fragment heuristic) while every
+downstream join (claims, assessments, forensics, adjudication, the
+archive cache, the case dossier) ran the NIP-73
+`metadata/url-normalizer.js`. Same page, two canonical forms — the
+dossier's convergence collapse and `#r` queries silently missed. The
+legacy-only params (`mkt_tok`, `oly_*`, `vero_id`, `wickedid`,
+`__twitter_impression`, `spm`, `share_source`, `from`, `_gid`) merged
+into the unified `TRACKING_PARAMS`, `ContentExtractor.normalizeUrl` is
+now a delegate, and the random-hash fragment heuristic is gone (all
+non-text-fragment anchors strip). **Accepted consequence:** a
+post-unification capture of a URL whose params sort or now strip
+derives a DIFFERENT `d` tag than a pre-unification capture — a
+republish is a new addressable event, not a replacement; the portal's
+reconcile absorbs the seam. That churn is why this was a maintainer
+call, and it's cheapest now, before the corpus publish.
+
+**Original-as-identity for archive captures** (`url-identity.js`). A
+capture made on archive.today/Wayback/ar5iv keyed to the MIRROR's URL,
+so a later direct capture of the same piece (or another user's) landed
+in a disconnected bucket. Now the recovered original IS the identity
+(`article.url`, the `d` tag, the first `r`), and the fetched address
+rides as provenance (`article.capture_url` → wire tag `capture-url`,
+plus an `r` co-emit AFTER the primary — the first-r read-back
+invariant; NIP_DRAFT documents it). Recovery: URL structure first
+(Wayback path-embedded originals incl. the `if_`/`im_` modifiers and
+the collapsed-scheme repair; archive.today `newest/oldest/<ts>` deep
+links; arXiv pdf/html/ar5iv → `/abs/`), then archive.today's own DOM
+markers (`input#HIDDEN_URL`, header anchors) validated against an
+archive-host blocklist. **Fail-open:** unverifiable ⇒ the capture keys
+to the fetched address and claims nothing — a WRONG original forks
+identity worse than none. The DOM markers can't be exercised from this
+sandbox (egress-blocked); SMOKE 2.10 pins the live check and the code
+degrades to not-recovered if archive.today redesigns.
+
 ## 2026-07-09 — Thorough audits ran to completion, then vanished: MV3 killed the messenger
 
 Tags: `bug`, `design`.

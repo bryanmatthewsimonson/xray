@@ -785,6 +785,20 @@ Consumers visiting a URL or NOSTR event that is the target of a `responds-to` SH
 
 Filtered client-side to events that carry a matching `responds-to` tag.
 
+## Kind 30023 — `capture-url` tag (extension)
+
+A long-form article (kind 30023) MAY record that its content was fetched from a different address than the article's identity URL — an archive.today or Wayback Machine snapshot, or an arXiv rendering variant (`/pdf/`, `/html/`, ar5iv):
+
+```
+["capture-url", "<address the capture was actually fetched from>"]
+```
+
+At most one per event. The article's **identity** — the first `r` tag and the input to the `d` tag — is the ORIGINAL URL, recovered from the archive URL's structure (Wayback path-embedded originals, archive.today deep links, arXiv id mapping) or from the archive page's own markers, and normalized like any direct capture. This is deliberate: an archive capture and a direct capture of the same piece MUST land in the same metadata bucket (same `#r`, same `d`), or claims, assessments, and audits fork across mirrors of one text.
+
+The tag is present ONLY when the original was verifiably recovered (so it always differs from the first `r`). When recovery fails, publishers claim nothing: the capture keys to the address actually fetched and no `capture-url` is emitted — a wrong original forks identity worse than none.
+
+Publishers SHOULD also co-emit an indexed `r` tag with the capture address, strictly AFTER the primary `r` (consumers take the FIRST `r` as the article URL), so `{"kinds":[30023],"#r":["<archive-url>"]}` finds the capture from the mirror side too.
+
 ## Kind 30023 — `x` tag (extension)
 
 A long-form article (kind 30023) SHOULD carry the canonical article hash of its own body as an indexed `x` tag (NIP-94 precedent: the SHA-256 of the thing):

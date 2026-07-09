@@ -1080,6 +1080,23 @@ function renderExtractionWarningsBanner() {
     $('#xr-extract-dismiss').addEventListener('click', () => banner.remove());
 }
 
+// Archive/mirror provenance note (url-identity.js). Two honest states:
+// original recovered → identity is the original, the mirror address is
+// provenance; not recovered → identity stays with the archive address
+// and the note says so plainly. Ordinary captures render nothing.
+function renderArchiveNote(a) {
+    if (!a) return '';
+    if (a.capture_url && a.capture_url !== a.url) {
+        const host = a.archive_host
+            || ((a.capture_url.match(/^https?:\/\/(?:www\.)?([^/]+)/) || [])[1] || 'archive');
+        return `<div class="xr-article__capture-note" title="fetched from ${escapeHtml(a.capture_url)}">captured via ${escapeHtml(host)} · original: ${escapeHtml(a.url || '')}</div>`;
+    }
+    if (a.archive_host) {
+        return `<div class="xr-article__capture-note xr-article__capture-note--warn">captured via ${escapeHtml(a.archive_host)} — original URL not recovered; this capture keys to the archive address</div>`;
+    }
+    return '';
+}
+
 function renderReader() {
     const a = state.article;
     const main = $('#xr-main');
@@ -1094,6 +1111,7 @@ function renderReader() {
             ${field('Published',   'publishedAt', fmtDate(a.publishedAt))}
             ${field('URL',         'url',         a.url)}
           </div>
+          ${renderArchiveNote(a)}
           <div class="xr-article__hash" id="xr-article-hash" hidden></div>
         </header>
         ${renderYouTubeHeader(a)}

@@ -12,6 +12,21 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Archive captures re-key to their original URL.** Capturing from an
+  archive.today mirror, a Wayback Machine snapshot, or an arXiv
+  rendering variant (`/pdf/`, `/html/`, ar5iv) now recovers the
+  ORIGINAL URL and makes it the article's identity — same `d` tag,
+  same `#r` bucket as a direct capture, so claims, assessments, and
+  audits on mirrored text no longer fork per mirror. The fetched
+  address is kept as provenance: a reader note ("captured via
+  archive.ph · original: …") and — **wire change, additive** — a new
+  kind-30023 `capture-url` tag with an indexed `r` co-emit after the
+  primary `r` (documented in `docs/NIP_DRAFT.md`; readers keep taking
+  the FIRST `r` as the article URL). Recovery is fail-open: when the
+  original can't be verified from the archive URL's structure or the
+  archive page's own markers, the capture keys to the address actually
+  fetched and says "original URL not recovered" rather than guessing.
+
 - **Case dossier — the assembled view of a case (CD.1–CD.3).** A case
   entity's portal dashboard gains three derived, computed-on-read
   surfaces over everything in the case's orbit. `assembleCaseDossier`
@@ -85,6 +100,20 @@ Sections per release: **Added** (new features), **Changed**
   missing image. No new tag kinds; no change to existing tags. Not done:
   OCR of text inside figures, and vector-drawn charts (path ops, no image
   XObject) — those remain a gap (`COMPLEX_CONTENT_DESIGN.md` §9 Q6).
+
+### Changed
+
+- **One URL normalizer everywhere.** Article identity
+  (`ContentExtractor.normalizeUrl`, which feeds 30023 `d` tags) now
+  delegates to the NIP-73 normalizer that already keyed every
+  downstream join, with the legacy-only tracking params (`mkt_tok`,
+  `oly_*`, `vero_id`, `wickedid`, `spm`, `share_source`, `from`, …)
+  merged into the unified strip list. Query params now sort and
+  non-text-fragment anchors strip in article identity too.
+  **Consequence:** captures of URLs whose params sort or now strip
+  derive different `d` tags than pre-unification captures of the same
+  page — a republish is a new addressable event; the portal reconcile
+  view absorbs the seam (JOURNAL 2026-07-09).
 
 ### Fixed
 

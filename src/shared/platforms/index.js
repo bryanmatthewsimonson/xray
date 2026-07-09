@@ -34,6 +34,7 @@ import * as instagram from './instagram.js';
 import * as facebook  from './facebook.js';
 import { extractGenericComments } from './comment-extractor.js';
 import { extractScholarlyMeta } from './scholar-meta.js';
+import { resolveUrlIdentity } from '../url-identity.js';
 
 /** @typedef {{ synthesize?: () => Promise<object|null>, enrich?: (article: object) => Promise<object|null> | object|null }} PlatformHandler */
 
@@ -123,6 +124,26 @@ export async function enrichArticleForPlatform(article, platform) {
             if (scholar) enriched.scholar = scholar;
         } catch (err) {
             console.warn('[X-Ray] Scholarly metadata extraction failed:', err);
+        }
+    }
+    // URL identity — a capture made on an archive/mirror re-keys to the
+    // recovered ORIGINAL (original-as-identity; JOURNAL 2026-07-09) and
+    // keeps the fetched address as provenance. Fail-open: when the
+    // original can't be verified, only archive_host is noted (the
+    // reader chip says "original URL not recovered") and identity stays
+    // with the address actually fetched.
+    if (typeof document !== 'undefined' && typeof window !== 'undefined' && window.location) {
+        try {
+            const identity = resolveUrlIdentity(document, window.location.href);
+            if (identity) {
+                enriched.archive_host = identity.archiveHost;
+                if (identity.original) {
+                    enriched.capture_url = identity.captureUrl;
+                    enriched.url = identity.original;
+                }
+            }
+        } catch (err) {
+            console.warn('[X-Ray] URL identity resolution failed:', err);
         }
     }
     return enriched;

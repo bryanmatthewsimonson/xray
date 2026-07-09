@@ -6,6 +6,7 @@ import {
   isComplexTable, sanitizeIslandNode, sanitizeIslandString,
   wrapIsland, islandPattern
 } from './content-islands.js';
+import { normalize } from './metadata/url-normalizer.js';
 
 export const ContentExtractor = {
   // Extract article using Readability (bundled via npm)
@@ -348,34 +349,15 @@ export const ContentExtractor = {
     }
   },
 
-  // Normalize URL (remove tracking params, clean hash fragments)
-  normalizeUrl: (url) => {
-    try {
-      const parsed = new URL(url);
-      const trackingParams = [
-        'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'utm_id',
-        'fbclid', 'gclid', '_ga', '_gid', 'ref', 'source',
-        'mc_cid', 'mc_eid', 'mkt_tok',
-        'oly_anon_id', 'oly_enc_id',
-        'vero_id', 'wickedid',
-        '__twitter_impression', 'twclid',
-        'igshid', 'spm', 'share_source', 'from'
-      ];
-      trackingParams.forEach(param => parsed.searchParams.delete(param));
-      // Strip hash fragments that look like tracking (short random strings, dots, slashes)
-      // Keep meaningful anchors like #section-name (6+ chars, word-like)
-      if (parsed.hash) {
-        const frag = parsed.hash.slice(1);
-        const isTrackingHash = /^[.\/]/.test(frag) || /^[A-Za-z0-9]{1,5}$/.test(frag) || frag === '';
-        if (isTrackingHash) {
-          parsed.hash = '';
-        }
-      }
-      return parsed.toString();
-    } catch (e) {
-      return url;
-    }
-  },
+  // Normalize URL — delegates to the ONE NIP-73 normalizer so article
+  // identity (d-tags via getCanonicalUrl) and every downstream join
+  // (claims, assessments, forensics, archive rows) agree on the
+  // canonical form of a URL. The legacy in-place list diverged from it
+  // (no param sorting, its own tracking set, a keep-some-anchors hash
+  // heuristic); unification means a page whose URL carries sortable or
+  // now-stripped params derives a DIFFERENT d-tag than a pre-2026-07
+  // capture of the same page — accepted, see JOURNAL 2026-07-09.
+  normalizeUrl: (url) => normalize(url),
 
   // Extract published date
   extractPublishedDate: () => {

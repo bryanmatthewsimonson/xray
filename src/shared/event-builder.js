@@ -192,6 +192,18 @@ export const EventBuilder = {
       }
     }
 
+    // `capture-url` extension (docs/NIP_DRAFT.md): the address this
+    // capture was actually fetched from, present ONLY when it differs
+    // from the identity URL — i.e. an archive/mirror capture re-keyed
+    // to its recovered original. At most one per event. Also co-emit
+    // an indexed `r` so relays answer `#r=<mirror>` on this event —
+    // strictly AFTER the primary `r`: readers take the FIRST `r` as
+    // the article URL (reconstructArticleFromEvent invariant).
+    if (article.capture_url && article.capture_url !== article.url) {
+      tags.push(['capture-url', article.capture_url]);
+      tags.push(['r', article.capture_url]);
+    }
+
     // Add entity tags
     const taggedPubkeys = new Set();
     for (const entityRef of entities) {
@@ -830,6 +842,9 @@ export const EventBuilder = {
       isPaywalled: tags['paywalled'] === 'true',
       contentType: tags['content_format'] || 'article',
       platform: tags['platform'] || null,
+      // capture-url extension: the mirror address this capture was
+      // fetched from (identity = the first `r`, always the original).
+      capture_url: tags['capture-url'] || null,
       language: tags['lang'] || null,
       keywords: (tagArrays['t'] || []).map(v => v[0]),
       wordCount: parseInt(tags['word_count']) || 0,

@@ -352,3 +352,52 @@ test('buildClaimEvent — provenance tags are absent when the claim has none (no
         assert.equal(ev.tags.find((t) => t[0] === name), undefined, `no ${name} tag`);
     }
 });
+
+// --- capture-url extension (url-identity; docs/NIP_DRAFT.md) -----------------
+
+test('buildArticleEvent emits capture-url + a mirror r AFTER the primary r', async () => {
+    const article = {
+        url: 'https://example.com/story',
+        capture_url: 'https://archive.ph/AbC12',
+        title: 'Test', markdown: '# x', domain: 'example.com'
+    };
+    const ev = await EventBuilder.buildArticleEvent(article, [], PUBKEY, []);
+
+    const capTags = ev.tags.filter((t) => t[0] === 'capture-url');
+    assert.equal(capTags.length, 1, 'at most one capture-url');
+    assert.deepEqual(capTags[0], ['capture-url', 'https://archive.ph/AbC12']);
+
+    // First-r invariant: readers take the FIRST r as the article URL;
+    // the mirror co-emit must come after it.
+    const rValues = ev.tags.filter((t) => t[0] === 'r').map((t) => t[1]);
+    assert.equal(rValues[0], 'https://example.com/story', 'primary r stays first');
+    assert.ok(rValues.includes('https://archive.ph/AbC12'), 'mirror co-emitted for #r queries');
+});
+
+test('buildArticleEvent omits capture-url when absent or equal to the identity URL', async () => {
+    const plain = await EventBuilder.buildArticleEvent(
+        { url: 'https://example.com/a', title: 'T', markdown: '# x', domain: 'example.com' },
+        [], PUBKEY, []);
+    assert.ok(!plain.tags.some((t) => t[0] === 'capture-url'));
+
+    const same = await EventBuilder.buildArticleEvent(
+        { url: 'https://example.com/a', capture_url: 'https://example.com/a', title: 'T', markdown: '# x', domain: 'example.com' },
+        [], PUBKEY, []);
+    assert.ok(!same.tags.some((t) => t[0] === 'capture-url'),
+        'no self-referential capture-url noise');
+    assert.equal(same.tags.filter((t) => t[0] === 'r').length, 1);
+});
+
+test('reconstructArticleFromEvent: first r is the identity, capture-url reads back', async () => {
+    const article = {
+        url: 'https://example.com/story',
+        capture_url: 'https://web.archive.org/web/2020/https://example.com/story',
+        title: 'Test', markdown: '# Test\n\nBody.', domain: 'example.com'
+    };
+    const ev = await EventBuilder.buildArticleEvent(article, [], PUBKEY, []);
+    const back = EventBuilder.reconstructArticleFromEvent({ ...ev, id: 'e'.repeat(64) });
+    assert.ok(back);
+    assert.equal(back.url, 'https://example.com/story',
+        'identity = first r, never the mirror');
+    assert.equal(back.capture_url, 'https://web.archive.org/web/2020/https://example.com/story');
+});

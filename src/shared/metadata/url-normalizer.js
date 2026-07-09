@@ -45,11 +45,17 @@ const TRACKING_PARAMS = new Set([
   'fbclid', 'gclid', 'gclsrc', 'msclkid', 'dclid',
   'yclid', 'twclid', 'wbraid', 'gbraid',
   // Generic referrer / share trackers
-  'ref', 'referrer', 'referer', 'source',
+  'ref', 'referrer', 'referer', 'source', 'share_source', 'from',
   // Mailchimp
   'mc_cid', 'mc_eid',
   // Google Analytics
-  '_ga', '_gl',
+  '_ga', '_gl', '_gid',
+  // Marketo / Omeda / Vero / Wicked Reports (merged from the legacy
+  // ContentExtractor.normalizeUrl list when the two normalizers were
+  // unified — JOURNAL 2026-07-09)
+  'mkt_tok', 'oly_anon_id', 'oly_enc_id', 'vero_id', 'wickedid',
+  // Alibaba-family + Twitter legacy impression tracking
+  'spm', '__twitter_impression',
   // Instagram share
   'igshid', 'igsh',
   // YouTube share
