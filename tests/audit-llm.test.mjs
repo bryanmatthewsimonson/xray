@@ -7,15 +7,29 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 await import('fake-indexeddb/auto');
+// Stateful storage stub: the consent-gate tests (llmAssist flag + API
+// key) need get() to reflect what set() stored.
+const _store = {};
 globalThis.chrome = globalThis.chrome || {
-    storage: { local: { get(_k, cb) { cb({}); }, set(_o, cb) { cb && cb(); }, remove(_k, cb) { cb && cb(); } } }
+    storage: { local: {
+        get(keys, cb) {
+            const out = {};
+            const list = Array.isArray(keys) ? keys : (typeof keys === 'string' ? [keys] : Object.keys(_store));
+            for (const k of list) { if (k in _store) out[k] = _store[k]; }
+            cb(out);
+        },
+        set(obj, cb) { Object.assign(_store, obj); cb && cb(); },
+        remove(keys, cb) { for (const k of (Array.isArray(keys) ? keys : [keys])) delete _store[k]; cb && cb(); }
+    } }
 };
+function resetStore() { for (const k of Object.keys(_store)) delete _store[k]; }
 
 const {
     buildAuditTool, assembleAudit, AUDIT_TOOL_NAME, STANDING_SINGLE_SHOT_CAVEAT, MODULE_WEIGHTS,
     buildSingleModuleTool, buildModuleSystemPrompt
 } = await import('../src/shared/audit/audit-prompt.js');
-const { extractToolInput } = await import('../src/shared/llm-client.js');
+const { extractToolInput, runAuditPass, runAuditModulePass, LLM_KEY_STORAGE } = await import('../src/shared/llm-client.js');
+const { auditableSlice, MAX_AUDIT_INPUT_CHARS } = await import('../src/shared/audit/assemble.js');
 const { MODULE_NAMES, SCOREABLE_MODULES, validateFindings } = await import('../src/shared/audit/findings-schemas.js');
 const { articleHash, normalizeForHash } = await import('../src/shared/audit/article-hash.js');
 const { importAuditJson } = await import('../src/shared/audit/import.js');
@@ -312,4 +326,102 @@ test('extractToolInput: pulls the forced tool input, null when absent', () => {
     assert.deepEqual(extractToolInput(data, AUDIT_TOOL_NAME), { modules: { x: 1 } });
     assert.equal(extractToolInput({ content: [{ type: 'text', text: 'hi' }] }, AUDIT_TOOL_NAME), null);
     assert.equal(extractToolInput({}, AUDIT_TOOL_NAME), null);
+});
+
+// --- consent gates fire BEFORE any network -----------------------------------
+
+// Every gate test runs with fetch booby-trapped: a gate that leaks a
+// network call is a broken consent gate, not a flaky test.
+async function withFetchTrap(fn) {
+    const original = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = async () => { calls += 1; throw new Error('network call past a consent gate'); };
+    try { await fn(); } finally { globalThis.fetch = original; }
+    assert.equal(calls, 0, 'no network call reached fetch');
+}
+
+test('runAuditModulePass: flag off refuses pre-network', async () => {
+    resetStore();
+    await withFetchTrap(async () => {
+        const res = await runAuditModulePass({ module: 'omission', markdown: MD });
+        assert.equal(res.ok, false);
+        assert.match(res.error, /LLM assist is off/);
+    });
+});
+
+test('runAuditModulePass: flag on but keyless refuses pre-network', async () => {
+    resetStore();
+    _store['xray:flags'] = JSON.stringify({ llmAssist: true });
+    await withFetchTrap(async () => {
+        const res = await runAuditModulePass({ module: 'omission', markdown: MD });
+        assert.equal(res.ok, false);
+        assert.match(res.error, /No Anthropic API key/);
+    });
+    resetStore();
+});
+
+test('runAuditModulePass: unknown module and empty text refuse pre-network', async () => {
+    resetStore();
+    _store['xray:flags'] = JSON.stringify({ llmAssist: true });
+    _store[LLM_KEY_STORAGE] = 'sk-test-not-a-real-key';
+    await withFetchTrap(async () => {
+        const bad = await runAuditModulePass({ module: 'no_such_module', markdown: MD });
+        assert.equal(bad.ok, false);
+        assert.match(bad.error, /Unknown audit module: no_such_module/);
+
+        const empty = await runAuditModulePass({ module: 'omission', markdown: '   ' });
+        assert.equal(empty.ok, false);
+        assert.equal(empty.module, 'omission');
+        assert.match(empty.error, /No article text/);
+    });
+    resetStore();
+});
+
+test('runAuditPass: mode per_module is refused with the migration pointer (stale caller guard)', async () => {
+    resetStore();
+    _store['xray:flags'] = JSON.stringify({ llmAssist: true });
+    _store[LLM_KEY_STORAGE] = 'sk-test-not-a-real-key';
+    await withFetchTrap(async () => {
+        const res = await runAuditPass({ mode: 'per_module', markdown: MD });
+        assert.equal(res.ok, false);
+        assert.match(res.error, /xray:audit:module/,
+            'points the stale caller at the per-module topology');
+    });
+    resetStore();
+});
+
+// --- the auditable slice (the shared truncation bound) -----------------------
+
+test('auditableSlice: under and at the limit pass through untouched', () => {
+    const short = auditableSlice('abc');
+    assert.deepEqual(short, { text: 'abc', truncated: false, totalChars: 3 });
+
+    const exact = auditableSlice('x'.repeat(MAX_AUDIT_INPUT_CHARS));
+    assert.equal(exact.truncated, false);
+    assert.equal(exact.text.length, MAX_AUDIT_INPUT_CHARS);
+
+    assert.deepEqual(auditableSlice(''), { text: '', truncated: false, totalChars: 0 });
+    assert.deepEqual(auditableSlice(null), { text: '', truncated: false, totalChars: 0 });
+});
+
+test('auditableSlice: over the limit truncates honestly', () => {
+    const over = auditableSlice('y'.repeat(MAX_AUDIT_INPUT_CHARS + 7));
+    assert.equal(over.truncated, true);
+    assert.equal(over.text.length, MAX_AUDIT_INPUT_CHARS, 'scored text is exactly the bound');
+    assert.equal(over.totalChars, MAX_AUDIT_INPUT_CHARS + 7, 'the full length is reported for the disclosure');
+});
+
+// --- the audit-prompt shim re-exports the SAME assembly ----------------------
+
+test('audit-prompt re-exports are identical to the lean assemble module', async () => {
+    // The reader imports assemble.js directly (keeping the 38KB module
+    // prompts out of its bundle); everything else still imports through
+    // audit-prompt.js. Both must be the SAME functions, not copies.
+    const prompt = await import('../src/shared/audit/audit-prompt.js');
+    const lean = await import('../src/shared/audit/assemble.js');
+    assert.equal(prompt.assembleAudit, lean.assembleAudit);
+    assert.equal(prompt.collectEvidenceQuotes, lean.collectEvidenceQuotes);
+    assert.equal(prompt.MODULE_WEIGHTS, lean.MODULE_WEIGHTS);
+    assert.equal(prompt.auditableSlice, lean.auditableSlice);
+    assert.equal(prompt.MAX_AUDIT_INPUT_CHARS, lean.MAX_AUDIT_INPUT_CHARS);
 });

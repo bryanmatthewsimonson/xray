@@ -48,7 +48,11 @@ import { importAuditJson } from '../shared/audit/import.js';
 import { AuditRunModel, PredictionModel, ResolutionModel, staleModules } from '../shared/audit/audit-model.js';
 import { listResolutions as listAuditResolutions } from '../shared/audit/audit-cache.js';
 import { assembleAuditBatch } from '../shared/audit/publish-batch.js';
-import { CURRENT_MODULE_VERSIONS } from '../shared/audit/findings-schemas.js';
+import { CURRENT_MODULE_VERSIONS, MODULE_NAMES } from '../shared/audit/findings-schemas.js';
+// The lean assembly half only — never audit-prompt.js, whose generated
+// module-prompts dependency must stay out of the reader bundle.
+import { assembleAudit, auditableSlice, MAX_AUDIT_INPUT_CHARS } from '../shared/audit/assemble.js';
+import { orchestrateModuleRuns } from '../shared/audit/run-orchestrator.js';
 import { auditBand, scoreChipHtml, prettyModule } from '../shared/audit/display.js';
 import { JurisdictionModel } from '../shared/jurisdiction-model.js';
 import { lensTypeForPropositionClass } from '../shared/lens-taxonomy.js';
@@ -240,8 +244,18 @@ function adoptArticle(article, stored) {
     if (state.article && state.article.url && !(stored && stored.readOnly)) {
         (async () => {
             try {
-                state.articleHash = await canonicalArticleHash(
-                    EventBuilder.assembleArticleBody(hashableArticle(state.article)));
+                const fullBody = EventBuilder.assembleArticleBody(hashableArticle(state.article));
+                state.articleHash = await canonicalArticleHash(fullBody);
+                // The AUDITABLE key: audits cover at most
+                // MAX_AUDIT_INPUT_CHARS, and their hash gate covers the
+                // sliced text — for every normal-length capture this is
+                // identical to articleHash (zero behavior change).
+                const slice = auditableSlice(fullBody);
+                state.auditableTruncated = slice.truncated;
+                state.auditableTotalChars = slice.totalChars;
+                state.auditableHash = slice.truncated
+                    ? await canonicalArticleHash(slice.text)
+                    : state.articleHash;
                 updateHashLine();
                 // The audit bar keys on the hash — refresh it now that
                 // the hash is known (init wired it before this resolved).
@@ -834,7 +848,15 @@ async function refreshAuditStatus() {
         return;
     }
 
-    const runs = await AuditRunModel.getByArticleHash(state.articleHash);
+    const directRuns = await AuditRunModel.getByArticleHash(state.articleHash);
+    // Over-limit captures: an in-reader run scores (and its import gate
+    // verifies) only the first MAX_AUDIT_INPUT_CHARS, so it persists
+    // under the SLICED text's hash — same capture, partial coverage.
+    // Surface those runs here WITH the coverage caveat, never silently.
+    const truncKey = (state.auditableHash && state.auditableHash !== state.articleHash)
+        ? state.auditableHash : null;
+    const truncRuns = truncKey ? await AuditRunModel.getByArticleHash(truncKey) : [];
+    const runs = directRuns.concat(truncRuns.map((r) => ({ ...r, _truncatedKey: true })));
     const predictions = await PredictionModel.getByArticleHash(state.articleHash);
 
     if (!runs.length) {
@@ -855,7 +877,34 @@ async function refreshAuditStatus() {
                 priorNote = `<div class="xr-audit__prior-note">⚠️ ${priorRuns} audit run${priorRuns === 1 ? '' : 's'} anchor to a <em>previous version</em> of this text. Scores never transfer across edits — re-run the scorer CLI against the current capture and import the result (re-audit).</div>`;
             }
         } catch (_) { /* advisory only */ }
-        bodyEl.innerHTML = priorNote;
+        // Legacy PDF orphans: before the hash unification (JOURNAL
+        // 2026-07-09), in-reader runs on PDFs persisted under the
+        // turndown-round-trip hash of the derived HTML, not the
+        // reconstruction hash this panel keys on. Advisory only —
+        // different bytes, so those scores never render here.
+        let legacyNote = '';
+        try {
+            if (state.article && state.article.contentType === 'pdf' && state.article.markdown) {
+                const legacyHash = await canonicalArticleHash(
+                    EventBuilder.assembleArticleBody(state.article));
+                if (legacyHash && legacyHash !== state.articleHash) {
+                    const legacyRuns = await AuditRunModel.getByArticleHash(legacyHash);
+                    if (legacyRuns.length > 0) {
+                        legacyNote = `<div class="xr-audit__prior-note">⚠️ ${legacyRuns.length} audit run${legacyRuns.length === 1 ? '' : 's'} from an earlier X-Ray version keyed to a different rendering of this PDF. Scores never transfer across text variants — re-run the audit to key it to the current capture.</div>`;
+                    }
+                }
+            }
+        } catch (_) { /* advisory only */ }
+        // A saved thorough draft means paid-for modules are waiting.
+        let draftNote = '';
+        try {
+            const draft = await loadAuditDraft(state.auditableHash || state.articleHash);
+            const done = draft ? Object.keys(draft.modules || {}).length : 0;
+            if (done > 0) {
+                draftNote = `<div class="xr-audit__prior-note">💾 A thorough audit draft holds ${done}/${MODULE_NAMES.length} completed module${done === 1 ? '' : 's'} for this text — run "Thorough audit" to resume (only the missing modules re-run).</div>`;
+            }
+        } catch (_) { /* advisory only */ }
+        bodyEl.innerHTML = priorNote + legacyNote + draftNote;
         return;
     }
 
@@ -892,6 +941,12 @@ async function refreshAuditStatus() {
 
     const provenance = `<div class="xr-audit__provenance">auditor: ${escapeHtml(latest.auditor ? `${latest.auditor.kind} · ${latest.auditor.id}` : 'unknown')} · run ${escapeHtml(latest.runAt)} · ceiling source: ${escapeHtml(agg.ceiling_source || 'unknown')} · imported via ${escapeHtml(latest.source)}</div>`;
 
+    // Truncated-key coverage caveat: this run scored (and its hash gate
+    // verified) only the auditable slice of an over-limit capture.
+    const truncNote = latest._truncatedKey
+        ? `<div class="xr-audit__prior-note">⚠️ This run scored the first ${MAX_AUDIT_INPUT_CHARS.toLocaleString()} of ${Number(state.auditableTotalChars || 0).toLocaleString()} characters of this capture — text beyond that bound was never seen by the auditor.</div>`
+        : '';
+
     const staleSet = new Set(staleModules(latest, CURRENT_MODULE_VERSIONS).map((s) => s.module));
     const moduleRows = (latest.moduleResults || []).map((r) => renderModuleRow(r, staleSet)).join('');
 
@@ -906,13 +961,14 @@ async function refreshAuditStatus() {
             const a = r.aggregate || {};
             const s = typeof a.final_score === 'number' ? a.final_score : null;
             const c = typeof a.overall_confidence === 'number' ? a.overall_confidence : null;
-            return `<li>${scoreChipHtml(s, c)} — ${escapeHtml(r.auditor ? r.auditor.id : 'unknown')} · ${escapeHtml(r.runAt)}</li>`;
+            return `<li>${scoreChipHtml(s, c)} — ${escapeHtml(r.auditor ? r.auditor.id : 'unknown')} · ${escapeHtml(r.runAt)}${r._truncatedKey ? ` · first ${MAX_AUDIT_INPUT_CHARS.toLocaleString()} chars only` : ''}</li>`;
         }).join('')}</ul></div>`
         : '';
 
     bodyEl.innerHTML = `
       ${badge}
       ${provenance}
+      ${truncNote}
       <div class="xr-audit__modules">${moduleRows}</div>
       ${predBlock}
       ${othersBlock}`;
@@ -1540,15 +1596,213 @@ async function setupAuditRunControl() {
     }
 }
 
+// ------------------------------------------------------------------
+// In-extension audit runs (quick + thorough)
+//
+// Both modes compute the auditable body ONCE — hashableArticle-adjusted
+// (PDFs hash the reconstruction, not a turndown round trip) and
+// pre-sliced to MAX_AUDIT_INPUT_CHARS — so the local hash, the text the
+// model scores, the persisted ledger key, and the panel's query key are
+// ONE hash. Thorough mode sends one runtime message per module
+// (run-orchestrator.js, the lens topology): each response resets the
+// MV3 idle timer, a lost channel costs one retryable module, and every
+// completed module is draft-persisted immediately so paid results
+// survive a mid-run death (the fetched-but-never-displayed bug;
+// JOURNAL 2026-07-09).
+// ------------------------------------------------------------------
+
+const AUDIT_DRAFT_PREFIX = 'xray:audit:draft:';
+// Reader-side ceiling on a quick run — beyond the SW's own 300s abort
+// so the SW's richer error wins when it CAN answer, but the button can
+// never stick forever when the response channel is gone.
+const READER_QUICK_TIMEOUT_MS = 330000;
+const SW_KEEPALIVE_MS = 20000;
+
+async function loadAuditDraft(hash) {
+    try {
+        const res = await browserApi.storage.local.get(AUDIT_DRAFT_PREFIX + hash);
+        const draft = res && res[AUDIT_DRAFT_PREFIX + hash];
+        return (draft && typeof draft === 'object' && draft.modules) ? draft : null;
+    } catch (_) { return null; }
+}
+
+async function appendAuditDraft(hash, moduleName, findings, model) {
+    try {
+        const key = AUDIT_DRAFT_PREFIX + hash;
+        const res = await browserApi.storage.local.get(key);
+        const draft = (res && res[key] && res[key].modules) ? res[key] : { modules: {} };
+        draft.modules[moduleName] = findings;
+        if (model) draft.model = model;
+        await browserApi.storage.local.set({ [key]: draft });
+    } catch (err) {
+        // Draft durability is best-effort — the run continues regardless.
+        console.warn('[X-Ray Reader] audit draft save failed:', err);
+    }
+}
+
+async function clearAuditDraft(hash) {
+    try { await browserApi.storage.local.remove(AUDIT_DRAFT_PREFIX + hash); }
+    catch (_) { /* stale drafts are re-offered, never fatal */ }
+}
+
+// While a single long SW call is in flight, ping the zero-cost config
+// handler — each onMessage delivery resets the MV3 idle timer (the
+// mechanism the lens's one-message-per-jurisdiction topology relies on).
+function startSwKeepalive() {
+    const timer = setInterval(() => {
+        try {
+            const p = browserApi.runtime.sendMessage({ type: 'xray:llm:config' });
+            if (p && typeof p.catch === 'function') p.catch(() => {});
+        } catch (_) { /* SW restarting — the next ping lands */ }
+    }, SW_KEEPALIVE_MS);
+    return { stop: () => clearInterval(timer) };
+}
+
+function auditRequestMeta() {
+    return {
+        articleUrl: state.article.url || '',
+        articleTitle: state.article.title || '',
+        metadata: {
+            url: state.article.url || null,
+            headline: state.article.title || null,
+            byline: state.article.author || state.article.byline || null,
+            publication_date: state.article.date || state.article.publishedTime || null
+        }
+    };
+}
+
 /**
- * Run an audit pass and ingest its result through the SAME firewall the
- * file importer uses. The SW returns the canonical scorer-export object;
- * importAuditJson re-hashes its body_markdown and matches it against this
- * capture's hash, then schema-validates every module. We send the EXACT
- * markdown we hash, so the gate binds the audit to the open text.
+ * Ingest an assembled audit through the SAME firewall the file importer
+ * uses (re-hash + schema-validate), then repaint. Returns true when the
+ * import succeeded — the thorough path only clears its draft then.
+ */
+async function ingestAuditResult(audit, localHash, how, model) {
+    try {
+        const summary = await importAuditJson(audit, { localArticleHash: localHash, source: 'background' });
+        const bits = [`${summary.modulesValid} module${summary.modulesValid === 1 ? '' : 's'} valid`];
+        if (summary.modulesFailed) bits.push(`${summary.modulesFailed} failed validation`);
+        if (summary.predictionsImported) bits.push(`${summary.predictionsImported} prediction${summary.predictionsImported === 1 ? '' : 's'}`);
+        if (summary.predictionsSkipped) bits.push(`${summary.predictionsSkipped} skipped`);
+        toast(`Audit complete (${how}, ${model || 'unknown model'}) — ${bits.join(', ')}`,
+            summary.modulesFailed ? 'warning' : 'success', 6000);
+        await refreshAuditStatus();
+        return true;
+    } catch (err) {
+        // importAuditJson is the firewall — surface its reason verbatim.
+        console.error('[xray] audit import failed', err, audit);
+        toast('Audit import failed: ' + ((err && err.message) || 'unknown error'), 'error', 7000);
+        return false;
+    }
+}
+
+/** Quick: one single-shot SW call, keepalive + raced timeout. */
+async function runQuickAudit({ markdown, localHash }) {
+    const keepalive = startSwKeepalive();
+    let resp;
+    try {
+        resp = await Promise.race([
+            browserApi.runtime.sendMessage({
+                type: 'xray:audit:run',
+                request: { mode: 'single', markdown, ...auditRequestMeta() }
+            }),
+            new Promise((resolve) => setTimeout(() => resolve({
+                ok: false,
+                error: `No response after ${Math.round(READER_QUICK_TIMEOUT_MS / 1000)}s — the run was likely lost to a service-worker restart. Try again (thorough mode is restart-proof).`
+            }), READER_QUICK_TIMEOUT_MS))
+        ]);
+    } catch (err) {
+        resp = { ok: false, error: (err && err.message) || String(err) };
+    } finally {
+        keepalive.stop();
+    }
+    if (!resp || !resp.ok) {
+        toast('Audit failed: ' + ((resp && resp.error) || 'unknown error'), 'error', 7000);
+        return;
+    }
+    await ingestAuditResult(resp.audit, localHash, 'quick', resp.model);
+}
+
+/**
+ * Thorough: one SW message per module with bounded concurrency; every
+ * completed module is draft-persisted before the next dispatch, so a
+ * dead reader/SW/browser costs nothing already paid for. A draft for
+ * the SAME text offers resume (only missing modules re-run).
+ */
+async function runThoroughAudit({ markdown, localHash, active }) {
+    let existing = {};
+    let draftModel = null;
+    const draft = await loadAuditDraft(localHash);
+    if (draft && Object.keys(draft.modules || {}).length > 0) {
+        const done = Object.keys(draft.modules).length;
+        if (confirm(`A previous thorough audit saved ${done}/${MODULE_NAMES.length} completed module(s) for this exact text. Resume, re-running only the missing ones? (Cancel discards the draft and starts fresh.)`)) {
+            existing = draft.modules;
+            draftModel = draft.model || null;
+        } else {
+            await clearAuditDraft(localHash);
+        }
+    }
+
+    const missing = MODULE_NAMES.filter((n) => !existing[n]);
+    const meta = auditRequestMeta();
+    const doneBase = Object.keys(existing).length;
+    const paint = (okCount) => {
+        active.textContent = `⏳ Auditing ${doneBase + okCount}/${MODULE_NAMES.length}…`;
+    };
+    paint(0);
+
+    const { modules, failures, model } = await orchestrateModuleRuns({
+        moduleNames: missing,
+        send: async (name) => {
+            const res = await browserApi.runtime.sendMessage({
+                type: 'xray:audit:module',
+                request: { module: name, markdown, articleUrl: meta.articleUrl, articleTitle: meta.articleTitle }
+            });
+            if (res && res.ok && res.findings) {
+                await appendAuditDraft(localHash, name, res.findings, res.model);
+            }
+            return res;
+        },
+        onProgress: (p) => paint(p.okCount)
+    });
+
+    const merged = { ...existing, ...modules };
+    const okCount = Object.keys(merged).length;
+    if (okCount === 0) {
+        toast('Every module call failed — check your connection and key, then try again. Nothing was imported.', 'error', 8000);
+        return;
+    }
+    if (failures.length > 0) {
+        toast(`${failures.length} module${failures.length === 1 ? '' : 's'} failed (${failures.map((f) => f.module).join(', ')}) — importing the rest; re-run thorough later to fill the gaps (completed modules are saved).`,
+            'warning', 8000);
+    }
+
+    let audit;
+    try {
+        audit = await assembleAudit({
+            toolInput: { modules: merged },
+            model: model || draftModel || 'unknown',
+            markdown,
+            metadata: meta.metadata,
+            standingCaveat: null
+        });
+    } catch (err) {
+        console.error('[xray] thorough assembly failed', err);
+        toast('Could not assemble the audit from the module results — the completed modules remain saved; try again.', 'error', 7000);
+        return;
+    }
+
+    const imported = await ingestAuditResult(audit, localHash, 'thorough', model || draftModel);
+    // Clear the draft ONLY on full success with nothing missing — a
+    // partial import keeps it so a later re-run tops the modules up.
+    if (imported && failures.length === 0) await clearAuditDraft(localHash);
+}
+
+/**
+ * Entry point for both audit buttons. Computes the ONE auditable body +
+ * hash, discloses truncation before any spend, then dispatches to the
+ * quick or thorough runner.
  *
- * @param {'single'|'per_module'} mode  single-shot (quick) or per-module
- *   (thorough, ~8 independent calls).
+ * @param {'single'|'per_module'} mode
  */
 async function runAuditFromReader(mode = 'single') {
     const quick = $('#xr-audit-run');
@@ -1556,75 +1810,48 @@ async function runAuditFromReader(mode = 'single') {
     const active = mode === 'per_module' ? thorough : quick;
     if (!active || active.disabled || !state.article) return;
 
+    // The SAME body shape the panel keys on (hashableArticle: PDFs hash
+    // their reconstruction), sliced to the auditable bound BEFORE
+    // hashing — the gate covers exactly the text that gets scored.
+    const fullBody = EventBuilder.assembleArticleBody(hashableArticle(state.article));
+    if (!fullBody || !fullBody.trim()) { toast('Nothing to audit yet.', 'error'); return; }
+    const slice = auditableSlice(fullBody);
+    if (slice.truncated) {
+        const pct = Math.round((MAX_AUDIT_INPUT_CHARS / slice.totalChars) * 100);
+        if (!confirm(`This capture is ${slice.totalChars.toLocaleString()} characters; the auditable limit is ${MAX_AUDIT_INPUT_CHARS.toLocaleString()}. The audit will cover the first ~${pct}% and be keyed to that truncated text. Continue?`)) {
+            return;
+        }
+    }
+    const markdown = slice.text;
+
     // Thorough mode spends ~8× — confirm before committing the user's key.
     if (mode === 'per_module'
-        && !confirm('Thorough audit runs one LLM call per dimension (about 8 API calls — higher cost) for more rigor. Continue?')) {
+        && !confirm('Thorough audit runs one LLM call per dimension (about 8 API calls — higher cost) for more rigor. Progress is saved per module and resumable. Continue?')) {
         return;
     }
 
-    const markdown = EventBuilder.assembleArticleBody(state.article);
-    if (!markdown || !markdown.trim()) { toast('Nothing to audit yet.', 'error'); return; }
-
-    // Hash the exact text we send; the SW hashes the same string, so both
-    // halves of the RQ1 gate (claimed-vs-body, capture-vs-audit) agree.
     let localHash;
     try { localHash = await canonicalArticleHash(markdown); }
-    catch (_) { localHash = state.articleHash; }
+    catch (_) { localHash = null; }
     if (!localHash) {
         toast('This view has no capture hash to verify against — open the capture this audit belongs to.', 'error', 7000);
         return;
     }
 
-    // Disable BOTH controls during a run (no concurrent passes); label the
-    // active one.
+    // Disable BOTH controls during a run (no concurrent passes); label
+    // the active one; ALWAYS restore (the raced timeout guarantees the
+    // quick path returns; the orchestrator guarantees the thorough one).
     const labels = new Map();
     for (const b of [quick, thorough]) { if (b) { labels.set(b, b.textContent); b.disabled = true; } }
     active.textContent = mode === 'per_module' ? '⏳ Auditing (thorough)…' : '⏳ Auditing…';
-
-    let resp;
     try {
-        resp = await browserApi.runtime.sendMessage({
-            type: 'xray:audit:run',
-            request: {
-                mode,
-                markdown,
-                articleUrl: state.article.url || '',
-                articleTitle: state.article.title || '',
-                metadata: {
-                    url: state.article.url || null,
-                    headline: state.article.title || null,
-                    byline: state.article.author || state.article.byline || null,
-                    publication_date: state.article.date || state.article.publishedTime || null
-                }
-            }
-        });
-    } catch (err) {
-        resp = { ok: false, error: (err && err.message) || String(err) };
-    }
-
-    for (const b of [quick, thorough]) { if (b) { b.textContent = labels.get(b); b.disabled = false; } }
-
-    if (!resp || !resp.ok) {
-        toast('Audit failed: ' + ((resp && resp.error) || 'unknown error'), 'error', 7000);
-        return;
-    }
-
-    try {
-        const summary = await importAuditJson(resp.audit, { localArticleHash: localHash });
-        const bits = [`${summary.modulesValid} module${summary.modulesValid === 1 ? '' : 's'} valid`];
-        if (summary.modulesFailed) bits.push(`${summary.modulesFailed} failed validation`);
-        if (summary.predictionsImported) bits.push(`${summary.predictionsImported} prediction${summary.predictionsImported === 1 ? '' : 's'}`);
-        if (summary.predictionsSkipped) bits.push(`${summary.predictionsSkipped} skipped`);
-        const how = mode === 'per_module' ? 'thorough' : 'quick';
-        toast(`Audit complete (${how}, ${resp.model}) — ${bits.join(', ')}`,
-            summary.modulesFailed ? 'warning' : 'success', 6000);
-        await refreshAuditStatus();
-    } catch (err) {
-        // importAuditJson is the firewall — surface its reason verbatim.
-        // Log the full error (stack + the assembled audit) for diagnosis;
-        // the toast is the human-readable one-liner.
-        console.error('[xray] audit import failed', err, resp && resp.audit);
-        toast('Audit import failed: ' + ((err && err.message) || 'unknown error'), 'error', 7000);
+        if (mode === 'per_module') {
+            await runThoroughAudit({ markdown, localHash, active });
+        } else {
+            await runQuickAudit({ markdown, localHash });
+        }
+    } finally {
+        for (const b of [quick, thorough]) { if (b) { b.textContent = labels.get(b); b.disabled = false; } }
     }
 }
 

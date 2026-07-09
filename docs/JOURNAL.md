@@ -19,6 +19,56 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-09 — Thorough audits ran to completion, then vanished: MV3 killed the messenger
+
+Tags: `bug`, `design`.
+
+Field report from the COVID capture run: a thorough epistemic audit
+"pulls the results from the LLM" but never displays them — sometimes
+quick mode too. Root cause: both modes rode ONE
+`chrome.runtime.sendMessage('xray:audit:run')` whose response arrived
+60–120+ s later. MV3 service-worker eviction kills a long-lived
+response channel; the reader's `await` rejects (or hangs), and since
+persistence ran reader-side AFTER the response, the paid-for results
+were simply gone. Duration explains the fingerprint: thorough (8
+sequential-ish Opus calls) essentially always crossed the eviction
+window, quick only sometimes. Two independent aggravators: PDF runs
+persisted under the raw turndown-round-trip hash while the panel
+queried the `hashableArticle`-adjusted hash (success toast, empty
+panel), and >120k-char articles failed `importAuditJson`'s hash gate
+after the spend because the SW sliced AFTER the reader hashed.
+
+The fix is the lens topology applied to audits, plus durability:
+
+- **One message per module** (`xray:audit:module`,
+  `runAuditModulePass`) — each response resets the MV3 idle timer; a
+  lost channel now costs one retryable module, never the run. The
+  reader schedules them via the pure `audit/run-orchestrator.js`
+  (concurrency 3 — eight parallel calls rate-limited each other into
+  429 storms — one auto-retry on 429/5xx/timeout).
+- **Draft durability**: every completed module lands in
+  `chrome.storage.local` (`xray:audit:draft:<hash>`) before the next
+  dispatch; reopening offers resume, re-running only missing modules.
+  Assembly (`assembleAudit`, extracted to the lean
+  `audit/assemble.js` so the reader bundle still excludes the 38KB
+  module prompts) and persistence go through the SAME
+  `importAuditJson` firewall as file imports, with `source:
+  'background'` (was mislabeled `cli-import`).
+- **One hash everywhere**: the reader computes the body from
+  `hashableArticle` (PDFs hash the reconstruction), pre-slices to
+  `MAX_AUDIT_INPUT_CHARS` (120k) and hashes the SLICE — so the local
+  hash, the scored text, the ledger key, and the panel query key are
+  one value. Truncation is disclosed pre-spend and the panel labels
+  truncated-key runs with their coverage. Legacy PDF orphans (runs
+  keyed under the old round-trip hash) get an advisory, never score
+  display — different bytes.
+- **Quick hardened**: SW-side 300s abort + reader-side 330s race (the
+  button can never stick), with a 20s zero-cost keepalive ping while
+  in flight.
+
+No wire change — internal messages and local persistence only; the
+30056–30061 publish path and CLI import are untouched.
+
 ## 2026-07-09 — Wire doc reconciled to v0.7.0 reality; kind 32125 documented
 
 Tags: `design`.

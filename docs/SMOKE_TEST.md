@@ -529,7 +529,9 @@ everything before 13.13 below must work with the flag off.
 | 13.7c | Click **Quick audit** on a fresh capture | ✅ button shows "⏳ Auditing…", then a summary toast (modules valid/failed, predictions); the audit panel fills exactly as an imported run does |
 | 13.7d | Expand the module rows | ✅ each carries the standing **"single-shot orchestration — lower rigor"** caveat; auditor reads `model · anthropic/<model>`; the aggregate's ceiling-source is `heuristic:source-quality/1.0` |
 | 13.7e | Edit one character of the body → **Quick audit** again | ✅ binds to the edited text's hash (no capture-mismatch error); the prior run stays side-by-side, **never averaged** |
-| 13.7f | Click **Thorough audit** → confirm the cost prompt | ✅ both audit buttons disable during the run; on completion the toast says "thorough"; module rows do **not** carry the single-shot caveat (per-dimension methodology); a module whose call fails shows as **failed**, the rest still produce an aggregate |
+| 13.7f | Click **Thorough audit** → confirm the cost prompt | ✅ both audit buttons disable during the run; the active button counts up "⏳ Auditing N/8…" as modules land; on completion the toast says "thorough"; module rows do **not** carry the single-shot caveat (per-dimension methodology); a module whose call fails shows as **failed**, the rest still produce an aggregate |
+| 13.7g | Start **Thorough audit**, then kill the run mid-flight (close the reader tab at ~4/8, or evict the SW via `chrome://serviceworker-internals`) → reopen the reader on the same capture | ✅ the audit panel shows the draft note ("a thorough audit draft holds N/8 completed modules"); clicking **Thorough audit** offers **Resume** and re-runs only the missing modules — completed modules are never re-billed |
+| 13.7h | **Quick audit** on a long article (a slow ~1–2 min call) with the reader left idle | ✅ the run completes and renders (the 20s keepalive ping holds the SW); if no response ever arrives, the button restores by itself at ~5.5 min with a service-worker-restart error toast — it can never stick on "⏳ Auditing…" |
 
 **Display rules (PHILOSOPHY — check, don't skip)**
 

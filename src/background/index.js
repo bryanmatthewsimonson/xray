@@ -26,7 +26,7 @@ import { NostrClient } from '../shared/nostr-client.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
-import { runSuggestionPass, runAuditPass, getLlmConfig, runLensPass, getLensConfig } from '../shared/llm-client.js';
+import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig } from '../shared/llm-client.js';
 import { pdfDocumentUrl } from '../shared/pdf-detect.js';
 import { Signer } from '../shared/signer.js';
 
@@ -459,6 +459,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         runAuditPass(message.request || {}).then(
             (result) => sendResponse(result),
             (err) => sendResponse({ ok: false, error: (err && err.message) || 'Audit pass failed' })
+        );
+        return true; // async sendResponse
+    }
+
+    // Reader page → worker: ONE thorough-audit module call. The reader
+    // orchestrates eight of these with bounded concurrency
+    // (run-orchestrator.js) instead of one long-lived response channel —
+    // each message resets the MV3 idle timer and a lost channel costs
+    // one retryable module, never the whole paid run (the lens
+    // topology, applied to audits).
+    if (message.type === 'xray:audit:module') {
+        runAuditModulePass(message.request || {}).then(
+            (result) => sendResponse(result),
+            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Audit module call failed' })
         );
         return true; // async sendResponse
     }

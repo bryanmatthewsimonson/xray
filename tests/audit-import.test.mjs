@@ -407,3 +407,20 @@ test('corrected re-import (same run identity) updates the ledger and clears chan
     assert.equal(third.alreadyImported, true);
     assert.equal(third.ledgerUpdated, false);
 });
+
+test('run provenance: opts.source is recorded; in-extension runs say background', async () => {
+    const summary = await importAuditJson(scorerExport(), { localArticleHash: HASH, source: 'background' });
+    assert.equal(summary.modulesValid, 2);
+    const runs = await AuditRunModel.getByArticleHash(HASH);
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0].source, 'background',
+        'an in-reader run must not masquerade as a CLI import');
+});
+
+test('run provenance: an unknown source is rejected by the model, not silently stored', async () => {
+    await assert.rejects(
+        () => importAuditJson(scorerExport(), { localArticleHash: HASH, source: 'carrier-pigeon' }),
+        /source must be one of/
+    );
+    assert.equal((await AuditRunModel.getByArticleHash(HASH)).length, 0, 'nothing persisted');
+});

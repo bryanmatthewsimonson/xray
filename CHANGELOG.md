@@ -88,6 +88,26 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Fixed
 
+- **Thorough (and sometimes quick) audit results no longer vanish after
+  the LLM run.** Both in-reader audit modes rode one long-lived
+  `xray:audit:run` message whose response arrived minutes later — MV3
+  service-worker eviction killed the response channel and the paid-for
+  results were never persisted or displayed. Thorough mode now runs
+  **one message per module** (`xray:audit:module`, orchestrated
+  reader-side at concurrency 3 with one auto-retry on 429/5xx/timeout
+  and a live "N/8" progress counter); every completed module is
+  draft-persisted immediately, and an interrupted run offers **resume**
+  that re-runs only the missing modules. Quick mode gains a keepalive
+  ping plus paired timeouts (SW 300s / reader 330s) so the button can
+  never stick on "Auditing…". Also unified the audit hash key: PDFs now
+  key runs to the reconstruction the panel queries (runs used to
+  persist under a different hash — success toast, empty panel), and
+  over-limit articles are sliced to the 120k auditable bound BEFORE
+  hashing, with the truncation disclosed pre-spend and labeled in the
+  panel. In-reader runs record provenance `background` (previously
+  mislabeled `cli-import`). No wire change — internal messages and
+  local persistence only.
+
 - **PDF tables reconstruct row-by-row instead of scrambling.** An
   aligned grid (a Bayesian evidence table, a results table) was read
   column-by-column — every row label collapsed into one paragraph and

@@ -78,7 +78,7 @@ function normalizeAuditor(raw, fallbackId) {
  *   modulesValid, modulesFailed, failedModules, predictionsImported,
  *   alreadyImported}
  */
-export async function importAuditJson(json, { localArticleHash = null } = {}) {
+export async function importAuditJson(json, { localArticleHash = null, source = 'cli-import' } = {}) {
     if (!json || typeof json !== 'object' || Array.isArray(json)) {
         throw fail('expected the scorer JSON object (article / module_results / aggregate)');
     }
@@ -282,11 +282,14 @@ export async function importAuditJson(json, { localArticleHash = null } = {}) {
             top_strengths: Array.isArray(aggregate.top_strengths) ? aggregate.top_strengths : [],
             top_concerns: Array.isArray(aggregate.top_concerns) ? aggregate.top_concerns : []
     };
+    // Provenance: the caller names how the run arrived (the reader's
+    // in-extension LLM path passes 'background'; the file importer keeps
+    // the default). AuditRunModel.create validates against RUN_SOURCES.
     const run = await AuditRunModel.create({
         articleHash: recomputed,
         auditor,
         runAt: aggregate.run_at,
-        source: 'cli-import',
+        source,
         moduleResults: storedResults,
         aggregate: storedAggregate
     });
