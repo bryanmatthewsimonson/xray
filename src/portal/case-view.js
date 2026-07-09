@@ -12,6 +12,9 @@ import { kindLabel, TYPE_DEFS } from './library.js';
 import { buildBuckets } from './timeline.js';
 import { renderDossierBlock } from './dossier-block.js';
 import { renderFindingsBlock } from './findings-block.js';
+import { renderShapeBlock } from './shape-block.js';
+import { renderEvidenceBlock } from './evidence-block.js';
+import { renderCaseTimeline } from './case-timeline.js';
 
 function latestAssessmentByCoord(items) {
     const map = new Map();
@@ -93,7 +96,16 @@ export function renderCaseView(host, params) {
     // --- Forensic findings (14.4) — the four lenses, beside the dossier.
     renderFindingsBlock(host, findings, { subjectName: caseName || 'this case' });
 
-    // --- publish-density strip ---
+    // --- Case dossier (CD.2) — the shape-of-knowledge header and the
+    // convergence-collapsed evidence table, assembled from the LOCAL
+    // spine (the case's own claims/propositions/verdicts/audits) keyed
+    // by the local entity id. Both self-remove when there's nothing.
+    if (caseEnt && caseEnt.entityId) {
+        renderShapeBlock(host, caseEnt.entityId);
+        renderEvidenceBlock(host, caseEnt.entityId);
+    }
+
+    // --- publish-density strip (network publish activity over wire) ---
     const { buckets } = buildBuckets(everything);
     if (buckets.length > 1) {
         const maxCount = Math.max(...buckets.map((b) => b.count), 1);
@@ -114,6 +126,14 @@ export function renderCaseView(host, params) {
             strip.appendChild(bar);
         });
         host.appendChild(strip);
+    }
+
+    // --- Four-axis case timeline (CD.3) — the LOCAL structured
+    // analysis over world / publication / capture / judgment time, with
+    // precision bands and gap callouts. Distinct from the wire density
+    // strip above (network activity); self-removes when empty.
+    if (caseEnt && caseEnt.entityId) {
+        renderCaseTimeline(host, caseEnt.entityId);
     }
 
     // --- members: people/orgs tagged alongside the case ---

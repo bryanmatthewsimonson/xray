@@ -397,6 +397,69 @@ test('case-dossier: timeline events are axis-tagged and precision-banded', async
     assert.equal(propEvent === undefined, false);
 });
 
+test('case-dossier: timeline gaps — the three cross-axis anomalies', async () => {
+    resetState();
+    const kase = await EntityModel.create({ name: 'Gap case', type: 'case' });
+    const ts = (iso) => Math.floor(Date.parse(iso) / 1000);
+
+    // Article X: published 2019-01, captured 2021-06 (late preservation),
+    // and its proposition occurred 2020-06 — i.e. the source discussed
+    // the event ~17 months BEFORE it happened.
+    const cx = await ClaimModel.create({
+        text: 'early source', source_url: 'https://ex.com/x',
+        article_hash: 'd'.repeat(64), about: [kase.id]
+    });
+    const propX = await TruthAdjudicationModel.create({
+        claim_id: cx.id, proposition_class: 'event-fact',
+        resolution_criteria: { criteria: 'r' }, subject_role: 'enacted',
+        occurred_at: ts('2020-06-01T00:00:00Z'), occurred_precision: 'day'
+    });
+    // Article Y: proposition occurred 2019-03, ruled unresolved then
+    // superseded — the story changed after the event.
+    const cy = await ClaimModel.create({
+        text: 'ruling target', source_url: 'https://ex.com/y',
+        article_hash: 'e'.repeat(64), about: [kase.id]
+    });
+    const propY = await TruthAdjudicationModel.create({
+        claim_id: cy.id, proposition_class: 'event-fact',
+        resolution_criteria: { criteria: 'r' }, subject_role: 'enacted',
+        occurred_at: ts('2019-03-01T00:00:00Z'), occurred_precision: 'day'
+    });
+    const vy1 = await VerdictModel.create({ proposition_id: propY.id, verdict: 'unresolved', caveats: ['w'] });
+    await VerdictModel.create({
+        proposition_id: propY.id, supersedes: vy1.id, verdict: 'established-true',
+        evidence_for: ev('later evidence'), caveats: ['s']
+    });
+
+    const articles = [
+        { url: 'https://ex.com/x', cachedAt: ts('2021-06-01T00:00:00Z'), source: 'capture',
+          article: { title: 'X', date: '2019-01-01', entities: [] } },
+        { url: 'https://ex.com/y', cachedAt: ts('2019-04-01T00:00:00Z'), source: 'capture',
+          article: { title: 'Y', date: '2019-03-15', entities: [] } }
+    ];
+    const dossier = await assembleCaseDossier(kase.id, { generatedAt: GENERATED, articles, auditRuns: [], predictions: [], resolutions: [] });
+    const gaps = dossier.timeline.gaps;
+    const kinds = gaps.map((g) => g.kind);
+    assert.ok(kinds.includes('published-before-occurred'));
+    assert.ok(kinds.includes('capture-long-after-publication'));
+    assert.ok(kinds.includes('story-changed-after-event'));
+
+    const pbo = gaps.find((g) => g.kind === 'published-before-occurred');
+    assert.equal(pbo.proposition_id, propX.id);
+    assert.equal(pbo.article_url, 'https://ex.com/x');
+    assert.ok(pbo.lead_seconds > 0);
+    const late = gaps.find((g) => g.kind === 'capture-long-after-publication');
+    assert.ok(late.lag_seconds > 365 * 86400);
+    const changed = gaps.find((g) => g.kind === 'story-changed-after-event');
+    assert.equal(changed.proposition_id, propY.id);
+    assert.equal(changed.chain_length, 2);
+
+    // Coverage counts the gaps; Y's publication is AFTER its occurrence
+    // so it is not a false published-before-occurred.
+    assert.equal(dossier.timeline.coverage.gaps, gaps.length);
+    assert.equal(gaps.filter((g) => g.kind === 'published-before-occurred' && g.proposition_id === propY.id).length, 0);
+});
+
 test('case-dossier: coverage counts on every section', async () => {
     resetState();
     const { dossier } = await assembleFixture();

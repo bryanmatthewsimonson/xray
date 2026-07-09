@@ -519,8 +519,103 @@ export function buildKnots(data) {
 }
 
 // ------------------------------------------------------------------
-// §3.3 Timeline events (axis-tagged; bucketing/overlays/gaps are CD.3)
+// §3.3 Timeline events (axis-tagged) + gap callouts (CD.3)
 // ------------------------------------------------------------------
+
+const GAP_DAY = 86400;
+// Precision uncertainty windows, generous so a gap is flagged only when
+// it clears the coarser side's band — under-flagging beats a false
+// "fabrication" callout (P4: never manufacture precision).
+const PRECISION_WINDOW = { exact: 0, day: GAP_DAY, month: 31 * GAP_DAY, year: 366 * GAP_DAY };
+const precisionWindow = (p) => PRECISION_WINDOW[p] ?? 0;
+// "Long after" threshold for late-preservation. A named constant, not a
+// clock read; tunable once the corpus says what "long" is (§3.3).
+const CAPTURE_LAG_SECONDS = 365 * GAP_DAY;
+
+/**
+ * The three §3.3 gap callouts — the value-add no flat link folder has.
+ * Pure over the collector `data` (pairing needs claim→article→
+ * proposition structure the flat events array has already flattened
+ * away). Precision-aware: a comparison must clear the coarser band's
+ * window before it counts, so a year-precision date never fabricates a
+ * day-level anomaly. Returns a deterministically-sorted array.
+ */
+export function buildTimelineGaps(data) {
+    const gaps = [];
+    const { rows } = deriveArticleRows(data);
+
+    // Propositions indexed by their underlying claim id (orbit only).
+    const propsByClaim = new Map();
+    for (const p of data.propositions.orbit) {
+        (propsByClaim.get(p.claim_id) || propsByClaim.set(p.claim_id, []).get(p.claim_id)).push(p);
+    }
+
+    for (const row of rows) {
+        const pub = row.published;   // { at, precision } | null
+        // published-before-occurred: the source discussed an event
+        // before it happened (prediction — or fabrication).
+        if (pub) {
+            for (const c of row.claims) {
+                for (const p of propsByClaim.get(c.id) || []) {
+                    if (p.occurred_at === null || p.occurred_at === undefined) continue;
+                    const slack = Math.max(precisionWindow(pub.precision), precisionWindow(p.occurred_precision));
+                    if (p.occurred_at - pub.at > slack) {
+                        gaps.push({
+                            kind:               'published-before-occurred',
+                            article_url:        row.url,
+                            claim_id:           c.id,
+                            proposition_id:     p.id,
+                            published_at:       pub.at,
+                            occurred_at:        p.occurred_at,
+                            occurred_precision: p.occurred_precision || 'exact',
+                            lead_seconds:       p.occurred_at - pub.at
+                        });
+                    }
+                }
+            }
+            // capture-long-after-publication: late preservation, a
+            // weaker archival claim.
+            if (row.captured_at && row.captured_at - pub.at > CAPTURE_LAG_SECONDS) {
+                gaps.push({
+                    kind:         'capture-long-after-publication',
+                    article_url:  row.url,
+                    published_at: pub.at,
+                    captured_at:  row.captured_at,
+                    lag_seconds:  row.captured_at - pub.at
+                });
+            }
+        }
+    }
+
+    // story-changed-after-event: a ruling superseded after the world
+    // event it concerns — the narrative moved once the facts were in.
+    for (const p of data.propositions.orbit) {
+        if (p.occurred_at === null || p.occurred_at === undefined) continue;
+        const chain = data.verdicts.byProposition[p.id] || [];
+        if (chain.length < 2) continue;
+        const head = chain.find((v) => !v.superseded_by);
+        if (!head || !head.created) continue;
+        const slack = precisionWindow(p.occurred_precision);
+        if (head.created - p.occurred_at > slack) {
+            gaps.push({
+                kind:               'story-changed-after-event',
+                proposition_id:     p.id,
+                occurred_at:        p.occurred_at,
+                occurred_precision: p.occurred_precision || 'exact',
+                verdict_id:         head.id,
+                verdict_created:    head.created,
+                chain_length:       chain.length,
+                lag_seconds:        head.created - p.occurred_at
+            });
+        }
+    }
+
+    const cmp = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+    const refOf = (g) => g.proposition_id || g.article_url || '';
+    gaps.sort((a, b) => cmp(a.kind, b.kind) || cmp(refOf(a), refOf(b))
+        || cmp(a.claim_id || '', b.claim_id || ''));
+    return gaps;
+}
 
 export function buildTimelineEvents(data) {
     const events = [];
@@ -595,10 +690,13 @@ export function buildTimelineEvents(data) {
     const byAxis = {};
     for (const e of events) byAxis[e.axis] = (byAxis[e.axis] || 0) + 1;
 
+    const gaps = buildTimelineGaps(data);
+
     return {
         events,
         undated,   // never silently dropped (P6), never faked (P4)
-        coverage: { dated: events.length, undated: undated.length, by_axis: byAxis }
+        gaps,      // the §3.3 cross-axis anomalies (CD.3 renders them)
+        coverage: { dated: events.length, undated: undated.length, gaps: gaps.length, by_axis: byAxis }
     };
 }
 

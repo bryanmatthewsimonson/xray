@@ -19,6 +19,53 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-08 — Case dossier CD.2/CD.3: thin render over a pure spine
+
+Tags: `design`.
+
+CD.2 (shape-of-knowledge header + convergence-collapsed evidence
+table) and CD.3 (four-axis timeline + gap callouts) render the CD.1
+dossier into the portal case view. Decisions worth second-guessing:
+
+- **All logic stays pure; the portal only paints.** The portal render
+  layer has no unit tests (no jsdom — confirmed across every
+  `tests/portal-*.test.mjs`), so anything that could be wrong lives in
+  `case-dossier.js`/`timeline.js` and is fixture-tested: the three gap
+  callouts (`buildTimelineGaps`) and the proportional precision-band
+  layout (`layoutWorldSpine`). The three new portal blocks
+  (`shape-block.js`, `evidence-block.js`, `case-timeline.js`) are
+  logic-free projections in the `integrity-block.js` shape
+  (sync-append an empty block → async-fill → self-remove on empty/
+  error), so nothing important is trapped in the untestable DOM path.
+  (Smoke-executed once against a hand-built DOM stub to catch runtime
+  errors the build can't.)
+- **Assemble from the LOCAL spine, keyed by the local entity id.** The
+  case view is pubkey-keyed but already local-registry-gated
+  (`case-view.js` early-returns when the case isn't a local entity), so
+  the blocks only ever run with a real local id — exactly what
+  `assembleCaseDossier` reads. **Wire is left empty for v1**: the
+  portal's parsed relay items don't carry the local `proposition_id`s
+  the dossier's wire path needs, so cross-author side-by-side variance
+  in these surfaces is a later slice (matches every other portal
+  surface's v1 posture).
+- **Gap thresholds are precision-aware and named, not magic.** A gap is
+  flagged only when it clears the coarser side's precision window
+  (`PRECISION_WINDOW`), so a year-precision date never fabricates a
+  day-level "published before it happened" anomaly (P4); "long after"
+  is a single `CAPTURE_LAG_SECONDS` constant, tunable once the corpus
+  says what long is — never a clock read.
+- **Keep BOTH timelines.** The four-axis timeline is added *alongside*
+  the existing wire publish-density strip, not replacing it: the strip
+  is network publish activity over all authors' wire items; the new
+  timeline is the local structured analysis over world/publication/
+  capture/judgment time. Different populations, both honest.
+- **The audit band never forks.** The evidence table's per-article
+  audit chip runs the raw aggregate CD.1 ships through the shared
+  `auditCardChipData` (no naked numbers, sub-0.6 → "review") — the same
+  rule the reader and inspector use, so the classification can't drift.
+- No case-level score is introduced anywhere (P2). Suite 1342 green,
+  build + web-ext lint clean.
+
 ## 2026-07-08 — Case dossier CD.1: the orbit assembler is pure and injectable
 
 Tags: `design`.

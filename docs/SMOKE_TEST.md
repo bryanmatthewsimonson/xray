@@ -1087,6 +1087,25 @@ profiles) to simulate two users.
 
 ---
 
+## Case dossier (CD.1–CD.3)
+
+Needs a local **case** entity with claims, at least one proposition +
+verdict, an audit run, and an archived source or two — then open it in
+the portal ("My Archive" → a case row → **☰ Dashboard**). CD.1 is
+pure and covered by `tests/case-dossier.test.mjs`; these rows verify
+the CD.2/CD.3 render surfaces match the pure numbers. (Full §Case
+dossier detail is CD.5's deliverable.)
+
+| # | Test | Pass criteria |
+|---|---|---|
+| CD.2a | Open a case dashboard with adjudicated propositions | ✅ **Shape of knowledge** block shows a verdict-state *distribution* (one chip per state + "unadjudicated"), a coverage line (claims / with-propositions / propositions as counts), standards-of-proof chips, and an open/resolved prediction tally — **no single fused score anywhere** |
+| CD.2b | Same case, **Evidence** block | ✅ one row per source with capture chips (archived / screenshot / relayed), verbatim claim quotes, an origin count, and — where an audit ran — the shared audit band chip (or "audit: review" under 0.6 confidence, never a naked number); a convergence line; an "Unprocessed sources" list for tagged-but-unprocessed sources |
+| CD.3a | Same case, **Four-axis timeline** | ✅ an SVG with world / published / captured / judged lanes on one shared time scale; a year-precision world event renders as a *wide band*, an exact event as a thin mark; hovering shows date+precision+kind; an "N undated" note appears when some events lack a date (never placed on a fake date) |
+| CD.3b | A case with a source published before its event, a late capture, or a superseded ruling | ✅ **Gap callouts** list the anomaly with a danger (published-before-occurred) or warning (late-capture / story-changed) dot and a human-readable lag |
+| CD.3c | A bare case (no propositions/sources) | ✅ the shape, evidence, and timeline blocks each render nothing (self-remove) — the existing case view is unchanged |
+
+---
+
 ## Reporting
 
 For each defect found:
