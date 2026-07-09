@@ -676,6 +676,49 @@ Addressable. The adjudicated **word-deed match**: links a subject's **stated** c
 
 **Kind 30065 is RESERVED** for a future PrecedentCitation — a verdict/finding citing prior rulings of the same proposition or match class as `binding`/`persuasive` precedent (§stare-decisis, deferred). Until it ships, precedent MAY be expressed as an `a` tag on 30063/30064 with a slot-4 `precedent` marker and a slot-5 weight (`binding` | `persuasive`); consumers MUST treat it as informational only.
 
+## Kind 32125 — EntityArticleRelationship
+
+An addressable event asserting that a captured article stands in a named relationship to an entity — that the article is **`about`** the entity, or that the entity is the article's **`source`** (its asserter). Authored by the capturing user, it makes "which articles concern this entity, and who they attribute claims to" a one-hop relay query rather than a re-derivation from every claim. One event is emitted per `(entity, article, relationship)` triple at publish time, deduplicated by the `d` tag.
+
+The two `relationship` values are derived from the entity's role on the article's claims: **`about`** (the claim's `about` list includes the entity) and **`source`** (the claim's `source` is this entity). Republishing replaces in place per NIP-01.
+
+Tags:
+
+- `d` (required) — `<entity-id>:<article-url>:<relationship>`. The `entity-id` here is the **author's local** entity id (e.g. `entity_1234abcd5678ef90`), so it is reader-local and does **not** collide across users — exactly like the 32126 `linked-entity` id. The cross-user handles are the `p` pubkey and the `r` URL below.
+- `r` (required) — the normalized article URL (the same canonical form the article's kind-30023 uses).
+- `p`, slot-4 role = the `relationship` value (required) — the entity's **wire** pubkey. This is the queryable cross-user identifier for the entity; the `d`-tag id is not.
+- `entity-name`, `entity-type` (required) — mirrored for non-indexed reads / list titles.
+- `relationship` (required) — `about` | `source`, mirrored out of the `d` tag.
+- `claim-ref` (optional) — the local claim id that induced this relationship, when one did.
+- `client` (optional).
+- `content` is empty.
+
+Because the relationship is the author's *claim* about an article, two users MAY assert different relationships for the same URL and entity; consumers attribute each to its event's author and render disagreements side by side, never merged (the 32126 posture).
+
+```jsonc
+{
+  "kind": 32125,
+  "tags": [
+    ["d", "entity_1234abcd5678ef90:https://example.com/article:about"],
+    ["r", "https://example.com/article"],
+    ["p", "<entity's wire pubkey>", "", "about"],
+    ["entity-name", "Institute X"],
+    ["entity-type", "organization"],
+    ["relationship", "about"],
+    ["claim-ref", "claim_0011223344556677"],
+    ["client", "xray"]
+  ],
+  "content": ""
+}
+```
+
+Queries:
+
+```jsonc
+{ "kinds": [32125], "#r": ["<article-url>"], "limit": 100 }        // which entities an article is about / sourced from
+{ "kinds": [32125], "#p": ["<entity wire pubkey>"], "limit": 100 } // which articles concern an entity
+```
+
 ## Kind 32126 — PlatformAccount
 
 An addressable event that materializes a captured social-platform account as a NOSTR-queryable identity reference, authored by the capturing user.
@@ -805,5 +848,5 @@ This NIP does not specify a ranking algorithm. Recommended approaches:
 
 ## Reference implementations
 
-- [x-ray browser extension](https://github.com/bryanmatthewsimonson/xray) — shipping kinds 30040 + 30050 + the `responds-to` and `x` extensions; 30054/30055 builders with publishing flag-gated (Phase 11); 30056–30059 fully implemented — builders, parsers, a flag-gated ordered publish path, and portal read surfaces (Phase 13); 30060/30061 builders + parsers implemented, publish paths deferred (the dossier stays derived; disputes are wire-format-only in v1); 30062 behavioral-finding builder + parser + the kind-1985 mirror and the `revision/*` 30055 values, publishing flag-gated (Phase 14); 30063/30064 adjudicated-verdict + integrity-finding builders + parsers and the 30063 kind-1985 mirror, publish paths behind `truthAdjudicationPublishing` (Phase 15; 30065 reserved; local adjudication models shipped, publish/read UI wiring deferred); 32126 platform-account records with the derived-pubkey rendezvous and the `linked-entity` pubkey tag, publishing behind `platformAccountPublishing`, plus verify-on-ingest enforced on every relay read (Knowledge Sharing KS.1–KS.4).
-- *(second client, TBD pre-merge)*
+- [x-ray browser extension](https://github.com/bryanmatthewsimonson/xray) — shipping kinds 30040 + 30050 + the `responds-to` and `x` extensions; 30054/30055 builders with publishing flag-gated (Phase 11); 30056–30059 fully implemented — builders, parsers, a flag-gated ordered publish path, and portal read surfaces (Phase 13); 30060/30061 builders + parsers implemented, publish paths deferred (the dossier stays derived; disputes are wire-format-only in v1); 30062 behavioral-finding builder + parser + the kind-1985 mirror and the `revision/*` 30055 values, publishing flag-gated (Phase 14); 30063/30064 adjudicated-verdict + integrity-finding builders + parsers and the 30063 kind-1985 mirror, publish paths behind `truthAdjudicationPublishing` (Phase 15; 30065 reserved; the adjudicate/integrity reader modals, the flag-gated publish path, and portal verdict render all ship); 32125 entity↔article relationships (builder + parser + portal read); 32126 platform-account records with the derived-pubkey rendezvous and the `linked-entity` pubkey tag, publishing behind `platformAccountPublishing`, plus verify-on-ingest enforced on every relay read (Knowledge Sharing KS.1–KS.4). The case-dossier surfaces (`docs/CASE_DOSSIER_DESIGN.md`, CD.1–CD.3) are derived / computed-on-read over these kinds — no new kind of their own.
+- *(a second interoperating client is the natural next reference implementation.)*

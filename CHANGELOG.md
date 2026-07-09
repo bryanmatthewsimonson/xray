@@ -12,6 +12,35 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Case dossier — the assembled view of a case (CD.1–CD.3).** A case
+  entity's portal dashboard gains three derived, computed-on-read
+  surfaces over everything in the case's orbit. `assembleCaseDossier`
+  (`shared/case-dossier.js`) is the pure spine — same events in, same
+  dossier out — composing the shipped models into five sections: the
+  **shape-of-knowledge** header (the verdict-state *distribution* over
+  the case's propositions, coverage counts on its face, standards-of-
+  proof chips, and the open/resolved prediction tally — never a fused
+  case score); **knots** (contradiction clusters as connected
+  components, words-vs-deeds integrity findings, forensic maneuvers);
+  a **four-axis timeline** (a world-time spine with precision bands —
+  a year-precision event is a year-wide band, never a fake date — plus
+  publication / capture / judgment overlays on one shared scale, the
+  undated tail kept and counted, and gap callouts for
+  published-before-occurred / capture-long-after-publication /
+  story-changed-after-event); the **convergence-collapsed evidence**
+  table (twelve outlets on one wire count as one origin, per-source
+  capture-completeness and the shared audit band, verbatim quotes); and
+  **entities × roles** routing to the existing coverage-capped entity
+  record. Disagreement renders side by side, never merged. The portal
+  case view renders the shape / evidence / timeline sections (CD.2/CD.3)
+  beside the existing audit-dossier and forensic blocks and alongside —
+  not replacing — the wire publish-density strip. **Wire note (none,
+  deliberately):** the dossier is derived and computed-on-read — no new
+  event kind, nothing published, nothing persisted; anyone with the
+  same events derives the same dossier. (`docs/CASE_DOSSIER_DESIGN.md`;
+  `docs/NIP_DRAFT.md` now also documents the already-emitted kind
+  `32125` entity↔article relationship it reads.)
+
 - **Moral lens — per-jurisdiction lens-readings (Phase 16, 16.1–16.4).**
   The reader gains an opt-in **Lens readings** bar (new `moralLens` flag,
   default off, independent of LLM assist; the Anthropic key is a second

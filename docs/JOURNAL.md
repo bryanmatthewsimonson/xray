@@ -19,6 +19,32 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-09 — Wire doc reconciled to v0.7.0 reality; kind 32125 documented
+
+Tags: `design`.
+
+Pre-publish housekeeping ahead of the Epistack corpus publish (runbook
+§4 step-0): `docs/NIP_DRAFT.md` gained a **Kind 32125 —
+EntityArticleRelationship** section. 32125 has shipped since Phase 9
+(`EventBuilder.buildEntityRelationshipEvent`, parsed in the portal) but
+was never in the wire draft — so a judge fetching one under the
+submission npub would have found no semantics. The section is
+**additive documentation of an already-emitted kind — no wire behavior
+change**. Worth recording: the `d` tag embeds the author's *local*
+entity id (`entity_<hex>:<url>:<about|source>`), reader-local like the
+32126 `linked-entity` id; the cross-user handles are the `p` wire
+pubkey and the `r` URL, so a stranger's 32125 for "the same" entity
+never `d`-collides.
+
+Also corrected the stale reference-implementation paragraph: the
+Phase-15 clause claimed "publish/read UI wiring deferred" (false since
+#89 — the adjudicate/integrity modals, the flag-gated publish path, and
+portal verdict render all ship), and a `*(second client, TBD
+pre-merge)*` placeholder was resolved. CHANGELOG `[Unreleased]` gained
+the case-dossier (CD.1–CD.3) Added entry with its explicit
+no-new-kind wire note, since the v0.7.0 release notes pull from that
+block.
+
 ## 2026-07-08 — Case dossier CD.2/CD.3: thin render over a pure spine
 
 Tags: `design`.
