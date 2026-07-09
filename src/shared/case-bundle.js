@@ -27,8 +27,11 @@ export const CASE_BUNDLE_VERSION = 1;
  * a claim about the case is `about`, entity claim sources, and the
  * canonical targets of any of those (aliases must travel with their
  * canonical or the importer's alias graph dangles).
+ *
+ * Exported as THE definition of case-orbit membership — the dossier
+ * assembler (`case-dossier.js`, CD.1) walks the same orbit.
  */
-async function collectCaseEntityIds(caseEntityId) {
+export async function collectCaseEntityIds(caseEntityId) {
     const ids = new Set([caseEntityId]);
     const claims = Object.values(await ClaimModel.getAll())
         .filter((c) => (c.about || []).includes(caseEntityId));

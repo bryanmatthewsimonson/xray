@@ -19,6 +19,56 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-08 — Case dossier CD.1: the orbit assembler is pure and injectable
+
+Tags: `design`.
+
+CD.1 (`src/shared/case-dossier.js`, `docs/CASE_DOSSIER_DESIGN.md` §3)
+is the derived, computed-on-read data spine for the case dossier —
+the analytical view the Phase-12 flat case list never gave. Decisions
+worth second-guessing:
+
+- **Storage-aware collect / pure build split** (the `case-export.js`
+  pattern): `collectCaseDossierData` does every async read once (bulk
+  maps, one `makeClaimRefCanonicalizer()` snapshot — never the per-
+  record N×get of the private `truth-entity-record#propositionsForEntity`),
+  the section builders are pure. `generatedAt` is injected and there
+  is **no clock read in the module** (a machine-checked guard) — an
+  "overdue" prediction needs `Date.now()`, so that derivation is
+  deliberately the render layer's (CD.2/CD.3).
+- **Injectable inputs with live defaults** for everything that isn't
+  `chrome.storage.local`: the archive + audit IndexedDB reads and
+  `wire` (other authors' parsed relay items). Tests inject all of
+  them, so the suite needs no fake-indexeddb; the portal will inject
+  its already-loaded arrays; and `wire` is injection-ONLY — the module
+  never opens a relay, so output can't depend on when "Load from
+  relays" was clicked (the case-export determinism rule).
+- **Two membership rules, on purpose**: §3.1 propositions are
+  claim-mediated (claim `about` includes the case); §3.2 integrity
+  findings are entity-mediated (`entity_ids` ∩ orbit) — a finding
+  about an orbit person belongs even when its claims were captured
+  under other folders.
+- **The forensic bridge is asserted, not guessed**: forensic subjects
+  key on `subject_ref` (identity/pubkey/account/label), a different
+  keyspace from entity ids, so each orbit entity is matched by derived
+  candidate refs (pubkey, name-as-label) or a caller-supplied bridge,
+  and every match stamps `matched_via`; unbridgeable entities are
+  counted, never silently dropped.
+- **Attestations reach `attestationConvergence` in authoring order**
+  (`created`, then id), not id order — the convergence baseline is the
+  earliest-authored origin, and an id sort was choosing it arbitrarily
+  (caught by a test whose three same-second attestations flipped
+  `independent_count` between runs). Everything else (knot node lists)
+  stays id-sorted for determinism.
+- **No case-level score, ever** (P2): a recursive key-walk test asserts
+  no `score|mean|rating|strength|grade` key anywhere except the single
+  whitelisted raw per-article audit-aggregate subtree (never rolled
+  up). Disagreement is variance objects, never a merge (P5).
+- `collectCaseEntityIds` was exported from `case-bundle.js` (it is THE
+  orbit definition; re-implementing it would be the duplication this
+  module exists to avoid). CD.2/CD.3 (UI, timeline render, gap
+  callouts) consume this spine in later PRs.
+
 ## 2026-07-08 — Epistack submission plan re-based: relays are the artifact
 
 Tags: `design`.
