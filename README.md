@@ -161,6 +161,12 @@ Until you pick, capturing opens the **Settings → Signing** tab with a
 
 ## Usage
 
+> **New to X-Ray?** The [**user guide**](docs/USER_GUIDE.md) is a
+> complete, feature-by-feature walkthrough — setup, capturing, the
+> reader, and the full judgment vocabulary (what "state fact" vs "event
+> fact" means, the verdict states, the audit dimensions, the moral
+> lens) with concrete examples.
+
 - **Click the toolbar icon** to capture the active tab and open it in
   the **reader** — where you preview the article (Readable / Markdown),
   tag entities, mark claims, and publish. On `chrome://`, `file://`, or

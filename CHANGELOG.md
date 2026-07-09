@@ -12,6 +12,20 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **User guide.** `docs/USER_GUIDE.md` is a complete, feature-by-feature
+  walkthrough for people who use X-Ray rather than build it: setup
+  (signing, relays, the LLM key, the full feature-flag table),
+  capturing (triggers, provenance chips, archive/mirror URL identity,
+  citations), the reader (view modes, entity tagging, claims, the icon
+  legend), and — the heart of it — the judgment vocabulary with concrete
+  examples for every value: the assessment stances/labels, claim
+  relationships, attestation tiers and convergence, the six proposition
+  classes (with the state-fact vs event-fact distinction spelled out),
+  the five verdict states, standards of proof, integrity match states
+  and gap causes, the eight audit dimensions with bands and the
+  display rules, the forensic maneuver families, and the moral-lens
+  dispositions. Linked from the README.
+
 - **Outbound links are captured as citations.** Article extraction now
   records every hyperlink in the body as structured data
   (`article.links`: normalized URL, first anchor text, occurrence
