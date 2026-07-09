@@ -173,6 +173,14 @@ export const ContentExtractor = {
         article.url = ContentExtractor.getCanonicalUrl();
         article.domain = ContentExtractor.getDomain(article.url);
         article.extractedAt = Math.floor(Date.now() / 1000);
+
+        // Outbound links — captured from the SAME cleaned body the
+        // markdown derives from (tempDiv, post image fixes), so every
+        // `cites` tag names a link that survives into the capture.
+        const outbound = ContentExtractor.extractOutboundLinks(
+          tempDiv, window.location.href, article.domain);
+        article.links = outbound.links;
+        if (outbound.truncated) article.links_truncated = true;
         
         // Extract publication date
         const dateResult = ContentExtractor.extractPublishedDate();
@@ -347,6 +355,39 @@ export const ContentExtractor = {
     } catch (e) {
       return '';
     }
+  },
+
+  // Outbound links (citations — docs/NIP_DRAFT.md `cites`): every
+  // http(s) anchor in the extracted body, deduped through the unified
+  // normalizer so a link and its tracking-param variant count as ONE
+  // target. Pure over the passed root (no document/global reads) so
+  // tests drive it with stub elements. `internal` is hostname-sans-www
+  // equality with the article's own host — a documented approximation
+  // (blog.example.com → example.com reads as external). Capped in
+  // document order with an honest `truncated` marker; repeat links to
+  // an already-kept target still count toward that target's `count`.
+  extractOutboundLinks: (rootEl, baseUrl, ownHost, { cap = 100 } = {}) => {
+    const links = new Map();   // normalized url → {url, text, count, internal}
+    let truncated = false;
+    if (!rootEl || typeof rootEl.querySelectorAll !== 'function') {
+      return { links: [], truncated };
+    }
+    const own = String(ownHost || '').toLowerCase().replace(/^www\./, '');
+    for (const a of rootEl.querySelectorAll('a[href]')) {
+      const raw = (a.getAttribute ? a.getAttribute('href') : a.href) || '';
+      if (!raw || raw.startsWith('#')) continue;
+      let abs;
+      try { abs = new URL(raw, baseUrl || undefined); } catch (e) { continue; }
+      if (abs.protocol !== 'http:' && abs.protocol !== 'https:') continue;
+      const url = normalize(abs.href);
+      const existing = links.get(url);
+      if (existing) { existing.count += 1; continue; }
+      if (links.size >= cap) { truncated = true; continue; }
+      const host = abs.hostname.toLowerCase().replace(/^www\./, '');
+      const text = (a.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      links.set(url, { url, text, count: 1, internal: !!own && host === own });
+    }
+    return { links: [...links.values()], truncated };
   },
 
   // Normalize URL — delegates to the ONE NIP-73 normalizer so article

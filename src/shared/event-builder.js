@@ -204,6 +204,29 @@ export const EventBuilder = {
       tags.push(['r', article.capture_url]);
     }
 
+    // `cites` extension (docs/NIP_DRAFT.md): one tag per distinct
+    // EXTERNAL outbound link in the captured body, document order.
+    // Linkage only — endorsement/response is `responds-to`. The
+    // extraction cap means absence is NOT evidence of absence. Indexed
+    // `r` co-emits for the first 25 targets make the edge queryable
+    // from the cited side; they come after the primary r /
+    // responds-to / capture-url co-emits and are deduped against every
+    // r already on the event (the FIRST r stays the article URL).
+    if (Array.isArray(article.links)) {
+      const seenR = new Set(tags.filter((t) => t[0] === 'r').map((t) => t[1]));
+      let cited = 0;
+      for (const link of article.links) {
+        if (!link || !link.url || link.internal) continue;
+        const anchorText = String(link.text || '').slice(0, 120);
+        tags.push(anchorText ? ['cites', link.url, anchorText] : ['cites', link.url]);
+        if (cited < 25 && !seenR.has(link.url)) {
+          tags.push(['r', link.url]);
+          seenR.add(link.url);
+        }
+        cited += 1;
+      }
+    }
+
     // Add entity tags
     const taggedPubkeys = new Set();
     for (const entityRef of entities) {
@@ -845,6 +868,12 @@ export const EventBuilder = {
       // capture-url extension: the mirror address this capture was
       // fetched from (identity = the first `r`, always the original).
       capture_url: tags['capture-url'] || null,
+      // cites extension: only EXTERNAL links publish, so read-back
+      // marks them all external. Null (not []) when the event predates
+      // the extension — "not captured" is not "zero links".
+      links: (tagArrays['cites'] && tagArrays['cites'].length)
+        ? tagArrays['cites'].map(v => ({ url: v[0] || '', text: v[1] || '', count: 1, internal: false }))
+        : null,
       language: tags['lang'] || null,
       keywords: (tagArrays['t'] || []).map(v => v[0]),
       wordCount: parseInt(tags['word_count']) || 0,

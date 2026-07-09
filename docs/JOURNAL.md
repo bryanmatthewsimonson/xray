@@ -19,6 +19,38 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-09 — Outbound links become citations (`cites` tag, both sides)
+
+Tags: `design`.
+
+Until now an article's hyperlinks survived only inline in the captured
+markdown — invisible to queries, the dossier, and the cited article.
+`ContentExtractor.extractOutboundLinks` now captures them as
+structured data from the SAME cleaned body the markdown derives from:
+deduped through the unified normalizer (a link and its tracking-param
+variant are one target), first-anchor-text kept, occurrence-counted,
+internal (same-host, sans-www — a documented approximation) vs
+external classified, capped at 100 distinct targets in document order
+with an honest `article.links_truncated` marker.
+
+**Wire (additive, NIP_DRAFT):** kind-30023 gains one `cites` tag per
+distinct EXTERNAL link — `['cites', url, anchorText≤120?]` — plus
+indexed `r` co-emits for the first 25 targets (after every other
+co-emit, deduped, first-r invariant pinned by tests). Design choices
+worth second-guessing: `cites` asserts LINKAGE only — endorsement
+stays in `responds-to`, which the authoring UI can now offer
+one-click when a cited target is already in the corpus (deferred
+follow-up); under the cap, absence of a tag is NOT evidence the
+article doesn't link somewhere; read-back yields `links: null` (not
+`[]`) for pre-extension events — "not captured" must never render as
+"zero links" (the dossier's `citations.captured` bit carries the same
+distinction). The cited side is derived, never published:
+`deriveCitationEdges` (case-dossier.js) computes cites/cited-by maps
+inside a corpus, and the CD.2 evidence rows show "cites N external ·
+cited by M case articles". Deferred, named: PDFs and the platform
+synthesizers don't extract links yet; the portal has no citation
+facet.
+
 ## 2026-07-09 — One normalizer, and archive captures re-key to their originals
 
 Tags: `design`.

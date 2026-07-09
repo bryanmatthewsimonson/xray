@@ -65,6 +65,23 @@ export function renderEvidenceBlock(host, caseEntityId) {
             }
             li.appendChild(head);
 
+            // Citation edges (both sides): outbound external links as
+            // captured, and corpus articles that cite this one. Silent
+            // when the capture predates link extraction AND nothing
+            // cites it — absence of the line is not "zero links".
+            const cit = row.citations;
+            if (cit && (cit.captured || cit.cited_by.length > 0)) {
+                const bits = [];
+                if (cit.captured) {
+                    bits.push(`cites ${cit.external} external source${cit.external === 1 ? '' : 's'}`
+                        + (cit.corpus_cites.length ? ` (${cit.corpus_cites.length} in this case)` : ''));
+                }
+                if (cit.cited_by.length > 0) {
+                    bits.push(`cited by ${cit.cited_by.length} case article${cit.cited_by.length === 1 ? '' : 's'}`);
+                }
+                li.appendChild(el('div', 'xr-inspector__mono', bits.join(' · ')));
+            }
+
             for (const c of row.claims.slice(0, MAX_CLAIMS_PER_ROW)) {
                 if (c.quote) {
                     li.appendChild(el('blockquote', 'xr-finding-row__quote', truncate(c.quote, 160)));

@@ -286,6 +286,9 @@ function deriveArticleRows(data) {
                 screenshot:         !!(article && article.evidence && article.evidence.screenshot),
                 published_to_relay: !!(rec && rec.publishedToRelay)
             },
+            // Outbound links as captured (null = capture predates link
+            // extraction — "not captured", never "zero links").
+            links: (article && Array.isArray(article.links)) ? article.links : null,
             claims
         });
     }
@@ -728,6 +731,13 @@ export function buildEvidenceGroups(data) {
     }
 
     const { rows, unprocessed } = deriveArticleRows(data);
+
+    // Citation edges across THIS corpus (the case's evidence set).
+    const citationEdges = deriveCitationEdges({
+        articles: rows.map((r) => ({ url: r.url, links: r.links })),
+        corpusUrls: rows.map((r) => r.url)
+    });
+
     const articles = rows.map((row) => {
         const originKeys = new Set();
         for (const c of row.claims) {
@@ -762,7 +772,13 @@ export function buildEvidenceGroups(data) {
                 anchor_present: !!c.anchor
             })),
             origin_keys: [...originKeys].sort(),
-            audit_runs
+            audit_runs,
+            citations: {
+                captured:     Array.isArray(row.links),
+                external:     (citationEdges.cites[row.url] || {}).external_count || 0,
+                corpus_cites: (citationEdges.cites[row.url] || {}).corpus_targets || [],
+                cited_by:     citationEdges.cited_by[row.url] || []
+            }
         };
     });
 
@@ -776,6 +792,58 @@ export function buildEvidenceGroups(data) {
             articles_with_audit: articles.filter((a) => a.audit_runs.length > 0).length,
             unprocessed:         unprocessed.length
         }
+    };
+}
+
+// ------------------------------------------------------------------
+// Citation edges — both sides of the outbound-link graph
+// ------------------------------------------------------------------
+
+/**
+ * Pure both-sides view of the captured `cites` links within a corpus:
+ * who an article links out to, and which corpus articles link back to
+ * it. Internal links (same-host navigation) are excluded; self-cites
+ * are dropped; everything joins through the unified normalizer so an
+ * archive capture and a direct capture meet on one URL.
+ *
+ * @param {{articles: Array<{url: string, links: Array<{url:string, internal?:boolean}>|null}>,
+ *          corpusUrls: Iterable<string>}} input
+ * @returns {{cites: Object<string, {external_count:number, corpus_targets:string[]}>,
+ *            cited_by: Object<string, string[]>}}
+ */
+export function deriveCitationEdges({ articles, corpusUrls } = {}) {
+    const corpus = new Set();
+    for (const u of corpusUrls || []) {
+        const n = Utils.normalizeUrl(u || '');
+        if (n) corpus.add(n);
+    }
+    const cites = {};
+    const citedBy = new Map();
+    for (const a of articles || []) {
+        if (!a || !a.url || !Array.isArray(a.links)) continue;
+        const from = Utils.normalizeUrl(a.url);
+        if (!from) continue;
+        const targets = new Set();
+        for (const l of a.links) {
+            if (!l || !l.url || l.internal) continue;
+            const to = Utils.normalizeUrl(l.url);
+            if (!to || to === from) continue;
+            targets.add(to);
+            if (corpus.has(to)) {
+                if (!citedBy.has(to)) citedBy.set(to, new Set());
+                citedBy.get(to).add(from);
+            }
+        }
+        cites[from] = {
+            external_count: targets.size,
+            corpus_targets: [...targets].filter((u) => corpus.has(u)).sort()
+        };
+    }
+    return {
+        cites,
+        cited_by: Object.fromEntries([...citedBy.entries()]
+            .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+            .map(([k, v]) => [k, [...v].sort()]))
     };
 }
 

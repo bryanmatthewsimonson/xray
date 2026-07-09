@@ -12,6 +12,22 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Outbound links are captured as citations.** Article extraction now
+  records every hyperlink in the body as structured data
+  (`article.links`: normalized URL, first anchor text, occurrence
+  count, internal/external, capped at 100 distinct targets with an
+  honest truncation marker). **Wire change, additive** (documented in
+  `docs/NIP_DRAFT.md`): published kind-30023 events carry one `cites`
+  tag per distinct external link — linkage only, never endorsement
+  (that stays `responds-to`) — plus indexed `r` co-emits for the first
+  25 targets so the edge is queryable from the cited side; the first
+  `r` remains the article's own URL. Read-back distinguishes "links
+  not captured" (pre-extension events → `null`) from "zero links". The
+  case dossier derives both sides (`deriveCitationEdges`) and the
+  portal evidence table shows "cites N external sources · cited by M
+  case articles". Not yet extracted: PDF bodies and the platform
+  synthesizers (YouTube/Twitter/FB/IG/TikTok).
+
 - **Archive captures re-key to their original URL.** Capturing from an
   archive.today mirror, a Wayback Machine snapshot, or an arXiv
   rendering variant (`/pdf/`, `/html/`, ar5iv) now recovers the
