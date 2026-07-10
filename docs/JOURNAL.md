@@ -19,6 +19,40 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-10 — Field bug: archive.ph recovery missed three ways at once
+
+Tags: `bug`.
+
+A real capture (archive.ph short-code page of a NYT piece,
+screenshot-verified) failed original-URL recovery and keyed to the
+archive address, which broke every downstream join the maintainer
+could see — the local copy of the same article stopped being offered.
+Three independent misses, all fixed with the maintainer's screenshots
+as regression fixtures:
+
+1. **The dotted timestamp.** archive.today's own rel=canonical emits
+   `/YYYY.MM.DD-HHMMSS/<original>`; `ARCHIVE_TODAY_PATH_RE` accepted
+   only digit runs (the Wayback shape), so the long form — original
+   URL right there in the path — didn't parse.
+2. **Only the tab URL was consulted.** On a short-code tab the
+   recoverable long form arrives via the extractor's canonical pick
+   (`rel=canonical`/`og:url`); `resolveUrlIdentity` now takes that as
+   a third argument and tries URL-structure recovery on it (same
+   archive family only) before touching DOM markers. Pure URL
+   structure beats DOM guessing.
+3. **The "saved from" marker is an INPUT, not an anchor.** The live
+   archive.ph header renders the original URL as a form input VALUE;
+   the post-review text-equals-href anchor rule couldn't see it. Input
+   values are now the second-trust marker (HIDDEN_URL → input value →
+   text-equals-href anchors), each tier failing open on ambiguity.
+
+Also shipped (maintainer "ship it"): the relay probe treats burst
+rate-limiting as politeness, not policy — an `OK false` matching
+/rate|slow down|too (fast|many)/i gets one patient retry (damus
+accepted exactly the first 8 events of a 150ms burst, the fingerprint
+that prompted this) — plus `--delay-ms` and a friendly
+run-the-probe-first message when `--recheck` finds no state file.
+
 ## 2026-07-10 — Adversarial review of the audit/identity/citations sweep: ten confirmed, ten fixed
 
 Tags: `bug`, `pattern`.

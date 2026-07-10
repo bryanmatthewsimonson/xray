@@ -296,3 +296,63 @@ test('rewriteArchivedLinks: degrades safely on junk', () => {
     assert.deepEqual(rewriteArchivedLinks(null, 'example.com'), []);
     assert.deepEqual(rewriteArchivedLinks([null, { text: 'no url' }], 'example.com'), []);
 });
+
+// --- the archive.ph field bug (JOURNAL 2026-07-10, screenshots) ----------------
+
+test('archive.today DOTTED long form (its own rel=canonical shape) recovers', () => {
+    // The exact capture that failed in the field: archive.ph emits
+    // /YYYY.MM.DD-HHMMSS/<original> in its canonical URL; the regex
+    // only accepted digit runs (the Wayback shape).
+    const r = resolveUrlIdentityFromUrl(
+        'https://archive.ph/2021.03.29-224620/https://www.nytimes.com/2021/03/29/world/asia/china-virus-WHO-report.html');
+    assert.ok(r);
+    assert.equal(r.original, 'https://www.nytimes.com/2021/03/29/world/asia/china-virus-WHO-report.html');
+});
+
+test('short-code tab + long-form canonical: the canonical URL recovers the original', () => {
+    // Tab = archive.ph/RTy0g (no embedded original); the extractor's
+    // canonical pick is the long form. Pure URL structure — no DOM.
+    const r = resolveUrlIdentity(
+        stubDoc(),   // no DOM markers at all
+        'https://archive.ph/RTy0g',
+        'https://archive.ph/2021.03.29-224620/https://www.nytimes.com/2021/03/29/world/asia/china-virus-WHO-report.html');
+    assert.ok(r);
+    assert.equal(r.original, 'https://www.nytimes.com/2021/03/29/world/asia/china-virus-WHO-report.html');
+    assert.equal(r.captureUrl, 'https://archive.ph/RTy0g',
+        'captureUrl stays the address actually fetched');
+});
+
+test('canonical fallback never crosses archive families or invents originals', () => {
+    // A canonical on a DIFFERENT archive family is not trusted.
+    const cross = resolveUrlIdentity(stubDoc(), 'https://archive.ph/AbC12',
+        'https://web.archive.org/web/2020/https://example.com/x');
+    assert.equal(cross.original, null);
+    // A non-archive canonical contributes nothing.
+    const plain = resolveUrlIdentity(stubDoc(), 'https://archive.ph/AbC12',
+        'https://example.com/direct');
+    assert.equal(plain.original, null);
+});
+
+test('archive.today "saved from" INPUT value is a qualifying marker', () => {
+    // The live archive.ph header renders the original in a form INPUT
+    // (screenshot-verified), not an anchor.
+    const doc = {
+        querySelector: () => null,   // no HIDDEN_URL
+        querySelectorAll: (sel) => sel === '#HEADER input, form input'
+            ? [{ value: 'https://www.nytimes.com/2021/03/29/world/asia/china-virus-WHO-report.html' }]
+            : []
+    };
+    const r = resolveUrlIdentity(doc, 'https://archive.ph/RTy0g');
+    assert.equal(r.original, 'https://www.nytimes.com/2021/03/29/world/asia/china-virus-WHO-report.html');
+});
+
+test('saved-from input: two distinct qualifying values = ambiguous = fail open', () => {
+    const doc = {
+        querySelector: () => null,
+        querySelectorAll: (sel) => sel === '#HEADER input, form input'
+            ? [{ value: 'https://a.example/one' }, { value: 'https://b.example/two' }]
+            : []
+    };
+    const r = resolveUrlIdentity(doc, 'https://archive.ph/RTy0g');
+    assert.equal(r.original, null);
+});

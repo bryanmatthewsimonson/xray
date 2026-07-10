@@ -26,7 +26,7 @@
 // subsection) and relay-probe-state.json (input for --recheck). Both
 // are gitignored.
 
-import { writeFileSync, readFileSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { Crypto } from '../src/shared/crypto.js';
 
 const DEFAULT_RELAYS = [
@@ -151,7 +151,13 @@ function queryIds(ws, ids, timeoutMs = 10000) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function probeRelay(relayUrl, events) {
+// Burst rate-limiting looks like a kind rejection but isn't — a relay
+// that answers "rate-limited: slow down" gets one patient retry so the
+// probe measures POLICY, not politeness (relay.damus.io accepted
+// exactly the first 8 events of a 150ms-spaced burst).
+const RATE_LIMIT_RE = /rate|slow down|too (fast|many)/i;
+
+async function probeRelay(relayUrl, events, delayMs) {
     const result = { relay: relayUrl, connect: null, accepts: {}, readback: {} };
     let ws;
     try {
@@ -163,8 +169,14 @@ async function probeRelay(relayUrl, events) {
     }
     try {
         for (const [label, event] of events) {
-            result.accepts[label] = await publishOne(ws, event);
-            await sleep(150);   // be a polite client
+            let res = await publishOne(ws, event);
+            if (!res.ok && RATE_LIMIT_RE.test(res.reason || '')) {
+                await sleep(Math.max(3000, delayMs * 2));
+                res = await publishOne(ws, event);
+                if (res.ok) res = { ...res, retried: true };
+            }
+            result.accepts[label] = res;
+            await sleep(delayMs);   // be a polite client
         }
         const acceptedIds = events
             .filter(([label]) => result.accepts[label] && result.accepts[label].ok)
@@ -235,7 +247,8 @@ function acceptanceTable(results, labels) {
             const a = r.accepts[label];
             if (!a) return '—';
             if (!a.ok) return `✗ ${a.reason || 'rejected'}`;
-            return r.readback[label] === false ? '✓ but NOT readable' : '✓';
+            const mark = a.retried ? '✓ (after rate-limit retry)' : '✓';
+            return r.readback[label] === false ? `${mark} but NOT readable` : mark;
         });
         out.push(`| ${label} | ${cells.join(' | ')} |`);
     }
@@ -266,13 +279,21 @@ async function main() {
     const recheckIdx = args.indexOf('--recheck');
     const largeIdx = args.indexOf('--large-kb');
     const largeKb = largeIdx !== -1 ? Number(args[largeIdx + 1]) || 120 : 120;
-    const relayArgs = args.filter((a, i) =>
+    const delayIdx = args.indexOf('--delay-ms');
+    const delayMs = delayIdx !== -1 ? Number(args[delayIdx + 1]) || 150 : 150;
+    const relayArgs = args.filter((a) =>
         a.startsWith('wss://') || a.startsWith('ws://'));
     const relays = relayArgs.length ? relayArgs : DEFAULT_RELAYS;
 
     // --recheck: retention pass over a prior run's state.
     if (recheckIdx !== -1) {
-        const state = JSON.parse(readFileSync(args[recheckIdx + 1] || 'relay-probe-state.json', 'utf8'));
+        const stateFile = args[recheckIdx + 1] || 'relay-probe-state.json';
+        if (!existsSync(stateFile)) {
+            console.error(`[probe] no state file at '${stateFile}' — the recheck is the DAY-TWO pass.`);
+            console.error('[probe] Run the probe first (node tools/relay-probe.mjs); it writes relay-probe-state.json, then re-run with --recheck ~24h later.');
+            process.exit(1);
+        }
+        const state = JSON.parse(readFileSync(stateFile, 'utf8'));
         const results = await Promise.all(state.relays.map((r) =>
             recheckRelay(r, state.ids, (state.accepted && state.accepted[r]) || Object.keys(state.ids))));
         const labels = Object.keys(state.ids);
@@ -310,7 +331,7 @@ async function main() {
 
     // Phase A + B.
     const nip11 = await Promise.all(relays.map(async (relay) => ({ relay, info: await fetchNip11(relay) })));
-    const results = await Promise.all(relays.map((relay) => probeRelay(relay, events)));
+    const results = await Promise.all(relays.map((relay) => probeRelay(relay, events, delayMs)));
 
     // Shortlist: connected + accepted AND read back every event.
     const shortlist = results
