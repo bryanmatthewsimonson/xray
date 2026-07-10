@@ -438,3 +438,58 @@ test('urlHash differs for different normalized URLs', async () => {
   const b = await urlHash('https://example.com/article-2');
   assert.notEqual(a, b);
 });
+
+// ------------------------------------------------------------------
+// Normalizer unification (JOURNAL 2026-07-09): the legacy
+// ContentExtractor list merged in, and the delegate pinned.
+// ------------------------------------------------------------------
+
+test('legacy-only tracking params are stripped after unification', () => {
+  assert.equal(
+    normalize('https://example.com/a?mkt_tok=T&oly_anon_id=1&oly_enc_id=2&vero_id=3&wickedid=4&id=5'),
+    'https://example.com/a?id=5'
+  );
+  assert.equal(
+    normalize('https://example.com/a?__twitter_impression=true&_gid=GA1.2.3&spm=a2h0k.1&x=1'),
+    'https://example.com/a?x=1'
+  );
+  assert.equal(
+    normalize('https://example.com/a?share_source=copy_web&q=covid'),
+    'https://example.com/a?q=covid'
+  );
+});
+
+test("'from' is NOT stripped — a content param on real sites (review 2026-07-10)", () => {
+  // Pagination offsets / date ranges / converter origins ride in
+  // 'from'; stripping it would merge genuinely distinct pages across
+  // every metadata join. Under-merge beats over-merge.
+  assert.notEqual(
+    normalize('https://example.com/list?q=covid&from=100'),
+    normalize('https://example.com/list?q=covid&from=200')
+  );
+  assert.equal(
+    normalize('https://example.com/a?from=timeline&q=covid'),
+    'https://example.com/a?from=timeline&q=covid'
+  );
+});
+
+test('ContentExtractor.normalizeUrl IS the unified normalizer (delegate pin)', async () => {
+  // Article identity (d-tags) and every downstream join must agree on
+  // one canonical form. The delegate must not re-diverge.
+  const { ContentExtractor } = await import('../src/shared/content-extractor.js');
+  const cases = [
+    'https://Example.COM:443/Article/?b=2&a=1&utm_source=x',
+    'https://example.com/paper?mkt_tok=abc&id=7#fn-3',
+    'https://example.com/page#:~:text=exact%20quote',
+    'not a url at all'
+  ];
+  for (const url of cases) {
+    assert.equal(ContentExtractor.normalizeUrl(url), normalize(url), url);
+  }
+  // The legacy keep-some-anchors hash heuristic is gone: every
+  // non-text-fragment anchor strips, params sort.
+  assert.equal(
+    ContentExtractor.normalizeUrl('https://example.com/story?z=1&a=2#section-name'),
+    'https://example.com/story?a=2&z=1'
+  );
+});

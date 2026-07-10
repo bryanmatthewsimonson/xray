@@ -1,14 +1,15 @@
 # Case Dossier — design
 
-> **Status:** design draft (2026-07-03). Upgrades the existing portal
-> case view (`src/portal/case-view.js`, Phase 12.5) into the assembled
-> dossier the Case entity was always meant to open onto. **Derived,
+> **Status:** design draft (2026-07-03; sequencing updated
+> 2026-07-08). Upgrades the existing portal case view
+> (`src/portal/case-view.js`, Phase 12.5) into the assembled dossier
+> the Case entity was always meant to open onto. **Derived,
 > computed-on-read, no new wire kind** — every section is a pure
-> function of events and local records that already exist. Sequenced
-> inside the Epistack sprint (`docs/EPISTACK_WIN_PLAN.md` §5
-> deliverable 5 names this surface); the eggs case is the acceptance
-> fixture. `PHILOSOPHY.md` and `TRUTH_ADJUDICATION_DESIGN.md` §5 are
-> cited as borrowed principles with attribution.
+> function of events and local records that already exist. Built on
+> its merits for the live case runs (the COVID corpus is the working
+> fixture), CD.1 → CD.2 → CD.3, pure module first; see §6.
+> `PHILOSOPHY.md` and `TRUTH_ADJUDICATION_DESIGN.md` §5 are cited as
+> borrowed principles with attribution.
 
 A **case** is an entity (`type: 'case'`) used as a folder: articles,
 claims, entities, and judgments accumulate in its orbit, and on several
@@ -185,10 +186,13 @@ bytes, which is the point of content addressing) and **hop absent**
 - **No auto-narrative.** No LLM-written case summary in v1; the
   structure *is* the summary. (A flag-gated assist could later draft
   prose from the dossier — separately designed, consent-gated.)
-- **No new wire kind; nothing persisted.** Shareability rides the
-  existing case export/bundle, which should gain the dossier's JSON as
-  a section (deterministic, so it composes with `case-export.js`'s
-  existing determinism contract).
+- **No new wire kind; nothing persisted.** Cross-investigator
+  shareability is the published events on public relays — the dossier
+  is derived, so anyone with the events recomputes it. The existing
+  case export/bundle MAY later gain the dossier's JSON as a
+  collaboration-handoff section (CD.5 — out of the current window;
+  deterministic, so it composes with `case-export.js`'s existing
+  determinism contract).
 - **No cross-user aggregation.** Same v1 posture as everything else:
   other users' events render side-by-side when loaded, never merged.
 
@@ -196,10 +200,11 @@ bytes, which is the point of content addressing) and **hop absent**
 
 ## §6. Slice plan (one PR each; `claude/case-dossier-*`)
 
-Sequenced **inside the Epistack sprint, after relay prep** — the eggs
-case is the acceptance fixture, and the entry's §5 deliverable 5
-("portal case dashboard" + verdict-state-distribution view) is
-satisfied by CD.1–CD.3 alone if time runs short.
+Sequenced **merits-first alongside the live case runs** — the COVID
+corpus is the working fixture (eggs the second). CD.1 is pure and
+fixture-testable with no UI risk; if reactive capture fixes consume
+the window, shed CD.3 first, then CD.2 — **CD.1 is the data spine and
+is kept** (its numbers stand alone even without new UI).
 
 - **CD.1 — orbit assembler.** `src/shared/case-dossier.js`: pure
   `assembleCaseDossier(caseEntityId)` → {propositions+verdict heads,
@@ -213,10 +218,12 @@ satisfied by CD.1–CD.3 alone if time runs short.
 - **CD.3 — timeline.** World-time spine with precision bands +
   overlay toggles + gap callouts; reuse `timeline.js` bucketing for
   overlays.
-- **CD.4 — knots + entities×roles.** Contradiction clusters,
+- **CD.4 *(later — out of the current window)* — knots +
+  entities×roles.** Contradiction clusters,
   integrity/forensic panels, the entity-role table routing to entity
   records.
-- **CD.5 — provenance walk + export.** Inspector walk (incl. both
+- **CD.5 *(later — out of the current window)* — provenance walk +
+  export.** Inspector walk (incl. both
   failure states); dossier JSON section in case export; SMOKE §Case
   dossier rows (keyless — fixtures via console, the §Phase 15
   convention).

@@ -1,8 +1,20 @@
 # Epistack sprint — Claude Code kickoff
 
+> **SUPERSEDED (2026-07-08).** This brief sequenced work against
+> `EPISTACK_WIN_PLAN.md`, which was deliberately removed (PR #109) to
+> avoid overfitting the tool to the competition. **Neither the sprint
+> queue nor the "hard constraints"/decision bullets below are binding
+> any longer** — several were re-argued on merits and reversed (the
+> bundled-JSON durability story, the ban on self-hosted relays as even
+> a contingency, the eggs-deep/COVID-bounded case depths; see JOURNAL
+> 2026-07-08). Current plan of record:
+> [`EPISTACK_ENTRY.md`](EPISTACK_ENTRY.md) (entry + writeup skeleton)
+> and [`EPISTACK_RUNBOOK.md`](EPISTACK_RUNBOOK.md) (operational
+> steps). Kept for history.
+>
 > **Handoff brief** (2026-07-03) for the Claude Code session executing
 > the FLF Epistack competition sprint. **Deadline: 2026-07-19.**
-> [`EPISTACK_WIN_PLAN.md`](EPISTACK_WIN_PLAN.md) governs strategy;
+> `EPISTACK_WIN_PLAN.md` (removed) governed strategy;
 > `docs/epistack/` holds the authoritative competition rules (they
 > supersede the win plan's §1 facts); this brief sequences the work.
 > Read `CLAUDE.md` first — its conventions bind every PR.

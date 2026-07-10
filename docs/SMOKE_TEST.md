@@ -224,6 +224,15 @@ piece — anything Readability handles cleanly).
 | 2.7 | Click **Publish** → signing happens via the Active method (toast says "Signing locally…" for Local, prompts a signer extension for NIP-07, talks to the bunker for NSecBunker) → toast reports per-relay results | ✅ at least one configured relay accepts |
 | 2.8 | Look up the published article on a NOSTR client (e.g. snort, primal, nostr.band) by your npub → the kind-30023 should be there | ✅ event id matches the toast; pubkey matches the Active method's npub |
 
+**URL identity — archive/mirror captures (url-identity.js; LIVE-SITE check — the archive.today DOM markers cannot be verified from tests)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 2.9 | Capture an article via a Wayback snapshot (`web.archive.org/web/<ts>/<url>`) | ✅ reader URL field shows the ORIGINAL url; the note under the byline reads "captured via web.archive.org · original: <url>" |
+| 2.10 | Capture a **short-code** archive.today snapshot (`archive.ph/<code>`) | ✅ the original is recovered from the page's own markers (`input#HIDDEN_URL` / header "saved from" link) and shown in the note; if archive.today has changed its DOM, the note must degrade to "original URL not recovered" — NEVER show a wrong original (then update `archiveTodayDomOriginal`) |
+| 2.11 | Publish an archive capture → inspect the event | ✅ first `r` = the original URL; one `capture-url` tag with the archive address; a second `r` with the archive address AFTER the primary |
+| 2.12 | Capture an arXiv `/pdf/` link | ✅ article URL reads `arxiv.org/abs/<id>`; capture note names the pdf variant |
+
 ---
 
 ## Phase 3 — Platform handlers
@@ -529,7 +538,9 @@ everything before 13.13 below must work with the flag off.
 | 13.7c | Click **Quick audit** on a fresh capture | ✅ button shows "⏳ Auditing…", then a summary toast (modules valid/failed, predictions); the audit panel fills exactly as an imported run does |
 | 13.7d | Expand the module rows | ✅ each carries the standing **"single-shot orchestration — lower rigor"** caveat; auditor reads `model · anthropic/<model>`; the aggregate's ceiling-source is `heuristic:source-quality/1.0` |
 | 13.7e | Edit one character of the body → **Quick audit** again | ✅ binds to the edited text's hash (no capture-mismatch error); the prior run stays side-by-side, **never averaged** |
-| 13.7f | Click **Thorough audit** → confirm the cost prompt | ✅ both audit buttons disable during the run; on completion the toast says "thorough"; module rows do **not** carry the single-shot caveat (per-dimension methodology); a module whose call fails shows as **failed**, the rest still produce an aggregate |
+| 13.7f | Click **Thorough audit** → confirm the cost prompt | ✅ both audit buttons disable during the run; the active button counts up "⏳ Auditing N/8…" as modules land; on completion the toast says "thorough"; module rows do **not** carry the single-shot caveat (per-dimension methodology); a module whose call fails shows as **failed**, the rest still produce an aggregate |
+| 13.7g | Start **Thorough audit**, then kill the run mid-flight (close the reader tab at ~4/8, or evict the SW via `chrome://serviceworker-internals`) → reopen the reader on the same capture | ✅ the audit panel shows the draft note ("a thorough audit draft holds N/8 completed modules"); clicking **Thorough audit** offers **Resume** and re-runs only the missing modules — completed modules are never re-billed |
+| 13.7h | **Quick audit** on a long article (a slow ~1–2 min call) with the reader left idle | ✅ the run completes and renders (the 20s keepalive ping holds the SW); if no response ever arrives, the button restores by itself at ~5.5 min with a service-worker-restart error toast — it can never stick on "⏳ Auditing…" |
 
 **Display rules (PHILOSOPHY — check, don't skip)**
 
@@ -1084,6 +1095,25 @@ profiles) to simulate two users.
 | KS.3b | Adopt the same key again, choosing alias of the viewed entity | ✅ no duplicate record (same entity id); it becomes an alias; the feed re-runs wider |
 | KS.4 | Entity with a linked platform account → **Network activity** → Load from relays | ✅ loading line says "across K keys" (K > 1); claims keep the ⚖ Assess flow; extra kinds render as collapsed groups; loading writes nothing to local models |
 | KS.4b | With all flags at defaults, publish any capture | ✅ event count identical to a pre-KS build (no 32126 arm); single-user flows unchanged |
+
+---
+
+## Case dossier (CD.1–CD.3)
+
+Needs a local **case** entity with claims, at least one proposition +
+verdict, an audit run, and an archived source or two — then open it in
+the portal ("My Archive" → a case row → **☰ Dashboard**). CD.1 is
+pure and covered by `tests/case-dossier.test.mjs`; these rows verify
+the CD.2/CD.3 render surfaces match the pure numbers. (Full §Case
+dossier detail is CD.5's deliverable.)
+
+| # | Test | Pass criteria |
+|---|---|---|
+| CD.2a | Open a case dashboard with adjudicated propositions | ✅ **Shape of knowledge** block shows a verdict-state *distribution* (one chip per state + "unadjudicated"), a coverage line (claims / with-propositions / propositions as counts), standards-of-proof chips, and an open/resolved prediction tally — **no single fused score anywhere** |
+| CD.2b | Same case, **Evidence** block | ✅ one row per source with capture chips (archived / screenshot / relayed), verbatim claim quotes, an origin count, and — where an audit ran — the shared audit band chip (or "audit: review" under 0.6 confidence, never a naked number); a convergence line; an "Unprocessed sources" list for tagged-but-unprocessed sources |
+| CD.3a | Same case, **Four-axis timeline** | ✅ an SVG with world / published / captured / judged lanes on one shared time scale; a year-precision world event renders as a *wide band*, an exact event as a thin mark; hovering shows date+precision+kind; an "N undated" note appears when some events lack a date (never placed on a fake date) |
+| CD.3b | A case with a source published before its event, a late capture, or a superseded ruling | ✅ **Gap callouts** list the anomaly with a danger (published-before-occurred) or warning (late-capture / story-changed) dot and a human-readable lag |
+| CD.3c | A bare case (no propositions/sources) | ✅ the shape, evidence, and timeline blocks each render nothing (self-remove) — the existing case view is unchanged |
 
 ---
 

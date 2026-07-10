@@ -6,6 +6,7 @@ import {
   isComplexTable, sanitizeIslandNode, sanitizeIslandString,
   wrapIsland, islandPattern
 } from './content-islands.js';
+import { normalize } from './metadata/url-normalizer.js';
 
 export const ContentExtractor = {
   // Extract article using Readability (bundled via npm)
@@ -172,6 +173,14 @@ export const ContentExtractor = {
         article.url = ContentExtractor.getCanonicalUrl();
         article.domain = ContentExtractor.getDomain(article.url);
         article.extractedAt = Math.floor(Date.now() / 1000);
+
+        // Outbound links — captured from the SAME cleaned body the
+        // markdown derives from (tempDiv, post image fixes), so every
+        // `cites` tag names a link that survives into the capture.
+        const outbound = ContentExtractor.extractOutboundLinks(
+          tempDiv, window.location.href, article.domain);
+        article.links = outbound.links;
+        if (outbound.truncated) article.links_truncated = true;
         
         // Extract publication date
         const dateResult = ContentExtractor.extractPublishedDate();
@@ -348,34 +357,53 @@ export const ContentExtractor = {
     }
   },
 
-  // Normalize URL (remove tracking params, clean hash fragments)
-  normalizeUrl: (url) => {
-    try {
-      const parsed = new URL(url);
-      const trackingParams = [
-        'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'utm_id',
-        'fbclid', 'gclid', '_ga', '_gid', 'ref', 'source',
-        'mc_cid', 'mc_eid', 'mkt_tok',
-        'oly_anon_id', 'oly_enc_id',
-        'vero_id', 'wickedid',
-        '__twitter_impression', 'twclid',
-        'igshid', 'spm', 'share_source', 'from'
-      ];
-      trackingParams.forEach(param => parsed.searchParams.delete(param));
-      // Strip hash fragments that look like tracking (short random strings, dots, slashes)
-      // Keep meaningful anchors like #section-name (6+ chars, word-like)
-      if (parsed.hash) {
-        const frag = parsed.hash.slice(1);
-        const isTrackingHash = /^[.\/]/.test(frag) || /^[A-Za-z0-9]{1,5}$/.test(frag) || frag === '';
-        if (isTrackingHash) {
-          parsed.hash = '';
-        }
-      }
-      return parsed.toString();
-    } catch (e) {
-      return url;
+  // Outbound links (citations — docs/NIP_DRAFT.md `cites`): every
+  // http(s) anchor in the extracted body, deduped through the unified
+  // normalizer so a link and its tracking-param variant count as ONE
+  // target. Pure over the passed root (no document/global reads) so
+  // tests drive it with stub elements. `internal` is hostname-sans-www
+  // equality with the article's own host — a documented approximation
+  // (blog.example.com → example.com reads as external). Capped in
+  // document order with an honest `truncated` marker; repeat links to
+  // an already-kept target still count toward that target's `count`.
+  extractOutboundLinks: (rootEl, baseUrl, ownHost, { cap = 100 } = {}) => {
+    const links = new Map();   // normalized url → {url, text, count, internal}
+    let truncated = false;
+    if (!rootEl || typeof rootEl.querySelectorAll !== 'function') {
+      return { links: [], truncated };
     }
+    const own = String(ownHost || '').toLowerCase().replace(/^www\./, '');
+    for (const a of rootEl.querySelectorAll('a[href]')) {
+      const raw = (a.getAttribute ? a.getAttribute('href') : a.href) || '';
+      if (!raw || raw.startsWith('#')) continue;
+      let abs;
+      try { abs = new URL(raw, baseUrl || undefined); } catch (e) { continue; }
+      if (abs.protocol !== 'http:' && abs.protocol !== 'https:') continue;
+      const url = normalize(abs.href);
+      const existing = links.get(url);
+      if (existing) { existing.count += 1; continue; }
+      if (links.size >= cap) { truncated = true; continue; }
+      const host = abs.hostname.toLowerCase().replace(/^www\./, '');
+      const text = (a.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      links.set(url, { url, text, count: 1, internal: !!own && host === own });
+    }
+    return { links: [...links.values()], truncated };
   },
+
+  // Normalize URL — delegates to the ONE NIP-73 normalizer so article
+  // identity (d-tags via getCanonicalUrl) and every downstream join
+  // (claims, assessments, forensics, archive rows) agree on the
+  // canonical form of a URL. The legacy in-place list diverged from it
+  // (no param sorting, its own tracking set, a keep-some-anchors hash
+  // heuristic); unification means a page whose URL carries sortable or
+  // now-stripped params derives a DIFFERENT d-tag than a pre-2026-07
+  // capture of the same page — accepted, see JOURNAL 2026-07-09.
+  // Also accepted, in the COLLAPSE direction: the old heuristic kept
+  // word-like anchors, so anchor-only addressing (page#article-1 vs
+  // page#article-2 via the location fallback) produced two d-tags;
+  // those now collapse to one, and the later capture replaces the
+  // earlier on relays (30023 is addressable).
+  normalizeUrl: (url) => normalize(url),
 
   // Extract published date
   extractPublishedDate: () => {

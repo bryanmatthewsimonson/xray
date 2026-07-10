@@ -2031,6 +2031,18 @@ body {
   background: color-mix(in srgb, var(--xr-warning) 8%, var(--xr-surface));
 }
 
+/* ---------------- Archive/mirror provenance note (url-identity) ---------- */
+
+.xr-article__capture-note {
+  font-size: 12px;
+  color: var(--xr-text-dim);
+  margin-top: 4px;
+}
+
+.xr-article__capture-note--warn {
+  color: var(--xr-warning);
+}
+
 /* ---------------- Canonical-hash line + stealth-edit banner (13.4) ------- */
 
 .xr-article__hash {

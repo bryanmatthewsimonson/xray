@@ -76,6 +76,45 @@ export function buildBuckets(items, { bucket } = {}) {
     return { bucket: chosen, buckets };
 }
 
+// Precision → band-width window in seconds. A world-time event carries
+// a precision (exact/day/month/year); its band is that wide, so a
+// year-precision date renders as a year-wide band, never a fake point
+// (CD.3 / CASE_DOSSIER_DESIGN §3.3 "no false precision"). Month/year
+// use nominal windows — the spine is a visual scale, not a calendar.
+const PRECISION_SECONDS = { exact: 0, day: DAY, month: 30 * DAY, year: 365 * DAY };
+
+/**
+ * Lay a world-time spine out proportionally: map each event's `at` to
+ * an x position on a [0, width] axis, and its `precision` to a band
+ * width in the same pixel units. Pure and deterministic — no clock, no
+ * DOM. Returns events sorted by `at`, each with `{ x, bandWidth }`
+ * added (originals untouched). Zero/one event, or a zero time-span,
+ * degrade gracefully (everything at x=0, exact bands 0-wide).
+ *
+ * @param {Array<{at:number, precision?:string}>} events
+ * @param {number} width  pixel width of the spine
+ */
+export function layoutWorldSpine(events, width) {
+    const w = Number.isFinite(width) && width > 0 ? width : 0;
+    const dated = (Array.isArray(events) ? events : [])
+        .filter((e) => e && Number.isFinite(e.at))
+        .slice()
+        .sort((a, b) => a.at - b.at || (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0));
+    if (dated.length === 0) return [];
+
+    const min = dated[0].at;
+    const max = dated[dated.length - 1].at;
+    const span = max - min;
+    const scale = span > 0 ? w / span : 0;
+
+    return dated.map((e) => {
+        const x = span > 0 ? (e.at - min) * scale : w / 2;
+        const windowSec = PRECISION_SECONDS[e.precision] ?? 0;
+        const bandWidth = span > 0 ? windowSec * scale : 0;
+        return { ...e, x, bandWidth };
+    });
+}
+
 /**
  * Normalize a drag across bucket indices into the [after, before)
  * filter pair the Library consumes. Indices may arrive reversed

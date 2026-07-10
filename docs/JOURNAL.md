@@ -19,6 +19,358 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-10 — Adversarial review of the audit/identity/citations sweep: ten confirmed, ten fixed
+
+Tags: `bug`, `pattern`.
+
+An eight-angle finder pass + per-candidate adversarial verification
+over the whole PR-#116 diff (the pattern from the PDF sweeps — worth
+repeating after any multi-feature burst) confirmed and fixed:
+
+- **Draft lost-update race**: `appendAuditDraft` was a get→set of one
+  storage key from three concurrent orchestrator workers — two modules
+  landing back-to-back could clobber each other in the resume draft
+  (a silently re-billed module). Writes now chain through one promise.
+- **Wayback captures published ZERO `cites`**: archives rewrite every
+  body anchor onto their own host, so link extraction (which runs
+  before the identity hook) classified every citation
+  archive-internal. `rewriteArchivedLinks` (url-identity.js) now
+  unwraps archive-wrapped links to their originals, re-keys
+  `article.domain`, re-classifies internal/external, and drops
+  unrecoverable archive-chrome links.
+- **Wrong-original adoption risk**: the archive.today header-anchor
+  fallback took the FIRST plausible `#HEADER` link — verification
+  executed it adopting `blog.archive.today` (subdomains passed the
+  blocklist) and any promoted/donate link before the saved-from anchor
+  would win. Now: archive-family SUBDOMAINS are rejected, an anchor
+  qualifies only when its visible text IS its href (the saved-from
+  shape), and two distinct qualifying URLs = ambiguous = fail open.
+- **Archived arXiv fork**: an original embedded in an archive path
+  (`…/web/<ts>/https://arxiv.org/pdf/X`) skipped arXiv
+  canonicalization → `/pdf/` identity vs a direct capture's `/abs/`.
+  Every recovered original now routes through `canonicalizeOriginal`.
+- **Truncated-capture invisibility ×3**: a >120k audit keys to the
+  slice hash, so (a) the prediction ledger (queried under the full
+  hash) never rendered its predictions — now merged across both keys;
+  (b) the case dossier's evidence table showed the source unaudited —
+  runs now carry a `captureArticleHash` join alias (never used for
+  score display, only to FIND the run) and the dossier indexes both;
+  (c) `auditHashCandidates` gains the slice vintage so publish
+  batches and prediction back-references stop skipping those runs.
+- **Old claims vanished after re-capture**: `ClaimModel.getBySourceUrl`
+  was an exact string match, so claims saved under the pre-unification
+  canonical URL form were invisible for the same page. The join now
+  normalizes both sides at read time (the forms converge under the
+  unified normalizer). The JOURNAL sanctioned d-tag churn — not local
+  claim loss.
+- **`from` un-stripped**: review showed `from` is a CONTENT param on
+  real sites (pagination `?from=100`, date ranges, converter origins)
+  and the case-insensitive strip was wider than the legacy list ever
+  was. Removed from `TRACKING_PARAMS` — under-merge (a rare share-link
+  variant forks) beats over-merge (two different pages become one
+  identity). The rest of the merged params are unambiguous trackers.
+- Plus: one shared `pushR` dedupe for all three r co-emit blocks (no
+  duplicate `r` tags), `refreshAuditStatus` reads parallelized and the
+  PDF legacy-hash advisory cached per article instead of re-hashed per
+  repaint, the article-rows derivation threaded once through
+  `buildCaseDossier` instead of recomputed 3×, and the atomic
+  assignment of `articleHash`/`auditableHash` (an interleaved repaint
+  between the two writes could miss the truncated-key panel state).
+
+Refuted, for the record: archive-cache bucket drift (re-capture
+re-saves under the new key; self-healing), the reader URL-field edit
+interplay (pre-existing power-user escape hatch), and the
+synthesize-path identity skip (archived platform snapshots fall
+through to Readability, where the hook runs).
+
+## 2026-07-09 — Outbound links become citations (`cites` tag, both sides)
+
+Tags: `design`.
+
+Until now an article's hyperlinks survived only inline in the captured
+markdown — invisible to queries, the dossier, and the cited article.
+`ContentExtractor.extractOutboundLinks` now captures them as
+structured data from the SAME cleaned body the markdown derives from:
+deduped through the unified normalizer (a link and its tracking-param
+variant are one target), first-anchor-text kept, occurrence-counted,
+internal (same-host, sans-www — a documented approximation) vs
+external classified, capped at 100 distinct targets in document order
+with an honest `article.links_truncated` marker.
+
+**Wire (additive, NIP_DRAFT):** kind-30023 gains one `cites` tag per
+distinct EXTERNAL link — `['cites', url, anchorText≤120?]` — plus
+indexed `r` co-emits for the first 25 targets (after every other
+co-emit, deduped, first-r invariant pinned by tests). Design choices
+worth second-guessing: `cites` asserts LINKAGE only — endorsement
+stays in `responds-to`, which the authoring UI can now offer
+one-click when a cited target is already in the corpus (deferred
+follow-up); under the cap, absence of a tag is NOT evidence the
+article doesn't link somewhere; read-back yields `links: null` (not
+`[]`) for pre-extension events — "not captured" must never render as
+"zero links" (the dossier's `citations.captured` bit carries the same
+distinction). The cited side is derived, never published:
+`deriveCitationEdges` (case-dossier.js) computes cites/cited-by maps
+inside a corpus, and the CD.2 evidence rows show "cites N external ·
+cited by M case articles". Deferred, named: PDFs and the platform
+synthesizers don't extract links yet; the portal has no citation
+facet.
+
+## 2026-07-09 — One normalizer, and archive captures re-key to their originals
+
+Tags: `design`.
+
+Two identity fixes that belong together, both from the COVID capture
+run (archive.is / Wayback / arXiv captures forking the corpus):
+
+**Normalizer unification (maintainer decision: now, not deferred).**
+`ContentExtractor.normalizeUrl` — which keys article identity and
+30023 `d` tags via `getCanonicalUrl` — had its own tracking-param list
+(no param sorting, a keep-some-anchors fragment heuristic) while every
+downstream join (claims, assessments, forensics, adjudication, the
+archive cache, the case dossier) ran the NIP-73
+`metadata/url-normalizer.js`. Same page, two canonical forms — the
+dossier's convergence collapse and `#r` queries silently missed. The
+legacy-only params (`mkt_tok`, `oly_*`, `vero_id`, `wickedid`,
+`__twitter_impression`, `spm`, `share_source`, `from`, `_gid`) merged
+into the unified `TRACKING_PARAMS`, `ContentExtractor.normalizeUrl` is
+now a delegate, and the random-hash fragment heuristic is gone (all
+non-text-fragment anchors strip). **Accepted consequence:** a
+post-unification capture of a URL whose params sort or now strip
+derives a DIFFERENT `d` tag than a pre-unification capture — a
+republish is a new addressable event, not a replacement; the portal's
+reconcile absorbs the seam. That churn is why this was a maintainer
+call, and it's cheapest now, before the corpus publish.
+
+**Original-as-identity for archive captures** (`url-identity.js`). A
+capture made on archive.today/Wayback/ar5iv keyed to the MIRROR's URL,
+so a later direct capture of the same piece (or another user's) landed
+in a disconnected bucket. Now the recovered original IS the identity
+(`article.url`, the `d` tag, the first `r`), and the fetched address
+rides as provenance (`article.capture_url` → wire tag `capture-url`,
+plus an `r` co-emit AFTER the primary — the first-r read-back
+invariant; NIP_DRAFT documents it). Recovery: URL structure first
+(Wayback path-embedded originals incl. the `if_`/`im_` modifiers and
+the collapsed-scheme repair; archive.today `newest/oldest/<ts>` deep
+links; arXiv pdf/html/ar5iv → `/abs/`), then archive.today's own DOM
+markers (`input#HIDDEN_URL`, header anchors) validated against an
+archive-host blocklist. **Fail-open:** unverifiable ⇒ the capture keys
+to the fetched address and claims nothing — a WRONG original forks
+identity worse than none. The DOM markers can't be exercised from this
+sandbox (egress-blocked); SMOKE 2.10 pins the live check and the code
+degrades to not-recovered if archive.today redesigns.
+
+## 2026-07-09 — Thorough audits ran to completion, then vanished: MV3 killed the messenger
+
+Tags: `bug`, `design`.
+
+Field report from the COVID capture run: a thorough epistemic audit
+"pulls the results from the LLM" but never displays them — sometimes
+quick mode too. Root cause: both modes rode ONE
+`chrome.runtime.sendMessage('xray:audit:run')` whose response arrived
+60–120+ s later. MV3 service-worker eviction kills a long-lived
+response channel; the reader's `await` rejects (or hangs), and since
+persistence ran reader-side AFTER the response, the paid-for results
+were simply gone. Duration explains the fingerprint: thorough (8
+sequential-ish Opus calls) essentially always crossed the eviction
+window, quick only sometimes. Two independent aggravators: PDF runs
+persisted under the raw turndown-round-trip hash while the panel
+queried the `hashableArticle`-adjusted hash (success toast, empty
+panel), and >120k-char articles failed `importAuditJson`'s hash gate
+after the spend because the SW sliced AFTER the reader hashed.
+
+The fix is the lens topology applied to audits, plus durability:
+
+- **One message per module** (`xray:audit:module`,
+  `runAuditModulePass`) — each response resets the MV3 idle timer; a
+  lost channel now costs one retryable module, never the run. The
+  reader schedules them via the pure `audit/run-orchestrator.js`
+  (concurrency 3 — eight parallel calls rate-limited each other into
+  429 storms — one auto-retry on 429/5xx/timeout).
+- **Draft durability**: every completed module lands in
+  `chrome.storage.local` (`xray:audit:draft:<hash>`) before the next
+  dispatch; reopening offers resume, re-running only missing modules.
+  Assembly (`assembleAudit`, extracted to the lean
+  `audit/assemble.js` so the reader bundle still excludes the 38KB
+  module prompts) and persistence go through the SAME
+  `importAuditJson` firewall as file imports, with `source:
+  'background'` (was mislabeled `cli-import`).
+- **One hash everywhere**: the reader computes the body from
+  `hashableArticle` (PDFs hash the reconstruction), pre-slices to
+  `MAX_AUDIT_INPUT_CHARS` (120k) and hashes the SLICE — so the local
+  hash, the scored text, the ledger key, and the panel query key are
+  one value. Truncation is disclosed pre-spend and the panel labels
+  truncated-key runs with their coverage. Legacy PDF orphans (runs
+  keyed under the old round-trip hash) get an advisory, never score
+  display — different bytes.
+- **Quick hardened**: SW-side 300s abort + reader-side 330s race (the
+  button can never stick), with a 20s zero-cost keepalive ping while
+  in flight.
+
+No wire change — internal messages and local persistence only; the
+30056–30061 publish path and CLI import are untouched.
+
+## 2026-07-09 — Wire doc reconciled to v0.7.0 reality; kind 32125 documented
+
+Tags: `design`.
+
+Pre-publish housekeeping ahead of the Epistack corpus publish (runbook
+§4 step-0): `docs/NIP_DRAFT.md` gained a **Kind 32125 —
+EntityArticleRelationship** section. 32125 has shipped since Phase 9
+(`EventBuilder.buildEntityRelationshipEvent`, parsed in the portal) but
+was never in the wire draft — so a judge fetching one under the
+submission npub would have found no semantics. The section is
+**additive documentation of an already-emitted kind — no wire behavior
+change**. Worth recording: the `d` tag embeds the author's *local*
+entity id (`entity_<hex>:<url>:<about|source>`), reader-local like the
+32126 `linked-entity` id; the cross-user handles are the `p` wire
+pubkey and the `r` URL, so a stranger's 32125 for "the same" entity
+never `d`-collides.
+
+Also corrected the stale reference-implementation paragraph: the
+Phase-15 clause claimed "publish/read UI wiring deferred" (false since
+#89 — the adjudicate/integrity modals, the flag-gated publish path, and
+portal verdict render all ship), and a `*(second client, TBD
+pre-merge)*` placeholder was resolved. CHANGELOG `[Unreleased]` gained
+the case-dossier (CD.1–CD.3) Added entry with its explicit
+no-new-kind wire note, since the v0.7.0 release notes pull from that
+block.
+
+## 2026-07-08 — Case dossier CD.2/CD.3: thin render over a pure spine
+
+Tags: `design`.
+
+CD.2 (shape-of-knowledge header + convergence-collapsed evidence
+table) and CD.3 (four-axis timeline + gap callouts) render the CD.1
+dossier into the portal case view. Decisions worth second-guessing:
+
+- **All logic stays pure; the portal only paints.** The portal render
+  layer has no unit tests (no jsdom — confirmed across every
+  `tests/portal-*.test.mjs`), so anything that could be wrong lives in
+  `case-dossier.js`/`timeline.js` and is fixture-tested: the three gap
+  callouts (`buildTimelineGaps`) and the proportional precision-band
+  layout (`layoutWorldSpine`). The three new portal blocks
+  (`shape-block.js`, `evidence-block.js`, `case-timeline.js`) are
+  logic-free projections in the `integrity-block.js` shape
+  (sync-append an empty block → async-fill → self-remove on empty/
+  error), so nothing important is trapped in the untestable DOM path.
+  (Smoke-executed once against a hand-built DOM stub to catch runtime
+  errors the build can't.)
+- **Assemble from the LOCAL spine, keyed by the local entity id.** The
+  case view is pubkey-keyed but already local-registry-gated
+  (`case-view.js` early-returns when the case isn't a local entity), so
+  the blocks only ever run with a real local id — exactly what
+  `assembleCaseDossier` reads. **Wire is left empty for v1**: the
+  portal's parsed relay items don't carry the local `proposition_id`s
+  the dossier's wire path needs, so cross-author side-by-side variance
+  in these surfaces is a later slice (matches every other portal
+  surface's v1 posture).
+- **Gap thresholds are precision-aware and named, not magic.** A gap is
+  flagged only when it clears the coarser side's precision window
+  (`PRECISION_WINDOW`), so a year-precision date never fabricates a
+  day-level "published before it happened" anomaly (P4); "long after"
+  is a single `CAPTURE_LAG_SECONDS` constant, tunable once the corpus
+  says what long is — never a clock read.
+- **Keep BOTH timelines.** The four-axis timeline is added *alongside*
+  the existing wire publish-density strip, not replacing it: the strip
+  is network publish activity over all authors' wire items; the new
+  timeline is the local structured analysis over world/publication/
+  capture/judgment time. Different populations, both honest.
+- **The audit band never forks.** The evidence table's per-article
+  audit chip runs the raw aggregate CD.1 ships through the shared
+  `auditCardChipData` (no naked numbers, sub-0.6 → "review") — the same
+  rule the reader and inspector use, so the classification can't drift.
+- No case-level score is introduced anywhere (P2). Suite 1342 green,
+  build + web-ext lint clean.
+
+## 2026-07-08 — Case dossier CD.1: the orbit assembler is pure and injectable
+
+Tags: `design`.
+
+CD.1 (`src/shared/case-dossier.js`, `docs/CASE_DOSSIER_DESIGN.md` §3)
+is the derived, computed-on-read data spine for the case dossier —
+the analytical view the Phase-12 flat case list never gave. Decisions
+worth second-guessing:
+
+- **Storage-aware collect / pure build split** (the `case-export.js`
+  pattern): `collectCaseDossierData` does every async read once (bulk
+  maps, one `makeClaimRefCanonicalizer()` snapshot — never the per-
+  record N×get of the private `truth-entity-record#propositionsForEntity`),
+  the section builders are pure. `generatedAt` is injected and there
+  is **no clock read in the module** (a machine-checked guard) — an
+  "overdue" prediction needs `Date.now()`, so that derivation is
+  deliberately the render layer's (CD.2/CD.3).
+- **Injectable inputs with live defaults** for everything that isn't
+  `chrome.storage.local`: the archive + audit IndexedDB reads and
+  `wire` (other authors' parsed relay items). Tests inject all of
+  them, so the suite needs no fake-indexeddb; the portal will inject
+  its already-loaded arrays; and `wire` is injection-ONLY — the module
+  never opens a relay, so output can't depend on when "Load from
+  relays" was clicked (the case-export determinism rule).
+- **Two membership rules, on purpose**: §3.1 propositions are
+  claim-mediated (claim `about` includes the case); §3.2 integrity
+  findings are entity-mediated (`entity_ids` ∩ orbit) — a finding
+  about an orbit person belongs even when its claims were captured
+  under other folders.
+- **The forensic bridge is asserted, not guessed**: forensic subjects
+  key on `subject_ref` (identity/pubkey/account/label), a different
+  keyspace from entity ids, so each orbit entity is matched by derived
+  candidate refs (pubkey, name-as-label) or a caller-supplied bridge,
+  and every match stamps `matched_via`; unbridgeable entities are
+  counted, never silently dropped.
+- **Attestations reach `attestationConvergence` in authoring order**
+  (`created`, then id), not id order — the convergence baseline is the
+  earliest-authored origin, and an id sort was choosing it arbitrarily
+  (caught by a test whose three same-second attestations flipped
+  `independent_count` between runs). Everything else (knot node lists)
+  stays id-sorted for determinism.
+- **No case-level score, ever** (P2): a recursive key-walk test asserts
+  no `score|mean|rating|strength|grade` key anywhere except the single
+  whitelisted raw per-article audit-aggregate subtree (never rolled
+  up). Disagreement is variance objects, never a merge (P5).
+- `collectCaseEntityIds` was exported from `case-bundle.js` (it is THE
+  orbit definition; re-implementing it would be the duplication this
+  module exists to avoid). CD.2/CD.3 (UI, timeline render, gap
+  callouts) consume this spine in later PRs.
+
+## 2026-07-08 — Epistack submission plan re-based: relays are the artifact
+
+Tags: `design`.
+
+A full plan review against the codebase (3-agent inventory) found 7 of
+the 07-03 sprint queue's 10 items never started, the entry doc stale,
+and the release un-cut — while the substrate itself is shipped and the
+maintainer is mid-COVID capture run. Re-planned with the owner;
+decisions worth second-guessing later:
+
+- **Nothing from the deleted win plan is treated as frozen.** Its
+  removal (#109) was anti-overfitting, not a pivot; every inherited
+  decision was re-argued on merits. Outcomes that *changed*: a
+  self-hosted relay is now a documented contingency (trigger: fewer
+  than 3 public relays accept+retain our kinds), no longer banned; the
+  CD.1–CD.3 dossier is back on the table merits-first (the investigator
+  needs the assembled view; Phase-12's flat case view predates
+  Phases 13–15), pure module first, shed CD.3→CD.2 under pressure,
+  CD.1 kept.
+- **No export/bundle tool — owner decision.** A planned
+  raw-signed-event NDJSON exporter was cut: wrapping the corpus in
+  files hides the design's core property. The live public relays ARE
+  the artifact; the consumer story is any NOSTR client or the short
+  WebSocket snippet now embedded in the entry doc. Durability
+  = multi-relay redundancy, probed early (runbook §1).
+- **Case scope: COVID deep + eggs bounded (6–10 sources), LHC pass.**
+  The competition wants ≥2 cases; eggs rides the ready corpus doc via
+  a half-day worksheet (`EPISTACK_EGGS_WORKSHEET.md`).
+- **Compounding is demonstrated, not promised**: a second-investigator
+  walkthrough (fresh workspace + second identity profile → pull corpus
+  → adopt entity → publish disagreeing judgment, side-by-side render)
+  uses only shipped features — KS.5 stays unbuilt.
+- Docs re-based: `EPISTACK_ENTRY.md` rewritten (COVID-first,
+  rubric-coverage map, honest-gaps framing — late-binding assessment
+  by design, graded-not-calibrated); `EPISTACK_RUNBOOK.md` (probe /
+  smoke / v0.7.0 / publish / walkthrough); stale "WIN_PLAN outranks"
+  headers fixed in COMPLEX_CONTENT (C1–C4.2 are in fact shipped),
+  CASE_DOSSIER, ENTITY_CORPUS; kickoff marked superseded.
+
 ## 2026-07-08 — PDF tables: read the grid row-by-row, don't column-band it
 
 Tags: `bug`, `design`.

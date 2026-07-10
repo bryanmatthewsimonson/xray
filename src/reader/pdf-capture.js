@@ -17,6 +17,7 @@ import { putSourceDocument } from '../shared/archive-cache.js';
 import { buildDocumentFromPages, textDensity } from '../shared/pdf-layout.js';
 import { ContentExtractor } from '../shared/content-extractor.js';
 import { extractScholarlyMeta } from '../shared/platforms/scholar-meta.js';
+import { resolveUrlIdentityFromUrl } from '../shared/url-identity.js';
 
 // Figure extraction bounds (C4.2). Displayed size is in PDF points,
 // intrinsic size in pixels; both floors skip decorations. A hash that
@@ -606,6 +607,21 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
         // instead of the document itself.
         const scholar = extractScholarlyMeta({ querySelectorAll: () => [] }, sourceUrl);
 
+        // URL identity (original-as-identity, JOURNAL 2026-07-09): a PDF
+        // fetched through an archive or an arXiv rendering variant keys
+        // to the recovered original (arxiv.org/pdf/X → arxiv.org/abs/X),
+        // with the fetched address kept as capture provenance. URL-only
+        // resolution — a PDF has no archive DOM to consult; fail-open.
+        const identity = resolveUrlIdentityFromUrl(sourceUrl);
+        const identityFields = identity
+            ? {
+                archive_host: identity.archiveHost,
+                ...(identity.original
+                    ? { url: identity.original, capture_url: identity.captureUrl }
+                    : {})
+            }
+            : {};
+
         let fileName = '';
         try {
             fileName = decodeURIComponent((sourceUrl.split('/').pop() || '')
@@ -629,6 +645,7 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
             platform: 'pdf',
             entities: [],
             ...(scholar ? { scholar } : {}),
+            ...identityFields,
             pageMap,
             extraction: {
                 method: 'pdfjs-' + (engine.version || ''),

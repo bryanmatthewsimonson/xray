@@ -407,3 +407,39 @@ test('corrected re-import (same run identity) updates the ledger and clears chan
     assert.equal(third.alreadyImported, true);
     assert.equal(third.ledgerUpdated, false);
 });
+
+test('run provenance: opts.source is recorded; in-extension runs say background', async () => {
+    const summary = await importAuditJson(scorerExport(), { localArticleHash: HASH, source: 'background' });
+    assert.equal(summary.modulesValid, 2);
+    const runs = await AuditRunModel.getByArticleHash(HASH);
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0].source, 'background',
+        'an in-reader run must not masquerade as a CLI import');
+});
+
+test('run provenance: an unknown source is rejected by the model, not silently stored', async () => {
+    await assert.rejects(
+        () => importAuditJson(scorerExport(), { localArticleHash: HASH, source: 'carrier-pigeon' }),
+        /source must be one of/
+    );
+    assert.equal((await AuditRunModel.getByArticleHash(HASH)).length, 0, 'nothing persisted');
+});
+
+test('captureArticleHash join alias: recorded when it differs, null when it matches', async () => {
+    const other = 'c'.repeat(64);
+    const s1 = await importAuditJson(scorerExport(), {
+        localArticleHash: HASH, source: 'background', captureArticleHash: other
+    });
+    const runs1 = await AuditRunModel.getByArticleHash(HASH);
+    assert.equal(runs1[0].captureArticleHash, other,
+        'the full-capture hash rides as a join alias on truncated-key runs');
+    assert.equal(s1.modulesValid, 2);
+
+    await clear();
+    await importAuditJson(scorerExport(), {
+        localArticleHash: HASH, source: 'background', captureArticleHash: HASH
+    });
+    const runs2 = await AuditRunModel.getByArticleHash(HASH);
+    assert.equal(runs2[0].captureArticleHash, null,
+        'no alias when the scored text IS the full capture');
+});

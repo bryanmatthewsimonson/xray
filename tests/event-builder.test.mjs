@@ -352,3 +352,140 @@ test('buildClaimEvent — provenance tags are absent when the claim has none (no
         assert.equal(ev.tags.find((t) => t[0] === name), undefined, `no ${name} tag`);
     }
 });
+
+// --- capture-url extension (url-identity; docs/NIP_DRAFT.md) -----------------
+
+test('buildArticleEvent emits capture-url + a mirror r AFTER the primary r', async () => {
+    const article = {
+        url: 'https://example.com/story',
+        capture_url: 'https://archive.ph/AbC12',
+        title: 'Test', markdown: '# x', domain: 'example.com'
+    };
+    const ev = await EventBuilder.buildArticleEvent(article, [], PUBKEY, []);
+
+    const capTags = ev.tags.filter((t) => t[0] === 'capture-url');
+    assert.equal(capTags.length, 1, 'at most one capture-url');
+    assert.deepEqual(capTags[0], ['capture-url', 'https://archive.ph/AbC12']);
+
+    // First-r invariant: readers take the FIRST r as the article URL;
+    // the mirror co-emit must come after it.
+    const rValues = ev.tags.filter((t) => t[0] === 'r').map((t) => t[1]);
+    assert.equal(rValues[0], 'https://example.com/story', 'primary r stays first');
+    assert.ok(rValues.includes('https://archive.ph/AbC12'), 'mirror co-emitted for #r queries');
+});
+
+test('buildArticleEvent omits capture-url when absent or equal to the identity URL', async () => {
+    const plain = await EventBuilder.buildArticleEvent(
+        { url: 'https://example.com/a', title: 'T', markdown: '# x', domain: 'example.com' },
+        [], PUBKEY, []);
+    assert.ok(!plain.tags.some((t) => t[0] === 'capture-url'));
+
+    const same = await EventBuilder.buildArticleEvent(
+        { url: 'https://example.com/a', capture_url: 'https://example.com/a', title: 'T', markdown: '# x', domain: 'example.com' },
+        [], PUBKEY, []);
+    assert.ok(!same.tags.some((t) => t[0] === 'capture-url'),
+        'no self-referential capture-url noise');
+    assert.equal(same.tags.filter((t) => t[0] === 'r').length, 1);
+});
+
+test('reconstructArticleFromEvent: first r is the identity, capture-url reads back', async () => {
+    const article = {
+        url: 'https://example.com/story',
+        capture_url: 'https://web.archive.org/web/2020/https://example.com/story',
+        title: 'Test', markdown: '# Test\n\nBody.', domain: 'example.com'
+    };
+    const ev = await EventBuilder.buildArticleEvent(article, [], PUBKEY, []);
+    const back = EventBuilder.reconstructArticleFromEvent({ ...ev, id: 'e'.repeat(64) });
+    assert.ok(back);
+    assert.equal(back.url, 'https://example.com/story',
+        'identity = first r, never the mirror');
+    assert.equal(back.capture_url, 'https://web.archive.org/web/2020/https://example.com/story');
+});
+
+// --- cites extension (outbound links; docs/NIP_DRAFT.md) ---------------------
+
+test('buildArticleEvent emits cites for external links only, r co-emits capped at 25', async () => {
+    const links = [];
+    for (let i = 0; i < 30; i++) {
+        links.push({ url: `https://site${String(i).padStart(2, '0')}.org/x`, text: `source ${i}`, count: 1, internal: false });
+    }
+    links.push({ url: 'https://example.com/nav', text: 'home', count: 3, internal: true });
+    const article = {
+        url: 'https://example.com/story', title: 'T', markdown: '# x',
+        domain: 'example.com', links
+    };
+    const ev = await EventBuilder.buildArticleEvent(article, [], PUBKEY, []);
+
+    const cites = ev.tags.filter((t) => t[0] === 'cites');
+    assert.equal(cites.length, 30, 'every EXTERNAL link cited; internal never');
+    assert.deepEqual(cites[0], ['cites', 'https://site00.org/x', 'source 0'], 'document order + anchor text');
+
+    const rValues = ev.tags.filter((t) => t[0] === 'r').map((t) => t[1]);
+    assert.equal(rValues[0], 'https://example.com/story', 'primary r stays FIRST');
+    assert.equal(rValues.length, 1 + 25, 'r co-emits capped at 25');
+    assert.ok(!rValues.includes('https://site29.org/x'), 'target 30 gets cites but no r');
+    assert.ok(!rValues.includes('https://example.com/nav'), 'internal links never co-emit');
+});
+
+test('buildArticleEvent cites: anchor text bounded to 120, empty text omitted, r deduped', async () => {
+    const article = {
+        url: 'https://example.com/story', title: 'T', markdown: '# x', domain: 'example.com',
+        capture_url: 'https://archive.ph/AbC12',
+        links: [
+            { url: 'https://other.org/long', text: 'z'.repeat(300), count: 1, internal: false },
+            { url: 'https://other.org/bare', text: '', count: 1, internal: false },
+            // Already co-emitted as the capture-url mirror — no second r.
+            { url: 'https://archive.ph/AbC12', text: 'self-archive', count: 1, internal: false }
+        ]
+    };
+    const ev = await EventBuilder.buildArticleEvent(article, [], PUBKEY, []);
+    const cites = ev.tags.filter((t) => t[0] === 'cites');
+    assert.equal(cites[0][2].length, 120, 'anchor text truncated to 120');
+    assert.equal(cites[1].length, 2, 'no empty third element for bare links');
+    const archiveRs = ev.tags.filter((t) => t[0] === 'r' && t[1] === 'https://archive.ph/AbC12');
+    assert.equal(archiveRs.length, 1, 'r co-emits dedupe against existing r tags');
+});
+
+test('reconstructArticleFromEvent reads cites back as links; null when absent', async () => {
+    const article = {
+        url: 'https://example.com/story', title: 'T', markdown: '# Test\n\nBody.', domain: 'example.com',
+        links: [
+            { url: 'https://other.org/paper', text: 'the study', count: 2, internal: false },
+            { url: 'https://example.com/nav', text: 'home', count: 1, internal: true }
+        ]
+    };
+    const ev = await EventBuilder.buildArticleEvent(article, [], PUBKEY, []);
+    const back = EventBuilder.reconstructArticleFromEvent({ ...ev, id: 'e'.repeat(64) });
+    assert.deepEqual(back.links, [{ url: 'https://other.org/paper', text: 'the study', count: 1, internal: false }],
+        'external links round-trip; internal were never published');
+
+    const plain = await EventBuilder.buildArticleEvent(
+        { url: 'https://example.com/a', title: 'T', markdown: '# x', domain: 'example.com' }, [], PUBKEY, []);
+    const backPlain = EventBuilder.reconstructArticleFromEvent({ ...plain, id: 'f'.repeat(64) });
+    assert.equal(backPlain.links, null, 'pre-cites events read back null, not []');
+});
+
+test('r co-emits share ONE dedupe: no duplicate r tags across responds-to/capture-url/cites', async () => {
+    const article = {
+        url: 'https://example.com/story', title: 'T', markdown: '# x', domain: 'example.com',
+        capture_url: 'https://archive.ph/AbC12',
+        respondsTo: [
+            { target: 'https://example.com/story', relationship: 'extends' },   // = primary r
+            { target: 'https://archive.ph/AbC12', relationship: 'rebuts' },     // = capture_url mirror
+            { target: 'https://other.org/piece', relationship: 'rebuts' },
+            { target: 'https://other.org/piece', relationship: 'extends' }      // repeated target
+        ],
+        links: [
+            { url: 'https://other.org/piece', text: 'cited too', count: 1, internal: false },
+            { url: 'https://fresh.example/x', text: 'fresh', count: 1, internal: false }
+        ]
+    };
+    const ev = await EventBuilder.buildArticleEvent(article, [], PUBKEY, []);
+    const rValues = ev.tags.filter((t) => t[0] === 'r').map((t) => t[1]);
+    assert.equal(new Set(rValues).size, rValues.length, 'no duplicate r tags');
+    assert.equal(rValues[0], 'https://example.com/story', 'primary r stays first');
+    assert.deepEqual(new Set(rValues), new Set([
+        'https://example.com/story', 'https://archive.ph/AbC12',
+        'https://other.org/piece', 'https://fresh.example/x'
+    ]));
+});

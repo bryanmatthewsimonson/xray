@@ -44,12 +44,23 @@ const TRACKING_PARAMS = new Set([
   // Ad-platform click ids
   'fbclid', 'gclid', 'gclsrc', 'msclkid', 'dclid',
   'yclid', 'twclid', 'wbraid', 'gbraid',
-  // Generic referrer / share trackers
-  'ref', 'referrer', 'referer', 'source',
+  // Generic referrer / share trackers. NOTE: 'from' is deliberately
+  // NOT here despite the legacy ContentExtractor list carrying it —
+  // it is a CONTENT param on real sites (pagination offsets ?from=100,
+  // date ranges, converter origins), and stripping it merges genuinely
+  // distinct pages across every join. Under-merging (a rare share-link
+  // variant forking) is the safer failure than over-merging.
+  'ref', 'referrer', 'referer', 'source', 'share_source',
   // Mailchimp
   'mc_cid', 'mc_eid',
   // Google Analytics
-  '_ga', '_gl',
+  '_ga', '_gl', '_gid',
+  // Marketo / Omeda / Vero / Wicked Reports (merged from the legacy
+  // ContentExtractor.normalizeUrl list when the two normalizers were
+  // unified — JOURNAL 2026-07-09)
+  'mkt_tok', 'oly_anon_id', 'oly_enc_id', 'vero_id', 'wickedid',
+  // Alibaba-family + Twitter legacy impression tracking
+  'spm', '__twitter_impression',
   // Instagram share
   'igshid', 'igsh',
   // YouTube share

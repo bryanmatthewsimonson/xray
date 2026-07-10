@@ -253,9 +253,19 @@ export const ClaimModel = {
     getBySourceUrl: async (url) => {
         if (!url) return [];
         const all = await Storage.get('article_claims', {});
+        // Normalize BOTH sides of the join: claims saved before the
+        // 2026-07 normalizer unification carry the OLD canonical form
+        // of the same URL (unsorted params, kept anchors) — an exact
+        // match would make those saved claims silently vanish after a
+        // re-capture. Both forms converge under the unified
+        // normalizer, so the read-time join heals them.
+        const wanted = Utils.normalizeUrl(url);
         const out = [];
         for (const claim of Object.values(all)) {
-            if (claim.source_url === url) out.push(normalizeClaim(claim));
+            if (claim.source_url === url
+                || Utils.normalizeUrl(claim.source_url || '') === wanted) {
+                out.push(normalizeClaim(claim));
+            }
         }
         out.sort((a, b) => (b.is_key ? 1 : 0) - (a.is_key ? 1 : 0)   // key claims first
                           || (a.created || 0) - (b.created || 0));   // then by creation

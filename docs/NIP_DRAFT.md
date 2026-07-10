@@ -676,6 +676,49 @@ Addressable. The adjudicated **word-deed match**: links a subject's **stated** c
 
 **Kind 30065 is RESERVED** for a future PrecedentCitation — a verdict/finding citing prior rulings of the same proposition or match class as `binding`/`persuasive` precedent (§stare-decisis, deferred). Until it ships, precedent MAY be expressed as an `a` tag on 30063/30064 with a slot-4 `precedent` marker and a slot-5 weight (`binding` | `persuasive`); consumers MUST treat it as informational only.
 
+## Kind 32125 — EntityArticleRelationship
+
+An addressable event asserting that a captured article stands in a named relationship to an entity — that the article is **`about`** the entity, or that the entity is the article's **`source`** (its asserter). Authored by the capturing user, it makes "which articles concern this entity, and who they attribute claims to" a one-hop relay query rather than a re-derivation from every claim. One event is emitted per `(entity, article, relationship)` triple at publish time, deduplicated by the `d` tag.
+
+The two `relationship` values are derived from the entity's role on the article's claims: **`about`** (the claim's `about` list includes the entity) and **`source`** (the claim's `source` is this entity). Republishing replaces in place per NIP-01.
+
+Tags:
+
+- `d` (required) — `<entity-id>:<article-url>:<relationship>`. The `entity-id` here is the **author's local** entity id (e.g. `entity_1234abcd5678ef90`), so it is reader-local and does **not** collide across users — exactly like the 32126 `linked-entity` id. The cross-user handles are the `p` pubkey and the `r` URL below.
+- `r` (required) — the normalized article URL (the same canonical form the article's kind-30023 uses).
+- `p`, slot-4 role = the `relationship` value (required) — the entity's **wire** pubkey. This is the queryable cross-user identifier for the entity; the `d`-tag id is not.
+- `entity-name`, `entity-type` (required) — mirrored for non-indexed reads / list titles.
+- `relationship` (required) — `about` | `source`, mirrored out of the `d` tag.
+- `claim-ref` (optional) — the local claim id that induced this relationship, when one did.
+- `client` (optional).
+- `content` is empty.
+
+Because the relationship is the author's *claim* about an article, two users MAY assert different relationships for the same URL and entity; consumers attribute each to its event's author and render disagreements side by side, never merged (the 32126 posture).
+
+```jsonc
+{
+  "kind": 32125,
+  "tags": [
+    ["d", "entity_1234abcd5678ef90:https://example.com/article:about"],
+    ["r", "https://example.com/article"],
+    ["p", "<entity's wire pubkey>", "", "about"],
+    ["entity-name", "Institute X"],
+    ["entity-type", "organization"],
+    ["relationship", "about"],
+    ["claim-ref", "claim_0011223344556677"],
+    ["client", "xray"]
+  ],
+  "content": ""
+}
+```
+
+Queries:
+
+```jsonc
+{ "kinds": [32125], "#r": ["<article-url>"], "limit": 100 }        // which entities an article is about / sourced from
+{ "kinds": [32125], "#p": ["<entity wire pubkey>"], "limit": 100 } // which articles concern an entity
+```
+
 ## Kind 32126 — PlatformAccount
 
 An addressable event that materializes a captured social-platform account as a NOSTR-queryable identity reference, authored by the capturing user.
@@ -742,6 +785,43 @@ Consumers visiting a URL or NOSTR event that is the target of a `responds-to` SH
 
 Filtered client-side to events that carry a matching `responds-to` tag.
 
+## Kind 30023 — `capture-url` tag (extension)
+
+A long-form article (kind 30023) MAY record that its content was fetched from a different address than the article's identity URL — an archive.today or Wayback Machine snapshot, or an arXiv rendering variant (`/pdf/`, `/html/`, ar5iv):
+
+```
+["capture-url", "<address the capture was actually fetched from>"]
+```
+
+At most one per event. The article's **identity** — the first `r` tag and the input to the `d` tag — is the ORIGINAL URL, recovered from the archive URL's structure (Wayback path-embedded originals, archive.today deep links, arXiv id mapping) or from the archive page's own markers, and normalized like any direct capture. This is deliberate: an archive capture and a direct capture of the same piece MUST land in the same metadata bucket (same `#r`, same `d`), or claims, assessments, and audits fork across mirrors of one text.
+
+The tag is present ONLY when the original was verifiably recovered (so it always differs from the first `r`). When recovery fails, publishers claim nothing: the capture keys to the address actually fetched and no `capture-url` is emitted — a wrong original forks identity worse than none.
+
+Publishers SHOULD also co-emit an indexed `r` tag with the capture address, strictly AFTER the primary `r` (consumers take the FIRST `r` as the article URL), so `{"kinds":[30023],"#r":["<archive-url>"]}` finds the capture from the mirror side too.
+
+## Kind 30023 — `cites` tag (extension)
+
+A long-form article (kind 30023) MAY carry one `cites` tag per distinct EXTERNAL outbound link in its body, in document order:
+
+```
+["cites", "<normalized target URL>", "<anchor text, ≤120 chars>"?]
+```
+
+Where:
+
+- `<target URL>` is normalized exactly as the primary `r` (§6.2 rules) — a link and its tracking-param variant are ONE target, and a cite of an article meets that article's own capture on one URL.
+- The optional anchor text is the link's visible text, whitespace-collapsed and truncated to 120 characters. It is descriptive, not normative.
+
+Semantics: `cites` asserts **linkage only** — the body contains a hyperlink to the target. It carries no stance; endorsement, rebuttal, and the rest are `responds-to` relationships. Internal links (same-host navigation) are not emitted. Publishers extract links under a cap (X-Ray: 100 distinct targets), so **the absence of a `cites` tag is not evidence the article does not link somewhere** — consumers needing certainty must consult the captured body.
+
+Publishers SHOULD co-emit an indexed `r` tag for the first **25** cited targets (after the primary `r` and every other co-emit; deduplicated against `r` tags already on the event — the FIRST `r` remains the article's own URL). This makes the edge queryable from the cited side:
+
+```jsonc
+{ "kinds": [30023], "#r": ["<cited-url>"], "limit": 100 }
+```
+
+returns both captures OF that URL and articles CITING it; the `cites`/`capture-url`/`responds-to` tags (against the first `r`) disambiguate which is which. Relay tag-count and event-size limits are the practical bound here — see the relay-selection notes in the operations runbook.
+
 ## Kind 30023 — `x` tag (extension)
 
 A long-form article (kind 30023) SHOULD carry the canonical article hash of its own body as an indexed `x` tag (NIP-94 precedent: the SHA-256 of the thing):
@@ -751,6 +831,20 @@ A long-form article (kind 30023) SHOULD carry the canonical article hash of its 
 ```
 
 The hash input is the event `content` after stripping the client metadata header (the leading `---…---` block), normalized exactly as specified in the kind-30056 section — so any consumer can verify the tag from the event alone, and `{"kinds":[30023],"#x":["<hash>"]}` finds the article a set of audit events scored. Additive and optional: events published before this extension carry no `x` tag and join audit queries by `r`/`d` instead; a re-published edit derives a NEW hash, which is the point — the audit kinds anchor to the exact text they scored, and a hash change between captures of one URL is a detected content change, not an error.
+
+## Kind 1985 — label mirrors (NIP-32)
+
+Consolidated grammar for the plain-NIP-32 `1985` events an X-Ray publisher emits. Each is a MIRROR of a richer parameterized event — an aggregation convenience for generic NIP-32 consumers, never the primary record — and each uses exactly one of three namespaces. The full rules live in the parent-kind sections; the invariants gathered here:
+
+| Namespace (`L`) | Mirrors | Labeled subjects | Person-labeling rule |
+|---|---|---|---|
+| `xray/assessment` | kind 30054 | the claim's `a` coordinate + its verbatim `r` URL | **No `p` tag, ever** — a `p` would pin the issue labels on the claim's *author* (a reputational mislabel) |
+| `xray/forensic` | kind 30062 | the subject `p` + the source `r` URL | Does label a pubkey — consumers SHOULD treat it as a **structural observation, not a verdict**, surface the 30062's required counter-read alongside it; it carries no score and asserts no intent |
+| `xray/adjudication` | kind 30063 | the claim's `a` coordinate + the source `r` URL | Labels **content, never a pubkey** |
+
+- `l` values come from the namespace's vocabulary in the parent section (assessment labels, forensic maneuvers, verdict states); at most one `l` per value.
+- **Kind 30064 (integrity findings) deliberately has NO 1985 mirror**: a bare match-label on a person's pubkey, stripped of its evidence and caveats, is exactly the decontextualized person-grade that family forbids — the full 30064 is the only wire shape.
+- A mirror is never authoritative on its own: consumers resolving a 1985 under one of these namespaces SHOULD fetch the parent event (same author, matching `a`/`p`/`r`) for the evidence, caveats, and firewall context the mirror strips.
 
 ## Querying
 
@@ -805,5 +899,5 @@ This NIP does not specify a ranking algorithm. Recommended approaches:
 
 ## Reference implementations
 
-- [x-ray browser extension](https://github.com/bryanmatthewsimonson/xray) — shipping kinds 30040 + 30050 + the `responds-to` and `x` extensions; 30054/30055 builders with publishing flag-gated (Phase 11); 30056–30059 fully implemented — builders, parsers, a flag-gated ordered publish path, and portal read surfaces (Phase 13); 30060/30061 builders + parsers implemented, publish paths deferred (the dossier stays derived; disputes are wire-format-only in v1); 30062 behavioral-finding builder + parser + the kind-1985 mirror and the `revision/*` 30055 values, publishing flag-gated (Phase 14); 30063/30064 adjudicated-verdict + integrity-finding builders + parsers and the 30063 kind-1985 mirror, publish paths behind `truthAdjudicationPublishing` (Phase 15; 30065 reserved; local adjudication models shipped, publish/read UI wiring deferred); 32126 platform-account records with the derived-pubkey rendezvous and the `linked-entity` pubkey tag, publishing behind `platformAccountPublishing`, plus verify-on-ingest enforced on every relay read (Knowledge Sharing KS.1–KS.4).
-- *(second client, TBD pre-merge)*
+- [x-ray browser extension](https://github.com/bryanmatthewsimonson/xray) — shipping kinds 30040 + 30050 + the `responds-to` and `x` extensions; 30054/30055 builders with publishing flag-gated (Phase 11); 30056–30059 fully implemented — builders, parsers, a flag-gated ordered publish path, and portal read surfaces (Phase 13); 30060/30061 builders + parsers implemented, publish paths deferred (the dossier stays derived; disputes are wire-format-only in v1); 30062 behavioral-finding builder + parser + the kind-1985 mirror and the `revision/*` 30055 values, publishing flag-gated (Phase 14); 30063/30064 adjudicated-verdict + integrity-finding builders + parsers and the 30063 kind-1985 mirror, publish paths behind `truthAdjudicationPublishing` (Phase 15; 30065 reserved; the adjudicate/integrity reader modals, the flag-gated publish path, and portal verdict render all ship); 32125 entity↔article relationships (builder + parser + portal read); 32126 platform-account records with the derived-pubkey rendezvous and the `linked-entity` pubkey tag, publishing behind `platformAccountPublishing`, plus verify-on-ingest enforced on every relay read (Knowledge Sharing KS.1–KS.4). The case-dossier surfaces (`docs/CASE_DOSSIER_DESIGN.md`, CD.1–CD.3) are derived / computed-on-read over these kinds — no new kind of their own.
+- *(a second interoperating client is the natural next reference implementation.)*

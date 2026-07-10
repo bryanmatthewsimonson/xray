@@ -28,6 +28,7 @@ import {
     buildAuditTool, buildAuditSystemPrompt, buildAuditUserPrompt, assembleAudit,
     buildSingleModuleTool, buildModuleSystemPrompt
 } from './audit/audit-prompt.js';
+import { MAX_AUDIT_INPUT_CHARS } from './audit/assemble.js';
 import { MODULE_NAMES } from './audit/findings-schemas.js';
 import {
     LENS_PROMPT_VERSION, LENS_TOOL_NAME,
@@ -43,8 +44,11 @@ import { articleHash } from './audit/article-hash.js';
 export { LLM_KEY_STORAGE, LLM_MODEL_STORAGE };
 
 // Bound the article we send, so a pathologically long capture can't
-// balloon the request. ~120k chars ≈ well within context for one pass.
-const MAX_ARTICLE_CHARS = 120000;
+// balloon the request. Aliases the shared auditable bound — the READER
+// slices with auditableSlice before hashing and sending, so this
+// SW-side slice is a defensive no-op on the audit path (the hash gate
+// covers exactly the text that was scored).
+const MAX_ARTICLE_CHARS = MAX_AUDIT_INPUT_CHARS;
 // Output cap for the structured tool call. Generous enough for a rich
 // proposal set; if the model still hits it we surface a clear error
 // rather than feeding truncated JSON to the validators.
@@ -58,6 +62,14 @@ const MAX_MODULE_OUTPUT_TOKENS = 8192;
 // A lens pass emits ONE jurisdiction's readings per call (§6 call
 // topology), so the per-module cap size is right for it too.
 const MAX_LENS_OUTPUT_TOKENS = 8192;
+// Audit call bounds. A single-shot (quick) audit emits up to 16384
+// output tokens — the lens's 120s would abort legitimate calls, so it
+// gets a generous cap; a per-module call emits one module and fits the
+// lens-sized window. Both exist so a hung request can never wedge the
+// reader's audit controls (the reader races its own slightly-longer
+// timeout on top).
+const AUDIT_TIMEOUT_MS = 300000;
+const MODULE_TIMEOUT_MS = 120000;
 // Each lens call is bounded so a hung request cannot permanently
 // disable the reader's lens control (§6).
 const LENS_TIMEOUT_MS = 120000;
@@ -336,10 +348,12 @@ export async function runAuditPass(req = {}) {
 
     const model = await readModel();
 
-    // Thorough mode: one independent call per dimension, each with its
-    // full vendored methodology and its own output budget.
+    // Thorough mode moved to reader-orchestrated per-module messages
+    // (`xray:audit:module`) — one long-lived response channel behind a
+    // single message is exactly what MV3 service-worker eviction kills
+    // (JOURNAL 2026-07-09). Keep a clear error for any stale caller.
     if (req.mode === 'per_module') {
-        return runPerModuleAudit({ apiKey, model, markdown, req });
+        return { ok: false, error: 'Thorough audits now run per module — send xray:audit:module calls (the reader orchestrates them).' };
     }
 
     const system = buildAuditSystemPrompt({ url: req.articleUrl || '', title: req.articleTitle || '' });
@@ -357,7 +371,15 @@ export async function runAuditPass(req = {}) {
 
     Utils.log('[X-Ray LLM] audit pass:', { model, chars: markdown.length });
 
-    const res = await postMessages(payload, apiKey);
+    // Bounded so a hung request can't hold the response channel forever.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), AUDIT_TIMEOUT_MS);
+    let res;
+    try {
+        res = await postMessages(payload, apiKey, { signal: controller.signal });
+    } finally {
+        clearTimeout(timer);
+    }
     if (!res.ok) return res;
     const data = res.data;
 
@@ -392,60 +414,76 @@ export async function runAuditPass(req = {}) {
 }
 
 /**
- * Thorough audit: eight independent module calls, run in parallel (they
- * are blind to each other — that's the point), each with its full
- * methodology prompt and a single-module tool. Successful modules are
- * collected and handed to the SAME assembleAudit; a failed call simply
- * leaves its module absent, which assembleAudit records as a FAILED
- * result (the rest still produce an aggregate). No standing single-shot
- * caveat — this IS the rigorous path.
+ * One thorough-audit MODULE call (the reader orchestrates eight of
+ * these with bounded concurrency — run-orchestrator.js). Each call is
+ * its own runtime message, so every response resets the MV3 idle timer
+ * and a lost channel costs one retryable module, never the run (the
+ * lens topology, applied to audits). Same consent gates as every LLM
+ * pass; returns the RAW module findings — the reader draft-stores,
+ * assembles, and imports through the firewall.
+ *
+ * @param {object} req  { module, markdown, articleUrl?, articleTitle? }
+ * @returns {Promise<{ok:true, module:string, findings:object, model:string, usage?:object}
+ *                  | {ok:false, module?:string, error:string, status?:number, timeout?:boolean}>}
  */
-async function runPerModuleAudit({ apiKey, model, markdown, req }) {
-    Utils.log('[X-Ray LLM] thorough audit:', { model, chars: markdown.length, modules: MODULE_NAMES.length });
-    const userContent = buildAuditUserPrompt({ articleText: markdown });
-
-    const results = await Promise.all(MODULE_NAMES.map(async (name) => {
-        const tool = buildSingleModuleTool(name);
-        const payload = {
-            model,
-            max_tokens: MAX_MODULE_OUTPUT_TOKENS,
-            system: buildModuleSystemPrompt(name, { url: req.articleUrl || '', title: req.articleTitle || '' }),
-            tools: [tool],
-            tool_choice: { type: 'tool', name: tool.name },
-            messages: [{ role: 'user', content: userContent }]
-        };
-        const res = await postMessages(payload, apiKey);
-        if (!res.ok) { Utils.error('[X-Ray LLM] module failed', name, res.error); return { name }; }
-        const data = res.data;
-        if (data && data.stop_reason === 'max_tokens') { Utils.error('[X-Ray LLM] module truncated', name); return { name }; }
-        const input = extractToolInput(data, tool.name);
-        if (input === null) { Utils.error('[X-Ray LLM] module no tool output', name); return { name }; }
-        return { name, findings: input, usedModel: (data && data.model) || model };
-    }));
-
-    const modules = {};
-    let okCount = 0;
-    let usedModel = model;
-    for (const r of results) {
-        if (r.findings) { modules[r.name] = r.findings; usedModel = r.usedModel || usedModel; okCount += 1; }
+export async function runAuditModulePass(req = {}) {
+    await loadFlags();
+    if (!isEnabled('llmAssist')) {
+        return { ok: false, error: 'LLM assist is off. Enable it in Options → Advanced → LLM assist.' };
     }
-    if (okCount === 0) {
-        return { ok: false, error: 'Every module call failed — check your connection and key, then try again.' };
+    const apiKey = await readApiKey();
+    if (!apiKey) {
+        return { ok: false, error: 'No Anthropic API key set. Add one in Options → Advanced → LLM assist.' };
     }
 
-    let audit;
+    const name = String(req.module || '');
+    if (!MODULE_NAMES.includes(name)) {
+        return { ok: false, error: `Unknown audit module: ${name || '(none)'}` };
+    }
+    // Defensive no-op when the reader pre-sliced (the hash-gate contract).
+    const markdown = String(req.markdown || '').slice(0, MAX_ARTICLE_CHARS);
+    if (!markdown.trim()) {
+        return { ok: false, module: name, error: 'No article text to audit.' };
+    }
+
+    const model = await readModel();
+    const tool = buildSingleModuleTool(name);
+    const payload = {
+        model,
+        max_tokens: MAX_MODULE_OUTPUT_TOKENS,
+        system: buildModuleSystemPrompt(name, { url: req.articleUrl || '', title: req.articleTitle || '' }),
+        tools: [tool],
+        tool_choice: { type: 'tool', name: tool.name },
+        messages: [{ role: 'user', content: buildAuditUserPrompt({ articleText: markdown }) }]
+    };
+
+    Utils.log('[X-Ray LLM] audit module:', { module: name, model, chars: markdown.length });
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), MODULE_TIMEOUT_MS);
+    let res;
     try {
-        audit = await assembleAudit({
-            toolInput: { modules }, model: usedModel, markdown,
-            metadata: req.metadata || {}, standingCaveat: null
-        });
-    } catch (err) {
-        Utils.error('[X-Ray LLM] thorough assembly failed:', err && err.message);
-        return { ok: false, error: 'Could not assemble the audit from the model output.' };
+        res = await postMessages(payload, apiKey, { signal: controller.signal });
+    } finally {
+        clearTimeout(timer);
     }
+    if (!res.ok) return { ...res, module: name };
 
-    Utils.log('[X-Ray LLM] thorough modules ok:', okCount);
-    return { ok: true, model: usedModel, audit, modulesOk: okCount };
+    const data = res.data;
+    if (data && data.stop_reason === 'max_tokens') {
+        return { ok: false, module: name, error: `The ${name} module hit its output limit before finishing.` };
+    }
+    const findings = extractToolInput(data, tool.name);
+    if (findings === null) {
+        return { ok: false, module: name, error: `The model did not return structured ${name} findings.` };
+    }
+    return {
+        ok: true,
+        module: name,
+        findings,
+        model: (data && data.model) || model,
+        usage: data && data.usage ? data.usage : undefined
+    };
 }
 
 // ------------------------------------------------------------------

@@ -12,7 +12,7 @@ globalThis.chrome = globalThis.chrome || {
     storage: { local: { get(_k, cb) { cb({}); }, set(_o, cb) { cb && cb(); }, remove(_k, cb) { cb && cb(); } } }
 };
 
-const { chooseBucket, bucketStart, buildBuckets, brushRange } = await import('../src/portal/timeline.js');
+const { chooseBucket, bucketStart, buildBuckets, brushRange, layoutWorldSpine } = await import('../src/portal/timeline.js');
 const { applyFilters } = await import('../src/portal/library.js');
 
 const DAY = 86400;
@@ -105,4 +105,45 @@ test('applyFilters time range: after inclusive, before exclusive', () => {
     assert.equal(applyFilters(items, { after: 0, before: 300 }).length, 2);
     assert.deepEqual(applyFilters(items, { after: 200, before: 300 }).map((i) => i.created_at), [200]);
     assert.equal(applyFilters(items, {}).length, 3);
+});
+
+// --- layoutWorldSpine (CD.3 world-time spine) -----------------------
+
+test('layoutWorldSpine: proportional x positions across the span', () => {
+    const out = layoutWorldSpine([
+        { ref: 'a', at: 1000, precision: 'exact' },
+        { ref: 'b', at: 2000, precision: 'exact' },
+        { ref: 'c', at: 1500, precision: 'exact' }
+    ], 100);
+    // Sorted by `at`; endpoints pin to 0 and width, midpoint proportional.
+    assert.deepEqual(out.map((e) => e.ref), ['a', 'c', 'b']);
+    assert.equal(out[0].x, 0);
+    assert.equal(out[2].x, 100);
+    assert.equal(out[1].x, 50);   // (1500-1000)/(2000-1000)*100
+    // Exact precision → zero-width band (a point marker).
+    assert.ok(out.every((e) => e.bandWidth === 0));
+});
+
+test('layoutWorldSpine: precision widens the band proportionally', () => {
+    // A one-year span; a year-precision event is a full-width band.
+    const year = 365 * DAY;
+    const out = layoutWorldSpine([
+        { ref: 'start', at: 0, precision: 'day' },
+        { ref: 'end', at: year, precision: 'year' }
+    ], 365);
+    const end = out.find((e) => e.ref === 'end');
+    const start = out.find((e) => e.ref === 'start');
+    assert.equal(Math.round(start.bandWidth), 1);    // one day over a 365-day span → ~1px
+    assert.equal(Math.round(end.bandWidth), 365);    // one year → full width
+    assert.ok(!('extra' in end) || true);            // originals preserved, x/bandWidth added
+});
+
+test('layoutWorldSpine: single event and empty input degrade gracefully', () => {
+    assert.deepEqual(layoutWorldSpine([], 100), []);
+    const one = layoutWorldSpine([{ ref: 'solo', at: 5, precision: 'year' }], 100);
+    assert.equal(one.length, 1);
+    assert.equal(one[0].x, 50);          // centered when there is no span
+    assert.equal(one[0].bandWidth, 0);   // no span → no proportional band
+    // Undated events are dropped from the spine (they belong in `undated`).
+    assert.deepEqual(layoutWorldSpine([{ ref: 'x', at: null }], 100), []);
 });

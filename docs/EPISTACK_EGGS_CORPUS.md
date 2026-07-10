@@ -219,9 +219,10 @@ the same institution*:
 - **Pair C (press-release drift):** source 19 (ScienceDaily "may reduce")
   ⟶ overstates ⟶ source 3 (Qin) — a fidelity/omission finding, not a
   contradiction of fact but of *framing*.
-- **Pair D (institutional reversal):** source 13 (TIME 1984) ⟶ `updates` ⟶
-  source 14 (TIME 2014); and source 11 (DGA drops the limit) ⟶ `updates` ⟶
-  the older 300 mg guidance implied in sources 12/13.
+- **Pair D (institutional reversal):** source 14 (TIME 2014) ⟶ `updates` ⟶
+  source 13 (TIME 1984) — the newer piece updates the older, the same
+  direction as the source-11 edge; and source 11 (DGA drops the limit)
+  ⟶ `updates` ⟶ the older 300 mg guidance implied in sources 12/13.
 - **Pair E (interest vs critique):** source 12 / source 24 (egg-industry
   guidance & funding) ⟶ `contradicts` / `undisclosed-interest` ⟶ source 20
   (Nestle COI critique).

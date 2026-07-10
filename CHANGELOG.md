@@ -12,6 +12,83 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **User guide.** `docs/USER_GUIDE.md` is a complete, feature-by-feature
+  walkthrough for people who use X-Ray rather than build it: setup
+  (signing, relays, the LLM key, the full feature-flag table),
+  capturing (triggers, provenance chips, archive/mirror URL identity,
+  citations), the reader (view modes, entity tagging, claims, the icon
+  legend), and — the heart of it — the judgment vocabulary with concrete
+  examples for every value: the assessment stances/labels, claim
+  relationships, attestation tiers and convergence, the six proposition
+  classes (with the state-fact vs event-fact distinction spelled out),
+  the five verdict states, standards of proof, integrity match states
+  and gap causes, the eight audit dimensions with bands and the
+  display rules, the forensic maneuver families, and the moral-lens
+  dispositions. Linked from the README.
+
+- **Outbound links are captured as citations.** Article extraction now
+  records every hyperlink in the body as structured data
+  (`article.links`: normalized URL, first anchor text, occurrence
+  count, internal/external, capped at 100 distinct targets with an
+  honest truncation marker). **Wire change, additive** (documented in
+  `docs/NIP_DRAFT.md`): published kind-30023 events carry one `cites`
+  tag per distinct external link — linkage only, never endorsement
+  (that stays `responds-to`) — plus indexed `r` co-emits for the first
+  25 targets so the edge is queryable from the cited side; the first
+  `r` remains the article's own URL. Read-back distinguishes "links
+  not captured" (pre-extension events → `null`) from "zero links". The
+  case dossier derives both sides (`deriveCitationEdges`) and the
+  portal evidence table shows "cites N external sources · cited by M
+  case articles". Archive captures unwrap archive-wrapped body links
+  to their originals before publishing (a Wayback page's rewritten
+  anchors would otherwise all classify internal and emit zero `cites`).
+  Not yet extracted: PDF bodies and the platform synthesizers
+  (YouTube/Twitter/FB/IG/TikTok).
+
+- **Archive captures re-key to their original URL.** Capturing from an
+  archive.today mirror, a Wayback Machine snapshot, or an arXiv
+  rendering variant (`/pdf/`, `/html/`, ar5iv) now recovers the
+  ORIGINAL URL and makes it the article's identity — same `d` tag,
+  same `#r` bucket as a direct capture, so claims, assessments, and
+  audits on mirrored text no longer fork per mirror. The fetched
+  address is kept as provenance: a reader note ("captured via
+  archive.ph · original: …") and — **wire change, additive** — a new
+  kind-30023 `capture-url` tag with an indexed `r` co-emit after the
+  primary `r` (documented in `docs/NIP_DRAFT.md`; readers keep taking
+  the FIRST `r` as the article URL). Recovery is fail-open: when the
+  original can't be verified from the archive URL's structure or the
+  archive page's own markers, the capture keys to the address actually
+  fetched and says "original URL not recovered" rather than guessing.
+
+- **Case dossier — the assembled view of a case (CD.1–CD.3).** A case
+  entity's portal dashboard gains three derived, computed-on-read
+  surfaces over everything in the case's orbit. `assembleCaseDossier`
+  (`shared/case-dossier.js`) is the pure spine — same events in, same
+  dossier out — composing the shipped models into five sections: the
+  **shape-of-knowledge** header (the verdict-state *distribution* over
+  the case's propositions, coverage counts on its face, standards-of-
+  proof chips, and the open/resolved prediction tally — never a fused
+  case score); **knots** (contradiction clusters as connected
+  components, words-vs-deeds integrity findings, forensic maneuvers);
+  a **four-axis timeline** (a world-time spine with precision bands —
+  a year-precision event is a year-wide band, never a fake date — plus
+  publication / capture / judgment overlays on one shared scale, the
+  undated tail kept and counted, and gap callouts for
+  published-before-occurred / capture-long-after-publication /
+  story-changed-after-event); the **convergence-collapsed evidence**
+  table (twelve outlets on one wire count as one origin, per-source
+  capture-completeness and the shared audit band, verbatim quotes); and
+  **entities × roles** routing to the existing coverage-capped entity
+  record. Disagreement renders side by side, never merged. The portal
+  case view renders the shape / evidence / timeline sections (CD.2/CD.3)
+  beside the existing audit-dossier and forensic blocks and alongside —
+  not replacing — the wire publish-density strip. **Wire note (none,
+  deliberately):** the dossier is derived and computed-on-read — no new
+  event kind, nothing published, nothing persisted; anyone with the
+  same events derives the same dossier. (`docs/CASE_DOSSIER_DESIGN.md`;
+  `docs/NIP_DRAFT.md` now also documents the already-emitted kind
+  `32125` entity↔article relationship it reads.)
+
 - **Moral lens — per-jurisdiction lens-readings (Phase 16, 16.1–16.4).**
   The reader gains an opt-in **Lens readings** bar (new `moralLens` flag,
   default off, independent of LLM assist; the Anthropic key is a second
@@ -57,7 +134,41 @@ Sections per release: **Added** (new features), **Changed**
   OCR of text inside figures, and vector-drawn charts (path ops, no image
   XObject) — those remain a gap (`COMPLEX_CONTENT_DESIGN.md` §9 Q6).
 
+### Changed
+
+- **One URL normalizer everywhere.** Article identity
+  (`ContentExtractor.normalizeUrl`, which feeds 30023 `d` tags) now
+  delegates to the NIP-73 normalizer that already keyed every
+  downstream join, with the legacy-only tracking params (`mkt_tok`,
+  `oly_*`, `vero_id`, `wickedid`, `spm`, `share_source`, `from`, …)
+  merged into the unified strip list. Query params now sort and
+  non-text-fragment anchors strip in article identity too.
+  **Consequence:** captures of URLs whose params sort or now strip
+  derive different `d` tags than pre-unification captures of the same
+  page — a republish is a new addressable event; the portal reconcile
+  view absorbs the seam (JOURNAL 2026-07-09).
+
 ### Fixed
+
+- **Thorough (and sometimes quick) audit results no longer vanish after
+  the LLM run.** Both in-reader audit modes rode one long-lived
+  `xray:audit:run` message whose response arrived minutes later — MV3
+  service-worker eviction killed the response channel and the paid-for
+  results were never persisted or displayed. Thorough mode now runs
+  **one message per module** (`xray:audit:module`, orchestrated
+  reader-side at concurrency 3 with one auto-retry on 429/5xx/timeout
+  and a live "N/8" progress counter); every completed module is
+  draft-persisted immediately, and an interrupted run offers **resume**
+  that re-runs only the missing modules. Quick mode gains a keepalive
+  ping plus paired timeouts (SW 300s / reader 330s) so the button can
+  never stick on "Auditing…". Also unified the audit hash key: PDFs now
+  key runs to the reconstruction the panel queries (runs used to
+  persist under a different hash — success toast, empty panel), and
+  over-limit articles are sliced to the 120k auditable bound BEFORE
+  hashing, with the truncation disclosed pre-spend and labeled in the
+  panel. In-reader runs record provenance `background` (previously
+  mislabeled `cli-import`). No wire change — internal messages and
+  local persistence only.
 
 - **PDF tables reconstruct row-by-row instead of scrambling.** An
   aligned grid (a Bayesian evidence table, a results table) was read
