@@ -43,6 +43,7 @@ import { EventBuilder } from './event-builder.js';
 import { NostrClient } from './nostr-client.js';
 import { EntityModel } from './entity-model.js';
 import { LocalKeyManager } from './local-key-manager.js';
+import { recordPublished } from './event-journal.js';
 
 const SCHEMA_VERSION = 1;
 // NIP-32 L/l namespace for our sync events. Writes use the current label;
@@ -185,6 +186,8 @@ export async function pushEntities({ userPrivkey, relays }) {
             if (result && result.successful > 0) {
                 out.pushed++;
                 out.perEntity.push({ id: entity.id, ok: true, relays: result.successful, total: result.total });
+                try { await recordPublished(signed, result, {}); }
+                catch (err) { Utils.error('event journal write failed for', entity.id, err); }
             } else {
                 out.failed++;
                 out.perEntity.push({ id: entity.id, ok: false, reason: 'no relays accepted' });
@@ -348,6 +351,10 @@ export async function pushRelayList({ userPrivkey, relays }) {
     const unsigned = EventBuilder.buildRelayListEvent(relays, userPubkey);
     const signed = await Crypto.signEvent(unsigned, userPrivkey);
     const result = await NostrClient.publishToRelays(relays, signed);
+    if (result && result.successful > 0) {
+        try { await recordPublished(signed, result, {}); }
+        catch (err) { Utils.error('event journal write failed for relay list', err); }
+    }
     return { published: result.successful || 0, total: result.total || relays.length };
 }
 

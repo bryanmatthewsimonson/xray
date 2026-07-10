@@ -12,6 +12,23 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Signed-event journal + republish.** Every event X-Ray publishes is
+  now stored VERBATIM (full signed JSON + per-relay outcome snapshot)
+  in a new IndexedDB journal (`xray-events`) — across the reader's
+  whole publish flow and the side panel's entity-sync/relay-list
+  pushes. The portal's reconcile panel gains **Rebroadcast** on
+  "missing from relays" rows (re-sends the journaled event as-is — no
+  re-signing, no NIP-07 prompt) plus "Rebroadcast all missing", and
+  the never-published bucket is now **itemized** ("Unpublished local
+  artifacts" — every local claim/assessment/entity/article/verdict/…
+  with no publish mark, with its open-in-reader route) instead of a
+  bare count. Publish ledgers are now honest: an event only marks
+  published on a **confirmed** relay OK — an 8-second timeout is no
+  longer assumed success (those events stay unmarked, retry on the
+  next publish, and the summary reports them as unconfirmed). The
+  article's own archive-row publish mark is awaited instead of
+  fire-and-forget. No wire change.
+
 - **User guide.** `docs/USER_GUIDE.md` is a complete, feature-by-feature
   walkthrough for people who use X-Ray rather than build it: setup
   (signing, relays, the LLM key, the full feature-flag table),

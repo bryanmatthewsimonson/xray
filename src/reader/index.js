@@ -53,6 +53,7 @@ import { CURRENT_MODULE_VERSIONS, MODULE_NAMES } from '../shared/audit/findings-
 // module-prompts dependency must stay out of the reader bundle.
 import { assembleAudit, auditableSlice, MAX_AUDIT_INPUT_CHARS } from '../shared/audit/assemble.js';
 import { orchestrateModuleRuns } from '../shared/audit/run-orchestrator.js';
+import * as EventJournal from '../shared/event-journal.js';
 import { auditBand, scoreChipHtml, prettyModule } from '../shared/audit/display.js';
 import { JurisdictionModel } from '../shared/jurisdiction-model.js';
 import { lensTypeForPropositionClass } from '../shared/lens-taxonomy.js';
@@ -3063,10 +3064,48 @@ function fmtCommentDate(iso) {
 // them happy without meaningfully slowing the batch.
 const BATCH_PUBLISH_DELAY_MS = 200;
 
+// Per-publish tally of events whose only "successes" were ASSUMED
+// (no OK before the relay timeout). They are journaled — the signed
+// event is real — but never marked published: marking on hope is how
+// "published" artifacts go missing (JOURNAL 2026-07-10). Reset at the
+// top of publish(); surfaced in the summary.
+const _publishUnconfirmed = { count: 0 };
+
+/**
+ * The ONE gate every per-event publish site runs its response
+ * through. Journals the signed event verbatim (the rebroadcast +
+ * durability substrate — event-journal.js) whenever ANY relay took
+ * it, then answers whether the local ledger may mark it published:
+ * CONFIRMED (non-assumed) OKs only.
+ */
+async function publishOk(resp) {
+    if (!resp || !resp.ok || !resp.results) return false;
+    const results = resp.results;
+    if (results.successful > 0 && resp.signedEvent) {
+        try {
+            await EventJournal.recordPublished(resp.signedEvent, results, {
+                articleUrl: (state.article && state.article.url) || null
+            });
+        } catch (err) {
+            console.warn('[X-Ray Reader] event journal write failed:', err);
+        }
+    }
+    const confirmed = typeof results.confirmed === 'number'
+        ? results.confirmed
+        : (Array.isArray(results.results)
+            ? results.results.filter((r) => r && r.success && !r.assumed).length : 0);
+    if (results.successful > 0 && confirmed === 0) {
+        _publishUnconfirmed.count += 1;
+        return false;
+    }
+    return confirmed > 0;
+}
+
 async function publish() {
     const btn = $('#xr-publish');
     const originalLabel = btn.textContent;
     btn.disabled = true;
+    _publishUnconfirmed.count = 0;
 
     const includeComments = state.comments.includeInPublish && state.comments.tree.length > 0;
     const commentList = includeComments ? flattenCommentTree(state.comments.tree) : [];
@@ -3228,12 +3267,16 @@ async function publish() {
         }
         recordRelayResults(articleResp.results);
         const articleResults = articleResp.results;
+        // Journal + confirm-gate the article like every other event.
+        const articleConfirmed = await publishOk(articleResp);
         setProgress(1, totalEvents);
 
         // Cache the article to IndexedDB for Phase 7's archive reader.
-        // Fire-and-forget — a cache write shouldn't block publish. We
-        // only persist after at least one relay accepted the event so
-        // the `publishedToRelay` flag is honest.
+        // AWAITED — this row is the article's only publish ledger; a
+        // silently-failed write makes a genuinely-published article
+        // read as "never published" (portal local-only, reconcile).
+        // publishedToRelay stays honest: CONFIRMED relay OKs only —
+        // an assumed-only send archives the copy without the flag.
         if (articleResults.successful > 0) {
             const publishedEventId = articleResp.signedEvent && articleResp.signedEvent.id;
             // Archive a READER-shaped copy, not the publish copy: the
@@ -3253,12 +3296,17 @@ async function publish() {
             if (state.markdownDraft !== (state.article.markdown || '')) {
                 delete archivedArticle.pageMap;
             }
-            ArchiveCache.saveArticle({
-                article:          archivedArticle,
-                source:           'capture',
-                publishedToRelay: true,
-                publishedEventId: publishedEventId || null
-            }).catch((err) => console.warn('[X-Ray Reader] archive cache save failed:', err));
+            try {
+                await ArchiveCache.saveArticle({
+                    article:          archivedArticle,
+                    source:           'capture',
+                    publishedToRelay: articleConfirmed,
+                    publishedEventId: publishedEventId || null
+                });
+            } catch (err) {
+                console.warn('[X-Ray Reader] archive cache save failed:', err);
+                toast('The article published but its local archive record failed to save — it may show as unpublished in the portal.', 'warning', 5000);
+            }
         }
 
         // Comment events — only if the user opted in.
@@ -3321,7 +3369,7 @@ async function publish() {
                     });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
-                        if (resp.results.successful > 0) {
+                        if (await publishOk(resp)) {
                             commentResults.ok++;
                         } else {
                             commentResults.fail++;
@@ -3378,12 +3426,15 @@ async function publish() {
 
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
-                        if (resp.results.successful > 0) {
+                        // relay:publish responses carry no signedEvent —
+                        // attach the locally-signed one so the journal
+                        // gets its verbatim copy like every other site.
+                        if (await publishOk({ ...resp, signedEvent: signed })) {
                             entityResults.ok++;
                             // Only mark as published if at least one relay
-                            // accepted it — otherwise it'll retry next publish.
+                            // CONFIRMED it — otherwise it'll retry next publish.
                             try { await EntityModel.markPublished(entity.id, signed.id); }
-                            catch (_) { /* best-effort */ }
+                            catch (err) { console.warn('[X-Ray Reader] entity publish mark failed:', entity.id, err); }
                         } else {
                             entityResults.fail++;
                             entityResults.errors.push(`${entity.name}: no relays accepted`);
@@ -3451,7 +3502,7 @@ async function publish() {
                 });
                 if (resp && resp.ok && resp.results) {
                     recordRelayResults(resp.results);
-                    if (resp.results.successful > 0) {
+                    if (await publishOk(resp)) {
                         claimResults.ok++;
                         // The signed event id is on the resp chain through
                         // the SW; not trivially available here, but the
@@ -3503,7 +3554,7 @@ async function publish() {
                 });
                 if (resp && resp.ok && resp.results) {
                     recordRelayResults(resp.results);
-                    if (resp.results.successful > 0) {
+                    if (await publishOk(resp)) {
                         relationshipResults.ok++;
                     } else {
                         relationshipResults.fail++;
@@ -3562,7 +3613,7 @@ async function publish() {
                     });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
-                        if (resp.results.successful > 0) {
+                        if (await publishOk(resp)) {
                             accountResults.ok++;
                         } else {
                             accountResults.fail++;
@@ -3656,7 +3707,7 @@ async function publish() {
                     const resp = await sendJudgment(unsigned);
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
-                        if (resp.results.successful > 0) {
+                        if (await publishOk(resp)) {
                             assessResults.ok++;
                             landed = true;
                             try { await AssessmentModel.markPublished(sel.assessment.id, resp.signedEvent?.id || null); }
@@ -3701,7 +3752,7 @@ async function publish() {
                     const resp = await sendJudgment(unsigned);
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
-                        if (resp.results.successful > 0) {
+                        if (await publishOk(resp)) {
                             mirrorResults.ok++;
                             try { await AssessmentModel.markMirrored(sel.assessment.id); }
                             catch (_) { /* best-effort */ }
@@ -3737,7 +3788,7 @@ async function publish() {
                     const resp = await sendJudgment(unsigned);
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
-                        if (resp.results.successful > 0) {
+                        if (await publishOk(resp)) {
                             jLinkResults.ok++;
                             try { await EvidenceLinker.markPublished(sel.link.id, resp.signedEvent?.id || null); }
                             catch (_) { /* best-effort */ }
@@ -3866,7 +3917,7 @@ async function publish() {
                         const resp = await browserApi.runtime.sendMessage({
                             type: 'xray:capture:publish', id: state.id, event: entry.event
                         });
-                        if (resp && resp.ok && resp.results && resp.results.successful > 0) {
+                        if (await publishOk(resp)) {
                             recordRelayResults(resp.results);
                             auditResults.ok++;
                             landed = true;
@@ -3967,7 +4018,7 @@ async function publish() {
                     const resp = await sendForensic(unsigned);
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
-                        if (resp.results.successful > 0) {
+                        if (await publishOk(resp)) {
                             findingResults.ok++;
                             landed = true;
                             try { await ForensicModel.markPublished(sel.finding.id, resp.signedEvent?.id || null, userPubkey, dTag); }
@@ -4008,7 +4059,7 @@ async function publish() {
                     const resp = await sendForensic(unsigned);
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
-                        if (resp.results.successful > 0) {
+                        if (await publishOk(resp)) {
                             fMirrorResults.ok++;
                             try { await ForensicModel.markMirrored(sel.finding.id); }
                             catch (_) { /* best-effort */ }
@@ -4043,7 +4094,7 @@ async function publish() {
                     const resp = await sendForensic(unsigned);
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
-                        if (resp.results.successful > 0) {
+                        if (await publishOk(resp)) {
                             revEdgeResults.ok++;
                             try { await EvidenceLinker.markPublished(sel.link.id, resp.signedEvent?.id || null); }
                             catch (_) { /* best-effort */ }
@@ -4147,7 +4198,7 @@ async function publish() {
                     const resp = await sendTruth(unsigned);
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
-                        if (resp.results.successful > 0) {
+                        if (await publishOk(resp)) {
                             verdictResults.ok++;
                             landed = true;
                             try { await VerdictModel.markPublished(sel.verdict.id, resp.signedEvent?.id || null, userPubkey, dTag); }
@@ -4189,7 +4240,7 @@ async function publish() {
                     const resp = await sendTruth(unsigned);
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
-                        if (resp.results.successful > 0) {
+                        if (await publishOk(resp)) {
                             vMirrorResults.ok++;
                             try { await VerdictModel.markMirrored(sel.verdict.id); }
                             catch (_) { /* best-effort */ }
@@ -4239,7 +4290,7 @@ async function publish() {
                     const resp = await sendTruth(unsigned);
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
-                        if (resp.results.successful > 0) {
+                        if (await publishOk(resp)) {
                             integrityResults.ok++;
                             try { await IntegrityModel.markPublished(sel.finding.id, resp.signedEvent?.id || null, userPubkey, dTag); }
                             catch (_) { /* best-effort */ }
@@ -4600,6 +4651,14 @@ function showPublishSummary({
     const acceptedAll = [...relayStats.values()].filter((s) => s.fail === 0 && s.ok > 0).length;
     if (relayStats.size > 0) {
         line += ` ${acceptedAll}/${relayStats.size} relays accepted everything.`;
+    }
+
+    // Honesty line: events whose only "successes" were assumed (no OK
+    // before the relay timeout). They stayed UNMARKED locally so the
+    // next publish retries them — but the user should know a relay
+    // went quiet rather than reading silence as acceptance.
+    if (_publishUnconfirmed.count > 0) {
+        line += ` ${_publishUnconfirmed.count} event${_publishUnconfirmed.count === 1 ? '' : 's'} unconfirmed (no relay OK — will retry next publish).`;
     }
 
     if (dead.length > 0) {

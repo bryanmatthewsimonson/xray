@@ -19,6 +19,44 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-10 — The signed-event journal: publish once, rebroadcast forever
+
+Tags: `design`.
+
+X-Ray never stored the events it published — only ledger marks
+(publishedAt/publishedEventId). Three consequences converged into one
+mechanism: reconcile's "missing" rows had no repair short of a full
+re-sign; the win plan's §5.1 durability guarantee ("bundled raw
+signed-event JSON — replayable by anyone") had no source of truth; and
+the maintainer's republish request had no clean path for NIP-07
+identities (every retry = another signer prompt).
+
+`event-journal.js` (IndexedDB `xray-events`, precious like the audit
+ledger): every successfully-sent event is journaled VERBATIM with a
+per-relay outcome snapshot. All reader publish() families flow through
+one gate (`publishOk`) that journals and then answers whether the
+local ledger may mark — **CONFIRMED (non-assumed) relay OKs only**.
+The old behavior marked on `successful > 0`, and `successful` counted
+8-second timeouts as successes ("assume success, many relays don't
+send OK") — marking on hope is how published artifacts go missing.
+Assumed-only sends now stay unmarked (they retry next publish) and the
+summary says "N unconfirmed". The sidepanel's 30078/10002 pushes
+journal too. The article's archive-row mark — its only publish
+ledger — is now awaited and confirmed-gated instead of
+fire-and-forget.
+
+Portal: reconcile's "missing" rows gain **Rebroadcast** (journal
+lookup → verbatim re-send, no re-signing; pre-journal publishes get an
+honest "re-publish from the reader" message), and the never-published
+bucket is ITEMIZED (`listLocalArtifacts` — same iteration as the old
+count, records instead of numbers) under "Unpublished local
+artifacts", with URL-anchored rows naming their open-in-reader route.
+
+Named follow-ups, deliberately not in this slice: per-family
+try/catch inside publish() (per-item guards exist; a family SETUP
+throw still aborts the batch tail), and deferral surfacing in the
+judgment selectors (wire-not-ready skips are still silent).
+
 ## 2026-07-10 — Field bug: archive.ph recovery missed three ways at once
 
 Tags: `bug`.

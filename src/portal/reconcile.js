@@ -294,13 +294,85 @@ export async function loadLocalLedger({ pubkeys = [] } = {}) {
 }
 
 /**
- * Count local records that were never published — the design's
- * "local only / never published (shown only as counts)" bucket.
+ * Every local record that was never published — ITEMIZED. Each entry:
+ * `{ type, id, label, url, created, record }` — enough for the portal
+ * to render a browsable "unpublished" row and route an action (open
+ * the source article in the reader; the reader's Publish re-runs the
+ * selectors, which IS the re-sign path for never-published artifacts).
  * Display-only, like everything else here.
- *
- * @returns {Promise<{claim: number, assessment: number, link: number,
- *                    entity: number, article: number, auditRun: number,
- *                    prediction: number, resolution: number, total: number}>}
+ */
+export async function listLocalArtifacts() {
+    const items = [];
+    const push = (type, id, label, url, created, record) =>
+        items.push({ type, id, label: label || '', url: url || null, created: created || 0, record });
+    const unpublished = (r) => r && (!r.publishedAt || !r.publishedEventId);
+    try {
+        for (const c of Object.values(await ClaimModel.getAll() || {})) {
+            if (unpublished(c)) push('claim', c.id, (c.text || '').slice(0, 120), c.source_url, c.created, c);
+        }
+    } catch (_) { /* listed as none */ }
+    try {
+        for (const a of Object.values(await AssessmentModel.getAll() || {})) {
+            if (unpublished(a)) push('assessment', a.id, (a.rationale || a.labels && a.labels.join(', ') || '').slice(0, 120), null, a.created, a);
+        }
+    } catch (_) { /* listed as none */ }
+    try {
+        for (const l of Object.values(await EvidenceLinker.getAll() || {})) {
+            if (unpublished(l)) push('link', l.id, l.relationship || '', null, l.created, l);
+        }
+    } catch (_) { /* listed as none */ }
+    try {
+        for (const e of Object.values(await EntityModel.getAll() || {})) {
+            if (unpublished(e)) push('entity', e.id, e.name || '', null, e.created, e);
+        }
+    } catch (_) { /* listed as none */ }
+    try {
+        for (const r of (await listArticles() || [])) {
+            if (r && (!r.publishedToRelay || !r.publishedEventId)) {
+                push('article', r.urlHash, (r.article && r.article.title) || r.url, r.url, r.cachedAt, r);
+            }
+        }
+    } catch (_) { /* listed as none */ }
+    try {
+        // Verdicts/findings: only CHAIN HEADS list — a superseded
+        // ruling never publishes by design, so it is not "local only".
+        for (const v of await VerdictModel.list() || []) {
+            if (v && !v.superseded_by && unpublished(v)) push('verdict', v.id, v.verdict || '', null, v.created, v);
+        }
+    } catch (_) { /* listed as none */ }
+    try {
+        for (const f of await IntegrityModel.list() || []) {
+            if (f && !f.superseded_by && unpublished(f)) push('integrity', f.id, f.match || '', null, f.created, f);
+        }
+    } catch (_) { /* listed as none */ }
+    try {
+        // A run is "local only" when NONE of its events went out — a
+        // partially-published run is a `missing` problem, not this one.
+        for (const run of (await listRuns()) || []) {
+            const marks = Object.values((run && run.events) || {});
+            if (!marks.some((m) => m && m.publishedEventId)) {
+                push('auditRun', run.id, `audit run ${run.runAt || ''}`, null, run.created, run);
+            }
+        }
+    } catch (_) { /* listed as none */ }
+    try {
+        for (const p of (await listPredictions()) || []) {
+            if (unpublished(p)) push('prediction', p.id, (p.text || '').slice(0, 120), null, p.created, p);
+        }
+    } catch (_) { /* listed as none */ }
+    try {
+        for (const r of (await listResolutions()) || []) {
+            if (unpublished(r)) push('resolution', r.id, r.outcome || '', null, r.created, r);
+        }
+    } catch (_) { /* listed as none */ }
+    items.sort((a, b) => (b.created || 0) - (a.created || 0));
+    return items;
+}
+
+/**
+ * Count local records that were never published — the aggregate view
+ * over `listLocalArtifacts()` (same iteration, kept for the summary
+ * line and existing callers/tests).
  */
 export async function countLocalOnly() {
     const counts = {
@@ -308,53 +380,11 @@ export async function countLocalOnly() {
         auditRun: 0, prediction: 0, resolution: 0,
         verdict: 0, integrity: 0, total: 0
     };
-    const unpublished = (r) => r && (!r.publishedAt || !r.publishedEventId);
-    try {
-        for (const c of Object.values(await ClaimModel.getAll() || {})) if (unpublished(c)) counts.claim++;
-    } catch (_) { /* counted as zero */ }
-    try {
-        for (const a of Object.values(await AssessmentModel.getAll() || {})) if (unpublished(a)) counts.assessment++;
-    } catch (_) { /* counted as zero */ }
-    try {
-        for (const l of Object.values(await EvidenceLinker.getAll() || {})) if (unpublished(l)) counts.link++;
-    } catch (_) { /* counted as zero */ }
-    try {
-        for (const e of Object.values(await EntityModel.getAll() || {})) if (unpublished(e)) counts.entity++;
-    } catch (_) { /* counted as zero */ }
-    try {
-        for (const r of (await listArticles() || [])) {
-            if (r && (!r.publishedToRelay || !r.publishedEventId)) counts.article++;
-        }
-    } catch (_) { /* counted as zero */ }
-    try {
-        // Verdicts/findings: only CHAIN HEADS count — a superseded
-        // ruling never publishes by design, so it is not "local only".
-        for (const v of await VerdictModel.list() || []) {
-            if (v && !v.superseded_by && unpublished(v)) counts.verdict++;
-        }
-    } catch (_) { /* counted as zero */ }
-    try {
-        for (const f of await IntegrityModel.list() || []) {
-            if (f && !f.superseded_by && unpublished(f)) counts.integrity++;
-        }
-    } catch (_) { /* counted as zero */ }
-    try {
-        // A run is "local only" when NONE of its events went out — a
-        // partially-published run is a `missing` problem, not this one.
-        for (const run of (await listRuns()) || []) {
-            const marks = Object.values((run && run.events) || {});
-            if (!marks.some((m) => m && m.publishedEventId)) counts.auditRun++;
-        }
-    } catch (_) { /* counted as zero */ }
-    try {
-        for (const p of (await listPredictions()) || []) if (unpublished(p)) counts.prediction++;
-    } catch (_) { /* counted as zero */ }
-    try {
-        for (const r of (await listResolutions()) || []) if (unpublished(r)) counts.resolution++;
-    } catch (_) { /* counted as zero */ }
-    counts.total = counts.claim + counts.assessment + counts.link + counts.entity + counts.article
-                 + counts.auditRun + counts.prediction + counts.resolution
-                 + counts.verdict + counts.integrity;
+    const items = await listLocalArtifacts();
+    for (const it of items) {
+        if (Object.prototype.hasOwnProperty.call(counts, it.type)) counts[it.type]++;
+    }
+    counts.total = items.length;
     return counts;
 }
 

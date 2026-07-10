@@ -435,6 +435,14 @@ sharing a case so a collaborator's claims aggregate with yours.
 
 ---
 
+## Publish completeness — journal + rebroadcast + unpublished inventory
+
+| # | Test | Pass criteria |
+|---|---|---|
+| PC.1 | Publish an article with claims/judgments, then open the portal reconcile panel | ✅ every published event appears in the journal (DevTools → IndexedDB → `xray-events` → row count matches the publish summary); "Unpublished local artifacts" lists any never-published records itemized by type, not a bare count |
+| PC.2 | Disable all relays but one dead one → publish → re-enable | ✅ nothing marks published (no confirmed OK); the summary reports unconfirmed/failed rather than success; re-clicking Publish re-emits everything |
+| PC.3 | On a "missing from relays" reconcile row, click **Rebroadcast** | ✅ the journaled signed event re-sends verbatim (no signer prompt) and the row reports "N relays confirmed"; a pre-journal publish shows the honest "re-publish from the reader" message instead |
+
 ## Phase 12 — "My Archive" portal
 
 The read-back surface (docs/PORTAL_DESIGN.md). Best run on a profile

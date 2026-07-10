@@ -418,3 +418,29 @@ test('countLocalOnly: unpublished chain heads count; superseded rulings never do
     assert.equal(counts.verdict, 1, 'only the chain head — a superseded ruling never publishes by design');
     assert.ok(counts.total >= 1);
 });
+
+test('listLocalArtifacts itemizes never-published records with labels + urls', async () => {
+    const { listLocalArtifacts } = await import('../src/portal/reconcile.js');
+    _stateStore.clear();
+    await Storage.set('article_claims', {
+        claim_pub0000000009: {
+            id: 'claim_pub0000000009', text: 'published', source_url: 'https://x.com/a',
+            publishedAt: 100, publishedEventId: EV('9'), publishedPubkey: PK_A
+        },
+        claim_unpub00000008: {
+            id: 'claim_unpub00000008', text: 'a draft claim about the lab',
+            source_url: 'https://x.com/b', created: 50
+        }
+    });
+    const items = await listLocalArtifacts();
+    const claims = items.filter((it) => it.type === 'claim');
+    assert.equal(claims.length, 1, 'published claims never list');
+    assert.equal(claims[0].id, 'claim_unpub00000008');
+    assert.equal(claims[0].label, 'a draft claim about the lab');
+    assert.equal(claims[0].url, 'https://x.com/b',
+        'URL-anchored artifacts carry their open-in-reader route');
+    assert.ok(claims[0].record, 'the raw record rides along for the inspector');
+    // The count wrapper stays consistent with the itemized list.
+    const counts = await countLocalOnly();
+    assert.equal(counts.total, items.length);
+});
