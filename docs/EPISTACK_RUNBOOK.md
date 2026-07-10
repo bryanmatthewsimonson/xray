@@ -36,6 +36,34 @@ nostr.wine is a paid relay, which may be *good* for retention), and
 `relay.primal.net` / `offchain.pub` as open-relay fallbacks. Aim to end
 with **3–4 accepting, independently operated relays**.
 
+**The scripted path (preferred).** Steps 1–3 below are automated by
+`tools/relay-probe.mjs` — run it LOCALLY (Node 22+; sandboxed sessions
+cannot reach relay hosts):
+
+```sh
+node tools/relay-probe.mjs            # NIP-11 + per-kind write/read, ~1 min
+# …~24h later:
+node tools/relay-probe.mjs --recheck relay-probe-state.json
+```
+
+It generates a THROWAWAY key (never your identity), publishes one
+clearly-labeled disposable probe event per kind family **plus a
+~120 KB kind-30023** (the max_message_length reality check), reads
+everything back, and writes a paste-ready `relay-probe-results.md`
+(NIP-11 limits table, acceptance/read-back table with reject reasons,
+computed shortlist). The recheck marks accepted-but-purged events —
+a purge is a REJECT for our purposes. Paste both tables into the
+**Results** subsection below. `--dry-run` builds and locally verifies
+the events with no network; extra relay URLs can be passed as
+arguments. The manual steps below remain as reference and as the
+spot-check path **under the real Epistack identity** (the script's
+throwaway key tests acceptance, not your npub's standing —
+worth one manual 30023 publish through the extension as a final
+confirmation).
+
+**Results (2026-07-__).** *Paste `relay-probe-results.md` here after
+the run, and the retention table after the recheck.*
+
 **Step 1 — NIP-11 info documents** (from any terminal):
 
 ```sh
