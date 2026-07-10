@@ -832,6 +832,20 @@ A long-form article (kind 30023) SHOULD carry the canonical article hash of its 
 
 The hash input is the event `content` after stripping the client metadata header (the leading `---…---` block), normalized exactly as specified in the kind-30056 section — so any consumer can verify the tag from the event alone, and `{"kinds":[30023],"#x":["<hash>"]}` finds the article a set of audit events scored. Additive and optional: events published before this extension carry no `x` tag and join audit queries by `r`/`d` instead; a re-published edit derives a NEW hash, which is the point — the audit kinds anchor to the exact text they scored, and a hash change between captures of one URL is a detected content change, not an error.
 
+## Kind 1985 — label mirrors (NIP-32)
+
+Consolidated grammar for the plain-NIP-32 `1985` events an X-Ray publisher emits. Each is a MIRROR of a richer parameterized event — an aggregation convenience for generic NIP-32 consumers, never the primary record — and each uses exactly one of three namespaces. The full rules live in the parent-kind sections; the invariants gathered here:
+
+| Namespace (`L`) | Mirrors | Labeled subjects | Person-labeling rule |
+|---|---|---|---|
+| `xray/assessment` | kind 30054 | the claim's `a` coordinate + its verbatim `r` URL | **No `p` tag, ever** — a `p` would pin the issue labels on the claim's *author* (a reputational mislabel) |
+| `xray/forensic` | kind 30062 | the subject `p` + the source `r` URL | Does label a pubkey — consumers SHOULD treat it as a **structural observation, not a verdict**, surface the 30062's required counter-read alongside it; it carries no score and asserts no intent |
+| `xray/adjudication` | kind 30063 | the claim's `a` coordinate + the source `r` URL | Labels **content, never a pubkey** |
+
+- `l` values come from the namespace's vocabulary in the parent section (assessment labels, forensic maneuvers, verdict states); at most one `l` per value.
+- **Kind 30064 (integrity findings) deliberately has NO 1985 mirror**: a bare match-label on a person's pubkey, stripped of its evidence and caveats, is exactly the decontextualized person-grade that family forbids — the full 30064 is the only wire shape.
+- A mirror is never authoritative on its own: consumers resolving a 1985 under one of these namespaces SHOULD fetch the parent event (same author, matching `a`/`p`/`r`) for the evidence, caveats, and firewall context the mirror strips.
+
 ## Querying
 
 A client wishing to display all metadata for a URL SHOULD issue these filters in parallel and merge the results:
