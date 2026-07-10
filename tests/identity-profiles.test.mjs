@@ -58,12 +58,12 @@ test('WORKSPACE_KEEP_KEYS is pinned exactly', () => {
     assert.deepEqual([...WORKSPACE_KEEP_KEYS], [
         'preferences', 'local_primary_identity', 'identity_profiles',
         'xr_signing_state', 'xray:flags', 'xray:llm:key',
-        'xray:llm:model', 'xray:llm:suggest-kinds'
+        'xray:llm:model', 'xray:llm:suggest_kinds'
     ]);
 });
 
 test('WORKSPACE_DATABASES is pinned exactly', () => {
-    assert.deepEqual([...WORKSPACE_DATABASES], ['xray-archive', 'xray-audits']);
+    assert.deepEqual([...WORKSPACE_DATABASES], ['xray-archive', 'xray-audits', 'xray-events']);
 });
 
 test('clear and keep lists are disjoint', () => {

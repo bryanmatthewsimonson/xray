@@ -59,14 +59,15 @@ export const WORKSPACE_KEEP_KEYS = Object.freeze([
     'xray:flags',               // feature-flag overrides
     'xray:llm:key',             // Anthropic key (never exported)
     'xray:llm:model',
-    'xray:llm:suggest-kinds'
+    'xray:llm:suggest_kinds'    // llm-prompts.js LLM_SUGGEST_KINDS_STORAGE
 ]);
 
 // IndexedDB databases holding workspace content.
 export const WORKSPACE_DATABASES = Object.freeze([
     'xray-archive',             // captured article cache (archive-cache.js)
-    'xray-audits'               // audit records — PRECIOUS, hence the
+    'xray-audits',              // audit records — PRECIOUS, hence the
                                 // export-first flow in the options UI
+    'xray-events'               // signed-event journal (event-journal.js)
 ]);
 
 function normalizeLabel(label) {

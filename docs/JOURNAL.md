@@ -19,6 +19,43 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-10 — Full backup/restore: two IndexedDB traps worth remembering
+
+Tags: `design`, `bug`.
+
+`backup.js` gives the extension a real export/restore: every
+`chrome.storage.local` key (minus `xray:llm:key` — a third-party API
+credential never leaves the machine in a backup, though the nsec and
+entity keys deliberately do, by maintainer decision) plus generic dumps
+of all three IndexedDB databases, with source-document bytes base64-
+wrapped as `{__xrayBytes}` markers behind a default-ON checkbox.
+Restore is replace-all (a safety backup downloads first), never merge.
+
+Two traps surfaced while building it, both generic to any IDB-touching
+utility code here:
+
+1. **Never open a covered DB "versionless just to peek".** An
+   `indexedDB.open(name)` on a never-created database mints an empty
+   v1 database — and since our openers open at their declared version,
+   `onupgradeneeded` then never fires for a same-version open, leaving
+   the module permanently without its object stores. Backup always
+   goes through the owning module's opener (`openArchiveDb` /
+   `openAuditDb` / `openEventJournalDb`), which creates the canonical
+   schema if absent.
+2. **Never `close()` a connection you got from a module opener.** All
+   three openers cache their connection promise for the page's
+   lifetime; closing the handle poisons the cache and every later
+   caller in that page gets `InvalidStateError`. The backup module
+   treats opener connections as borrowed, not owned.
+
+Also fixed in passing: the `WORKSPACE_KEEP_KEYS` entry for the LLM
+suggest-kinds pref said `xray:llm:suggest-kinds` (hyphen) while the
+actual storage key is `xray:llm:suggest_kinds` (underscore); and
+`WORKSPACE_DATABASES` now includes `xray-events`, so a fresh workspace
+clears the journal too — old-identity events shouldn't leak into a new
+workspace's rebroadcast/export surfaces, and the export-first flow
+(plus this backup) covers preservation.
+
 ## 2026-07-10 — The signed-event journal: publish once, rebroadcast forever
 
 Tags: `design`.

@@ -12,6 +12,23 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Full backup & restore + signed-events bundle export.** Settings ▸
+  Advanced gains a "Full backup" block. **Download full backup** writes
+  one JSON file (`xray-backup/1`) covering everything the extension
+  stores locally: all settings/flags/identities (including private
+  keys — treat the file like an nsec; the LLM API key is the one thing
+  **never** included), the captured article archive with its metadata
+  stores and prior versions, original source-document bytes (PDFs —
+  base64, behind a default-ON checkbox with a size estimate), audit
+  records, and the signed-event journal. **Restore from backup…**
+  replaces everything with the file's contents after typed
+  confirmation, downloading a safety backup of the current state
+  first; the live LLM key is preserved. **Export signed-events
+  bundle** writes the journal as raw signed JSON
+  (`xray-events-bundle/1`) — replayable by anyone against any relay,
+  so a published corpus survives a relay outage. A fresh workspace now
+  also clears the `xray-events` journal. No wire change.
+
 - **Signed-event journal + republish.** Every event X-Ray publishes is
   now stored VERBATIM (full signed JSON + per-relay outcome snapshot)
   in a new IndexedDB journal (`xray-events`) — across the reader's

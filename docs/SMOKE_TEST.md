@@ -443,6 +443,16 @@ sharing a case so a collaborator's claims aggregate with yours.
 | PC.2 | Disable all relays but one dead one → publish → re-enable | ✅ nothing marks published (no confirmed OK); the summary reports unconfirmed/failed rather than success; re-clicking Publish re-emits everything |
 | PC.3 | On a "missing from relays" reconcile row, click **Rebroadcast** | ✅ the journaled signed event re-sends verbatim (no signer prompt) and the row reports "N relays confirmed"; a pre-journal publish shows the honest "re-publish from the reader" message instead |
 
+## Full backup & restore
+
+| # | Test | Pass criteria |
+|---|---|---|
+| BK.1 | Options ▸ Advanced ▸ Full backup: the source-documents checkbox | ✅ checked by default; the label shows a size estimate (document count + approximate file size with/without bytes) |
+| BK.2 | **Download full backup**, open the file | ✅ `"format": "xray-backup/1"`; contains your settings, identities (nsec present — by design), archive articles, audit runs, and the `xray-events` journal; the string from Options ▸ LLM key appears **nowhere** in the file |
+| BK.3 | Capture one more article, change a setting, then **Restore from backup…** with the BK.2 file | ✅ typed RESTORE confirmation required; a safety backup downloads first; after the reload the extra article and setting change are gone (replace-all), the backup's contents are back, and the LLM key still works |
+| BK.4 | Restore a backup that included a captured PDF | ✅ the source document reopens from the archive byte-identical (reader renders it; no "bytes missing") |
+| BK.5 | **Export signed-events bundle** after publishing anything | ✅ `xray-events-bundle-<date>.json` downloads with `"format": "xray-events-bundle/1"`; every event has `id` + `sig`; with an empty journal the button reports "Journal is empty" instead of writing an empty file |
+
 ## Phase 12 — "My Archive" portal
 
 The read-back surface (docs/PORTAL_DESIGN.md). Best run on a profile

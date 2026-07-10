@@ -201,9 +201,10 @@
         A workspace is everything you have captured or authored:
         entities (and their keypairs, including the entity-sync key),
         claims, evidence links, assessments, forensic findings, truth
-        adjudications, platform accounts, the archive cache, and audit
-        records. Settings, relays, feature flags, the LLM key, and your
-        <strong>saved identities</strong> are not part of it.
+        adjudications, platform accounts, the archive cache, audit
+        records, and the signed-event journal. Settings, relays,
+        feature flags, the LLM key, and your <strong>saved
+        identities</strong> are not part of it.
       </p>
       <div class="xr-opt__actions">
         <button class="xr-opt__btn" id="workspace-backup">Download backup (JSON)</button>
@@ -215,6 +216,36 @@
         recompute; the reset flow offers the backup first.
       </p>
       <span class="xr-opt__status" id="workspace-status"></span>
+
+      <hr />
+      <h3 class="xr-opt__subhead">Full backup</h3>
+      <p class="xr-opt__hint">
+        Everything the extension stores locally in one file: the workspace
+        above <em>plus</em> settings, saved identities, the captured
+        article archive, original source documents, audit records, and the
+        signed-event journal. Restoring it on a fresh install brings the
+        whole extension back. It contains private keys — treat the file
+        like an nsec. Your LLM API key is <strong>never</strong> included.
+      </p>
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="backup-include-bytes" checked />
+        <span>Include original source documents (PDFs)
+          <span id="backup-size-estimate"></span></span>
+      </label>
+      <div class="xr-opt__actions">
+        <button class="xr-opt__btn" id="backup-download">Download full backup</button>
+        <button class="xr-opt__btn xr-opt__btn--danger" id="backup-restore">Restore from backup…</button>
+        <button class="xr-opt__btn" id="backup-events-bundle">Export signed-events bundle</button>
+      </div>
+      <p class="xr-opt__hint">
+        Restore <strong>replaces</strong> everything with the backup's
+        contents — a safety backup of the current data downloads first.
+        The signed-events bundle is the raw signed JSON of every event you
+        have published (no keys inside) — anyone can rebroadcast it to any
+        relay, so your corpus survives a relay outage.
+      </p>
+      <input type="file" id="backup-file" accept="application/json,.json" style="display:none" />
+      <span class="xr-opt__status" id="backup-status"></span>
 
       <hr />
       <h3 class="xr-opt__subhead">Experimental</h3>

@@ -18,6 +18,8 @@ import { articleHash as canonicalArticleHash } from '../shared/audit/article-has
 import { listRuns, listPredictions, listResolutions } from '../shared/audit/audit-cache.js';
 import { listArticles } from '../shared/archive-cache.js';
 import { IdentityProfiles, workspaceBackup, resetWorkspace } from '../shared/identity-profiles.js';
+import { collectBackup, applyBackup, validateBackup, estimateBackupSize } from '../shared/backup.js';
+import { exportBundle } from '../shared/event-journal.js';
 
 const browserApi = (typeof browser !== 'undefined' && browser.runtime) ? browser : chrome;
 
@@ -487,8 +489,9 @@ async function workspaceResetFlow() {
         'Start a fresh workspace?\n\n' +
         'CLEARS: entities (+ their keypairs and the entity-sync key), claims, ' +
         'evidence links, assessments, forensic findings, truth adjudications, ' +
-        'platform accounts, portal viewer npubs, the archive cache, and audit ' +
-        'records (audits cost money to recompute!).\n\n' +
+        'platform accounts, portal viewer npubs, the archive cache, audit ' +
+        'records (audits cost money to recompute!), and the signed-event ' +
+        'journal.\n\n' +
         'KEEPS: settings, relays, feature flags, the LLM key, and your saved ' +
         'identities.\n\n' +
         'A backup will download first. Type RESET to continue.');
@@ -505,6 +508,95 @@ async function workspaceResetFlow() {
         await refreshActiveLine();
     } catch (e) {
         flash(status, 'Reset failed: ' + (e && e.message), false);
+    }
+}
+
+// ------------------------------------------------------------------
+// Full backup (Advanced): export / restore / signed-events bundle
+// ------------------------------------------------------------------
+
+function fmtBytes(n) {
+    if (!Number.isFinite(n) || n < 0) return '?';
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+    if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+// Fire-and-forget: sizes the source-bytes checkbox label so the default-ON
+// choice is informed. Failure just leaves the label empty.
+async function refreshBackupEstimate() {
+    const el = document.getElementById('backup-size-estimate');
+    if (!el) return;
+    try {
+        const est = await estimateBackupSize();
+        el.textContent = est.sourceDocCount
+            ? `— ${est.sourceDocCount} document(s); backup ≈ ${fmtBytes(est.withBytes)} with, ${fmtBytes(est.withoutBytes)} without`
+            : `— none stored; backup ≈ ${fmtBytes(est.withoutBytes)}`;
+    } catch (_) {
+        el.textContent = '';
+    }
+}
+
+async function backupDownloadFull() {
+    const status = document.getElementById('backup-status');
+    const includeSourceBytes = document.getElementById('backup-include-bytes').checked;
+    flash(status, 'Building backup…');
+    try {
+        const backup = await collectBackup({ includeSourceBytes });
+        downloadJson(backup, `xray-backup-${new Date().toISOString().slice(0, 10)}.json`);
+        flash(status, 'Backup downloaded. It contains private keys — store it like an nsec.');
+    } catch (e) {
+        flash(status, 'Backup failed: ' + (e && e.message), false);
+    }
+}
+
+async function backupRestoreFromFile(file) {
+    const status = document.getElementById('backup-status');
+    try {
+        const parsed = JSON.parse(await file.text());
+        const problems = validateBackup(parsed);
+        if (problems.length) throw new Error(problems.join('; '));
+        const storageKeys = Object.keys(parsed.storage || {}).length;
+        const dbNames = Object.keys(parsed.databases || {}).join(', ') || 'none';
+        const typed = prompt(
+            'Restore from backup?\n\n' +
+            `REPLACES the current workspace, settings, identities, archive, and ` +
+            `journal with the backup's contents (${storageKeys} storage keys; ` +
+            `databases: ${dbNames}; exported ${parsed.exportedAt || 'unknown'}).\n\n` +
+            'A safety backup of the CURRENT data downloads first. Your LLM API ' +
+            'key is untouched.\n\nType RESTORE to continue.');
+        if (typed === null) return;
+        if (String(typed).trim().toUpperCase() !== 'RESTORE') {
+            flash(status, 'Not restored — confirmation text did not match.', false);
+            return;
+        }
+        flash(status, 'Downloading safety backup…');
+        downloadJson(await collectBackup({ includeSourceBytes: true }),
+            `xray-backup-safety-${new Date().toISOString().slice(0, 10)}.json`);
+        flash(status, 'Restoring…');
+        await applyBackup(parsed, { warn: (m) => console.warn('[X-Ray Options]', m) });
+        flash(status, 'Restored — reloading…');
+        setTimeout(() => location.reload(), 1200);
+    } catch (e) {
+        flash(status, 'Restore failed: ' + (e && e.message), false);
+    }
+}
+
+// The win-plan §5.1 durability artifact: every published event, verbatim
+// signed JSON, replayable by anyone against any relay. No keys inside.
+async function backupExportEventsBundle() {
+    const status = document.getElementById('backup-status');
+    try {
+        const bundle = await exportBundle();
+        if (!bundle.count) {
+            flash(status, 'Journal is empty — nothing has been published since the journal shipped.', false);
+            return;
+        }
+        downloadJson(bundle, `xray-events-bundle-${new Date().toISOString().slice(0, 10)}.json`);
+        flash(status, `Exported ${bundle.count} signed event(s).`);
+    } catch (e) {
+        flash(status, 'Export failed: ' + (e && e.message), false);
     }
 }
 
@@ -592,6 +684,7 @@ async function exportAuditLedger() {
 // ------------------------------------------------------------------
 
 async function loadAdvanced() {
+    refreshBackupEstimate(); // fire-and-forget — sizes the backup checkbox label
     const prefs = (await storageGet('preferences')) || {};
     document.getElementById('pref-archive-sensitivity').value =
         prefs.archive_banner_sensitivity || 'always';
@@ -819,6 +912,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('identity-save-current').addEventListener('click', identitySaveCurrent);
     document.getElementById('workspace-backup').addEventListener('click', workspaceDownloadBackup);
     document.getElementById('workspace-reset').addEventListener('click', workspaceResetFlow);
+    document.getElementById('backup-download').addEventListener('click', backupDownloadFull);
+    document.getElementById('backup-restore').addEventListener('click', () => {
+        document.getElementById('backup-file').click();
+    });
+    document.getElementById('backup-file').addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (file) backupRestoreFromFile(file);
+        e.target.value = '';
+    });
+    document.getElementById('backup-events-bundle').addEventListener('click', backupExportEventsBundle);
     document.getElementById('local-import-toggle').addEventListener('click', () => {
         const row = document.getElementById('local-import-row');
         row.style.display = row.style.display === 'none' ? '' : 'none';
