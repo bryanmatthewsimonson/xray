@@ -135,7 +135,10 @@ export async function enrichArticleForPlatform(article, platform) {
     // with the address actually fetched.
     if (typeof document !== 'undefined' && typeof window !== 'undefined' && window.location) {
         try {
-            const identity = resolveUrlIdentity(document, window.location.href);
+            // Pass the extractor's canonical pick too: archive.today's
+            // rel=canonical is the LONG form embedding the original,
+            // recoverable by pure URL structure even on short-code tabs.
+            const identity = resolveUrlIdentity(document, window.location.href, enriched.url || null);
             if (identity) {
                 enriched.archive_host = identity.archiveHost;
                 if (identity.original) {

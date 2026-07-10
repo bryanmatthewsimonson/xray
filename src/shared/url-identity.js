@@ -74,13 +74,18 @@ function isPlausibleOriginal(candidate) {
 // URL's query.
 const WAYBACK_PATH_RE = /^https?:\/\/web\.archive\.org\/web\/\d{4,14}(?:[a-z]{2}_)?\/(.+)$/i;
 
-// archive.today path-embedded forms (the share/newest deep links):
+// archive.today path-embedded forms (the share/newest deep links AND
+// the site's own canonical long form):
 //   https://archive.ph/newest/https://example.com/p
 //   https://archive.ph/oldest/https://example.com/p
 //   https://archive.ph/20200301000000/https://example.com/p
-// The bare short-code form (https://archive.ph/AbC12) carries no
-// original in the URL — that case needs the DOM markers below.
-const ARCHIVE_TODAY_PATH_RE = /^https?:\/\/[^/]+\/(?:newest|oldest|\d{4,14})\/(.+)$/i;
+//   https://archive.ph/2021.03.29-224620/https://example.com/p
+// The last is the DOTTED timestamp archive.today emits in its own
+// rel=canonical — a real capture failed recovery because the regex
+// only accepted the digit form (JOURNAL 2026-07-10). The bare
+// short-code form (https://archive.ph/AbC12) carries no original in
+// the URL — that case needs the canonical fallback or the DOM markers.
+const ARCHIVE_TODAY_PATH_RE = /^https?:\/\/[^/]+\/(?:newest|oldest|\d{4,14}|\d{4}\.\d{2}\.\d{2}-\d{6})\/(.+)$/i;
 
 /** Wayback (and some mirrors) collapse `https://` to `https:/`. */
 function repairScheme(s) {
@@ -165,17 +170,20 @@ export function resolveUrlIdentityFromUrl(url) {
 
 /**
  * archive.today snapshot pages carry the original URL in their own
- * chrome. Two markers, in trust order — none qualifying = fail open:
+ * chrome. Three markers, in trust order — none qualifying = fail open:
  *   1. `input#HIDDEN_URL` — the prefilled re-archive form value.
- *   2. Anchors in the `#HEADER` bar. The "saved from" anchor renders
- *      the ORIGINAL URL as its own link text, so an anchor qualifies
- *      ONLY when its visible text IS its href — logos, share, donate,
- *      and promoted links carry label text and are structurally
- *      excluded. If more than one distinct URL qualifies, the header
- *      is ambiguous and we claim nothing (a first-plausible-wins scan
- *      would adopt whatever link happens to come first in the DOM —
- *      a WRONG original, the one failure this module must never
- *      produce).
+ *   2. The "saved from" search INPUT — the header form input whose
+ *      VALUE is the original URL (a live capture confirmed this is the
+ *      marker archive.ph actually renders; it is an input, not an
+ *      anchor). A form value being a full http(s) URL on a non-archive
+ *      host is a strong signal; ambiguity (two distinct qualifying
+ *      values) still fails open.
+ *   3. Anchors in the `#HEADER` bar whose visible text IS their href
+ *      (the anchor form of "saved from") — logos, share, donate, and
+ *      promoted links carry label text and are structurally excluded;
+ *      ambiguity fails open (a first-plausible-wins scan would adopt
+ *      whatever link happens to come first — a WRONG original, the one
+ *      failure this module must never produce).
  * Markers are the archive's own DOM and can drift (SMOKE 2.x row
  * verifies against the live site); drift degrades to not-recovered,
  * never to a wrong original.
@@ -187,6 +195,17 @@ function archiveTodayDomOriginal(doc) {
         return hidden.value;
     }
     if (typeof doc.querySelectorAll !== 'function') return null;
+
+    // 2 — the saved-from input value.
+    const inputValues = new Set();
+    for (const input of doc.querySelectorAll('#HEADER input, form input')) {
+        const value = repairScheme(String((input && input.value) || '').trim());
+        if (value && isPlausibleOriginal(value)) inputValues.add(normalize(value));
+    }
+    if (inputValues.size === 1) return [...inputValues][0];
+    if (inputValues.size > 1) return null;   // ambiguous — claim nothing
+
+    // 3 — text-equals-href header anchors.
     const qualified = new Set();
     for (const a of doc.querySelectorAll('#HEADER a[href]')) {
         const href = a.getAttribute ? a.getAttribute('href') : a.href;
@@ -199,17 +218,29 @@ function archiveTodayDomOriginal(doc) {
 }
 
 /**
- * Full identity resolution for a live capture: URL structure first,
- * then (archive.today short-code pages) the archive's DOM markers.
- * Same return contract as resolveUrlIdentityFromUrl.
+ * Full identity resolution for a live capture: URL structure on the
+ * tab URL first, then on the page's own canonical URL (archive.today
+ * short-code pages set rel=canonical to the LONG form that embeds the
+ * original — pure URL structure, no DOM guesswork), then (archive.today)
+ * the archive's DOM markers. Same return contract as
+ * resolveUrlIdentityFromUrl; captureUrl is always the tab URL.
  *
- * @param {Document|null} doc   the archive page's document
- * @param {string} tabUrl       the address actually fetched
+ * @param {Document|null} doc          the archive page's document
+ * @param {string} tabUrl              the address actually fetched
+ * @param {string|null} [canonicalUrl] the extractor's canonical pick
+ *                                     (rel=canonical / og:url)
  */
-export function resolveUrlIdentity(doc, tabUrl) {
+export function resolveUrlIdentity(doc, tabUrl, canonicalUrl = null) {
     const byUrl = resolveUrlIdentityFromUrl(tabUrl);
     if (!byUrl) return null;
     if (byUrl.original) return byUrl;
+    if (canonicalUrl && canonicalUrl !== tabUrl) {
+        const byCanonical = resolveUrlIdentityFromUrl(canonicalUrl);
+        if (byCanonical && byCanonical.original
+                && byCanonical.archiveHost === byUrl.archiveHost) {
+            return { ...byUrl, original: byCanonical.original };
+        }
+    }
     if (ARCHIVE_TODAY_HOSTS.has(byUrl.archiveHost)) {
         const fromDom = archiveTodayDomOriginal(doc);
         if (fromDom) return { ...byUrl, original: normalize(canonicalizeOriginal(fromDom)) };
