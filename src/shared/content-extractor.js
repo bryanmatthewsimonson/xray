@@ -398,6 +398,11 @@ export const ContentExtractor = {
   // heuristic); unification means a page whose URL carries sortable or
   // now-stripped params derives a DIFFERENT d-tag than a pre-2026-07
   // capture of the same page — accepted, see JOURNAL 2026-07-09.
+  // Also accepted, in the COLLAPSE direction: the old heuristic kept
+  // word-like anchors, so anchor-only addressing (page#article-1 vs
+  // page#article-2 via the location fallback) produced two d-tags;
+  // those now collapse to one, and the later capture replaces the
+  // earlier on relays (30023 is addressable).
   normalizeUrl: (url) => normalize(url),
 
   // Extract published date

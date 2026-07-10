@@ -39,8 +39,11 @@ Sections per release: **Added** (new features), **Changed**
   not captured" (pre-extension events → `null`) from "zero links". The
   case dossier derives both sides (`deriveCitationEdges`) and the
   portal evidence table shows "cites N external sources · cited by M
-  case articles". Not yet extracted: PDF bodies and the platform
-  synthesizers (YouTube/Twitter/FB/IG/TikTok).
+  case articles". Archive captures unwrap archive-wrapped body links
+  to their originals before publishing (a Wayback page's rewritten
+  anchors would otherwise all classify internal and emit zero `cites`).
+  Not yet extracted: PDF bodies and the platform synthesizers
+  (YouTube/Twitter/FB/IG/TikTok).
 
 - **Archive captures re-key to their original URL.** Capturing from an
   archive.today mirror, a Wayback Machine snapshot, or an arXiv

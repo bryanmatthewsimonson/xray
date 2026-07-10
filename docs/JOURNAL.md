@@ -19,6 +19,70 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-10 — Adversarial review of the audit/identity/citations sweep: ten confirmed, ten fixed
+
+Tags: `bug`, `pattern`.
+
+An eight-angle finder pass + per-candidate adversarial verification
+over the whole PR-#116 diff (the pattern from the PDF sweeps — worth
+repeating after any multi-feature burst) confirmed and fixed:
+
+- **Draft lost-update race**: `appendAuditDraft` was a get→set of one
+  storage key from three concurrent orchestrator workers — two modules
+  landing back-to-back could clobber each other in the resume draft
+  (a silently re-billed module). Writes now chain through one promise.
+- **Wayback captures published ZERO `cites`**: archives rewrite every
+  body anchor onto their own host, so link extraction (which runs
+  before the identity hook) classified every citation
+  archive-internal. `rewriteArchivedLinks` (url-identity.js) now
+  unwraps archive-wrapped links to their originals, re-keys
+  `article.domain`, re-classifies internal/external, and drops
+  unrecoverable archive-chrome links.
+- **Wrong-original adoption risk**: the archive.today header-anchor
+  fallback took the FIRST plausible `#HEADER` link — verification
+  executed it adopting `blog.archive.today` (subdomains passed the
+  blocklist) and any promoted/donate link before the saved-from anchor
+  would win. Now: archive-family SUBDOMAINS are rejected, an anchor
+  qualifies only when its visible text IS its href (the saved-from
+  shape), and two distinct qualifying URLs = ambiguous = fail open.
+- **Archived arXiv fork**: an original embedded in an archive path
+  (`…/web/<ts>/https://arxiv.org/pdf/X`) skipped arXiv
+  canonicalization → `/pdf/` identity vs a direct capture's `/abs/`.
+  Every recovered original now routes through `canonicalizeOriginal`.
+- **Truncated-capture invisibility ×3**: a >120k audit keys to the
+  slice hash, so (a) the prediction ledger (queried under the full
+  hash) never rendered its predictions — now merged across both keys;
+  (b) the case dossier's evidence table showed the source unaudited —
+  runs now carry a `captureArticleHash` join alias (never used for
+  score display, only to FIND the run) and the dossier indexes both;
+  (c) `auditHashCandidates` gains the slice vintage so publish
+  batches and prediction back-references stop skipping those runs.
+- **Old claims vanished after re-capture**: `ClaimModel.getBySourceUrl`
+  was an exact string match, so claims saved under the pre-unification
+  canonical URL form were invisible for the same page. The join now
+  normalizes both sides at read time (the forms converge under the
+  unified normalizer). The JOURNAL sanctioned d-tag churn — not local
+  claim loss.
+- **`from` un-stripped**: review showed `from` is a CONTENT param on
+  real sites (pagination `?from=100`, date ranges, converter origins)
+  and the case-insensitive strip was wider than the legacy list ever
+  was. Removed from `TRACKING_PARAMS` — under-merge (a rare share-link
+  variant forks) beats over-merge (two different pages become one
+  identity). The rest of the merged params are unambiguous trackers.
+- Plus: one shared `pushR` dedupe for all three r co-emit blocks (no
+  duplicate `r` tags), `refreshAuditStatus` reads parallelized and the
+  PDF legacy-hash advisory cached per article instead of re-hashed per
+  repaint, the article-rows derivation threaded once through
+  `buildCaseDossier` instead of recomputed 3×, and the atomic
+  assignment of `articleHash`/`auditableHash` (an interleaved repaint
+  between the two writes could miss the truncated-key panel state).
+
+Refuted, for the record: archive-cache bucket drift (re-capture
+re-saves under the new key; self-healing), the reader URL-field edit
+interplay (pre-existing power-user escape hatch), and the
+synthesize-path identity skip (archived platform snapshots fall
+through to Readability, where the hook runs).
+
 ## 2026-07-09 — Outbound links become citations (`cites` tag, both sides)
 
 Tags: `design`.

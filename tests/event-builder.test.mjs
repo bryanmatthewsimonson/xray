@@ -464,3 +464,28 @@ test('reconstructArticleFromEvent reads cites back as links; null when absent', 
     const backPlain = EventBuilder.reconstructArticleFromEvent({ ...plain, id: 'f'.repeat(64) });
     assert.equal(backPlain.links, null, 'pre-cites events read back null, not []');
 });
+
+test('r co-emits share ONE dedupe: no duplicate r tags across responds-to/capture-url/cites', async () => {
+    const article = {
+        url: 'https://example.com/story', title: 'T', markdown: '# x', domain: 'example.com',
+        capture_url: 'https://archive.ph/AbC12',
+        respondsTo: [
+            { target: 'https://example.com/story', relationship: 'extends' },   // = primary r
+            { target: 'https://archive.ph/AbC12', relationship: 'rebuts' },     // = capture_url mirror
+            { target: 'https://other.org/piece', relationship: 'rebuts' },
+            { target: 'https://other.org/piece', relationship: 'extends' }      // repeated target
+        ],
+        links: [
+            { url: 'https://other.org/piece', text: 'cited too', count: 1, internal: false },
+            { url: 'https://fresh.example/x', text: 'fresh', count: 1, internal: false }
+        ]
+    };
+    const ev = await EventBuilder.buildArticleEvent(article, [], PUBKEY, []);
+    const rValues = ev.tags.filter((t) => t[0] === 'r').map((t) => t[1]);
+    assert.equal(new Set(rValues).size, rValues.length, 'no duplicate r tags');
+    assert.equal(rValues[0], 'https://example.com/story', 'primary r stays first');
+    assert.deepEqual(new Set(rValues), new Set([
+        'https://example.com/story', 'https://archive.ph/AbC12',
+        'https://other.org/piece', 'https://fresh.example/x'
+    ]));
+});

@@ -44,8 +44,13 @@ const TRACKING_PARAMS = new Set([
   // Ad-platform click ids
   'fbclid', 'gclid', 'gclsrc', 'msclkid', 'dclid',
   'yclid', 'twclid', 'wbraid', 'gbraid',
-  // Generic referrer / share trackers
-  'ref', 'referrer', 'referer', 'source', 'share_source', 'from',
+  // Generic referrer / share trackers. NOTE: 'from' is deliberately
+  // NOT here despite the legacy ContentExtractor list carrying it —
+  // it is a CONTENT param on real sites (pagination offsets ?from=100,
+  // date ranges, converter origins), and stripping it merges genuinely
+  // distinct pages across every join. Under-merging (a rare share-link
+  // variant forking) is the safer failure than over-merging.
+  'ref', 'referrer', 'referer', 'source', 'share_source',
   // Mailchimp
   'mc_cid', 'mc_eid',
   // Google Analytics

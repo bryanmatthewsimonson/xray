@@ -454,8 +454,22 @@ test('legacy-only tracking params are stripped after unification', () => {
     'https://example.com/a?x=1'
   );
   assert.equal(
-    normalize('https://example.com/a?share_source=copy_web&from=timeline&q=covid'),
+    normalize('https://example.com/a?share_source=copy_web&q=covid'),
     'https://example.com/a?q=covid'
+  );
+});
+
+test("'from' is NOT stripped — a content param on real sites (review 2026-07-10)", () => {
+  // Pagination offsets / date ranges / converter origins ride in
+  // 'from'; stripping it would merge genuinely distinct pages across
+  // every metadata join. Under-merge beats over-merge.
+  assert.notEqual(
+    normalize('https://example.com/list?q=covid&from=100'),
+    normalize('https://example.com/list?q=covid&from=200')
+  );
+  assert.equal(
+    normalize('https://example.com/a?from=timeline&q=covid'),
+    'https://example.com/a?from=timeline&q=covid'
   );
 });
 

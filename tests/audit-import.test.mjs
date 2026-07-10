@@ -424,3 +424,22 @@ test('run provenance: an unknown source is rejected by the model, not silently s
     );
     assert.equal((await AuditRunModel.getByArticleHash(HASH)).length, 0, 'nothing persisted');
 });
+
+test('captureArticleHash join alias: recorded when it differs, null when it matches', async () => {
+    const other = 'c'.repeat(64);
+    const s1 = await importAuditJson(scorerExport(), {
+        localArticleHash: HASH, source: 'background', captureArticleHash: other
+    });
+    const runs1 = await AuditRunModel.getByArticleHash(HASH);
+    assert.equal(runs1[0].captureArticleHash, other,
+        'the full-capture hash rides as a join alias on truncated-key runs');
+    assert.equal(s1.modulesValid, 2);
+
+    await clear();
+    await importAuditJson(scorerExport(), {
+        localArticleHash: HASH, source: 'background', captureArticleHash: HASH
+    });
+    const runs2 = await AuditRunModel.getByArticleHash(HASH);
+    assert.equal(runs2[0].captureArticleHash, null,
+        'no alias when the scored text IS the full capture');
+});

@@ -89,7 +89,7 @@ export const AuditRunModel = {
      * Returns the existing record untouched when the id already
      * exists — re-importing the same run JSON is a no-op.
      */
-    create: async ({ articleHash, auditor, runAt, source, moduleResults = [], aggregate = null }) => {
+    create: async ({ articleHash, auditor, runAt, source, captureArticleHash = null, moduleResults = [], aggregate = null }) => {
         if (!articleHash || typeof articleHash !== 'string') {
             throw new Error('AuditRunModel.create: articleHash required');
         }
@@ -107,6 +107,12 @@ export const AuditRunModel = {
         const record = {
             id,
             articleHash,
+            // Join alias for truncated-capture runs: articleHash is the
+            // SLICED text's hash (the exact bytes scored); this is the
+            // full capture's hash, or null when they coincide. Never
+            // used for score display — only to FIND the run from a
+            // capture-keyed surface.
+            captureArticleHash: (typeof captureArticleHash === 'string' && captureArticleHash) || null,
             auditor: { ...auditor },
             runAt,
             source: src,

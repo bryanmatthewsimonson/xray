@@ -37,10 +37,22 @@ function hostOf(url) {
     catch (_) { return ''; }
 }
 
+/** host is an archive-family host OR any subdomain of one —
+ *  blog.archive.today must fail this just like archive.today. */
+function isArchiveFamilyHost(host) {
+    for (const set of [ARCHIVE_TODAY_HOSTS, WAYBACK_HOSTS]) {
+        for (const h of set) {
+            if (host === h || host.endsWith('.' + h)) return true;
+        }
+    }
+    return false;
+}
+
 /**
  * A candidate original is plausible only when it is a real http(s)
- * URL on a NON-archive host — an archive page linking to itself (or a
- * sibling snapshot) must never be adopted as "the original".
+ * URL on a NON-archive host — an archive page linking to itself, a
+ * sibling snapshot, or an archive-family subdomain (blog, mirrors)
+ * must never be adopted as "the original".
  */
 function isPlausibleOriginal(candidate) {
     if (typeof candidate !== 'string' || !candidate) return false;
@@ -49,7 +61,7 @@ function isPlausibleOriginal(candidate) {
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
     const host = u.hostname.toLowerCase().replace(/^www\./, '');
     if (!host.includes('.')) return false;
-    if (ARCHIVE_TODAY_HOSTS.has(host) || WAYBACK_HOSTS.has(host)) return false;
+    if (isArchiveFamilyHost(host)) return false;
     return true;
 }
 
@@ -98,6 +110,17 @@ function arxivOriginal(url) {
 }
 
 /**
+ * Canonicalize a RECOVERED original before it becomes identity: an
+ * original embedded in an archive path can itself be a rendering
+ * variant (web.archive.org/web/<ts>/https://arxiv.org/pdf/X) — without
+ * this, the archive capture keys to /pdf/ while a direct capture keys
+ * to /abs/, re-creating the exact fork this module exists to prevent.
+ */
+function canonicalizeOriginal(candidate) {
+    return arxivOriginal(candidate) || candidate;
+}
+
+/**
  * URL-only identity resolution (the PDF path, and anywhere without a
  * DOM). Returns null for ordinary pages; otherwise:
  *
@@ -116,7 +139,7 @@ export function resolveUrlIdentityFromUrl(url) {
         const m = WAYBACK_PATH_RE.exec(captureUrl);
         const candidate = m ? repairScheme(m[1]) : null;
         return {
-            original: isPlausibleOriginal(candidate) ? normalize(candidate) : null,
+            original: isPlausibleOriginal(candidate) ? normalize(canonicalizeOriginal(candidate)) : null,
             captureUrl,
             archiveHost: host
         };
@@ -126,7 +149,7 @@ export function resolveUrlIdentityFromUrl(url) {
         const m = ARCHIVE_TODAY_PATH_RE.exec(captureUrl);
         const candidate = m ? repairScheme(m[1]) : null;
         return {
-            original: isPlausibleOriginal(candidate) ? normalize(candidate) : null,
+            original: isPlausibleOriginal(candidate) ? normalize(canonicalizeOriginal(candidate)) : null,
             captureUrl,
             archiveHost: host
         };
@@ -142,30 +165,37 @@ export function resolveUrlIdentityFromUrl(url) {
 
 /**
  * archive.today snapshot pages carry the original URL in their own
- * chrome. Candidates in trust order — each validated, first plausible
- * wins, none = fail open:
+ * chrome. Two markers, in trust order — none qualifying = fail open:
  *   1. `input#HIDDEN_URL` — the prefilled re-archive form value.
- *   2. Anchors in the `#HEADER` bar (the "saved from <url>" link) —
- *      self/sibling-snapshot links are rejected by validation.
+ *   2. Anchors in the `#HEADER` bar. The "saved from" anchor renders
+ *      the ORIGINAL URL as its own link text, so an anchor qualifies
+ *      ONLY when its visible text IS its href — logos, share, donate,
+ *      and promoted links carry label text and are structurally
+ *      excluded. If more than one distinct URL qualifies, the header
+ *      is ambiguous and we claim nothing (a first-plausible-wins scan
+ *      would adopt whatever link happens to come first in the DOM —
+ *      a WRONG original, the one failure this module must never
+ *      produce).
  * Markers are the archive's own DOM and can drift (SMOKE 2.x row
  * verifies against the live site); drift degrades to not-recovered,
  * never to a wrong original.
  */
 function archiveTodayDomOriginal(doc) {
     if (!doc || typeof doc.querySelector !== 'function') return null;
-    const candidates = [];
     const hidden = doc.querySelector('input#HIDDEN_URL');
-    if (hidden && hidden.value) candidates.push(hidden.value);
-    if (typeof doc.querySelectorAll === 'function') {
-        for (const a of doc.querySelectorAll('#HEADER a[href]')) {
-            const href = a.getAttribute ? a.getAttribute('href') : a.href;
-            if (href) candidates.push(href);
-        }
+    if (hidden && hidden.value && isPlausibleOriginal(hidden.value)) {
+        return hidden.value;
     }
-    for (const c of candidates) {
-        if (isPlausibleOriginal(c)) return c;
+    if (typeof doc.querySelectorAll !== 'function') return null;
+    const qualified = new Set();
+    for (const a of doc.querySelectorAll('#HEADER a[href]')) {
+        const href = a.getAttribute ? a.getAttribute('href') : a.href;
+        if (!href || !isPlausibleOriginal(href)) continue;
+        const text = repairScheme(String(a.textContent || '').trim());
+        if (!text || normalize(text) !== normalize(href)) continue;
+        qualified.add(normalize(href));
     }
-    return null;
+    return qualified.size === 1 ? [...qualified][0] : null;
 }
 
 /**
@@ -182,9 +212,57 @@ export function resolveUrlIdentity(doc, tabUrl) {
     if (byUrl.original) return byUrl;
     if (ARCHIVE_TODAY_HOSTS.has(byUrl.archiveHost)) {
         const fromDom = archiveTodayDomOriginal(doc);
-        if (fromDom) return { ...byUrl, original: normalize(fromDom) };
+        if (fromDom) return { ...byUrl, original: normalize(canonicalizeOriginal(fromDom)) };
     }
     return byUrl;
+}
+
+/**
+ * Re-key an archive capture's outbound links to THEIR originals.
+ *
+ * Archives rewrite every body anchor onto their own host (Wayback:
+ * `/web/<ts>/<target>`; archive.today: path-embedded forms) — so link
+ * extraction, which ran against the live DOM, classified every
+ * citation as archive-internal and the publish path would emit ZERO
+ * `cites` tags. Given the links as extracted and the article's (new,
+ * post-identity) own host:
+ *
+ *   - an archive-wrapped link with a recoverable embedded target is
+ *     re-keyed to that target (normalized, arXiv-canonicalized);
+ *   - a link that stays on an archive host with NO recoverable target
+ *     is DROPPED — it is the archive's navigation chrome, and
+ *     publishing archive-host cites would pollute the citation graph;
+ *   - everything else passes through unchanged;
+ *   - `internal` is re-derived against ownHost and unwrapped
+ *     duplicates re-merge (counts summed, first text kept).
+ *
+ * Pure — safe to unit-test without a DOM.
+ */
+export function rewriteArchivedLinks(links, ownHost) {
+    const own = String(ownHost || '').toLowerCase().replace(/^www\./, '');
+    const out = new Map();
+    for (const link of (Array.isArray(links) ? links : [])) {
+        if (!link || !link.url) continue;
+        let url = link.url;
+        const wrapped = resolveUrlIdentityFromUrl(url);
+        if (wrapped) {
+            if (!wrapped.original) continue;   // archive chrome — drop
+            url = wrapped.original;
+        }
+        const host = hostOf(url);
+        const existing = out.get(url);
+        if (existing) {
+            existing.count += (link.count || 1);
+            continue;
+        }
+        out.set(url, {
+            url,
+            text: link.text || '',
+            count: link.count || 1,
+            internal: !!own && host === own
+        });
+    }
+    return [...out.values()];
 }
 
 export { ARCHIVE_TODAY_HOSTS as _ARCHIVE_TODAY_HOSTS };

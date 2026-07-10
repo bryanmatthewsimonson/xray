@@ -10,16 +10,19 @@ const { resolveUrlIdentity, resolveUrlIdentityFromUrl } =
     await import('../src/shared/url-identity.js');
 const { normalize } = await import('../src/shared/metadata/url-normalizer.js');
 
-// A stub document: `hidden` fills input#HIDDEN_URL, `headerHrefs`
-// fills the #HEADER anchor list in order.
-function stubDoc({ hidden = null, headerHrefs = [] } = {}) {
+// A stub document: `hidden` fills input#HIDDEN_URL, `headerAnchors`
+// fills the #HEADER anchor list in order. Entries are either a bare
+// string (an anchor whose visible text IS its href — the "saved from"
+// shape) or {href, text} for labeled links (logo/share/donate).
+function stubDoc({ hidden = null, headerAnchors = [] } = {}) {
+    const anchors = headerAnchors.map((a) => {
+        const { href, text } = typeof a === 'string' ? { href: a, text: a } : a;
+        return { getAttribute: () => href, textContent: text };
+    });
     return {
         querySelector: (sel) =>
             (sel === 'input#HIDDEN_URL' && hidden) ? { value: hidden } : null,
-        querySelectorAll: (sel) =>
-            sel === '#HEADER a[href]'
-                ? headerHrefs.map((h) => ({ getAttribute: () => h }))
-                : []
+        querySelectorAll: (sel) => (sel === '#HEADER a[href]' ? anchors : [])
     };
 }
 
@@ -123,24 +126,41 @@ test('archive.today DOM: input#HIDDEN_URL is the first-trust marker', () => {
     assert.equal(r.captureUrl, 'https://archive.ph/AbC12');
 });
 
-test('archive.today DOM: header anchors are the fallback; self-links rejected', () => {
+test('archive.today DOM: only the text-equals-href ("saved from") anchor qualifies', () => {
     const doc = stubDoc({
-        headerHrefs: [
-            'https://archive.ph/',                    // self — rejected
-            'https://archive.ph/AbC12/again',         // self — rejected
-            'https://archive.md/other-snapshot',      // sibling mirror — rejected
-            'https://example.com/story',              // the "saved from" link
-            'https://example.com/other'               // later candidates ignored
+        headerAnchors: [
+            'https://archive.ph/',                                          // self — rejected
+            'https://archive.ph/AbC12/again',                               // self — rejected
+            'https://archive.md/other-snapshot',                            // sibling mirror — rejected
+            { href: 'https://blog.archive.today/announce', text: 'blog' },  // archive SUBDOMAIN — rejected
+            { href: 'https://buymeacoffee.example/donate', text: 'donate' },// labeled link — never a candidate
+            'https://example.com/story'                                     // saved-from: text IS the href
         ]
     });
     const r = resolveUrlIdentity(doc, 'https://archive.ph/AbC12');
     assert.equal(r.original, 'https://example.com/story');
 });
 
+test('archive.today DOM: two distinct qualifying header URLs = ambiguous = fail open', () => {
+    const doc = stubDoc({
+        headerAnchors: ['https://example.com/story', 'https://elsewhere.example/other']
+    });
+    const r = resolveUrlIdentity(doc, 'https://archive.ph/AbC12');
+    assert.equal(r.original, null,
+        'first-plausible-wins would adopt whichever came first — a wrong original');
+});
+
+test('archive.today DOM: archive-family subdomains are never adopted (even via HIDDEN_URL)', () => {
+    const r = resolveUrlIdentity(
+        stubDoc({ hidden: 'https://blog.archive.today/announcement' }),
+        'https://archive.ph/AbC12');
+    assert.equal(r.original, null);
+});
+
 test('archive.today DOM: HIDDEN_URL wins over header anchors', () => {
     const doc = stubDoc({
         hidden: 'https://example.com/from-input',
-        headerHrefs: ['https://example.com/from-header']
+        headerAnchors: ['https://example.com/from-header']
     });
     const r = resolveUrlIdentity(doc, 'https://archive.ph/AbC12');
     assert.equal(r.original, 'https://example.com/from-input');
@@ -154,7 +174,7 @@ test('archive.today DOM: marker drift fails OPEN — never a wrong original', ()
     // Markers present but garbage / non-http.
     const junk = resolveUrlIdentity(stubDoc({
         hidden: 'javascript:void(0)',
-        headerHrefs: ['/relative/path', 'mailto:x@y.z', 'https://archive.ph/self']
+        headerAnchors: ['/relative/path', 'mailto:x@y.z', 'https://archive.ph/self']
     }), 'https://archive.ph/AbC12');
     assert.equal(junk.original, null);
     // A null/DOM-less call degrades the same way.
@@ -214,4 +234,65 @@ test('an archive capture keys IDENTICALLY to a direct capture of the original', 
         'https://archive.ph/AbC12').original;
     assert.equal(viaWayback, direct);
     assert.equal(viaArchiveToday, direct);
+});
+
+// --- embedded originals are canonicalized (review 2026-07-10) -----------------
+
+test('an arXiv variant embedded in an archive path canonicalizes to /abs/', () => {
+    // Without this, an archived arXiv PDF keys to /pdf/ while a direct
+    // capture keys to /abs/ — the exact fork the module prevents.
+    const wb = resolveUrlIdentityFromUrl(
+        'https://web.archive.org/web/2020/https://arxiv.org/pdf/2301.12345');
+    assert.equal(wb.original, 'https://arxiv.org/abs/2301.12345');
+
+    const at = resolveUrlIdentityFromUrl(
+        'https://archive.ph/newest/https://arxiv.org/pdf/2301.12345v2.pdf');
+    assert.equal(at.original, 'https://arxiv.org/abs/2301.12345v2');
+
+    const dom = resolveUrlIdentity(
+        stubDoc({ hidden: 'https://ar5iv.org/abs/2301.12345' }),
+        'https://archive.ph/AbC12');
+    assert.equal(dom.original, 'https://arxiv.org/abs/2301.12345');
+});
+
+// --- rewriteArchivedLinks (the cites fix for archive captures) ----------------
+
+const { rewriteArchivedLinks } = await import('../src/shared/url-identity.js');
+
+test('rewriteArchivedLinks: wayback-wrapped citations unwrap to their originals', () => {
+    // Wayback rewrites every body anchor onto its own host — as
+    // extracted, every citation reads archive-internal and ZERO cites
+    // would publish. After the identity rewrite the links re-key.
+    const links = [
+        { url: 'https://web.archive.org/web/2020/https://other.org/paper', text: 'the study', count: 1, internal: true },
+        { url: 'https://web.archive.org/web/2020if_/https://example.com/related', text: 'related', count: 2, internal: true },
+        { url: 'https://web.archive.org/web/2020/https://arxiv.org/pdf/2301.12345', text: 'preprint', count: 1, internal: true },
+        // Archive navigation chrome — no embedded target — dropped.
+        { url: 'https://web.archive.org/about', text: 'about the archive', count: 1, internal: true },
+        // A plain link that was never archive-wrapped passes through.
+        { url: 'https://plain.example/x', text: 'plain', count: 1, internal: false }
+    ];
+    const out = rewriteArchivedLinks(links, 'example.com');
+    assert.deepEqual(out, [
+        { url: 'https://other.org/paper', text: 'the study', count: 1, internal: false },
+        { url: 'https://example.com/related', text: 'related', count: 2, internal: true },
+        { url: 'https://arxiv.org/abs/2301.12345', text: 'preprint', count: 1, internal: false },
+        { url: 'https://plain.example/x', text: 'plain', count: 1, internal: false }
+    ]);
+});
+
+test('rewriteArchivedLinks: unwrapped duplicates re-merge, counts summed', () => {
+    const out = rewriteArchivedLinks([
+        { url: 'https://web.archive.org/web/2020/https://other.org/paper?utm_source=x', text: 'first', count: 2, internal: true },
+        { url: 'https://other.org/paper', text: 'second', count: 3, internal: false }
+    ], 'example.com');
+    assert.equal(out.length, 1);
+    assert.equal(out[0].url, 'https://other.org/paper');
+    assert.equal(out[0].count, 5);
+    assert.equal(out[0].text, 'first');
+});
+
+test('rewriteArchivedLinks: degrades safely on junk', () => {
+    assert.deepEqual(rewriteArchivedLinks(null, 'example.com'), []);
+    assert.deepEqual(rewriteArchivedLinks([null, { text: 'no url' }], 'example.com'), []);
 });

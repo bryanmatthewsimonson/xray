@@ -34,7 +34,8 @@ import * as instagram from './instagram.js';
 import * as facebook  from './facebook.js';
 import { extractGenericComments } from './comment-extractor.js';
 import { extractScholarlyMeta } from './scholar-meta.js';
-import { resolveUrlIdentity } from '../url-identity.js';
+import { resolveUrlIdentity, rewriteArchivedLinks } from '../url-identity.js';
+import { Utils } from '../utils.js';
 
 /** @typedef {{ synthesize?: () => Promise<object|null>, enrich?: (article: object) => Promise<object|null> | object|null }} PlatformHandler */
 
@@ -140,6 +141,17 @@ export async function enrichArticleForPlatform(article, platform) {
                 if (identity.original) {
                     enriched.capture_url = identity.captureUrl;
                     enriched.url = identity.original;
+                    // Everything derived from the pre-identity URL must
+                    // re-key with it. domain fed the links' internal
+                    // classification; the links themselves were
+                    // extracted from a DOM whose anchors the archive
+                    // rewrote onto its own host — without the rewrite,
+                    // every citation reads archive-internal and the
+                    // publish path emits ZERO cites tags.
+                    enriched.domain = Utils.getDomain(identity.original) || enriched.domain;
+                    if (Array.isArray(enriched.links)) {
+                        enriched.links = rewriteArchivedLinks(enriched.links, enriched.domain);
+                    }
                 }
             }
         } catch (err) {

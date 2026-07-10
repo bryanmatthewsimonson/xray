@@ -543,9 +543,9 @@ const CAPTURE_LAG_SECONDS = 365 * GAP_DAY;
  * window before it counts, so a year-precision date never fabricates a
  * day-level anomaly. Returns a deterministically-sorted array.
  */
-export function buildTimelineGaps(data) {
+export function buildTimelineGaps(data, articleRows = null) {
     const gaps = [];
-    const { rows } = deriveArticleRows(data);
+    const { rows } = articleRows || deriveArticleRows(data);
 
     // Propositions indexed by their underlying claim id (orbit only).
     const propsByClaim = new Map();
@@ -620,7 +620,7 @@ export function buildTimelineGaps(data) {
     return gaps;
 }
 
-export function buildTimelineEvents(data) {
+export function buildTimelineEvents(data, articleRows = null) {
     const events = [];
     const undated = [];
     const push = (axis, kind, ref, label, when) => {
@@ -643,7 +643,7 @@ export function buildTimelineEvents(data) {
         push('world', 'integrity-finding', f.id, f.match, earliestDeedDate(f, data.propositions.all));
     }
 
-    const { rows } = deriveArticleRows(data);
+    const { rows } = articleRows || deriveArticleRows(data);
     for (const row of rows) {
         push('publication', 'article-published', row.url, row.title || row.url, row.published);
         if (row.captured_at) {
@@ -693,7 +693,7 @@ export function buildTimelineEvents(data) {
     const byAxis = {};
     for (const e of events) byAxis[e.axis] = (byAxis[e.axis] || 0) + 1;
 
-    const gaps = buildTimelineGaps(data);
+    const gaps = buildTimelineGaps(data, articleRows);
 
     return {
         events,
@@ -707,7 +707,7 @@ export function buildTimelineEvents(data) {
 // §3.4 Evidence groups
 // ------------------------------------------------------------------
 
-export function buildEvidenceGroups(data) {
+export function buildEvidenceGroups(data, articleRows = null) {
     // Convergence per proposition — exact reuse of the attestation
     // grouping ("twelve outlets, one press release" collapses to one
     // origin group, derivation on its face).
@@ -725,12 +725,22 @@ export function buildEvidenceGroups(data) {
     }
 
     const runsByHash = new Map();
+    const indexRun = (hash, run) => {
+        if (!hash) return;
+        (runsByHash.get(hash) || runsByHash.set(hash, []).get(hash)).push(run);
+    };
     for (const run of data.auditRuns || []) {
         if (!run || !run.articleHash) continue;
-        (runsByHash.get(run.articleHash) || runsByHash.set(run.articleHash, []).get(run.articleHash)).push(run);
+        indexRun(run.articleHash, run);
+        // Truncated-capture runs key to the SLICED text's hash; the
+        // join alias carries the full capture's hash so claim-keyed
+        // rows (always the full-body hash) still find the run.
+        if (run.captureArticleHash && run.captureArticleHash !== run.articleHash) {
+            indexRun(run.captureArticleHash, run);
+        }
     }
 
-    const { rows, unprocessed } = deriveArticleRows(data);
+    const { rows, unprocessed } = articleRows || deriveArticleRows(data);
 
     // Citation edges across THIS corpus (the case's evidence set).
     const citationEdges = deriveCitationEdges({
@@ -747,8 +757,12 @@ export function buildEvidenceGroups(data) {
         // raw — band/review classification is a display rule
         // (audit/display.js#auditCardChipData) and lives in CD.2 so it
         // cannot fork. Never aggregated upward (§3.4).
+        const seenRunIds = new Set();
         const audit_runs = row.article_hashes
             .flatMap((h) => runsByHash.get(h) || [])
+            // The two-key index could surface one run twice if a row
+            // ever carried both its hashes — dedupe by run identity.
+            .filter((run) => !seenRunIds.has(run.id) && seenRunIds.add(run.id))
             .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
             .map((run) => ({
                 run_id:    run.id,
@@ -933,8 +947,12 @@ export function buildEntitiesInvolved(data) {
  * which are never rolled up).
  */
 export function buildCaseDossier(data, generatedAt) {
+    // Derive the article rows ONCE — three section builders consume
+    // the same deterministic derivation (they accept it as an optional
+    // param so direct callers/tests keep the old signatures).
+    const articleRows = deriveArticleRows(data);
     const shape = buildShapeOfKnowledge(data);
-    const evidence = buildEvidenceGroups(data);
+    const evidence = buildEvidenceGroups(data, articleRows);
     return {
         case:         data.case,
         generated_at: generatedAt ?? null,
@@ -955,7 +973,7 @@ export function buildCaseDossier(data, generatedAt) {
         },
         shape_of_knowledge: shape,
         knots:              buildKnots(data),
-        timeline:           buildTimelineEvents(data),
+        timeline:           buildTimelineEvents(data, articleRows),
         evidence,
         entities:           buildEntitiesInvolved(data)
     };

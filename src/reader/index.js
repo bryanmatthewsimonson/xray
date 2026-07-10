@@ -245,17 +245,23 @@ function adoptArticle(article, stored) {
         (async () => {
             try {
                 const fullBody = EventBuilder.assembleArticleBody(hashableArticle(state.article));
-                state.articleHash = await canonicalArticleHash(fullBody);
                 // The AUDITABLE key: audits cover at most
                 // MAX_AUDIT_INPUT_CHARS, and their hash gate covers the
                 // sliced text — for every normal-length capture this is
                 // identical to articleHash (zero behavior change).
+                // Compute BOTH hashes into locals and assign together:
+                // an await between the two state writes would let an
+                // interleaved refreshAuditStatus see articleHash set
+                // but auditableHash still undefined and skip the
+                // truncated-key runs/draft note for that paint.
+                const fullHash = await canonicalArticleHash(fullBody);
                 const slice = auditableSlice(fullBody);
-                state.auditableTruncated = slice.truncated;
-                state.auditableTotalChars = slice.totalChars;
-                state.auditableHash = slice.truncated
+                const slicedHash = slice.truncated
                     ? await canonicalArticleHash(slice.text)
-                    : state.articleHash;
+                    : fullHash;
+                state.articleHash = fullHash;
+                state.auditableTotalChars = slice.totalChars;
+                state.auditableHash = slicedHash;
                 updateHashLine();
                 // The audit bar keys on the hash — refresh it now that
                 // the hash is known (init wired it before this resolved).
@@ -848,16 +854,22 @@ async function refreshAuditStatus() {
         return;
     }
 
-    const directRuns = await AuditRunModel.getByArticleHash(state.articleHash);
     // Over-limit captures: an in-reader run scores (and its import gate
-    // verifies) only the first MAX_AUDIT_INPUT_CHARS, so it persists
-    // under the SLICED text's hash — same capture, partial coverage.
-    // Surface those runs here WITH the coverage caveat, never silently.
+    // verifies) only the first MAX_AUDIT_INPUT_CHARS, so it — and its
+    // extracted predictions — persist under the SLICED text's hash.
+    // Same capture, partial coverage: surface both here WITH the
+    // coverage caveat, never silently. The four reads are independent;
+    // one await instead of four (this repaints on every audit action).
     const truncKey = (state.auditableHash && state.auditableHash !== state.articleHash)
         ? state.auditableHash : null;
-    const truncRuns = truncKey ? await AuditRunModel.getByArticleHash(truncKey) : [];
+    const [directRuns, truncRuns, directPreds, truncPreds] = await Promise.all([
+        AuditRunModel.getByArticleHash(state.articleHash),
+        truncKey ? AuditRunModel.getByArticleHash(truncKey) : [],
+        PredictionModel.getByArticleHash(state.articleHash),
+        truncKey ? PredictionModel.getByArticleHash(truncKey) : []
+    ]);
     const runs = directRuns.concat(truncRuns.map((r) => ({ ...r, _truncatedKey: true })));
-    const predictions = await PredictionModel.getByArticleHash(state.articleHash);
+    const predictions = directPreds.concat(truncPreds);
 
     if (!runs.length) {
         statusEl.textContent = 'No audit imported for this capture.';
@@ -885,8 +897,13 @@ async function refreshAuditStatus() {
         let legacyNote = '';
         try {
             if (state.article && state.article.contentType === 'pdf' && state.article.markdown) {
-                const legacyHash = await canonicalArticleHash(
-                    EventBuilder.assembleArticleBody(state.article));
+                // The legacy key is a full-body SHA — compute it once
+                // per adopted article, not on every repaint.
+                if (state._legacyPdfHash === undefined) {
+                    state._legacyPdfHash = await canonicalArticleHash(
+                        EventBuilder.assembleArticleBody(state.article)) || null;
+                }
+                const legacyHash = state._legacyPdfHash;
                 if (legacyHash && legacyHash !== state.articleHash) {
                     const legacyRuns = await AuditRunModel.getByArticleHash(legacyHash);
                     if (legacyRuns.length > 0) {
@@ -1087,8 +1104,14 @@ function renderExtractionWarningsBanner() {
 function renderArchiveNote(a) {
     if (!a) return '';
     if (a.capture_url && a.capture_url !== a.url) {
-        const host = a.archive_host
-            || ((a.capture_url.match(/^https?:\/\/(?:www\.)?([^/]+)/) || [])[1] || 'archive');
+        // archive_host is local-only (relay read-back carries just the
+        // capture-url tag) — derive the host the same way url-identity
+        // does rather than a divergent regex.
+        let host = a.archive_host;
+        if (!host) {
+            try { host = new URL(a.capture_url).hostname.replace(/^www\./, ''); }
+            catch (_) { host = 'archive'; }
+        }
         return `<div class="xr-article__capture-note" title="fetched from ${escapeHtml(a.capture_url)}">captured via ${escapeHtml(host)} · original: ${escapeHtml(a.url || '')}</div>`;
     }
     if (a.archive_host) {
@@ -1644,18 +1667,27 @@ async function loadAuditDraft(hash) {
     } catch (_) { return null; }
 }
 
-async function appendAuditDraft(hash, moduleName, findings, model) {
-    try {
+// Draft writes are a read-modify-write of ONE storage key from up to
+// three concurrent orchestrator workers — two module completions
+// landing back-to-back would both read the same pre-image and the
+// second set() would silently drop the first worker's paid-for module
+// from the resume draft. Chain every write through one promise so
+// each get→set completes before the next begins.
+let _auditDraftChain = Promise.resolve();
+function appendAuditDraft(hash, moduleName, findings, model) {
+    _auditDraftChain = _auditDraftChain.then(async () => {
         const key = AUDIT_DRAFT_PREFIX + hash;
         const res = await browserApi.storage.local.get(key);
         const draft = (res && res[key] && res[key].modules) ? res[key] : { modules: {} };
         draft.modules[moduleName] = findings;
         if (model) draft.model = model;
         await browserApi.storage.local.set({ [key]: draft });
-    } catch (err) {
-        // Draft durability is best-effort — the run continues regardless.
+    }).catch((err) => {
+        // Draft durability is best-effort — the run continues regardless
+        // (and the chain must never stay rejected for the next write).
         console.warn('[X-Ray Reader] audit draft save failed:', err);
-    }
+    });
+    return _auditDraftChain;
 }
 
 async function clearAuditDraft(hash) {
@@ -1696,7 +1728,15 @@ function auditRequestMeta() {
  */
 async function ingestAuditResult(audit, localHash, how, model) {
     try {
-        const summary = await importAuditJson(audit, { localArticleHash: localHash, source: 'background' });
+        const summary = await importAuditJson(audit, {
+            localArticleHash: localHash,
+            source: 'background',
+            // Truncated-capture runs key to the slice hash; carry the
+            // full capture hash as the join alias so capture-keyed
+            // surfaces (the case dossier) still find the run.
+            captureArticleHash: (state.articleHash && state.articleHash !== localHash)
+                ? state.articleHash : null
+        });
         const bits = [`${summary.modulesValid} module${summary.modulesValid === 1 ? '' : 's'} valid`];
         if (summary.modulesFailed) bits.push(`${summary.modulesFailed} failed validation`);
         if (summary.predictionsImported) bits.push(`${summary.predictionsImported} prediction${summary.predictionsImported === 1 ? '' : 's'}`);
@@ -4283,6 +4323,13 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
  */
 async function auditHashCandidates(currentHash, url) {
     const candidates = [currentHash];
+    // Truncated-capture vintage: an over-limit article's in-reader
+    // audit (and its predictions) key to the SLICE hash, not the
+    // full-body hash — without this, the publish batch and prediction
+    // back-references skip runs the audit panel itself displays.
+    if (state.auditableHash && state.auditableHash !== state.articleHash) {
+        candidates.push(state.auditableHash);
+    }
     try {
         const arch = url ? await ArchiveCache.getArticle(url) : null;
         if (arch && arch.articleHash) candidates.push(arch.articleHash);

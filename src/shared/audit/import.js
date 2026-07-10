@@ -78,7 +78,7 @@ function normalizeAuditor(raw, fallbackId) {
  *   modulesValid, modulesFailed, failedModules, predictionsImported,
  *   alreadyImported}
  */
-export async function importAuditJson(json, { localArticleHash = null, source = 'cli-import' } = {}) {
+export async function importAuditJson(json, { localArticleHash = null, source = 'cli-import', captureArticleHash = null } = {}) {
     if (!json || typeof json !== 'object' || Array.isArray(json)) {
         throw fail('expected the scorer JSON object (article / module_results / aggregate)');
     }
@@ -285,11 +285,18 @@ export async function importAuditJson(json, { localArticleHash = null, source = 
     // Provenance: the caller names how the run arrived (the reader's
     // in-extension LLM path passes 'background'; the file importer keeps
     // the default). AuditRunModel.create validates against RUN_SOURCES.
+    // captureArticleHash: when a run scored a truncated SLICE of an
+    // over-limit capture, articleHash is the slice's hash (the exact
+    // text scored — the gate above verified it) and this carries the
+    // FULL capture's hash as a join alias, so surfaces that key on the
+    // capture (the case dossier's evidence table) still find the run.
     const run = await AuditRunModel.create({
         articleHash: recomputed,
         auditor,
         runAt: aggregate.run_at,
         source,
+        captureArticleHash: (captureArticleHash && captureArticleHash !== recomputed)
+            ? captureArticleHash : null,
         moduleResults: storedResults,
         aggregate: storedAggregate
     });

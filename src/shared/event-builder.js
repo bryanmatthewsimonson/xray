@@ -140,6 +140,18 @@ export const EventBuilder = {
       ['x', articleXHash],
       ['client', 'xray']
     ];
+
+    // ONE r-dedupe mechanism for every co-emit below (responds-to,
+    // capture-url, cites): the primary r above stays FIRST (readers
+    // take the first r as the article URL), and no duplicate r tag is
+    // ever emitted regardless of which blocks overlap.
+    const seenR = new Set([article.url]);
+    const pushR = (u) => {
+      if (u && !seenR.has(u)) {
+        tags.push(['r', u]);
+        seenR.add(u);
+      }
+    };
     
     if (article.excerpt) {
       tags.push(['summary', article.excerpt.substring(0, 500)]);
@@ -186,7 +198,7 @@ export const EventBuilder = {
           tags.push(buildRespondsToTag(ref.target, ref.relationship, ref.relayHint || ''));
           // Co-emit an `r` tag for URL targets (skip nostr: refs).
           if (!/^nostr:/.test(ref.target)) {
-            tags.push(['r', ref.target]);
+            pushR(ref.target);
           }
         } catch (_) { /* invalid relationship; silently drop the entry */ }
       }
@@ -201,7 +213,7 @@ export const EventBuilder = {
     // the article URL (reconstructArticleFromEvent invariant).
     if (article.capture_url && article.capture_url !== article.url) {
       tags.push(['capture-url', article.capture_url]);
-      tags.push(['r', article.capture_url]);
+      pushR(article.capture_url);
     }
 
     // `cites` extension (docs/NIP_DRAFT.md): one tag per distinct
@@ -210,19 +222,15 @@ export const EventBuilder = {
     // extraction cap means absence is NOT evidence of absence. Indexed
     // `r` co-emits for the first 25 targets make the edge queryable
     // from the cited side; they come after the primary r /
-    // responds-to / capture-url co-emits and are deduped against every
-    // r already on the event (the FIRST r stays the article URL).
+    // responds-to / capture-url co-emits and share their dedupe (the
+    // FIRST r stays the article URL).
     if (Array.isArray(article.links)) {
-      const seenR = new Set(tags.filter((t) => t[0] === 'r').map((t) => t[1]));
       let cited = 0;
       for (const link of article.links) {
         if (!link || !link.url || link.internal) continue;
         const anchorText = String(link.text || '').slice(0, 120);
         tags.push(anchorText ? ['cites', link.url, anchorText] : ['cites', link.url]);
-        if (cited < 25 && !seenR.has(link.url)) {
-          tags.push(['r', link.url]);
-          seenR.add(link.url);
-        }
+        if (cited < 25) pushR(link.url);
         cited += 1;
       }
     }

@@ -593,3 +593,31 @@ test('buildEvidenceGroups: per-article citations line with captured-vs-not hones
     assert.deepEqual(b.citations.cited_by, ['https://a.example/one'],
         'the cited side works even when the cited capture predates link extraction');
 });
+
+test('evidence table finds truncated-key audit runs via the captureArticleHash alias', async () => {
+    const { buildEvidenceGroups } = await import('../src/shared/case-dossier.js');
+    const FULL = 'a'.repeat(64);     // the hash claims carry
+    const SLICE = 'b'.repeat(64);    // the hash the truncated run scored
+    const data = {
+        case: { id: 'entity_case_trunc' },
+        orbit: { claims: [
+            { id: 'claim_tr1', source_url: 'https://big.example/report', text: 'c', article_hash: FULL }
+        ] },
+        propositions: { orbit: [] },
+        links: { attestations: [] },
+        auditRuns: [{
+            id: 'run_trunc', articleHash: SLICE, captureArticleHash: FULL,
+            auditor: { kind: 'model', id: 'anthropic/claude-opus-4-8' },
+            runAt: '2026-07-10T00:00:00Z',
+            aggregate: { final_score: 70, overall_confidence: 0.8 }
+        }],
+        wire: { articles: [] },
+        articles: []
+    };
+    const ev = buildEvidenceGroups(data);
+    const row = ev.articles.find((a) => a.url === 'https://big.example/report');
+    assert.equal(row.audit_runs.length, 1,
+        'the sliced-hash run joins through the full-capture alias');
+    assert.equal(row.audit_runs[0].run_id, 'run_trunc');
+    assert.equal(ev.coverage.articles_with_audit, 1);
+});
