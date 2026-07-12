@@ -53,13 +53,15 @@ import { collectClaimCandidates } from '../shared/claim-candidates.js';
  *   sourceUrl:    string,
  *   initialText?: string,
  *   initialClaim?: object,   // pass to pre-populate for edit mode
- *   context?:     string     // surrounding-paragraph text for the `context` field
+ *   context?:     string,    // surrounding-paragraph text for the `context` field
+ *   quoteMode?:   boolean    // quote-framed variant: same record, the
+ *                            // speaker picker front-and-center
  * }} opts
  */
 export function openClaimModal(opts) {
     return new Promise((resolve) => {
         const { sourceUrl, initialText = '', initialClaim = null, context = '', anchor = null,
-                quote = null, articleHash = null, initialAbout = [] } = opts;
+                quote = null, articleHash = null, initialAbout = [], quoteMode = false } = opts;
 
         const isEdit = !!initialClaim;
         const initial = initialClaim || {
@@ -72,10 +74,10 @@ export function openClaimModal(opts) {
 
         const modal = document.createElement('div');
         modal.className = 'xr-claim-modal';
-        modal.innerHTML = buildModalHtml(initial, isEdit);
+        modal.innerHTML = buildModalHtml(initial, isEdit, quoteMode);
         document.body.appendChild(modal);
 
-        wireModal(modal, initial, isEdit, async (saved) => {
+        wireModal(modal, initial, isEdit, quoteMode, async (saved) => {
             if (!saved) { closeModal(); resolve(null); return; }
             try {
                 const result = isEdit
@@ -95,11 +97,21 @@ export function openClaimModal(opts) {
     });
 }
 
-function buildModalHtml(initial, isEdit) {
-    const title = isEdit ? 'Edit claim' : 'Add claim';
+function buildModalHtml(initial, isEdit, quoteMode = false) {
+    const title = quoteMode ? 'Capture quote' : (isEdit ? 'Edit claim' : 'Add claim');
     // `source` is an entity id, free text, or null (= the article).
     const sourceIsEntity = typeof initial.source === 'string' && /^entity_/.test(initial.source);
     const sourceText = (initial.source && !sourceIsEntity) ? initial.source : '';
+
+    // The quote-framed variant is the SAME record and wire — only the
+    // framing changes: the speaker picker moves to the top (entity mode
+    // preselected) because the speaker is what makes this a quote.
+    const sourcePicker = buildEntityOrTextPicker('source',
+        quoteMode ? 'Who said it' : 'Who said it (optional — defaults to the article)',
+        sourceIsEntity ? [initial.source] : [], sourceText, quoteMode)
+        + (quoteMode
+            ? '<small class="xr-claim-modal__hint">The speaker is what makes this a quote — e.g. W.H.O. The selected text is captured verbatim.</small>'
+            : '');
 
     return `
       <div class="xr-claim-modal__backdrop"></div>
@@ -113,17 +125,18 @@ function buildModalHtml(initial, isEdit) {
           <div class="xr-claim-modal__err" hidden></div>
 
           <label class="xr-claim-modal__field">
-            <span class="xr-claim-modal__label">Claim text</span>
+            <span class="xr-claim-modal__label">${quoteMode ? 'Quote text' : 'Claim text'}</span>
             <textarea class="xr-claim-modal__text" rows="3"
               ${isEdit ? 'readonly' : ''}
               placeholder="The exact wording of the claim">${escapeHtml(initial.text || '')}</textarea>
             ${isEdit ? '<small class="xr-claim-modal__hint">Text is immutable after creation. Delete + recreate to change it.</small>' : ''}
           </label>
 
+          ${quoteMode ? sourcePicker : ''}
+
           ${buildAboutPicker(initial.about)}
 
-          ${buildEntityOrTextPicker('source', 'Who said it (optional — defaults to the article)',
-                                    sourceIsEntity ? [initial.source] : [], sourceText)}
+          ${quoteMode ? '' : sourcePicker}
 
           <div class="xr-claim-modal__field xr-claim-modal__field--inline">
             <label class="xr-claim-modal__checkbox">
@@ -167,8 +180,9 @@ function buildAboutPicker(entityIds) {
  * — structured when possible, prose when not. Internally we render
  * the entity picker as a search input with a dropdown of matches.
  */
-function buildEntityOrTextPicker(prefix, label, entityIds, textValue) {
-    const isEntityMode = Array.isArray(entityIds) && entityIds.length > 0;
+function buildEntityOrTextPicker(prefix, label, entityIds, textValue, forceEntityMode = false) {
+    const isEntityMode = (Array.isArray(entityIds) && entityIds.length > 0)
+        || (forceEntityMode && !textValue);
     return `
       <div class="xr-claim-modal__field xr-claim-modal__picker" data-prefix="${prefix}">
         <span class="xr-claim-modal__label">${escapeHtml(label)}</span>
@@ -201,7 +215,7 @@ function buildEntityOrTextPicker(prefix, label, entityIds, textValue) {
 // Modal wiring
 // ------------------------------------------------------------------
 
-function wireModal(modal, initial, isEdit, onSubmit) {
+function wireModal(modal, initial, isEdit, quoteMode, onSubmit) {
     const $ = (sel) => modal.querySelector(sel);
 
     // Close / cancel
@@ -215,12 +229,14 @@ function wireModal(modal, initial, isEdit, onSubmit) {
     const keyCb = $('.xr-claim-modal__key');
 
     // Pickers: `about` is a multi-select of entities (no text mode);
-    // `source` is single, entity-or-text ("who said it").
+    // `source` is single, entity-or-text ("who said it"). Quote mode
+    // preselects entity mode (must match buildEntityOrTextPicker's
+    // forceEntityMode rendering, or the radios and state disagree).
     const sourceIsEntity = typeof initial.source === 'string' && /^entity_/.test(initial.source);
     const pickerState = {
         about:  { mode: 'entity', ids: (initial.about || []).slice(), text: '' },
         source: {
-            mode: sourceIsEntity ? 'entity' : 'text',
+            mode: (sourceIsEntity || (quoteMode && !initial.source)) ? 'entity' : 'text',
             ids:  sourceIsEntity ? [initial.source] : [],
             text: (initial.source && !sourceIsEntity) ? initial.source : ''
         }
@@ -238,7 +254,7 @@ function wireModal(modal, initial, isEdit, onSubmit) {
     // Save
     modal.querySelector('[data-action="save"]').addEventListener('click', async () => {
         const text = $('.xr-claim-modal__text').value.trim();
-        if (!text) { showModalError(modal, 'Claim text is required'); return; }
+        if (!text) { showModalError(modal, quoteMode ? 'Quote text is required' : 'Claim text is required'); return; }
 
         // `source`: an entity id (entity mode), free text (text mode), or
         // null (= the article).
@@ -616,7 +632,12 @@ export async function renderClaimsBar(claims) {
         const aboutLine = about
             ? `<div class="xr-claims__triple">About <em>${escapeHtml(about)}</em></div>`
             : '';
-        const sourceLine = source
+        // Speaker-first rendering: a sourced claim with a verbatim quote
+        // IS the quote artifact — the speaker leads the quote line below
+        // ("W.H.O. — “…”") and the Per-line covers sourced claims
+        // without a locatable quote.
+        const claimQuoteText = String(c.quote || exactFromAnchor(c.anchor) || '').trim();
+        const sourceLine = (source && !claimQuoteText)
             ? `<div class="xr-claims__claimant">Per <em>${escapeHtml(source)}</em></div>`
             : '';
         const pubDot = c.publishedAt
@@ -671,11 +692,13 @@ export async function renderClaimsBar(claims) {
         // claim is drawn from — first-class `quote` field, with the
         // anchor's exact as the fallback for pre-hardening records.
         // Clickable (data-action="locate") to jump to the passage.
-        const quoteText = String(c.quote || exactFromAnchor(c.anchor) || '').trim();
+        const quoteText = claimQuoteText;
         const pdfPage = pageFromAnchor(c.anchor);
         const quoteLine = quoteText
             ? `<blockquote class="xr-claims__quote" data-action="locate"
-                   title="Show this passage in the article">“${
+                   title="Show this passage in the article">${
+                   source ? `<span class="xr-claims__speaker">${escapeHtml(source)}</span> — ` : ''
+               }“${
                    escapeHtml(quoteText.length > 240 ? quoteText.slice(0, 239) + '…' : quoteText)
                }”${pdfPage ? ` <span class="xr-claims__page" title="PDF page">p. ${pdfPage}</span>` : ''}</blockquote>`
             : '';

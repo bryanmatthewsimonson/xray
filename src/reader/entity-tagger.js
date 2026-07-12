@@ -42,7 +42,8 @@ let taggerRoot            = null;
  * @param {{
  *   container: HTMLElement,
  *   onTag:      (ref)  => void,
- *   onClaim?:   (info) => void, // the popover's "Add as claim" row
+ *   onClaim?:   (info) => void, // the popover's "Add as claim" and
+ *                               // "❝ Quote" rows (info.quoteMode)
  *   onFinding?: (info) => void  // the popover's "Mark finding" row —
  *                               // the reader opens the finding modal
  *                               // seeded with the selected span
@@ -153,6 +154,9 @@ function openPopover({ x, y, initialText }) {
         <button type="button" class="xr-tagger-popover__claim-btn" title="Open the claim form with this selection">
           📋 Add as claim
         </button>
+        <button type="button" class="xr-tagger-popover__quote-btn" title="Capture this selection as a quote — pick who said it">
+          ❝ Quote
+        </button>
         <button type="button" class="xr-tagger-popover__finding-btn" title="Name a behavioral maneuver, anchored to this selection">
           🔎 Mark finding
         </button>
@@ -206,36 +210,40 @@ function openPopover({ x, y, initialText }) {
     popover.querySelector('.xr-tagger-popover__close')
         .addEventListener('click', closePopover);
 
-    // "Add as claim" handoff — close the popover and invoke the
-    // caller-supplied onClaim callback with the selected text +
-    // anchor, so the reader can open the claim modal.
+    // "Add as claim" / "❝ Quote" handoff — close the popover and invoke
+    // the caller-supplied onClaim callback with the selected text +
+    // anchor, so the reader can open the claim modal. A quote is the
+    // SAME claim record underneath (its `quote` is the verbatim span,
+    // its `source` the speaker); quoteMode only reframes the modal with
+    // the speaker picker front-and-center.
+    const handOffToClaim = (quoteMode) => {
+        const text = currentSelectionText;
+        // Grab a short surrounding-paragraph context for the claim
+        // record — useful for the kind-30040 event body and later
+        // rehydration.
+        const context = extractParagraphContext(currentSelectionRange);
+        // Capture a W3C text-anchor from the *cloned* range (the live
+        // selection is cleared just below, so we can't read it after).
+        // `anchor` is the selector array; null if capture failed.
+        const captured = currentSelectionRange
+            ? captureFromRange(currentSelectionRange, taggerRoot)
+            : null;
+        const anchor = captured ? captured.selectors : null;
+        closePopover();
+        // Clear selection so the body click doesn't reopen the
+        // popover immediately.
+        const sel = window.getSelection();
+        if (sel) sel.removeAllRanges();
+        currentSelectionRange = null;
+        currentSelectionText  = '';
+        if (typeof onClaimCallback === 'function') {
+            onClaimCallback({ text, context, anchor, quoteMode });
+        }
+    };
     const claimBtn = popover.querySelector('.xr-tagger-popover__claim-btn');
-    if (claimBtn) {
-        claimBtn.addEventListener('click', () => {
-            const text = currentSelectionText;
-            // Grab a short surrounding-paragraph context for the claim
-            // record — useful for the kind-30040 event body and later
-            // rehydration.
-            const context = extractParagraphContext(currentSelectionRange);
-            // Capture a W3C text-anchor from the *cloned* range (the live
-            // selection is cleared just below, so we can't read it after).
-            // `anchor` is the selector array; null if capture failed.
-            const captured = currentSelectionRange
-                ? captureFromRange(currentSelectionRange, taggerRoot)
-                : null;
-            const anchor = captured ? captured.selectors : null;
-            closePopover();
-            // Clear selection so the body click doesn't reopen the
-            // popover immediately.
-            const sel = window.getSelection();
-            if (sel) sel.removeAllRanges();
-            currentSelectionRange = null;
-            currentSelectionText  = '';
-            if (typeof onClaimCallback === 'function') {
-                onClaimCallback({ text, context, anchor });
-            }
-        });
-    }
+    if (claimBtn) claimBtn.addEventListener('click', () => handOffToClaim(false));
+    const quoteBtn = popover.querySelector('.xr-tagger-popover__quote-btn');
+    if (quoteBtn) quoteBtn.addEventListener('click', () => handOffToClaim(true));
 
     // "Mark finding" handoff — same cloned-range capture as the claim
     // path, handed to the reader so it can open the finding modal with

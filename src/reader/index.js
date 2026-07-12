@@ -1329,7 +1329,7 @@ function renderReader() {
             refreshEntitiesBar().catch(() => {});
             scheduleTagSave();
         },
-        onClaim: async ({ text, context, anchor }) => {
+        onClaim: async ({ text, context, anchor, quoteMode }) => {
             // PDF captures: page-level provenance rides as an additive
             // FragmentSelector (resolvers that don't know it skip it).
             const page = pdfPageOfQuote(text);
@@ -1343,11 +1343,14 @@ function renderReader() {
                 articleHash: claimArticleHash(),
                 // Sticky default (Phase 11.3): a case-capture session tags
                 // dozens of claims with the same case entity + people.
-                initialAbout: state.lastClaimAbout || []
+                initialAbout: state.lastClaimAbout || [],
+                // "❝ Quote" shortcut: same record, quote-framed modal
+                // with the speaker picker front-and-center.
+                quoteMode:    !!quoteMode
             });
             if (saved) {
                 state.lastClaimAbout = saved.about || [];
-                toast('Claim saved', 'success', 2000);
+                toast(quoteMode ? 'Quote saved' : 'Claim saved', 'success', 2000);
                 await refreshClaimsBar();
             }
         },
