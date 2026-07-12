@@ -451,6 +451,9 @@ function ensureStyles() {
     style.id = 'xr-integrity-styles';
     style.textContent = `
 .xr-integrity { position: fixed; inset: 0; z-index: 10010; }
+/* [hidden] is UA display:none — author display rules (flex rows)
+   defeat it; the scoped guard keeps every hidden toggle honest. */
+.xr-integrity [hidden] { display: none !important; }
 .xr-integrity__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
 .xr-integrity__card {
   position: relative; margin: 4vh auto 0; width: min(640px, calc(100vw - 32px));

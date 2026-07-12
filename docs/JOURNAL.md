@@ -19,6 +19,34 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-12 — The `[hidden]`-vs-author-`display` footgun
+
+Tags: `bug`, `pattern`.
+
+The evidence pickers' search "filtered" a 503-item list down to…
+503 items. The handler ran and set `row.hidden = true` correctly —
+but the `hidden` attribute is implemented by the **UA stylesheet's**
+`[hidden] { display: none }`, and any author `display:` rule on the
+same element wins over UA rules regardless of specificity. Every
+picker row declares `display: flex`, so `hidden` was silently inert.
+The same defeat had been shipping unnoticed in the 🔗 link modal's
+search since Phase 11.4 (pools were small) and in the claim modal's
+Entity/Free-text mode toggle (`.xr-claim-modal__picker-entity` is
+flex).
+
+Fix: scoped guards at each component root —
+`.xr-adjudicate [hidden]`, `.xr-integrity [hidden]`,
+`.xr-claim-modal [hidden]`, all `{ display: none !important; }` — so
+every current and future hidden toggle inside those surfaces stays
+honest. Audited every other `.hidden =` toggle in the reader/shared
+modals; the rest touch elements without author `display` rules.
+
+So-what: `el.hidden` only works on elements whose classes never set
+`display`. When a component styles its rows as flex/grid/inline-*,
+add the scoped `[hidden]` guard in the same breath — and when a
+filter "doesn't filter", check whether hiding is defeated before
+suspecting the matcher.
+
 ## 2026-07-12 — Grounded verdict evidence: the plumbed-but-dead provenance chain
 
 Tags: `bug`, `design`.

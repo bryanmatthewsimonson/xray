@@ -1069,6 +1069,14 @@ body {
   justify-content: center;
 }
 
+/* [hidden] is only the UA stylesheet's display:none — any author
+   display rule on the same element (flex rows, the entity picker)
+   silently defeats it. The scoped guard keeps every hidden toggle in
+   the claim/link/others modals honest. */
+.xr-claim-modal [hidden] {
+  display: none !important;
+}
+
 .xr-claim-modal__backdrop {
   position: absolute;
   inset: 0;

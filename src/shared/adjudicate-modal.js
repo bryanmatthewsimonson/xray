@@ -779,6 +779,10 @@ function ensureStyles() {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .xr-adjudicate__ev-host { font-size: 10.5px; opacity: 0.7; }
 .xr-adjudicate__ev-note { flex: 1 1 100%; padding: 4px 8px; border-radius: 6px; font-size: 12px; }
+/* The hidden attribute is UA-stylesheet display:none — any author
+   display rule (picker items are flex) silently defeats it, so the
+   search filter "hid" rows that stayed visible. Scoped guard wins. */
+.xr-adjudicate [hidden] { display: none !important; }
 .xr-adjudicate__picker { margin: 6px 0 10px; padding: 8px; border: 1px solid var(--xr-border, #333);
   border-radius: 8px; }
 .xr-adjudicate__picker-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
