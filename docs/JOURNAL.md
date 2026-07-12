@@ -19,6 +19,38 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-12 — The asserter defaults to the article's author, entity-first
+
+Tags: `design`.
+
+Maintainer: "it is really important to know who made the claim.
+Usually it is the author of the article or paper… entities should be
+the primary way of identifying who asserted the claim." The claim
+modal's "Who said it" was optional, free-text-first, and defaulted to
+nothing — so most claims shipped with no asserter even though the
+byline was sitting right there on the capture.
+
+Now: the source picker is entity-mode-first everywhere, and new
+claims default their speaker to the article's author —
+`findEntityByName(byline)` (deterministic ids make exact-name lookup
+two hashes + one registry read) preselects the entity when it exists;
+otherwise the picker opens with the author name prefilled and a
+one-click "New as: <type>" row (the tagger popover's create pattern,
+now inside the claim modal's pickers — replacing the "tag an entity
+from the article body first" dead end). LLM-accepted claims get the
+author entity as their source too, but only when it already exists.
+
+Two deliberate lines:
+- **No silent entity creation.** Entity ids are `sha256(type:name)` —
+  a wrong person/org guess would mint a permanently wrong-typed
+  registry entry. Creation stays a deliberate user action; the
+  default just makes it one click with the type chosen by a human.
+  (Same posture as the identity layer's manual account↔entity link.)
+- The wire needed nothing: entity sources already emit
+  `['p', pk, '', 'source']` + `['source', name]`, the publish path's
+  entity dict is the full registry, and `collectClaimEntityIds`
+  already swept `claim.source` into the entity-profile batch.
+
 ## 2026-07-12 — The `[hidden]`-vs-author-`display` footgun
 
 Tags: `bug`, `pattern`.

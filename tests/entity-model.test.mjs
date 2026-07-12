@@ -37,7 +37,7 @@ globalThis.chrome = {
 
 const { EntityModel, ENTITY_TYPES, ENTITY_ICONS,
         entityTypeToTag, generateEntityId, installEntityStorageBridge,
-        mergeEntityRefs } =
+        mergeEntityRefs, findEntityByName } =
     await import('../src/shared/entity-model.js');
 const { LocalKeyManager } = await import('../src/shared/local-key-manager.js');
 const { EventBuilder } = await import('../src/shared/event-builder.js');
@@ -60,6 +60,27 @@ test('entity: deterministic id generation', async () => {
     assert.notEqual(a, c, 'different name → different id');
     assert.notEqual(a, d, 'different type → different id');
     assert.match(a, /^entity_[0-9a-f]{16}$/);
+});
+
+test('entity: findEntityByName — exact-name lookup across types', async () => {
+    resetState();
+    const who = await EntityModel.create({ name: 'World Health Organization', type: 'organization' });
+
+    const hit = await findEntityByName('World Health Organization');
+    assert.equal(hit && hit.id, who.id, 'organization resolves by exact name');
+
+    const normalized = await findEntityByName('  world   HEALTH organization ');
+    assert.equal(normalized && normalized.id, who.id, 'case + whitespace normalize like the id derivation');
+
+    assert.equal(await findEntityByName('Centers for Disease Control'), null, 'unknown name → null');
+    assert.equal(await findEntityByName(''), null, 'empty name → null, no registry read');
+
+    // Same name as BOTH a person and an organization: ENTITY_TYPES
+    // order wins — person first.
+    const personAmbig = await EntityModel.create({ name: 'Mercury', type: 'person' });
+    await EntityModel.create({ name: 'Mercury', type: 'organization' });
+    const ambig = await findEntityByName('Mercury');
+    assert.equal(ambig && ambig.id, personAmbig.id, 'person outranks organization on a name collision');
 });
 
 test('entity: create generates keypair + merges keypair into get()', async () => {
