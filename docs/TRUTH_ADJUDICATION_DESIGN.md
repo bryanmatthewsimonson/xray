@@ -5,9 +5,10 @@ own objective (below) — not a derivation of `PHILOSOPHY.md`, which governs
 the epistemic-audit layer only. Good ideas are borrowed from there with
 attribution (§4); none of its scoring machinery is inherited by default.
 
-**Amended 2026-07-12** (§5.5a, grounded evidence entries — the amendment
-governs): prompted by the maintainer's §Phase 15 smoke walk, which found
-red line 5 unmet in practice — evidence rows were free-floating quotes.
+**Amended 2026-07-12** (§5.5a, evidence entries are cited claims/quotes —
+the amendment governs): prompted by the maintainer's §Phase 15 smoke walk,
+which found red line 5 unmet in practice — evidence rows were free-floating
+typed quotes with no followable reference.
 
 **Depends on Phase 14** (`docs/CRIMINOLOGY_DESIGN.md`, forensic findings
 `30062`, the `forensicPublishing` flag) landing on `main` first — this layer
@@ -409,7 +410,7 @@ caveats / known-unknowns log. **Deliberately not borrowed:** the estimated
 
 A feature requiring one of these crossings is a different, worse system.
 
-### §5.5a — Amendment 2026-07-12: grounded evidence entries
+### §5.5a — Amendment 2026-07-12: evidence entries are cited claims/quotes
 
 Red line 5 ("no verdict the reader cannot re-derive") was unmet in
 practice: the verdict/finding data model, the wire tags, and the
@@ -417,28 +418,44 @@ publish mapper all carried slots for evidence source references
 (`claim_ref`, `source_ref`; the `evidence-*` tags' `url`/`coord`
 positions), but the authoring UI captured only `{quote, tier}` — so
 every published ruling shipped evidence a reader could not follow.
-The amendment makes grounding a first-class authoring act:
+The amendment makes evidence a *citation of captured artifacts*, not
+a typing surface:
 
-1. **Every evidence row SHOULD be grounded** in one of two ways:
-   a linked captured claim (`claim_ref` — inherits the claim's quote,
-   article hash, and anchor; publishes as the claim's 30040 coordinate
-   in the tag's `coord` slot when the claim is published) or a source
-   URL (`source_ref` — publishes in the tag's `url` slot, verbatim).
-2. **Ungrounded quote-only evidence remains permitted** — fail-open;
-   forbidding it would push evidence out of the record entirely — but
-   the UI marks it (⚠ "carries no source reference on the wire") and
-   it ships with empty ref slots. Honest absence over manufactured
-   citation.
-3. **An unpublished linked claim is omitted from the wire this batch**
+1. **Every evidence entry MUST reference a captured claim or quote**
+   (`claim_ref`) — a local claim from any captured article, or a
+   foreign claim known by its 30040 coordinate (assessed-foreign or
+   network). A captured claim already IS the quote artifact: its
+   `quote` is the verbatim article span (auto-captured, never typed),
+   its `source` is the speaker entity (e.g. W.H.O.), and it carries
+   the article hash + anchor. Counter-claims cited as
+   evidence-against are the same artifact on the other side.
+2. **Nothing evidentiary is typed.** The authoring UI has no quote
+   box and no URL field: the row's quote, speaker, source URL, and
+   hash all derive from the linked artifact (the record snapshots the
+   claim's quote/text and source URL so the ruling stays
+   self-contained and renders even if the claim is later deleted).
+   The only typed fields are the **tier** (a selection) and an
+   optional short **note** ("why this supports/contradicts") — the
+   adjudicator's judgment about the artifact, never a substitute for
+   it.
+3. **Capture-first is the discipline.** Evidence that isn't captured
+   yet can't be cited: select its text in the source article, capture
+   it as a claim/quote, then cite it. This mirrors the Phase 19
+   facts posture — the knowledge base is built strictly from
+   captured artifacts, and rulings inherit that provenance instead of
+   introducing a freeform side channel.
+4. **An unpublished linked claim is omitted from the wire this batch**
    (the ruling still publishes; the coordinate appears on the next
    publish after the claim lands) — the same posture as precedent and
-   revision refs.
-4. **Read surfaces render the refs followable** — the evidence `url`
+   revision refs. The snapshot URL still ships in the tag's `url`
+   slot meanwhile.
+5. **Read surfaces render the refs followable** — the evidence `url`
    as a link, the `coord` as a copyable claim coordinate — instead of
    dropping them.
-5. **No wire-format change.** The tag positions existed from v1; the
-   amendment fills them. Foreign events with empty slots render as
-   before.
+6. **No wire-format change, tolerant read.** The tag positions
+   existed from v1; the amendment fills them. Foreign events (and
+   pre-amendment local records) with quote-only evidence render and
+   re-publish as before — the MUST binds authoring, not reading.
 
 Still deferred (recorded, not built): attestation authoring UI and
 verdict↔convergence wiring (§3.2's corroboration spine), proposition

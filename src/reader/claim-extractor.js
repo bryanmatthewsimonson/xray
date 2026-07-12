@@ -39,6 +39,7 @@ import { renderAdjudicationBadges, adjudicationsByClaimId } from '../shared/adju
 import { EVIDENCE_TIERS, EVIDENCE_TIER_LABELS } from '../shared/truth-taxonomy.js';
 import { AssessmentModel } from '../shared/assessment-model.js';
 import { makeClaimRefCanonicalizer, isLocalClaimId } from '../shared/claim-ref.js';
+import { collectClaimCandidates } from '../shared/claim-candidates.js';
 
 // ------------------------------------------------------------------
 // Modal — used for create AND edit
@@ -479,33 +480,14 @@ export function openEvidenceLinkModal({ sourceClaim }) {
  * representation.
  */
 async function collectLinkCandidates(sourceId) {
-    const [allClaims, allAssessments, canon] = await Promise.all([
-        ClaimModel.getAll(),
-        AssessmentModel.getAll(),
-        makeClaimRefCanonicalizer()
-    ]);
-    const pool = [];
-    for (const c of Object.values(allClaims)) {
-        pool.push({ ref: c.id, text: c.text, url: c.source_url, url_raw: c.source_url, origin: 'local' });
-    }
-    for (const a of Object.values(allAssessments)) {
-        const r = a.claim_ref || {};
-        if (r.coord && !r.claim_id) {
-            pool.push({ ref: r.coord, text: r.text, url: r.url, url_raw: r.url_raw || r.url, origin: 'assessed',
-                        author_pubkey: r.author_pubkey || null });
-        }
-    }
-    for (const f of lastSeenForeignClaims()) {
-        pool.push({ ref: f.coord, text: f.text, url: f.url, url_raw: f.url, origin: 'network',
-                    author_pubkey: null });
-    }
-    const out = new Map();
-    for (const cand of pool) {
-        const key = canon(cand.ref);
-        if (key === sourceId) continue;
-        if (!out.has(key)) out.set(key, cand);
-    }
-    return [...out.values()];
+    // Shared pool (claim-candidates.js) + this reader session's
+    // last-seen network claims as the injected extra.
+    return await collectClaimCandidates({
+        exclude: [sourceId],
+        extra: lastSeenForeignClaims().map((f) => ({
+            ref: f.coord, text: f.text, url: f.url, origin: 'network'
+        }))
+    });
 }
 
 function buildLinkModalHtml(sourceClaim, candidates) {

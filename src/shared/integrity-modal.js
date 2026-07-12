@@ -20,7 +20,8 @@
 // Must NOT be imported by the content script.
 
 import { TruthAdjudicationModel } from './truth-adjudication-model.js';
-import { evidenceEntryToRecord } from './adjudicate-modal.js';
+import { evidenceEntryToRecord, candidateLabel } from './adjudicate-modal.js';
+import { collectClaimCandidates } from './claim-candidates.js';
 import { IntegrityModel } from './integrity-model.js';
 import { ClaimModel } from './claim-model.js';
 import { EntityModel } from './entity-model.js';
@@ -38,15 +39,10 @@ async function propositionOptions() {
     ]);
     const words = [];
     const deeds = [];
-    // Grounded evidence (amendment 2026-07-12): the claims backing any
-    // word/deed candidate are the natural link targets for the
-    // finding's evidence rows.
-    const linkableById = new Map();
     for (const p of props) {
         const role = integrityRole(p);
         if (!role) continue;
         const claim = claims[p.claim_id];
-        if (claim && !linkableById.has(claim.id)) linkableById.set(claim.id, claim);
         const entry = {
             proposition: p,
             text: (claim && claim.text) || p.claim_id,
@@ -54,7 +50,7 @@ async function propositionOptions() {
         };
         (role === 'word' ? words : deeds).push(entry);
     }
-    return { words, deeds, linkableClaims: [...linkableById.values()] };
+    return { words, deeds };
 }
 
 /**
@@ -65,7 +61,13 @@ async function propositionOptions() {
  */
 export async function openIntegrityModal() {
     ensureStyles();
-    const { words, deeds, linkableClaims } = await propositionOptions();
+    const { words, deeds } = await propositionOptions();
+    // Grounded evidence (amendment §5.5a): the picker pool is the full
+    // cross-article claim/quote registry.
+    let candidates = [];
+    try {
+        candidates = await collectClaimCandidates({});
+    } catch (_) { /* picker renders the capture-first empty state */ }
     const entityNames = {};
     for (const list of [words, deeds]) {
         for (const e of list) {
@@ -204,50 +206,85 @@ export async function openIntegrityModal() {
         constraintSel.innerHTML = '<option value="">— pick the corroborated action-fact —</option>'
             + deeds.map((d) => `<option value="${escapeHtml(d.proposition.id)}">${escapeHtml(truncate(d.text, 80))}</option>`).join('');
 
-        // ---- evidence rows (the adjudicate-modal pattern, incl. the
-        // grounded-evidence claim picker + source-URL field) -----------
-        const isGrounded = (e) => !!(e.claim_ref || String(e.source_url || '').trim());
+        // ---- evidence rows (the adjudicate-modal §5.5a pattern) ------
+        // Evidence entries REFERENCE captured claims/quotes — "+ cite"
+        // opens a searchable picker over the cross-article pool; rows
+        // show speaker-first with a tier select and a short why-note.
+        const ORIGIN_ICONS = { local: '📋', assessed: '⚖', network: '🌐' };
+        const hostOf = (u) => { try { return new URL(u).host; } catch { return u || ''; } };
         function renderEvidence() {
             for (const side of ['For', 'Against']) {
                 const list = state[`evidence${side}`];
                 const wrap = $(`.xr-integrity__ev-${side.toLowerCase()}`);
-                wrap.innerHTML = list.map((e, i) => `
+                wrap.innerHTML = list.map((e, i) => {
+                    const cand = e.candidate || {};
+                    return `
                   <div class="xr-integrity__ev-row" data-i="${i}">
-                    <input type="text" class="xr-integrity__ev-quote" placeholder="verbatim quote" value="${escapeHtml(e.quote)}" />
+                    <span class="xr-integrity__ev-origin" title="${escapeHtml(cand.origin || 'local')}">${ORIGIN_ICONS[cand.origin] || '📋'}</span>
+                    <span class="xr-integrity__ev-label" title="${escapeHtml(candidateLabel(cand))}">${escapeHtml(candidateLabel(cand))}</span>
+                    <span class="xr-integrity__ev-host">${escapeHtml(hostOf(cand.url))}</span>
                     <select class="xr-integrity__ev-tier">
                       <option value="">tier —</option>
                       ${EVIDENCE_TIERS.map((t) => `<option value="${t}" ${e.tier === t ? 'selected' : ''}>${escapeHtml(EVIDENCE_TIER_LABELS[t])}</option>`).join('')}
                     </select>
-                    <span class="xr-integrity__ev-ungrounded" title="Ungrounded — carries no source reference on the wire. Link a claim or add a source URL." ${isGrounded(e) ? 'hidden' : ''}>⚠</span>
                     <button type="button" class="xr-integrity__ev-del">✕</button>
-                    <select class="xr-integrity__ev-claim" title="Link a captured claim — its published coordinate grounds this evidence on the wire">
-                      <option value="">link claim —</option>
-                      ${linkableClaims.map((c) => `<option value="${escapeHtml(c.id)}" ${e.claim_ref === c.id ? 'selected' : ''}>${escapeHtml(c.text.length > 60 ? c.text.slice(0, 57) + '…' : c.text)}</option>`).join('')}
-                    </select>
-                    <input type="text" class="xr-integrity__ev-url" placeholder="or source URL" value="${escapeHtml(e.source_url || '')}" />
-                  </div>`).join('');
+                    <input type="text" class="xr-integrity__ev-note" placeholder="why this ${side === 'For' ? 'supports' : 'contradicts'} (optional)" value="${escapeHtml(e.note || '')}" />
+                  </div>`;
+                }).join('');
                 wrap.querySelectorAll('.xr-integrity__ev-row').forEach((row) => {
                     const i = Number(row.dataset.i);
-                    row.querySelector('.xr-integrity__ev-quote').addEventListener('input', (ev) => { list[i].quote = ev.target.value; });
                     row.querySelector('.xr-integrity__ev-tier').addEventListener('change', (ev) => { list[i].tier = ev.target.value || null; });
-                    row.querySelector('.xr-integrity__ev-claim').addEventListener('change', (ev) => {
-                        list[i].claim_ref = ev.target.value || null;
-                        if (list[i].claim_ref && !list[i].quote.trim()) {
-                            const c = linkableClaims.find((x) => x.id === list[i].claim_ref);
-                            if (c) list[i].quote = c.quote || c.text || '';
-                        }
-                        renderEvidence();
-                    });
-                    row.querySelector('.xr-integrity__ev-url').addEventListener('input', (ev) => {
-                        list[i].source_url = ev.target.value;
-                        row.querySelector('.xr-integrity__ev-ungrounded').hidden = isGrounded(list[i]);
-                    });
+                    row.querySelector('.xr-integrity__ev-note').addEventListener('input', (ev) => { list[i].note = ev.target.value; });
                     row.querySelector('.xr-integrity__ev-del').addEventListener('click', () => { list.splice(i, 1); renderEvidence(); });
                 });
             }
         }
-        $('[data-action="add-for"]').addEventListener('click', () => { state.evidenceFor.push({ quote: '', tier: null, claim_ref: null, source_url: '' }); renderEvidence(); });
-        $('[data-action="add-against"]').addEventListener('click', () => { state.evidenceAgainst.push({ quote: '', tier: null, claim_ref: null, source_url: '' }); renderEvidence(); });
+        let pickerSide = null;
+        function renderPicker() {
+            const listEl = $('.xr-integrity__picker-list');
+            listEl.innerHTML = candidates.length === 0
+                ? '<div class="xr-integrity__picker-empty">No captured claims or quotes yet — capture the evidence as a claim/quote first (select its text in the source article), then come back.</div>'
+                : candidates.map((c, idx) => `
+                    <button type="button" class="xr-integrity__picker-item" data-idx="${idx}"
+                            data-hay="${escapeHtml(`${c.text} ${c.quote} ${c.speaker} ${c.url || ''}`.toLowerCase())}">
+                      <span title="${escapeHtml(c.origin)}">${ORIGIN_ICONS[c.origin] || '📋'}</span>
+                      <span class="xr-integrity__picker-text">${escapeHtml(candidateLabel(c))}</span>
+                      <span class="xr-integrity__ev-host">${escapeHtml(hostOf(c.url))}</span>
+                    </button>`).join('');
+            listEl.querySelectorAll('.xr-integrity__picker-item').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const cand = candidates[Number(btn.dataset.idx)];
+                    if (!cand || !pickerSide) return;
+                    state[`evidence${pickerSide}`].push({ claim_ref: cand.ref, tier: null, note: '', candidate: cand });
+                    $('.xr-integrity__picker').hidden = true;
+                    pickerSide = null;
+                    renderEvidence();
+                });
+            });
+        }
+        function openPicker(side) {
+            pickerSide = side;
+            const panel = $('.xr-integrity__picker');
+            $('.xr-integrity__picker-title').textContent =
+                `Cite a captured claim/quote as evidence ${side.toLowerCase()}`;
+            panel.hidden = false;
+            const search = $('.xr-integrity__picker-search');
+            search.value = '';
+            renderPicker();
+            search.focus();
+        }
+        $('.xr-integrity__picker-search').addEventListener('input', (ev) => {
+            const q = ev.target.value.trim().toLowerCase();
+            host.querySelectorAll('.xr-integrity__picker-item').forEach((btn) => {
+                btn.hidden = q !== '' && !(btn.dataset.hay || '').includes(q);
+            });
+        });
+        $('.xr-integrity__picker-close').addEventListener('click', () => {
+            $('.xr-integrity__picker').hidden = true;
+            pickerSide = null;
+        });
+        $('[data-action="add-for"]').addEventListener('click', () => openPicker('For'));
+        $('[data-action="add-against"]').addEventListener('click', () => openPicker('Against'));
 
         // ---- footer ---------------------------------------------------
         $('[data-action="cancel"]').addEventListener('click', () => close(null));
@@ -273,8 +310,8 @@ export async function openIntegrityModal() {
                     deed_proposition_ids: [...state.deedIds],
                     match:                state.match,
                     standard_of_proof:    $('.xr-integrity__standard').value,
-                    evidence_for:         state.evidenceFor.filter((e) => e.quote.trim()).map(evidenceEntryToRecord),
-                    evidence_against:     state.evidenceAgainst.filter((e) => e.quote.trim()).map(evidenceEntryToRecord),
+                    evidence_for:         state.evidenceFor.filter((e) => e.claim_ref).map(evidenceEntryToRecord),
+                    evidence_against:     state.evidenceAgainst.filter((e) => e.claim_ref).map(evidenceEntryToRecord),
                     caveats:              String($('.xr-integrity__caveats').value || '').split('\n').map((s) => s.trim()).filter(Boolean),
                     gap,
                     method:               $('.xr-integrity__method').value,
@@ -338,14 +375,23 @@ function buildHtml(words) {
           </label>
 
           <div class="xr-integrity__field">
-            <span class="xr-integrity__label">Evidence for
-              <button type="button" class="xr-integrity__ev-add" data-action="add-for">+ add</button></span>
+            <span class="xr-integrity__label">Evidence for <em>(cited claims/quotes)</em>
+              <button type="button" class="xr-integrity__ev-add" data-action="add-for">+ cite</button></span>
             <div class="xr-integrity__ev-for"></div>
           </div>
           <div class="xr-integrity__field">
-            <span class="xr-integrity__label">Evidence against
-              <button type="button" class="xr-integrity__ev-add" data-action="add-against">+ add</button></span>
+            <span class="xr-integrity__label">Evidence against <em>(cited claims/quotes)</em>
+              <button type="button" class="xr-integrity__ev-add" data-action="add-against">+ cite</button></span>
             <div class="xr-integrity__ev-against"></div>
+          </div>
+          <div class="xr-integrity__picker" hidden>
+            <div class="xr-integrity__picker-head">
+              <span class="xr-integrity__picker-title"></span>
+              <button type="button" class="xr-integrity__picker-close" aria-label="Close">✕</button>
+            </div>
+            <input type="search" class="xr-integrity__picker-search"
+                   placeholder="Search claims &amp; quotes (text, speaker, url)…" spellcheck="false" />
+            <div class="xr-integrity__picker-list"></div>
           </div>
 
           <label class="xr-integrity__field">
@@ -448,16 +494,31 @@ function ensureStyles() {
 }
 .xr-integrity__ev-add { margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 11px;
   cursor: pointer; background: var(--xr-surface-2, #2e2e2e); color: inherit; border: 1px solid var(--xr-border, #333); }
-.xr-integrity__ev-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
-.xr-integrity__ev-claim { flex: 1 1 46%; min-width: 160px; padding: 3px 6px; border-radius: 6px; font-size: 11.5px;
-  background: var(--xr-surface-2, #2e2e2e); color: inherit; border: 1px solid var(--xr-border, #333); }
-.xr-integrity__ev-url { flex: 1 1 40%; min-width: 140px; padding: 4px 8px; border-radius: 6px; font-size: 12px;
-  background: var(--xr-surface-2, #2e2e2e); color: inherit; border: 1px solid var(--xr-border, #333); }
-.xr-integrity__ev-ungrounded { align-self: center; font-size: 12px; cursor: help; }
-.xr-integrity__ev-quote { flex: 1; padding: 4px 8px; border-radius: 6px; font-size: 12px;
+.xr-integrity__ev-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+.xr-integrity__ev-origin { font-size: 12px; }
+.xr-integrity__ev-label { flex: 1 1 55%; min-width: 160px; font-size: 12px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.xr-integrity__ev-host { font-size: 11px; color: var(--xr-text-dim, #9a9a9a); }
+.xr-integrity__ev-note { flex: 1 1 100%; padding: 3px 8px; border-radius: 6px; font-size: 11.5px;
   background: var(--xr-surface-2, #2e2e2e); color: inherit; border: 1px solid var(--xr-border, #333); }
 .xr-integrity__ev-tier, .xr-integrity__ev-del { padding: 3px 6px; border-radius: 6px; font-size: 11.5px;
   background: var(--xr-surface-2, #2e2e2e); color: inherit; border: 1px solid var(--xr-border, #333); cursor: pointer; }
+.xr-integrity__picker { border: 1px solid var(--xr-primary, #8b5cf6); border-radius: 8px;
+  padding: 8px 10px; margin-bottom: 12px; }
+.xr-integrity__picker-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.xr-integrity__picker-title { font-size: 12px; font-weight: 600; }
+.xr-integrity__picker-close { padding: 1px 7px; border-radius: 999px; font-size: 11px; cursor: pointer;
+  background: var(--xr-surface-2, #2e2e2e); color: inherit; border: 1px solid var(--xr-border, #333); }
+.xr-integrity__picker-search { width: 100%; box-sizing: border-box; padding: 5px 8px; border-radius: 6px;
+  font-size: 12px; background: var(--xr-surface-2, #2e2e2e); color: inherit;
+  border: 1px solid var(--xr-border, #333); margin-bottom: 6px; }
+.xr-integrity__picker-list { max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+.xr-integrity__picker-item { display: flex; align-items: center; gap: 6px; text-align: left; padding: 4px 8px;
+  border-radius: 6px; font-size: 12px; cursor: pointer;
+  background: var(--xr-surface-2, #2e2e2e); color: inherit; border: 1px solid var(--xr-border, #333); }
+.xr-integrity__picker-item:hover { border-color: var(--xr-primary, #8b5cf6); }
+.xr-integrity__picker-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.xr-integrity__picker-empty { font-size: 12px; color: var(--xr-text-dim, #9a9a9a); padding: 4px 2px; }
 .xr-integrity__caveats, .xr-integrity__rationale, .xr-integrity__gap-note,
 .xr-integrity__gap-revision, .xr-integrity__method, .xr-integrity__exposure {
   width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 6px;

@@ -32,7 +32,7 @@ globalThis.chrome = {
 const {
     adjudicationBadgeData, renderAdjudicationBadges, adjudicationsByClaimId,
     dateInputToOccurredAt, linesToList, PROPOSITION_CLASS_ICONS,
-    evidenceEntryToRecord
+    evidenceEntryToRecord, candidateLabel
 } = await import('../src/shared/adjudicate-modal.js');
 const { TruthAdjudicationModel, VerdictModel } = await import('../src/shared/truth-adjudication-model.js');
 const { ClaimModel } = await import('../src/shared/claim-model.js');
@@ -124,26 +124,54 @@ test('form mapping: date input → occurred_at; caveat lines', () => {
 
 // ── Grounded evidence rows (amendment 2026-07-12) ─────────────────────
 
-test('evidenceEntryToRecord: linked claim and typed URL become refs; ungrounded stays quote-only', () => {
-    assert.deepEqual(
-        evidenceEntryToRecord({ quote: 'q', tier: 'tier-1', claim_ref: 'claim_0000000000000ab1', source_url: '' }),
-        { quote: 'q', tier: 'tier-1', claim_ref: 'claim_0000000000000ab1' },
-        'linked claim travels as claim_ref');
-    assert.deepEqual(
-        evidenceEntryToRecord({ quote: 'q', tier: null, claim_ref: null, source_url: '  https://src.example/a?x=1  ' }),
-        { quote: 'q', tier: null, source_ref: { url: 'https://src.example/a?x=1', url_raw: 'https://src.example/a?x=1' } },
-        'typed URL becomes source_ref, trimmed, verbatim in url_raw');
-    assert.deepEqual(
-        evidenceEntryToRecord({ quote: 'q', tier: 'tier-2', claim_ref: null, source_url: '' }),
-        { quote: 'q', tier: 'tier-2' },
-        'ungrounded row saves as before — no manufactured refs');
+test('evidenceEntryToRecord: the record derives from the cited candidate, not typed text', () => {
+    const rec = evidenceEntryToRecord({
+        claim_ref: 'claim_0000000000000ab1', tier: 'tier-1', note: '  matches the deed  ',
+        candidate: {
+            ref: 'claim_0000000000000ab1', text: 'WHO said masks work',
+            quote: 'masks are effective at reducing transmission',
+            speaker: 'W.H.O.', url: 'https://who.example/brief',
+            url_raw: 'https://who.example/brief?utm=x', origin: 'local'
+        }
+    });
+    assert.deepEqual(rec, {
+        quote: 'masks are effective at reducing transmission',
+        tier: 'tier-1',
+        note: 'matches the deed',
+        claim_ref: 'claim_0000000000000ab1',
+        source_ref: { url: 'https://who.example/brief?utm=x', url_raw: 'https://who.example/brief?utm=x' }
+    }, 'quote snapshots the linked claim quote; source_ref prefers the raw url; note trims');
+});
+
+test('evidenceEntryToRecord: quote falls back to claim text; no url → no source_ref', () => {
+    const rec = evidenceEntryToRecord({
+        claim_ref: '30040:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:c1',
+        tier: null, note: '',
+        candidate: { ref: '30040:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:c1', text: 'a counter-claim', quote: '', speaker: '', url: '', url_raw: '', origin: 'assessed' }
+    });
+    assert.equal(rec.quote, 'a counter-claim', 'text stands in when the artifact has no verbatim quote');
+    assert.equal(rec.claim_ref, '30040:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:c1');
+    assert.equal('source_ref' in rec, false, 'no manufactured source_ref');
 });
 
 test('evidenceEntryToRecord output round-trips the model validator with refs intact', async () => {
     const { cleanVerdictEvidence } = await import('../src/shared/truth-adjudication-model.js');
     const cleaned = cleanVerdictEvidence([
-        evidenceEntryToRecord({ quote: 'grounded', tier: 'tier-1', claim_ref: 'claim_0000000000000ab1', source_url: 'https://src.example/a' })
+        evidenceEntryToRecord({
+            claim_ref: 'claim_0000000000000ab1', tier: 'tier-1', note: 'independent lab log',
+            candidate: { ref: 'claim_0000000000000ab1', text: 't', quote: 'grounded', speaker: 'W.H.O.', url: 'https://src.example/a', url_raw: 'https://src.example/a', origin: 'local' }
+        })
     ], 'evidence_for');
+    assert.equal(cleaned[0].quote, 'grounded');
     assert.equal(cleaned[0].claim_ref, 'claim_0000000000000ab1');
     assert.equal(cleaned[0].source_ref.url_raw, 'https://src.example/a');
+    assert.equal(cleaned[0].note, 'independent lab log');
+});
+
+test('candidateLabel renders speaker-first for quotes with a speaker', () => {
+    assert.equal(
+        candidateLabel({ speaker: 'W.H.O.', quote: 'masks work', text: 'ignored' }),
+        'W.H.O. — “masks work”');
+    assert.equal(candidateLabel({ speaker: '', quote: '', text: 'plain claim text' }),
+        'plain claim text', 'no speaker → plain text; quote falls back to text');
 });
