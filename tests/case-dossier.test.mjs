@@ -526,18 +526,18 @@ test('case-dossier: empty orbit — a bare case yields zero-count sections, not 
     assert.deepEqual(dossier.entities.rows, []);
 });
 
-// --- deriveCitationEdges (PR3 — both sides of the cites graph) ---------------
+// --- deriveLinkEdges (PR3 — both sides of the link graph) --------------------
 
-test('deriveCitationEdges: both sides derived, normalized, dedup, no self-cites', async () => {
-    const { deriveCitationEdges } = await import('../src/shared/case-dossier.js');
+test('deriveLinkEdges: both sides derived, normalized, dedup, no self-links', async () => {
+    const { deriveLinkEdges } = await import('../src/shared/case-dossier.js');
     const A = 'https://a.example/one';
     const B = 'https://b.example/two';
-    const edges = deriveCitationEdges({
+    const edges = deriveLinkEdges({
         articles: [
             { url: A, links: [
                 { url: 'https://b.example/two?utm_source=x', text: 'b', internal: false },   // → B (normalized)
                 { url: 'https://b.example/two',              text: 'b again', internal: false }, // dup of B
-                { url: 'https://a.example/one',              text: 'self', internal: false },   // self-cite dropped
+                { url: 'https://a.example/one',              text: 'self', internal: false },   // self-link dropped
                 { url: 'https://a.example/nav',              text: 'nav', internal: true },     // internal excluded
                 { url: 'https://outside.example/x',          text: 'ext', internal: false }     // external, not corpus
             ] },
@@ -547,18 +547,18 @@ test('deriveCitationEdges: both sides derived, normalized, dedup, no self-cites'
         corpusUrls: [A, B, 'https://c.example/three']
     });
 
-    assert.deepEqual(edges.cites[A], {
+    assert.deepEqual(edges.links[A], {
         external_count: 2,                        // B + outside (self and internal excluded)
         corpus_targets: [B]
     });
-    assert.deepEqual(edges.cites[B], { external_count: 0, corpus_targets: [] },
+    assert.deepEqual(edges.links[B], { external_count: 0, corpus_targets: [] },
         'zero links is a real, recorded state');
-    assert.equal(edges.cites['https://c.example/three'], undefined,
-        'links: null (not captured) derives NO cites entry');
-    assert.deepEqual(edges.cited_by, { [B]: [A] }, 'the cited side sees who cites it');
+    assert.equal(edges.links['https://c.example/three'], undefined,
+        'links: null (not captured) derives NO edge entry');
+    assert.deepEqual(edges.linked_by, { [B]: [A] }, 'the linked side sees who links to it');
 });
 
-test('buildEvidenceGroups: per-article citations line with captured-vs-not honesty', async () => {
+test('buildEvidenceGroups: per-article links line with captured-vs-not honesty', async () => {
     const { buildEvidenceGroups } = await import('../src/shared/case-dossier.js');
     // Minimal hand-built data: two claim-bearing sources, one of which
     // (A) captured links, the other (B) predates link extraction.
@@ -584,14 +584,14 @@ test('buildEvidenceGroups: per-article citations line with captured-vs-not hones
     const ev = buildEvidenceGroups(data);
     const a = ev.articles.find((r) => r.url === 'https://a.example/one');
     const b = ev.articles.find((r) => r.url === 'https://b.example/two');
-    assert.deepEqual(a.citations, {
+    assert.deepEqual(a.links, {
         captured: true, external: 2,
-        corpus_cites: ['https://b.example/two'], cited_by: []
+        corpus_links: ['https://b.example/two'], linked_by: []
     });
-    assert.equal(b.citations.captured, false, 'pre-cites capture says NOT captured, not zero');
-    assert.equal(b.citations.external, 0);
-    assert.deepEqual(b.citations.cited_by, ['https://a.example/one'],
-        'the cited side works even when the cited capture predates link extraction');
+    assert.equal(b.links.captured, false, 'pre-extension capture says NOT captured, not zero');
+    assert.equal(b.links.external, 0);
+    assert.deepEqual(b.links.linked_by, ['https://a.example/one'],
+        'the linked side works even when the linked capture predates link extraction');
 });
 
 test('evidence table finds truncated-key audit runs via the captureArticleHash alias', async () => {

@@ -255,14 +255,14 @@ test('an arXiv variant embedded in an archive path canonicalizes to /abs/', () =
     assert.equal(dom.original, 'https://arxiv.org/abs/2301.12345');
 });
 
-// --- rewriteArchivedLinks (the cites fix for archive captures) ----------------
+// --- rewriteArchivedLinks (the link-tag fix for archive captures) --------------
 
 const { rewriteArchivedLinks } = await import('../src/shared/url-identity.js');
 
-test('rewriteArchivedLinks: wayback-wrapped citations unwrap to their originals', () => {
+test('rewriteArchivedLinks: wayback-wrapped links unwrap to their originals', () => {
     // Wayback rewrites every body anchor onto its own host — as
-    // extracted, every citation reads archive-internal and ZERO cites
-    // would publish. After the identity rewrite the links re-key.
+    // extracted, every outbound link reads archive-internal and ZERO
+    // link tags would publish. After the identity rewrite they re-key.
     const links = [
         { url: 'https://web.archive.org/web/2020/https://other.org/paper', text: 'the study', count: 1, internal: true },
         { url: 'https://web.archive.org/web/2020if_/https://example.com/related', text: 'related', count: 2, internal: true },

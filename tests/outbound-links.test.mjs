@@ -1,5 +1,5 @@
 // Outbound-link extraction (ContentExtractor.extractOutboundLinks):
-// the structured citation source for the `cites` wire tag. Stub-element
+// the structured source for the `link` wire tag. Stub-element
 // pattern — the extractor is pure over the passed root, so tests drive
 // it with hand-built anchor objects (no jsdom).
 

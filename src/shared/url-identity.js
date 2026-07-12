@@ -392,15 +392,15 @@ export function resolveUrlIdentity(doc, tabUrl, canonicalUrl = null) {
  * Archives rewrite every body anchor onto their own host (Wayback:
  * `/web/<ts>/<target>`; archive.today: path-embedded forms) — so link
  * extraction, which ran against the live DOM, classified every
- * citation as archive-internal and the publish path would emit ZERO
- * `cites` tags. Given the links as extracted and the article's (new,
- * post-identity) own host:
+ * outbound link as archive-internal and the publish path would emit
+ * ZERO `link` tags. Given the links as extracted and the article's
+ * (new, post-identity) own host:
  *
  *   - an archive-wrapped link with a recoverable embedded target is
  *     re-keyed to that target (normalized, arXiv-canonicalized);
  *   - a link that stays on an archive host with NO recoverable target
  *     is DROPPED — it is the archive's navigation chrome, and
- *     publishing archive-host cites would pollute the citation graph;
+ *     publishing archive-host links would pollute the link graph;
  *   - everything else passes through unchanged;
  *   - `internal` is re-derived against ownHost and unwrapped
  *     duplicates re-merge (counts summed, first text kept).

@@ -65,19 +65,20 @@ export function renderEvidenceBlock(host, caseEntityId) {
             }
             li.appendChild(head);
 
-            // Citation edges (both sides): outbound external links as
-            // captured, and corpus articles that cite this one. Silent
-            // when the capture predates link extraction AND nothing
-            // cites it — absence of the line is not "zero links".
-            const cit = row.citations;
-            if (cit && (cit.captured || cit.cited_by.length > 0)) {
+            // Link edges (both sides): outbound external links as
+            // captured, and corpus articles that link back to this
+            // one. Silent when the capture predates link extraction
+            // AND nothing links to it — absence of the line is not
+            // "zero links".
+            const lnk = row.links;
+            if (lnk && (lnk.captured || lnk.linked_by.length > 0)) {
                 const bits = [];
-                if (cit.captured) {
-                    bits.push(`cites ${cit.external} external source${cit.external === 1 ? '' : 's'}`
-                        + (cit.corpus_cites.length ? ` (${cit.corpus_cites.length} in this case)` : ''));
+                if (lnk.captured) {
+                    bits.push(`links to ${lnk.external} external source${lnk.external === 1 ? '' : 's'}`
+                        + (lnk.corpus_links.length ? ` (${lnk.corpus_links.length} in this case)` : ''));
                 }
-                if (cit.cited_by.length > 0) {
-                    bits.push(`cited by ${cit.cited_by.length} case article${cit.cited_by.length === 1 ? '' : 's'}`);
+                if (lnk.linked_by.length > 0) {
+                    bits.push(`linked from ${lnk.linked_by.length} case article${lnk.linked_by.length === 1 ? '' : 's'}`);
                 }
                 li.appendChild(el('div', 'xr-inspector__mono', bits.join(' · ')));
             }

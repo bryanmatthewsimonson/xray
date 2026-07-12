@@ -176,7 +176,7 @@ export const ContentExtractor = {
 
         // Outbound links — captured from the SAME cleaned body the
         // markdown derives from (tempDiv, post image fixes), so every
-        // `cites` tag names a link that survives into the capture.
+        // `link` tag names a link that survives into the capture.
         const outbound = ContentExtractor.extractOutboundLinks(
           tempDiv, window.location.href, article.domain);
         article.links = outbound.links;
@@ -357,7 +357,7 @@ export const ContentExtractor = {
     }
   },
 
-  // Outbound links (citations — docs/NIP_DRAFT.md `cites`): every
+  // Outbound links (docs/NIP_DRAFT.md `link` tags): every
   // http(s) anchor in the extracted body, deduped through the unified
   // normalizer so a link and its tracking-param variant count as ONE
   // target. Pure over the passed root (no document/global reads) so
