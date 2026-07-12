@@ -356,3 +356,77 @@ test('saved-from input: two distinct qualifying values = ambiguous = fail open',
     const r = resolveUrlIdentity(doc, 'https://archive.ph/RTy0g');
     assert.equal(r.original, null);
 });
+
+// ── Mirror registry: Google cache / 12ft / AMP caches / ghostarchive ──
+
+test('google cache: /search?q=cache:<url> unwraps; digest and scheme-less forms too', () => {
+    const direct = resolveUrlIdentityFromUrl(
+        'https://webcache.googleusercontent.com/search?q=cache:https://example.com/story?id=2');
+    assert.equal(direct.original, normalize('https://example.com/story?id=2'));
+    assert.equal(direct.archiveHost, 'webcache.googleusercontent.com');
+
+    const schemeless = resolveUrlIdentityFromUrl(
+        'https://webcache.googleusercontent.com/search?q=cache:example.com/story');
+    assert.equal(schemeless.original, normalize('https://example.com/story'));
+
+    const digest = resolveUrlIdentityFromUrl(
+        'https://webcache.googleusercontent.com/search?q=cache:AbCdEf123xyz:https://example.com/story');
+    assert.equal(digest.original, normalize('https://example.com/story'));
+
+    // Not a cache query — recognized host, nothing recoverable.
+    const noCache = resolveUrlIdentityFromUrl(
+        'https://webcache.googleusercontent.com/search?q=plain+words');
+    assert.equal(noCache.original, null);
+});
+
+test('12ft.io: /proxy?q= and path-appended forms unwrap; bare page does not', () => {
+    const proxy = resolveUrlIdentityFromUrl('https://12ft.io/proxy?q=https://example.com/story');
+    assert.equal(proxy.original, normalize('https://example.com/story'));
+    assert.equal(proxy.archiveHost, '12ft.io');
+
+    // RAW-string path form: the inner URL's query must survive.
+    const path = resolveUrlIdentityFromUrl('https://12ft.io/https://example.com/story?id=2');
+    assert.equal(path.original, normalize('https://example.com/story?id=2'));
+
+    assert.equal(resolveUrlIdentityFromUrl('https://12ft.io/').original, null);
+});
+
+test('AMP cache: /c/s/ (https) and /c/ (http) unwrap; cache-owned params dropped', () => {
+    const https = resolveUrlIdentityFromUrl(
+        'https://example-com.cdn.ampproject.org/c/s/example.com/news/story.amp.html');
+    assert.equal(https.original, normalize('https://example.com/news/story.amp.html'));
+    assert.equal(https.archiveHost, 'example-com.cdn.ampproject.org');
+
+    const http = resolveUrlIdentityFromUrl(
+        'https://example-com.cdn.ampproject.org/c/example.com/legacy/story');
+    assert.equal(http.original, normalize('http://example.com/legacy/story'));
+
+    const params = resolveUrlIdentityFromUrl(
+        'https://example-com.cdn.ampproject.org/v/s/example.com/story?id=2&amp_js_v=a6&usqp=mq331AQA');
+    assert.equal(params.original, normalize('https://example.com/story?id=2'),
+        'the original keeps its own params, loses the cache viewer params');
+});
+
+test('ghostarchive: /varchive/<id> recovers the YouTube URL; /archive/<code> honestly does not', () => {
+    const video = resolveUrlIdentityFromUrl('https://ghostarchive.org/varchive/dQw4w9WgXcQ');
+    assert.equal(video.original, normalize('https://www.youtube.com/watch?v=dQw4w9WgXcQ'));
+    assert.equal(video.archiveHost, 'ghostarchive.org');
+
+    const snapshot = resolveUrlIdentityFromUrl('https://ghostarchive.org/archive/AbC12');
+    assert.equal(snapshot.original, null, 'opaque snapshot — recognized host, no original');
+    assert.equal(snapshot.archiveHost, 'ghostarchive.org');
+});
+
+test('nested wrappers unwrap: wayback-of-12ft-of-X keys to X', () => {
+    const nested = resolveUrlIdentityFromUrl(
+        'https://web.archive.org/web/20240101000000/https://12ft.io/proxy?q=https://example.com/story');
+    assert.equal(nested.original, normalize('https://example.com/story'));
+    assert.equal(nested.archiveHost, 'web.archive.org', 'provenance names the outer host');
+});
+
+test('a mirror host is never adopted as "the original"', () => {
+    // Wayback of a bare 12ft page (nothing to unwrap inside).
+    const r = resolveUrlIdentityFromUrl(
+        'https://web.archive.org/web/20240101000000/https://12ft.io/');
+    assert.equal(r.original, null);
+});

@@ -272,3 +272,29 @@ test('anchor readers: exactFromAnchor + pageFromAnchor (display helpers)', async
         'media fragments are not pages');
     assert.equal(pageFromAnchor([]), null);
 });
+
+// ── Alias-aware source-URL join (url-aliases.js, PR D) ─────────────────
+
+test('getBySourceUrl heals across the URL alias map in both directions', async () => {
+    _stateStore.clear();
+    const { recordAlias } = await import('../src/shared/url-aliases.js');
+
+    const ORIGINAL = 'https://example.com/aliased-story';
+    const MIRROR   = 'https://archive.ph/Zz9Yx';
+
+    // Claim made while the capture keyed to the MIRROR address…
+    await ClaimModel.create({ text: 'Claimed on the mirror.', source_url: MIRROR });
+    // …then the original is learned (manual set / recovery).
+    await recordAlias(MIRROR, ORIGINAL);
+
+    // Lookup by the ORIGINAL finds the mirror-keyed claim.
+    const byOriginal = await ClaimModel.getBySourceUrl(ORIGINAL);
+    assert.equal(byOriginal.length, 1);
+    assert.equal(byOriginal[0].text, 'Claimed on the mirror.');
+
+    // And a claim made under the original joins a mirror-addressed lookup.
+    await ClaimModel.create({ text: 'Claimed on the original.', source_url: ORIGINAL });
+    const byMirror = await ClaimModel.getBySourceUrl(MIRROR);
+    assert.deepEqual(byMirror.map((c) => c.text).sort(),
+        ['Claimed on the mirror.', 'Claimed on the original.']);
+});

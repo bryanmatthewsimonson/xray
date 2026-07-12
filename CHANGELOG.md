@@ -12,6 +12,26 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **URL aliases — one identity across mirror addresses.** A persisted
+  alias map (`url_aliases`) now records every learned
+  mirror-address → original pairing (structural recovery at capture,
+  relay read-backs, manual sets) and heals the URL-keyed joins:
+  claims, the prior-capture lookup, and the archive banner all resolve
+  through it, so work done under `archive.ph/…` and a later direct
+  capture of the original converge instead of forking. The reader
+  gains **"Set original URL…"** on the capture note (and the URL
+  header field now routes through the same flow) — the universal
+  fallback for any alias-serving site. The structural resolver's
+  mirror registry also learns four new families: **Google cache**
+  (`webcache.googleusercontent.com/search?q=cache:…`), **12ft.io**
+  (`/proxy?q=` and path forms), **AMP caches**
+  (`*.cdn.ampproject.org/c/…`, cache viewer params dropped), and
+  **ghostarchive** (`/varchive/<id>` → the YouTube URL; opaque
+  snapshots stay honestly unrecovered) — with nested wrappers
+  unwrapped (wayback-of-12ft-of-X keys to X) and mirror hosts never
+  adoptable as "the original". Fresh workspace clears the alias map;
+  backups carry it. No wire change.
+
 - **Full backup & restore + signed-events bundle export.** Settings ▸
   Advanced gains a "Full backup" block. **Download full backup** writes
   one JSON file (`xray-backup/1`) covering everything the extension

@@ -115,14 +115,157 @@ function arxivOriginal(url) {
 }
 
 /**
+ * Google's cache serves under /search?q=cache:<url>. The q value may
+ * carry an optional digest segment (cache:<digest>:<url>) and may omit
+ * the scheme (cache:example.com/p — https assumed; the cache only
+ * serves what it crawled over http(s)).
+ */
+function googleCacheOriginal(url) {
+    let u;
+    try { u = new URL(url); } catch (_) { return null; }
+    if (!/^\/search/.test(u.pathname)) return null;
+    let rest = u.searchParams.get('q') || '';
+    if (!/^cache:/i.test(rest)) return null;
+    rest = rest.slice('cache:'.length).trim();
+    const digest = /^[A-Za-z0-9_-]{8,}:(.+)$/.exec(rest);
+    if (digest) rest = digest[1];
+    if (!rest) return null;
+    if (!/^https?:\/\//i.test(rest)) rest = 'https://' + rest;
+    return repairScheme(rest);
+}
+
+/**
+ * 12ft.io wraps the target as /proxy?q=<url> or path-appended
+ * (12ft.io/https://example.com/p). Operate on the RAW string for the
+ * path form — the embedded original's query must not parse as 12ft's.
+ */
+function twelveFtOriginal(url) {
+    let u;
+    try { u = new URL(url); } catch (_) { return null; }
+    if (u.pathname === '/proxy') {
+        const q = u.searchParams.get('q') || '';
+        return q ? repairScheme(q) : null;
+    }
+    const raw = String(url).slice(u.origin.length + 1);   // strip "https://12ft.io/"
+    return /^https?:/i.test(raw) ? repairScheme(raw) : null;
+}
+
+// AMP viewer/cache params that belong to the CACHE, not the original.
+const AMP_CACHE_PARAMS = new Set(['amp_js_v', 'amp_gsa', 'amp_r', 'usqp', 'outputType']);
+
+/**
+ * AMP caches (`<pub>.cdn.ampproject.org`) serve https originals under
+ * /c/s/<host>/<path> and http under /c/<host>/<path>; the /v/ viewer
+ * forms mirror this. Only the cache-host WRAPPER is unwrapped — if the
+ * page itself is a site's own /amp/ variant, that stays (the canonical
+ * is not knowable from the URL). Cache-owned query params are dropped;
+ * the original's own params ride along.
+ */
+function ampCacheOriginal(url) {
+    let u;
+    try { u = new URL(url); } catch (_) { return null; }
+    const m = /^\/[cv]\/(s\/)?(.+)$/.exec(u.pathname);
+    if (!m || !m[2]) return null;
+    const params = [];
+    for (const [k, v] of u.searchParams.entries()) {
+        if (!AMP_CACHE_PARAMS.has(k)) params.push(`${k}=${encodeURIComponent(v)}`);
+    }
+    return (m[1] ? 'https://' : 'http://') + m[2] + (params.length ? `?${params.join('&')}` : '');
+}
+
+/**
+ * ghostarchive.org: /varchive/<id> is a YouTube capture whose id IS the
+ * video id — the original is recoverable. /archive/<code> is an opaque
+ * snapshot: recognized as an archive host (capture-url provenance + the
+ * reader's manual "Set original URL…" fallback) but no original can be
+ * read from the URL.
+ */
+function ghostarchiveOriginal(url) {
+    let u;
+    try { u = new URL(url); } catch (_) { return null; }
+    const m = /^\/varchive\/([A-Za-z0-9_-]{6,20})\/?$/.exec(u.pathname);
+    return m ? `https://www.youtube.com/watch?v=${m[1]}` : null;
+}
+
+/**
+ * The mirror registry: one rule per family — a host predicate and an
+ * extractor returning the embedded original (raw, pre-normalization)
+ * or null when the URL shape carries none. Matching a rule's host is
+ * what makes a URL "a mirror address" (identity handling + provenance
+ * note) even when extraction fails. Add a site here + a test; nothing
+ * else changes.
+ */
+const MIRROR_RULES = [
+    {
+        name: 'wayback',
+        match: (host) => WAYBACK_HOSTS.has(host),
+        extract: (url) => {
+            const m = WAYBACK_PATH_RE.exec(url);
+            return m ? repairScheme(m[1]) : null;
+        }
+    },
+    {
+        name: 'archive.today',
+        match: (host) => ARCHIVE_TODAY_HOSTS.has(host),
+        extract: (url) => {
+            const m = ARCHIVE_TODAY_PATH_RE.exec(url);
+            return m ? repairScheme(m[1]) : null;
+        }
+    },
+    {
+        name: 'google-cache',
+        match: (host) => host === 'webcache.googleusercontent.com',
+        extract: googleCacheOriginal
+    },
+    {
+        name: '12ft',
+        match: (host) => host === '12ft.io',
+        extract: twelveFtOriginal
+    },
+    {
+        name: 'amp-cache',
+        match: (host) => host === 'cdn.ampproject.org' || host.endsWith('.cdn.ampproject.org'),
+        extract: ampCacheOriginal
+    },
+    {
+        name: 'ghostarchive',
+        match: (host) => host === 'ghostarchive.org',
+        extract: ghostarchiveOriginal
+    }
+];
+
+/** Any mirror family's host — never adoptable as "the original". */
+function isMirrorHost(host) {
+    return MIRROR_RULES.some((rule) => rule.match(host));
+}
+
+/** One registry pass over an arbitrary URL: the embedded original, or null. */
+function unwrapMirror(url) {
+    const host = hostOf(url);
+    if (!host) return null;
+    for (const rule of MIRROR_RULES) {
+        if (rule.match(host)) return rule.extract(url);
+    }
+    return null;
+}
+
+/**
  * Canonicalize a RECOVERED original before it becomes identity: an
  * original embedded in an archive path can itself be a rendering
- * variant (web.archive.org/web/<ts>/https://arxiv.org/pdf/X) — without
- * this, the archive capture keys to /pdf/ while a direct capture keys
- * to /abs/, re-creating the exact fork this module exists to prevent.
+ * variant (web.archive.org/web/<ts>/https://arxiv.org/pdf/X) or
+ * ANOTHER mirror wrapper (wayback-of-12ft-of-X) — without this, the
+ * archive capture keys to the inner wrapper while a direct capture
+ * keys to X, re-creating the exact fork this module exists to prevent.
+ * Bounded nested unwrap, then the arXiv variant collapse.
  */
 function canonicalizeOriginal(candidate) {
-    return arxivOriginal(candidate) || candidate;
+    let cur = candidate;
+    for (let i = 0; i < 3; i++) {
+        const inner = unwrapMirror(cur);
+        if (!inner) break;
+        cur = inner;
+    }
+    return arxivOriginal(cur) || cur;
 }
 
 /**
@@ -130,9 +273,9 @@ function canonicalizeOriginal(candidate) {
  * DOM). Returns null for ordinary pages; otherwise:
  *
  *   { original:    string|null,  // normalized recovered original —
- *                                // null = archive page, NOT recovered
+ *                                // null = mirror page, NOT recovered
  *     captureUrl:  string,       // the address actually fetched, as-is
- *     archiveHost: string }      // e.g. 'archive.ph', 'web.archive.org'
+ *     archiveHost: string }      // e.g. 'archive.ph', '12ft.io'
  */
 export function resolveUrlIdentityFromUrl(url) {
     const captureUrl = typeof url === 'string' ? url : '';
@@ -140,21 +283,16 @@ export function resolveUrlIdentityFromUrl(url) {
     const host = hostOf(captureUrl);
     if (!host) return null;
 
-    if (WAYBACK_HOSTS.has(host)) {
-        const m = WAYBACK_PATH_RE.exec(captureUrl);
-        const candidate = m ? repairScheme(m[1]) : null;
+    for (const rule of MIRROR_RULES) {
+        if (!rule.match(host)) continue;
+        const candidate = rule.extract(captureUrl);
+        // Canonicalize BEFORE the plausibility gate so a nested wrapper
+        // unwraps to something adoptable instead of being rejected as
+        // a mirror host.
+        const resolved = candidate ? canonicalizeOriginal(candidate) : null;
         return {
-            original: isPlausibleOriginal(candidate) ? normalize(canonicalizeOriginal(candidate)) : null,
-            captureUrl,
-            archiveHost: host
-        };
-    }
-
-    if (ARCHIVE_TODAY_HOSTS.has(host)) {
-        const m = ARCHIVE_TODAY_PATH_RE.exec(captureUrl);
-        const candidate = m ? repairScheme(m[1]) : null;
-        return {
-            original: isPlausibleOriginal(candidate) ? normalize(canonicalizeOriginal(candidate)) : null,
+            original: (isPlausibleOriginal(resolved) && !isMirrorHost(hostOf(resolved)))
+                ? normalize(resolved) : null,
             captureUrl,
             archiveHost: host
         };

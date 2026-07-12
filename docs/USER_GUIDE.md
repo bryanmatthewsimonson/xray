@@ -822,8 +822,12 @@ claim · ⚖️ evaluative claim · 🔮 predictive claim.
   events — link-heavy or evidence-heavy articles brush size limits first.
 - **Archive capture keyed to the wrong URL.** If the original wasn't
   recovered the note says so and it keys to the fetched address (never a
-  guess). If it recovered a *wrong* original, that's a bug — the archive
-  site likely changed its markup.
+  guess). Click **Set original URL…** on the note (or edit the URL field
+  in the header) to re-key it yourself — claims, the local archive copy,
+  and audits follow, and the alias is remembered so future captures
+  through either address join the same work. If recovery produced a
+  *wrong* original, that's a bug — the archive site likely changed its
+  markup.
 - **A feature's UI is missing.** It's probably flag-gated (§2.5) or needs
   the API key (audit/lens). The moral lens is partly console-driven
   today.

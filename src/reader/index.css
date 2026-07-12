@@ -2043,6 +2043,18 @@ body {
   color: var(--xr-warning);
 }
 
+.xr-capture-note__set {
+  margin-left: 8px;
+  padding: 1px 8px;
+  font-size: 11px;
+  border: 1px solid var(--xr-border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.xr-capture-note__set:hover { border-color: var(--xr-accent); }
+
 /* ---------------- Canonical-hash line + stealth-edit banner (13.4) ------- */
 
 .xr-article__hash {
