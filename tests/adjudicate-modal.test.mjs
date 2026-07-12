@@ -31,7 +31,8 @@ globalThis.chrome = {
 
 const {
     adjudicationBadgeData, renderAdjudicationBadges, adjudicationsByClaimId,
-    dateInputToOccurredAt, linesToList, PROPOSITION_CLASS_ICONS
+    dateInputToOccurredAt, linesToList, PROPOSITION_CLASS_ICONS,
+    evidenceEntryToRecord, candidateLabel, candidateTitle
 } = await import('../src/shared/adjudicate-modal.js');
 const { TruthAdjudicationModel, VerdictModel } = await import('../src/shared/truth-adjudication-model.js');
 const { ClaimModel } = await import('../src/shared/claim-model.js');
@@ -119,4 +120,71 @@ test('form mapping: date input → occurred_at; caveat lines', () => {
     assert.deepEqual(linesToList('a\n\n  b  \nc\n'), ['a', 'b', 'c']);
     assert.deepEqual(linesToList(''), []);
     assert.deepEqual(linesToList(null), []);
+});
+
+// ── Grounded evidence rows (amendment 2026-07-12) ─────────────────────
+
+test('evidenceEntryToRecord: the record derives from the cited candidate, not typed text', () => {
+    const rec = evidenceEntryToRecord({
+        claim_ref: 'claim_0000000000000ab1', tier: 'tier-1', note: '  matches the deed  ',
+        candidate: {
+            ref: 'claim_0000000000000ab1', text: 'WHO said masks work',
+            quote: 'masks are effective at reducing transmission',
+            speaker: 'W.H.O.', url: 'https://who.example/brief',
+            url_raw: 'https://who.example/brief?utm=x', origin: 'local'
+        }
+    });
+    assert.deepEqual(rec, {
+        quote: 'masks are effective at reducing transmission',
+        tier: 'tier-1',
+        note: 'matches the deed',
+        claim_ref: 'claim_0000000000000ab1',
+        source_ref: { url: 'https://who.example/brief?utm=x', url_raw: 'https://who.example/brief?utm=x' }
+    }, 'quote snapshots the linked claim quote; source_ref prefers the raw url; note trims');
+});
+
+test('evidenceEntryToRecord: quote falls back to claim text; no url → no source_ref', () => {
+    const rec = evidenceEntryToRecord({
+        claim_ref: '30040:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:c1',
+        tier: null, note: '',
+        candidate: { ref: '30040:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:c1', text: 'a counter-claim', quote: '', speaker: '', url: '', url_raw: '', origin: 'assessed' }
+    });
+    assert.equal(rec.quote, 'a counter-claim', 'text stands in when the artifact has no verbatim quote');
+    assert.equal(rec.claim_ref, '30040:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:c1');
+    assert.equal('source_ref' in rec, false, 'no manufactured source_ref');
+});
+
+test('evidenceEntryToRecord output round-trips the model validator with refs intact', async () => {
+    const { cleanVerdictEvidence } = await import('../src/shared/truth-adjudication-model.js');
+    const cleaned = cleanVerdictEvidence([
+        evidenceEntryToRecord({
+            claim_ref: 'claim_0000000000000ab1', tier: 'tier-1', note: 'independent lab log',
+            candidate: { ref: 'claim_0000000000000ab1', text: 't', quote: 'grounded', speaker: 'W.H.O.', url: 'https://src.example/a', url_raw: 'https://src.example/a', origin: 'local' }
+        })
+    ], 'evidence_for');
+    assert.equal(cleaned[0].quote, 'grounded');
+    assert.equal(cleaned[0].claim_ref, 'claim_0000000000000ab1');
+    assert.equal(cleaned[0].source_ref.url_raw, 'https://src.example/a');
+    assert.equal(cleaned[0].note, 'independent lab log');
+});
+
+test('candidateLabel: speaker-first for spoken artifacts, claim-text-first otherwise', () => {
+    assert.equal(
+        candidateLabel({ speaker: 'W.H.O.', quote: 'masks work', text: 'ignored' }),
+        'W.H.O. — “masks work”');
+    assert.equal(
+        candidateLabel({ speaker: '', quote: 'the verbatim span', text: 'The edited claim text.' }),
+        'The edited claim text.',
+        'an unsourced claim shows the TEXT the user wrote, not the raw quote');
+    assert.equal(candidateLabel({ speaker: '', quote: 'only a quote', text: '' }),
+        'only a quote', 'quote stands in when there is no text');
+});
+
+test('candidateTitle carries both text and quote when they differ', () => {
+    assert.equal(
+        candidateTitle({ speaker: '', quote: 'the verbatim span', text: 'The edited claim text.' }),
+        'The edited claim text.\n“the verbatim span”');
+    assert.equal(
+        candidateTitle({ speaker: 'W.H.O.', quote: 'same words', text: 'same words' }),
+        'W.H.O. — “same words”', 'identical text/quote → just the label');
 });

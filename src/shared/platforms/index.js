@@ -154,8 +154,8 @@ export async function enrichArticleForPlatform(article, platform) {
                     // classification; the links themselves were
                     // extracted from a DOM whose anchors the archive
                     // rewrote onto its own host — without the rewrite,
-                    // every citation reads archive-internal and the
-                    // publish path emits ZERO cites tags.
+                    // every outbound link reads archive-internal and
+                    // the publish path emits ZERO link tags.
                     enriched.domain = Utils.getDomain(identity.original) || enriched.domain;
                     if (Array.isArray(enriched.links)) {
                         enriched.links = rewriteArchivedLinks(enriched.links, enriched.domain);

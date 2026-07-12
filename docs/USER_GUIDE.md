@@ -261,13 +261,13 @@ mirrors. A note under the byline reads either:
 The fetched address is preserved as provenance and, when you publish,
 rides as a `capture-url` tag. `[SCREENSHOT-07]`
 
-### 3.7 Outbound links (citations)
+### 3.7 Outbound links
 
 X-Ray captures every external hyperlink in the article body as
-structured data. On publish these become `cites` tags — one per distinct
-external link — so the citation graph is queryable from both sides
+structured data. On publish these become `link` tags — one per distinct
+external link — so the link graph is queryable from both sides
 (what this article links to, and which articles link to it). This is
-**linkage only**: a `cites` tag says "this article contains a link
+**linkage only**: a `link` tag says "this article contains a link
 there", not "this article endorses it".
 
 ---
@@ -685,7 +685,7 @@ platform-account links (32126) need `platformAccountPublishing`.
 your `npub`. Your `nsec` never leaves the device. Publishing a
 platform-account link (32126) discloses your captured-account → entity
 graph — that's why it's separately opt-in. A published article carries a
-`capture-url` tag only for archive/mirror captures, and `cites` tags for
+`capture-url` tag only for archive/mirror captures, and `link` tags for
 its external links.
 
 **Ledger and re-publish.** X-Ray tracks what you've published so a
@@ -721,8 +721,8 @@ reconciled against your relays. `[SCREENSHOT-13]`
     long after publication*, or when the *story changed after the event*.
   - **Convergence-collapsed evidence** — one row per source with its
     capture completeness, per-claim quotes, origin convergence, its audit
-    band (through the shared display rules), and its **citation edges**
-    ("cites N external sources · cited by M case articles").
+    band (through the shared display rules), and its **link edges**
+    ("links to N external sources · linked from M case articles").
   - **Entities × roles** — routing into each entity's coverage-capped
     record.
 - **Entity view** — a person/org's audit dossier, integrity record, and
@@ -761,7 +761,7 @@ The side panel is the entity browser and network feed. `[SCREENSHOT-14]`
   investigation; the unit the dossier assembles around.
 - **`capture-url`** — the address an archive/mirror capture was fetched
   from, when it differs from the recovered original.
-- **`cites`** — a published tag naming one external link in the article
+- **`link`** — a published tag naming one external link in the article
   (linkage, not endorsement).
 - **Content hash (`x` tag)** — the canonical hash of an article body;
   ties judgments to exact text.

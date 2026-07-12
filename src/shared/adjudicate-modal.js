@@ -22,6 +22,7 @@
 // (xr-adjudicate-* only). Must NOT be imported by the content script.
 
 import { TruthAdjudicationModel, VerdictModel, verdictVariance } from './truth-adjudication-model.js';
+import { collectClaimCandidates, candidateHay, matchesCandidateQuery } from './claim-candidates.js';
 import { parseAdjudicatedVerdictEvent } from './truth-builders.js';
 import { convergenceForProposition } from './truth-attestation.js';
 import {
@@ -157,15 +158,72 @@ export function linesToList(value) {
  * @returns {Promise<{proposition: object, verdict?: object} | null>}
  *   what was saved, or null on cancel.
  */
+/**
+ * Map a modal evidence row `{claim_ref, tier, note, candidate}` to the
+ * truth-adjudication-model evidence shape (amendment §5.5a: evidence
+ * entries REFERENCE captured claims/quotes — nothing is typed except
+ * the tier and a short note). The linked artifact supplies everything:
+ * `quote` is snapshotted from the claim's verbatim quote (fallback:
+ * its text), so the record stays self-contained and the wire quote
+ * slot fills even if the claim is later deleted; `source_ref` carries
+ * the claim's source URL; `claim_ref` is the canonical ref (local id
+ * or 30040 coordinate). Exported for the integrity modal and tests.
+ */
+export function evidenceEntryToRecord(e) {
+    const cand = e.candidate || {};
+    const out = {
+        quote:     String(cand.quote || cand.text || e.quote || '').trim(),
+        tier:      e.tier,
+        note:      String(e.note || '').trim(),
+        claim_ref: e.claim_ref
+    };
+    const url = String(cand.url_raw || cand.url || '').trim();
+    if (url) out.source_ref = { url, url_raw: url };
+    return out;
+}
+
+/**
+ * Display line for a claim/quote candidate. A spoken artifact leads
+ * with its speaker ("W.H.O. — “…”"); an unsourced claim leads with
+ * its CLAIM TEXT — that's the line the user wrote and scans for —
+ * falling back to the quote for text-less snapshots.
+ */
+export function candidateLabel(cand) {
+    if (cand.speaker) return `${cand.speaker} — “${cand.quote || cand.text || ''}”`;
+    return cand.text || cand.quote || '';
+}
+
+/**
+ * Tooltip for a candidate row: when the claim text and its verbatim
+ * quote differ, show both — the one-line label can only carry one.
+ */
+export function candidateTitle(cand) {
+    const label = candidateLabel(cand);
+    const text = (cand.text || '').trim();
+    const quote = (cand.quote || '').trim();
+    if (text && quote && text !== quote) return `${text}\n“${quote}”`;
+    return label;
+}
+
 export async function openAdjudicateModal({ claimId, claimText = '', relays = [], claimPubkey = null }) {
     ensureStyles();
     const existingProps = await TruthAdjudicationModel.getByClaim(claimId);
     const byClass = new Map(existingProps.map((p) => [p.proposition_class, p]));
 
+    // Grounded evidence (amendment §5.5a): evidence entries reference
+    // captured claims/quotes — the picker pool is EVERY claim across
+    // all articles plus assessed-foreign snapshots (the claim being
+    // adjudicated is excluded). Load failure renders an empty picker
+    // with its capture-first hint.
+    let candidates = [];
+    try {
+        candidates = await collectClaimCandidates({ exclude: [claimId] });
+    } catch (_) { /* picker renders the capture-first empty state */ }
+
     const state = {
         cls:          existingProps.length ? existingProps[0].proposition_class : null,
         activeVerdict: null,   // resolved per selected class
-        evidenceFor:   [],     // [{quote, tier}]
+        evidenceFor:   [],     // [{claim_ref, tier, note, candidate}]
         evidenceAgainst: []
     };
 
@@ -290,28 +348,41 @@ export async function openAdjudicateModal({ claimId, claimText = '', relays = []
             });
         });
 
-        // ---- evidence rows ------------------------------------------
+        // ---- evidence rows (amendment §5.5a) -------------------------
+        // Evidence entries REFERENCE captured claims/quotes — "+ add"
+        // opens a searchable picker over the cross-article pool; a
+        // picked row shows speaker-first ("W.H.O. — “…”") with a tier
+        // select and a short why-note. Nothing else is typed. Not
+        // captured yet? Capture the claim/quote first.
+        const ORIGIN_ICONS = { local: '📋', assessed: '⚖', network: '🌐' };
+        const hostOf = (u) => { try { return new URL(u).host; } catch { return u || ''; } };
         function renderEvidence() {
             for (const side of ['For', 'Against']) {
                 const list = state[`evidence${side}`];
                 const wrap = $(`.xr-adjudicate__ev-${side.toLowerCase()}`);
-                wrap.innerHTML = list.map((e, i) => `
+                wrap.innerHTML = list.map((e, i) => {
+                    const cand = e.candidate || {};
+                    return `
                   <div class="xr-adjudicate__ev-row" data-side="${side}" data-i="${i}">
-                    <input type="text" class="xr-adjudicate__ev-quote" placeholder="verbatim quote"
-                           value="${escapeHtml(e.quote)}" />
+                    <span class="xr-adjudicate__ev-origin" title="${escapeHtml(cand.origin || 'local')}">${ORIGIN_ICONS[cand.origin] || '📋'}</span>
+                    <span class="xr-adjudicate__ev-label" title="${escapeHtml(candidateTitle(cand))}">${escapeHtml(candidateLabel(cand))}</span>
+                    <span class="xr-adjudicate__ev-host">${escapeHtml(hostOf(cand.url))}</span>
                     <select class="xr-adjudicate__ev-tier">
                       <option value="">tier —</option>
                       ${EVIDENCE_TIERS.map((t) => `<option value="${t}" ${e.tier === t ? 'selected' : ''}>${escapeHtml(EVIDENCE_TIER_LABELS[t])}</option>`).join('')}
                     </select>
                     <button type="button" class="xr-adjudicate__ev-del" title="Remove">✕</button>
-                  </div>`).join('');
+                    <input type="text" class="xr-adjudicate__ev-note" placeholder="why this ${side === 'For' ? 'supports' : 'contradicts'} (optional)"
+                           value="${escapeHtml(e.note || '')}" />
+                  </div>`;
+                }).join('');
                 wrap.querySelectorAll('.xr-adjudicate__ev-row').forEach((row) => {
                     const i = Number(row.dataset.i);
-                    row.querySelector('.xr-adjudicate__ev-quote').addEventListener('input', (ev) => {
-                        list[i].quote = ev.target.value;
-                    });
                     row.querySelector('.xr-adjudicate__ev-tier').addEventListener('change', (ev) => {
                         list[i].tier = ev.target.value || null;
+                    });
+                    row.querySelector('.xr-adjudicate__ev-note').addEventListener('input', (ev) => {
+                        list[i].note = ev.target.value;
                     });
                     row.querySelector('.xr-adjudicate__ev-del').addEventListener('click', () => {
                         list.splice(i, 1);
@@ -320,14 +391,63 @@ export async function openAdjudicateModal({ claimId, claimText = '', relays = []
                 });
             }
         }
-        $('[data-action="add-for"]').addEventListener('click', () => {
-            state.evidenceFor.push({ quote: '', tier: null });
-            renderEvidence();
+
+        // The in-modal claim/quote picker (the link-modal pattern).
+        // One panel, re-targeted per side; selection pushes an entry.
+        let pickerSide = null;
+        function renderPicker() {
+            const listEl = $('.xr-adjudicate__picker-list');
+            listEl.innerHTML = candidates.length === 0
+                ? '<div class="xr-adjudicate__picker-empty">No captured claims or quotes yet — capture the evidence as a claim/quote first (select its text in the source article), then come back.</div>'
+                : candidates.map((c, idx) => `
+                    <button type="button" class="xr-adjudicate__picker-item" data-idx="${idx}"
+                            title="${escapeHtml(candidateTitle(c))}"
+                            data-hay="${escapeHtml(candidateHay(c))}">
+                      <span title="${escapeHtml(c.origin)}">${ORIGIN_ICONS[c.origin] || '📋'}</span>
+                      <span class="xr-adjudicate__picker-text">${escapeHtml(candidateLabel(c))}</span>
+                      <span class="xr-adjudicate__ev-host">${escapeHtml(hostOf(c.url))}</span>
+                    </button>`).join('');
+            listEl.querySelectorAll('.xr-adjudicate__picker-item').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const cand = candidates[Number(btn.dataset.idx)];
+                    if (!cand || !pickerSide) return;
+                    state[`evidence${pickerSide}`].push({
+                        claim_ref: cand.ref, tier: null, note: '', candidate: cand
+                    });
+                    $('.xr-adjudicate__picker').hidden = true;
+                    pickerSide = null;
+                    renderEvidence();
+                });
+            });
+        }
+        function openPicker(side) {
+            pickerSide = side;
+            const panel = $('.xr-adjudicate__picker');
+            $('.xr-adjudicate__picker-title').textContent =
+                `Cite a captured claim/quote as evidence ${side.toLowerCase()}`;
+            // The count makes a silently-empty pool visible, and the
+            // exclusion note explains the one row that is never here.
+            $('.xr-adjudicate__picker-hint').textContent =
+                `${candidates.length} claim${candidates.length === 1 ? '' : 's'}/quotes across your captures — ` +
+                `the claim being adjudicated is excluded (it can't cite itself).`;
+            panel.hidden = false;
+            const search = $('.xr-adjudicate__picker-search');
+            search.value = '';
+            renderPicker();
+            search.focus();
+        }
+        $('.xr-adjudicate__picker-search').addEventListener('input', (ev) => {
+            const q = ev.target.value;
+            host.querySelectorAll('.xr-adjudicate__picker-item').forEach((btn) => {
+                btn.hidden = !matchesCandidateQuery(btn.dataset.hay, q);
+            });
         });
-        $('[data-action="add-against"]').addEventListener('click', () => {
-            state.evidenceAgainst.push({ quote: '', tier: null });
-            renderEvidence();
+        $('.xr-adjudicate__picker-close').addEventListener('click', () => {
+            $('.xr-adjudicate__picker').hidden = true;
+            pickerSide = null;
         });
+        $('[data-action="add-for"]').addEventListener('click', () => openPicker('For'));
+        $('[data-action="add-against"]').addEventListener('click', () => openPicker('Against'));
 
         // ---- others' rulings (read-back: foreign 30063s on this
         // proposition, each shown with the spread — never a consensus
@@ -419,10 +539,10 @@ export async function openAdjudicateModal({ claimId, claimText = '', relays = []
                         proposition_id:    proposition.id,
                         verdict:           stateBtn.dataset.state,
                         standard_of_proof: $('.xr-adjudicate__standard').value,
-                        evidence_for:      state.evidenceFor.filter((e) => e.quote.trim())
-                            .map((e) => ({ quote: e.quote, tier: e.tier })),
-                        evidence_against:  state.evidenceAgainst.filter((e) => e.quote.trim())
-                            .map((e) => ({ quote: e.quote, tier: e.tier })),
+                        evidence_for:      state.evidenceFor.filter((e) => e.claim_ref)
+                            .map(evidenceEntryToRecord),
+                        evidence_against:  state.evidenceAgainst.filter((e) => e.claim_ref)
+                            .map(evidenceEntryToRecord),
                         caveats:           linesToList($('.xr-adjudicate__caveats').value),
                         method:            $('.xr-adjudicate__method').value,
                         exposure:          $('.xr-adjudicate__exposure').value,
@@ -531,14 +651,24 @@ function buildHtml(claimText) {
               <select class="xr-adjudicate__standard">${standardOpts}</select>
             </label>
             <div class="xr-adjudicate__field">
-              <span class="xr-adjudicate__field-label">Evidence for
-                <button type="button" class="xr-adjudicate__ev-add" data-action="add-for">+ add</button></span>
+              <span class="xr-adjudicate__field-label">Evidence for <em>(cited claims/quotes)</em>
+                <button type="button" class="xr-adjudicate__ev-add" data-action="add-for">+ cite</button></span>
               <div class="xr-adjudicate__ev-for"></div>
             </div>
             <div class="xr-adjudicate__field">
-              <span class="xr-adjudicate__field-label">Evidence against
-                <button type="button" class="xr-adjudicate__ev-add" data-action="add-against">+ add</button></span>
+              <span class="xr-adjudicate__field-label">Evidence against <em>(cited claims/quotes)</em>
+                <button type="button" class="xr-adjudicate__ev-add" data-action="add-against">+ cite</button></span>
               <div class="xr-adjudicate__ev-against"></div>
+            </div>
+            <div class="xr-adjudicate__picker" hidden>
+              <div class="xr-adjudicate__picker-head">
+                <span class="xr-adjudicate__picker-title"></span>
+                <button type="button" class="xr-adjudicate__picker-close" aria-label="Close">✕</button>
+              </div>
+              <div class="xr-adjudicate__picker-hint"></div>
+              <input type="search" class="xr-adjudicate__picker-search"
+                     placeholder="Search claims & quotes (text, quote, speaker, url)…" spellcheck="false" />
+              <div class="xr-adjudicate__picker-list"></div>
             </div>
             <label class="xr-adjudicate__field">
               <span class="xr-adjudicate__field-label">Caveats <em>(REQUIRED — one per line: what this ruling could not determine)</em></span>
@@ -643,7 +773,31 @@ function ensureStyles() {
 }
 .xr-adjudicate__ev-add { margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 11px;
   cursor: pointer; background: var(--xr-surface-2, #2e2e2e); color: inherit; border: 1px solid var(--xr-border, #333); }
-.xr-adjudicate__ev-row { display: flex; gap: 6px; margin-bottom: 4px; }
+.xr-adjudicate__ev-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; align-items: center; }
+.xr-adjudicate__ev-origin { font-size: 12px; }
+.xr-adjudicate__ev-label { flex: 1 1 55%; min-width: 180px; font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xr-adjudicate__ev-host { font-size: 10.5px; opacity: 0.7; }
+.xr-adjudicate__ev-note { flex: 1 1 100%; padding: 4px 8px; border-radius: 6px; font-size: 12px; }
+/* The hidden attribute is UA-stylesheet display:none — any author
+   display rule (picker items are flex) silently defeats it, so the
+   search filter "hid" rows that stayed visible. Scoped guard wins. */
+.xr-adjudicate [hidden] { display: none !important; }
+.xr-adjudicate__picker { margin: 6px 0 10px; padding: 8px; border: 1px solid var(--xr-border, #333);
+  border-radius: 8px; }
+.xr-adjudicate__picker-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.xr-adjudicate__picker-title { font-size: 12px; font-weight: 600; }
+.xr-adjudicate__picker-hint { font-size: 11px; opacity: 0.75; margin-bottom: 6px; }
+.xr-adjudicate__picker-close { border: none; background: none; color: inherit; cursor: pointer; }
+.xr-adjudicate__picker-search { width: 100%; padding: 4px 8px; border-radius: 6px; font-size: 12px;
+  margin-bottom: 6px; box-sizing: border-box; }
+.xr-adjudicate__picker-list { max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.xr-adjudicate__picker-item { display: flex; gap: 6px; align-items: center; text-align: left;
+  padding: 5px 8px; border-radius: 6px; font-size: 12px; cursor: pointer;
+  background: var(--xr-surface-2, #2e2e2e); color: inherit; border: 1px solid var(--xr-border, #333); }
+.xr-adjudicate__picker-item:hover { border-color: var(--xr-accent, #7c5cff); }
+.xr-adjudicate__picker-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xr-adjudicate__picker-empty { font-size: 12px; opacity: 0.8; padding: 6px; }
 .xr-adjudicate__ev-quote { flex: 1; padding: 4px 8px; border-radius: 6px; font-size: 12px;
   background: var(--xr-surface-2, #2e2e2e); color: inherit; border: 1px solid var(--xr-border, #333); }
 .xr-adjudicate__ev-tier { padding: 3px 6px; border-radius: 6px; font-size: 11.5px;

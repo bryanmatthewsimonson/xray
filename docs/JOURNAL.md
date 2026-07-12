@@ -19,6 +19,99 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-12 — The `[hidden]`-vs-author-`display` footgun
+
+Tags: `bug`, `pattern`.
+
+The evidence pickers' search "filtered" a 503-item list down to…
+503 items. The handler ran and set `row.hidden = true` correctly —
+but the `hidden` attribute is implemented by the **UA stylesheet's**
+`[hidden] { display: none }`, and any author `display:` rule on the
+same element wins over UA rules regardless of specificity. Every
+picker row declares `display: flex`, so `hidden` was silently inert.
+The same defeat had been shipping unnoticed in the 🔗 link modal's
+search since Phase 11.4 (pools were small) and in the claim modal's
+Entity/Free-text mode toggle (`.xr-claim-modal__picker-entity` is
+flex).
+
+Fix: scoped guards at each component root —
+`.xr-adjudicate [hidden]`, `.xr-integrity [hidden]`,
+`.xr-claim-modal [hidden]`, all `{ display: none !important; }` — so
+every current and future hidden toggle inside those surfaces stays
+honest. Audited every other `.hidden =` toggle in the reader/shared
+modals; the rest touch elements without author `display` rules.
+
+So-what: `el.hidden` only works on elements whose classes never set
+`display`. When a component styles its rows as flex/grid/inline-*,
+add the scoped `[hidden]` guard in the same breath — and when a
+filter "doesn't filter", check whether hiding is defeated before
+suspecting the matcher.
+
+## 2026-07-12 — Grounded verdict evidence: the plumbed-but-dead provenance chain
+
+Tags: `bug`, `design`.
+
+The maintainer's §Phase 15 smoke walk surfaced it: "needs some design
+changes to fix the provenance in truth adjudication." The diagnosis
+was striking — every LAYER of evidence provenance already existed,
+and none of them ever carried data:
+
+- the model (`cleanVerdictEvidence`) validated `claim_ref` +
+  `source_ref` fields nothing ever set;
+- the wire tags (`['evidence-for'|'evidence-against', quote, tier,
+  url, coord]`) had url/coord slots that always shipped empty;
+- the publish mapper (`wireEvidence`) faithfully forwarded the refs
+  the modals never captured;
+- the inspector's parser preserved fields the renderer dropped.
+
+Both authoring modals captured `{quote, tier}` and nothing else, so
+design red line 5 — "no verdict the reader cannot re-derive" — was
+structurally unmet: the quote traveled, the source never did.
+
+Fix (design amendment §5.5a, 2026-07-12): evidence entries CITE
+captured claims/quotes — nothing evidentiary is typed. A first cut
+kept a freeform quote box plus an optional claim link and URL field;
+the maintainer pushed further ("there should be other claims/quotes
+that are cited as evidence… the evidence steps are freeform text"),
+and the insight that settled it: a captured claim already IS the
+quote artifact — `claim.quote` is the verbatim article span
+(auto-captured, never typed), `claim.source` is the speaker entity
+(e.g. W.H.O.), and it carries the anchor + article hash. So both
+truth modals' evidence rows became a searchable picker over the
+cross-article pool (new shared `claim-candidates.js`: all local
+claims + assessed-foreign snapshots, speaker-resolved, canonical-ref
+deduped); the record snapshots the linked claim's quote/url so the
+ruling stays self-contained; typed fields are the tier and a
+why-note only. `wireEvidence` takes a resolver so a LOCAL claim id
+resolves through `claimWireInfo` to its published coordinate —
+unpublished refs are omitted this batch (the precedent-ref posture;
+the ruling still publishes and heals next publish). Pre-amendment
+quote-only records still read/render/republish — the MUST binds
+authoring, not reading. A "❝ Quote" popover shortcut opens the claim
+form quote-framed (speaker picker first) so the capture-first
+discipline has a fast path, and the claims bar renders sourced
+quotes speaker-first.
+
+Same PR, related vocabulary fix: the outbound-link wire tag renamed
+`cites` → `link` ("I was using the word citation as a metaphor" —
+the tag asserts a hyperlink, not a scholarly citation). Emit is
+`link`-only; read-back dual-reads legacy `cites` (same positions,
+brief pre-rename window, documented in NIP_DRAFT's history note).
+`deriveCitationEdges` → `deriveLinkEdges` (`links`/`linked_by`), and
+the truth layer's precedent citations + the moral lens's
+bibliographic `citation` records are deliberately untouched —
+different vocabularies.
+
+So-what for future readers: a provenance chain is only as real as its
+AUTHORING surface. Every layer below the UI can be perfectly plumbed
+and the feature still ships nothing — when adding a provenance field,
+start the review at the input box, not the wire format. And when a
+field is typed where an artifact could be cited, expect the design to
+eventually demand the artifact. Deferred, recorded in the amendment:
+attestation authoring UI + verdict↔convergence wiring (§3.2),
+proposition snapshots, supersession-reason fields, publishable
+revision refs.
+
 ## 2026-07-12 — The URL alias layer: identity recovery becomes a persistent map
 
 Tags: `design`.

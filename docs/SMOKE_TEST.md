@@ -234,6 +234,7 @@ piece — anything Readability handles cleanly).
 | 2.12 | Capture an arXiv `/pdf/` link | ✅ article URL reads `arxiv.org/abs/<id>`; capture note names the pdf variant |
 | 2.13 | On any capture with a provenance note, click **Set original URL…** and enter a different URL | ✅ the reader re-keys to it (URL field + note update); claims made under the OLD address still list; the archive banner finds the old capture; re-opening either address joins the same work |
 | 2.14 | Capture through one of the newer mirror families (a 12ft.io/`/proxy?q=` link, an AMP-cache `*.cdn.ampproject.org/c/s/…` page, or a ghostarchive `/varchive/` video) | ✅ the original is recovered as identity and the note names the mirror host; a ghostarchive `/archive/<code>` snapshot degrades honestly to "original URL not recovered" |
+| 2.15 | Publish an article whose body contains external hyperlinks → inspect the event | ✅ one `link` tag per distinct EXTERNAL target (`["link", url, anchorText?]`, document order; internal/same-host links absent); NO `cites` tags (pre-rename name); indexed `r` co-emits for the first 25 targets after the primary `r` |
 
 ---
 
@@ -338,6 +339,7 @@ verify the page actually shows Disqus comments inline).
 |---|---|---|
 | 5.1 | Select text → entity popover → click "📋 Add as claim" | ✅ claim modal opens with text pre-filled |
 | 5.2 | Pick **About** entities, optionally "who said it" + ⭐ key, save | ✅ claim card appears in the claims bar; selection gets dashed colored underline (exact passage, not first occurrence) |
+| 5.2a | Select a SPOKEN sentence → popover → **"❝ Quote"** → the modal opens as **"Capture quote"** with the speaker picker FIRST (entity mode preselected, hint "The speaker is what makes this a quote") → pick e.g. W.H.O. → save | ✅ toast "Quote saved"; the claims bar renders the row **speaker-first** ("W.H.O. — “…”" on the quote line; no separate "Per …" line); the record is an ordinary claim (edit/link/assess/adjudicate all work) and it appears in the evidence pickers speaker-first |
 | 5.3 | Click ✎ on a claim → edit a field → save | ✅ card updates |
 | 5.4 | Click 🔗 on a claim → link modal opens (see 11.x for the cross-source flow) | ✅ pick target + relationship + (optional) note → save |
 | 5.5 | Both linked claims show the link block | ✅ relationship label correct; ↔ for contradicts/duplicates, →/← otherwise |
@@ -841,7 +843,9 @@ claim via the normal claim flow, then:
 | 15.14 | Claims bar → the claim row shows a **🏛** action | ✅ button present beside ⚖; tooltip "Adjudicate this claim" |
 | 15.15 | 🏛 → pick **Event fact**, criteria "the official record", role **Enacted**, ruling **Insufficient evidence**, caveats one line → Save | ✅ toast "Ruled: insufficient-evidence"; the row gains a `📋 Event fact · ∅ Insufficient evidence` badge; 🏛 becomes 🏛✓ |
 | 15.16 | 🏛 again, same class | ✅ fields load the existing proposition; the banner shows the **active ruling** and Save reads "Save superseding ruling" |
-| 15.17 | Save a new ruling (e.g. **Established true** with one evidence-for quote + a caveat) | ✅ toast "…(supersedes prior ruling)"; badge updates; re-open shows the new active ruling |
+| 15.17 | Save a new ruling (e.g. **Established true** with one cited evidence-for claim + a caveat) | ✅ toast "…(supersedes prior ruling)"; badge updates; re-open shows the new active ruling |
+| 15.17a | Evidence for → **+ cite** → the picker lists every captured claim/quote across ALL articles (📋 local / ⚖ assessed-foreign; search filters by text, quote, speaker, url — the list VISIBLY narrows as you type and restores on clear); pick a local claim from ANOTHER article, then + cite again and pick an assessed-foreign one | ✅ each picked row renders origin icon + speaker-first label ("W.H.O. — “…”" when the claim has a speaker) + host + tier select + a why-note input; there is NO quote box and NO URL field — evidence that isn't captured yet can't be typed in (the empty picker says to capture it as a claim/quote first) |
+| 15.17b | Publish (flag on), then inspect the raw 30063 in the portal | ✅ each `evidence-for` tag carries the linked claim's verbatim quote, the tier, the claim's source url, and — if the cited local claim is published — its 30040 coordinate in the coord slot (otherwise empty until next publish); the inspector renders the url as a link and the coordinate as a copyable chip |
 | 15.18 | Pick **Stated value** or **Interpretation** as the class | ✅ the ruling section is replaced by the 🔥 firewall explainer; Save reads "Save proposition"; the badge reads "not truth-adjudicable" |
 | 15.19 | Ruling with **no caveats**, or **Contested** with one-sided evidence, or a **Prediction** with no horizon | ❌ the modal surfaces the model's error inline; nothing saves |
 | 15.20 | Options → Advanced → **Truth adjudication** → check "Publish adjudicated verdicts…" → Save → reader **Publish** | ✅ after the claim publishes, "Also publishing adjudications…" toast; summary gains `n/n verdict` + mirror segments; second publish re-emits nothing (staleness gate); unchecking the toggle removes the adjudication segment entirely |

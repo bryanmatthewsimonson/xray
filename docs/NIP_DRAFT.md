@@ -799,28 +799,30 @@ The tag is present ONLY when the original was verifiably recovered (so it always
 
 Publishers SHOULD also co-emit an indexed `r` tag with the capture address, strictly AFTER the primary `r` (consumers take the FIRST `r` as the article URL), so `{"kinds":[30023],"#r":["<archive-url>"]}` finds the capture from the mirror side too.
 
-## Kind 30023 — `cites` tag (extension)
+## Kind 30023 — `link` tag (extension)
 
-A long-form article (kind 30023) MAY carry one `cites` tag per distinct EXTERNAL outbound link in its body, in document order:
+A long-form article (kind 30023) MAY carry one `link` tag per distinct EXTERNAL outbound link in its body, in document order:
 
 ```
-["cites", "<normalized target URL>", "<anchor text, ≤120 chars>"?]
+["link", "<normalized target URL>", "<anchor text, ≤120 chars>"?]
 ```
 
 Where:
 
-- `<target URL>` is normalized exactly as the primary `r` (§6.2 rules) — a link and its tracking-param variant are ONE target, and a cite of an article meets that article's own capture on one URL.
+- `<target URL>` is normalized exactly as the primary `r` (§6.2 rules) — a link and its tracking-param variant are ONE target, and a link to an article meets that article's own capture on one URL.
 - The optional anchor text is the link's visible text, whitespace-collapsed and truncated to 120 characters. It is descriptive, not normative.
 
-Semantics: `cites` asserts **linkage only** — the body contains a hyperlink to the target. It carries no stance; endorsement, rebuttal, and the rest are `responds-to` relationships. Internal links (same-host navigation) are not emitted. Publishers extract links under a cap (X-Ray: 100 distinct targets), so **the absence of a `cites` tag is not evidence the article does not link somewhere** — consumers needing certainty must consult the captured body.
+Semantics: `link` asserts **linkage only** — the body contains a hyperlink to the target. It carries no stance; endorsement, rebuttal, and the rest are `responds-to` relationships. Internal links (same-host navigation) are not emitted. Publishers extract links under a cap (X-Ray: 100 distinct targets), so **the absence of a `link` tag is not evidence the article does not link somewhere** — consumers needing certainty must consult the captured body.
 
-Publishers SHOULD co-emit an indexed `r` tag for the first **25** cited targets (after the primary `r` and every other co-emit; deduplicated against `r` tags already on the event — the FIRST `r` remains the article's own URL). This makes the edge queryable from the cited side:
+Publishers SHOULD co-emit an indexed `r` tag for the first **25** linked targets (after the primary `r` and every other co-emit; deduplicated against `r` tags already on the event — the FIRST `r` remains the article's own URL). This makes the edge queryable from the linked side:
 
 ```jsonc
-{ "kinds": [30023], "#r": ["<cited-url>"], "limit": 100 }
+{ "kinds": [30023], "#r": ["<linked-url>"], "limit": 100 }
 ```
 
-returns both captures OF that URL and articles CITING it; the `cites`/`capture-url`/`responds-to` tags (against the first `r`) disambiguate which is which. Relay tag-count and event-size limits are the practical bound here — see the relay-selection notes in the operations runbook.
+returns both captures OF that URL and articles LINKING to it; the `link`/`capture-url`/`responds-to` tags (against the first `r`) disambiguate which is which. Relay tag-count and event-size limits are the practical bound here — see the relay-selection notes in the operations runbook.
+
+History: this tag first shipped as `cites` (2026-07, briefly). "Citation" overstated the semantics — the tag asserts a hyperlink, not a scholarly citation — so it was renamed before any tagged release. Consumers MAY read `cites` tags with identical positions from events published in that window; publishers MUST emit `link`.
 
 ## Kind 30023 — `x` tag (extension)
 

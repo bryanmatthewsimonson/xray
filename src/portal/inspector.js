@@ -129,6 +129,28 @@ function renderEvidenceList(section, label, entries) {
         const row = el('div', 'xr-inspector__finding-anchor');
         row.appendChild(el('span', 'xr-inspector__mono', e.tier || '—'));
         row.appendChild(el('span', null, truncate(e.quote, 140)));
+        // Grounded evidence (2026-07-12): the wire tag's url/coord slots
+        // are the re-derivation path — render them followable instead of
+        // dropping them. Older/ungrounded events simply lack both.
+        if (e.url) {
+            const a = document.createElement('a');
+            a.className = 'xr-inspector__mono';
+            a.href = e.url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.textContent = truncate(e.url, 60);
+            a.title = e.url;
+            row.appendChild(a);
+        }
+        if (e.coord) {
+            const chip = el('span', 'xr-inspector__mono', `claim ${truncate(e.coord, 40)}`);
+            chip.title = `${e.coord} — click to copy the claim coordinate`;
+            chip.style.cursor = 'copy';
+            chip.addEventListener('click', () => {
+                try { navigator.clipboard.writeText(e.coord); } catch (_) { /* clipboard denied */ }
+            });
+            row.appendChild(chip);
+        }
         section.appendChild(row);
     });
 }

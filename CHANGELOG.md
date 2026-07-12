@@ -202,6 +202,21 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Changed
 
+- **Outbound-link tag renamed `cites` → `link`** (wire change,
+  pre-release). The kind-30023 extension tag for external hyperlinks
+  in the captured body now emits as `["link", url, anchorText?]` —
+  "citation" overstated the semantics (the tag asserts a hyperlink,
+  not a scholarly citation). Read-back dual-reads `link` then legacy
+  `cites` (same positions), so the handful of events published in the
+  brief `cites` window still reconstruct. Ripples: the case dossier's
+  edge derivation is now `deriveLinkEdges` returning `links`/
+  `linked_by` (per-article dossier sub-object `links` with
+  `corpus_links`/`linked_by`), and the portal evidence table reads
+  "links to N external sources · linked from M case articles". The
+  truth layer's *precedent citations* and the moral lens's
+  bibliographic `citation` records are unrelated vocabularies and are
+  unchanged.
+
 - **One URL normalizer everywhere.** Article identity
   (`ContentExtractor.normalizeUrl`, which feeds 30023 `d` tags) now
   delegates to the NIP-73 normalizer that already keyed every
@@ -216,7 +231,27 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Fixed
 
-- **Tagged entities survive a reload.** Entities tagged on a capture
+- **Verdict and integrity-finding evidence is now cited, not typed**
+  (TRUTH_ADJUDICATION_DESIGN amendment §5.5a). Evidence rows in the
+  adjudicate and integrity modals are no longer free-text: each entry
+  cites a captured claim/quote picked from the cross-article pool
+  (all local claims plus assessed-foreign snapshots), rendered
+  speaker-first ("W.H.O. — “…”"); the row's verbatim quote, source
+  URL, and — once the claim publishes — its 30040 coordinate all
+  derive from the linked artifact, and the only typed fields are the
+  evidence tier and an optional why-note. Previously both modals
+  captured only free-text quotes, so every published 30063/30064
+  shipped evidence a reader could not follow — red line 5 ("no verdict
+  the reader cannot re-derive") unmet despite the model, wire format,
+  and publish mapper all having the fields. Evidence not yet captured
+  is captured first (select its text in the source article — the new
+  "❝ Quote" shortcut on the selection popover opens the claim form
+  quote-framed, speaker picker first). Unpublished linked claims are
+  omitted from the wire until they publish (the ruling still ships);
+  pre-amendment quote-only records still read, render, and republish.
+  The portal inspector now renders evidence URLs as links and claim
+  coordinates as copyable chips. **No wire-format change** — the
+  existing tag slots now populate. Entities tagged on a capture
   (manually or via accepted LLM suggestions) vanished when the article
   was reopened from the local archive: the load-time cache save wrote
   the fresh article's empty entity list over the archive row, "Load

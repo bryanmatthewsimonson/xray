@@ -1005,6 +1005,7 @@ body {
 }
 
 .xr-tagger-popover__claim-btn,
+.xr-tagger-popover__quote-btn,
 .xr-tagger-popover__finding-btn {
   width: 100%;
   padding: 8px 12px;
@@ -1019,9 +1020,11 @@ body {
   transition: background 120ms ease, border-color 120ms ease;
 }
 
+.xr-tagger-popover__quote-btn,
 .xr-tagger-popover__finding-btn { margin-top: 6px; }
 
-.xr-tagger-popover__claim-btn:hover {
+.xr-tagger-popover__claim-btn:hover,
+.xr-tagger-popover__quote-btn:hover {
   background: color-mix(in srgb, var(--xr-accent) 12%, transparent);
   border-color: color-mix(in srgb, var(--xr-accent) 50%, transparent);
 }
@@ -1064,6 +1067,14 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* [hidden] is only the UA stylesheet's display:none — any author
+   display rule on the same element (flex rows, the entity picker)
+   silently defeats it. The scoped guard keeps every hidden toggle in
+   the claim/link/others modals honest. */
+.xr-claim-modal [hidden] {
+  display: none !important;
 }
 
 .xr-claim-modal__backdrop {
@@ -1582,6 +1593,13 @@ body {
 .xr-claims__quote:hover {
   color: var(--xr-text);
   border-left-color: var(--xr-accent);
+}
+/* Speaker-first quotes ("W.H.O. — “…”") — the speaker leads upright
+   so the italic quote reads as spoken by them. */
+.xr-claims__speaker {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--xr-text);
 }
 .xr-claims__page {
   display: inline-block;
