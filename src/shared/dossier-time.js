@@ -30,6 +30,21 @@ export function parseMetaDate(value) {
     return { at: Math.floor(parsed / 1000), precision };
 }
 
+/** The inverse of parseMetaDate: render {at, precision} as an ISO
+ *  string TRUNCATED to its honest band — '1962', '1962-03',
+ *  '1962-03-15', or full ISO for exact. Emitting a full timestamp for
+ *  a year-precision value would fabricate a month and day on the wire
+ *  (P4); parseMetaDate reads every band back symmetrically. */
+export function bandISO(at, precision) {
+    const iso = new Date(at * 1000).toISOString();
+    switch (precision) {
+        case 'year':  return iso.slice(0, 4);
+        case 'month': return iso.slice(0, 7);
+        case 'day':   return iso.slice(0, 10);
+        default:      return iso.replace(/\.\d{3}Z$/, 'Z');
+    }
+}
+
 // The [start, end) band a {at, precision} pair honestly covers, in
 // epoch seconds. UTC calendar math — the same convention parseMetaDate
 // stores under.

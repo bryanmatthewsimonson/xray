@@ -298,3 +298,106 @@ test('getBySourceUrl heals across the URL alias map in both directions', async (
     assert.deepEqual(byMirror.map((c) => c.text).sort(),
         ['Claimed on the mirror.', 'Claimed on the original.']);
 });
+
+// --- Fact layer (Phase 19.2) ------------------------------------------------
+
+const T_1948 = Date.UTC(1948, 3, 7) / 1000;
+
+function seedSubjects() {
+    _stateStore.set('entities', {
+        [ENT_1]: { id: ENT_1, name: 'W.H.O.', type: 'organization' },
+        [ENT_2]: { id: ENT_2, name: 'Jane Roe', type: 'person' }
+    });
+}
+
+test('claim: fact rides create — validated against about and the subject type', async () => {
+    resetState();
+    seedSubjects();
+    const claim = await ClaimModel.create({
+        text: 'The WHO was founded in 1948.',
+        source_url: URL_A,
+        about: [ENT_1],
+        fact: { entity_id: ENT_1, field: 'founded', value: ' 1948 ',
+                valid_from: T_1948, valid_from_precision: 'day' }
+    });
+    assert.equal(claim.fact.field, 'founded');
+    assert.equal(claim.fact.value, '1948', 'value trimmed by cleanFact');
+    assert.equal(claim.fact.valid_from_precision, 'day');
+    const fetched = await ClaimModel.get(claim.id);
+    assert.deepEqual(fetched.fact, claim.fact, 'fact survives the storage round-trip');
+});
+
+test('claim: fact create rejections — subject/type/authored red lines hold on the model', async () => {
+    resetState();
+    seedSubjects();
+    // Subject not in about.
+    await assert.rejects(ClaimModel.create({
+        text: 'A.', source_url: URL_A, about: [ENT_2],
+        fact: { entity_id: ENT_1, field: 'founded', value: '1948' }
+    }), /about/);
+    // Field from the wrong type's registry (person field on an organization).
+    await assert.rejects(ClaimModel.create({
+        text: 'B.', source_url: URL_A, about: [ENT_1],
+        fact: { entity_id: ENT_1, field: 'birth_date', value: '1948' }
+    }), /registry/);
+    // Unknown subject record — no type, so no registry match.
+    await assert.rejects(ClaimModel.create({
+        text: 'C.', source_url: URL_A, about: ['entity_cccccccccccccccc'],
+        fact: { entity_id: 'entity_cccccccccccccccc', field: 'founded', value: '1948' }
+    }), /registry/);
+    // A factless create is untouched by any of this.
+    const plain = await ClaimModel.create({ text: 'D.', source_url: URL_A, about: [ENT_1] });
+    assert.equal(plain.fact, null);
+});
+
+test('claim: fact update — set, replace, clear; about shrink cannot orphan the subject', async () => {
+    resetState();
+    seedSubjects();
+    const claim = await ClaimModel.create({
+        text: 'HQ statement.', source_url: URL_A, about: [ENT_1, ENT_2]
+    });
+
+    const withFact = await ClaimModel.update(claim.id, {
+        fact: { entity_id: ENT_1, field: 'headquarters', value: 'Geneva' }
+    });
+    assert.equal(withFact.fact.value, 'Geneva');
+
+    // Combined about+fact patch validates against the POST-patch about.
+    const repointed = await ClaimModel.update(claim.id, {
+        about: [ENT_2],
+        fact: { entity_id: ENT_2, field: 'residence', value: 'Geneva' }
+    });
+    assert.equal(repointed.fact.entity_id, ENT_2);
+
+    // An about shrink that orphans the riding fact's subject throws.
+    await assert.rejects(
+        ClaimModel.update(claim.id, { about: [ENT_1] }),
+        /orphan/);
+
+    const cleared = await ClaimModel.update(claim.id, { fact: null });
+    assert.equal(cleared.fact, null);
+});
+
+test('claim: parseClaimEvent reads fact tags back (pubkey-keyed, band dates)', () => {
+    const parsed = parseClaimEvent({
+        tags: [
+            ['d', 'claim_ffffffffffffffff'],
+            ['claim-text', 'Founded 1948.'],
+            ['p', 'e'.repeat(64), '', 'about'],
+            ['fact', 'founded', '1948', 'e'.repeat(64)],
+            ['valid_from', '1948-04', 'month'],
+            ['client', 'xray']
+        ],
+        content: 'Founded 1948.', pubkey: 'f'.repeat(64), created_at: 1
+    });
+    assert.equal(parsed.fact.field, 'founded');
+    assert.equal(parsed.fact.value, '1948');
+    assert.equal(parsed.fact.subject_pubkey, 'e'.repeat(64));
+    assert.equal(parsed.fact.valid_from.precision, 'month');
+    assert.equal(parsed.fact.valid_from.at, Date.UTC(1948, 3, 1) / 1000);
+    assert.equal(parsed.fact.valid_to, null);
+
+    // No fact tag → fact: null (every pre-19.2 event).
+    const plain = parseClaimEvent({ tags: [['d', 'claim_1']], content: 'A.' });
+    assert.equal(plain.fact, null);
+});

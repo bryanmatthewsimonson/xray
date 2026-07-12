@@ -9,10 +9,12 @@
 
 import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
+import { Utils } from './utils.js';
 import { ContentExtractor } from './content-extractor.js';
 import { buildRespondsToTag, RESPONDS_TO_RELATIONSHIPS } from './metadata/builders.js';
 import { articleHash } from './audit/article-hash.js';
 import { generateEntityId } from './entity-model.js';
+import { bandISO } from './dossier-time.js';
 
 // Re-export the metadata helpers so callers that already import from
 // `event-builder.js` don't need a second import path. See spec §6.4.
@@ -555,6 +557,32 @@ export const EventBuilder = {
     if (claim.quote) tags.push(['quote', claim.quote]);
     if (claim.article_hash) tags.push(['x', claim.article_hash]);
     if (claim.created) tags.push(['captured_at', String(claim.created)]);
+
+    // Fact layer (Phase 19 §4, additive): ['fact', field, value,
+    // subject pubkey] + per-slot band-truncated ISO dates — a
+    // year-precision date goes out as '1962', never a fabricated full
+    // timestamp. Wire facts are pubkey-keyed; a subject with no
+    // resolvable pubkey emits NO fact tags at all (a fact tag without
+    // its subject is dead wire data). Readers that don't know `fact`
+    // see a normal claim.
+    if (claim.fact) {
+      const subj = dict[claim.fact.entity_id];
+      if (subj && subj.keypair) {
+        tags.push(['fact', claim.fact.field, claim.fact.value, subj.keypair.pubkey]);
+        const slots = [
+          ['valid_from',  claim.fact.valid_from,  claim.fact.valid_from_precision],
+          ['valid_to',    claim.fact.valid_to,    claim.fact.valid_to_precision],
+          ['observed_at', claim.fact.observed_at, claim.fact.observed_precision]
+        ];
+        for (const [slot, at, precision] of slots) {
+          if (at !== null && at !== undefined) {
+            tags.push([slot, bandISO(at, precision || 'exact'), precision || 'exact']);
+          }
+        }
+      } else {
+        Utils.log('Fact subject unresolvable in entity dict — omitting fact tags for claim', claim.id);
+      }
+    }
     tags.push(['client', 'xray']);
 
     return {

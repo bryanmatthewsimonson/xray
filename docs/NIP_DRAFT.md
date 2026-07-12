@@ -71,6 +71,10 @@ Addressable. An atomized assertion extracted from web content: the claim text pl
     ["quote", "<verbatim article span>"],      // optional — the exact text the claim is drawn from
     ["x", "<canonical article hash>"],         // optional — binds the quote to the exact article version
     ["captured_at", "<unix seconds>"],         // optional — when the human captured the claim
+    ["fact", "<field>", "<value>", "<subject entity pubkey>"],  // optional — structured fact layer (one per event)
+    ["valid_from", "<band ISO>", "<precision>"],   // optional — fact validity start
+    ["valid_to", "<band ISO>", "<precision>"],     // optional — fact validity end
+    ["observed_at", "<band ISO>", "<precision>"],  // optional — when the source observed it
     ["client", "<client>"]
   ],
   "content": "<the claim text>"
@@ -85,6 +89,22 @@ on via `#x`), binding the quote to the exact text version it was
 located in; `captured_at` records capture time, which `created_at`
 (publish time) does not. Consumers rendering a claim SHOULD prefer
 `quote` for display and use `anchor` for on-page location.
+
+**Fact layer tags** (all optional, additive — Phase 19): a claim MAY
+carry one structured fact — `["fact", <field>, <value>, <subject
+entity pubkey>]`, where `field` is a typed biographical field name
+(e.g. `birth_date`, `headquarters`, or a `custom:<token>` field) and
+the 4th slot identifies the fact's subject, which MUST also appear
+among the event's `about` p-tags (a fact about X is a claim about X).
+The three date tags scope the fact's temporal validity. Their value
+slot is an ISO-8601 date **truncated to its honest precision band** —
+`1962` (year), `1962-03` (month), `1962-03-15` (day), or a full
+timestamp (exact) — with the precision named explicitly in slot 2
+(`year|month|day|exact`); emitting a full timestamp for a
+year-precision statement would fabricate a month and day the source
+never asserted. Readers that do not understand `fact` see a normal
+claim; readers that do can assemble entity fact tables whose every
+row cites a verbatim `quote` and an `x`-hashed article version.
 
 The `d` tag is deterministic over the verbatim (trimmed) source URL and the whitespace-collapsed, casefolded claim text, so re-publishing an edited claim's metadata replaces rather than duplicates, and two captures of the same quote from the same page-as-captured by the *same* author coincide. (URL variants — tracking parameters, trailing slashes — derive distinct `d`s; the reference implementation does not normalize the URL input here.) Note that two **different** authors who capture the same quote derive the same `d` under different pubkeys — those are distinct addressable events, and consumers MUST treat the full `30040:<pubkey>:<d>` coordinate as the claim's identity.
 

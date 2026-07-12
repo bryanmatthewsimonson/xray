@@ -25,6 +25,8 @@ import { Crypto } from './crypto.js';
 import { Utils } from './utils.js';
 import { loadAliasMap, resolveWithMap } from './url-aliases.js';
 import { isValidSuggestedBy } from './assessment-taxonomy.js';
+import { cleanFact } from './entity-facts.js';
+import { parseMetaDate } from './dossier-time.js';
 
 // ------------------------------------------------------------------
 // Enums — retained for rendering legacy + foreign (others') claims that
@@ -84,7 +86,7 @@ export async function generateClaimId(sourceUrl, text) {
  * @param {{tags?: Array, content?: string, pubkey?: string, created_at?: number, id?: string}} event
  * @returns {{id, text, about: string[], source: string, isKey: boolean, url, title,
  *            quote: string, anchor: Array|null, articleHash: string, capturedAt: number,
- *            pubkey, created_at}}
+ *            fact: object|null, pubkey, created_at}}
  */
 export function parseClaimEvent(event) {
     const tags = (event && event.tags) || [];
@@ -102,6 +104,33 @@ export function parseClaimEvent(event) {
             if (Array.isArray(parsed) && parsed.length) anchor = parsed;
         } catch (_) { /* malformed foreign anchor — display without one */ }
     }
+    // Fact layer read-back (Phase 19 §4, additive): ['fact', field,
+    // value, subjectPubkey] + per-slot ['valid_from'|'valid_to'|
+    // 'observed_at', bandISO, precision]. Wire facts are PUBKEY-keyed
+    // (the local entity_id doesn't travel); consumers map pubkey →
+    // entity. Date slots come back through the same honest-band
+    // grammar the builder truncated to.
+    let fact = null;
+    const factTag = tags.find((x) => x[0] === 'fact');
+    if (factTag && factTag[1] && factTag[2]) {
+        const dateSlot = (name) => {
+            const t = tags.find((x) => x[0] === name);
+            if (!t || !t[1]) return null;
+            const parsed = parseMetaDate(t[1]);
+            if (!parsed) return null;
+            // The explicit precision slot wins over the inferred one
+            // (a foreign event may carry full ISO + 'year').
+            return { at: parsed.at, precision: t[2] || parsed.precision };
+        };
+        fact = {
+            field:          factTag[1],
+            value:          factTag[2],
+            subject_pubkey: factTag[3] || '',
+            valid_from:     dateSlot('valid_from'),
+            valid_to:       dateSlot('valid_to'),
+            observed_at:    dateSlot('observed_at')
+        };
+    }
     return {
         id:          first('d') || (event && event.id) || '',
         text:        first('claim-text') || (event && event.content) || '',
@@ -114,6 +143,7 @@ export function parseClaimEvent(event) {
         anchor,
         articleHash: first('x') || '',
         capturedAt:  Number(first('captured_at')) || 0,
+        fact,
         pubkey:      (event && event.pubkey) || '',
         created_at:  (event && event.created_at) || 0
     };
@@ -211,6 +241,20 @@ function cleanAnchorProvenance(value) {
         out.proposed_quote = value.proposed_quote.trim();
     }
     return out;
+}
+
+// Fact layer (Phase 19 §4): a fact is a claim carrying a structured
+// `fact` field — the provenance chain (quote/hash/anchor) and the
+// judgment pipeline ride along free. Validation lives in
+// entity-facts.js#cleanFact; the subject's TYPE picks the field
+// registry, resolved here from the entity store (a raw Storage read,
+// not an entity-model import — no cycle, and a missing subject fails
+// loudly through the registry check).
+async function cleanFactField(fact, about) {
+    if (!fact) return null;
+    const entities = await Storage.get('entities', {});
+    const subject = entities[fact.entity_id];
+    return cleanFact(fact, { about, entityType: subject ? subject.type : undefined });
 }
 
 // Backfill thin fields for records written before slice 10.1, so old
@@ -312,6 +356,7 @@ export const ClaimModel = {
             anchor_provenance: cleanAnchorProvenance(fields.anchor_provenance),
             quote:            cleanQuote(fields.quote),
             article_hash:     cleanArticleHash(fields.article_hash),
+            fact:             await cleanFactField(fields.fact, about),
             source_url:       sourceUrl,
             context:          fields.context || '',
             suggested_by:     cleanSuggestedBy(fields.suggested_by),
@@ -348,7 +393,19 @@ export const ClaimModel = {
         if ('anchor_provenance' in updates) patched.anchor_provenance = cleanAnchorProvenance(updates.anchor_provenance);
         if ('quote' in updates)   patched.quote   = cleanQuote(updates.quote);
         if ('article_hash' in updates) patched.article_hash = cleanArticleHash(updates.article_hash);
+        if ('fact' in updates) {
+            // Validated against the POST-patch about (the about branch
+            // above ran first), so a combined about+fact patch coheres.
+            patched.fact = await cleanFactField(updates.fact, patched.about);
+        }
         if ('context' in updates) patched.context = updates.context || '';
+
+        // An about shrink must not orphan a riding fact's subject —
+        // the "a fact about X is a claim about X" invariant holds on
+        // every write, not just fact writes.
+        if (patched.fact && !(patched.about || []).includes(patched.fact.entity_id)) {
+            throw new Error('about update would orphan the claim\'s fact subject — clear or repoint the fact first');
+        }
 
         patched.updated = Math.floor(Date.now() / 1000);
         all[id] = patched;
