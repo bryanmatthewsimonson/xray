@@ -92,6 +92,17 @@ Phase 16 ████████████████████  complete 
                                 guard-tested; derived view only, behind
                                 the moralLens flag. 16.1–16.4 in one PR;
                                 §Phase 16 smoke-run pending
+Phase 17 ░░░░░░░░░░░░░░░░░░░░  design only — entity corpus & smart entity
+                                management (docs/ENTITY_CORPUS_DESIGN.md);
+                                post-Epistack
+Phase 18 ████████████████░░░░  C1–C4.2 landed — complex content capture:
+                                tables/math, scholarly meta, PDF routing +
+                                pdf.js extraction + figures
+                                (docs/COMPLEX_CONTENT_DESIGN.md); C5/C6 open
+Phase 19 ░░░░░░░░░░░░░░░░░░░░  design only — entity dossiers & the
+                                provenance-pinned knowledge base
+                                (docs/ENTITY_DOSSIER_DESIGN.md);
+                                post-Epistack; 19.7 gated on Phase 17 Part A
 ```
 
 Parity with the v4.2 userscript is long reached; the project now ships
@@ -1503,6 +1514,50 @@ grounding substrate*).
 
 Sequenced after the Epistack sprint (docs/code landed on the
 provenance train, PR #108).
+
+---
+
+## Phase 19 — Entity dossiers & the provenance-pinned knowledge base 📝 design only
+
+**`docs/ENTITY_DOSSIER_DESIGN.md`** (v1.0, 2026-07-12). The
+knowledge-base layer: a dossier per entity, assembled strictly from
+captured content — "wikipedia-like, but every line can defend itself."
+Implementation starts **after the Epistack window** (post 2026-07-19).
+
+- 📝 **19.1** typed field schemas (`entity-field-schemas.js`: per-type
+  registries, unknown-by-default, validity intervals, date precision)
+  + `entity-facts.js` (conflict detection, never auto-resolved) +
+  `dossier-time.js` extraction from case-dossier.
+- 📝 **19.2** facts ride the claim model — additive `fact` layer on
+  claims (subject/field/value/validity); every biographical value
+  requires the claim's verbatim quote + article hash. Additive 30040
+  `fact`/`valid_from`/`valid_to`/`observed_at` tags (wire callout).
+- 📝 **19.3** `entity-dossier.js` — computed-on-read assembler over the
+  alias family: identity, field table (current + history + contested),
+  content timeline, judgment distributions (integrity ROUTED to
+  `truth-entity-record.js`, §3.5 firewall structural), relationships.
+- 📝 **19.4** portal `entity-dossier-view.js` + side-panel compact
+  field table; every value click-throughs to its quote + source.
+- 📝 **19.5** reader "Add fact…" (selection = the grounding quote) +
+  conflict pre-flight; case scope editor (the authored field class).
+- 📝 **19.6** LLM fact extraction — `propose_capture` `kind:'fact'`,
+  quote-grounded through the existing firewall, external knowledge
+  banned, default-off category, human confirms every item.
+- 📝 **19.7** publishing behind `entityCorpusPublishing`: kind-0
+  `about` assembled from PUBLISHED facts only (contested fields
+  omitted — maintainer decision), NIP-39 `i` tags, and the new
+  **kind-30067 entity fact sheet** (every fact `a`-refs its published
+  claim — an adjudicable index over verifiable events). Hash-stamped
+  auto-republish when new captures change a profile. **Hard prereq:
+  Phase 17 Part A (E1 dedupe + E3 sweep).** Wire callout + NIP_DRAFT
+  §30067.
+- 📝 **19.8** cases unified as scoped dossiers (shared assembler, two
+  membership functions) + SMOKE §Phase 19.
+
+Maintainer decisions baked in (2026-07-12): facts-as-claims; contested
+fields off the public profile; kind 30067 taken now; unsourced
+biographical facts forbidden in v1; recompute-on-read over
+materialization.
 
 ---
 

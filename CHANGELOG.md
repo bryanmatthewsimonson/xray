@@ -12,6 +12,18 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 19 design: entity dossiers & the provenance-pinned knowledge
+  base.** `docs/ENTITY_DOSSIER_DESIGN.md` (design only, implementation
+  post-Epistack): typed per-entity-type field schemas with validity
+  intervals and date precision; facts as claims (every biographical
+  value pinned to a verbatim quote in a captured source — no external
+  LLM knowledge, no unsourced values); a computed-on-read per-entity
+  dossier assembler sharing the case-dossier builders; kind-0 profiles
+  assembled from published facts only (contested fields omitted); and
+  a planned kind-30067 entity fact sheet where every fact references
+  its published claim event. ROADMAP gains the Phase 19 section (and
+  the status snapshot catches up on Phases 17/18).
+
 - **URL aliases — one identity across mirror addresses.** A persisted
   alias map (`url_aliases`) now records every learned
   mirror-address → original pairing (structural recovery at capture,
