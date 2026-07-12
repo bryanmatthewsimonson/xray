@@ -79,7 +79,7 @@ Record per relay: `limitation.max_message_length` (**a full-article
 `max_subscriptions`, any `retention` policy, whether `limitation`
 declares restricted kinds or required auth. Also note any tag-count /
 event-size ceilings (`max_event_tags` where declared): a link-heavy
-capture now carries one `cites` tag per external link plus up to 25
+capture now carries one `link` tag per external link plus up to 25
 `r` co-emits (see NIP_DRAFT), and those events brush tag limits first
 — if a candidate relay declares a low tag cap, test step 2 with your
 most link-dense capture, not a throwaway.

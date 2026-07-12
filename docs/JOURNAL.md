@@ -40,25 +40,49 @@ Both authoring modals captured `{quote, tier}` and nothing else, so
 design red line 5 — "no verdict the reader cannot re-derive" — was
 structurally unmet: the quote traveled, the source never did.
 
-Fix (design amendment §5.5a, 2026-07-12): evidence rows gain a claim
-picker (link a captured claim → its published 30040 coordinate lands
-in the tag's coord slot; the claim's quote auto-fills) and a source-URL
-field (→ the url slot, verbatim). `wireEvidence` takes a resolver so a
-LOCAL claim id resolves through `claimWireInfo` to its published
-coordinate — unpublished refs are omitted this batch (the
-precedent-ref posture; the ruling still publishes and heals next
-publish). Ungrounded quote-only rows remain permitted (fail-open) but
-show ⚠ "carries no source reference on the wire" — honest absence
-over manufactured citation. The inspector renders evidence urls as
-links and coords as copyable claim coordinates.
+Fix (design amendment §5.5a, 2026-07-12): evidence entries CITE
+captured claims/quotes — nothing evidentiary is typed. A first cut
+kept a freeform quote box plus an optional claim link and URL field;
+the maintainer pushed further ("there should be other claims/quotes
+that are cited as evidence… the evidence steps are freeform text"),
+and the insight that settled it: a captured claim already IS the
+quote artifact — `claim.quote` is the verbatim article span
+(auto-captured, never typed), `claim.source` is the speaker entity
+(e.g. W.H.O.), and it carries the anchor + article hash. So both
+truth modals' evidence rows became a searchable picker over the
+cross-article pool (new shared `claim-candidates.js`: all local
+claims + assessed-foreign snapshots, speaker-resolved, canonical-ref
+deduped); the record snapshots the linked claim's quote/url so the
+ruling stays self-contained; typed fields are the tier and a
+why-note only. `wireEvidence` takes a resolver so a LOCAL claim id
+resolves through `claimWireInfo` to its published coordinate —
+unpublished refs are omitted this batch (the precedent-ref posture;
+the ruling still publishes and heals next publish). Pre-amendment
+quote-only records still read/render/republish — the MUST binds
+authoring, not reading. A "❝ Quote" popover shortcut opens the claim
+form quote-framed (speaker picker first) so the capture-first
+discipline has a fast path, and the claims bar renders sourced
+quotes speaker-first.
+
+Same PR, related vocabulary fix: the outbound-link wire tag renamed
+`cites` → `link` ("I was using the word citation as a metaphor" —
+the tag asserts a hyperlink, not a scholarly citation). Emit is
+`link`-only; read-back dual-reads legacy `cites` (same positions,
+brief pre-rename window, documented in NIP_DRAFT's history note).
+`deriveCitationEdges` → `deriveLinkEdges` (`links`/`linked_by`), and
+the truth layer's precedent citations + the moral lens's
+bibliographic `citation` records are deliberately untouched —
+different vocabularies.
 
 So-what for future readers: a provenance chain is only as real as its
 AUTHORING surface. Every layer below the UI can be perfectly plumbed
 and the feature still ships nothing — when adding a provenance field,
-start the review at the input box, not the wire format. Deferred,
-recorded in the amendment: attestation authoring UI + verdict↔
-convergence wiring (§3.2), proposition snapshots, supersession-reason
-fields, publishable revision refs.
+start the review at the input box, not the wire format. And when a
+field is typed where an artifact could be cited, expect the design to
+eventually demand the artifact. Deferred, recorded in the amendment:
+attestation authoring UI + verdict↔convergence wiring (§3.2),
+proposition snapshots, supersession-reason fields, publishable
+revision refs.
 
 ## 2026-07-12 — The URL alias layer: identity recovery becomes a persistent map
 
