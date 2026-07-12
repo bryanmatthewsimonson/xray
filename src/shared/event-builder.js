@@ -12,6 +12,7 @@ import { Crypto } from './crypto.js';
 import { ContentExtractor } from './content-extractor.js';
 import { buildRespondsToTag, RESPONDS_TO_RELATIONSHIPS } from './metadata/builders.js';
 import { articleHash } from './audit/article-hash.js';
+import { generateEntityId } from './entity-model.js';
 
 // Re-export the metadata helpers so callers that already import from
 // `event-builder.js` don't need a second import path. See spec §6.4.
@@ -812,6 +813,43 @@ export const EventBuilder = {
    * Reconstruct an article object from a kind 30023 NOSTR event.
    * Inverse of buildArticleEvent().
    */
+  /**
+   * Rebuild the tagged-entity ref list from a kind-30023 event's typed
+   * name tags (['person'|'org'|'place'|'thing'|'case', name, context]).
+   * Async — the deterministic id derivation hashes type:name, and it
+   * matches the local registry's own derivation, so reconstructed refs
+   * JOIN local entity records when they exist and still render (name +
+   * type from the wire) when they don't. Best-effort and fail-open: a
+   * tag that can't be mapped is skipped. Separate from the synchronous
+   * reconstructArticleFromEvent — callers attach the result to
+   * `article.entities` themselves.
+   */
+  reconstructEntityRefsFromEvent: async (event) => {
+    if (!event || event.kind !== 30023 || !Array.isArray(event.tags)) return [];
+    // Inverse of the builder's tag-type ternary (see buildArticleEvent)
+    // and entity-model.js entityTypeToTag.
+    const TAG_TO_TYPE = {
+      person: 'person', org: 'organization', place: 'place',
+      thing: 'thing', case: 'case'
+    };
+    const refs = [];
+    const seen = new Set();
+    for (const tag of event.tags) {
+      const type = TAG_TO_TYPE[tag[0]];
+      if (!type || !tag[1]) continue;
+      const name = tag[1];
+      const context = tag[2] || null;
+      try {
+        const entityId = await generateEntityId(type, name);
+        const key = `${entityId} ${context || ''}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        refs.push({ entity_id: entityId, type, name, context });
+      } catch (_) { /* fail-open: skip the unmappable tag */ }
+    }
+    return refs;
+  },
+
   reconstructArticleFromEvent: (event) => {
     if (!event || event.kind !== 30023) return null;
 
