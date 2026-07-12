@@ -12,6 +12,24 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Claims default their asserter to the article's author,
+  entity-first.** "Who said it" now opens in entity mode in every
+  claim flow (free text stays as the fallback radio) and defaults to
+  the article's author: an exact-name match preselects the existing
+  entity (capture from the W.H.O. origins paper → W.H.O. is the
+  speaker unless you override); an unknown author prefills the picker
+  search with a one-click **"New as: 👤 🏢 📍 🔷 🗂️"** create row (the
+  type is always a human choice — entity ids derive from type+name,
+  so a wrong guess would be permanent). The same create row now lives
+  in the About picker too, replacing the "tag an entity from the
+  article body first" dead end. Claims accepted from LLM suggestions
+  also default their source to the author entity when it already
+  exists (bulk accept never creates entities). New
+  `findEntityByName(name)` exact-name registry lookup
+  (entity-model.js). No wire change — entity sources already emit
+  `['p', pk, '', 'source']` + `['source', name]`, and the publish
+  batch already swept source entities into the profile publish.
+
 - **Phase 19 design: entity dossiers & the provenance-pinned knowledge
   base.** `docs/ENTITY_DOSSIER_DESIGN.md` (design only, implementation
   post-Epistack): typed per-entity-type field schemas with validity

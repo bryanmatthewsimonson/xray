@@ -126,7 +126,8 @@ function truncate(s, n) {
  * @returns {Promise<{accepted: number}>}
  */
 export async function openLlmReview(opts) {
-    const { proposals, model, articleText = '', sourceUrl = '', articleHash = '', sourceRef = {}, onAccepted, onEntityTag, pageForQuote } = opts;
+    const { proposals, model, articleText = '', sourceUrl = '', articleHash = '', sourceRef = {},
+            onAccepted, onEntityTag, pageForQuote, defaultSourceEntityId = null } = opts;
     const suggestedByLlm = `llm:${model}`;
     const norm = normalizeProposals(proposals);
     // ONE grounding index for the whole panel — validation, badges, and
@@ -578,6 +579,10 @@ export async function openLlmReview(opts) {
                         const page = pageForQuote(input.quote);
                         if (page) input.anchor.push(pageFragmentSelector(page));
                     }
+                    // The asserter is usually the article's author —
+                    // default the source to the author entity when one
+                    // exists (editable afterward like any claim field).
+                    if (!input.source && defaultSourceEntityId) input.source = defaultSourceEntityId;
                     const c = await ClaimModel.create(input);
                     if (row.ref) claimIdByRef[row.ref] = c.id;
                     return;

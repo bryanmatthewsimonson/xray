@@ -89,6 +89,24 @@ export async function generateEntityId(type, name) {
     return `entity_${hash.slice(0, 16)}`;
 }
 
+/**
+ * Exact-name lookup across every entity type — the deterministic id
+ * makes this two hashes and one registry read, no substring scan.
+ * Returns the first existing merged record in ENTITY_TYPES order
+ * (person before organization when a name exists as both), or null.
+ * Used to resolve an article's byline to its entity ("W.H.O." → the
+ * organization record) so claim capture can default the speaker.
+ */
+export async function findEntityByName(name) {
+    if (!normalizeName(name)) return null;
+    const ids = await Promise.all(ENTITY_TYPES.map((t) => generateEntityId(t, name)));
+    const all = await EntityModel.getAll();
+    for (const id of ids) {
+        if (all[id]) return all[id];
+    }
+    return null;
+}
+
 function assertValidType(type) {
     if (!ENTITY_TYPES.includes(type)) {
         throw new Error(`Invalid entity type: ${type} (expected one of ${ENTITY_TYPES.join(', ')})`);

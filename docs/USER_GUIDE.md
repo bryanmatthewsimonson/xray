@@ -323,6 +323,16 @@ checkable assertion lifted out of the article. On a claim you can set:
 - **Anchor** — a stored pointer back to the passage (so "locate" jumps to
   it even after edits).
 - **About** — which entities the claim concerns.
+- **Who said it** — the asserter, as an **entity**. This defaults to the
+  article's author (capture a claim from the W.H.O. origins paper and
+  W.H.O. is preselected as the speaker); override it when the quoted
+  text attributes someone else. If the author has no entity yet, the
+  picker opens prefilled with the name and a one-click **"New as:
+  👤 🏢 📍 🔷 🗂️"** row creates it with the right type. Free text remains
+  as a fallback, but entities are the primary way of identifying who
+  asserted a claim — they're what the knowledge base joins on. Claims
+  you accept from LLM suggestions get the author entity as their source
+  too (when the entity already exists — bulk accept never creates one).
 
 Claim rows also carry action buttons: assess (⚖ / ⚖✓ when you've already
 assessed), adjudicate (🏛 / 🏛✓ when propositions exist), and link (🔗)

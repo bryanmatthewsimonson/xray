@@ -13,7 +13,7 @@
 import { ContentExtractor } from '../shared/content-extractor.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
-import { EntityModel, installEntityStorageBridge, mergeEntityRefs } from '../shared/entity-model.js';
+import { EntityModel, installEntityStorageBridge, mergeEntityRefs, findEntityByName } from '../shared/entity-model.js';
 import { recordAccount, extractPostAuthor } from '../shared/identity/account-registry.js';
 import { selectAccountsToPublish } from '../shared/identity/account-publish.js';
 import { ClaimModel, exactFromAnchor } from '../shared/claim-model.js';
@@ -1087,7 +1087,8 @@ async function refreshAuditStatus() {
                 anchor:       pred.anchor || null,
                 quote:        pred.evidence_quote || null,
                 articleHash:  claimArticleHash(),
-                initialAbout: state.lastClaimAbout || []
+                initialAbout: state.lastClaimAbout || [],
+                defaultSource: await resolveDefaultSpeaker()
             });
             if (saved) {
                 await PredictionModel.setClaimRef(pred.id, {
@@ -1346,7 +1347,10 @@ function renderReader() {
                 initialAbout: state.lastClaimAbout || [],
                 // "❝ Quote" shortcut: same record, quote-framed modal
                 // with the speaker picker front-and-center.
-                quoteMode:    !!quoteMode
+                quoteMode:    !!quoteMode,
+                // The asserter is usually the article's author — default
+                // the speaker to the author entity (or offer its create).
+                defaultSource: await resolveDefaultSpeaker()
             });
             if (saved) {
                 state.lastClaimAbout = saved.about || [];
@@ -1727,6 +1731,13 @@ async function runSuggestPass() {
         // PDF page anchors for accepted claims (null for non-PDFs).
         pageForQuote: (q) => pdfPageOfQuote(q),
         sourceRef:  { url: state.article.url || '', title: state.article.title || '' },
+        // Accepted claims default their asserter to the article-author
+        // ENTITY when one already exists — existing-only: bulk accept
+        // never mints entities (that stays a deliberate click).
+        defaultSourceEntityId: await (async () => {
+            const speaker = await resolveDefaultSpeaker();
+            return (speaker && speaker.entityId) || null;
+        })(),
         // Accepted entities are tagged onto the article with their
         // grounded verbatim mention — same ref shape (and same dedupe)
         // as the manual selection tagger, so the publish flow p-tags
@@ -2316,6 +2327,26 @@ function wireLensActions(body) {
             }
         });
     });
+}
+
+/**
+ * The default asserter for a NEW claim on this article: usually the
+ * article's author (byline; first scholarly author as the fallback).
+ * Resolves to an existing entity when one matches the name exactly
+ * (deterministic id — "W.H.O." the organization), else hands the name
+ * to the modal so the picker opens prefilled for a one-click create.
+ * Returns null when the capture has no author at all.
+ */
+async function resolveDefaultSpeaker() {
+    const a = state.article || {};
+    const name = String(a.byline || (a.scholar && a.scholar.authors && a.scholar.authors[0]) || '').trim();
+    if (!name) return null;
+    try {
+        const entity = await findEntityByName(name);
+        return entity ? { entityId: entity.id } : { suggestedName: name };
+    } catch (_) {
+        return { suggestedName: name };
+    }
 }
 
 async function openLinkClaim(sourceId, allClaimsOnArticle) {

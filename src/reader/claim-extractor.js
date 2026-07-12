@@ -32,7 +32,7 @@ import {
     EVIDENCE_RELATIONSHIP_LABELS,
     EVIDENCE_RELATIONSHIP_ICONS
 } from '../shared/evidence-linker.js';
-import { EntityModel, ENTITY_ICONS } from '../shared/entity-model.js';
+import { EntityModel, ENTITY_ICONS, ENTITY_TYPES } from '../shared/entity-model.js';
 import { resolveSelectors } from '../shared/metadata/anchor-resolver.js';
 import { openAssessModal, renderAssessmentBadges, assessmentsByCanonicalRef } from '../shared/assess-modal.js';
 import { renderAdjudicationBadges, adjudicationsByClaimId } from '../shared/adjudicate-modal.js';
@@ -54,27 +54,37 @@ import { collectClaimCandidates, candidateHay, matchesCandidateQuery } from '../
  *   initialText?: string,
  *   initialClaim?: object,   // pass to pre-populate for edit mode
  *   context?:     string,    // surrounding-paragraph text for the `context` field
- *   quoteMode?:   boolean    // quote-framed variant: same record, the
+ *   quoteMode?:   boolean,   // quote-framed variant: same record, the
  *                            // speaker picker front-and-center
+ *   defaultSource?: {entityId?: string, suggestedName?: string}
+ *                            // the article-author default: an existing
+ *                            // entity preselects; a bare name prefills
+ *                            // the picker search for one-click create
  * }} opts
  */
 export function openClaimModal(opts) {
     return new Promise((resolve) => {
         const { sourceUrl, initialText = '', initialClaim = null, context = '', anchor = null,
-                quote = null, articleHash = null, initialAbout = [], quoteMode = false } = opts;
+                quote = null, articleHash = null, initialAbout = [], quoteMode = false,
+                defaultSource = null } = opts;
 
         const isEdit = !!initialClaim;
         const initial = initialClaim || {
             text:    initialText,
             about:   initialAbout,    // sticky session default (Phase 11.3)
-            source:  null,
+            // The asserter matters (usually the article's author) — a
+            // resolved author entity is the default; the user overrides
+            // per claim when the quoted text attributes someone else.
+            source:  (defaultSource && defaultSource.entityId) || null,
             is_key:  false,
             context
         };
+        const sourceSearchPrefill = (!isEdit && !initial.source && defaultSource && defaultSource.suggestedName)
+            ? defaultSource.suggestedName : '';
 
         const modal = document.createElement('div');
         modal.className = 'xr-claim-modal';
-        modal.innerHTML = buildModalHtml(initial, isEdit, quoteMode);
+        modal.innerHTML = buildModalHtml(initial, isEdit, quoteMode, sourceSearchPrefill);
         document.body.appendChild(modal);
 
         wireModal(modal, initial, isEdit, quoteMode, async (saved) => {
@@ -97,18 +107,21 @@ export function openClaimModal(opts) {
     });
 }
 
-function buildModalHtml(initial, isEdit, quoteMode = false) {
+function buildModalHtml(initial, isEdit, quoteMode = false, sourceSearchPrefill = '') {
     const title = quoteMode ? 'Capture quote' : (isEdit ? 'Edit claim' : 'Add claim');
     // `source` is an entity id, free text, or null (= the article).
     const sourceIsEntity = typeof initial.source === 'string' && /^entity_/.test(initial.source);
     const sourceText = (initial.source && !sourceIsEntity) ? initial.source : '';
 
-    // The quote-framed variant is the SAME record and wire — only the
-    // framing changes: the speaker picker moves to the top (entity mode
-    // preselected) because the speaker is what makes this a quote.
+    // Entities are the PRIMARY way of identifying the asserter — entity
+    // mode is the default everywhere (free text stays as the fallback
+    // radio; an existing free-text source still opens in text mode).
+    // The quote-framed variant only changes the framing: the speaker
+    // picker moves to the top because the speaker is what makes this a
+    // quote.
     const sourcePicker = buildEntityOrTextPicker('source',
-        quoteMode ? 'Who said it' : 'Who said it (optional — defaults to the article)',
-        sourceIsEntity ? [initial.source] : [], sourceText, quoteMode)
+        quoteMode ? 'Who said it' : 'Who said it (usually the article’s author)',
+        sourceIsEntity ? [initial.source] : [], sourceText, true, sourceSearchPrefill)
         + (quoteMode
             ? '<small class="xr-claim-modal__hint">The speaker is what makes this a quote — e.g. W.H.O. The selected text is captured verbatim.</small>'
             : '');
@@ -170,6 +183,7 @@ function buildAboutPicker(entityIds) {
           <input type="text" class="xr-claim-modal__picker-search" data-role="search"
                  placeholder="Search entities by name…" spellcheck="false" />
           <div class="xr-claim-modal__picker-results" data-role="results" hidden></div>
+          ${buildPickerCreateRow()}
         </div>
       </div>
     `;
@@ -180,7 +194,7 @@ function buildAboutPicker(entityIds) {
  * — structured when possible, prose when not. Internally we render
  * the entity picker as a search input with a dropdown of matches.
  */
-function buildEntityOrTextPicker(prefix, label, entityIds, textValue, forceEntityMode = false) {
+function buildEntityOrTextPicker(prefix, label, entityIds, textValue, forceEntityMode = false, searchPrefill = '') {
     const isEntityMode = (Array.isArray(entityIds) && entityIds.length > 0)
         || (forceEntityMode && !textValue);
     return `
@@ -201,12 +215,29 @@ function buildEntityOrTextPicker(prefix, label, entityIds, textValue, forceEntit
             ${(entityIds || []).map((id) => `<span class="xr-claim-modal__pill" data-id="${escapeHtml(id)}">Loading…<button type="button" class="xr-claim-modal__pill-x">×</button></span>`).join('')}
           </div>
           <input type="text" class="xr-claim-modal__picker-search" data-role="search"
-                 placeholder="Search entities by name…" spellcheck="false" />
+                 placeholder="Search entities by name…" spellcheck="false"
+                 value="${escapeHtml(searchPrefill || '')}" />
           <div class="xr-claim-modal__picker-results" data-role="results" hidden></div>
+          ${buildPickerCreateRow()}
         </div>
         <input type="text" class="xr-claim-modal__picker-text" ${isEntityMode ? 'hidden' : ''}
                placeholder="Free-text ${escapeHtml(label.toLowerCase())}"
                value="${escapeHtml(textValue || '')}" />
+      </div>
+    `;
+}
+
+// One-click entity create inside the picker (the tagger popover's
+// "New as:" pattern) — the user picks the TYPE, so no wrong-typed
+// entity is ever minted silently (ids are derived from type+name,
+// a wrong guess would be permanent). Hidden until the search has text.
+function buildPickerCreateRow() {
+    return `
+      <div class="xr-claim-modal__picker-create" data-role="create" hidden>
+        <span class="xr-claim-modal__picker-create-label">New as:</span>
+        ${ENTITY_TYPES.map((t) => `
+          <button type="button" class="xr-claim-modal__picker-create-btn" data-type="${t}"
+                  title="Create as ${t}">${ENTITY_ICONS[t] || '🔷'}</button>`).join('')}
       </div>
     `;
 }
@@ -229,16 +260,19 @@ function wireModal(modal, initial, isEdit, quoteMode, onSubmit) {
     const keyCb = $('.xr-claim-modal__key');
 
     // Pickers: `about` is a multi-select of entities (no text mode);
-    // `source` is single, entity-or-text ("who said it"). Quote mode
-    // preselects entity mode (must match buildEntityOrTextPicker's
-    // forceEntityMode rendering, or the radios and state disagree).
+    // `source` is single, entity-or-text ("who said it"). Entity mode
+    // is the default everywhere — an existing free-text source is the
+    // only thing that opens in text mode (must match
+    // buildEntityOrTextPicker's rendering, or the radios and state
+    // disagree).
     const sourceIsEntity = typeof initial.source === 'string' && /^entity_/.test(initial.source);
+    const sourceIsFreeText = !!(initial.source && !sourceIsEntity);
     const pickerState = {
         about:  { mode: 'entity', ids: (initial.about || []).slice(), text: '' },
         source: {
-            mode: (sourceIsEntity || (quoteMode && !initial.source)) ? 'entity' : 'text',
+            mode: sourceIsFreeText ? 'text' : 'entity',
             ids:  sourceIsEntity ? [initial.source] : [],
-            text: (initial.source && !sourceIsEntity) ? initial.source : ''
+            text: sourceIsFreeText ? initial.source : ''
         }
     };
 
@@ -247,6 +281,14 @@ function wireModal(modal, initial, isEdit, quoteMode, onSubmit) {
         // `source` is single-select; `about` is multi.
         wirePicker(picker, pickerState[prefix], prefix, prefix === 'source');
     });
+
+    // The article-author default with no matching entity yet: the
+    // search arrives prefilled — fire the search once so the matches
+    // and the one-click "New as:" create row are visible on open.
+    const sourceSearch = modal.querySelector('.xr-claim-modal__picker[data-prefix="source"] [data-role="search"]');
+    if (sourceSearch && sourceSearch.value.trim()) {
+        sourceSearch.dispatchEvent(new Event('input'));
+    }
 
     // Hydrate entity pills async so the user sees real names instead of "Loading…".
     hydratePills(modal).catch((err) => console.warn('[X-Ray Claim] pill hydrate failed:', err));
@@ -285,6 +327,7 @@ function wirePicker(pickerEl, state, prefix, isSingle) {
     const search     = pickerEl.querySelector('[data-role="search"]');
     const picked     = pickerEl.querySelector('[data-role="picked"]');
     const results    = pickerEl.querySelector('[data-role="results"]');
+    const createRow  = pickerEl.querySelector('[data-role="create"]');
 
     if (modeRadios.length > 0) {
         modeRadios.forEach((r) => {
@@ -300,13 +343,24 @@ function wirePicker(pickerEl, state, prefix, isSingle) {
         textInput.addEventListener('input', () => { state.text = textInput.value; });
     }
 
+    const selectEntity = async (id) => {
+        if (isSingle) state.ids = [id];
+        else if (!state.ids.includes(id)) state.ids.push(id);
+        await rerenderPicked(picked, state.ids);
+        search.value = '';
+        results.hidden = true;
+        results.innerHTML = '';
+        if (createRow) createRow.hidden = true;
+    };
+
     // Entity search + pick
     search.addEventListener('input', async () => {
         const q = search.value.trim();
+        if (createRow) createRow.hidden = !q;
         if (!q) { results.hidden = true; results.innerHTML = ''; return; }
         const matches = await EntityModel.search(q, { limit: 6 });
         if (matches.length === 0) {
-            results.innerHTML = `<div class="xr-claim-modal__picker-empty">No match — tag an entity from the article body first.</div>`;
+            results.innerHTML = `<div class="xr-claim-modal__picker-empty">No match — create it with a type below.</div>`;
             results.hidden = false;
             return;
         }
@@ -319,17 +373,28 @@ function wirePicker(pickerEl, state, prefix, isSingle) {
         results.hidden = false;
 
         results.querySelectorAll('.xr-claim-modal__picker-match').forEach((btn) => {
-            btn.addEventListener('click', async () => {
-                const id = btn.dataset.id;
-                if (isSingle) state.ids = [id];
-                else if (!state.ids.includes(id)) state.ids.push(id);
-                await rerenderPicked(picked, state.ids);
-                search.value = '';
-                results.hidden = true;
-                results.innerHTML = '';
-            });
+            btn.addEventListener('click', () => selectEntity(btn.dataset.id));
         });
     });
+
+    // One-click create ("New as: 👤 🏢 …") — the user names the type,
+    // so a mistyped registry entry is never minted silently. Create is
+    // idempotent on (type, name), so re-clicking an existing pair just
+    // selects it.
+    if (createRow) {
+        createRow.querySelectorAll('.xr-claim-modal__picker-create-btn').forEach((btn) => {
+            btn.addEventListener('click', async () => {
+                const name = search.value.trim();
+                if (!name) return;
+                try {
+                    const entity = await EntityModel.create({ name, type: btn.dataset.type });
+                    await selectEntity(entity.id);
+                } catch (err) {
+                    console.warn('[X-Ray Claim] entity create failed:', err);
+                }
+            });
+        });
+    }
 
     // Remove-pill delegation
     picked.addEventListener('click', async (ev) => {
