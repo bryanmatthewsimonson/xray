@@ -26,7 +26,8 @@ import { el, svgEl, clear, truncate, shortKey } from './dom.js';
 import { renderEntityView } from './entity-view.js';
 import { renderCaseView } from './case-view.js';
 import { findingsForEntity } from './forensic-data.js';
-import { loadLocalLedger, reconcile, countLocalOnly } from './reconcile.js';
+import { loadLocalLedger, reconcile, countLocalOnly, listLocalArtifacts } from './reconcile.js';
+import { getByEventId as journalGetByEventId } from '../shared/event-journal.js';
 import { renderInspector } from './inspector.js';
 import {
     buildAuditIndex, mergeLocalRuns, mergeLocalResolutions, auditsForArticle,
@@ -49,6 +50,7 @@ const state = {
     relays: [],
     records: [],         // [{event, relays}] — raw, pre-dedupe
     items: [],           // library items (deduped, parsed, sorted)
+    localArtifacts: [],  // itemized never-published local records
     filters: { ...EMPTY_FILTERS },
     groupByDomain: false,
     view: { name: 'library' },   // | {name:'entity', pubkey} | {name:'case', pubkey}
@@ -547,7 +549,11 @@ async function updateReconciliation() {
     try {
         const ledger = await loadLocalLedger({ pubkeys: state.identities.map((i) => i.pubkey) });
         state.reconciliation = reconcile(ledger, state.items);
-        state.reconciliation.summary.localOnly = (await countLocalOnly()).total;
+        // ITEMIZED never-published local artifacts (the "My Archive
+        // shows everything" requirement) — the count stays for the
+        // summary line; the list renders below it.
+        state.localArtifacts = await listLocalArtifacts();
+        state.reconciliation.summary.localOnly = state.localArtifacts.length;
         // Annotate items so the status facet can filter on plain fields.
         for (const item of state.items) {
             item.reconStatus = state.reconciliation.statusByEventId[item.id] || 'no-ledger';
@@ -555,6 +561,39 @@ async function updateReconciliation() {
     } catch (err) {
         Utils.error('Portal reconciliation failed:', err);
         state.reconciliation = null;
+        state.localArtifacts = [];
+    }
+}
+
+// Rebroadcast a journaled signed event VERBATIM (no re-signing, no
+// NIP-07 prompt) — the repair action for reconcile's "missing" rows.
+// The journal is the durability substrate; a missing journal row means
+// the event predates the journal and needs a reader re-publish instead.
+async function rebroadcastMissing(entry, statusEl) {
+    try {
+        statusEl.textContent = 'rebroadcasting…';
+        const row = entry.publishedEventId ? await journalGetByEventId(entry.publishedEventId) : null;
+        if (!row || !row.event) {
+            statusEl.textContent = 'not in the journal (pre-journal publish) — re-publish from the reader';
+            return;
+        }
+        const resp = await new Promise((resolve) => {
+            chrome.runtime.sendMessage(
+                { type: 'xray:relay:publish', event: row.event, relays: state.relays },
+                (r) => resolve(r)
+            );
+        });
+        if (resp && resp.ok && resp.results && resp.results.successful > 0) {
+            const confirmed = typeof resp.results.confirmed === 'number' ? resp.results.confirmed : 0;
+            statusEl.textContent = confirmed > 0
+                ? `rebroadcast — ${confirmed}/${resp.results.total} relays confirmed`
+                : `rebroadcast sent — no relay confirmed (may still land)`;
+        } else {
+            statusEl.textContent = 'rebroadcast failed: ' + ((resp && resp.error) || 'no relays accepted');
+        }
+    } catch (err) {
+        Utils.error('Rebroadcast failed:', err);
+        statusEl.textContent = 'rebroadcast failed: ' + (err.message || String(err));
     }
 }
 
@@ -583,8 +622,10 @@ function renderReconPanel() {
 
     if (r.missing.length > 0) {
         const details = el('details');
-        details.appendChild(el('summary', null, `Missing from the relays (${r.missing.length})`));
+        const summary = el('summary', null, `Missing from the relays (${r.missing.length})`);
+        details.appendChild(summary);
         const ul = el('ol', 'xr-portal__list');
+        const statusEls = [];
         for (const entry of r.missing) {
             const row = el('li', 'xr-row');
             const head = el('div', 'xr-row__head');
@@ -594,11 +635,66 @@ function renderReconPanel() {
                 head.appendChild(el('span', 'xr-row__date',
                     'marked published ' + new Date(entry.publishedAt * 1000).toLocaleString()));
             }
+            const status = el('span', 'xr-recon__action-status', '');
+            const btn = el('button', 'xr-portal__btn', 'Rebroadcast');
+            btn.title = 'Re-send the journaled signed event verbatim — no re-signing';
+            btn.addEventListener('click', () => {
+                btn.disabled = true;
+                rebroadcastMissing(entry, status).finally(() => { btn.disabled = false; });
+            });
+            head.appendChild(btn);
+            head.appendChild(status);
+            statusEls.push({ entry, status, btn });
             row.appendChild(head);
             row.appendChild(el('div', 'xr-row__sub',
                 `event ${entry.publishedEventId ? entry.publishedEventId.slice(0, 16) + '…' : '?'} — `
                 + 'no configured relay returned it. It may have been rejected, expired, or published to relays not configured here.'));
             ul.appendChild(row);
+        }
+        details.appendChild(ul);
+        if (r.missing.length > 1) {
+            const all = el('button', 'xr-portal__btn', `Rebroadcast all missing (${r.missing.length})`);
+            all.addEventListener('click', async () => {
+                all.disabled = true;
+                for (const { entry, status, btn } of statusEls) {
+                    btn.disabled = true;
+                    await rebroadcastMissing(entry, status);
+                    btn.disabled = false;
+                }
+                all.disabled = false;
+            });
+            details.appendChild(all);
+        }
+        host.appendChild(details);
+    }
+
+    // The itemized never-published bucket — every local artifact with
+    // no publish mark, browsable instead of a bare count. Articles
+    // (and anything URL-anchored) link back into the reader, where
+    // Publish re-runs the selectors: that IS the re-sign path for
+    // events that were never signed.
+    const locals = state.localArtifacts || [];
+    if (locals.length > 0) {
+        const details = el('details');
+        details.appendChild(el('summary', null, `Unpublished local artifacts (${locals.length})`));
+        const ul = el('ol', 'xr-portal__list');
+        for (const it of locals.slice(0, 200)) {
+            const row = el('li', 'xr-row');
+            const head = el('div', 'xr-row__head');
+            head.appendChild(el('span', 'xr-row__kind', it.type));
+            head.appendChild(el('span', 'xr-row__title', truncate(it.label || it.id, 140)));
+            if (it.created) {
+                head.appendChild(el('span', 'xr-row__date', new Date(it.created * 1000).toLocaleDateString()));
+            }
+            row.appendChild(head);
+            if (it.url) {
+                row.appendChild(el('div', 'xr-row__sub',
+                    `${it.url} — open this article in the reader and Publish to emit it (and its judgments).`));
+            }
+            ul.appendChild(row);
+        }
+        if (locals.length > 200) {
+            ul.appendChild(el('li', 'xr-inspector__mono', `… +${locals.length - 200} more`));
         }
         details.appendChild(ul);
         host.appendChild(details);

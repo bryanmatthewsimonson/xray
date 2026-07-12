@@ -12,6 +12,40 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Full backup & restore + signed-events bundle export.** Settings ▸
+  Advanced gains a "Full backup" block. **Download full backup** writes
+  one JSON file (`xray-backup/1`) covering everything the extension
+  stores locally: all settings/flags/identities (including private
+  keys — treat the file like an nsec; the LLM API key is the one thing
+  **never** included), the captured article archive with its metadata
+  stores and prior versions, original source-document bytes (PDFs —
+  base64, behind a default-ON checkbox with a size estimate), audit
+  records, and the signed-event journal. **Restore from backup…**
+  replaces everything with the file's contents after typed
+  confirmation, downloading a safety backup of the current state
+  first; the live LLM key is preserved. **Export signed-events
+  bundle** writes the journal as raw signed JSON
+  (`xray-events-bundle/1`) — replayable by anyone against any relay,
+  so a published corpus survives a relay outage. A fresh workspace now
+  also clears the `xray-events` journal. No wire change.
+
+- **Signed-event journal + republish.** Every event X-Ray publishes is
+  now stored VERBATIM (full signed JSON + per-relay outcome snapshot)
+  in a new IndexedDB journal (`xray-events`) — across the reader's
+  whole publish flow and the side panel's entity-sync/relay-list
+  pushes. The portal's reconcile panel gains **Rebroadcast** on
+  "missing from relays" rows (re-sends the journaled event as-is — no
+  re-signing, no NIP-07 prompt) plus "Rebroadcast all missing", and
+  the never-published bucket is now **itemized** ("Unpublished local
+  artifacts" — every local claim/assessment/entity/article/verdict/…
+  with no publish mark, with its open-in-reader route) instead of a
+  bare count. Publish ledgers are now honest: an event only marks
+  published on a **confirmed** relay OK — an 8-second timeout is no
+  longer assumed success (those events stay unmarked, retry on the
+  next publish, and the summary reports them as unconfirmed). The
+  article's own archive-row publish mark is awaited instead of
+  fire-and-forget. No wire change.
+
 - **User guide.** `docs/USER_GUIDE.md` is a complete, feature-by-feature
   walkthrough for people who use X-Ray rather than build it: setup
   (signing, relays, the LLM key, the full feature-flag table),

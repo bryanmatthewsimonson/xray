@@ -166,6 +166,10 @@ export const NostrClient = {
 
     const successful = results.filter(r => r.status === 'fulfilled').length;
     const failed     = results.filter(r => r.status === 'rejected').length;
+    // CONFIRMED = the relay answered OK true. An `assumed` success is a
+    // timeout hope, not an acceptance — local publish ledgers must key
+    // on this, never on `successful` (JOURNAL 2026-07-10).
+    const confirmed  = results.filter(r => r.status === 'fulfilled' && !r.value?.assumed).length;
 
     Utils.log(`Published to ${successful}/${relayUrls.length} relays (${failed} failed)`);
     results.forEach((r, i) => {
@@ -178,6 +182,7 @@ export const NostrClient = {
 
     return {
       successful,
+      confirmed,
       failed,
       total: relayUrls.length,
       results: results.map((r, i) => ({

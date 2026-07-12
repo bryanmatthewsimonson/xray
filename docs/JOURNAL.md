@@ -19,6 +19,81 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-10 — Full backup/restore: two IndexedDB traps worth remembering
+
+Tags: `design`, `bug`.
+
+`backup.js` gives the extension a real export/restore: every
+`chrome.storage.local` key (minus `xray:llm:key` — a third-party API
+credential never leaves the machine in a backup, though the nsec and
+entity keys deliberately do, by maintainer decision) plus generic dumps
+of all three IndexedDB databases, with source-document bytes base64-
+wrapped as `{__xrayBytes}` markers behind a default-ON checkbox.
+Restore is replace-all (a safety backup downloads first), never merge.
+
+Two traps surfaced while building it, both generic to any IDB-touching
+utility code here:
+
+1. **Never open a covered DB "versionless just to peek".** An
+   `indexedDB.open(name)` on a never-created database mints an empty
+   v1 database — and since our openers open at their declared version,
+   `onupgradeneeded` then never fires for a same-version open, leaving
+   the module permanently without its object stores. Backup always
+   goes through the owning module's opener (`openArchiveDb` /
+   `openAuditDb` / `openEventJournalDb`), which creates the canonical
+   schema if absent.
+2. **Never `close()` a connection you got from a module opener.** All
+   three openers cache their connection promise for the page's
+   lifetime; closing the handle poisons the cache and every later
+   caller in that page gets `InvalidStateError`. The backup module
+   treats opener connections as borrowed, not owned.
+
+Also fixed in passing: the `WORKSPACE_KEEP_KEYS` entry for the LLM
+suggest-kinds pref said `xray:llm:suggest-kinds` (hyphen) while the
+actual storage key is `xray:llm:suggest_kinds` (underscore); and
+`WORKSPACE_DATABASES` now includes `xray-events`, so a fresh workspace
+clears the journal too — old-identity events shouldn't leak into a new
+workspace's rebroadcast/export surfaces, and the export-first flow
+(plus this backup) covers preservation.
+
+## 2026-07-10 — The signed-event journal: publish once, rebroadcast forever
+
+Tags: `design`.
+
+X-Ray never stored the events it published — only ledger marks
+(publishedAt/publishedEventId). Three consequences converged into one
+mechanism: reconcile's "missing" rows had no repair short of a full
+re-sign; the win plan's §5.1 durability guarantee ("bundled raw
+signed-event JSON — replayable by anyone") had no source of truth; and
+the maintainer's republish request had no clean path for NIP-07
+identities (every retry = another signer prompt).
+
+`event-journal.js` (IndexedDB `xray-events`, precious like the audit
+ledger): every successfully-sent event is journaled VERBATIM with a
+per-relay outcome snapshot. All reader publish() families flow through
+one gate (`publishOk`) that journals and then answers whether the
+local ledger may mark — **CONFIRMED (non-assumed) relay OKs only**.
+The old behavior marked on `successful > 0`, and `successful` counted
+8-second timeouts as successes ("assume success, many relays don't
+send OK") — marking on hope is how published artifacts go missing.
+Assumed-only sends now stay unmarked (they retry next publish) and the
+summary says "N unconfirmed". The sidepanel's 30078/10002 pushes
+journal too. The article's archive-row mark — its only publish
+ledger — is now awaited and confirmed-gated instead of
+fire-and-forget.
+
+Portal: reconcile's "missing" rows gain **Rebroadcast** (journal
+lookup → verbatim re-send, no re-signing; pre-journal publishes get an
+honest "re-publish from the reader" message), and the never-published
+bucket is ITEMIZED (`listLocalArtifacts` — same iteration as the old
+count, records instead of numbers) under "Unpublished local
+artifacts", with URL-anchored rows naming their open-in-reader route.
+
+Named follow-ups, deliberately not in this slice: per-family
+try/catch inside publish() (per-item guards exist; a family SETUP
+throw still aborts the batch tail), and deferral surfacing in the
+judgment selectors (wire-not-ready skips are still silent).
+
 ## 2026-07-10 — Field bug: archive.ph recovery missed three ways at once
 
 Tags: `bug`.

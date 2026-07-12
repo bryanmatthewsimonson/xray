@@ -152,6 +152,35 @@ The rule of thumb: **local analysis is never gated** (capturing,
 tagging, claims, verdicts, audits you import, the dossier) — flags gate
 what leaves your machine.
 
+### 2.6 Backups
+
+Everything X-Ray holds lives in your browser profile — a profile wipe,
+a reinstall, or a machine change loses it unless you export. Three
+tools, all under **Settings → Advanced**:
+
+- **Full backup** ("Full backup" block → **Download full backup**) is
+  the complete copy: settings, relays, feature flags, saved identities
+  **including private keys**, entities, claims, judgments, the captured
+  article archive, original source documents (PDFs — a checkbox, on by
+  default, with a size estimate), audit records, and the signed-event
+  journal. One JSON file that brings a fresh install back to exactly
+  this state via **Restore from backup…** (restore *replaces*
+  everything after a typed confirmation, and downloads a safety backup
+  of the current state first). Treat the file like an `nsec`, because
+  it contains yours. The one thing never included is your LLM API key —
+  set that again by hand on a new machine.
+- **Workspace backup** ("Workspace" block) is the smaller,
+  content-only snapshot the fresh-workspace flow offers — it does not
+  cover the article archive or audit records.
+- **Signed-events bundle** (**Export signed-events bundle**) is not a
+  backup of your machine but of your *published corpus*: the raw
+  signed JSON of every event you've published. Anyone can rebroadcast
+  it to any relay — publish it alongside your work and your corpus
+  survives a relay shutting down.
+
+Make a full backup before anything risky (reset, browser profile
+changes) and after any big capture or publish session.
+
 ---
 
 ## 3. Capturing a page
@@ -798,6 +827,13 @@ claim · ⚖️ evaluative claim · 🔮 predictive claim.
 - **A feature's UI is missing.** It's probably flag-gated (§2.5) or needs
   the API key (audit/lens). The moral lens is partly console-driven
   today.
+- **Lost data after a reset / new machine.** Restore from a full backup
+  (§2.6): Settings → Advanced → Full backup → **Restore from
+  backup…**. It replaces the current state with the file's contents.
+  If you only have a signed-events bundle, your published events can
+  be rebroadcast to relays and re-read via the portal, but local-only
+  work (unpublished drafts, source bytes, audit records) only comes
+  back from a full backup.
 
 ---
 

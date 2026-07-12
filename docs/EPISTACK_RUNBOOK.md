@@ -169,11 +169,18 @@ pin it to a real tagged build (JOURNAL 2026-07-03).
    and the publish flags on, publish the full COVID + eggs graph as
    ordered batches (articles → claims → links/assessments → audits →
    verdicts; the publish ledger records per-event, per-relay results).
-2. **Verify from a second, independent client** — not our code:
+2. **Export the durability bundle** immediately after the publish:
+   Settings ▸ Advanced ▸ Full backup → "Export signed-events bundle"
+   (`xray-events-bundle-<date>.json` — the raw signed JSON of every
+   published event, replayable by anyone against any relay). This is
+   the §5.1 guarantee: the corpus survives a relay outage, and the
+   bundle itself is a judge-facing artifact. Keep it with the
+   submission materials.
+3. **Verify from a second, independent client** — not our code:
    - any NOSTR client, or the writeup's snippet (browser console):
      query `authors:[<hex>]` per kind, count events;
    - nostr.band search on the npub as a third view.
-3. Record: per-kind counts, the npub, the final relay list →
+4. Record: per-kind counts, the npub, the final relay list →
    these fill `EPISTACK_ENTRY.md` §5.3's `TBD`s. Screenshot the portal
    case dashboard and an inspector view of one raw event.
 
@@ -183,8 +190,11 @@ The compounding demonstration — another investigator picks up the
 corpus and publishes disagreement beside it, using only shipped
 features. Take a screenshot at each **[shot]**.
 
-1. **Preserve your workspace**: Settings ▸ Advanced → download backup;
-   Settings ▸ Signing → save the Epistack identity as a profile.
+1. **Preserve your workspace**: Settings ▸ Advanced ▸ Full backup →
+   "Download full backup" (covers settings, identities, the article
+   archive + source documents, audit records, and the signed-event
+   journal — everything); Settings ▸ Signing → save the Epistack
+   identity as a profile.
 2. **Become investigator #2**: Start fresh workspace (Advanced);
    create a new identity (a second profile).
 3. **Pull the corpus**: portal → viewer npub box → paste the Epistack
@@ -203,8 +213,10 @@ features. Take a screenshot at each **[shot]**.
 6. **Render the disagreement**: reload the corpus view; the two
    judgments render **side by side, never merged**
    **[shot: the side-by-side — this is the writeup's §5.4 evidence]**.
-7. **Restore**: switch back to the Epistack profile; import the backup
-   if anything is missing.
+7. **Restore**: switch back to the Epistack profile; if anything is
+   missing, Settings ▸ Advanced ▸ Full backup → "Restore from
+   backup…" (replace-all; it downloads a safety backup of the current
+   state first).
 8. If any step fails, that is a finding, not a detour — file it; a
    Claude session fixes it; re-walk. (This is the maintainer-driven
    model doing its job.)
