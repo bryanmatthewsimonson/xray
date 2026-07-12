@@ -27,7 +27,7 @@ import { openAdjudicateModal } from '../shared/adjudicate-modal.js';
 import { openIntegrityModal } from '../shared/integrity-modal.js';
 import { AssessmentModel } from '../shared/assessment-model.js';
 import { makeClaimRefCanonicalizer } from '../shared/claim-ref.js';
-import { selectAssessmentsToPublish, selectLinksToPublish, selectMirrors } from '../shared/assessment-publish.js';
+import { selectAssessmentsToPublish, selectLinksToPublish, selectMirrors, claimWireInfo } from '../shared/assessment-publish.js';
 import { selectFindingsToPublish, selectFindingMirrors, selectRevisionEdgesToPublish } from '../shared/forensic-publish.js';
 import { selectVerdictsToPublish, selectVerdictMirrors, selectIntegrityFindingsToPublish, wireEvidence } from '../shared/truth-publish.js';
 import { buildAdjudicatedVerdictEvent, buildVerdictMirrorEvent, buildIntegrityFindingEvent } from '../shared/truth-builders.js';
@@ -4288,6 +4288,7 @@ async function publish() {
         const vMirrorResults   = { ok: 0, fail: 0, errors: [] };
         const integrityResults = { ok: 0, fail: 0, errors: [] };
         let verdictSel = [], vMirrorSel = [], integritySel = [];
+        let resolveEvidenceCoord = null;
         if (isEnabled('truthAdjudicationPublishing')) {
             const [verdictList, propList, integrityList, claimsT, entitiesT, canonT] = await Promise.all([
                 VerdictModel.list(), TruthAdjudicationModel.list(), IntegrityModel.list(),
@@ -4301,6 +4302,13 @@ async function publish() {
             integritySel = selectIntegrityFindingsToPublish({
                 findings: integrityT, propositions: propsT, claims: claimsT, entities: entitiesT, canon: canonT, verdicts: verdictsT
             });
+            // Grounded evidence: resolve a linked local claim to its
+            // published 30040 coordinate so the evidence-* tags carry
+            // followable refs. Unpublished → '' (omitted this batch).
+            resolveEvidenceCoord = (ref) => {
+                const info = claimWireInfo(claimsT, ref);
+                return (info && info.coord) || '';
+            };
         }
         const truthTotal = verdictSel.length + vMirrorSel.length + integritySel.length;
         if (truthTotal > 0) {
@@ -4332,8 +4340,8 @@ async function publish() {
                         propositionClass:  sel.proposition.proposition_class,
                         verdict:           sel.verdict.verdict,
                         caveats:           sel.verdict.caveats,
-                        evidenceFor:       wireEvidence(sel.verdict.evidence_for),
-                        evidenceAgainst:   wireEvidence(sel.verdict.evidence_against),
+                        evidenceFor:       wireEvidence(sel.verdict.evidence_for, resolveEvidenceCoord),
+                        evidenceAgainst:   wireEvidence(sel.verdict.evidence_against, resolveEvidenceCoord),
                         standardOfProof:   sel.verdict.standard_of_proof,
                         resolutionCriteria: {
                             criteria:     rc.criteria,
@@ -4423,7 +4431,7 @@ async function publish() {
                     const gap = sel.finding.gap ? {
                         cause:          sel.finding.gap.cause,
                         note:           sel.finding.gap.note,
-                        evidence:       wireEvidence(sel.finding.gap.evidence),
+                        evidence:       wireEvidence(sel.finding.gap.evidence, resolveEvidenceCoord),
                         constraintCoord: sel.constraintCoord || undefined,
                         revisionCoord:  sel.revisionCoord || undefined
                     } : null;
@@ -4433,8 +4441,8 @@ async function publish() {
                         deeds:             sel.deeds,
                         match:             sel.finding.match,
                         caveats:           sel.finding.caveats,
-                        evidenceFor:       wireEvidence(sel.finding.evidence_for),
-                        evidenceAgainst:   wireEvidence(sel.finding.evidence_against),
+                        evidenceFor:       wireEvidence(sel.finding.evidence_for, resolveEvidenceCoord),
+                        evidenceAgainst:   wireEvidence(sel.finding.evidence_against, resolveEvidenceCoord),
                         standardOfProof:   sel.finding.standard_of_proof,
                         gap,
                         method:            sel.finding.method,

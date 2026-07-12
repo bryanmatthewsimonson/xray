@@ -31,7 +31,8 @@ globalThis.chrome = {
 
 const {
     adjudicationBadgeData, renderAdjudicationBadges, adjudicationsByClaimId,
-    dateInputToOccurredAt, linesToList, PROPOSITION_CLASS_ICONS
+    dateInputToOccurredAt, linesToList, PROPOSITION_CLASS_ICONS,
+    evidenceEntryToRecord
 } = await import('../src/shared/adjudicate-modal.js');
 const { TruthAdjudicationModel, VerdictModel } = await import('../src/shared/truth-adjudication-model.js');
 const { ClaimModel } = await import('../src/shared/claim-model.js');
@@ -119,4 +120,30 @@ test('form mapping: date input → occurred_at; caveat lines', () => {
     assert.deepEqual(linesToList('a\n\n  b  \nc\n'), ['a', 'b', 'c']);
     assert.deepEqual(linesToList(''), []);
     assert.deepEqual(linesToList(null), []);
+});
+
+// ── Grounded evidence rows (amendment 2026-07-12) ─────────────────────
+
+test('evidenceEntryToRecord: linked claim and typed URL become refs; ungrounded stays quote-only', () => {
+    assert.deepEqual(
+        evidenceEntryToRecord({ quote: 'q', tier: 'tier-1', claim_ref: 'claim_0000000000000ab1', source_url: '' }),
+        { quote: 'q', tier: 'tier-1', claim_ref: 'claim_0000000000000ab1' },
+        'linked claim travels as claim_ref');
+    assert.deepEqual(
+        evidenceEntryToRecord({ quote: 'q', tier: null, claim_ref: null, source_url: '  https://src.example/a?x=1  ' }),
+        { quote: 'q', tier: null, source_ref: { url: 'https://src.example/a?x=1', url_raw: 'https://src.example/a?x=1' } },
+        'typed URL becomes source_ref, trimmed, verbatim in url_raw');
+    assert.deepEqual(
+        evidenceEntryToRecord({ quote: 'q', tier: 'tier-2', claim_ref: null, source_url: '' }),
+        { quote: 'q', tier: 'tier-2' },
+        'ungrounded row saves as before — no manufactured refs');
+});
+
+test('evidenceEntryToRecord output round-trips the model validator with refs intact', async () => {
+    const { cleanVerdictEvidence } = await import('../src/shared/truth-adjudication-model.js');
+    const cleaned = cleanVerdictEvidence([
+        evidenceEntryToRecord({ quote: 'grounded', tier: 'tier-1', claim_ref: 'claim_0000000000000ab1', source_url: 'https://src.example/a' })
+    ], 'evidence_for');
+    assert.equal(cleaned[0].claim_ref, 'claim_0000000000000ab1');
+    assert.equal(cleaned[0].source_ref.url_raw, 'https://src.example/a');
 });

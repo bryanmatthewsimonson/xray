@@ -22,6 +22,7 @@
 // (xr-adjudicate-* only). Must NOT be imported by the content script.
 
 import { TruthAdjudicationModel, VerdictModel, verdictVariance } from './truth-adjudication-model.js';
+import { ClaimModel } from './claim-model.js';
 import { parseAdjudicatedVerdictEvent } from './truth-builders.js';
 import { convergenceForProposition } from './truth-attestation.js';
 import {
@@ -157,15 +158,43 @@ export function linesToList(value) {
  * @returns {Promise<{proposition: object, verdict?: object} | null>}
  *   what was saved, or null on cancel.
  */
+/**
+ * Map a modal evidence row `{quote, tier, claim_ref, source_url}` to
+ * the truth-adjudication-model evidence shape (amendment 2026-07-12):
+ * a linked claim travels as `claim_ref`; a typed source URL becomes
+ * `source_ref` (the model normalizes it; `url_raw` keeps the verbatim
+ * form for the wire). Ungrounded rows stay `{quote, tier}` — permitted,
+ * they just carry no refs. Exported for the integrity modal and tests.
+ */
+export function evidenceEntryToRecord(e) {
+    const out = { quote: e.quote, tier: e.tier };
+    if (e.claim_ref) out.claim_ref = e.claim_ref;
+    const url = String(e.source_url || '').trim();
+    if (url) out.source_ref = { url, url_raw: url };
+    return out;
+}
+
 export async function openAdjudicateModal({ claimId, claimText = '', relays = [], claimPubkey = null }) {
     ensureStyles();
     const existingProps = await TruthAdjudicationModel.getByClaim(claimId);
     const byClass = new Map(existingProps.map((p) => [p.proposition_class, p]));
 
+    // Grounded evidence (amendment 2026-07-12): evidence rows can link
+    // a captured claim — the picker offers this article's claims (one
+    // read; alias-aware via getBySourceUrl). Load failure just renders
+    // an empty picker; the URL field still grounds.
+    let linkableClaims = [];
+    try {
+        const sourceClaim = await ClaimModel.get(claimId);
+        if (sourceClaim && sourceClaim.source_url) {
+            linkableClaims = await ClaimModel.getBySourceUrl(sourceClaim.source_url);
+        }
+    } catch (_) { /* picker renders empty */ }
+
     const state = {
         cls:          existingProps.length ? existingProps[0].proposition_class : null,
         activeVerdict: null,   // resolved per selected class
-        evidenceFor:   [],     // [{quote, tier}]
+        evidenceFor:   [],     // [{quote, tier, claim_ref, source_url}]
         evidenceAgainst: []
     };
 
@@ -291,6 +320,11 @@ export async function openAdjudicateModal({ claimId, claimText = '', relays = []
         });
 
         // ---- evidence rows ------------------------------------------
+        // Grounded evidence (amendment 2026-07-12): each row can link a
+        // captured claim (inherits its provenance) and/or a source URL.
+        // An ungrounded row still saves — fail-open — but the ⚠ says it
+        // carries no source reference on the wire.
+        const isGrounded = (e) => !!(e.claim_ref || String(e.source_url || '').trim());
         function renderEvidence() {
             for (const side of ['For', 'Against']) {
                 const list = state[`evidence${side}`];
@@ -303,7 +337,14 @@ export async function openAdjudicateModal({ claimId, claimText = '', relays = []
                       <option value="">tier —</option>
                       ${EVIDENCE_TIERS.map((t) => `<option value="${t}" ${e.tier === t ? 'selected' : ''}>${escapeHtml(EVIDENCE_TIER_LABELS[t])}</option>`).join('')}
                     </select>
+                    <span class="xr-adjudicate__ev-ungrounded" title="Ungrounded — carries no source reference on the wire. Link a claim or add a source URL." ${isGrounded(e) ? 'hidden' : ''}>⚠</span>
                     <button type="button" class="xr-adjudicate__ev-del" title="Remove">✕</button>
+                    <select class="xr-adjudicate__ev-claim" title="Link a captured claim — its published coordinate grounds this evidence on the wire">
+                      <option value="">link claim —</option>
+                      ${linkableClaims.map((c) => `<option value="${escapeHtml(c.id)}" ${e.claim_ref === c.id ? 'selected' : ''}>${escapeHtml(c.text.length > 60 ? c.text.slice(0, 57) + '…' : c.text)}</option>`).join('')}
+                    </select>
+                    <input type="text" class="xr-adjudicate__ev-url" placeholder="or source URL"
+                           value="${escapeHtml(e.source_url || '')}" />
                   </div>`).join('');
                 wrap.querySelectorAll('.xr-adjudicate__ev-row').forEach((row) => {
                     const i = Number(row.dataset.i);
@@ -313,6 +354,20 @@ export async function openAdjudicateModal({ claimId, claimText = '', relays = []
                     row.querySelector('.xr-adjudicate__ev-tier').addEventListener('change', (ev) => {
                         list[i].tier = ev.target.value || null;
                     });
+                    row.querySelector('.xr-adjudicate__ev-claim').addEventListener('change', (ev) => {
+                        list[i].claim_ref = ev.target.value || null;
+                        // Linking a claim fills an empty quote from it —
+                        // the claim's verbatim quote (or its text).
+                        if (list[i].claim_ref && !list[i].quote.trim()) {
+                            const c = linkableClaims.find((x) => x.id === list[i].claim_ref);
+                            if (c) list[i].quote = c.quote || c.text || '';
+                        }
+                        renderEvidence();
+                    });
+                    row.querySelector('.xr-adjudicate__ev-url').addEventListener('input', (ev) => {
+                        list[i].source_url = ev.target.value;
+                        row.querySelector('.xr-adjudicate__ev-ungrounded').hidden = isGrounded(list[i]);
+                    });
                     row.querySelector('.xr-adjudicate__ev-del').addEventListener('click', () => {
                         list.splice(i, 1);
                         renderEvidence();
@@ -321,11 +376,11 @@ export async function openAdjudicateModal({ claimId, claimText = '', relays = []
             }
         }
         $('[data-action="add-for"]').addEventListener('click', () => {
-            state.evidenceFor.push({ quote: '', tier: null });
+            state.evidenceFor.push({ quote: '', tier: null, claim_ref: null, source_url: '' });
             renderEvidence();
         });
         $('[data-action="add-against"]').addEventListener('click', () => {
-            state.evidenceAgainst.push({ quote: '', tier: null });
+            state.evidenceAgainst.push({ quote: '', tier: null, claim_ref: null, source_url: '' });
             renderEvidence();
         });
 
@@ -420,9 +475,9 @@ export async function openAdjudicateModal({ claimId, claimText = '', relays = []
                         verdict:           stateBtn.dataset.state,
                         standard_of_proof: $('.xr-adjudicate__standard').value,
                         evidence_for:      state.evidenceFor.filter((e) => e.quote.trim())
-                            .map((e) => ({ quote: e.quote, tier: e.tier })),
+                            .map(evidenceEntryToRecord),
                         evidence_against:  state.evidenceAgainst.filter((e) => e.quote.trim())
-                            .map((e) => ({ quote: e.quote, tier: e.tier })),
+                            .map(evidenceEntryToRecord),
                         caveats:           linesToList($('.xr-adjudicate__caveats').value),
                         method:            $('.xr-adjudicate__method').value,
                         exposure:          $('.xr-adjudicate__exposure').value,
@@ -643,7 +698,10 @@ function ensureStyles() {
 }
 .xr-adjudicate__ev-add { margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 11px;
   cursor: pointer; background: var(--xr-surface-2, #2e2e2e); color: inherit; border: 1px solid var(--xr-border, #333); }
-.xr-adjudicate__ev-row { display: flex; gap: 6px; margin-bottom: 4px; }
+.xr-adjudicate__ev-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.xr-adjudicate__ev-claim { flex: 1 1 46%; min-width: 160px; padding: 3px 6px; border-radius: 6px; font-size: 11.5px; }
+.xr-adjudicate__ev-url { flex: 1 1 40%; min-width: 140px; padding: 4px 8px; border-radius: 6px; font-size: 12px; }
+.xr-adjudicate__ev-ungrounded { align-self: center; font-size: 12px; cursor: help; }
 .xr-adjudicate__ev-quote { flex: 1; padding: 4px 8px; border-radius: 6px; font-size: 12px;
   background: var(--xr-surface-2, #2e2e2e); color: inherit; border: 1px solid var(--xr-border, #333); }
 .xr-adjudicate__ev-tier { padding: 3px 6px; border-radius: 6px; font-size: 11.5px;

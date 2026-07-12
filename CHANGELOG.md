@@ -216,7 +216,21 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Fixed
 
-- **Tagged entities survive a reload.** Entities tagged on a capture
+- **Verdict and integrity-finding evidence is now grounded**
+  (TRUTH_ADJUDICATION_DESIGN amendment §5.5a). Evidence rows in the
+  adjudicate and integrity modals gain a claim picker (link a captured
+  claim — its published coordinate travels in the wire tag's `coord`
+  slot, and its verbatim quote auto-fills) and a source-URL field
+  (travels in the `url` slot). Previously both modals captured only
+  free-text quotes, so every published 30063/30064 shipped evidence a
+  reader could not follow — red line 5 ("no verdict the reader cannot
+  re-derive") unmet despite the model, wire format, and publish mapper
+  all having the fields. Unpublished linked claims are omitted from
+  the wire until they publish (the ruling still ships); ungrounded
+  quote-only rows remain permitted but show a ⚠. The portal inspector
+  now renders evidence URLs as links and claim coordinates as
+  copyable chips. **No wire-format change** — the existing tag slots
+  now populate. Entities tagged on a capture
   (manually or via accepted LLM suggestions) vanished when the article
   was reopened from the local archive: the load-time cache save wrote
   the fresh article's empty entity list over the archive row, "Load

@@ -5,6 +5,10 @@ own objective (below) — not a derivation of `PHILOSOPHY.md`, which governs
 the epistemic-audit layer only. Good ideas are borrowed from there with
 attribution (§4); none of its scoring machinery is inherited by default.
 
+**Amended 2026-07-12** (§5.5a, grounded evidence entries — the amendment
+governs): prompted by the maintainer's §Phase 15 smoke walk, which found
+red line 5 unmet in practice — evidence rows were free-floating quotes.
+
 **Depends on Phase 14** (`docs/CRIMINOLOGY_DESIGN.md`, forensic findings
 `30062`, the `forensicPublishing` flag) landing on `main` first — this layer
 composes `30062` as a raw signal and takes the **next disjoint wire kinds**
@@ -404,6 +408,42 @@ caveats / known-unknowns log. **Deliberately not borrowed:** the estimated
    observable word-deed gap is adjudicated. (§3.1, §3.4)
 
 A feature requiring one of these crossings is a different, worse system.
+
+### §5.5a — Amendment 2026-07-12: grounded evidence entries
+
+Red line 5 ("no verdict the reader cannot re-derive") was unmet in
+practice: the verdict/finding data model, the wire tags, and the
+publish mapper all carried slots for evidence source references
+(`claim_ref`, `source_ref`; the `evidence-*` tags' `url`/`coord`
+positions), but the authoring UI captured only `{quote, tier}` — so
+every published ruling shipped evidence a reader could not follow.
+The amendment makes grounding a first-class authoring act:
+
+1. **Every evidence row SHOULD be grounded** in one of two ways:
+   a linked captured claim (`claim_ref` — inherits the claim's quote,
+   article hash, and anchor; publishes as the claim's 30040 coordinate
+   in the tag's `coord` slot when the claim is published) or a source
+   URL (`source_ref` — publishes in the tag's `url` slot, verbatim).
+2. **Ungrounded quote-only evidence remains permitted** — fail-open;
+   forbidding it would push evidence out of the record entirely — but
+   the UI marks it (⚠ "carries no source reference on the wire") and
+   it ships with empty ref slots. Honest absence over manufactured
+   citation.
+3. **An unpublished linked claim is omitted from the wire this batch**
+   (the ruling still publishes; the coordinate appears on the next
+   publish after the claim lands) — the same posture as precedent and
+   revision refs.
+4. **Read surfaces render the refs followable** — the evidence `url`
+   as a link, the `coord` as a copyable claim coordinate — instead of
+   dropping them.
+5. **No wire-format change.** The tag positions existed from v1; the
+   amendment fills them. Foreign events with empty slots render as
+   before.
+
+Still deferred (recorded, not built): attestation authoring UI and
+verdict↔convergence wiring (§3.2's corroboration spine), proposition
+provenance snapshots, supersession-reason fields, and publishable
+revision refs.
 
 ---
 

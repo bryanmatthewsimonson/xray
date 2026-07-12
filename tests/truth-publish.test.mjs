@@ -214,3 +214,26 @@ test('publish: wireEvidence maps local entries to the builder shape', () => {
     ]);
     assert.deepEqual(wireEvidence(null), []);
 });
+
+test('publish: wireEvidence resolves a LOCAL claim ref via the resolver (amendment 2026-07-12)', async () => {
+    const { claimWireInfo } = await import('../src/shared/assessment-publish.js');
+    const claims = {
+        claim_0000000000000ab1: { id: 'claim_0000000000000ab1', source_url: 'https://src.example/a',
+            publishedPubkey: PUB, publishedEventId: 'e'.repeat(64) },
+        claim_0000000000000cd1: { id: 'claim_0000000000000cd1', source_url: 'https://src.example/b' }
+    };
+    const resolve = (ref) => {
+        const info = claimWireInfo(claims, ref);
+        return (info && info.coord) || '';
+    };
+    const mapped = wireEvidence([
+        { quote: 'published-backed', tier: 'tier-1', claim_ref: 'claim_0000000000000ab1', source_ref: null, note: '' },
+        { quote: 'unpublished-backed', tier: null, claim_ref: 'claim_0000000000000cd1',
+            source_ref: { url: 'https://also.example/c', url_raw: 'https://also.example/c' }, note: '' },
+        { quote: 'already-a-coord', tier: null, claim_ref: `30040:${PUB}:claim_x`, source_ref: null, note: '' }
+    ], resolve);
+    assert.equal(mapped[0].coord, `30040:${PUB}:claim_0000000000000ab1`, 'local id → published coordinate');
+    assert.equal(mapped[1].coord, '', 'unpublished ref omitted this batch');
+    assert.equal(mapped[1].url, 'https://also.example/c', '…but the url still travels');
+    assert.equal(mapped[2].coord, `30040:${PUB}:claim_x`, 'a coord passes through untouched');
+});

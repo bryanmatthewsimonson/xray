@@ -19,6 +19,47 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-12 — Grounded verdict evidence: the plumbed-but-dead provenance chain
+
+Tags: `bug`, `design`.
+
+The maintainer's §Phase 15 smoke walk surfaced it: "needs some design
+changes to fix the provenance in truth adjudication." The diagnosis
+was striking — every LAYER of evidence provenance already existed,
+and none of them ever carried data:
+
+- the model (`cleanVerdictEvidence`) validated `claim_ref` +
+  `source_ref` fields nothing ever set;
+- the wire tags (`['evidence-for'|'evidence-against', quote, tier,
+  url, coord]`) had url/coord slots that always shipped empty;
+- the publish mapper (`wireEvidence`) faithfully forwarded the refs
+  the modals never captured;
+- the inspector's parser preserved fields the renderer dropped.
+
+Both authoring modals captured `{quote, tier}` and nothing else, so
+design red line 5 — "no verdict the reader cannot re-derive" — was
+structurally unmet: the quote traveled, the source never did.
+
+Fix (design amendment §5.5a, 2026-07-12): evidence rows gain a claim
+picker (link a captured claim → its published 30040 coordinate lands
+in the tag's coord slot; the claim's quote auto-fills) and a source-URL
+field (→ the url slot, verbatim). `wireEvidence` takes a resolver so a
+LOCAL claim id resolves through `claimWireInfo` to its published
+coordinate — unpublished refs are omitted this batch (the
+precedent-ref posture; the ruling still publishes and heals next
+publish). Ungrounded quote-only rows remain permitted (fail-open) but
+show ⚠ "carries no source reference on the wire" — honest absence
+over manufactured citation. The inspector renders evidence urls as
+links and coords as copyable claim coordinates.
+
+So-what for future readers: a provenance chain is only as real as its
+AUTHORING surface. Every layer below the UI can be perfectly plumbed
+and the feature still ships nothing — when adding a provenance field,
+start the review at the input box, not the wire format. Deferred,
+recorded in the amendment: attestation authoring UI + verdict↔
+convergence wiring (§3.2), proposition snapshots, supersession-reason
+fields, publishable revision refs.
+
 ## 2026-07-12 — The URL alias layer: identity recovery becomes a persistent map
 
 Tags: `design`.

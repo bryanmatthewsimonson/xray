@@ -49,16 +49,31 @@ export function resolveEntitySubjectPubkey(entityIds, entities) {
 
 /**
  * Map a stored evidence entry (truth-adjudication-model shape) to the
- * builder's wire shape. `claim_ref` travels only when it already is a
- * 30040 coordinate — a local claim id is meaningless off-device.
+ * builder's wire shape. A `claim_ref` that already is a 30040
+ * coordinate travels as-is; a LOCAL claim id resolves through
+ * `resolveClaimCoord` (claimWireInfo over the claims map) to its
+ * published coordinate. An unpublished local ref is omitted this batch
+ * — the same posture as precedent/revision refs: auxiliary citation,
+ * the ruling still publishes, and the url (when present) still
+ * travels.
  */
-export function wireEvidence(entries) {
-    return (entries || []).map((e) => ({
-        quote: e.quote,
-        tier:  e.tier || null,
-        url:   (e.source_ref && (e.source_ref.url_raw || e.source_ref.url)) || '',
-        coord: e.claim_ref && /^30040:[0-9a-f]{64}:.+$/.test(e.claim_ref) ? e.claim_ref : ''
-    }));
+export function wireEvidence(entries, resolveClaimCoord = null) {
+    return (entries || []).map((e) => {
+        let coord = '';
+        if (e.claim_ref) {
+            if (/^30040:[0-9a-f]{64}:.+$/.test(e.claim_ref)) {
+                coord = e.claim_ref;
+            } else if (typeof resolveClaimCoord === 'function') {
+                coord = resolveClaimCoord(e.claim_ref) || '';
+            }
+        }
+        return {
+            quote: e.quote,
+            tier:  e.tier || null,
+            url:   (e.source_ref && (e.source_ref.url_raw || e.source_ref.url)) || '',
+            coord
+        };
+    });
 }
 
 function isChainHead(record) {

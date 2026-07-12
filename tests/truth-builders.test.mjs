@@ -87,6 +87,9 @@ test('30063: build + parse round-trip; d recomputable; NO p tag exists', async (
     assert.equal(parsed.occurredPrecision, 'day');
     assert.equal(parsed.evidenceFor.length, 1);
     assert.equal(parsed.evidenceFor[0].tier, 'tier-1');
+    // Grounded evidence (amendment 2026-07-12): the url slot survives
+    // the wire round trip — a reader can follow the evidence.
+    assert.equal(parsed.evidenceFor[0].url, 'https://congress.example.gov/71');
     assert.deepEqual(parsed.caveats, ['Could not verify a later motion.']);
     assert.equal(parsed.rationale, 'Cross-checked against the certified journal.');
     assert.equal(parsed.url, 'https://example.com/article');

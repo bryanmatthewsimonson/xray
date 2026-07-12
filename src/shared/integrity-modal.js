@@ -20,6 +20,7 @@
 // Must NOT be imported by the content script.
 
 import { TruthAdjudicationModel } from './truth-adjudication-model.js';
+import { evidenceEntryToRecord } from './adjudicate-modal.js';
 import { IntegrityModel } from './integrity-model.js';
 import { ClaimModel } from './claim-model.js';
 import { EntityModel } from './entity-model.js';
@@ -37,10 +38,15 @@ async function propositionOptions() {
     ]);
     const words = [];
     const deeds = [];
+    // Grounded evidence (amendment 2026-07-12): the claims backing any
+    // word/deed candidate are the natural link targets for the
+    // finding's evidence rows.
+    const linkableById = new Map();
     for (const p of props) {
         const role = integrityRole(p);
         if (!role) continue;
         const claim = claims[p.claim_id];
+        if (claim && !linkableById.has(claim.id)) linkableById.set(claim.id, claim);
         const entry = {
             proposition: p,
             text: (claim && claim.text) || p.claim_id,
@@ -48,7 +54,7 @@ async function propositionOptions() {
         };
         (role === 'word' ? words : deeds).push(entry);
     }
-    return { words, deeds };
+    return { words, deeds, linkableClaims: [...linkableById.values()] };
 }
 
 /**
@@ -59,7 +65,7 @@ async function propositionOptions() {
  */
 export async function openIntegrityModal() {
     ensureStyles();
-    const { words, deeds } = await propositionOptions();
+    const { words, deeds, linkableClaims } = await propositionOptions();
     const entityNames = {};
     for (const list of [words, deeds]) {
         for (const e of list) {
@@ -198,7 +204,9 @@ export async function openIntegrityModal() {
         constraintSel.innerHTML = '<option value="">— pick the corroborated action-fact —</option>'
             + deeds.map((d) => `<option value="${escapeHtml(d.proposition.id)}">${escapeHtml(truncate(d.text, 80))}</option>`).join('');
 
-        // ---- evidence rows (the adjudicate-modal pattern) ------------
+        // ---- evidence rows (the adjudicate-modal pattern, incl. the
+        // grounded-evidence claim picker + source-URL field) -----------
+        const isGrounded = (e) => !!(e.claim_ref || String(e.source_url || '').trim());
         function renderEvidence() {
             for (const side of ['For', 'Against']) {
                 const list = state[`evidence${side}`];
@@ -210,18 +218,36 @@ export async function openIntegrityModal() {
                       <option value="">tier —</option>
                       ${EVIDENCE_TIERS.map((t) => `<option value="${t}" ${e.tier === t ? 'selected' : ''}>${escapeHtml(EVIDENCE_TIER_LABELS[t])}</option>`).join('')}
                     </select>
+                    <span class="xr-integrity__ev-ungrounded" title="Ungrounded — carries no source reference on the wire. Link a claim or add a source URL." ${isGrounded(e) ? 'hidden' : ''}>⚠</span>
                     <button type="button" class="xr-integrity__ev-del">✕</button>
+                    <select class="xr-integrity__ev-claim" title="Link a captured claim — its published coordinate grounds this evidence on the wire">
+                      <option value="">link claim —</option>
+                      ${linkableClaims.map((c) => `<option value="${escapeHtml(c.id)}" ${e.claim_ref === c.id ? 'selected' : ''}>${escapeHtml(c.text.length > 60 ? c.text.slice(0, 57) + '…' : c.text)}</option>`).join('')}
+                    </select>
+                    <input type="text" class="xr-integrity__ev-url" placeholder="or source URL" value="${escapeHtml(e.source_url || '')}" />
                   </div>`).join('');
                 wrap.querySelectorAll('.xr-integrity__ev-row').forEach((row) => {
                     const i = Number(row.dataset.i);
                     row.querySelector('.xr-integrity__ev-quote').addEventListener('input', (ev) => { list[i].quote = ev.target.value; });
                     row.querySelector('.xr-integrity__ev-tier').addEventListener('change', (ev) => { list[i].tier = ev.target.value || null; });
+                    row.querySelector('.xr-integrity__ev-claim').addEventListener('change', (ev) => {
+                        list[i].claim_ref = ev.target.value || null;
+                        if (list[i].claim_ref && !list[i].quote.trim()) {
+                            const c = linkableClaims.find((x) => x.id === list[i].claim_ref);
+                            if (c) list[i].quote = c.quote || c.text || '';
+                        }
+                        renderEvidence();
+                    });
+                    row.querySelector('.xr-integrity__ev-url').addEventListener('input', (ev) => {
+                        list[i].source_url = ev.target.value;
+                        row.querySelector('.xr-integrity__ev-ungrounded').hidden = isGrounded(list[i]);
+                    });
                     row.querySelector('.xr-integrity__ev-del').addEventListener('click', () => { list.splice(i, 1); renderEvidence(); });
                 });
             }
         }
-        $('[data-action="add-for"]').addEventListener('click', () => { state.evidenceFor.push({ quote: '', tier: null }); renderEvidence(); });
-        $('[data-action="add-against"]').addEventListener('click', () => { state.evidenceAgainst.push({ quote: '', tier: null }); renderEvidence(); });
+        $('[data-action="add-for"]').addEventListener('click', () => { state.evidenceFor.push({ quote: '', tier: null, claim_ref: null, source_url: '' }); renderEvidence(); });
+        $('[data-action="add-against"]').addEventListener('click', () => { state.evidenceAgainst.push({ quote: '', tier: null, claim_ref: null, source_url: '' }); renderEvidence(); });
 
         // ---- footer ---------------------------------------------------
         $('[data-action="cancel"]').addEventListener('click', () => close(null));
@@ -247,8 +273,8 @@ export async function openIntegrityModal() {
                     deed_proposition_ids: [...state.deedIds],
                     match:                state.match,
                     standard_of_proof:    $('.xr-integrity__standard').value,
-                    evidence_for:         state.evidenceFor.filter((e) => e.quote.trim()).map((e) => ({ quote: e.quote, tier: e.tier })),
-                    evidence_against:     state.evidenceAgainst.filter((e) => e.quote.trim()).map((e) => ({ quote: e.quote, tier: e.tier })),
+                    evidence_for:         state.evidenceFor.filter((e) => e.quote.trim()).map(evidenceEntryToRecord),
+                    evidence_against:     state.evidenceAgainst.filter((e) => e.quote.trim()).map(evidenceEntryToRecord),
                     caveats:              String($('.xr-integrity__caveats').value || '').split('\n').map((s) => s.trim()).filter(Boolean),
                     gap,
                     method:               $('.xr-integrity__method').value,
@@ -422,7 +448,12 @@ function ensureStyles() {
 }
 .xr-integrity__ev-add { margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 11px;
   cursor: pointer; background: var(--xr-surface-2, #2e2e2e); color: inherit; border: 1px solid var(--xr-border, #333); }
-.xr-integrity__ev-row { display: flex; gap: 6px; margin-bottom: 4px; }
+.xr-integrity__ev-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.xr-integrity__ev-claim { flex: 1 1 46%; min-width: 160px; padding: 3px 6px; border-radius: 6px; font-size: 11.5px;
+  background: var(--xr-surface-2, #2e2e2e); color: inherit; border: 1px solid var(--xr-border, #333); }
+.xr-integrity__ev-url { flex: 1 1 40%; min-width: 140px; padding: 4px 8px; border-radius: 6px; font-size: 12px;
+  background: var(--xr-surface-2, #2e2e2e); color: inherit; border: 1px solid var(--xr-border, #333); }
+.xr-integrity__ev-ungrounded { align-self: center; font-size: 12px; cursor: help; }
 .xr-integrity__ev-quote { flex: 1; padding: 4px 8px; border-radius: 6px; font-size: 12px;
   background: var(--xr-surface-2, #2e2e2e); color: inherit; border: 1px solid var(--xr-border, #333); }
 .xr-integrity__ev-tier, .xr-integrity__ev-del { padding: 3px 6px; border-radius: 6px; font-size: 11.5px;
