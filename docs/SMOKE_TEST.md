@@ -232,6 +232,8 @@ piece — anything Readability handles cleanly).
 | 2.10 | Capture a **short-code** archive.today snapshot (`archive.ph/<code>`) | ✅ the original is recovered from the page's own markers (`input#HIDDEN_URL` / header "saved from" link) and shown in the note; if archive.today has changed its DOM, the note must degrade to "original URL not recovered" — NEVER show a wrong original (then update `archiveTodayDomOriginal`) |
 | 2.11 | Publish an archive capture → inspect the event | ✅ first `r` = the original URL; one `capture-url` tag with the archive address; a second `r` with the archive address AFTER the primary |
 | 2.12 | Capture an arXiv `/pdf/` link | ✅ article URL reads `arxiv.org/abs/<id>`; capture note names the pdf variant |
+| 2.13 | On any capture with a provenance note, click **Set original URL…** and enter a different URL | ✅ the reader re-keys to it (URL field + note update); claims made under the OLD address still list; the archive banner finds the old capture; re-opening either address joins the same work |
+| 2.14 | Capture through one of the newer mirror families (a 12ft.io/`/proxy?q=` link, an AMP-cache `*.cdn.ampproject.org/c/s/…` page, or a ghostarchive `/varchive/` video) | ✅ the original is recovered as identity and the note names the mirror host; a ghostarchive `/archive/<code>` snapshot degrades honestly to "original URL not recovered" |
 
 ---
 

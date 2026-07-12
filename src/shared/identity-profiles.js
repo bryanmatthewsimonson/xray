@@ -45,7 +45,9 @@ export const WORKSPACE_CLEAR_KEYS = Object.freeze([
     'integrity_findings',       // Phase 15 words-vs-deeds findings
     'platform_accounts',        // Phase 9 account registry
     'portal_identities',        // portal viewer npubs (pasted, read-only)
-    'lens_jurisdictions'        // Phase 16 jurisdiction registry + corpora
+    'lens_jurisdictions',       // Phase 16 jurisdiction registry + corpora
+    'url_aliases'               // URL alias map (url-aliases.js) — derived
+                                // from captured content, so workspace data
 ]);
 
 // What reset deliberately KEEPS — configuration and identity. Exported

@@ -19,6 +19,49 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-12 — The URL alias layer: identity recovery becomes a persistent map
+
+Tags: `design`.
+
+url-identity.js recovers originals STRUCTURALLY, per capture — but the
+recovery evaporated the moment the capture ended: a claim made while an
+article keyed to `archive.ph/Zz9Yx` stayed invisible to a later lookup
+by the original URL, and vice versa. And structural recovery only knows
+the sites it knows.
+
+Two mechanisms, layered:
+
+1. **`url-aliases.js`** — a persisted map (`url_aliases`) of
+   normalized-alias → normalized-original, fed by every place an
+   original is actually LEARNED: structural recovery at capture, a
+   relay read-back's `capture-url` tag, and the reader's manual "Set
+   original URL…". Writes flatten chains (lookups stay one hop) and
+   refuse cycles; resolution is idempotent, so joins resolve
+   unconditionally. Consumers: `ClaimModel.getBySourceUrl` (both sides
+   resolved), the reader's prior-capture lookup, and
+   `checkArchiveAvailability`.
+2. **The mirror registry** in url-identity.js — the wayback /
+   archive.today branches refactored into a rules table (host
+   predicate + extractor), then extended: Google cache
+   (`/search?q=cache:…`, digest + scheme-less forms), 12ft.io
+   (`/proxy?q=` + raw path form), AMP caches (`/c/s/` https, `/c/`
+   http, cache-owned viewer params dropped, the original's own params
+   kept), ghostarchive (`/varchive/<id>` → the YouTube URL;
+   `/archive/<code>` honestly unrecoverable). Nested wrappers unwrap
+   (wayback-of-12ft-of-X keys to X, bounded depth 3), and a mirror
+   host is never adoptable as "the original" — plausibility now gates
+   the CANONICALIZED candidate, not the raw one.
+
+The manual affordance is the universal fallback for sites neither
+mechanism knows: the reader's URL header field and the capture note's
+"Set original URL…" both route through one flow that re-keys identity,
+keeps the fetched address as provenance, records the alias, saves the
+archive row under the new identity, and refreshes the URL-keyed panels.
+Second-guessable choice: the alias map is workspace CONTENT (cleared on
+fresh workspace, riding backups) rather than config — it is derived
+from captured content, and stale aliases from an old investigation
+polluting a new workspace's joins would be a silent wrong-join source.
+
 ## 2026-07-12 — Entity tags vanished on reload: three read paths, one active clobber
 
 Tags: `bug`.

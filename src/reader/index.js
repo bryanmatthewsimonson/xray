@@ -19,6 +19,7 @@ import { selectAccountsToPublish } from '../shared/identity/account-publish.js';
 import { ClaimModel, exactFromAnchor } from '../shared/claim-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import * as ArchiveCache from '../shared/archive-cache.js';
+import { recordAlias, resolveAlias } from '../shared/url-aliases.js';
 import { installEntityTagger, rehydrateEntityMarks, renderEntitiesBar } from './entity-tagger.js';
 import { openClaimModal, openEvidenceLinkModal, openOthersClaimsModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
 import { openAssessModal } from '../shared/assess-modal.js';
@@ -232,6 +233,17 @@ function adoptArticle(article, stored) {
     // tagger and publish paths can write to it without null-guards.
     if (!Array.isArray(state.article.entities)) state.article.entities = [];
 
+    // Alias bookkeeping: any article whose identity differs from the
+    // address it was fetched from (structural recovery at capture, a
+    // relay read-back's capture-url tag, a prior manual set) IS an
+    // alias observation — record it so every URL-keyed join heals
+    // across mirror addresses. Local join map only, not the archive
+    // row, so read-only opens may record too.
+    if (state.article.capture_url && state.article.url
+            && state.article.capture_url !== state.article.url) {
+        recordAlias(state.article.capture_url, state.article.url).catch(() => {});
+    }
+
     // Cache the freshly-loaded article locally so revisits can detect
     // prior captures. publishedToRelay stays false until the publish
     // flow explicitly flips it. Fire-and-forget — reader load should
@@ -275,7 +287,16 @@ function adoptArticle(article, stored) {
                 console.warn('[X-Ray Reader] article hash failed:', err);
             }
             try {
-                const prior = await ArchiveCache.getArticle(state.article.url);
+                let prior = await ArchiveCache.getArticle(state.article.url);
+                if (!prior) {
+                    // Alias fallback: the prior capture may live under
+                    // this URL's alias-resolved original (or this URL
+                    // may be the alias of it).
+                    const aliased = await resolveAlias(state.article.url);
+                    if (aliased && aliased !== state.article.url) {
+                        prior = await ArchiveCache.getArticle(aliased);
+                    }
+                }
                 if (prior && prior.articleHash && state.articleHash
                         && prior.articleHash !== state.articleHash) {
                     renderHashMismatchBanner(prior);
@@ -521,9 +542,17 @@ async function checkArchiveAvailability() {
     const currentBody = state.article.content || '';
     const currentLen = currentBody.length;
 
-    // 1. Try local cache first.
+    // 1. Try local cache first — then through the alias map (a prior
+    //    capture of the same piece may key under the alias-resolved
+    //    original of this address).
     let cached = null;
     try { cached = await ArchiveCache.getArticle(url); } catch (_) { /* ignore */ }
+    if (!cached) {
+        try {
+            const aliased = await resolveAlias(url);
+            if (aliased && aliased !== url) cached = await ArchiveCache.getArticle(aliased);
+        } catch (_) { /* ignore */ }
+    }
     if (cached && cached.article && cached.article.content) {
         const cachedBody = cached.article.content;
         if (shouldOfferArchive(currentBody, cachedBody, mode)) {
@@ -1149,6 +1178,7 @@ function renderExtractionWarningsBanner() {
 // and the note says so plainly. Ordinary captures render nothing.
 function renderArchiveNote(a) {
     if (!a) return '';
+    const setBtn = '<button type="button" class="xr-capture-note__set" id="xr-set-original">Set original URL…</button>';
     if (a.capture_url && a.capture_url !== a.url) {
         // archive_host is local-only (relay read-back carries just the
         // capture-url tag) — derive the host the same way url-identity
@@ -1158,12 +1188,75 @@ function renderArchiveNote(a) {
             try { host = new URL(a.capture_url).hostname.replace(/^www\./, ''); }
             catch (_) { host = 'archive'; }
         }
-        return `<div class="xr-article__capture-note" title="fetched from ${escapeHtml(a.capture_url)}">captured via ${escapeHtml(host)} · original: ${escapeHtml(a.url || '')}</div>`;
+        return `<div class="xr-article__capture-note" title="fetched from ${escapeHtml(a.capture_url)}">captured via ${escapeHtml(host)} · original: ${escapeHtml(a.url || '')} ${setBtn}</div>`;
     }
     if (a.archive_host) {
-        return `<div class="xr-article__capture-note xr-article__capture-note--warn">captured via ${escapeHtml(a.archive_host)} — original URL not recovered; this capture keys to the archive address</div>`;
+        return `<div class="xr-article__capture-note xr-article__capture-note--warn">captured via ${escapeHtml(a.archive_host)} — original URL not recovered; this capture keys to the archive address ${setBtn}</div>`;
     }
     return '';
+}
+
+/**
+ * Manual identity repair — the universal fallback for any mirror or
+ * alias-serving site the structural resolver doesn't know. Sets the
+ * article's identity URL, keeps the fetched address as capture-url
+ * provenance, records the alias observation(s) so URL-keyed joins
+ * heal, persists the archive row under the new identity, and re-runs
+ * the URL-keyed panels. Returns true when the identity changed.
+ */
+async function applyManualOriginalUrl(rawUrl) {
+    const trimmed = String(rawUrl || '').trim();
+    let parsed = null;
+    try { parsed = new URL(trimmed); } catch (_) { /* invalid — handled below */ }
+    if (!parsed || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) {
+        toast('Not set — enter a full http(s) URL', 'warning');
+        return false;
+    }
+    const oldUrl = state.article.url;
+    if (trimmed === oldUrl) return false;
+
+    // The address actually fetched stays as provenance: prefer the
+    // existing capture_url (the true fetch address), else the old
+    // identity this capture keyed to until now.
+    const fetchedFrom = state.article.capture_url || oldUrl;
+    if (fetchedFrom && fetchedFrom !== trimmed) {
+        state.article.capture_url = fetchedFrom;
+        if (!state.article.archive_host) {
+            try { state.article.archive_host = new URL(fetchedFrom).hostname.replace(/^www\./, ''); }
+            catch (_) { /* cosmetic only */ }
+        }
+    }
+    state.article.url = trimmed;
+    try { state.article.domain = parsed.hostname.replace(/^www\./, ''); } catch (_) { /* keep prior */ }
+
+    // Both observations: the fetched address AND the old identity are
+    // aliases of the new original.
+    recordAlias(fetchedFrom, trimmed).catch(() => {});
+    if (oldUrl && oldUrl !== fetchedFrom) recordAlias(oldUrl, trimmed).catch(() => {});
+
+    if (!state.readOnlyOpen) {
+        ArchiveCache.saveArticle({
+            article: state.articleHash
+                ? { ...state.article, _articleHash: state.articleHash }
+                : state.article,
+            source: 'capture'
+        }).catch((err) => console.warn('[X-Ray Reader] archive save failed:', err));
+    }
+    renderReader();
+    refreshClaimsBar().catch(() => {});
+    checkArchiveAvailability().catch(() => {});
+    toast('Original URL set — claims, archive, and audits now key to it', 'success', 2500);
+    return true;
+}
+
+async function setOriginalUrlFlow() {
+    const entered = prompt(
+        'Original URL for this capture\n\n' +
+        'Claims, assessments, audits, and the local archive key to this ' +
+        'URL. The address actually fetched is kept as provenance.',
+        (state.article && state.article.url) || 'https://');
+    if (entered === null) return;
+    await applyManualOriginalUrl(entered);
 }
 
 function renderReader() {
@@ -1290,6 +1383,14 @@ function renderReader() {
         el.addEventListener('input', onReaderFieldInput);
         el.addEventListener('blur', onReaderFieldBlur);
     });
+
+    // The capture note's manual identity repair (renderArchiveNote).
+    const setOriginal = $('#xr-set-original');
+    if (setOriginal) {
+        setOriginal.addEventListener('click', () =>
+            setOriginalUrlFlow().catch((err) =>
+                console.warn('[X-Ray Reader] set-original failed:', err)));
+    }
 }
 
 // ------------------------------------------------------------------
@@ -2712,7 +2813,18 @@ function onReaderFieldBlur(ev) {
         case 'title':       state.article.title       = val; break;
         case 'byline':      state.article.byline      = val; break;
         case 'siteName':    state.article.siteName    = val; break;
-        case 'url':         state.article.url         = val; break;
+        case 'url': {
+            // The URL field IS the article's identity — route through
+            // the manual-original flow so alias bookkeeping and the
+            // URL-keyed panels (claims, archive check) follow the
+            // change instead of silently forking.
+            applyManualOriginalUrl(val).then((changed) => {
+                if (!changed && ev.target && ev.target.isConnected) {
+                    ev.target.textContent = state.article.url || '';
+                }
+            }).catch(() => {});
+            break;
+        }
         case 'publishedAt': {
             const secs = parseDate(val);
             if (secs) state.article.publishedAt = secs;

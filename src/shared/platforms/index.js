@@ -35,6 +35,7 @@ import * as facebook  from './facebook.js';
 import { extractGenericComments } from './comment-extractor.js';
 import { extractScholarlyMeta } from './scholar-meta.js';
 import { resolveUrlIdentity, rewriteArchivedLinks } from '../url-identity.js';
+import { recordAlias } from '../url-aliases.js';
 import { Utils } from '../utils.js';
 
 /** @typedef {{ synthesize?: () => Promise<object|null>, enrich?: (article: object) => Promise<object|null> | object|null }} PlatformHandler */
@@ -144,6 +145,10 @@ export async function enrichArticleForPlatform(article, platform) {
                 if (identity.original) {
                     enriched.capture_url = identity.captureUrl;
                     enriched.url = identity.original;
+                    // A successful recovery IS an alias observation —
+                    // record it so URL-keyed joins heal through either
+                    // address (url-aliases.js). Fire-and-forget.
+                    recordAlias(identity.captureUrl, identity.original).catch(() => {});
                     // Everything derived from the pre-identity URL must
                     // re-key with it. domain fed the links' internal
                     // classification; the links themselves were

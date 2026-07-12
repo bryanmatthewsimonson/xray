@@ -23,6 +23,7 @@
 import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
 import { Utils } from './utils.js';
+import { loadAliasMap, resolveWithMap } from './url-aliases.js';
 import { isValidSuggestedBy } from './assessment-taxonomy.js';
 
 // ------------------------------------------------------------------
@@ -259,11 +260,19 @@ export const ClaimModel = {
         // match would make those saved claims silently vanish after a
         // re-capture. Both forms converge under the unified
         // normalizer, so the read-time join heals them.
+        //
+        // Then resolve BOTH sides through the URL alias map: claims
+        // made on a mirror/archive address before its original was
+        // learned (or vice versa) converge on the same terminal URL.
         const wanted = Utils.normalizeUrl(url);
+        const aliasMap = await loadAliasMap();
+        const wantedResolved = resolveWithMap(aliasMap, wanted);
         const out = [];
         for (const claim of Object.values(all)) {
+            const claimNorm = Utils.normalizeUrl(claim.source_url || '');
             if (claim.source_url === url
-                || Utils.normalizeUrl(claim.source_url || '') === wanted) {
+                || claimNorm === wanted
+                || resolveWithMap(aliasMap, claimNorm) === wantedResolved) {
                 out.push(normalizeClaim(claim));
             }
         }
