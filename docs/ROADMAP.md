@@ -99,9 +99,10 @@ Phase 18 ████████████████░░░░  C1–C4.2
                                 tables/math, scholarly meta, PDF routing +
                                 pdf.js extraction + figures
                                 (docs/COMPLEX_CONTENT_DESIGN.md); C5/C6 open
-Phase 19 ░░░░░░░░░░░░░░░░░░░░  design only — entity dossiers & the
-                                provenance-pinned knowledge base
-                                (docs/ENTITY_DOSSIER_DESIGN.md);
+Phase 19 ██░░░░░░░░░░░░░░░░░░  19.1 landed (schemas + facts groundwork) —
+                                entity dossiers & the provenance-pinned
+                                knowledge base
+                                (docs/ENTITY_DOSSIER_DESIGN.md); 19.2+
                                 post-Epistack; 19.7 gated on Phase 17 Part A
 ```
 
@@ -1517,17 +1518,20 @@ provenance train, PR #108).
 
 ---
 
-## Phase 19 — Entity dossiers & the provenance-pinned knowledge base 📝 design only
+## Phase 19 — Entity dossiers & the provenance-pinned knowledge base 🚧 19.1 done
 
 **`docs/ENTITY_DOSSIER_DESIGN.md`** (v1.0, 2026-07-12). The
 knowledge-base layer: a dossier per entity, assembled strictly from
 captured content — "wikipedia-like, but every line can defend itself."
-Implementation starts **after the Epistack window** (post 2026-07-19).
+19.1 (pure groundwork, additive-only) landed early; the remaining
+slices start **after the Epistack window** (post 2026-07-19).
 
-- 📝 **19.1** typed field schemas (`entity-field-schemas.js`: per-type
+- ✅ **19.1** typed field schemas (`entity-field-schemas.js`: per-type
   registries, unknown-by-default, validity intervals, date precision)
-  + `entity-facts.js` (conflict detection, never auto-resolved) +
-  `dossier-time.js` extraction from case-dossier.
+  + `entity-facts.js` (conflict detection, never auto-resolved,
+  dismissals on the workspace clear list) + `dossier-time.js`
+  extraction from case-dossier + `authored_fields` on
+  `EntityModel.update` (case framing only).
 - 📝 **19.2** facts ride the claim model — additive `fact` layer on
   claims (subject/field/value/validity); every biographical value
   requires the claim's verbatim quote + article hash. Additive 30040

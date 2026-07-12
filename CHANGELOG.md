@@ -12,6 +12,22 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 19.1 — entity-dossier groundwork (internal; no UI, no wire
+  change).** The pure foundations of the knowledge-base layer: typed
+  per-entity-type field registries (`entity-field-schemas.js` —
+  person/organization/place/thing/case rows with value types,
+  multiplicity, evolution, date precision, `custom:<token>` fields;
+  case fields are the only *authored* class), the fact-layer
+  validation + conflict machinery (`entity-facts.js` — `cleanFact`,
+  precision-band date agreement, conflicts always name both claims
+  and never pick a winner, dismissals stored under
+  `entity_fact_dismissals` and cleared with the workspace), shared
+  honest-precision date helpers (`dossier-time.js`, extracted
+  behavior-unchanged from the case dossier), and `authored_fields` on
+  `EntityModel.update` (the user's own case framing — scope/status —
+  which never rides claims). Claim wiring and the additive 30040 fact
+  tags land in 19.2.
+
 - **Claims default their asserter to the article's author,
   entity-first.** "Who said it" now opens in entity mode in every
   claim flow (free text stays as the fallback radio) and defaults to
