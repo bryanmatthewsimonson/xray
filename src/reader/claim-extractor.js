@@ -39,7 +39,7 @@ import { renderAdjudicationBadges, adjudicationsByClaimId } from '../shared/adju
 import { EVIDENCE_TIERS, EVIDENCE_TIER_LABELS } from '../shared/truth-taxonomy.js';
 import { AssessmentModel } from '../shared/assessment-model.js';
 import { makeClaimRefCanonicalizer, isLocalClaimId } from '../shared/claim-ref.js';
-import { collectClaimCandidates } from '../shared/claim-candidates.js';
+import { collectClaimCandidates, candidateHay, matchesCandidateQuery } from '../shared/claim-candidates.js';
 
 // ------------------------------------------------------------------
 // Modal — used for create AND edit
@@ -405,14 +405,14 @@ export function openEvidenceLinkModal({ sourceClaim }) {
         $('.xr-claim-modal__backdrop').addEventListener('click', close);
         modal.querySelector('[data-action="cancel"]').addEventListener('click', close);
 
-        // Search across all candidates (text + url substring).
+        // Search across all candidates — tokenized (every word must
+        // match, any order) over text + quote + speaker + url, same
+        // matcher as the truth modals' pickers.
         const search = $('.xr-link-modal__search');
         if (search) {
             search.addEventListener('input', () => {
-                const q = search.value.trim().toLowerCase();
                 modal.querySelectorAll('.xr-link-modal__target').forEach((btn) => {
-                    const hay = (btn.dataset.hay || '');
-                    btn.hidden = q !== '' && !hay.includes(q);
+                    btn.hidden = !matchesCandidateQuery(btn.dataset.hay, search.value);
                 });
             });
         }
@@ -515,7 +515,7 @@ function buildLinkModalHtml(sourceClaim, candidates) {
         ? `<div class="xr-claim-modal__picker-empty">No other captured claims yet. Capture or assess a second claim first, then come back to link them.</div>`
         : candidates.map((c, idx) => `
             <button type="button" class="xr-link-modal__target" data-idx="${idx}"
-                    data-hay="${escapeHtml((c.text + ' ' + (c.url || '')).toLowerCase())}">
+                    data-hay="${escapeHtml(candidateHay(c))}">
               <span class="xr-link-modal__target-type" title="${escapeHtml(c.origin)}">${ORIGIN_ICONS[c.origin] || '📋'}</span>
               <span class="xr-link-modal__target-text">${escapeHtml(c.text)}</span>
               <span class="xr-link-modal__target-host">${escapeHtml(host(c.url))}</span>

@@ -20,6 +20,27 @@ import { EntityModel } from './entity-model.js';
 import { makeClaimRefCanonicalizer } from './claim-ref.js';
 
 /**
+ * The one search haystack for a candidate — every picker filters over
+ * the same four fields (claim text, verbatim quote, speaker, url).
+ */
+export function candidateHay(cand) {
+    const c = cand || {};
+    return `${c.text || ''} ${c.quote || ''} ${c.speaker || ''} ${c.url || ''}`.toLowerCase();
+}
+
+/**
+ * Tokenized query match: every whitespace-separated token must appear
+ * somewhere in the hay, in any order and across any field — so
+ * "masks W.H.O." finds a W.H.O. quote about masks. An empty query
+ * matches everything.
+ */
+export function matchesCandidateQuery(hay, query) {
+    const h = String(hay || '').toLowerCase();
+    const tokens = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+    return tokens.every((t) => h.includes(t));
+}
+
+/**
  * @param {object} [opts]
  * @param {string[]} [opts.exclude] refs (local ids or coords) to drop
  * @param {object[]} [opts.extra]   injected candidates (network pool)

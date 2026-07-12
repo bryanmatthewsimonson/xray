@@ -22,7 +22,7 @@
 // (xr-adjudicate-* only). Must NOT be imported by the content script.
 
 import { TruthAdjudicationModel, VerdictModel, verdictVariance } from './truth-adjudication-model.js';
-import { collectClaimCandidates } from './claim-candidates.js';
+import { collectClaimCandidates, candidateHay, matchesCandidateQuery } from './claim-candidates.js';
 import { parseAdjudicatedVerdictEvent } from './truth-builders.js';
 import { convergenceForProposition } from './truth-attestation.js';
 import {
@@ -182,10 +182,27 @@ export function evidenceEntryToRecord(e) {
     return out;
 }
 
-/** Speaker-first display line for a claim/quote candidate. */
+/**
+ * Display line for a claim/quote candidate. A spoken artifact leads
+ * with its speaker ("W.H.O. — “…”"); an unsourced claim leads with
+ * its CLAIM TEXT — that's the line the user wrote and scans for —
+ * falling back to the quote for text-less snapshots.
+ */
 export function candidateLabel(cand) {
-    const quote = cand.quote || cand.text || '';
-    return cand.speaker ? `${cand.speaker} — “${quote}”` : quote;
+    if (cand.speaker) return `${cand.speaker} — “${cand.quote || cand.text || ''}”`;
+    return cand.text || cand.quote || '';
+}
+
+/**
+ * Tooltip for a candidate row: when the claim text and its verbatim
+ * quote differ, show both — the one-line label can only carry one.
+ */
+export function candidateTitle(cand) {
+    const label = candidateLabel(cand);
+    const text = (cand.text || '').trim();
+    const quote = (cand.quote || '').trim();
+    if (text && quote && text !== quote) return `${text}\n“${quote}”`;
+    return label;
 }
 
 export async function openAdjudicateModal({ claimId, claimText = '', relays = [], claimPubkey = null }) {
@@ -348,7 +365,7 @@ export async function openAdjudicateModal({ claimId, claimText = '', relays = []
                     return `
                   <div class="xr-adjudicate__ev-row" data-side="${side}" data-i="${i}">
                     <span class="xr-adjudicate__ev-origin" title="${escapeHtml(cand.origin || 'local')}">${ORIGIN_ICONS[cand.origin] || '📋'}</span>
-                    <span class="xr-adjudicate__ev-label" title="${escapeHtml(candidateLabel(cand))}">${escapeHtml(candidateLabel(cand))}</span>
+                    <span class="xr-adjudicate__ev-label" title="${escapeHtml(candidateTitle(cand))}">${escapeHtml(candidateLabel(cand))}</span>
                     <span class="xr-adjudicate__ev-host">${escapeHtml(hostOf(cand.url))}</span>
                     <select class="xr-adjudicate__ev-tier">
                       <option value="">tier —</option>
@@ -384,7 +401,8 @@ export async function openAdjudicateModal({ claimId, claimText = '', relays = []
                 ? '<div class="xr-adjudicate__picker-empty">No captured claims or quotes yet — capture the evidence as a claim/quote first (select its text in the source article), then come back.</div>'
                 : candidates.map((c, idx) => `
                     <button type="button" class="xr-adjudicate__picker-item" data-idx="${idx}"
-                            data-hay="${escapeHtml(`${c.text} ${c.quote} ${c.speaker} ${c.url || ''}`.toLowerCase())}">
+                            title="${escapeHtml(candidateTitle(c))}"
+                            data-hay="${escapeHtml(candidateHay(c))}">
                       <span title="${escapeHtml(c.origin)}">${ORIGIN_ICONS[c.origin] || '📋'}</span>
                       <span class="xr-adjudicate__picker-text">${escapeHtml(candidateLabel(c))}</span>
                       <span class="xr-adjudicate__ev-host">${escapeHtml(hostOf(c.url))}</span>
@@ -407,6 +425,11 @@ export async function openAdjudicateModal({ claimId, claimText = '', relays = []
             const panel = $('.xr-adjudicate__picker');
             $('.xr-adjudicate__picker-title').textContent =
                 `Cite a captured claim/quote as evidence ${side.toLowerCase()}`;
+            // The count makes a silently-empty pool visible, and the
+            // exclusion note explains the one row that is never here.
+            $('.xr-adjudicate__picker-hint').textContent =
+                `${candidates.length} claim${candidates.length === 1 ? '' : 's'}/quotes across your captures — ` +
+                `the claim being adjudicated is excluded (it can't cite itself).`;
             panel.hidden = false;
             const search = $('.xr-adjudicate__picker-search');
             search.value = '';
@@ -414,9 +437,9 @@ export async function openAdjudicateModal({ claimId, claimText = '', relays = []
             search.focus();
         }
         $('.xr-adjudicate__picker-search').addEventListener('input', (ev) => {
-            const q = ev.target.value.trim().toLowerCase();
+            const q = ev.target.value;
             host.querySelectorAll('.xr-adjudicate__picker-item').forEach((btn) => {
-                btn.hidden = q !== '' && !(btn.dataset.hay || '').includes(q);
+                btn.hidden = !matchesCandidateQuery(btn.dataset.hay, q);
             });
         });
         $('.xr-adjudicate__picker-close').addEventListener('click', () => {
@@ -642,8 +665,9 @@ function buildHtml(claimText) {
                 <span class="xr-adjudicate__picker-title"></span>
                 <button type="button" class="xr-adjudicate__picker-close" aria-label="Close">✕</button>
               </div>
+              <div class="xr-adjudicate__picker-hint"></div>
               <input type="search" class="xr-adjudicate__picker-search"
-                     placeholder="Search claims & quotes (text, speaker, url)…" spellcheck="false" />
+                     placeholder="Search claims & quotes (text, quote, speaker, url)…" spellcheck="false" />
               <div class="xr-adjudicate__picker-list"></div>
             </div>
             <label class="xr-adjudicate__field">
@@ -759,6 +783,7 @@ function ensureStyles() {
   border-radius: 8px; }
 .xr-adjudicate__picker-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .xr-adjudicate__picker-title { font-size: 12px; font-weight: 600; }
+.xr-adjudicate__picker-hint { font-size: 11px; opacity: 0.75; margin-bottom: 6px; }
 .xr-adjudicate__picker-close { border: none; background: none; color: inherit; cursor: pointer; }
 .xr-adjudicate__picker-search { width: 100%; padding: 4px 8px; border-radius: 6px; font-size: 12px;
   margin-bottom: 6px; box-sizing: border-box; }

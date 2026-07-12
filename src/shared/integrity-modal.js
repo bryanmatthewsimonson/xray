@@ -20,8 +20,8 @@
 // Must NOT be imported by the content script.
 
 import { TruthAdjudicationModel } from './truth-adjudication-model.js';
-import { evidenceEntryToRecord, candidateLabel } from './adjudicate-modal.js';
-import { collectClaimCandidates } from './claim-candidates.js';
+import { evidenceEntryToRecord, candidateLabel, candidateTitle } from './adjudicate-modal.js';
+import { collectClaimCandidates, candidateHay, matchesCandidateQuery } from './claim-candidates.js';
 import { IntegrityModel } from './integrity-model.js';
 import { ClaimModel } from './claim-model.js';
 import { EntityModel } from './entity-model.js';
@@ -221,7 +221,7 @@ export async function openIntegrityModal() {
                     return `
                   <div class="xr-integrity__ev-row" data-i="${i}">
                     <span class="xr-integrity__ev-origin" title="${escapeHtml(cand.origin || 'local')}">${ORIGIN_ICONS[cand.origin] || '📋'}</span>
-                    <span class="xr-integrity__ev-label" title="${escapeHtml(candidateLabel(cand))}">${escapeHtml(candidateLabel(cand))}</span>
+                    <span class="xr-integrity__ev-label" title="${escapeHtml(candidateTitle(cand))}">${escapeHtml(candidateLabel(cand))}</span>
                     <span class="xr-integrity__ev-host">${escapeHtml(hostOf(cand.url))}</span>
                     <select class="xr-integrity__ev-tier">
                       <option value="">tier —</option>
@@ -246,7 +246,8 @@ export async function openIntegrityModal() {
                 ? '<div class="xr-integrity__picker-empty">No captured claims or quotes yet — capture the evidence as a claim/quote first (select its text in the source article), then come back.</div>'
                 : candidates.map((c, idx) => `
                     <button type="button" class="xr-integrity__picker-item" data-idx="${idx}"
-                            data-hay="${escapeHtml(`${c.text} ${c.quote} ${c.speaker} ${c.url || ''}`.toLowerCase())}">
+                            title="${escapeHtml(candidateTitle(c))}"
+                            data-hay="${escapeHtml(candidateHay(c))}">
                       <span title="${escapeHtml(c.origin)}">${ORIGIN_ICONS[c.origin] || '📋'}</span>
                       <span class="xr-integrity__picker-text">${escapeHtml(candidateLabel(c))}</span>
                       <span class="xr-integrity__ev-host">${escapeHtml(hostOf(c.url))}</span>
@@ -267,6 +268,10 @@ export async function openIntegrityModal() {
             const panel = $('.xr-integrity__picker');
             $('.xr-integrity__picker-title').textContent =
                 `Cite a captured claim/quote as evidence ${side.toLowerCase()}`;
+            // Count makes a silently-empty pool visible (nothing is
+            // excluded here — the finding cites freely).
+            $('.xr-integrity__picker-hint').textContent =
+                `${candidates.length} claim${candidates.length === 1 ? '' : 's'}/quotes across your captures.`;
             panel.hidden = false;
             const search = $('.xr-integrity__picker-search');
             search.value = '';
@@ -274,9 +279,9 @@ export async function openIntegrityModal() {
             search.focus();
         }
         $('.xr-integrity__picker-search').addEventListener('input', (ev) => {
-            const q = ev.target.value.trim().toLowerCase();
+            const q = ev.target.value;
             host.querySelectorAll('.xr-integrity__picker-item').forEach((btn) => {
-                btn.hidden = q !== '' && !(btn.dataset.hay || '').includes(q);
+                btn.hidden = !matchesCandidateQuery(btn.dataset.hay, q);
             });
         });
         $('.xr-integrity__picker-close').addEventListener('click', () => {
@@ -389,8 +394,9 @@ function buildHtml(words) {
               <span class="xr-integrity__picker-title"></span>
               <button type="button" class="xr-integrity__picker-close" aria-label="Close">✕</button>
             </div>
+            <div class="xr-integrity__picker-hint"></div>
             <input type="search" class="xr-integrity__picker-search"
-                   placeholder="Search claims &amp; quotes (text, speaker, url)…" spellcheck="false" />
+                   placeholder="Search claims &amp; quotes (text, quote, speaker, url)…" spellcheck="false" />
             <div class="xr-integrity__picker-list"></div>
           </div>
 
@@ -507,6 +513,7 @@ function ensureStyles() {
   padding: 8px 10px; margin-bottom: 12px; }
 .xr-integrity__picker-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .xr-integrity__picker-title { font-size: 12px; font-weight: 600; }
+.xr-integrity__picker-hint { font-size: 11px; color: var(--xr-text-dim, #9a9a9a); margin-bottom: 6px; }
 .xr-integrity__picker-close { padding: 1px 7px; border-radius: 999px; font-size: 11px; cursor: pointer;
   background: var(--xr-surface-2, #2e2e2e); color: inherit; border: 1px solid var(--xr-border, #333); }
 .xr-integrity__picker-search { width: 100%; box-sizing: border-box; padding: 5px 8px; border-radius: 6px;

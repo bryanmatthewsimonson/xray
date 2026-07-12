@@ -32,7 +32,7 @@ globalThis.chrome = {
 const {
     adjudicationBadgeData, renderAdjudicationBadges, adjudicationsByClaimId,
     dateInputToOccurredAt, linesToList, PROPOSITION_CLASS_ICONS,
-    evidenceEntryToRecord, candidateLabel
+    evidenceEntryToRecord, candidateLabel, candidateTitle
 } = await import('../src/shared/adjudicate-modal.js');
 const { TruthAdjudicationModel, VerdictModel } = await import('../src/shared/truth-adjudication-model.js');
 const { ClaimModel } = await import('../src/shared/claim-model.js');
@@ -168,10 +168,23 @@ test('evidenceEntryToRecord output round-trips the model validator with refs int
     assert.equal(cleaned[0].note, 'independent lab log');
 });
 
-test('candidateLabel renders speaker-first for quotes with a speaker', () => {
+test('candidateLabel: speaker-first for spoken artifacts, claim-text-first otherwise', () => {
     assert.equal(
         candidateLabel({ speaker: 'W.H.O.', quote: 'masks work', text: 'ignored' }),
         'W.H.O. — “masks work”');
-    assert.equal(candidateLabel({ speaker: '', quote: '', text: 'plain claim text' }),
-        'plain claim text', 'no speaker → plain text; quote falls back to text');
+    assert.equal(
+        candidateLabel({ speaker: '', quote: 'the verbatim span', text: 'The edited claim text.' }),
+        'The edited claim text.',
+        'an unsourced claim shows the TEXT the user wrote, not the raw quote');
+    assert.equal(candidateLabel({ speaker: '', quote: 'only a quote', text: '' }),
+        'only a quote', 'quote stands in when there is no text');
+});
+
+test('candidateTitle carries both text and quote when they differ', () => {
+    assert.equal(
+        candidateTitle({ speaker: '', quote: 'the verbatim span', text: 'The edited claim text.' }),
+        'The edited claim text.\n“the verbatim span”');
+    assert.equal(
+        candidateTitle({ speaker: 'W.H.O.', quote: 'same words', text: 'same words' }),
+        'W.H.O. — “same words”', 'identical text/quote → just the label');
 });

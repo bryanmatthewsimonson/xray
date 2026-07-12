@@ -30,7 +30,8 @@ globalThis.chrome = {
     }
 };
 
-const { collectClaimCandidates } = await import('../src/shared/claim-candidates.js');
+const { collectClaimCandidates, candidateHay, matchesCandidateQuery } =
+    await import('../src/shared/claim-candidates.js');
 const { ClaimModel } = await import('../src/shared/claim-model.js');
 const { AssessmentModel } = await import('../src/shared/assessment-model.js');
 const { EntityModel } = await import('../src/shared/entity-model.js');
@@ -104,6 +105,29 @@ test('claim-candidates: dedupes by canonical ref — a published claim cited by 
     });
     assert.equal(pool.length, 1, 'coord representation collapses onto the local claim');
     assert.equal(pool[0].origin, 'local', 'the local record wins the dedupe');
+});
+
+test('candidateHay covers text, quote, speaker, and url — lowercased', () => {
+    const hay = candidateHay({
+        text: 'Masks Reduce Transmission.', quote: 'MASKS ARE EFFECTIVE',
+        speaker: 'W.H.O.', url: 'https://WHO.example/Brief'
+    });
+    for (const needle of ['masks reduce transmission.', 'masks are effective', 'w.h.o.', 'https://who.example/brief']) {
+        assert.ok(hay.includes(needle), `hay carries "${needle}"`);
+    }
+    assert.equal(candidateHay(null), '   ', 'null-safe');
+});
+
+test('matchesCandidateQuery: tokens match in any order across fields; empty query matches all', () => {
+    const hay = candidateHay({ text: 'Masks reduce transmission.', quote: 'masks are effective', speaker: 'W.H.O.', url: 'https://who.example/brief' });
+    assert.ok(matchesCandidateQuery(hay, 'masks'), 'single token');
+    assert.ok(matchesCandidateQuery(hay, 'W.H.O. masks'), 'tokens spanning speaker + text, out of field order');
+    assert.ok(matchesCandidateQuery(hay, 'effective transmission'), 'tokens spanning quote + text');
+    assert.ok(matchesCandidateQuery(hay, '  MASKS   w.h.o. '), 'case-insensitive, whitespace-tolerant');
+    assert.ok(matchesCandidateQuery(hay, ''), 'empty query matches everything');
+    assert.ok(matchesCandidateQuery(hay, '   '), 'whitespace-only query matches everything');
+    assert.equal(matchesCandidateQuery(hay, 'masks gloves'), false, 'one unmatched token fails the row');
+    assert.equal(matchesCandidateQuery(undefined, 'x'), false, 'null-safe hay');
 });
 
 test('claim-candidates: exclude drops the ref under any representation', async () => {
