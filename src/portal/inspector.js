@@ -282,12 +282,17 @@ export function renderInspector(host, item, { status = 'no-ledger', onClose, aud
         const open = el('button', 'xr-portal__btn', 'Open in reader');
         open.type = 'button';
         open.title = 'Reconstruct this capture from its signed event and open it read-only in the reader';
-        open.addEventListener('click', () => {
+        open.addEventListener('click', async () => {
             const article = EventBuilder.reconstructArticleFromEvent(item.event);
             if (!article) {
                 open.textContent = 'Could not reconstruct';
                 return;
             }
+            // Tagged entities ride the event as typed name tags — rebuild
+            // them so the read-only reader shows what was tagged.
+            try {
+                article.entities = await EventBuilder.reconstructEntityRefsFromEvent(item.event);
+            } catch (_) { /* fail-open: article opens without entity refs */ }
             const id = crypto.randomUUID();
             // readOnly: the reader must not write this relay
             // reconstruction into the local archive cache (Q5).

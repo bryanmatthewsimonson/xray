@@ -19,6 +19,43 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-12 — Entity tags vanished on reload: three read paths, one active clobber
+
+Tags: `bug`.
+
+Field report: entities tagged during a capture (manual and accepted LLM
+suggestions) were gone when the article was reloaded. The tags were
+never *lost* in the obvious sense — the publish path had been writing
+them into the archive row all along. The problem was the read side,
+three ways at once:
+
+1. `adoptArticle`'s load-time save wrote the FRESH article (whose
+   `entities` is always `[]`) over the archive row — actively
+   destroying the previously saved tags on every revisit.
+2. `loadArchivedArticle` deliberately kept the current (empty)
+   in-session entity list when swapping in the archived body — the
+   header comment even documented "leaves entity refs untouched" as a
+   feature. Correct for the mid-session case it was written for,
+   wrong for the reload case where the archived copy is the only one
+   that HAS refs. It merges now (`mergeEntityRefs`, current wins).
+3. Tagging itself never persisted — refs lived only in
+   `state.article.entities` until publish, so tag-without-publish
+   evaporated on close. A debounced save-on-tag fixes that (skipped
+   for read-only portal opens, which must not touch the archive row's
+   publish mark — `saveArticle` preserves `publishedToRelay` on
+   overwrite, verified, so the tag save can't reset the ledger).
+
+Also: portal "Open in reader" reconstructions now rebuild entity refs
+from the event's typed name tags (`reconstructEntityRefsFromEvent`).
+The deterministic id derivation (`entity_<sha256(type:name)>`) means
+wire-reconstructed refs join local registry records exactly — no
+lookup table needed, the hash IS the join.
+
+So-what for future readers: any state that only exists on
+`state.article` dies with the tab unless a write path owns it — and a
+load-time "cache this" save is a destructive overwrite for every field
+the fresh object doesn't carry. Merge from `prior` before saving.
+
 ## 2026-07-10 — Full backup/restore: two IndexedDB traps worth remembering
 
 Tags: `design`, `bug`.

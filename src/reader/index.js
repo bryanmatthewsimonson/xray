@@ -13,7 +13,7 @@
 import { ContentExtractor } from '../shared/content-extractor.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
-import { EntityModel, installEntityStorageBridge } from '../shared/entity-model.js';
+import { EntityModel, installEntityStorageBridge, mergeEntityRefs } from '../shared/entity-model.js';
 import { recordAccount, extractPostAuthor } from '../shared/identity/account-registry.js';
 import { selectAccountsToPublish } from '../shared/identity/account-publish.js';
 import { ClaimModel, exactFromAnchor } from '../shared/claim-model.js';
@@ -204,6 +204,9 @@ async function loadArticle() {
 /** Shared adoption tail for every load path (session hand-off, PDF). */
 function adoptArticle(article, stored) {
     state.article = article;
+    // Remembered for later writes (save-on-tag): a read-only open (the
+    // portal's relay reconstructions) must never touch the archive row.
+    state.readOnlyOpen = !!(stored && stored.readOnly);
 
     // PDF captures: surface the layout engine's quality warnings
     // (missing text layers, failed paragraph merging) before anyone
@@ -277,6 +280,25 @@ function adoptArticle(article, stored) {
                         && prior.articleHash !== state.articleHash) {
                     renderHashMismatchBanner(prior);
                 }
+                // Rehydrate tagged entities from the prior archive row.
+                // Fresh captures never carry entities, and the save
+                // below would otherwise overwrite the row with an empty
+                // list — losing every tag from earlier sessions (the
+                // reload-loses-tags bug). Merge BEFORE saving so the
+                // row carries them forward.
+                const priorEntities = prior && prior.article && prior.article.entities;
+                if (Array.isArray(priorEntities) && priorEntities.length) {
+                    const merged = mergeEntityRefs(state.article.entities, priorEntities);
+                    if (merged.length !== (state.article.entities || []).length) {
+                        state.article.entities = merged;
+                        refreshEntitiesBar().catch(() => {});
+                        const body = $('.xr-article__body');
+                        if (body) {
+                            rehydrateEntityMarks(body, state.article.entities)
+                                .catch((err) => console.warn('[X-Ray Reader] rehydrate failed:', err));
+                        }
+                    }
+                }
             } catch (err) {
                 console.warn('[X-Ray Reader] hash check failed:', err);
             }
@@ -311,6 +333,27 @@ function adoptArticle(article, stored) {
     // render on a network round-trip.
     setTimeout(() => checkArchiveAvailability().catch((err) =>
         console.warn('[X-Ray Reader] archive check failed:', err)), 100);
+}
+
+// Persist the current article (with its tagged entities) to the archive
+// row shortly after a tag lands, so tag-without-publish survives a
+// reader close — previously tags only reached the row at publish time.
+// Debounced: an accepted suggestion batch lands many tags in a burst.
+// Skipped for read-only opens (a portal reconstruction must not reset
+// the archive row's publish mark).
+let _tagSaveTimer = null;
+function scheduleTagSave() {
+    if (state.readOnlyOpen || !state.article || !state.article.url) return;
+    if (_tagSaveTimer) clearTimeout(_tagSaveTimer);
+    _tagSaveTimer = setTimeout(() => {
+        _tagSaveTimer = null;
+        ArchiveCache.saveArticle({
+            article: state.articleHash
+                ? { ...state.article, _articleHash: state.articleHash }
+                : state.article,
+            source: 'capture'
+        }).catch((err) => console.warn('[X-Ray Reader] tag save failed:', err));
+    }, 500);
 }
 
 // ------------------------------------------------------------------
@@ -614,10 +657,12 @@ function renderArchiveBanner({ source, article, metric, cachedAt, createdAt, aut
 }
 
 /**
- * Swap the reader's article payload for the archived version. Leaves
- * entity refs, claims, and comments untouched — the user was working
- * on this capture's metadata and the archive is only replacing the
- * body content.
+ * Swap the reader's article payload for the archived version. Claims
+ * and comments stay untouched (they key on the URL, not the body);
+ * entity refs are MERGED — the current session's tags win on dupes,
+ * but the archived copy's tags come along. (The old "leave entity
+ * refs untouched" rule silently dropped every tag saved with the
+ * archived copy — the reload-loses-tags bug.)
  */
 function loadArchivedArticle(archived, provenance) {
     state.article = {
@@ -625,7 +670,7 @@ function loadArchivedArticle(archived, provenance) {
         // Preserve the URL / id bridging so publish + session paths
         // stay consistent with the tab this reader was opened from.
         url: state.article.url,
-        entities: state.article.entities || [],
+        entities: mergeEntityRefs(state.article.entities, archived.entities),
         // The extraction record names this URL's SOURCE DOCUMENT
         // (extraction.source_hash keys the archived original bytes).
         // Relay reconstructions don't carry it; adopting one without
@@ -1189,6 +1234,7 @@ function renderReader() {
             // it anyway).
             if (state.article.contentType !== 'pdf') state.dirtySource = 'reader';
             refreshEntitiesBar().catch(() => {});
+            scheduleTagSave();
         },
         onClaim: async ({ text, context, anchor }) => {
             // PDF captures: page-level provenance rides as an additive
@@ -1598,6 +1644,7 @@ async function runSuggestPass() {
                     .catch(() => {});
             }
             refreshEntitiesBar().catch(() => {});
+            scheduleTagSave();
         },
         onAccepted: async () => {
             await refreshClaimsBar().catch(() => {});

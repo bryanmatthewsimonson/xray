@@ -300,6 +300,9 @@ verify the page actually shows Disqus comments inline).
 | 4.1 | In the reader, select text in the body | ✅ a popover appears near the selection with type buttons + search box |
 | 4.2 | Click "👤" (or any type) → a new entity is created and the selection gets a colored underline | ✅ underline color matches the type |
 | 4.3 | Re-select the same text → the popover's autocomplete shows the entity you just created | ✅ click it to re-tag |
+| 4.3a | Tag entities (do NOT publish), close the reader, re-capture the same URL | ✅ the tags come back — entities bar populated, underlines rehydrated (the debounced tag save + reload hydration) |
+| 4.3b | On a re-capture where the archive banner offers "Load archive", click it | ✅ archived tags MERGE with any tags made this session (nothing dropped) |
+| 4.3c | Publish an article with tags, then portal → inspector → **Open in reader** | ✅ the read-only reconstruction shows the tagged entities (rebuilt from the event's name tags); nothing writes to the archive row |
 
 ### Side panel
 

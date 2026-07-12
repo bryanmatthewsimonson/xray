@@ -36,7 +36,8 @@ globalThis.chrome = {
 };
 
 const { EntityModel, ENTITY_TYPES, ENTITY_ICONS,
-        entityTypeToTag, generateEntityId, installEntityStorageBridge } =
+        entityTypeToTag, generateEntityId, installEntityStorageBridge,
+        mergeEntityRefs } =
     await import('../src/shared/entity-model.js');
 const { LocalKeyManager } = await import('../src/shared/local-key-manager.js');
 const { EventBuilder } = await import('../src/shared/event-builder.js');
@@ -341,4 +342,63 @@ test('getAll: merges foreign keypairs too', async () => {
     const fred = Object.values(all).find((e) => e.name === 'Foreign Fred');
     assert.equal(fred.keypair.pubkey, '9'.repeat(64));
     assert.equal(fred.keypair.privateKey, null);
+});
+
+// ── Entity refs: merge + wire round trip (the reload-loses-tags fix) ──
+
+test('mergeEntityRefs: dedupes on entity_id+context, current wins, archived appends', () => {
+    const current = [
+        { entity_id: 'entity_a', type: 'person', name: 'A (renamed)', context: 'ctx1' }
+    ];
+    const archived = [
+        { entity_id: 'entity_a', type: 'person', name: 'A', context: 'ctx1' },   // dup — dropped
+        { entity_id: 'entity_a', type: 'person', name: 'A', context: 'ctx2' },   // same entity, new mention — kept
+        { entity_id: 'entity_b', type: 'organization', name: 'B', context: null },
+        { entity_id: null, name: 'junk' },                                        // no id — dropped
+        null                                                                      // tolerated
+    ];
+    const merged = mergeEntityRefs(current, archived);
+    assert.equal(merged.length, 3);
+    assert.equal(merged[0].name, 'A (renamed)', 'current ref wins on the dupe key');
+    assert.deepEqual(merged.map((r) => `${r.entity_id}:${r.context}`),
+        ['entity_a:ctx1', 'entity_a:ctx2', 'entity_b:null']);
+});
+
+test('mergeEntityRefs: empty/absent inputs fail open', () => {
+    assert.deepEqual(mergeEntityRefs(undefined, undefined), []);
+    assert.equal(mergeEntityRefs(null, [{ entity_id: 'entity_x', context: 'c' }]).length, 1);
+    assert.deepEqual(mergeEntityRefs([{ entity_id: 'entity_x', context: 'c' }], null),
+        [{ entity_id: 'entity_x', context: 'c' }]);
+});
+
+test('reconstructEntityRefsFromEvent: wire round trip rebuilds ids that join the registry', async () => {
+    resetState();
+    installEntityStorageBridge();
+
+    const person = await EntityModel.create({ name: 'Elena Vargas', type: 'person' });
+    const org    = await EntityModel.create({ name: 'Acme Corp', type: 'organization' });
+    const ev = await EventBuilder.buildArticleEvent(
+        { url: 'https://example.com/article', title: 'T', content: 'Body text.' },
+        [
+            { entity_id: person.id, context: 'Elena Vargas said' },
+            { entity_id: org.id,    context: 'at Acme Corp' }
+        ],
+        'a'.repeat(64)
+    );
+
+    const refs = await EventBuilder.reconstructEntityRefsFromEvent({ ...ev, id: 'e'.repeat(64) });
+    assert.equal(refs.length, 2);
+    const back = Object.fromEntries(refs.map((r) => [r.name, r]));
+    // The derived ids MATCH the registry's — reconstructed refs join
+    // local records; this is what makes portal-opened articles show
+    // their tagged entities.
+    assert.equal(back['Elena Vargas'].entity_id, person.id);
+    assert.equal(back['Elena Vargas'].type, 'person');
+    assert.equal(back['Elena Vargas'].context, 'Elena Vargas said');
+    assert.equal(back['Acme Corp'].entity_id, org.id);
+    assert.equal(back['Acme Corp'].type, 'organization');
+
+    // Fail-open shapes.
+    assert.deepEqual(await EventBuilder.reconstructEntityRefsFromEvent(null), []);
+    assert.deepEqual(await EventBuilder.reconstructEntityRefsFromEvent({ kind: 1, tags: [] }), []);
 });

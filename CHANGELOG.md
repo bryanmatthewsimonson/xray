@@ -184,6 +184,21 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Fixed
 
+- **Tagged entities survive a reload.** Entities tagged on a capture
+  (manually or via accepted LLM suggestions) vanished when the article
+  was reopened from the local archive: the load-time cache save wrote
+  the fresh article's empty entity list over the archive row, "Load
+  archive" deliberately discarded the archived copy's refs, and tagging
+  itself never persisted until publish. Now: reloads rehydrate tags
+  from the archive row (before the save that used to clobber them),
+  every tag triggers a debounced archive save so tag-without-publish
+  survives closing the reader, the archive banner's "Load archive"
+  merges instead of dropping, and the portal's "Open in reader" rebuilds
+  entity refs from the published event's own name tags (the
+  deterministic entity-id derivation makes wire refs join local
+  registry records exactly). Read-only portal opens still never write
+  the archive row. No wire change.
+
 - **Thorough (and sometimes quick) audit results no longer vanish after
   the LLM run.** Both in-reader audit modes rode one long-lived
   `xray:audit:run` message whose response arrived minutes later — MV3

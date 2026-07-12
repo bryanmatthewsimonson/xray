@@ -570,6 +570,27 @@ export const EntityModel = {
     }
 };
 
+/**
+ * Merge two tagged-entity ref lists (the reader's `article.entities`
+ * shape: {entity_id, type, name, context}). Dedupe key is
+ * entity_id+context — the same rule the reader's onTag uses — and the
+ * CURRENT list wins on duplicates, so an in-session re-tag is never
+ * shadowed by an older archived copy. Order: current refs first,
+ * then archived refs not already present.
+ */
+export function mergeEntityRefs(current, archived) {
+    const out = Array.isArray(current) ? current.filter((r) => r && r.entity_id) : [];
+    const seen = new Set(out.map((r) => `${r.entity_id} ${r.context || ''}`));
+    for (const ref of Array.isArray(archived) ? archived : []) {
+        if (!ref || !ref.entity_id) continue;
+        const key = `${ref.entity_id} ${ref.context || ''}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(ref);
+    }
+    return out;
+}
+
 // Swap Storage.entities stub for a real implementation that matches the
 // shape event-builder consumes. The stub at storage.js:206–212 just
 // returns null and throws on save; this replaces it with a pass-through
