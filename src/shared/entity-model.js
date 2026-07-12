@@ -33,6 +33,9 @@ import { Crypto } from './crypto.js';
 import { Utils } from './utils.js';
 import { LocalKeyManager } from './local-key-manager.js';
 import { isValidSuggestedBy } from './assessment-taxonomy.js';
+// Authored-field validation (Phase 19 §4) reads the field registry;
+// entity-field-schemas.js is dependency-free, so no cycle.
+import { getFieldDef } from './entity-field-schemas.js';
 
 // `case` (Phase 11.1) models a real-world story under assessment —
 // "John Dehlin excommunication", "Bricks & Minifigs scandal" — so the
@@ -105,6 +108,37 @@ export async function findEntityByName(name) {
         if (all[id]) return all[id];
     }
     return null;
+}
+
+/**
+ * Validate an authored-fields map for an entity of `type` (Phase 19
+ * §4): every key must be a registry field with provenance 'authored'
+ * for that type (v1: case fields only), values are trimmed non-empty
+ * strings ({[field]: {value, updated}}), enum fields checked against
+ * their enum. Returns the cleaned map, or null when nothing remains.
+ */
+function cleanAuthoredFields(type, given) {
+    if (given === null || given === undefined) return null;
+    if (typeof given !== 'object' || Array.isArray(given)) {
+        throw new Error('authored_fields must be an object map');
+    }
+    const out = {};
+    for (const [field, slot] of Object.entries(given)) {
+        const def = getFieldDef(type, field);
+        if (!def || def.provenance !== 'authored') {
+            throw new Error(`"${field}" is not an authored field for ${type} entities`);
+        }
+        const value = String((slot && slot.value) ?? '').trim();
+        if (!value) continue;   // empty = clear this field
+        if (def.value_type === 'enum' && !(def.enum_values || []).includes(value)) {
+            throw new Error(`authored_fields.${field}: "${value}" is not one of ${(def.enum_values || []).join(', ')}`);
+        }
+        out[field] = {
+            value,
+            updated: Number.isFinite(slot && slot.updated) ? Math.floor(slot.updated) : Math.floor(Date.now() / 1000)
+        };
+    }
+    return Object.keys(out).length > 0 ? out : null;
 }
 
 function assertValidType(type) {
@@ -425,6 +459,15 @@ export const EntityModel = {
         if (updates.description != null) patched.description = updates.description;
         if (updates.nip05 != null)       patched.nip05 = updates.nip05;
         if ('canonical_id' in updates)   patched.canonical_id = updates.canonical_id || null;
+        // Authored fields (Phase 19 §4): the user's OWN framing — case
+        // scope/status in v1. Never presented as sourced facts, never
+        // riding claims (claims require a source). Whole-map replace;
+        // null clears.
+        if ('authored_fields' in updates) {
+            const cleaned = cleanAuthoredFields(patched.type, updates.authored_fields);
+            if (cleaned) patched.authored_fields = cleaned;
+            else delete patched.authored_fields;
+        }
         patched.updated = Math.floor(Date.now() / 1000);
 
         all[id] = patched;

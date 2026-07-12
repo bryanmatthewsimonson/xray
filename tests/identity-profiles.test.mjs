@@ -50,7 +50,7 @@ test('WORKSPACE_CLEAR_KEYS is pinned exactly', () => {
         'claim_assessments', 'behavioral_findings',
         'adjudicable_propositions', 'adjudicated_verdicts',
         'integrity_findings', 'platform_accounts', 'portal_identities',
-        'lens_jurisdictions', 'url_aliases'
+        'lens_jurisdictions', 'url_aliases', 'entity_fact_dismissals'
     ]);
 });
 

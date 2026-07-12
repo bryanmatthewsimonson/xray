@@ -62,6 +62,38 @@ test('entity: deterministic id generation', async () => {
     assert.match(a, /^entity_[0-9a-f]{16}$/);
 });
 
+test('entity: authored_fields — case framing round-trips; sourced fields rejected (Phase 19.1)', async () => {
+    resetState();
+    const kase = await EntityModel.create({ name: 'Covid Origins', type: 'case' });
+
+    const updated = await EntityModel.update(kase.id, {
+        authored_fields: {
+            scope_question: { value: '  Where did SARS-CoV-2 originate?  ' },
+            status:         { value: 'active' }
+        }
+    });
+    assert.equal(updated.authored_fields.scope_question.value, 'Where did SARS-CoV-2 originate?', 'trimmed');
+    assert.equal(updated.authored_fields.status.value, 'active');
+    assert.ok(Number.isFinite(updated.authored_fields.status.updated));
+
+    // Invalid enum value and non-authored fields are rejected.
+    await assert.rejects(EntityModel.update(kase.id, {
+        authored_fields: { status: { value: 'paused' } }
+    }), /not one of/);
+    await assert.rejects(EntityModel.update(kase.id, {
+        authored_fields: { founded: { value: '1948' } }
+    }), /not an authored field/, 'sourced biography never enters via authored_fields');
+
+    const person = await EntityModel.create({ name: 'Case Person', type: 'person' });
+    await assert.rejects(EntityModel.update(person.id, {
+        authored_fields: { scope_question: { value: 'x' } }
+    }), /not an authored field/, 'case fields do not exist on person entities');
+
+    // null clears; empty values drop the field.
+    const cleared = await EntityModel.update(kase.id, { authored_fields: null });
+    assert.equal('authored_fields' in cleared, false);
+});
+
 test('entity: findEntityByName — exact-name lookup across types', async () => {
     resetState();
     const who = await EntityModel.create({ name: 'World Health Organization', type: 'organization' });

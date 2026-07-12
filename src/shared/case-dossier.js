@@ -28,6 +28,7 @@
 
 import { EntityModel } from './entity-model.js';
 import { ClaimModel } from './claim-model.js';
+import { parseMetaDate } from './dossier-time.js';
 import { EvidenceLinker } from './evidence-linker.js';
 import { TruthAdjudicationModel, VerdictModel, verdictVariance } from './truth-adjudication-model.js';
 import { IntegrityModel, matchVariance } from './integrity-model.js';
@@ -226,23 +227,8 @@ function earliestDeedDate(finding, propositionsById) {
     return best;
 }
 
-/** Parse an article metadata date string without reading the clock.
- *  Date-only strings get honest band precision — never a fake exact
- *  timestamp (P4). Returns { at, precision } or null. */
-function parseMetaDate(value) {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-        return { at: Math.floor(value), precision: 'exact' };
-    }
-    const s = String(value || '').trim();
-    if (!s) return null;
-    let precision = 'exact';
-    if (/^\d{4}$/.test(s)) precision = 'year';
-    else if (/^\d{4}-\d{2}$/.test(s)) precision = 'month';
-    else if (/^\d{4}-\d{2}-\d{2}$/.test(s)) precision = 'day';
-    const parsed = Date.parse(precision === 'year' ? `${s}-01-01` : precision === 'month' ? `${s}-01` : s);
-    if (Number.isNaN(parsed)) return null;
-    return { at: Math.floor(parsed / 1000), precision };
-}
+// parseMetaDate moved to dossier-time.js (Phase 19.1) — shared with
+// the entity-facts layer; behavior unchanged, tests stand.
 
 /**
  * One row per distinct orbit source (normalized claim URL), enriched
