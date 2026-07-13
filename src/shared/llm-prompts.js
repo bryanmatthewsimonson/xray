@@ -62,7 +62,7 @@ export const ANTHROPIC_VERSION = '2023-06-01';
 
 // The set of artifact kinds a pass can request. 'all' covers them all.
 export const SUGGEST_TASKS = Object.freeze([
-    'all', 'entities', 'claims', 'assessments', 'relationships', 'findings'
+    'all', 'entities', 'claims', 'facts', 'assessments', 'relationships', 'findings'
 ]);
 
 // The selectable suggestion categories (SUGGEST_TASKS without the 'all'
@@ -82,6 +82,8 @@ export const SUGGEST_KIND_LABELS = Object.freeze([
         hint: 'people, organizations, places, and things named in the text' },
     { kind: 'claims', label: 'Claims',
         hint: 'atomized assertions the article makes, each anchored to a verbatim quote' },
+    { kind: 'facts', label: 'Entity facts',
+        hint: 'structured biographical values (birth date, headquarters, role) — ONLY what this article\u2019s text asserts, never the model\u2019s own knowledge' },
     { kind: 'relationships', label: 'Relationships (evidence links)',
         hint: 'typed links between claims — most useful across multiple articles' },
     { kind: 'assessments', label: 'Assessments',
@@ -93,7 +95,7 @@ export const SUGGEST_KIND_LABELS = Object.freeze([
 // Proposal kind → selectable category. Baselines and revisions ride with
 // the forensic-findings layer (the prompt bundles their rules with it).
 const PROPOSAL_KIND_TO_CATEGORY = Object.freeze({
-    entity: 'entities', claim: 'claims', assessment: 'assessments',
+    entity: 'entities', claim: 'claims', fact: 'facts', assessment: 'assessments',
     relationship: 'relationships', finding: 'findings',
     baseline: 'findings', revision: 'findings'
 });
@@ -122,7 +124,7 @@ export function normalizeSuggestKinds(value) {
 // ------------------------------------------------------------------
 
 const PROPOSAL_KINDS = Object.freeze([
-    'entity', 'claim', 'assessment', 'relationship', 'finding', 'baseline', 'revision'
+    'entity', 'claim', 'fact', 'assessment', 'relationship', 'finding', 'baseline', 'revision'
 ]);
 
 export function buildSuggestTool() {
@@ -190,6 +192,47 @@ export function buildSuggestTool() {
                             is_key: {
                                 type: 'boolean',
                                 description: 'True if this is a central/load-bearing claim (kind=claim).'
+                            },
+                            // fact (Phase 19.6) — a structured biographical value the
+                            // ARTICLE asserts, riding a claim. quote is REQUIRED and
+                            // machine-checked; the value must come from the text, never
+                            // from your own knowledge of the entity.
+                            subject_ref: {
+                                type: 'string',
+                                description: 'REQUIRED for kind=fact: the entity ref ("E1") this fact describes.'
+                            },
+                            field: {
+                                type: 'string',
+                                description: 'REQUIRED for kind=fact: the typed field name from the subject\'s '
+                                    + 'registry (person: birth_date, death_date, occupation, affiliation, role, '
+                                    + 'religion, residence, nationality, education; organization: founded, '
+                                    + 'dissolved, headquarters, leadership, org_type, parent_org; place: '
+                                    + 'located_in, place_type; thing: thing_type, creator, created_date) — or '
+                                    + '"custom:<lowercase-token>" for a field the registry lacks.'
+                            },
+                            value: {
+                                type: 'string',
+                                description: 'REQUIRED for kind=fact: the value AS THIS ARTICLE\'S TEXT states '
+                                    + 'it (dates as "1962", "1962-03", or "1962-03-15" — only as precise as the '
+                                    + 'text is). NEVER supply a value from your own knowledge of the entity.'
+                            },
+                            value_entity_ref: {
+                                type: 'string',
+                                description: 'For entity-ref fields (affiliation, leadership, parent_org, '
+                                    + 'creator): the entity ref ("E2") the value points at (kind=fact).'
+                            },
+                            valid_from: {
+                                type: 'string',
+                                description: 'Validity start as the text states it — "1962", "1962-03", or '
+                                    + '"1962-03-15" (kind=fact). Omit when the text gives none.'
+                            },
+                            valid_to: {
+                                type: 'string',
+                                description: 'Validity end, same grammar (kind=fact). Omit when open/unstated.'
+                            },
+                            observed_at: {
+                                type: 'string',
+                                description: 'When the source observed the value, same grammar (kind=fact).'
                             },
                             // assessment
                             claim_ref: {
@@ -348,6 +391,17 @@ CLAIMS (atomized assertions the article makes or reports):
 - Give each claim a ref ("C1", "C2", …) so assessments and relationships can point at it.`;
 }
 
+function rulesFacts() {
+    return `
+ENTITY FACTS (structured biographical values THIS ARTICLE asserts — a fact is a claim with a typed field):
+- never supply a value from your own knowledge of the entity — only what this article's text asserts. If you know the WHO was founded in 1948 but this article doesn't say so, there is NO fact to propose.
+- quote is REQUIRED: the single contiguous VERBATIM span asserting the value — a fact whose quote cannot be located in the article is rejected.
+- subject_ref points at the entity the fact describes (propose the entity too if it isn't already); field comes from the subject's type registry or "custom:<token>".
+- value carries EXACTLY the precision the text does: a year stays "1962" — never expand to a full date the text didn't state. Same for valid_from/valid_to/observed_at.
+- for entity-ref fields (affiliation, leadership, parent_org, creator) also set value_entity_ref to the target entity's ref.
+- Give each fact a ref ("F1", "F2", …).`;
+}
+
 function rulesAssessments() {
     return `
 ASSESSMENTS (your judgment on a claim — a PERSONAL stance, never a fact verdict):
@@ -418,6 +472,7 @@ export function buildSystemPrompt({ tasks = null, task = 'all', url = '', title 
     const parts = [head + meta, RULES_ALL];
     if (wants('entities'))      parts.push(RULES_ENTITIES);
     if (wants('claims'))        parts.push(rulesClaims());
+    if (wants('facts'))         parts.push(rulesFacts());
     if (wants('assessments'))   parts.push(rulesAssessments());
     if (wants('relationships')) parts.push(rulesRelationships());
     if (wants('findings'))    { parts.push(rulesFindings()); parts.push(rulesRevisionsBaselines()); }

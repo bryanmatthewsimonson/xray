@@ -615,3 +615,72 @@ test('findEntityMatches: alias matches offer the CANONICAL record, deduped by ro
     const dangling = [{ id: 'e_a', name: 'Jane Roe', type: 'person', canonical_id: 'e_gone' }];
     assert.deepEqual(P.findEntityMatches('Jane Roe', 'person', dangling).map((e) => e.id), ['e_a']);
 });
+
+// --- kind: 'fact' (Phase 19.6) -----------------------------------------------
+
+const FACT_CTX = () => ({
+    grounding: createGroundingIndex(ARTICLE_TEXT),
+    entityRefs: new Set(['E1', 'E2']),
+    entityTypeByRef: { E1: 'person', E2: 'organization' },
+    claimRefs: new Set()
+});
+
+test('fact: normalizeProposals routes kind=fact, exposes entityTypeByRef, and never registers fact refs as claims', () => {
+    const norm = P.normalizeProposals([
+        ...mockProposals(),
+        { kind: 'fact', ref: 'F1', subject_ref: 'E1', field: 'occupation',
+          value: 'apologist', quote: 'Jacob Hansen spoke at length about the controversy.' }
+    ]);
+    assert.equal(norm.byKind.fact.length, 1);
+    assert.equal(norm.entityTypeByRef.E1, 'person');
+    assert.equal(norm.entityTypeByRef.E2, 'organization');
+    assert.ok(!norm.claimRefs.has('F1'), 'a fact ref is NOT a claim ref other kinds may target');
+});
+
+test('fact: validation — quote-grounding firewall + subject/field/value rules', () => {
+    const base = { kind: 'fact', subject_ref: 'E1', field: 'occupation', value: 'apologist',
+                   quote: 'Jacob Hansen spoke at length about the controversy.' };
+    assert.equal(P.validateProposal(base, FACT_CTX()).ok, true);
+
+    // The external-knowledge red line: an ungroundable quote is rejected outright.
+    const external = { ...base, quote: 'Hansen was born in 1974 in Utah.' };
+    const v = P.validateProposal(external, FACT_CTX());
+    assert.equal(v.ok, false);
+    assert.match(v.reason, /not model knowledge|not found/i);
+
+    assert.equal(P.validateProposal({ ...base, subject_ref: 'E9' }, FACT_CTX()).ok, false, 'unknown subject');
+    assert.equal(P.validateProposal({ ...base, field: 'founded' }, FACT_CTX()).ok, false, 'org field on a person');
+    assert.equal(P.validateProposal({ ...base, field: 'custom:stage-name' }, FACT_CTX()).ok, true, 'custom token accepted');
+    assert.equal(P.validateProposal({ ...base, value: '' }, FACT_CTX()).ok, false, 'value required');
+    assert.equal(P.validateProposal({ ...base, quote: '' }, FACT_CTX()).ok, false, 'quote required');
+
+    // entity-ref fields require a known value_entity_ref.
+    const affil = { kind: 'fact', subject_ref: 'E1', field: 'affiliation', value: 'The Church',
+                    quote: 'The Church declined to comment.' };
+    assert.equal(P.validateProposal(affil, FACT_CTX()).ok, false, 'value_entity_ref required');
+    assert.equal(P.validateProposal({ ...affil, value_entity_ref: 'E2' }, FACT_CTX()).ok, true);
+});
+
+test('fact: buildFactInput composes buildClaimInput — grounded quote, subject joins about, band dates', () => {
+    const grounding = createGroundingIndex(ARTICLE_TEXT);
+    const input = P.buildFactInput({
+        kind: 'fact', subject_ref: 'E1', field: 'occupation', value: 'apologist',
+        quote: 'Jacob Hansen spoke at length about the controversy.',
+        valid_from: '1974', observed_at: '2026-07-01'
+    }, {
+        entityIdByRef: { E1: 'entity_' + '1'.repeat(16), E2: 'entity_' + '2'.repeat(16) },
+        articleText: grounding, sourceUrl: 'https://x.test/a',
+        articleHash: 'a'.repeat(64), suggestedBy: 'llm:claude-test'
+    });
+    assert.equal(input.text, 'occupation: apologist', 'claim text synthesized when the model gave none');
+    assert.deepEqual(input.about, ['entity_' + '1'.repeat(16)], 'subject joins about');
+    assert.equal(input.quote, 'Jacob Hansen spoke at length about the controversy.',
+        'the ARTICLE\'S own grounded span is the stored quote');
+    assert.equal(input.suggested_by, 'llm:claude-test');
+    assert.equal(input.fact.entity_id, 'entity_' + '1'.repeat(16));
+    assert.equal(input.fact.field, 'occupation');
+    assert.equal(input.fact.valid_from, Date.UTC(1974, 0, 1) / 1000);
+    assert.equal(input.fact.valid_from_precision, 'year', 'band precision honest on the way in');
+    assert.equal(input.fact.observed_precision, 'day');
+    assert.equal(input.fact.valid_to, null);
+});
