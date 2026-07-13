@@ -43,14 +43,14 @@ import { STANCE_VALUES, STANCE_LABELS, CLAIM_RELATIONSHIPS, REVISION_RELATIONSHI
 import { ROLES, BASIS_VALUES } from '../shared/forensic-taxonomy.js';
 import {
     normalizeProposals, validateProposal, subjectLabelOf, PROPOSAL_ORDER,
-    buildEntityInput, buildClaimInput, buildAssessmentInput, buildLinkInput,
+    buildEntityInput, buildClaimInput, buildFactInput, buildAssessmentInput, buildLinkInput,
     buildFindingInput, buildBaselineInput, findEntityMatches
 } from '../shared/llm-proposals.js';
 import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { pageFragmentSelector } from '../shared/pdf-layout.js';
 
 const KIND_TITLES = {
-    entity: 'Entities', claim: 'Claims', assessment: 'Assessments',
+    entity: 'Entities', claim: 'Claims', fact: 'Entity facts', assessment: 'Assessments',
     relationship: 'Relationships', revision: 'Revisions',
     finding: 'Findings', baseline: 'Baselines'
 };
@@ -70,6 +70,13 @@ const EDIT_FIELDS = {
         { key: 'text', label: 'Claim text', type: 'textarea' },
         { key: 'quote', label: 'Verbatim quote (checked against the article)', type: 'textarea' },
         { key: 'is_key', label: 'Key claim', type: 'checkbox' }
+    ],
+    fact: [
+        { key: 'field', label: 'Field', type: 'text' },
+        { key: 'value', label: 'Value (as the article states it)', type: 'text' },
+        { key: 'quote', label: 'Verbatim quote (checked against the article)', type: 'textarea' },
+        { key: 'valid_from', label: 'Valid from (YYYY / YYYY-MM / YYYY-MM-DD)', type: 'text' },
+        { key: 'valid_to', label: 'Valid to', type: 'text' }
     ],
     assessment: [
         { key: 'stance', label: 'Stance', type: 'stance' },
@@ -133,7 +140,11 @@ export async function openLlmReview(opts) {
     // ONE grounding index for the whole panel — validation, badges, and
     // the accept-time builders all locate quotes through it (memoized).
     const grounding = createGroundingIndex(articleText);
-    const ctx = { claimRefs: norm.claimRefs, entityRefs: norm.entityRefs, entityLabelByRef: norm.entityLabelByRef, grounding };
+    // entityTypeByRef is LIVE: "use existing" re-points a ref at a
+    // registry record, whose type then governs fact-field validation.
+    const ctx = { claimRefs: norm.claimRefs, entityRefs: norm.entityRefs,
+                  entityLabelByRef: norm.entityLabelByRef,
+                  entityTypeByRef: norm.entityTypeByRef, grounding };
 
     // The existing registry, for accept-time dedupe: a proposed entity
     // whose name token-matches an existing one (same type) is offered
@@ -245,6 +256,18 @@ export async function openLlmReview(opts) {
                     const star = p.is_key ? '⭐ ' : '';
                     const ab = about.length ? ` <span class="xr-llm__dim">about ${escapeHtml(about.join(', '))}</span>` : '';
                     return `${star}${escapeHtml(truncate(p.text, 160))}${ab}${quoteHtml(p.quote)}`;
+                }
+                case 'fact': {
+                    const subject = norm.entityLabelByRef[p.subject_ref] || p.subject_ref || '?';
+                    // Soft hint when the value's text doesn't appear inside
+                    // the quote — dates get reformatted legitimately, so a
+                    // BADGE, never a validator failure (19.6 risk 2).
+                    const q = String(p.quote || '');
+                    const valueInQuote = q.toLowerCase().includes(String(p.value || '').toLowerCase());
+                    const drift = (q && p.value && !valueInQuote)
+                        ? ' <span class="xr-llm__anchor xr-llm__anchor--warn" title="The value text does not appear inside the quote — fine for reformatted dates, worth a second look otherwise">⚠ value not in quote</span>'
+                        : '';
+                    return `${escapeHtml(subject)} <span class="xr-llm__dim">· ${escapeHtml(p.field || '?')}</span> = ${escapeHtml(truncate(p.value, 80))}${drift}${quoteHtml(p.quote)}`;
                 }
                 case 'assessment': {
                     const st = (p.stance === null || p.stance === undefined) ? '' : `stance: ${escapeHtml(STANCE_LABELS[String(p.stance)] || String(p.stance))}`;
@@ -414,7 +437,18 @@ export async function openLlmReview(opts) {
                 on('edit-cancel', () => { row.editing = false; row.message = ''; render(); });
                 on('edit-apply', () => applyEdit(row, el));
                 const choice = el.querySelector('[data-act="entity-choice"]');
-                if (choice) choice.addEventListener('change', () => { row.entityChoice = choice.value; });
+                if (choice) choice.addEventListener('change', () => {
+                    row.entityChoice = choice.value;
+                    // Re-point the ref's TYPE at the chosen registry
+                    // record so fact rows referencing it re-validate
+                    // against the right field registry (19.6).
+                    if (row.ref) {
+                        const existing = choice.value !== 'new'
+                            ? registry.find((e) => e.id === choice.value) : null;
+                        ctx.entityTypeByRef[row.ref] = existing ? existing.type : (row.prop.entity_type || null);
+                        render();
+                    }
+                });
             });
         }
 
@@ -472,6 +506,10 @@ export async function openLlmReview(opts) {
             if ((row.kind === 'relationship' || row.kind === 'revision')
                 && (!claimIdByRef[p.source_claim_ref] || !claimIdByRef[p.target_claim_ref])) {
                 return 'Accept both linked claims first.';
+            }
+            if (row.kind === 'fact') {
+                if (!entityIdByRef[p.subject_ref]) return 'Accept its subject entity first.';
+                if (p.value_entity_ref && !entityIdByRef[p.value_entity_ref]) return 'Accept the value entity first.';
             }
             return '';
         }
@@ -585,6 +623,16 @@ export async function openLlmReview(opts) {
                     if (!input.source && defaultSourceEntityId) input.source = defaultSourceEntityId;
                     const c = await ClaimModel.create(input);
                     if (row.ref) claimIdByRef[row.ref] = c.id;
+                    return;
+                }
+                case 'fact': {
+                    // A fact creates a claim WITH the fact layer; accept-time
+                    // cleanFact (inside ClaimModel.create) is the hard
+                    // firewall — a registry violation here throws and the
+                    // row shows rejected-with-reason.
+                    const input = buildFactInput(p, { entityIdByRef, articleText: grounding, sourceUrl, articleHash, suggestedBy: sb });
+                    if (!input.source && defaultSourceEntityId) input.source = defaultSourceEntityId;
+                    await ClaimModel.create(input);
                     return;
                 }
                 case 'assessment':

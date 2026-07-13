@@ -61,3 +61,23 @@ test('buildSystemPrompt scopes to tasks: default omits assessments + the maneuve
     assert.match(buildSystemPrompt({ task: 'entities' }), /ENTITIES/);
     assert.match(buildSystemPrompt({ task: 'all' }), /MANEUVER GUIDE/);
 });
+
+// --- Entity facts category (Phase 19.6) --------------------------------------
+
+test('facts: a selectable category, DEFAULT OFF, mapped from kind=fact', () => {
+    assert.ok(SUGGEST_KINDS.includes('facts'), 'facts is selectable');
+    assert.ok(!SUGGEST_DEFAULT_KINDS.includes('facts'),
+        'facts is OPT-IN — external-knowledge risk makes it a judgment-class default');
+    assert.equal(categoryOfProposalKind('fact'), 'facts');
+    assert.ok(SUGGEST_KIND_LABELS.some((k) => k.kind === 'facts'), 'options row exists');
+});
+
+test('facts: the prompt rules carry the design-verbatim extraction ban', () => {
+    const p = buildSystemPrompt({ tasks: ['facts'] });
+    assert.match(p, /ENTITY FACTS/);
+    assert.match(p, /never supply a value from your own knowledge of the entity/,
+        'the §19.6 rule rides verbatim');
+    assert.match(p, /only what this article's text asserts/);
+    // And it stays OUT of the default scope.
+    assert.ok(!/ENTITY FACTS/.test(buildSystemPrompt({ tasks: ['entities', 'claims'] })));
+});
