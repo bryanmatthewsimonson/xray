@@ -19,6 +19,24 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-13 — Republish hashes exclude generated_at (19.7)
+
+Tags: `design`.
+
+The corpus publish gate is compare-and-skip: on every article publish,
+each tagged canonical entity's profile `about` and 30067 fact sheet
+are re-assembled and hash-compared against the stamps stored by
+`markProfilePublished`. The design text (§6) specifies the sheet
+content includes `generated_at` — which changes every assembly, so
+hashing the raw content would make every publish look changed and the
+gate would NEVER converge (republish forever). Decision:
+`factSheetContentHash`/`profileAboutHash` hash the canonical content
+with `generated_at` (and only it) stripped; the idempotence test
+(same content, two generatedAts ⇒ equal hashes) is the pin. Related:
+the 30067 `a` coordinates name each claim's ACTUAL stored
+`publishedPubkey` (fallback: the batch's publisher) — a coordinate
+minted with the wrong pubkey silently never resolves.
+
 ## 2026-07-13 — Wire p-tags resolve through the canonical chain (E3)
 
 Tags: `design`.

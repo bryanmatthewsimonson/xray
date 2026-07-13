@@ -334,6 +334,28 @@
       </p>
 
       <hr />
+      <h3 class="xr-opt__subhead">Entity corpus</h3>
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-entity-corpus-publishing" />
+        <span>Publish enriched entity profiles &amp; fact sheets (kind 0 + kind 30067)</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Off by default. When on, the reader's Publish batch assembles each
+        tagged entity's dossier and emits an enriched kind-0 profile (its
+        <code>about</code> built only from facts whose claims are themselves
+        published — every line says "per &lt;source&gt;", and contested
+        fields are omitted entirely) plus a kind-30067 fact sheet (the full
+        field table, contested fields shown both sides, every fact
+        referencing its published claim). <strong>These are signed by the
+        entity's own keys and publicly visible to anyone with relay
+        access; once relayed they are irrevocable in practice</strong> —
+        NIP-09 deletion requests are best-effort only and many relays
+        ignore them. Re-publishes happen automatically only when a
+        profile's content actually changed. Local dossiers always work
+        regardless.
+      </p>
+
+      <hr />
       <h3 class="xr-opt__subhead">Identity sharing</h3>
       <label class="xr-opt__field xr-opt__field--inline">
         <input type="checkbox" id="pref-account-publishing" />

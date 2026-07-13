@@ -696,6 +696,35 @@ Addressable. The adjudicated **word-deed match**: links a subject's **stated** c
 
 **Kind 30065 is RESERVED** for a future PrecedentCitation — a verdict/finding citing prior rulings of the same proposition or match class as `binding`/`persuasive` precedent (§stare-decisis, deferred). Until it ships, precedent MAY be expressed as an `a` tag on 30063/30064 with a slot-4 `precedent` marker and a slot-5 weight (`binding` | `persuasive`); consumers MUST treat it as informational only.
 
+## Kind 30067 — EntityFactSheet
+
+Addressable. The full structured field table for one entity — an adjudicable **index over verifiable events**: every fact references a *published* kind-30040 claim, so any consumer can follow the `a` coordinates to the verbatim quotes and `x`-hashed article versions each value rests on. Signed by the **entity's own key** (the same key its kind-0 profile uses); the publishing archive is named in a `p` tag. (Kind 30066 is deliberately unused — the moral-lens feature is wire-less by design and its guards machine-check that; 30067 is the next free slot.)
+
+```jsonc
+{
+  "kind": 30067,
+  "tags": [
+    ["d", "xray-facts"],                                  // fixed — one replaceable sheet per entity per archive
+    ["p", "<publisher pubkey>", "", "publisher"],         // the archive that assembled it
+    ["L", "xray/fact-sheet"],
+    ["l", "v1", "xray/fact-sheet"],
+    ["fact", "<field>", "<value>", "<valid_from band ISO | ''>", "<valid_to band ISO | ''>"],  // one per value
+    ["a", "30040:<claim publisher pk>:<claim d>", "", "fact-source"],  // one per distinct source claim
+    ["x", "<canonical article hash>"],                    // one per distinct article version cited
+    ["i", "<scheme:external-id>", ""],                    // NIP-39 mirrors, when known
+    ["client", "xray"]
+  ],
+  "content": "{ \"version\": 1, \"entity_id\": …, \"fields\": [ { \"field\", \"value\", \"value_ref_pubkey\", \"valid_from\", \"valid_from_precision\", \"valid_to\", \"valid_to_precision\", \"observed_at\", \"observed_precision\", \"contested\", \"sources\": [ { \"claim_coord\", \"url\", \"article_hash\", \"quote\", \"captured_at\" } ] } ], \"assembled_from\", \"generated_at\" }"
+}
+```
+
+- **Every fact in the sheet references a published 30040** — an unpublished side of a disagreement is withheld until its claim lands, while the field still flags `contested: true`. The sheet never contains anything a relay reader can't independently verify.
+- **Contested fields DO appear, both sides with evidence** — the inverse of the kind-0 `about`, which omits them entirely. The profile is the summary a generic client renders; the sheet is the structured record a fact-checking client consumes.
+- Date slots use the same **band-truncated ISO + explicit precision** convention as the 30040 fact tags: `1962`, `1962-03`, `1962-03-15`, or full ISO, never more precise than a source asserted.
+- No verdict states, no integrity vocabulary, no scores — a fact sheet carries *what sources said*, with citations; judgment kinds (30054/30063/30064) do their own work against the referenced claims.
+- Replaceable-event semantics make republish idempotent; the reference implementation republishes only when the content (excluding `generated_at`) actually changed.
+- The enriched kind-0 `about` this sheet accompanies is assembled from the same dossier: only published-claim facts, contested fields omitted, every line attributed "per <source>" — the profile cites, it never asserts.
+
 ## Kind 32125 — EntityArticleRelationship
 
 An addressable event asserting that a captured article stands in a named relationship to an entity — that the article is **`about`** the entity, or that the entity is the article's **`source`** (its asserter). Authored by the capturing user, it makes "which articles concern this entity, and who they attribute claims to" a one-hop relay query rather than a re-derivation from every claim. One event is emitted per `(entity, article, relationship)` triple at publish time, deduplicated by the `d` tag.
@@ -899,6 +928,8 @@ Other standard queries:
 { "kinds": [30061], "#a": ["30057:<pubkey>:<d>"], "limit": 50 }         // disputes targeting one audit
 { "kinds": [32126], "#d": ["twitter:jack"], "limit": 50 }               // who captured @jack + whom they say @jack is
 { "kinds": [32126], "#p": ["<derived-account-pubkey>"], "limit": 50 }   // same rendezvous, by derived pubkey
+{ "kinds": [30067], "authors": ["<entity-pubkey>"], "limit": 10 }       // an entity's fact sheet(s), one per archive
+{ "kinds": [30040, 30067], "#x": ["<article-hash>"], "limit": 100 }     // claims + fact sheets citing this exact text
 { "kinds": [30023, 30040, 32126, 30054, 30062, 30064, 1985], "#p": ["<equivalence-pubkeys…>"], "limit": 300 } // entity feed, hop 1 (a reader's equivalence set)
 ```
 

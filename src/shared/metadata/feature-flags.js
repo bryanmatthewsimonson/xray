@@ -85,7 +85,17 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // captured authority excerpts to Anthropic. Derived view only —
   // nothing is durably saved, nothing is published, no wire kind
   // exists (30066 is left free, guard-tested).
-  moralLens: false
+  moralLens: false,
+
+  // Phase 19.7 (docs/ENTITY_DOSSIER_DESIGN.md §6, ECD §4.5): gates the
+  // PUBLISH paths for the enriched kind-0 entity profile and the
+  // kind-30067 entity fact sheet. ENTITY KEYS SIGN these, relays are
+  // public, and publication is irrevocable in practice (NIP-09
+  // deletion is best-effort only) — the Options disclosure says all
+  // of this. Local dossiers / facts / conflicts are never gated —
+  // they're the product. Hard prereq honored: Phase 17A (E1 dedupe +
+  // E3 canonical sweep) shipped first.
+  entityCorpusPublishing: false
 });
 
 /**
