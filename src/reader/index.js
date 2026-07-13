@@ -14,6 +14,8 @@ import { ContentExtractor } from '../shared/content-extractor.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { EntityModel, installEntityStorageBridge, mergeEntityRefs, findEntityByName, canonicalIdOf } from '../shared/entity-model.js';
+import { assembleEntityDossier } from '../shared/entity-dossier.js';
+import { buildProfileAbout, buildFactSheetEvent, profileAboutHash, factSheetContentHash } from '../shared/entity-profile.js';
 import { recordAccount, extractPostAuthor } from '../shared/identity/account-registry.js';
 import { selectAccountsToPublish } from '../shared/identity/account-publish.js';
 import { ClaimModel, exactFromAnchor } from '../shared/claim-model.js';
@@ -4520,6 +4522,123 @@ async function publish() {
             }
         }
 
+        // ---- Entity corpus (19.7, flag-gated) --------------------------
+        // Enriched kind-0 profiles + kind-30067 fact sheets, ENTITY-
+        // signed. For each tagged entity resolved to canonical: assemble
+        // the dossier off ONE preloaded snapshot set, hash-compare
+        // (generated_at-free) against the stored publish stamps, and
+        // republish only what changed — both kinds are replaceable, so
+        // retries are idempotent. Foreign/keyless entities skip (we
+        // can't sign for them); the per-field checklist persisted as
+        // publish_excluded_fields is honored here, which is why it is
+        // persisted at all.
+        const corpusResults = { ok: 0, fail: 0, errors: [] };
+        let corpusSel = [];
+        await loadFlags();
+        if (isEnabled('entityCorpusPublishing')) {
+            try {
+                const entitiesAllForCorpus = await EntityModel.getAll();
+                const roots = new Set();
+                for (const ref of entityRefs) {
+                    if (ref && ref.entity_id) roots.add(canonicalIdOf(ref.entity_id, entitiesAllForCorpus));
+                }
+                // One snapshot set shared across every dossier assembly.
+                const snapshots = {
+                    entities: entitiesAllForCorpus,
+                    claims: await ClaimModel.getAll()
+                };
+                for (const rootId of [...roots].sort()) {
+                    const entity = entitiesAllForCorpus[rootId];
+                    if (!entity || !entity.keypair || !entity.keypair.privateKey) continue;
+                    const excluded = entity.publish_excluded_fields || [];
+                    const dossier = await assembleEntityDossier(rootId, {
+                        ...snapshots, generatedAt: Math.floor(Date.now() / 1000)
+                    });
+                    // Skip-fast: nothing published in the family and no
+                    // stored stamps ⇒ nothing to enrich or diff.
+                    const about = buildProfileAbout(dossier, { excludedFields: excluded });
+                    const sheet = buildFactSheetEvent(dossier, {
+                        entityPubkey: entity.keypair.pubkey,
+                        publisherPubkey: userPubkey,
+                        generatedAt: Math.floor(Date.now() / 1000),
+                        excludedFields: excluded,
+                        entities: entitiesAllForCorpus
+                    });
+                    const [aboutHash, sheetHash] = await Promise.all([
+                        profileAboutHash(about), factSheetContentHash(sheet)
+                    ]);
+                    const profileChanged = aboutHash !== entity.publishedProfileHash;
+                    const sheetHasFacts = sheet.tags.some((t) => t[0] === 'fact');
+                    const sheetChanged = sheetHasFacts && sheetHash !== entity.publishedFactSheetHash;
+                    if (profileChanged || sheetChanged) {
+                        corpusSel.push({ entity, about, aboutHash, sheet, sheetHash,
+                                         profileChanged, sheetChanged });
+                    }
+                }
+            } catch (err) {
+                console.warn('[X-Ray Reader] corpus selection failed:', err);
+            }
+        }
+        if (corpusSel.length > 0) {
+            const corpusBase = totalEvents;
+            totalEvents += corpusSel.reduce((n, s) =>
+                n + (s.profileChanged ? 1 : 0) + (s.sheetChanged ? 1 : 0), 0);
+            let cStep = 0;
+            for (const sel of corpusSel) {
+                const { entity } = sel;
+                const canonicalNpub = null;   // roots only — never an alias here
+                const stamps = {};
+                try {
+                    if (sel.profileChanged) {
+                        btn.textContent = `Publishing (${corpusBase + (++cStep)}/${totalEvents})…`;
+                        const unsigned = EventBuilder.buildProfileEvent(entity, canonicalNpub, sel.about);
+                        const signed = await LocalKeyManager.signEvent(unsigned, entity.keyName);
+                        const resp = await browserApi.runtime.sendMessage({
+                            type: 'xray:relay:publish', event: signed, relays: await getConfiguredRelays()
+                        });
+                        if (resp && resp.ok && resp.results) recordRelayResults(resp.results);
+                        if (resp && resp.ok && await publishOk(resp)) {
+                            corpusResults.ok++;
+                            stamps.profileEventId = signed.id;
+                            stamps.profileHash = sel.aboutHash;
+                        } else {
+                            corpusResults.fail++;
+                            corpusResults.errors.push(`${entity.name} profile: ${(resp && resp.error) || 'no relays accepted'}`);
+                        }
+                        setProgress(corpusBase + cStep, totalEvents);
+                        await sleep(BATCH_PUBLISH_DELAY_MS);
+                    }
+                    if (sel.sheetChanged) {
+                        btn.textContent = `Publishing (${corpusBase + (++cStep)}/${totalEvents})…`;
+                        const signedSheet = await LocalKeyManager.signEvent(sel.sheet, entity.keyName);
+                        const resp = await browserApi.runtime.sendMessage({
+                            type: 'xray:relay:publish', event: signedSheet, relays: await getConfiguredRelays()
+                        });
+                        if (resp && resp.ok && resp.results) recordRelayResults(resp.results);
+                        if (resp && resp.ok && await publishOk(resp)) {
+                            corpusResults.ok++;
+                            stamps.factSheetEventId = signedSheet.id;
+                            stamps.factSheetHash = sel.sheetHash;
+                        } else {
+                            corpusResults.fail++;
+                            corpusResults.errors.push(`${entity.name} fact sheet: ${(resp && resp.error) || 'no relays accepted'}`);
+                        }
+                        setProgress(corpusBase + cStep, totalEvents);
+                        await sleep(BATCH_PUBLISH_DELAY_MS);
+                    }
+                    // Stamp only what actually landed (relay-confirmed).
+                    if (Object.keys(stamps).length > 0) {
+                        try { await EntityModel.markProfilePublished(entity.id, stamps); }
+                        catch (_) { /* best-effort */ }
+                    }
+                } catch (err) {
+                    corpusResults.fail++;
+                    corpusResults.errors.push(`${entity.name}: ${err.message || String(err)}`);
+                    console.warn('[X-Ray Reader] corpus publish failed:', entity.id, err);
+                }
+            }
+        }
+
         // Build + surface the end-of-batch summary.
         showPublishSummary({
             includeComments,
@@ -4554,6 +4673,8 @@ async function publish() {
             vMirrorCount: vMirrorSel.length,
             integrityResults,
             integrityCount: integritySel.length,
+            corpusResults,
+            corpusCount: corpusSel.length,
             relayStats
         });
 
@@ -4765,6 +4886,7 @@ function showPublishSummary({
     verdictResults = { ok: 0, fail: 0, errors: [] }, verdictCount = 0,
     vMirrorResults = { ok: 0, fail: 0, errors: [] }, vMirrorCount = 0,
     integrityResults = { ok: 0, fail: 0, errors: [] }, integrityCount = 0,
+    corpusResults = { ok: 0, fail: 0, errors: [] }, corpusCount = 0,
     relayStats
 }) {
     // Console breakdown (always useful for debugging)
@@ -4785,6 +4907,7 @@ function showPublishSummary({
     if (verdictResults && verdictCount > 0)                  console.log('verdicts:',        verdictResults);
     if (vMirrorResults && vMirrorCount > 0)                  console.log('verdict mirrors:', vMirrorResults);
     if (integrityResults && integrityCount > 0)              console.log('integrity findings:', integrityResults);
+    if (corpusResults && corpusCount > 0)                     console.log('entity corpus:', corpusResults);
     console.log('per relay:', Object.fromEntries(relayStats));
     console.groupEnd();
 
@@ -4808,6 +4931,7 @@ function showPublishSummary({
     const truFails  = ((verdictResults && verdictResults.fail) || 0)
                     + ((vMirrorResults && vMirrorResults.fail) || 0)
                     + ((integrityResults && integrityResults.fail) || 0);
+    const corpFails = (corpusResults && corpusResults.fail) || 0;
 
     const segments = [];
     segments.push(articleResults.successful > 0
@@ -4859,6 +4983,9 @@ function showPublishSummary({
     if (integrityCount > 0) {
         segments.push(`${integrityResults.ok}/${integrityCount} integrity finding${integrityCount === 1 ? '' : 's'}`);
     }
+    if (corpusCount > 0) {
+        segments.push(`${corpusResults.ok}/${corpusResults.ok + corpusResults.fail} corpus event${(corpusResults.ok + corpusResults.fail) === 1 ? '' : 's'} (profiles + fact sheets)`);
+    }
     let line = 'Published: ' + segments.join(', ') + '.';
 
     const acceptedAll = [...relayStats.values()].filter((s) => s.fail === 0 && s.ok > 0).length;
@@ -4879,7 +5006,7 @@ function showPublishSummary({
         line += ` Rejected by ${names} — consider removing in Options.`;
     }
 
-    const anyFail = dead.length > 0 || cmtFails > 0 || entFails > 0 || clmFails > 0 || relFails > 0 || acctFails > 0 || jdgFails > 0 || audFails > 0 || forFails > 0 || truFails > 0;
+    const anyFail = dead.length > 0 || cmtFails > 0 || entFails > 0 || clmFails > 0 || relFails > 0 || acctFails > 0 || jdgFails > 0 || audFails > 0 || forFails > 0 || truFails > 0 || corpFails > 0;
     const level = (anyFail || articleResults.successful === 0)
         ? (articleResults.successful > 0 ? 'warning' : 'error')
         : 'success';

@@ -747,6 +747,7 @@ function render() {
         libraryChromeVisible(false);
         renderEntityDossierView($('#xr-view'), {
             entityId: state.view.entityId,
+            relays: state.relays,
             callbacks: viewCallbacks
         });
     } else if (state.view.name === 'entity') {

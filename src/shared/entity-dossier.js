@@ -249,7 +249,11 @@ function evidenceOf(claim) {
         article_hash:       claim.article_hash || null,
         captured_at:        claim.created || null,
         suggested_by:       claim.suggested_by || 'user',
-        published_event_id: claim.publishedEventId || null
+        published_event_id: claim.publishedEventId || null,
+        // Who published the claim event — the 30067 fact sheet's
+        // `a` coordinates must name the ACTUAL publisher or they
+        // don't resolve (19.7).
+        published_pubkey:   claim.publishedPubkey || null
     };
 }
 

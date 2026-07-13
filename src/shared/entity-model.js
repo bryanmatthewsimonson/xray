@@ -483,6 +483,17 @@ export const EntityModel = {
         if (updates.description != null) patched.description = updates.description;
         if (updates.nip05 != null)       patched.nip05 = updates.nip05;
         if ('canonical_id' in updates)   patched.canonical_id = updates.canonical_id || null;
+        // 19.7: the per-field publish checklist — fields the user
+        // excluded from the public profile/fact sheet. Persisted so
+        // the AUTOMATIC hash-compare republish honors it, not just
+        // the modal session that set it.
+        if ('publish_excluded_fields' in updates) {
+            const list = Array.isArray(updates.publish_excluded_fields)
+                ? [...new Set(updates.publish_excluded_fields.filter((f) => typeof f === 'string' && f))]
+                : [];
+            if (list.length > 0) patched.publish_excluded_fields = list.sort();
+            else delete patched.publish_excluded_fields;
+        }
         // Authored fields (Phase 19 §4): the user's OWN framing — case
         // scope/status in v1. Never presented as sourced facts, never
         // riding claims (claims require a source). Whole-map replace;
@@ -649,6 +660,29 @@ export const EntityModel = {
         if (!record) return null;
         record.publishedAt = Math.floor(Date.now() / 1000);
         if (eventId) record.publishedEventId = eventId;
+        all[id] = record;
+        await Storage.set('entities', all);
+        return await EntityModel.get(id);
+    },
+
+    /**
+     * Stamp the 19.7 corpus-publishing state — profile/fact-sheet
+     * content hashes (computed generated_at-free by entity-profile.js)
+     * plus event ids. Bypasses update() for the same reason
+     * markPublished does: stamping a publish must not bump `updated`,
+     * or every publish would look like a local edit and re-trigger
+     * itself forever.
+     */
+    markProfilePublished: async (id, { profileEventId = null, profileHash = null,
+                                       factSheetEventId = null, factSheetHash = null } = {}) => {
+        const all = await Storage.get('entities', {});
+        const record = all[id];
+        if (!record) return null;
+        record.profilePublishedAt = Math.floor(Date.now() / 1000);
+        if (profileEventId)   record.publishedProfileEventId = profileEventId;
+        if (profileHash)      record.publishedProfileHash = profileHash;
+        if (factSheetEventId) record.publishedFactSheetEventId = factSheetEventId;
+        if (factSheetHash)    record.publishedFactSheetHash = factSheetHash;
         all[id] = record;
         await Storage.set('entities', all);
         return await EntityModel.get(id);

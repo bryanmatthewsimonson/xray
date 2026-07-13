@@ -14,6 +14,11 @@ import { el, clear } from './dom.js';
 import { assembleEntityDossier } from '../shared/entity-dossier.js';
 import { renderIntegrityBlock } from './integrity-block.js';
 import { Utils } from '../shared/utils.js';
+import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
+import { EntityModel } from '../shared/entity-model.js';
+import { LocalKeyManager } from '../shared/local-key-manager.js';
+import { EventBuilder } from '../shared/event-builder.js';
+import { buildProfileAbout, buildFactSheetEvent, profileAboutHash, factSheetContentHash } from '../shared/entity-profile.js';
 
 function fmtDate(unixSec) {
     if (!unixSec) return '';
@@ -79,11 +84,67 @@ export function renderEntityDossierView(host, params) {
         renderRelationshipsBlock(bodyHost, dossier, callbacks);
         renderJudgmentsBlock(bodyHost, dossier);
         renderContentBlock(bodyHost, dossier);
+        // 19.7: manual republish, flag-gated at the CALL SITE (the
+        // house split — builders stay ungated). Force-publishes both
+        // wire surfaces regardless of the hash gate; entity-signed.
+        await mountRepublishButton(head, dossier, params.relays || []);
     })().catch((err) => {
         Utils.error('Entity dossier render failed', err);
         clear(bodyHost);
         bodyHost.appendChild(el('p', 'xr-view__empty', 'Dossier failed to assemble — see console.'));
     });
+}
+
+// --- 19.7 manual republish ---------------------------------------------
+
+async function mountRepublishButton(head, dossier, relays) {
+    try { await loadFlags(); } catch (_) { return; }
+    if (!isEnabled('entityCorpusPublishing')) return;
+    if (dossier.subject.foreign || !relays.length) return;
+    const entity = await EntityModel.get(dossier.subject.id).catch(() => null);
+    if (!entity || !entity.keypair || !entity.keypair.privateKey) return;
+
+    const btn = el('button', 'xr-portal__btn xr-portal__btn--ghost', 'Republish profile');
+    btn.type = 'button';
+    btn.title = 'Re-emit this entity\'s kind-0 profile and kind-30067 fact sheet (entity-signed, public)';
+    btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = 'Publishing…';
+        try {
+            await LocalKeyManager.init();
+            const excluded = entity.publish_excluded_fields || [];
+            const now = Math.floor(Date.now() / 1000);
+            const entities = await EntityModel.getAll();
+            const about = buildProfileAbout(dossier, { excludedFields: excluded });
+            const sheet = buildFactSheetEvent(dossier, {
+                entityPubkey: entity.keypair.pubkey,
+                publisherPubkey: entity.keypair.pubkey,   // fallback only — coords carry each claim's real publisher
+                generatedAt: now, excludedFields: excluded, entities
+            });
+            const stamps = {};
+            const publish = async (unsigned) => {
+                const signed = await LocalKeyManager.signEvent(unsigned, entity.keyName);
+                const resp = await chrome.runtime.sendMessage({ type: 'xray:relay:publish', event: signed, relays });
+                if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'publish failed');
+                return signed;
+            };
+            const signedProfile = await publish(EventBuilder.buildProfileEvent(entity, null, about));
+            stamps.profileEventId = signedProfile.id;
+            stamps.profileHash = await profileAboutHash(about);
+            if (sheet.tags.some((t) => t[0] === 'fact')) {
+                const signedSheet = await publish(sheet);
+                stamps.factSheetEventId = signedSheet.id;
+                stamps.factSheetHash = await factSheetContentHash(sheet);
+            }
+            await EntityModel.markProfilePublished(entity.id, stamps);
+            btn.textContent = 'Republished ✓';
+        } catch (err) {
+            Utils.error('Republish failed', err);
+            btn.textContent = 'Republish failed — see console';
+            btn.disabled = false;
+        }
+    });
+    head.appendChild(btn);
 }
 
 // --- §5.1 identity ----------------------------------------------------

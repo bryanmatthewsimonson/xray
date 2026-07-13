@@ -701,6 +701,8 @@ async function loadAdvanced() {
         isEnabled('forensicPublishing');
     document.getElementById('pref-truth-publishing').checked =
         isEnabled('truthAdjudicationPublishing');
+    document.getElementById('pref-entity-corpus-publishing').checked =
+        isEnabled('entityCorpusPublishing');
     document.getElementById('pref-account-publishing').checked =
         isEnabled('platformAccountPublishing');
 
@@ -776,6 +778,8 @@ async function saveAdvanced() {
     await setOverride('truthAdjudicationPublishing', publishVerdicts ? true : null);
     const publishAccounts = document.getElementById('pref-account-publishing').checked;
     await setOverride('platformAccountPublishing', publishAccounts ? true : null);
+    const publishCorpus = document.getElementById('pref-entity-corpus-publishing').checked;
+    await setOverride('entityCorpusPublishing', publishCorpus ? true : null);
 
     // Moral lens (Phase 16): checked → explicit override on; unchecked →
     // clear the override back to the default (off).

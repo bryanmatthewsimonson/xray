@@ -627,3 +627,27 @@ test('r co-emits share ONE dedupe: no duplicate r tags across responds-to/captur
         'https://other.org/piece', 'https://fresh.example/x'
     ]));
 });
+
+// --- buildProfileEvent (Phase 19.7 — the FIRST profile-event tests) -----------
+
+test('buildProfileEvent — boilerplate back-compat + enriched about + i tags', () => {
+    const entity = {
+        id: 'entity_pp', name: 'W.H.O.', type: 'organization', nip05: '',
+        keypair: { pubkey: 'a'.repeat(64) }
+    };
+    // Pre-19.7 call shape: unchanged boilerplate.
+    const plain = EventBuilder.buildProfileEvent(entity, null);
+    assert.equal(plain.kind, 0);
+    assert.equal(plain.pubkey, 'a'.repeat(64));
+    assert.equal(JSON.parse(plain.content).about, 'organization entity created by X-Ray');
+    assert.deepEqual(plain.tags, []);
+
+    // Enriched about replaces the boilerplate; refers_to + i tags ride.
+    const enriched = EventBuilder.buildProfileEvent(entity, 'npub1canonical',
+        'organization entity. Global health agency.\nheadquarters: Geneva (per who-times.test)',
+        ['wikidata:Q7817']);
+    const content = JSON.parse(enriched.content);
+    assert.match(content.about, /per who-times\.test/);
+    assert.deepEqual(enriched.tags.find((t) => t[0] === 'refers_to'), ['refers_to', 'npub1canonical']);
+    assert.deepEqual(enriched.tags.find((t) => t[0] === 'i'), ['i', 'wikidata:Q7817', '']);
+});

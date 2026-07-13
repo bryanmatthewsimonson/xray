@@ -472,11 +472,19 @@ export const EventBuilder = {
     return hash.substring(0, 16);
   },
 
-  // Build kind 0 profile event for entity
-  buildProfileEvent: (entity, canonicalNpub) => {
+  // Build kind 0 profile event for entity. `about` (19.7, additive
+  // param) is the enriched dossier-assembled text from
+  // entity-profile.js#buildProfileAbout — published-claim facts only,
+  // contested fields omitted, "per <source>" attribution; when absent
+  // the pre-19.7 boilerplate ships unchanged. `externalIds` emits
+  // NIP-39 ['i', ...] tags (E2 is unshipped, so usually empty).
+  buildProfileEvent: (entity, canonicalNpub, about = null, externalIds = []) => {
     const tags = [];
     if (canonicalNpub) {
       tags.push(['refers_to', canonicalNpub]);
+    }
+    for (const extId of (externalIds || [])) {
+      if (extId) tags.push(['i', String(extId), '']);
     }
     return {
       kind: 0,
@@ -485,7 +493,7 @@ export const EventBuilder = {
       tags,
       content: JSON.stringify({
         name: entity.name,
-        about: `${entity.type} entity created by X-Ray`,
+        about: about || `${entity.type} entity created by X-Ray`,
         nip05: entity.nip05 || undefined
       })
     };
