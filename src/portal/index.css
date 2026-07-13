@@ -842,3 +842,96 @@ button.xr-badge--case { cursor: pointer; background: transparent; }
 .xr-resolve__actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 .xr-inspector__audit-modules { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+
+/* Entity dossier view (Phase 19.4) — xr-dossier-* family. */
+.xr-dossier {
+  padding: 0 16px 24px;
+  max-width: 860px;
+}
+.xr-dossier__block {
+  margin: 16px 0;
+}
+.xr-dossier__desc {
+  color: var(--xr-text-dim, #94a3b8);
+  font-size: 13px;
+  margin: 4px 0 8px;
+}
+.xr-dossier__fields {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.xr-dossier__field {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  font-size: 13px;
+}
+.xr-dossier__field:last-child { border-bottom: none; }
+.xr-dossier__field--contested { background: rgba(234, 179, 8, 0.07); }
+.xr-dossier__field-label {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  color: var(--xr-text-dim, #94a3b8);
+}
+.xr-dossier__field-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+.xr-dossier__unknown {
+  color: var(--xr-text-dim, #64748b);
+  font-style: italic;
+}
+.xr-dossier__value-wrap { position: relative; }
+.xr-dossier__value {
+  background: none;
+  border: none;
+  border-bottom: 1px dotted rgba(148, 163, 184, 0.6);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0 1px;
+}
+.xr-dossier__value:hover { border-bottom-style: solid; }
+.xr-dossier__validity {
+  color: var(--xr-text-dim, #94a3b8);
+  font-size: 11.5px;
+}
+.xr-dossier__history {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  opacity: 0.75;
+  font-size: 12px;
+}
+.xr-dossier__evidence {
+  flex-basis: 100%;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-left: 3px solid rgba(148, 163, 184, 0.4);
+  background: rgba(148, 163, 184, 0.06);
+  border-radius: 0 6px 6px 0;
+}
+.xr-dossier__evidence-item + .xr-dossier__evidence-item { margin-top: 8px; }
+.xr-dossier__quote {
+  margin: 0 0 4px;
+  font-size: 12.5px;
+  font-style: italic;
+}
+.xr-dossier__evidence-meta {
+  font-size: 11.5px;
+  color: var(--xr-text-dim, #94a3b8);
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.xr-dossier__evidence-src { color: inherit; }

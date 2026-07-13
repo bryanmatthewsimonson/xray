@@ -63,6 +63,16 @@ export function renderEntityView(host, params) {
         `${c.claimsAbout} claim(s) · ${c.entities} co-tagged · ${c.cases} case(s) · ${c.accounts} account(s)`
         + (c.claimsSourced ? ` · sourced ${c.claimsSourced}` : '')));
 
+    // 19.4: the full dossier is the local-first field/provenance view;
+    // this spokes view stays the published-corpus graph.
+    const localEntityId = (entityIndex[focusPubkey] || {}).entityId;
+    if (localEntityId && callbacks.onOpenEntityDossier) {
+        const dossierBtn = el('button', 'xr-portal__btn xr-portal__btn--ghost', 'Open dossier');
+        dossierBtn.type = 'button';
+        dossierBtn.addEventListener('click', () => callbacks.onOpenEntityDossier(localEntityId));
+        head.appendChild(dossierBtn);
+    }
+
     const locate = el('input', 'xr-view__locate');
     locate.type = 'search';
     locate.placeholder = 'Locate in graph…';

@@ -848,3 +848,28 @@ body.xr-side {
   font-size: 11px;
   color: var(--xr-text-dim);
 }
+
+/* Compact dossier block (Phase 19.4). */
+.xr-side__dossier-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.xr-side__dossier-table td {
+  padding: 3px 6px 3px 0;
+  vertical-align: baseline;
+}
+.xr-side__dossier-label {
+  color: var(--xr-text-dim);
+  white-space: nowrap;
+  width: 40%;
+}
+.xr-side__dossier-extra {
+  color: var(--xr-text-dim);
+  font-size: 10.5px;
+}
+.xr-side__dossier-contested {
+  color: #b45309;
+  font-size: 11.5px;
+  margin-bottom: 4px;
+}
