@@ -25,6 +25,7 @@ import { buildBuckets, brushRange } from './timeline.js';
 import { el, svgEl, clear, truncate, shortKey } from './dom.js';
 import { renderEntityView } from './entity-view.js';
 import { renderCaseView } from './case-view.js';
+import { renderEntityDossierView } from './entity-dossier-view.js';
 import { findingsForEntity } from './forensic-data.js';
 import { loadLocalLedger, reconcile, countLocalOnly, listLocalArtifacts } from './reconcile.js';
 import { getByEventId as journalGetByEventId } from '../shared/event-journal.js';
@@ -735,11 +736,20 @@ const viewCallbacks = {
     onOpenCase: (pubkey) => { state.view = { name: 'case', pubkey }; closeInspector(); render(); },
     onOpenGraph: (pubkey) => { state.view = { name: 'entity', pubkey }; state.expandedTypes = new Set(); closeInspector(); render(); },
     onExpand: (type) => { state.expandedTypes.add(type); render(); },
-    onOpenItem: (item) => { openInspector(item); }
+    onOpenItem: (item) => { openInspector(item); },
+    // 19.4: the entity dossier is LOCAL-id addressed (local-first view
+    // — the subject need not be published).
+    onOpenEntityDossier: (entityId) => { state.view = { name: 'entity-dossier', entityId }; closeInspector(); render(); }
 };
 
 function render() {
-    if (state.view.name === 'entity') {
+    if (state.view.name === 'entity-dossier') {
+        libraryChromeVisible(false);
+        renderEntityDossierView($('#xr-view'), {
+            entityId: state.view.entityId,
+            callbacks: viewCallbacks
+        });
+    } else if (state.view.name === 'entity') {
         libraryChromeVisible(false);
         renderEntityView($('#xr-view'), {
             items: state.items,
@@ -1041,5 +1051,13 @@ function wireChrome() {
 
 document.addEventListener('DOMContentLoaded', () => {
     wireChrome();
+    // 19.4 deep-link: `#dossier=<entityId>` (the side panel's "Open
+    // full dossier" hand-off). Parsed ONCE at boot; a dangling id
+    // falls back silently to the library; no history writes.
+    const dossierMatch = /#dossier=(entity_[0-9a-f]{16})/.exec(location.hash || '');
+    if (dossierMatch) {
+        state.view = { name: 'entity-dossier', entityId: dossierMatch[1] };
+        render();
+    }
     boot();
 });

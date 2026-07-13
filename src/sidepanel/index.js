@@ -30,6 +30,7 @@ import { equivalencePubkeys } from '../shared/entity-equivalence.js';
 import { buildFeedFilters, claimCoords, buildJudgmentFilter, assembleFeed } from '../shared/entity-feed.js';
 import { pushEntities, pullEntities, clearRemote, pushRelayList, pullRelayList, normalizeRelayUrl } from '../shared/entity-sync.js';
 import { dedupeReport, recentMerges, DedupeDismissals } from '../shared/entity-health.js';
+import { assembleEntityDossier, compactFieldRows } from '../shared/entity-dossier.js';
 import { Storage } from '../shared/storage.js';
 import { listArticles } from '../shared/archive-cache.js';
 
@@ -262,6 +263,13 @@ function renderDetail(entity) {
         <button type="button" class="xr-side__ghost-btn" id="xr-link-account">Link an account…</button>
       </div>
 
+      <div class="xr-side__dossier">
+        <h3>Dossier</h3>
+        <p class="xr-side__hint">The top captured facts about ${escapeHtml(entity.name)} — every value cites a source. Contested fields show both sides in the full dossier.</p>
+        <div id="xr-dossier-compact">Loading…</div>
+        <button type="button" class="xr-side__ghost-btn" id="xr-open-dossier">Open full dossier</button>
+      </div>
+
       <div class="xr-side__local-claims">
         <h3>Your claims about this entity</h3>
         <p class="xr-side__hint">Claims you've captured that are about ${escapeHtml(entity.name)} — with your stance and labels. This is the case dashboard's local half; it works before anything is published.</p>
@@ -338,6 +346,13 @@ function renderDetail(entity) {
     // Network claims about this entity (Phase 10.4) — on-demand relay query.
     const loadClaimsBtn = $('#xr-load-network-claims');
     if (loadClaimsBtn) loadClaimsBtn.addEventListener('click', () => loadNetworkClaims(entity));
+
+    // Phase 19.4 — the compact dossier block + full-dossier hand-off.
+    renderCompactDossier(entity);
+    $('#xr-open-dossier').addEventListener('click', () => {
+        const url = chrome.runtime.getURL(`src/portal/index.html#dossier=${entity.id}`);
+        chrome.tabs.create({ url });
+    });
 
     // Phase 11.5 — the case-dashboard halves. Storage-change re-renders
     // wipe the shell, so repaint the network list from the stash rather
@@ -1653,6 +1668,41 @@ async function runClear(userKey) {
 // ------------------------------------------------------------------
 // Wire up
 // ------------------------------------------------------------------
+
+// ------------------------------------------------------------------
+// Compact dossier block (Phase 19.4) — the side panel's projection of
+// the full dossier: top known fields, a contested badge, and the
+// "Open full dossier" hand-off. All selection logic is the pure
+// compactFieldRows; this only paints.
+// ------------------------------------------------------------------
+
+async function renderCompactDossier(entity) {
+    const host = $('#xr-dossier-compact');
+    if (!host) return;
+    try {
+        const dossier = await assembleEntityDossier(entity.id);
+        const compact = compactFieldRows(dossier, 5);
+        if (compact.rows.length === 0 && compact.contested === 0) {
+            host.innerHTML = '<p class="xr-side__hint">No captured facts yet — select text in a captured article and choose "Add fact".</p>';
+            return;
+        }
+        host.innerHTML = `
+            ${compact.contested > 0
+                ? `<div class="xr-side__dossier-contested">⚠ ${compact.contested} contested field${compact.contested === 1 ? '' : 's'} — sources disagree</div>`
+                : ''}
+            <table class="xr-side__dossier-table">
+              ${compact.rows.map((r) => `
+                <tr>
+                  <td class="xr-side__dossier-label">${escapeHtml(r.label)}</td>
+                  <td>${escapeHtml(r.value || '')}${r.extra > 0 ? ` <span class="xr-side__dossier-extra">+${r.extra}</span>` : ''}${r.status === 'multiple' ? ' <span class="xr-side__dossier-extra">(multiple)</span>' : ''}</td>
+                </tr>`).join('')}
+            </table>
+            ${compact.more > 0 ? `<p class="xr-side__hint">+${compact.more} more known field${compact.more === 1 ? '' : 's'} in the full dossier</p>` : ''}`;
+    } catch (err) {
+        console.warn('[X-Ray Sidepanel] compact dossier failed:', err);
+        host.innerHTML = '<p class="xr-side__hint">Dossier unavailable.</p>';
+    }
+}
 
 // ------------------------------------------------------------------
 // Entity health (Phase 17A E1) — the deterministic duplicate report.
