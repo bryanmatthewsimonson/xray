@@ -15,6 +15,7 @@ import { renderFindingsBlock } from './findings-block.js';
 import { renderShapeBlock } from './shape-block.js';
 import { renderEvidenceBlock } from './evidence-block.js';
 import { renderCaseTimeline } from './case-timeline.js';
+import { EntityModel } from '../shared/entity-model.js';
 
 function latestAssessmentByCoord(items) {
     const map = new Map();
@@ -78,6 +79,28 @@ export function renderCaseView(host, params) {
     const caseLinks = items.filter((i) => i.typeKey === 'link'
         && ((i.sourceCoord && caseClaimCoords.has(i.sourceCoord)) || (i.targetCoord && caseClaimCoords.has(i.targetCoord))));
     const everything = [...caseItems, ...caseLinks.filter((l) => !caseItems.includes(l))];
+
+    // --- case scope (19.8): the authored framing in the header —
+    // explicitly the author's question/status, never a sourced fact.
+    // Computed on open from the local record; renders nothing when
+    // no framing has been written.
+    if (caseEnt.entityId) {
+        const scopeHost = el('div', 'xr-case__scope');
+        host.appendChild(scopeHost);
+        EntityModel.get(caseEnt.entityId).then((record) => {
+            const af = record && record.authored_fields;
+            if (!af || Object.keys(af).length === 0) { scopeHost.remove(); return; }
+            if (af.scope_question) {
+                scopeHost.appendChild(el('div', 'xr-view__dossier-line',
+                    `Scope (author's framing): ${af.scope_question.value}`));
+            }
+            const chips = el('div', 'xr-case__dist');
+            if (af.status) chips.appendChild(el('span', 'xr-badge', `status: ${af.status.value}`));
+            if (af.opened) chips.appendChild(el('span', 'xr-badge xr-badge--muted', `opened ${af.opened.value}`));
+            if (af.closed) chips.appendChild(el('span', 'xr-badge xr-badge--muted', `closed ${af.closed.value}`));
+            if (chips.childElementCount > 0) scopeHost.appendChild(chips);
+        }).catch(() => scopeHost.remove());
+    }
 
     // --- artifact rollup ---
     const rollup = el('div', 'xr-case__rollup');
@@ -159,6 +182,17 @@ export function renderCaseView(host, params) {
             chip.title = `${m.type} — open spokes graph`;
             chip.addEventListener('click', () => callbacks.onFocusEntity(pk));
             wrap.appendChild(chip);
+            // 19.8 (§7.3): the case surfaces each orbit entity's fact
+            // table as a LINK into its own dossier — routing, never
+            // inlining a second fact table here.
+            const entRec = entityIndex[pk];
+            if (entRec && entRec.entityId && callbacks.onOpenEntityDossier) {
+                const dossierLink = el('button', 'xr-chip xr-chip--clickable', 'dossier →');
+                dossierLink.type = 'button';
+                dossierLink.title = `Open ${m.name}'s full dossier (fields, evidence, history)`;
+                dossierLink.addEventListener('click', () => callbacks.onOpenEntityDossier(entRec.entityId));
+                wrap.appendChild(dossierLink);
+            }
         }
         section.appendChild(wrap);
         host.appendChild(section);

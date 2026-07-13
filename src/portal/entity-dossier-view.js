@@ -15,10 +15,11 @@ import { assembleEntityDossier } from '../shared/entity-dossier.js';
 import { renderIntegrityBlock } from './integrity-block.js';
 import { Utils } from '../shared/utils.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
+import { Storage } from '../shared/storage.js';
 import { EntityModel } from '../shared/entity-model.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { EventBuilder } from '../shared/event-builder.js';
-import { buildProfileAbout, buildFactSheetEvent, profileAboutHash, factSheetContentHash } from '../shared/entity-profile.js';
+import { buildProfileAbout, buildFactSheetEvent, profileContentHash, factSheetContentHash } from '../shared/entity-profile.js';
 
 function fmtDate(unixSec) {
     if (!unixSec) return '';
@@ -115,28 +116,49 @@ async function mountRepublishButton(head, dossier, relays) {
             const excluded = entity.publish_excluded_fields || [];
             const now = Math.floor(Date.now() / 1000);
             const entities = await EntityModel.getAll();
+            // The publisher tag names the ARCHIVE's identity, not the
+            // entity itself — a sheet self-naming its subject as its
+            // publisher is meaningless attribution (19.8 review fix).
+            const primary = await Storage.primaryIdentity.get().catch(() => null);
+            const publisherPubkey = (primary && primary.pubkey) || entity.keypair.pubkey;
             const about = buildProfileAbout(dossier, { excludedFields: excluded });
             const sheet = buildFactSheetEvent(dossier, {
                 entityPubkey: entity.keypair.pubkey,
-                publisherPubkey: entity.keypair.pubkey,   // fallback only — coords carry each claim's real publisher
+                publisherPubkey,
                 generatedAt: now, excludedFields: excluded, entities
             });
-            const stamps = {};
+            // Publish = at least one CONFIRMED relay OK — the same
+            // ledger rule the reader batch enforces (a stamp with zero
+            // acceptances would silence the automatic republish gate
+            // forever; 19.8 review fix). Stamp each surface as it
+            // lands so a later failure can't lose an earlier stamp.
             const publish = async (unsigned) => {
                 const signed = await LocalKeyManager.signEvent(unsigned, entity.keyName);
                 const resp = await chrome.runtime.sendMessage({ type: 'xray:relay:publish', event: signed, relays });
                 if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'publish failed');
+                const results = resp.results || {};
+                const confirmed = typeof results.confirmed === 'number'
+                    ? results.confirmed
+                    : (Array.isArray(results.results)
+                        ? results.results.filter((r) => r && r.success && !r.assumed).length : 0);
+                if (confirmed === 0) throw new Error('no relay confirmed the event — nothing stamped');
                 return signed;
             };
             const signedProfile = await publish(EventBuilder.buildProfileEvent(entity, null, about));
-            stamps.profileEventId = signedProfile.id;
-            stamps.profileHash = await profileAboutHash(about);
-            if (sheet.tags.some((t) => t[0] === 'fact')) {
+            await EntityModel.markProfilePublished(entity.id, {
+                profileEventId: signedProfile.id,
+                profileHash: await profileContentHash(entity, about)
+            });
+            // An empty sheet still publishes when a previous sheet is
+            // on relays — replaceable semantics are the only way to
+            // retract stale facts (19.8 review fix).
+            if (sheet.tags.some((t) => t[0] === 'fact') || entity.publishedFactSheetHash) {
                 const signedSheet = await publish(sheet);
-                stamps.factSheetEventId = signedSheet.id;
-                stamps.factSheetHash = await factSheetContentHash(sheet);
+                await EntityModel.markProfilePublished(entity.id, {
+                    factSheetEventId: signedSheet.id,
+                    factSheetHash: await factSheetContentHash(sheet)
+                });
             }
-            await EntityModel.markProfilePublished(entity.id, stamps);
             btn.textContent = 'Republished ✓';
         } catch (err) {
             Utils.error('Republish failed', err);
@@ -268,10 +290,12 @@ function renderRelationshipsBlock(host, dossier, callbacks) {
 
     for (const edge of field_edges) {
         const line = el('div', 'xr-view__dossier-line');
+        const counterpart = edge.counterpart_name
+            || (edge.direction === 'out' ? edge.value : edge.from_entity_id);
         line.appendChild(el('span', '',
             edge.direction === 'out'
-                ? `${edge.field} → ${edge.value}`
-                : `← ${edge.field} of ${edge.value ? edge.value : edge.from_entity_id}`));
+                ? `${edge.field} → ${counterpart}`
+                : `← ${edge.field} of ${counterpart}`));
         const openBtn = el('button', 'xr-portal__btn xr-portal__btn--ghost', 'dossier →');
         openBtn.type = 'button';
         const target = edge.direction === 'out' ? edge.to_entity_id : edge.from_entity_id;

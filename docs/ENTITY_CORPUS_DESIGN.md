@@ -1,10 +1,11 @@
 # Entity Corpus & Smart Entity Management — Design
 
-**Status: DESIGN ONLY** (v0.1, 2026-07-03; pointer updated
-2026-07-08). No code in this document is implemented except where
-explicitly marked *(shipped)*. Sequenced after the Epistack submission
-window (see `docs/EPISTACK_ENTRY.md`); slices below are sized to start
-afterward.
+**Status: PART A (E1+E3) SHIPPED** (v0.1, 2026-07-03; Part A landed
+2026-07-13, pulled forward as Phase 19.7's hard prerequisite — the
+Entity health panel + the canonical-resolution sweep; the
+`entityCorpusPublishing` flag and enriched kind-0 shipped with Phase
+19.7). **E2, E4, E5, E6 remain design-only.** No other code in this
+document is implemented except where explicitly marked *(shipped)*.
 
 Related: `docs/CLAIMS_REDESIGN.md` (thin claims), `docs/NIP_DRAFT.md`
 (wire formats), `docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md` (LLM assist),

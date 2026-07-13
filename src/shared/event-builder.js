@@ -583,10 +583,17 @@ export const EventBuilder = {
     // its subject is dead wire data). Readers that don't know `fact`
     // see a normal claim.
     if (claim.fact) {
+      // Wire facts are pubkey-keyed, and a foreign-adopted subject's
+      // foreign_pubkey is exactly as resolvable as a local keypair —
+      // requiring a LOCAL keypair silently dropped the whole fact
+      // layer for adopted subjects (19.8 review fix). Root-else-alias
+      // pick by usable wire pubkey.
+      const wirePk = (r) => (r && ((r.keypair && r.keypair.pubkey) || r.foreign_pubkey)) || null;
       const fcid = canonicalIdOf(claim.fact.entity_id, dict);
-      const subj = dict[fcid] && dict[fcid].keypair ? dict[fcid] : dict[claim.fact.entity_id];
-      if (subj && subj.keypair) {
-        tags.push(['fact', claim.fact.field, claim.fact.value, subj.keypair.pubkey]);
+      const subj = wirePk(dict[fcid]) ? dict[fcid] : dict[claim.fact.entity_id];
+      const subjPk = wirePk(subj);
+      if (subjPk) {
+        tags.push(['fact', claim.fact.field, claim.fact.value, subjPk]);
         const slots = [
           ['valid_from',  claim.fact.valid_from,  claim.fact.valid_from_precision],
           ['valid_to',    claim.fact.valid_to,    claim.fact.valid_to_precision],

@@ -41,12 +41,32 @@ function isoDay(unixSec) {
 }
 
 // The published subset of a field row: ValueGroups reduced to their
-// published evidence; groups with none drop out.
+// published evidence; groups with none drop out. The wire-facing
+// `group` is REBUILT from the first published claim's own fact
+// snapshot — a merged group's head may be an unpublished claim (its
+// value string can differ within a date band), and nothing an
+// unpublished claim asserted may represent the group on the wire
+// (19.8 review fix). Falls back to the display group only for
+// pre-snapshot evidence records.
 function publishedGroups(row) {
     const out = [];
     for (const group of [...(row.current || []), ...(row.history || [])]) {
         const published = (group.evidence || []).filter((ev) => ev.published_event_id);
-        if (published.length > 0) out.push({ group, published });
+        if (published.length === 0) continue;
+        const rep = published[0].fact || null;
+        out.push({
+            group: rep ? {
+                value:               rep.value,
+                value_ref:           rep.value_ref,
+                valid_from:          rep.valid_from,
+                valid_from_precision: rep.valid_from_precision,
+                valid_to:            rep.valid_to,
+                valid_to_precision:  rep.valid_to_precision,
+                observed_at:         rep.observed_at,
+                observed_precision:  rep.observed_precision
+            } : group,
+            published
+        });
     }
     return out;
 }
@@ -245,4 +265,18 @@ export async function factSheetContentHash(sheetEvent) {
 /** Hash of a profile about text (naturally generated_at-free). */
 export async function profileAboutHash(about) {
     return await Crypto.sha256(String(about || ''));
+}
+
+/**
+ * Hash of the FULL kind-0 content the republish gate compares — name +
+ * about + nip05, exactly what buildProfileEvent emits. Hashing the
+ * about alone let a rename slip past the gate: the enriched profile
+ * would never re-emit with the new name (19.8 review fix).
+ */
+export async function profileContentHash(entity, about) {
+    return await Crypto.sha256(JSON.stringify({
+        name: (entity && entity.name) || '',
+        about: String(about || ''),
+        nip05: (entity && entity.nip05) || ''
+    }));
 }

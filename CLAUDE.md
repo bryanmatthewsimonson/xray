@@ -130,9 +130,12 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   `forensic-model.js`/`forensic-publish.js`; truth adjudication —
   verdicts `30063` (with a kind-`1985` mirror on the claim coordinate)
   and integrity findings `30064` (deliberately no mirror), `30065`
-  reserved — in `truth-builders.js`. **Wire-format changes in any
-  of these have compatibility consequences for anyone consuming X-Ray
-  events — call them out explicitly.**
+  reserved — in `truth-builders.js`; entity fact sheets `30067`
+  (Phase 19.7 — entity-signed, every fact `a`-refs a published claim)
+  plus the enriched kind-`0` `about` in `entity-profile.js`.
+  **Wire-format changes in any of these have compatibility
+  consequences for anyone consuming X-Ray events — call them out
+  explicitly.**
 - **`content-detector.js` / `content-extractor.js`** — URL+DOM platform
   detection; Readability + Turndown → Markdown.
 - **`platforms/`** — per-site handlers (`index.js` dispatches). They run in
@@ -212,7 +215,7 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
 
 ## Project docs (read these for non-trivial work)
 
-- **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 16
+- **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 19
   (manifest still says v0.6.0 — untagged; see CONTRIBUTING for the
   tag-driven release process). Complete and merged: Phases 10 (thin
   claims), 11 (assessments; `docs/ASSESSMENTS_DESIGN.md`), 12 (portal;
@@ -222,15 +225,20 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   LLM auditor; `docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md`), 15 (truth
   adjudication, kinds `30063`/`30064`, merged as PR #89;
   `docs/TRUTH_ADJUDICATION_DESIGN.md` — its precedent/bridging tail is
-  deferred), and 16 (moral lens, NO wire kind — derived view only;
+  deferred), 16 (moral lens, NO wire kind — derived view only;
   `docs/MORAL_LENS_JURISDICTION_DESIGN.md`, amended 2026-07-03 — the
   amendment governs; its wire-kind/portal/durable-cache tail is
-  deferred). The FLF Epistack competition
+  deferred), 17 Part A (entity health + canonical sweep;
+  `docs/ENTITY_CORPUS_DESIGN.md` — E2/E4–E6 still design-only), and 19
+  (entity dossiers — facts on claims, the dossier assembler + UI,
+  Add-fact, LLM facts default-off, publishing behind
+  `entityCorpusPublishing` with the NEW kind `30067` fact sheet;
+  `docs/ENTITY_DOSSIER_DESIGN.md`). The FLF Epistack competition
   (deadline 2026-07-19) is being pursued **maintainer-driven from real
   use cases (COVID first)** — there is no committed sprint plan; the tool
   is tailored from that experience. Several SMOKE_TEST section walks
-  (Phases 11–16) are still pending — they're manual and need a human with
-  a browser.
+  (Phases 11–16, 19) are still pending — they're manual and need a human
+  with a browser.
 - **`docs/JOURNAL.md`** — chronological log of bugs, design decisions, and
   external-platform changes. **Add a tight entry** when fixing a non-obvious
   bug, making a second-guessable design choice, or working around a

@@ -191,3 +191,36 @@ test('case-export: buildCaseMarkdown groups by stance and pairs the contradictio
     assert.ok(md.includes('## Label tally'));
     assert.ok(md.includes('- 2× unsupported'));
 });
+
+// --- Case scope block (Phase 19.8) --------------------------------------------
+
+test('case export: authored scope rides JSON + Markdown, labeled as framing, values only', async () => {
+    resetState();
+    const kase = await EntityModel.create({ name: 'Scoped Case', type: 'case' });
+    await EntityModel.update(kase.id, {
+        authored_fields: {
+            scope_question: { value: 'Who moved the funds?' },
+            status:         { value: 'active' },
+            opened:         { value: '2026-07-01' }
+        }
+    });
+    const data = await collectCaseData(kase.id);
+    assert.deepEqual(data.scope, {
+        scope_question: 'Who moved the funds?', status: 'active', opened: '2026-07-01'
+    }, 'values only — per-field updated stamps stay local (determinism)');
+
+    const json = JSON.parse(buildCaseJson(data, '2026-07-13'));
+    assert.equal(json.scope.status, 'active');
+
+    const md = buildCaseMarkdown(data, '2026-07-13');
+    assert.ok(md.includes("## Case scope (author's framing)"));
+    assert.ok(md.includes('**Scope question:** Who moved the funds?'));
+    assert.ok(md.includes('**Status:** active'));
+
+    // A case with no framing exports exactly as before.
+    const bare = await EntityModel.create({ name: 'Bare Case', type: 'case' });
+    const bareData = await collectCaseData(bare.id);
+    assert.equal(bareData.scope, null);
+    assert.ok(!('scope' in JSON.parse(buildCaseJson(bareData, 'x'))));
+    assert.ok(!buildCaseMarkdown(bareData, 'x').includes('Case scope'));
+});

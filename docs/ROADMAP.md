@@ -92,18 +92,24 @@ Phase 16 ████████████████████  complete 
                                 guard-tested; derived view only, behind
                                 the moralLens flag. 16.1–16.4 in one PR;
                                 §Phase 16 smoke-run pending
-Phase 17 ░░░░░░░░░░░░░░░░░░░░  design only — entity corpus & smart entity
-                                management (docs/ENTITY_CORPUS_DESIGN.md);
-                                post-Epistack
+Phase 17 ██████░░░░░░░░░░░░░░  Part A landed (E1 health panel + E3
+                                canonical sweep) — entity corpus & smart
+                                entity management
+                                (docs/ENTITY_CORPUS_DESIGN.md); E2/E4–E6
+                                (LLM audit, mention notes, network reader)
+                                still design-only
 Phase 18 ████████████████░░░░  C1–C4.2 landed — complex content capture:
                                 tables/math, scholarly meta, PDF routing +
                                 pdf.js extraction + figures
                                 (docs/COMPLEX_CONTENT_DESIGN.md); C5/C6 open
-Phase 19 ██░░░░░░░░░░░░░░░░░░  19.1 landed (schemas + facts groundwork) —
-                                entity dossiers & the provenance-pinned
-                                knowledge base
-                                (docs/ENTITY_DOSSIER_DESIGN.md); 19.2+
-                                post-Epistack; 19.7 gated on Phase 17 Part A
+Phase 19 ████████████████████  COMPLETE (19.1–19.8) — entity dossiers &
+                                the provenance-pinned knowledge base:
+                                fact layer + 30040 tags, assembler,
+                                portal/sidepanel UI, Add-fact, LLM facts
+                                (default off), publishing behind
+                                entityCorpusPublishing (kind 0 + NEW kind
+                                30067) (docs/ENTITY_DOSSIER_DESIGN.md);
+                                §Phase 19 smoke-run pending
 ```
 
 Parity with the v4.2 userscript is long reached; the project now ships
@@ -1456,7 +1462,7 @@ imports):
 
 ---
 
-## Phase 17 — Entity corpus & smart entity management 📝 design only
+## Phase 17 — Entity corpus & smart entity management 🚧 Part A (E1+E3) done
 
 **`docs/ENTITY_CORPUS_DESIGN.md`** (v0.1, 2026-07-03). Two halves:
 **(A)** registry hygiene — a deterministic duplicate report (name
@@ -1469,8 +1475,19 @@ enriched kind-0 profiles with NIP-39 external ids, and a wire-first
 corpus view, behind a new `entityCorpusPublishing` flag (default off).
 Groundwork already merged with the Phase 14.5 provenance hardening:
 grounded entity mentions, suggest-time dedupe, and claim `quote`/`x`
-wire tags. Slices E1–E6 in the design doc. Sequenced after the
-Epistack sprint, alongside/after Phase 16.
+wire tags.
+
+**Shipped 2026-07-13 (pulled forward as Phase 19.7's hard prereq):**
+✅ **E1** — the Entity health panel (`entity-health.js` detectors,
+sidepanel Merge…/Not-duplicates/Unlink, `entity_dedupe_dismissals`);
+✅ **E3** — `resolveCanonical`/`canonicalIdOf` at every
+publish/tag/suggest call site (claims, 32125, 32126, assessments,
+forensic/truth subject refs, `findEntityMatches`). The
+`entityCorpusPublishing` flag + enriched kind-0 shipped with Phase
+19.7 (whose kind-30067 fact sheet carries the field data Part B's
+kind-1 mention notes were sketched for). Still design-only: **E2**
+(LLM entity audit), **E4** (mention notes), **E5/E6** (network
+corpus reader).
 
 ---
 
@@ -1518,13 +1535,13 @@ provenance train, PR #108).
 
 ---
 
-## Phase 19 — Entity dossiers & the provenance-pinned knowledge base 🚧 19.1 done
+## Phase 19 — Entity dossiers & the provenance-pinned knowledge base ✅ COMPLETE
 
-**`docs/ENTITY_DOSSIER_DESIGN.md`** (v1.0, 2026-07-12). The
-knowledge-base layer: a dossier per entity, assembled strictly from
-captured content — "wikipedia-like, but every line can defend itself."
-19.1 (pure groundwork, additive-only) landed early; the remaining
-slices start **after the Epistack window** (post 2026-07-19).
+**`docs/ENTITY_DOSSIER_DESIGN.md`** (v1.0, 2026-07-12; implemented
+2026-07-13, eight sequential PRs incl. the pulled-forward Phase 17
+Part A). The knowledge-base layer: a dossier per entity, assembled
+strictly from captured content — "wikipedia-like, but every line can
+defend itself." §Phase 19 SMOKE walk pending (manual).
 
 - ✅ **19.1** typed field schemas (`entity-field-schemas.js`: per-type
   registries, unknown-by-default, validity intervals, date precision)
@@ -1532,22 +1549,22 @@ slices start **after the Epistack window** (post 2026-07-19).
   dismissals on the workspace clear list) + `dossier-time.js`
   extraction from case-dossier + `authored_fields` on
   `EntityModel.update` (case framing only).
-- 📝 **19.2** facts ride the claim model — additive `fact` layer on
+- ✅ **19.2** facts ride the claim model — additive `fact` layer on
   claims (subject/field/value/validity); every biographical value
   requires the claim's verbatim quote + article hash. Additive 30040
   `fact`/`valid_from`/`valid_to`/`observed_at` tags (wire callout).
-- 📝 **19.3** `entity-dossier.js` — computed-on-read assembler over the
+- ✅ **19.3** `entity-dossier.js` — computed-on-read assembler over the
   alias family: identity, field table (current + history + contested),
   content timeline, judgment distributions (integrity ROUTED to
   `truth-entity-record.js`, §3.5 firewall structural), relationships.
-- 📝 **19.4** portal `entity-dossier-view.js` + side-panel compact
+- ✅ **19.4** portal `entity-dossier-view.js` + side-panel compact
   field table; every value click-throughs to its quote + source.
-- 📝 **19.5** reader "Add fact…" (selection = the grounding quote) +
+- ✅ **19.5** reader "Add fact…" (selection = the grounding quote) +
   conflict pre-flight; case scope editor (the authored field class).
-- 📝 **19.6** LLM fact extraction — `propose_capture` `kind:'fact'`,
+- ✅ **19.6** LLM fact extraction — `propose_capture` `kind:'fact'`,
   quote-grounded through the existing firewall, external knowledge
   banned, default-off category, human confirms every item.
-- 📝 **19.7** publishing behind `entityCorpusPublishing`: kind-0
+- ✅ **19.7** publishing behind `entityCorpusPublishing`: kind-0
   `about` assembled from PUBLISHED facts only (contested fields
   omitted — maintainer decision), NIP-39 `i` tags, and the new
   **kind-30067 entity fact sheet** (every fact `a`-refs its published
@@ -1555,7 +1572,7 @@ slices start **after the Epistack window** (post 2026-07-19).
   auto-republish when new captures change a profile. **Hard prereq:
   Phase 17 Part A (E1 dedupe + E3 sweep).** Wire callout + NIP_DRAFT
   §30067.
-- 📝 **19.8** cases unified as scoped dossiers (shared assembler, two
+- ✅ **19.8** cases unified as scoped dossiers (shared assembler, two
   membership functions) + SMOKE §Phase 19.
 
 Maintainer decisions baked in (2026-07-12): facts-as-claims; contested

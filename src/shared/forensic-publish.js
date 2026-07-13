@@ -36,10 +36,13 @@ export function resolveSubjectPubkey(subjectRef, entities) {
     if (r.identity_id && entities) {
         // E3 (Phase 17A): resolve through the canonical chain so a
         // finding filed against an alias lands on the root identity.
+        // Root-else-alias by USABLE pubkey — a keyless root must not
+        // swallow a keyed alias's reference (19.8 review fix).
         const rootId = canonicalIdOf(r.identity_id, entities);
-        const ent = entities[rootId] || entities[r.identity_id];
-        const pk = ent && ent.keypair && ent.keypair.pubkey;
-        if (typeof pk === 'string' && HEX64.test(pk)) return pk;
+        for (const ent of [entities[rootId], entities[r.identity_id]]) {
+            const pk = ent && ent.keypair && ent.keypair.pubkey;
+            if (typeof pk === 'string' && HEX64.test(pk)) return pk;
+        }
     }
     return null;
 }

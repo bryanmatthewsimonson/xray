@@ -204,3 +204,70 @@ test('fact sheet: band-truncated validity slots; empty when nothing published', 
     assert.equal(empty.tags.filter((t) => t[0] === 'fact').length, 0,
         'no published facts ⇒ no fact tags (the reader batch skips publishing it)');
 });
+
+// --- 19.8 review fixes --------------------------------------------------------
+
+const factSnap = (value, extra = {}) => ({
+    value, value_ref: extra.value_ref || null,
+    valid_from: extra.valid_from ?? null, valid_from_precision: extra.valid_from_precision ?? null,
+    valid_to: extra.valid_to ?? null, valid_to_precision: extra.valid_to_precision ?? null,
+    observed_at: null, observed_precision: null
+});
+
+test('wire representatives come from PUBLISHED evidence facts, never the group head', () => {
+    // Band-agreeing dates merge into one display group whose head is
+    // the UNPUBLISHED claim ("1962") — the wire must carry the
+    // published claim's own value ("1962-03-15").
+    const d = fixtureDossier({
+        fields: [
+            row('birth_date', 'known', [{
+                ...group('1962', [
+                    { ...ev('claim_unpub'), fact: factSnap('1962') },
+                    { ...ev('claim_pub', { published: 'evt1' }), fact: factSnap('1962-03-15') }
+                ])
+            }], { value_type: 'date' })
+        ]
+    });
+    const sheet = buildFactSheetEvent(d, { entityPubkey: ENTITY_PK, publisherPubkey: USER_PK, generatedAt: 1 });
+    assert.deepEqual(sheet.tags.find((t) => t[0] === 'fact'),
+        ['fact', 'birth_date', '1962-03-15', '', ''],
+        'the published claim\'s own value string reaches the wire');
+    const about = buildProfileAbout(d);
+    assert.ok(about.includes('1962-03-15'), 'about carries the published value');
+    assert.ok(!/:\s*1962\s*\(/.test(about), 'the unpublished head value does not represent the line');
+});
+
+test('wire validity comes from the published fact, not an unpublished window on the group head', () => {
+    // Same value asserted twice: dated (unpublished, group head) and
+    // undated (published). Pre-fix the wire tag carried 2019–2023
+    // whose only a-ref source asserts no dates.
+    const d = fixtureDossier({
+        fields: [
+            row('occupation', 'known', [{
+                ...group('CEO', [
+                    { ...ev('claim_dated'), fact: factSnap('CEO', {
+                        valid_from: Date.UTC(2019, 0, 1) / 1000, valid_from_precision: 'year',
+                        valid_to: Date.UTC(2023, 0, 1) / 1000, valid_to_precision: 'year' }) },
+                    { ...ev('claim_plain', { published: 'evt1' }), fact: factSnap('CEO') }
+                ], { valid_from: Date.UTC(2019, 0, 1) / 1000, valid_from_precision: 'year',
+                     valid_to: Date.UTC(2023, 0, 1) / 1000, valid_to_precision: 'year' })
+            }])
+        ]
+    });
+    const sheet = buildFactSheetEvent(d, { entityPubkey: ENTITY_PK, publisherPubkey: USER_PK, generatedAt: 1 });
+    assert.deepEqual(sheet.tags.find((t) => t[0] === 'fact'),
+        ['fact', 'occupation', 'CEO', '', ''],
+        'no unpublished window rides the wire tag');
+    assert.ok(!buildProfileAbout(d).includes('2019'),
+        'the about line carries no unverifiable temporal qualifier');
+});
+
+test('profileContentHash: a rename changes the gate even when the about is unchanged', async () => {
+    const { profileContentHash } = await import('../src/shared/entity-profile.js');
+    const about = 'person entity.\nOccupation: Mayor (per x.test)';
+    const a = await profileContentHash({ name: 'Elena Vargas', nip05: '' }, about);
+    const b = await profileContentHash({ name: 'Elena V. Vargas', nip05: '' }, about);
+    const c = await profileContentHash({ name: 'Elena Vargas', nip05: '' }, about);
+    assert.notEqual(a, b, 'rename → different hash → republish fires');
+    assert.equal(a, c, 'same content → same hash → gate converges');
+});

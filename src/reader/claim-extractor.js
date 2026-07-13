@@ -484,12 +484,18 @@ function wireModal(modal, initial, isEdit, quoteMode, onSubmit, factMode = false
         const strip = fact.el.preflight;
         if (!draft) { strip.hidden = true; strip.innerHTML = ''; return; }
         try {
-            const [allClaims, dismissals] = await Promise.all([
-                ClaimModel.getAll(), FactDismissals.getAll()
+            const [allClaims, dismissals, allEntities] = await Promise.all([
+                ClaimModel.getAll(), FactDismissals.getAll(), EntityModel.getAll()
             ]);
             if (seq !== preflightSeq) return;   // stale run
+            // The dossier detects conflicts across the subject's whole
+            // ALIAS FAMILY — the pre-flight must warn on the same scope
+            // or a fact captured under an alias slips past silently
+            // (19.8 review fix).
+            const { ids } = await EntityModel.aliasFamily(draft.entity_id, allEntities);
+            const family = new Set(ids.length ? ids : [draft.entity_id]);
             const existing = Object.values(allClaims)
-                .filter((c) => isFactClaim(c) && c.fact.entity_id === draft.entity_id);
+                .filter((c) => isFactClaim(c) && family.has(c.fact.entity_id));
             const conflicts = preflightConflicts(existing, draft, {
                 entityType: fact.subjectType, dismissals
             });

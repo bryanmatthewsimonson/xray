@@ -325,3 +325,38 @@ test('dossier: buildFieldsSection appends custom fields after the registry, name
     assert.deepEqual(names.slice(personCount), ['custom:alma-mater', 'custom:blood-type']);
     assert.equal(fields.rows.find((r) => r.field === 'custom:blood-type').status, 'known');
 });
+
+// --- 19.8 review fixes --------------------------------------------------------
+
+test('dossier: same value with different validity windows stays TWO groups (one history, one current)', async () => {
+    _stateStore.clear();
+    const t2005 = Date.UTC(2005, 0, 1) / 1000, t2009 = Date.UTC(2009, 0, 1) / 1000;
+    const t2019 = Date.UTC(2019, 0, 1) / 1000;
+    const opts = baseOptions({
+        claims: {
+            c1: factClaim('claim_1', ROOT, 'residence', 'London',
+                { valid_from: t2005, valid_from_precision: 'year', valid_to: t2009, valid_to_precision: 'year' }),
+            c2: factClaim('claim_2', ROOT, 'residence', 'London',
+                { valid_from: t2019, valid_from_precision: 'year' })
+        }
+    });
+    const d = await assembleEntityDossier(ROOT, opts);
+    const row = d.fields.find((r) => r.field === 'residence');
+    assert.equal(row.history.length, 1, 'the 2005–2009 stint is history');
+    assert.equal(row.current.length, 1, 'the 2019– stint is current');
+    assert.equal(row.current[0].valid_from, t2019,
+        'each assertion keeps its OWN window — never the first claim\'s');
+});
+
+test('dossier: relationship edges carry counterpart_name, never the subject\'s own name', async () => {
+    _stateStore.clear();
+    const opts = baseOptions({
+        claims: {
+            c1: factClaim('claim_in', OTHER, 'leadership', 'Elena Vargas', { value_ref: ROOT })
+        }
+    });
+    const d = await assembleEntityDossier(ROOT, opts);
+    const inEdge = d.relationships.field_edges.find((e) => e.direction === 'in');
+    assert.equal(inEdge.counterpart_name, 'Acme Corp',
+        'the inbound edge names the OTHER party (the fact value text is the subject itself)');
+});
