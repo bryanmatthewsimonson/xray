@@ -873,3 +873,21 @@ body.xr-side {
   font-size: 11.5px;
   margin-bottom: 4px;
 }
+
+/* Case scope editor (Phase 19.5) — authored fields. */
+.xr-side__scope-tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--xr-text-dim);
+  border: 1px solid var(--xr-border, rgba(148, 163, 184, 0.3));
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.xr-side__scope-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}

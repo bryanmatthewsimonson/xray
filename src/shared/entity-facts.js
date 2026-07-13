@@ -160,6 +160,22 @@ export function dismissalKey(idA, idB) {
 }
 
 /**
+ * Pre-flight for the reader's "Add fact…" flow (19.5): would this
+ * DRAFT fact conflict with existing fact claims? Runs the real
+ * factConflicts over the existing set plus a synthetic claim (id
+ * `__draft__`), returning only conflicts involving the draft — the
+ * modal renders the differing value with its evidence and INFORMS,
+ * never blocks (§5: save stays enabled).
+ */
+export function preflightConflicts(existingFactClaims, draftFact, { entityType, dismissals = {} } = {}) {
+    if (!draftFact || !draftFact.field || !draftFact.entity_id) return [];
+    const draft = { id: '__draft__', fact: draftFact };
+    const all = [...(existingFactClaims || []).filter(isFactClaim), draft];
+    return factConflicts(all, { entityType, dismissals })
+        .filter((c) => c.claim_ids.includes('__draft__'));
+}
+
+/**
  * Detect conflicts among fact claims for ONE entity: same field +
  * `multiple: false` + overlapping-or-unknown validity + values that
  * disagree after type-aware normalization. Returns conflict objects

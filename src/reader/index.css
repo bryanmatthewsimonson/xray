@@ -2593,3 +2593,31 @@ body {
 .xr-lensread__divergences code,
 .xr-lensread__flag code { font-size: 11px; }
 .xr-lensread__provenance { margin: 10px 0 0; font-size: 11px; color: var(--xr-text-dim); }
+
+/* Fact mode (Phase 19.5) — the Add-fact variant of the claim modal. */
+.xr-claim-modal__fact-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+.xr-claim-modal__fact-dates {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+}
+.xr-claim-modal__fact-custom {
+    margin-top: 6px;
+}
+.xr-claim-modal__fact-precision {
+    min-height: 14px;
+}
+.xr-claim-modal__fact-preflight {
+    border-left: 3px solid #eab308;
+    background: rgba(234, 179, 8, 0.08);
+    border-radius: 0 6px 6px 0;
+    padding: 8px 10px;
+    font-size: 12.5px;
+}
+.xr-claim-modal__fact-conflict + .xr-claim-modal__fact-conflict {
+    margin-top: 8px;
+}

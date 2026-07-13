@@ -1330,7 +1330,7 @@ function renderReader() {
             refreshEntitiesBar().catch(() => {});
             scheduleTagSave();
         },
-        onClaim: async ({ text, context, anchor, quoteMode }) => {
+        onClaim: async ({ text, context, anchor, quoteMode, factMode }) => {
             // PDF captures: page-level provenance rides as an additive
             // FragmentSelector (resolvers that don't know it skip it).
             const page = pdfPageOfQuote(text);
@@ -1344,17 +1344,20 @@ function renderReader() {
                 articleHash: claimArticleHash(),
                 // Sticky default (Phase 11.3): a case-capture session tags
                 // dozens of claims with the same case entity + people.
-                initialAbout: state.lastClaimAbout || [],
+                initialAbout: factMode ? [] : (state.lastClaimAbout || []),
                 // "❝ Quote" shortcut: same record, quote-framed modal
                 // with the speaker picker front-and-center.
                 quoteMode:    !!quoteMode,
+                // "📇 Add fact" (19.5): the same record carrying a
+                // structured fact layer; the selection grounds it.
+                factMode:     !!factMode,
                 // The asserter is usually the article's author — default
                 // the speaker to the author entity (or offer its create).
                 defaultSource: await resolveDefaultSpeaker()
             });
             if (saved) {
-                state.lastClaimAbout = saved.about || [];
-                toast(quoteMode ? 'Quote saved' : 'Claim saved', 'success', 2000);
+                if (!factMode) state.lastClaimAbout = saved.about || [];
+                toast(factMode ? 'Fact saved' : quoteMode ? 'Quote saved' : 'Claim saved', 'success', 2000);
                 await refreshClaimsBar();
             }
         },

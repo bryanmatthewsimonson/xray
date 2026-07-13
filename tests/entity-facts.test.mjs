@@ -184,3 +184,41 @@ test('conflicts: entity-ref fields compare by ref; dismissals suppress', async (
     assert.equal(factConflicts([a, c], { entityType: 'organization', dismissals: await FactDismissals.getAll() }).length, 1,
         'undismiss re-surfaces the conflict');
 });
+
+// --- preflightConflicts (Phase 19.5) -----------------------------------------
+
+test('preflight: draft conflicts inform against existing values; agreement and dismissals stay quiet', async () => {
+    const { preflightConflicts } = await import('../src/shared/entity-facts.js');
+    const existing = [
+        factClaim('claim_a', 'headquarters', 'Geneva'),
+        { id: 'claim_x', text: 'no fact' }   // non-fact rows are ignored
+    ];
+    const draft = (value, field = 'headquarters') => ({
+        entity_id: WHO, field, value, value_ref: null,
+        valid_from: null, valid_to: null, observed_at: null
+    });
+
+    // Disagreement → one conflict naming the draft and the existing claim.
+    const hit = preflightConflicts(existing, draft('New York'), { entityType: 'organization' });
+    assert.equal(hit.length, 1);
+    assert.ok(hit[0].claim_ids.includes('__draft__'));
+    assert.ok(hit[0].claim_ids.includes('claim_a'));
+
+    // Agreement (case-normalized) → quiet.
+    assert.equal(preflightConflicts(existing, draft('  GENEVA '), { entityType: 'organization' }).length, 0);
+
+    // multiple:true field → quiet (dual nationality is data).
+    const nat = [factClaim('claim_n', 'nationality', 'French')];
+    assert.equal(preflightConflicts(nat, {
+        entity_id: WHO, field: 'nationality', value: 'Swiss', value_ref: null,
+        valid_from: null, valid_to: null, observed_at: null
+    }, { entityType: 'person' }).length, 0);
+
+    // Dismissed pair → quiet.
+    const dismissals = { [dismissalKey('__draft__', 'claim_a')]: { dismissed_at: 1, note: '' } };
+    assert.equal(preflightConflicts(existing, draft('New York'), { entityType: 'organization', dismissals }).length, 0);
+
+    // Incomplete draft → no work, no conflicts.
+    assert.deepEqual(preflightConflicts(existing, null, { entityType: 'organization' }), []);
+    assert.deepEqual(preflightConflicts(existing, { field: 'headquarters' }, { entityType: 'organization' }), []);
+});

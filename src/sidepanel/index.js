@@ -16,6 +16,7 @@
 // see reader/index.js `resolveEntitiesToPublish`).
 
 import { EntityModel, ENTITY_TYPES, ENTITY_ICONS, installEntityStorageBridge } from '../shared/entity-model.js';
+import { CASE_STATUS_VALUES } from '../shared/entity-field-schemas.js';
 import { parseClaimEvent, ClaimModel } from '../shared/claim-model.js';
 import { EvidenceLinker, EVIDENCE_RELATIONSHIP_ICONS } from '../shared/evidence-linker.js';
 import { openAssessModal, renderAssessmentBadges, assessmentsByCanonicalRef } from '../shared/assess-modal.js';
@@ -292,6 +293,35 @@ function renderDetail(entity) {
       </div>
 
       ${entity.type === 'case' ? `
+      <div class="xr-side__scope">
+        <h3>Case scope <span class="xr-side__scope-tag">your framing</span></h3>
+        <p class="xr-side__hint">The question this case investigates and its working status — authored by you, never presented as a sourced fact.</p>
+        <label class="xr-side__field">
+          <span>Scope question</span>
+          <textarea id="xr-scope-question" rows="2" placeholder="What question does this case investigate?">${escapeHtml((entity.authored_fields && entity.authored_fields.scope_question && entity.authored_fields.scope_question.value) || '')}</textarea>
+        </label>
+        <div class="xr-side__scope-row">
+          <label class="xr-side__field">
+            <span>Status</span>
+            <select id="xr-scope-status">
+              <option value="">—</option>
+              ${CASE_STATUS_VALUES.map((s) => `<option value="${s}" ${(entity.authored_fields && entity.authored_fields.status && entity.authored_fields.status.value) === s ? 'selected' : ''}>${s}</option>`).join('')}
+            </select>
+          </label>
+          <label class="xr-side__field">
+            <span>Opened</span>
+            <input type="text" id="xr-scope-opened" placeholder="YYYY-MM-DD" spellcheck="false"
+                   value="${escapeHtml((entity.authored_fields && entity.authored_fields.opened && entity.authored_fields.opened.value) || '')}" />
+          </label>
+          <label class="xr-side__field">
+            <span>Closed</span>
+            <input type="text" id="xr-scope-closed" placeholder="YYYY-MM-DD" spellcheck="false"
+                   value="${escapeHtml((entity.authored_fields && entity.authored_fields.closed && entity.authored_fields.closed.value) || '')}" />
+          </label>
+        </div>
+        <button type="button" class="xr-side__ghost-btn" id="xr-scope-save">Save scope</button>
+      </div>
+
       <div class="xr-side__case-export">
         <h3>Export case</h3>
         <p class="xr-side__hint">The case file: local claims about this case, your stances + labels, and its contradictions. JSON for machines, Markdown for humans. (Viewed-only network claims are excluded so the same case always exports the same.)</p>
@@ -363,6 +393,32 @@ function renderDetail(entity) {
         paintNetworkClaims(entity, state.networkClaims.events, state.networkClaims.byRelay)
             .catch(() => {});
         if (state.networkClaims.feed) paintNetworkExtra(entity, state.networkClaims.feed, { hop2Failed: !!state.networkClaims.hop2Failed });
+    }
+
+    // Phase 19.5 — case scope editor (authored fields; case entities
+    // only). Whole-map replace via the EntityModel.update whitelist:
+    // empty inputs drop their field, all empty clears the map.
+    const scopeSaveBtn = $('#xr-scope-save');
+    if (scopeSaveBtn) {
+        scopeSaveBtn.addEventListener('click', async () => {
+            try {
+                const authored = {};
+                const q = $('#xr-scope-question').value.trim();
+                const s = $('#xr-scope-status').value;
+                const o = $('#xr-scope-opened').value.trim();
+                const c = $('#xr-scope-closed').value.trim();
+                if (q) authored.scope_question = { value: q };
+                if (s) authored.status = { value: s };
+                if (o) authored.opened = { value: o };
+                if (c) authored.closed = { value: c };
+                await EntityModel.update(entity.id, {
+                    authored_fields: Object.keys(authored).length ? authored : null
+                });
+                toast('Case scope saved');
+            } catch (err) {
+                toast(err.message || String(err), 'error');
+            }
+        });
     }
 
     // Phase 11.6 — case export (case entities only).
