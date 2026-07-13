@@ -168,6 +168,15 @@ export async function collectCaseData(entityId) {
             type:   entity.type,
             pubkey: (entity.keypair && entity.keypair.pubkey) || null
         },
+        // 19.8: the authored case framing (scope question / status /
+        // opened / closed) rides the export, always labeled as the
+        // author's own framing — never as a sourced fact. Values only;
+        // the per-field `updated` stamps stay local so the same case
+        // always exports the same.
+        scope: entity.authored_fields
+            ? Object.fromEntries(Object.entries(entity.authored_fields)
+                .map(([field, slot]) => [field, slot.value]))
+            : null,
         claims,
         contradictions,
         label_counts
@@ -182,6 +191,7 @@ export async function collectCaseData(entityId) {
 export function buildCaseJson(data, generatedAt) {
     return JSON.stringify({
         case:           data.case,
+        ...(data.scope ? { scope: data.scope } : {}),
         generated_at:   generatedAt,
         generator:      'xray',
         claims:         data.claims,
@@ -197,6 +207,18 @@ export function buildCaseMarkdown(data, generatedAt) {
     lines.push('');
     lines.push(`Generated ${generatedAt} by X-Ray · ${data.claims.length} claim${data.claims.length === 1 ? '' : 's'} · ${data.contradictions.length} contradiction${data.contradictions.length === 1 ? '' : 's'}`);
     lines.push('');
+
+    // 19.8: the authored framing block — explicitly the author's, so a
+    // reader never mistakes the scope question for a sourced finding.
+    if (data.scope && Object.keys(data.scope).length > 0) {
+        lines.push('## Case scope (author\'s framing)');
+        lines.push('');
+        if (data.scope.scope_question) lines.push(`**Scope question:** ${data.scope.scope_question}`);
+        if (data.scope.status)         lines.push(`**Status:** ${data.scope.status}`);
+        if (data.scope.opened)         lines.push(`**Opened:** ${data.scope.opened}`);
+        if (data.scope.closed)         lines.push(`**Closed:** ${data.scope.closed}`);
+        lines.push('');
+    }
 
     // Claims grouped by stance (judged groups first, strongest
     // disagreement → strongest agreement, then unjudged).

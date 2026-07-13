@@ -12,6 +12,33 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 19 — entity dossiers, end to end (19.2–19.8).** The
+  provenance-pinned knowledge base: facts ride claims (additive kind-30040
+  `fact`/`valid_from`/`valid_to`/`observed_at` tags, band-precision ISO
+  dates, `parseClaimEvent` read-back); the computed-on-read
+  `entity-dossier.js` assembler over the alias family (unknown-by-default
+  field table, contested-never-resolves, judgments routed to the
+  integrity record — no score anywhere, string-guard tested); the portal
+  dossier view + side-panel compact table with evidence click-through;
+  the reader "📇 Add fact" flow with honest-precision date inputs and an
+  inform-never-block conflict pre-flight; the case scope editor
+  (authored framing — side panel, case export, portal case header, and
+  per-member "dossier →" links); LLM fact extraction (`kind:'fact'`,
+  default OFF, quote-grounded, "never supply a value from your own
+  knowledge"); and — behind the new `entityCorpusPublishing` flag
+  (default off, full disclosure) — enriched kind-0 profiles
+  (published-claim facts only, contested fields omitted, "per <source>"
+  attribution) plus the **new kind-30067 entity fact sheet** (contested
+  fields both sides, every fact `a`-referencing its published claim),
+  with hash-gated automatic republish and a manual portal republish.
+- **Phase 17 Part A — entity health + canonical sweep (E1+E3).** The
+  deterministic duplicate report (name / shared-account / co-mention
+  detectors, sidepanel Merge…/Not-duplicates/Unlink over the alias
+  machinery, dismissals in `entity_dedupe_dismissals`) and canonical
+  resolution at every publish/tag/suggest call site — claims about
+  aliased entities now p-tag the canonical identity (the alias kind-0
+  `refers_to` is the forwarding pointer); `findEntityMatches` offers
+  canonical records deduped by root.
 - **Phase 19.1 — entity-dossier groundwork (internal; no UI, no wire
   change).** The pure foundations of the knowledge-base layer: typed
   per-entity-type field registries (`entity-field-schemas.js` —

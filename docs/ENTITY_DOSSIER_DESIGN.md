@@ -1,10 +1,13 @@
 # Entity Dossiers & the Provenance-Pinned Knowledge Base — Design
 
-**Status: DESIGN ONLY** (v1.0, 2026-07-12). Nothing in this document
-is implemented. Implementation is sequenced **after the Epistack
-submission window** (post 2026-07-19); the slice plan in §8 sizes the
-work. Maintainer decisions of 2026-07-12 are baked in and marked
-**[decision]** where they resolved a contested choice.
+**Status: IMPLEMENTED** (v1.0, 2026-07-12; shipped 2026-07-13 —
+slices 19.1–19.8 landed as eight sequential PRs, together with the
+pulled-forward Phase 17 Part A prerequisite). Where implementation
+forced a choice the text didn't make, `docs/JOURNAL.md` records it
+(notably: republish hashes exclude `generated_at`; 30067 `a`
+coordinates carry each claim's actual publisher). Maintainer decisions
+of 2026-07-12 are baked in and marked **[decision]** where they
+resolved a contested choice.
 
 Related: `docs/ENTITY_CORPUS_DESIGN.md` (Phase 17 — dedupe/audit and
 the entity corpus; this doc **extends** its §4.3 and depends on its
