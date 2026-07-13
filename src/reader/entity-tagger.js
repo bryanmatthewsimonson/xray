@@ -157,6 +157,9 @@ function openPopover({ x, y, initialText }) {
         <button type="button" class="xr-tagger-popover__quote-btn" title="Capture this selection as a quote — pick who said it">
           ❝ Quote
         </button>
+        <button type="button" class="xr-tagger-popover__fact-btn" title="Capture a structured fact this selection asserts — birth date, headquarters, role…">
+          📇 Add fact
+        </button>
         <button type="button" class="xr-tagger-popover__finding-btn" title="Name a behavioral maneuver, anchored to this selection">
           🔎 Mark finding
         </button>
@@ -216,7 +219,7 @@ function openPopover({ x, y, initialText }) {
     // SAME claim record underneath (its `quote` is the verbatim span,
     // its `source` the speaker); quoteMode only reframes the modal with
     // the speaker picker front-and-center.
-    const handOffToClaim = (quoteMode) => {
+    const handOffToClaim = (quoteMode, factMode = false) => {
         const text = currentSelectionText;
         // Grab a short surrounding-paragraph context for the claim
         // record — useful for the kind-30040 event body and later
@@ -237,13 +240,18 @@ function openPopover({ x, y, initialText }) {
         currentSelectionRange = null;
         currentSelectionText  = '';
         if (typeof onClaimCallback === 'function') {
-            onClaimCallback({ text, context, anchor, quoteMode });
+            onClaimCallback({ text, context, anchor, quoteMode, factMode });
         }
     };
     const claimBtn = popover.querySelector('.xr-tagger-popover__claim-btn');
     if (claimBtn) claimBtn.addEventListener('click', () => handOffToClaim(false));
     const quoteBtn = popover.querySelector('.xr-tagger-popover__quote-btn');
     if (quoteBtn) quoteBtn.addEventListener('click', () => handOffToClaim(true));
+    // "Add fact" (19.5) — the same claim record underneath, carrying a
+    // structured fact layer; the selection IS the verbatim quote, so
+    // manual facts ground by construction.
+    const factBtn = popover.querySelector('.xr-tagger-popover__fact-btn');
+    if (factBtn) factBtn.addEventListener('click', () => handOffToClaim(false, true));
 
     // "Mark finding" handoff — same cloned-range capture as the claim
     // path, handed to the reader so it can open the finding modal with
