@@ -15,7 +15,7 @@ import { EventBuilder } from '../shared/event-builder.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { EntityModel, installEntityStorageBridge, mergeEntityRefs, findEntityByName, canonicalIdOf } from '../shared/entity-model.js';
 import { assembleEntityDossier } from '../shared/entity-dossier.js';
-import { buildProfileAbout, buildFactSheetEvent, profileAboutHash, factSheetContentHash } from '../shared/entity-profile.js';
+import { buildProfileAbout, buildFactSheetEvent, profileContentHash, factSheetContentHash } from '../shared/entity-profile.js';
 import { recordAccount, extractPostAuthor } from '../shared/identity/account-registry.js';
 import { selectAccountsToPublish } from '../shared/identity/account-publish.js';
 import { ClaimModel, exactFromAnchor } from '../shared/claim-model.js';
@@ -3348,7 +3348,20 @@ async function publish() {
     const taggedEntityIds = (state.article.entities || []).map((e) => e.entity_id).filter(Boolean);
     const claimEntityIds  = [...collectClaimEntityIds(allArticleClaims)];
     const allEntityIds    = [...new Set([...taggedEntityIds, ...claimEntityIds])];
-    const entitiesToPublish = await resolveEntitiesToPublish(allEntityIds);
+    let entitiesToPublish = await resolveEntitiesToPublish(allEntityIds);
+    // When corpus publishing is on, the corpus batch OWNS every keyed
+    // canonical root's kind-0 (enriched about, full-content hash gate)
+    // — the legacy loop here would clobber it with the boilerplate
+    // profile on any entity edit (19.8 review fix). Aliases keep the
+    // legacy path: their kind-0 is the refers_to forwarding pointer,
+    // which the corpus batch never emits. Turning the flag OFF returns
+    // roots to this loop — reverting to boilerplate is then the
+    // user's stated intent.
+    await loadFlags();
+    if (isEnabled('entityCorpusPublishing')) {
+        entitiesToPublish = entitiesToPublish.filter((e) =>
+            e.canonical_id || !(e.keypair && e.keypair.privateKey));
+    }
 
     // kind-32125 entity-relationship events — derived from
     // claimsToPublish only (we don't re-emit relationships for already
@@ -4538,9 +4551,17 @@ async function publish() {
         if (isEnabled('entityCorpusPublishing')) {
             try {
                 const entitiesAllForCorpus = await EntityModel.getAll();
+                // Roots from BOTH the article-tagged refs and the entity
+                // batch's selection (tagged + claim-referenced) — the
+                // corpus batch owns every keyed root's kind-0 when the
+                // flag is on (the legacy batch skips them), so it must
+                // see everything the legacy batch would have.
                 const roots = new Set();
                 for (const ref of entityRefs) {
                     if (ref && ref.entity_id) roots.add(canonicalIdOf(ref.entity_id, entitiesAllForCorpus));
+                }
+                for (const e of entitiesToPublish) {
+                    roots.add(canonicalIdOf(e.id, entitiesAllForCorpus));
                 }
                 // One snapshot set shared across every dossier assembly.
                 const snapshots = {
@@ -4554,8 +4575,6 @@ async function publish() {
                     const dossier = await assembleEntityDossier(rootId, {
                         ...snapshots, generatedAt: Math.floor(Date.now() / 1000)
                     });
-                    // Skip-fast: nothing published in the family and no
-                    // stored stamps ⇒ nothing to enrich or diff.
                     const about = buildProfileAbout(dossier, { excludedFields: excluded });
                     const sheet = buildFactSheetEvent(dossier, {
                         entityPubkey: entity.keypair.pubkey,
@@ -4564,14 +4583,22 @@ async function publish() {
                         excludedFields: excluded,
                         entities: entitiesAllForCorpus
                     });
-                    const [aboutHash, sheetHash] = await Promise.all([
-                        profileAboutHash(about), factSheetContentHash(sheet)
+                    // The profile gate hashes the FULL kind-0 content
+                    // (name + about + nip05) — a rename must republish
+                    // the enriched profile even when the about text is
+                    // unchanged (19.8 review fix).
+                    const [contentHash, sheetHash] = await Promise.all([
+                        profileContentHash(entity, about), factSheetContentHash(sheet)
                     ]);
-                    const profileChanged = aboutHash !== entity.publishedProfileHash;
+                    const profileChanged = contentHash !== entity.publishedProfileHash;
                     const sheetHasFacts = sheet.tags.some((t) => t[0] === 'fact');
-                    const sheetChanged = sheetHasFacts && sheetHash !== entity.publishedFactSheetHash;
+                    // An empty sheet still publishes when a previous
+                    // sheet is on relays — replaceable overwrite is the
+                    // only retraction path (19.8 review fix).
+                    const sheetChanged = (sheetHasFacts || entity.publishedFactSheetHash)
+                        && sheetHash !== entity.publishedFactSheetHash;
                     if (profileChanged || sheetChanged) {
-                        corpusSel.push({ entity, about, aboutHash, sheet, sheetHash,
+                        corpusSel.push({ entity, about, aboutHash: contentHash, sheet, sheetHash,
                                          profileChanged, sheetChanged });
                     }
                 }
@@ -4587,7 +4614,6 @@ async function publish() {
             for (const sel of corpusSel) {
                 const { entity } = sel;
                 const canonicalNpub = null;   // roots only — never an alias here
-                const stamps = {};
                 try {
                     if (sel.profileChanged) {
                         btn.textContent = `Publishing (${corpusBase + (++cStep)}/${totalEvents})…`;
@@ -4597,10 +4623,17 @@ async function publish() {
                             type: 'xray:relay:publish', event: signed, relays: await getConfiguredRelays()
                         });
                         if (resp && resp.ok && resp.results) recordRelayResults(resp.results);
-                        if (resp && resp.ok && await publishOk(resp)) {
+                        // signedEvent attached so publishOk journals it
+                        // (the entity-batch precedent); stamp EACH
+                        // surface as it lands — a later sheet failure
+                        // must not lose a confirmed profile stamp.
+                        if (resp && resp.ok && await publishOk({ ...resp, signedEvent: signed })) {
                             corpusResults.ok++;
-                            stamps.profileEventId = signed.id;
-                            stamps.profileHash = sel.aboutHash;
+                            try {
+                                await EntityModel.markProfilePublished(entity.id, {
+                                    profileEventId: signed.id, profileHash: sel.aboutHash
+                                });
+                            } catch (_) { /* best-effort */ }
                         } else {
                             corpusResults.fail++;
                             corpusResults.errors.push(`${entity.name} profile: ${(resp && resp.error) || 'no relays accepted'}`);
@@ -4615,21 +4648,19 @@ async function publish() {
                             type: 'xray:relay:publish', event: signedSheet, relays: await getConfiguredRelays()
                         });
                         if (resp && resp.ok && resp.results) recordRelayResults(resp.results);
-                        if (resp && resp.ok && await publishOk(resp)) {
+                        if (resp && resp.ok && await publishOk({ ...resp, signedEvent: signedSheet })) {
                             corpusResults.ok++;
-                            stamps.factSheetEventId = signedSheet.id;
-                            stamps.factSheetHash = sel.sheetHash;
+                            try {
+                                await EntityModel.markProfilePublished(entity.id, {
+                                    factSheetEventId: signedSheet.id, factSheetHash: sel.sheetHash
+                                });
+                            } catch (_) { /* best-effort */ }
                         } else {
                             corpusResults.fail++;
                             corpusResults.errors.push(`${entity.name} fact sheet: ${(resp && resp.error) || 'no relays accepted'}`);
                         }
                         setProgress(corpusBase + cStep, totalEvents);
                         await sleep(BATCH_PUBLISH_DELAY_MS);
-                    }
-                    // Stamp only what actually landed (relay-confirmed).
-                    if (Object.keys(stamps).length > 0) {
-                        try { await EntityModel.markProfilePublished(entity.id, stamps); }
-                        catch (_) { /* best-effort */ }
                     }
                 } catch (err) {
                     corpusResults.fail++;

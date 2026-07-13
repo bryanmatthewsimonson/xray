@@ -42,10 +42,14 @@ const COORD_30055_RE = /^30055:[0-9a-f]{64}:.+$/;
 export function resolveEntitySubjectPubkey(entityIds, entities) {
     for (const id of entityIds || []) {
         // E3 (Phase 17A): alias ids resolve to the canonical identity.
+        // Root-else-alias by USABLE pubkey — a keyless merge target
+        // (e.g. an imported record with dangling key material) must
+        // not swallow a keyed alias's reference (19.8 review fix).
         const rootId = canonicalIdOf(id, entities || {});
-        const entity = entities && (entities[rootId] || entities[id]);
-        const pk = entity && entity.keypair && entity.keypair.pubkey;
-        if (typeof pk === 'string' && HEX64.test(pk)) return pk;
+        for (const candidate of [entities && entities[rootId], entities && entities[id]]) {
+            const pk = candidate && candidate.keypair && candidate.keypair.pubkey;
+            if (typeof pk === 'string' && HEX64.test(pk)) return pk;
+        }
     }
     return null;
 }

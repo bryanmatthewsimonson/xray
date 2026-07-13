@@ -19,6 +19,32 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-13 — ValueGroups split on validity windows; wire representatives are published facts (19.8)
+
+Tags: `design`, `bug`.
+
+Two review findings, one root cause. The dossier's field grouping
+originally merged claims on VALUE agreement alone, keeping the first
+claim's validity window — so "CEO 2005–2009" and "CEO 2019–" collapsed
+into one entry wearing an arbitrary window, and (worse) an unpublished
+claim heading a mixed group could put its value string or dates onto
+the kind-0/30067 wire, where the only `a`-ref source asserted neither.
+Decision: (1) grouping now requires the values to agree AND the
+validity/observed windows to be IDENTICAL — same value in different
+eras is two assertions, which is what an evolves:true field means;
+(2) evidence entries carry each claim's own fact snapshot, and the
+wire surfaces (entity-profile.js) take their representative value +
+window from the first PUBLISHED evidence's snapshot, never the group
+head. Precision-band display merging survives only within identical
+windows ("1962" + "1962-03-15", both undated → one dossier entry, two
+citations — but the wire carries the published claim's exact string).
+Also from the same review batch: the corpus profile gate hashes the
+FULL kind-0 content (name+about+nip05, `profileContentHash`) so a
+rename republishes; the legacy entity batch skips keyed canonical
+roots while the flag is on (it was clobbering enriched profiles with
+boilerplate); portal republish requires a CONFIRMED relay OK before
+stamping (JOURNAL 2026-07-10 ledger rule) and stamps per surface.
+
 ## 2026-07-13 — Republish hashes exclude generated_at (19.7)
 
 Tags: `design`.

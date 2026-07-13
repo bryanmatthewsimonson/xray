@@ -1782,12 +1782,19 @@ async function renderHealth() {
     const body = $('#xr-health-body');
     // Snapshots computed on OPEN, not on every storage change — the
     // report is a review surface, not a live dashboard.
-    const [entities, accounts, articles, dismissals] = await Promise.all([
+    const [entities, accounts, archiveRecords, dismissals] = await Promise.all([
         EntityModel.getAll(),
         Storage.platformAccounts.getAll(),
         listArticles().catch(() => []),
         DedupeDismissals.getAll()
     ]);
+    // Archive records nest the refs under `.article.entities`; the
+    // co-mention detector takes flat {url, entities} rows — without
+    // this flatten it silently never fires (review finding, 19.8).
+    const articles = (archiveRecords || []).map((r) => ({
+        url: r.url,
+        entities: (r.article && r.article.entities) || []
+    }));
     const report = dedupeReport({ entities, accounts, articles, dismissals });
     const merges = recentMerges(entities);
 

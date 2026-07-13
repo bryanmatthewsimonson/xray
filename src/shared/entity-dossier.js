@@ -155,7 +155,9 @@ export async function collectEntityDossierData(entityId, options = {}) {
             name:            root.name,
             type:            root.type,
             description:     root.description || '',
-            foreign:         root.foreign === true,
+            // The REAL foreign predicate — records carry keyName +
+            // foreign_pubkey, never a `foreign` boolean (19.8 fix).
+            foreign:         EntityModel.isForeign(root),
             authored_fields: root.authored_fields || null,
             pubkey:          (root.keypair && root.keypair.pubkey) || root.foreign_pubkey || null,
             npub:            (root.keypair && root.keypair.pubkey)
@@ -182,7 +184,7 @@ export async function collectEntityDossierData(entityId, options = {}) {
                 // `self`, foreign adoptions are `foreign`, everything
                 // else is an `alias` of the root.
                 relation: e.id === root.id ? 'self'
-                    : e.foreign === true ? 'foreign'
+                    : EntityModel.isForeign(e) ? 'foreign'
                     : 'alias',
                 pubkey: (e.keypair && e.keypair.pubkey) || e.foreign_pubkey || null,
                 suggested_by: e.suggested_by || 'user'
@@ -192,6 +194,12 @@ export async function collectEntityDossierData(entityId, options = {}) {
             equivalence,
             mentions
         },
+        // id → display name for every registry entity — relationship
+        // edges name their COUNTERPART with it (the fact's own value
+        // text names the referenced entity, which for inbound edges is
+        // the dossier subject itself; 19.8 review fix).
+        entityNamesById: Object.fromEntries(
+            Object.values(allEntities).filter((e) => e && e.id).map((e) => [e.id, e.name])),
         claimsById:   allClaims,
         propositions: { all: propositionsById, orbit: orbitPropositions },
         verdicts:     { byProposition: verdictsByProposition },
@@ -253,7 +261,20 @@ function evidenceOf(claim) {
         // Who published the claim event — the 30067 fact sheet's
         // `a` coordinates must name the ACTUAL publisher or they
         // don't resolve (19.7).
-        published_pubkey:   claim.publishedPubkey || null
+        published_pubkey:   claim.publishedPubkey || null,
+        // The claim's OWN fact snapshot: the wire surfaces take their
+        // representative value/window from a PUBLISHED claim's fact,
+        // never from a group head that may be unpublished (19.8).
+        fact: claim.fact ? {
+            value:               claim.fact.value,
+            value_ref:           claim.fact.value_ref || null,
+            valid_from:          claim.fact.valid_from ?? null,
+            valid_from_precision: claim.fact.valid_from_precision ?? null,
+            valid_to:            claim.fact.valid_to ?? null,
+            valid_to_precision:  claim.fact.valid_to_precision ?? null,
+            observed_at:         claim.fact.observed_at ?? null,
+            observed_precision:  claim.fact.observed_precision ?? null
+        } : null
     };
 }
 
@@ -297,9 +318,20 @@ export function buildFieldsSection(data) {
         const claims = byField.get(field) || [];
 
         // Group agreeing claims into ValueGroups with merged evidence.
+        // Agreement requires the VALUES to agree AND the validity/
+        // observed windows to be identical: "CEO 2005–2009" and "CEO
+        // 2019–" are two assertions (one history, one current), not
+        // one group wearing whichever window sorted first (review
+        // finding, 19.8 — the merged window was arbitrary and could
+        // even leak an unpublished claim's dates onto the wire).
+        const sameWindow = (a, b) =>
+            (a.valid_from ?? null) === (b.valid_from ?? null)
+            && (a.valid_to ?? null) === (b.valid_to ?? null)
+            && (a.observed_at ?? null) === (b.observed_at ?? null);
         const groups = [];
         for (const c of claims) {
-            const hit = groups.find((g) => factValuesAgree(def, g._fact, c.fact));
+            const hit = groups.find((g) => factValuesAgree(def, g._fact, c.fact)
+                && sameWindow(g._fact, c.fact));
             if (hit) {
                 hit.evidence.push(evidenceOf(c));
             } else {
@@ -479,13 +511,18 @@ export function buildRelationshipsSection(data) {
             || (a.entity_id < b.entity_id ? -1 : 1));
 
     // Field-derived edges from entity-ref facts, both directions.
+    // `counterpart_name` is the OTHER party's display name — for an
+    // inbound edge the fact's value text is the subject's own name,
+    // which tells the reader nothing (19.8 review fix).
+    const names = data.entityNamesById || {};
     const field_edges = [];
     for (const c of data.factClaims || []) {
         if (c.fact.value_ref) {
             field_edges.push({
                 direction: 'out', field: c.fact.field,
                 from_entity_id: rootId, to_entity_id: c.fact.value_ref,
-                value: c.fact.value, claim_id: c.id
+                value: c.fact.value, claim_id: c.id,
+                counterpart_name: names[c.fact.value_ref] || c.fact.value
             });
         }
     }
@@ -493,7 +530,8 @@ export function buildRelationshipsSection(data) {
         field_edges.push({
             direction: 'in', field: c.fact.field,
             from_entity_id: c.fact.entity_id, to_entity_id: rootId,
-            value: c.fact.value, claim_id: c.id
+            value: c.fact.value, claim_id: c.id,
+            counterpart_name: names[c.fact.entity_id] || c.fact.entity_id
         });
     }
     field_edges.sort((a, b) => (a.claim_id < b.claim_id ? -1 : a.claim_id > b.claim_id ? 1 : 0));

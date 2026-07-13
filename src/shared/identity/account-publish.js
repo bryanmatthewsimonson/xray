@@ -69,11 +69,15 @@ export async function selectAccountsToPublish({ touchedAccountKeys = [], entityI
         let linkedEntityPubkey = null;
         if (account.linkedEntityId) {
             // E3 (Phase 17A): an account linked to an ALIAS points its
-            // wire p-tag at the canonical identity's pubkey.
+            // wire p-tag at the canonical identity's pubkey. Root-
+            // else-alias by USABLE pubkey — a keyless root must not
+            // swallow a keyed alias's link (19.8 review fix).
             const rootId = canonicalIdOf(account.linkedEntityId, entitiesAll);
-            const entity = entitiesAll[rootId] || entitiesAll[account.linkedEntityId];
-            if (entity && entity.keypair && entity.keypair.pubkey) {
-                linkedEntityPubkey = entity.keypair.pubkey;
+            for (const entity of [entitiesAll[rootId], entitiesAll[account.linkedEntityId]]) {
+                if (entity && entity.keypair && entity.keypair.pubkey) {
+                    linkedEntityPubkey = entity.keypair.pubkey;
+                    break;
+                }
             }
         }
         out.push({ account, linkedEntityPubkey });
