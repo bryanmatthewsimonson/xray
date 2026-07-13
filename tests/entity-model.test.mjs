@@ -455,3 +455,37 @@ test('reconstructEntityRefsFromEvent: wire round trip rebuilds ids that join the
     assert.deepEqual(await EventBuilder.reconstructEntityRefsFromEvent(null), []);
     assert.deepEqual(await EventBuilder.reconstructEntityRefsFromEvent({ kind: 1, tags: [] }), []);
 });
+
+// --- canonicalIdOf / resolveCanonical (Phase 17A E3) --------------------------
+
+test('entity: canonicalIdOf — pure chain walk with cycle guard and dangling fallback', async () => {
+    resetState();
+    const a = await EntityModel.create({ name: 'Root Person', type: 'person' });
+    const b = await EntityModel.create({ name: 'Alias One', type: 'person' });
+    const c = await EntityModel.create({ name: 'Alias Two', type: 'person' });
+    await EntityModel.linkAlias(b.id, a.id);
+    await EntityModel.linkAlias(c.id, b.id);   // chain c → (resolved) a
+
+    const { canonicalIdOf } = await import('../src/shared/entity-model.js');
+    const all = await EntityModel.getAll();
+    assert.equal(canonicalIdOf(c.id, all), a.id, 'chain resolves to root');
+    assert.equal(canonicalIdOf(a.id, all), a.id, 'root resolves to itself');
+    assert.equal(canonicalIdOf('entity_0000000000000000', all), 'entity_0000000000000000',
+        'unknown id returns itself');
+
+    // Dangling chain stops at the last resolvable record.
+    const snapshot = { [b.id]: { ...all[b.id], canonical_id: 'entity_gone' } };
+    assert.equal(canonicalIdOf(b.id, snapshot), b.id);
+
+    // Cycle guard: hand-built cycle can't loop forever.
+    const cyc = {
+        entity_x: { id: 'entity_x', canonical_id: 'entity_y' },
+        entity_y: { id: 'entity_y', canonical_id: 'entity_x' }
+    };
+    assert.ok(['entity_x', 'entity_y'].includes(canonicalIdOf('entity_x', cyc)));
+
+    // resolveCanonical: id-taking convenience returns the ROOT record.
+    const root = await EntityModel.resolveCanonical(c.id);
+    assert.equal(root.id, a.id);
+    assert.equal(await EntityModel.resolveCanonical('entity_0000000000000000'), null);
+});

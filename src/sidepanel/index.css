@@ -785,3 +785,66 @@ body.xr-side {
 .xr-side__adopt-chip {
   margin-left: 8px;
 }
+
+/* Entity health (Phase 17A E1) — the duplicate report view. */
+.xr-side__health-view {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  flex: 1;
+}
+.xr-side__health-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+.xr-side__health-summary {
+  color: var(--xr-text-dim);
+  font-size: 11.5px;
+  padding: 8px 12px 4px;
+}
+.xr-side__health-cluster {
+  margin: 8px 12px;
+  border: 1px solid var(--xr-border, rgba(148, 163, 184, 0.25));
+  border-radius: 8px;
+  overflow: hidden;
+}
+.xr-side__health-cluster-head {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--xr-text-dim);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--xr-border, rgba(148, 163, 184, 0.15));
+}
+.xr-side__health-pair {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--xr-border, rgba(148, 163, 184, 0.1));
+}
+.xr-side__health-pair:last-child {
+  border-bottom: none;
+}
+.xr-side__health-names {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+}
+.xr-side__health-vs {
+  color: var(--xr-text-dim);
+}
+.xr-side__health-evidence {
+  font-size: 11px;
+  color: var(--xr-text-dim);
+  margin: 3px 0 5px;
+}
+.xr-side__health-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.xr-side__health-keep-label {
+  font-size: 11px;
+  color: var(--xr-text-dim);
+}

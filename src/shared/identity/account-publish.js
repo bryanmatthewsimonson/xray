@@ -15,7 +15,7 @@
 // the default-off `platformAccountPublishing` flag.
 
 import { Storage } from '../storage.js';
-import { EntityModel } from '../entity-model.js';
+import { EntityModel, canonicalIdOf } from '../entity-model.js';
 
 /**
  * Select the PlatformAccount records to publish for this run.
@@ -68,7 +68,10 @@ export async function selectAccountsToPublish({ touchedAccountKeys = [], entityI
     for (const account of byKey.values()) {
         let linkedEntityPubkey = null;
         if (account.linkedEntityId) {
-            const entity = entitiesAll[account.linkedEntityId];
+            // E3 (Phase 17A): an account linked to an ALIAS points its
+            // wire p-tag at the canonical identity's pubkey.
+            const rootId = canonicalIdOf(account.linkedEntityId, entitiesAll);
+            const entity = entitiesAll[rootId] || entitiesAll[account.linkedEntityId];
             if (entity && entity.keypair && entity.keypair.pubkey) {
                 linkedEntityPubkey = entity.keypair.pubkey;
             }

@@ -32,6 +32,7 @@
     <footer class="xr-side__footer">
       <span id="xr-count" class="xr-side__count">—</span>
       <div class="xr-side__footer-actions">
+        <button class="xr-side__ghost-btn" id="xr-health" title="Duplicate report — likely double-minted entities">Health</button>
         <button class="xr-side__ghost-btn" id="xr-export" title="Export registry as JSON">Export</button>
         <button class="xr-side__ghost-btn" id="xr-import" title="Import registry JSON">Import</button>
         <input type="file" id="xr-import-input" accept="application/json,.json" hidden />
@@ -52,6 +53,17 @@
              has a primary identity configured. -->
       </div>
     </details>
+  </section>
+
+  <!-- Entity health (Phase 17A E1): the deterministic duplicate
+       report. Detectors only SORT BY SUSPICION — every merge/dismiss
+       is a human action. -->
+  <section class="xr-side__health-view" hidden>
+    <header class="xr-side__detail-head">
+      <button class="xr-side__ghost-btn" id="xr-health-back" title="Back to list">← Back</button>
+      <span class="xr-side__health-title">Entity health</span>
+    </header>
+    <div class="xr-side__detail-body" id="xr-health-body"></div>
   </section>
 
   <section class="xr-side__detail-view" hidden>

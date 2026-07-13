@@ -28,6 +28,7 @@
 //     silent drop: the finding still publishes, without the edge ref.
 
 import { claimWireInfo } from './assessment-publish.js';
+import { canonicalIdOf } from './entity-model.js';
 import { isTruthAdjudicable } from './truth-taxonomy.js';
 
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -40,7 +41,9 @@ const COORD_30055_RE = /^30055:[0-9a-f]{64}:.+$/;
  */
 export function resolveEntitySubjectPubkey(entityIds, entities) {
     for (const id of entityIds || []) {
-        const entity = entities && entities[id];
+        // E3 (Phase 17A): alias ids resolve to the canonical identity.
+        const rootId = canonicalIdOf(id, entities || {});
+        const entity = entities && (entities[rootId] || entities[id]);
         const pk = entity && entity.keypair && entity.keypair.pubkey;
         if (typeof pk === 'string' && HEX64.test(pk)) return pk;
     }

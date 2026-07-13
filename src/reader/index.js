@@ -13,7 +13,7 @@
 import { ContentExtractor } from '../shared/content-extractor.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
-import { EntityModel, installEntityStorageBridge, mergeEntityRefs, findEntityByName } from '../shared/entity-model.js';
+import { EntityModel, installEntityStorageBridge, mergeEntityRefs, findEntityByName, canonicalIdOf } from '../shared/entity-model.js';
 import { recordAccount, extractPostAuthor } from '../shared/identity/account-registry.js';
 import { selectAccountsToPublish } from '../shared/identity/account-publish.js';
 import { ClaimModel, exactFromAnchor } from '../shared/claim-model.js';
@@ -3881,10 +3881,14 @@ async function publish() {
                         catch (_) { /* best-effort */ }
                     }
                     // about-entity p mirror: own claims resolve ids via
-                    // the registry; foreign claims carry snapshotted pubkeys.
+                    // the registry — through the canonical chain (E3,
+                    // Phase 17A) so assessments of alias-tagged claims
+                    // land on the root identity; foreign claims carry
+                    // snapshotted pubkeys.
                     const aboutPubkeys = [...(sel.aboutPubkeys || [])];
                     for (const id of sel.aboutIds || []) {
-                        const ent = entitiesAll[id];
+                        const rootId = canonicalIdOf(id, entitiesAll);
+                        const ent = entitiesAll[rootId] || entitiesAll[id];
                         if (ent && ent.keypair) aboutPubkeys.push(ent.keypair.pubkey);
                     }
                     const { event: unsigned } = await buildAssessmentEvent({
@@ -4682,11 +4686,16 @@ async function resolveRelationshipsToPublish(claims, articleUrl) {
         for (const id of c.about || []) triples.push([id, 'about']);
         if (c.source && /^entity_/.test(c.source)) triples.push([c.source, 'source']);
         for (const [entityId, relType] of triples) {
-            const key = `${entityId}:${articleUrl}:${relType}`;
+            // E3 (Phase 17A): 32125 edges attach to the CANONICAL
+            // identity — an edge minted against an alias would give the
+            // knowledge graph two half-nodes for one person. Dedupe key
+            // uses the canonical id so alias+canonical tagged on one
+            // article collapse to a single coordinate.
+            const entity = await EntityModel.resolveCanonical(entityId);
+            if (!entity || !entity.keypair) continue;
+            const key = `${entity.id}:${articleUrl}:${relType}`;
             if (seen.has(key)) continue;
             seen.add(key);
-            const entity = await EntityModel.get(entityId);
-            if (!entity || !entity.keypair) continue;
             out.push({ entity, relType, claimId: c.id });
         }
     }

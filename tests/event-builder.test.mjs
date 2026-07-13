@@ -353,6 +353,51 @@ test('buildClaimEvent — provenance tags are absent when the claim has none (no
     }
 });
 
+// --- Canonical p-tags (Phase 17A E3) -----------------------------------------
+
+test('buildClaimEvent — alias about-entity emits the CANONICAL pubkey p-tag', () => {
+    const CANON_PK = 'f'.repeat(64);
+    const dict = {
+        entity_root:  { id: 'entity_root', name: 'Elena Vargas', type: 'person',
+                        keypair: { pubkey: CANON_PK } },
+        entity_alias: { id: 'entity_alias', name: 'Mayor Elena Vargas', type: 'person',
+                        canonical_id: 'entity_root', keypair: { pubkey: '1'.repeat(64) } }
+    };
+    const claim = { id: 'claim_e3a', text: 'A.', about: ['entity_alias'], source: 'entity_alias', is_key: false };
+    const ev = EventBuilder.buildClaimEvent(claim, 'https://x.test/a', '', PUBKEY, dict);
+
+    assert.deepEqual(ev.tags.filter((t) => t[0] === 'p' && t[3] === 'about').map((t) => t[1]),
+        [CANON_PK], 'about p-tag targets the canonical identity');
+    assert.deepEqual(ev.tags.find((t) => t[0] === 'entity'), ['entity', 'Elena Vargas', 'about']);
+    assert.deepEqual(ev.tags.find((t) => t[0] === 'p' && t[3] === 'source'),
+        ['p', CANON_PK, '', 'source'], 'source resolves canonically too');
+});
+
+test('buildClaimEvent — alias + canonical both in about collapse to ONE p-tag pair', () => {
+    const CANON_PK = 'f'.repeat(64);
+    const dict = {
+        entity_root:  { id: 'entity_root', name: 'Elena Vargas', type: 'person', keypair: { pubkey: CANON_PK } },
+        entity_alias: { id: 'entity_alias', name: 'Mayor Elena Vargas', type: 'person',
+                        canonical_id: 'entity_root', keypair: { pubkey: '1'.repeat(64) } }
+    };
+    const claim = { id: 'claim_e3b', text: 'A.', about: ['entity_alias', 'entity_root'], source: null, is_key: false };
+    const ev = EventBuilder.buildClaimEvent(claim, 'https://x.test/a', '', PUBKEY, dict);
+    assert.equal(ev.tags.filter((t) => t[0] === 'p' && t[3] === 'about').length, 1);
+    assert.equal(ev.tags.filter((t) => t[0] === 'entity').length, 1);
+});
+
+test('buildClaimEvent — canonical missing from dict falls back to the alias record', () => {
+    const ALIAS_PK = '1'.repeat(64);
+    const dict = {
+        entity_alias: { id: 'entity_alias', name: 'Mayor Elena Vargas', type: 'person',
+                        canonical_id: 'entity_root', keypair: { pubkey: ALIAS_PK } }
+    };
+    const claim = { id: 'claim_e3c', text: 'A.', about: ['entity_alias'], source: null, is_key: false };
+    const ev = EventBuilder.buildClaimEvent(claim, 'https://x.test/a', '', PUBKEY, dict);
+    assert.deepEqual(ev.tags.find((t) => t[0] === 'p' && t[3] === 'about'),
+        ['p', ALIAS_PK, '', 'about'], 'best effort: reference survives rather than vanishing');
+});
+
 // --- Fact layer tags (Phase 19.2; docs/NIP_DRAFT.md kind 30040) --------------
 
 test('buildClaimEvent — fact tags: subject pubkey + band-truncated ISO dates', async () => {
