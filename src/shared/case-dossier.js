@@ -127,32 +127,7 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
         && Array.isArray(f.entity_ids)
         && f.entity_ids.some((id) => orbitEntityIdSet.has(id)));
 
-    // Forensic findings live in a different keyspace (subject_ref:
-    // identity/pubkey/account/label — not entity ids). The bridge is
-    // caller-asserted or derived per entity, and stamped on its face.
-    const forensic = [];
-    for (const entity of orbitEntities) {
-        const candidates = [];
-        if (forensicSubjectRefs[entity.id]) {
-            candidates.push({ via: 'caller', ref: forensicSubjectRefs[entity.id] });
-        }
-        const pubkey = (entity.keypair && entity.keypair.pubkey) || entity.foreign_pubkey || null;
-        if (pubkey) candidates.push({ via: 'pubkey', ref: { pubkey } });
-        if (entity.name) candidates.push({ via: 'label', ref: { label: entity.name } });
-
-        const seen = new Set();
-        for (const { via, ref } of candidates) {
-            for (const finding of await ForensicModel.getForSubject(ref)) {
-                if (seen.has(finding.id)) continue;
-                seen.add(finding.id);
-                forensic.push({ entity_id: entity.id, matched_via: via, finding });
-            }
-        }
-        if (!forensicSubjectRefs[entity.id] && !pubkey && seen.size === 0
-                && entity.id !== caseEntityId) {
-            forensic.push({ entity_id: entity.id, matched_via: null, finding: null });
-        }
-    }
+    const forensic = await collectForensicBridge(orbitEntities, forensicSubjectRefs, { excludeId: caseEntityId });
 
     // Links, endpoints pre-canonicalized once.
     const contradicts = [];
@@ -238,7 +213,7 @@ function earliestDeedDate(finding, propositionsById) {
  * is by normalized URL; hashes ride in from the claims (and are what
  * audit runs / predictions join on).
  */
-function deriveArticleRows(data) {
+export function deriveArticleRows(data) {
     const byUrl = new Map();   // normalized url → row
     for (const claim of data.orbit.claims) {
         const url = Utils.normalizeUrl(claim.source_url || '');
@@ -280,13 +255,17 @@ function deriveArticleRows(data) {
     }
 
     // Sources in the orbit with zero orbit claims — the §7.1 "visible
-    // backlog": locally, archive records tagged with the case entity;
-    // from the wire, injected 32125-tagged items.
+    // backlog": locally, archive records tagged with a MEMBER entity
+    // (the case id alone for case dossiers; the whole alias family for
+    // entity dossiers, Phase 19.3 — `membership_ids` generalizes the
+    // check, behavior-unchanged when absent); from the wire, injected
+    // 32125-tagged items.
+    const memberIds = new Set(data.membership_ids || [data.case.id]);
     const unprocessed = [];
     for (const rec of data.articles || []) {
         if (!rec || !rec.url || byUrl.has(rec.url)) continue;
         const tagged = ((rec.article && rec.article.entities) || [])
-            .some((e) => e && e.entity_id === data.case.id);
+            .some((e) => e && memberIds.has(e.entity_id));
         if (tagged) {
             unprocessed.push({ url: rec.url, title: (rec.article && rec.article.title) || null, source: 'local-tag' });
         }
@@ -299,6 +278,47 @@ function deriveArticleRows(data) {
     unprocessed.sort((a, b) => a.url < b.url ? -1 : a.url > b.url ? 1 : 0);
 
     return { rows, unprocessed };
+}
+
+// ------------------------------------------------------------------
+// Forensic bridge (shared with entity-dossier.js, Phase 19.3)
+// ------------------------------------------------------------------
+
+/**
+ * Forensic findings live in a different keyspace (subject_ref:
+ * identity/pubkey/account/label — not entity ids). Per entity, build
+ * the candidate cascade — caller-asserted ref, then pubkey, then name
+ * label — and stamp `matched_via` on every row. An entity with no
+ * bridge and no match emits an `{matched_via: null, finding: null}`
+ * marker (except `excludeId`, the dossier's own subject/case record).
+ * Extracted verbatim from the case collector; storage-aware
+ * (ForensicModel reads).
+ */
+export async function collectForensicBridge(entities, forensicSubjectRefs = {}, { excludeId = null } = {}) {
+    const forensic = [];
+    for (const entity of entities || []) {
+        const candidates = [];
+        if (forensicSubjectRefs[entity.id]) {
+            candidates.push({ via: 'caller', ref: forensicSubjectRefs[entity.id] });
+        }
+        const pubkey = (entity.keypair && entity.keypair.pubkey) || entity.foreign_pubkey || null;
+        if (pubkey) candidates.push({ via: 'pubkey', ref: { pubkey } });
+        if (entity.name) candidates.push({ via: 'label', ref: { label: entity.name } });
+
+        const seen = new Set();
+        for (const { via, ref } of candidates) {
+            for (const finding of await ForensicModel.getForSubject(ref)) {
+                if (seen.has(finding.id)) continue;
+                seen.add(finding.id);
+                forensic.push({ entity_id: entity.id, matched_via: via, finding });
+            }
+        }
+        if (!forensicSubjectRefs[entity.id] && !pubkey && seen.size === 0
+                && entity.id !== excludeId) {
+            forensic.push({ entity_id: entity.id, matched_via: null, finding: null });
+        }
+    }
+    return forensic;
 }
 
 // ------------------------------------------------------------------
