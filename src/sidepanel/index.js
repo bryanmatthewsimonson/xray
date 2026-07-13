@@ -29,6 +29,9 @@ import { dedupeReplaceable } from '../shared/nostr-events.js';
 import { equivalencePubkeys } from '../shared/entity-equivalence.js';
 import { buildFeedFilters, claimCoords, buildJudgmentFilter, assembleFeed } from '../shared/entity-feed.js';
 import { pushEntities, pullEntities, clearRemote, pushRelayList, pullRelayList, normalizeRelayUrl } from '../shared/entity-sync.js';
+import { dedupeReport, recentMerges, DedupeDismissals } from '../shared/entity-health.js';
+import { Storage } from '../shared/storage.js';
+import { listArticles } from '../shared/archive-cache.js';
 
 // Reserved key name in LocalKeyManager for the user's primary
 // identity. Used only by the sync flow — article publishing still
@@ -125,6 +128,7 @@ function setView(view) {
     state.view = view;
     $('.xr-side__list-view').hidden   = view !== 'list';
     $('.xr-side__detail-view').hidden = view !== 'detail';
+    $('.xr-side__health-view').hidden = view !== 'health';
     if (view === 'list') {
         state.selectedId = null;
         state.draft = null;
@@ -1650,6 +1654,145 @@ async function runClear(userKey) {
 // Wire up
 // ------------------------------------------------------------------
 
+// ------------------------------------------------------------------
+// Entity health (Phase 17A E1) — the deterministic duplicate report.
+// Detectors sort by suspicion; every action here is the human's:
+// Merge… (linkAlias, undoable), Not duplicates (dismissal), Unlink.
+// ------------------------------------------------------------------
+
+async function openHealth() {
+    setView('health');
+    const body = $('#xr-health-body');
+    body.innerHTML = '<div class="xr-side__empty">Scanning registry…</div>';
+    try {
+        await renderHealth();
+    } catch (err) {
+        console.warn('[X-Ray Sidepanel] health scan failed:', err);
+        body.innerHTML = '<div class="xr-side__empty">Scan failed — see console.</div>';
+    }
+}
+
+async function renderHealth() {
+    const body = $('#xr-health-body');
+    // Snapshots computed on OPEN, not on every storage change — the
+    // report is a review surface, not a live dashboard.
+    const [entities, accounts, articles, dismissals] = await Promise.all([
+        EntityModel.getAll(),
+        Storage.platformAccounts.getAll(),
+        listArticles().catch(() => []),
+        DedupeDismissals.getAll()
+    ]);
+    const report = dedupeReport({ entities, accounts, articles, dismissals });
+    const merges = recentMerges(entities);
+
+    const nameOf = (id) => (entities[id] && entities[id].name) || id;
+    const iconOf = (id) => ENTITY_ICONS[(entities[id] || {}).type] || '🔷';
+
+    const clusterHtml = report.clusters.length === 0
+        ? '<div class="xr-side__empty">No likely duplicates. Clean registry.</div>'
+        : report.clusters.map((cluster, ci) => {
+            const pairRows = cluster.pairs.map((p, pi) => {
+                const ev = p.evidence || {};
+                const evidence = p.detector === 'name'
+                    ? `“${escapeHtml(ev.name_a)}” ↔ “${escapeHtml(ev.name_b)}”`
+                    : p.detector === 'account'
+                        ? `shared ${escapeHtml(ev.platform || '')} identity: ${escapeHtml((ev.handles || []).join(', '))}`
+                        : `same-article spans: “${escapeHtml((ev.context_a || '').slice(0, 60))}” ↔ “${escapeHtml((ev.context_b || '').slice(0, 60))}”`;
+                return `
+                  <div class="xr-side__health-pair" data-a="${escapeHtml(p.a)}" data-b="${escapeHtml(p.b)}">
+                    <div class="xr-side__health-names">
+                      <span>${iconOf(p.a)} ${escapeHtml(nameOf(p.a))}</span>
+                      <span class="xr-side__health-vs">↔</span>
+                      <span>${iconOf(p.b)} ${escapeHtml(nameOf(p.b))}</span>
+                    </div>
+                    <div class="xr-side__health-evidence" title="${escapeHtml(p.detector)}: ${escapeHtml(p.reason)}">${evidence}</div>
+                    <div class="xr-side__health-actions">
+                      <button type="button" class="xr-side__ghost-btn" data-act="merge" data-ci="${ci}" data-pi="${pi}">Merge…</button>
+                      <button type="button" class="xr-side__ghost-btn" data-act="dismiss" data-ci="${ci}" data-pi="${pi}">Not duplicates</button>
+                    </div>
+                  </div>`;
+            }).join('');
+            return `<div class="xr-side__health-cluster">
+                      <div class="xr-side__health-cluster-head">${cluster.ids.length} entities · ${cluster.detectors.map(escapeHtml).join(' + ')}</div>
+                      ${pairRows}
+                    </div>`;
+        }).join('');
+
+    const mergeHtml = merges.length === 0 ? '' : `
+        <h3>Recent merges</h3>
+        ${merges.map((m) => `
+          <div class="xr-side__health-pair">
+            <div class="xr-side__health-names">
+              <span>${iconOf(m.id)} ${escapeHtml(m.name)}</span>
+              <span class="xr-side__health-vs">→</span>
+              <span>${escapeHtml(nameOf(m.canonical_id))}</span>
+            </div>
+            <div class="xr-side__health-actions">
+              <button type="button" class="xr-side__ghost-btn" data-act="unlink" data-id="${escapeHtml(m.id)}">Unlink</button>
+            </div>
+          </div>`).join('')}`;
+
+    body.innerHTML = `
+        <div class="xr-side__health-summary">${report.counts.pairs} suspect pair${report.counts.pairs === 1 ? '' : 's'} in ${report.counts.clusters} cluster${report.counts.clusters === 1 ? '' : 's'}</div>
+        ${clusterHtml}
+        ${mergeHtml}`;
+
+    body.querySelectorAll('[data-act]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const act = btn.dataset.act;
+            try {
+                if (act === 'unlink') {
+                    await EntityModel.unlinkAlias(btn.dataset.id);
+                    toast('Alias unlinked');
+                } else {
+                    const pair = report.clusters[Number(btn.dataset.ci)].pairs[Number(btn.dataset.pi)];
+                    if (act === 'dismiss') {
+                        await DedupeDismissals.dismiss(pair.a, pair.b);
+                        toast('Marked as not duplicates');
+                    } else if (act === 'merge') {
+                        // Direction is the human's call: swap the row's
+                        // actions for an inline keep-which choice.
+                        // linkAlias validates types/cycles; Unlink is
+                        // the undo. No storage change until a pick.
+                        showMergeChoice(btn.closest('.xr-side__health-pair'), pair, entities);
+                        return;   // no rescan yet
+                    }
+                }
+                await refreshEntities();
+                await renderHealth();
+            } catch (err) {
+                toast(err.message || String(err), 'error');
+            }
+        });
+    });
+}
+
+function showMergeChoice(pairEl, pair, entities) {
+    const a = entities[pair.a], b = entities[pair.b];
+    if (!pairEl || !a || !b) return;
+    const actions = pairEl.querySelector('.xr-side__health-actions');
+    actions.innerHTML = `
+        <span class="xr-side__health-keep-label">Keep:</span>
+        <button type="button" class="xr-side__ghost-btn" data-keep="${escapeHtml(a.id)}">${escapeHtml(a.name)}</button>
+        <button type="button" class="xr-side__ghost-btn" data-keep="${escapeHtml(b.id)}">${escapeHtml(b.name)}</button>
+        <button type="button" class="xr-side__ghost-btn" data-keep="">✕</button>`;
+    actions.querySelectorAll('[data-keep]').forEach((choice) => {
+        choice.addEventListener('click', async () => {
+            const keepId = choice.dataset.keep;
+            if (!keepId) { await renderHealth(); return; }
+            const aliasId = keepId === a.id ? b.id : a.id;
+            try {
+                await EntityModel.linkAlias(aliasId, keepId);
+                toast(`Merged: “${(entities[aliasId] || {}).name}” → “${(entities[keepId] || {}).name}”`);
+                await refreshEntities();
+                await renderHealth();
+            } catch (err) {
+                toast(err.message || String(err), 'error');
+            }
+        });
+    });
+}
+
 async function init() {
     try { installEntityStorageBridge(); } catch (_) { /* idempotent */ }
     try { await LocalKeyManager.init(); } catch (err) {
@@ -1687,7 +1830,12 @@ async function init() {
     });
     $('#xr-delete').addEventListener('click', deleteSelected);
 
-    // Footer: export / import.
+    // Footer: health / export / import.
+    $('#xr-health').addEventListener('click', openHealth);
+    $('#xr-health-back').addEventListener('click', () => {
+        setView('list');
+        renderList();
+    });
     $('#xr-export').addEventListener('click', exportRegistry);
     $('#xr-import').addEventListener('click', () => $('#xr-import-input').click());
     $('#xr-import-input').addEventListener('change', (ev) => {

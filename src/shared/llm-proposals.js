@@ -32,7 +32,7 @@
 
 import { buildSelectors } from './metadata/anchor-capture.js';
 import { createGroundingIndex, isGroundingIndex } from './quote-grounding.js';
-import { ENTITY_TYPES } from './entity-model.js';
+import { ENTITY_TYPES, canonicalIdOf } from './entity-model.js';
 import {
     isValidLabel, isValidStance, isValidSuggestedBy,
     CLAIM_RELATIONSHIPS, REVISION_RELATIONSHIPS
@@ -284,7 +284,7 @@ export function buildEntityInput(prop, { suggestedBy = 'user' } = {}) {
 // Entity dedupe (accept-time)
 // ------------------------------------------------------------------
 
-function nameTokens(name) {
+export function nameTokens(name) {
     return new Set(
         String(name || '')
             .toLowerCase()
@@ -312,20 +312,39 @@ function nameTokens(name) {
 export function findEntityMatches(name, type, entities) {
     const q = nameTokens(name);
     if (q.size === 0) return [];
+    const rows = Array.isArray(entities) ? entities : [];
+    const byId = {};
+    for (const e of rows) if (e && e.id) byId[e.id] = e;
     const scored = [];
-    for (const e of (Array.isArray(entities) ? entities : [])) {
+    for (const e of rows) {
         if (!e || e.type !== type || !e.name) continue;
         const t = nameTokens(e.name);
         if (t.size === 0) continue;
         const qInT = [...q].every((x) => t.has(x));
         const tInQ = [...t].every((x) => q.has(x));
         if (!qInT && !tInQ) continue;
-        scored.push({ entity: e, exact: qInT && tInQ });
+        // E3 (Phase 17A): a match on an ALIAS offers its canonical
+        // record — new tags must attach to the root identity, not
+        // re-silt the registry. Exactness is scored on the name that
+        // actually MATCHED (the alias's), so a query equal to an
+        // alias name still ranks its canonical as an exact hit.
+        const rootId = canonicalIdOf(e.id, byId);
+        const offered = byId[rootId] || e;
+        scored.push({ entity: offered, matchedName: e.name, exact: qInT && tInQ });
     }
     scored.sort((a, b) =>
         (b.exact ? 1 : 0) - (a.exact ? 1 : 0)
-        || String(a.entity.name).length - String(b.entity.name).length);
-    return scored.slice(0, 3).map((m) => m.entity);
+        || String(a.matchedName).length - String(b.matchedName).length);
+    // One entry per offered root, best-ranked occurrence wins.
+    const seen = new Set();
+    const out = [];
+    for (const m of scored) {
+        if (seen.has(m.entity.id)) continue;
+        seen.add(m.entity.id);
+        out.push(m.entity);
+        if (out.length === 3) break;
+    }
+    return out;
 }
 
 export function buildClaimInput(prop, { entityIdByRef = {}, articleText = '', sourceUrl = '', articleHash = '', suggestedBy = 'user' } = {}) {

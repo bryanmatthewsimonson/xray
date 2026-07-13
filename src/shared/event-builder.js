@@ -13,7 +13,7 @@ import { Utils } from './utils.js';
 import { ContentExtractor } from './content-extractor.js';
 import { buildRespondsToTag, RESPONDS_TO_RELATIONSHIPS } from './metadata/builders.js';
 import { articleHash } from './audit/article-hash.js';
-import { generateEntityId } from './entity-model.js';
+import { generateEntityId, canonicalIdOf } from './entity-model.js';
 import { bandISO } from './dossier-time.js';
 
 // Re-export the metadata helpers so callers that already import from
@@ -530,19 +530,28 @@ export const EventBuilder = {
       tags.push(['a', `30058:${userPubkey}:${predictionRef.pred_d}`, '', 'prediction']);
     }
 
-    // About entities — the queryable core.
+    // About entities — the queryable core. Entity ids resolve through
+    // their canonical_id chain (E3, Phase 17A): a claim about an alias
+    // tags the CANONICAL identity's pubkey, so the network's view of a
+    // person doesn't fragment across merge history. Alias + canonical
+    // both in `about` collapse to one p-tag pair. When the canonical
+    // record isn't in the passed dict, the alias record is used as-is
+    // (best effort — the publish sweep keeps canonicals in the batch).
+    const seenAboutIds = new Set();
     for (const eid of (Array.isArray(claim.about) ? claim.about : [])) {
-      const ent = dict[eid];
-      if (ent && ent.keypair) {
-        tags.push(['p', ent.keypair.pubkey, '', 'about']);
-        tags.push(['entity', ent.name, 'about']);
-      }
+      const cid = canonicalIdOf(eid, dict);
+      const ent = dict[cid] && dict[cid].keypair ? dict[cid] : dict[eid];
+      if (!ent || !ent.keypair || seenAboutIds.has(ent.id)) continue;
+      seenAboutIds.add(ent.id);
+      tags.push(['p', ent.keypair.pubkey, '', 'about']);
+      tags.push(['entity', ent.name, 'about']);
     }
 
     // Source — an entity id, free text, or null (= the article).
     if (claim.source) {
       if (/^entity_/.test(claim.source)) {
-        const s = dict[claim.source];
+        const scid = canonicalIdOf(claim.source, dict);
+        const s = dict[scid] && dict[scid].keypair ? dict[scid] : dict[claim.source];
         if (s && s.keypair) {
           tags.push(['p', s.keypair.pubkey, '', 'source']);
           tags.push(['source', s.name]);
@@ -566,7 +575,8 @@ export const EventBuilder = {
     // its subject is dead wire data). Readers that don't know `fact`
     // see a normal claim.
     if (claim.fact) {
-      const subj = dict[claim.fact.entity_id];
+      const fcid = canonicalIdOf(claim.fact.entity_id, dict);
+      const subj = dict[fcid] && dict[fcid].keypair ? dict[fcid] : dict[claim.fact.entity_id];
       if (subj && subj.keypair) {
         tags.push(['fact', claim.fact.field, claim.fact.value, subj.keypair.pubkey]);
         const slots = [

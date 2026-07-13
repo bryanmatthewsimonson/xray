@@ -594,3 +594,24 @@ test('end-to-end: a finding with no quoted anchor is rejected by the model firew
     );
     await assert.rejects(() => ForensicModel.create(bad), /anchor/);
 });
+
+test('findEntityMatches: alias matches offer the CANONICAL record, deduped by root (E3)', () => {
+    const registry = [
+        { id: 'e_root',  name: 'Elena Vargas', type: 'person' },
+        { id: 'e_alias', name: 'Mayor Elena Vargas', type: 'person', canonical_id: 'e_root' }
+    ];
+    // A query matching BOTH the alias and the canonical returns one
+    // entry — the canonical — not two half-identities.
+    const both = P.findEntityMatches('Elena Vargas', 'person', registry);
+    assert.deepEqual(both.map((e) => e.id), ['e_root']);
+
+    // A query matching ONLY the alias name still offers the canonical,
+    // ranked as an exact hit (exactness scored on the matched name).
+    const aliasOnly = P.findEntityMatches('Mayor Elena Vargas', 'person', registry);
+    assert.equal(aliasOnly[0].id, 'e_root');
+    assert.equal(aliasOnly.length, 1);
+
+    // A dangling canonical_id degrades to the alias record itself.
+    const dangling = [{ id: 'e_a', name: 'Jane Roe', type: 'person', canonical_id: 'e_gone' }];
+    assert.deepEqual(P.findEntityMatches('Jane Roe', 'person', dangling).map((e) => e.id), ['e_a']);
+});

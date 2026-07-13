@@ -82,6 +82,28 @@ function normalizeName(name) {
 }
 
 /**
+ * The canonical (root) entity id for `entityId` under a registry
+ * SNAPSHOT — pure, no storage reads (E3/Phase 17A). Follows the
+ * canonical_id chain depth-capped at 8 with a cycle guard; a dangling
+ * chain stops at the last resolvable record; an unknown id returns
+ * itself (callers holding ids the snapshot doesn't cover — e.g. a
+ * just-deleted entity — must not explode).
+ */
+export function canonicalIdOf(entityId, records) {
+    const all = records || {};
+    let cur = all[entityId];
+    if (!cur) return entityId;
+    const seen = new Set([cur.id]);
+    for (let i = 0; i < 8 && cur.canonical_id; i++) {
+        const next = all[cur.canonical_id];
+        if (!next || seen.has(next.id)) break;
+        seen.add(next.id);
+        cur = next;
+    }
+    return cur.id;
+}
+
+/**
  * Derive a deterministic id from {type, name}. Async because Crypto.sha256
  * uses crypto.subtle. 16-hex-char truncation gives a 64-bit space, way
  * more than enough for entity collisions under a single user's registry.
@@ -360,24 +382,26 @@ export const EntityModel = {
      */
     aliasFamily: async (entityId, records = null) => {
         const all = records || await Storage.get('entities', {});
-        const rootOf = (rec) => {
-            let cur = rec;
-            const seen = new Set([cur.id]);
-            for (let i = 0; i < 8 && cur.canonical_id; i++) {
-                const next = all[cur.canonical_id];
-                if (!next || seen.has(next.id)) break;
-                seen.add(next.id);
-                cur = next;
-            }
-            return cur.id;
-        };
         const me = all[entityId];
         if (!me) return { rootId: null, ids: [] };
-        const rootId = rootOf(me);
+        const rootId = canonicalIdOf(entityId, all);
         const ids = Object.values(all)
-            .filter((rec) => rec && rec.id && rootOf(rec) === rootId)
+            .filter((rec) => rec && rec.id && canonicalIdOf(rec.id, all) === rootId)
             .map((rec) => rec.id);
         return { rootId, ids };
+    },
+
+    /**
+     * Resolve an entity ID to its canonical (root) RECORD — the E3
+     * per-call convenience over resolveAlias. Publish/tag/suggest
+     * call sites that hold only an id use this; bulk loops that
+     * already hold a registry snapshot should use the pure
+     * canonicalIdOf instead (one storage read per hop here).
+     */
+    resolveCanonical: async (entityId) => {
+        const me = await EntityModel.get(entityId);
+        if (!me) return null;
+        return await EntityModel.resolveAlias(me);
     },
 
     /**

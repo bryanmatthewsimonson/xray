@@ -48,9 +48,11 @@ export const WORKSPACE_CLEAR_KEYS = Object.freeze([
     'lens_jurisdictions',       // Phase 16 jurisdiction registry + corpora
     'url_aliases',              // URL alias map (url-aliases.js) — derived
                                 // from captured content, so workspace data
-    'entity_fact_dismissals'    // Phase 19 fact-conflict dismissals
+    'entity_fact_dismissals',   // Phase 19 fact-conflict dismissals
                                 // (entity-facts.js) — judgments about
                                 // captured content, so workspace data
+    'entity_dedupe_dismissals'  // Phase 17A "Not duplicates" record
+                                // (entity-health.js) — same class
 ]);
 
 // What reset deliberately KEEPS — configuration and identity. Exported

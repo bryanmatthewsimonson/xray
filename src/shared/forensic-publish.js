@@ -19,6 +19,7 @@
 //     link selector deliberately skips them.
 
 import { claimWireInfo } from './assessment-publish.js';
+import { canonicalIdOf } from './entity-model.js';
 import { REVISION_RELATIONSHIPS } from './assessment-taxonomy.js';
 
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -33,7 +34,10 @@ export function resolveSubjectPubkey(subjectRef, entities) {
     const r = subjectRef || {};
     if (typeof r.pubkey === 'string' && HEX64.test(r.pubkey)) return r.pubkey;
     if (r.identity_id && entities) {
-        const ent = entities[r.identity_id];
+        // E3 (Phase 17A): resolve through the canonical chain so a
+        // finding filed against an alias lands on the root identity.
+        const rootId = canonicalIdOf(r.identity_id, entities);
+        const ent = entities[rootId] || entities[r.identity_id];
         const pk = ent && ent.keypair && ent.keypair.pubkey;
         if (typeof pk === 'string' && HEX64.test(pk)) return pk;
     }

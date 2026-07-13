@@ -19,6 +19,27 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-13 — Wire p-tags resolve through the canonical chain (E3)
+
+Tags: `design`.
+
+Phase 17A: every publish path that turns an entity id into a pubkey
+(`buildClaimEvent` about/source/fact-subject, 32125 relationships,
+32126 `linkedEntityPubkey`, assessment about-mirrors, forensic/truth
+subject refs) now resolves through `canonicalIdOf` first. Before, a
+claim about an alias tagged the ALIAS's pubkey — so one real-world
+person accumulated two disjoint `#p` histories, one per merge-history
+fragment. After, new events land on the root identity; the alias's
+kind-0 `refers_to` tag is the published forwarding pointer for
+consumers holding old references, and local reads were already
+family-wide via `equivalencePubkeys`. Second-guess note: we chose
+best-effort fallback (alias record used verbatim when the canonical
+isn't in the caller's dict) over dropping the tag — a slightly stale
+reference beats a vanished one. The dedupe report that makes merges
+routine is `entity-health.js` (same commit); resolution helpers are
+`EntityModel.resolveCanonical` (id → root record, async) and the pure
+`canonicalIdOf(id, snapshot)` for bulk loops.
+
 ## 2026-07-12 — The asserter defaults to the article's author, entity-first
 
 Tags: `design`.
