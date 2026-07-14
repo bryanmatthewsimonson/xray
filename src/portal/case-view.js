@@ -18,6 +18,8 @@ import { renderCaseTimeline } from './case-timeline.js';
 import { EntityModel } from '../shared/entity-model.js';
 import { assembleCaseDossier } from '../shared/case-dossier.js';
 import { getArticle } from '../shared/archive-cache.js';
+import { removeArticleFromCase } from '../shared/case-membership.js';
+import { mountAddSources } from './add-sources.js';
 import { Utils } from '../shared/utils.js';
 
 // Open a LOCAL archived record in the reader to extract claims from a
@@ -85,7 +87,22 @@ export function renderCaseView(host, params) {
     graphBtn.type = 'button';
     graphBtn.addEventListener('click', () => callbacks.onOpenGraph(casePubkey));
     head.appendChild(graphBtn);
+    // 20.2 — add archived articles to this case without the reader.
+    const addSourcesHost = el('div');
+    if (caseEnt && caseEnt.entityId) {
+        const addBtn = el('button', 'xr-portal__btn', 'Add sources…');
+        addBtn.type = 'button';
+        addBtn.addEventListener('click', () => {
+            addSourcesHost.replaceChildren();
+            mountAddSources(addSourcesHost, {
+                caseEntityId: caseEnt.entityId,
+                onChanged: () => callbacks.onReloadCase && callbacks.onReloadCase()
+            });
+        });
+        head.appendChild(addBtn);
+    }
     host.appendChild(head);
+    host.appendChild(addSourcesHost);
 
     if (!caseName) {
         host.appendChild(el('p', 'xr-view__empty',
@@ -163,7 +180,15 @@ export function renderCaseView(host, params) {
                 + `${c.propositions} proposition${c.propositions === 1 ? '' : 's'}`;
             if (c.articles === 0) localCountsHost.remove();
             renderShapeBlock(shapeHost, dossier);
-            renderEvidenceBlock(evidenceHost, dossier, { onExtractClaims: openArchivedInReader });
+            renderEvidenceBlock(evidenceHost, dossier, {
+                onExtractClaims: openArchivedInReader,
+                onRemoveFromCase: async (url) => {
+                    try {
+                        await removeArticleFromCase(caseEnt.entityId, url);
+                        if (callbacks.onReloadCase) callbacks.onReloadCase();
+                    } catch (err) { Utils.error('Remove from case failed', err); }
+                }
+            });
             renderCaseTimeline(timelineHost, dossier);
         })().catch((err) => {
             Utils.error('Case dossier assembly failed', err);

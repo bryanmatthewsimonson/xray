@@ -19,6 +19,34 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-14 — Add-to-case outside the reader (20.2)
+
+Tags: `design`.
+
+20.1 made tag membership first-class but left the only *write* path
+inside the reader (tag text while the article is open). 20.2 adds an
+"Add sources…" picker to both the portal case view and the side-panel
+case detail: pick archived articles that aren't yet members and tag
+them, no reader round-trip. Shared logic in `case-membership.js`
+(`memberUrlSets` / `listAddableArticles` / `addArticlesToCase` /
+`removeArticleFromCase`).
+
+Two load-bearing choices: (1) the tag ref uses `context: ''` — the
+reader's `rehydrateEntityMarks` wraps the first body occurrence of a
+ref's `context`, so a sentinel string like "case" would mark a random
+word; empty context is skipped by the rehydrate guard and still emits a
+bare `['p', pubkey]` on publish. (2) The mutation goes through
+`saveArticle` as a read-modify-write that re-passes `_articleHash`,
+`source`, `publishedToRelay`, `publishedEventId` — `saveArticle`
+preserves cachedAt/published flags for an existing row but defaults
+`source` and recomputes the hash, so both ride through explicitly (a
+tag change never alters the content hash, but pinning it avoids a
+needless recompute and any drift). No republish, ever: an
+already-published capture keeps its wire p-tags until re-published from
+the reader, and the picker says so with a hint.
+
+---
+
 ## 2026-07-14 — Case membership becomes a union; tag-only articles are first-class (20.1)
 
 Tags: `design`.
