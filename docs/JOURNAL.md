@@ -19,6 +19,52 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-14 — Case-corpus LLM synthesis (20.4)
+
+Tags: `design`.
+
+The maintainer wanted to analyze a whole case corpus at once — a
+summary, the load-bearing claims, and the cruxes of disagreement
+between opposing views (the Rootclaim debate is two-sided). 20.4 adds
+a flag-gated map/reduce over a case's member articles, exactly what
+CASE_DOSSIER_DESIGN §5 pre-authorized ("a flag-gated assist could later
+draft prose from the dossier — separately designed, consent-gated").
+
+Shape: `corpus-prompts.js` (pure tools — `emit_corpus_extract` map,
+`emit_case_brief` reduce; NO numeric field in either schema),
+`case-synthesis.js` (pure: member units keyed by article hash,
+order-insensitive `corpusInputHash`, dossier digest, schema-walker
+validators, per-member quote grounding, proposal filtering),
+`runCorpusMapPass`/`runCorpusReducePass` in llm-client (mirror the
+audit passes), three `xray:llm:corpus-*` SW routes, and the portal
+`synthesis-block.js` runner (orchestrateModuleRuns over member ids for
+the map, one reduce call) + `synthesis-review.js` (portal-native
+Accept routing through ClaimModel/EvidenceLinker). The brief is stored
+in the precious `xray-audits` DB, bumped to v2 with a `case-briefs`
+store (export-included via the generic backup dump — a test pins it).
+
+Load-bearing decisions worth remembering: (1) PHILOSOPHY compliance is
+structural — the tool schemas carry NO score/confidence/probability
+field (a test greps the schema keys), the reduce prompt forbids
+adjudicating between positions, and the brief renders BESIDE the
+deterministic dossier, never above it. (2) Every brief quote is
+machine-grounded against the SAME member text the map stage sent (so
+the article-hash join is exact); ungrounded quotes drop their entry and
+the drop count is disclosed on the block and stored. (3) Gating is
+triple: `caseSynthesis` + `llmAssist` + key, because a corpus run is N
+suggest passes' worth of spend — the run also shows an explicit
+"sends N articles to Anthropic" confirm. (4) The reader's `openLlmReview`
+was NOT reused — it grounds against one document and validates
+relationship endpoints as same-pass refs; corpus proposals reference
+real existing claim ids across many documents, so the portal got its
+own small review surface. (5) A stale chip appears when the live
+`corpusInputHash` differs from the stored brief's (membership/text/
+claim/prompt change), so the user knows to regenerate. No wire kind —
+the brief is local; accepted proposals materialize as ordinary
+30040/30055 through the normal publish paths.
+
+---
+
 ## 2026-07-14 — Local case entity graph (20.3)
 
 Tags: `design`.
