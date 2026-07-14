@@ -530,6 +530,20 @@ body.xr-portal {
 .xr-gedge--warn { stroke: var(--xr-danger); stroke-width: 2; stroke-dasharray: 5 3; }
 .xr-gedge__warnmark { fill: var(--xr-danger); font-size: 13px; }
 
+/* Local case graph (20.3) */
+.xr-cgraph { margin: 12px 0; }
+.xr-cgnode--case circle { fill: var(--xr-accent); fill-opacity: 0.3; stroke: var(--xr-accent); }
+.xr-cgnode--article circle { fill: var(--xr-primary); fill-opacity: 0.35; stroke: var(--xr-primary); }
+.xr-cgnode--article.xr-cgnode--unprocessed circle { fill: transparent; stroke-dasharray: 3 2; }
+.xr-cgnode--entity circle { stroke: var(--xr-accent); fill: transparent; }
+.xr-cgnode--ghost circle { stroke: var(--xr-warning); stroke-dasharray: 2 2; fill: transparent; }
+.xr-cgnode--more circle { stroke: var(--xr-text-dim); stroke-dasharray: 2 3; fill: transparent; }
+.xr-cgnode--claim circle { stroke: var(--xr-primary); fill: transparent; }
+.xr-cgnode { cursor: pointer; }
+.xr-cgedge--member { stroke: var(--xr-accent); stroke-opacity: 0.3; }
+.xr-cgedge--about { stroke: var(--xr-primary); stroke-opacity: 0.4; }
+.xr-cgedge--cotag { stroke: var(--xr-text-dim); stroke-opacity: 0.5; stroke-dasharray: 2 2; }
+
 /* case dashboard */
 .xr-case__rollup {
   display: flex;
