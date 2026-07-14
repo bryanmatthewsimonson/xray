@@ -52,13 +52,16 @@ const GAP_SEVERITY = {
     'story-changed-after-event': 'warning'
 };
 
-export function renderCaseTimeline(host, caseEntityId) {
-    if (!caseEntityId) return;
+// `dossierOrId`: a pre-built case dossier (shared assembly, 20.1) or a
+// case entity id to assemble on the spot.
+export function renderCaseTimeline(host, dossierOrId) {
+    if (!dossierOrId) return;
     const block = el('div', 'xr-case__timeline');
     host.appendChild(block);
 
     (async () => {
-        const caseDossier = await assembleCaseDossier(caseEntityId);
+        const caseDossier = typeof dossierOrId === 'string'
+            ? await assembleCaseDossier(dossierOrId) : dossierOrId;
         const tl = caseDossier.timeline;
         if (tl.events.length === 0 && tl.gaps.length === 0 && tl.undated.length === 0) {
             block.remove();

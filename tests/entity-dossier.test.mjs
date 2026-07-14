@@ -187,8 +187,13 @@ test('dossier: source-mediated membership + zero-claim article lands in unproces
     });
     const d = await assembleEntityDossier(ROOT, opts);
     assert.equal(d.coverage.claims, 1, 'source-mediated claim is in the orbit');
-    assert.deepEqual(d.content.unprocessed.map((u) => u.url), ['https://x.test/tagged-only'],
-        'family-tagged zero-claim article surfaces as backlog (via membership_ids)');
+    // 20.1 union membership: the family-tagged zero-claim article is a
+    // first-class content row (processed:false), not a backlog footnote.
+    const taggedRow = d.content.articles.find((a) => a.url === 'https://x.test/tagged-only');
+    assert.ok(taggedRow, 'family-tagged zero-claim article is a first-class row (via membership_ids)');
+    assert.equal(taggedRow.processed, false);
+    assert.equal(taggedRow.membership, 'tag');
+    assert.deepEqual(d.content.unprocessed, [], 'unprocessed carries only wire-32125 items now');
     assert.equal(d.identity.mentions.length, 1, 'grounded mention captured');
 });
 

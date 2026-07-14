@@ -19,6 +19,50 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-14 — Case membership becomes a union; tag-only articles are first-class (20.1)
+
+Tags: `design`.
+
+Maintainer feedback from the live COVID/Rootclaim corpus: a case tagged
+on ~10 captured articles showed "0 sources · 9 unprocessed" in the
+portal. Root cause — the case-dossier spine was purely claim-mediated
+(`claim.about` includes the case id), so an article tagged with the case
+entity but carrying no extracted claims surfaced only as an
+`unprocessed/local-tag` footnote. Tagging is the cheap first step;
+claim extraction is the expensive one, and the tool made the cheap step
+look like nothing happened.
+
+Phase 20.1 makes membership a **union**: tagged (archive record's
+`article.entities[]` intersects the case's alias family) OR
+claim-referenced. `deriveArticleRows` now promotes tagged-claimless
+records to **first-class rows** (`claims:[]`, `processed:false`,
+`membership:'tag'`) instead of footnotes; claim rows carry
+`processed:true` + `membership:'claims'|'both'`. `unprocessed[]` now
+holds only wire-injected 32125 items. Coverage gained
+`articles_with_claims` — and `buildCaseDossier` was aliasing the
+headline `articles_with_claims` to `articles` (that was literally the
+"0 sources" the maintainer saw); de-aliased.
+
+Second-guessable calls documented here: (1) tag membership keys on the
+whole **alias family** (`EntityModel.aliasFamily`), so an alias case id
+on a record still counts — claims already canonicalize to the root at
+authoring (E3), so only the tag path needed the family walk. (2) Audit
+runs join tag-only rows for free via the record's own `articleHash`
+(the same hash the reader stamps), so a tagged article that was audited
+but never claimed still shows its audit band. (3) The portal case view
+now assembles the dossier ONCE and shares it across the shape / evidence
+/ timeline blocks (was three independent `assembleCaseDossier` passes
+per open) and gains a local-corpus counts line beside the published
+rollup. Backward-compatible: entity dossiers get the same promotion
+(same `deriveArticleRows`), and the render blocks accept either a
+pre-built dossier or a case id.
+
+While here: fixed two literal NUL bytes in `entity-model.js`
+(`mergeEntityRefs`'s dedupe-key separator) — replaced the raw 0x00 with unicode escapes; behavior identical, but the raw bytes made the file read as
+binary to tooling.
+
+---
+
 ## 2026-07-14 — Reader "Add fact" button gated behind a Settings flag (19.5)
 
 Tags: `design`.

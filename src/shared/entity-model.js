@@ -699,10 +699,10 @@ export const EntityModel = {
  */
 export function mergeEntityRefs(current, archived) {
     const out = Array.isArray(current) ? current.filter((r) => r && r.entity_id) : [];
-    const seen = new Set(out.map((r) => `${r.entity_id} ${r.context || ''}`));
+    const seen = new Set(out.map((r) => `${r.entity_id}\u0000${r.context || ''}`));
     for (const ref of Array.isArray(archived) ? archived : []) {
         if (!ref || !ref.entity_id) continue;
-        const key = `${ref.entity_id} ${ref.context || ''}`;
+        const key = `${ref.entity_id}\u0000${ref.context || ''}`;
         if (seen.has(key)) continue;
         seen.add(key);
         out.push(ref);
