@@ -95,7 +95,14 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // of this. Local dossiers / facts / conflicts are never gated —
   // they're the product. Hard prereq honored: Phase 17A (E1 dedupe +
   // E3 canonical sweep) shipped first.
-  entityCorpusPublishing: false
+  entityCorpusPublishing: false,
+
+  // Phase 19.5 — gates the reader tagger popover's "Add fact" button
+  // (the structured-fact capture entry). Purely a UI-visibility gate:
+  // the fact flow, records, 30040 fact tags, and dossier assembly are
+  // unchanged. Off by default because the button crowds the popover
+  // and facts are a power-user surface.
+  readerAddFact: false
 });
 
 /**

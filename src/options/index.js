@@ -706,6 +706,10 @@ async function loadAdvanced() {
     document.getElementById('pref-account-publishing').checked =
         isEnabled('platformAccountPublishing');
 
+    // Reader "Add fact" popover button (Phase 19.5) — a UI-visibility
+    // gate, not a publish path.
+    document.getElementById('pref-reader-add-fact').checked = isEnabled('readerAddFact');
+
     // Moral lens (Phase 16) — independent of llmAssist; shares the key.
     document.getElementById('pref-moral-lens').checked = isEnabled('moralLens');
 
@@ -780,6 +784,10 @@ async function saveAdvanced() {
     await setOverride('platformAccountPublishing', publishAccounts ? true : null);
     const publishCorpus = document.getElementById('pref-entity-corpus-publishing').checked;
     await setOverride('entityCorpusPublishing', publishCorpus ? true : null);
+
+    // Reader "Add fact" popover button (Phase 19.5).
+    const showAddFact = document.getElementById('pref-reader-add-fact').checked;
+    await setOverride('readerAddFact', showAddFact ? true : null);
 
     // Moral lens (Phase 16): checked → explicit override on; unchecked →
     // clear the override back to the default (off).

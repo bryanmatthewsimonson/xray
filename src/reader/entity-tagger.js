@@ -34,6 +34,11 @@ let onTagCallback         = null;
 let onClaimCallback       = null;
 let onFindingCallback     = null;
 let taggerRoot            = null;
+// Phase 19.5: the "Add fact" popover row is gated behind the
+// `readerAddFact` flag (default off). The reader reads the flag and
+// threads the boolean in at install time; off means the button is
+// never rendered.
+let factButtonEnabled     = false;
 
 /**
  * Wire the tagger up to a container element (typically the article
@@ -44,16 +49,19 @@ let taggerRoot            = null;
  *   onTag:      (ref)  => void,
  *   onClaim?:   (info) => void, // the popover's "Add as claim" and
  *                               // "❝ Quote" rows (info.quoteMode)
- *   onFinding?: (info) => void  // the popover's "Mark finding" row —
+ *   onFinding?: (info) => void, // the popover's "Mark finding" row —
  *                               // the reader opens the finding modal
  *                               // seeded with the selected span
+ *   showFactButton?: boolean    // Phase 19.5: render the "Add fact"
+ *                               // row (gated behind `readerAddFact`)
  * }} opts
  */
-export function installEntityTagger({ container, onTag, onClaim, onFinding }) {
+export function installEntityTagger({ container, onTag, onClaim, onFinding, showFactButton = false }) {
     if (!container) return () => {};
     onTagCallback = onTag;
     onClaimCallback = onClaim || null;
     onFindingCallback = onFinding || null;
+    factButtonEnabled = !!showFactButton;
     taggerRoot = container;
 
     const onMouseUp = (ev) => {
@@ -157,9 +165,9 @@ function openPopover({ x, y, initialText }) {
         <button type="button" class="xr-tagger-popover__quote-btn" title="Capture this selection as a quote — pick who said it">
           ❝ Quote
         </button>
-        <button type="button" class="xr-tagger-popover__fact-btn" title="Capture a structured fact this selection asserts — birth date, headquarters, role…">
+        ${factButtonEnabled ? `<button type="button" class="xr-tagger-popover__fact-btn" title="Capture a structured fact this selection asserts — birth date, headquarters, role…">
           📇 Add fact
-        </button>
+        </button>` : ''}
         <button type="button" class="xr-tagger-popover__finding-btn" title="Name a behavioral maneuver, anchored to this selection">
           🔎 Mark finding
         </button>
