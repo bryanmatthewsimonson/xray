@@ -88,8 +88,32 @@ export function renderEntityView(host, params) {
     renderIntegrityBlock(host, (entityIndex[focusPubkey] || {}).entityId);
 
     if (graph.nodes.length === 0) {
-        host.appendChild(el('p', 'xr-view__empty',
-            'Nothing published references this entity yet — no claims, accounts, or cases found in the corpus.'));
+        const empty = el('div', 'xr-view__empty');
+        const localId = (entityIndex[focusPubkey] || {}).entityId;
+        if (localId && graph.focus.type === 'case') {
+            // 20.3: a tag-only case has no published graph — send the
+            // user to the case dashboard, which draws the LOCAL graph.
+            empty.appendChild(el('p', null,
+                'Nothing published references this case yet — but it may have local sources. '
+                + 'Open the case dashboard for the local graph.'));
+            if (callbacks.onOpenCase) {
+                const btn = el('button', 'xr-portal__btn', 'Open case dashboard');
+                btn.type = 'button';
+                btn.addEventListener('click', () => callbacks.onOpenCase(focusPubkey));
+                empty.appendChild(btn);
+            }
+        } else if (localId && callbacks.onOpenEntityDossier) {
+            empty.appendChild(el('p', null,
+                'Nothing published references this entity yet. Open its dossier for the local field + provenance view.'));
+            const btn = el('button', 'xr-portal__btn', 'Open dossier');
+            btn.type = 'button';
+            btn.addEventListener('click', () => callbacks.onOpenEntityDossier(localId));
+            empty.appendChild(btn);
+        } else {
+            empty.appendChild(el('p', null,
+                'Nothing published references this entity yet — no claims, accounts, or cases found in the corpus.'));
+        }
+        host.appendChild(empty);
         return;
     }
 

@@ -16,10 +16,11 @@ import { renderShapeBlock } from './shape-block.js';
 import { renderEvidenceBlock } from './evidence-block.js';
 import { renderCaseTimeline } from './case-timeline.js';
 import { EntityModel } from '../shared/entity-model.js';
-import { assembleCaseDossier } from '../shared/case-dossier.js';
+import { collectCaseDossierData, buildCaseDossier } from '../shared/case-dossier.js';
 import { getArticle } from '../shared/archive-cache.js';
 import { removeArticleFromCase } from '../shared/case-membership.js';
 import { mountAddSources } from './add-sources.js';
+import { renderCaseGraph } from './case-graph-view.js';
 import { Utils } from '../shared/utils.js';
 
 // Open a LOCAL archived record in the reader to extract claims from a
@@ -166,13 +167,19 @@ export function renderCaseView(host, params) {
     const localCountsHost = el('div', 'xr-view__dossier-line xr-case__localcounts');
     const shapeHost = el('div');
     const evidenceHost = el('div');
+    const graphHost = el('div');
     const timelineHost = el('div');
     if (caseEnt && caseEnt.entityId) {
         host.appendChild(localCountsHost);
         host.appendChild(shapeHost);
         host.appendChild(evidenceHost);
+        host.appendChild(graphHost);
         (async () => {
-            const dossier = await assembleCaseDossier(caseEnt.entityId);
+            // Collect once, then build the dossier AND the local graph
+            // from the same `data` (the graph needs entitiesById/articles
+            // that only the collector output carries).
+            const data = await collectCaseDossierData(caseEnt.entityId);
+            const dossier = buildCaseDossier(data, null);
             const c = dossier.coverage;
             localCountsHost.textContent =
                 `Local corpus: ${c.articles} source${c.articles === 1 ? '' : 's'} · `
@@ -187,6 +194,13 @@ export function renderCaseView(host, params) {
                         await removeArticleFromCase(caseEnt.entityId, url);
                         if (callbacks.onReloadCase) callbacks.onReloadCase();
                     } catch (err) { Utils.error('Remove from case failed', err); }
+                }
+            });
+            renderCaseGraph(graphHost, {
+                data,
+                callbacks: {
+                    onOpenEntityDossier: callbacks.onOpenEntityDossier,
+                    onOpenArticle: openArchivedInReader
                 }
             });
             renderCaseTimeline(timelineHost, dossier);

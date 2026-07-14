@@ -170,6 +170,11 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
             pubkey: (caseEntity.keypair && caseEntity.keypair.pubkey) || caseEntity.foreign_pubkey || null
         },
         membership_ids: membershipIds,
+        // Full entity registry snapshot (Phase 20.3) — the case graph
+        // resolves names for entities TAGGED on member articles that
+        // never entered an orbit claim (so aren't in orbit.entities).
+        // Builders ignore it; it only rides for graph consumers.
+        entitiesById: allEntities,
         orbit: {
             entity_ids:          entityIds,
             entities:            orbitEntities,

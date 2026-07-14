@@ -19,6 +19,34 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-14 — Local case entity graph (20.3)
+
+Tags: `design`.
+
+The portal's spokes graph (`portal/graph.js`) is built from PUBLISHED
+events only, so a case built by tagging local captures rendered empty
+even with ten inter-related articles. 20.3 adds a LOCAL case graph:
+new pure `case-graph.js` (`buildCaseGraph` / `layoutCaseGraph`) over the
+`collectCaseDossierData` output — case at center, member articles,
+entities tagged-on/claimed-about them, entity↔entity co-tag adjacency
+(weight = shared member articles), and the contradiction warn-edges the
+dossier's `buildKnots` already computes but nothing drew. Rendered by
+`portal/case-graph-view.js` (SVG, pan/zoom, click an entity → dossier,
+an article → reader), mounted in the case view's shared assembly.
+
+Notes: (1) the collector now returns `entitiesById` (the full registry
+snapshot) so the graph can name entities tagged on an article that
+never entered an orbit claim — builders ignore the field. (2) The
+spokes graph's empty state now ROUTES rather than dead-ends: a case
+with a local id offers "Open case dashboard" (the local graph lives
+there), a non-case entity offers "Open dossier" — instead of feeding
+local models into `buildEgoGraph`, which is defined over published
+items and would fork its semantics. (3) Layout is deterministic
+concentric rings (no physics), so the same corpus always draws the
+same graph.
+
+---
+
 ## 2026-07-14 — Add-to-case outside the reader (20.2)
 
 Tags: `design`.
