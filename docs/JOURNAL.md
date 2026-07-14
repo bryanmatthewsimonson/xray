@@ -19,6 +19,22 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-14 — Phase 20 docs tail + case export carries the brief (20.5)
+
+Tags: `design`.
+
+Closes Phase 20: the design doc (`CASE_SYNTHESIS_DESIGN.md`), the
+ROADMAP §Phase 20, SMOKE §Phase 20 (rows 20.a–20.l), CHANGELOG, and the
+NIP_DRAFT "no new kind" note. Plus the case export now folds in the LLM
+corpus brief when one exists — `buildCaseJson` emits a `brief` object,
+`buildCaseMarkdown` a "## Case brief (LLM-drafted)" section, both
+clearly flagged as a drafting assist with model + prompt version +
+grounding drop counts on their face (never presented as a sourced
+finding). The side-panel `exportCase` reads `getCaseBrief(entity.id)`
+and attaches it; a case with no brief exports exactly as before.
+
+---
+
 ## 2026-07-14 — Case-corpus LLM synthesis (20.4)
 
 Tags: `design`.

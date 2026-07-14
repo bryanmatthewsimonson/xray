@@ -12,6 +12,30 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 20 — case-first: making a case corpus usable (20.1–20.4).**
+  Driven from the live COVID/Rootclaim corpus. **Union membership** — a
+  case includes an article that is tagged with the case entity OR
+  referenced by a claim; tag-only articles are now first-class sources
+  everywhere (the portal case view stopped reading "0 sources"), with a
+  processed/unprocessed distinction and an "extract claims" nudge.
+  **Add-to-case outside the reader** (`case-membership.js`) — an "Add
+  sources…" picker on the portal case view and the side-panel case
+  detail tags archived articles into a case (local-only, republish hint
+  on published records) with a "✕ remove" affordance. **Local case
+  entity graph** (`case-graph.js` + `case-graph-view.js`) — the case at
+  center, its member articles, tagged/claimed entities, co-tag
+  adjacency, and the contradiction edges the dossier's knots compute;
+  the spokes-graph empty state routes to the case dashboard. **LLM
+  corpus synthesis** behind the new `caseSynthesis` flag (+ `llmAssist`
+  + key, default off) — a map/reduce over the member articles that
+  drafts a grounded case brief (summary, positions, cruxes of
+  disagreement side by side, load-bearing claims, coverage gaps) plus
+  reviewable cross-article proposals; every quote is machine-grounded,
+  there is no fused score or verdict, and the brief is stored in the
+  precious `xray-audits` DB (v2 `case-briefs` store, export-included)
+  and carried in the case export. No new wire kind — proposals
+  materialize as ordinary 30040/30055 on accept.
+  `docs/CASE_SYNTHESIS_DESIGN.md`.
 - **Phase 19 — entity dossiers, end to end (19.2–19.8).** The
   provenance-pinned knowledge base: facts ride claims (additive kind-30040
   `fact`/`valid_from`/`valid_to`/`observed_at` tags, band-precision ISO

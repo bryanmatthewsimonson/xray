@@ -1172,6 +1172,29 @@ tagged in both.
 
 ---
 
+## Phase 20 — Case-first (20.1–20.4)
+
+Needs a **case** entity tagged on several captured articles (a couple
+disagreeing on the case question is ideal — the Rootclaim corpus). Open
+the case in the portal ("My Archive" → the case row).
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 20.a | Tag a case on ~3 captured articles (no claims yet) → open it in the portal | ✅ the header shows **"Local corpus: N sources · 0 with claims · …"** (not "0 sources"); the Evidence block lists all N as rows, each with a **"no claims yet"** chip + an **Extract claims →** button |
+| 20.b | Click **Extract claims →** on a claimless row | ✅ the archived article opens in the reader (writable); marking a claim about the case and returning → the row flips to *processed* (no "no claims yet" chip) on the next case open |
+| 20.c | Case view → **Add sources…** | ✅ an inline picker lists archived articles NOT in the case; filter + check a few + **Add** tags them (canonical case id); an already-published one shows the **"won't carry the case until re-published"** hint; the case re-renders with the new rows |
+| 20.d | A tag-member row → **✕ remove**; a row that is also claim-referenced | ✅ remove detaches the tag and the row drops; a claim-referenced row shows **"tagged + claimed"** (no remove — its claims keep it a member) |
+| 20.e | Side panel → the case entity → **Add archived articles** | ✅ the same picker in the side panel adds sources; the count updates |
+| 20.f | Case view **Case graph** block | ✅ an SVG with the case at center, member-article nodes, tagged/claimed entity nodes, dashed co-tag links between entities, and ⚠ contradiction edges where claims contradict; clicking an entity opens its dossier, an article opens the reader |
+| 20.g | Entity spokes graph on a tag-only case (nothing published) | ✅ instead of a dead-end, an **"Open case dashboard"** button (the local graph lives there) |
+| 20.h | Options → Advanced → **Case synthesis** OFF (default): open a case | ✅ **no "Analyze corpus" surface** appears |
+| 20.i | Case synthesis ON + API key → **Analyze corpus…** | ✅ a confirm states "sends N articles to Anthropic"; on run, a grounded **brief** renders — summary, positions, **cruxes of disagreement side by side**, load-bearing claims, coverage gaps — with a provenance line (model · prompt version · quotes checked/dropped · members). **No score or verdict anywhere.** |
+| 20.j | The brief's **Proposals** → **Accept** one | ✅ a relationship proposal creates a local 30055 link (stamped `llm:<model>`); an is_key flags the claim; a new-claim proposal creates a local claim about the case; rejected proposals show a reason and no Accept |
+| 20.k | Add another source, re-open the case | ✅ a **"stale — corpus changed"** chip on the stored brief; **Analyze corpus** regenerates it |
+| 20.l | Side panel → case → **Export Markdown** after a brief exists | ✅ the export carries a **"## Case brief (LLM-drafted)"** section clearly flagged as an assist, with the cruxes; JSON export carries a `brief` object |
+
+---
+
 ## Reporting
 
 For each defect found:

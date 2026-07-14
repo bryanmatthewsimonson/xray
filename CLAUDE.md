@@ -215,7 +215,7 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
 
 ## Project docs (read these for non-trivial work)
 
-- **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 19
+- **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 20
   (manifest still says v0.6.0 — untagged; see CONTRIBUTING for the
   tag-driven release process). Complete and merged: Phases 10 (thin
   claims), 11 (assessments; `docs/ASSESSMENTS_DESIGN.md`), 12 (portal;
@@ -233,7 +233,12 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   (entity dossiers — facts on claims, the dossier assembler + UI,
   Add-fact, LLM facts default-off, publishing behind
   `entityCorpusPublishing` with the NEW kind `30067` fact sheet;
-  `docs/ENTITY_DOSSIER_DESIGN.md`). The FLF Epistack competition
+  `docs/ENTITY_DOSSIER_DESIGN.md`), and 20 (case-first: union
+  membership, add-to-case outside the reader, the local case graph, and
+  the flag-gated LLM corpus synthesis — a grounded brief + reviewable
+  proposals behind `caseSynthesis`, NO new wire kind, brief in the
+  `xray-audits` v2 `case-briefs` store; `docs/CASE_SYNTHESIS_DESIGN.md`).
+  The FLF Epistack competition
   (deadline 2026-07-19) is being pursued **maintainer-driven from real
   use cases (COVID first)** — there is no committed sprint plan; the tool
   is tailored from that experience. Several SMOKE_TEST section walks

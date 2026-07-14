@@ -196,7 +196,11 @@ export function buildCaseJson(data, generatedAt) {
         generator:      'xray',
         claims:         data.claims,
         contradictions: data.contradictions,
-        label_counts:   data.label_counts
+        label_counts:   data.label_counts,
+        // 20.4: the LLM corpus brief, when one has been generated. It is
+        // a DRAFTED assist over the corpus — model + prompt version +
+        // grounding counts ride along so a consumer knows its provenance.
+        ...(data.brief ? { brief: data.brief } : {})
     }, null, 2);
 }
 
@@ -276,6 +280,41 @@ export function buildCaseMarkdown(data, generatedAt) {
         lines.push('');
         for (const [label, n] of tally) lines.push(`- ${n}× ${label}`);
     }
+
+    // 20.4: the LLM-drafted corpus brief, clearly flagged as an assist
+    // (provenance on its face — model, prompt version, grounding drops).
+    if (data.brief && data.brief.brief) {
+        const b = data.brief.brief;
+        const g = data.brief.grounding || {};
+        lines.push('');
+        lines.push('## Case brief (LLM-drafted)');
+        lines.push('');
+        lines.push(`_Drafted by ${data.brief.model || 'an LLM'} (${data.brief.promptVersion || 'corpus-v1'}); `
+            + `${g.checked || 0} quote(s) checked, ${g.dropped || 0} dropped as ungrounded. `
+            + `A drafting assist over the corpus — not a verdict or score._`);
+        if (b.summary) { lines.push(''); lines.push(b.summary); }
+        for (const p of b.positions || []) {
+            lines.push('');
+            lines.push(`### Position: ${p.label || ''}`);
+            if (p.core_argument) lines.push(p.core_argument);
+        }
+        if ((b.cruxes || []).length) {
+            lines.push('');
+            lines.push('### Cruxes of disagreement');
+            for (const c of b.cruxes) {
+                lines.push('');
+                lines.push(`- **${c.question || ''}**`);
+                for (const s of c.sides || []) lines.push(`  - ${s.position_label ? `_${s.position_label}:_ ` : ''}${s.view || ''}`);
+                if (c.what_would_resolve) lines.push(`  - _Would resolve:_ ${c.what_would_resolve}`);
+            }
+        }
+        if ((b.coverage_gaps || []).length) {
+            lines.push('');
+            lines.push('### Coverage gaps');
+            for (const g2 of b.coverage_gaps) lines.push(`- ${g2}`);
+        }
+    }
+
     lines.push('');
     return lines.join('\n');
 }

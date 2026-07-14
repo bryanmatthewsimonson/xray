@@ -224,3 +224,37 @@ test('case export: authored scope rides JSON + Markdown, labeled as framing, val
     assert.ok(!('scope' in JSON.parse(buildCaseJson(bareData, 'x'))));
     assert.ok(!buildCaseMarkdown(bareData, 'x').includes('Case scope'));
 });
+
+test('case export: an LLM corpus brief rides JSON + Markdown, flagged as a draft (20.5)', async () => {
+    resetState();
+    const kase = await EntityModel.create({ name: 'Brief Case', type: 'case' });
+    const data = await collectCaseData(kase.id);
+    data.brief = {
+        model: 'claude-opus-4-8', promptVersion: 'corpus-v1',
+        grounding: { checked: 5, dropped: 1 },
+        brief: {
+            summary: 'Two sides disagree on origin.',
+            positions: [{ label: 'lab leak', core_argument: 'engineered features' }],
+            cruxes: [{ question: 'furin cleavage site?', sides: [
+                { position_label: 'lab leak', view: 'unnatural' },
+                { position_label: 'zoonosis', view: 'occurs in nature' }
+            ], what_would_resolve: 'a progenitor sequence' }],
+            coverage_gaps: ['no wet-market sampling data'], load_bearing: [], proposals: []
+        }
+    };
+    const json = JSON.parse(buildCaseJson(data, '2026-07-14'));
+    assert.equal(json.brief.model, 'claude-opus-4-8');
+    assert.equal(json.brief.brief.summary, 'Two sides disagree on origin.');
+
+    const md = buildCaseMarkdown(data, '2026-07-14');
+    assert.ok(md.includes('## Case brief (LLM-drafted)'));
+    assert.ok(md.includes('Drafted by claude-opus-4-8'));
+    assert.ok(md.includes('5 quote(s) checked, 1 dropped'));
+    assert.ok(md.includes('furin cleavage site?'));
+    assert.ok(md.includes('_lab leak:_ unnatural'));
+
+    // No brief → export unchanged (no brief section).
+    const noBrief = await collectCaseData(kase.id);
+    assert.ok(!('brief' in JSON.parse(buildCaseJson(noBrief, 'x'))));
+    assert.ok(!buildCaseMarkdown(noBrief, 'x').includes('Case brief'));
+});

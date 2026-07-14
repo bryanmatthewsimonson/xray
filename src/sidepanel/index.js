@@ -35,6 +35,7 @@ import { assembleEntityDossier, compactFieldRows } from '../shared/entity-dossie
 import { Storage } from '../shared/storage.js';
 import { listArticles } from '../shared/archive-cache.js';
 import { listAddableArticles, addArticlesToCase } from '../shared/case-membership.js';
+import { getCaseBrief } from '../shared/audit/audit-cache.js';
 
 // Reserved key name in LocalKeyManager for the user's primary
 // identity. Used only by the sync flow — article publishing still
@@ -1065,6 +1066,12 @@ async function wireAddCasePicker(entity) {
 async function exportCase(entity, format) {
     try {
         const data = await collectCaseData(entity.id);
+        // 20.4: fold in the LLM corpus brief when one has been generated
+        // (the export carries it clearly flagged as a drafting assist).
+        try {
+            const briefRec = await getCaseBrief(entity.id);
+            if (briefRec) data.brief = briefRec;
+        } catch (_) { /* no brief store / no brief — export without it */ }
         const generatedAt = new Date().toISOString();
         const slug = entity.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'case';
         const date = generatedAt.slice(0, 10);
