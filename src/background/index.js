@@ -26,7 +26,7 @@ import { NostrClient } from '../shared/nostr-client.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
-import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig } from '../shared/llm-client.js';
+import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, getCorpusConfig } from '../shared/llm-client.js';
 import { pdfDocumentUrl } from '../shared/pdf-detect.js';
 import { Signer } from '../shared/signer.js';
 
@@ -511,6 +511,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // value), and the chosen model.
     if (message.type === 'xray:lens:config') {
         getLensConfig().then(
+            (cfg) => sendResponse({ ok: true, ...cfg }),
+            () => sendResponse({ ok: false, enabled: false, hasKey: false })
+        );
+        return true; // async sendResponse
+    }
+
+    // Portal → worker: case-corpus synthesis (Phase 20.4). One MAP call
+    // per member article (the portal orchestrates them with bounded
+    // concurrency, the audit-module topology), then one REDUCE. Gated
+    // by `caseSynthesis` + `llmAssist` + key inside the passes; returns
+    // RAW tool output (the portal validates, grounds, and gates every
+    // mutation behind human Accept). Nothing is saved or published here.
+    if (message.type === 'xray:llm:corpus-map') {
+        runCorpusMapPass(message.request || {}).then(
+            (result) => sendResponse(result),
+            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Corpus map call failed' })
+        );
+        return true; // async sendResponse
+    }
+    if (message.type === 'xray:llm:corpus-reduce') {
+        runCorpusReducePass(message.request || {}).then(
+            (result) => sendResponse(result),
+            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Corpus reduce call failed' })
+        );
+        return true; // async sendResponse
+    }
+    if (message.type === 'xray:llm:corpus-config') {
+        getCorpusConfig().then(
             (cfg) => sendResponse({ ok: true, ...cfg }),
             () => sendResponse({ ok: false, enabled: false, hasKey: false })
         );

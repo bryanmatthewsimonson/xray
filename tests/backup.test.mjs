@@ -247,7 +247,8 @@ test('estimateBackupSize: withBytes ≥ withoutBytes; counts source docs', async
 test('dumpDatabase dumps every store of a covered database', async () => {
     await seedWorkspace();
     const dump = await dumpDatabase('xray-audits');
-    assert.deepEqual(Object.keys(dump).sort(), ['predictions', 'resolutions', 'runs']);
+    // 20.4: the case-briefs store (DB v2) is dumped generically too.
+    assert.deepEqual(Object.keys(dump).sort(), ['case-briefs', 'predictions', 'resolutions', 'runs']);
     assert.equal(dump.runs.length, 1);
     await assert.rejects(() => dumpDatabase('unknown-db'), /no opener/);
 });

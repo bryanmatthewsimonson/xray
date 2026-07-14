@@ -21,6 +21,7 @@ import { getArticle } from '../shared/archive-cache.js';
 import { removeArticleFromCase } from '../shared/case-membership.js';
 import { mountAddSources } from './add-sources.js';
 import { renderCaseGraph } from './case-graph-view.js';
+import { renderSynthesisBlock } from './synthesis-block.js';
 import { Utils } from '../shared/utils.js';
 
 // Open a LOCAL archived record in the reader to extract claims from a
@@ -202,6 +203,12 @@ export function renderCaseView(host, params) {
                     onOpenEntityDossier: callbacks.onOpenEntityDossier,
                     onOpenArticle: openArchivedInReader
                 }
+            });
+            // 20.4 — LLM corpus synthesis (gated by caseSynthesis + key;
+            // absent otherwise). Self-manages its own gating call.
+            renderSynthesisBlock(graphHost, {
+                data, dossier,
+                callbacks: { onReloadCase: callbacks.onReloadCase }
             });
             renderCaseTimeline(timelineHost, dossier);
         })().catch((err) => {

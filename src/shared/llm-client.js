@@ -38,6 +38,12 @@ import { lensPreflightRefusal, assembleJurisdictionReading } from './lens-engine
 import { JurisdictionModel, treatAsLiving, admissibleAuthorities } from './jurisdiction-model.js';
 import { isValidLensAssertionType, LENS_ASSERTION_TYPES } from './lens-taxonomy.js';
 import { articleHash } from './audit/article-hash.js';
+import {
+    MAP_TOOL_NAME, REDUCE_TOOL_NAME,
+    MAX_MEMBER_INPUT_CHARS, MAX_MAP_OUTPUT_TOKENS, MAX_REDUCE_OUTPUT_TOKENS,
+    buildMapTool, buildMapSystemPrompt, buildMapUserPrompt,
+    buildReduceTool, buildReduceSystemPrompt, buildReduceUserPrompt
+} from './corpus-prompts.js';
 
 // Re-exported for callers that wrote against the client (the keys are
 // defined in the pure prompts module so the Options page can share them).
@@ -484,6 +490,122 @@ export async function runAuditModulePass(req = {}) {
         model: (data && data.model) || model,
         usage: data && data.usage ? data.usage : undefined
     };
+}
+
+// ------------------------------------------------------------------
+// Case-corpus synthesis — Phase 20.4
+// (docs/CASE_SYNTHESIS_DESIGN.md). Map/reduce over a case's member
+// articles. Gated by `caseSynthesis` AND `llmAssist` AND the key: a
+// corpus run is N suggest passes' worth of spend. Returns RAW tool
+// output — validation, grounding, and the human-accept firewall all
+// stay portal-side (the SW stays thin, the lens/audit pattern).
+// ------------------------------------------------------------------
+
+const CORPUS_MAP_TIMEOUT_MS = 120000;
+const CORPUS_REDUCE_TIMEOUT_MS = 300000;
+
+/** Gating snapshot for the portal's "Analyze corpus" control. */
+export async function getCorpusConfig() {
+    await loadFlags();
+    const [key, model] = await Promise.all([readApiKey(), readModel()]);
+    return { enabled: isEnabled('caseSynthesis') && isEnabled('llmAssist'), hasKey: key.length > 0, model };
+}
+
+async function corpusGate() {
+    await loadFlags();
+    if (!isEnabled('caseSynthesis')) {
+        return { error: 'Case synthesis is off. Enable it in Options → Advanced → Case synthesis.' };
+    }
+    if (!isEnabled('llmAssist')) {
+        return { error: 'LLM assist is off. Enable it in Options → Advanced → LLM assist.' };
+    }
+    const apiKey = await readApiKey();
+    if (!apiKey) {
+        return { error: 'No Anthropic API key set. Add one in Options → Advanced → LLM assist.' };
+    }
+    return { apiKey };
+}
+
+/**
+ * MAP: one member article → its position + load-bearing assertions.
+ * Mirrors runAuditModulePass. Echoes `member_id` for the orchestrator.
+ *
+ * @param {object} req { member_id, memberText, memberMeta?, claimsDigest?, caseName?, scopeQuestion? }
+ */
+export async function runCorpusMapPass(req = {}) {
+    const gate = await corpusGate();
+    if (gate.error) return { ok: false, member_id: req.member_id, error: gate.error };
+
+    const memberText = String(req.memberText || '').slice(0, MAX_MEMBER_INPUT_CHARS);
+    if (!memberText.trim()) return { ok: false, member_id: req.member_id, error: 'No article text to analyze.' };
+
+    const model = await readModel();
+    const tool = buildMapTool();
+    const payload = {
+        model,
+        max_tokens: MAX_MAP_OUTPUT_TOKENS,
+        system: buildMapSystemPrompt({ caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '' }),
+        tools: [tool],
+        tool_choice: { type: 'tool', name: tool.name },
+        messages: [{ role: 'user', content: buildMapUserPrompt({
+            memberText, memberMeta: req.memberMeta || {}, claimsDigest: req.claimsDigest || ''
+        }) }]
+    };
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CORPUS_MAP_TIMEOUT_MS);
+    let res;
+    try { res = await postMessages(payload, gate.apiKey, { signal: controller.signal }); }
+    finally { clearTimeout(timer); }
+    if (!res.ok) return { ...res, member_id: req.member_id };
+
+    const data = res.data;
+    if (data && data.stop_reason === 'max_tokens') {
+        return { ok: false, member_id: req.member_id, error: 'The map call hit its output limit before finishing.' };
+    }
+    const extract = extractToolInput(data, tool.name);
+    if (extract === null) return { ok: false, member_id: req.member_id, error: 'The model did not return a structured extract.' };
+    return { ok: true, member_id: req.member_id, extract, model: (data && data.model) || model, usage: data && data.usage };
+}
+
+/**
+ * REDUCE: the compact map extracts + the dossier digest → a case brief.
+ * Single-shot (mirrors runAuditPass); returns the RAW brief tool input.
+ *
+ * @param {object} req { dossierDigest, extracts, caseName?, scopeQuestion? }
+ */
+export async function runCorpusReducePass(req = {}) {
+    const gate = await corpusGate();
+    if (gate.error) return { ok: false, error: gate.error };
+
+    const extracts = Array.isArray(req.extracts) ? req.extracts : [];
+    if (extracts.length === 0) return { ok: false, error: 'No article extracts to synthesize.' };
+
+    const model = await readModel();
+    const tool = buildReduceTool();
+    const payload = {
+        model,
+        max_tokens: MAX_REDUCE_OUTPUT_TOKENS,
+        system: buildReduceSystemPrompt({ caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '' }),
+        tools: [tool],
+        tool_choice: { type: 'tool', name: tool.name },
+        messages: [{ role: 'user', content: buildReduceUserPrompt({ dossierDigest: req.dossierDigest || '', extracts }) }]
+    };
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CORPUS_REDUCE_TIMEOUT_MS);
+    let res;
+    try { res = await postMessages(payload, gate.apiKey, { signal: controller.signal }); }
+    finally { clearTimeout(timer); }
+    if (!res.ok) return res;
+
+    const data = res.data;
+    if (data && data.stop_reason === 'max_tokens') {
+        return { ok: false, error: 'The synthesis hit its output limit before finishing.' };
+    }
+    const briefInput = extractToolInput(data, tool.name);
+    if (briefInput === null) return { ok: false, error: 'The model did not return a structured brief.' };
+    return { ok: true, briefInput, model: (data && data.model) || model, usage: data && data.usage };
 }
 
 // ------------------------------------------------------------------

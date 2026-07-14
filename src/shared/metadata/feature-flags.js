@@ -102,7 +102,16 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // the fact flow, records, 30040 fact tags, and dossier assembly are
   // unchanged. Off by default because the button crowds the popover
   // and facts are a power-user surface.
-  readerAddFact: false
+  readerAddFact: false,
+
+  // Phase 20.4 (docs/CASE_SYNTHESIS_DESIGN.md) — gates the portal case
+  // dashboard's "Analyze corpus" LLM synthesis (a grounded brief +
+  // reviewable proposals over ALL member articles). Requires `llmAssist`
+  // AND the API key on top: a corpus run sends every member article to
+  // Anthropic (N× a suggest pass), so it carries its own consent gate.
+  // The brief is local-only — no wire kind; proposals materialize as
+  // ordinary 30040/30055 through the normal publish paths.
+  caseSynthesis: false
 });
 
 /**

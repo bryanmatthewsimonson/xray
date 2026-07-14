@@ -12,10 +12,14 @@
 import { Utils } from '../utils.js';
 
 const DB_NAME = 'xray-audits';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const RUNS_STORE = 'runs';
 const PREDICTIONS_STORE = 'predictions';
 const RESOLUTIONS_STORE = 'resolutions';
+// Phase 20.4 — the case-corpus synthesis briefs. Also PRECIOUS (a
+// brief costs an LLM map/reduce run), so it rides the same
+// export-included DB; keyed by the local case entity id.
+const CASE_BRIEFS_STORE = 'case-briefs';
 
 function idb() {
     if (typeof indexedDB === 'undefined') {
@@ -68,6 +72,13 @@ export function openAuditDb() {
                 if (!db.objectStoreNames.contains(RESOLUTIONS_STORE)) {
                     const res = db.createObjectStore(RESOLUTIONS_STORE, { keyPath: 'id' });
                     res.createIndex('predictionCoord', 'prediction_coord', { unique: false });
+                }
+            }
+
+            // v2 — the case-corpus synthesis brief store (Phase 20.4).
+            if (oldVersion < 2) {
+                if (!db.objectStoreNames.contains(CASE_BRIEFS_STORE)) {
+                    db.createObjectStore(CASE_BRIEFS_STORE, { keyPath: 'caseId' });
                 }
             }
         };
@@ -154,14 +165,23 @@ export function resolutionsByPredictionCoord(coord) { return getAllByIndex(RESOL
 export function listResolutions() { return getAll(RESOLUTIONS_STORE); }
 export function deleteResolution(id) { return remove(RESOLUTIONS_STORE, id); }
 
+// --- case briefs (20.4) ---------------------------------------------------------
+
+export function saveCaseBrief(record) { return put(CASE_BRIEFS_STORE, record); }
+export function getCaseBrief(caseId) { return get(CASE_BRIEFS_STORE, caseId); }
+export function deleteCaseBrief(caseId) { return remove(CASE_BRIEFS_STORE, caseId); }
+export function listCaseBriefs() { return getAll(CASE_BRIEFS_STORE); }
+
 // --- maintenance ----------------------------------------------------------------
 
 export async function clear() {
     const db = await openAuditDb();
-    const transaction = db.transaction([RUNS_STORE, PREDICTIONS_STORE, RESOLUTIONS_STORE], 'readwrite');
+    const transaction = db.transaction(
+        [RUNS_STORE, PREDICTIONS_STORE, RESOLUTIONS_STORE, CASE_BRIEFS_STORE], 'readwrite');
     transaction.objectStore(RUNS_STORE).clear();
     transaction.objectStore(PREDICTIONS_STORE).clear();
     transaction.objectStore(RESOLUTIONS_STORE).clear();
+    transaction.objectStore(CASE_BRIEFS_STORE).clear();
     await tx(transaction);
 }
 

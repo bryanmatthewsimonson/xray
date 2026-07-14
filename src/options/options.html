@@ -447,6 +447,25 @@
       </p>
 
       <hr />
+      <h3 class="xr-opt__subhead">Case synthesis</h3>
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-case-synthesis" />
+        <span>Enable "Analyze corpus" on the case dashboard (LLM brief + proposals)</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Off by default. Requires LLM assist <strong>and</strong> an Anthropic
+        API key (same key field above). When on, a case's portal dashboard
+        gains an <strong>Analyze corpus</strong> button that reads every member
+        article — a summary, the positions present, the cruxes of disagreement,
+        the load-bearing claims, and reviewable cross-article proposals.
+        <strong>A run sends every member article's text to Anthropic</strong>
+        (one call per article, then one synthesis call), so it costs
+        proportionally more than a single-article pass. The brief is stored
+        locally and exportable; it carries no verdict or score. Proposals only
+        materialize as ordinary claims/links after you Accept them.
+      </p>
+
+      <hr />
       <h3 class="xr-opt__subhead">Power user</h3>
 
       <label class="xr-opt__field xr-opt__field--inline">

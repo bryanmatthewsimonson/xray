@@ -713,6 +713,9 @@ async function loadAdvanced() {
     // Moral lens (Phase 16) — independent of llmAssist; shares the key.
     document.getElementById('pref-moral-lens').checked = isEnabled('moralLens');
 
+    // Case synthesis (Phase 20.4) — requires llmAssist + the key on top.
+    document.getElementById('pref-case-synthesis').checked = isEnabled('caseSynthesis');
+
     // LLM assist (Phase 14.5). The flag lives in feature-flags; the key
     // + model live under their own chrome.storage.local keys. We never
     // load the key VALUE back into the DOM — only whether one is set.
@@ -793,6 +796,10 @@ async function saveAdvanced() {
     // clear the override back to the default (off).
     const lensOn = document.getElementById('pref-moral-lens').checked;
     await setOverride('moralLens', lensOn ? true : null);
+
+    // Case synthesis (Phase 20.4).
+    const synthOn = document.getElementById('pref-case-synthesis').checked;
+    await setOverride('caseSynthesis', synthOn ? true : null);
 
     // LLM assist: flag + model preference always; the key only when the
     // user typed a new one (blank leaves the saved key untouched).

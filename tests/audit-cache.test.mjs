@@ -11,7 +11,8 @@ const {
     openAuditDb, clear,
     saveRun, getRun, runsByArticleHash, listRuns, deleteRun, countRuns,
     savePrediction, getPrediction, predictionsByArticleHash, predictionsByStatus,
-    saveResolution, getResolution, resolutionsByPredictionCoord
+    saveResolution, getResolution, resolutionsByPredictionCoord,
+    saveCaseBrief, getCaseBrief, deleteCaseBrief, listCaseBriefs
 } = await import('../src/shared/audit/audit-cache.js');
 
 const HASH_A = 'a'.repeat(64);
@@ -84,12 +85,30 @@ test('resolutions: predictionCoord index', async () => {
     assert.equal((await getResolution('res_3')).outcome, 'partial');
 });
 
-test('clear empties all three stores', async () => {
+test('clear empties all stores', async () => {
     await saveRun({ id: 'audit_1', articleHash: HASH_A });
     await savePrediction({ id: 'pred_1', articleHash: HASH_A, resolution_status: 'open' });
     await saveResolution({ id: 'res_1', prediction_coord: 'x', outcome: 'true' });
+    await saveCaseBrief({ caseId: 'case_1', brief: { summary: 's' } });
     await clear();
     assert.equal(await countRuns(), 0);
     assert.equal(await getPrediction('pred_1'), null);
     assert.equal(await getResolution('res_1'), null);
+    assert.equal(await getCaseBrief('case_1'), null);
+});
+
+// v2 store — the case-corpus synthesis briefs (20.4).
+test('case-briefs: CRUD keyed by caseId, coexists with runs (DB v2)', async () => {
+    await saveRun({ id: 'audit_x', articleHash: HASH_A });   // v1 store still works
+    await saveCaseBrief({ caseId: 'case_1', brief: { summary: 'hi' }, inputHash: 'h1', model: 'm' });
+    const got = await getCaseBrief('case_1');
+    assert.equal(got.brief.summary, 'hi');
+    assert.equal(got.inputHash, 'h1');
+    assert.equal((await getRun('audit_x')).articleHash, HASH_A, 'v1 store intact after v2 upgrade');
+    // Overwrite (latest-wins per case).
+    await saveCaseBrief({ caseId: 'case_1', brief: { summary: 'updated' } });
+    assert.equal((await getCaseBrief('case_1')).brief.summary, 'updated');
+    assert.equal((await listCaseBriefs()).length, 1);
+    await deleteCaseBrief('case_1');
+    assert.equal(await getCaseBrief('case_1'), null);
 });
