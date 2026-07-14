@@ -734,6 +734,9 @@ const viewCallbacks = {
     onBack: () => { state.view = { name: 'library' }; closeInspector(); render(); },
     onFocusEntity: (pubkey) => { state.view = { name: 'entity', pubkey }; state.expandedTypes = new Set(); closeInspector(); render(); },
     onOpenCase: (pubkey) => { state.view = { name: 'case', pubkey }; closeInspector(); render(); },
+    // 20.2: re-render the current case view after a local membership
+    // change (add/remove sources) so its counts + rows refresh.
+    onReloadCase: () => { render(); },
     onOpenGraph: (pubkey) => { state.view = { name: 'entity', pubkey }; state.expandedTypes = new Set(); closeInspector(); render(); },
     onExpand: (type) => { state.expandedTypes.add(type); render(); },
     onOpenItem: (item) => { openInspector(item); },

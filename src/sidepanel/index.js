@@ -34,6 +34,7 @@ import { dedupeReport, recentMerges, DedupeDismissals } from '../shared/entity-h
 import { assembleEntityDossier, compactFieldRows } from '../shared/entity-dossier.js';
 import { Storage } from '../shared/storage.js';
 import { listArticles } from '../shared/archive-cache.js';
+import { listAddableArticles, addArticlesToCase } from '../shared/case-membership.js';
 
 // Reserved key name in LocalKeyManager for the user's primary
 // identity. Used only by the sync flow — article publishing still
@@ -334,6 +335,15 @@ function renderDetail(entity) {
           <button type="button" class="xr-side__ghost-btn" id="xr-share-case-bundle">Share case bundle (includes keys)</button>
         </div>
         <p class="xr-side__hint" style="margin-top:6px">Your collaborator imports it via the entity list's <em>Import</em> button.</p>
+      </div>
+
+      <div class="xr-side__addcase">
+        <h3>Add archived articles</h3>
+        <p class="xr-side__hint">Tag captured articles into this case without re-opening them. Local only — an already-published article won't carry the case on relays until it's re-published from the reader.</p>
+        <input type="text" id="xr-addcase-filter" class="xr-side__field" placeholder="Filter archived articles…" spellcheck="false" />
+        <div id="xr-addcase-list" class="xr-side__addcase-list"></div>
+        <button type="button" class="xr-side__ghost-btn" id="xr-addcase-add" disabled>Add to case</button>
+        <p class="xr-side__hint" id="xr-addcase-status"></p>
       </div>` : ''}
 
       <div class="xr-side__publish">
@@ -430,6 +440,10 @@ function renderDetail(entity) {
     // Phase 11.8 — collaboration bundle (case entities only).
     const shareBtn = $('#xr-share-case-bundle');
     if (shareBtn) shareBtn.addEventListener('click', () => shareCaseBundle(entity));
+
+    // Phase 20.2 — add archived articles to this case without the reader.
+    const addCaseList = $('#xr-addcase-list');
+    if (addCaseList) wireAddCasePicker(entity);
 
     // Keypair controls.
     $('#xr-copy-npub').addEventListener('click', () => {
@@ -963,6 +977,87 @@ async function shareCaseBundle(entity) {
         toast(`Bundle exported: ${bundle.entities.length} entities (${withKeys} with keys)`, 'success', 5000);
     } catch (err) {
         alert(`Bundle export failed: ${err.message || err}`);
+    }
+}
+
+/**
+ * Phase 20.2 — wire the "Add archived articles" picker in a case
+ * detail. Loads the addable candidates (archive records not yet in the
+ * case), renders a filterable checkbox list, and tags the chosen ones.
+ * Local only: no republish (an already-published article's wire p-tags
+ * are unchanged until it is re-published from the reader).
+ */
+async function wireAddCasePicker(entity) {
+    const listHost = document.getElementById('xr-addcase-list');
+    const filter = document.getElementById('xr-addcase-filter');
+    const addBtn = document.getElementById('xr-addcase-add');
+    const status = document.getElementById('xr-addcase-status');
+    if (!listHost || !addBtn) return;
+
+    const selected = new Set();
+    let candidates = [];
+
+    const refreshBtn = () => {
+        addBtn.disabled = selected.size === 0;
+        addBtn.textContent = selected.size ? `Add ${selected.size} to case` : 'Add to case';
+    };
+
+    const paint = () => {
+        const q = (filter.value || '').trim().toLowerCase();
+        const shown = candidates.filter((rec) => {
+            if (!q) return true;
+            const t = ((rec.article && rec.article.title) || rec.url || '').toLowerCase();
+            return t.includes(q) || (rec.url || '').toLowerCase().includes(q);
+        }).slice(0, 200);
+        if (shown.length === 0) {
+            listHost.innerHTML = `<p class="xr-side__hint">${candidates.length === 0
+                ? 'No archived articles are outside this case.' : 'No matches.'}</p>`;
+            return;
+        }
+        listHost.innerHTML = shown.map((rec) => {
+            const title = escapeHtml((rec.article && rec.article.title) || rec.url);
+            const sub = escapeHtml((() => { try { return new URL(rec.url).hostname.replace(/^www\./, ''); } catch (_) { return rec.url; } })())
+                + (rec.publishedToRelay ? ' · published' : '');
+            const checked = selected.has(rec.url) ? 'checked' : '';
+            return `<label class="xr-side__addcase-row">
+              <input type="checkbox" data-url="${escapeHtml(rec.url)}" ${checked} />
+              <span class="xr-side__addcase-meta"><span>${title}</span><span class="xr-side__hint">${sub}</span></span>
+            </label>`;
+        }).join('');
+        listHost.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+            cb.addEventListener('change', () => {
+                const url = cb.getAttribute('data-url');
+                if (cb.checked) selected.add(url); else selected.delete(url);
+                refreshBtn();
+            });
+        });
+    };
+
+    if (filter) filter.addEventListener('input', paint);
+    addBtn.addEventListener('click', async () => {
+        addBtn.disabled = true;
+        try {
+            const res = await addArticlesToCase(entity.id, [...selected]);
+            let msg = `Added ${res.added.length} source${res.added.length === 1 ? '' : 's'}.`;
+            if (res.published.length > 0) {
+                msg += ` ${res.published.length} already published — re-publish from the reader to carry the case on relays.`;
+            }
+            if (status) status.textContent = msg;
+            toast(msg, 'success', 5000);
+            const updated = await EntityModel.get(entity.id);
+            if (updated) renderDetail(updated);
+        } catch (err) {
+            toast(err.message || String(err), 'error');
+            refreshBtn();
+        }
+    });
+
+    try {
+        const { candidates: cands } = await listAddableArticles(entity.id);
+        candidates = cands;
+        paint();
+    } catch (err) {
+        listHost.innerHTML = '<p class="xr-side__hint">Could not load archived articles.</p>';
     }
 }
 

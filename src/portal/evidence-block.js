@@ -32,7 +32,7 @@ function captureChips(row) {
 // row's archived article in the reader to extract claims (20.1).
 export function renderEvidenceBlock(host, dossierOrId, opts = {}) {
     if (!dossierOrId) return;
-    const { onExtractClaims } = opts;
+    const { onExtractClaims, onRemoveFromCase } = opts;
     const block = el('div', 'xr-view__dossier');
     host.appendChild(block);
 
@@ -70,6 +70,21 @@ export function renderEvidenceBlock(host, dossierOrId, opts = {}) {
                     btn.addEventListener('click', () => onExtractClaims(row.url));
                     head.appendChild(btn);
                 }
+            }
+            // 20.2 — a tag-membership row can be detached from the case
+            // here. Rows that are ALSO claim-referenced (membership
+            // 'both'/'claims') keep their membership through the claims,
+            // so removing the tag wouldn't detach them — show a note.
+            if (row.membership === 'tag' && typeof onRemoveFromCase === 'function') {
+                const rm = el('button', 'xr-portal__btn xr-portal__btn--ghost', '✕ remove');
+                rm.type = 'button';
+                rm.title = 'Remove this article\'s case tag (local only)';
+                rm.addEventListener('click', () => onRemoveFromCase(row.url));
+                head.appendChild(rm);
+            } else if (row.membership === 'both') {
+                const note = el('span', 'xr-badge xr-badge--muted', 'tagged + claimed');
+                note.title = 'Also a member via its claims — remove those to detach';
+                head.appendChild(note);
             }
             // Raw per-article audit aggregate → the shared band/review rule.
             for (const run of row.audit_runs) {

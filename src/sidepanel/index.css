@@ -744,6 +744,29 @@ body.xr-side {
   gap: 8px;
 }
 
+/* Add-to-case picker (20.2) */
+.xr-side__addcase { margin-top: 16px; }
+.xr-side__addcase-list {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--xr-border, #333);
+  border-radius: 6px;
+  margin: 6px 0 8px;
+}
+.xr-side__addcase-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--xr-border, #333);
+}
+.xr-side__addcase-row:last-child { border-bottom: none; }
+.xr-side__addcase-meta { display: flex; flex-direction: column; min-width: 0; }
+.xr-side__addcase-meta > span:first-child {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 /* Knowledge Sharing KS.3/KS.4 — foreign entities + the network feed */
 .xr-side__foreign-badge {
   display: inline-block;
