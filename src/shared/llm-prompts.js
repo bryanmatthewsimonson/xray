@@ -199,7 +199,9 @@ export function buildSuggestTool() {
                             // from your own knowledge of the entity.
                             subject_ref: {
                                 type: 'string',
-                                description: 'REQUIRED for kind=fact: the entity ref ("E1") this fact describes.'
+                                description: 'REQUIRED for kind=fact: the entity ref ("E1") this fact '
+                                    + 'describes. For kind=finding/baseline: the subject performing '
+                                    + 'the maneuver.'
                             },
                             field: {
                                 type: 'string',
@@ -279,12 +281,7 @@ export function buildSuggestTool() {
                                 type: 'string',
                                 description: 'A short note (relationship/revision/finding/baseline).'
                             },
-                            // finding + baseline
-                            subject_ref: {
-                                type: 'string',
-                                description: 'Entity ref ("E1") of the subject performing the maneuver '
-                                    + '(kind=finding/baseline).'
-                            },
+                            // finding + baseline (subject_ref is shared with kind=fact above)
                             subject_label: {
                                 type: 'string',
                                 description: 'Subject display name, when not one of the proposed entities '
