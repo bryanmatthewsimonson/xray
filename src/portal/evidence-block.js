@@ -27,13 +27,18 @@ function captureChips(row) {
     return wrap;
 }
 
-export function renderEvidenceBlock(host, caseEntityId) {
-    if (!caseEntityId) return;
+// `dossierOrId`: a pre-built case dossier (shared assembly, 20.1) or a
+// case entity id. `opts.onExtractClaims(url)` opens a claimless member
+// row's archived article in the reader to extract claims (20.1).
+export function renderEvidenceBlock(host, dossierOrId, opts = {}) {
+    if (!dossierOrId) return;
+    const { onExtractClaims } = opts;
     const block = el('div', 'xr-view__dossier');
     host.appendChild(block);
 
     (async () => {
-        const caseDossier = await assembleCaseDossier(caseEntityId);
+        const caseDossier = typeof dossierOrId === 'string'
+            ? await assembleCaseDossier(dossierOrId) : dossierOrId;
         const ev = caseDossier.evidence;
         // Convergence summary indexed by the claim ids it collapses, so a
         // row can show the independence structure of its sources.
@@ -54,6 +59,17 @@ export function renderEvidenceBlock(host, caseEntityId) {
             if (row.origin_keys.length > 0) {
                 head.appendChild(el('span', 'xr-badge xr-badge--muted',
                     `${row.origin_keys.length} origin${row.origin_keys.length === 1 ? '' : 's'}`));
+            }
+            // Tag-only member (20.1 union membership): no claims extracted
+            // yet — a first-class row with a nudge, not a footnote.
+            if (row.processed === false) {
+                head.appendChild(el('span', 'xr-badge xr-badge--off', 'no claims yet'));
+                if (typeof onExtractClaims === 'function') {
+                    const btn = el('button', 'xr-portal__btn xr-portal__btn--ghost', 'Extract claims →');
+                    btn.type = 'button';
+                    btn.addEventListener('click', () => onExtractClaims(row.url));
+                    head.appendChild(btn);
+                }
             }
             // Raw per-article audit aggregate → the shared band/review rule.
             for (const run of row.audit_runs) {

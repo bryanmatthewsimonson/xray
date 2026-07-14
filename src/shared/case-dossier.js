@@ -99,6 +99,14 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
         else danglingEntityIds.push(id);
     }
 
+    // Tag-membership key set (Phase 20.1): the case's whole alias
+    // family — an archive record tagged with an alias of the case is
+    // still a member. Claims keep the case-id spine (E3 canonicalizes
+    // claim tags to the root at authoring time).
+    const family = await EntityModel.aliasFamily(caseEntityId, allEntities);
+    const membershipIds = (family && family.ids && family.ids.length)
+        ? family.ids : [caseEntityId];
+
     // Orbit claims: claim-mediated membership (about includes the case),
     // key-first then oldest-first (the case-export order).
     const orbitClaims = Object.values(allClaims)
@@ -161,6 +169,7 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
             type:   caseEntity.type,
             pubkey: (caseEntity.keypair && caseEntity.keypair.pubkey) || caseEntity.foreign_pubkey || null
         },
+        membership_ids: membershipIds,
         orbit: {
             entity_ids:          entityIds,
             entities:            orbitEntities,
@@ -231,6 +240,10 @@ export function deriveArticleRows(data) {
         if (rec && rec.url) archiveByUrl.set(rec.url, rec);
     }
 
+    const memberIds = new Set(data.membership_ids || [data.case.id]);
+    const taggedWithMember = (rec) => ((rec && rec.article && rec.article.entities) || [])
+        .some((e) => e && memberIds.has(e.entity_id));
+
     const rows = [];
     for (const url of [...byUrl.keys()].sort()) {
         const { claims, article_hashes } = byUrl.get(url);
@@ -250,29 +263,48 @@ export function deriveArticleRows(data) {
             // Outbound links as captured (null = capture predates link
             // extraction — "not captured", never "zero links").
             links: (article && Array.isArray(article.links)) ? article.links : null,
-            claims
+            claims,
+            processed:  true,
+            membership: taggedWithMember(rec) ? 'both' : 'claims'
         });
     }
 
-    // Sources in the orbit with zero orbit claims — the §7.1 "visible
-    // backlog": locally, archive records tagged with a MEMBER entity
-    // (the case id alone for case dossiers; the whole alias family for
-    // entity dossiers, Phase 19.3 — `membership_ids` generalizes the
-    // check, behavior-unchanged when absent); from the wire, injected
-    // 32125-tagged items.
-    const memberIds = new Set(data.membership_ids || [data.case.id]);
-    const unprocessed = [];
+    // Tag-membership sources with zero orbit claims (Phase 20.1 union
+    // membership): archive records tagged with a MEMBER entity are
+    // FIRST-CLASS rows — same shape, claims empty, `processed:false`
+    // carrying the "no claims extracted yet" state on the row. The
+    // hashes ride from the record itself so audit runs still join.
+    // (Pre-20.1 these were `unprocessed/local-tag` footnotes; the
+    // unprocessed list now carries only wire-injected 32125 items.)
     for (const rec of data.articles || []) {
-        if (!rec || !rec.url || byUrl.has(rec.url)) continue;
-        const tagged = ((rec.article && rec.article.entities) || [])
-            .some((e) => e && memberIds.has(e.entity_id));
-        if (tagged) {
-            unprocessed.push({ url: rec.url, title: (rec.article && rec.article.title) || null, source: 'local-tag' });
-        }
+        if (!rec || !rec.url) continue;
+        const url = Utils.normalizeUrl(rec.url) || rec.url;
+        if (byUrl.has(url) || rows.some((r) => r.url === url)) continue;
+        if (!taggedWithMember(rec)) continue;
+        const article = rec.article || null;
+        rows.push({
+            url,
+            title:          (article && article.title) || null,
+            article_hashes: rec.articleHash ? [rec.articleHash] : [],
+            published:      article ? parseMetaDate(article.date || article.publishedTime) : null,
+            captured_at:    rec.cachedAt || null,
+            capture: {
+                archived:           true,
+                screenshot:         !!(article && article.evidence && article.evidence.screenshot),
+                published_to_relay: !!rec.publishedToRelay
+            },
+            links: (article && Array.isArray(article.links)) ? article.links : null,
+            claims:     [],
+            processed:  false,
+            membership: 'tag'
+        });
     }
+    rows.sort((a, b) => a.url < b.url ? -1 : a.url > b.url ? 1 : 0);
+
+    const unprocessed = [];
     for (const item of data.wire.articles || []) {
         const url = Utils.normalizeUrl((item && item.url) || '');
-        if (!url || byUrl.has(url)) continue;
+        if (!url || byUrl.has(url) || rows.some((r) => r.url === url)) continue;
         unprocessed.push({ url, title: (item && item.title) || null, source: 'wire-32125' });
     }
     unprocessed.sort((a, b) => a.url < b.url ? -1 : a.url > b.url ? 1 : 0);
@@ -784,6 +816,8 @@ export function buildEvidenceGroups(data, articleRows = null) {
             published_precision: row.published ? row.published.precision : null,
             captured_at:    row.captured_at,
             capture:        row.capture,
+            processed:      row.processed !== false,
+            membership:     row.membership || 'claims',
             claim_ids:      row.claims.map((c) => c.id),
             claims: row.claims.map((c) => ({
                 claim_id:       c.id,
@@ -807,10 +841,13 @@ export function buildEvidenceGroups(data, articleRows = null) {
         articles,
         unprocessed_sources: unprocessed,
         coverage: {
-            articles:            articles.length,
-            attested_articles:   articles.filter((a) => a.origin_keys.length > 0).length,
-            articles_with_audit: articles.filter((a) => a.audit_runs.length > 0).length,
-            unprocessed:         unprocessed.length
+            articles:             articles.length,
+            articles_with_claims: articles.filter((a) => a.claim_ids.length > 0).length,
+            attested_articles:    articles.filter((a) => a.origin_keys.length > 0).length,
+            articles_with_audit:  articles.filter((a) => a.audit_runs.length > 0).length,
+            // "No claims extracted yet" — claimless member rows plus
+            // wire-injected 32125 sources (coverage on its face, P6).
+            unprocessed:          articles.filter((a) => !a.processed).length + unprocessed.length
         }
     };
 }
@@ -964,7 +1001,7 @@ export function buildCaseDossier(data, generatedAt) {
         generated_at: generatedAt ?? null,
         coverage: {
             articles:                 evidence.coverage.articles,
-            articles_with_claims:     evidence.coverage.articles,
+            articles_with_claims:     evidence.coverage.articles_with_claims,
             claims:                   data.orbit.claims.length,
             claims_with_propositions: shape.coverage.claims_with_propositions,
             propositions:             shape.coverage.propositions,

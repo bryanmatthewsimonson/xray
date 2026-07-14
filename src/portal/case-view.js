@@ -16,6 +16,27 @@ import { renderShapeBlock } from './shape-block.js';
 import { renderEvidenceBlock } from './evidence-block.js';
 import { renderCaseTimeline } from './case-timeline.js';
 import { EntityModel } from '../shared/entity-model.js';
+import { assembleCaseDossier } from '../shared/case-dossier.js';
+import { getArticle } from '../shared/archive-cache.js';
+import { Utils } from '../shared/utils.js';
+
+// Open a LOCAL archived record in the reader to extract claims from a
+// claimless case member (20.1). Unlike the inspector's read-only relay
+// reconstruction, this opens the real archive record writable so tags
+// and newly-extracted claims save back.
+async function openArchivedInReader(url) {
+    try {
+        const rec = await getArticle(url);
+        if (!rec || !rec.article) { Utils.error('Extract claims: no archive record', url); return; }
+        const article = { ...rec.article, _articleHash: rec.articleHash };
+        const id = crypto.randomUUID();
+        chrome.runtime.sendMessage({ type: 'xray:reader:open', id, article, readOnly: false }, (resp) => {
+            if (!resp || !resp.ok) Utils.error('Extract claims: reader open failed', resp && resp.error);
+        });
+    } catch (err) {
+        Utils.error('Extract claims: open failed', err);
+    }
+}
 
 function latestAssessmentByCoord(items) {
     const map = new Map();
@@ -119,13 +140,35 @@ export function renderCaseView(host, params) {
     // --- Forensic findings (14.4) — the four lenses, beside the dossier.
     renderFindingsBlock(host, findings, { subjectName: caseName || 'this case' });
 
-    // --- Case dossier (CD.2) — the shape-of-knowledge header and the
-    // convergence-collapsed evidence table, assembled from the LOCAL
-    // spine (the case's own claims/propositions/verdicts/audits) keyed
-    // by the local entity id. Both self-remove when there's nothing.
+    // --- Case dossier (CD.2/CD.3) — the shape-of-knowledge header, the
+    // convergence-collapsed evidence table, and the four-axis timeline,
+    // assembled ONCE from the LOCAL union-membership spine (20.1) and
+    // shared across all three blocks (was three separate assembly
+    // passes). Placeholder hosts hold each block's slot; the shared
+    // assembly self-removes empty blocks and fills the local-counts line.
+    const localCountsHost = el('div', 'xr-view__dossier-line xr-case__localcounts');
+    const shapeHost = el('div');
+    const evidenceHost = el('div');
+    const timelineHost = el('div');
     if (caseEnt && caseEnt.entityId) {
-        renderShapeBlock(host, caseEnt.entityId);
-        renderEvidenceBlock(host, caseEnt.entityId);
+        host.appendChild(localCountsHost);
+        host.appendChild(shapeHost);
+        host.appendChild(evidenceHost);
+        (async () => {
+            const dossier = await assembleCaseDossier(caseEnt.entityId);
+            const c = dossier.coverage;
+            localCountsHost.textContent =
+                `Local corpus: ${c.articles} source${c.articles === 1 ? '' : 's'} · `
+                + `${c.articles_with_claims} with claims · ${c.claims} claim${c.claims === 1 ? '' : 's'} · `
+                + `${c.propositions} proposition${c.propositions === 1 ? '' : 's'}`;
+            if (c.articles === 0) localCountsHost.remove();
+            renderShapeBlock(shapeHost, dossier);
+            renderEvidenceBlock(evidenceHost, dossier, { onExtractClaims: openArchivedInReader });
+            renderCaseTimeline(timelineHost, dossier);
+        })().catch((err) => {
+            Utils.error('Case dossier assembly failed', err);
+            localCountsHost.remove();
+        });
     }
 
     // --- publish-density strip (network publish activity over wire) ---
@@ -151,12 +194,11 @@ export function renderCaseView(host, params) {
         host.appendChild(strip);
     }
 
-    // --- Four-axis case timeline (CD.3) — the LOCAL structured
-    // analysis over world / publication / capture / judgment time, with
-    // precision bands and gap callouts. Distinct from the wire density
-    // strip above (network activity); self-removes when empty.
+    // --- Four-axis case timeline (CD.3) — mounted here in reading
+    // order, but rendered by the SHARED assembly above (its host was
+    // created before the density strip so the timeline lands after it).
     if (caseEnt && caseEnt.entityId) {
-        renderCaseTimeline(host, caseEnt.entityId);
+        host.appendChild(timelineHost);
     }
 
     // --- members: people/orgs tagged alongside the case ---

@@ -371,9 +371,17 @@ test('case-dossier: evidence rows carry capture completeness, raw audit aggregat
     assert.equal(rowB.audit_runs.length, 0, 'no out-of-orbit or URL-advisory audit join');
     // Publication precision banded: article B's "2020" → year.
     assert.equal(rowB.published_precision, 'year');
-    // The tag-only article is a visible backlog item.
-    const unproc = dossier.evidence.unprocessed_sources;
-    assert.ok(unproc.some((u) => u.url === 'https://example.com/tagged' && u.source === 'local-tag'));
+    // The tag-only article is a FIRST-CLASS row (20.1 union membership)
+    // carrying the "no claims yet" state — no longer a footnote.
+    const tagged = arts.find((a) => a.url === 'https://example.com/tagged');
+    assert.equal(tagged.processed, false);
+    assert.equal(tagged.membership, 'tag');
+    assert.deepEqual(tagged.claim_ids, []);
+    assert.ok(!dossier.evidence.unprocessed_sources.some((u) => u.url === 'https://example.com/tagged'),
+        'promoted out of the unprocessed list (which now carries only wire-32125 items)');
+    // Claim-derived rows carry the processed/membership markers too.
+    assert.equal(rowA.processed, true);
+    assert.equal(rowA.membership, 'claims');
 });
 
 test('case-dossier: timeline events are axis-tagged and precision-banded', async () => {
@@ -472,7 +480,51 @@ test('case-dossier: coverage counts on every section', async () => {
     assert.ok('coverage' in dossier.timeline);
     assert.ok('coverage' in dossier.evidence);
     assert.ok('coverage' in dossier.entities);
-    assert.equal(dossier.evidence.coverage.articles, 2);
+    // 20.1 union membership: the tag-only article is a third row.
+    assert.equal(dossier.evidence.coverage.articles, 3);
+    assert.equal(dossier.evidence.coverage.articles_with_claims, 2);
+    assert.equal(dossier.evidence.coverage.articles_with_audit, 1);
+    assert.equal(dossier.evidence.coverage.unprocessed, 1, 'the claimless member row');
+    assert.equal(dossier.coverage.articles_with_claims, 2, 'headline de-aliased from articles');
+});
+
+test('case-dossier: an article tagged with an ALIAS of the case is a member (20.1)', async () => {
+    resetState();
+    const { kase } = await seedOrbit();
+    // A second case entity aliased onto the orbit case.
+    const alias = await EntityModel.create({ name: 'Origins case (alt)', type: 'case', canonical_id: kase.id });
+    const over = injected(kase.id, {
+        articles: [
+            { url: 'https://example.com/aliastag', cachedAt: 1600000300, source: 'capture',
+              articleHash: 'd'.repeat(64),
+              article: { title: 'Aliased tag', entities: [{ entity_id: alias.id, context: '' }] } }
+        ]
+    });
+    const dossier = await assembleCaseDossier(kase.id, { generatedAt: GENERATED, ...over });
+    const row = dossier.evidence.articles.find((a) => a.url === 'https://example.com/aliastag');
+    assert.ok(row, 'alias-tagged article resolves through the case alias family');
+    assert.equal(row.processed, false);
+    assert.equal(row.membership, 'tag');
+});
+
+test('case-dossier: audit run joins a claimless tag-only member row (20.1)', async () => {
+    resetState();
+    const { kase } = await seedOrbit();
+    const TAGHASH = 'e'.repeat(64);
+    const over = injected(kase.id, {
+        articles: [
+            { url: 'https://example.com/tagaudit', cachedAt: 1600000400, source: 'capture',
+              articleHash: TAGHASH,
+              article: { title: 'Tag + audit', entities: [{ entity_id: kase.id, context: '' }] } }
+        ],
+        auditRuns: [
+            { id: 'audit_tag', articleHash: TAGHASH, runAt: 1600000400, auditor: { id: 'auditor1' },
+              aggregate: { final_score: 55, confidence: 0.7 } }
+        ]
+    });
+    const dossier = await assembleCaseDossier(kase.id, { generatedAt: GENERATED, ...over });
+    const row = dossier.evidence.articles.find((a) => a.url === 'https://example.com/tagaudit');
+    assert.equal(row.audit_runs.length, 1, 'audit joins the tag-only row via the record hash');
     assert.equal(dossier.evidence.coverage.articles_with_audit, 1);
 });
 

@@ -12,13 +12,17 @@ import { assembleCaseDossier } from '../shared/case-dossier.js';
 import { VERDICT_STATE_LABELS, STANDARD_OF_PROOF_LABELS } from '../shared/truth-taxonomy.js';
 import { Utils } from '../shared/utils.js';
 
-export function renderShapeBlock(host, caseEntityId) {
-    if (!caseEntityId) return;
+// `dossierOrId` is either a pre-built case dossier (Phase 20.1 — the
+// case view assembles once and shares it across shape/evidence/timeline)
+// or a case entity id to assemble on the spot (direct callers/tests).
+export function renderShapeBlock(host, dossierOrId) {
+    if (!dossierOrId) return;
     const block = el('div', 'xr-view__dossier');
     host.appendChild(block);
 
     (async () => {
-        const caseDossier = await assembleCaseDossier(caseEntityId);
+        const caseDossier = typeof dossierOrId === 'string'
+            ? await assembleCaseDossier(dossierOrId) : dossierOrId;
         const shape = caseDossier.shape_of_knowledge;
         const dist = shape.distribution;
         const preds = shape.predictions;
