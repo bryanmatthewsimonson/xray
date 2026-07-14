@@ -1314,6 +1314,10 @@ function renderReader() {
     if (state._taggerUninstall) state._taggerUninstall();
     state._taggerUninstall = installEntityTagger({
         container: body,
+        // Phase 19.5: the "Add fact" row is gated behind `readerAddFact`
+        // (default off). The flag cache is primed in init() before the
+        // first renderReader(), so this synchronous read is accurate.
+        showFactButton: isEnabled('readerAddFact'),
         onTag: (ref) => {
             // De-dup: same entity_id + context → ignore. Avoids accidental
             // double-tagging when the user re-selects the same text.
@@ -5138,6 +5142,11 @@ async function init() {
           </div>`;
         return;
     }
+
+    // Prime the feature-flag cache before renderReader() so its
+    // synchronous isEnabled() gates (e.g. the 19.5 "Add fact" popover
+    // button) reflect the user's overrides, not the defaults.
+    try { await loadFlags(); } catch (_) { /* falls back to defaults */ }
 
     renderReader();
 

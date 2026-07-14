@@ -263,6 +263,14 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Changed
 
+- **Reader "📇 Add fact" button is now behind a Settings flag**
+  (`readerAddFact`, default OFF). The structured-fact capture row in the
+  text-selection popover was crowding the common capture flow, so it is
+  hidden until enabled at Options → Advanced → Reader → *Show "Add fact"
+  in the reader selection menu*. Purely a UI-visibility gate — the fact
+  modal, records, additive 30040 fact tags, and dossier assembly are
+  unchanged; toggling the flag on restores the exact prior behavior.
+
 - **Outbound-link tag renamed `cites` → `link`** (wire change,
   pre-release). The kind-30023 extension tag for external hyperlinks
   in the captured body now emits as `["link", url, anchorText?]` —

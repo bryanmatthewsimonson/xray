@@ -1157,7 +1157,8 @@ tagged in both.
 
 | # | Test | Pass criteria |
 |---|---|---|
-| 19.a | In a captured article, select a birth-date sentence → tagger popover → **📇 Add fact** | ✅ the Add-fact modal opens with the selection as the value seed and quote; picking the subject populates the **field** select with person fields + "Custom…"; typing `1962` under *Valid from* shows a live "year precision" hint; free-text garbage in a date field shows "not a date", never saves fabricated precision |
+| 19.a-flag | Fresh profile, select any sentence → tagger popover | ✅ the popover shows only **Add as claim / ❝ Quote / 🔎 Mark finding** — **no 📇 Add fact** (gated behind `readerAddFact`, default OFF). Options → Advanced → Reader → check **Show "Add fact" in the reader selection menu** → Save → reload the reader tab → the 📇 Add fact row is back |
+| 19.a | With **Show "Add fact"** ON: select a birth-date sentence → tagger popover → **📇 Add fact** | ✅ the Add-fact modal opens with the selection as the value seed and quote; picking the subject populates the **field** select with person fields + "Custom…"; typing `1962` under *Valid from* shows a live "year precision" hint; free-text garbage in a date field shows "not a date", never saves fabricated precision |
 | 19.b | Save `birth_date = 1962`; in a second article add `birth_date = 1963` for the same person | ✅ the pre-flight strip appears BEFORE save: "A captured source says **1962**" with its quote and URL — and **Save stays enabled** (inform, never block) |
 | 19.c | Side panel → the person → **Dossier** block | ✅ compact table shows top known fields; a "⚠ 1 contested field" banner; **Open full dossier** opens the portal dossier view via `#dossier=` deep-link |
 | 19.d | Portal dossier → the `birth_date` row | ✅ row is highlighted **contested** with BOTH values side by side (no winner, no auto-resolution); clicking each value opens its evidence — verbatim quote, source host, capture date, hash chip |

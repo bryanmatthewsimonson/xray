@@ -19,6 +19,39 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-14 — Reader "Add fact" button gated behind a Settings flag (19.5)
+
+Tags: `design`.
+
+The 19.5 slice put a **📇 Add fact** row in the reader's text-selection
+tagger popover, next to *Add as claim / ❝ Quote / 🔎 Mark finding*. In
+practice it crowded the popover and read as awkward for the common
+capture flow — structured facts are a power-user surface, not something
+most selections want. Rather than remove it, we hid it behind a new
+default-off feature flag `readerAddFact` (Options → Advanced → Reader →
+"Show Add fact"), matching every other X-Ray capability gate.
+
+The gate is purely visibility: the fact modal, `factMode`, fact
+records, the 30040 fact tags, and dossier assembly are all untouched —
+turning the flag on restores the exact prior behavior. Implementation
+note worth remembering: the popover is built with a synchronous
+`innerHTML` template in `entity-tagger.js openPopover`, and the reader
+never primed the flag cache at startup, so a bare `isEnabled()` at
+render time would read the default, not the user's override. Fixed by
+`await loadFlags()` in the reader's `init()` before the first
+`renderReader()`, then reading the flag there and threading a
+`showFactButton` boolean into `installEntityTagger` (which keeps
+`entity-tagger.js` free of a feature-flags import). Default OFF means
+existing users lose the button until they opt in — the intended
+outcome.
+
+Files: `src/shared/metadata/feature-flags.js` (flag),
+`src/reader/entity-tagger.js` (gate + threading),
+`src/reader/index.js` (prime + pass), `src/options/{options.html,index.js}`
+(toggle), `tests/reader-add-fact-flag.test.mjs` (default pin).
+
+---
+
 ## 2026-07-13 — ValueGroups split on validity windows; wire representatives are published facts (19.8)
 
 Tags: `design`, `bug`.
