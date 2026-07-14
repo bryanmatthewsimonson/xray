@@ -1582,6 +1582,44 @@ materialization.
 
 ---
 
+## Phase 20 — Case-first: making a case corpus usable ✅ COMPLETE
+
+Maintainer-driven from the live COVID/Rootclaim corpus (a case tagged on
+~10 captured articles that read "0 sources" because the dossier spine
+was claim-only). Five merge-as-I-go slices, no new wire kind:
+
+- ✅ **20.1** union membership — case membership = tagged (archive
+  record entities ∩ the case alias family) OR claim-referenced;
+  `deriveArticleRows` promotes tag-only articles to first-class rows
+  (`processed`/`membership` markers); the portal case view assembles the
+  dossier once, shares it, and shows local-corpus counts + an "extract
+  claims" nudge on claimless rows.
+- ✅ **20.2** add-to-case outside the reader — `case-membership.js`
+  (`listAddableArticles`/`addArticlesToCase`/`removeArticleFromCase`);
+  an "Add sources…" picker on the portal case view + the side-panel case
+  detail; local-only, republish hint on already-published records.
+- ✅ **20.3** local case entity graph — pure `case-graph.js`
+  (`buildCaseGraph`/`layoutCaseGraph`: case center, member articles,
+  tagged/claimed entities, co-tag adjacency, contradiction warn-edges
+  from `buildKnots`) + `case-graph-view.js` SVG; the spokes-graph empty
+  state routes to the case dashboard.
+- ✅ **20.4** LLM corpus synthesis behind `caseSynthesis` (+ `llmAssist`
+  + key) — a map/reduce over the member articles producing a grounded
+  brief (summary, positions, cruxes of disagreement, load-bearing
+  claims, coverage gaps) + reviewable proposals; every quote grounded,
+  no fused score/verdict, brief stored in the precious `xray-audits` DB
+  (v2 `case-briefs`), export-included.
+  **`docs/CASE_SYNTHESIS_DESIGN.md`.**
+- ✅ **20.5** docs tail — the design doc, this section, SMOKE §Phase 20,
+  and the case export carrying the brief.
+
+Next phase (maintainer's ask, not yet planned): paste/upload generic
+transcripts (podcasts, YouTube speaker transcripts). They become
+ordinary archive records and enter the corpus with no synthesis
+redesign (member units key on the record hash).
+
+---
+
 ## Abandonment criteria
 
 From issue #20 — bears repeating. At any phase boundary, if the cost

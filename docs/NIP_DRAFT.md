@@ -897,6 +897,18 @@ Consolidated grammar for the plain-NIP-32 `1985` events an X-Ray publisher emits
 - **Kind 30064 (integrity findings) deliberately has NO 1985 mirror**: a bare match-label on a person's pubkey, stripped of its evidence and caveats, is exactly the decontextualized person-grade that family forbids — the full 30064 is the only wire shape.
 - A mirror is never authoritative on its own: consumers resolving a 1985 under one of these namespaces SHOULD fetch the parent event (same author, matching `a`/`p`/`r`) for the evidence, caveats, and firewall context the mirror strips.
 
+## Phase 20 — case-corpus synthesis (no new kind)
+
+The Phase-20 case-first work (`docs/CASE_SYNTHESIS_DESIGN.md`) adds **no
+wire kind**. Case membership is local (the archive record's entity tags
+or a claim's `about` — the same 30023 `p` tags and 30040 `about` already
+documented), the local case graph is derived on read, and the LLM
+corpus **brief is local-only** (stored in IndexedDB, exported in the
+case file, never published). The brief's *proposals*, once a human
+accepts them, materialize as ordinary **kind-30040** claims and
+**kind-30055** relationship links through the existing publish paths —
+nothing new on the wire.
+
 ## Querying
 
 A client wishing to display all metadata for a URL SHOULD issue these filters in parallel and merge the results:
