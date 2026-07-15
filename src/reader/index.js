@@ -61,6 +61,7 @@ import { auditBand, scoreChipHtml, prettyModule } from '../shared/audit/display.
 import { JurisdictionModel } from '../shared/jurisdiction-model.js';
 import { lensTypeForPropositionClass } from '../shared/lens-taxonomy.js';
 import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/lens-engine.js';
+import { speakerFromParagraphText } from '../shared/transcript-parse.js';
 import { renderLensSetup, renderJurisdictionCard, renderJurisdictionFailure, renderPanelSummary } from './lens-section.js';
 
 const browserApi = typeof browser !== 'undefined' && browser.runtime ? browser : chrome;
@@ -226,7 +227,7 @@ function adoptArticle(article, stored) {
     // renumbered a filing's "14./15./23." paragraphs to "1." on the
     // wire and salted the body with escape backslashes that shifted
     // every pageMap anchor.
-    if (article.contentType === 'pdf' && article.markdown) {
+    if (isMarkdownCanonical(article)) {
         state.dirtySource = 'markdown';
     }
 
@@ -483,12 +484,20 @@ async function hydrateFigureImages(root) {
     }
 }
 
+// Content types whose `markdown` is the canonical substrate and
+// `content` a derived rendering: PDFs (reconstructed markdown) and
+// imported transcripts (speaker-labeled markdown, Phase 21). Hashing
+// the turndown round trip of the derived HTML would fork the capture
+// hash from the published x tag, so these hash + publish over the
+// markdown directly and never flip dirtySource to 'reader' on a tag.
+function isMarkdownCanonical(article) {
+    return !!(article && article.markdown
+        && (article.contentType === 'pdf' || article.contentType === 'transcript'));
+}
+
 // The body the canonical hash covers must be the body publish ships.
-// For PDFs that is the reconstructed markdown itself (`content` is a
-// derived rendering); hashing the turndown round trip of the derived
-// HTML would fork the capture hash from the published x tag.
 function hashableArticle(article) {
-    return (article && article.contentType === 'pdf' && article.markdown)
+    return isMarkdownCanonical(article)
         ? { ...article, content: article.markdown, _contentIsMarkdown: true }
         : article;
 }
@@ -721,9 +730,10 @@ function loadArchivedArticle(archived, provenance) {
     state.markdownDraft = archived.markdown || archived.content || '';
     state.htmlDraft     = archived.content  || ContentExtractor.markdownToHtml(state.markdownDraft);
     state.dirtySource   = 'reader';
-    // Same rule as adoptArticle: an archived PDF's markdown is the
-    // canonical body — republish must not turndown-round-trip it.
-    if (state.article.contentType === 'pdf' && archived.markdown) {
+    // Same rule as adoptArticle: an archived PDF's / transcript's
+    // markdown is the canonical body — republish must not
+    // turndown-round-trip it.
+    if (isMarkdownCanonical({ ...state.article, markdown: archived.markdown })) {
         state.dirtySource = 'markdown';
     }
 
@@ -1328,11 +1338,11 @@ function renderReader() {
             // Sync htmlDraft with whatever the mark wrap did to the body.
             state.htmlDraft = body.innerHTML;
             // Tag wraps are text-neutral (a span around existing text).
-            // For PDFs the markdown draft stays canonical — flipping to
-            // 'reader' here would force the destructive turndown round
-            // trip at publish for zero wire benefit (spans don't survive
-            // it anyway).
-            if (state.article.contentType !== 'pdf') state.dirtySource = 'reader';
+            // For markdown-canonical captures (PDF, transcript) the
+            // markdown draft stays canonical — flipping to 'reader' here
+            // would force the destructive turndown round trip at publish
+            // for zero wire benefit (spans don't survive it anyway).
+            if (!isMarkdownCanonical(state.article)) state.dirtySource = 'reader';
             refreshEntitiesBar().catch(() => {});
             scheduleTagSave();
         },
@@ -1359,7 +1369,9 @@ function renderReader() {
                 factMode:     !!factMode,
                 // The asserter is usually the article's author — default
                 // the speaker to the author entity (or offer its create).
-                defaultSource: await resolveDefaultSpeaker()
+                // For a transcript, prefer the SELECTION's turn speaker
+                // (21.2) over the article-level byline.
+                defaultSource: (await resolveTranscriptSpeaker(context)) || (await resolveDefaultSpeaker())
             });
             if (saved) {
                 if (!factMode) state.lastClaimAbout = saved.about || [];
@@ -1763,7 +1775,7 @@ async function runSuggestPass() {
                     .then(() => {
                         state.htmlDraft = body.innerHTML;
                         // Text-neutral wrap — see the tagger's onTag.
-                        if (state.article.contentType !== 'pdf') state.dirtySource = 'reader';
+                        if (!isMarkdownCanonical(state.article)) state.dirtySource = 'reader';
                     })
                     .catch(() => {});
             }
@@ -2349,6 +2361,28 @@ function wireLensActions(body) {
 async function resolveDefaultSpeaker() {
     const a = state.article || {};
     const name = String(a.byline || (a.scholar && a.scholar.authors && a.scholar.authors[0]) || '').trim();
+    if (!name) return null;
+    try {
+        const entity = await findEntityByName(name);
+        return entity ? { entityId: entity.id } : { suggestedName: name };
+    } catch (_) {
+        return { suggestedName: name };
+    }
+}
+
+// Phase 21.2: for a TRANSCRIPT, the selection's enclosing paragraph
+// (the tagger's `context`) carries the turn's `**Speaker:**` label —
+// prefill "who said it" from THAT, not the article byline. Local
+// imports carry transcript_meta.speakers so the name must match one;
+// relay-reconstructed transcripts lack that list and fall back to the
+// label grammar's word-count gate. Speakers are person ENTITIES (a
+// bare name mints no platform account), which the claim source field
+// already models. Returns null for any non-transcript article.
+async function resolveTranscriptSpeaker(context) {
+    const a = state.article || {};
+    if (a.contentType !== 'transcript' || !context) return null;
+    const known = (a.transcript_meta && a.transcript_meta.speakers) || null;
+    const name = speakerFromParagraphText(context, known);
     if (!name) return null;
     try {
         const entity = await findEntityByName(name);
