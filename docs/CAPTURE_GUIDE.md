@@ -10,6 +10,7 @@ This guide covers:
 - [Facebook](#facebook)
 - [TikTok](#tiktok)
 - [Easy-tier platforms](#easy-tier-platforms) (YouTube, Twitter/X, Substack, general articles)
+- [Podcast transcripts (import)](#podcast-transcripts-import)
 - [What to check after capture](#what-to-check-after-capture)
 - [When a capture looks wrong](#when-a-capture-looks-wrong)
 
@@ -205,6 +206,130 @@ These "just work" without special handling:
   Substacks) — article body plus comments if you opt in.
 - **Any article page** — Readability extracts the main content. Works
   on most news sites, blogs, documentation, Wikipedia, etc.
+
+---
+
+## Podcast transcripts (import)
+
+Some sources you want in a case aren't a web page X-Ray can scrape —
+they're a **podcast episode** whose transcript you already have as text
+(from the show's site, a transcription service, or a `.srt`/`.vtt`
+caption file). Import pastes or uploads that transcript as an ordinary
+archive record, speaker-attributed, so it joins cases and feeds the
+corpus synthesis exactly like a captured article.
+
+This is a **generic paste/upload** path — X-Ray does not scrape any
+podcast app or auto-look-up feeds. You bring the text (and, optionally,
+the universal podcast IDs); X-Ray parses the turns and builds the record.
+
+### Where the button lives
+
+- **Portal ("My Archive") library header** — the `Import transcript…`
+  button opens the import panel over the library.
+- **A case view** — beside `Add sources…`. Importing here drops the new
+  transcript straight into that case (no second step), and the case
+  re-renders with it immediately.
+
+### Do this
+
+1. **Open the import panel** (one of the two buttons above).
+2. **Paste the transcript** into the text box, or click
+   **Upload .txt/.srt/.vtt** and pick a file. Either way it lands in the
+   same box and takes the same parse path.
+3. **Watch the preview.** A line like `Detected: WebVTT · 214 turns ·
+   3 speakers` confirms X-Ray recognized the format and split it into
+   speaker turns. Any parser warnings show here too.
+4. **Fill in the metadata.** **Title** is required; everything else is
+   optional (see field meanings below).
+5. **Import.** X-Ray archives the transcript, adds it to the case (if you
+   imported from a case view), and opens it in the reader with the
+   speaker-labeled body.
+
+### Accepted formats
+
+X-Ray auto-detects the format — you don't pick one. It recognizes:
+
+**WebVTT** (`.vtt` caption files). Voice tags (`<v Name>`) set the
+speaker; a cue with two voices splits into two turns.
+
+```
+WEBVTT
+
+00:00:03.000 --> 00:00:07.500
+<v Dr. Fauci> The data on transmission was evolving weekly.
+
+00:00:07.500 --> 00:00:11.000
+<v Host> So what changed your assessment?
+```
+
+**SRT** (`.srt` subtitle files). A leading `- NAME:` label sets the
+speaker and **carries forward** to following unlabeled cues (broadcast
+convention), until the next label.
+
+```
+1
+00:00:03,000 --> 00:00:07,500
+- DR. FAUCI: The data on transmission was evolving weekly.
+
+2
+00:00:07,500 --> 00:00:11,000
+- HOST: So what changed your assessment?
+```
+
+**Speaker lines** — the plain-text transcript most show sites publish.
+Any of these line shapes work, mixed freely:
+
+```
+Dr. Fauci: The data on transmission was evolving weekly.
+[12:04] Host: So what changed your assessment?
+Dr. Fauci [12:08]: New household-contact studies, mostly.
+```
+
+A line with no label continues the previous speaker's turn; a blank line
+ends the turn. A **speaker label** is 1–6 words (≤60 chars) before a
+colon, containing a letter and starting with a capital or digit — so
+`Dr. Fauci`, `HOST`, and `Speaker 1` all count, but a prose line like
+`Note: this was recorded remotely` does not (it's kept as text, not read
+as a speaker).
+
+**Plain text** — if X-Ray sees no timestamps and no speaker labels, each
+paragraph becomes an un-attributed turn. You still get an archived,
+case-joinable record; you just won't get per-speaker attribution.
+
+### Metadata fields
+
+- **Title** *(required)* — the episode title. Used as the record title
+  and to build the identity slug.
+- **Episode URL** *(optional)* — the canonical URL of the episode. When
+  supplied, per-turn timestamps in the body link back into the audio
+  (Media Fragments `#t=`). **Leave it blank** and X-Ray mints a local
+  content-hashed identity (`file:///imported/<hash>/…`) — the transcript
+  still archives and publishes fine; you can paste the real URL in the
+  reader before publishing.
+- **Show** — the podcast / show name. Becomes the record's site name and
+  the `show` tag.
+- **Host** — the host, recorded as the byline.
+- **Published date** — the episode's publish date.
+- **Podcast IDs** *(collapsed, all optional)* — the universal
+  identifiers, when you have them: **Feed GUID** (the podcast-namespace
+  feed UUID), **Episode GUID**, **Feed URL** (the RSS feed — a published
+  transcript co-emits it as an indexed `r`, so a query can find every
+  episode of the show), and **iTunes ID** (Apple's numeric collection
+  id, digits only). X-Ray never guesses these; a field left blank emits
+  no tag. See `docs/NIP_DRAFT.md` for the exact wire form.
+
+### What you'll see in the reader
+
+- The **speaker-labeled markdown body** — a `## Transcript` section with
+  each turn as `` `M:SS` **Speaker:** text ``, timestamps linked into
+  the episode when you gave an Episode URL.
+- When you select a sentence in a turn and **Add claim**, the "Who said
+  it" source is **pre-filled with that turn's speaker** — matched to an
+  existing person entity when one exists, otherwise offered as a
+  suggested name.
+- If you imported without an Episode URL, the reader shows the synthetic
+  `file:///imported/…` URL; edit it to the real episode URL before
+  publishing if you have it.
 
 ---
 

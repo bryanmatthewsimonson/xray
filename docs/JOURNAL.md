@@ -19,6 +19,46 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-15 — Podcast transcript import (Phase 21)
+
+Tags: `design`.
+
+Import podcast transcripts to expand a case corpus (maintainer's ask).
+A pasted/uploaded transcript becomes an ordinary archive record so it
+joins cases (20.2) and corpus synthesis (20.4) with no redesign. Pure
+parser + article builder (21.1), portal panel + reader handling (21.2),
+podcast wire tags (21.3).
+
+Decisions worth remembering:
+- **Direct-save-then-open** resolves a race: the reader archives
+  asynchronously in a new tab, so tag-after-`xray:reader:open` would
+  race an absent row. The panel `saveArticle`s directly first (with the
+  precomputed `_articleHash`) then `addArticlesToCase`, so membership is
+  immediate; the reader's adopt-save merges the prior row's entities
+  before re-saving the identical hash (reader/index.js:306-324), so the
+  case ref survives and no false stealth-edit snapshot fires.
+- **`isMarkdownCanonical`** generalizes the five reader `contentType ===
+  'pdf'` conditionals to transcripts: `markdown` is the hash substrate
+  and `content` a derived rendering, and a tag wrap never flips
+  dirtySource to 'reader' (the destructive turndown round trip).
+- **Speakers are person entities, never platform accounts.** A
+  transcript speaker is a bare name with no stable platform id, so it
+  can't mint a derived pubkey (the identity rule); the claim `source`
+  field (entity id | free text) already models it. The reader prefills
+  "who said it" from the selection's turn label, transcript-only, so
+  bold-leading prose in ordinary articles keeps the byline default.
+- **Episode GUID case-preserved, feed GUID lowercased.** Podcasting-2.0
+  feed GUIDs are namespace UUIDs (case-insensitive → lowercased in the
+  NIP-73 `i` form); episode GUIDs are opaque case-significant strings and
+  ride verbatim. All tag values String()-coerced (a numeric iTunes id
+  would be rejected at the relay — the Instagram pk lesson).
+- **`transcript_meta` is a manifest, not a substrate** — distinct name
+  from `transcript_lang` (different positional semantics); the turn
+  bodies + speaker names live in the content markdown that the `x` hash
+  covers, never in tags.
+
+---
+
 ## 2026-07-14 — Case-synthesis proposals: the reduce stage never got the claim ids (20.6)
 
 Tags: `bug`.

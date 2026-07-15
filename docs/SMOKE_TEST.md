@@ -1195,6 +1195,23 @@ the case in the portal ("My Archive" → the case row).
 
 ---
 
+## Phase 21 — Podcast transcript import (21.1–21.3)
+
+Import a transcript from the portal (library header **Import transcript…**
+or a case view's button beside "Add sources…"). Any transcript works — a
+Rootclaim debate transcript with `Speaker:` lines is ideal.
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 21.a | Paste a WebVTT transcript with `<v Name>` voices | ✅ the live preview reads **"Detected: WebVTT · N turns · M speakers — …"**; parser warnings (if any) show below |
+| 21.b | Library-header import, Title only (no Episode URL) → **Import** | ✅ the reader opens with a speaker-labeled body (**bold Speaker:** paragraphs); the URL field shows a `file:///imported/…` id and is editable; a hash line is present |
+| 21.c | Case-view import (paste `Speaker:` lines, Title, Import) | ✅ the case **re-renders with the new source immediately** (before you touch the reader tab) — it counts in the local corpus and appears in the graph |
+| 21.d | In the opened transcript, select a sentence inside a turn → **Add as claim** | ✅ "Who said it" is prefilled with **that turn's speaker** (resolve-or-create the person entity), not the host/byline |
+| 21.e | Fill the **Podcast IDs** (feed GUID, iTunes id) + Episode URL → **Publish** | ✅ the raw kind-30023 event carries `podcast_guid` + `i` `podcast:guid:…` (lowercased), `podcast_episode_guid` + `i` `podcast:item:guid:…` (case-preserved), `itunes_id` (string), `feed_url` as a second `r`, and `transcript_meta` `srt:N:M` |
+| 21.f | Portal inspector on the published event → **Open in reader** | ✅ the transcript body renders; `article.podcast` + `transcript_meta` round-trip; speaker prefill still works (regex path, no local speaker list) |
+
+---
+
 ## Reporting
 
 For each defect found:

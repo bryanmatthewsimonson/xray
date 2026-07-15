@@ -181,6 +181,41 @@ export const EventBuilder = {
       tags.push(['arxiv', article.scholar.arxiv_id + v]);
     }
 
+    // Phase 21 — podcast identity (additive/optional): universal
+    // podcast IDs the USER supplied at import, never inferred. Greppable
+    // tag + NIP-73 external-id co-emit, the DOI pattern. All values
+    // String()-coerced (a numeric iTunes id would kill the event at the
+    // relay — the Instagram pk lesson). Feed GUIDs (podcast-namespace
+    // UUIDs) are lowercased in the `i` form; episode guids are
+    // case-significant free strings and ride verbatim.
+    if (article.podcast) {
+      const pod = article.podcast;
+      if (pod.show)  tags.push(['show', String(pod.show)]);
+      if (pod.feed_guid) {
+        tags.push(['podcast_guid', String(pod.feed_guid)]);
+        tags.push(['i', 'podcast:guid:' + String(pod.feed_guid).toLowerCase()]);
+      }
+      if (pod.episode_guid) {
+        tags.push(['podcast_episode_guid', String(pod.episode_guid)]);
+        tags.push(['i', 'podcast:item:guid:' + String(pod.episode_guid)]);
+      }
+      if (pod.feed_url) {
+        tags.push(['feed_url', String(pod.feed_url)]);
+        pushR(String(pod.feed_url));   // co-emitted after the primary r; deduped
+      }
+      if (pod.itunes_id) tags.push(['itunes_id', String(pod.itunes_id)]);
+    }
+
+    // Transcript structure manifest — DISTINCT from `transcript_lang`
+    // (that one is a per-track language manifest with different
+    // positional semantics). Bodies live in content, always; this is a
+    // count manifest so consumers know what was imported.
+    if (article.transcript_meta) {
+      const tm = article.transcript_meta;
+      tags.push(['transcript_meta',
+        `${tm.format || ''}:${tm.turn_count || 0}:${tm.speaker_count || 0}`]);
+    }
+
     // Phase 9 identity: reference the post author's stable PlatformAccount
     // pubkey, so the article is joined to the same identity used for that
     // author's comments and (Phase IV) their canonical person.
@@ -1039,6 +1074,31 @@ export const EventBuilder = {
         isShort:        tags['is_short'] === 'true',
         uploadDate:     tags['upload_date']     || null,
         transcripts:    transcriptLangs   // manifest only; bodies live in content
+      };
+    }
+
+    // Phase 21 — podcast identity round-trip. Presence-gated on the
+    // tags (never platform alone — no all-null objects). The transcript
+    // TURN BODIES live in the content markdown, so transcript_meta
+    // restores counts only; speaker names re-parse from the body.
+    if (tags['podcast_guid'] || tags['podcast_episode_guid'] || tags['feed_url']
+        || tags['itunes_id'] || tags['show']) {
+      article.podcast = {
+        show:         tags['show']                 || null,
+        feed_guid:    tags['podcast_guid']         || null,
+        episode_guid: tags['podcast_episode_guid'] || null,
+        feed_url:     tags['feed_url']             || null,
+        itunes_id:    tags['itunes_id']            || null,
+        episode_url:  article.url                  || null
+      };
+    }
+    if (tags['transcript_meta']) {
+      const [format, turns, speakers] = String(tags['transcript_meta']).split(':');
+      article.transcript_meta = {
+        format:        format || '',
+        turn_count:    parseInt(turns, 10) || 0,
+        speaker_count: parseInt(speakers, 10) || 0,
+        speakers:      null   // names live in the content body
       };
     }
 

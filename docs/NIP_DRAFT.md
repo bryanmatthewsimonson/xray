@@ -848,6 +848,30 @@ The tag is present ONLY when the original was verifiably recovered (so it always
 
 Publishers SHOULD also co-emit an indexed `r` tag with the capture address, strictly AFTER the primary `r` (consumers take the FIRST `r` as the article URL), so `{"kinds":[30023],"#r":["<archive-url>"]}` finds the capture from the mirror side too.
 
+## Kind 30023 — podcast identity tags (extension)
+
+A long-form article that is an **imported podcast transcript** (Phase 21 — `content_format` = `transcript`, `platform` = `podcast`) MAY carry the universal podcast identifiers the user supplied at import. All are optional and additive; a publisher claims nothing it was not given.
+
+```
+["show", "<podcast / show name>"]
+["podcast_guid", "<feed GUID>"]           +  ["i", "podcast:guid:<feed GUID, lowercased>"]
+["podcast_episode_guid", "<episode GUID>"] + ["i", "podcast:item:guid:<episode GUID, case-preserved>"]
+["feed_url", "<RSS feed URL>"]
+["itunes_id", "<iTunes / Apple collection id>"]
+```
+
+At most one of each. The greppable domain tag (`podcast_guid`, `podcast_episode_guid`) is paired with its **NIP-73 external-id** form (`["i", "podcast:guid:…"]`), the DOI/arXiv dual-tag pattern — NIP-73 defines the `podcast:guid:` and `podcast:item:guid:` identifier namespaces upstream, and this is X-Ray's adoption of them. The **feed GUID** is a podcast-namespace UUID and is lowercased in its `i` form; the **episode GUID** is a case-significant free string and rides verbatim in both forms. Numeric values (iTunes id) are string-coerced (relays reject non-string tag values).
+
+When a `feed_url` is present, publishers SHOULD co-emit an indexed `r` tag with it, strictly AFTER the primary `r` (consumers take the FIRST `r` as the article URL), so `{"kinds":[30023],"#r":["<feed-url>"]}` finds every captured episode of one show.
+
+A transcript also carries a structure manifest:
+
+```
+["transcript_meta", "<format>:<turn_count>:<speaker_count>"]
+```
+
+`format ∈ {vtt, srt, speaker-lines, plain}`. This is a MANIFEST, not a substrate: the transcript's speaker names and turn bodies live in the event **content** (the speaker-labeled markdown the `x` hash covers), never in tags — a full transcript would blow the event-size budget. `transcript_meta` is distinct from `transcript_lang` (Kind 30023 YouTube captures): that one is a per-track language manifest with different positional semantics.
+
 ## Kind 30023 — `link` tag (extension)
 
 A long-form article (kind 30023) MAY carry one `link` tag per distinct EXTERNAL outbound link in its body, in document order:
