@@ -19,6 +19,35 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-14 — Case-synthesis proposals: the reduce stage never got the claim ids (20.6)
+
+Tags: `bug`.
+
+First live run of the 20.4 corpus synthesis on the COVID corpus:
+the **Proposals** block was a pile of dim "not acceptable: unknown
+claim …" rows. Root cause was a mismatch between the reduce prompt and
+its input — `buildReduceSystemPrompt` told the model "reference claim
+ids ONLY from the supplied dossier; never invent a claim id", but
+`digestDossier` put **only `claim_count` (a number)** into that dossier,
+never the id→text index. The instruction was unfulfillable, so with a
+low-claim corpus the model shorthanded refs (C1/F1…) and `filterProposals`
+rejected every relationship/is_key proposal. (New-claim proposals, which
+validate against member article hashes, still worked — hence a few good
+rows beside the broken pile.)
+
+Fix: `digestDossier(dossier, { claims })` now emits a compact `claims`
+index (id — text — article_hash), built by the portal from the SAME set
+`filterProposals`/`claimsById` accept, so an id the model pulls from it
+always validates; the reduce prompt points at that index and forbids
+inventing/abbreviating ids. Two adjacent defects fixed in the same pass:
+`filterProposals` now rejects a relationship whose source and target are
+the same claim (a self-link that `EvidenceLinker.create` would throw on
+anyway — previously shown with a live Accept button), and dedups
+identical proposals by a stable per-kind key. No wire change; the brief
+schema is unchanged.
+
+---
+
 ## 2026-07-14 — Phase 20 docs tail + case export carries the brief (20.5)
 
 Tags: `design`.

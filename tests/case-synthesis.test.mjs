@@ -72,6 +72,40 @@ test('case-synthesis: filterProposals accepts resolvable refs, rejects the rest 
     assert.ok(rejected.every((r) => typeof r.reason === 'string'));
 });
 
+test('case-synthesis: filterProposals rejects a self-link and dedups repeats (20.6)', () => {
+    const claimsById = { c1: { id: 'c1', text: 'x' }, c2: { id: 'c2', text: 'y' } };
+    const brief = { proposals: [
+        // self-link — both endpoints the same claim → rejected, not acceptable.
+        { kind: 'relationship', source_claim_id: 'c1', target_claim_id: 'c1', relationship: 'contradicts' },
+        // three copies of one valid link (last two orderings identical) → one survives.
+        { kind: 'relationship', source_claim_id: 'c1', target_claim_id: 'c2', relationship: 'contradicts' },
+        { kind: 'relationship', source_claim_id: 'c1', target_claim_id: 'c2', relationship: 'contradicts' },
+        { kind: 'relationship', source_claim_id: 'c2', target_claim_id: 'c1', relationship: 'contradicts' },
+        // duplicate is_key → one survives.
+        { kind: 'is_key', claim_id: 'c1' },
+        { kind: 'is_key', claim_id: 'c1' }
+    ] };
+    const { acceptable, rejected } = CS.filterProposals(brief, { claimsById, memberHashes: new Set() });
+    assert.equal(acceptable.length, 2, 'one deduped link + one deduped is_key');
+    assert.equal(rejected.length, 1, 'the self-link');
+    assert.match(rejected[0].reason, /same claim/);
+});
+
+test('case-synthesis: digestDossier surfaces the claim index for the reduce stage (20.6)', () => {
+    const dossier = { coverage: {}, shape_of_knowledge: {}, knots: {}, orbit: { claim_ids: ['c1'] } };
+    const digest = JSON.parse(CS.digestDossier(dossier, { claims: [
+        { id: 'c1', text: 'The lab reported the sequence.', article_hash: 'A' }
+    ] }));
+    assert.equal(digest.claim_count, 1);
+    assert.equal(digest.claims[0].id, 'c1');
+    assert.ok(digest.claims[0].text.includes('lab reported'));
+    assert.equal(digest.claims[0].article_hash, 'A');
+    // No claims passed → empty index (not a crash), count 0.
+    const empty = JSON.parse(CS.digestDossier(dossier));
+    assert.deepEqual(empty.claims, []);
+    assert.equal(empty.claim_count, 0);
+});
+
 test('case-synthesis: corpusInputHash is order-insensitive but sensitive to membership + prompt', async () => {
     const a = [{ article_hash: 'h1' }, { article_hash: 'h2' }];
     const aRev = [{ article_hash: 'h2' }, { article_hash: 'h1' }];

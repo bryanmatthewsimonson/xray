@@ -45,6 +45,13 @@ test('corpus-prompts: map tool requires position + quote-bearing assertions', ()
     assert.equal(ka.properties.quote.description.includes('VERBATIM'), true);
 });
 
+test('corpus-prompts: reduce system prompt points at the claims index + forbids invented ids (20.6)', () => {
+    const sys = CP.buildReduceSystemPrompt({ caseName: 'C' });
+    assert.match(sys, /`claims` index/);
+    assert.match(sys, /never invent, abbreviate, or shorthand a claim id/);
+    assert.match(sys, /Never link a\s+claim to itself/);
+});
+
 test('corpus-prompts: user prompt slices the claims digest to budget', () => {
     const big = 'x'.repeat(CP.MAX_CLAIMS_DIGEST_CHARS + 5000);
     const out = CP.buildMapUserPrompt({ memberText: 'body', memberMeta: { title: 'T', url: 'u' }, claimsDigest: big });
