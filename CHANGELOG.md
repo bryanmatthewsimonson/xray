@@ -10,6 +10,15 @@ Sections per release: **Added** (new features), **Changed**
 
 ## [Unreleased]
 
+### Fixed
+
+- **Case-synthesis proposals now reference real claims (20.6).** The
+  reduce stage was never handed the corpus's claim-id index, so
+  relationship/is_key proposals cited invented ids and were all
+  rejected in the "Proposals" block. The dossier digest now carries a
+  `claims` index the model must reference; self-links and duplicate
+  proposals are filtered out.
+
 ### Added
 
 - **Phase 20 — case-first: making a case corpus usable (20.1–20.4).**

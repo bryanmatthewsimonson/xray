@@ -78,13 +78,23 @@ export async function corpusInputHash(members, orbitClaimIds, promptVersion = CO
 /**
  * A compact, deterministic view of the built dossier for the reduce
  * call: the verdict-state distribution + coverage, contradiction knots
- * (claim ids + texts + notes), and an orbit-claim index. Size-capped;
- * counts stay on the face so the model (and the reader) see coverage.
+ * (claim ids + texts + notes), and — load-bearing for the proposals —
+ * a `claims` INDEX the model may reference. `claims` is the SAME set
+ * `filterProposals`/`claimsById` accept (passed in by the caller), so
+ * an id the model pulls from here always validates. Without it the
+ * reduce prompt's "reference claim ids only from the dossier" rule was
+ * unfulfillable and every relationship/is_key proposal was rejected
+ * (20.6). Size-capped; counts stay on the face so the model (and the
+ * reader) see coverage.
  */
-export function digestDossier(dossier) {
+export function digestDossier(dossier, { claims = [] } = {}) {
     const shape = dossier.shape_of_knowledge || {};
     const knots = dossier.knots || {};
-    const claimIndex = (dossier.orbit && dossier.orbit.claim_ids || []).slice(0, 200);
+    const claimIndex = claims.slice(0, 150).map((c) => ({
+        id: c.id,
+        text: (c.text || '').slice(0, 160),
+        article_hash: c.article_hash || null
+    }));
     return JSON.stringify({
         coverage: dossier.coverage || {},
         distribution: (shape.distribution && {
@@ -97,6 +107,7 @@ export function digestDossier(dossier) {
             nodes: (k.nodes || []).map((n) => ({ ref: n.ref, text: (n.text || '').slice(0, 200) })),
             notes: (k.edges || []).map((e) => e.note).filter(Boolean)
         })),
+        claims: claimIndex,
         claim_count: claimIndex.length
     });
 }
@@ -200,11 +211,23 @@ export function groundCaseBrief(brief, indexByMember) {
 export function filterProposals(brief, { claimsById = {}, memberHashes = new Set() } = {}) {
     const acceptable = [];
     const rejected = [];
+    const seen = new Set();   // dedup key across all kinds
+    const keyOf = (p) => {
+        if (p.kind === 'relationship') return `rel:${[p.source_claim_id, p.target_claim_id].sort().join('|')}:${p.relationship}`;
+        if (p.kind === 'is_key') return `key:${p.claim_id}`;
+        if (p.kind === 'claim') return `claim:${p.article_hash}|${p.text}`;
+        return `other:${JSON.stringify(p)}`;
+    };
     for (const p of (brief.proposals || [])) {
+        const dk = keyOf(p);
+        if (seen.has(dk)) continue;   // silent dedup — a repeat is not a reject
+        seen.add(dk);
+
         let reason = null;
         if (p.kind === 'relationship') {
             if (!claimsById[p.source_claim_id]) reason = `unknown source claim ${p.source_claim_id}`;
             else if (!claimsById[p.target_claim_id]) reason = `unknown target claim ${p.target_claim_id}`;
+            else if (p.source_claim_id === p.target_claim_id) reason = 'source and target are the same claim';
             else if (!CLAIM_RELATIONSHIPS.includes(p.relationship)) reason = `invalid relationship "${p.relationship}"`;
         } else if (p.kind === 'is_key') {
             if (!claimsById[p.claim_id]) reason = `unknown claim ${p.claim_id}`;

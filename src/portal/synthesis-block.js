@@ -138,7 +138,16 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
         const liveHash = await corpusInputHash(members, orbitClaimIds);
 
         const claimsById = {};
-        for (const m of members) for (const c of m.claims) claimsById[c.id] = c;
+        // The claim index handed to the reduce stage — id + text +
+        // the member article it came from. Same set claimsById accepts,
+        // so an id the model pulls from here always validates (20.6).
+        const claimIndex = [];
+        for (const m of members) {
+            for (const c of m.claims) {
+                claimsById[c.id] = c;
+                claimIndex.push({ id: c.id, text: c.text, article_hash: m.article_hash });
+            }
+        }
         const memberByHash = {};
         for (const m of members) memberByHash[m.article_hash] = { url: m.url, caseId };
         const memberHashes = new Set(members.map((m) => m.article_hash));
@@ -218,7 +227,7 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
             // REDUCE — one synthesis call over the extracts + dossier digest.
             status.textContent = `Synthesizing ${extracts.length} extract${extracts.length === 1 ? '' : 's'}…`;
             const reduce = await sendMessage({ type: 'xray:llm:corpus-reduce', request: {
-                dossierDigest: digestDossier(dossier), extracts, caseName, scopeQuestion
+                dossierDigest: digestDossier(dossier, { claims: claimIndex }), extracts, caseName, scopeQuestion
             } });
             if (!reduce || !reduce.ok) {
                 status.textContent = `Synthesis failed: ${(reduce && reduce.error) || 'no response'}`;

@@ -244,7 +244,10 @@ export function buildReduceSystemPrompt({ caseName = '', scopeQuestion = '' } = 
         '- Every quote must be VERBATIM from the named member article (identified by its',
         '  article_hash). A quote that cannot be located there is dropped downstream.',
         '- Attribute positions only to articles that actually hold them; never invent holders.',
-        '- Reference claim ids only from the supplied dossier; never invent a claim id.',
+        '- Reference claim ids ONLY from the `claims` index in the dossier digest (each entry is',
+        '  `id — text`); never invent, abbreviate, or shorthand a claim id. If no listed claim',
+        '  fits a relationship or is_key proposal, OMIT it rather than guessing. Never link a',
+        '  claim to itself.',
         '- coverage_gaps must name what the corpus does NOT cover — absence is not evidence of',
         '  absence.'
     ].filter(Boolean).join('\n');
