@@ -62,6 +62,8 @@ import { JurisdictionModel } from '../shared/jurisdiction-model.js';
 import { lensTypeForPropositionClass } from '../shared/lens-taxonomy.js';
 import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/lens-engine.js';
 import { speakerFromParagraphText } from '../shared/transcript-parse.js';
+import { buildTranscriptSection, upsertTranscriptSection } from '../shared/transcript-article.js';
+import { openMediaModal } from './media-modal.js';
 import { renderLensSetup, renderJurisdictionCard, renderJurisdictionFailure, renderPanelSummary } from './lens-section.js';
 
 const browserApi = typeof browser !== 'undefined' && browser.runtime ? browser : chrome;
@@ -1689,6 +1691,126 @@ function claimArticleHash() {
  * when the flag is off; visible-but-disabled when on with no key — so
  * either condition guarantees no network call is reachable from here.
  */
+// ------------------------------------------------------------------
+// Media & transcript (Phase 22 — URL-first media metadata)
+// ------------------------------------------------------------------
+
+// The URL is the identity: "podcast"/"video" is user-declared metadata
+// on THIS capture, and a transcript attaches to it. The modal collects;
+// this owns the consequences — the canonical-side branch, the body
+// upsert, the hash recompute, and the archive save.
+function setupMediaControl() {
+    const btn = $('#xr-media-btn');
+    if (!btn) return;
+    if (state.readOnlyOpen) { btn.hidden = true; return; }
+    btn.addEventListener('click', async () => {
+        if (!state.article) return;
+        const result = await openMediaModal(state.article);
+        if (result) await applyMediaResult(result);
+    });
+}
+
+async function applyMediaResult(result) {
+    const a = state.article;
+    if (!a) return;
+
+    // User-declared media type + the 21.3 podcast identity block.
+    // Both are tag-side fields — assembleArticleBody never sees them.
+    if (result.media) a.media = result.media; else delete a.media;
+    if (result.podcast) {
+        a.podcast = { ...result.podcast };
+        // The capture URL is the episode address when it's a real one.
+        if (/^https?:\/\//i.test(a.url || '')) a.podcast.episode_url = a.url;
+    } else {
+        delete a.podcast;
+    }
+
+    if (!result.parse) {
+        // Metadata-only: the hash is untouched — persist the row and stop.
+        scheduleTagSave();
+        toast('Media metadata saved', 'success', 2000);
+        return;
+    }
+
+    // ---- transcript attach -------------------------------------
+    const parse = result.parse;
+    const isHttp = /^https?:\/\//i.test(a.url || '');
+    const section = buildTranscriptSection({
+        turns: parse.turns,
+        // Linked Media-Fragment stamps only for a real http(s) identity.
+        meta: { url: isHttp ? a.url : null, format: parse.format }
+    });
+
+    if (isMarkdownCanonical(a)) {
+        // Markdown-canonical (pdf/transcript imports): the markdown IS
+        // the substrate. Fold the live markdown draft first — it may be
+        // ahead of article.markdown when the user edited the tab.
+        const baseMd = (state.dirtySource === 'markdown' && state.markdownDraft)
+            ? state.markdownDraft : (a.markdown || '');
+        a.markdown = upsertTranscriptSection(baseMd, section, { isHtml: false });
+        state.markdownDraft = a.markdown;
+        a.content = ContentExtractor.markdownToHtml(a.markdown);
+        state.htmlDraft = a.content;
+    } else {
+        // HTML-canonical (ordinary captures): upsert the RENDERED
+        // section into the clean capture content, then re-derive the
+        // reader draft from it. Deliberately NOT folded from htmlDraft —
+        // the live body carries entity-mark spans, and folding them into
+        // article.content would double-wrap on the re-render's
+        // rehydrate pass. Exception: a markdown-tab edit (dirtySource
+        // 'markdown') is mark-free and canonical by contract, so it
+        // folds in first rather than being clobbered.
+        if (state.dirtySource === 'markdown' && state.markdownDraft) {
+            a.content = ContentExtractor.markdownToHtml(state.markdownDraft);
+        }
+        const sectionHtml = ContentExtractor.markdownToHtml(section);
+        a.content = upsertTranscriptSection(a.content || '', sectionHtml, { isHtml: true });
+        state.htmlDraft = a.content;
+        state.markdownDraft = '';       // stale — regenerated on tab entry
+        state.dirtySource = 'reader';
+    }
+
+    // The structure manifest + the LOCAL speaker list (the claim
+    // prefill seam; relay round-trips carry counts only — names
+    // re-parse from the body).
+    a.transcript_meta = {
+        format: parse.format,
+        turn_count: parse.turns.length,
+        speaker_count: parse.speakers.length,
+        speakers: [...parse.speakers]
+    };
+
+    // The body changed → the canonical hash changes. Honest versioning:
+    // the archive's prior-version snapshot of the pre-transcript body
+    // is CORRECT here, not a stealth-edit false positive.
+    try {
+        const fullBody = EventBuilder.assembleArticleBody(hashableArticle(a));
+        const fullHash = await canonicalArticleHash(fullBody);
+        const slice = auditableSlice(fullBody);
+        const slicedHash = slice.truncated
+            ? await canonicalArticleHash(slice.text) : fullHash;
+        state.articleHash = fullHash;
+        state.auditableTotalChars = slice.totalChars;
+        state.auditableHash = slicedHash;
+        updateHashLine();
+        refreshAuditStatus().catch(() => {});
+    } catch (err) {
+        console.warn('[X-Ray Reader] attach hash failed:', err);
+    }
+
+    if (!state.readOnlyOpen && a.url) {
+        ArchiveCache.saveArticle({
+            article: state.articleHash ? { ...a, _articleHash: state.articleHash } : a,
+            source: 'capture'
+        }).catch((err) => console.warn('[X-Ray Reader] attach save failed:', err));
+    }
+
+    renderReader();
+    refreshClaimsBar().catch(() => {});
+    toast(`Transcript attached — ${parse.turns.length} turn${parse.turns.length === 1 ? '' : 's'}`
+        + `, ${parse.speakers.length} speaker${parse.speakers.length === 1 ? '' : 's'}`, 'success', 2500);
+}
+
 async function setupSuggestControl() {
     const btn = $('#xr-suggest');
     if (!btn) return;
@@ -2377,10 +2499,13 @@ async function resolveDefaultSpeaker() {
 // relay-reconstructed transcripts lack that list and fall back to the
 // label grammar's word-count gate. Speakers are person ENTITIES (a
 // bare name mints no platform account), which the claim source field
-// already models. Returns null for any non-transcript article.
+// already models. Phase 22 generalized the gate: a transcript ATTACHED
+// to an ordinary capture (contentType 'article' + transcript_meta) gets
+// the same prefill; bold-leading prose in a plain article (no
+// transcript_meta) keeps the byline default. Returns null otherwise.
 async function resolveTranscriptSpeaker(context) {
     const a = state.article || {};
-    if (a.contentType !== 'transcript' || !context) return null;
+    if (!(a.contentType === 'transcript' || a.transcript_meta) || !context) return null;
     const known = (a.transcript_meta && a.transcript_meta.speakers) || null;
     const name = speakerFromParagraphText(context, known);
     if (!name) return null;
@@ -5225,6 +5350,10 @@ async function init() {
     $('#xr-comments-include').addEventListener('change', (ev) => {
         state.comments.includeInPublish = ev.target.checked;
     });
+
+    // Media & transcript (Phase 22): declare what this URL contains and
+    // attach a transcript to THIS capture. Hidden on read-only opens.
+    setupMediaControl();
 
     // LLM-assist Suggest control (Phase 14.5). Absent unless the flag is
     // on; disabled (with a hint) when on but no key — so flag-off OR

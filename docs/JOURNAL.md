@@ -19,6 +19,48 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-15 — URL-first media metadata + reader transcript attach (Phase 22)
+
+Tags: `design`.
+
+The maintainer's reframe, hours after Phase 21 merged: the URL is the
+identity. A podcast has a URL at Spotify/Apple/Substack/YouTube/custom
+sites; "podcast" (or "video") is metadata a USER declares on that URL's
+capture, and the transcript should attach to the capture in the reader
+— not form a separate import-first record. Phase 21's portal import
+stays as the no-URL fallback.
+
+Decisions worth remembering:
+- **`media` is a declaration, `content_format` is provenance.** A
+  Spotify episode page captured as an ordinary article keeps
+  `content_format: article` and gains `media: podcast`. Whitelisted in
+  BOTH wire directions — an unknown value on read-back reconstructs as
+  absent, so a forged tag can't smuggle a string into the article
+  object.
+- **The attach branches on the canonical side.** Ordinary captures are
+  HTML-canonical (`isMarkdownCanonical` is pdf/transcript-only), so the
+  section upserts as RENDERED HTML into `article.content`; pdf/
+  transcript imports upsert markdown into `article.markdown`. The
+  htmlDraft is deliberately NOT folded in first — the live body carries
+  entity-mark spans, and folding them into `article.content` would
+  double-wrap on the re-render's rehydrate pass. A markdown-tab edit
+  (`dirtySource === 'markdown'`) IS folded first: mark-free and
+  canonical by contract.
+- **The bounded upsert keys on the BARE heading.** `^## Transcript$`
+  (markdown) / `<h2>Transcript</h2>` exact text (HTML) → next
+  same-level heading or EOF. YouTube's own sections are
+  `## Transcript — <lang> (<kind>)` — the em-dash suffix means the
+  imported-section replace can never clobber them.
+- **The hash change is honest versioning.** Attaching grows the body →
+  new canonical hash → the archive snapshots the prior version. That is
+  a REAL content change, not a stealth-edit false positive (contrast
+  21.2's identical-hash re-save, which rightly snapshots nothing).
+- **Cross-source identity was already done.** The 21.3 GUID `i`-tags
+  join the same episode across source URLs; 22 only makes them
+  declarable on any capture. No new join machinery.
+
+---
+
 ## 2026-07-15 — Podcast transcript import (Phase 21)
 
 Tags: `design`.

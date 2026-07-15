@@ -137,6 +137,44 @@ export function buildTranscriptMarkdown({ turns = [], meta = {} } = {}) {
 }
 
 // ------------------------------------------------------------------
+// Section upsert (Phase 22 — the reader attach seam)
+// ------------------------------------------------------------------
+
+/**
+ * Insert or replace the imported `## Transcript` section in an
+ * existing body. Bounded replace: from the BARE heading (exact text —
+ * deliberately never matches YouTube's suffixed
+ * `## Transcript — <lang> (<kind>)` headings) to the next same-level
+ * heading or EOF; plain append when no such section exists. Works on
+ * both canonical sides: markdown (`isHtml: false`) and the rendered
+ * HTML markdownToHtml produces (`isHtml: true`, `<h2>Transcript</h2>`).
+ *
+ * @param {string} body     the existing body (same format as section)
+ * @param {string} section  the new section
+ * @param {{isHtml?: boolean}} [opts]
+ * @returns {string}
+ */
+export function upsertTranscriptSection(body, section, { isHtml = false } = {}) {
+    const base = String(body || '');
+    // Normalize the section to end with exactly one newline.
+    const sec = String(section || '').replace(/\s+$/, '') + '\n';
+
+    const re = isHtml
+        ? /<h2[^>]*>\s*Transcript\s*<\/h2>[\s\S]*?(?=<h2[\s>]|$)/i
+        : /^## Transcript[ \t]*$[\s\S]*?(?=^## |$(?![\s\S]))/m;
+
+    const m = re.exec(base);
+    if (m) {
+        const before = base.slice(0, m.index);
+        const after = base.slice(m.index + m[0].length);
+        // A following section keeps one blank line of separation.
+        return after ? `${before}${sec}\n${after}` : `${before}${sec}`;
+    }
+    const trimmed = base.replace(/\s+$/, '');
+    return trimmed ? `${trimmed}\n\n${sec}` : sec;
+}
+
+// ------------------------------------------------------------------
 // Article assembly
 // ------------------------------------------------------------------
 
