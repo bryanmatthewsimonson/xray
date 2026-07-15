@@ -70,6 +70,42 @@ function headerField(value) {
 }
 
 /**
+ * Just the `## Transcript` section — heading + merged-turn paragraphs.
+ * The reader-attach unit (Phase 22): appended to an EXISTING capture's
+ * body rather than forming a standalone article. `meta.url` (http(s))
+ * plus a paragraph startMs yields a linked Media-Fragment stamp;
+ * otherwise a bare code stamp.
+ *
+ * @param {{turns: Array, meta: object}} p
+ * @returns {string}
+ */
+export function buildTranscriptSection({ turns = [], meta = {} } = {}) {
+    const isHttp = /^https?:\/\//i.test(meta.url || '');
+    const paras = mergeTurns(turns);
+
+    const body = paras.map((p) => {
+        const bits = [];
+        if (p.startMs !== null && p.startMs !== undefined) {
+            const stamp = formatStamp(p.startMs);
+            if (isHttp) {
+                // Media Fragments URI (#t=<seconds>) — the generic-web
+                // analog of YouTube's &t=Ns deep link. Body-only; the
+                // r-tag identity URL is never fragmented.
+                bits.push(`[\`${stamp}\`](${meta.url}#t=${Math.floor(p.startMs / 1000)})`);
+            } else {
+                bits.push(`\`${stamp}\``);
+            }
+        }
+        const name = cleanSpeakerName(p.speaker);
+        if (name) bits.push(`**${name}:**`);
+        bits.push(p.text);
+        return bits.join(' ');
+    }).join('\n\n');
+
+    return `## Transcript\n\n${body}\n`;
+}
+
+/**
  * The speaker-labeled markdown body — the canonical substrate.
  *
  * @param {{turns: Array, meta: object}} p
@@ -94,29 +130,10 @@ export function buildTranscriptMarkdown({ turns = [], meta = {} } = {}) {
         + ` · ${speakerCount} speaker${speakerCount === 1 ? '' : 's'}`);
     lines.push('---');
     lines.push('');
-    lines.push('## Transcript');
-    lines.push('');
 
-    const body = paras.map((p) => {
-        const bits = [];
-        if (p.startMs !== null && p.startMs !== undefined) {
-            const stamp = formatStamp(p.startMs);
-            if (isHttp) {
-                // Media Fragments URI (#t=<seconds>) — the generic-web
-                // analog of YouTube's &t=Ns deep link. Body-only; the
-                // r-tag identity URL is never fragmented.
-                bits.push(`[\`${stamp}\`](${meta.url}#t=${Math.floor(p.startMs / 1000)})`);
-            } else {
-                bits.push(`\`${stamp}\``);
-            }
-        }
-        const name = cleanSpeakerName(p.speaker);
-        if (name) bits.push(`**${name}:**`);
-        bits.push(p.text);
-        return bits.join(' ');
-    }).join('\n\n');
-
-    return `${lines.join('\n')}\n${body}\n`;
+    // Byte-identical to the pre-extraction output: header block, blank
+    // line, then the section (which itself ends with a newline).
+    return `${lines.join('\n')}\n${buildTranscriptSection({ turns, meta })}`;
 }
 
 // ------------------------------------------------------------------

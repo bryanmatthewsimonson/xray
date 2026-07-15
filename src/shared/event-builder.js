@@ -328,6 +328,14 @@ export const EventBuilder = {
     if (article.contentType) tags.push(['content_format', article.contentType]);
     if (article.platform) tags.push(['platform', article.platform]);
 
+    // Phase 22 — user-declared media type: what the URL CONTAINS
+    // (a podcast episode, an off-YouTube video), distinct from the
+    // capture-derived content_format above. Never inferred; set by the
+    // user in the reader. Whitelisted — only the two known values emit.
+    if (article.media === 'podcast' || article.media === 'video') {
+      tags.push(['media', article.media]);
+    }
+
     // Add video-specific tags (Phase 5)
     if (article.contentType === 'video' && article.videoMeta) {
       if (article.videoMeta.videoId) tags.push(['video_id', article.videoMeta.videoId]);
@@ -999,6 +1007,10 @@ export const EventBuilder = {
       isPaywalled: tags['paywalled'] === 'true',
       contentType: tags['content_format'] || 'article',
       platform: tags['platform'] || null,
+      // Phase 22 — user-declared media type; only the known values
+      // round-trip (an unrecognized value reads as absent).
+      media: (tags['media'] === 'podcast' || tags['media'] === 'video')
+        ? tags['media'] : null,
       // capture-url extension: the mirror address this capture was
       // fetched from (identity = the first `r`, always the original).
       capture_url: tags['capture-url'] || null,
