@@ -12,6 +12,23 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 22 — URL-first media metadata + reader transcript attach
+  (22.1–22.2).** The URL is the episode's identity: capture a podcast
+  episode's page (Spotify, Apple, Substack, YouTube, a custom site) like
+  any page, then the reader's **🎙 Media…** button declares what the URL
+  contains (podcast / video — user-declared, never inferred), sets the
+  universal podcast IDs, and attaches a pasted/uploaded transcript as a
+  `## Transcript` section upserted into the captured body (bounded
+  replace on re-attach; YouTube's own suffixed transcript sections are
+  never touched). The body change re-hashes honestly (prior version
+  snapshotted); metadata-only saves never touch the hash; the
+  speaker→claim prefill now works on any article carrying
+  `transcript_meta`. **Wire (additive, kind 30023):** one new
+  `['media', 'podcast'|'video']` tag, whitelisted both directions —
+  no new kind, existing consumers unaffected. `docs/NIP_DRAFT.md`
+  §"`media` tag". The Phase 21 portal import remains as the no-URL
+  fallback.
+
 - **Phase 21 — podcast transcript import (21.1–21.3).** Paste or upload a
   podcast transcript (SRT, WebVTT with `<v>` voice tags, or `Speaker:`
   lines) from the portal — library header or a case view — and it becomes

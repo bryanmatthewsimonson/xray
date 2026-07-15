@@ -211,39 +211,56 @@ These "just work" without special handling:
 
 ## Podcast transcripts (import)
 
-Some sources you want in a case aren't a web page X-Ray can scrape —
-they're a **podcast episode** whose transcript you already have as text
-(from the show's site, a transcription service, or a `.srt`/`.vtt`
-caption file). Import pastes or uploads that transcript as an ordinary
-archive record, speaker-attributed, so it joins cases and feeds the
-corpus synthesis exactly like a captured article.
+A podcast episode lives at a URL — Spotify, Apple Podcasts, Substack,
+YouTube, or the show's own site. X-Ray treats **that URL as the
+episode's identity**: capture the episode's page like any other page,
+then tell X-Ray what it is and attach the transcript. (The same goes
+for a **video hosted off YouTube** — declare it, attach its
+transcript.) X-Ray never scrapes a podcast app or auto-looks-up feeds:
+you bring the text and, optionally, the universal podcast IDs.
 
-This is a **generic paste/upload** path — X-Ray does not scrape any
-podcast app or auto-look-up feeds. You bring the text (and, optionally,
-the universal podcast IDs); X-Ray parses the turns and builds the record.
+### The URL-first flow (preferred)
 
-### Where the button lives
+1. **Capture the episode's page** (toolbar icon or Ctrl/Cmd+Shift+X).
+   Show notes and page metadata come along like any capture.
+2. In the reader, click **🎙 Media…** in the toolbar.
+3. **Declare what the URL contains** — "a podcast episode", or "a
+   video". This is your declaration, published as a `media` tag; X-Ray
+   never infers it.
+4. **Fill the podcast identity** if you have it — Show, Feed GUID,
+   Episode GUID, Feed URL, iTunes ID. These are the universal join:
+   the same episode captured at its Spotify URL *and* its YouTube URL
+   is recognizably one episode when both carry the same episode GUID —
+   declare the same IDs on each capture.
+5. **Paste or upload the transcript** in the same dialog. The preview
+   confirms the detected format, turns, and speakers; **Save** appends
+   a `## Transcript` section to the captured body, speaker-attributed,
+   with per-turn timestamps that link into the episode.
 
-- **Portal ("My Archive") library header** — the `Import transcript…`
-  button opens the import panel over the library.
-- **A case view** — beside `Add sources…`. Importing here drops the new
-  transcript straight into that case (no second step), and the case
-  re-renders with it immediately.
+Notes on the attach:
 
-### Do this
+- **The content hash changes** — by design: the body genuinely grew.
+  The archive keeps the pre-transcript version as a prior snapshot.
+- **Attaching again replaces** the previously attached `## Transcript`
+  section (the dialog warns you). A YouTube capture's own
+  `## Transcript — <language>` sections are never touched.
+- Once attached, selecting a sentence inside a turn and adding a claim
+  prefills **"Who said it"** with that turn's speaker.
+- Metadata-only saves (declare the type + IDs, no transcript) don't
+  touch the body or the hash — safe on an already-published capture.
 
-1. **Open the import panel** (one of the two buttons above).
-2. **Paste the transcript** into the text box, or click
-   **Upload .txt/.srt/.vtt** and pick a file. Either way it lands in the
-   same box and takes the same parse path.
-3. **Watch the preview.** A line like `Detected: WebVTT · 214 turns ·
-   3 speakers` confirms X-Ray recognized the format and split it into
-   speaker turns. Any parser warnings show here too.
-4. **Fill in the metadata.** **Title** is required; everything else is
-   optional (see field meanings below).
-5. **Import.** X-Ray archives the transcript, adds it to the case (if you
-   imported from a case view), and opens it in the reader with the
-   speaker-labeled body.
+### No episode URL? The portal import (fallback)
+
+When the transcript is all you have, import it as a standalone record
+from the portal ("My Archive"):
+
+- **Library header** — the `Import transcript…` button.
+- **A case view** — beside `Add sources…`; importing here drops the
+  record straight into that case, and the case re-renders immediately.
+
+Paste or upload, watch the same `Detected: …` preview, fill **Title**
+(required) and any metadata, and **Import** — X-Ray archives the
+transcript as its own record and opens it in the reader.
 
 ### Accepted formats
 
@@ -296,7 +313,10 @@ as a speaker).
 paragraph becomes an un-attributed turn. You still get an archived,
 case-joinable record; you just won't get per-speaker attribution.
 
-### Metadata fields
+### Metadata fields (portal import)
+
+The **🎙 Media…** dialog shares the Podcast-IDs fields below; the rest
+apply to the standalone portal import:
 
 - **Title** *(required)* — the episode title. Used as the record title
   and to build the identity slug.

@@ -1212,6 +1212,22 @@ Rootclaim debate transcript with `Speaker:` lines is ideal.
 
 ---
 
+## Phase 22 — URL-first media metadata + reader transcript attach (22.1–22.2)
+
+Capture a podcast episode's PAGE first (a Substack podcast post or any
+episode page works), then use the reader's **🎙 Media…** toolbar button.
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 22.a | Capture an episode page → **🎙 Media…** → "a podcast episode" + Show + Episode GUID → **Save** (no transcript) | ✅ toast "Media metadata saved"; the **hash line is unchanged** (metadata is tag-side); reload the reader from the archive — the fields are still set in the modal |
+| 22.b | **🎙 Media…** again → paste a `Speaker:` transcript → preview reads "Detected: speaker-labeled · …" → **Save** | ✅ the body gains a `## Transcript` section with **bold Speaker:** paragraphs and clickable stamps linking into the episode URL (`#t=…`); the **hash line changes**; a toast reports turns + speakers |
+| 22.c | Select a sentence inside an attached turn → **Add as claim** | ✅ "Who said it" prefilled with that turn's speaker — on an ORDINARY article capture (contentType stays `article`), not just an imported transcript |
+| 22.d | **🎙 Media…** a third time → paste a corrected transcript → Save | ✅ the modal warned it will REPLACE; the body has **one** `## Transcript` section (the new one); any YouTube `## Transcript — <lang>` section on a YouTube capture is untouched |
+| 22.e | **Publish** → inspect the raw event | ✅ carries `media` `podcast`, `content_format` `article` (provenance unchanged), the podcast GUID tags + `i` forms, and `transcript_meta`; the `x` tag matches the post-attach hash line |
+| 22.f | Read-only open (portal inspector → Open in reader) | ✅ the **🎙 Media…** button is absent |
+
+---
+
 ## Reporting
 
 For each defect found:

@@ -1644,6 +1644,41 @@ per-speaker wire tags (bodies live in content), no sidepanel mount.
 
 ---
 
+## Phase 22 — URL-first media metadata + reader transcript attach ✅ COMPLETE
+
+The maintainer's reframe of Phase 21: **the URL is the identity**. A
+podcast episode lives at a URL (Spotify, Apple, Substack, YouTube,
+custom sites); "podcast" — or "video", for off-YouTube videos — is
+**user-declared metadata on that capture**, and the transcript ATTACHES
+to the capture in the Reader rather than forming a separate record. The
+21.3 GUID `i`-tags remain the definitive cross-source join (the same
+episode declared at two URLs shares `podcast:item:guid:…`). Phase 21's
+portal import stays as the no-URL fallback. Two slices:
+
+- ✅ **22.1** shared core + the wire tag: additive kind-30023
+  `['media', 'podcast'|'video']` (user-declared, whitelisted both
+  directions, distinct from capture-derived `content_format`);
+  `buildTranscriptSection` extracted from `buildTranscriptMarkdown`
+  (golden fixture byte-identical); pure `describeTranscriptParse`
+  preview line shared by portal panel + reader modal; NIP_DRAFT
+  §"`media` tag".
+- ✅ **22.2** reader **🎙 Media…** (toolbar, hidden on read-only opens):
+  declare media type + podcast IDs on ANY capture (metadata-only —
+  tag-side fields, hash untouched), and paste/upload a transcript that
+  upserts a `## Transcript` section into the body on the canonical side
+  (markdown for pdf/transcript imports, rendered HTML for ordinary
+  captures; bounded replace never matches YouTube's suffixed
+  `## Transcript — <lang>` headings). The body change re-hashes
+  honestly (the archive prior-version snapshot is correct versioning);
+  the speaker→claim prefill generalizes to any article carrying
+  `transcript_meta`.
+
+Non-goals (v1): no local cross-capture episode dedup/badging UI (the
+GUID `i`-tags are the identity; a portal join is a possible follow-up),
+no RSS/GUID auto-lookup, no removal of the Phase 21 portal import.
+
+---
+
 ## Abandonment criteria
 
 From issue #20 — bears repeating. At any phase boundary, if the cost
