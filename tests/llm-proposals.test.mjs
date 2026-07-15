@@ -684,3 +684,21 @@ test('fact: buildFactInput composes buildClaimInput — grounded quote, subject 
     assert.equal(input.fact.observed_precision, 'day');
     assert.equal(input.fact.valid_to, null);
 });
+
+// ---- 22.3: the builders never set `source` -------------------------
+// The accept-time default in llm-review.js (turn speaker on a
+// transcript, else the article-author entity) is the ONLY source-
+// setter. If a builder ever starts emitting `source`, the `!input.source`
+// guard would silently disable speaker attribution — pin it.
+
+test('buildClaimInput / buildFactInput never set source (accept-time default owns it)', () => {
+    const claim = P.buildClaimInput(
+        { text: 'X said Y', quote: 'nonexistent', about: [], is_key: false },
+        { articleText: 'irrelevant body text' });
+    assert.ok(!('source' in claim), 'buildClaimInput must not emit a source key');
+
+    const fact = P.buildFactInput(
+        { text: 'role', field: 'role', value: 'host', subject_ref: 'E1', quote: 'nonexistent' },
+        { entityIdByRef: { E1: 'entity_x' }, articleText: 'irrelevant body text' });
+    assert.ok(!('source' in fact), 'buildFactInput must not emit a source key');
+});

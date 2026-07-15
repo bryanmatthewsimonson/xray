@@ -1225,6 +1225,7 @@ episode page works), then use the reader's **🎙 Media…** toolbar button.
 | 22.d | **🎙 Media…** a third time → paste a corrected transcript → Save | ✅ the modal warned it will REPLACE; the body has **one** `## Transcript` section (the new one); any YouTube `## Transcript — <lang>` section on a YouTube capture is untouched |
 | 22.e | **Publish** → inspect the raw event | ✅ carries `media` `podcast`, `content_format` `article` (provenance unchanged), the podcast GUID tags + `i` forms, and `transcript_meta`; the `x` tag matches the post-attach hash line |
 | 22.f | Read-only open (portal inspector → Open in reader) | ✅ the **🎙 Media…** button is absent |
+| 22.g | On a transcript (imported or attached), run **✨ Suggest…** → accept a claim whose quote sits inside a turn (single accept AND Accept all) | ✅ the claim's source is **that turn's speaker** — the person entity if one exists, else the name as free text — NOT the host/byline; on a non-transcript article, accepted claims still default to the byline entity. Audit panel → **Atomize as claim…** on a predicate quoted from a turn → "Who said it" prefilled with that speaker |
 
 ---
 

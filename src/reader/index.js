@@ -22,7 +22,7 @@ import { ClaimModel, exactFromAnchor } from '../shared/claim-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import * as ArchiveCache from '../shared/archive-cache.js';
 import { recordAlias, resolveAlias } from '../shared/url-aliases.js';
-import { installEntityTagger, rehydrateEntityMarks, renderEntitiesBar } from './entity-tagger.js';
+import { installEntityTagger, rehydrateEntityMarks, renderEntitiesBar, extractParagraphContext } from './entity-tagger.js';
 import { openClaimModal, openEvidenceLinkModal, openOthersClaimsModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
 import { openAssessModal } from '../shared/assess-modal.js';
 import { openAdjudicateModal } from '../shared/adjudicate-modal.js';
@@ -807,11 +807,15 @@ function updateHashLine() {
 // offsets — per-character normalized indices, so the selection starts
 // ON the quote (never inside a collapsed whitespace run) and ends at
 // its true tail, across text-node boundaries.
-function locateQuoteInBody(quote) {
+// The pure locate half of locateQuoteInBody: map a whitespace-
+// normalized quote back to a DOM Range over the article body, no
+// selection/scroll side effects. Also the seam the LLM-accept speaker
+// resolution uses (22.3) to find a quote's enclosing paragraph.
+function rangeForQuote(quote) {
     const body = $('.xr-article__body');
-    if (!body || !quote) return false;
+    if (!body || !quote) return null;
     const target = String(quote).replace(/\s+/g, ' ').trim();
-    if (!target) return false;
+    if (!target) return null;
     const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
     const nodes = [];
     let full = '';
@@ -838,7 +842,7 @@ function locateQuoteInBody(quote) {
     }
 
     const idx = normStr.indexOf(target);
-    if (idx === -1) return false;
+    if (idx === -1) return null;
     const rawStart = rawIndexOfNorm[idx];
     const rawEndInclusive = rawIndexOfNorm[idx + target.length - 1];
 
@@ -851,15 +855,24 @@ function locateQuoteInBody(quote) {
     };
     const startHit = nodeFor(rawStart);
     const endHit = nodeFor(rawEndInclusive);
-    if (!startHit || !endHit) return false;
+    if (!startHit || !endHit) return null;
     try {
         const range = document.createRange();
         range.setStart(startHit.node, rawStart - startHit.start);
         range.setEnd(endHit.node, Math.min(rawEndInclusive + 1 - endHit.start, endHit.node.textContent.length));
+        return range;
+    } catch (_) { return null; }
+}
+
+function locateQuoteInBody(quote) {
+    const range = rangeForQuote(quote);
+    if (!range) return false;
+    try {
         const sel = window.getSelection();
         sel.removeAllRanges();
         sel.addRange(range);
-        (startHit.node.parentElement || body).scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const el = range.startContainer.parentElement || $('.xr-article__body');
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         return true;
     } catch (_) { return false; }
 }
@@ -1102,7 +1115,11 @@ async function refreshAuditStatus() {
                 quote:        pred.evidence_quote || null,
                 articleHash:  claimArticleHash(),
                 initialAbout: state.lastClaimAbout || [],
-                defaultSource: await resolveDefaultSpeaker()
+                // 22.3: on a transcript, the predicate's evidence quote
+                // sits inside a turn — prefill that turn's speaker, not
+                // the host/byline.
+                defaultSource: (await resolveTranscriptSpeakerForQuote(pred.evidence_quote))
+                    || (await resolveDefaultSpeaker())
             });
             if (saved) {
                 await PredictionModel.setClaimRef(pred.id, {
@@ -1881,6 +1898,15 @@ async function runSuggestPass() {
             const speaker = await resolveDefaultSpeaker();
             return (speaker && speaker.entityId) || null;
         })(),
+        // 22.3: per-claim override on transcripts — the accepted quote's
+        // turn speaker beats the article byline. Entity id when the
+        // speaker already exists; else the parsed name as FREE TEXT
+        // (ClaimModel models source as entity id | free text — no
+        // entity is minted, keeping the rule above).
+        sourceForQuote: async (quote) => {
+            const s = await resolveTranscriptSpeakerForQuote(quote);
+            return s ? (s.entityId || s.suggestedName || null) : null;
+        },
         // Accepted entities are tagged onto the article with their
         // grounded verbatim mention — same ref shape (and same dedupe)
         // as the manual selection tagger, so the publish flow p-tags
@@ -2515,6 +2541,19 @@ async function resolveTranscriptSpeaker(context) {
     } catch (_) {
         return { suggestedName: name };
     }
+}
+
+// 22.3: the quote-shaped entry to the same resolution — for claims that
+// arrive WITHOUT a selection (LLM suggestions, audit atomize), whose
+// only positional fact is a grounded verbatim quote. Locate the quote
+// in the rendered body and read its enclosing paragraph, exactly the
+// context the manual selection path would have delivered.
+async function resolveTranscriptSpeakerForQuote(quote) {
+    const a = state.article || {};
+    if (!(a.contentType === 'transcript' || a.transcript_meta) || !quote) return null;
+    const range = rangeForQuote(quote);
+    if (!range) return null;
+    return await resolveTranscriptSpeaker(extractParagraphContext(range));
 }
 
 async function openLinkClaim(sourceId, allClaimsOnArticle) {

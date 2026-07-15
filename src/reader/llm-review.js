@@ -134,7 +134,8 @@ function truncate(s, n) {
  */
 export async function openLlmReview(opts) {
     const { proposals, model, articleText = '', sourceUrl = '', articleHash = '', sourceRef = {},
-            onAccepted, onEntityTag, pageForQuote, defaultSourceEntityId = null } = opts;
+            onAccepted, onEntityTag, pageForQuote, defaultSourceEntityId = null,
+            sourceForQuote = null } = opts;
     const suggestedByLlm = `llm:${model}`;
     const norm = normalizeProposals(proposals);
     // ONE grounding index for the whole panel — validation, badges, and
@@ -617,10 +618,17 @@ export async function openLlmReview(opts) {
                         const page = pageForQuote(input.quote);
                         if (page) input.anchor.push(pageFragmentSelector(page));
                     }
-                    // The asserter is usually the article's author —
-                    // default the source to the author entity when one
-                    // exists (editable afterward like any claim field).
-                    if (!input.source && defaultSourceEntityId) input.source = defaultSourceEntityId;
+                    // The asserter default (editable afterward like any
+                    // claim field): on a transcript, the quote's TURN
+                    // speaker (22.3 — entity id, or the parsed name as
+                    // free text); else the article-author entity when
+                    // one exists.
+                    if (!input.source) {
+                        const perQuote = (typeof sourceForQuote === 'function')
+                            ? await sourceForQuote(input.quote || '') : null;
+                        const v = perQuote || defaultSourceEntityId;
+                        if (v) input.source = v;
+                    }
                     const c = await ClaimModel.create(input);
                     if (row.ref) claimIdByRef[row.ref] = c.id;
                     return;
@@ -631,7 +639,14 @@ export async function openLlmReview(opts) {
                     // firewall — a registry violation here throws and the
                     // row shows rejected-with-reason.
                     const input = buildFactInput(p, { entityIdByRef, articleText: grounding, sourceUrl, articleHash, suggestedBy: sb });
-                    if (!input.source && defaultSourceEntityId) input.source = defaultSourceEntityId;
+                    // Same asserter default as claims: turn speaker on a
+                    // transcript, else the article-author entity (22.3).
+                    if (!input.source) {
+                        const perQuote = (typeof sourceForQuote === 'function')
+                            ? await sourceForQuote(input.quote || '') : null;
+                        const v = perQuote || defaultSourceEntityId;
+                        if (v) input.source = v;
+                    }
                     await ClaimModel.create(input);
                     return;
                 }
