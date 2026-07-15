@@ -296,7 +296,7 @@ function openPopover({ x, y, initialText }) {
  * downstream consumer (including our own rehydrate path) enough to
  * anchor the claim even if the exact selection text moves.
  */
-function extractParagraphContext(range) {
+export function extractParagraphContext(range) {
     if (!range) return '';
     let node = range.commonAncestorContainer;
     if (node.nodeType === 3) node = node.parentElement;

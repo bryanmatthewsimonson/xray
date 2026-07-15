@@ -19,6 +19,33 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-15 — LLM-suggested claims missed the transcript speaker (22.3)
+
+Tags: `bug`.
+
+The manual Add-claim path prefills "who said it" from the selection's
+enclosing paragraph (21.2), but LLM-accepted claims set the source once
+per review session to the article-BYLINE entity — on a transcript,
+every accepted claim was attributed to the host. Root cause: a claim
+proposal carries only a grounded verbatim `quote` (no paragraph
+context), and the accept path never re-derived one.
+
+Fix shape worth remembering:
+- **Quote → paragraph re-derivation at accept time**: extracted the
+  Range-building half of `locateQuoteInBody` into `rangeForQuote`
+  (no selection/scroll side effects), then reused the tagger's
+  `extractParagraphContext` (now exported) — so the LLM path feeds
+  `speakerFromParagraphText` the *same rendered-paragraph substrate*
+  the manual path gets. One resolution grammar, two entries.
+- **Free-text fallback keeps the no-mint rule**: `ClaimModel.source`
+  models entity id | free text | null. An unmatched speaker name lands
+  as free text — attribution without bulk-accept minting entities.
+- The `!input.source` guard in llm-review is the seam; the builders
+  (`buildClaimInput`/`buildFactInput`) never emit `source`, now pinned
+  by test so the guard can't be silently starved.
+
+---
+
 ## 2026-07-15 — URL-first media metadata + reader transcript attach (Phase 22)
 
 Tags: `design`.

@@ -46,6 +46,16 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Fixed
 
+- **LLM-suggested claims on transcripts now identify the turn speaker
+  (22.3).** Accepting a ✨ Suggest… claim (or 19.6 fact) on a transcript
+  used to default "who said it" to the article byline. The accept path
+  now locates the claim's grounded quote in the rendered body, reads its
+  enclosing paragraph, and resolves the turn's `Speaker:` label exactly
+  like the manual Add-claim path — an existing person entity when one
+  matches, else the parsed name as free text (no entity is minted by
+  bulk accept). The epistemic-audit "Atomize as claim…" prefill gets the
+  same treatment. Non-transcript articles are unchanged.
+
 - **Case-synthesis proposals now reference real claims (20.6).** The
   reduce stage was never handed the corpus's claim-id index, so
   relationship/is_key proposals cited invented ids and were all
