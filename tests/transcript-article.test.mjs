@@ -10,7 +10,7 @@ globalThis.chrome = globalThis.chrome || {
 };
 
 const {
-    buildTranscriptMarkdown, buildTranscriptArticle,
+    buildTranscriptMarkdown, buildTranscriptSection, buildTranscriptArticle,
     syntheticTranscriptUrl, computeTranscriptArticleHash
 } = await import('../src/shared/transcript-article.js');
 
@@ -59,6 +59,48 @@ test('buildTranscriptMarkdown: speakerless turn has no bold label; no-stamp turn
     });
     assert.ok(md.includes('\nJust some narration.\n'));
     assert.ok(!md.includes('**:**'));
+});
+
+// --- buildTranscriptSection (Phase 22 — the reader-attach unit) ------
+
+test('buildTranscriptSection: section-only output, linked stamps with a URL', () => {
+    const section = buildTranscriptSection({
+        turns: TURNS,
+        meta: { url: 'https://pod.example/ep1' }
+    });
+    const expected = [
+        '## Transcript',
+        '',
+        '[`0:00`](https://pod.example/ep1#t=0) **Alice Smith:** We sequenced it on the 30th. It matched the market samples.',
+        '',
+        '[`0:12`](https://pod.example/ep1#t=12) **Bob Jones:** I disagree with that read.',
+        ''
+    ].join('\n');
+    assert.equal(section, expected);
+    assert.ok(!section.includes('---'), 'no header block in the section');
+});
+
+test('buildTranscriptSection: bare stamps without a URL; no stamp without startMs', () => {
+    const section = buildTranscriptSection({
+        turns: [
+            { speaker: 'Host', startMs: 63000, text: 'Welcome.' },
+            { speaker: 'Guest', startMs: null, text: 'Thanks.' }
+        ],
+        meta: {}
+    });
+    assert.ok(section.includes('`1:03` **Host:** Welcome.'));
+    assert.ok(section.includes('\n**Guest:** Thanks.'));
+    assert.ok(!section.includes(']('));
+});
+
+test('buildTranscriptMarkdown composes over buildTranscriptSection (golden invariance)', () => {
+    const args = {
+        turns: TURNS,
+        meta: { title: 'Origins Debate', url: 'https://pod.example/ep1', show: 'The Show', format: 'speaker-lines' }
+    };
+    const md = buildTranscriptMarkdown(args);
+    assert.ok(md.endsWith(buildTranscriptSection(args)),
+        'the full body must end with the exact section output');
 });
 
 test('buildTranscriptArticle: shape, contentType, podcast block, NO legacy transcript field', () => {

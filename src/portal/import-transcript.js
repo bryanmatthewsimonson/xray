@@ -10,7 +10,7 @@ import { el } from './dom.js';
 import { Utils } from '../shared/utils.js';
 import { saveArticle } from '../shared/archive-cache.js';
 import { addArticlesToCase } from '../shared/case-membership.js';
-import { parseTranscript } from '../shared/transcript-parse.js';
+import { parseTranscript, describeTranscriptParse } from '../shared/transcript-parse.js';
 import {
     buildTranscriptArticle, syntheticTranscriptUrl, computeTranscriptArticleHash
 } from '../shared/transcript-article.js';
@@ -35,8 +35,6 @@ function isHttpUrl(v) {
     try { const u = new URL(v); return u.protocol === 'http:' || u.protocol === 'https:'; }
     catch (_) { return false; }
 }
-
-const FORMAT_LABEL = { vtt: 'WebVTT', srt: 'SRT', 'speaker-lines': 'speaker-labeled', plain: 'plain text' };
 
 /**
  * @param {HTMLElement} host
@@ -135,13 +133,7 @@ export function mountTranscriptImport(host, { caseEntityId = null, onDone } = {}
             if (!text.trim()) { preview.replaceChildren(); lastParse = null; refresh(); return; }
             lastParse = parseTranscript(text);
             preview.replaceChildren();
-            const fmt = FORMAT_LABEL[lastParse.format] || lastParse.format;
-            const speakerBit = lastParse.speakers.length
-                ? ` — ${lastParse.speakers.slice(0, 6).join(', ')}${lastParse.speakers.length > 6 ? '…' : ''}`
-                : '';
-            preview.appendChild(el('div', 'xr-import__detected',
-                `Detected: ${fmt} · ${lastParse.turns.length} turn${lastParse.turns.length === 1 ? '' : 's'} · `
-                + `${lastParse.speakers.length} speaker${lastParse.speakers.length === 1 ? '' : 's'}${speakerBit}`));
+            preview.appendChild(el('div', 'xr-import__detected', describeTranscriptParse(lastParse)));
             for (const w of lastParse.warnings) preview.appendChild(el('div', 'xr-import__warn', `⚠ ${w}`));
             refresh();
         }, 300);

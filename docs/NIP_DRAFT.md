@@ -872,6 +872,18 @@ A transcript also carries a structure manifest:
 
 `format ∈ {vtt, srt, speaker-lines, plain}`. This is a MANIFEST, not a substrate: the transcript's speaker names and turn bodies live in the event **content** (the speaker-labeled markdown the `x` hash covers), never in tags — a full transcript would blow the event-size budget. `transcript_meta` is distinct from `transcript_lang` (Kind 30023 YouTube captures): that one is a per-track language manifest with different positional semantics.
 
+## Kind 30023 — `media` tag (extension)
+
+A long-form article MAY carry one **user-declared media-type** tag:
+
+```
+["media", "podcast"]     or     ["media", "video"]
+```
+
+At most one; only these two values. It records what the captured URL **contains** — a podcast episode, or a video hosted off the platforms X-Ray detects natively — as declared by the capturing user in the reader. It is **never inferred** by the publisher, and it is deliberately distinct from `content_format`: that tag is capture provenance (what the extractor produced — `article`, `video`, `transcript`, `pdf`, …), while `media` is a human assertion about the underlying work. A Spotify episode page captured as an ordinary article keeps `content_format` = `article` and gains `media` = `podcast`.
+
+The tag typically travels with the podcast identity tags above (same episode declared at its Spotify, Apple, Substack, YouTube, or custom-site URL — the NIP-73 `i` forms are what join those captures), but is valid alone: a bare declaration with no known identifiers still publishes.
+
 ## Kind 30023 — `link` tag (extension)
 
 A long-form article (kind 30023) MAY carry one `link` tag per distinct EXTERNAL outbound link in its body, in document order:

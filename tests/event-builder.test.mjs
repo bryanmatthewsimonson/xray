@@ -238,6 +238,38 @@ test('reconstructArticleFromEvent: podcast + transcript_meta round-trip', async 
     assert.equal(back.transcript_meta.speakers, null, 'names live in the body, not the manifest');
 });
 
+// --- Phase 22 user-declared media tag --------------------------------
+
+test('buildArticleEvent: media tag emits for the two known values only', async () => {
+    for (const v of ['podcast', 'video']) {
+        const ev = await EventBuilder.buildArticleEvent(
+            { url: 'https://x/y', title: 'T', markdown: '# a', media: v }, [], PUBKEY, []);
+        assert.deepEqual(ev.tags.find((t) => t[0] === 'media'), ['media', v]);
+    }
+    // Absent field and unknown value both emit nothing.
+    for (const article of [
+        { url: 'https://x/y', title: 'T', markdown: '# a' },
+        { url: 'https://x/y', title: 'T', markdown: '# a', media: 'hologram' }
+    ]) {
+        const ev = await EventBuilder.buildArticleEvent(article, [], PUBKEY, []);
+        assert.ok(!ev.tags.some((t) => t[0] === 'media'), 'unexpected media tag');
+    }
+});
+
+test('reconstructArticleFromEvent: media round-trips; unknown value reads as absent', async () => {
+    const ev = await EventBuilder.buildArticleEvent(
+        { url: 'https://x/y', title: 'T', markdown: '# a', media: 'podcast' }, [], PUBKEY, []);
+    assert.equal(EventBuilder.reconstructArticleFromEvent(ev).media, 'podcast');
+
+    // A hand-forged unknown value must not survive read-back.
+    const forged = { ...ev, tags: ev.tags.map((t) => (t[0] === 'media' ? ['media', 'hologram'] : t)) };
+    assert.equal(EventBuilder.reconstructArticleFromEvent(forged).media, null);
+
+    const plain = await EventBuilder.buildArticleEvent(
+        { url: 'https://x/y', title: 'T', markdown: '# a' }, [], PUBKEY, []);
+    assert.equal(EventBuilder.reconstructArticleFromEvent(plain).media, null);
+});
+
 test('buildRelayListEvent stamps created_at to a recent unix second', () => {
     const before = Math.floor(Date.now() / 1000);
     const ev = EventBuilder.buildRelayListEvent(['wss://a'], PUBKEY);

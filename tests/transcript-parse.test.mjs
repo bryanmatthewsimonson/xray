@@ -4,7 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 const {
-    detectTranscriptFormat, parseTranscript, parseTimestampMs, speakerFromParagraphText
+    detectTranscriptFormat, parseTranscript, parseTimestampMs, speakerFromParagraphText,
+    describeTranscriptParse
 } = await import('../src/shared/transcript-parse.js');
 
 // ---- timestamps ---------------------------------------------------
@@ -144,4 +145,30 @@ test('speakerFromParagraphText: knownSpeakers gates the match', () => {
     assert.equal(speakerFromParagraphText('Carol: hi', ['Alice', 'Bob']), null);
     // ≤6-word gate rejects a long bold-leading prose sentence.
     assert.equal(speakerFromParagraphText('This is a very long leading clause indeed: text'), null);
+});
+
+// ---- describeTranscriptParse (Phase 22 preview line) ----------------
+
+test('describeTranscriptParse: format label, counts, speaker list, plurals', () => {
+    const line = describeTranscriptParse({
+        format: 'vtt',
+        turns: [{}, {}, {}],
+        speakers: ['Alice', 'Bob'],
+        warnings: []
+    });
+    assert.equal(line, 'Detected: WebVTT · 3 turns · 2 speakers — Alice, Bob');
+
+    const singular = describeTranscriptParse({ format: 'srt', turns: [{}], speakers: ['Host'], warnings: [] });
+    assert.equal(singular, 'Detected: SRT · 1 turn · 1 speaker — Host');
+
+    const none = describeTranscriptParse({ format: 'plain', turns: [{}, {}], speakers: [], warnings: [] });
+    assert.equal(none, 'Detected: plain text · 2 turns · 0 speakers');
+});
+
+test('describeTranscriptParse: speaker list truncates past six; null parse is empty', () => {
+    const names = ['A1', 'B2', 'C3', 'D4', 'E5', 'F6', 'G7'];
+    const line = describeTranscriptParse({ format: 'speaker-lines', turns: [{}], speakers: names, warnings: [] });
+    assert.ok(line.includes('A1, B2, C3, D4, E5, F6…'));
+    assert.ok(!line.includes('G7'));
+    assert.equal(describeTranscriptParse(null), '');
 });

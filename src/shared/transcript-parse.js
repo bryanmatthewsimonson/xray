@@ -290,3 +290,24 @@ export function speakerFromParagraphText(text, knownSpeakers = null) {
     }
     return name;
 }
+
+// ------------------------------------------------------------------
+// Preview line (Phase 22) — the ONE source of truth for the
+// "Detected: …" summary shown by both the portal import panel and the
+// reader attach modal. Pure string composition over a parseTranscript
+// result.
+// ------------------------------------------------------------------
+
+const FORMAT_LABEL = { vtt: 'WebVTT', srt: 'SRT', 'speaker-lines': 'speaker-labeled', plain: 'plain text' };
+
+export function describeTranscriptParse(parse) {
+    if (!parse) return '';
+    const turns = parse.turns || [];
+    const speakers = parse.speakers || [];
+    const fmt = FORMAT_LABEL[parse.format] || String(parse.format || '');
+    const speakerBit = speakers.length
+        ? ` — ${speakers.slice(0, 6).join(', ')}${speakers.length > 6 ? '…' : ''}`
+        : '';
+    return `Detected: ${fmt} · ${turns.length} turn${turns.length === 1 ? '' : 's'} · `
+        + `${speakers.length} speaker${speakers.length === 1 ? '' : 's'}${speakerBit}`;
+}
