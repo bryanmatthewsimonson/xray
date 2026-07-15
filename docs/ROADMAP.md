@@ -1613,10 +1613,34 @@ was claim-only). Five merge-as-I-go slices, no new wire kind:
 - ✅ **20.5** docs tail — the design doc, this section, SMOKE §Phase 20,
   and the case export carrying the brief.
 
-Next phase (maintainer's ask, not yet planned): paste/upload generic
-transcripts (podcasts, YouTube speaker transcripts). They become
-ordinary archive records and enter the corpus with no synthesis
-redesign (member units key on the record hash).
+---
+
+## Phase 21 — Podcast transcript import ✅ COMPLETE
+
+Maintainer-driven: import podcast transcripts to expand the COVID case
+corpus. Paste or upload GENERIC transcripts (no per-app scraping) — they
+become ordinary archive records and enter cases + corpus synthesis with
+no redesign (member units key on the record hash, Phase 20). Three
+merge-as-I-go slices:
+
+- ✅ **21.1** pure `transcript-parse.js` (VTT / SRT / speaker-lines /
+  plain detection + turn parsing, `<v>` voice tags, SRT label
+  carry-forward, `speakerFromParagraphText` prefill seam) +
+  `transcript-article.js` (speaker-labeled markdown body, article
+  object, synthetic `file:///imported/…` URL, the one hash recipe).
+- ✅ **21.2** portal `import-transcript.js` (paste/upload panel, live
+  preview, direct-save-first sequence) mounted on the library header and
+  the case view; reader `isMarkdownCanonical` for transcript hashing +
+  `resolveTranscriptSpeaker` "who said it" prefill from the turn.
+- ✅ **21.3** podcast identity wire tags (kind-30023 extension:
+  `podcast_guid`/`podcast_episode_guid` + NIP-73 `i` forms, `feed_url`
+  second-`r`, `itunes_id`, `show`, `transcript_meta` manifest) + the
+  reconstruct inverse; NIP_DRAFT §"podcast identity tags"; this section;
+  SMOKE §Phase 21; CAPTURE_GUIDE.
+
+Non-goals (v1): no per-app scraping, no LLM diarization of unlabeled
+text, no RSS GUID auto-lookup (manual fields), no new wire kind, no
+per-speaker wire tags (bodies live in content), no sidepanel mount.
 
 ---
 

@@ -10,6 +10,23 @@ Sections per release: **Added** (new features), **Changed**
 
 ## [Unreleased]
 
+### Added
+
+- **Phase 21 — podcast transcript import (21.1–21.3).** Paste or upload a
+  podcast transcript (SRT, WebVTT with `<v>` voice tags, or `Speaker:`
+  lines) from the portal — library header or a case view — and it becomes
+  an ordinary archive record: a speaker-labeled markdown body, a
+  `contentType:'transcript'` / `platform:'podcast'` article, and (when the
+  user supplies them) universal podcast identifiers. It joins cases via
+  the 20.2 picker and feeds 20.4 corpus synthesis untouched; selecting a
+  turn prefills "who said it" with that turn's speaker. **Wire (additive,
+  kind 30023):** new `show` / `podcast_guid` / `podcast_episode_guid` /
+  `feed_url` / `itunes_id` tags with NIP-73 `i` co-emits
+  (`podcast:guid:…`, `podcast:item:guid:…`), a `feed_url` second-`r`, and
+  a `transcript_meta` (`<format>:<turns>:<speakers>`) manifest — bodies
+  live in content, and all round-trip through `reconstructArticleFromEvent`.
+  No new kind. `docs/NIP_DRAFT.md` §"podcast identity tags".
+
 ### Fixed
 
 - **Case-synthesis proposals now reference real claims (20.6).** The

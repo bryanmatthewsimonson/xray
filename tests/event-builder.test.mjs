@@ -176,6 +176,68 @@ test('buildArticleEvent coerces Instagram numeric pk to string tag value', async
     assert.deepEqual(idTag, ['author_id', '507869549']);
 });
 
+// --- Phase 21 podcast identity tags ---------------------------------
+
+const PODCAST_ARTICLE = {
+    url: 'https://pod.example/ep1',
+    title: 'Origins Debate',
+    markdown: '## Transcript\n\n**Alice:** hi',
+    contentType: 'transcript',
+    platform: 'podcast',
+    podcast: {
+        show: 'The Show',
+        feed_guid: 'ABC-DEF-123',
+        episode_guid: 'Ep-GUID-Case-Sensitive',
+        feed_url: 'https://pod.example/rss.xml',
+        itunes_id: 1600000000,           // number — must stringify
+        episode_url: 'https://pod.example/ep1'
+    },
+    transcript_meta: { format: 'srt', turn_count: 42, speaker_count: 3, speakers: ['Alice', 'Bob', 'Host'] }
+};
+
+test('buildArticleEvent: podcast identity tags + NIP-73 i-forms, all string-coerced', async () => {
+    const ev = await EventBuilder.buildArticleEvent(PODCAST_ARTICLE, [], PUBKEY, []);
+    for (const t of ev.tags) for (const v of t) assert.equal(typeof v, 'string', `non-string in ${JSON.stringify(t)}`);
+    const has = (k, v) => assert.ok(ev.tags.some((t) => t[0] === k && t[1] === v), `missing ${k}=${v}`);
+    has('show', 'The Show');
+    has('podcast_guid', 'ABC-DEF-123');
+    has('i', 'podcast:guid:abc-def-123');                        // feed GUID lowercased in i form
+    has('podcast_episode_guid', 'Ep-GUID-Case-Sensitive');
+    has('i', 'podcast:item:guid:Ep-GUID-Case-Sensitive');       // episode GUID case preserved
+    has('feed_url', 'https://pod.example/rss.xml');
+    has('itunes_id', '1600000000');                             // coerced
+    has('transcript_meta', 'srt:42:3');
+    has('content_format', 'transcript');
+    has('platform', 'podcast');
+    // feed_url co-emitted as a second r AFTER the primary (article url first).
+    const rTags = ev.tags.filter((t) => t[0] === 'r').map((t) => t[1]);
+    assert.equal(rTags[0], 'https://pod.example/ep1', 'primary r stays first');
+    assert.ok(rTags.includes('https://pod.example/rss.xml'), 'feed_url co-emitted as r');
+});
+
+test('buildArticleEvent: no podcast/transcript_meta tags when the fields are absent', async () => {
+    const ev = await EventBuilder.buildArticleEvent(
+        { url: 'https://x/y', title: 'T', markdown: '# a' }, [], PUBKEY, []);
+    for (const k of ['show', 'podcast_guid', 'podcast_episode_guid', 'feed_url', 'itunes_id', 'transcript_meta']) {
+        assert.ok(!ev.tags.some((t) => t[0] === k), `unexpected ${k} tag`);
+    }
+});
+
+test('reconstructArticleFromEvent: podcast + transcript_meta round-trip', async () => {
+    const ev = await EventBuilder.buildArticleEvent(PODCAST_ARTICLE, [], PUBKEY, []);
+    const back = EventBuilder.reconstructArticleFromEvent(ev);
+    assert.equal(back.contentType, 'transcript');
+    assert.equal(back.platform, 'podcast');
+    assert.equal(back.podcast.feed_guid, 'ABC-DEF-123');
+    assert.equal(back.podcast.episode_guid, 'Ep-GUID-Case-Sensitive');
+    assert.equal(back.podcast.feed_url, 'https://pod.example/rss.xml');
+    assert.equal(back.podcast.itunes_id, '1600000000');
+    assert.equal(back.podcast.show, 'The Show');
+    assert.equal(back.transcript_meta.turn_count, 42);
+    assert.equal(back.transcript_meta.speaker_count, 3);
+    assert.equal(back.transcript_meta.speakers, null, 'names live in the body, not the manifest');
+});
+
 test('buildRelayListEvent stamps created_at to a recent unix second', () => {
     const before = Math.floor(Date.now() / 1000);
     const ev = EventBuilder.buildRelayListEvent(['wss://a'], PUBKEY);
