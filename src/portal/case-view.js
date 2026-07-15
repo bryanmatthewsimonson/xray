@@ -20,6 +20,7 @@ import { collectCaseDossierData, buildCaseDossier } from '../shared/case-dossier
 import { getArticle } from '../shared/archive-cache.js';
 import { removeArticleFromCase } from '../shared/case-membership.js';
 import { mountAddSources } from './add-sources.js';
+import { mountTranscriptImport } from './import-transcript.js';
 import { renderCaseGraph } from './case-graph-view.js';
 import { renderSynthesisBlock } from './synthesis-block.js';
 import { Utils } from '../shared/utils.js';
@@ -102,6 +103,17 @@ export function renderCaseView(host, params) {
             });
         });
         head.appendChild(addBtn);
+        // 21.2 — import a podcast transcript straight into this case.
+        const importBtn = el('button', 'xr-portal__btn', 'Import transcript…');
+        importBtn.type = 'button';
+        importBtn.addEventListener('click', () => {
+            addSourcesHost.replaceChildren();
+            mountTranscriptImport(addSourcesHost, {
+                caseEntityId: caseEnt.entityId,
+                onDone: () => callbacks.onReloadCase && callbacks.onReloadCase()
+            });
+        });
+        head.appendChild(importBtn);
     }
     host.appendChild(head);
     host.appendChild(addSourcesHost);

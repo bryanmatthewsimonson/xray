@@ -12,11 +12,14 @@
       <span class="xr-portal__brand">🩻 X-Ray — My Archive</span>
     </div>
     <div class="xr-portal__chrome-right">
+      <button class="xr-portal__btn xr-portal__btn--ghost" id="xr-import-transcript"
+              title="Paste or upload a podcast transcript into the archive">Import transcript…</button>
       <button class="xr-portal__btn" id="xr-refresh" title="Fetch what's new since the last sync">↻ Refresh</button>
       <button class="xr-portal__btn xr-portal__btn--ghost" id="xr-resync"
               title="Drop the local cache and re-fetch everything from the relays">Full resync</button>
     </div>
   </header>
+  <div id="xr-import-host"></div>
 
   <!-- Identity strip: who "me" is, with provenance chips, plus a
        read-only viewer input for OTHER archives (the NIP-07 story —

@@ -23,6 +23,7 @@ import {
 } from './library.js';
 import { buildBuckets, brushRange } from './timeline.js';
 import { el, svgEl, clear, truncate, shortKey } from './dom.js';
+import { mountTranscriptImport } from './import-transcript.js';
 import { renderEntityView } from './entity-view.js';
 import { renderCaseView } from './case-view.js';
 import { renderEntityDossierView } from './entity-dossier-view.js';
@@ -991,6 +992,15 @@ async function boot({ full = false } = {}) {
 
 function wireChrome() {
     $('#xr-refresh').addEventListener('click', () => { boot(); });
+
+    // 21.2 — import a podcast transcript into the archive (standalone;
+    // it appears in case views + the local-artifacts list, not the relay
+    // library, so no corpus reload). Toggle: a second click closes it.
+    $('#xr-import-transcript').addEventListener('click', () => {
+        const importHost = $('#xr-import-host');
+        if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
+        mountTranscriptImport(importHost, { onDone: null });
+    });
 
     $('#xr-resync').addEventListener('click', async () => {
         if (state.loading) return;
