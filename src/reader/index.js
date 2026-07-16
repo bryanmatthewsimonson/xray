@@ -64,6 +64,11 @@ import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/len
 import { speakerFromParagraphText } from '../shared/transcript-parse.js';
 import { buildTranscriptSection, upsertTranscriptSection } from '../shared/transcript-article.js';
 import { openMediaModal } from './media-modal.js';
+import { Storage } from '../shared/storage.js';
+import { Crypto } from '../shared/crypto.js';
+import {
+    buildOwnedKeysManifest, mintDelegationTag, entityDelegationConditions
+} from '../shared/identity-builders.js';
 import { renderLensSetup, renderJurisdictionCard, renderJurisdictionFailure, renderPanelSummary } from './lens-section.js';
 
 const browserApi = typeof browser !== 'undefined' && browser.runtime ? browser : chrome;
@@ -3841,6 +3846,7 @@ async function publish() {
                     }
 
                     const unsignedProfile = EventBuilder.buildProfileEvent(entity, canonicalNpub);
+                    await attachCreatorBinding(unsignedProfile, entity.keypair && entity.keypair.pubkey);
                     const signed = await LocalKeyManager.signEvent(unsignedProfile, entity.keyName);
 
                     const resp = await browserApi.runtime.sendMessage({
@@ -4832,6 +4838,7 @@ async function publish() {
                     if (sel.profileChanged) {
                         btn.textContent = `Publishing (${corpusBase + (++cStep)}/${totalEvents})…`;
                         const unsigned = EventBuilder.buildProfileEvent(entity, canonicalNpub, sel.about);
+                        await attachCreatorBinding(unsigned, entity.keypair && entity.keypair.pubkey);
                         const signed = await LocalKeyManager.signEvent(unsigned, entity.keyName);
                         const resp = await browserApi.runtime.sendMessage({
                             type: 'xray:relay:publish', event: signed, relays: await getConfiguredRelays()
@@ -4857,6 +4864,7 @@ async function publish() {
                     }
                     if (sel.sheetChanged) {
                         btn.textContent = `Publishing (${corpusBase + (++cStep)}/${totalEvents})…`;
+                        await attachCreatorBinding(sel.sheet, entity.keypair && entity.keypair.pubkey);
                         const signedSheet = await LocalKeyManager.signEvent(sel.sheet, entity.keyName);
                         const resp = await browserApi.runtime.sendMessage({
                             type: 'xray:relay:publish', event: signedSheet, relays: await getConfiguredRelays()
@@ -4882,6 +4890,14 @@ async function publish() {
                     console.warn('[X-Ray Reader] corpus publish failed:', entity.id, err);
                 }
             }
+
+            // Phase 24.2 — the OwnedKeys manifest accompanies entity
+            // publishes: one replaceable kind-30069 (primary-signed)
+            // listing every owned entity pubkey. Fingerprint-gated —
+            // republishes only when the owned set changed. Best-effort:
+            // a manifest failure never fails the batch.
+            try { await publishOwnedKeysManifest(); }
+            catch (err) { console.warn('[X-Ray Reader] manifest publish failed:', err); }
         }
 
         // Build + surface the end-of-batch summary.
@@ -4938,6 +4954,70 @@ async function publish() {
 }
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+// ------------------------------------------------------------------
+// Creator binding (Phase 24.2 — docs/ENTITY_IDENTITY_DESIGN.md §4)
+// ------------------------------------------------------------------
+
+// The NIP-26 window on minted tokens: generous because entity events
+// are replaceable and re-minted on every republish; the manifest is
+// the revocation lever, not the window.
+const DELEGATION_WINDOW_S = 365 * 24 * 3600;
+
+// Attach the creator binding to an unsigned ENTITY-signed event:
+// the creator p-tag always (when a primary exists); the NIP-26
+// delegation tag only when the primary PRIVATE key is locally
+// available (Local signing mode — NIP-07/bunker keep the secret in the
+// signer, so those publishes bind via the manifest alone). Binding is
+// enrichment: failures never block the publish itself.
+async function attachCreatorBinding(unsigned, entityPubkey) {
+    try {
+        const primary = await Storage.primaryIdentity.get();
+        if (!primary || !primary.pubkey) return unsigned;
+        unsigned.tags = unsigned.tags || [];
+        if (!unsigned.tags.some((t) => t[0] === 'p' && t[3] === 'creator')) {
+            unsigned.tags.push(['p', primary.pubkey, '', 'creator']);
+        }
+        if (primary.privateKey && entityPubkey
+                && !unsigned.tags.some((t) => t[0] === 'delegation')) {
+            const now = Math.floor(Date.now() / 1000);
+            const conditions = entityDelegationConditions({
+                kinds: [0, 30067], from: now - 86400, until: now + DELEGATION_WINDOW_S
+            });
+            unsigned.tags.push(await mintDelegationTag(primary.privateKey, entityPubkey, conditions));
+        }
+    } catch (err) {
+        console.warn('[X-Ray Reader] creator binding skipped:', err);
+    }
+    return unsigned;
+}
+
+// Publish the kind-30069 OwnedKeys manifest — one replaceable event,
+// PRIMARY-signed, listing every owned entity pubkey. Republished only
+// when the owned set changed (fingerprint gate). Local signing mode
+// only in v1: the manifest needs the primary key, and the reader has
+// no NIP-07 bridge of its own.
+async function publishOwnedKeysManifest() {
+    const primary = await Storage.primaryIdentity.get();
+    if (!primary || !primary.privateKey) return;
+    const owned = LocalKeyManager.listKeys()
+        .filter((k) => k.name && k.name.startsWith('entity:') && k.metadata && k.metadata.entityId)
+        .map((k) => ({ pubkey: k.pubkey, id: k.metadata.entityId, name: k.metadata.entityName || '' }));
+    if (!owned.length) return;
+    const fingerprint = await Crypto.sha256(JSON.stringify(owned.map((o) => o.pubkey).sort()));
+    const prior = await Storage.get('owned_keys_manifest_hash', null);
+    if (prior === fingerprint) return;   // replaceable event already current
+
+    const unsigned = { ...buildOwnedKeysManifest({ entities: owned }), pubkey: primary.pubkey };
+    const signed = await Crypto.signEvent(unsigned, primary.privateKey);
+    if (!signed || !signed.sig) return;
+    const resp = await browserApi.runtime.sendMessage({
+        type: 'xray:relay:publish', event: signed, relays: await getConfiguredRelays()
+    });
+    if (resp && resp.ok && await publishOk({ ...resp, signedEvent: signed })) {
+        await Storage.set('owned_keys_manifest_hash', fingerprint);
+    }
+}
 
 /**
  * Every canonical hash this article has carried, current first — the

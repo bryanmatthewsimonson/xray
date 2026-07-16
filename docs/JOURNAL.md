@@ -19,6 +19,38 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-16 — Creator binding on the wire (Phase 24.2)
+
+Tags: `design`.
+
+The binding layers from ENTITY_IDENTITY_DESIGN §4: the kind-30069
+OwnedKeys manifest + NIP-26 delegation tags + the creator p-tag, with
+the portal's full/partial/unbound classification.
+
+Decisions worth remembering:
+- **schnorrSignHash/schnorrVerifyHash extracted from
+  signEvent/verifySignature** — NIP-26 tokens sign
+  sha256("nostr:delegation:…"), not an event hash. The refactor is
+  guarded by the BIP-340 vector tests (they pin the signature math).
+- **The token window is generous (365d), because the MANIFEST is the
+  revocation lever.** NIP-26's expiry-only revocation is exactly its
+  weakness; we don't pretend the window revokes — republishing the
+  manifest without the key does.
+- **Verification fails closed on unknown condition grammar** — a
+  condition term we don't parse rejects the token rather than being
+  skipped (an attacker must not smuggle permissive conditions past the
+  verifier).
+- **Delegation minting is Local-mode-only** (needs the primary PRIVATE
+  key; NIP-07/bunker keep it in the signer). Those setups still bind
+  via the manifest — which only needs a signature, not the raw key.
+  The manifest publish itself is also primary-signed and
+  fingerprint-gated (owned-pubkey-set hash in storage) so replaceable
+  republish only happens on change.
+- **Binding is enrichment, never a gate**: attach/mint failures warn
+  and continue; absence classifies as "unbound", not "invalid".
+
+---
+
 ## 2026-07-16 — Entity identity: the NIP-26 decision + derivation (Phase 24.0/24.1)
 
 Tags: `design`.

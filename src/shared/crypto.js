@@ -296,69 +296,50 @@ const Crypto = {
     return new Uint8Array(hash);
   },
 
-  // Sign event with BIP-340 Schnorr signature
-  signEvent: async (event, privkeyHex) => {
-    try {
-      // BIP-340 Schnorr signing with provided private key
-      // NIP-07 signing is handled by the caller (publishArticle)
+  // BIP-340 Schnorr sign an arbitrary 32-byte message hash (hex).
+  // The raw core of signEvent, split out in Phase 24.2 — NIP-26
+  // delegation tokens sign sha256("nostr:delegation:…"), not an event
+  // hash. Returns the 64-byte signature as 128 hex chars.
+  schnorrSignHash: async (msgHashHex, privkeyHex) => {
+    const d = BigInt('0x' + privkeyHex);
+    const P = _pointMultiply(d);
+    if (!P) throw new Error('Invalid private key');
 
-      // Compute event id (hash)
-      const hash = await Crypto.getEventHash(event);
-      event.id = hash;
+    // Negate private key if P.y is odd (BIP-340 convention)
+    const dAdj = P[1] % 2n === 0n ? d : _SECP256K1.N - d;
 
-      // BIP-340 Schnorr signature
-      const d = BigInt('0x' + privkeyHex);
-      const P = _pointMultiply(d);
-      if (!P) throw new Error('Invalid private key');
+    // Deterministic nonce per BIP-340:
+    // k = tagged_hash("BIP0340/nonce", bytes(d) || bytes(P.x) || msg)
+    const dBytes = Crypto.hexToBytes(dAdj.toString(16).padStart(64, '0'));
+    const pxBytes = Crypto.hexToBytes(P[0].toString(16).padStart(64, '0'));
+    const msgBytes = Crypto.hexToBytes(msgHashHex);
 
-      // Negate private key if P.y is odd (BIP-340 convention)
-      const dAdj = P[1] % 2n === 0n ? d : _SECP256K1.N - d;
+    const nonceHash = await Crypto.taggedHash('BIP0340/nonce', dBytes, pxBytes, msgBytes);
+    const k0 = BigInt('0x' + Crypto.bytesToHex(nonceHash)) % _SECP256K1.N;
+    if (k0 === 0n) throw new Error('Invalid nonce');
 
-      // Deterministic nonce per BIP-340:
-      // k = tagged_hash("BIP0340/nonce", bytes(d) || bytes(P.x) || msg)
-      const dBytes = Crypto.hexToBytes(dAdj.toString(16).padStart(64, '0'));
-      const pxBytes = Crypto.hexToBytes(P[0].toString(16).padStart(64, '0'));
-      const msgBytes = Crypto.hexToBytes(hash);
+    const R = _pointMultiply(k0);
+    if (!R) throw new Error('Invalid nonce point');
+    const k = R[1] % 2n === 0n ? k0 : _SECP256K1.N - k0;
 
-      const nonceHash = await Crypto.taggedHash('BIP0340/nonce', dBytes, pxBytes, msgBytes);
-      const k0 = BigInt('0x' + Crypto.bytesToHex(nonceHash)) % _SECP256K1.N;
-      if (k0 === 0n) throw new Error('Invalid nonce');
+    // Challenge: e = tagged_hash("BIP0340/challenge", R.x || P.x || msg)
+    const rxBytes = Crypto.hexToBytes(R[0].toString(16).padStart(64, '0'));
+    const eHash = await Crypto.taggedHash('BIP0340/challenge', rxBytes, pxBytes, msgBytes);
+    const e = BigInt('0x' + Crypto.bytesToHex(eHash)) % _SECP256K1.N;
 
-      const R = _pointMultiply(k0);
-      if (!R) throw new Error('Invalid nonce point');
-      const k = R[1] % 2n === 0n ? k0 : _SECP256K1.N - k0;
+    const s = _mod(k + e * dAdj, _SECP256K1.N);
 
-      // Challenge: e = tagged_hash("BIP0340/challenge", R.x || P.x || msg)
-      const rxBytes = Crypto.hexToBytes(R[0].toString(16).padStart(64, '0'));
-      const eHash = await Crypto.taggedHash('BIP0340/challenge', rxBytes, pxBytes, msgBytes);
-      const e = BigInt('0x' + Crypto.bytesToHex(eHash)) % _SECP256K1.N;
-
-      const s = _mod(k + e * dAdj, _SECP256K1.N);
-
-      // Signature is (R.x, s), each 32 bytes = 64 bytes total (128 hex chars)
-      const sig = R[0].toString(16).padStart(64, '0') + s.toString(16).padStart(64, '0');
-
-      event.sig = sig;
-      return event;
-    } catch (e) {
-      console.error('[NAC Crypto] Failed to sign event:', e);
-      return null;
-    }
+    // Signature is (R.x, s), each 32 bytes = 64 bytes total (128 hex chars)
+    return R[0].toString(16).padStart(64, '0') + s.toString(16).padStart(64, '0');
   },
 
-  // Verify BIP-340 Schnorr signature
-  verifySignature: async (event) => {
+  // BIP-340 Schnorr verify over an arbitrary 32-byte message hash (hex).
+  schnorrVerifyHash: async (msgHashHex, pubkeyHex, sigHex) => {
     try {
-      // Verify the event id matches the hash
-      const hash = await Crypto.getEventHash(event);
-      if (hash !== event.id) return false;
-
-      // Signature and pubkey parsing
-      const sig = event.sig;
-      if (!sig || sig.length !== 128) return false;
-      const rx = BigInt('0x' + sig.substring(0, 64));
-      const s = BigInt('0x' + sig.substring(64, 128));
-      const px = BigInt('0x' + event.pubkey);
+      if (!sigHex || sigHex.length !== 128) return false;
+      const rx = BigInt('0x' + sigHex.substring(0, 64));
+      const s = BigInt('0x' + sigHex.substring(64, 128));
+      const px = BigInt('0x' + pubkeyHex);
 
       if (rx >= _SECP256K1.P || s >= _SECP256K1.N) return false;
 
@@ -370,8 +351,8 @@ const Crypto = {
 
       // e = tagged_hash("BIP0340/challenge", R.x || P.x || msg)
       const rxBytes = Crypto.hexToBytes(rx.toString(16).padStart(64, '0'));
-      const pxBytes = Crypto.hexToBytes(event.pubkey.padStart(64, '0'));
-      const msgBytes = Crypto.hexToBytes(hash);
+      const pxBytes = Crypto.hexToBytes(String(pubkeyHex).padStart(64, '0'));
+      const msgBytes = Crypto.hexToBytes(msgHashHex);
       const eHash = await Crypto.taggedHash('BIP0340/challenge', rxBytes, pxBytes, msgBytes);
       const e = BigInt('0x' + Crypto.bytesToHex(eHash)) % _SECP256K1.N;
 
@@ -386,6 +367,32 @@ const Crypto = {
       if (R[0] !== rx) return false;
 
       return true;
+    } catch (e) {
+      return false;
+    }
+  },
+
+  // Sign event with BIP-340 Schnorr signature
+  signEvent: async (event, privkeyHex) => {
+    try {
+      // Compute event id (hash), then sign it with the raw core above.
+      const hash = await Crypto.getEventHash(event);
+      event.id = hash;
+      event.sig = await Crypto.schnorrSignHash(hash, privkeyHex);
+      return event;
+    } catch (e) {
+      console.error('[NAC Crypto] Failed to sign event:', e);
+      return null;
+    }
+  },
+
+  // Verify BIP-340 Schnorr signature
+  verifySignature: async (event) => {
+    try {
+      // Verify the event id matches the hash, then the signature.
+      const hash = await Crypto.getEventHash(event);
+      if (hash !== event.id) return false;
+      return await Crypto.schnorrVerifyHash(hash, event.pubkey, event.sig);
     } catch (e) {
       return false;
     }
