@@ -18,6 +18,20 @@ import { articleHash as canonicalArticleHash } from '../shared/audit/article-has
 import { listRuns, listPredictions, listResolutions } from '../shared/audit/audit-cache.js';
 import { listArticles } from '../shared/archive-cache.js';
 import { IdentityProfiles, workspaceBackup, resetWorkspace } from '../shared/identity-profiles.js';
+import { EntityModel } from '../shared/entity-model.js';
+import { LocalKeyManager } from '../shared/local-key-manager.js';
+
+// Phase 24.3 — the previously-silent consequences of changing the
+// primary identity, surfaced before every switch/generate/import
+// (ENTITY_IDENTITY_DESIGN §6; the underlying facts are documented in
+// identity-profiles.js and entity-sync.js).
+const ROTATION_WARNING =
+    'Switching the primary identity has consequences:\n\n' +
+    '• Entity-sync blobs (kind 30078) encrypted to the OLD primary become unreadable to the new one.\n' +
+    '• Existing records keep their old publish stamps — the portal attributes them per-identity.\n' +
+    '• Entity keys DERIVED from the old primary cannot be re-derived from the new one (stored keys keep working — back them up first).\n' +
+    '• The OwnedKeys manifest and entity profiles should be republished under the new identity.\n\n' +
+    'Continue?';
 import { collectBackup, applyBackup, validateBackup, estimateBackupSize } from '../shared/backup.js';
 import { exportBundle } from '../shared/event-journal.js';
 
@@ -358,6 +372,7 @@ async function onIdentityAction(btn) {
     const act = btn.getAttribute('data-act');
     try {
         if (act === 'use') {
+            if (!confirm(ROTATION_WARNING)) return;
             const profile = await IdentityProfiles.activate(pubkey);
             flash(status, `Switched to "${profile.label}". New captures publish under this identity; existing records keep their old stamps — use Start fresh workspace (Advanced) for a clean slate.`);
         } else if (act === 'copy') {
@@ -383,6 +398,7 @@ async function onIdentityAction(btn) {
 async function identityCreate() {
     const status = document.getElementById('local-status');
     const label = document.getElementById('identity-new-label').value;
+    if (!confirm(ROTATION_WARNING)) return;
     try {
         const profile = await IdentityProfiles.create(label);
         document.getElementById('identity-new-label').value = '';
@@ -392,6 +408,28 @@ async function identityCreate() {
         await refreshActiveLine();
     } catch (e) {
         flash(status, 'Create failed: ' + (e && e.message), false);
+    }
+}
+
+// Phase 24.3 — the keystore-loss recovery surface for
+// EntityModel.restoreDerivedKeys (ENTITY_IDENTITY_DESIGN §3): re-derive
+// every missing owned entity key from the active primary. Derived-era
+// entities recover their ORIGINAL pubkey; legacy random keys re-derive
+// to a new one (reported, never hidden).
+async function restoreEntityKeys() {
+    const status = document.getElementById('local-status');
+    try {
+        await LocalKeyManager.init();
+        const restored = await EntityModel.restoreDerivedKeys();
+        if (restored.length === 0) {
+            flash(status, 'Nothing to restore — every owned entity already has its key.');
+        } else {
+            flash(status, `Restored ${restored.length} entity key${restored.length === 1 ? '' : 's'}: `
+                + restored.map((r) => r.name).join(', ')
+                + '. Entities created before key derivation come back with a NEW pubkey.');
+        }
+    } catch (e) {
+        flash(status, 'Restore failed: ' + (e && e.message), false);
     }
 }
 
@@ -424,6 +462,7 @@ async function localImport() {
     const status = document.getElementById('local-status');
     const value = document.getElementById('local-import-input').value;
     const label = document.getElementById('local-import-label').value || 'Imported';
+    if (!confirm(ROTATION_WARNING)) return;
     try {
         const profile = await IdentityProfiles.importNsec(label, value);
         document.getElementById('local-import-input').value = '';
@@ -929,6 +968,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     document.getElementById('identity-new-create').addEventListener('click', identityCreate);
     document.getElementById('identity-save-current').addEventListener('click', identitySaveCurrent);
+    document.getElementById('restore-entity-keys').addEventListener('click', restoreEntityKeys);
     document.getElementById('workspace-backup').addEventListener('click', workspaceDownloadBackup);
     document.getElementById('workspace-reset').addEventListener('click', workspaceResetFlow);
     document.getElementById('backup-download').addEventListener('click', backupDownloadFull);

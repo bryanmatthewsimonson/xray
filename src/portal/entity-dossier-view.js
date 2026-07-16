@@ -21,6 +21,7 @@ import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { buildProfileAbout, buildFactSheetEvent, profileContentHash, factSheetContentHash } from '../shared/entity-profile.js';
 import { mintDelegationTag, entityDelegationConditions } from '../shared/identity-builders.js';
+import { Crypto } from '../shared/crypto.js';
 
 function fmtDate(unixSec) {
     if (!unixSec) return '';
@@ -122,7 +123,12 @@ async function mountRepublishButton(head, dossier, relays) {
             // publisher is meaningless attribution (19.8 review fix).
             const primary = await Storage.primaryIdentity.get().catch(() => null);
             const publisherPubkey = (primary && primary.pubkey) || entity.keypair.pubkey;
-            const about = buildProfileAbout(dossier, { excludedFields: excluded });
+            const about = buildProfileAbout(dossier, {
+                excludedFields: excluded,
+                // 24.3 — the honest self-description line names the
+                // maintainer (ENTITY_IDENTITY_DESIGN §5).
+                maintainerNpub: (primary && primary.pubkey) ? Crypto.hexToNpub(primary.pubkey) : null
+            });
             const sheet = buildFactSheetEvent(dossier, {
                 entityPubkey: entity.keypair.pubkey,
                 publisherPubkey,

@@ -1711,6 +1711,43 @@ source types (suggested only), no portal→relay ledger for 30068 yet.
 
 ---
 
+## Phase 24 — Durable, creator-bound entity identity ✅ COMPLETE
+
+Entity keypairs were disposable (random, plaintext-local, deleted with
+the entity, unrecoverable, linked to the creator only by an
+unauthenticated tag). Phase 24 makes them durable and provably the
+creator's — the identity foundation for the Phase-25 social direction.
+The maintainer leaned NIP-26 and asked for the tradeoffs first;
+`docs/ENTITY_IDENTITY_DESIGN.md` (normative) carries the full analysis
+and the confirmed decision: the LAYERED model (the candidate models
+solve different sub-problems and compose).
+
+- ✅ **24.0/24.1** design doc + the durability layer: deterministic
+  child-key derivation (HKDF-SHA256, domain `xray-entity-v1`, info =
+  entity id, mod n — pinned by test vector). Same primary + same entity
+  ⇒ same pubkey, forever; `restoreDerivedKeys()` recovers a lost
+  keystore; legacy random keys stay valid (stored key always wins).
+- ✅ **24.2** the binding wire: **kind 30069 OwnedKeys manifest**
+  (primary-signed, replaceable — revocation is republish-without-the-
+  key, deliberately the property NIP-26 lacks) + **NIP-26-format
+  `delegation` tags** on entity events (minted Local-mode, verified by
+  X-Ray itself, fail-closed conditions) + the `creator` p-tag. Portal
+  badges **✓ creator-bound** (manifest AND token) / **◐ partially
+  bound**.
+- ✅ **24.3** rotation + recovery UX: the previously-silent rotation
+  consequences (orphaned 30078 sync blobs, misattributed stamps,
+  underivable children) now confirm before every identity
+  switch/generate/import; a **Restore entity keys** action in Options;
+  the honest kind-0 self-description line ("An X-Ray subject record
+  maintained by <npub>…") — the stranger-legibility layer.
+
+Non-goals (v1): no NIP-46 bunker routing for entity keys; no NIP-41;
+no forced migration of legacy random keys; no 30078 rewrap-on-rotation
+(documented, not built); no reliance on relays honoring
+delegator-as-author.
+
+---
+
 ## Abandonment criteria
 
 From issue #20 — bears repeating. At any phase boundary, if the cost

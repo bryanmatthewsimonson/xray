@@ -4795,7 +4795,13 @@ async function publish() {
                     const dossier = await assembleEntityDossier(rootId, {
                         ...snapshots, generatedAt: Math.floor(Date.now() / 1000)
                     });
-                    const about = buildProfileAbout(dossier, { excludedFields: excluded });
+                    // 24.3 — the honest self-description line names the
+                    // maintainer, so generic clients render an honestly
+                    // labeled record (ENTITY_IDENTITY_DESIGN §5).
+                    const about = buildProfileAbout(dossier, {
+                        excludedFields: excluded,
+                        maintainerNpub: userPubkey ? Crypto.hexToNpub(userPubkey) : null
+                    });
                     const sheet = buildFactSheetEvent(dossier, {
                         entityPubkey: entity.keypair.pubkey,
                         publisherPubkey: userPubkey,

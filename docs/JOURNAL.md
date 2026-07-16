@@ -19,6 +19,23 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-16 — Rotation warnings + recovery UX (Phase 24.3)
+
+Tags: `design`.
+
+The Phase-24 tail: the rotation-consequence gap flagged in the 24.0
+research (identity-profiles.js documented the orphan/misattribution
+risks in a source comment; no UI ever said so) is closed — every
+primary-identity switch/generate/import path (Options × 3, sidepanel
+generate) now confirms with the enumerated consequences. Options gains
+"Restore entity keys" (the restoreDerivedKeys surface). The kind-0
+`about` now OPENS with the maintainer line when publishing — note this
+changes profileContentHash for every entity, so the first republish
+after 24.3 re-emits every profile once (correct: the content genuinely
+changed).
+
+---
+
 ## 2026-07-16 — Creator binding on the wire (Phase 24.2)
 
 Tags: `design`.
