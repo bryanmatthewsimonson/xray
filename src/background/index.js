@@ -30,6 +30,7 @@ import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runL
 import { pdfDocumentUrl } from '../shared/pdf-detect.js';
 import { Signer } from '../shared/signer.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
+import { publishConfirmed, IDENTITY_KINDS } from '../shared/confirmed-publish.js';
 
 // Pull the debug preference on SW startup. MV3 service workers sleep
 // and wake, so this runs each time the SW reloads. A chrome.storage
@@ -1212,10 +1213,22 @@ async function handleCapturePublish(id, unsignedEvent) {
         ? prefs.default_relays
         : ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.nostr.band'];
 
-    // 4. Publish.
+    // 4. Publish. Identity kinds (kind 0, relay lists, account/
+    //    relationship/owned-keys events — the rendezvous machinery
+    //    strangers join through) require a relay CONFIRMATION and
+    //    retry an assumed-only round once (KS.7, Phase 25.5); other
+    //    kinds keep the single-shot path — reconcile catches losses.
     let results;
     try {
-        results = await NostrClient.publishToRelays(relays, signed.event);
+        if (IDENTITY_KINDS.includes(signed.event.kind)) {
+            const pc = await publishConfirmed(relays, signed.event);
+            results = pc.result;
+            if (!pc.ok) {
+                Utils.log(`identity-kind ${signed.event.kind} publish got no relay confirmation after ${pc.attempts} attempts`);
+            }
+        } else {
+            results = await NostrClient.publishToRelays(relays, signed.event);
+        }
     } catch (err) {
         return { ok: false, error: 'Relay publish failed: ' + (err && err.message) };
     }

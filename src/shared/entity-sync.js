@@ -44,6 +44,7 @@ import { NostrClient } from './nostr-client.js';
 import { EntityModel } from './entity-model.js';
 import { LocalKeyManager } from './local-key-manager.js';
 import { recordPublished } from './event-journal.js';
+import { publishConfirmed } from './confirmed-publish.js';
 
 const SCHEMA_VERSION = 1;
 // NIP-32 L/l namespace for our sync events. Writes use the current label;
@@ -350,12 +351,15 @@ export async function pushRelayList({ userPrivkey, relays }) {
     const userPubkey = Crypto.getPublicKey(userPrivkey);
     const unsigned = EventBuilder.buildRelayListEvent(relays, userPubkey);
     const signed = await Crypto.signEvent(unsigned, userPrivkey);
-    const result = await NostrClient.publishToRelays(relays, signed);
+    // Identity kind (KS.7 / Phase 25.5): the relay list is how other
+    // clients discover where to reach this pubkey — require a relay
+    // CONFIRMATION and retry an assumed-only round once.
+    const { result } = await publishConfirmed(relays, signed);
     if (result && result.successful > 0) {
         try { await recordPublished(signed, result, {}); }
         catch (err) { Utils.error('event journal write failed for relay list', err); }
     }
-    return { published: result.successful || 0, total: result.total || relays.length };
+    return { published: result.successful || 0, total: result.total || relays.length, confirmed: result.confirmed || 0 };
 }
 
 /**

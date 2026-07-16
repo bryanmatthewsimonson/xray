@@ -18,7 +18,7 @@ globalThis.chrome = {
     }
 };
 
-const { NETWORK_FEED_KINDS, AUTHOR_ITEM_CAP, buildAuthorFilters, assembleNetworkFeed } =
+const { NETWORK_FEED_KINDS, AUTHOR_ITEM_CAP, WIDENED_RELAY_CAP, buildAuthorFilters, assembleNetworkFeed, widenRelays } =
     await import('../src/shared/network-feed.js');
 const { parseFeedEvent } = await import('../src/shared/entity-feed.js');
 
@@ -188,6 +188,26 @@ test('parseFeedEvent parity: network rows reuse the entity-feed dispatch', () =>
 // ------------------------------------------------------------------
 // Candidates (adopt-on-sight substrate for 25.2b)
 // ------------------------------------------------------------------
+
+// ------------------------------------------------------------------
+// NIP-65 widening (25.5)
+// ------------------------------------------------------------------
+
+test('widenRelays: configured-first union, normalized dedup, capped, prefs untouched', () => {
+    const configured = ['wss://a.example', 'wss://b.example'];
+    const hints = [
+        ['wss://A.EXAMPLE/', 'wss://c.example'],        // dupe of a (normalized) + one new
+        ['http://not-a-relay.example', 'wss://d.example'],
+        ['wss://e.example', 'wss://f.example', 'wss://g.example', 'wss://h.example', 'wss://i.example']
+    ];
+    const norm = (u) => u.toLowerCase().replace(/\/$/, '');
+    const out = widenRelays(configured, hints, { normalize: norm });
+    assert.equal(out.length, WIDENED_RELAY_CAP);
+    assert.deepEqual(out.slice(0, 2), configured);       // configured always first
+    assert.ok(!out.some((u) => norm(u) === 'wss://a.example' && u !== 'wss://a.example'));
+    assert.ok(!out.includes('http://not-a-relay.example'));
+    assert.deepEqual(widenRelays(configured, []), configured);
+});
 
 test('entity-ish p-tags on followed items surface as candidates', () => {
     const subject = 'b'.repeat(64);

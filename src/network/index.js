@@ -13,7 +13,8 @@
 
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { FollowModel } from '../shared/follow-model.js';
-import { NETWORK_FEED_KINDS, buildAuthorFilters, assembleNetworkFeed } from '../shared/network-feed.js';
+import { NETWORK_FEED_KINDS, buildAuthorFilters, assembleNetworkFeed, widenRelays } from '../shared/network-feed.js';
+import { normalizeRelayUrl } from '../shared/entity-sync.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { EntityModel } from '../shared/entity-model.js';
@@ -265,8 +266,14 @@ async function refreshFeed() {
         npub — the feed pulls what your follows publish, on demand.`);
         return;
     }
-    const relays = await getQueryRelays();
-    $('#xr-footer-relays').textContent = `${relays.length} relay${relays.length === 1 ? '' : 's'} · ${follows.length} follow${follows.length === 1 ? '' : 's'} · kinds ${NETWORK_FEED_KINDS.join(', ')}`;
+    // NIP-65 widening (KS.7 / 25.5): union configured relays with the
+    // follows' harvested hints, configured-first, capped — reads reach
+    // where the followee actually publishes; prefs never change.
+    const configured = await getQueryRelays();
+    const followEntries = await FollowModel.getSet(GLOBAL);
+    const relays = widenRelays(configured, followEntries.map((f) => f.relayHints || []), { normalize: normalizeRelayUrl });
+    const widened = relays.length - configured.length;
+    $('#xr-footer-relays').textContent = `${relays.length} relay${relays.length === 1 ? '' : 's'}${widened > 0 ? ` (+${widened} from follows' NIP-65 hints)` : ''} · ${follows.length} follow${follows.length === 1 ? '' : 's'} · kinds ${NETWORK_FEED_KINDS.join(', ')}`;
     setStatus(`Querying ${relays.length} relay${relays.length === 1 ? '' : 's'} across ${follows.length} follow${follows.length === 1 ? '' : 's'}…`);
 
     const [claimsFilter, otherFilter] = buildAuthorFilters(follows);

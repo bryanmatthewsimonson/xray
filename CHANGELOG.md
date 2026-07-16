@@ -12,6 +12,21 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 25.5 — NIP-65 relay widening + confirmed-OK identity
+  publishes (KS.7).** Network feed and profile queries now union your
+  configured relays with your follows' harvested NIP-65 hints
+  (configured-first, capped at 8, prefs never touched) — reads reach
+  where the followee actually publishes. And identity kinds — kind 0,
+  follow lists (3), relay lists (10002), OwnedKeys (30069),
+  entity relationships (32125), platform accounts (32126) — now
+  require a relay **confirmation** (OK true) on publish and retry an
+  assumed-only round once (`confirmed-publish.js`): a silently
+  dropped identity event breaks the rendezvous machinery strangers
+  join through, and nothing downstream re-checks it. Applied in the
+  service worker's capture-publish path and `pushRelayList`;
+  re-publishes are safe (immutable, id-keyed events — dupes are
+  no-ops). No wire change, no flags (reliability, not disclosure).
+
 - **Phase 25.4 — thin coordination: review requests, review queue,
   re-broadcast.** A **"Request review"** button on your own published
   artifacts (portal inspector) publishes a kind-1985 label under the
