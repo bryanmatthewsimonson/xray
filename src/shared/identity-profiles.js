@@ -53,9 +53,14 @@ export const WORKSPACE_CLEAR_KEYS = Object.freeze([
                                 // captured content, so workspace data
     'entity_dedupe_dismissals', // Phase 17A "Not duplicates" record
                                 // (entity-health.js) — same class
-    'follow_sets'               // Phase 25 follow registry
+    'follow_sets',              // Phase 25 follow registry
                                 // (follow-model.js) — KS §5 names it
                                 // workspace content explicitly
+    'incorporated_artifacts',   // Phase 25.3 reviewed-in foreign
+                                // artifacts (incorporation.js)
+    'incorporation_dismissals'  // Phase 25.3 declined proposals —
+                                // judgments about network content,
+                                // same class as fact dismissals
 ]);
 
 // What reset deliberately KEEPS — configuration and identity. Exported

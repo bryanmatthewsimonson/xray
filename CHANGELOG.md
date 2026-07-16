@@ -12,6 +12,23 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 25.3 — the incorporation queue.** Followed artifacts arrive
+  as **proposals, not facts** (the Network page's Queue tab): claims,
+  links, assessments, and verdicts from your follows land for
+  per-artifact accept/decline, grouped per author with a bulk decline.
+  Accepting a **claim or link** creates a native record with
+  provenance `suggested_by: 'nostr:<author pubkey>'`; accepting an
+  **assessment or verdict** lands in the dedicated read-only
+  `incorporated_artifacts` store — never the native judgment models,
+  so "my judgments" rollups, exports, and publish inventories stay
+  clean by construction. Declines persist (`incorporation_dismissals`)
+  and never re-surface. **Nothing incorporated ever republishes as
+  yours**: the claim, link, and assessment publish selectors exclude
+  `nostr:`-provenance records (guard-tested). Unfollowing keeps
+  everything already incorporated; rendering the feed still writes
+  nothing — the queue is the only door. Both new stores clear with the
+  workspace.
+
 - **Phase 25.2b — feed cache, read-state, and follow affordances.**
   The Network feed persists in a new IndexedDB `xray-network`
   (portal-cache pattern: write-time replaceable supersession +

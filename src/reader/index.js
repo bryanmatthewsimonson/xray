@@ -3557,7 +3557,13 @@ async function publish() {
         }
     }
     const claimsToPublish = allArticleClaims.filter((c) =>
-        !c.publishedAt || c.updated > c.publishedAt || needCoordIds.has(c.id));
+        // Incorporated foreign claims (Phase 25.3, suggested_by
+        // 'nostr:<pubkey>') NEVER publish — they are someone else's
+        // signed work reviewed into the local corpus, and this URL
+        // filter would otherwise sweep them in when the user captures
+        // the same source article.
+        !String(c.suggested_by || '').startsWith('nostr:')
+        && (!c.publishedAt || c.updated > c.publishedAt || needCoordIds.has(c.id)));
 
     // Union tagged-entity ids with every claim's claimant / subject /
     // object ids so their kind-0 events publish ahead of any claim's

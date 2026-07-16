@@ -23,6 +23,10 @@ import {
     saveRecords, loadRecords, getMeta, setMeta, getProfile, setProfile,
     clearAll, LAST_LOOKED_KEY
 } from './network-cache.js';
+import {
+    extractProposals, acceptProposal, declineProposal, declineAll,
+    loadDismissals, loadIncorporated
+} from '../shared/incorporation.js';
 
 const $ = (sel) => document.querySelector(sel);
 const GLOBAL = { scope: 'global' };
@@ -94,9 +98,11 @@ function setView(name) {
         btn.classList.toggle('xr-network__tab--active', btn.dataset.view === name);
     }
     $('#xr-feed').hidden = name !== 'feed';
+    $('#xr-queue').hidden = name !== 'queue';
     $('#xr-follows').hidden = name !== 'follows';
     $('#xr-empty').hidden = true;
     if (name === 'follows') renderFollows();
+    else if (name === 'queue') renderQueue();
     else renderFeed();
 }
 
@@ -439,6 +445,106 @@ async function onFeedClick(ev) {
     }
 }
 
+// ------------------------------------------------------------------
+// Incorporation queue (25.3 — KS §6: proposals, not facts)
+// ------------------------------------------------------------------
+
+const CLASS_LABELS = { claim: 'Claim', link: 'Link', assessment: 'Assessment', verdict: 'Verdict' };
+
+function proposalTitle(p) {
+    const parsed = p.parsed || {};
+    switch (p.class) {
+        case 'claim':      return parsed.text || '(claim)';
+        case 'link':       return parsed.relationship || '(link)';
+        case 'assessment': return parsed.stance || '(assessment)';
+        case 'verdict':    return parsed.verdict || '(verdict)';
+        default:           return '(artifact)';
+    }
+}
+
+async function renderQueue() {
+    const host = $('#xr-queue');
+    if (!state.feed) {
+        host.innerHTML = `<div class="xr-network__follows-note">The queue is
+        built from the feed — hit <b>↻ Refresh</b> on the Feed tab first.</div>`;
+        return;
+    }
+    const [dismissals, incorporated] = await Promise.all([loadDismissals(), loadIncorporated()]);
+    const { byAuthor } = extractProposals(state.feed, { dismissals, incorporated });
+    if (byAuthor.length === 0) {
+        host.innerHTML = `<div class="xr-network__follows-note">Nothing to
+        review — followed claims, links, assessments, and verdicts land
+        here as proposals. Accepting records provenance; declining is
+        remembered. Nothing enters your corpus without you.</div>`;
+        return;
+    }
+    host.innerHTML = byAuthor.map(({ author, count, proposals }) => {
+        const { name } = displayName(author);
+        return `
+        <section class="xr-network__group" data-author="${escapeHtml(author)}">
+            <div class="xr-network__group-head">
+                <span class="xr-network__group-name">${escapeHtml(name)}</span>
+                <span class="xr-network__npub">${escapeHtml(shortNpub(author))}</span>
+                <span class="xr-network__badge">${count} proposal${count === 1 ? '' : 's'}</span>
+                <button class="xr-network__btn xr-network__btn--ghost" data-action="decline-all">Decline all</button>
+            </div>
+            <ol class="xr-network__rows">
+                ${proposals.map((p, i) => `
+                <li class="xr-network__row" data-ref="${escapeHtml(p.ref)}" data-idx="${i}">
+                    <div class="xr-network__row-line">
+                        <span class="xr-network__kind">${CLASS_LABELS[p.class]}</span>
+                        <span class="xr-network__row-title">${escapeHtml(proposalTitle(p))}</span>
+                        <button class="xr-network__btn" data-action="accept">Accept</button>
+                        <button class="xr-network__btn xr-network__btn--ghost" data-action="decline">Decline</button>
+                    </div>
+                    <details>
+                        <summary>Raw event · ${escapeHtml(p.ref)}</summary>
+                        <pre class="xr-network__raw">${escapeHtml(JSON.stringify(p.event, null, 2))}</pre>
+                    </details>
+                </li>`).join('')}
+            </ol>
+        </section>`;
+    }).join('');
+}
+
+async function onQueueClick(ev) {
+    const btn = ev.target.closest('button[data-action]');
+    if (!btn) return;
+    const [dismissals, incorporated] = await Promise.all([loadDismissals(), loadIncorporated()]);
+    const { byAuthor } = extractProposals(state.feed, { dismissals, incorporated });
+
+    if (btn.dataset.action === 'decline-all') {
+        const author = btn.closest('[data-author]')?.dataset.author;
+        const group = byAuthor.find((g) => g.author === author);
+        if (group) {
+            const n = await declineAll(group.proposals);
+            setStatus(`Declined ${n} proposal${n === 1 ? '' : 's'} — they won't re-surface.`);
+        }
+        renderQueue();
+        return;
+    }
+
+    const ref = btn.closest('[data-ref]')?.dataset.ref;
+    if (!ref) return;
+    let proposal = null;
+    for (const g of byAuthor) proposal = proposal || g.proposals.find((p) => p.ref === ref);
+    if (!proposal) return;
+
+    if (btn.dataset.action === 'accept') {
+        const result = await acceptProposal(proposal);
+        if (result.status === 'incorporated') {
+            setStatus(`Accepted the ${CLASS_LABELS[proposal.class].toLowerCase()} — provenance recorded (nostr:${proposal.author.slice(0, 12)}…).`);
+        } else {
+            setStatus(`Accept failed: ${result.error?.message || result.error}`);
+        }
+        renderQueue();
+    }
+    if (btn.dataset.action === 'decline') {
+        await declineProposal(proposal);
+        renderQueue();
+    }
+}
+
 async function onClearCache() {
     if (!confirm('Clear the cached feed? The cache is derived — the next Refresh rebuilds it from the relays. Follows are not touched.')) return;
     try { await clearAll(); } catch (_) { /* already gone */ }
@@ -466,6 +572,7 @@ async function boot() {
     $('#xr-follow-form').addEventListener('submit', onFollowSubmit);
     $('#xr-follow-list').addEventListener('click', onFollowListClick);
     $('#xr-feed').addEventListener('click', onFeedClick);
+    $('#xr-queue').addEventListener('click', (ev) => { onQueueClick(ev).catch((err) => setStatus(`Queue action failed: ${err.message || err}`)); });
     for (const btn of document.querySelectorAll('.xr-network__tab')) {
         btn.addEventListener('click', () => setView(btn.dataset.view));
     }

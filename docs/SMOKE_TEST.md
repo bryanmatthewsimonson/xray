@@ -1280,6 +1280,10 @@ as slices land.
 | 25.i | F: follow P WITHOUT a label → Refresh; then feed group header + Follows tab | ✅ P's kind-0 profile name shows with a "profile name"/"profile:" badge (their claim, not verified); npub still beside it |
 | 25.j | As P: publish a claim tagging an entity F doesn't know. As F: Refresh → "Entities referenced" → Adopt… | ✅ the adopt prompt proposes the kind-0 name/type; adopting creates a read-only foreign entity (sidepanel shows it badged) |
 | 25.k | F: "Clear cache" → confirm | ✅ feed empties; follows intact; next Refresh rebuilds |
+| 25.l | F: Refresh → **Queue** tab | ✅ P's claims/links/assessments/verdicts appear as proposals grouped under P; articles do NOT |
+| 25.m | Accept a claim proposal → sidepanel/reader claim views | ✅ the claim exists locally with a `nostr:…` provenance badge; capture P's source URL and publish — the incorporated claim is NOT in the publish batch |
+| 25.n | Decline a proposal → Refresh → Queue | ✅ it does not re-surface (dismissals persist) |
+| 25.o | Accept an assessment proposal | ✅ it is NOT in your assessments (no judgment-model entry); it lives in the read-only incorporated store |
 
 ---
 
