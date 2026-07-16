@@ -62,6 +62,8 @@ test('CONTENT_KINDS pins the full corpus kind list from the design note', () => 
         30062,
         // Phase 15.9: adjudicated verdicts + integrity findings
         30063, 30064,
+        // Phase 23.2: case briefs
+        30068,
         30078, 32125, 32126
     ]);
 });

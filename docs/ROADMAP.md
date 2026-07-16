@@ -1679,6 +1679,38 @@ no RSS/GUID auto-lookup, no removal of the Phase 21 portal import.
 
 ---
 
+## Phase 23 — Publish the corpus + evidence provenance ✅ COMPLETE
+
+The maintainer's ask: publish the (expensive) corpus analysis so a
+stranger with only a keypair can read it, and mark primary-source
+provenance so an original paper is distinguishable from a write-up that
+cites it. First slice of a larger arc (Phase 24 durable/creator-bound
+identity, Phase 25 an in-X-Ray social client, Phase 26 narrative-over-
+time — planned in the session plan file, built later).
+
+- ✅ **23.1 Evidence provenance** — two additive kind-30023 tags, no new
+  kind: a 5-value **`source-type`** (`primary-record` / `primary-research`
+  / `reporting` / `analysis` / `reference`, auto-suggested from
+  DOI/schema.org, user-confirmed) and a CiTO-derived per-`link`
+  **`evidence-role`** (`evidence` / `mention` / `supports` / `disputes` /
+  `reviews`). Together they trace a secondary→primary derivation edge.
+  Reader **🎙 Media & source** dialog; portal primary-source badge +
+  "Cited sources" list.
+- ✅ **23.2 Publish the brief** — the Phase-20 synthesis publishes as a
+  readable **kind-30023** long-form article (any NOSTR client) AND a
+  structured **kind-30068 `CaseBrief`** (rich X-Ray render), user-signed
+  from the case dashboard, cross-linked. Prose/data only — **no fused
+  score/verdict** (the Phase-20 firewall carried onto the wire,
+  guard-tested); `proposals` never publish. Portal **Briefs** tab reads
+  both back.
+
+Grounded in evidence-classification research (library primary/secondary/
+tertiary, CiTO citation intents, W3C PROV, EBM hierarchies, DOI/PMID/
+arXiv originality identifiers). Non-goals: no new score, no LLM-assigned
+source types (suggested only), no portal→relay ledger for 30068 yet.
+
+---
+
 ## Abandonment criteria
 
 From issue #20 — bears repeating. At any phase boundary, if the cost
