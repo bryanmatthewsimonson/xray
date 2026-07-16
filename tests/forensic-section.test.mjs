@@ -61,6 +61,30 @@ test('bar: empty state prompts the no-verdict capture flow', () => {
     assert.doesNotMatch(html, /xr-findings__item\b/, 'no rows');
 });
 
+test('bar: baselines render as plain rows — visible at last, never a weight (27 F.4)', () => {
+    const baseline = {
+        id: 'baseline_0123456789abcdef',
+        subject_ref: { label: 'Jacob Hansen' },
+        note: 'Even, fact-anchored register.'
+    };
+    // With no findings, the baseline block still renders.
+    const empty = renderFindingsBar([], [baseline]);
+    assert.match(empty, /xr-findings__baseline\b/);
+    assert.match(empty, /Even, fact-anchored register\./);
+    assert.match(empty, /data-action="baseline-delete"/);
+    // A finding carrying baseline_ref gets the deviation chip with the
+    // baseline's note as context; no score-shaped copy anywhere.
+    const withChip = renderFindingsBar(
+        [finding({ baseline_ref: 'baseline_0123456789abcdef' })], [baseline]);
+    assert.match(withChip, /deviates from baseline/);
+    assert.match(withChip, /Baseline: Even, fact-anchored register\./);
+    const withoutRef = renderFindingsBar([finding()], [baseline]);
+    assert.doesNotMatch(withoutRef, /deviates from baseline/);
+    for (const html of [empty, withChip]) {
+        assert.doesNotMatch(html, /score|rating|weight|confidence/i);
+    }
+});
+
 test('bar: a row carries the subject, maneuver, lead quote, and actions', () => {
     const html = renderFindingsBar([finding()]);
     assert.match(html, /Forensic findings \(1\)/);

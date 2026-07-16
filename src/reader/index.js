@@ -38,7 +38,7 @@ import { TruthAdjudicationModel, VerdictModel } from '../shared/truth-adjudicati
 import { IntegrityModel } from '../shared/integrity-model.js';
 import { buildAssessmentEvent, buildClaimRelationshipEvent, buildAssessmentMirrorEvent, buildBehavioralFindingEvent, buildForensicFindingMirrorEvent } from '../shared/metadata/builders.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
-import { ForensicModel } from '../shared/forensic-model.js';
+import { ForensicModel, ForensicBaseline } from '../shared/forensic-model.js';
 import { openFindingModal, openBaselineModal } from '../shared/forensic-modal.js';
 import { renderFindingsBar } from './findings-section.js';
 import { openLlmReview } from './llm-review.js';
@@ -1642,7 +1642,10 @@ async function refreshFindingsBar() {
     const findings = Object.values(all)
         .filter((f) => (f.anchors || []).some((a) => a.source_ref && a.source_ref.url === url))
         .sort((a, b) => (a.created || 0) - (b.created || 0));
-    host.innerHTML = renderFindingsBar(findings);
+    // 27 F.4 — baselines finally render (they were write-only: saved,
+    // toasted, and never shown anywhere).
+    const baselines = await ForensicBaseline.getForUrl(url);
+    host.innerHTML = renderFindingsBar(findings, baselines);
 
     const anchorContext  = { container: $('.xr-article__body') };
     const sourceRef      = { url: state.article.url, title: state.article.title || '' };
@@ -1661,7 +1664,20 @@ async function refreshFindingsBar() {
     const baseBtn = host.querySelector('#xr-findings-baseline');
     if (baseBtn) baseBtn.addEventListener('click', async () => {
         const result = await openBaselineModal({ subjectChoices, sourceRef });
-        if (result) toast('Baseline saved', 'success', 1500);
+        if (result) {
+            toast('Baseline saved', 'success', 1500);
+            await refreshFindingsBar();
+        }
+    });
+
+    host.querySelectorAll('.xr-findings__baseline').forEach((row) => {
+        const delBtn = row.querySelector('[data-action="baseline-delete"]');
+        if (delBtn) delBtn.addEventListener('click', async () => {
+            if (!confirm('Remove this baseline?')) return;
+            await ForensicBaseline.delete(row.dataset.id);
+            toast('Baseline removed', 'success', 1500);
+            await refreshFindingsBar();
+        });
     });
 
     host.querySelectorAll('.xr-findings__item').forEach((row) => {
