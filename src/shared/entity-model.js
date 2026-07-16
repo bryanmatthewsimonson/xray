@@ -37,6 +37,12 @@ import { isValidSuggestedBy } from './assessment-taxonomy.js';
 // entity-field-schemas.js is dependency-free, so no cycle.
 import { getFieldDef } from './entity-field-schemas.js';
 
+// Phase 24.1 — the domain-separation label for entity child-key
+// derivation (docs/ENTITY_IDENTITY_DESIGN.md). Versioned: changing the
+// derivation recipe means a NEW domain, never a silent change to this
+// one — every previously-derived pubkey depends on it.
+export const ENTITY_KEY_DOMAIN = 'xray-entity-v1';
+
 // `case` (Phase 11.1) models a real-world story under assessment —
 // "John Dehlin excommunication", "Bricks & Minifigs scandal" — so the
 // side-panel entity detail can serve as the case dashboard
@@ -280,8 +286,21 @@ export const EntityModel = {
         // Generate keypair via LocalKeyManager so we can reuse its
         // signEvent path later. Key name is derived from the entity id
         // so it's stable under `get`-merge.
+        //
+        // Phase 24.1: when a primary identity exists, the key is
+        // DERIVED from it (same primary + same entity id ⇒ the same
+        // pubkey, forever — a lost keystore is recoverable via
+        // restoreDerivedKeys; docs/ENTITY_IDENTITY_DESIGN.md). Without
+        // a primary, the legacy random path still applies.
         const keyName = `entity:${id}`;
-        await LocalKeyManager.createKey(keyName, { entityId: id, entityName: name, entityType: type });
+        const keyMeta = { entityId: id, entityName: name, entityType: type };
+        const primary = await Storage.primaryIdentity.get();
+        if (primary && primary.privateKey) {
+            const child = await Crypto.deriveChildKey(primary.privateKey, ENTITY_KEY_DOMAIN, id);
+            await LocalKeyManager.installDerivedKey(keyName, child, keyMeta);
+        } else {
+            await LocalKeyManager.createKey(keyName, keyMeta);
+        }
 
         const now = Math.floor(Date.now() / 1000);
         const record = {
@@ -301,6 +320,39 @@ export const EntityModel = {
         await Storage.set('entities', all);
         Utils.log('Created entity:', id, name, type);
         return await EntityModel.get(id);
+    },
+
+    /**
+     * Re-derive missing entity keys from the primary identity (Phase
+     * 24.1 — the keystore-loss recovery path). For every owned entity
+     * whose keyName has no key in the store, re-derive the child from
+     * the primary + entity id and install it. Derived-era entities get
+     * back their ORIGINAL pubkey; entities minted under the legacy
+     * random scheme re-derive to a NEW pubkey — that discontinuity is
+     * inherent to random keys and is reported, never hidden (the
+     * caller can compare against published events).
+     *
+     * @returns {Promise<Array<{id, name, keyName, pubkey}>>} the keys installed
+     */
+    restoreDerivedKeys: async () => {
+        const primary = await Storage.primaryIdentity.get();
+        if (!primary || !primary.privateKey) {
+            throw new Error('restoreDerivedKeys: no primary identity to derive from');
+        }
+        const all = await Storage.get('entities', {});
+        const restored = [];
+        for (const record of Object.values(all)) {
+            // Foreign/reference entities carry no key of ours.
+            if (!record || !record.keyName) continue;
+            if (LocalKeyManager.getKey(record.keyName)) continue;   // present — leave it
+            const child = await Crypto.deriveChildKey(primary.privateKey, ENTITY_KEY_DOMAIN, record.id);
+            const installed = await LocalKeyManager.installDerivedKey(record.keyName, child, {
+                entityId: record.id, entityName: record.name, entityType: record.type, restored: true
+            });
+            restored.push({ id: record.id, name: record.name, keyName: record.keyName, pubkey: installed.pubkey });
+        }
+        Utils.log('restoreDerivedKeys:', restored.length, 'key(s) restored');
+        return restored;
     },
 
     /**

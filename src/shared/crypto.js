@@ -163,6 +163,41 @@ const Crypto = {
     return Crypto.bytesToHex(privateKeyArray);
   },
 
+  // --- Phase 24.1: deterministic child-key derivation ---------------
+  // (docs/ENTITY_IDENTITY_DESIGN.md — the durability layer.)
+
+  // Reduce 32 hash bytes to a valid secp256k1 scalar, hex-encoded.
+  // Plain mod-n reduction: n is within 2^-128 of 2^256, so the bias is
+  // negligible. Returns null on the (astronomically rare) zero result —
+  // the caller's counter loop handles it deterministically.
+  scalarFromHash: (bytes) => {
+    const v = _mod(BigInt('0x' + Crypto.bytesToHex(bytes)), _SECP256K1.N);
+    return v === 0n ? null : v.toString(16).padStart(64, '0');
+  },
+
+  // Deterministic child private key:
+  //   HKDF-SHA256(ikm = parent priv, salt = domain, info = `${info}:${ctr}`) mod n
+  // Same parent + domain + info ⇒ the same child key, forever — so a
+  // lost keystore is recoverable by re-derivation. `domain` separates
+  // child families (e.g. 'xray-entity-v1'); the counter suffix (almost
+  // always 0) makes the out-of-range retry deterministic too.
+  deriveChildKey: async (parentPrivHex, domain, info) => {
+    if (!/^[0-9a-f]{64}$/.test(String(parentPrivHex || ''))) {
+      throw new Error('deriveChildKey: parent private key must be 64 hex chars');
+    }
+    const ikm = Crypto.hexToBytes(parentPrivHex);
+    const salt = new TextEncoder().encode(String(domain));
+    const prk = await Crypto._hkdfExtract(salt, ikm);
+    for (let ctr = 0; ctr < 256; ctr++) {
+      const infoBytes = new TextEncoder().encode(`${info}:${ctr}`);
+      const okm = await Crypto._hkdfExpand(prk, infoBytes, 32);
+      const scalar = Crypto.scalarFromHash(okm);
+      if (scalar) return scalar;
+    }
+    // 256 consecutive zero scalars ≈ probability 2^-32768 — unreachable.
+    throw new Error('deriveChildKey: no valid scalar');
+  },
+
   // Derive x-only public key from private key (secp256k1 point multiplication)
   getPublicKey: (privkeyHex) => {
     const privkey = BigInt('0x' + privkeyHex);
