@@ -12,6 +12,24 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 25.6 — the kind-3 follow-list mirror (opt-in; the phase's
+  only wire change).** The Network Follows tab gains **"Mirror follow
+  list…"**: your **global** follows publish as a standard NIP-02
+  contact list under your primary identity — behind the new
+  default-off `followListPublishing` flag with a consent dialog on
+  first enable (who you follow becomes public; irrevocable in
+  practice). Case- and entity-scoped follows **never** publish
+  (guard-tested). **Clobber protection is mandatory**: every publish
+  fetches your current remote kind 3 first and unions remote-only
+  entries — hints and petnames verbatim — so a contact list from
+  another client survives; a failed pre-fetch warns loudly before any
+  replace. Local labels ride as petnames only via a per-publish
+  checkbox (remote-preserved petnames always re-publish — dropping
+  them would clobber the other client's public data). Publishes
+  require relay confirmation (the 25.5 identity-kind rule). Portal
+  reads mirrors back ("Follows — N keys"). `docs/NIP_DRAFT.md`
+  §Kind 3.
+
 - **Phase 25.5 — NIP-65 relay widening + confirmed-OK identity
   publishes (KS.7).** Network feed and profile queries now union your
   configured relays with your follows' harvested NIP-65 hints

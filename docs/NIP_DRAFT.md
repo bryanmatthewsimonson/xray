@@ -1010,6 +1010,49 @@ Consolidated grammar for the plain-NIP-32 `1985` events an X-Ray publisher emits
 - **Kind 30064 (integrity findings) deliberately has NO 1985 mirror**: a bare match-label on a person's pubkey, stripped of its evidence and caveats, is exactly the decontextualized person-grade that family forbids — the full 30064 is the only wire shape.
 - A mirror is never authoritative on its own: consumers resolving a 1985 under one of these namespaces SHOULD fetch the parent event (same author, matching `a`/`p`/`r`) for the evidence, caveats, and firewall context the mirror strips.
 
+## Kind 3 — follow-list mirror (NIP-02, opt-in; Phase 25.6)
+
+X-Ray's follow registry is **local-primary** (`follow_sets`, three
+anchor scopes: per-case, per-entity, global — amended
+KNOWLEDGE_SHARING §5/§9). The kind-3 mirror is an opt-in projection
+behind the default-off `followListPublishing` flag, and it projects
+the **global scope only** — case- and entity-anchored follow sets
+never publish, so research-team/interest composition never leaks from
+casework.
+
+Wire shape is standard NIP-02, nothing invented:
+
+```jsonc
+{
+  "kind": 3,
+  "tags": [
+    ["p", "<followed pubkey hex>", "<relay hint or ''>"],
+    ["p", "<followed pubkey hex>", "<relay hint>", "<petname>"]
+  ],
+  "content": ""   // never the legacy relay-JSON blob
+}
+```
+
+Producer rules (normative for X-Ray):
+
+- **Merge, never clobber.** Kind 3 is replaceable and the signer may
+  maintain a contact list in another client. Every publish first
+  fetches the newest remote kind 3 and UNIONs remote-only `p` entries
+  (with their relay hints and petnames verbatim) into the publish
+  set; the diff is shown before signing. If the pre-fetch fails on
+  every relay, the client warns loudly before allowing a replace.
+- **Petnames are opt-in per publish.** Local follow labels are
+  private by default; a petname preserved from the remote list always
+  re-publishes (it is already public — dropping it would clobber the
+  other client's data).
+- Publishes require a relay confirmation (the Phase-25.5 identity-kind
+  rule) since a silently dropped kind 3 breaks follows-based
+  discovery.
+
+Consumers need nothing X-Ray-specific: any NIP-02 reader (and the
+Phase-25.7 trust-graph filter) consumes the mirror as an ordinary
+contact list.
+
 ## Phase 20 — case-corpus synthesis (no new kind)
 
 The Phase-20 case-first work (`docs/CASE_SYNTHESIS_DESIGN.md`) adds **no

@@ -79,7 +79,8 @@ const KIND_LABELS = {
     30063: 'Adjudicated verdict',
     30064: 'Integrity finding',
     30068: 'Case brief',
-    30069: 'Owned keys'
+    30069: 'Owned keys',
+    3:     'Follows'
 };
 
 export function kindLabel(kind) {
@@ -363,6 +364,15 @@ function buildItem(record, entityIndex) {
                 haystack.push(f.match, f.subjectPubkey, subj, f.word && f.word.class,
                     f.standardOfProof, f.url);
             }
+            break;
+        }
+        // ---- Phase 25.6 follow-list mirror (read-back) --------------
+        case 3: {
+            const follows = (event.tags || []).filter((t) => Array.isArray(t) && t[0] === 'p' && /^[0-9a-f]{64}$/i.test(t[1] || ''));
+            typeKey = 'other';   // infrastructure, not content
+            title = `Follows — ${follows.length} key${follows.length === 1 ? '' : 's'}`;
+            sub = 'NIP-02 follow list (opt-in mirror)';
+            haystack.push(title, ...follows.map((t) => t[3] || ''));
             break;
         }
         // ---- Phase 24.2 owned-keys manifest (read-back) ------------

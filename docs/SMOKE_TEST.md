@@ -1288,6 +1288,9 @@ as slices land.
 | 25.q | As F (follows P): Refresh → Queue | ✅ "Open review requests" lists P's coordinate; the awareness strip counts it |
 | 25.r | As F: assess one of P's published claims. As P: Refresh → Queue | ✅ "Inbound review" lists F's assessment against P's coordinate |
 | 25.s | As F with `reviewCoordination` ON: **Re-broadcast follows** | ✅ confirm dialog shows the count; events re-publish verbatim (authors' signatures, no re-signing); flag OFF hides the button |
+| 25.t | Options ▸ Advanced ▸ "Allow publishing your follow list" | ✅ a consent dialog enumerates the disclosure (public, irrevocable-in-practice, global-only, merge-not-clobber) BEFORE the flag flips; Cancel leaves it off |
+| 25.u | Network ▸ Follows ▸ **Mirror follow list…** (petnames unticked) | ✅ the confirm shows local count + preserved-remote count; the published kind 3 has `['p', pk, hint]` tags, empty content, NO petnames for local labels; portal Refresh shows a "Follows — N keys" row |
+| 25.v | Publish a kind 3 from ANOTHER client (different follows) → Mirror again from X-Ray | ✅ the other client's entries survive (union), their petnames intact in the re-published event |
 
 ---
 

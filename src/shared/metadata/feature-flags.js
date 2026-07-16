@@ -126,7 +126,16 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // affordances — the "Request review" xray/review kind-1985 label
   // (portal inspector) and the Network page's re-broadcast-who-you-
   // follow button. Reading/assembling the review queue is never gated.
-  reviewCoordination: false
+  reviewCoordination: false,
+
+  // Phase 25.6 (amended KNOWLEDGE_SHARING §9): gates the kind-3
+  // NIP-02 follow-list mirror — publishing WHO YOU FOLLOW under your
+  // primary identity, replaceable but irrevocable in practice. Global
+  // scope only (case/entity follow sets never publish); every publish
+  // merges with the current remote kind 3 first (never blind-replace,
+  // for users who also run another client on the same nsec). The
+  // options checkbox shows a consent dialog on first enable.
+  followListPublishing: false
 });
 
 /**

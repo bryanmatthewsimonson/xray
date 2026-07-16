@@ -48,8 +48,16 @@
         <input type="text" id="xr-follow-label" placeholder="Label (optional, local-only)" autocomplete="off" maxlength="60" />
         <button type="submit" class="xr-network__btn">Follow</button>
       </form>
-      <div class="xr-network__follows-note">Follows are stored locally and
-      never published. (An opt-in mirror is planned; it will ask first.)</div>
+      <div class="xr-network__follows-note">Follows are stored locally.
+      Publishing them is opt-in (Settings ▸ Advanced) and always merges
+      with your existing remote list — never a blind replace.</div>
+      <div class="xr-network__add" id="xr-mirror-row" hidden>
+        <button class="xr-network__btn" id="xr-mirror"
+                title="Publish your global follows as a standard NIP-02 contact list (kind 3) under your primary identity">Mirror follow list…</button>
+        <label class="xr-network__follows-note" title="Local labels are private by default — ticking this publishes them as NIP-02 petnames">
+          <input type="checkbox" id="xr-mirror-petnames" /> include labels as petnames
+        </label>
+      </div>
       <ol class="xr-network__follow-list" id="xr-follow-list"></ol>
     </section>
   </main>
