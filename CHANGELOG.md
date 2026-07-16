@@ -10,6 +10,21 @@ Sections per release: **Added** (new features), **Changed**
 
 ## [Unreleased]
 
+### Added
+
+- **Phase 25.1 — the follow engine.** The KS.5 follow-set registry
+  (`follow-model.js`, storage key `follow_sets`): one shape for every
+  anchor — per-case, per-entity, and the new **global** (person-level)
+  scope from the 2026-07-16 KNOWLEDGE_SHARING amendment. Entries carry
+  `{pubkey, label?, addedAt, relayHints[]}`; pubkeys accept hex or
+  npub; NIP-65 relay hints harvest from the followee's kind 10002
+  (`pullRelayListFor`, the per-user `pullRelayList` generalized to any
+  pubkey) and cap at 4. Local-primary and unpublished — the opt-in
+  kind-3 mirror comes later in the phase (25.6). `follow_sets` joins
+  the fresh-workspace reset list. No UI yet: the Network page (25.2a)
+  is the consumer. Design: `docs/NETWORK_CLIENT_DESIGN.md` (Phase 25,
+  slice map §10).
+
 ## [0.7.0] — 2026-07-16
 
 ### Added
