@@ -1,15 +1,17 @@
 // Hypothesis map assembler tests — Phase 26 H.1
 // (docs/HYPOTHESIS_MAP_DESIGN.md §2–§3, §6). Pure builder over
 // hand-built `collectCaseDossierData`-shaped data (the case-graph
-// fixture pattern) plus injected brief/hypotheses/edges; the collector
-// is exercised with injected data so no fake-indexeddb is needed.
-// Load-bearing invariants: seed↔persisted merge on normalized label,
-// order is presentation not rank, roles never netted, opposing-edge
-// crux detection, dangling disclosure (P6), verdict chips are
-// chain-head context only, determinism, and the §6 grep guard —
-// NO weight/score/probability/confidence/strength key anywhere,
-// no allowlist.
+// fixture pattern) plus injected brief/hypotheses/edges; the dossier
+// data is always injected, and fake-indexeddb backs only the one
+// live-brief collector test. Load-bearing invariants: seed↔persisted
+// merge on normalized label (duplicate positions union, blank ones
+// disclosed), order is presentation not rank, roles never netted,
+// opposing-edge crux detection, dangling disclosure (P6), verdict
+// chips are chain-head context only, determinism, and the §6 grep
+// guard — NO weight/score/probability/confidence/strength key
+// anywhere, no allowlist.
 
+import 'fake-indexeddb/auto';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -155,6 +157,35 @@ test('hypothesis-map: brief positions seed hypotheses in brief order; holders jo
     assert.equal(map.coverage.persisted, 0);
 });
 
+test('hypothesis-map: duplicate-normalizing position labels union into ONE hypothesis — nothing dropped', () => {
+    const map = build({
+        brief: makeBrief([
+            { label: 'Lab Origin', holders: [{ article_hash: HASH_A }] },
+            { label: ' lab   origin ', core_argument: 'Second framing.',
+              holders: [{ article_hash: HASH_A }, { article_hash: HASH_B }] }
+        ])
+    });
+    assert.equal(map.hypotheses.length, 1);
+    const row = map.hypotheses[0];
+    assert.equal(row.label, 'Lab Origin', 'first spelling wins');
+    assert.deepEqual(row.holders.map((h) => h.article_hash), [HASH_A, HASH_B],
+        'holders union, deduped by hash');
+    assert.equal(row.core_argument, 'Second framing.',
+        'a later core_argument fills an empty one');
+    assert.equal(map.coverage.seeded, 1);
+});
+
+test('hypothesis-map: a blank-label position cannot seed — disclosed as a count, never silent (P6)', () => {
+    const map = build({
+        brief: makeBrief([
+            { label: 'Zoonotic', holders: [] },
+            { label: '   ', core_argument: 'orphaned framing', holders: [{ article_hash: HASH_A }] }
+        ])
+    });
+    assert.equal(map.hypotheses.length, 1);
+    assert.equal(map.coverage.unlabeled_positions, 1);
+});
+
 test('hypothesis-map: a persisted hypothesis merges with its seed on normalized label — statement wins, holders ride', () => {
     const persisted = hyp('hyp_00000000000000ab', 'ZOONOTIC ', {
         statement: 'My sharper framing.', suggested_by: 'user'
@@ -293,6 +324,26 @@ test('hypothesis-map: both roles on ONE hypothesis stay visible in its own secti
     assert.deepEqual(map.shared_claims, [], 'sharing means 2+ hypotheses');
 });
 
+test('hypothesis-map: a shared claim keeps the first RESOLVABLE view — a null never shadows a sibling snapshot', () => {
+    const h1 = hyp('hyp_00000000000000ab', 'Zoonotic');
+    const h2 = hyp('hyp_00000000000000cd', 'Lab origin', { created: 55 });
+    const coord = `30040:${PUBKEY_F}:their-claim`;
+    const map = build({
+        hypotheses: [h1, h2],
+        edges: [
+            // First-seen edge has NO snapshot (claim view null)…
+            edge('hedge_1', h1.id, coord, 'supports'),
+            // …the sibling on the other hypothesis carries one.
+            edge('hedge_2', h2.id, coord, 'undermines', {
+                claim_snapshot: { url: 'https://foreign.example/x', url_raw: 'https://foreign.example/x', text: 'their claim', author_pubkey: PUBKEY_F }
+            })
+        ]
+    });
+    const crux = map.shared_claims.find((s) => s.ref === coord);
+    assert.equal(crux.opposing, true);
+    assert.equal(crux.claim.text, 'their claim', 'the resolvable sibling view wins');
+});
+
 test('hypothesis-map: deterministic — same inputs deepEqual', () => {
     const input = {
         brief: makeBrief([{ label: 'Zoonotic', holders: [{ article_hash: HASH_A }] }]),
@@ -354,4 +405,33 @@ test('hypothesis-map: collector reads the models and re-canonicalizes stored edg
 
     const map = buildHypothesisMap(input, GENERATED);
     assert.equal(map.hypotheses[0].edges.supports[0].claim.local, true, 'drifted ref reaches the local claim');
+});
+
+test('hypothesis-map: assembleHypothesisMap composes collect+build and forwards generatedAt', async () => {
+    resetState();
+    await HypothesisModel.create({ case_id: CASE_ID, label: 'Zoonotic' });
+    const { assembleHypothesisMap } = await import('../src/shared/hypothesis-map.js');
+    const map = await assembleHypothesisMap(CASE_ID, {
+        data: makeData(), brief: null, generatedAt: GENERATED
+    });
+    assert.equal(map.generated_at, GENERATED);
+    assert.equal(map.hypotheses.length, 1);
+    assert.equal(map.hypotheses[0].label, 'Zoonotic');
+});
+
+test('hypothesis-map: collector reads a LIVE stored brief when none is injected (fake-indexeddb)', async () => {
+    resetState();
+    const { saveCaseBrief } = await import('../src/shared/audit/audit-cache.js');
+    // The exact record shape synthesis-block.js persists.
+    await saveCaseBrief({
+        caseId: CASE_ID,
+        brief: { summary: 's', positions: [{ label: 'From storage', holders: [{ article_hash: HASH_A }] }] },
+        grounding: { checked: 1, dropped: 0 }, inputHash: 'x', model: 'm',
+        promptVersion: 'corpus-v1', members: [], analyzed: 1, failed: 0, usage: {}
+    });
+    const input = await collectHypothesisMapData(CASE_ID, { data: makeData() });
+    const map = buildHypothesisMap(input, GENERATED);
+    assert.equal(map.hypotheses.length, 1);
+    assert.equal(map.hypotheses[0].label, 'From storage');
+    assert.equal(map.hypotheses[0].holders[0].url, 'https://x/a');
 });

@@ -211,35 +211,44 @@ export const HypothesisModel = {
         return patched;
     },
 
-    /** Delete a hypothesis AND its edges (edges never orphaned). */
+    /**
+     * Delete a hypothesis AND its edges. Dependents FIRST (the
+     * confirmDeleteClaim order): a death between the two writes then
+     * leaves a hypothesis with no edges — visible and re-deletable —
+     * never invisible orphaned edges.
+     */
     delete: async (id) => {
         const all = await Storage.get('case_hypotheses', {});
         if (!all[id]) return false;
-        delete all[id];
-        await Storage.set('case_hypotheses', all);
         const edges = await Storage.get('hypothesis_edges', {});
         let touched = false;
         for (const [eid, edge] of Object.entries(edges)) {
             if (edge.hypothesis_id === id) { delete edges[eid]; touched = true; }
         }
         if (touched) await Storage.set('hypothesis_edges', edges);
+        delete all[id];
+        await Storage.set('case_hypotheses', all);
         return true;
     },
 
-    /** Remove every hypothesis (and edge) for a case — the case-delete hook. */
+    /**
+     * Remove every hypothesis (and edge) for a case — the explicit
+     * clear-the-map seam (H.3 UI). Edges first, same rationale as
+     * delete.
+     */
     deleteForCase: async (caseId) => {
         const all = await Storage.get('case_hypotheses', {});
         const doomed = new Set(
             Object.values(all).filter((h) => h.case_id === caseId).map((h) => h.id));
         if (doomed.size === 0) return 0;
-        for (const id of doomed) delete all[id];
-        await Storage.set('case_hypotheses', all);
         const edges = await Storage.get('hypothesis_edges', {});
         let touched = false;
         for (const [eid, edge] of Object.entries(edges)) {
             if (doomed.has(edge.hypothesis_id)) { delete edges[eid]; touched = true; }
         }
         if (touched) await Storage.set('hypothesis_edges', edges);
+        for (const id of doomed) delete all[id];
+        await Storage.set('case_hypotheses', all);
         return doomed.size;
     }
 };

@@ -104,9 +104,25 @@ test('hypothesis-model: getForCase filters and orders (created, id) — presenta
     const a = await seedHypothesis({ label: 'A' });
     const b = await seedHypothesis({ label: 'B' });
     await seedHypothesis({ label: 'Other case', case_id: 'entity_00000000000000bb' });
+    // Same-second creations tie on `created` — set distinct stamps
+    // directly so the (created, id) comparator is actually asserted.
+    const all = await HypothesisModel.getAll();
+    all[a.id].created = 200;
+    all[b.id].created = 100;
+    _stateStore.set('case_hypotheses', JSON.stringify(all));
     const list = await HypothesisModel.getForCase(CASE_ID);
-    assert.deepEqual(list.map((h) => h.id).sort(), [a.id, b.id].sort());
-    assert.equal(list.length, 2);
+    assert.deepEqual(list.map((h) => h.id), [b.id, a.id], 'oldest-first, regardless of insertion order');
+});
+
+test('hypothesis-edge: getForCase joins via the case\'s hypotheses and excludes other cases', async () => {
+    resetState();
+    const mine = await seedHypothesis({ label: 'Mine' });
+    const theirs = await seedHypothesis({ label: 'Theirs', case_id: 'entity_00000000000000bb' });
+    const c = await seedClaim();
+    const kept = await HypothesisEdgeModel.create({ hypothesis_id: mine.id, claim_ref: c.id, role: 'supports' });
+    await HypothesisEdgeModel.create({ hypothesis_id: theirs.id, claim_ref: c.id, role: 'supports' });
+    const list = await HypothesisEdgeModel.getForCase(CASE_ID);
+    assert.deepEqual(list.map((e) => e.id), [kept.id]);
 });
 
 test('hypothesis-model: no score-bearing and no wire-publish field on either record', async () => {
@@ -117,10 +133,19 @@ test('hypothesis-model: no score-bearing and no wire-publish field on either rec
         hypothesis_id: h.id, claim_ref: c.id, role: 'supports'
     });
     const banned = /weight|score|probabilit|confidence|strength|rating|grade|likelihood/i;
-    for (const rec of [h, e]) {
-        for (const key of Object.keys(rec)) {
-            assert.doesNotMatch(key, banned, `forbidden key ${key}`);
+    // Recursive: nested objects (claim_snapshot) must not smuggle a
+    // banned slot past a top-level-only scan.
+    const walkKeys = (node, path) => {
+        if (Array.isArray(node)) { node.forEach((v, i) => walkKeys(v, `${path}[${i}]`)); return; }
+        if (node && typeof node === 'object') {
+            for (const [k, v] of Object.entries(node)) {
+                assert.doesNotMatch(k, banned, `forbidden key at ${path}.${k}`);
+                walkKeys(v, `${path}.${k}`);
+            }
         }
+    };
+    for (const rec of [h, e]) {
+        walkKeys(rec, '$');
         assert.equal('publishedAt' in rec, false, 'no wire fields until H.5 is a decision');
         assert.equal('publishedEventId' in rec, false);
     }

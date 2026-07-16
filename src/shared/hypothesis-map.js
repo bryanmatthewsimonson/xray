@@ -195,31 +195,54 @@ export function buildHypothesisMap(input, generatedAt = null) {
     for (const h of persisted) persistedByLabel.set(normalizeHypothesisLabel(h.label), h);
 
     const rows = [];
+    const rowByNorm = new Map();
     const consumed = new Set();
+    let unlabeledPositions = 0;
     for (const pos of (brief && brief.positions) || []) {
         const label = String(pos.label || '').trim();
-        if (!label) continue;
+        const coreArgument = String(pos.core_argument || '').trim() || null;
+        const holders = (pos.holders || []).map((h) => ({
+            article_hash: h.article_hash,
+            url:          (articles.get(h.article_hash) || {}).url || null,
+            title:        (articles.get(h.article_hash) || {}).title || null
+        }));
+        if (!label) {
+            // A position the brief emitted without a label cannot seed
+            // a hypothesis — disclosed as a count, never silently
+            // dropped (P6). Its holders have nothing to attach to.
+            unlabeledPositions++;
+            continue;
+        }
         const norm = normalizeHypothesisLabel(label);
-        if (rows.some((r) => normalizeHypothesisLabel(r.label) === norm)) continue;
+        // Two positions normalizing to one label (an LLM emitting
+        // 'Lab origin' / 'Lab Origin') are ONE hypothesis: union the
+        // holders, keep the first core_argument — nothing dropped.
+        const existing = rowByNorm.get(norm);
+        if (existing) {
+            const seen = new Set(existing.holders.map((h) => h.article_hash));
+            for (const h of holders) {
+                if (!seen.has(h.article_hash)) { existing.holders.push(h); seen.add(h.article_hash); }
+            }
+            if (!existing.core_argument && coreArgument) existing.core_argument = coreArgument;
+            continue;
+        }
         const match = persistedByLabel.get(norm) || null;
         if (match) consumed.add(match.id);
-        rows.push({
+        const row = {
             id:            match ? match.id : `seed:${norm}`,
             label:         match ? match.label : label,
             statement:     match && match.statement
                                ? match.statement
-                               : String(pos.core_argument || '').trim() || label,
+                               : coreArgument || label,
             note:          match ? (match.note || '') : '',
             suggested_by:  match ? match.suggested_by : 'seed:brief',
             persisted:     !!match,
             seeded:        true,
-            core_argument: String(pos.core_argument || '').trim() || null,
-            holders:       (pos.holders || []).map((h) => ({
-                article_hash: h.article_hash,
-                url:          (articles.get(h.article_hash) || {}).url || null,
-                title:        (articles.get(h.article_hash) || {}).title || null
-            }))
-        });
+            core_argument: coreArgument,
+            holders
+        };
+        rows.push(row);
+        rowByNorm.set(norm, row);
     }
     for (const h of persisted) {
         if (consumed.has(h.id)) continue;
@@ -265,7 +288,12 @@ export function buildHypothesisMap(input, generatedAt = null) {
         for (const role of ['supports', 'undermines']) {
             for (const v of r.edges[role]) {
                 if (!byRef.has(v.ref)) byRef.set(v.ref, { claim: v.claim, entries: [] });
-                byRef.get(v.ref).entries.push({ hypothesis_id: r.id, role });
+                const agg = byRef.get(v.ref);
+                // Sibling edges to one ref may differ in resolvability
+                // (one carries a snapshot, one doesn't) — keep the
+                // first resolvable view rather than a first-seen null.
+                if (!agg.claim && v.claim) agg.claim = v.claim;
+                agg.entries.push({ hypothesis_id: r.id, role });
             }
         }
     }
@@ -294,16 +322,17 @@ export function buildHypothesisMap(input, generatedAt = null) {
         shared_claims: sharedClaims,
         dangling: { edges: danglingEdges },
         coverage: {
-            hypotheses:      rows.length,
-            seeded:          rows.filter((r) => r.seeded).length,
-            persisted:       rows.filter((r) => r.persisted).length,
-            edges:           edgeCount,
-            supports:        rows.reduce((n, r) => n + r.edges.supports.length, 0),
-            undermines:      rows.reduce((n, r) => n + r.edges.undermines.length, 0),
-            claims:          byRef.size,
-            shared_claims:   sharedClaims.length,
-            opposing_claims: sharedClaims.filter((s) => s.opposing).length,
-            dangling_edges:  danglingEdges.length
+            hypotheses:          rows.length,
+            seeded:              rows.filter((r) => r.seeded).length,
+            persisted:           rows.filter((r) => r.persisted).length,
+            edges:               edgeCount,
+            supports:            rows.reduce((n, r) => n + r.edges.supports.length, 0),
+            undermines:          rows.reduce((n, r) => n + r.edges.undermines.length, 0),
+            claims:              byRef.size,
+            shared_claims:       sharedClaims.length,
+            opposing_claims:     sharedClaims.filter((s) => s.opposing).length,
+            dangling_edges:      danglingEdges.length,
+            unlabeled_positions: unlabeledPositions
         }
     };
 }
