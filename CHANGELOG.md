@@ -12,6 +12,24 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 25.2a — the Network page + follows feed.** A standalone
+  full-tab surface (`src/network/`, new `network.bundle.js`; opened
+  via the toolbar right-click menu, Options, or the sidepanel — all
+  behind the new default-off `networkPage` flag). Follow researchers
+  by npub on the **Follows** tab; the **Feed** pulls what they publish
+  (articles 30023, claims 30040, assessments 30054, links 30055,
+  findings 30062, verdicts 30063 — first-class on the authors axis —
+  integrity 30064, case briefs 30068, accounts 32126, labels 1985)
+  through the existing one-shot relay query. Rendering follows the
+  KS §8 discipline: per-author groups strictly newest-first (no
+  ranking), npubs beside names, a "builds on unfollowed" provenance
+  badge, per-author cap (newest 100), and events from authors outside
+  the follow set — which the filters never asked for — collapse to
+  untrusted per-author counts (the evil-relay defense). The per-kind
+  feed parsing is extracted from the KS.4 entity feed
+  (`parseFeedEvent`) so both feeds render identical rows. Rendering
+  writes nothing into local models — incorporation is the next slice.
+
 - **Phase 25.1 — the follow engine.** The KS.5 follow-set registry
   (`follow-model.js`, storage key `follow_sets`): one shape for every
   anchor — per-case, per-entity, and the new **global** (person-level)

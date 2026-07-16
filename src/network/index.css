@@ -1,0 +1,302 @@
+/* X-Ray Network page — Phase 25 (docs/NETWORK_CLIENT_DESIGN.md).
+ * Shares the token palette with options / reader / portal. */
+
+:root {
+  --xr-bg:        #1a1a1a;
+  --xr-surface:   #242424;
+  --xr-surface-2: #2e2e2e;
+  --xr-text:      #e6e6e6;
+  --xr-text-dim:  #9a9a9a;
+  --xr-border:    #333;
+  --xr-primary:        #8b5cf6;
+  --xr-primary-hover:  #7c3aed;
+  --xr-accent:   #22d3ee;
+  --xr-success:  #34d399;
+  --xr-warning:  #fbbf24;
+  --xr-danger:   #f87171;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --xr-bg:        #fafafa;
+    --xr-surface:   #ffffff;
+    --xr-surface-2: #f3f4f6;
+    --xr-text:      #1f2937;
+    --xr-text-dim:  #6b7280;
+    --xr-border:    #e5e7eb;
+  }
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--xr-bg);
+  color: var(--xr-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+}
+
+body.xr-network {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+[hidden] { display: none !important; }
+
+/* ---------------- header ---------------- */
+
+.xr-network__chrome {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--xr-surface);
+  border-bottom: 1px solid var(--xr-border);
+}
+
+.xr-network__chrome-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.xr-network__brand {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.xr-network__tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.xr-network__tab {
+  padding: 5px 12px;
+  background: transparent;
+  color: var(--xr-text-dim);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.xr-network__tab:hover { color: var(--xr-text); }
+
+.xr-network__tab--active {
+  background: var(--xr-surface-2);
+  color: var(--xr-text);
+  border-color: var(--xr-border);
+}
+
+.xr-network__btn {
+  padding: 5px 12px;
+  background: var(--xr-primary);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.xr-network__btn:hover { background: var(--xr-primary-hover); }
+
+.xr-network__btn--ghost {
+  background: transparent;
+  color: var(--xr-text-dim);
+  border: 1px solid var(--xr-border);
+}
+
+.xr-network__btn--ghost:hover { color: var(--xr-text); background: var(--xr-surface-2); }
+
+/* ---------------- status / empty ---------------- */
+
+.xr-network__status {
+  padding: 6px 16px;
+  font-size: 12px;
+  color: var(--xr-text-dim);
+  border-bottom: 1px solid var(--xr-border);
+}
+
+.xr-network__empty {
+  margin: 48px auto;
+  max-width: 560px;
+  text-align: center;
+  color: var(--xr-text-dim);
+  line-height: 1.6;
+}
+
+/* ---------------- main / feed ---------------- */
+
+.xr-network__main {
+  flex: 1;
+  padding: 12px 16px 24px;
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.xr-network__group {
+  margin: 0 0 16px;
+  border: 1px solid var(--xr-border);
+  border-radius: 8px;
+  background: var(--xr-surface);
+  overflow: hidden;
+}
+
+.xr-network__group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--xr-surface-2);
+  border-bottom: 1px solid var(--xr-border);
+  font-size: 13px;
+}
+
+.xr-network__group-name { font-weight: 600; }
+
+.xr-network__npub {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--xr-text-dim);
+  word-break: break-all;
+}
+
+.xr-network__badge {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  border: 1px solid var(--xr-border);
+  color: var(--xr-text-dim);
+  white-space: nowrap;
+}
+
+.xr-network__badge--self { color: var(--xr-accent); border-color: var(--xr-accent); }
+.xr-network__badge--warn { color: var(--xr-warning); border-color: var(--xr-warning); }
+
+.xr-network__rows { list-style: none; margin: 0; padding: 0; }
+
+.xr-network__row {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--xr-border);
+}
+
+.xr-network__row:last-child { border-bottom: none; }
+
+.xr-network__row-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.xr-network__kind {
+  font-size: 11px;
+  color: var(--xr-accent);
+  white-space: nowrap;
+}
+
+.xr-network__row-title { flex: 1; min-width: 200px; }
+
+.xr-network__row-date {
+  font-size: 11px;
+  color: var(--xr-text-dim);
+  white-space: nowrap;
+}
+
+.xr-network__row details { margin-top: 6px; }
+
+.xr-network__row summary {
+  font-size: 11px;
+  color: var(--xr-text-dim);
+  cursor: pointer;
+}
+
+.xr-network__raw {
+  margin: 6px 0 0;
+  padding: 8px;
+  background: var(--xr-bg);
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+  font-size: 11px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* Collapsed unfollowed material (KS §8): one line per author,
+   metadata only. */
+.xr-network__collapsed {
+  margin: 16px 0 0;
+  padding: 8px 12px;
+  border: 1px dashed var(--xr-border);
+  border-radius: 8px;
+  color: var(--xr-text-dim);
+  font-size: 12px;
+}
+
+.xr-network__collapsed-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 2px 0;
+}
+
+/* ---------------- follows ---------------- */
+
+.xr-network__add {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.xr-network__add input {
+  flex: 1;
+  min-width: 220px;
+  padding: 6px 10px;
+  background: var(--xr-surface);
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+  color: var(--xr-text);
+}
+
+.xr-network__follows-note {
+  font-size: 12px;
+  color: var(--xr-text-dim);
+  margin-bottom: 12px;
+}
+
+.xr-network__follow-list { list-style: none; margin: 0; padding: 0; }
+
+.xr-network__follow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--xr-border);
+  border-radius: 8px;
+  background: var(--xr-surface);
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.xr-network__follow-label { font-weight: 600; }
+
+/* ---------------- footer ---------------- */
+
+.xr-network__footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  font-size: 11px;
+  color: var(--xr-text-dim);
+  border-top: 1px solid var(--xr-border);
+  flex-wrap: wrap;
+}

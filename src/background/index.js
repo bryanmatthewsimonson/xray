@@ -29,6 +29,7 @@ import { handleScreenshotCapture } from '../shared/screenshot.js';
 import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, getCorpusConfig } from '../shared/llm-client.js';
 import { pdfDocumentUrl } from '../shared/pdf-detect.js';
 import { Signer } from '../shared/signer.js';
+import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 
 // Pull the debug preference on SW startup. MV3 service workers sleep
 // and wake, so this runs each time the SW reloads. A chrome.storage
@@ -44,10 +45,17 @@ import { Signer } from '../shared/signer.js';
 })();
 
 chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'local' || !changes.preferences) return;
-    const raw = changes.preferences.newValue;
-    const prefs = typeof raw === 'string' ? safeParse(raw) : (raw || {});
-    if (prefs && typeof prefs.debug === 'boolean') Utils.setDebug(prefs.debug);
+    if (area !== 'local') return;
+    if (changes.preferences) {
+        const raw = changes.preferences.newValue;
+        const prefs = typeof raw === 'string' ? safeParse(raw) : (raw || {});
+        if (prefs && typeof prefs.debug === 'boolean') Utils.setDebug(prefs.debug);
+    }
+    // Flag flips rebuild the context menus so flag-gated surfaces
+    // (the Network page) appear/disappear without an extension reload.
+    if (changes['xray:flags']) {
+        try { registerContextMenus(); } catch (_) { /* best-effort */ }
+    }
 });
 
 function safeParse(s) { try { return JSON.parse(s); } catch (_) { return null; } }
@@ -56,6 +64,7 @@ const MENU_IDS = {
     OPEN_CAPTURE: 'xray:open-capture',
     OPEN_ENTITIES: 'xray:open-entities',
     OPEN_PORTAL: 'xray:open-portal',
+    OPEN_NETWORK: 'xray:open-network',
     OPEN_SETTINGS: 'xray:open-settings',
     CAPTURE_TIPS: 'xray:capture-tips'
 };
@@ -66,11 +75,17 @@ const CAPTURE_TIPS_URL = 'https://github.com/bryanmatthewsimonson/xray/blob/main
 // Context menus
 // ------------------------------------------------------------------
 
-function registerContextMenus() {
+async function registerContextMenus() {
     // The browser-action click captures the active tab and opens it in
     // the reader (see chrome.action.onClicked below). The right-click
     // menu hosts the same capture action plus the jump-to-other-surfaces
     // actions that used to live in the popup.
+    //
+    // Flag-gated surfaces (the Network page) read their flag fresh on
+    // every registration — the SW re-registers on install/startup, and
+    // the storage listener below rebuilds when `xray:flags` changes.
+    let networkOn = false;
+    try { await loadFlags(); networkOn = isEnabled('networkPage'); } catch (_) { /* default off */ }
     chrome.contextMenus.removeAll(() => {
         chrome.contextMenus.create({
             id: MENU_IDS.OPEN_CAPTURE,
@@ -87,6 +102,13 @@ function registerContextMenus() {
             title: 'Open My Archive',
             contexts: ['action']
         });
+        if (networkOn) {
+            chrome.contextMenus.create({
+                id: MENU_IDS.OPEN_NETWORK,
+                title: 'Open Network',
+                contexts: ['action']
+            });
+        }
         chrome.contextMenus.create({
             id: MENU_IDS.OPEN_SETTINGS,
             title: 'Settings…',
@@ -135,6 +157,15 @@ async function openEntityBrowser() {
  */
 function openPortal() {
     chrome.tabs.create({ url: chrome.runtime.getURL('src/portal/index.html') });
+}
+
+/**
+ * Open the Network page (Phase 25) — a full-tab extension page, same
+ * pattern as the portal. The surface is flag-gated (`networkPage`);
+ * the page itself shows an enable hint when opened with the flag off.
+ */
+function openNetwork() {
+    chrome.tabs.create({ url: chrome.runtime.getURL('src/network/index.html') });
 }
 
 /**
@@ -254,6 +285,10 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         openPortal();
         return;
     }
+    if (info.menuItemId === MENU_IDS.OPEN_NETWORK) {
+        openNetwork();
+        return;
+    }
     if (info.menuItemId === MENU_IDS.CAPTURE_TIPS) {
         chrome.tabs.create({ url: CAPTURE_TIPS_URL });
         return;
@@ -303,6 +338,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     if (message.type === 'xray:openPortal') {
         openPortal();
+        sendResponse({ ok: true });
+        return false;
+    }
+    if (message.type === 'xray:openNetwork') {
+        openNetwork();
         sendResponse({ ok: true });
         return false;
     }

@@ -27,6 +27,7 @@ import { parseAssessmentEvent } from './assessment-model.js';
 import { parseRelationshipEvent } from './evidence-linker.js';
 import { parseBehavioralFindingEvent } from './forensic-model.js';
 import { parseAdjudicatedVerdictEvent, parseIntegrityFindingEvent } from './truth-builders.js';
+import { parseCaseBriefEvent } from './corpus-publish.js';
 
 export const FEED_HOP1_KINDS = [30023, 30040, 32126, 30054, 30062, 30064, 1985];
 export const FEED_HOP2_KINDS = [30054, 30055, 30063, 1985];
@@ -103,7 +104,38 @@ function parseLabelRow(event) {
     };
 }
 
-function collectCandidatePubkeys(event, known, out) {
+/**
+ * Per-kind feed parsing, shared verbatim between the entity feed
+ * (KS.4) and the Phase-25 network feed so the two render identical
+ * rows for the same event. Returns `{key, parsed}` — `key` names the
+ * feed bucket — or null for unknown kinds / malformed events (a
+ * throwing parser counts as malformed).
+ */
+export function parseFeedEvent(ev) {
+    if (!ev || typeof ev.kind !== 'number' || !ev.pubkey) return null;
+    let parsed = null;
+    let key = null;
+    try {
+        switch (ev.kind) {
+            case 30023: parsed = parseArticleMeta(ev);                         key = 'articles';    break;
+            case 30040: parsed = parseClaimEvent(ev);                          key = 'claims';      break;
+            case 32126: parsed = EventBuilder.reconstructPlatformAccount(ev);  key = 'accounts';    break;
+            case 30054: parsed = parseAssessmentEvent(ev);                     key = 'assessments'; break;
+            case 30055: parsed = parseRelationshipEvent(ev);                   key = 'links';       break;
+            case 30062: parsed = parseBehavioralFindingEvent(ev);              key = 'findings';    break;
+            case 30063: parsed = parseAdjudicatedVerdictEvent(ev);             key = 'verdicts';    break;
+            case 30064: parsed = parseIntegrityFindingEvent(ev);               key = 'integrity';   break;
+            case 30068: parsed = parseCaseBriefEvent(ev);                      key = 'briefs';      break;
+            case 1985:  parsed = parseLabelRow(ev);                            key = 'labels';      break;
+            default: return null;
+        }
+    } catch (_) {
+        return null;
+    }
+    return parsed ? { key, parsed } : null;
+}
+
+export function collectCandidatePubkeys(event, known, out) {
     for (const t of event.tags || []) {
         if (!Array.isArray(t) || t[0] !== 'p' || !t[1] || !/^[0-9a-f]{64}$/i.test(t[1])) continue;
         const role = t[3] || '';
@@ -161,30 +193,16 @@ export function assembleFeed(hop1Events, hop2Events = [], { knownPubkeys = [] } 
     const candidateMap = new Map();
 
     for (const ev of events) {
-        if (!ev || typeof ev.kind !== 'number' || !ev.pubkey) continue;
-        let parsed = null;
-        let bucket = null;
-        try {
-            switch (ev.kind) {
-                case 30023: parsed = parseArticleMeta(ev);            bucket = feed.articles;    break;
-                case 30040: parsed = parseClaimEvent(ev);             bucket = feed.claims;      break;
-                case 32126: parsed = EventBuilder.reconstructPlatformAccount(ev); bucket = feed.accounts; break;
-                case 30054: parsed = parseAssessmentEvent(ev);        bucket = feed.assessments; break;
-                case 30055: parsed = parseRelationshipEvent(ev);      bucket = feed.links;       break;
-                case 30062: parsed = parseBehavioralFindingEvent(ev); bucket = feed.findings;    break;
-                case 30063: parsed = parseAdjudicatedVerdictEvent(ev); bucket = feed.verdicts;   break;
-                case 30064: parsed = parseIntegrityFindingEvent(ev);  bucket = feed.integrity;   break;
-                case 1985:  parsed = parseLabelRow(ev);               bucket = feed.labels;      break;
-                default: continue;
-            }
-        } catch (_) {
-            parsed = null;   // a throwing parser counts as malformed
-        }
-        if (!parsed) continue;
+        const res = parseFeedEvent(ev);
+        if (!res) continue;
+        // The entity feed keeps its pre-25.2a bucket set — kinds the
+        // dispatch knows but this feed doesn't fetch (30068) drop here.
+        const bucket = feed[res.key];
+        if (!bucket) continue;
 
         const d = ((ev.tags || []).find((t) => Array.isArray(t) && t[0] === 'd') || [])[1];
         feed.authors.set(ev.pubkey, (feed.authors.get(ev.pubkey) || 0) + 1);
-        bucket.push({ event: ev, parsed, coord: d ? `${ev.kind}:${ev.pubkey}:${d}` : null });
+        bucket.push({ event: ev, parsed: res.parsed, coord: d ? `${ev.kind}:${ev.pubkey}:${d}` : null });
         collectCandidatePubkeys(ev, known, candidateMap);
     }
 

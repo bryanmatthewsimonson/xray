@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>X-Ray — Network</title>
+  <link rel="stylesheet" href="index.css" />
+</head>
+<body class="xr-network">
+  <header class="xr-network__chrome">
+    <div class="xr-network__chrome-left">
+      <span class="xr-network__brand">🩻 X-Ray — Network</span>
+      <nav class="xr-network__tabs" aria-label="View">
+        <button class="xr-network__tab" data-view="feed">Feed</button>
+        <button class="xr-network__tab" data-view="follows">Follows</button>
+      </nav>
+    </div>
+    <div class="xr-network__chrome-right">
+      <button class="xr-network__btn" id="xr-refresh"
+              title="Pull what your follows have published (point-in-time; nothing streams)">↻ Refresh</button>
+    </div>
+  </header>
+
+  <div class="xr-network__status" id="xr-status" hidden></div>
+
+  <main class="xr-network__main">
+    <!-- Flag-off / empty-state notice -->
+    <div class="xr-network__empty" id="xr-empty" hidden></div>
+
+    <!-- Feed view: per-author groups, newest-first; unfollowed material
+         collapses to counts (KS §8 / TC §3 rendering discipline). -->
+    <section class="xr-network__feed" id="xr-feed" hidden></section>
+
+    <!-- Follows view: the global follow list (follow-model.js). -->
+    <section class="xr-network__follows" id="xr-follows" hidden>
+      <form class="xr-network__add" id="xr-follow-form">
+        <input type="text" id="xr-follow-input" placeholder="Follow someone: npub1… or hex pubkey" autocomplete="off" />
+        <input type="text" id="xr-follow-label" placeholder="Label (optional, local-only)" autocomplete="off" maxlength="60" />
+        <button type="submit" class="xr-network__btn">Follow</button>
+      </form>
+      <div class="xr-network__follows-note">Follows are stored locally and
+      never published. (An opt-in mirror is planned; it will ask first.)</div>
+      <ol class="xr-network__follow-list" id="xr-follow-list"></ol>
+    </section>
+  </main>
+
+  <footer class="xr-network__footer">
+    <span id="xr-footer-relays"></span>
+    <span class="xr-network__footer-note">The feed asks your configured
+    relays for events signed by the keys you follow. Relays can see that
+    request. Nothing renders as trusted without a valid signature.</span>
+  </footer>
+
+  <script src="../../dist/network.bundle.js"></script>
+</body>
+</html>
