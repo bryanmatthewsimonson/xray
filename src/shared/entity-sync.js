@@ -359,20 +359,23 @@ export async function pushRelayList({ userPrivkey, relays }) {
 }
 
 /**
- * Pull the latest NIP-65 relay list for the user's pubkey. Returns
+ * Pull the latest NIP-65 relay list for ANY pubkey (Phase 25.1 — the
+ * follow engine harvests hints from followees' kind 10002). Returns
  * the discovered relay URLs (deduped, valid `wss://` only) along
  * with the event timestamp so the caller can decide whether to apply
  * it. Does NOT mutate local storage — caller decides whether to
  * merge or replace.
  */
-export async function pullRelayList({ userPrivkey, relays, timeoutMs = 5000 }) {
+export async function pullRelayListFor({ pubkey, relays, timeoutMs = 5000 }) {
     if (!Array.isArray(relays) || relays.length === 0) {
-        throw new Error('pullRelayList: no relays');
+        throw new Error('pullRelayListFor: no relays');
     }
-    const userPubkey = Crypto.getPublicKey(userPrivkey);
+    if (!/^[0-9a-f]{64}$/.test(String(pubkey || ''))) {
+        throw new Error('pullRelayListFor: invalid pubkey');
+    }
     const { events } = await NostrClient.queryRelays(
         relays,
-        { kinds: [10002], authors: [userPubkey], limit: 1 },
+        { kinds: [10002], authors: [pubkey], limit: 1 },
         timeoutMs
     );
     if (events.length === 0) return { found: false, relays: [], createdAt: null };
@@ -385,6 +388,15 @@ export async function pullRelayList({ userPrivkey, relays, timeoutMs = 5000 }) {
         }
     }
     return { found: true, relays: [...out], createdAt: newest.created_at };
+}
+
+/**
+ * Pull the latest NIP-65 relay list for the user's own pubkey — the
+ * original entry point, now a thin wrapper over pullRelayListFor.
+ */
+export async function pullRelayList({ userPrivkey, relays, timeoutMs = 5000 }) {
+    const userPubkey = Crypto.getPublicKey(userPrivkey);
+    return pullRelayListFor({ pubkey: userPubkey, relays, timeoutMs });
 }
 
 /**
