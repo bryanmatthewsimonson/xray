@@ -1804,6 +1804,30 @@ NIP-02); no mute list; no sidepanel KS.4 feed changes.
 
 ---
 
+## Phase 26 — Corpus analysis, deepened 🚧 shipped (safe wins) + design-only (speculative)
+
+Driven from a maintainer review of the COVID-origins case dashboard.
+The **safe wins shipped** (Phase-26 prep, T1.1–T1.3): download the
+corpus brief (.md/.json), surface the provenance the brief already
+carried (crux evidence quotes, load-bearing source links, position
+holders), surface cross-article claim links, and clarify the
+Evidence/Case-graph vocabulary. Two larger capabilities are
+**design-only, pending maintainer review** — both bounded by the
+epistemic firewall (no fused score/probability; structure, not
+estimation):
+
+- 📝 **Hypothesis map** — competing answers to the case question with
+  captured claims attached as *supporting/undermining* structural
+  evidence, side by side, model never picks, no score
+  ([`HYPOTHESIS_MAP_DESIGN.md`](HYPOTHESIS_MAP_DESIGN.md)).
+- 📝 **Structural counterfactual** — "what depends on this claim":
+  the maintainer's "Monte Carlo" ask reframed to counts-with-derivation
+  over the case graph, never probabilities (the constitution's answer
+  to Rootclaim-style scoring is a deliberate no)
+  ([`COUNTERFACTUAL_DESIGN.md`](COUNTERFACTUAL_DESIGN.md)).
+
+---
+
 ## Abandonment criteria
 
 From issue #20 — bears repeating. At any phase boundary, if the cost
