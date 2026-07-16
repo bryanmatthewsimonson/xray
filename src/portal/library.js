@@ -24,6 +24,7 @@ import {
 } from '../shared/audit/builders.js';
 import { parseBehavioralFindingEvent } from '../shared/forensic-model.js';
 import { parseAdjudicatedVerdictEvent, parseIntegrityFindingEvent } from '../shared/truth-builders.js';
+import { parseCaseBriefEvent } from '../shared/corpus-publish.js';
 
 // Tags written by this extension (current + userscript-era value).
 export const OUR_CLIENT_TAGS = new Set(['xray', 'nostr-article-capture']);
@@ -42,6 +43,7 @@ export const TYPE_DEFS = [
     { key: 'finding',    label: 'Findings' },
     { key: 'verdict',    label: 'Verdicts' },
     { key: 'integrity',  label: 'Integrity' },
+    { key: 'brief',      label: 'Briefs' },
     { key: 'link',       label: 'Links' },
     { key: 'entity',     label: 'Entities' },
     { key: 'case',       label: 'Cases' },
@@ -74,7 +76,8 @@ const KIND_LABELS = {
     30061: 'Dispute',
     30062: 'Behavioral finding',
     30063: 'Adjudicated verdict',
-    30064: 'Integrity finding'
+    30064: 'Integrity finding',
+    30068: 'Case brief'
 };
 
 export function kindLabel(kind) {
@@ -117,9 +120,12 @@ function buildItem(record, entityIndex) {
 
     switch (event.kind) {
         case 30023: {
-            typeKey = 'article';
-            title = firstTag(event, 'title') || '(untitled capture)';
-            sub = domainOf(url) || url;
+            // Phase 23.2 — a published corpus brief IS a 30023 article
+            // carrying the xray-case-brief marker; route it to Briefs.
+            const isBrief = tagValues(event, 't').includes('xray-case-brief');
+            typeKey = isBrief ? 'brief' : 'article';
+            title = firstTag(event, 'title') || (isBrief ? 'Case brief' : '(untitled capture)');
+            sub = isBrief ? 'readable corpus brief' : (domainOf(url) || url);
             // 13.7: the canonical article hash (13.4's x tag) — the
             // join key audit events anchor on. Null on pre-13.4 events.
             extra.articleHash = firstTag(event, 'x') || null;
@@ -354,6 +360,22 @@ function buildItem(record, entityIndex) {
                 extra.parsedIntegrity = f;
                 haystack.push(f.match, f.subjectPubkey, subj, f.word && f.word.class,
                     f.standardOfProof, f.url);
+            }
+            break;
+        }
+        // ---- Phase 23.2 structured case brief (read-back) ----------
+        case 30068: {
+            const b = parseCaseBriefEvent(event);
+            if (b) {
+                typeKey = 'brief';
+                title = b.title || `Case brief — ${b.caseName || 'case'}`;
+                const parts = [];
+                if (b.brief.positions.length) parts.push(`${b.brief.positions.length} positions`);
+                if (b.brief.cruxes.length) parts.push(`${b.brief.cruxes.length} cruxes`);
+                if (b.memberHashes.length) parts.push(`${b.memberHashes.length} sources`);
+                sub = parts.join(' · ') || 'structured corpus brief';
+                extra.parsedBrief = b;
+                haystack.push(title, b.caseName, b.brief.summary, b.scopeQuestion);
             }
             break;
         }

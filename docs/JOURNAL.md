@@ -19,6 +19,36 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-16 — Publish the corpus brief (Phase 23.2b — portal wiring)
+
+Tags: `design`.
+
+Wired the 23.2a builders into the portal: a "Publish brief…" button on
+the case dashboard signs both artifacts with the USER's primary identity
+(`Signer.signEvent`, not the entity keys) and publishes via
+`xray:relay:publish`, and a new **Briefs** library tab reads them back.
+
+Decisions worth remembering:
+- **Signed by the user, published from the portal.** Unlike entity
+  profiles (signed by the entity key), the brief is the user's synthesis
+  — `Signer.signEvent` (Local mode; NIP-07-in-portal stays the known
+  limitation) then the already-signed `xray:relay:publish` path. Relays
+  resolve from `Storage.preferences.default_relays` else FALLBACK_RELAYS.
+- **memberIndex from the live member units, not the stored record.** The
+  stored brief keeps only a member COUNT, so the publish action rebuilds
+  `{article_hash → {url, title}}` from `buildMemberUnits` (always in
+  scope on the dashboard) — so quote source-links work for a stored
+  brief too, not just a fresh run.
+- **The 30023 brief routes to Briefs, not Articles.** `buildItem`
+  detects the `xray-case-brief` `t` marker and re-routes; a normal
+  article without it stays an Article. Both the readable 30023 and the
+  structured 30068 land in the same Briefs tab.
+- **Left OUT of `LEDGERED_KINDS` on purpose.** The publish doesn't write
+  a local publish-ledger entry, so 30068 stays "no-ledger" (neutral)
+  rather than being mislabeled "remote-only" against an absent ledger.
+
+---
+
 ## 2026-07-16 — Publish the corpus brief (Phase 23.2a — builders)
 
 Tags: `design`.

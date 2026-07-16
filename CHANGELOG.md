@@ -12,6 +12,21 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 23.2 — publish the corpus analysis.** The Phase-20 corpus
+  synthesis (summary / opposing positions / cruxes / load-bearing claims
+  / gaps) can now be **published to NOSTR** from the case dashboard's
+  "Publish brief…" button, so a stranger with only a keypair can read
+  the insights. Two artifacts, user-signed and cross-linked: a
+  **readable kind-30023 long-form article** (readable in any NOSTR
+  client — the "article that shows the insights") and a **structured
+  kind-30068 `CaseBrief`** event (rendered richly in X-Ray). Both are
+  prose/data only — **no fused score, no verdict** (the Phase-20 firewall
+  carried onto the wire, guard-tested), and the reviewer-facing
+  `proposals` never publish. The portal reads both back into a new
+  **Briefs** tab with an inspector summary. **Wire:** new addressable
+  kind **30068** (additive; existing consumers unaffected).
+  `docs/NIP_DRAFT.md` §"Kind 30068 — CaseBrief".
+
 - **Phase 23.1b — per-link evidence role (citation intent).** Each
   outbound link in a capture can be tagged with WHY the article cites it
   — `evidence` (the primary source relied on), `mention`, `supports`,

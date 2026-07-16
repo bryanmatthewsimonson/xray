@@ -25,6 +25,18 @@ import {
     validateCorpusExtract, validateCaseBrief, groundCaseBrief, filterProposals
 } from '../shared/case-synthesis.js';
 import { renderProposals } from './synthesis-review.js';
+import { Signer } from '../shared/signer.js';
+import { Storage } from '../shared/storage.js';
+import { FALLBACK_RELAYS } from './corpus.js';
+import { buildCaseBriefArticle, buildCaseBriefEvent } from '../shared/corpus-publish.js';
+
+async function resolveRelays() {
+    try {
+        const prefs = await Storage.preferences.get() || {};
+        if (Array.isArray(prefs.default_relays) && prefs.default_relays.length) return prefs.default_relays;
+    } catch (_) { /* fall through */ }
+    return FALLBACK_RELAYS;
+}
 
 function sendMessage(msg) {
     return new Promise((resolve) => {
@@ -149,8 +161,47 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
             }
         }
         const memberByHash = {};
-        for (const m of members) memberByHash[m.article_hash] = { url: m.url, caseId };
+        for (const m of members) memberByHash[m.article_hash] = { url: m.url, title: m.title, caseId };
         const memberHashes = new Set(members.map((m) => m.article_hash));
+
+        // Publish the brief as a readable kind-30023 article + the
+        // structured kind-30068 CaseBrief (23.2b). User-signed (the
+        // primary identity — the user's synthesis), both cross-linked.
+        const publishBrief = async (record, btn, pubStatus) => {
+            btn.disabled = true;
+            pubStatus.textContent = 'Publishing…';
+            try {
+                const relays = await resolveRelays();
+                if (!relays.length) { pubStatus.textContent = 'No relays configured.'; btn.disabled = false; return; }
+                const userPubkey = await Signer.getPublicKey();
+                if (!userPubkey) { pubStatus.textContent = 'No signing identity — set one in Options.'; btn.disabled = false; return; }
+                const opts = {
+                    record,
+                    caseName: data.case.name || '',
+                    scopeQuestion: (dossier.scope && dossier.scope.question) || '',
+                    memberIndex: memberByHash,
+                    userPubkey
+                };
+                const article = buildCaseBriefArticle(opts);
+                const structured = buildCaseBriefEvent(opts);
+                let ok = 0;
+                for (const unsigned of [article, structured]) {
+                    const signed = await Signer.signEvent({ ...unsigned, pubkey: userPubkey });
+                    const resp = await sendMessage({ type: 'xray:relay:publish', event: signed, relays });
+                    if (resp && resp.ok) ok += 1;
+                    else Utils.error('brief publish failed', resp && resp.error);
+                }
+                pubStatus.textContent = ok === 2
+                    ? 'Published — the article is readable in any NOSTR client.'
+                    : ok === 1 ? 'Partly published (one artifact failed) — see console.'
+                    : 'Publish failed — see console.';
+            } catch (err) {
+                Utils.error('publishBrief', err);
+                pubStatus.textContent = `Publish failed: ${(err && err.message) || 'unknown error'}`;
+            } finally {
+                btn.disabled = false;
+            }
+        };
 
         const renderStored = (record) => {
             briefHost.replaceChildren();
@@ -167,6 +218,19 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                 prov.appendChild(chip);
             }
             briefHost.appendChild(prov);
+
+            // Publish the brief so a stranger with a keypair can read it
+            // (23.2b). A readable 30023 article + the structured 30068.
+            const pubRow = el('div', 'xr-synth__publish');
+            const pubBtn = el('button', 'xr-portal__btn xr-portal__btn--ghost', 'Publish brief…');
+            pubBtn.type = 'button';
+            pubBtn.title = 'Publish this brief to your relays — a readable article any NOSTR client can open, plus the structured X-Ray form';
+            const pubStatus = el('span', 'xr-synth__status');
+            pubBtn.addEventListener('click', () => publishBrief(record, pubBtn, pubStatus));
+            pubRow.appendChild(pubBtn);
+            pubRow.appendChild(pubStatus);
+            briefHost.appendChild(pubRow);
+
             briefHost.appendChild(section(record.brief));
             const filtered = filterProposals(record.brief, { claimsById, memberHashes });
             renderProposals(proposalHost, {

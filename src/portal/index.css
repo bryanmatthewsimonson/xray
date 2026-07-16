@@ -680,6 +680,12 @@ button.xr-badge--case { cursor: pointer; background: transparent; }
 .xr-inspector__srctype { margin: 6px 0; font-size: 13px; color: var(--xr-text-dim); }
 .xr-inspector__roles { margin: 8px 0; }
 .xr-inspector__roles-head { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+/* Phase 23.2 — corpus-brief publish row + inspector brief section. */
+.xr-synth__publish { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.xr-inspector__brief { margin: 8px 0; }
+.xr-inspector__brief-summary { margin: 0 0 6px; }
+.xr-inspector__brief-counts { font-size: 13px; color: var(--xr-text-dim); }
+.xr-inspector__brief-note { font-size: 12px; color: var(--xr-text-dim); margin-top: 6px; }
 .xr-inspector__role-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
 .xr-inspector__role-link { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

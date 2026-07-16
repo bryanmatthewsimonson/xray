@@ -1239,6 +1239,10 @@ episode page works), then use the reader's **🎙 Media…** toolbar button.
 | 23.d | Capture a news write-up / op-ed | ✅ the suggestion is **Reporting / Analysis** respectively (from schema.org type) — confirm or change; a `reference`/undeclared capture shows no primary badge |
 | 23.e | Capture an article that links to a paper → **🎙 Media & source** → **Outbound links** → set the paper's role to **Disputes** (and another to **Cited as evidence**) → Save → Publish | ✅ the raw kind-30023 event's `link` tag for that URL carries the 4th positional `disputes` (and `evidence`); the **hash line is unchanged** (tag-side) |
 | 23.f | Portal inspect that event | ✅ a **Cited sources** list shows each roled link with its role badge; an undeclared-role link is not listed |
+| 23.g | Open a case dashboard with a stored corpus brief → **Publish brief…** (Local signing) | ✅ status reads "Published — the article is readable in any NOSTR client"; no errors in console |
+| 23.h | Portal library → **Briefs** tab | ✅ two new rows for the case: a **Case brief** (kind 30068, "N positions · M cruxes · K sources") and the readable article (kind 30023, routed here by the `xray-case-brief` marker, not to Articles) |
+| 23.i | Inspect the 30068 brief | ✅ the drawer shows the summary + counts + a "grounded: N verified, M pruned … a map, not a ruling" note; the raw event's content has NO score/verdict field and NO `proposals` |
+| 23.j | Open the published 30023 article URL in a **non-X-Ray** NOSTR long-form client (e.g. Habla) | ✅ it reads as a coherent brief — summary, positions, cruxes, load-bearing claims, gaps — with every quote linked to its source |
 
 ---
 

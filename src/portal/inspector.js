@@ -94,6 +94,22 @@ function renderAuditSection(host, audit) {
 // Behavioral finding (14.4): the named maneuver + its ordered evidence
 // chain + the REQUIRED counter-read. No score, no verdict — the field
 // table and this section never assert intent.
+function renderCaseBriefSection(host, brief) {
+    const box = el('div', 'xr-inspector__brief');
+    const b = brief.brief || {};
+    if (b.summary) box.appendChild(el('p', 'xr-inspector__brief-summary', b.summary));
+    const counts = [];
+    if ((b.positions || []).length) counts.push(`${b.positions.length} position${b.positions.length === 1 ? '' : 's'}`);
+    if ((b.cruxes || []).length) counts.push(`${b.cruxes.length} crux${b.cruxes.length === 1 ? '' : 'es'}`);
+    if ((b.load_bearing || []).length) counts.push(`${b.load_bearing.length} load-bearing claim${b.load_bearing.length === 1 ? '' : 's'}`);
+    if ((brief.memberHashes || []).length) counts.push(`${brief.memberHashes.length} member source${brief.memberHashes.length === 1 ? '' : 's'}`);
+    if (counts.length) box.appendChild(el('div', 'xr-inspector__brief-counts', counts.join(' · ')));
+    box.appendChild(el('div', 'xr-inspector__brief-note',
+        `Grounded: ${brief.grounding.checked} quote${brief.grounding.checked === 1 ? '' : 's'} verified, ${brief.grounding.dropped} pruned. `
+        + 'A readable article (kind 30023, same case) carries this as prose for any NOSTR client. No score — a map, not a ruling.'));
+    host.appendChild(box);
+}
+
 function renderFindingSection(host, finding) {
     const section = el('div', 'xr-inspector__finding');
     section.appendChild(el('h3', 'xr-case__heading', 'Behavioral finding'));
@@ -375,6 +391,12 @@ export function renderInspector(host, item, { status = 'no-ledger', onClose, aud
     }
     if (item.kind === 30064 && item.parsedIntegrity) {
         renderIntegritySection(host, item.parsedIntegrity);
+    }
+
+    // 23.2 — the structured case brief: summary + counts + a note on the
+    // readable sibling article.
+    if (item.kind === 30068 && item.parsedBrief) {
+        renderCaseBriefSection(host, item.parsedBrief);
     }
 
     const details = el('details', 'xr-inspector__raw');

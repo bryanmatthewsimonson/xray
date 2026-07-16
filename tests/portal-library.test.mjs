@@ -175,9 +175,12 @@ test('EMPTY_FILTERS and TYPE_DEFS are pinned', () => {
             'finding',
             // Phase 15.9 facets:
             'verdict', 'integrity',
+            // Phase 23.2 facet:
+            'brief',
             'link', 'entity', 'case', 'account', 'other']);
     assert.equal(kindLabel(30040), 'Claim');
     assert.equal(kindLabel(30062), 'Behavioral finding');
+    assert.equal(kindLabel(30068), 'Case brief');
     assert.equal(kindLabel(12345), 'kind 12345');
 });
 
@@ -249,4 +252,43 @@ test('library: 30063/30064 classify as verdict/integrity items with parsed paylo
     const noCaveat = { ...v.event, tags: v.event.tags.filter((t) => t[0] !== 'caveat'), pubkey: PK, id: 'a'.repeat(64) };
     const badItem = buildItems([{ event: noCaveat, relays: [] }], { entityIndex: {} })[0];
     assert.equal(badItem.typeKey, 'other');
+});
+
+// ---- Phase 23.2 case briefs (read-back) ----------------------------
+
+const { buildCaseBriefArticle, buildCaseBriefEvent } = await import('../src/shared/corpus-publish.js');
+
+const BRIEF_RECORD = {
+    caseId: 'entity_case1', promptVersion: 'corpus-v1', members: 2,
+    grounding: { checked: 4, dropped: 0 },
+    brief: {
+        summary: 'A short synthesis.',
+        positions: [{ label: 'A', core_argument: 'x', holders: [{ article_hash: 'a'.repeat(64) }] }],
+        cruxes: [{ question: 'Q?', sides: [], evidence_refs: [], what_would_resolve: '' }],
+        load_bearing: [], coverage_gaps: []
+    }
+};
+
+test('buildItems: a structured 30068 routes to the Briefs tab with counts', () => {
+    const ev = buildCaseBriefEvent({ record: BRIEF_RECORD, caseName: 'My Case', userPubkey: USER_PK, createdAt: 1000 });
+    const item = buildItems([{ event: { ...ev, id: 'brief68', pubkey: USER_PK }, relays: [] }], { entityIndex: {} })[0];
+    assert.equal(item.typeKey, 'brief');
+    assert.ok(item.title.includes('My Case'));
+    assert.ok(item.sub.includes('position'));
+    assert.ok(item.parsedBrief && item.parsedBrief.brief.summary === 'A short synthesis.');
+});
+
+test('buildItems: the readable 30023 brief (xray-case-brief marker) also lands in Briefs', () => {
+    const ev = buildCaseBriefArticle({ record: BRIEF_RECORD, caseName: 'My Case', userPubkey: USER_PK, createdAt: 1000 });
+    const item = buildItems([{ event: { ...ev, id: 'brief23', pubkey: USER_PK }, relays: [] }], { entityIndex: {} })[0];
+    assert.equal(item.typeKey, 'brief', 'marker routes the article to Briefs, not Articles');
+    assert.ok(item.title.includes('Case brief'));
+
+    // A normal article without the marker stays an Article.
+    const plain = buildItems([{ event: { id: 'x', kind: 30023, pubkey: USER_PK, created_at: 1, tags: [['title', 'Normal'], ['r', 'https://x/y']], content: '# a' }, relays: [] }], { entityIndex: {} })[0];
+    assert.equal(plain.typeKey, 'article');
+});
+
+test('TYPE_DEFS includes a Briefs tab', () => {
+    assert.ok(TYPE_DEFS.some((d) => d.key === 'brief' && d.label === 'Briefs'));
 });
