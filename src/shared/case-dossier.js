@@ -140,6 +140,7 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
     // Links, endpoints pre-canonicalized once.
     const contradicts = [];
     const attestations = [];
+    const related = [];
     const orbitClaimIdForProposition = new Set(orbitPropositions.map((p) => p.claim_id));
     for (const link of Object.values(allLinks)) {
         const sourceRef = canon(link.source_claim_id);
@@ -153,14 +154,24 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
                 && orbitClaimIdForProposition.has(targetRef)) {
             attestations.push(withRefs);
         }
+        // Phase 26 CF.1 — the wider typed-edge family the structural
+        // counterfactual walks: EVERY supports/updates/duplicates link
+        // with an orbit endpoint (supports WITH attestation rides here
+        // too — `attestations` stays the §3.2-filtered view).
+        if (['supports', 'updates', 'duplicates'].includes(link.relationship)
+                && (orbitClaimIds.has(sourceRef) || orbitClaimIds.has(targetRef))) {
+            related.push(withRefs);
+        }
     }
     // Contradicts in id order (deterministic knot node ordering).
     // Attestations in AUTHORING order (created, then id) — the
     // convergence baseline is the earliest-authored origin, so this
-    // order must reach attestationConvergence intact.
+    // order must reach attestationConvergence intact. Related in id
+    // order (no order-sensitive consumer).
     const byIdAsc = (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
     contradicts.sort(byIdAsc);
     attestations.sort((a, b) => (a.created || 0) - (b.created || 0) || byIdAsc(a, b));
+    related.sort(byIdAsc);
 
     return {
         case: {
@@ -187,7 +198,7 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
         integrity:     integrityHeads,
         integrityAll:  allIntegrity,
         forensic,
-        links:         { contradicts, attestations },
+        links:         { contradicts, attestations, related },
         articles,
         predictions,
         resolutions,
