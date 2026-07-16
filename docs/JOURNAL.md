@@ -46,6 +46,16 @@ Decisions worth remembering:
 - The `link` evidence-role axis (per-link citation intent, CiTO subset)
   is the companion 23.1b slice.
 
+23.1b landed the second axis: the `link` tag's optional 4th positional
+carries the citation intent (`evidence`/`mention`/`supports`/`disputes`/
+`reviews`). Gotcha worth remembering: `reconstructArticleFromEvent`
+reads roles from `tagArrays['link']`, which stores tags with the leading
+NAME STRIPPED — so the role is `v[2]`, not `v[3]`. The portal inspector,
+reading raw `event.tags`, correctly finds it at index 3. Same value,
+two indices depending on whether the tag name is present. Roles are
+tag-side (the `link` tags carry them), so declaring them never changes
+the body hash.
+
 ---
 
 ## 2026-07-15 — LLM-suggested claims missed the transcript speaker (22.3)

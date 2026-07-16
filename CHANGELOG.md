@@ -12,6 +12,18 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 23.1b — per-link evidence role (citation intent).** Each
+  outbound link in a capture can be tagged with WHY the article cites it
+  — `evidence` (the primary source relied on), `mention`, `supports`,
+  `disputes`, or `reviews` — from the reader's Media & source dialog. A
+  lay-relabelled CiTO subset. This is what marks a debater's article as
+  *disputing* the primary paper vs. *citing it as evidence*; combined
+  with the target's `source-type`, it's a visible secondary→primary
+  derivation edge. The portal inspector lists a capture's roled "cited
+  sources." **Wire (additive, kind 30023):** an optional 4th positional
+  on the existing `link` tag, whitelisted both directions — no new kind.
+  `docs/NIP_DRAFT.md` §"`link` tag".
+
 - **Phase 23.1 — source-type provenance (evidence classification).** Any
   capture can now be declared a `primary-record` / `primary-research` /
   `reporting` / `analysis` / `reference` source from the reader's **🎙

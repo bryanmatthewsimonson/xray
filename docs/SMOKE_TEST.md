@@ -1237,6 +1237,8 @@ episode page works), then use the reader's **🎙 Media…** toolbar button.
 | 23.b | Set source type → Save → **Publish** → portal inspect the raw event | ✅ the kind-30023 event carries `['source-type','primary-research']`; the **hash line is unchanged** (tag-side) |
 | 23.c | Portal library row for a primary-source capture | ✅ a **★ Primary research** badge shows on the row; the inspector drawer names the source type |
 | 23.d | Capture a news write-up / op-ed | ✅ the suggestion is **Reporting / Analysis** respectively (from schema.org type) — confirm or change; a `reference`/undeclared capture shows no primary badge |
+| 23.e | Capture an article that links to a paper → **🎙 Media & source** → **Outbound links** → set the paper's role to **Disputes** (and another to **Cited as evidence**) → Save → Publish | ✅ the raw kind-30023 event's `link` tag for that URL carries the 4th positional `disputes` (and `evidence`); the **hash line is unchanged** (tag-side) |
+| 23.f | Portal inspect that event | ✅ a **Cited sources** list shows each roled link with its role badge; an undeclared-role link is not listed |
 
 ---
 

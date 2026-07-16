@@ -235,6 +235,16 @@ means the **originating** artifact others cite, not a write-up of it.
 The declaration is metadata (it doesn't change the capture's content
 hash), and primary sources get a badge in the portal.
 
+**How the article cites its links.** The same dialog has an **Outbound
+links** section listing the article's external links. For each, you can
+declare *why* it's cited: **Cited as evidence** (the primary source the
+argument relies on), **Mentioned** (background), **Supports**,
+**Disputes**, or **Reviews**. This is what distinguishes a debater's
+article that *disputes* the original paper from one that *cites it as
+evidence* — and, combined with the linked paper's own *Primary research*
+source type, traces the secondary→primary chain across a case. Roles are
+optional metadata; leaving them unset changes nothing.
+
 ## Podcast transcripts (import)
 
 A podcast episode lives at a URL — Spotify, Apple Podcasts, Substack,

@@ -1735,6 +1735,17 @@ async function applyMediaResult(result) {
     // block. All tag-side fields — assembleArticleBody never sees them.
     if (result.media) a.media = result.media; else delete a.media;
     if (result.sourceType) a.source_type = result.sourceType; else delete a.source_type;
+
+    // Per-link evidence roles (23.1b) — the `link` tags carry the role,
+    // so this is tag-side too (no body-hash change). An unset role
+    // clears any prior one.
+    if (result.linkRoles && Array.isArray(a.links)) {
+        for (const link of a.links) {
+            if (!link || !link.url) continue;
+            const role = result.linkRoles[link.url];
+            if (role) link.role = role; else delete link.role;
+        }
+    }
     if (result.podcast) {
         a.podcast = { ...result.podcast };
         // The capture URL is the episode address when it's a real one.

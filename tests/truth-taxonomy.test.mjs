@@ -15,7 +15,8 @@ const {
     TRUTH_ADJUDICABLE_CLASSES, isTruthAdjudicable,
     integrityRole, isIntegrityEligible,
     HEDGE_LEVELS, TRACTABILITIES, isValidSuggestedBy,
-    SOURCE_TYPES, SOURCE_TYPE_LABELS, isValidSourceType, isPrimarySourceType, suggestSourceType
+    SOURCE_TYPES, SOURCE_TYPE_LABELS, isValidSourceType, isPrimarySourceType, suggestSourceType,
+    EVIDENCE_ROLES, EVIDENCE_ROLE_LABELS, isValidEvidenceRole
 } = await import('../src/shared/truth-taxonomy.js');
 
 test('truth-taxonomy: proposition classes are exhaustive (§3.1)', () => {
@@ -137,4 +138,17 @@ test('suggestSourceType: scholarly ids ⇒ primary-research; schema.org types ma
     assert.equal(suggestSourceType({ structuredData: { type: 'BlogPosting' } }), null);
     assert.equal(suggestSourceType({}), null);
     assert.equal(suggestSourceType(null), null);
+});
+
+// ---- Phase 23.1b: evidence role (citation intent) ------------------
+
+test('evidence-role: enum is exhaustive with labels (CiTO subset)', () => {
+    assert.deepEqual([...EVIDENCE_ROLES],
+        ['evidence', 'mention', 'supports', 'disputes', 'reviews']);
+    for (const v of EVIDENCE_ROLES) assert.ok(EVIDENCE_ROLE_LABELS[v], `label for ${v}`);
+    assert.ok(isValidEvidenceRole('evidence'));
+    assert.ok(isValidEvidenceRole('disputes'));
+    assert.ok(!isValidEvidenceRole('cites'));
+    assert.ok(!isValidEvidenceRole(''));
+    assert.ok(!isValidEvidenceRole(null));
 });
