@@ -270,6 +270,36 @@ test('reconstructArticleFromEvent: media round-trips; unknown value reads as abs
     assert.equal(EventBuilder.reconstructArticleFromEvent(plain).media, null);
 });
 
+// --- Phase 23.1 user-declared source type ----------------------------
+
+test('buildArticleEvent: source-type tag emits for known values only', async () => {
+    for (const v of ['primary-record', 'primary-research', 'reporting', 'analysis', 'reference']) {
+        const ev = await EventBuilder.buildArticleEvent(
+            { url: 'https://x/y', title: 'T', markdown: '# a', source_type: v }, [], PUBKEY, []);
+        assert.deepEqual(ev.tags.find((t) => t[0] === 'source-type'), ['source-type', v]);
+    }
+    for (const article of [
+        { url: 'https://x/y', title: 'T', markdown: '# a' },
+        { url: 'https://x/y', title: 'T', markdown: '# a', source_type: 'gossip' }
+    ]) {
+        const ev = await EventBuilder.buildArticleEvent(article, [], PUBKEY, []);
+        assert.ok(!ev.tags.some((t) => t[0] === 'source-type'), 'unexpected source-type tag');
+    }
+});
+
+test('reconstructArticleFromEvent: source_type round-trips; unknown value reads as absent', async () => {
+    const ev = await EventBuilder.buildArticleEvent(
+        { url: 'https://x/y', title: 'T', markdown: '# a', source_type: 'primary-research' }, [], PUBKEY, []);
+    assert.equal(EventBuilder.reconstructArticleFromEvent(ev).source_type, 'primary-research');
+
+    const forged = { ...ev, tags: ev.tags.map((t) => (t[0] === 'source-type' ? ['source-type', 'gossip'] : t)) };
+    assert.equal(EventBuilder.reconstructArticleFromEvent(forged).source_type, null);
+
+    const plain = await EventBuilder.buildArticleEvent(
+        { url: 'https://x/y', title: 'T', markdown: '# a' }, [], PUBKEY, []);
+    assert.equal(EventBuilder.reconstructArticleFromEvent(plain).source_type, null);
+});
+
 test('buildRelayListEvent stamps created_at to a recent unix second', () => {
     const before = Math.floor(Date.now() / 1000);
     const ev = EventBuilder.buildRelayListEvent(['wss://a'], PUBKEY);

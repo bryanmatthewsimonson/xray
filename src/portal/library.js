@@ -123,6 +123,8 @@ function buildItem(record, entityIndex) {
             // 13.7: the canonical article hash (13.4's x tag) — the
             // join key audit events anchor on. Null on pre-13.4 events.
             extra.articleHash = firstTag(event, 'x') || null;
+            // Phase 23.1 — user-declared source type (provenance badge).
+            extra.sourceType = firstTag(event, 'source-type') || null;
             haystack.push(title, sub, url, ...tagValues(event, 't'), firstTag(event, 'author'));
             break;
         }

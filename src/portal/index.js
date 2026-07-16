@@ -37,6 +37,7 @@ import {
     predictionsDue, resolverIdentity, DEFAULT_POPULATION_MEAN
 } from './audit-data.js';
 import { auditCardChipData } from '../shared/audit/display.js';
+import { SOURCE_TYPE_LABELS, isPrimarySourceType } from '../shared/truth-taxonomy.js';
 import { listRuns, listPredictions, listResolutions } from '../shared/audit/audit-cache.js';
 import { PredictionModel } from '../shared/audit/audit-model.js';
 import { listArticles as listArchiveArticles } from '../shared/archive-cache.js';
@@ -264,6 +265,18 @@ function buildRow(item) {
                     : '');
             badges.appendChild(b);
         }
+    }
+    // Phase 23.1 — source-type badge (provenance). Primary sources get
+    // a highlighted badge; the rest a subtle one. Absent when undeclared.
+    if (item.sourceType && SOURCE_TYPE_LABELS[item.sourceType]) {
+        const primary = isPrimarySourceType(item.sourceType);
+        const b = el('span',
+            `xr-badge ${primary ? 'xr-badge--primary-source' : ''}`,
+            (primary ? '★ ' : '') + SOURCE_TYPE_LABELS[item.sourceType]);
+        b.title = primary
+            ? 'Declared a primary source — the originating record/research, not a write-up'
+            : 'Declared source type';
+        badges.appendChild(b);
     }
     if (isOtherClient(item)) {
         badges.appendChild(el('span', 'xr-badge xr-badge--warn', `via ${truncate(item.client, 24)}`));

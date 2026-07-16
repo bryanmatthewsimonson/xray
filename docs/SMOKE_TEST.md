@@ -1229,6 +1229,17 @@ episode page works), then use the reader's **🎙 Media…** toolbar button.
 
 ---
 
+## Phase 23 — Publish the corpus + evidence provenance (23.1+)
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 23.a | Capture a scientific paper (with a DOI) → reader **🎙 Media & source** | ✅ the Source-type dropdown **suggests "Primary research"**; the hint names it |
+| 23.b | Set source type → Save → **Publish** → portal inspect the raw event | ✅ the kind-30023 event carries `['source-type','primary-research']`; the **hash line is unchanged** (tag-side) |
+| 23.c | Portal library row for a primary-source capture | ✅ a **★ Primary research** badge shows on the row; the inspector drawer names the source type |
+| 23.d | Capture a news write-up / op-ed | ✅ the suggestion is **Reporting / Analysis** respectively (from schema.org type) — confirm or change; a `reference`/undeclared capture shows no primary badge |
+
+---
+
 ## Reporting
 
 For each defect found:

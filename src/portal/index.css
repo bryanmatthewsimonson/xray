@@ -675,6 +675,9 @@ body.xr-portal {
 .xr-badge--action { cursor: pointer; color: var(--xr-primary); border-color: var(--xr-primary); background: transparent; }
 .xr-badge--action:hover { background: var(--xr-surface-2); }
 button.xr-badge--case { cursor: pointer; background: transparent; }
+/* Phase 23.1 — primary-source provenance badge. */
+.xr-badge--primary-source { color: var(--xr-success); border-color: var(--xr-success); font-weight: 600; }
+.xr-inspector__srctype { margin: 6px 0; font-size: 13px; color: var(--xr-text-dim); }
 
 /* ---------------- empty state ---------------- */
 

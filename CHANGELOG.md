@@ -12,6 +12,19 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 23.1 — source-type provenance (evidence classification).** Any
+  capture can now be declared a `primary-record` / `primary-research` /
+  `reporting` / `analysis` / `reference` source from the reader's **🎙
+  Media & source** dialog — auto-suggested from scholarly identifiers
+  and schema.org type, confirmed by the user. Distinguishes an
+  originating primary source (e.g. the *Proximal Origins* paper) from a
+  write-up that cites it. Grounded in the library primary/secondary/
+  tertiary distinction + the epistemic-audit source taxonomy. The portal
+  shows a primary-source badge. **Wire (additive, kind 30023):** one new
+  `['source-type', <value>]` tag, whitelisted both directions, distinct
+  from `content_format`/`media` and from the verdict `tier` ladder — no
+  new kind. `docs/NIP_DRAFT.md` §"source-type".
+
 - **Phase 22 — URL-first media metadata + reader transcript attach
   (22.1–22.2).** The URL is the episode's identity: capture a podcast
   episode's page (Spotify, Apple, Substack, YouTube, a custom site) like

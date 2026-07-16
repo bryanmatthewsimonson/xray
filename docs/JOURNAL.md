@@ -19,6 +19,35 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-16 — Source-type provenance (Phase 23.1)
+
+Tags: `design`.
+
+Phase 23 opens the "publish the corpus + evidence provenance" arc. First
+slice: mark what KIND of source a capture is, so a primary paper is
+distinguishable from an article that cites it (the maintainer's
+Proximal-Origins example).
+
+Decisions worth remembering:
+- **Two orthogonal axes, not one.** `source-type` (what it IS: primary
+  record/research vs reporting/analysis/reference) is separate from the
+  existing `tier-1/2/3` evidence ladder (how well-sourced a specific
+  claim is) and from `content_format`/`media` (what MEDIUM). Conflating
+  them was the trap; the research (library taxonomy + CiTO + PROV + EBM
+  hierarchies) confirmed they're distinct dimensions.
+- **User-declared, never inferred.** `suggestSourceType` reads scholarly
+  ids + schema.org `@type` as a HINT shown in the dropdown; the tag only
+  emits what the user confirms — the same posture as the Phase-22 media
+  tag. A DOI/arXiv `i` tag is itself the machine-checkable originality
+  proof; the human declaration complements it.
+- **Tag-side field, no body-hash change.** `article.source_type` rides
+  the reader's Media dialog like `media`/`podcast` (22.2) — declaring it
+  on an already-published capture doesn't touch the `x` hash.
+- The `link` evidence-role axis (per-link citation intent, CiTO subset)
+  is the companion 23.1b slice.
+
+---
+
 ## 2026-07-15 — LLM-suggested claims missed the transcript speaker (22.3)
 
 Tags: `bug`.

@@ -14,7 +14,8 @@ const {
     OCCURRED_PRECISIONS, isValidOccurredPrecision,
     TRUTH_ADJUDICABLE_CLASSES, isTruthAdjudicable,
     integrityRole, isIntegrityEligible,
-    HEDGE_LEVELS, TRACTABILITIES, isValidSuggestedBy
+    HEDGE_LEVELS, TRACTABILITIES, isValidSuggestedBy,
+    SOURCE_TYPES, SOURCE_TYPE_LABELS, isValidSourceType, isPrimarySourceType, suggestSourceType
 } = await import('../src/shared/truth-taxonomy.js');
 
 test('truth-taxonomy: proposition classes are exhaustive (§3.1)', () => {
@@ -105,4 +106,35 @@ test('truth-taxonomy: prediction vocabulary is re-exported, not forked', async (
     assert.equal(TRACTABILITIES, builders.TRACTABILITIES, 'same frozen array instance');
     const assessment = await import('../src/shared/assessment-taxonomy.js');
     assert.equal(isValidSuggestedBy, assessment.isValidSuggestedBy, 'same provenance validator');
+});
+
+// ---- Phase 23.1: source type (provenance vocabulary) ---------------
+
+test('source-type: enum is exhaustive with labels, primary rungs flagged', () => {
+    assert.deepEqual([...SOURCE_TYPES],
+        ['primary-record', 'primary-research', 'reporting', 'analysis', 'reference']);
+    for (const v of SOURCE_TYPES) assert.ok(SOURCE_TYPE_LABELS[v], `label for ${v}`);
+    assert.ok(isValidSourceType('primary-research'));
+    assert.ok(!isValidSourceType('made-up'));
+    // Only the two primary rungs get the badge.
+    assert.ok(isPrimarySourceType('primary-record'));
+    assert.ok(isPrimarySourceType('primary-research'));
+    for (const v of ['reporting', 'analysis', 'reference', '', null]) {
+        assert.ok(!isPrimarySourceType(v), `${v} is not primary`);
+    }
+});
+
+test('suggestSourceType: scholarly ids ⇒ primary-research; schema.org types map; else null', () => {
+    assert.equal(suggestSourceType({ scholar: { doi: '10.1038/x' } }), 'primary-research');
+    assert.equal(suggestSourceType({ scholar: { journal: 'Nature' } }), 'primary-research');
+    assert.equal(suggestSourceType({ scholar: { arxiv_id: '2001.00001' } }), 'primary-research');
+    assert.equal(suggestSourceType({ structuredData: { type: 'OpinionPiece' } }), 'analysis');
+    assert.equal(suggestSourceType({ structuredData: { type: 'AnalysisNewsArticle' } }), 'analysis');
+    assert.equal(suggestSourceType({ structuredData: { type: 'NewsArticle' } }), 'reporting');
+    assert.equal(suggestSourceType({ structuredData: { type: 'ScholarlyArticle' } }), 'primary-research');
+    // scholarly identity wins over a generic schema type.
+    assert.equal(suggestSourceType({ scholar: { doi: '10.x/y' }, structuredData: { type: 'NewsArticle' } }), 'primary-research');
+    assert.equal(suggestSourceType({ structuredData: { type: 'BlogPosting' } }), null);
+    assert.equal(suggestSourceType({}), null);
+    assert.equal(suggestSourceType(null), null);
 });

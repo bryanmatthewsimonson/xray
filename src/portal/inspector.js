@@ -14,6 +14,7 @@ import { replaceableKey } from '../shared/nostr-events.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { Utils } from '../shared/utils.js';
 import { auditCardChipData } from '../shared/audit/display.js';
+import { SOURCE_TYPE_LABELS, isPrimarySourceType } from '../shared/truth-taxonomy.js';
 
 // Audit section (13.7): every run anchored to this article —
 // side-by-side, never averaged (PHILOSOPHY P8) — with module results
@@ -299,6 +300,13 @@ export function renderInspector(host, item, { status = 'no-ledger', onClose, aud
         }
     });
     actions.appendChild(copy);
+
+    if (item.kind === 30023 && item.sourceType && SOURCE_TYPE_LABELS[item.sourceType]) {
+        const line = el('div', 'xr-inspector__srctype',
+            `Source type: ${SOURCE_TYPE_LABELS[item.sourceType]}`
+            + (isPrimarySourceType(item.sourceType) ? ' — primary source' : ''));
+        host.appendChild(line);
+    }
 
     if (item.kind === 30023) {
         const open = el('button', 'xr-portal__btn', 'Open in reader');

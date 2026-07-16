@@ -21,6 +21,7 @@
 // + backdrop + Escape, self-injected <style> (xr-media-* only).
 
 import { parseTranscript, describeTranscriptParse } from '../shared/transcript-parse.js';
+import { SOURCE_TYPES, SOURCE_TYPE_LABELS, suggestSourceType } from '../shared/truth-taxonomy.js';
 
 function escapeHtml(s) {
     return String(s == null ? '' : s)
@@ -50,13 +51,33 @@ function buildHtml(article) {
     const hasTranscript = !!article.transcript_meta;
     const opt = (v, label) =>
         `<option value="${v}" ${media === v ? 'selected' : ''}>${label}</option>`;
+
+    // Source type — prefill from the stored value, else the suggestion
+    // (a hint, not an auto-set: the dropdown stays on "not set" until
+    // the user picks). Phase 23.1.
+    const srcType = article.source_type || '';
+    const suggestion = srcType ? null : suggestSourceType(article);
+    const srcOpt = (v) =>
+        `<option value="${v}" ${srcType === v ? 'selected' : ''}>${escapeHtml(SOURCE_TYPE_LABELS[v])}</option>`;
+
     return `
       <div class="xr-media__backdrop"></div>
-      <div class="xr-media__card" role="dialog" aria-label="Media and transcript">
+      <div class="xr-media__card" role="dialog" aria-label="Media, source and transcript">
         <header class="xr-media__head">
-          <h3 class="xr-media__title">🎙 Media &amp; transcript</h3>
+          <h3 class="xr-media__title">🎙 Media &amp; source</h3>
         </header>
         <div class="xr-media__body">
+          <label class="xr-media__field">
+            <span class="xr-media__label">Source type</span>
+            <select id="xr-media-srctype">
+              <option value="">not declared</option>
+              ${SOURCE_TYPES.map(srcOpt).join('\n              ')}
+            </select>
+            <span class="xr-media__hint">${suggestion
+                ? `What KIND of source this is. Suggested: <strong>${escapeHtml(SOURCE_TYPE_LABELS[suggestion])}</strong> — confirm or change.`
+                : 'What KIND of source this is — a primary record/paper vs. reporting, analysis, or a summary.'}</span>
+          </label>
+
           <label class="xr-media__field">
             <span class="xr-media__label">This URL contains</span>
             <select id="xr-media-type">
@@ -102,7 +123,7 @@ function buildHtml(article) {
 
 /**
  * @param {object} article  the open article (prefills; never mutated here)
- * @returns {Promise<{media: string|null, podcast: object|null, parse: object|null}|null>}
+ * @returns {Promise<{media: string|null, sourceType: string|null, podcast: object|null, parse: object|null}|null>}
  *   null on cancel. `parse` is a parseTranscript result (turns present)
  *   when the user pasted a transcript, else null.
  */
@@ -205,8 +226,11 @@ export function openMediaModal(article) {
                 }
             }
 
+            const sourceType = $('#xr-media-srctype').value || null;
+
             close({
                 media,
+                sourceType,
                 podcast: Object.keys(podcast).length ? podcast : null,
                 parse
             });
