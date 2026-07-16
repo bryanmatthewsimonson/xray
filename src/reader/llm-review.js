@@ -91,6 +91,11 @@ const EDIT_FIELDS = {
         { key: 'note', label: 'Note', type: 'text' }
     ],
     finding: [
+        // 27 F.3 — the misattribution backstop: the subject is
+        // correctable at review time (it was the ONE field you
+        // couldn't fix, before or after accept).
+        { key: 'subject_ref', label: 'Subject entity ref (E1, E2… from the entities above; blank = use label)', type: 'text' },
+        { key: 'subject_label', label: 'Subject label (who PERFORMS the move — not who reports it)', type: 'text' },
         { key: 'role', label: 'Role', type: 'select', options: ROLES },
         { key: 'maneuver', label: 'Maneuver', type: 'text' },
         { key: 'basis', label: 'Basis', type: 'select', options: BASIS_VALUES },
@@ -659,11 +664,14 @@ export async function openLlmReview(opts) {
                     return;
                 case 'finding':
                     await ForensicModel.create(buildFindingInput(p, {
-                        articleText: grounding, sourceRef, suggestedBy: sb, subjectLabel: subjectLabelOf(p, ctx)
+                        articleText: grounding, sourceRef, suggestedBy: sb,
+                        subjectLabel: subjectLabelOf(p, ctx), entityIdByRef
                     }));
                     return;
                 case 'baseline':
-                    await ForensicBaseline.create(buildBaselineInput(p, { sourceRef, subjectLabel: subjectLabelOf(p, ctx) }));
+                    await ForensicBaseline.create(buildBaselineInput(p, {
+                        sourceRef, subjectLabel: subjectLabelOf(p, ctx), entityIdByRef
+                    }));
                     return;
                 default:
                     throw new Error(`Unknown kind: ${row.kind}`);

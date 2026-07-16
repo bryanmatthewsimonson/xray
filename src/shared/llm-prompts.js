@@ -421,11 +421,21 @@ function rulesFindings() {
 FINDINGS (the criminology layer — name a structural MANEUVER a subject performs around the truth):
 - A finding describes a MOVE, never a verdict. There is NO field for intent, honesty, lying, or a score, by design — do not assert any.
 - subject_ref (or subject_label) identifies who. role is one of: ${ROLES.join(', ')}.
+- ATTRIBUTION — the most common error, so read carefully: the subject is the party who
+  PERFORMED the move — the speaker of the quoted words or the actor of the described
+  behavior. An author who describes, quotes, or criticizes SOMEONE ELSE's maneuver is
+  NOT performing it. When an article reports "X said the criticism was politically
+  motivated", the deflection is X's move, not the reporter's — even though the only
+  verbatim span available is the reporter's sentence. Anchor to that span, attribute
+  to X, and set basis "paraphrased" (the anchor evidences the move second-hand).
+  If you cannot determine WHO performed a move, OMIT the finding entirely.
 - maneuver names the move. Prefer a standard maneuver from the guide below; a lowercase custom token is allowed.
 - anchors is the evidence chain: at least ONE anchor, each with a VERBATIM quote. A finding with no quoted evidence is rejected.
 - counter_note is REQUIRED: the strongest alternative / exonerating reading — what would make this NOT the maneuver. A finding with no counter-read is rejected.
-- basis records how you know: use "quoted" ONLY when the evidence is a verbatim span; otherwise "paraphrased", "behavioral-cue", or "structural-inference".
-- Run this symmetrically — apply the same scrutiny to every party, not just one side.
+- basis records how you know: use "quoted" ONLY when the evidence is the subject's own verbatim words; otherwise "paraphrased", "behavioral-cue", or "structural-inference".
+- Run this symmetrically — apply the same scrutiny to every SPEAKER whose own moves the
+  text carries. Symmetric scrutiny means no party's moves are exempt; it does NOT mean
+  attributing the covered parties' moves to the journalist reporting them.
 
 MANEUVER GUIDE (definition / indicators / counter-indicators):
 ${maneuverGuideText()}`;

@@ -392,6 +392,35 @@ test('buildAssessmentInput: an unlocatable label quote saves the label WITHOUT a
     assert.equal(input.labels[1].label, 'unsupported');
 });
 
+test('findings prompt carries the attribution rules — speaker vs reporter (27 F.2)', () => {
+    const sys = buildSystemPrompt({ tasks: ['findings'] });
+    assert.match(sys, /the party who\s+PERFORMED the move/);
+    assert.match(sys, /criticizes SOMEONE ELSE's maneuver is\s+NOT performing it/);
+    assert.match(sys, /the deflection is X's move, not the reporter's/);
+    assert.match(sys, /OMIT the finding entirely/);
+    assert.match(sys, /every SPEAKER whose own moves/);
+    assert.match(sys, /does NOT mean\s+attributing the covered parties' moves to the journalist/);
+});
+
+test('buildFindingInput/buildBaselineInput: subject carries identity_id when the ref resolved (27 F.3)', () => {
+    const entityIdByRef = { E1: 'identity_abc123' };
+    const base = { role: 'apologist', maneuver: 'darvo/deny', counter_note: 'c',
+                   anchors: [{ quote: 'q' }] };
+    const joined = P.buildFindingInput(
+        { ...base, subject_ref: 'E1' },
+        { articleText: ARTICLE_TEXT, sourceRef: { url: URL }, subjectLabel: 'Dr X', entityIdByRef });
+    assert.equal(joined.subject_ref.identity_id, 'identity_abc123');
+    assert.equal(joined.subject_ref.label, 'Dr X');
+    const labelOnly = P.buildFindingInput(
+        { ...base, subject_label: 'Someone' },
+        { articleText: ARTICLE_TEXT, sourceRef: { url: URL }, subjectLabel: 'Someone', entityIdByRef });
+    assert.equal(labelOnly.subject_ref.identity_id, null, 'no ref → label keyspace, honestly');
+    const baseline = P.buildBaselineInput(
+        { subject_ref: 'E1', note: 'even tone' },
+        { sourceRef: { url: URL }, subjectLabel: 'Dr X', entityIdByRef });
+    assert.equal(baseline.subject_ref.identity_id, 'identity_abc123');
+});
+
 test('buildFindingInput: anchor quotes are re-canonicalized to the article\'s text', () => {
     const input = P.buildFindingInput(
         { role: 'apologist', maneuver: 'darvo/deny', counter_note: 'c',

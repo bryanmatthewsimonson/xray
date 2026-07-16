@@ -298,6 +298,28 @@ export async function openFindingModal({
         syncSubject();
         syncManeuver();
         renderAnchors();
+
+        // Honest immutability (27 F.1): subject / maneuver / anchors
+        // DERIVE the finding's id — ForensicModel.update silently
+        // ignores edits to them, and until now this modal rendered
+        // them editable and discarded the changes on save. Freeze the
+        // structural controls on edit and say why.
+        if (existing) {
+            host.querySelectorAll(
+                '.xr-finding__subject, .xr-finding__custom-subject-input,'
+                + ' .xr-finding__man-btn, .xr-finding__custom-man-input,'
+                + ' .xr-finding__custom-man-add, .xr-finding__anchor-quote,'
+                + ' .xr-finding__anchor-mark, .xr-finding__anchor-del,'
+                + ' .xr-finding__anchor-add'
+            ).forEach((n) => { n.disabled = true; });
+            const hint = document.createElement('div');
+            hint.className = 'xr-finding__immutable-note';
+            hint.textContent = 'Subject, maneuver, and evidence anchors are this finding\'s identity '
+                + '— to change them, delete the finding and create a new one. '
+                + 'Role, note, counter-read, and basis stay editable.';
+            const err = host.querySelector('.xr-finding__err');
+            err.parentNode.insertBefore(hint, err.nextSibling);
+        }
     });
 }
 
@@ -538,6 +560,10 @@ function ensureStyles() {
 .xr-finding__title { margin: 0; font-size: 15px; flex: 1; }
 .xr-finding__close { background: none; border: none; color: inherit; cursor: pointer; font-size: 14px; }
 .xr-finding__body { padding: 12px 16px; overflow-y: auto; }
+.xr-finding__immutable-note {
+  border: 1px dashed var(--xr-border, #334155); border-radius: 6px;
+  padding: 6px 10px; margin-bottom: 10px; font-size: 12px; opacity: 0.85;
+}
 .xr-finding__err {
   background: color-mix(in srgb, var(--xr-danger, #f87171) 18%, transparent);
   border: 1px solid var(--xr-danger, #f87171); border-radius: 6px;
