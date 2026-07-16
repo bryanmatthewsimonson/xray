@@ -115,8 +115,8 @@ Phase 19 ████████████████████  COMPLETE 
 Parity with the v4.2 userscript is long reached; the project now ships
 claims, assessments, the "My Archive" portal, epistemic audits, forensic
 findings, opt-in LLM assist, and truth adjudication (Phase 15, merged as
-PR #89 — the manifest still says **v0.6.0**; no tag has been cut since
-v0.5.1, so a v0.7.0 release is due), plus the moral lens (Phase 16,
+PR #89 — **v0.7.0 tagged 2026-07-16**, the first release tag since
+v0.5.1, covering Phases 15.6–24.3), plus the moral lens (Phase 16,
 16.1–16.4 implemented per the 16.0.5 amendment; §Phase 16 smoke-run
 pending). The **FLF Epistack competition (deadline 2026-07-19) is being
 pursued maintainer-driven from real use cases (COVID first)**,

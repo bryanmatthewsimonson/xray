@@ -14,7 +14,7 @@
 | Jul 9–13 | COVID capture run continues | — |
 | Jul 12–13 | Eggs bounded pass ([`EPISTACK_EGGS_WORKSHEET.md`](EPISTACK_EGGS_WORKSHEET.md)) | — |
 | Jul 13–14 | SMOKE walk incl. §Phase 15 public-relay round trip | §2 |
-| Jul 14 | Cut v0.7.0 | §3 |
+| Jul 14 | Cut v0.7.0 — ✅ done Jul 16 | §3 |
 | Jul 15 | Publish corpus; verify from a second client | §4 |
 | Jul 15–16 | Second-investigator walkthrough | §5 |
 | Jul 16–17 | Fill writeup TBDs; baseline appendix; page check | §6 |
@@ -131,7 +131,13 @@ simultaneously the Phase 15 acceptance walk, the public-relay
 kind-acceptance confirmation, and CONTRIBUTING's smoke gate for the
 release tag. Fix what surfaces (Claude on-call) before §3.
 
-## §3. Cut v0.7.0 (Jul 14)
+## §3. Cut v0.7.0 (Jul 14) — ✅ DONE 2026-07-16
+
+Cut 2026-07-16 (two days behind the planned Jul 14). Steps kept below
+for the next release. One addition to the documented process: sync
+`package-lock.json` after `version:set` (`npm install
+--package-lock-only`) and include it in the release commit — `npm ci`
+in the workflows can reject a package.json↔lockfile version drift.
 
 Per `CONTRIBUTING.md` §"Cutting a release" — the last real tag is
 v0.5.1 (v0.6.0 bumped the manifest but was never tagged), so this is

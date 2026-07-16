@@ -10,6 +10,8 @@ Sections per release: **Added** (new features), **Changed**
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-07-16
+
 ### Added
 
 - **Phase 24.3 — rotation warnings + key recovery UX.** Switching,
@@ -123,27 +125,6 @@ Sections per release: **Added** (new features), **Changed**
   a `transcript_meta` (`<format>:<turns>:<speakers>`) manifest — bodies
   live in content, and all round-trip through `reconstructArticleFromEvent`.
   No new kind. `docs/NIP_DRAFT.md` §"podcast identity tags".
-
-### Fixed
-
-- **LLM-suggested claims on transcripts now identify the turn speaker
-  (22.3).** Accepting a ✨ Suggest… claim (or 19.6 fact) on a transcript
-  used to default "who said it" to the article byline. The accept path
-  now locates the claim's grounded quote in the rendered body, reads its
-  enclosing paragraph, and resolves the turn's `Speaker:` label exactly
-  like the manual Add-claim path — an existing person entity when one
-  matches, else the parsed name as free text (no entity is minted by
-  bulk accept). The epistemic-audit "Atomize as claim…" prefill gets the
-  same treatment. Non-transcript articles are unchanged.
-
-- **Case-synthesis proposals now reference real claims (20.6).** The
-  reduce stage was never handed the corpus's claim-id index, so
-  relationship/is_key proposals cited invented ids and were all
-  rejected in the "Proposals" block. The dossier digest now carries a
-  `claims` index the model must reference; self-links and duplicate
-  proposals are filtered out.
-
-### Added
 
 - **Phase 20 — case-first: making a case corpus usable (20.1–20.4).**
   Driven from the live COVID/Rootclaim corpus. **Union membership** — a
@@ -457,6 +438,23 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Fixed
 
+- **LLM-suggested claims on transcripts now identify the turn speaker
+  (22.3).** Accepting a ✨ Suggest… claim (or 19.6 fact) on a transcript
+  used to default "who said it" to the article byline. The accept path
+  now locates the claim's grounded quote in the rendered body, reads its
+  enclosing paragraph, and resolves the turn's `Speaker:` label exactly
+  like the manual Add-claim path — an existing person entity when one
+  matches, else the parsed name as free text (no entity is minted by
+  bulk accept). The epistemic-audit "Atomize as claim…" prefill gets the
+  same treatment. Non-transcript articles are unchanged.
+
+- **Case-synthesis proposals now reference real claims (20.6).** The
+  reduce stage was never handed the corpus's claim-id index, so
+  relationship/is_key proposals cited invented ids and were all
+  rejected in the "Proposals" block. The dossier digest now carries a
+  `claims` index the model must reference; self-links and duplicate
+  proposals are filtered out.
+
 - **Verdict and integrity-finding evidence is now cited, not typed**
   (TRUTH_ADJUDICATION_DESIGN amendment §5.5a). Evidence rows in the
   adjudicate and integrity modals are no longer free-text: each entry
@@ -667,8 +665,6 @@ Sections per release: **Added** (new features), **Changed**
   still sniff as PDFs, the extraction-quality banner stops claiming an
   archive exists when archiving failed, and `pruneSourceOrphans`
   gives the `source_documents` store its first cleanup path.
-
-### Fixed
 
 - **PDF figures (and any operator-list work) on older browsers.** pdf.js
   6.1.200 calls `Map.prototype.getOrInsertComputed` (inside
@@ -1993,7 +1989,8 @@ roadmap landed:
 - **Phase 7** — Archive reader: IndexedDB cache, paywall detection,
   relay-backed reconstruction.
 
-[Unreleased]: https://github.com/bryanmatthewsimonson/xray/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/bryanmatthewsimonson/xray/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/bryanmatthewsimonson/xray/compare/eee77e4...v0.7.0
 [0.6.0]: https://github.com/bryanmatthewsimonson/xray/compare/v0.5.1...eee77e4
 [0.5.1]: https://github.com/bryanmatthewsimonson/xray/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/bryanmatthewsimonson/xray/compare/v0.4.0...v0.5.0
