@@ -23,6 +23,7 @@ import { mountAddSources } from './add-sources.js';
 import { mountTranscriptImport } from './import-transcript.js';
 import { renderCaseGraph } from './case-graph-view.js';
 import { renderSynthesisBlock } from './synthesis-block.js';
+import { renderHypothesesBlock } from './hypothesis-block.js';
 import { Utils } from '../shared/utils.js';
 
 // Open a LOCAL archived record in the reader to extract claims from a
@@ -219,12 +220,14 @@ export function renderCaseView(host, params) {
     const shapeHost = el('div');
     const evidenceHost = el('div');
     const graphHost = el('div');
+    const hypothesesHost = el('div');
     const timelineHost = el('div');
     if (caseEnt && caseEnt.entityId) {
         host.appendChild(localCountsHost);
         host.appendChild(shapeHost);
         host.appendChild(evidenceHost);
         host.appendChild(graphHost);
+        host.appendChild(hypothesesHost);
         (async () => {
             // Collect once, then build the dossier AND the local graph
             // from the same `data` (the graph needs entitiesById/articles
@@ -260,6 +263,9 @@ export function renderCaseView(host, params) {
                 data, dossier,
                 callbacks: { onReloadCase: callbacks.onReloadCase }
             });
+            // 26 H.2 — the hypothesis map, assembled from the same
+            // shared `data`. Self-removes when the case has no map.
+            renderHypothesesBlock(hypothesesHost, { data });
             renderCaseTimeline(timelineHost, dossier);
         })().catch((err) => {
             Utils.error('Case dossier assembly failed', err);

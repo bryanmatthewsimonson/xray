@@ -1068,3 +1068,30 @@ button.xr-badge--case { cursor: pointer; background: transparent; }
   flex-wrap: wrap;
 }
 .xr-dossier__evidence-src { color: inherit; }
+
+/* --- Hypothesis map (26 H.2) — side-by-side competing answers.
+   Deliberately no bars, meters, or width-encodes-anything: cards are
+   equal-width columns; the layout itself must not read as a ranking. */
+.xr-hyp__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 10px;
+  margin: 8px 0;
+  align-items: start;
+}
+.xr-hyp__card {
+  border: 1px solid var(--xr-border);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.xr-hyp__card .xr-inspector__sub { margin: 2px 0 4px; }
+.xr-hyp__statement { font-size: 13px; margin: 2px 0 6px; }
+.xr-hyp__holders { font-size: 11.5px; margin: 2px 0 6px; }
+.xr-hyp__edge { margin: 6px 0; }
+.xr-hyp__edgeline {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+}
