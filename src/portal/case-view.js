@@ -63,6 +63,44 @@ function contradictedCoords(items) {
     return out;
 }
 
+// Claim titles by coordinate — so a cross-article link can name the
+// claim it points at (built from the case's own claim items).
+function claimTitleByCoord(items) {
+    const map = new Map();
+    for (const item of items) {
+        if (item.typeKey === 'claim' && item.claimCoord) map.set(item.claimCoord, item.title || '');
+    }
+    return map;
+}
+
+// Non-contradiction relationship links (supports / updates / duplicates)
+// touching each claim coordinate, both directions — the cross-article
+// links the dashboard never surfaced. Contradiction keeps its own ⚠
+// badge; the diachronic revision/* edges are a forensic surface,
+// excluded here. Returns coord → [{relationship, dir, otherCoord}].
+const RELATED_RELATIONSHIPS = new Set(['supports', 'updates', 'duplicates']);
+function relatedLinksByCoord(items) {
+    const map = new Map();
+    const add = (coord, entry) => {
+        if (!coord) return;
+        if (!map.has(coord)) map.set(coord, []);
+        map.get(coord).push(entry);
+    };
+    for (const item of items) {
+        if (item.typeKey !== 'link' || !RELATED_RELATIONSHIPS.has(item.relationship)) continue;
+        add(item.sourceCoord, { relationship: item.relationship, dir: 'out', otherCoord: item.targetCoord });
+        add(item.targetCoord, { relationship: item.relationship, dir: 'in', otherCoord: item.sourceCoord });
+    }
+    return map;
+}
+
+// "supports →" / "← supported by" phrasing per relationship + direction.
+const RELATED_PHRASE = {
+    supports:   { out: 'supports', in: 'supported by' },
+    updates:    { out: 'updates', in: 'updated by' },
+    duplicates: { out: 'duplicates', in: 'duplicated by' }
+};
+
 /**
  * @param {HTMLElement} host
  * @param {object} params
@@ -301,6 +339,8 @@ export function renderCaseView(host, params) {
     // --- claims with stance/⚠ badges ---
     const assessments = latestAssessmentByCoord(items);
     const contradicted = contradictedCoords(items);
+    const relatedLinks = relatedLinksByCoord(items);
+    const claimTitles = claimTitleByCoord(items);
     const claims = caseItems.filter((i) => i.typeKey === 'claim');
     const section = el('div', 'xr-case__claims');
     section.appendChild(el('h3', 'xr-case__heading', `Claims (${claims.length})`));
@@ -333,6 +373,19 @@ export function renderCaseView(host, params) {
         }
         row.appendChild(headRow);
         if (item.sub) row.appendChild(el('div', 'xr-row__sub', truncate(item.sub, 240)));
+        // Cross-article relationship links (supports/updates/duplicates)
+        // touching this claim — the links the dashboard never surfaced.
+        const related = item.claimCoord ? relatedLinks.get(item.claimCoord) : null;
+        if (related && related.length) {
+            const relRow = el('div', 'xr-case__related');
+            for (const r of related.slice(0, 6)) {
+                const phrase = (RELATED_PHRASE[r.relationship] || {})[r.dir] || r.relationship;
+                const other = (r.otherCoord && claimTitles.get(r.otherCoord)) || 'another claim';
+                relRow.appendChild(el('span', 'xr-badge xr-badge--muted',
+                    `${r.dir === 'out' ? '→' : '←'} ${phrase}: ${truncate(other, 60)}`));
+            }
+            row.appendChild(relRow);
+        }
         list.appendChild(row);
     }
     if (claims.length === 0) {
