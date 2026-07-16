@@ -38,6 +38,7 @@ import {
 } from './audit-data.js';
 import { auditCardChipData } from '../shared/audit/display.js';
 import { SOURCE_TYPE_LABELS, isPrimarySourceType } from '../shared/truth-taxonomy.js';
+import { computeCreatorBinding } from '../shared/identity-builders.js';
 import { listRuns, listPredictions, listResolutions } from '../shared/audit/audit-cache.js';
 import { PredictionModel } from '../shared/audit/audit-model.js';
 import { listArticles as listArchiveArticles } from '../shared/archive-cache.js';
@@ -290,6 +291,22 @@ function buildRow(item) {
             badge.addEventListener('click', () => viewCallbacks.onOpenCase(pk));
         }
         badges.appendChild(badge);
+    }
+    // 24.2 — creator-binding badge on entity/case rows: ✓ when the
+    // pubkey is manifest-listed AND token-verified, ◐ when only one
+    // check passes. Absent = unbound (pre-24.2 posture).
+    if ((item.typeKey === 'entity' || item.typeKey === 'case')
+            && item.event.pubkey && state.creatorBinding) {
+        const level = state.creatorBinding.get(item.event.pubkey);
+        if (level === 'full') {
+            const b = el('span', 'xr-badge xr-badge--agree', '✓ creator-bound');
+            b.title = 'Listed in your signed OwnedKeys manifest AND carries a valid NIP-26 delegation token';
+            badges.appendChild(b);
+        } else if (level === 'partial') {
+            const b = el('span', 'xr-badge', '◐ partially bound');
+            b.title = 'Only one of the two binding checks passed (manifest listing / delegation token)';
+            badges.appendChild(b);
+        }
     }
     if ((item.typeKey === 'entity' || item.typeKey === 'case') && item.event.pubkey) {
         const btn = el('button', 'xr-badge xr-badge--action',
@@ -836,6 +853,23 @@ function rebuildItems(records) {
             render();
         })
         .catch((err) => Utils.error('Portal: audit ledger load failed', err));
+
+    // 24.2 — creator binding: which entity pubkeys are cryptographically
+    // bound to the user's primary identity (OwnedKeys manifest + valid
+    // NIP-26 token = full; one of the two = partial). Async enrichment:
+    // badges land on the next render.
+    state.creatorBinding = null;
+    (async () => {
+        const merged = new Map();
+        for (const id of state.identities) {
+            const bound = await computeCreatorBinding(records, id.pubkey);
+            for (const [pk, level] of bound) {
+                if (level === 'full' || !merged.has(pk)) merged.set(pk, level);
+            }
+        }
+        state.creatorBinding = merged;
+        render();
+    })().catch((err) => Utils.error('Portal: creator binding failed', err));
     // Prior capture vintages per URL (read-only archive lookup):
     // 13.8 anchors published audit events to the vintage they
     // audited, and the 30023 is replaceable — after a re-capture +

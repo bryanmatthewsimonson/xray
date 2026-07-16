@@ -41,7 +41,8 @@ export const CONTENT_KINDS = [
     30056, 30057, 30058, 30059, 30060, 30061, // Phase 13 audit kinds (publish lands in 13.8; read always)
     30062, // Phase 14 behavioral findings (docs/CRIMINOLOGY_DESIGN.md)
     30063, 30064, // Phase 15 adjudicated verdicts + integrity findings (docs/TRUTH_ADJUDICATION_DESIGN.md)
-    30068 // Phase 23.2 case briefs (docs/NIP_DRAFT.md §CaseBrief)
+    30068, // Phase 23.2 case briefs (docs/NIP_DRAFT.md §CaseBrief)
+    30069 // Phase 24.2 owned-keys manifests (docs/ENTITY_IDENTITY_DESIGN.md)
 ];
 
 // Mirrors the background service worker's hardcoded fallback

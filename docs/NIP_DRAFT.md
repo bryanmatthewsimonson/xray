@@ -752,6 +752,41 @@ Addressable. The structured form of X-Ray's Phase-20 corpus synthesis for one ca
 - **The two artifacts cross-link by coordinate** (`d` = `xray-brief:<caseId>` on both), not by event id, so neither has to be signed before the other. The 30023 sibling carries the same `t xray-case-brief` recognizer and the same member `a`/`x` references.
 - Replaceable per case: re-running the synthesis and re-publishing replaces the prior brief for that `d`.
 
+## Kind 30069 — OwnedKeys (creator-binding manifest)
+
+Addressable. A creator's signed list of the entity pubkeys their archive operates — the revocable half of X-Ray's creator binding (`docs/ENTITY_IDENTITY_DESIGN.md` §4). Signed by the **creator's primary key**; one per creator (`d` fixed):
+
+```jsonc
+{
+  "kind": 30069,
+  "tags": [
+    ["d", "xray-owned-keys"],
+    ["p", "<entity pubkey>", "", "owned"],                       // one per owned entity
+    ["owned", "<entity pubkey>", "<entity id>", "<entity name>"], // greppable detail row
+    ["client", "xray"]
+  ],
+  "content": ""
+}
+```
+
+- **Revocation is republish-without-the-key** — the manifest is replaceable, so disowning an entity key takes effect immediately for any consumer that checks. This is deliberately the property NIP-26 lacks.
+- **Rotation-survivable**: a new primary republishes the manifest under its own key (dual-listing old + new entity pubkeys during a migration window).
+- Rows are sorted by pubkey (deterministic republish comparison). Consumers MUST take the newest manifest per creator.
+
+## Kind 0 / 30067 — creator binding on entity-signed events (extension)
+
+Entity-signed events (the kind-0 profile and the kind-30067 fact sheet) additionally carry:
+
+```
+["p", "<creator primary pubkey>", "", "creator"]
+["delegation", "<creator pubkey>", "<conditions>", "<64-byte Schnorr token, hex>"]   // NIP-26 format
+```
+
+- The `creator` p-tag is the honest, human-legible backlink (it complements — does not replace — the 30067 `publisher` tag).
+- The `delegation` tag follows **NIP-26 verbatim**: the token is a BIP-340 signature by the creator over `sha256("nostr:delegation:<entity pubkey>:<conditions>")`, with conditions restricted to `kind=0&kind=30067` plus a bounded `created_at` window. NIP-26 is officially *unrecommended* for general use — X-Ray adopts only the token FORMAT and **verifies it itself**: no relay is expected to honor delegator-as-author filters, and no other client is expected to check it. It is present because it is the strongest *self-contained* proof that the creator authorized this entity key, verifiable from the event alone.
+- **Verification rule (reference implementation):** an entity is *creator-bound* when its pubkey is listed in the creator's newest 30069 **and** at least one of its events carries a valid token from that creator; exactly one of the two ⇒ *partially bound*; neither ⇒ unbound. Verifiers MUST check the token's conditions against the event that carries it (kind whitelist, `created_at` window) and MUST fail closed on unknown condition grammar.
+- The binding tags are enrichment: absence means "unbound", never "invalid".
+
 ## Kind 32125 — EntityArticleRelationship
 
 An addressable event asserting that a captured article stands in a named relationship to an entity — that the article is **`about`** the entity, or that the entity is the article's **`source`** (its asserter). Authored by the capturing user, it makes "which articles concern this entity, and who they attribute claims to" a one-hop relay query rather than a re-derivation from every claim. One event is emitted per `(entity, article, relationship)` triple at publish time, deduplicated by the `d` tag.

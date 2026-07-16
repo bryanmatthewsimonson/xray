@@ -25,6 +25,7 @@ import {
 import { parseBehavioralFindingEvent } from '../shared/forensic-model.js';
 import { parseAdjudicatedVerdictEvent, parseIntegrityFindingEvent } from '../shared/truth-builders.js';
 import { parseCaseBriefEvent } from '../shared/corpus-publish.js';
+import { parseOwnedKeysManifest } from '../shared/identity-builders.js';
 
 // Tags written by this extension (current + userscript-era value).
 export const OUR_CLIENT_TAGS = new Set(['xray', 'nostr-article-capture']);
@@ -77,7 +78,8 @@ const KIND_LABELS = {
     30062: 'Behavioral finding',
     30063: 'Adjudicated verdict',
     30064: 'Integrity finding',
-    30068: 'Case brief'
+    30068: 'Case brief',
+    30069: 'Owned keys'
 };
 
 export function kindLabel(kind) {
@@ -360,6 +362,17 @@ function buildItem(record, entityIndex) {
                 extra.parsedIntegrity = f;
                 haystack.push(f.match, f.subjectPubkey, subj, f.word && f.word.class,
                     f.standardOfProof, f.url);
+            }
+            break;
+        }
+        // ---- Phase 24.2 owned-keys manifest (read-back) ------------
+        case 30069: {
+            const m = parseOwnedKeysManifest(event);
+            if (m) {
+                typeKey = 'other';   // infrastructure, not content
+                title = `Owned keys — ${m.owned.length} entit${m.owned.length === 1 ? 'y' : 'ies'}`;
+                sub = 'creator-binding manifest';
+                haystack.push(title, ...m.owned.map((o) => o.name || ''));
             }
             break;
         }

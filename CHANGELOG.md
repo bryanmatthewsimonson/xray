@@ -12,6 +12,20 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 24.2 — creator binding on the wire.** Entity identities are
+  now provably the creator's: a **kind-30069 OwnedKeys manifest**
+  (primary-signed, replaceable — revocation is republish-without-the-
+  key) lists every owned entity pubkey and publishes automatically with
+  entity batches (fingerprint-gated); entity-signed events (kind 0 /
+  30067) gain a `['p', creator, '', 'creator']` backlink and a
+  **NIP-26-format `delegation` tag** minted by the primary (Local mode)
+  — the strongest self-contained proof, verified by X-Ray itself with
+  fail-closed condition checking (kind whitelist + created_at window).
+  The portal badges entities **✓ creator-bound** (manifest + token) or
+  **◐ partially bound** (one of the two). **Wire:** new kind 30069 +
+  two additive tags on entity events — existing consumers unaffected.
+  `docs/NIP_DRAFT.md` §"Kind 30069" + §"creator binding".
+
 - **Phase 24.1 — durable entity keys (deterministic derivation).** New
   entity keypairs are now **derived from the primary identity**
   (HKDF-SHA256, domain `xray-entity-v1`, info = the entity id, mod n) —

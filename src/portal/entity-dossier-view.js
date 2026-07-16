@@ -20,6 +20,7 @@ import { EntityModel } from '../shared/entity-model.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { buildProfileAbout, buildFactSheetEvent, profileContentHash, factSheetContentHash } from '../shared/entity-profile.js';
+import { mintDelegationTag, entityDelegationConditions } from '../shared/identity-builders.js';
 
 function fmtDate(unixSec) {
     if (!unixSec) return '';
@@ -133,6 +134,25 @@ async function mountRepublishButton(head, dossier, relays) {
             // forever; 19.8 review fix). Stamp each surface as it
             // lands so a later failure can't lose an earlier stamp.
             const publish = async (unsigned) => {
+                // Phase 24.2 — creator binding: the creator p-tag when a
+                // primary exists; the NIP-26 delegation tag when its
+                // private key is locally available (Local mode). Binding
+                // is enrichment — never blocks the publish.
+                try {
+                    if (primary && primary.pubkey) {
+                        unsigned.tags = unsigned.tags || [];
+                        if (!unsigned.tags.some((t) => t[0] === 'p' && t[3] === 'creator')) {
+                            unsigned.tags.push(['p', primary.pubkey, '', 'creator']);
+                        }
+                        if (primary.privateKey && !unsigned.tags.some((t) => t[0] === 'delegation')) {
+                            const conditions = entityDelegationConditions({
+                                kinds: [0, 30067], from: now - 86400, until: now + 365 * 24 * 3600
+                            });
+                            unsigned.tags.push(await mintDelegationTag(
+                                primary.privateKey, entity.keypair.pubkey, conditions));
+                        }
+                    }
+                } catch (err) { Utils.error('creator binding skipped', err); }
                 const signed = await LocalKeyManager.signEvent(unsigned, entity.keyName);
                 const resp = await chrome.runtime.sendMessage({ type: 'xray:relay:publish', event: signed, relays });
                 if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'publish failed');
