@@ -37,6 +37,36 @@ export const NETWORK_FEED_KINDS = [30023, 30040, 30054, 30055, 30062, 30063, 300
 // followee saturates their own group, not the feed.
 export const AUTHOR_ITEM_CAP = 100;
 
+// Total relay cap after NIP-65 widening (25.5) — a few good relays
+// beat a long tail of dead ones, and each extra relay is another
+// socket per refresh.
+export const WIDENED_RELAY_CAP = 8;
+
+/**
+ * NIP-65 relay widening (KS.7 / Phase 25.5): union the configured
+ * relays with followees' harvested hints, configured-first, capped at
+ * WIDENED_RELAY_CAP. Pure — never mutates the user's relay prefs
+ * (the offerRelayListAdoption posture). `normalize` is injectable so
+ * this module stays dependency-light; pass entity-sync's
+ * normalizeRelayUrl for real use.
+ */
+export function widenRelays(configured, hintLists, { cap = WIDENED_RELAY_CAP, normalize = (u) => u } = {}) {
+    const out = [];
+    const seen = new Set();
+    const push = (url) => {
+        if (typeof url !== 'string' || !/^wss?:\/\//i.test(url)) return;
+        const key = normalize(url);
+        if (seen.has(key) || out.length >= cap) return;
+        seen.add(key);
+        out.push(url);
+    };
+    for (const u of (configured || [])) push(u);
+    for (const list of (hintLists || [])) {
+        for (const u of (Array.isArray(list) ? list : [])) push(u);
+    }
+    return out;
+}
+
 /**
  * Authors-axis relay filters. Claims get their own filter so
  * high-volume kinds never crowd 30040s out of a shared newest-first
