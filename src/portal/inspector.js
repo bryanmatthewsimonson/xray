@@ -15,6 +15,9 @@ import { EventBuilder } from '../shared/event-builder.js';
 import { Utils } from '../shared/utils.js';
 import { auditCardChipData } from '../shared/audit/display.js';
 import { SOURCE_TYPE_LABELS, isPrimarySourceType, EVIDENCE_ROLE_LABELS, isValidEvidenceRole } from '../shared/truth-taxonomy.js';
+import { buildReviewRequestLabelEvent } from '../shared/metadata/builders.js';
+import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
+import { Signer } from '../shared/signer.js';
 
 // Audit section (13.7): every run anchored to this article —
 // side-by-side, never averaged (PHILOSOPHY P8) — with module results
@@ -316,6 +319,52 @@ export function renderInspector(host, item, { status = 'no-ledger', onClose, aud
         }
     });
     actions.appendChild(copy);
+
+    // Request review (Phase 25.4, KS.6 / TC §5): a kind-1985
+    // `xray/review` label on one's OWN artifact — "I want adversarial
+    // eyes on this." Followers see it in their Network review queue.
+    // Flag-gated (`reviewCoordination`); needs an addressable
+    // coordinate to label.
+    const coord = replaceableKey(item.event);
+    if (coord) {
+        loadFlags().then(() => {
+            if (!isEnabled('reviewCoordination')) return;
+            const req = el('button', 'xr-portal__btn xr-portal__btn--ghost', 'Request review');
+            req.type = 'button';
+            req.title = 'Publish an xray/review label asking your followers for adversarial eyes on this artifact';
+            req.addEventListener('click', async () => {
+                req.disabled = true;
+                try {
+                    const userPubkey = await Signer.getPublicKey();
+                    if (!userPubkey) throw new Error('no signing identity — set one in Options');
+                    const { event: unsigned } = buildReviewRequestLabelEvent({
+                        value: 'review-requested',
+                        targetCoord: coord,
+                        targetEventId: item.event.id || '',
+                        url: item.url || ''
+                    });
+                    const signed = await Signer.signEvent({ ...unsigned, pubkey: userPubkey });
+                    const relays = await new Promise((resolve) => {
+                        chrome.storage.local.get(['preferences'], (res) => {
+                            let prefs = {};
+                            try { prefs = typeof res.preferences === 'string' ? JSON.parse(res.preferences) : (res.preferences || {}); } catch (_) { /* defaults */ }
+                            resolve(Array.isArray(prefs.default_relays) ? prefs.default_relays : []);
+                        });
+                    });
+                    if (!relays.length) throw new Error('no relays configured');
+                    const resp = await new Promise((resolve) =>
+                        chrome.runtime.sendMessage({ type: 'xray:relay:publish', event: signed, relays }, resolve));
+                    if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'publish failed');
+                    req.textContent = 'Review requested ✓';
+                } catch (err) {
+                    Utils.error('Request review failed', err);
+                    req.textContent = `Failed: ${err.message || err}`;
+                    req.disabled = false;
+                }
+            });
+            actions.appendChild(req);
+        }).catch(() => { /* flag load failed — stays hidden */ });
+    }
 
     if (item.kind === 30023 && item.sourceType && SOURCE_TYPE_LABELS[item.sourceType]) {
         const line = el('div', 'xr-inspector__srctype',

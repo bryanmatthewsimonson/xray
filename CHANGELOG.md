@@ -12,6 +12,22 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 25.4 — thin coordination: review requests, review queue,
+  re-broadcast.** A **"Request review"** button on your own published
+  artifacts (portal inspector) publishes a kind-1985 label under the
+  new **`xray/review`** namespace (`review-requested` / `review-done`
+  — exhaustive, pinned; subject `a`/`e`/`r` tags, never a `p`). The
+  Network Queue tab gains **inbound review** (followed authors'
+  judgments targeting coordinates you published, joined via the
+  signed-event journal) and **open review requests** among your
+  follows (a request with no newer done); the awareness strip counts
+  both. **Re-broadcast follows** re-publishes your follows' verified
+  cached events verbatim under their own signatures (cap 200,
+  user-initiated) — helps their work survive relay churn. Both publish
+  affordances are gated by the new default-off `reviewCoordination`
+  flag; reading/assembling the queue is never gated. Additive 1985
+  vocabulary — no wire format change (`docs/NIP_DRAFT.md` §Kind 1985).
+
 - **Phase 25.3 — the incorporation queue.** Followed artifacts arrive
   as **proposals, not facts** (the Network page's Queue tab): claims,
   links, assessments, and verdicts from your follows land for

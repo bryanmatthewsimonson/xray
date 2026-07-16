@@ -120,7 +120,13 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // ships default-off while the phase is in flight. Publish
   // affordances inside it carry their own flags (reviewCoordination,
   // followListPublishing) as those slices land.
-  networkPage: false
+  networkPage: false,
+
+  // Phase 25.4 (NETWORK_CLIENT_DESIGN §6): gates the KS.6 PUBLISH
+  // affordances — the "Request review" xray/review kind-1985 label
+  // (portal inspector) and the Network page's re-broadcast-who-you-
+  // follow button. Reading/assembling the review queue is never gated.
+  reviewCoordination: false
 });
 
 /**

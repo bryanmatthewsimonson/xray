@@ -27,6 +27,8 @@ import {
     extractProposals, acceptProposal, declineProposal, declineAll,
     loadDismissals, loadIncorporated
 } from '../shared/incorporation.js';
+import { assembleReviewQueue } from '../shared/review-queue.js';
+import { listAll as journalListAll } from '../shared/event-journal.js';
 
 const $ = (sel) => document.querySelector(sel);
 const GLOBAL = { scope: 'global' };
@@ -43,7 +45,8 @@ const state = {
     follows: [],         // last-loaded global follow entries
     profiles: new Map(), // pubkey → cached kind-0 snapshot
     newSince: 0,         // items first seen after the previous look
-    prevLookedAt: null   // the cursor the current render compared against
+    prevLookedAt: null,  // the cursor the current render compared against
+    reviewCounts: null   // {inbound, open} for the awareness strip (25.4)
 };
 
 function escapeHtml(s) {
@@ -294,8 +297,47 @@ async function refreshFeed() {
     try { records = await loadRecords(); }
     catch (_) { records = events.map((event) => ({ event, relays: [], firstSeenAt: 0 })); }
     state.feed = await assembleFromRecords(records);
+    // Review awareness (25.4): counts ride the strip; details in Queue.
+    try {
+        const rq = assembleReviewQueue(state.feed, { myCoords: await myPublishedCoords() });
+        state.reviewCounts = { inbound: rq.inbound.length, open: rq.openRequests.length };
+    } catch (_) { state.reviewCounts = null; }
     setStatus('');
     renderFeed();
+}
+
+// Re-broadcast-who-you-follow (25.4, TC §2.5): re-publish verified
+// cached events VERBATIM under their authors' signatures — no
+// re-signing, no modification. User-initiated, capped per run, gated
+// by `reviewCoordination`.
+const REBROADCAST_CAP = 200;
+
+async function onRebroadcast() {
+    const btn = $('#xr-rebroadcast');
+    btn.disabled = true;
+    try {
+        const relays = await getQueryRelays();
+        const follows = new Set(await FollowModel.followedPubkeys(GLOBAL));
+        const records = await loadRecords();
+        const events = records
+            .map((r) => r.event)
+            .filter((ev2) => ev2 && ev2.sig && follows.has((ev2.pubkey || '').toLowerCase()))
+            .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))
+            .slice(0, REBROADCAST_CAP);
+        if (events.length === 0) { setStatus('Nothing cached from your follows to re-broadcast.'); return; }
+        if (!confirm(`Re-broadcast ${events.length} of your follows' events to ${relays.length} relay${relays.length === 1 ? '' : 's'}? They re-publish verbatim under their authors' signatures.`)) return;
+        let ok = 0;
+        for (const event of events) {
+            const resp = await new Promise((resolve) =>
+                chrome.runtime.sendMessage({ type: 'xray:relay:publish', event, relays }, resolve));
+            if (resp && resp.ok) ok++;
+        }
+        setStatus(`Re-broadcast ${ok}/${events.length} events.`);
+    } catch (err) {
+        setStatus(`Re-broadcast failed: ${err.message || err}`);
+    } finally {
+        btn.disabled = false;
+    }
 }
 
 function showEmpty(html) {
@@ -323,11 +365,20 @@ function rowTitle(item) {
 }
 
 function awarenessStrip() {
-    if (!state.newSince) return '';
-    const since = state.prevLookedAt
-        ? ` since ${new Date(state.prevLookedAt * 1000).toISOString().slice(0, 16).replace('T', ' ')}`
-        : '';
-    return `<div class="xr-network__aware">✨ ${state.newSince} new item${state.newSince === 1 ? '' : 's'}${since}</div>`;
+    const bits = [];
+    if (state.newSince) {
+        const since = state.prevLookedAt
+            ? ` since ${new Date(state.prevLookedAt * 1000).toISOString().slice(0, 16).replace('T', ' ')}`
+            : '';
+        bits.push(`✨ ${state.newSince} new item${state.newSince === 1 ? '' : 's'}${since}`);
+    }
+    if (state.reviewCounts && (state.reviewCounts.inbound || state.reviewCounts.open)) {
+        const r = state.reviewCounts;
+        if (r.inbound) bits.push(`${r.inbound} inbound review${r.inbound === 1 ? '' : 's'}`);
+        if (r.open) bits.push(`${r.open} open review request${r.open === 1 ? '' : 's'}`);
+        bits.push('see Queue');
+    }
+    return bits.length ? `<div class="xr-network__aware">${bits.join(' · ')}</div>` : '';
 }
 
 function renderFeed() {
@@ -462,6 +513,46 @@ function proposalTitle(p) {
     }
 }
 
+/** Coordinates you authored — the inbound-review join (25.4). */
+async function myPublishedCoords() {
+    try {
+        const rows = await journalListAll();
+        return rows.map((r) => r.address).filter(Boolean);
+    } catch (_) { return []; }
+}
+
+function reviewSections(reviewQueue) {
+    const parts = [];
+    if (reviewQueue.inbound.length > 0) {
+        parts.push(`
+        <div class="xr-network__collapsed">
+            <div><b>Inbound review</b> — followed authors engaged with
+            coordinates you published:</div>
+            ${reviewQueue.inbound.slice(0, 12).map((item) => `
+            <div class="xr-network__collapsed-row">
+                <span class="xr-network__kind">${escapeHtml(KIND_LABELS[item.event.kind] || String(item.event.kind))}</span>
+                <span>${escapeHtml(rowTitle(item))}</span>
+                <span class="xr-network__npub">${escapeHtml(shortNpub(item.author))}</span>
+            </div>`).join('')}
+        </div>`);
+    }
+    if (reviewQueue.openRequests.length > 0) {
+        parts.push(`
+        <div class="xr-network__collapsed">
+            <div><b>Open review requests</b> — follows asking for
+            adversarial eyes (an xray/review label without a newer
+            review-done):</div>
+            ${reviewQueue.openRequests.slice(0, 12).map((r) => `
+            <div class="xr-network__collapsed-row">
+                <span class="xr-network__row-title">${escapeHtml(r.targetCoord)}</span>
+                <span class="xr-network__npub">${escapeHtml(shortNpub(r.requestedBy))}</span>
+                ${r.url ? `<a href="${escapeHtml(r.url)}" target="_blank" rel="noreferrer noopener">source</a>` : ''}
+            </div>`).join('')}
+        </div>`);
+    }
+    return parts.join('');
+}
+
 async function renderQueue() {
     const host = $('#xr-queue');
     if (!state.feed) {
@@ -469,16 +560,19 @@ async function renderQueue() {
         built from the feed — hit <b>↻ Refresh</b> on the Feed tab first.</div>`;
         return;
     }
-    const [dismissals, incorporated] = await Promise.all([loadDismissals(), loadIncorporated()]);
+    const [dismissals, incorporated, myCoords] = await Promise.all([
+        loadDismissals(), loadIncorporated(), myPublishedCoords()
+    ]);
+    const reviewQueue = assembleReviewQueue(state.feed, { myCoords });
     const { byAuthor } = extractProposals(state.feed, { dismissals, incorporated });
-    if (byAuthor.length === 0) {
+    if (byAuthor.length === 0 && !reviewQueue.inbound.length && !reviewQueue.openRequests.length) {
         host.innerHTML = `<div class="xr-network__follows-note">Nothing to
         review — followed claims, links, assessments, and verdicts land
         here as proposals. Accepting records provenance; declining is
         remembered. Nothing enters your corpus without you.</div>`;
         return;
     }
-    host.innerHTML = byAuthor.map(({ author, count, proposals }) => {
+    host.innerHTML = reviewSections(reviewQueue) + byAuthor.map(({ author, count, proposals }) => {
         const { name } = displayName(author);
         return `
         <section class="xr-network__group" data-author="${escapeHtml(author)}">
@@ -569,6 +663,12 @@ async function boot() {
     }
     $('#xr-refresh').addEventListener('click', refreshFeed);
     $('#xr-clear-cache').addEventListener('click', onClearCache);
+    // The re-broadcast PUBLISH affordance is its own flag (25.4).
+    if (isEnabled('reviewCoordination')) {
+        const rb = $('#xr-rebroadcast');
+        rb.hidden = false;
+        rb.addEventListener('click', onRebroadcast);
+    }
     $('#xr-follow-form').addEventListener('submit', onFollowSubmit);
     $('#xr-follow-list').addEventListener('click', onFollowListClick);
     $('#xr-feed').addEventListener('click', onFeedClick);

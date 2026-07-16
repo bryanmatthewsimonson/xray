@@ -19,6 +19,8 @@
     <div class="xr-network__chrome-right">
       <button class="xr-network__btn" id="xr-refresh"
               title="Pull what your follows have published (point-in-time; nothing streams)">↻ Refresh</button>
+      <button class="xr-network__btn xr-network__btn--ghost" id="xr-rebroadcast" hidden
+              title="Re-publish your follows' verified events to your configured relays, verbatim under their signatures — helps their work survive relay churn">Re-broadcast follows</button>
       <button class="xr-network__btn xr-network__btn--ghost" id="xr-clear-cache"
               title="Drop the derived feed cache — the next Refresh rebuilds it; follows are untouched">Clear cache</button>
     </div>
