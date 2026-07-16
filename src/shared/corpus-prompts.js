@@ -24,7 +24,11 @@
 
 import { CLAIM_RELATIONSHIPS } from './assessment-taxonomy.js';
 
-export const CORPUS_PROMPT_VERSION = 'corpus-v1';
+// DISCIPLINE (the 20.6 lesson, institutionalized 27 S.1): ANY change
+// to prompt text, tool schemas, or digest shape bumps this version.
+// It rides corpusInputHash, so every stored brief correctly goes stale
+// and shows the re-run chip; recompute stays human-triggered.
+export const CORPUS_PROMPT_VERSION = 'corpus-v2';
 export const MAP_TOOL_NAME = 'emit_corpus_extract';
 export const REDUCE_TOOL_NAME = 'emit_case_brief';
 export const HYPOTHESIS_EDGE_PROMPT_VERSION = 'hyp-edges-v1';
@@ -243,7 +247,16 @@ export function buildReduceSystemPrompt({ caseName = '', scopeQuestion = '' } = 
         scopeQuestion ? `The question it investigates: "${scopeQuestion}".` : '',
         'Produce a grounded brief: a neutral summary, the positions present (attributed to the',
         'member articles that hold them), the cruxes of disagreement with each side\'s view SIDE',
-        'BY SIDE, the load-bearing claims, and the coverage gaps.',
+        'BY SIDE, the load-bearing claims, the coverage gaps, and reviewable PROPOSALS.',
+        'PROPOSALS (a human accepts or rejects each — nothing you propose is applied on its own):',
+        '- Scan the digest\'s claims index for pairs of claims from DIFFERENT articles (the `art`',
+        '  key differs) that contradict, support, update, or duplicate each other. Propose EVERY',
+        '  such pair you find as a `relationship` proposal citing both existing claim ids —',
+        '  cross-article links are the corpus\'s connective tissue and the primary thing this',
+        '  synthesis adds over reading articles one at a time. Do not re-propose pairs already',
+        '  listed under `contradictions` in the digest.',
+        '- Propose `is_key` for existing claims the whole case turns on, and `claim` for',
+        '  load-bearing assertions in the extracts that have no claim yet.',
         'HARD RULES (docs/PHILOSOPHY.md):',
         '- NEVER output a verdict, score, probability, or "who is right". Disagreement is DATA —',
         '  present it, do not resolve it.',

@@ -1012,9 +1012,17 @@ export function buildCaseDossier(data, generatedAt) {
     const articleRows = deriveArticleRows(data);
     const shape = buildShapeOfKnowledge(data);
     const evidence = buildEvidenceGroups(data, articleRows);
+    // The author's scope question (27 S.2). Consumers read
+    // `dossier.scope.question` — synthesis-block always has, but until
+    // this key existed the value was silently '' and the case question
+    // never reached any LLM call (JOURNAL 2026-07-16).
+    const caseEntity = (data.entitiesById || {})[data.case && data.case.id] || null;
+    const scopeField = caseEntity && caseEntity.authored_fields
+        && caseEntity.authored_fields.scope_question;
     return {
         case:         data.case,
         generated_at: generatedAt ?? null,
+        scope: { question: (scopeField && scopeField.value ? String(scopeField.value).trim() : '') },
         coverage: {
             articles:                 evidence.coverage.articles,
             articles_with_claims:     evidence.coverage.articles_with_claims,

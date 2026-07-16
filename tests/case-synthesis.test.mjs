@@ -99,11 +99,26 @@ test('case-synthesis: digestDossier surfaces the claim index for the reduce stag
     assert.equal(digest.claim_count, 1);
     assert.equal(digest.claims[0].id, 'c1');
     assert.ok(digest.claims[0].text.includes('lab reported'));
-    assert.equal(digest.claims[0].article_hash, 'A');
     // No claims passed → empty index (not a crash), count 0.
     const empty = JSON.parse(CS.digestDossier(dossier));
     assert.deepEqual(empty.claims, []);
     assert.equal(empty.claim_count, 0);
+});
+
+test('case-synthesis: digest claims carry short per-article keys so cross-article pairs are identifiable (27 S.1)', () => {
+    const dossier = { coverage: {}, shape_of_knowledge: {}, knots: {}, orbit: {} };
+    const digest = JSON.parse(CS.digestDossier(dossier, { claims: [
+        { id: 'c1', text: 'One.', article_hash: 'a'.repeat(64) },
+        { id: 'c2', text: 'Two.', article_hash: 'b'.repeat(64) },
+        { id: 'c3', text: 'Three.', article_hash: 'a'.repeat(64) },
+        { id: 'c4', text: 'Hashless.' }
+    ] }));
+    assert.deepEqual(digest.claims.map((c) => c.art), ['A1', 'A2', 'A1', null],
+        'same article → same key; no hash → null, never fabricated');
+    assert.deepEqual(digest.articles, { A1: 'a'.repeat(64), A2: 'b'.repeat(64) },
+        'keys resolve back to the real hashes');
+    assert.ok(!JSON.stringify(digest.claims).includes('a'.repeat(64)),
+        'the 64-hex hash no longer rides every claim entry');
 });
 
 test('case-synthesis: corpusInputHash is order-insensitive but sensitive to membership + prompt', async () => {

@@ -490,6 +490,22 @@ test('case-dossier: timeline gaps — the three cross-axis anomalies', async () 
     assert.equal(gaps.filter((g) => g.kind === 'published-before-occurred' && g.proposition_id === propY.id).length, 0);
 });
 
+test('case-dossier: the authored scope question rides the dossier (27 S.2)', async () => {
+    resetState();
+    const { kase } = await seedOrbit();
+    // Author the scope question the way the sidepanel does.
+    const all = await EntityModel.getAll();
+    all[kase.id].authored_fields = { scope_question: { value: 'Where did the outbreak begin?' } };
+    _stateStore.set('entities', JSON.stringify(all));
+    const dossier = await assembleCaseDossier(kase.id, { generatedAt: GENERATED, ...injected() });
+    assert.equal(dossier.scope.question, 'Where did the outbreak begin?');
+    // Unauthored → empty string, never fabricated (P4).
+    resetState();
+    const bare = await EntityModel.create({ name: 'Bare case', type: 'case' });
+    const bareDossier = await assembleCaseDossier(bare.id, { generatedAt: GENERATED, articles: [], auditRuns: [], predictions: [], resolutions: [] });
+    assert.equal(bareDossier.scope.question, '');
+});
+
 test('case-dossier: coverage counts on every section', async () => {
     resetState();
     const { dossier } = await assembleFixture();

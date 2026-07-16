@@ -19,6 +19,35 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-16 — The scope question never reached the LLM; proposals were never asked for (27 S.1/S.2)
+
+Tags: `bug`, `design`.
+
+Two quiet corpus-synthesis defects found by the Phase-27 investigation:
+
+**`dossier.scope.question` was always `''`.** `synthesis-block.js` read
+it for every map/reduce/publish call, but `buildCaseDossier` never
+emitted a `scope` key — the authored question lives on the case
+entity's `authored_fields.scope_question` and only rendered in the
+case header. Every synthesis ran unsteered. Fix: the dossier now emits
+`scope.question` at assembly (S.2). Lesson: a consumer reading a key
+the producer never writes fails silently as a falsy default — worth a
+grep when wiring a new prompt input.
+
+**Zero relationship proposals was prompt-shaped, not model-shaped.**
+The reduce deliverables list omitted proposals entirely; the only
+mention was 20.6's restriction ("OMIT rather than guessing"). An
+optional schema slot whose sole prompt mention is a prohibition
+predictably returns empty — the H.4 hypothesis prompt proved the
+affirmative form works. Fix: an explicit cross-article directive plus
+short per-article `art` keys in the digest (S.1), and
+`CORPUS_PROMPT_VERSION` bumped to `corpus-v2` — 20.6 changed the
+prompt WITHOUT bumping it, so broken-era briefs never showed a stale
+chip. The version constant now carries the discipline note: any
+prompt/schema/digest change bumps it.
+
+---
+
 ## 2026-07-16 — Hypothesis identity is the label; case delete doesn't cascade the map (26 H.1)
 
 Tags: `design`.

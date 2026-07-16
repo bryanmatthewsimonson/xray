@@ -96,11 +96,24 @@ export const DIGEST_CLAIM_CAP = 150;
 export function digestDossier(dossier, { claims = [] } = {}) {
     const shape = dossier.shape_of_knowledge || {};
     const knots = dossier.knots || {};
-    const claimIndex = claims.slice(0, DIGEST_CLAIM_CAP).map((c) => ({
+    // Claims carry a short per-article key (`art: 'A1'`) instead of a
+    // 64-hex hash (27 S.1): cross-ARTICLE relationship proposals need
+    // the model to see which claims come from different articles, and
+    // the short key makes pairs identifiable at a glance (and shrinks
+    // the digest). `articles` maps the keys back to hashes.
+    const capped = claims.slice(0, DIGEST_CLAIM_CAP);
+    const artKeyByHash = new Map();
+    for (const c of capped) {
+        const h = c.article_hash || null;
+        if (h && !artKeyByHash.has(h)) artKeyByHash.set(h, `A${artKeyByHash.size + 1}`);
+    }
+    const claimIndex = capped.map((c) => ({
         id: c.id,
         text: (c.text || '').slice(0, 160),
-        article_hash: c.article_hash || null
+        art: c.article_hash ? artKeyByHash.get(c.article_hash) : null
     }));
+    const articleKeys = {};
+    for (const [hash, key] of artKeyByHash) articleKeys[key] = hash;
     return JSON.stringify({
         coverage: dossier.coverage || {},
         distribution: (shape.distribution && {
@@ -114,6 +127,7 @@ export function digestDossier(dossier, { claims = [] } = {}) {
             notes: (k.edges || []).map((e) => e.note).filter(Boolean)
         })),
         claims: claimIndex,
+        articles: articleKeys,
         claim_count: claimIndex.length
     });
 }
