@@ -138,6 +138,10 @@ for the next release. One addition to the documented process: sync
 `package-lock.json` after `version:set` (`npm install
 --package-lock-only`) and include it in the release commit — `npm ci`
 in the workflows can reject a package.json↔lockfile version drift.
+Second addition: when the release is prepped from a remote-exec Claude
+session, **the maintainer pushes the tag from a local clone** — the
+session's git proxy refuses tag pushes (HTTP 403, designated branch
+only; see JOURNAL 2026-07-16).
 
 Per `CONTRIBUTING.md` §"Cutting a release" — the last real tag is
 v0.5.1 (v0.6.0 bumped the manifest but was never tagged), so this is
