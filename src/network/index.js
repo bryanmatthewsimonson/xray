@@ -31,6 +31,7 @@ import {
 import { assembleReviewQueue } from '../shared/review-queue.js';
 import { listAll as journalListAll } from '../shared/event-journal.js';
 import { selectFollowsToPublish, mergeWithRemote } from '../shared/follow-publish.js';
+import { buildReaderGraph, followedByCounts, filterFeedByTrust } from '../shared/network-trust.js';
 import { publishConfirmed } from '../shared/confirmed-publish.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { Signer } from '../shared/signer.js';
@@ -51,7 +52,9 @@ const state = {
     profiles: new Map(), // pubkey → cached kind-0 snapshot
     newSince: 0,         // items first seen after the previous look
     prevLookedAt: null,  // the cursor the current render compared against
-    reviewCounts: null   // {inbound, open} for the awareness strip (25.4)
+    reviewCounts: null,  // {inbound, open} for the awareness strip (25.4)
+    followKind3s: [],    // follows' fetched contact lists (25.7 FoF)
+    trustNarrow: false   // the KS.8 narrow-only toggle (never persisted)
 };
 
 function escapeHtml(s) {
@@ -304,6 +307,21 @@ async function refreshFeed() {
     refreshProfiles(relays, follows).then(() => renderFeed()).catch(() => { /* names patch in */ });
     await loadCachedProfiles(follows);
 
+    // 25.7: the follows' own kind 3s power the FoF discovery counts.
+    // Best-effort; the newest list per author wins.
+    try {
+        const k3 = await query(relays, { kinds: [3], authors: follows, limit: Math.max(follows.length, 10) });
+        if (k3 && k3.ok && Array.isArray(k3.events)) {
+            const newest = new Map();
+            for (const ev of k3.events) {
+                const a = (ev.pubkey || '').toLowerCase();
+                const cur = newest.get(a);
+                if (!cur || (ev.created_at || 0) > (cur.created_at || 0)) newest.set(a, ev);
+            }
+            state.followKind3s = [...newest.values()];
+        }
+    } catch (_) { /* chips just don't show */ }
+
     let records = [];
     try { records = await loadRecords(); }
     catch (_) { records = events.map((event) => ({ event, relays: [], firstSeenAt: 0 })); }
@@ -399,7 +417,34 @@ function renderFeed() {
         return;
     }
     $('#xr-empty').hidden = true;
-    const { items, collapsed, capped, candidates } = state.feed;
+
+    // KS.8 (25.7): the narrow-only toggle — provenance entirely inside
+    // the trusted set, honest hidden counts, order untouched.
+    let view = state.feed;
+    let trustNote = '';
+    if (state.trustNarrow) {
+        const graph = buildReaderGraph({
+            ownerPubkey: 'local',
+            followEntries: state.follows
+        });
+        const narrowed = filterFeedByTrust(state.feed, graph);
+        view = narrowed.feed;
+        if (narrowed.hiddenItems || narrowed.hiddenAuthors) {
+            trustNote = `<div class="xr-network__collapsed">Trusted-provenance
+            filter: ${narrowed.hiddenItems} item${narrowed.hiddenItems === 1 ? '' : 's'} and
+            ${narrowed.hiddenAuthors} unsolicited author${narrowed.hiddenAuthors === 1 ? '' : 's'} hidden
+            — narrowing only; nothing is reordered.</div>`;
+        }
+    }
+    const { items, collapsed, capped, candidates } = view;
+    const fofCounts = followedByCounts(
+        [...collapsed.map((c) => c.pubkey), ...candidates.map((c) => c.pubkey)],
+        state.followKind3s
+    );
+    const fofChip = (pk) => {
+        const n = fofCounts.get(pk.toLowerCase()) || 0;
+        return n ? `<span class="xr-network__badge" title="Discovery signal, not a ranking">followed by ${n} of your follows</span>` : '';
+    };
 
     const groups = new Map();
     for (const item of items) {
@@ -407,7 +452,7 @@ function renderFeed() {
         groups.get(item.author).push(item);
     }
 
-    const parts = [awarenessStrip()];
+    const parts = [awarenessStrip(), trustNote];
 
     // Entity-ish pubkeys the feed references that you don't know yet —
     // the adopt-on-sight hook (KS.3), always prompt-gated.
@@ -420,6 +465,7 @@ function renderFeed() {
             <div class="xr-network__collapsed-row" data-pk="${escapeHtml(c.pubkey)}">
                 <span class="xr-network__npub">${escapeHtml(shortNpub(c.pubkey))}</span>
                 <span>${c.count} ref${c.count === 1 ? '' : 's'} (${escapeHtml(c.roles.join(', '))})</span>
+                ${fofChip(c.pubkey)}
                 <button class="xr-network__btn xr-network__btn--ghost" data-action="adopt">Adopt…</button>
             </div>`).join('')}
         </div>`);
@@ -468,6 +514,7 @@ function renderFeed() {
                 <span class="xr-network__npub">${escapeHtml(shortNpub(c.pubkey))}</span>
                 <span>${c.count} event${c.count === 1 ? '' : 's'}
                 (${Object.entries(c.kinds).map(([k, n]) => `${escapeHtml(KIND_LABELS[k] || k)}×${n}`).join(', ')})</span>
+                ${fofChip(c.pubkey)}
                 <button class="xr-network__btn xr-network__btn--ghost" data-action="follow">Follow</button>
             </div>`).join('')}
         </div>`);
@@ -741,6 +788,16 @@ async function boot() {
     if (isEnabled('followListPublishing')) {
         $('#xr-mirror-row').hidden = false;
         $('#xr-mirror').addEventListener('click', onMirrorFollows);
+    }
+    // KS.8 (25.7): the trust filter rides the existing trustGraphFilter
+    // flag; the toggle itself always starts OFF (never persisted — the
+    // KS §8 default view is self+follows with the rest collapsed).
+    if (isEnabled('trustGraphFilter')) {
+        $('#xr-trust-row').hidden = false;
+        $('#xr-trust-narrow').addEventListener('change', (ev) => {
+            state.trustNarrow = ev.target.checked;
+            if (state.view === 'feed') renderFeed();
+        });
     }
     $('#xr-follow-form').addEventListener('submit', onFollowSubmit);
     $('#xr-follow-list').addEventListener('click', onFollowListClick);

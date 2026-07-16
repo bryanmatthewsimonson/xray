@@ -17,6 +17,10 @@
       </nav>
     </div>
     <div class="xr-network__chrome-right">
+      <label class="xr-network__follows-note" id="xr-trust-row" hidden
+             title="Narrow the feed to items whose provenance is entirely inside your follow set — hides builds-on-unfollowed items and the unsolicited strip. Narrows only; never reorders.">
+        <input type="checkbox" id="xr-trust-narrow" /> trusted provenance only
+      </label>
       <button class="xr-network__btn" id="xr-refresh"
               title="Pull what your follows have published (point-in-time; nothing streams)">↻ Refresh</button>
       <button class="xr-network__btn xr-network__btn--ghost" id="xr-rebroadcast" hidden
