@@ -750,6 +750,7 @@ async function loadAdvanced() {
     document.getElementById('pref-reader-add-fact').checked = isEnabled('readerAddFact');
     document.getElementById('pref-network-page').checked = isEnabled('networkPage');
     document.getElementById('qa-open-network').hidden = !isEnabled('networkPage');
+    document.getElementById('pref-follow-publish').checked = isEnabled('followListPublishing');
 
     // Moral lens (Phase 16) — independent of llmAssist; shares the key.
     document.getElementById('pref-moral-lens').checked = isEnabled('moralLens');
@@ -836,6 +837,30 @@ async function saveAdvanced() {
     const networkOn = document.getElementById('pref-network-page').checked;
     await setOverride('networkPage', networkOn ? true : null);
     document.getElementById('qa-open-network').hidden = !networkOn;
+
+    // Kind-3 mirror (25.6): consent dialog on the off→on transition —
+    // publishing who you follow is public and irrevocable in practice.
+    const followPubBox = document.getElementById('pref-follow-publish');
+    let followPubOn = followPubBox.checked;
+    if (followPubOn && !isEnabled('followListPublishing')) {
+        const consent = confirm(
+            'Publish your follow list?\n\n'
+            + 'Enabling this lets the Network page mirror your GLOBAL follows '
+            + 'as a standard NIP-02 contact list (kind 3), signed by your '
+            + 'primary identity.\n\n'
+            + '• WHO YOU FOLLOW becomes public — replaceable, but irrevocable '
+            + 'in practice (relays and archives keep copies).\n'
+            + '• Case- and entity-scoped follows never publish.\n'
+            + '• Each publish merges with your existing remote kind 3 first, '
+            + 'so a contact list from another client is preserved, never '
+            + 'wiped.\n\n'
+            + 'OK to enable; Cancel to keep follows local-only.');
+        if (!consent) {
+            followPubOn = false;
+            followPubBox.checked = false;
+        }
+    }
+    await setOverride('followListPublishing', followPubOn ? true : null);
 
     // Moral lens (Phase 16): checked → explicit override on; unchecked →
     // clear the override back to the default (off).

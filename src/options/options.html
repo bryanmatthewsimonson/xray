@@ -221,6 +221,20 @@
         phase is in flight.
       </p>
 
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-follow-publish" />
+        <span>Allow publishing your follow list (kind 3 mirror)</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Enables the Network page's "Mirror follow list" action: your
+        global follows publish as a standard NIP-02 contact list under
+        your primary identity — public, and irrevocable in practice.
+        Case- and entity-scoped follows never publish. Every publish
+        merges with your existing remote list first (never a blind
+        replace), so a contact list you maintain in another client
+        survives. Off by default.
+      </p>
+
       <hr />
       <h3 class="xr-opt__subhead">Workspace</h3>
       <p class="xr-opt__hint">

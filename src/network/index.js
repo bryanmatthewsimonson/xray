@@ -30,6 +30,10 @@ import {
 } from '../shared/incorporation.js';
 import { assembleReviewQueue } from '../shared/review-queue.js';
 import { listAll as journalListAll } from '../shared/event-journal.js';
+import { selectFollowsToPublish, mergeWithRemote } from '../shared/follow-publish.js';
+import { publishConfirmed } from '../shared/confirmed-publish.js';
+import { EventBuilder } from '../shared/event-builder.js';
+import { Signer } from '../shared/signer.js';
 
 const $ = (sel) => document.querySelector(sel);
 const GLOBAL = { scope: 'global' };
@@ -646,6 +650,63 @@ async function onQueueClick(ev) {
     }
 }
 
+// ------------------------------------------------------------------
+// Kind-3 mirror (25.6 — the phase's only wire change; amended KS §9)
+// ------------------------------------------------------------------
+
+async function onMirrorFollows() {
+    const btn = $('#xr-mirror');
+    btn.disabled = true;
+    try {
+        const local = await selectFollowsToPublish();   // GLOBAL scope only
+        if (local.length === 0) { setStatus('Nothing to mirror — the global follow list is empty.'); return; }
+        const userPubkey = await Signer.getPublicKey();
+        if (!userPubkey) { setStatus('No signing identity — set one in Settings ▸ Signing.'); return; }
+        const relays = await getQueryRelays();
+        if (!relays.length) { setStatus('No relays configured.'); return; }
+
+        // Clobber protection: fetch the current remote kind 3 first.
+        const resp = await query(relays, { kinds: [3], authors: [userPubkey], limit: 1 });
+        const fetched = !!(resp && resp.ok);
+        const remote = fetched && Array.isArray(resp.events) && resp.events.length
+            ? [...resp.events].sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0]
+            : null;
+        if (!fetched && !confirm(
+            'Could not read your existing follow list from ANY relay.\n\n'
+            + 'Publishing now could REPLACE a contact list you maintain in '
+            + 'another client. Publish anyway?')) return;
+
+        const { entries, remoteOnly } = mergeWithRemote(local, remote);
+        const includeLabels = $('#xr-mirror-petnames').checked;
+        const summary =
+            `Publish your follow list (kind 3, NIP-02)?\n\n`
+            + `• ${local.length} follow${local.length === 1 ? '' : 's'} from this workspace\n`
+            + `• ${remoteOnly.length} existing remote entr${remoteOnly.length === 1 ? 'y' : 'ies'} preserved (from your current published list)\n`
+            + `• labels as petnames: ${includeLabels ? 'YES — your local labels become public' : 'no'}\n\n`
+            + 'Who you follow becomes public under your primary identity.';
+        if (!confirm(summary)) return;
+
+        const unsigned = EventBuilder.buildFollowListEvent(entries, userPubkey, { includeLabels });
+        const signed = await Signer.signEvent(unsigned);
+        // Kind 3 is an identity kind: require a relay CONFIRMATION
+        // (25.5), publishing through the SW's relay pool.
+        const publish = (rl, event) => new Promise((resolve, reject) => {
+            chrome.runtime.sendMessage({ type: 'xray:relay:publish', event, relays: rl }, (r) => {
+                if (r && r.ok) resolve(r.results);
+                else reject(new Error((r && r.error) || 'publish failed'));
+            });
+        });
+        const pc = await publishConfirmed(relays, signed, { publish });
+        setStatus(pc.ok
+            ? `Follow list mirrored — ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}, confirmed by ${pc.result.confirmed} relay${pc.result.confirmed === 1 ? '' : 's'}.`
+            : `Published without confirmation (${pc.result.successful}/${pc.result.total} assumed) — retry later or check your relays.`);
+    } catch (err) {
+        setStatus(`Mirror failed: ${err.message || err}`);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
 async function onClearCache() {
     if (!confirm('Clear the cached feed? The cache is derived — the next Refresh rebuilds it from the relays. Follows are not touched.')) return;
     try { await clearAll(); } catch (_) { /* already gone */ }
@@ -675,6 +736,11 @@ async function boot() {
         const rb = $('#xr-rebroadcast');
         rb.hidden = false;
         rb.addEventListener('click', onRebroadcast);
+    }
+    // The kind-3 mirror is its own flag + consent (25.6).
+    if (isEnabled('followListPublishing')) {
+        $('#xr-mirror-row').hidden = false;
+        $('#xr-mirror').addEventListener('click', onMirrorFollows);
     }
     $('#xr-follow-form').addEventListener('submit', onFollowSubmit);
     $('#xr-follow-list').addEventListener('click', onFollowListClick);

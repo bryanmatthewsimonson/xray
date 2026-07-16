@@ -728,6 +728,35 @@ export const EventBuilder = {
     };
   },
 
+  // Build the kind-3 follow-list mirror (NIP-02; Phase 25.6 — the
+  // opt-in projection of the GLOBAL follow scope only, amended KS §9).
+  // Standard shape: ['p', pubkey, relayHint, petname?] tags, empty
+  // content (no legacy relay-JSON). Local labels ride as petnames only
+  // when the caller opts in — naming people is its own disclosure.
+  buildFollowListEvent: (entries, userPubkey, { includeLabels = false } = {}) => {
+    const tags = [];
+    const seen = new Set();
+    for (const e of entries || []) {
+      const pk = e && typeof e.pubkey === 'string' ? e.pubkey.toLowerCase() : '';
+      if (!/^[0-9a-f]{64}$/.test(pk) || seen.has(pk)) continue;
+      seen.add(pk);
+      const hint = (Array.isArray(e.relayHints) && e.relayHints[0]) || '';
+      // Local labels obey the opt-in; entries preserved from a REMOTE
+      // kind 3 (`remoteOnly`, follow-publish.js merge) keep their
+      // petname regardless — dropping it would clobber the other
+      // client's already-public data.
+      const label = (includeLabels || e.remoteOnly) && e.label ? String(e.label).slice(0, 60) : '';
+      tags.push(label ? ['p', pk, hint, label] : ['p', pk, hint]);
+    }
+    return {
+      kind: 3,
+      pubkey: userPubkey,
+      created_at: Math.floor(Date.now() / 1000),
+      tags,
+      content: ''
+    };
+  },
+
   // Build kind 32125 entity relationship event
   buildEntityRelationshipEvent: (entity, articleUrl, relationshipType, userPubkey, claimId) => {
     return {
