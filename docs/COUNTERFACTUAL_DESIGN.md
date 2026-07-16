@@ -1,8 +1,10 @@
 # Structural counterfactual — "what depends on this claim" (design)
 
-> **Status:** design draft (2026-07-16), **not approved** — written
-> overnight for maintainer review (Phase 26 prep). No code exists yet.
-> This is the maintainer's "Monte Carlo / if a claim were true or false,
+> **Status:** **approved** by the maintainer 2026-07-16 (drafted the
+> same day for Phase-26 review; the §7 open questions are resolved —
+> decisions recorded in §7). Implementation follows the hypothesis-map
+> slices (CF.1–CF.2 after H.1–H.4), one PR per slice. This is the
+> maintainer's "Monte Carlo / if a claim were true or false,
 > what happens to the rest" ask, **reframed to clear the epistemic
 > firewall** (their explicit decision: *structural, counts not
 > probabilities*). Where this and the constitution
@@ -123,7 +125,7 @@ walk); no persistence, no wire kind; no claim about *truth* — only about
 *structure* ("what connects to what"), leaving the truth judgment to the
 verdict layer and the reader.
 
-## §6. Slice ladder (for review — not yet approved)
+## §6. Slice ladder (approved 2026-07-16)
 
 | Slice | Content |
 |---|---|
@@ -133,13 +135,13 @@ verdict layer and the reader.
 | CF.3 (optional) | A short narrative restatement of the counts (no LLM required; if LLM, it only re-words the counts and is triple-gated) |
 | — (refused) | A probabilistic Monte Carlo — separate feature, requires amending the constitution; not planned |
 
-## §7. Open questions for the maintainer
+## §7. Open questions — RESOLVED (maintainer decisions, 2026-07-16)
 
-- Does the trace belong **inline in the case view** (a per-claim
-  expander) or on a **dedicated surface** (a "dependency explorer")?
-- Is the **negate** variant worth building, or is **remove** enough for
-  v1? (Negate is more evocative of the "if it were false" ask but adds
-  edge-flip semantics.)
-- Confirm the hard refusal of the probabilistic version — or, if the
-  maintainer wants to reopen it, that is a distinct design + a
-  constitution amendment, not part of this doc.
+- **Surface:** the trace renders **inline in the case view** as a
+  per-claim expander (the §3 render paragraph's shape). A dedicated
+  dependency-explorer surface is not planned for v1.
+- **Negate variant:** **build both** — CF.1 ships `remove` and
+  `negate` as the §6 ladder already specifies.
+- **Probabilistic version:** the hard refusal is **confirmed**. A
+  Rootclaim-style Monte Carlo remains a separate design requiring a
+  constitution amendment; it is not planned.

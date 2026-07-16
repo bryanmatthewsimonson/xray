@@ -1,10 +1,10 @@
 # Hypothesis map — competing answers with structural evidence (design)
 
-> **Status:** design draft (2026-07-16), **not approved** — written
-> overnight for maintainer review (Phase 26 prep). No code exists yet.
-> This is the "propose hypotheses from multiple points of view that fit
-> the evidence" ask. It governs a NEW capability; where it and the
-> epistemic constitution ([`PHILOSOPHY.md`](PHILOSOPHY.md),
+> **Status:** **approved** by the maintainer 2026-07-16 (drafted the
+> same day for Phase-26 review; the §8 open questions are resolved —
+> decisions recorded in §8). Implementation proceeds per the §7 slice
+> ladder, one PR per slice. It governs a NEW capability; where it and
+> the epistemic constitution ([`PHILOSOPHY.md`](PHILOSOPHY.md),
 > [`TRUTH_ADJUDICATION_DESIGN.md`](TRUTH_ADJUDICATION_DESIGN.md) §1,
 > [`CASE_DOSSIER_DESIGN.md`](CASE_DOSSIER_DESIGN.md) §2.2) disagree, the
 > constitution governs.
@@ -168,7 +168,7 @@ structural argument map clears the bar; a scored one does not — and the
 scored one is a **separate, constitution-amending decision the
 maintainer has not taken.**
 
-## §7. Slice ladder (for review — not yet approved)
+## §7. Slice ladder (approved 2026-07-16)
 
 | Slice | Content |
 |---|---|
@@ -179,12 +179,15 @@ maintainer has not taken.**
 | H.4 | LLM edge-suggestion via the map/reduce firewall (triple-gate, ground, human-accept, both-sides) |
 | H.5 (deferred) | A wire kind for publishing a hypothesis map — only if the network needs it; a separate decision |
 
-## §8. Open questions for the maintainer
+## §8. Open questions — RESOLVED (maintainer decisions, 2026-07-16)
 
-- Should hypotheses ever get a **wire kind** (publish the map), or stay
-  local-derived like the dossier? (Recommend local-derived first.)
-- Is a neutral per-section edge **count** acceptable at all, or is even
-  "Supporting evidence (12)" too scoreboard-like for the constitution?
-- Should a claim's **verdict-state chip** show beside its edge (context)
-  or is that too close to weighting? (Recommend show-as-context, with
-  an explicit "verdict does not weight the edge" note.)
+- **Wire kind:** stay **local-derived** like the dossier (the
+  recommendation). H.5 remains deferred; publishing the map is a
+  separate, future decision.
+- **Neutral per-section edge counts:** **acceptable.** "Supporting
+  evidence (12)" may render as a plain section size. The guard holds:
+  counts are never cross-compared between hypotheses, and a test
+  asserts the render emits no cross-hypothesis comparison string.
+- **Verdict-state chip:** **show as context** (the recommendation),
+  with an explicit "verdict does not weight the edge" note in the UI.
+  A contested claim staying load-bearing is the point.

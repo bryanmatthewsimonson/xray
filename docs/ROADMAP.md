@@ -1804,26 +1804,30 @@ NIP-02); no mute list; no sidepanel KS.4 feed changes.
 
 ---
 
-## Phase 26 — Corpus analysis, deepened 🚧 shipped (safe wins) + design-only (speculative)
+## Phase 26 — Corpus analysis, deepened 🚧 in progress
 
 Driven from a maintainer review of the COVID-origins case dashboard.
 The **safe wins shipped** (Phase-26 prep, T1.1–T1.3): download the
 corpus brief (.md/.json), surface the provenance the brief already
 carried (crux evidence quotes, load-bearing source links, position
 holders), surface cross-article claim links, and clarify the
-Evidence/Case-graph vocabulary. Two larger capabilities are
-**design-only, pending maintainer review** — both bounded by the
-epistemic firewall (no fused score/probability; structure, not
-estimation):
+Evidence/Case-graph vocabulary. The two larger capabilities were
+**approved 2026-07-16** (maintainer decisions recorded in each doc's
+open-questions section) — both bounded by the epistemic firewall (no
+fused score/probability; structure, not estimation), both
+computed-on-read with **no new wire kind**, one PR per slice:
 
-- 📝 **Hypothesis map** — competing answers to the case question with
-  captured claims attached as *supporting/undermining* structural
-  evidence, side by side, model never picks, no score
+- 🚧 **Hypothesis map** (slices H.1–H.4; H.5 wire kind deferred) —
+  competing answers to the case question with captured claims attached
+  as *supporting/undermining* structural evidence, side by side, model
+  never picks, no score; neutral per-section edge counts allowed but
+  never cross-compared; verdict chips shown as context only
   ([`HYPOTHESIS_MAP_DESIGN.md`](HYPOTHESIS_MAP_DESIGN.md)).
-- 📝 **Structural counterfactual** — "what depends on this claim":
-  the maintainer's "Monte Carlo" ask reframed to counts-with-derivation
-  over the case graph, never probabilities (the constitution's answer
-  to Rootclaim-style scoring is a deliberate no)
+- 🚧 **Structural counterfactual** (slices CF.1–CF.2, after the map) —
+  "what depends on this claim": the maintainer's "Monte Carlo" ask
+  reframed to counts-with-derivation over the case graph, never
+  probabilities (the constitution's answer to Rootclaim-style scoring
+  is a deliberate no); inline per-claim expander, remove + negate modes
   ([`COUNTERFACTUAL_DESIGN.md`](COUNTERFACTUAL_DESIGN.md)).
 
 ---
