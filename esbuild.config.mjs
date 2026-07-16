@@ -84,7 +84,7 @@ const configs = [
     },
 
     // --- extension pages (each is its own IIFE bundle, loaded by its HTML shell) ---
-    ...['options', 'sidepanel', 'reader', 'portal'].map((name) => ({
+    ...['options', 'sidepanel', 'reader', 'portal', 'network'].map((name) => ({
         ...shared,
         entryPoints: [resolve(root, `src/${name}/index.js`)],
         outfile: resolve(root, `dist/${name}.bundle.js`),

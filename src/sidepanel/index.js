@@ -27,6 +27,7 @@ import { accountsForEntity, listUnlinkedAccounts, linkAccountToEntity, unlinkAcc
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { Crypto } from '../shared/crypto.js';
 import { dedupeReplaceable } from '../shared/nostr-events.js';
+import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { equivalencePubkeys } from '../shared/entity-equivalence.js';
 import { buildFeedFilters, claimCoords, buildJudgmentFilter, assembleFeed } from '../shared/entity-feed.js';
 import { pushEntities, pullEntities, clearRemote, pushRelayList, pullRelayList, normalizeRelayUrl } from '../shared/entity-sync.js';
@@ -2042,6 +2043,13 @@ async function init() {
     $('#xr-open-portal').addEventListener('click', () => {
         chrome.runtime.sendMessage({ type: 'xray:openPortal' });
     });
+    $('#xr-open-network').addEventListener('click', () => {
+        chrome.runtime.sendMessage({ type: 'xray:openNetwork' });
+    });
+    // Flag-gated surface link (Phase 25) — shown only when enabled.
+    loadFlags().then(() => {
+        $('#xr-open-network').hidden = !isEnabled('networkPage');
+    }).catch(() => { /* stays hidden */ });
 
     // Detail view buttons.
     $('#xr-back').addEventListener('click', () => {

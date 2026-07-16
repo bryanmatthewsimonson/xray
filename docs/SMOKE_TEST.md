@@ -1261,6 +1261,23 @@ Requires a Local-mode primary identity (Options → Signing → Local).
 
 ---
 
+## Phase 25 — Network client (25.1+)
+
+Best walked with **two identity profiles** (or two browser profiles):
+publisher P and follower F, sharing at least one relay. Sections grow
+as slices land.
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 25.a | Flag gate: F with `networkPage` OFF — right-click toolbar icon; open `src/network/index.html` directly | ✅ no "Open Network" menu item; the page shows the enable hint and no controls |
+| 25.b | Options → Advanced → "Enable the Network page" → check the toolbar right-click menu (no extension reload) | ✅ "Open Network" appears; the Network quick-access button appears in Options; sidepanel shows a Network button |
+| 25.c | Network → Follows → paste P's **npub** (+ a label) | ✅ entry renders with label + npub side by side; garbage input errors without adding |
+| 25.d | As P: publish an article + a claim + a verdict. As F: Feed → ↻ Refresh | ✅ P's group shows the article/claim/verdict rows newest-first, npub beside the label; the verdict arrives WITHOUT any second query (authors axis) |
+| 25.e | F: Unfollow P → Refresh | ✅ feed empties (or P's group gone); nothing else about the workspace changed |
+| 25.f | Settings ▸ Advanced ▸ Start fresh workspace (after export) | ✅ the follow list is cleared with the workspace (`follow_sets` is workspace content) |
+
+---
+
 ## Reporting
 
 For each defect found:

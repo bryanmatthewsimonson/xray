@@ -748,6 +748,8 @@ async function loadAdvanced() {
     // Reader "Add fact" popover button (Phase 19.5) — a UI-visibility
     // gate, not a publish path.
     document.getElementById('pref-reader-add-fact').checked = isEnabled('readerAddFact');
+    document.getElementById('pref-network-page').checked = isEnabled('networkPage');
+    document.getElementById('qa-open-network').hidden = !isEnabled('networkPage');
 
     // Moral lens (Phase 16) — independent of llmAssist; shares the key.
     document.getElementById('pref-moral-lens').checked = isEnabled('moralLens');
@@ -830,6 +832,10 @@ async function saveAdvanced() {
     // Reader "Add fact" popover button (Phase 19.5).
     const showAddFact = document.getElementById('pref-reader-add-fact').checked;
     await setOverride('readerAddFact', showAddFact ? true : null);
+
+    const networkOn = document.getElementById('pref-network-page').checked;
+    await setOverride('networkPage', networkOn ? true : null);
+    document.getElementById('qa-open-network').hidden = !networkOn;
 
     // Moral lens (Phase 16): checked → explicit override on; unchecked →
     // clear the override back to the default (off).
@@ -948,6 +954,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     document.getElementById('qa-open-portal').addEventListener('click', () => {
         browserApi.runtime.sendMessage({ type: 'xray:openPortal' });
+    });
+    document.getElementById('qa-open-network').addEventListener('click', () => {
+        browserApi.runtime.sendMessage({ type: 'xray:openNetwork' });
     });
     document.getElementById('qa-capture-tips').addEventListener('click', () => {
         browserApi.runtime.sendMessage({ type: 'xray:openCaptureTips' });

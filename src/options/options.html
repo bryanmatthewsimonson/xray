@@ -15,6 +15,7 @@
         <button class="xr-opt__btn" id="qa-toggle-capture" title="Capture the active tab and open it in the reader">Capture Page</button>
         <button class="xr-opt__btn" id="qa-open-entities" title="Open the entity browser sidepanel">Entity Browser</button>
         <button class="xr-opt__btn" id="qa-open-portal" title="Open My Archive — everything you've published to NOSTR">My Archive</button>
+        <button class="xr-opt__btn" id="qa-open-network" title="Open the Network page — follow researchers and read their published work" hidden>Network</button>
         <button class="xr-opt__btn" id="qa-capture-tips" title="Capture guide on GitHub">Capture tips</button>
       </div>
     </div>
@@ -206,6 +207,18 @@
         Adds a 📇 Add fact row to the selection popover for capturing
         structured entity facts (birth date, headquarters, role…). Off
         by default. The claim, quote, and finding rows are unaffected.
+      </p>
+
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-network-page" />
+        <span>Enable the Network page (Phase 25)</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        A standalone page for following other researchers by npub and
+        reading what they publish — articles, claims, assessments,
+        verdicts, case briefs. Follows are stored locally and never
+        published; the feed is pull-only. Off by default while the
+        phase is in flight.
       </p>
 
       <hr />

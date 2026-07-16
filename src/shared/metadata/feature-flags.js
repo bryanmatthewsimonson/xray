@@ -111,7 +111,16 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // Anthropic (N× a suggest pass), so it carries its own consent gate.
   // The brief is local-only — no wire kind; proposals materialize as
   // ordinary 30040/30055 through the normal publish paths.
-  caseSynthesis: false
+  caseSynthesis: false,
+
+  // Phase 25 (docs/NETWORK_CLIENT_DESIGN.md §8): gates the Network
+  // SURFACE — the standalone follows-feed page, its context-menu item,
+  // and the options/sidepanel links. Reading relays is not a
+  // disclosure beyond what the portal already does, but the surface
+  // ships default-off while the phase is in flight. Publish
+  // affordances inside it carry their own flags (reviewCoordination,
+  // followListPublishing) as those slices land.
+  networkPage: false
 });
 
 /**
