@@ -12,6 +12,20 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Corpus brief — download + provenance surfacing (Phase 26 prep,
+  T1.1/T1.2).** The stored case brief gains **Download .md / .json**
+  controls beside "Publish brief…" (the `.md` is the same readable,
+  source-linked Markdown the publish path emits via
+  `renderCaseBriefMarkdown`; the `.json` is the full stored record) —
+  local-only, no relays, so an expensive analysis is keepable
+  off-device. And the case dashboard now **surfaces the provenance the
+  brief already carried but hid**: every crux's grounded evidence
+  quotes (previously not rendered at all), each load-bearing claim's
+  source article (and its captured-claim text when `claim_ref`
+  resolves), and each position's holder articles now link back to
+  their source. Pure render/plumbing — no schema, model, or wire
+  change.
+
 - **Phase 25.7 — the trust graph wired as a feed filter (KS.8;
   completes Phase 25).** The dormant Phase-9a `trust-graph.js` gets
   its consumer: the reader's graph is composed from the **local**

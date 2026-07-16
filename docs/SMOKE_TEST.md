@@ -1296,6 +1296,20 @@ as slices land.
 
 ---
 
+## Corpus brief — download + provenance (Phase 26 prep)
+
+Requires `caseSynthesis` + `llmAssist` + an API key, and a case with a
+stored brief (run "Analyze corpus…" once).
+
+| # | Test | Pass criteria |
+|---|---|---|
+| P26.a | Case dashboard ▸ Corpus synthesis ▸ **Download .md** | ✅ a `case-brief-<slug>.md` downloads; opens as the readable brief with each quote linked to its source URL |
+| P26.b | **Download .json** | ✅ a `case-brief-<slug>.json` downloads; contains `brief`, `grounding`, `model`, `members`, `inputHash` |
+| P26.c | Inspect the rendered brief on the dashboard | ✅ each **crux** shows its grounded evidence quotes with a source link; each **load-bearing** claim shows a "Source:" link (and a "Claim:" text when `claim_ref` resolves); each **position** shows "Held by:" source links |
+| P26.d | Click a source link | ✅ opens the captured source's original URL in a new tab; nothing publishes |
+
+---
+
 ## Reporting
 
 For each defect found:

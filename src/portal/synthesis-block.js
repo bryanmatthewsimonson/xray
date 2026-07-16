@@ -28,7 +28,38 @@ import { renderProposals } from './synthesis-review.js';
 import { Signer } from '../shared/signer.js';
 import { Storage } from '../shared/storage.js';
 import { FALLBACK_RELAYS } from './corpus.js';
-import { buildCaseBriefArticle, buildCaseBriefEvent } from '../shared/corpus-publish.js';
+import { buildCaseBriefArticle, buildCaseBriefEvent, renderCaseBriefMarkdown } from '../shared/corpus-publish.js';
+
+/** A source link for a member article_hash, or null when unresolved. */
+function sourceAnchor(hash, memberIndex) {
+    const m = (memberIndex || {})[hash];
+    if (!m || !m.url) return null;
+    const a = el('a', 'xr-synth__src', m.title || m.url);
+    a.href = m.url;
+    a.target = '_blank';
+    a.rel = 'noreferrer noopener';
+    a.title = m.url;
+    return a;
+}
+
+/** Trigger a local file download (no network; extension page, no CSP). */
+function downloadFile(filename, text, mime) {
+    const blob = new Blob([text], { type: `${mime};charset=utf-8` });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Revoke on the next tick so the click has consumed the URL.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/** Filesystem-safe slug from the case name for download filenames. */
+function fileSlug(name) {
+    return String(name || 'case').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'case';
+}
 
 async function resolveRelays() {
     try {
@@ -45,7 +76,12 @@ function sendMessage(msg) {
     });
 }
 
-function section(brief) {
+// Render provenance already present in the brief but hidden by the
+// dashboard until Phase-26 prep (T1.2): every crux quote, load-bearing
+// claim, and position holder links back to its source article + a
+// machine-grounded quote. `memberIndex` = article_hash → {url,title};
+// `claimsById` resolves an optional load-bearing claim_ref best-effort.
+function section(brief, { memberIndex = {}, claimsById = {} } = {}) {
     const wrap = el('div', 'xr-synth__brief');
     if (brief.summary) {
         const s = el('details', 'xr-synth__sec'); s.open = true;
@@ -60,6 +96,13 @@ function section(brief) {
             const d = el('div', 'xr-synth__pos');
             d.appendChild(el('span', 'xr-badge', p.label || 'position'));
             if (p.core_argument) d.appendChild(el('span', 'xr-synth__text', p.core_argument));
+            const held = (p.holders || []).map((h) => sourceAnchor(h.article_hash, memberIndex)).filter(Boolean);
+            if (held.length) {
+                const row = el('div', 'xr-synth__prov-row');
+                row.appendChild(el('span', 'xr-synth__prov-label', 'Held by:'));
+                held.forEach((a, i) => { if (i) row.appendChild(document.createTextNode(', ')); row.appendChild(a); });
+                d.appendChild(row);
+            }
             s.appendChild(d);
         }
         wrap.appendChild(s);
@@ -76,6 +119,13 @@ function section(brief) {
                 sd.appendChild(el('span', 'xr-synth__text', side.view || ''));
                 d.appendChild(sd);
             }
+            for (const ev of c.evidence_refs || []) {
+                if (!ev || !ev.quote) continue;
+                const q = el('blockquote', 'xr-finding-row__quote', truncate(ev.quote, 200));
+                const src = sourceAnchor(ev.article_hash, memberIndex);
+                if (src) { const cite = el('div', 'xr-synth__prov-row'); cite.appendChild(el('span', 'xr-synth__prov-label', '— ')); cite.appendChild(src); q.appendChild(cite); }
+                d.appendChild(q);
+            }
             if (c.what_would_resolve) d.appendChild(el('div', 'xr-synth__resolve', `Would resolve: ${c.what_would_resolve}`));
             s.appendChild(d);
         }
@@ -88,6 +138,19 @@ function section(brief) {
             const d = el('div', 'xr-synth__lb');
             d.appendChild(el('blockquote', 'xr-finding-row__quote', truncate(lb.quote || '', 200)));
             if (lb.why) d.appendChild(el('span', 'xr-synth__text', lb.why));
+            const prov = el('div', 'xr-synth__prov-row');
+            const src = sourceAnchor(lb.article_hash, memberIndex);
+            if (src) { prov.appendChild(el('span', 'xr-synth__prov-label', 'Source:')); prov.appendChild(src); }
+            // Best-effort: if the model tied this to an existing captured
+            // claim id, confirm it by showing that claim's text. We never
+            // fabricate a link when the ref doesn't resolve.
+            const claim = lb.claim_ref && claimsById[lb.claim_ref];
+            if (claim && claim.text) {
+                if (src) prov.appendChild(document.createTextNode(' · '));
+                prov.appendChild(el('span', 'xr-synth__prov-label', 'Claim:'));
+                prov.appendChild(el('span', 'xr-synth__text', truncate(claim.text, 120)));
+            }
+            if (prov.childNodes.length) d.appendChild(prov);
             s.appendChild(d);
         }
         wrap.appendChild(s);
@@ -228,10 +291,34 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
             const pubStatus = el('span', 'xr-synth__status');
             pubBtn.addEventListener('click', () => publishBrief(record, pubBtn, pubStatus));
             pubRow.appendChild(pubBtn);
+
+            // Download the brief locally — the same readable markdown the
+            // publish path emits, plus the raw JSON record. No network,
+            // no relays; the analysis is expensive to generate and should
+            // be keepable off-device (T1.1).
+            const caseName = data.case.name || '';
+            const scopeQuestion = (dossier.scope && dossier.scope.question) || '';
+            const mdBtn = el('button', 'xr-portal__btn xr-portal__btn--ghost', 'Download .md');
+            mdBtn.type = 'button';
+            mdBtn.title = 'Download the brief as a readable Markdown file (quotes linked to their sources)';
+            mdBtn.addEventListener('click', () => {
+                const md = renderCaseBriefMarkdown(record.brief, {
+                    caseName, scopeQuestion, memberCount: record.members, memberIndex: memberByHash
+                });
+                downloadFile(`case-brief-${fileSlug(caseName)}.md`, md, 'text/markdown');
+            });
+            const jsonBtn = el('button', 'xr-portal__btn xr-portal__btn--ghost', 'Download .json');
+            jsonBtn.type = 'button';
+            jsonBtn.title = 'Download the full stored brief record (brief + grounding + provenance) as JSON';
+            jsonBtn.addEventListener('click', () => {
+                downloadFile(`case-brief-${fileSlug(caseName)}.json`, JSON.stringify(record, null, 2), 'application/json');
+            });
+            pubRow.appendChild(mdBtn);
+            pubRow.appendChild(jsonBtn);
             pubRow.appendChild(pubStatus);
             briefHost.appendChild(pubRow);
 
-            briefHost.appendChild(section(record.brief));
+            briefHost.appendChild(section(record.brief, { memberIndex: memberByHash, claimsById }));
             const filtered = filterProposals(record.brief, { claimsById, memberHashes });
             renderProposals(proposalHost, {
                 acceptable: filtered.acceptable, rejected: filtered.rejected,

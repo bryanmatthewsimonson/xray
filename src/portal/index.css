@@ -556,6 +556,10 @@ body.xr-portal {
 .xr-synth__crux-q { font-weight: 600; }
 .xr-synth__side { margin: 4px 0 4px 10px; border-left: 2px solid var(--xr-border); padding-left: 8px; }
 .xr-synth__resolve { color: var(--xr-text-dim); font-size: 13px; margin-top: 4px; }
+.xr-synth__prov-row { font-size: 12px; color: var(--xr-text-dim); margin: 3px 0 2px; }
+.xr-synth__prov-label { color: var(--xr-text-dim); margin-right: 4px; }
+.xr-synth__src { color: var(--xr-accent, #22d3ee); text-decoration: none; }
+.xr-synth__src:hover { text-decoration: underline; }
 .xr-synth__prop { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--xr-border); }
 .xr-synth__prop--rejected { color: var(--xr-text-dim); }
 .xr-synth__prop-desc { flex: 1 1 auto; min-width: 200px; }
