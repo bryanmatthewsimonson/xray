@@ -23,6 +23,13 @@ const SOURCE_TYPES = new Set([
   'primary-record', 'primary-research', 'reporting', 'analysis', 'reference'
 ]);
 
+// Phase 23.1b — the evidence-role whitelist, inlined alongside
+// SOURCE_TYPES (kept in lockstep with truth-taxonomy.js EVIDENCE_ROLES
+// by a test).
+const EVIDENCE_ROLES = new Set([
+  'evidence', 'mention', 'supports', 'disputes', 'reviews'
+]);
+
 // Re-export the metadata helpers so callers that already import from
 // `event-builder.js` don't need a second import path. See spec §6.4.
 export { buildRespondsToTag, RESPONDS_TO_RELATIONSHIPS } from './metadata/builders.js';
@@ -274,7 +281,16 @@ export const EventBuilder = {
       for (const link of article.links) {
         if (!link || !link.url || link.internal) continue;
         const anchorText = String(link.text || '').slice(0, 120);
-        tags.push(anchorText ? ['link', link.url, anchorText] : ['link', link.url]);
+        // Phase 23.1b — an optional 4th positional carries the
+        // user-declared evidence role (citation intent). Emitted only
+        // for a known role; the anchor slot is filled ('' when empty)
+        // so the role's position is unambiguous.
+        const role = EVIDENCE_ROLES.has(link.role) ? link.role : null;
+        if (role) {
+          tags.push(['link', link.url, anchorText, role]);
+        } else {
+          tags.push(anchorText ? ['link', link.url, anchorText] : ['link', link.url]);
+        }
         if (linked < 25) pushR(link.url);
         linked += 1;
       }
@@ -1041,7 +1057,13 @@ export const EventBuilder = {
         const linkTags = (tagArrays['link'] && tagArrays['link'].length)
           ? tagArrays['link'] : tagArrays['cites'];
         return (linkTags && linkTags.length)
-          ? linkTags.map(v => ({ url: v[0] || '', text: v[1] || '', count: 1, internal: false }))
+          ? linkTags.map(v => ({
+              url: v[0] || '', text: v[1] || '', count: 1, internal: false,
+              // Phase 23.1b — the 4th positional evidence role (v[2]
+              // here: tagArrays strips the leading tag name). Only a
+              // known value round-trips (unknown reads as absent).
+              ...(EVIDENCE_ROLES.has(v[2]) ? { role: v[2] } : {})
+            }))
           : null;
       })(),
       language: tags['lang'] || null,

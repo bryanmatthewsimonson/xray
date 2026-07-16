@@ -901,15 +901,16 @@ It is **user-declared, never inferred by the publisher** — X-Ray auto-suggests
 A long-form article (kind 30023) MAY carry one `link` tag per distinct EXTERNAL outbound link in its body, in document order:
 
 ```
-["link", "<normalized target URL>", "<anchor text, ≤120 chars>"?]
+["link", "<normalized target URL>", "<anchor text, ≤120 chars>"?, "<evidence-role>"?]
 ```
 
 Where:
 
 - `<target URL>` is normalized exactly as the primary `r` (§6.2 rules) — a link and its tracking-param variant are ONE target, and a link to an article meets that article's own capture on one URL.
 - The optional anchor text is the link's visible text, whitespace-collapsed and truncated to 120 characters. It is descriptive, not normative.
+- The optional **4th positional `evidence-role`** (Phase 23.1b) records the **citation intent** — WHY the article points at this target — as a user declaration. Closed value set, a lay-relabelled subset of CiTO (the Citation Typing Ontology): `evidence` (cito:citesAsEvidence — the primary source relied on) · `mention` (citesForInformation) · `supports` · `disputes` · `reviews`. When a role is present the anchor slot is filled (empty string if the link had no anchor text) so the role's position is unambiguous. Consumers treat an unrecognized role as absent. A `disputes`/`evidence` link from an `analysis`-typed article to a `primary-research`-typed target is a visible secondary→primary derivation edge (PROV `wasDerivedFrom`).
 
-Semantics: `link` asserts **linkage only** — the body contains a hyperlink to the target. It carries no stance; endorsement, rebuttal, and the rest are `responds-to` relationships. Internal links (same-host navigation) are not emitted. Publishers extract links under a cap (X-Ray: 100 distinct targets), so **the absence of a `link` tag is not evidence the article does not link somewhere** — consumers needing certainty must consult the captured body.
+Semantics: absent an `evidence-role`, `link` asserts **linkage only** — the body contains a hyperlink to the target, no stance. The role, when present, adds the citing article's declared intent; broader endorsement/rebuttal of a whole work is still the separate `responds-to` relationship. Internal links (same-host navigation) are not emitted. Publishers extract links under a cap (X-Ray: 100 distinct targets), so **the absence of a `link` tag is not evidence the article does not link somewhere** — consumers needing certainty must consult the captured body.
 
 Publishers SHOULD co-emit an indexed `r` tag for the first **25** linked targets (after the primary `r` and every other co-emit; deduplicated against `r` tags already on the event — the FIRST `r` remains the article's own URL). This makes the edge queryable from the linked side:
 

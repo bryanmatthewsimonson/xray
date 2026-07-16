@@ -21,7 +21,14 @@
 // + backdrop + Escape, self-injected <style> (xr-media-* only).
 
 import { parseTranscript, describeTranscriptParse } from '../shared/transcript-parse.js';
-import { SOURCE_TYPES, SOURCE_TYPE_LABELS, suggestSourceType } from '../shared/truth-taxonomy.js';
+import {
+    SOURCE_TYPES, SOURCE_TYPE_LABELS, suggestSourceType,
+    EVIDENCE_ROLES, EVIDENCE_ROLE_LABELS
+} from '../shared/truth-taxonomy.js';
+
+// Cap the per-link role editor so an article with hundreds of links
+// doesn't build a runaway modal. External links only.
+const MAX_LINK_ROWS = 60;
 
 function escapeHtml(s) {
     return String(s == null ? '' : s)
@@ -43,6 +50,42 @@ function field(label, id, value, placeholder, hint) {
                placeholder="${escapeHtml(placeholder || '')}" />
         ${hint ? `<span class="xr-media__hint">${escapeHtml(hint)}</span>` : ''}
       </label>`;
+}
+
+// The external outbound links available to role-tag (deduped by the
+// capture already). Returns [] when the article carries none.
+function externalLinks(article) {
+    return (Array.isArray(article.links) ? article.links : [])
+        .filter((l) => l && l.url && !l.internal)
+        .slice(0, MAX_LINK_ROWS);
+}
+
+function linksSection(article) {
+    const links = externalLinks(article);
+    if (!links.length) return '';
+    const roleOpts = (sel) => ['<option value="">no role</option>']
+        .concat(EVIDENCE_ROLES.map((r) =>
+            `<option value="${r}" ${sel === r ? 'selected' : ''}>${escapeHtml(EVIDENCE_ROLE_LABELS[r])}</option>`))
+        .join('');
+    const rows = links.map((l) => {
+        const label = l.text ? l.text : l.url;
+        return `
+          <div class="xr-media__link">
+            <span class="xr-media__link-label" title="${escapeHtml(l.url)}">${escapeHtml(label)}</span>
+            <select class="xr-media__link-role" data-link-url="${escapeHtml(l.url)}">
+              ${roleOpts(EVIDENCE_ROLES.includes(l.role) ? l.role : '')}
+            </select>
+          </div>`;
+    }).join('');
+    const total = (article.links || []).filter((l) => l && l.url && !l.internal).length;
+    const more = total > links.length ? `<span class="xr-media__hint">Showing ${links.length} of ${total} links.</span>` : '';
+    return `
+      <details class="xr-media__links">
+        <summary>Outbound links — how they're cited (${links.length})</summary>
+        <span class="xr-media__hint">Mark each link's role: is it the primary source cited as evidence, or merely mentioned, supported, disputed, reviewed?</span>
+        ${rows}
+        ${more}
+      </details>`;
 }
 
 function buildHtml(article) {
@@ -77,6 +120,8 @@ function buildHtml(article) {
                 ? `What KIND of source this is. Suggested: <strong>${escapeHtml(SOURCE_TYPE_LABELS[suggestion])}</strong> — confirm or change.`
                 : 'What KIND of source this is — a primary record/paper vs. reporting, analysis, or a summary.'}</span>
           </label>
+
+          ${linksSection(article)}
 
           <label class="xr-media__field">
             <span class="xr-media__label">This URL contains</span>
@@ -123,7 +168,7 @@ function buildHtml(article) {
 
 /**
  * @param {object} article  the open article (prefills; never mutated here)
- * @returns {Promise<{media: string|null, sourceType: string|null, podcast: object|null, parse: object|null}|null>}
+ * @returns {Promise<{media: string|null, sourceType: string|null, linkRoles: object, podcast: object|null, parse: object|null}|null>}
  *   null on cancel. `parse` is a parseTranscript result (turns present)
  *   when the user pasted a transcript, else null.
  */
@@ -228,9 +273,17 @@ export function openMediaModal(article) {
 
             const sourceType = $('#xr-media-srctype').value || null;
 
+            // Per-link evidence roles → { url: role } (set values only).
+            const linkRoles = {};
+            host.querySelectorAll('.xr-media__link-role').forEach((sel) => {
+                const url = sel.getAttribute('data-link-url');
+                if (url && sel.value) linkRoles[url] = sel.value;
+            });
+
             close({
                 media,
                 sourceType,
+                linkRoles,
                 podcast: Object.keys(podcast).length ? podcast : null,
                 parse
             });
@@ -271,6 +324,11 @@ function ensureStyles() {
 .xr-media__ids { border: 1px solid var(--xr-border, #333); border-radius: 8px;
   padding: 8px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
 .xr-media__ids legend { font-size: 12px; opacity: .75; padding: 0 4px; }
+.xr-media__links { border: 1px solid var(--xr-border, #333); border-radius: 8px; padding: 6px 10px; }
+.xr-media__links summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+.xr-media__link { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.xr-media__link-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.xr-media__link-role { flex: 0 0 auto; }
 .xr-media__transcript { display: flex; flex-direction: column; gap: 6px; }
 .xr-media__transcript textarea { width: 100%; box-sizing: border-box; resize: vertical; }
 .xr-media__row { display: flex; gap: 8px; }

@@ -300,6 +300,46 @@ test('reconstructArticleFromEvent: source_type round-trips; unknown value reads 
     assert.equal(EventBuilder.reconstructArticleFromEvent(plain).source_type, null);
 });
 
+// --- Phase 23.1b per-link evidence role ------------------------------
+
+const ROLED_LINKS = {
+    url: 'https://blog.example/post', title: 'T', markdown: '# a',
+    links: [
+        { url: 'https://nature.com/proximal-origins', text: 'the paper', internal: false, role: 'disputes' },
+        { url: 'https://who.int/report', text: 'WHO report', internal: false, role: 'evidence' },
+        { url: 'https://blog.example/other', text: 'related', internal: false },              // no role
+        { url: 'https://blog.example/bad', text: 'x', internal: false, role: 'nonsense' }     // invalid role
+    ]
+};
+
+test('buildArticleEvent: link tags carry a 4th-positional evidence role for known values only', async () => {
+    const ev = await EventBuilder.buildArticleEvent(ROLED_LINKS, [], PUBKEY, []);
+    const links = ev.tags.filter((t) => t[0] === 'link');
+    const byUrl = (u) => links.find((t) => t[1] === u);
+    assert.deepEqual(byUrl('https://nature.com/proximal-origins'),
+        ['link', 'https://nature.com/proximal-origins', 'the paper', 'disputes']);
+    assert.deepEqual(byUrl('https://who.int/report'),
+        ['link', 'https://who.int/report', 'WHO report', 'evidence']);
+    // No role → the 3-element form (no empty 4th slot).
+    assert.equal(byUrl('https://blog.example/other').length, 3);
+    // Invalid role → dropped, back to the plain form.
+    assert.equal(byUrl('https://blog.example/bad').length, 3);
+});
+
+test('reconstructArticleFromEvent: link roles round-trip; unknown reads as absent', async () => {
+    const ev = await EventBuilder.buildArticleEvent(ROLED_LINKS, [], PUBKEY, []);
+    const back = EventBuilder.reconstructArticleFromEvent(ev);
+    const byUrl = (u) => back.links.find((l) => l.url === u);
+    assert.equal(byUrl('https://nature.com/proximal-origins').role, 'disputes');
+    assert.equal(byUrl('https://who.int/report').role, 'evidence');
+    assert.ok(!('role' in byUrl('https://blog.example/other')), 'roleless link has no role key');
+
+    // A hand-forged unknown role must not survive read-back.
+    const forged = { ...ev, tags: ev.tags.map((t) =>
+        (t[0] === 'link' && t[1] === 'https://who.int/report') ? ['link', t[1], t[2], 'hologram'] : t) };
+    assert.ok(!('role' in EventBuilder.reconstructArticleFromEvent(forged).links.find((l) => l.url === 'https://who.int/report')));
+});
+
 test('buildRelayListEvent stamps created_at to a recent unix second', () => {
     const before = Math.floor(Date.now() / 1000);
     const ev = EventBuilder.buildRelayListEvent(['wss://a'], PUBKEY);

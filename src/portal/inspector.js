@@ -14,7 +14,7 @@ import { replaceableKey } from '../shared/nostr-events.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { Utils } from '../shared/utils.js';
 import { auditCardChipData } from '../shared/audit/display.js';
-import { SOURCE_TYPE_LABELS, isPrimarySourceType } from '../shared/truth-taxonomy.js';
+import { SOURCE_TYPE_LABELS, isPrimarySourceType, EVIDENCE_ROLE_LABELS, isValidEvidenceRole } from '../shared/truth-taxonomy.js';
 
 // Audit section (13.7): every run anchored to this article —
 // side-by-side, never averaged (PHILOSOPHY P8) — with module results
@@ -306,6 +306,27 @@ export function renderInspector(host, item, { status = 'no-ledger', onClose, aud
             `Source type: ${SOURCE_TYPE_LABELS[item.sourceType]}`
             + (isPrimarySourceType(item.sourceType) ? ' — primary source' : ''));
         host.appendChild(line);
+    }
+
+    // Phase 23.1b — outbound links carrying a declared evidence role
+    // (citation intent). Read straight off the `link` tags' 4th slot.
+    if (item.kind === 30023) {
+        const roled = (item.event.tags || [])
+            .filter((t) => t[0] === 'link' && isValidEvidenceRole(t[3]))
+            .map((t) => ({ url: t[1] || '', anchor: t[2] || '', role: t[3] }));
+        if (roled.length) {
+            const box = el('div', 'xr-inspector__roles');
+            box.appendChild(el('div', 'xr-inspector__roles-head', 'Cited sources'));
+            for (const r of roled) {
+                const row = el('div', 'xr-inspector__role-row');
+                row.appendChild(el('span', 'xr-badge', EVIDENCE_ROLE_LABELS[r.role]));
+                const a = el('a', 'xr-inspector__role-link', truncate(r.anchor || r.url, 80));
+                a.href = r.url; a.target = '_blank'; a.rel = 'noopener'; a.title = r.url;
+                row.appendChild(a);
+                box.appendChild(row);
+            }
+            host.appendChild(box);
+        }
     }
 
     if (item.kind === 30023) {

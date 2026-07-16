@@ -678,6 +678,10 @@ button.xr-badge--case { cursor: pointer; background: transparent; }
 /* Phase 23.1 — primary-source provenance badge. */
 .xr-badge--primary-source { color: var(--xr-success); border-color: var(--xr-success); font-weight: 600; }
 .xr-inspector__srctype { margin: 6px 0; font-size: 13px; color: var(--xr-text-dim); }
+.xr-inspector__roles { margin: 8px 0; }
+.xr-inspector__roles-head { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.xr-inspector__role-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+.xr-inspector__role-link { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------------- empty state ---------------- */
 

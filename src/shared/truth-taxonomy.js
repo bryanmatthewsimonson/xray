@@ -190,6 +190,37 @@ export function suggestSourceType(article) {
 }
 
 // ------------------------------------------------------------------
+// Evidence role — Phase 23.1b. The CITATION INTENT of one outbound
+// link: WHY the article points at this URL. A lay-relabelled subset of
+// CiTO (the Citation Typing Ontology). Distinct from source-type (which
+// describes the LINKED-TO artifact): role is the citing article's
+// stance/use, source-type is what the target IS. Together they answer
+// "is this a primary source, and how is it being used" — a `disputes`
+// link from an `analysis` article to a `primary-research` target is a
+// visible secondary→primary derivation edge.
+// ------------------------------------------------------------------
+
+export const EVIDENCE_ROLES = Object.freeze([
+    'evidence',   // cito:citesAsEvidence — the primary source relied on
+    'mention',    // cito:citesForInformation — background / referenced
+    'supports',   // cito:supports / agreesWith — backs the claim
+    'disputes',   // cito:disputes / disagreesWith — argued against
+    'reviews'     // cito:reviews / critiques — analyzed / critiqued
+]);
+
+export const EVIDENCE_ROLE_LABELS = Object.freeze({
+    'evidence': 'Cited as evidence',
+    'mention':  'Mentioned',
+    'supports': 'Supports',
+    'disputes': 'Disputes',
+    'reviews':  'Reviews'
+});
+
+export function isValidEvidenceRole(value) {
+    return EVIDENCE_ROLES.includes(value);
+}
+
+// ------------------------------------------------------------------
 // Verdict states — §3.3 (Phase 15.3). DESCRIPTIVE STATES, the §1
 // spine made concrete: a proposition is established, contested,
 // unresolved, or under-evidenced — never "73% true". There is no
