@@ -19,6 +19,26 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-16 — xray-network stays out of WORKSPACE_DATABASES (25.2b)
+
+Tags: `design`.
+
+The Phase-25 plan said to add the new `xray-network` feed cache to
+`WORKSPACE_DATABASES`. Doing so failed the backup suite and revealed
+the list is doing double duty: it is both the fresh-workspace reset
+list AND `backup.js`'s coverage list (with hardwired per-DB openers).
+The precedent decides it: `xray-portal` — the existing derived relay
+cache — was already deliberately excluded. Rebuildable caches don't
+belong in backups (dead weight) and get their own wipe affordance
+("Clear cache" on the Network page; "Full resync" on the portal).
+What KS §5 actually names workspace content is the *follow list*
+(`follow_sets`, chrome.storage), and that IS in WORKSPACE_CLEAR_KEYS.
+Residual nuance accepted: after a workspace reset the cache may hold
+the old workspace's events, but with an empty follow set they render
+only as collapsed untrusted counts, and Clear cache removes them.
+
+---
+
 ## 2026-07-16 — Phase 25 kickoff: the KS §9 follows-publish reversal (25.0)
 
 Tags: `design`.

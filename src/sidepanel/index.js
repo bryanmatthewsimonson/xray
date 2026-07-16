@@ -28,6 +28,7 @@ import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { Crypto } from '../shared/crypto.js';
 import { dedupeReplaceable } from '../shared/nostr-events.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
+import { adoptForeignEntity } from '../shared/adopt-entity.js';
 import { equivalencePubkeys } from '../shared/entity-equivalence.js';
 import { buildFeedFilters, claimCoords, buildJudgmentFilter, assembleFeed } from '../shared/entity-feed.js';
 import { pushEntities, pullEntities, clearRemote, pushRelayList, pullRelayList, normalizeRelayUrl } from '../shared/entity-sync.js';
@@ -767,70 +768,35 @@ function paintNetworkExtra(entity, feed, { hop2Failed = false } = {}) {
  * adopt-separate, or cancel. Misattribution is a deliberate act.
  */
 async function adoptForeignPubkey(pubkey, contextEntity) {
-    if (!pubkey || !/^[0-9a-f]{64}$/i.test(pubkey)) return;
     const relays = await getQueryRelays();
-    let name = pubkey.slice(0, 12) + '…';
-    let type = contextEntity.type;
-    try {
-        const resp = await new Promise((resolve) => {
-            chrome.runtime.sendMessage({
-                type: 'xray:relay:query', relays,
-                filter: { kinds: [0], authors: [pubkey], limit: 1 },
-                timeoutMs: 5000
-            }, resolve);
-        });
-        if (resp && resp.ok && resp.events && resp.events.length) {
-            const newest = [...resp.events].sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0];
-            const content = JSON.parse(newest.content || '{}');
-            if (content.name) name = String(content.name).slice(0, 200);
-            const m = new RegExp('^(' + ENTITY_TYPES.join('|') + ') entity created by X-Ray').exec(content.about || '');
-            if (m) type = m[1];
-        }
-    } catch (_) { /* offline adopt still works — name falls back to the pubkey prefix */ }
-
-    const clash = Object.values(state.entities || {}).find((e) =>
-        e && e.type === type
-        && String(e.name).trim().toLowerCase() === String(name).trim().toLowerCase()
-        && !(e.foreign_pubkey === pubkey.toLowerCase()));
-    const clashNote = clash ? `\n\n⚠ You already have a ${type} named "${clash.name}" — adopting keeps them SEPARATE unless you alias them.` : '';
-
-    let canonicalId = null;
-    if (type === contextEntity.type) {
-        const asAlias = confirm(`Adopt "${name}" (${type}, key ${pubkey.slice(0, 12)}…) as an ALIAS of "${contextEntity.name}"?\n\nOK — their claims and judgments join this entity's network view.\nCancel — you'll be offered a separate adopt instead.${clashNote}`);
-        if (asAlias) {
-            const root = await EntityModel.resolveAlias(contextEntity);
-            canonicalId = (root && root.id) || contextEntity.id;
-        } else if (!confirm(`Adopt "${name}" as a SEPARATE read-only foreign entity?${clashNote}`)) {
+    const result = await adoptForeignEntity(pubkey, {
+        query: (filter, timeoutMs) => new Promise((resolve) => {
+            chrome.runtime.sendMessage({ type: 'xray:relay:query', relays, filter, timeoutMs }, resolve);
+        }),
+        contextEntity,
+        entities: state.entities || {}
+    });
+    switch (result.status) {
+        case 'adopted':
+            toast(`Adopted ${result.entity.name}${result.asAlias ? ' as an alias' : ''}`, 'success');
+            break;
+        case 'alias-linked':
+            toast(`Linked your entity "${result.entity.name}" as an alias`, 'success');
+            break;
+        case 'alias-link-failed':
+            toast(`That key belongs to your entity "${result.entity.name}" — alias link failed: ${result.error?.message || result.error}`, 'error');
+            break;
+        case 'already-local':
+            toast(`That key already belongs to your entity "${result.entity.name}"`, 'success');
+            break;
+        case 'failed':
+            toast('Adopt failed: ' + (result.error?.message || result.error), 'error');
             return;
-        }
-    } else if (!confirm(`Adopt "${name}" (${type}, key ${pubkey.slice(0, 12)}…) as a read-only foreign entity?${clashNote}`)) {
-        return;
+        default:
+            return;   // cancelled / invalid — nothing changed
     }
-
-    try {
-        const adopted = await EntityModel.importForeign({ name, type, pubkey, canonicalId });
-        if (!EntityModel.isForeign(adopted)) {
-            // importForeign returned an existing locally KEYED entity
-            // (never shadow yourself) — canonicalId was NOT applied.
-            // Honor an alias request with an explicit local alias link.
-            if (canonicalId && adopted.id !== canonicalId) {
-                try {
-                    await EntityModel.linkAlias(adopted.id, canonicalId);
-                    toast(`Linked your entity "${adopted.name}" as an alias`, 'success');
-                } catch (err) {
-                    toast(`That key belongs to your entity "${adopted.name}" — alias link failed: ${err.message || err}`, 'error');
-                }
-            } else {
-                toast(`That key already belongs to your entity "${adopted.name}"`, 'success');
-            }
-        } else {
-            toast(`Adopted ${adopted.name}${canonicalId ? ' as an alias' : ''}`, 'success');
-        }
-        const fresh = await EntityModel.get(contextEntity.id);
-        if (fresh) await loadNetworkClaims(fresh);   // re-run: the adopted key joins the set
-    } catch (err) {
-        toast('Adopt failed: ' + (err.message || err), 'error');
-    }
+    const fresh = await EntityModel.get(contextEntity.id);
+    if (fresh) await loadNetworkClaims(fresh);   // re-run: the adopted key joins the set
 }
 
 // ------------------------------------------------------------------

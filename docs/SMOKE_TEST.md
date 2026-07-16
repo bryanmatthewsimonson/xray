@@ -1275,6 +1275,11 @@ as slices land.
 | 25.d | As P: publish an article + a claim + a verdict. As F: Feed → ↻ Refresh | ✅ P's group shows the article/claim/verdict rows newest-first, npub beside the label; the verdict arrives WITHOUT any second query (authors axis) |
 | 25.e | F: Unfollow P → Refresh | ✅ feed empties (or P's group gone); nothing else about the workspace changed |
 | 25.f | Settings ▸ Advanced ▸ Start fresh workspace (after export) | ✅ the follow list is cleared with the workspace (`follow_sets` is workspace content) |
+| 25.g | F: Refresh → close the tab → reopen the Network page | ✅ the feed renders from cache immediately (no query); Refresh still pulls fresh |
+| 25.h | As P: publish something new. As F: Refresh | ✅ an "✨ N new since…" strip appears above the feed; a second Refresh with nothing new shows no strip |
+| 25.i | F: follow P WITHOUT a label → Refresh; then feed group header + Follows tab | ✅ P's kind-0 profile name shows with a "profile name"/"profile:" badge (their claim, not verified); npub still beside it |
+| 25.j | As P: publish a claim tagging an entity F doesn't know. As F: Refresh → "Entities referenced" → Adopt… | ✅ the adopt prompt proposes the kind-0 name/type; adopting creates a read-only foreign entity (sidepanel shows it badged) |
+| 25.k | F: "Clear cache" → confirm | ✅ feed empties; follows intact; next Refresh rebuilds |
 
 ---
 

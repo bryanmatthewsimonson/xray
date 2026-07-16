@@ -73,6 +73,10 @@ export const WORKSPACE_KEEP_KEYS = Object.freeze([
 ]);
 
 // IndexedDB databases holding workspace content.
+// NOTE deliberately absent: the derived, droppable relay caches
+// (`xray-portal`, and Phase 25's `xray-network`) — this list doubles
+// as the BACKUP coverage list (backup.js), and a rebuildable cache in
+// a backup is dead weight. Each cache has its own clear affordance.
 export const WORKSPACE_DATABASES = Object.freeze([
     'xray-archive',             // captured article cache (archive-cache.js)
     'xray-audits',              // audit records — PRECIOUS, hence the
