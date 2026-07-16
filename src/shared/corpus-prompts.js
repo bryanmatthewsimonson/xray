@@ -14,7 +14,10 @@
 // case score, NO verdict — neither tool schema has a numeric slot, and
 // the reduce prompt forbids adjudicating between positions. Every quote
 // is verbatim from the named member; the reduce may only summarize,
-// extract, and surface disagreement side by side. No wire kind.
+// extract, and surface disagreement side by side. (Phase 23.2 SUPERSEDES
+// the original "no wire kind" note: the brief now publishes as a
+// readable kind-30023 article AND a structured kind-30068 CaseBrief —
+// prose/data only, still no fused score. corpus-publish.js.)
 //
 // Pure: no chrome, no network, no DOM, no clock. audit-prompt.js /
 // lens-prompt.js are the pattern.

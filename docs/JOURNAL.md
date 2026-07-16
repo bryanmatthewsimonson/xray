@@ -19,6 +19,45 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-16 — Publish the corpus brief (Phase 23.2a — builders)
+
+Tags: `design`.
+
+The Phase-20 corpus synthesis was expensive to generate and died on the
+maintainer's disk. 23.2 publishes it in TWO forms so a stranger with
+only a keypair can read the insights: a readable kind-30023 long-form
+article (any NOSTR client renders it) AND a structured kind-30068
+`CaseBrief` (X-Ray renders it richly). This slice (23.2a) is the pure
+builders + parser + wire spec; the portal publish action + read-back is
+23.2b.
+
+Decisions worth remembering:
+- **The Phase-20 "no wire kind" decision is superseded, NOT the
+  firewall.** 30068 carries the brief's prose fields (summary /
+  positions / cruxes / load-bearing / gaps) with NO fused score, NO
+  verdict, NO numeric slot — a guard test greps the built event for a
+  score-like field. "No wire kind" meant "no scored kind"; a
+  firewall-respecting structured kind is fine. Both artifacts state in
+  prose that they are a map, not a ruling.
+- **`proposals` never publishes.** The local brief's proposals array is
+  reviewer-facing edit suggestions; `publishableBrief` strips it from
+  both artifacts.
+- **Cross-link by COORDINATE, not event id.** The article and the 30068
+  both use `d = xray-brief:<caseId>` and reference each other by
+  `a`-coordinate, sidestepping the sign-order chicken-and-egg (neither
+  id exists until signed).
+- **Members referenced by content hash + coordinate.** Every quote names
+  its member `article_hash` (the `#x` join X-Ray uses everywhere); when
+  the portal can resolve a member's published address it also emits an
+  `a … member` coordinate so an X-Ray reader can open the source.
+- **Built directly, not via `buildArticleEvent`.** That path injects a
+  live "Archived" date (non-deterministic) and derives the d-tag from a
+  URL — the brief wants a stable `xray-brief:<caseId>` d-tag and a
+  deterministic body, so corpus-publish.js builds the 30023 event
+  itself.
+
+---
+
 ## 2026-07-16 — Source-type provenance (Phase 23.1)
 
 Tags: `design`.
