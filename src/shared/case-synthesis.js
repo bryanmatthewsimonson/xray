@@ -223,6 +223,19 @@ export function groundCaseBrief(brief, indexByMember) {
 // ------------------------------------------------------------------
 
 /**
+ * Stable identity for one proposal — the dedup key inside
+ * filterProposals AND (27 S.3) the key the per-brief triage record
+ * (`record.triage[key] = 'accepted' | 'dismissed'`) is stored under,
+ * so a reopened brief doesn't resurrect already-triaged rows.
+ */
+export function proposalKey(p) {
+    if (p.kind === 'relationship') return `rel:${[p.source_claim_id, p.target_claim_id].sort().join('|')}:${p.relationship}`;
+    if (p.kind === 'is_key') return `key:${p.claim_id}`;
+    if (p.kind === 'claim') return `claim:${p.article_hash}|${p.text}`;
+    return `other:${JSON.stringify(p)}`;
+}
+
+/**
  * Split a grounded brief's proposals into `{acceptable, rejected}`.
  * A relationship needs two EXISTING claim ids and a valid enum; is_key
  * needs an existing claim id; claim needs a real member and (already
@@ -232,14 +245,8 @@ export function filterProposals(brief, { claimsById = {}, memberHashes = new Set
     const acceptable = [];
     const rejected = [];
     const seen = new Set();   // dedup key across all kinds
-    const keyOf = (p) => {
-        if (p.kind === 'relationship') return `rel:${[p.source_claim_id, p.target_claim_id].sort().join('|')}:${p.relationship}`;
-        if (p.kind === 'is_key') return `key:${p.claim_id}`;
-        if (p.kind === 'claim') return `claim:${p.article_hash}|${p.text}`;
-        return `other:${JSON.stringify(p)}`;
-    };
     for (const p of (brief.proposals || [])) {
-        const dk = keyOf(p);
+        const dk = proposalKey(p);
         if (seen.has(dk)) continue;   // silent dedup — a repeat is not a reject
         seen.add(dk);
 

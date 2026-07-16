@@ -121,6 +121,19 @@ test('case-synthesis: digest claims carry short per-article keys so cross-articl
         'the 64-hex hash no longer rides every claim entry');
 });
 
+test('case-synthesis: proposalKey is stable and direction-insensitive for relationships (27 S.3)', () => {
+    // The triage record persists under these keys — a key change would
+    // silently resurrect every dismissed proposal.
+    assert.equal(
+        CS.proposalKey({ kind: 'relationship', source_claim_id: 'c1', target_claim_id: 'c2', relationship: 'supports' }),
+        'rel:c1|c2:supports');
+    assert.equal(
+        CS.proposalKey({ kind: 'relationship', source_claim_id: 'c2', target_claim_id: 'c1', relationship: 'supports' }),
+        'rel:c1|c2:supports', 'endpoint order does not fork the key');
+    assert.equal(CS.proposalKey({ kind: 'is_key', claim_id: 'c1' }), 'key:c1');
+    assert.equal(CS.proposalKey({ kind: 'claim', article_hash: 'A', text: 't' }), 'claim:A|t');
+});
+
 test('case-synthesis: corpusInputHash is order-insensitive but sensitive to membership + prompt', async () => {
     const a = [{ article_hash: 'h1' }, { article_hash: 'h2' }];
     const aRev = [{ article_hash: 'h2' }, { article_hash: 'h1' }];

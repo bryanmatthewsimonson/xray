@@ -17,6 +17,9 @@ import { renderEvidenceBlock } from './evidence-block.js';
 import { renderCaseTimeline } from './case-timeline.js';
 import { EntityModel } from '../shared/entity-model.js';
 import { collectCaseDossierData, buildCaseDossier } from '../shared/case-dossier.js';
+import { EvidenceLinker } from '../shared/evidence-linker.js';
+import { ClaimModel } from '../shared/claim-model.js';
+import { makeClaimRefCanonicalizer } from '../shared/claim-ref.js';
 import { getArticle } from '../shared/archive-cache.js';
 import { removeArticleFromCase } from '../shared/case-membership.js';
 import { mountAddSources } from './add-sources.js';
@@ -362,8 +365,10 @@ export function renderCaseView(host, params) {
     const section = el('div', 'xr-case__claims');
     section.appendChild(el('h3', 'xr-case__heading', `Claims (${claims.length})`));
     const list = el('ol', 'xr-portal__list');
+    const rowByCoord = new Map();   // 27 S.4 — local-link chip targets
     for (const item of claims) {
         const row = el('li', 'xr-row');
+        if (item.claimCoord) rowByCoord.set(item.claimCoord, row);
         const headRow = el('div', 'xr-row__head');
         headRow.appendChild(el('span', 'xr-row__kind', kindLabel(item.kind)));
         const titleEl = el('button', 'xr-row__title xr-row__title--link', truncate(item.title, 160));
@@ -410,6 +415,50 @@ export function renderCaseView(host, params) {
     }
     section.appendChild(list);
     host.appendChild(section);
+
+    // 27 S.4 — LOCAL relationship links (accepted proposals, hand-drawn
+    // links) that haven't published yet: the published-30055 chips
+    // above can't show them, so an accepted link looked like nothing
+    // happened. Async enrichment; chips carry a "local" marker.
+    if (rowByCoord.size > 0) {
+        (async () => {
+            const [allLinks, allClaims, canon] = await Promise.all([
+                EvidenceLinker.getAll(), ClaimModel.getAll(), makeClaimRefCanonicalizer()
+            ]);
+            const nameOf = (ref, link, side) => {
+                const c = allClaims[ref];
+                if (c && c.text) return c.text;
+                const snap = side === 'source' ? link.source_snapshot : link.target_snapshot;
+                return (snap && snap.text) || 'another claim';
+            };
+            for (const [coord, row] of rowByCoord) {
+                const canonical = canon(coord);
+                for (const link of Object.values(allLinks)) {
+                    if (link.publishedAt) continue;   // already a wire chip
+                    const src = canon(link.source_claim_id);
+                    const tgt = canon(link.target_claim_id);
+                    if (src !== canonical && tgt !== canonical) continue;
+                    const dir = src === canonical ? 'out' : 'in';
+                    const otherRef = dir === 'out' ? tgt : src;
+                    const otherSide = dir === 'out' ? 'target' : 'source';
+                    let relRow = row.querySelector('.xr-case__related');
+                    if (!relRow) { relRow = el('div', 'xr-case__related'); row.appendChild(relRow); }
+                    if (link.relationship === 'contradicts') {
+                        const b = el('span', 'xr-badge xr-badge--warn', '⚠ contradicted (local)');
+                        b.title = 'A local contradiction link — not yet published';
+                        relRow.appendChild(b);
+                        continue;
+                    }
+                    if (!RELATED_RELATIONSHIPS.has(link.relationship)) continue;
+                    const phrase = (RELATED_PHRASE[link.relationship] || {})[dir] || link.relationship;
+                    const b = el('span', 'xr-badge xr-badge--muted',
+                        `${dir === 'out' ? '→' : '←'} ${phrase} (local): ${truncate(nameOf(otherRef, link, otherSide), 60)}`);
+                    b.title = 'A local link — not yet published to relays';
+                    relRow.appendChild(b);
+                }
+            }
+        })().catch((err) => Utils.error('Local link chips failed', err));
+    }
 
     // --- the rest of the artifacts, compact ---
     const rest = everything.filter((i) => i.typeKey !== 'claim');

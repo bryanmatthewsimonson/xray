@@ -323,6 +323,13 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
             renderProposals(proposalHost, {
                 acceptable: filtered.acceptable, rejected: filtered.rejected,
                 claimsById, memberByHash, model: record.model,
+                // 27 S.3 — triage survives reopen: statuses persist on
+                // the brief record, keyed by proposalKey.
+                triage: record.triage || {},
+                onTriage: async (key, status) => {
+                    record.triage = { ...(record.triage || {}), [key]: status };
+                    await saveCaseBrief(record);
+                },
                 onChanged: () => callbacks.onReloadCase && callbacks.onReloadCase()
             });
         };
