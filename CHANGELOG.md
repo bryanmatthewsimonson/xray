@@ -12,6 +12,20 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 25.7 — the trust graph wired as a feed filter (KS.8;
+  completes Phase 25).** The dormant Phase-9a `trust-graph.js` gets
+  its consumer: the reader's graph is composed from the **local**
+  follow registry (the registry is primary; the published kind 3 is
+  just a mirror), and the Network feed gains — behind the existing
+  `trustGraphFilter` flag — (a) a **"trusted provenance only"**
+  narrow toggle (default off, never persisted): hides items that
+  build on unfollowed material and the unsolicited-authors strip,
+  with honest hidden counts; narrows only, never reorders; and
+  (b) **"followed by N of your follows"** chips on collapsed
+  unfollowed authors and adopt candidates, computed from the follows'
+  fetched kind 3s — counts as discovery, never ranking. `ranker.js`
+  stays unwired; feed order remains strictly newest-first.
+
 - **Phase 25.6 — the kind-3 follow-list mirror (opt-in; the phase's
   only wire change).** The Network Follows tab gains **"Mirror follow
   list…"**: your **global** follows publish as a standard NIP-02

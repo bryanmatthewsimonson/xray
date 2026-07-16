@@ -1291,6 +1291,8 @@ as slices land.
 | 25.t | Options ▸ Advanced ▸ "Allow publishing your follow list" | ✅ a consent dialog enumerates the disclosure (public, irrevocable-in-practice, global-only, merge-not-clobber) BEFORE the flag flips; Cancel leaves it off |
 | 25.u | Network ▸ Follows ▸ **Mirror follow list…** (petnames unticked) | ✅ the confirm shows local count + preserved-remote count; the published kind 3 has `['p', pk, hint]` tags, empty content, NO petnames for local labels; portal Refresh shows a "Follows — N keys" row |
 | 25.v | Publish a kind 3 from ANOTHER client (different follows) → Mirror again from X-Ray | ✅ the other client's entries survive (union), their petnames intact in the re-published event |
+| 25.w | F follows P; P's kind 3 follows Q; F's feed references Q (collapsed or candidate) → Refresh | ✅ Q's row shows "followed by 1 of your follows"; the chip is a count, nothing reorders |
+| 25.x | Tick "trusted provenance only" | ✅ builds-on-unfollowed items and the unsolicited strip disappear with an honest hidden-count note; unticking restores; order never changes; the toggle resets OFF on reload |
 
 ---
 
