@@ -117,9 +117,19 @@ function aboutLine(row, groups) {
  * The deterministic kind-0 `about` text (§6 template, fixed ordering =
  * the dossier's registry field order). Returns the boilerplate-only
  * text when nothing publishable exists — the pre-19.7 profile shape.
+ *
+ * `maintainerNpub` (Phase 24.3, additive) prepends the honest
+ * self-description line — the stranger-legibility layer
+ * (ENTITY_IDENTITY_DESIGN §5): a generic client that verifies neither
+ * the OwnedKeys manifest nor the delegation token still renders an
+ * honestly-labeled research record instead of a mystery key.
  */
-export function buildProfileAbout(dossier, { excludedFields = [] } = {}) {
+export function buildProfileAbout(dossier, { excludedFields = [], maintainerNpub = null } = {}) {
     const lines = [];
+    if (maintainerNpub) {
+        lines.push(`An X-Ray subject record maintained by ${maintainerNpub}`
+            + ' — a research dossier about this subject, not the subject posting.');
+    }
     const typeLine = `${dossier.subject.type} entity.`
         + (dossier.subject.description ? ` ${dossier.subject.description}` : '');
     lines.push(typeLine);

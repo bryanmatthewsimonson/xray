@@ -105,6 +105,9 @@
           <button class="xr-opt__btn" id="local-import-toggle">Import nsec…</button>
           <button class="xr-opt__btn" id="identity-save-current">Save current as profile…</button>
           <button class="xr-opt__btn" id="local-export-toggle">Show nsec…</button>
+          <!-- Phase 24.3 — keystore-loss recovery: re-derive missing
+               entity keys from the active primary identity. -->
+          <button class="xr-opt__btn" id="restore-entity-keys" title="Re-derive missing entity keys from the active primary identity (derived-era entities recover their original pubkey)">Restore entity keys</button>
         </div>
         <div class="xr-opt__field" id="identity-new-row" style="display:none; margin-top:8px">
           <span class="xr-opt__label">Label for the new identity (e.g. "Epistack")</span>

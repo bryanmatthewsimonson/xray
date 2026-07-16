@@ -1246,6 +1246,21 @@ episode page works), then use the reader's **🎙 Media…** toolbar button.
 
 ---
 
+## Phase 24 — Durable, creator-bound entity identity (24.1–24.3)
+
+Requires a Local-mode primary identity (Options → Signing → Local).
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 24.a | Create a new entity (tag one in the reader) → sidepanel entity detail | ✅ the entity has a pubkey; its `local_keys` entry carries `metadata.derived: true` (inspect via Options backup or devtools) |
+| 24.b | **Keystore-loss drill**: note the entity's npub → devtools: `chrome.storage.local.remove('local_keys')` → reload → Options → **Restore entity keys** | ✅ status reports the entity restored; its npub is **identical** to the noted one |
+| 24.c | Publish the entity's profile (reader batch or portal dossier → publish) → inspect the raw kind-0 | ✅ carries `['p', <your pubkey>, '', 'creator']` AND a `delegation` tag (4 elements, NIP-26 form); the `about` opens with "An X-Ray subject record maintained by npub…" |
+| 24.d | Same publish → portal → refresh | ✅ a kind-30069 **Owned keys** row exists (labeled, N entities); the entity's row shows **✓ creator-bound** |
+| 24.e | Options → switch/create/import an identity | ✅ a confirm enumerates the rotation consequences (sync blobs, stamps, derived keys) BEFORE anything changes; cancel aborts cleanly |
+| 24.f | Republish entity batches twice without changes | ✅ the 30069 manifest is NOT republished the second time (fingerprint gate) |
+
+---
+
 ## Reporting
 
 For each defect found:

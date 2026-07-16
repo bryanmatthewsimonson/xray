@@ -12,6 +12,18 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 24.3 — rotation warnings + key recovery UX.** Switching,
+  generating, or importing a primary identity now confirms with the
+  previously-silent consequences (entity-sync blobs encrypted to the
+  old key become unreadable; publish stamps stay per-identity; derived
+  entity keys can't be re-derived from the new primary). Options gains
+  a **Restore entity keys** action (the `restoreDerivedKeys` surface —
+  keystore loss recovers derived-era entities' original pubkeys), and
+  published entity profiles open with an honest self-description line
+  ("An X-Ray subject record maintained by <npub> — a research dossier
+  …, not the subject posting") so generic NOSTR clients render an
+  honestly-labeled record. Completes Phase 24.
+
 - **Phase 24.2 — creator binding on the wire.** Entity identities are
   now provably the creator's: a **kind-30069 OwnedKeys manifest**
   (primary-signed, replaceable — revocation is republish-without-the-

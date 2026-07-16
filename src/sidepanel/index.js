@@ -1607,7 +1607,12 @@ async function importNsec() {
 }
 
 async function generateIdentity() {
-    if (!confirm('Generate a brand-new NOSTR identity and use it for sync? You\'ll want to copy the nsec to any other device you plan to sync with.')) return;
+    // 24.3 — enumerate the previously-silent rotation consequences.
+    if (!confirm('Generate a brand-new NOSTR identity and use it for sync?\n\n'
+        + '• Entity-sync blobs encrypted to the OLD identity become unreadable to the new one.\n'
+        + '• Existing records keep their old publish stamps.\n'
+        + '• Entity keys derived from the old identity cannot be re-derived from the new one.\n\n'
+        + 'Copy the nsec to any other device you plan to sync with.')) return;
     try {
         const privHex = Crypto.generatePrivateKey();
         await saveIdentity(privHex);
