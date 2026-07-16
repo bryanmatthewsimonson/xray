@@ -342,3 +342,22 @@ export async function assembleHypothesisMap(caseEntityId, options = {}) {
     const input = await collectHypothesisMapData(caseEntityId, options);
     return buildHypothesisMap(input, options.generatedAt ?? null);
 }
+
+/**
+ * The hypothesis-edge join rows the structural counterfactual consumes
+ * (CF.1 `options.hypothesisEdges`): one storage read of both models,
+ * refs re-canonicalized, labels resolved.
+ */
+export async function collectHypothesisEdgeJoins(caseEntityId) {
+    const hypotheses = await HypothesisModel.getForCase(caseEntityId);
+    const labelById = new Map(hypotheses.map((h) => [h.id, h.label]));
+    const edges = await HypothesisEdgeModel.getForCase(caseEntityId);
+    const canon = await makeClaimRefCanonicalizer();
+    return edges.map((e) => ({
+        hypothesis_id: e.hypothesis_id,
+        label:         labelById.get(e.hypothesis_id) || e.hypothesis_id,
+        ref:           canon(e.claim_ref),
+        role:          e.role,
+        edge_id:       e.id
+    }));
+}

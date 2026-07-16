@@ -1111,3 +1111,10 @@ button.xr-badge--case { cursor: pointer; background: transparent; }
   font-size: 12.5px;
   min-width: 180px;
 }
+
+/* --- Trace dependencies (26 CF.2) — the per-claim structural
+   counterfactual expander. Plain lines; nothing here encodes a
+   judgment. */
+.xr-trace { margin: 4px 0 8px; }
+.xr-trace__modes { display: flex; gap: 6px; margin: 6px 0; }
+.xr-trace__line { margin: 6px 0; font-size: 12.5px; }

@@ -229,6 +229,83 @@ function diffHypotheses(hypothesisEdges, ref, mode) {
 }
 
 /**
+ * CF.2 — the plain-list rendering of a delta, as pure strings (the
+ * portal DOM layer projects them 1:1, and the copy-review guard test
+ * walks them: no "more/less likely", "stronger/weaker", "% chance" —
+ * §4). Each line: { text, derivation } — the derivation string names
+ * the specific edges/claims/events, always on the face.
+ * `claimsById` (optional) resolves loser refs to their text.
+ */
+export function traceLines(delta, { claimsById = {} } = {}) {
+    const lines = [];
+    const push = (text, derivation = null) => lines.push({ text, derivation });
+    const negate = delta.mode === 'negate';
+    const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+    for (const k of delta.knots.derivation) {
+        const fragText = k.fragments_after.length === 0 ? 'it dissolves'
+            : k.fragments_after.length > 1
+                ? `it splits into fragments of ${k.fragments_after.map((f) => f.size).join(' + ')}`
+                : `it shrinks to ${k.fragments_after[0].size}`;
+        push(negate
+            ? `In a contradiction knot of ${k.size_before}: ${plural(k.derivation.length, 'edge flips', 'edges flip')} to concordance — ${fragText} as a knot`
+            : `A contradiction knot of ${k.size_before}: ${fragText}`,
+            `edges: ${k.derivation.join(', ')}`);
+    }
+    const losers = delta.support.claims_losing_only_support;
+    if (losers.count > 0) {
+        push(`Leaves ${plural(losers.count, 'claim', 'claims')} with no remaining support`,
+            losers.derivation.map((l) => {
+                const c = claimsById[l.ref];
+                return c && c.text ? `${l.ref} — “${c.text.slice(0, 80)}”` : l.ref;
+            }).join(' · '));
+    }
+    if (delta.support.links_removed.count > 0) {
+        push(negate
+            ? `${plural(delta.support.links_removed.count, 'typed link', 'typed links')} no longer carry support`
+            : `Removes ${plural(delta.support.links_removed.count, 'typed link', 'typed links')}`,
+            delta.support.links_removed.derivation.map((l) => `${l.link_id} (${l.relationship})`).join(' · '));
+    }
+    const own = delta.propositions.own;
+    if (own.count > 0) {
+        push(negate
+            ? `Its ${plural(own.count, 'verdict chain now rests', 'verdict chains now rest')} on a negated claim — no verdict is recomputed; that call stays with the verdict layer`
+            : `Its ${plural(own.count, 'proposition falls', 'propositions fall')}, taking ${plural(own.count, 'its verdict chain', 'their verdict chains')}`,
+            own.derivation.map((p) => `${p.proposition_id} (${p.proposition_class}, chain length ${p.verdict_chain_length})`).join(' · '));
+    }
+    for (const d of delta.propositions.attestation_deltas) {
+        push(`Proposition ${d.proposition_id}: attestation origins ${d.origin_count_before}→${d.origin_count_after}`
+            + ` (demonstrably independent ${d.independent_before}→${d.independent_after})`,
+            `removed: ${d.derivation.removed_link_ids.join(', ')}`
+            + (d.derivation.surviving_origin_groups.length
+                ? ` · surviving origins: ${d.derivation.surviving_origin_groups.map((g) => g.origin_key).join(', ')}` : ''));
+    }
+    const gone = delta.entities.losing_only_claim;
+    if (gone.count > 0) {
+        push(`${plural(gone.count, 'entity loses', 'entities lose')} their only claim in this case`,
+            gone.derivation.map((e) => e.name || e.entity_id).join(' · '));
+    }
+    if (delta.timeline.events_removed.count > 0) {
+        push(`Removes ${plural(delta.timeline.events_removed.count, 'timeline event', 'timeline events')}`,
+            delta.timeline.events_removed.derivation.map((e) => `${e.axis}/${e.kind}`).join(' · '));
+    }
+    if (delta.timeline.axes_emptied.count > 0) {
+        push(`Empties the ${delta.timeline.axes_emptied.derivation.join(' and ')} ${delta.timeline.axes_emptied.count === 1 ? 'axis' : 'axes'} entirely`,
+            null);
+    }
+    for (const h of delta.hypotheses.derivation) {
+        push(negate
+            ? `Hypothesis “${h.label}”: ${plural(h.supports_affected + h.undermines_affected, 'attachment role flips', 'attachment roles flip')} (supports ↔ undermines)`
+            : `Hypothesis “${h.label}”: loses ${h.supports_affected} supporting and ${h.undermines_affected} undermining ${h.supports_affected + h.undermines_affected === 1 ? 'attachment' : 'attachments'}`,
+            `edges: ${h.derivation.join(', ')}`);
+    }
+    if (lines.length === 0) {
+        push('No structural dependencies found — nothing else in the case graph rests on this claim.', null);
+    }
+    return lines;
+}
+
+/**
  * The structural delta for one claim. `data` is the
  * `collectCaseDossierData` envelope (with the CF.1 `links.related`
  * family); `claimRef` is canonical; `options`:

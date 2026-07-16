@@ -24,6 +24,7 @@ import { mountTranscriptImport } from './import-transcript.js';
 import { renderCaseGraph } from './case-graph-view.js';
 import { renderSynthesisBlock } from './synthesis-block.js';
 import { renderHypothesesBlock } from './hypothesis-block.js';
+import { collectHypothesisEdgeJoins } from '../shared/hypothesis-map.js';
 import { Utils } from '../shared/utils.js';
 
 // Open a LOCAL archived record in the reader to extract claims from a
@@ -234,6 +235,10 @@ export function renderCaseView(host, params) {
             // that only the collector output carries).
             const data = await collectCaseDossierData(caseEnt.entityId);
             const dossier = buildCaseDossier(data, null);
+            // 26 CF.2 — the hypothesis-edge joins the per-claim trace
+            // expander folds into its deltas (one read, shared below).
+            const hypothesisEdges = await collectHypothesisEdgeJoins(caseEnt.entityId)
+                .catch(() => []);
             const c = dossier.coverage;
             localCountsHost.textContent =
                 `Local corpus: ${c.articles} source${c.articles === 1 ? '' : 's'} · `
@@ -242,6 +247,7 @@ export function renderCaseView(host, params) {
             if (c.articles === 0) localCountsHost.remove();
             renderShapeBlock(shapeHost, dossier);
             renderEvidenceBlock(evidenceHost, dossier, {
+                data, hypothesisEdges,
                 onExtractClaims: openArchivedInReader,
                 onRemoveFromCase: async (url) => {
                     try {

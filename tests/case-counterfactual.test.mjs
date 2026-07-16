@@ -16,7 +16,7 @@ globalThis.chrome = globalThis.chrome || {
     storage: { local: { get(_k, cb) { cb({}); }, set(_o, cb) { cb && cb(); }, remove(_k, cb) { cb && cb(); } } }
 };
 
-const { traceClaimDependencies, COUNTERFACTUAL_MODES } =
+const { traceClaimDependencies, traceLines, COUNTERFACTUAL_MODES } =
     await import('../src/shared/case-counterfactual.js');
 
 const CASE_ID = 'entity_00000000000000aa';
@@ -236,6 +236,59 @@ test('case-counterfactual: deterministic — same inputs deepEqual', () => {
     const a = traceClaimDependencies(makeData(), C1, { mode: 'remove' });
     const b = traceClaimDependencies(makeData(), C1, { mode: 'remove' });
     assert.deepEqual(a, b);
+});
+
+// ------------------------------------------------------------------
+// traceLines (CF.2 — the plain-list render source)
+// ------------------------------------------------------------------
+
+const RICH_EDGES = [
+    { hypothesis_id: 'hyp_1', label: 'Zoonotic', ref: C1, role: 'supports', edge_id: 'hedge_1' },
+    { hypothesis_id: 'hyp_2', label: 'Lab', ref: C1, role: 'undermines', edge_id: 'hedge_2' }
+];
+
+test('case-counterfactual: traceLines states every delta with its derivation on the face', () => {
+    const data = makeData();
+    const delta = traceClaimDependencies(data, C1, { mode: 'remove', hypothesisEdges: RICH_EDGES });
+    const lines = traceLines(delta, { claimsById: data.claimsById });
+    const texts = lines.map((l) => l.text);
+    assert.ok(texts.some((t) => /contradiction knot of 3/.test(t)));
+    assert.ok(texts.some((t) => /Leaves 1 claim with no remaining support/.test(t)));
+    assert.ok(texts.some((t) => /attestation origins 2→1/.test(t)));
+    assert.ok(texts.some((t) => /Hypothesis “Zoonotic”: loses 1 supporting and 0 undermining/.test(t)));
+    const losers = lines.find((l) => /no remaining support/.test(l.text));
+    assert.match(losers.derivation, /claim_00000000000000c3 — “Claim claim_00000000000000c3”/);
+    const knot = lines.find((l) => /contradiction knot/.test(l.text));
+    assert.match(knot.derivation, /link_00000000000000k1/);
+});
+
+test('case-counterfactual: traceLines negate wording — flips, rests-on, no removal of the claim itself', () => {
+    const delta = traceClaimDependencies(makeData(), C2, { mode: 'negate', hypothesisEdges: RICH_EDGES });
+    const texts = traceLines(delta).map((l) => l.text);
+    assert.ok(texts.some((t) => /edges flip to concordance/.test(t)));
+    assert.ok(!texts.some((t) => /Removes .* timeline/.test(t)), 'negate keeps the claim dated and placed');
+});
+
+test('case-counterfactual: traceLines honest zero — an untouched claim says so', () => {
+    const lines = traceLines(traceClaimDependencies(makeData(), 'claim_00000000000000ff', { mode: 'remove' }));
+    assert.equal(lines.length, 1);
+    assert.match(lines[0].text, /No structural dependencies found/);
+});
+
+test('case-counterfactual: §4 copy guard — no likelihood/strength/percent phrasing in ANY line, either mode', () => {
+    const banned = /more likely|less likely|stronger|weaker|% chance|\d+\s*%|probabilit|confidence|score\b|winner/i;
+    for (const mode of COUNTERFACTUAL_MODES) {
+        const data = makeData();
+        for (const ref of [C1, C2, C4, 'claim_00000000000000ff']) {
+            const lines = traceLines(
+                traceClaimDependencies(data, ref, { mode, hypothesisEdges: RICH_EDGES }),
+                { claimsById: data.claimsById });
+            for (const l of lines) {
+                assert.doesNotMatch(l.text, banned, `forbidden phrasing in "${l.text}"`);
+                if (l.derivation) assert.doesNotMatch(l.derivation, banned);
+            }
+        }
+    }
 });
 
 test('case-counterfactual: §4 guard — banned keys nowhere, and EVERY numeric sits beside a derivation', () => {
