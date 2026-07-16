@@ -1003,8 +1003,10 @@ Consolidated grammar for the plain-NIP-32 `1985` events an X-Ray publisher emits
 | `xray/assessment` | kind 30054 | the claim's `a` coordinate + its verbatim `r` URL | **No `p` tag, ever** — a `p` would pin the issue labels on the claim's *author* (a reputational mislabel) |
 | `xray/forensic` | kind 30062 | the subject `p` + the source `r` URL | Does label a pubkey — consumers SHOULD treat it as a **structural observation, not a verdict**, surface the 30062's required counter-read alongside it; it carries no score and asserts no intent |
 | `xray/adjudication` | kind 30063 | the claim's `a` coordinate + the source `r` URL | Labels **content, never a pubkey** |
+| `xray/review` | nothing (a standalone coordination label, Phase 25.4) | the labeled artifact's `a` coordinate (+ optional exact `e` id + verbatim `r` URL) | **No `p` tag, ever** — same rule as `xray/assessment` |
 
 - `l` values come from the namespace's vocabulary in the parent section (assessment labels, forensic maneuvers, verdict states); at most one `l` per value.
+- **`xray/review` vocabulary (exhaustive):** `review-requested` ("I want adversarial eyes on this" — stamped by an author on their OWN artifact) and `review-done`. A target with a `review-requested` and no NEWER `review-done` is an open request; anyone's `review-done` closes it, and a newer re-request re-opens it. Additive vocabulary on an existing kind — no format change; publish is gated by the `reviewCoordination` flag (default off).
 - **Kind 30064 (integrity findings) deliberately has NO 1985 mirror**: a bare match-label on a person's pubkey, stripped of its evidence and caveats, is exactly the decontextualized person-grade that family forbids — the full 30064 is the only wire shape.
 - A mirror is never authoritative on its own: consumers resolving a 1985 under one of these namespaces SHOULD fetch the parent event (same author, matching `a`/`p`/`r`) for the evidence, caveats, and firewall context the mirror strips.
 

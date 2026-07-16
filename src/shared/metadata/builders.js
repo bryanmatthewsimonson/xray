@@ -735,6 +735,88 @@ export function buildAssessmentMirrorEvent({
 }
 
 // ------------------------------------------------------------------
+// Review-request labels — kind 1985 under `xray/review` (Phase 25.4,
+// KS.6 / TEAM_CASE §5: "I want adversarial eyes on this", stamped on
+// one's OWN event). Publish is gated by `reviewCoordination`.
+// ------------------------------------------------------------------
+
+export const REVIEW_LABEL_NAMESPACE = 'xray/review';
+
+// The exhaustive enum (TC §10.3): a request opens review, a done
+// closes it. Extend deliberately, with a design-doc change.
+export const REVIEW_LABEL_VALUES = Object.freeze(['review-requested', 'review-done']);
+
+/**
+ * A review-coordination label on an artifact. Subject tags are the
+ * labeled TARGET (`a` coordinate, optional `e` event id, optional
+ * verbatim `r` URL); as on every X-Ray 1985 we deliberately emit no
+ * `p` — a `p` here would label the artifact's AUTHOR.
+ *
+ * @param {object} args
+ * @param {string} args.value           — one of REVIEW_LABEL_VALUES
+ * @param {string} args.targetCoord     — `<kind>:<pubkey>:<d>` (required)
+ * @param {string} [args.targetEventId] — the exact event id, when known
+ * @param {string} [args.url]           — the artifact's `r`, verbatim
+ * @param {string} [args.relayHint]
+ * @param {number} [args.createdAt]
+ * @returns {{event, body, dTag: null}}  (kind 1985 is a regular event)
+ */
+export function buildReviewRequestLabelEvent({
+  value,
+  targetCoord,
+  targetEventId = '',
+  url = '',
+  relayHint = '',
+  createdAt = nowSeconds()
+} = {}) {
+  if (!REVIEW_LABEL_VALUES.includes(value)) {
+    throw new Error(`buildReviewRequestLabelEvent: value must be one of ${REVIEW_LABEL_VALUES.join(', ')} (got ${value})`);
+  }
+  if (typeof targetCoord !== 'string' || !/^\d+:[0-9a-f]{64}:/.test(targetCoord)) {
+    throw new Error('buildReviewRequestLabelEvent: targetCoord must be a <kind>:<pubkey>:<d> coordinate');
+  }
+
+  const tags = [
+    tag('L', REVIEW_LABEL_NAMESPACE),
+    tag('l', value, REVIEW_LABEL_NAMESPACE),
+    tag('a', targetCoord, relayHint)
+  ];
+  if (targetEventId) tags.push(tag('e', targetEventId));
+  if (url) tags.push(tag('r', url));
+  tags.push(tag('client', 'xray'));
+
+  return {
+    event: { kind: 1985, created_at: createdAt, tags, content: '' },
+    body: '',
+    dTag: null
+  };
+}
+
+/**
+ * Read-side inverse. Returns `{value, targetCoord, targetEventId,
+ * url, pubkey, created_at}` or null for events that aren't
+ * `xray/review` labels (wrong kind, other namespace, unknown value,
+ * or no `a` target).
+ */
+export function parseReviewLabelEvent(event) {
+  if (!event || event.kind !== 1985) return null;
+  const tags = event.tags || [];
+  const first = (name) => { const t = tags.find((x) => Array.isArray(x) && x[0] === name); return t ? t[1] : ''; };
+  if (first('L') !== REVIEW_LABEL_NAMESPACE) return null;
+  const value = (tags.find((x) => Array.isArray(x) && x[0] === 'l' && REVIEW_LABEL_VALUES.includes(x[1])) || [])[1];
+  const targetCoord = first('a');
+  if (!value || !targetCoord) return null;
+  return {
+    value,
+    targetCoord,
+    targetEventId: first('e') || null,
+    url: first('r') || null,
+    pubkey: event.pubkey || '',
+    created_at: event.created_at || 0
+  };
+}
+
+// ------------------------------------------------------------------
 // BehavioralFinding — kind 30062 (Phase 14.3; publish flag-gated)
 // ------------------------------------------------------------------
 

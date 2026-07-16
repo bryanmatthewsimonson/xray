@@ -1284,6 +1284,10 @@ as slices land.
 | 25.m | Accept a claim proposal → sidepanel/reader claim views | ✅ the claim exists locally with a `nostr:…` provenance badge; capture P's source URL and publish — the incorporated claim is NOT in the publish batch |
 | 25.n | Decline a proposal → Refresh → Queue | ✅ it does not re-surface (dismissals persist) |
 | 25.o | Accept an assessment proposal | ✅ it is NOT in your assessments (no judgment-model entry); it lives in the read-only incorporated store |
+| 25.p | Flip `reviewCoordination` ON as P → portal → inspect an own published artifact → **Request review** | ✅ a 1985 lands on relays with `L xray/review`, `l review-requested`, an `a` coordinate, and **no `p` tag** |
+| 25.q | As F (follows P): Refresh → Queue | ✅ "Open review requests" lists P's coordinate; the awareness strip counts it |
+| 25.r | As F: assess one of P's published claims. As P: Refresh → Queue | ✅ "Inbound review" lists F's assessment against P's coordinate |
+| 25.s | As F with `reviewCoordination` ON: **Re-broadcast follows** | ✅ confirm dialog shows the count; events re-publish verbatim (authors' signatures, no re-signing); flag OFF hides the button |
 
 ---
 
