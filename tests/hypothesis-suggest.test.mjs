@@ -129,6 +129,18 @@ test('hypothesis-suggest: quotes ground against the claim\'s own text+quote; dro
         'the claim\'s own span replaces the model\'s copy');
 });
 
+test('hypothesis-suggest: a quote straddling the text/quote boundary DROPS — no stitched span persists', () => {
+    // Spans the end of claim.text and the start of claim.quote: a
+    // single concatenated grounding index would match this (normalized
+    // tier collapses the join) and store a "verbatim" span that appears
+    // in NEITHER field. Separate indexes must drop it.
+    const res = groundEdgeQuotes([
+        edge({ quote: 'centered on the market. the outbreak began at the market' })
+    ], CLAIMS);
+    assert.equal(res.dropped, 1);
+    assert.equal(res.edges.length, 0);
+});
+
 // ------------------------------------------------------------------
 // Filter + both-sides
 // ------------------------------------------------------------------

@@ -143,6 +143,24 @@ async function resolveClaimSnapshot(ref, given) {
 }
 
 // ------------------------------------------------------------------
+// Same-context write serialization
+// ------------------------------------------------------------------
+// Every mutation of the two maps is a multi-await read-modify-write
+// (storage read → canonicalizer/registry reads → whole-map write), so
+// two rapid authoring actions in one page — two Accept clicks, an
+// attach beside a detach — could interleave at the awaits and the
+// later write would clobber the earlier edge. One promise chain per
+// context serializes them. (Cross-context concurrency remains the
+// repo-wide chrome.storage read-modify-write idiom.) No wrapped
+// mutator calls another wrapped mutator — reads stay direct.
+let writeChain = Promise.resolve();
+function serialized(fn) {
+    const run = writeChain.then(fn, fn);
+    writeChain = run.then(() => undefined, () => undefined);
+    return run;
+}
+
+// ------------------------------------------------------------------
 // CRUD — hypotheses
 // ------------------------------------------------------------------
 
@@ -393,3 +411,13 @@ export const HypothesisEdgeModel = {
         return removed;
     }
 };
+
+// Route every mutator through the write chain (reads stay direct).
+for (const key of ['create', 'update', 'delete', 'deleteForCase']) {
+    const raw = HypothesisModel[key];
+    HypothesisModel[key] = (...args) => serialized(() => raw(...args));
+}
+for (const key of ['create', 'update', 'delete', 'deleteForClaim']) {
+    const raw = HypothesisEdgeModel[key];
+    HypothesisEdgeModel[key] = (...args) => serialized(() => raw(...args));
+}

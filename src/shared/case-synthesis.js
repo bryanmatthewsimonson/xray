@@ -87,10 +87,16 @@ export async function corpusInputHash(members, orbitClaimIds, promptVersion = CO
  * (20.6). Size-capped; counts stay on the face so the model (and the
  * reader) see coverage.
  */
+// The digest's claim-index cap — exported so callers that must keep
+// their validation/grounding set identical to the digest set (the 20.6
+// discipline) can cap the SAME list, and so spend-confirms can state
+// what is actually sent.
+export const DIGEST_CLAIM_CAP = 150;
+
 export function digestDossier(dossier, { claims = [] } = {}) {
     const shape = dossier.shape_of_knowledge || {};
     const knots = dossier.knots || {};
-    const claimIndex = claims.slice(0, 150).map((c) => ({
+    const claimIndex = claims.slice(0, DIGEST_CLAIM_CAP).map((c) => ({
         id: c.id,
         text: (c.text || '').slice(0, 160),
         article_hash: c.article_hash || null

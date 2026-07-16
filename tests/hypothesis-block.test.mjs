@@ -14,7 +14,9 @@ globalThis.chrome = globalThis.chrome || {
     storage: { local: { get(_k, cb) { cb({}); }, set(_o, cb) { cb && cb(); }, remove(_k, cb) { cb && cb(); } } }
 };
 
-const { buildHypothesisBlockModel, AUTHORING_STRINGS } = await import('../src/portal/hypothesis-block.js');
+const {
+    buildHypothesisBlockModel, AUTHORING_STRINGS, suggestStatusLine
+} = await import('../src/portal/hypothesis-block.js');
 const { buildHypothesisMap } = await import('../src/shared/hypothesis-map.js');
 
 const CASE_ID = 'entity_00000000000000aa';
@@ -99,16 +101,53 @@ function allStrings(node, out = []) {
 
 // ------------------------------------------------------------------
 
+// 14 supports edges on one hypothesis + 8 dangling edges — exercises
+// the MAX_EDGES_PER_SECTION / MAX_DANGLING truncation paths.
+function bigModel() {
+    const h1 = hyp('hyp_00000000000000ab', 'Zoonotic');
+    const edges = [];
+    for (let i = 0; i < 14; i++) {
+        edges.push(edge(`hedge_a${i}`, h1.id, 'claim_00000000000000c1', 'supports', { note: `n${i}` }));
+    }
+    // Distinct ids: same (hyp, ref, role) can't repeat in real storage,
+    // but the builder groups by hypothesis+role, so vary the ref.
+    edges.forEach((e, i) => { e.ref = e.claim_ref = `30040:${'f'.repeat(64)}:d${i}`; });
+    for (let i = 0; i < 8; i++) {
+        edges.push(edge(`hedge_d${i}`, 'hyp_gone', 'claim_00000000000000c2', 'supports'));
+    }
+    const map = buildHypothesisMap({ data: makeData(), brief: null, hypotheses: [h1], edges }, null);
+    return buildHypothesisBlockModel(map);
+}
+
 test('hypothesis-block: no-scoreboard guard — no comparison phrasing or judgment number in ANY rendered string', () => {
-    // The model's strings PLUS the H.3 authoring copy (button labels,
-    // placeholders, the attach explainer) — everything the block puts
-    // on screen.
-    const strings = [...allStrings(richModel()), ...AUTHORING_STRINGS];
+    // The model's strings (rich AND truncated shapes), the H.3
+    // authoring copy, and the H.4 status-line composer — everything
+    // the block puts on screen.
+    const strings = [
+        ...allStrings(richModel()),
+        ...allStrings(bigModel()),
+        ...AUTHORING_STRINGS,
+        suggestStatusLine({ checked: 12, dropped: 3, rejected: 2, proposals: 7 }),
+        suggestStatusLine({ checked: 1, dropped: 0, rejected: 0, proposals: 1 })
+    ];
     assert.ok(strings.length > 10);
     const banned = /\d+\s*%|\d+\s*\/\s*100|more likely|less likely|stronger|weaker|winner|wins\b|leads\b|ahead of|best.supported|top hypothesis|score|probabilit|confidence|likelihood/i;
     for (const s of strings) {
         assert.doesNotMatch(s, banned, `forbidden phrasing in: "${s}"`);
     }
+});
+
+test('hypothesis-block: section truncation — heading keeps the FULL count, list caps, overflow disclosed', () => {
+    const model = bigModel();
+    const card = model.cards[0];
+    const sup = card.sections.find((s) => s.role === 'supports');
+    assert.equal(sup.heading, 'Supporting evidence (14)');
+    assert.equal(sup.edges.length, 12);
+    assert.equal(sup.overflow, '… +2 more');
+    assert.deepEqual(card.coverage, { supports: 14, undermines: 0 },
+        'the uncapped counts ride the card — the delete confirm states the full blast radius');
+    assert.match(model.danglingLine, /8 attachments reference/);
+    assert.equal(model.dangling.length, 6, 'dangling list caps at MAX_DANGLING');
 });
 
 test('hypothesis-block: the required disclaimers are present (positive half of the firewall pairing)', () => {

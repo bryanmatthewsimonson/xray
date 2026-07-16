@@ -21,7 +21,7 @@ import { HypothesisModel, HypothesisEdgeModel, HYPOTHESIS_EDGE_ROLES, HYPOTHESIS
 import {
     validateHypothesisEdges, groundEdgeQuotes, filterEdgeProposals, unopposedHypotheses
 } from '../shared/hypothesis-suggest.js';
-import { digestDossier } from '../shared/case-synthesis.js';
+import { digestDossier, DIGEST_CLAIM_CAP } from '../shared/case-synthesis.js';
 import { VERDICT_STATE_LABELS, PROPOSITION_CLASS_LABELS } from '../shared/truth-taxonomy.js';
 import { Utils } from '../shared/utils.js';
 
@@ -42,6 +42,17 @@ export const CRUX_BADGE_TITLE =
     'This claim is attached to more than one hypothesis — the disagreement, made legible.';
 export const VERDICT_CHIP_TITLE =
     'Verdict context for this claim — it does not weight the edge.';
+export const SUGGEST_STATUS_PROPOSING = 'Proposing edges…';
+export const SUGGEST_STATUS_MALFORMED = 'The model returned malformed edge proposals.';
+export const SUGGEST_STATUS_FAILED = 'Edge suggestion failed';
+
+/** The suggest pass's disclosure line — pure, so the guard walks it. */
+export function suggestStatusLine({ checked, dropped, rejected, proposals }) {
+    return `${checked} quote${checked === 1 ? '' : 's'} checked · `
+        + `${dropped} ungrounded (dropped) · ${rejected} rejected · `
+        + `${proposals} proposal${proposals === 1 ? '' : 's'}`;
+}
+
 export const AUTHORING_STRINGS = Object.freeze([
     'Add hypothesis…', 'Attach claim…', 'Add', 'Attach', 'Cancel',
     '✕ detach', '✕ delete hypothesis',
@@ -56,7 +67,9 @@ export const AUTHORING_STRINGS = Object.freeze([
     'Set an Anthropic API key in Options → Advanced → LLM assist',
     'Proposed attachments — nothing applies without your Accept.',
     'Accept', 'Accepted ✓', 'Dismiss', 'Refresh map',
+    'rejected:',
     'received no undermining scrutiny in this pass — treat their support as unexamined, not established:',
+    SUGGEST_STATUS_PROPOSING, SUGGEST_STATUS_MALFORMED, SUGGEST_STATUS_FAILED,
     CRUX_BADGE_TITLE, VERDICT_CHIP_TITLE
 ]);
 
@@ -109,6 +122,10 @@ export function buildHypothesisBlockModel(map) {
             title: h.label,
             statement: h.statement,
             persisted: h.persisted,
+            // The UNCAPPED per-role counts (the map row's coverage) —
+            // the delete confirm must state the full blast radius even
+            // when the rendered lists are truncated.
+            coverage: { supports: h.coverage.supports, undermines: h.coverage.undermines },
             provenance: provenanceBadge(h.suggested_by),
             holders: h.holders.map((hold) => ({
                 label: hold.title || hold.url || `${hold.article_hash.slice(0, 12)}… (not in local archive)`,
@@ -259,16 +276,24 @@ function mountAttachClaim(host, { caseId, card, claims, onChanged }) {
  * surviving proposal lands only on a human Accept, stamped
  * `suggested_by: 'llm:<model>'`.
  */
-function mountSuggestPanel(panelHost, { data, dossier, map, onChanged, model }) {
+function mountSuggestPanel(panelHost, { data, dossier, onChanged, onSettled, model }) {
     panelHost.replaceChildren();
-    const status = el('div', 'xr-inspector__mono', 'Proposing edges…');
+    const status = el('div', 'xr-inspector__mono', SUGGEST_STATUS_PROPOSING);
     panelHost.appendChild(status);
+    const settle = () => { if (onSettled) onSettled(); };
 
     (async () => {
-        const orbitClaims = (data.orbit && data.orbit.claims) || [];
+        // Re-collect the map FRESH: edges accepted in a previous panel
+        // (and seeds promoted by them) must reach `existingEdges` and
+        // `rows`, or a re-run would re-propose already-applied work
+        // instead of rejecting it as 'already attached'.
+        const input = await collectHypothesisMapData(data.case.id, { data });
+        const map = buildHypothesisMap(input, null);
+        // Digest set === validation/grounding set (the 20.6 discipline):
+        // digestDossier caps its claim index, so cap the SAME list here.
+        const orbitClaims = ((data.orbit && data.orbit.claims) || []).slice(0, DIGEST_CLAIM_CAP);
         const claimsById = {};
         for (const c of orbitClaims) claimsById[c.id] = c;
-        // Digest set === validation set (the 20.6 discipline).
         const rows = map.hypotheses.map((h) => ({ id: h.id, label: h.label, statement: h.statement }));
         const existingEdges = map.hypotheses.flatMap((h) =>
             [...h.edges.supports, ...h.edges.undermines].map((e) => ({
@@ -282,13 +307,15 @@ function mountSuggestPanel(panelHost, { data, dossier, map, onChanged, model }) 
             scopeQuestion: map.question.text || ''
         } });
         if (!res || !res.ok) {
-            status.textContent = `Edge suggestion failed: ${(res && res.error) || 'no response'}`;
+            status.textContent = `${SUGGEST_STATUS_FAILED}: ${(res && res.error) || 'no response'}`;
+            settle();
             return;
         }
         const v = validateHypothesisEdges(res.edgesInput);
         if (!v.ok) {
-            status.textContent = 'The model returned malformed edge proposals.';
+            status.textContent = SUGGEST_STATUS_MALFORMED;
             Utils.error('hypothesis edge validation', v.errors);
+            settle();
             return;
         }
 
@@ -299,9 +326,11 @@ function mountSuggestPanel(panelHost, { data, dossier, map, onChanged, model }) 
         const unopposed = unopposedHypotheses(rows, acceptable, existingEdges);
         const passModel = res.model || model;
 
-        status.textContent = `${grounded.checked} quote${grounded.checked === 1 ? '' : 's'} checked · `
-            + `${grounded.dropped} ungrounded (dropped) · ${rejected.length} rejected · `
-            + `${acceptable.length} proposal${acceptable.length === 1 ? '' : 's'}`;
+        settle();
+        status.textContent = suggestStatusLine({
+            checked: grounded.checked, dropped: grounded.dropped,
+            rejected: rejected.length, proposals: acceptable.length
+        });
         if (unopposed.length > 0) {
             panelHost.appendChild(el('div', 'xr-view__dossier-line',
                 `${unopposed.length} hypothes${unopposed.length === 1 ? 'is' : 'es'} `
@@ -360,7 +389,8 @@ function mountSuggestPanel(panelHost, { data, dossier, map, onChanged, model }) 
         panelHost.appendChild(refresh);
     })().catch((err) => {
         Utils.error('Suggest edges failed', err);
-        status.textContent = 'Edge suggestion failed.';
+        status.textContent = `${SUGGEST_STATUS_FAILED}.`;
+        settle();
     });
 }
 
@@ -412,11 +442,23 @@ export function renderHypothesesBlock(host, { data, dossier, callbacks = {} }) {
                     suggestBtn.title = 'Set an Anthropic API key in Options → Advanced → LLM assist';
                 }
                 suggestBtn.addEventListener('click', () => {
+                    // The digest carries at most DIGEST_CLAIM_CAP claims —
+                    // the confirm states what is actually sent.
+                    const sent = Math.min(orbitClaims.length, DIGEST_CLAIM_CAP);
+                    const capNote = orbitClaims.length > DIGEST_CLAIM_CAP
+                        ? ` (the first ${sent} of ${orbitClaims.length} claims — the digest is capped)` : '';
                     if (!confirm(`Suggest claim→hypothesis edges with the LLM?\n\n`
-                        + `This sends the case's dossier digest (${orbitClaims.length} claim${orbitClaims.length === 1 ? '' : 's'}) `
+                        + `This sends the case's dossier digest (${sent} claim${sent === 1 ? '' : 's'}${capNote}) `
                         + `and ${map.hypotheses.length} hypothes${map.hypotheses.length === 1 ? 'is' : 'es'} to Anthropic — one call. `
                         + `Every proposal still needs your Accept.`)) return;
-                    mountSuggestPanel(suggestHost, { data, dossier, map, onChanged, model: cfg.model });
+                    // One pass at a time — a second click mid-flight would
+                    // spend a second API call and interleave panels.
+                    suggestBtn.disabled = true;
+                    mountSuggestPanel(suggestHost, {
+                        data, dossier, onChanged,
+                        onSettled: () => { suggestBtn.disabled = !cfg.hasKey; },
+                        model: cfg.model
+                    });
                 });
                 controls.appendChild(suggestBtn);
             }
@@ -447,7 +489,9 @@ export function renderHypothesesBlock(host, { data, dossier, callbacks = {} }) {
                 const delBtn = el('button', 'xr-portal__btn xr-portal__btn--ghost', '✕ delete hypothesis');
                 delBtn.type = 'button';
                 delBtn.addEventListener('click', async () => {
-                    const n = card.sections.reduce((a, s) => a + s.edges.length, 0);
+                    // The UNCAPPED count — the rendered lists truncate at
+                    // MAX_EDGES_PER_SECTION, but delete removes them all.
+                    const n = card.coverage.supports + card.coverage.undermines;
                     const msg = n > 0
                         ? `Delete hypothesis "${card.title}"? Its ${n} claim attachment${n === 1 ? '' : 's'} will also be removed.`
                         : `Delete hypothesis "${card.title}"?`;

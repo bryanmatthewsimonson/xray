@@ -229,6 +229,22 @@ test('hypothesis-edge: drift dedupe — a stored coordinate that later collapses
     assert.equal((await HypothesisEdgeModel.getForClaim(coord)).length, 1);
 });
 
+test('hypothesis-edge: concurrent creates are serialized — no read-modify-write clobber', async () => {
+    resetState();
+    const h = await seedHypothesis();
+    const c1 = await seedClaim();
+    const c2 = await seedClaim({ text: 'A second, distinct claim.' });
+    // Two accepts clicked back-to-back run concurrently; each create is
+    // a multi-await read-modify-write of the whole edge map, so without
+    // the write chain the later Storage.set drops the earlier edge.
+    await Promise.all([
+        HypothesisEdgeModel.create({ hypothesis_id: h.id, claim_ref: c1.id, role: 'supports' }),
+        HypothesisEdgeModel.create({ hypothesis_id: h.id, claim_ref: c2.id, role: 'supports' })
+    ]);
+    assert.equal((await HypothesisEdgeModel.getForHypothesis(h.id)).length, 2,
+        'both concurrent edges persist');
+});
+
 test('hypothesis-edge: update patches note only; structural fields immutable', async () => {
     resetState();
     const h = await seedHypothesis();

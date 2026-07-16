@@ -44,10 +44,12 @@ export function validateHypothesisEdges(input) {
 
 /**
  * Ground each edge's quote against the referenced claim's own verbatim
- * record (text + extraction quote). The surviving edge carries the
- * claim's own span, not the model's copy. Unknown claim_ref grounds
- * nothing here — the filter rejects it with a reason; it is not
- * counted as a quote drop.
+ * record — its text OR its extraction quote, indexed SEPARATELY: a
+ * single concatenated index would let a span straddle the text/quote
+ * boundary and persist a stitched "verbatim" quote that appears in
+ * neither field. The surviving edge carries the claim's own span, not
+ * the model's copy. Unknown claim_ref grounds nothing here — the
+ * filter rejects it with a reason; it is not counted as a quote drop.
  */
 export function groundEdgeQuotes(edges, claimsById = {}) {
     let checked = 0;
@@ -59,12 +61,17 @@ export function groundEdgeQuotes(edges, claimsById = {}) {
         if (!claim) { out.push(e); continue; }   // filter's job
         checked++;
         if (!indexByClaim.has(e.claim_ref)) {
-            indexByClaim.set(e.claim_ref,
-                createGroundingIndex(`${claim.text || ''}\n${claim.quote || ''}`));
+            indexByClaim.set(e.claim_ref, [claim.text, claim.quote]
+                .filter((s) => s && String(s).trim())
+                .map((s) => createGroundingIndex(String(s))));
         }
-        const res = indexByClaim.get(e.claim_ref).ground(e.quote);
-        if (!res || res.status === 'missing') { dropped++; continue; }
-        out.push({ ...e, quote: res.exact });
+        let exact = null;
+        for (const idx of indexByClaim.get(e.claim_ref)) {
+            const res = idx.ground(e.quote);
+            if (res && res.status !== 'missing') { exact = res.exact; break; }
+        }
+        if (exact === null) { dropped++; continue; }
+        out.push({ ...e, quote: exact });
     }
     return { edges: out, checked, dropped };
 }
