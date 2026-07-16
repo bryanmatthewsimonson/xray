@@ -12,6 +12,7 @@
       <span class="xr-network__brand">🩻 X-Ray — Network</span>
       <nav class="xr-network__tabs" aria-label="View">
         <button class="xr-network__tab" data-view="feed">Feed</button>
+        <button class="xr-network__tab" data-view="queue">Queue</button>
         <button class="xr-network__tab" data-view="follows">Follows</button>
       </nav>
     </div>
@@ -32,6 +33,11 @@
     <!-- Feed view: per-author groups, newest-first; unfollowed material
          collapses to counts (KS §8 / TC §3 rendering discipline). -->
     <section class="xr-network__feed" id="xr-feed" hidden></section>
+
+    <!-- Incorporation queue (25.3, KS §6): followed artifacts arrive
+         as proposals; accept/decline is the only door into local
+         models. Declines persist. -->
+    <section class="xr-network__queue" id="xr-queue" hidden></section>
 
     <!-- Follows view: the global follow list (follow-model.js). -->
     <section class="xr-network__follows" id="xr-follows" hidden>

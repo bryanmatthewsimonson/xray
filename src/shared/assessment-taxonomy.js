@@ -128,8 +128,15 @@ export function isRevisionRelationship(relationship) {
 // Provenance — the manual-now / LLM-ready seam.
 // ------------------------------------------------------------------
 
-/** `suggested_by` values: 'user' or 'llm:<model>' (non-blank model). */
+/**
+ * `suggested_by` values: 'user', 'llm:<model>' (non-blank model), or —
+ * Phase 25.3 — 'nostr:<64-hex pubkey>' for artifacts incorporated from
+ * a followed author's published events. Records carrying a `nostr:`
+ * provenance are someone else's work reviewed in: publish selectors
+ * MUST exclude them (you never republish another's content as yours).
+ */
 export function isValidSuggestedBy(value) {
     return value === 'user'
-        || (typeof value === 'string' && /^llm:\S.*$/.test(value));
+        || (typeof value === 'string' && /^llm:\S.*$/.test(value))
+        || (typeof value === 'string' && /^nostr:[0-9a-f]{64}$/.test(value));
 }

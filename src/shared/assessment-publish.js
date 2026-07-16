@@ -60,6 +60,11 @@ export function claimWireInfo(claims, canonicalRef, fallback = {}) {
 export function selectAssessmentsToPublish({ assessments, claims, canon }) {
     const out = [];
     for (const a of Object.values(assessments || {})) {
+        // Belt-and-braces (Phase 25.3): incorporated foreign judgments
+        // live in the dedicated incorporated_artifacts store, never in
+        // this model — but if that ever changes, they still must not
+        // publish under the user's key.
+        if (String(a.suggested_by || '').startsWith('nostr:')) continue;
         if (a.publishedAt && (a.updated || 0) <= a.publishedAt) continue;
         const rawRef = a.claim_ref && (a.claim_ref.claim_id || a.claim_ref.coord);
         if (!rawRef) continue;
@@ -86,6 +91,9 @@ export function selectAssessmentsToPublish({ assessments, claims, canon }) {
 export function selectLinksToPublish({ links, claims, canon }) {
     const out = [];
     for (const link of Object.values(links || {})) {
+        // Incorporated foreign links never publish (Phase 25.3) —
+        // reviewed-in copies of someone else's signed work.
+        if (String(link.suggested_by || '').startsWith('nostr:')) continue;
         if (link.relationship === 'contextualizes') continue;
         // The Phase-14 `revision/*` story-change edges publish under
         // `forensicPublishing` (forensic-publish.js), not here.
