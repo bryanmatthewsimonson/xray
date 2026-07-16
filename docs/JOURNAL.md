@@ -19,6 +19,42 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-16 — Entity identity: the NIP-26 decision + derivation (Phase 24.0/24.1)
+
+Tags: `design`.
+
+The maintainer wanted entity keys durable and creator-bound, leaning
+NIP-26 but asking for the tradeoffs first. Research (NIP-26 spec +
+"unrecommended" annotation + fiatjaf's critique; NIP-06/41/46/48/51
+alternatives; mostr prior art) + a codebase audit produced
+docs/ENTITY_IDENTITY_DESIGN.md and a maintainer-confirmed decision:
+the LAYERED model — the three candidate models solve different
+sub-problems and compose.
+
+Decisions worth remembering:
+- **NIP-26's ecosystem failure doesn't apply to a self-consumer.** The
+  objections that killed it (generic clients see random keys; relays
+  must honor delegator-as-author) are about OTHERS implementing it.
+  X-Ray verifies its own tokens. But NIP-26 alone fixes neither
+  durability (keys stay random) nor revocation (none exists) — hence
+  the layers.
+- **Derivation recipe is pinned by test vector.** HKDF-SHA256(ikm =
+  primary priv, salt = 'xray-entity-v1', info = `${entityId}:${ctr}`)
+  mod n. The domain string is versioned — a recipe change means a NEW
+  domain, never a silent change (every derived pubkey depends on it).
+  tests/key-derivation.test.mjs pins parent 11…11 → child 371e815d….
+- **Stored key always wins.** installDerivedKey has importKey's
+  CONFLICT semantics; legacy random keys are never overwritten, no
+  forced migration. restoreDerivedKeys re-derives only MISSING keys and
+  honestly reports that legacy-random entities come back with a NEW
+  pubkey (that discontinuity is inherent to random keys, not created by
+  us).
+- **The entity id being deterministic (sha256 of type:name) is what
+  makes derivation total**: same primary + same entity type/name ⇒ same
+  pubkey with no stored state at all.
+
+---
+
 ## 2026-07-16 — Publish the corpus brief (Phase 23.2b — portal wiring)
 
 Tags: `design`.

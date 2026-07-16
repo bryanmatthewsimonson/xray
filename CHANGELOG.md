@@ -12,6 +12,20 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 24.1 — durable entity keys (deterministic derivation).** New
+  entity keypairs are now **derived from the primary identity**
+  (HKDF-SHA256, domain `xray-entity-v1`, info = the entity id, mod n) —
+  same primary + same entity ⇒ the same pubkey, forever. A lost or
+  reset keystore is recoverable: `EntityModel.restoreDerivedKeys()`
+  re-derives every missing owned key (derived-era entities get their
+  original pubkey back; legacy random keys re-derive to a new one,
+  reported honestly). Existing random keys stay valid — the stored key
+  always wins, no forced migration. The full NIP-26 tradeoff analysis
+  and the layered design (derivation + owned-keys manifest + NIP-26
+  token + honest kind-0) live in `docs/ENTITY_IDENTITY_DESIGN.md`; the
+  binding wire (kind 30069 + delegation tags) is the next slice. No
+  wire change in this slice.
+
 - **Phase 23.2 — publish the corpus analysis.** The Phase-20 corpus
   synthesis (summary / opposing positions / cruxes / load-bearing claims
   / gaps) can now be **published to NOSTR** from the case dashboard's

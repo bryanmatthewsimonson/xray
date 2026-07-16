@@ -83,6 +83,39 @@ export const LocalKeyManager = {
         return keyData;
     },
 
+    /**
+     * Install a DERIVED private key under `name` (Phase 24.1 — child
+     * keys derived from the primary identity, so a lost keystore is
+     * recoverable by re-derivation; docs/ENTITY_IDENTITY_DESIGN.md).
+     * Same idempotence/CONFLICT semantics as importKey — never silently
+     * overwrite key material — but stamped `derived: true` so the
+     * restore path can tell recoverable keys from legacy random ones.
+     */
+    installDerivedKey: async (name, privateKeyHex, metadata = {}) => {
+        if (!/^[0-9a-f]{64}$/.test(String(privateKeyHex || ''))) {
+            throw new Error('installDerivedKey: privateKey must be 64 hex chars');
+        }
+        const existing = LocalKeyManager.keys.get(name);
+        if (existing) {
+            if (existing.privateKey === privateKeyHex) return existing;   // idempotent
+            throw new Error('Key conflict: a different key already exists for ' + name);
+        }
+        const pubkey = Crypto.getPublicKey(privateKeyHex);
+        const keyData = {
+            name,
+            privateKey: privateKeyHex,
+            pubkey,
+            npub: Crypto.hexToNpub(pubkey),
+            nsec: Crypto.hexToNsec(privateKeyHex),
+            metadata: { ...metadata, derived: true },
+            created: Math.floor(Date.now() / 1000)
+        };
+        LocalKeyManager.keys.set(name, keyData);
+        await LocalKeyManager.save();
+        Utils.log('Installed derived key:', name, keyData.npub);
+        return keyData;
+    },
+
     getKey: (name) => LocalKeyManager.keys.get(name) || null,
 
     listKeys: () => Array.from(LocalKeyManager.keys.values()),
