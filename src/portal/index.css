@@ -1095,3 +1095,19 @@ button.xr-badge--case { cursor: pointer; background: transparent; }
   flex-wrap: wrap;
   font-size: 12.5px;
 }
+.xr-hyp__form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 6px 0;
+}
+.xr-hyp__input {
+  background: var(--xr-bg, #0b1220);
+  color: inherit;
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12.5px;
+  min-width: 180px;
+}

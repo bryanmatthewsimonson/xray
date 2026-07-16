@@ -263,9 +263,13 @@ export function renderCaseView(host, params) {
                 data, dossier,
                 callbacks: { onReloadCase: callbacks.onReloadCase }
             });
-            // 26 H.2 — the hypothesis map, assembled from the same
-            // shared `data`. Self-removes when the case has no map.
-            renderHypothesesBlock(hypothesesHost, { data });
+            // 26 H.2/H.3 — the hypothesis map, assembled from the same
+            // shared `data`, with the manual authoring affordances.
+            // Renders nothing on a claimless case with no map.
+            renderHypothesesBlock(hypothesesHost, {
+                data,
+                callbacks: { onReloadCase: callbacks.onReloadCase }
+            });
             renderCaseTimeline(timelineHost, dossier);
         })().catch((err) => {
             Utils.error('Case dossier assembly failed', err);

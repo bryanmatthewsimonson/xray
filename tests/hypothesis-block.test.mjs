@@ -14,7 +14,7 @@ globalThis.chrome = globalThis.chrome || {
     storage: { local: { get(_k, cb) { cb({}); }, set(_o, cb) { cb && cb(); }, remove(_k, cb) { cb && cb(); } } }
 };
 
-const { buildHypothesisBlockModel } = await import('../src/portal/hypothesis-block.js');
+const { buildHypothesisBlockModel, AUTHORING_STRINGS } = await import('../src/portal/hypothesis-block.js');
 const { buildHypothesisMap } = await import('../src/shared/hypothesis-map.js');
 
 const CASE_ID = 'entity_00000000000000aa';
@@ -100,7 +100,10 @@ function allStrings(node, out = []) {
 // ------------------------------------------------------------------
 
 test('hypothesis-block: no-scoreboard guard — no comparison phrasing or judgment number in ANY rendered string', () => {
-    const strings = allStrings(richModel());
+    // The model's strings PLUS the H.3 authoring copy (button labels,
+    // placeholders, the attach explainer) — everything the block puts
+    // on screen.
+    const strings = [...allStrings(richModel()), ...AUTHORING_STRINGS];
     assert.ok(strings.length > 10);
     const banned = /\d+\s*%|\d+\s*\/\s*100|more likely|less likely|stronger|weaker|winner|wins\b|leads\b|ahead of|best.supported|top hypothesis|score|probabilit|confidence|likelihood/i;
     for (const s of strings) {
@@ -150,6 +153,7 @@ test('hypothesis-block: model carries the map faithfully — crux badge, verdict
     assert.equal(zSup.heading, 'Supporting evidence (2)');
     const cruxEdge = zSup.edges.find((e) => e.crux);
     assert.ok(cruxEdge, 'the claim shared with Lab origin is badged as crux');
+    assert.match(cruxEdge.id, /^hedge_/, 'edge id rides for the H.3 detach affordance');
     assert.deepEqual(cruxEdge.verdictChips, ['Event fact: Contested']);
     assert.equal(cruxEdge.quote, 'verbatim');
     assert.equal(cruxEdge.note, 'why it matters');

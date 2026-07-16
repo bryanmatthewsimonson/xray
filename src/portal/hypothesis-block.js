@@ -17,11 +17,30 @@
 
 import { el, truncate } from './dom.js';
 import { collectHypothesisMapData, buildHypothesisMap } from '../shared/hypothesis-map.js';
+import { HypothesisModel, HypothesisEdgeModel, HYPOTHESIS_EDGE_ROLES, HYPOTHESIS_EDGE_ROLE_LABELS } from '../shared/hypothesis-model.js';
 import { VERDICT_STATE_LABELS, PROPOSITION_CLASS_LABELS } from '../shared/truth-taxonomy.js';
 import { Utils } from '../shared/utils.js';
 
 const MAX_EDGES_PER_SECTION = 12;
 const MAX_DANGLING = 6;
+
+// Every DOM-layer-only string (H.3 authoring copy, badge tooltips) —
+// exported so the no-scoreboard guard test walks these alongside the
+// model's strings; nothing the block puts on screen escapes the guard.
+export const CRUX_BADGE_TITLE =
+    'This claim is attached to more than one hypothesis — the disagreement, made legible.';
+export const VERDICT_CHIP_TITLE =
+    'Verdict context for this claim — it does not weight the edge.';
+export const AUTHORING_STRINGS = Object.freeze([
+    'Add hypothesis…', 'Attach claim…', 'Add', 'Attach', 'Cancel',
+    '✕ detach', '✕ delete hypothesis',
+    'Remove this claim attachment (local only)',
+    'Label (identity — cannot be renamed later)',
+    'Statement (the competing answer, editable)',
+    'Note (optional — why this claim bears on this answer)',
+    'A claim can support one hypothesis and undermine another — attach it to each; nothing is netted.',
+    CRUX_BADGE_TITLE, VERDICT_CHIP_TITLE
+]);
 
 export const HYPOTHESIS_BLOCK_HEADING = 'Hypotheses — competing answers, not a ranking';
 export const HYPOTHESIS_BLOCK_EXPLAINER =
@@ -71,6 +90,7 @@ export function buildHypothesisBlockModel(map) {
             id: h.id,
             title: h.label,
             statement: h.statement,
+            persisted: h.persisted,
             provenance: provenanceBadge(h.suggested_by),
             holders: h.holders.map((hold) => ({
                 label: hold.title || hold.url || `${hold.article_hash.slice(0, 12)}… (not in local archive)`,
@@ -85,6 +105,7 @@ export function buildHypothesisBlockModel(map) {
                 // The one place a count is allowed: this section's own size.
                 heading: `${ROLE_HEADINGS[role]} (${edges.length})`,
                 edges: edges.slice(0, MAX_EDGES_PER_SECTION).map((e) => ({
+                    id:    e.edge_id,
                     text:  e.claim ? truncate(e.claim.text, 140) : `${e.ref} (unresolved claim)`,
                     url:   e.claim ? e.claim.url : null,
                     quote: e.quote ? truncate(e.quote, 200) : null,
@@ -129,26 +150,124 @@ function sourceLink(url, label) {
     return a;
 }
 
+/** Inline "add hypothesis" form (H.3). */
+function mountAddHypothesis(host, { caseId, onChanged }) {
+    host.replaceChildren();
+    const form = el('div', 'xr-hyp__form');
+    const labelInput = el('input', 'xr-hyp__input');
+    labelInput.placeholder = 'Label (identity — cannot be renamed later)';
+    const stmtInput = el('input', 'xr-hyp__input');
+    stmtInput.placeholder = 'Statement (the competing answer, editable)';
+    const add = el('button', 'xr-portal__btn', 'Add');
+    add.type = 'button';
+    const cancel = el('button', 'xr-portal__btn xr-portal__btn--ghost', 'Cancel');
+    cancel.type = 'button';
+    cancel.addEventListener('click', () => host.replaceChildren());
+    add.addEventListener('click', async () => {
+        try {
+            const label = labelInput.value.trim();
+            if (!label) { labelInput.focus(); return; }
+            await HypothesisModel.create({
+                case_id: caseId, label, statement: stmtInput.value.trim(), suggested_by: 'user'
+            });
+            onChanged();
+        } catch (err) { Utils.error('Add hypothesis failed', err); }
+    });
+    form.appendChild(labelInput);
+    form.appendChild(stmtInput);
+    form.appendChild(add);
+    form.appendChild(cancel);
+    host.appendChild(form);
+    labelInput.focus();
+}
+
+/**
+ * Inline "attach claim" form for one hypothesis card (H.3). A seed
+ * card is PROMOTED on first attach: the hypothesis record is created
+ * (idempotent — label is identity) and the edge lands on it.
+ */
+function mountAttachClaim(host, { caseId, card, claims, onChanged }) {
+    host.replaceChildren();
+    const form = el('div', 'xr-hyp__form');
+    form.appendChild(el('div', 'xr-inspector__mono',
+        'A claim can support one hypothesis and undermine another — attach it to each; nothing is netted.'));
+    const claimSel = el('select', 'xr-hyp__input');
+    for (const c of claims) {
+        const opt = el('option', null, truncate(c.text, 110));
+        opt.value = c.id;
+        claimSel.appendChild(opt);
+    }
+    const roleSel = el('select', 'xr-hyp__input');
+    for (const role of HYPOTHESIS_EDGE_ROLES) {
+        const opt = el('option', null, HYPOTHESIS_EDGE_ROLE_LABELS[role]);
+        opt.value = role;
+        roleSel.appendChild(opt);
+    }
+    const noteInput = el('input', 'xr-hyp__input');
+    noteInput.placeholder = 'Note (optional — why this claim bears on this answer)';
+    const attach = el('button', 'xr-portal__btn', 'Attach');
+    attach.type = 'button';
+    const cancel = el('button', 'xr-portal__btn xr-portal__btn--ghost', 'Cancel');
+    cancel.type = 'button';
+    cancel.addEventListener('click', () => host.replaceChildren());
+    attach.addEventListener('click', async () => {
+        try {
+            if (!claimSel.value) return;
+            const hyp = await HypothesisModel.create({
+                case_id: caseId, label: card.title,
+                statement: card.statement === card.title ? '' : card.statement,
+                suggested_by: 'user'
+            });
+            await HypothesisEdgeModel.create({
+                hypothesis_id: hyp.id, claim_ref: claimSel.value,
+                role: roleSel.value, note: noteInput.value.trim(), suggested_by: 'user'
+            });
+            onChanged();
+        } catch (err) { Utils.error('Attach claim failed', err); }
+    });
+    form.appendChild(claimSel);
+    form.appendChild(roleSel);
+    form.appendChild(noteInput);
+    form.appendChild(attach);
+    form.appendChild(cancel);
+    host.appendChild(form);
+}
+
 /**
  * Render the hypothesis map for a case. `data` is the shared
  * `collectCaseDossierData` envelope (assembled once by the case view);
  * the brief and the hypothesis/edge models are read live.
+ * `callbacks.onReloadCase` re-renders the case view after authoring.
  */
-export function renderHypothesesBlock(host, { data }) {
+export function renderHypothesesBlock(host, { data, callbacks = {} }) {
     if (!data || !data.case) return;
     const block = el('div', 'xr-view__dossier xr-hyp');
     host.appendChild(block);
+    const onChanged = () => { if (callbacks.onReloadCase) callbacks.onReloadCase(); };
 
     (async () => {
         const input = await collectHypothesisMapData(data.case.id, { data });
         const map = buildHypothesisMap(input, null);
         const model = buildHypothesisBlockModel(map);
-        if (model.empty) { block.remove(); return; }
+        const orbitClaims = (data.orbit && data.orbit.claims) || [];
+        // An empty map on a claimless case renders nothing; with claims
+        // present, the compact authoring block keeps the map startable.
+        if (model.empty && orbitClaims.length === 0) { block.remove(); return; }
 
         block.appendChild(el('h3', 'xr-case__heading', model.heading));
         block.appendChild(el('div', 'xr-case__explainer', model.explainer));
         if (model.questionLine) block.appendChild(el('div', 'xr-view__dossier-line', model.questionLine));
-        block.appendChild(el('div', 'xr-view__dossier-line', model.countsLine));
+        if (!model.empty) block.appendChild(el('div', 'xr-view__dossier-line', model.countsLine));
+
+        // H.3 — add a competing answer by hand.
+        const addHost = el('div');
+        const addBtn = el('button', 'xr-portal__btn', 'Add hypothesis…');
+        addBtn.type = 'button';
+        addBtn.addEventListener('click', () =>
+            mountAddHypothesis(addHost, { caseId: data.case.id, onChanged }));
+        block.appendChild(addBtn);
+        block.appendChild(addHost);
+        if (model.empty) return;
 
         const grid = el('div', 'xr-hyp__grid');
         for (const card of model.cards) {
@@ -156,7 +275,33 @@ export function renderHypothesesBlock(host, { data }) {
             const head = el('div', 'xr-row__head');
             head.appendChild(el('h4', 'xr-inspector__sub', card.title));
             if (card.provenance) head.appendChild(el('span', 'xr-badge xr-badge--muted', card.provenance));
+            // H.3 authoring: attach a claim (promotes a seed card on
+            // first attach); delete a persisted hypothesis + its edges.
+            const attachHost = el('div');
+            if (orbitClaims.length > 0) {
+                const attachBtn = el('button', 'xr-portal__btn xr-portal__btn--ghost', 'Attach claim…');
+                attachBtn.type = 'button';
+                attachBtn.addEventListener('click', () => mountAttachClaim(attachHost, {
+                    caseId: data.case.id, card, claims: orbitClaims, onChanged
+                }));
+                head.appendChild(attachBtn);
+            }
+            if (card.persisted) {
+                const delBtn = el('button', 'xr-portal__btn xr-portal__btn--ghost', '✕ delete hypothesis');
+                delBtn.type = 'button';
+                delBtn.addEventListener('click', async () => {
+                    const n = card.sections.reduce((a, s) => a + s.edges.length, 0);
+                    const msg = n > 0
+                        ? `Delete hypothesis "${card.title}"? Its ${n} claim attachment${n === 1 ? '' : 's'} will also be removed.`
+                        : `Delete hypothesis "${card.title}"?`;
+                    if (!confirm(msg)) return;
+                    try { await HypothesisModel.delete(card.id); onChanged(); }
+                    catch (err) { Utils.error('Delete hypothesis failed', err); }
+                });
+                head.appendChild(delBtn);
+            }
             cardEl.appendChild(head);
+            cardEl.appendChild(attachHost);
             if (card.statement && card.statement !== card.title) {
                 cardEl.appendChild(el('div', 'xr-hyp__statement', card.statement));
             }
@@ -181,15 +326,25 @@ export function renderHypothesesBlock(host, { data }) {
                     line.appendChild(edge.url
                         ? sourceLink(edge.url, edge.text)
                         : el('span', null, edge.text));
+                    if (edge.id) {
+                        const detach = el('button', 'xr-portal__btn xr-portal__btn--ghost', '✕ detach');
+                        detach.type = 'button';
+                        detach.title = 'Remove this claim attachment (local only)';
+                        detach.addEventListener('click', async () => {
+                            try { await HypothesisEdgeModel.delete(edge.id); onChanged(); }
+                            catch (err) { Utils.error('Detach edge failed', err); }
+                        });
+                        line.appendChild(detach);
+                    }
                     if (edge.crux) {
                         const b = el('span', 'xr-badge xr-badge--warn', 'crux');
-                        b.title = 'This claim is attached to more than one hypothesis — the disagreement, made legible.';
+                        b.title = CRUX_BADGE_TITLE;
                         line.appendChild(b);
                     }
                     if (edge.provenance) line.appendChild(el('span', 'xr-badge xr-badge--muted', edge.provenance));
                     for (const chip of edge.verdictChips) {
                         const v = el('span', 'xr-badge xr-badge--muted', chip);
-                        v.title = 'Verdict context for this claim — it does not weight the edge.';
+                        v.title = VERDICT_CHIP_TITLE;
                         line.appendChild(v);
                     }
                     row.appendChild(line);
