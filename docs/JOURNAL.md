@@ -19,6 +19,30 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-16 — Phase 25 kickoff: the KS §9 follows-publish reversal (25.0)
+
+Tags: `design`.
+
+Phase 25 (the Network client) builds KS.5–KS.8 on a standalone page —
+`NETWORK_CLIENT_DESIGN.md` is the new surface-normative doc;
+KNOWLEDGE_SHARING_DESIGN stays engine-normative, amended 2026-07-16.
+The second-guessable call: §9's "no published follow lists" (a
+2026-07-05 owner decision) is **partially reversed** — the maintainer
+chose an opt-in, default-off kind-3 NIP-02 mirror over keeping follows
+fully private, because KS.8's transitive trust ("who do the people I
+trust follow?") has no data among X-Ray users if no X-Ray user ever
+publishes follows, and other clients can't render X-Ray users'
+follows. The original refusal's real payload — team/interest
+composition never leaking from casework — survives intact: only the
+NEW global scope may mirror; case- and entity-anchored sets still
+never publish, so the TC §2.2 closure holds by construction where it
+matters. Clobber protection (read-merge-union-confirm against a
+kind 3 the user may maintain in another client) and petnames-off-by-
+default are mandatory parts of the amendment, not implementation
+details.
+
+---
+
 ## 2026-07-16 — Tag pushes refused by the remote-exec git proxy (v0.7.0)
 
 Tags: `external`.

@@ -1362,14 +1362,16 @@ kinds; single-user untouched.
   equivalence set (self + alias family + adopted foreign + linked
   account pubkeys), two-hop (`#p`, then `#a` for judgments/verdicts),
   read-only, with adopt candidates surfaced.
-- 📝 **KS.5** Follow sets + incorporation queue, case+entity scoped
-  (implements TEAM_CASE TC.2 against the design's §5 engine spec).
+- 📝 **KS.5** Follow sets + incorporation queue, case+entity+global
+  scoped (implements TEAM_CASE TC.2 against the design's §5 engine
+  spec) — **building as Phase 25.1 + 25.3**.
 - 📝 **KS.6** Thin coordination — review-request labels, awareness
-  strip, re-broadcast-who-you-follow (≈ TC.4).
+  strip, re-broadcast-who-you-follow (≈ TC.4) — **building as
+  Phase 25.4**.
 - 📝 **KS.7** NIP-65 relay widening + confirmed-OK publish for
-  identity kinds (⊂ TC.1/TC.4).
-- 📝 **KS.8 (deferred)** trust-graph wiring as a reader-side feed
-  filter.
+  identity kinds (⊂ TC.1/TC.4) — **building as Phase 25.5**.
+- 📝 **KS.8** trust-graph wiring as a reader-side feed filter —
+  **building as Phase 25.7** (last, droppable).
 
 ---
 
@@ -1745,6 +1747,60 @@ Non-goals (v1): no NIP-46 bunker routing for entity keys; no NIP-41;
 no forced migration of legacy random keys; no 30078 rewrap-on-rotation
 (documented, not built); no reliance on relays honoring
 delegator-as-author.
+
+---
+
+## Phase 25 — The Network client (truth-seeker social layer) 🚧 IN PROGRESS
+
+The maintainer's vision: a social layer for people genuinely curious
+about the truth — a stranger with only a NOSTR keypair follows
+researchers, reads their published artifacts, and pulls the convincing
+pieces into their own corpus one reviewed accept at a time. Implements
+the queued **KS.5–KS.8** slices (the KS section above;
+`KNOWLEDGE_SHARING_DESIGN.md` amended 2026-07-16 — global follow
+scope, opt-in kind-3 mirror) on a new standalone **Network page**
+(`docs/NETWORK_CLIENT_DESIGN.md`, normative for the surface).
+Maintainer decisions: v1 = follows + feed + incorporation — **no
+kind-1 notes, no DMs** ("conversation" is the existing judgment
+kinds); standalone page, not a portal view; follows local-primary with
+an opt-in, default-off NIP-02 kind-3 mirror of the global scope only.
+
+- 📝 **25.0** Design doc + KS §5/§9/§10/§11 + TC header amendments
+  (docs only).
+- 📝 **25.1** Follow engine — `follow-model.js` `follow_sets` registry
+  (case/entity/global anchors), relay-hint harvest via generalized
+  `pullRelayListFor`, workspace-reset inclusion (KS.5 engine half).
+- 📝 **25.2a** Network page scaffold (new esbuild entry,
+  `xray:openNetwork`, flag `networkPage` default-off) + the
+  authors-axis follows feed over `NETWORK_FEED_KINDS`, rendering
+  discipline per KS §8 (collapsed unfollowed, npubs everywhere, no
+  ranking).
+- 📝 **25.2b** `xray-network` feed cache + read-state ("new since you
+  last looked"), kind-0 profile cards, follow-from-feed + paste-npub +
+  adopt-on-sight (shared `adopt-entity.js` extraction).
+- 📝 **25.3** Incorporation queue (KS.5 queue half / KS §6): foreign
+  claims/links → native models with `suggested_by: 'nostr:<pubkey>'`
+  + origin; foreign assessments/verdicts → the read-only
+  `incorporated_artifacts` store; declines persist; publish selectors
+  exclude incorporated records (never republish others' work as
+  yours); unfollow-keeps.
+- 📝 **25.4** Thin coordination (KS.6): `xray/review` kind-1985
+  vocabulary, inbound review queue, re-broadcast-who-you-follow —
+  publish affordances behind `reviewCoordination` (default off).
+- 📝 **25.5** KS.7: NIP-65 relay widening (union with followee hints,
+  capped, prefs untouched) + `publishConfirmed` for identity kinds.
+- 📝 **25.6** The phase's only wire change: opt-in NIP-02 **kind-3
+  follow-list mirror** (global scope only, `followListPublishing`
+  default-off, consent dialog, read-merge-union-confirm clobber
+  protection, petnames per-publish opt-in).
+- 📝 **25.7** KS.8 (last, droppable): trust-graph wiring — narrow-only
+  feed filter + followed-by-N count chips under the existing
+  `trustGraphFilter` flag; `ranker.js` stays unwired.
+
+Non-goals (v1): no kind-1 notes/replies; no DMs; no live relay
+subscriptions; no ranking/reputation; no persist-on-view; no
+auto-merge of foreign entities; no new wire kinds (kind 3 is standard
+NIP-02); no mute list; no sidepanel KS.4 feed changes.
 
 ---
 
