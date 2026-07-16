@@ -725,6 +725,33 @@ Addressable. The full structured field table for one entity — an adjudicable *
 - Replaceable-event semantics make republish idempotent; the reference implementation republishes only when the content (excluding `generated_at`) actually changed.
 - The enriched kind-0 `about` this sheet accompanies is assembled from the same dossier: only published-claim facts, contested fields omitted, every line attributed "per <source>" — the profile cites, it never asserts.
 
+## Kind 30068 — CaseBrief
+
+Addressable. The structured form of X-Ray's Phase-20 corpus synthesis for one case — the machine-readable companion to a readable kind-30023 long-form article that carries the SAME content as prose. Both are published together and cross-linked; a stranger with any NOSTR client reads the 30023 article, while an X-Ray client renders the 30068 richly and can open the referenced members. Signed by the **user's primary identity** (it is the user's synthesis, not an entity's).
+
+```jsonc
+{
+  "kind": 30068,
+  "tags": [
+    ["d", "xray-brief:<caseId>"],                       // one replaceable brief per case
+    ["title", "Case brief — <case name>"],
+    ["t", "xray-case-brief"],                           // recognizer (also on the sibling 30023)
+    ["prompt_version", "corpus-v1"],
+    ["grounded", "<checked>:<dropped>"],                // grounding disclosure (quotes verified : pruned)
+    ["a", "30023:<user pk>:xray-brief:<caseId>"],       // cross-link to the readable article (by coordinate)
+    ["a", "30023:<member pk>:<member d>", "", "member"],// one per member the brief cites (when resolvable)
+    ["x", "<member article hash>"],                     // one per distinct member version, for the #x join
+    ["client", "xray"]
+  ],
+  "content": "{ \"case_name\", \"scope_question\", \"summary\", \"positions\": [ { \"label\", \"core_argument\", \"holders\": [ { \"article_hash\" } ] } ], \"cruxes\": [ { \"question\", \"sides\": [ { \"position_label\", \"view\" } ], \"evidence_refs\": [ { \"article_hash\", \"quote\" } ], \"what_would_resolve\" } ], \"load_bearing\": [ { \"claim_ref\", \"article_hash\", \"quote\", \"why\" } ], \"coverage_gaps\": [ … ] }"
+}
+```
+
+- **Prose and structure only — NO fused score, NO verdict.** The content carries exactly the map fields (summary / positions / cruxes / load-bearing claims / coverage gaps); it has no numeric case score, no rating, and no adjudication between positions. This is Phase 20's firewall (`docs/CASE_SYNTHESIS_DESIGN.md` §no fused score) carried onto the wire, machine-checked by a guard test. The **`proposals`** array from the local brief (reviewer-facing edit suggestions) is deliberately EXCLUDED from publication.
+- **Every quote is verbatim from a named member** (`article_hash`) and was grounded before storage; the `grounded` tag discloses how many quotes were verified vs. pruned. Consumers can follow the `x`/`a` member references to the exact source text.
+- **The two artifacts cross-link by coordinate** (`d` = `xray-brief:<caseId>` on both), not by event id, so neither has to be signed before the other. The 30023 sibling carries the same `t xray-case-brief` recognizer and the same member `a`/`x` references.
+- Replaceable per case: re-running the synthesis and re-publishing replaces the prior brief for that `d`.
+
 ## Kind 32125 — EntityArticleRelationship
 
 An addressable event asserting that a captured article stands in a named relationship to an entity — that the article is **`about`** the entity, or that the entity is the article's **`source`** (its asserter). Authored by the capturing user, it makes "which articles concern this entity, and who they attribute claims to" a one-hop relay query rather than a re-derivation from every claim. One event is emitted per `(entity, article, relationship)` triple at publish time, deduplicated by the `d` tag.
