@@ -18,6 +18,19 @@
 > keys are identifiers, never signers; the case key never signs
 > judgment kinds; private keys never leave the machine except the
 > explicit case-bundle path.
+>
+> **Amendment (2026-07-16, Phase 25):** KS.5–KS.8 are being built as
+> Phase 25, the Network client
+> ([`NETWORK_CLIENT_DESIGN.md`](NETWORK_CLIENT_DESIGN.md) governs the
+> *surface*; this document stays normative for the *engine*). Three
+> changes to the 2026-07-05 text; the amendment governs where they
+> disagree: (1) §5's anchor set gains a third scope —
+> `{scope:'global'}`, person-level follows for the Network feed;
+> (2) §9's "no published follow lists" relaxes to an **opt-in,
+> default-off kind-3 NIP-02 mirror of the global scope only** — case-
+> and entity-anchored follow sets still never publish; (3) §10 gains
+> the kind-3 mirror and the `xray/review` kind-1985 label vocabulary
+> (both additive; still zero new wire kinds).
 
 X-Ray's goal here: make it easy to **share** captured knowledge, let
 strangers **reference the same entities** so the shared corpus
@@ -167,11 +180,15 @@ against this spec). This branch ships only the engine's read layer
 no queue. Named explicitly so nobody mistakes the read feed for the
 engine.
 
-- **Follow set:** local, **unpublished**, keyed by *anchor*
-  `{scope: 'case'|'entity', entityId}` — one storage shape
+- **Follow set:** local-primary, keyed by *anchor*
+  `{scope: 'case'|'entity'|'global', entityId?}` — one storage shape
   (`follow_sets` registry; workspace content, cleared by
   fresh-workspace reset). TC.2's per-case follows are the
-  `scope:'case'` instance of the same registry. Entries are
+  `scope:'case'` instance of the same registry. *(Amended 2026-07-16:)*
+  the third scope, `'global'` (registry key `'global'`, no
+  `entityId`), carries person-level follows for the Phase-25 Network
+  feed — follow a researcher across everything, not per anchor; it is
+  the only scope the §9 opt-in kind-3 mirror may project. Entries are
   `{pubkey, label?, addedAt, relayHints[]}`, hints harvested from the
   followee's published kind-10002 (NIP-65 widening —
   `entity-sync.js` `pullRelayList` exists).
@@ -184,9 +201,11 @@ engine.
   authors' output), the anchor's equivalence-pubkey `#p` fan-out
   (everything about this entity), and the `#a` judgment hop
   (judgments on discovered claims).
-- **Because the follow list never publishes, team/interest composition
-  never touches a relay** — the watched-workspace leak is closed by
-  construction (TEAM_CASE §2.2).
+- **Because case- and entity-anchored follow sets never publish,
+  team/interest composition never touches a relay** — the
+  watched-workspace leak stays closed by construction for casework
+  (TEAM_CASE §2.2). *(Amended 2026-07-16:)* the global scope may
+  publish through the §9 opt-in mirror only.
 
 ---
 
@@ -285,9 +304,15 @@ them is KS.8, after the engine exists.
 - No auto-merge of foreign entities — the prompt is always shown.
 - No new wire kinds.
 - No live relay subscriptions in v1 (pull + refresh).
-- No published follow lists (composition disclosure is computed from
-  actual inclusion, TEAM_CASE §3.5; the §8 roster extension remains
-  the one exception, unchanged).
+- Follow lists are local-primary. *(Amended 2026-07-16 — was "no
+  published follow lists":)* the **global** follow scope has an
+  opt-in, default-off **kind-3 NIP-02 mirror** (Phase 25.6, flag
+  `followListPublishing`; read-merge-union-confirm against the user's
+  existing remote kind 3, never blind-replace; local labels ride as
+  petnames only via a per-publish checkbox). Case- and entity-anchored
+  follow sets never publish — composition disclosure stays computed
+  from actual inclusion (TEAM_CASE §3.5; the §8 roster extension
+  remains the one exception, unchanged).
 - No NIP-70 protected events; no team-private encryption (verified
   unsuitable, TEAM_CASE §7).
 
@@ -301,6 +326,20 @@ them is KS.8, after the engine exists.
    account pubkey is an identifier, never a signer).
 2. **Additive role-marked `['p', <entityPubkey>, '', 'linked-entity']`
    on 32126** — closes the account→entity resolution gap.
+
+*(Amended 2026-07-16 — Phase 25 adds two more, both additive, still
+zero new kinds:)*
+
+3. **Kind 3 begins publishing — the opt-in follow-list mirror**
+   (Phase 25.6). Standard NIP-02: `['p', pubkey, relayHint, petname?]`
+   tags, empty content, projecting the **global** follow scope only;
+   flag `followListPublishing` default-off; merge-with-remote before
+   every publish. An existing standard kind gains a publisher; no
+   format invention.
+4. **The `xray/review` kind-1985 label vocabulary** (Phase 25.4):
+   `l` ∈ {`review-requested`, `review-done`} under `L xray/review`,
+   subject `a`/`e`/`r` tags, never a `p` tag. Additive vocabulary on a
+   kind X-Ray already publishes.
 
 Plus one normative consumer rule (documented, not a format change):
 **clients MUST verify event signatures on ingest.** Relay-supplied
@@ -316,10 +355,14 @@ events are otherwise attacker-controlled input.
 | **KS.2** | 32126 publish, flag-gated + `linked-entity` pubkey tag | **this branch** |
 | **KS.3** | Foreign keyless entities + adopt-on-sight (⊂ TC.1) | **this branch** |
 | **KS.4** | Per-entity network feed (read-only, side panel) | **this branch** |
-| KS.5 | Follow sets + incorporation queue, case+entity scoped (generalizes TC.2) | later |
-| KS.6 | Review-request labels, awareness strip, re-broadcast-who-you-follow (≈ TC.4) | later |
-| KS.7 | NIP-65 relay widening + confirmed-OK publish for identity kinds (⊂ TC.1/TC.4) | later |
-| KS.8 | trust-graph wiring as reader-side feed filter | deferred |
+| KS.5 | Follow sets + incorporation queue, case+entity+global scoped (generalizes TC.2) | **Phase 25.1 + 25.3** |
+| KS.6 | Review-request labels, awareness strip, re-broadcast-who-you-follow (≈ TC.4) | **Phase 25.4** |
+| KS.7 | NIP-65 relay widening + confirmed-OK publish for identity kinds (⊂ TC.1/TC.4) | **Phase 25.5** |
+| KS.8 | trust-graph wiring as reader-side feed filter | **Phase 25.7** (last, droppable) |
+
+*(Amended 2026-07-16:)* Phase 25 additionally builds the Network
+surface (25.2a/25.2b, `NETWORK_CLIENT_DESIGN.md`) and the kind-3
+opt-in mirror (25.6, amended §9/§10).
 
 TC.3 (dossier integration) and TC.5 (custody/escrow) stay
 case-specific in TEAM_CASE_DESIGN.md.
@@ -338,7 +381,9 @@ case-specific in TEAM_CASE_DESIGN.md.
    line), so the entity feed reaches verdicts via `#a` over hop-1
    claim coordinates (capped). Verdicts on claims outside hop 1 stay
    feed-invisible but remain fully visible per-claim in the adjudicate
-   modal. Accepted for v1.
+   modal. Accepted for v1. *(2026-07-16: this limit is `#p`-axis only —
+   on the Phase-25 `authors` axis, followees' 30063s are author-signed
+   and arrive first-class in the follows feed.)*
 3. **No foreign-event persistence until KS.5**, where acceptance is
    explicit (§6).
 4. **32126 publish scope** = the current publish run's touched

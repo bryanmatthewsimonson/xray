@@ -34,6 +34,15 @@
 > case anchor (§2.1), custody (§6), the roster extension (§8), dossier
 > integration (TC.3), escrow (TC.5) — remain authoritative in this
 > document.
+>
+> **Amendment (2026-07-16):** the KS.5–KS.8 engine slices are being
+> built as **Phase 25** (the Network client) — TC.2's follow engine
+> lands as 25.1/25.3, TC.4's thin coordination as 25.4/25.5. See the
+> KS §11 slice mapping and
+> [`NETWORK_CLIENT_DESIGN.md`](NETWORK_CLIENT_DESIGN.md) for the
+> surface. Case-anchored follow sets remain unpublished (the §2.2
+> closure); only the new global scope may mirror to kind 3, opt-in
+> (amended KS §9).
 
 X-Ray is already multi-user at the wire layer — every artifact is a
 signed, content-addressed NOSTR event on shared relays — and
