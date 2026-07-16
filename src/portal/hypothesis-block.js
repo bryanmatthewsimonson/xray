@@ -18,8 +18,19 @@
 import { el, truncate } from './dom.js';
 import { collectHypothesisMapData, buildHypothesisMap } from '../shared/hypothesis-map.js';
 import { HypothesisModel, HypothesisEdgeModel, HYPOTHESIS_EDGE_ROLES, HYPOTHESIS_EDGE_ROLE_LABELS } from '../shared/hypothesis-model.js';
+import {
+    validateHypothesisEdges, groundEdgeQuotes, filterEdgeProposals, unopposedHypotheses
+} from '../shared/hypothesis-suggest.js';
+import { digestDossier } from '../shared/case-synthesis.js';
 import { VERDICT_STATE_LABELS, PROPOSITION_CLASS_LABELS } from '../shared/truth-taxonomy.js';
 import { Utils } from '../shared/utils.js';
+
+function sendMessage(msg) {
+    return new Promise((resolve) => {
+        try { chrome.runtime.sendMessage(msg, (resp) => resolve(resp)); }
+        catch (_) { resolve(null); }
+    });
+}
 
 const MAX_EDGES_PER_SECTION = 12;
 const MAX_DANGLING = 6;
@@ -39,6 +50,13 @@ export const AUTHORING_STRINGS = Object.freeze([
     'Statement (the competing answer, editable)',
     'Note (optional — why this claim bears on this answer)',
     'A claim can support one hypothesis and undermine another — attach it to each; nothing is netted.',
+    // H.4 suggest-edges surface (static fragments; counts are appended
+    // as plain numbers of the map's own sections).
+    'Suggest edges (LLM)…',
+    'Set an Anthropic API key in Options → Advanced → LLM assist',
+    'Proposed attachments — nothing applies without your Accept.',
+    'Accept', 'Accepted ✓', 'Dismiss', 'Refresh map',
+    'received no undermining scrutiny in this pass — treat their support as unexamined, not established:',
     CRUX_BADGE_TITLE, VERDICT_CHIP_TITLE
 ]);
 
@@ -234,12 +252,126 @@ function mountAttachClaim(host, { caseId, card, claims, onChanged }) {
 }
 
 /**
+ * H.4 — the LLM edge-suggestion surface. One reduce-shaped pass over
+ * the dossier digest + the map's hypothesis rows (seeds included; a
+ * seed is promoted at accept time). Everything the model returns goes
+ * validate → ground → filter → both-sides disclosure, and each
+ * surviving proposal lands only on a human Accept, stamped
+ * `suggested_by: 'llm:<model>'`.
+ */
+function mountSuggestPanel(panelHost, { data, dossier, map, onChanged, model }) {
+    panelHost.replaceChildren();
+    const status = el('div', 'xr-inspector__mono', 'Proposing edges…');
+    panelHost.appendChild(status);
+
+    (async () => {
+        const orbitClaims = (data.orbit && data.orbit.claims) || [];
+        const claimsById = {};
+        for (const c of orbitClaims) claimsById[c.id] = c;
+        // Digest set === validation set (the 20.6 discipline).
+        const rows = map.hypotheses.map((h) => ({ id: h.id, label: h.label, statement: h.statement }));
+        const existingEdges = map.hypotheses.flatMap((h) =>
+            [...h.edges.supports, ...h.edges.undermines].map((e) => ({
+                hypothesis_id: h.id, ref: e.ref, role: e.role
+            })));
+
+        const res = await sendMessage({ type: 'xray:llm:hypothesis-edges', request: {
+            dossierDigest: digestDossier(dossier, { claims: orbitClaims }),
+            hypotheses: rows,
+            caseName: data.case.name || '',
+            scopeQuestion: map.question.text || ''
+        } });
+        if (!res || !res.ok) {
+            status.textContent = `Edge suggestion failed: ${(res && res.error) || 'no response'}`;
+            return;
+        }
+        const v = validateHypothesisEdges(res.edgesInput);
+        if (!v.ok) {
+            status.textContent = 'The model returned malformed edge proposals.';
+            Utils.error('hypothesis edge validation', v.errors);
+            return;
+        }
+
+        const grounded = groundEdgeQuotes(res.edgesInput.edges, claimsById);
+        const { acceptable, rejected } = filterEdgeProposals(grounded.edges, {
+            hypotheses: rows, claimsById, existingEdges
+        });
+        const unopposed = unopposedHypotheses(rows, acceptable, existingEdges);
+        const passModel = res.model || model;
+
+        status.textContent = `${grounded.checked} quote${grounded.checked === 1 ? '' : 's'} checked · `
+            + `${grounded.dropped} ungrounded (dropped) · ${rejected.length} rejected · `
+            + `${acceptable.length} proposal${acceptable.length === 1 ? '' : 's'}`;
+        if (unopposed.length > 0) {
+            panelHost.appendChild(el('div', 'xr-view__dossier-line',
+                `${unopposed.length} hypothes${unopposed.length === 1 ? 'is' : 'es'} `
+                + 'received no undermining scrutiny in this pass — treat their support as unexamined, not established: '
+                + unopposed.map((u) => u.label).join(' · ')));
+        }
+        if (acceptable.length === 0 && rejected.length === 0) return;
+
+        panelHost.appendChild(el('div', 'xr-case__explainer',
+            'Proposed attachments — nothing applies without your Accept.'));
+        const rowById = new Map(rows.map((r) => [r.id, r]));
+        for (const p of acceptable) {
+            const row = el('div', 'xr-hyp__edge');
+            const line = el('div', 'xr-hyp__edgeline');
+            line.appendChild(el('span', 'xr-badge xr-badge--muted', HYPOTHESIS_EDGE_ROLE_LABELS[p.role]));
+            line.appendChild(el('span', null,
+                `${(rowById.get(p.hypothesis_id) || {}).label || p.hypothesis_id} ← ${truncate((claimsById[p.claim_ref] || {}).text || p.claim_ref, 120)}`));
+            const accept = el('button', 'xr-portal__btn', 'Accept');
+            accept.type = 'button';
+            accept.addEventListener('click', async () => {
+                try {
+                    accept.disabled = true;
+                    const target = rowById.get(p.hypothesis_id);
+                    const hyp = await HypothesisModel.create({
+                        case_id: data.case.id, label: target.label,
+                        statement: target.statement === target.label ? '' : target.statement,
+                        suggested_by: `llm:${passModel}`
+                    });
+                    await HypothesisEdgeModel.create({
+                        hypothesis_id: hyp.id, claim_ref: p.claim_ref, role: p.role,
+                        note: p.why || '', quote: p.quote, suggested_by: `llm:${passModel}`
+                    });
+                    accept.textContent = 'Accepted ✓';
+                } catch (err) {
+                    accept.disabled = false;
+                    Utils.error('Accept edge failed', err);
+                }
+            });
+            line.appendChild(accept);
+            const dismiss = el('button', 'xr-portal__btn xr-portal__btn--ghost', 'Dismiss');
+            dismiss.type = 'button';
+            dismiss.addEventListener('click', () => row.remove());
+            line.appendChild(dismiss);
+            row.appendChild(line);
+            if (p.quote) row.appendChild(el('blockquote', 'xr-finding-row__quote', truncate(p.quote, 200)));
+            if (p.why) row.appendChild(el('div', 'xr-inspector__mono', p.why));
+            panelHost.appendChild(row);
+        }
+        for (const r of rejected.slice(0, 8)) {
+            panelHost.appendChild(el('div', 'xr-inspector__mono',
+                `rejected: ${r.hypothesis_id} ← ${r.claim_ref} (${r.reason})`));
+        }
+        const refresh = el('button', 'xr-portal__btn', 'Refresh map');
+        refresh.type = 'button';
+        refresh.addEventListener('click', () => onChanged());
+        panelHost.appendChild(refresh);
+    })().catch((err) => {
+        Utils.error('Suggest edges failed', err);
+        status.textContent = 'Edge suggestion failed.';
+    });
+}
+
+/**
  * Render the hypothesis map for a case. `data` is the shared
  * `collectCaseDossierData` envelope (assembled once by the case view);
- * the brief and the hypothesis/edge models are read live.
+ * `dossier` the built case dossier (for the H.4 digest); the brief and
+ * the hypothesis/edge models are read live.
  * `callbacks.onReloadCase` re-renders the case view after authoring.
  */
-export function renderHypothesesBlock(host, { data, callbacks = {} }) {
+export function renderHypothesesBlock(host, { data, dossier, callbacks = {} }) {
     if (!data || !data.case) return;
     const block = el('div', 'xr-view__dossier xr-hyp');
     host.appendChild(block);
@@ -259,14 +391,39 @@ export function renderHypothesesBlock(host, { data, callbacks = {} }) {
         if (model.questionLine) block.appendChild(el('div', 'xr-view__dossier-line', model.questionLine));
         if (!model.empty) block.appendChild(el('div', 'xr-view__dossier-line', model.countsLine));
 
-        // H.3 — add a competing answer by hand.
+        // H.3 — add a competing answer by hand; H.4 — the gated LLM
+        // suggestion (caseSynthesis + llmAssist + key, checked in the
+        // worker too; this button is advisory surface-gating only).
+        const controls = el('div', 'xr-synth__controls');
         const addHost = el('div');
         const addBtn = el('button', 'xr-portal__btn', 'Add hypothesis…');
         addBtn.type = 'button';
         addBtn.addEventListener('click', () =>
             mountAddHypothesis(addHost, { caseId: data.case.id, onChanged }));
-        block.appendChild(addBtn);
+        controls.appendChild(addBtn);
+        const suggestHost = el('div');
+        if (!model.empty && dossier && orbitClaims.length > 0) {
+            const cfg = await sendMessage({ type: 'xray:llm:corpus-config' });
+            if (cfg && cfg.enabled) {
+                const suggestBtn = el('button', 'xr-portal__btn', 'Suggest edges (LLM)…');
+                suggestBtn.type = 'button';
+                if (!cfg.hasKey) {
+                    suggestBtn.disabled = true;
+                    suggestBtn.title = 'Set an Anthropic API key in Options → Advanced → LLM assist';
+                }
+                suggestBtn.addEventListener('click', () => {
+                    if (!confirm(`Suggest claim→hypothesis edges with the LLM?\n\n`
+                        + `This sends the case's dossier digest (${orbitClaims.length} claim${orbitClaims.length === 1 ? '' : 's'}) `
+                        + `and ${map.hypotheses.length} hypothes${map.hypotheses.length === 1 ? 'is' : 'es'} to Anthropic — one call. `
+                        + `Every proposal still needs your Accept.`)) return;
+                    mountSuggestPanel(suggestHost, { data, dossier, map, onChanged, model: cfg.model });
+                });
+                controls.appendChild(suggestBtn);
+            }
+        }
+        block.appendChild(controls);
         block.appendChild(addHost);
+        block.appendChild(suggestHost);
         if (model.empty) return;
 
         const grid = el('div', 'xr-hyp__grid');

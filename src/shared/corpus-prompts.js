@@ -27,6 +27,8 @@ import { CLAIM_RELATIONSHIPS } from './assessment-taxonomy.js';
 export const CORPUS_PROMPT_VERSION = 'corpus-v1';
 export const MAP_TOOL_NAME = 'emit_corpus_extract';
 export const REDUCE_TOOL_NAME = 'emit_case_brief';
+export const HYPOTHESIS_EDGE_PROMPT_VERSION = 'hyp-edges-v1';
+export const HYPOTHESIS_EDGE_TOOL_NAME = 'propose_hypothesis_edges';
 
 // Per-article map input bound — half the audit's 120k: 10–30 members
 // make cost linear, and position/assertion extraction doesn't need the
@@ -35,6 +37,7 @@ export const MAX_MEMBER_INPUT_CHARS = 60000;
 export const MAX_CLAIMS_DIGEST_CHARS = 4000;
 export const MAX_MAP_OUTPUT_TOKENS = 8192;
 export const MAX_REDUCE_OUTPUT_TOKENS = 16384;
+export const MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS = 8192;
 
 // ------------------------------------------------------------------
 // MAP — one article's position + load-bearing assertions
@@ -254,6 +257,76 @@ export function buildReduceSystemPrompt({ caseName = '', scopeQuestion = '' } = 
         '- coverage_gaps must name what the corpus does NOT cover — absence is not evidence of',
         '  absence.'
     ].filter(Boolean).join('\n');
+}
+
+// ------------------------------------------------------------------
+// HYPOTHESIS EDGES — Phase 26 H.4 (docs/HYPOTHESIS_MAP_DESIGN.md §3)
+// ------------------------------------------------------------------
+// One reduce-shaped call over the dossier digest + the hypothesis
+// list — no per-member map pass: the digest's `claims` index is the
+// id-authority (the 20.6 discipline), and an edge's quote grounds
+// against the REFERENCED CLAIM's own verbatim text downstream. The
+// tool schema has NO numeric slot (grep-tested): an edge is a typed
+// attachment, never a weighted one.
+
+export function buildHypothesisEdgeTool() {
+    return {
+        name: HYPOTHESIS_EDGE_TOOL_NAME,
+        description: 'Propose claim→hypothesis attachments: which existing claims support or '
+            + 'undermine which hypotheses. Propose for EVERY hypothesis, on BOTH sides where the '
+            + 'claims bear on it. NEVER declare a winner, rank the hypotheses, or attach any '
+            + 'strength — a human reviews every proposal.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                edges: {
+                    type: 'array',
+                    description: 'The proposed attachments.',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            hypothesis_id: { type: 'string', description: 'An id from the supplied hypothesis list. Never invent one.' },
+                            claim_ref: { type: 'string', description: 'An EXISTING claim id from the dossier digest\'s claims index. Never invent one.' },
+                            role: { type: 'string', enum: ['supports', 'undermines'], description: 'How the claim bears on the hypothesis.' },
+                            quote: { type: 'string', description: 'ONE contiguous VERBATIM span copied from that claim\'s text, character for character. Machine-checked — an unlocatable quote drops the edge.' },
+                            why: { type: 'string', description: 'One sentence: why this claim bears on this hypothesis this way.' }
+                        },
+                        required: ['hypothesis_id', 'claim_ref', 'role', 'quote']
+                    }
+                }
+            },
+            required: ['edges']
+        }
+    };
+}
+
+export function buildHypothesisEdgeSystemPrompt({ caseName = '', scopeQuestion = '' } = {}) {
+    return [
+        'You are mapping which captured claims bear on which competing hypotheses',
+        caseName ? `for the case "${caseName}".` : '.',
+        scopeQuestion ? `The question the case investigates: "${scopeQuestion}".` : '',
+        'You are given the case\'s hypothesis list and a deterministic dossier digest whose',
+        '`claims` index is the ONLY source of claim ids.',
+        'HARD RULES (docs/PHILOSOPHY.md, docs/HYPOTHESIS_MAP_DESIGN.md §3):',
+        '- Propose edges for EVERY hypothesis, and on BOTH sides: where the corpus contains a',
+        '  claim that undermines a hypothesis, say so. A hypothesis left with only support you',
+        '  could not scrutinize is a coverage gap — do not paper over it.',
+        '- NEVER declare which hypothesis is right, rank them, or express strength, likelihood,',
+        '  or confidence in any form. The map is structure; a human draws every conclusion.',
+        '- A claim may support one hypothesis and undermine another — propose both edges.',
+        '- hypothesis_id values come ONLY from the supplied list; claim_ref values come ONLY from',
+        '  the digest\'s claims index. Never invent, abbreviate, or shorthand an id. If no listed',
+        '  claim bears on a hypothesis, propose nothing for it rather than guessing.',
+        '- Every quote must be ONE contiguous span copied VERBATIM from the referenced claim\'s',
+        '  text. It is machine-checked; an unlocatable quote drops the whole edge.'
+    ].filter(Boolean).join('\n');
+}
+
+export function buildHypothesisEdgeUserPrompt({ dossierDigest = '', hypotheses = [] } = {}) {
+    const hypLines = hypotheses.map((h) =>
+        `${h.id} — ${h.label}${h.statement && h.statement !== h.label ? `: ${h.statement}` : ''}`).join('\n');
+    return `HYPOTHESES (id — label: statement):\n${hypLines}\n\n`
+        + `DOSSIER DIGEST (deterministic, code-computed; its claims index is the only id source):\n${dossierDigest}`;
 }
 
 export function buildReduceUserPrompt({ dossierDigest = '', extracts = [] } = {}) {

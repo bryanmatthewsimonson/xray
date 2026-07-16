@@ -41,8 +41,10 @@ import { articleHash } from './audit/article-hash.js';
 import {
     MAP_TOOL_NAME, REDUCE_TOOL_NAME,
     MAX_MEMBER_INPUT_CHARS, MAX_MAP_OUTPUT_TOKENS, MAX_REDUCE_OUTPUT_TOKENS,
+    MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS,
     buildMapTool, buildMapSystemPrompt, buildMapUserPrompt,
-    buildReduceTool, buildReduceSystemPrompt, buildReduceUserPrompt
+    buildReduceTool, buildReduceSystemPrompt, buildReduceUserPrompt,
+    buildHypothesisEdgeTool, buildHypothesisEdgeSystemPrompt, buildHypothesisEdgeUserPrompt
 } from './corpus-prompts.js';
 
 // Re-exported for callers that wrote against the client (the keys are
@@ -606,6 +608,52 @@ export async function runCorpusReducePass(req = {}) {
     const briefInput = extractToolInput(data, tool.name);
     if (briefInput === null) return { ok: false, error: 'The model did not return a structured brief.' };
     return { ok: true, briefInput, model: (data && data.model) || model, usage: data && data.usage };
+}
+
+/**
+ * HYPOTHESIS EDGES — Phase 26 H.4: one reduce-shaped call over the
+ * dossier digest + the hypothesis list, proposing claim→hypothesis
+ * supports/undermines attachments. Same triple gate as the corpus
+ * passes; returns the RAW tool input — validation, grounding, the
+ * both-sides post-check, and the human-accept firewall all stay
+ * portal-side (hypothesis-suggest.js).
+ *
+ * @param {object} req { dossierDigest, hypotheses, caseName?, scopeQuestion? }
+ */
+export async function runHypothesisEdgePass(req = {}) {
+    const gate = await corpusGate();
+    if (gate.error) return { ok: false, error: gate.error };
+
+    const hypotheses = Array.isArray(req.hypotheses) ? req.hypotheses : [];
+    if (hypotheses.length === 0) return { ok: false, error: 'No hypotheses to map edges onto.' };
+
+    const model = await readModel();
+    const tool = buildHypothesisEdgeTool();
+    const payload = {
+        model,
+        max_tokens: MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS,
+        system: buildHypothesisEdgeSystemPrompt({ caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '' }),
+        tools: [tool],
+        tool_choice: { type: 'tool', name: tool.name },
+        messages: [{ role: 'user', content: buildHypothesisEdgeUserPrompt({
+            dossierDigest: req.dossierDigest || '', hypotheses
+        }) }]
+    };
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CORPUS_REDUCE_TIMEOUT_MS);
+    let res;
+    try { res = await postMessages(payload, gate.apiKey, { signal: controller.signal }); }
+    finally { clearTimeout(timer); }
+    if (!res.ok) return res;
+
+    const data = res.data;
+    if (data && data.stop_reason === 'max_tokens') {
+        return { ok: false, error: 'The edge-suggestion call hit its output limit before finishing.' };
+    }
+    const edgesInput = extractToolInput(data, tool.name);
+    if (edgesInput === null) return { ok: false, error: 'The model did not return structured edge proposals.' };
+    return { ok: true, edgesInput, model: (data && data.model) || model, usage: data && data.usage };
 }
 
 // ------------------------------------------------------------------

@@ -263,11 +263,12 @@ export function renderCaseView(host, params) {
                 data, dossier,
                 callbacks: { onReloadCase: callbacks.onReloadCase }
             });
-            // 26 H.2/H.3 — the hypothesis map, assembled from the same
-            // shared `data`, with the manual authoring affordances.
-            // Renders nothing on a claimless case with no map.
+            // 26 H.2/H.3/H.4 — the hypothesis map, assembled from the
+            // same shared `data`, with the manual authoring affordances
+            // and the gated LLM edge suggestion (dossier feeds its
+            // digest). Renders nothing on a claimless case with no map.
             renderHypothesesBlock(hypothesesHost, {
-                data,
+                data, dossier,
                 callbacks: { onReloadCase: callbacks.onReloadCase }
             });
             renderCaseTimeline(timelineHost, dossier);
