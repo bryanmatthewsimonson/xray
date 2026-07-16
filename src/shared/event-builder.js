@@ -16,6 +16,13 @@ import { articleHash } from './audit/article-hash.js';
 import { generateEntityId, canonicalIdOf } from './entity-model.js';
 import { bandISO } from './dossier-time.js';
 
+// Phase 23.1 — the source-type whitelist, inlined (the `media` pattern)
+// to keep event-builder free of a truth-taxonomy import edge. Kept in
+// lockstep with truth-taxonomy.js SOURCE_TYPES by a test.
+const SOURCE_TYPES = new Set([
+  'primary-record', 'primary-research', 'reporting', 'analysis', 'reference'
+]);
+
 // Re-export the metadata helpers so callers that already import from
 // `event-builder.js` don't need a second import path. See spec §6.4.
 export { buildRespondsToTag, RESPONDS_TO_RELATIONSHIPS } from './metadata/builders.js';
@@ -334,6 +341,14 @@ export const EventBuilder = {
     // user in the reader. Whitelisted — only the two known values emit.
     if (article.media === 'podcast' || article.media === 'video') {
       tags.push(['media', article.media]);
+    }
+
+    // Phase 23.1 — user-declared source type: what KIND of artifact
+    // this is (primary record/research, first-hand reporting, analysis,
+    // reference). Provenance, distinct from content_format/media.
+    // Whitelisted; auto-suggested in the reader, never inferred here.
+    if (SOURCE_TYPES.has(article.source_type)) {
+      tags.push(['source-type', article.source_type]);
     }
 
     // Add video-specific tags (Phase 5)
@@ -1011,6 +1026,9 @@ export const EventBuilder = {
       // round-trip (an unrecognized value reads as absent).
       media: (tags['media'] === 'podcast' || tags['media'] === 'video')
         ? tags['media'] : null,
+      // Phase 23.1 — user-declared source type; whitelisted on read-back
+      // (an unrecognized value reads as absent).
+      source_type: SOURCE_TYPES.has(tags['source-type']) ? tags['source-type'] : null,
       // capture-url extension: the mirror address this capture was
       // fetched from (identity = the first `r`, always the original).
       capture_url: tags['capture-url'] || null,

@@ -125,6 +125,71 @@ export function evidenceTierRank(tier) {
 }
 
 // ------------------------------------------------------------------
+// Source type — Phase 23.1. What KIND of artifact a captured URL is,
+// distilled from the library primary/secondary/tertiary split and the
+// epistemic-audit Module-04 source taxonomy. ORTHOGONAL to the tier
+// ladder above: source-type says "what it IS" (a paper vs a write-up),
+// tier says "how well-sourced a specific evidence claim is". A lay,
+// domain-general enum the user picks (auto-suggested, never inferred
+// silently). "primary" here means the ORIGINATING artifact others
+// cite — the Nature paper, not the article that disputes it.
+// ------------------------------------------------------------------
+
+export const SOURCE_TYPES = Object.freeze([
+    'primary-record',    // official/original document, dataset, filing,
+                         // ruling, transcript, raw recording
+    'primary-research',  // the original study / paper / preprint
+    'reporting',         // first-hand journalism / eyewitness report
+    'analysis',          // secondary commentary / review / op-ed
+    'reference'          // tertiary summary / explainer / aggregator
+]);
+
+export const SOURCE_TYPE_LABELS = Object.freeze({
+    'primary-record':   'Primary record',
+    'primary-research': 'Primary research',
+    'reporting':        'First-hand reporting',
+    'analysis':         'Analysis / commentary',
+    'reference':        'Reference / summary'
+});
+
+export function isValidSourceType(value) {
+    return SOURCE_TYPES.includes(value);
+}
+
+// The two primary rungs — used for the portal's "primary source" badge.
+export function isPrimarySourceType(value) {
+    return value === 'primary-record' || value === 'primary-research';
+}
+
+/**
+ * A NON-BINDING suggestion for an article's source type from signals
+ * the capture already carries — the user always confirms. Pure over a
+ * plain article object; returns a SOURCE_TYPES value or null.
+ *
+ *  - a scholarly identifier (DOI / journal / arXiv) ⇒ primary-research
+ *  - schema.org @type on the page (structuredData.type / content_type):
+ *      OpinionPiece / AnalysisNewsArticle ⇒ analysis
+ *      NewsArticle / ReportageNewsArticle ⇒ reporting
+ *      ScholarlyArticle / Report          ⇒ primary-research
+ */
+export function suggestSourceType(article) {
+    if (!article) return null;
+    const scholar = article.scholar || {};
+    if (scholar.doi || scholar.journal || scholar.arxiv_id) return 'primary-research';
+    const schemaType = (article.structuredData && article.structuredData.type)
+        || article.contentSchemaType || '';
+    switch (String(schemaType)) {
+        case 'OpinionPiece':
+        case 'AnalysisNewsArticle': return 'analysis';
+        case 'NewsArticle':
+        case 'ReportageNewsArticle': return 'reporting';
+        case 'ScholarlyArticle':
+        case 'Report': return 'primary-research';
+        default: return null;
+    }
+}
+
+// ------------------------------------------------------------------
 // Verdict states — §3.3 (Phase 15.3). DESCRIPTIVE STATES, the §1
 // spine made concrete: a proposition is established, contested,
 // unresolved, or under-evidenced — never "73% true". There is no

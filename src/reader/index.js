@@ -1731,9 +1731,10 @@ async function applyMediaResult(result) {
     const a = state.article;
     if (!a) return;
 
-    // User-declared media type + the 21.3 podcast identity block.
-    // Both are tag-side fields — assembleArticleBody never sees them.
+    // User-declared media type + source type + the 21.3 podcast identity
+    // block. All tag-side fields — assembleArticleBody never sees them.
     if (result.media) a.media = result.media; else delete a.media;
+    if (result.sourceType) a.source_type = result.sourceType; else delete a.source_type;
     if (result.podcast) {
         a.podcast = { ...result.podcast };
         // The capture URL is the episode address when it's a real one.

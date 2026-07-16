@@ -884,6 +884,18 @@ At most one; only these two values. It records what the captured URL **contains*
 
 The tag typically travels with the podcast identity tags above (same episode declared at its Spotify, Apple, Substack, YouTube, or custom-site URL — the NIP-73 `i` forms are what join those captures), but is valid alone: a bare declaration with no known identifiers still publishes.
 
+## Kind 30023 — `source-type` tag (extension)
+
+A long-form article MAY carry one **user-declared source-type** tag recording what KIND of artifact the captured URL is:
+
+```
+["source-type", "primary-research"]
+```
+
+At most one; values are a closed set: `primary-record` (an official/original document, dataset, filing, ruling, transcript, or raw recording) · `primary-research` (the original study/paper/preprint) · `reporting` (first-hand journalism/eyewitness) · `analysis` (secondary commentary/review/op-ed) · `reference` (tertiary summary/explainer). Distilled from the library primary/secondary/tertiary distinction and the epistemic-audit Module-04 source taxonomy; "primary" means the **originating** artifact others cite (the Nature paper), not a write-up of it.
+
+It is **user-declared, never inferred by the publisher** — X-Ray auto-suggests from scholarly identifiers (a `doi`/`arxiv` tag ⇒ `primary-research`) and schema.org `@type`, but the capturing user confirms. It is orthogonal to two neighbours: `content_format`/`media` (what MEDIUM the capture is), and the `tier-1/2/3` evidence ladder on verdict events (how well-sourced a specific evidence claim is). Consumers treat an unrecognized value as absent. A DOI/arXiv `i` tag on the same event is itself machine-checkable proof of a version-of-record / preprint, complementing the human `source-type` declaration.
+
 ## Kind 30023 — `link` tag (extension)
 
 A long-form article (kind 30023) MAY carry one `link` tag per distinct EXTERNAL outbound link in its body, in document order:

@@ -209,6 +209,32 @@ These "just work" without special handling:
 
 ---
 
+## Marking the source type (primary vs secondary)
+
+Not all sources are equal evidence. The **original** WHO/Nature paper is
+a *primary* source; a news article that summarizes it, or an op-ed that
+disputes it, is *secondary*. X-Ray lets you declare this on any capture
+so a reader (and a corpus analysis) can tell them apart.
+
+In the reader, open **🎙 Media & source** and pick a **Source type**:
+
+- **Primary record** — an official/original document, dataset, court
+  filing, ruling, transcript, or raw recording.
+- **Primary research** — the original study, paper, or preprint.
+- **First-hand reporting** — eyewitness journalism, the on-the-record
+  participant, the leaked document reported directly.
+- **Analysis / commentary** — a review, op-ed, or article interpreting
+  others' work (secondary).
+- **Reference / summary** — an encyclopedia, explainer, or aggregator
+  (tertiary).
+
+X-Ray **suggests** a type from what it already knows — a captured paper
+with a DOI is suggested as *Primary research*, an op-ed as *Analysis* —
+but you confirm; it never publishes a type you didn't set. "Primary"
+means the **originating** artifact others cite, not a write-up of it.
+The declaration is metadata (it doesn't change the capture's content
+hash), and primary sources get a badge in the portal.
+
 ## Podcast transcripts (import)
 
 A podcast episode lives at a URL — Spotify, Apple Podcasts, Substack,
