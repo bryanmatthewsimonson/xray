@@ -20,6 +20,7 @@ import { recordAccount, extractPostAuthor } from '../shared/identity/account-reg
 import { selectAccountsToPublish } from '../shared/identity/account-publish.js';
 import { ClaimModel, exactFromAnchor } from '../shared/claim-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
+import { HypothesisEdgeModel } from '../shared/hypothesis-model.js';
 import * as ArchiveCache from '../shared/archive-cache.js';
 import { recordAlias, resolveAlias } from '../shared/url-aliases.js';
 import { installEntityTagger, rehydrateEntityMarks, renderEntitiesBar, extractParagraphContext } from './entity-tagger.js';
@@ -2605,6 +2606,7 @@ async function confirmDeleteClaim(id) {
     // user sees the blast radius before confirming.
     const links = await EvidenceLinker.getForClaim(id);
     const assessment = await AssessmentModel.getByClaimRef(id);
+    const hypothesisEdges = await HypothesisEdgeModel.getForClaim(id);
     const lines = [];
     if (claim.publishedAt) {
         lines.push('Already-published kind-30040 stays on relays until NIP-09 delete (later phase).');
@@ -2615,6 +2617,9 @@ async function confirmDeleteClaim(id) {
     if (assessment) {
         lines.push('Your assessment of it will also be removed.');
     }
+    if (hypothesisEdges.length > 0) {
+        lines.push(`${hypothesisEdges.length} hypothesis attachment${hypothesisEdges.length === 1 ? '' : 's'} will also be removed.`);
+    }
     const msg = lines.length > 0
         ? `Delete claim? ${lines.join(' ')}`
         : 'Delete claim?';
@@ -2623,6 +2628,7 @@ async function confirmDeleteClaim(id) {
     // registry, so it must still see the claim while matching.
     if (links.length > 0) await EvidenceLinker.deleteForClaim(id);
     if (assessment) await AssessmentModel.delete(assessment.id);
+    if (hypothesisEdges.length > 0) await HypothesisEdgeModel.deleteForClaim(id);
     // 13.6's dependent: a prediction promoted into this claim holds a
     // claim_ref — left dangling it defers the 30058 at every publish
     // forever and the audit panel shows a permanent "claim ✓".

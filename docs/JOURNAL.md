@@ -19,6 +19,32 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-16 — Hypothesis identity is the label; case delete doesn't cascade the map (26 H.1)
+
+Tags: `design`.
+
+Two H.1 choices a contributor might second-guess
+(`src/shared/hypothesis-model.js`, `hypothesis-map.js`):
+
+**Label-derived ids + normalized-label merge.** A hypothesis id hashes
+`(case_id | normalized label)` — not the statement — and the map
+builder merges brief-seeded positions with persisted records by
+normalized label. Position labels are already the join key inside the
+brief itself (`cruxes[].sides[].position_label`), and label-as-identity
+lets a seed and its later human promotion converge on one record
+without persisting anything at seed time. Cost: labels are immutable
+(rename = delete + re-create), stated in the module header.
+
+**Case delete leaves the map in place.** The sidepanel's entity delete
+preserves dependents everywhere else (claims keep `about` refs, briefs
+stay in `xray-audits`), and case entity ids are name-derived — so a
+deleted-then-recreated case reattaches its hypotheses. Claim delete
+DOES cascade edges (the reader flow calls
+`HypothesisEdgeModel.deleteForClaim` beside the EvidenceLinker hook);
+`deleteForCase` exists as the explicit clear-the-map seam for H.3 UI.
+
+---
+
 ## 2026-07-16 — xray-network stays out of WORKSPACE_DATABASES (25.2b)
 
 Tags: `design`.
