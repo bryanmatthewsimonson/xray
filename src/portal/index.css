@@ -560,6 +560,8 @@ body.xr-portal {
 .xr-synth__prov-label { color: var(--xr-text-dim); margin-right: 4px; }
 .xr-synth__src { color: var(--xr-accent, #22d3ee); text-decoration: none; }
 .xr-synth__src:hover { text-decoration: underline; }
+.xr-case__explainer { color: var(--xr-text-dim); font-size: 12px; margin: 2px 0 8px; max-width: 70ch; line-height: 1.4; }
+.xr-case__related { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 2px; }
 .xr-synth__prop { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--xr-border); }
 .xr-synth__prop--rejected { color: var(--xr-text-dim); }
 .xr-synth__prop-desc { flex: 1 1 auto; min-width: 200px; }

@@ -1307,6 +1307,8 @@ stored brief (run "Analyze corpus…" once).
 | P26.b | **Download .json** | ✅ a `case-brief-<slug>.json` downloads; contains `brief`, `grounding`, `model`, `members`, `inputHash` |
 | P26.c | Inspect the rendered brief on the dashboard | ✅ each **crux** shows its grounded evidence quotes with a source link; each **load-bearing** claim shows a "Source:" link (and a "Claim:" text when `claim_ref` resolves); each **position** shows "Held by:" source links |
 | P26.d | Click a source link | ✅ opens the captured source's original URL in a new tab; nothing publishes |
+| P26.e | A case with a `supports`/`updates`/`duplicates` link between two claims → case dashboard ▸ Claims | ✅ the claim rows show a "→ supports: <other claim>" / "← updated by: <other>" badge naming the linked claim; contradiction still shows its ⚠ badge separately |
+| P26.f | Read the Evidence and Case-graph section headers | ✅ each has a one-line explainer; the source's link line reads "cites N outbound URLs (M also in this case) · cited by K case sources" |
 
 ---
 

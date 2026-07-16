@@ -46,6 +46,10 @@ export function renderEvidenceBlock(host, dossierOrId, opts = {}) {
         if (ev.articles.length === 0 && ev.unprocessed_sources.length === 0) { block.remove(); return; }
 
         block.appendChild(el('h3', 'xr-case__heading', 'Evidence — sources collapsed by origin'));
+        block.appendChild(el('div', 'xr-case__explainer',
+            'Each captured source in this case: what it claims, and which outbound URLs it cites. '
+            + 'Sources reporting the same fact are grouped by their independent origin, so N reports '
+            + 'tracing to one origin count as one.'));
         block.appendChild(el('div', 'xr-view__dossier-line',
             `${ev.coverage.articles} sources · ${ev.coverage.attested_articles} attested · `
             + `${ev.coverage.articles_with_audit} audited · ${ev.coverage.unprocessed} unprocessed`));
@@ -105,11 +109,11 @@ export function renderEvidenceBlock(host, dossierOrId, opts = {}) {
             if (lnk && (lnk.captured || lnk.linked_by.length > 0)) {
                 const bits = [];
                 if (lnk.captured) {
-                    bits.push(`links to ${lnk.external} external source${lnk.external === 1 ? '' : 's'}`
-                        + (lnk.corpus_links.length ? ` (${lnk.corpus_links.length} in this case)` : ''));
+                    bits.push(`cites ${lnk.external} outbound URL${lnk.external === 1 ? '' : 's'}`
+                        + (lnk.corpus_links.length ? ` (${lnk.corpus_links.length} also in this case)` : ''));
                 }
                 if (lnk.linked_by.length > 0) {
-                    bits.push(`linked from ${lnk.linked_by.length} case article${lnk.linked_by.length === 1 ? '' : 's'}`);
+                    bits.push(`cited by ${lnk.linked_by.length} case source${lnk.linked_by.length === 1 ? '' : 's'}`);
                 }
                 li.appendChild(el('div', 'xr-inspector__mono', bits.join(' · ')));
             }

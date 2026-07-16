@@ -32,6 +32,10 @@ export function renderCaseGraph(host, { data, callbacks = {} }) {
     const positions = layoutCaseGraph(graph, { size: SIZE });
 
     block.appendChild(el('h3', 'xr-case__heading', 'Case graph — articles, entities, and how they connect'));
+    block.appendChild(el('div', 'xr-case__explainer',
+        'The same sources as the Evidence list above, plotted as a graph — plus the people and '
+        + 'organizations tagged or claimed in them, which sources share entities (co-tag links), and '
+        + 'where claims contradict. Click an entity for its dossier, an article to open it in the reader.'));
     const c = graph.counts;
     block.appendChild(el('div', 'xr-view__dossier-line',
         `${c.articles} article${c.articles === 1 ? '' : 's'} · ${c.entities} entit${c.entities === 1 ? 'y' : 'ies'} · `

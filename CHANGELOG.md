@@ -12,6 +12,20 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Case dashboard — cross-article claim links + clearer vocabulary
+  (Phase 26 prep, T1.3).** The claims list now surfaces the
+  **cross-article relationship links** that already existed but were
+  never shown — each claim's `supports` / `updates` / `duplicates`
+  edges (both directions, naming the linked claim). Contradiction
+  keeps its own ⚠ badge. And the two sections a reviewer found opaque
+  now carry one-line explainers: the **Evidence** list ("each captured
+  source: what it claims and which outbound URLs it cites; grouped by
+  independent origin") and the **Case graph** ("the same sources
+  plotted, plus the entities in them and how they interconnect"); the
+  outbound-links line reads "cites N outbound URLs (M also in this
+  case) · cited by K case sources" instead of the ambiguous "links
+  to…". Display-only — the links already lived in the store.
+
 - **Corpus brief — download + provenance surfacing (Phase 26 prep,
   T1.1/T1.2).** The stored case brief gains **Download .md / .json**
   controls beside "Publish brief…" (the `.md` is the same readable,
