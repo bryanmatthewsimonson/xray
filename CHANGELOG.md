@@ -12,6 +12,21 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Phase 25.2b — feed cache, read-state, and follow affordances.**
+  The Network feed persists in a new IndexedDB `xray-network`
+  (portal-cache pattern: write-time replaceable supersession +
+  `firstSeenAt` bookkeeping; derived and droppable — a "Clear cache"
+  button wipes it, and like `xray-portal` it deliberately stays out of
+  backups). The page opens populated from cache; an **"✨ N new since
+  you last looked"** strip compares `firstSeenAt` against the
+  read-state cursor. Followees' kind-0 **profile names** render beside
+  labels and npubs, badged as their own claim. **Follow-from-feed** on
+  collapsed unfollowed authors, and an **"Entities referenced"** strip
+  offers adopt-on-sight for unknown subject keys — via the KS.3 flow
+  now extracted to `shared/adopt-entity.js` (the sidepanel switched to
+  it, behavior-identical). Following someone now harvests their NIP-65
+  relay hints in the background.
+
 - **Phase 25.2a — the Network page + follows feed.** A standalone
   full-tab surface (`src/network/`, new `network.bundle.js`; opened
   via the toolbar right-click menu, Options, or the sidepanel — all
