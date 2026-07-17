@@ -19,6 +19,54 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-17 — Phase 18 C2 tail: scholarly handlers, and what adversarial review caught
+
+Tags: `design`, `pattern`.
+
+The C2 deferred tail (PMC handler, ar5iv-preferring arXiv handler,
+Crossref) landed as pure modules + wiring. Decisions worth recording:
+
+**The scholar-meta hoist.** `enrichArticleForPlatform` ran the
+scholar-meta pass *after* handler dispatch, so any handler reading
+`article.scholar` read nothing. Harmless while no handler did; the
+arXiv handler's whole trigger is `scholar.arxiv_id`, so the pass now
+runs first. Safe: it is side-effect-free and substack (the only other
+enrich handler) never reads `scholar`.
+
+**References parse under an honesty rule** — wrong structure is worse
+than no structure — and the review pass proved the first cut violated
+it five ways, each with an executed repro: Google-Scholar *search*
+links landing in `entry.url` on essentially every modern-PMC reference
+(the `[Google Scholar]` decoration anchor); the year inside an
+Elsevier-style DOI (`10.1016/j.vaccine.2015…`) outranking the true
+year; SICI DOIs truncated at their literal `<` and emitted as wrong
+identifiers (now omitted — scholar-meta's private copy still truncates,
+unify later); italicized *journal names* adopted as titles (the journal
+is the segment the year follows directly — that positional check is the
+fix); and `'Lovelace, Ada'` mis-split into two authors (single-token
+comma parts now bail). Each fix is pinned by a regression test whose
+fixture IS the repro.
+
+**The arXiv body swap re-derives the wire-bound fields.** Adopting the
+ar5iv full text while keeping the abstract's `wordCount` and `links`
+would publish a `word_count` tag off by ~100× and `link` tags for a
+body no longer shipped — the same class of stale-derived-state bug as
+the archive-reload work, caught by the same review pattern.
+`extractFromHtmlString` extracts links from the adopted body so they
+ride along; absent that, `links` goes null ("not captured" ≠ "zero").
+
+**`xray:scholar:fetch` is host-allowlisted** (ar5iv/arxiv hosts only)
+and `xray:scholar:crossref` accepts a DOI, never a URL — the SW must
+not grow a generic fetch proxy one message at a time.
+
+**The Crossref reader trigger is deliberately deferred.** The obvious
+wiring is wrong twice: there is no scholar display in the reader to
+refresh, and persisting the patched article back to the session stash
+by writing a fresh record nulls `sourceTabId` — which silently reroutes
+NIP-07 publishes through the worker signer (`handleCapturePublish`'s
+tabless branch). It needs a read-modify-write and a surface; parked
+until there is one.
+
 ## 2026-07-16 — xray-network stays out of WORKSPACE_DATABASES (25.2b)
 
 Tags: `design`.

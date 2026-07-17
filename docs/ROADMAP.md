@@ -1506,7 +1506,20 @@ grounding substrate*).
 - ✅ **C2 (light)** scholarly metadata — DOI/arXiv/journal/authors
   from citation meta tags on every capture (`platforms/scholar-meta.js`);
   additive `doi` + NIP-73 `i` + `arxiv` tags on 30023.
-  *(Deferred: ar5iv-preferring arXiv handler, PMC handler, Crossref.)*
+- ✅ **C2 (tail)** the deferred scholarly handlers — `platforms/pmc.js`
+  (references as structure via the shared `scholar-refs.js` parser —
+  title/authors only when DOM-marked, never guessed; figure captions;
+  PMCID/PMID ids) and `platforms/arxiv.js` (ar5iv full-text preference
+  on `/abs/` captures: body swap gated on a meaningfully-longer check,
+  `capture_url` records the rendition fetched, wire-bound
+  wordCount/links re-derived from the adopted body); `crossref.js`
+  (validated DOI → `api.crossref.org` request + fill-only-missing
+  mapping) behind the host-allowlisted `xray:scholar:fetch` /
+  `xray:scholar:crossref` SW messages. `references` stays a **local
+  capture record** (§7) — no wire change. *(Deferred: the reader-side
+  Crossref trigger — needs a scholar display surface and a careful
+  read-modify-write of the session stash; the naive write nulls
+  `sourceTabId` and breaks NIP-07 publish routing.)*
 - ✅ **C3** PDF routing + acquisition — background routes PDF tabs to
   the reader's `?pdf=` path (`shared/pdf-detect.js` + Content-Type
   sniff); Import-file fallback; IndexedDB v3 `source_documents` store

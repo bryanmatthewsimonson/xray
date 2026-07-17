@@ -206,6 +206,23 @@ These "just work" without special handling:
   Substacks) — article body plus comments if you opt in.
 - **Any article page** — Readability extracts the main content. Works
   on most news sites, blogs, documentation, Wikipedia, etc.
+- **PubMed Central** (`pmc.ncbi.nlm.nih.gov/articles/PMC<id>/`, legacy
+  `www.ncbi.nlm.nih.gov/pmc/...` too) — plain server-rendered HTML, no
+  timing quirks. On top of the article body, the capture carries the
+  **reference list as structure** (year/DOI/PMID per entry, title and
+  authors only where the page marks them — never guessed), figure
+  captions, and the PMCID/PMID/DOI ids. References are a local capture
+  record; nothing new publishes.
+- **arXiv** (`arxiv.org/abs/<id>`) — the abs page shows only the
+  abstract, so the capture **prefers the ar5iv full-text rendition**
+  (`ar5iv.labs.arxiv.org`) when it's meaningfully fuller: the body is
+  swapped for the full text, `capture_url` records the ar5iv address
+  actually fetched, and the article's identity stays the `/abs/` URL.
+  Honesty note: ar5iv is a machine conversion of the LaTeX source, not
+  the PDF of record — figures/equations can differ; that's exactly why
+  the provenance is recorded. If ar5iv has no conversion (or it's
+  stub-short), you keep the abstract capture unchanged. `/pdf/` links
+  route through the PDF capture path instead.
 
 ---
 

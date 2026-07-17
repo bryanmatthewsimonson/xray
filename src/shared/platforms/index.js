@@ -25,6 +25,8 @@
 //   tiktok     ✓ Phase 8b (#19)   — synthesize-only, screenshot-evidence
 //   instagram  ✓ Phase 8c (#19)   — synthesize-only, og-meta + screenshot
 //   facebook   ✓ Phase 8d (#19)   — synthesize-only, graphql + og-meta + screenshot
+//   pmc        ✓ Phase 18 C2 tail — enrich-only, references + figure captions
+//   arxiv      ✓ Phase 18 C2 tail — enrich-only, ar5iv full-text preference
 
 import * as substack  from './substack.js';
 import * as youtube   from './youtube.js';
@@ -32,8 +34,11 @@ import * as twitter   from './twitter.js';
 import * as tiktok    from './tiktok.js';
 import * as instagram from './instagram.js';
 import * as facebook  from './facebook.js';
+import * as pmc       from './pmc.js';
+import * as arxiv     from './arxiv.js';
 import { extractGenericComments } from './comment-extractor.js';
 import { extractScholarlyMeta } from './scholar-meta.js';
+import { ContentExtractor } from '../content-extractor.js';
 import { resolveUrlIdentity, rewriteArchivedLinks } from '../url-identity.js';
 import { recordAlias } from '../url-aliases.js';
 import { Utils } from '../utils.js';
@@ -59,6 +64,30 @@ const HANDLERS = {
     },
     facebook: {
         synthesize: () => facebook.synthesizeArticle()
+    },
+    // Phase 18 C2 tail — scholarly enrich handlers. Both are pure
+    // modules; the real DOM / URL / fetch are closed over HERE, so the
+    // handlers stay node-testable with stubs.
+    pmc: {
+        enrich: (article) => pmc.enrichArticle(
+            article,
+            typeof document !== 'undefined' ? document : null,
+            (typeof window !== 'undefined' && window.location && window.location.href) || ''
+        )
+    },
+    arxiv: {
+        enrich: (article) => arxiv.enrichArticle(article, {
+            url: (typeof window !== 'undefined' && window.location && window.location.href) || '',
+            // Content scripts cannot cross-origin fetch under MV3 —
+            // the SW fetches on our behalf (host-allowlisted there).
+            fetchHtml: async (u) => {
+                try {
+                    const resp = await chrome.runtime.sendMessage({ type: 'xray:scholar:fetch', url: u });
+                    return (resp && resp.ok && typeof resp.html === 'string') ? resp.html : null;
+                } catch (_) { return null; }
+            },
+            extract: (html, baseUrl) => ContentExtractor.extractFromHtmlString(html, baseUrl)
+        })
     }
 };
 
@@ -93,6 +122,24 @@ export async function captureForPlatform(platform) {
 export async function enrichArticleForPlatform(article, platform) {
     if (!article) return article;
     let enriched = article;
+    // Phase 18 C2 — scholarly metadata (DOI / arXiv / journal /
+    // citation authors) from standard meta tags. Generic like the
+    // comment pass below: a no-op on non-scholarly pages. Runs BEFORE
+    // handler dispatch on purpose (C2 tail): the arxiv handler reads
+    // article.scholar.arxiv_id to decide what to fetch, and pmc reads
+    // scholar ids to avoid re-deriving them — with the old ordering
+    // (scholar after dispatch) the arxiv enrich was a permanent no-op.
+    // Safe to hoist: this pass is side-effect-free and substack, the
+    // only other enrich handler, never reads article.scholar.
+    if (!enriched.scholar && typeof document !== 'undefined') {
+        try {
+            const scholar = extractScholarlyMeta(document,
+                (typeof window !== 'undefined' && window.location && window.location.href) || '');
+            if (scholar) enriched.scholar = scholar;
+        } catch (err) {
+            console.warn('[X-Ray] Scholarly metadata extraction failed:', err);
+        }
+    }
     if (platform) {
         const h = HANDLERS[platform];
         if (h && typeof h.enrich === 'function') {
@@ -114,18 +161,6 @@ export async function enrichArticleForPlatform(article, platform) {
             }
         } catch (err) {
             console.warn('[X-Ray] Generic comment extraction failed:', err);
-        }
-    }
-    // Phase 18 C2 — scholarly metadata (DOI / arXiv / journal /
-    // citation authors) from standard meta tags. Generic like the
-    // comment pass: a no-op on non-scholarly pages.
-    if (!enriched.scholar && typeof document !== 'undefined') {
-        try {
-            const scholar = extractScholarlyMeta(document,
-                (typeof window !== 'undefined' && window.location && window.location.href) || '');
-            if (scholar) enriched.scholar = scholar;
-        } catch (err) {
-            console.warn('[X-Ray] Scholarly metadata extraction failed:', err);
         }
     }
     // URL identity — a capture made on an archive/mirror re-keys to the
