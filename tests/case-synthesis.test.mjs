@@ -121,6 +121,26 @@ test('case-synthesis: digest claims carry short per-article keys so cross-articl
         'the 64-hex hash no longer rides every claim entry');
 });
 
+test('case-synthesis: DIGEST_CLAIM_CAP bounds the index AND the art-key map together (27 S.1)', () => {
+    const dossier = { coverage: {}, shape_of_knowledge: {}, knots: {}, orbit: {} };
+    const claims = [];
+    for (let i = 0; i < CS.DIGEST_CLAIM_CAP + 10; i++) {
+        claims.push({ id: `c${i}`, text: `Claim ${i}.`, article_hash: `${String(i % 3)}`.repeat(64) });
+    }
+    // The capped tail cites a hash NO capped claim carries — its art
+    // key must not leak into the articles map.
+    claims[CS.DIGEST_CLAIM_CAP + 5].article_hash = 'f'.repeat(64);
+    const digest = JSON.parse(CS.digestDossier(dossier, { claims }));
+    assert.equal(digest.claim_count, CS.DIGEST_CLAIM_CAP);
+    assert.equal(digest.claims.length, CS.DIGEST_CLAIM_CAP);
+    assert.ok(!digest.claims.some((c) => c.id === `c${CS.DIGEST_CLAIM_CAP}`), 'claims beyond the cap are absent');
+    const mapped = new Set(Object.values(digest.articles));
+    assert.ok(!mapped.has('f'.repeat(64)), 'articles map derives from the SAME capped slice');
+    for (const c of digest.claims) {
+        assert.ok(c.art === null || digest.articles[c.art], `art key ${c.art} resolves`);
+    }
+});
+
 test('case-synthesis: proposalKey is stable and direction-insensitive for relationships (27 S.3)', () => {
     // The triage record persists under these keys — a key change would
     // silently resurrect every dismissed proposal.

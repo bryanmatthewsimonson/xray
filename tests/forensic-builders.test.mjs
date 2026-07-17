@@ -123,6 +123,19 @@ test('30062: build → parse round-trip', async () => {
     assert.equal(parseBehavioralFindingEvent({ kind: 30054 }), null, 'wrong kind → null');
 });
 
+test('30062 parse: role values beyond the original six are tolerated (NIP_DRAFT MUST, 27 F.6)', async () => {
+    const { event } = await buildBehavioralFindingEvent(baseArgs({ role: 'journalist' }));
+    event.pubkey = 'f'.repeat(64);
+    event.id = 'e'.repeat(64);
+    assert.equal(parseBehavioralFindingEvent(event).role, 'journalist');
+    // A FOREIGN event with a role outside our taxonomy still parses —
+    // consumers MUST tolerate unknown role values.
+    const foreign = JSON.parse(JSON.stringify(event));
+    for (const t of foreign.tags) if (t[0] === 'role') t[1] = 'prosecutor';
+    assert.equal(parseBehavioralFindingEvent(foreign).role, 'prosecutor',
+        'unknown role passes through on read; only the BUILD side validates');
+});
+
 test('1985 mirror: labels the SUBJECT pubkey under xray/forensic', async () => {
     const { event, dTag } = buildForensicFindingMirrorEvent({
         subjectPubkey: PK, maneuver: 'darvo/attack', sourceUrl: 'https://example.com/x'

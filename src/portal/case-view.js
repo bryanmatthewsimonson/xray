@@ -431,30 +431,51 @@ export function renderCaseView(host, params) {
                 const snap = side === 'source' ? link.source_snapshot : link.target_snapshot;
                 return (snap && snap.text) || 'another claim';
             };
+            // Canonical endpoints are row-invariant: index the global
+            // registry ONCE (O(links)), then each row is a map lookup —
+            // not rows × links × canon() re-parses.
+            const byEndpoint = new Map();   // canonical ref → [{link, src, tgt}]
+            for (const link of Object.values(allLinks)) {
+                if (link.publishedAt) continue;   // already a wire chip
+                const entry = { link, src: canon(link.source_claim_id), tgt: canon(link.target_claim_id) };
+                for (const ref of entry.src === entry.tgt ? [entry.src] : [entry.src, entry.tgt]) {
+                    if (!byEndpoint.has(ref)) byEndpoint.set(ref, []);
+                    byEndpoint.get(ref).push(entry);
+                }
+            }
+            const MAX_LOCAL_CHIPS = 6;   // the published-chip cap, matched
             for (const [coord, row] of rowByCoord) {
                 const canonical = canon(coord);
-                for (const link of Object.values(allLinks)) {
-                    if (link.publishedAt) continue;   // already a wire chip
-                    const src = canon(link.source_claim_id);
-                    const tgt = canon(link.target_claim_id);
-                    if (src !== canonical && tgt !== canonical) continue;
+                const entries = byEndpoint.get(canonical) || [];
+                let shown = 0;
+                let over = 0;
+                let relRow = null;
+                for (const { link, src, tgt } of entries) {
+                    const isContradicts = link.relationship === 'contradicts';
+                    if (!isContradicts && !RELATED_RELATIONSHIPS.has(link.relationship)) continue;
+                    if (shown >= MAX_LOCAL_CHIPS) { over++; continue; }
+                    if (!relRow) {
+                        relRow = row.querySelector('.xr-case__related');
+                        if (!relRow) { relRow = el('div', 'xr-case__related'); row.appendChild(relRow); }
+                    }
                     const dir = src === canonical ? 'out' : 'in';
-                    const otherRef = dir === 'out' ? tgt : src;
-                    const otherSide = dir === 'out' ? 'target' : 'source';
-                    let relRow = row.querySelector('.xr-case__related');
-                    if (!relRow) { relRow = el('div', 'xr-case__related'); row.appendChild(relRow); }
-                    if (link.relationship === 'contradicts') {
+                    if (isContradicts) {
                         const b = el('span', 'xr-badge xr-badge--warn', '⚠ contradicted (local)');
                         b.title = 'A local contradiction link — not yet published';
                         relRow.appendChild(b);
-                        continue;
+                    } else {
+                        const otherRef = dir === 'out' ? tgt : src;
+                        const otherSide = dir === 'out' ? 'target' : 'source';
+                        const phrase = (RELATED_PHRASE[link.relationship] || {})[dir] || link.relationship;
+                        const b = el('span', 'xr-badge xr-badge--muted',
+                            `${dir === 'out' ? '→' : '←'} ${phrase} (local): ${truncate(nameOf(otherRef, link, otherSide), 60)}`);
+                        b.title = 'A local link — not yet published to relays';
+                        relRow.appendChild(b);
                     }
-                    if (!RELATED_RELATIONSHIPS.has(link.relationship)) continue;
-                    const phrase = (RELATED_PHRASE[link.relationship] || {})[dir] || link.relationship;
-                    const b = el('span', 'xr-badge xr-badge--muted',
-                        `${dir === 'out' ? '→' : '←'} ${phrase} (local): ${truncate(nameOf(otherRef, link, otherSide), 60)}`);
-                    b.title = 'A local link — not yet published to relays';
-                    relRow.appendChild(b);
+                    shown++;
+                }
+                if (over > 0 && relRow) {
+                    relRow.appendChild(el('span', 'xr-inspector__mono', `… +${over} more local`));
                 }
             }
         })().catch((err) => Utils.error('Local link chips failed', err));

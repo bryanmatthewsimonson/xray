@@ -80,6 +80,13 @@ test('bar: baselines render as plain rows — visible at last, never a weight (2
     assert.match(withChip, /Baseline: Even, fact-anchored register\./);
     const withoutRef = renderFindingsBar([finding()], [baseline]);
     assert.doesNotMatch(withoutRef, /deviates from baseline/);
+    // Dangling ref (baseline deleted elsewhere / foreign data): the
+    // chip still renders with the generic no-weight tooltip — never a
+    // crash, never a fabricated note.
+    const dangling = renderFindingsBar([finding({ baseline_ref: 'baseline_gone00000000' })], [baseline]);
+    assert.match(dangling, /deviates from baseline/);
+    assert.match(dangling, /context — not a weight/, 'the generic disclaimer tooltip, not a fabricated note');
+    assert.doesNotMatch(dangling, /Baseline: Even/);
     for (const html of [empty, withChip]) {
         assert.doesNotMatch(html, /score|rating|weight|confidence/i);
     }

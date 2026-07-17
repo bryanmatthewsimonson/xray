@@ -1673,8 +1673,17 @@ async function refreshFindingsBar() {
     host.querySelectorAll('.xr-findings__baseline').forEach((row) => {
         const delBtn = row.querySelector('[data-action="baseline-delete"]');
         if (delBtn) delBtn.addEventListener('click', async () => {
-            if (!confirm('Remove this baseline?')) return;
-            await ForensicBaseline.delete(row.dataset.id);
+            if (!confirm('Remove this baseline? Findings that marked a deviation from it keep their evidence but lose the baseline link.')) return;
+            const baselineId = row.dataset.id;
+            await ForensicBaseline.delete(baselineId);
+            // Clear dangling deviation links (baseline_ref is editable
+            // context, not identity, so this is an update not a rekey).
+            const findings = await ForensicModel.getAll();
+            for (const f of Object.values(findings)) {
+                if (f.baseline_ref === baselineId) {
+                    await ForensicModel.update(f.id, { baseline_ref: null }).catch(() => {});
+                }
+            }
             toast('Baseline removed', 'success', 1500);
             await refreshFindingsBar();
         });

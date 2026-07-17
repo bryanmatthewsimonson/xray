@@ -94,8 +94,8 @@ const EDIT_FIELDS = {
         // 27 F.3 — the misattribution backstop: the subject is
         // correctable at review time (it was the ONE field you
         // couldn't fix, before or after accept).
-        { key: 'subject_ref', label: 'Subject entity ref (E1, E2… from the entities above; blank = use label)', type: 'text' },
-        { key: 'subject_label', label: 'Subject label (who PERFORMS the move — not who reports it)', type: 'text' },
+        { key: 'subject_ref', label: 'Subject entity ref (E1, E2…; blank = use label — the ref wins when both are set)', type: 'text' },
+        { key: 'subject_label', label: 'Subject label (who PERFORMS the move — used only when the ref is blank)', type: 'text' },
         { key: 'role', label: 'Role', type: 'select', options: ROLES },
         { key: 'maneuver', label: 'Maneuver', type: 'text' },
         { key: 'basis', label: 'Basis', type: 'select', options: BASIS_VALUES },
@@ -104,7 +104,11 @@ const EDIT_FIELDS = {
         { key: 'counter_note', label: 'Counter-read (required)', type: 'textarea' }
     ],
     baseline: [
-        { key: 'subject_label', label: 'Subject', type: 'text' },
+        // Review fix (27 F.3): the ref is editable/clearable here too —
+        // without it, correcting a baseline's subject via the label was
+        // cosmetic while the identity join kept the old keyspace.
+        { key: 'subject_ref', label: 'Subject entity ref (E1, E2…; blank = use label — the ref wins when both are set)', type: 'text' },
+        { key: 'subject_label', label: 'Subject label (used only when the ref is blank)', type: 'text' },
         { key: 'note', label: 'Note', type: 'textarea' }
     ]
 };
@@ -516,6 +520,15 @@ export async function openLlmReview(opts) {
             if (row.kind === 'fact') {
                 if (!entityIdByRef[p.subject_ref]) return 'Accept its subject entity first.';
                 if (p.value_entity_ref && !entityIdByRef[p.value_entity_ref]) return 'Accept the value entity first.';
+            }
+            // 27 F.3 review fix: the identity join is order-dependent —
+            // a finding/baseline accepted BEFORE its subject entity
+            // would silently land label-keyed (fragmented, silently
+            // unpublishable). Same gate facts always had. Label-only
+            // subjects (no ref) stay acceptable as before.
+            if ((row.kind === 'finding' || row.kind === 'baseline')
+                    && p.subject_ref && !entityIdByRef[p.subject_ref]) {
+                return 'Accept its subject entity first.';
             }
             return '';
         }

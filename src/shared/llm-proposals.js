@@ -40,7 +40,7 @@ import {
     CLAIM_RELATIONSHIPS, REVISION_RELATIONSHIPS
 } from './assessment-taxonomy.js';
 import {
-    isValidManeuver, isValidRole, isValidBasis, BASIS_VALUES
+    isValidManeuver, isValidRole, isValidBasis, BASIS_VALUES, ROLES
 } from './forensic-taxonomy.js';
 
 // Dependency order: a kind is only ever accepted after the kinds it can
@@ -266,7 +266,7 @@ export function validateProposal(prop, ctx = {}) {
         }
         case 'finding': {
             if (!subjectLabelOf(prop, ctx)) return fail('Finding needs a subject');
-            if (!isValidRole(prop.role)) return fail(`Role must be one of: apologist, critic, institution, witness, survivor, other`);
+            if (!isValidRole(prop.role)) return fail(`Role must be one of: ${ROLES.join(', ')}`);
             if (!isValidManeuver(prop.maneuver)) return fail(`Invalid maneuver: ${prop.maneuver}`);
             const basis = prop.basis || 'structural-inference';
             if (!isValidBasis(basis)) return fail(`Basis must be one of: ${BASIS_VALUES.join(', ')}`);

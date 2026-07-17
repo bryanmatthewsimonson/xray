@@ -81,8 +81,15 @@ export async function openFindingModal({
 } = {}) {
     ensureStyles();
 
+    // An existing finding whose subject is no longer among the tagged
+    // entities must fall to the CUSTOM slot carrying its own label —
+    // otherwise the select silently lands on the first choice and an
+    // edit-save would offer (and persist context against) the wrong
+    // subject's baselines.
+    const existingKey = existing ? subjectKeyOf(existing.subject_ref) : null;
     const initialSubjectKey = existing
-        ? (subjectKeyOf(existing.subject_ref) || '__custom__')
+        ? ((existingKey && subjectChoices.some((c) => c.key === existingKey))
+            ? existingKey : '__custom__')
         : (subjectChoices[0] ? subjectChoices[0].key : '__custom__');
 
     const state = {
@@ -170,7 +177,13 @@ export async function openFindingModal({
             if (!field || !sel) return;
             const ref = resolveSubjectRef(state, subjectChoices);
             const bases = await ForensicBaseline.getForSubject(ref).catch(() => []);
-            if (!bases.length) { field.hidden = true; state.baselineRef = existing ? state.baselineRef : null; return; }
+            // A baselineRef belonging to a DIFFERENT subject must not
+            // survive a subject switch — the rebuilt select would show
+            // "(none)" while the stale id silently persisted on save.
+            if (state.baselineRef && !bases.some((b) => b.id === state.baselineRef)) {
+                state.baselineRef = null;
+            }
+            if (!bases.length) { field.hidden = true; return; }
             sel.innerHTML = `<option value="">(none)</option>${bases.map((b) =>
                 `<option value="${escapeHtml(b.id)}" ${b.id === state.baselineRef ? 'selected' : ''}>${escapeHtml((b.note || '').slice(0, 80))}</option>`).join('')}`;
             field.hidden = false;

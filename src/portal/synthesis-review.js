@@ -30,6 +30,26 @@ function describe(p, claimsById) {
     return p.kind;
 }
 
+/**
+ * Pure triage partition (27 S.3) — the seam the render projects.
+ * `triage` maps proposalKey → 'accepted' | 'dismissed'; anything else
+ * (missing key, unknown status) is OPEN — an unrecognized status must
+ * never hide a proposal.
+ */
+export function partitionProposals(acceptable, triage = {}) {
+    const open = [];
+    const accepted = [];
+    const dismissed = [];
+    for (const p of acceptable || []) {
+        const key = proposalKey(p);
+        const status = triage[key];
+        if (status === 'accepted') accepted.push(p);
+        else if (status === 'dismissed') dismissed.push({ p, key });
+        else open.push({ p, key });
+    }
+    return { open, accepted, dismissed };
+}
+
 async function accept(p, { model, memberByHash }) {
     const suggested_by = `llm:${model || 'unknown'}`;
     if (p.kind === 'relationship') {
@@ -74,16 +94,7 @@ export function renderProposals(host, { acceptable, rejected, claimsById, member
         }
     };
 
-    const open = [];
-    const accepted = [];
-    const dismissed = [];
-    for (const p of acceptable || []) {
-        const key = proposalKey(p);
-        const status = triage[key];
-        if (status === 'accepted') accepted.push(p);
-        else if (status === 'dismissed') dismissed.push({ p, key });
-        else open.push({ p, key });
-    }
+    const { open, accepted, dismissed } = partitionProposals(acceptable, triage);
 
     host.appendChild(el('h4', 'xr-case__heading',
         `Proposals — review and accept (${open.length})`));

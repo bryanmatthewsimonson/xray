@@ -405,13 +405,20 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
             for (const m of members) indexByMember[m.article_hash] = createGroundingIndex(m.text);
             const grounded = groundCaseBrief(reduce.briefInput, indexByMember);
 
+            // Triage survives a RE-RUN too (27 S.3 review fix): keys are
+            // content-derived, so a re-proposed pair keeps its status
+            // and keys for proposals the new brief no longer makes are
+            // inert. Without this, every corpus-v2 re-run resurrected
+            // every dismissed proposal.
+            const prior = await getCaseBrief(caseId).catch(() => null);
             const record = {
                 caseId, brief: grounded.brief,
                 grounding: { checked: grounded.checked, dropped: grounded.dropped },
                 inputHash: liveHash, model: reduce.model, promptVersion: CORPUS_PROMPT_VERSION,
                 members: members.length,
                 analyzed: extracts.length, failed: failures.length,
-                usage: reduce.usage || null
+                usage: reduce.usage || null,
+                triage: (prior && prior.triage) || {}
             };
             try { await saveCaseBrief(record); }
             catch (err) { Utils.error('saveCaseBrief failed', err); }

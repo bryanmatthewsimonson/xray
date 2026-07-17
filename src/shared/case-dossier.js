@@ -184,7 +184,9 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
         // Full entity registry snapshot (Phase 20.3) — the case graph
         // resolves names for entities TAGGED on member articles that
         // never entered an orbit claim (so aren't in orbit.entities).
-        // Builders ignore it; it only rides for graph consumers.
+        // Consumed by graph consumers AND (27 S.2) by buildCaseDossier
+        // itself, which reads the case entity's authored scope question
+        // from it.
         entitiesById: allEntities,
         orbit: {
             entity_ids:          entityIds,
