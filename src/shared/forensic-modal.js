@@ -89,7 +89,9 @@ export async function openFindingModal({
         subjectKey:  initialSubjectKey,
         customLabel: existing && !subjectChoices.some((c) => c.key === initialSubjectKey)
             ? (existing.subject_ref.label || '') : '',
-        role:        existing ? existing.role : 'apologist',
+        // 27 F.6 — no default role: 'apologist' was debate jargon
+        // silently stamped onto journalism content. Explicit choice.
+        role:        existing ? existing.role : '',
         maneuver:    existing ? existing.maneuver : null,
         basis:       existing ? existing.basis : 'quoted',
         baselineRef: existing ? (existing.baseline_ref || null) : null,
@@ -292,6 +294,7 @@ export async function openFindingModal({
                 }))
                 .filter((a) => String(a.quote || '').trim());
             // Friendly pre-checks (the model enforces these too).
+            if (!state.role) return showError('Pick a role — who makes this move.');
             if (!state.maneuver) return showError('Pick a maneuver.');
             if (anchors.length === 0) return showError('Add at least one evidence step with a quote.');
             if (!String(state.counter || '').trim()) {
@@ -459,7 +462,8 @@ function subjectSelectHtml(subjectChoices, selectedKey) {
 }
 
 function buildHtml(state, subjectChoices, isExisting, canAnchor) {
-    const roleOpts = ROLES.map((r) =>
+    const rolePlaceholder = state.role ? '' : '<option value="" selected disabled>who makes the move…</option>';
+    const roleOpts = rolePlaceholder + ROLES.map((r) =>
         `<option value="${r}" ${r === state.role ? 'selected' : ''}>${escapeHtml(r)}</option>`).join('');
     const basisOpts = BASIS_VALUES.map((b) =>
         `<option value="${b}" ${b === state.basis ? 'selected' : ''}>${escapeHtml(BASIS_LABELS[b] || b)}</option>`).join('');

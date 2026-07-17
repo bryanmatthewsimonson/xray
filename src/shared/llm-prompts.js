@@ -429,7 +429,9 @@ FINDINGS (the criminology layer — name a structural MANEUVER a subject perform
   verbatim span available is the reporter's sentence. Anchor to that span, attribute
   to X, and set basis "paraphrased" (the anchor evidences the move second-hand).
   If you cannot determine WHO performed a move, OMIT the finding entirely.
-- maneuver names the move. Prefer a standard maneuver from the guide below; a lowercase custom token is allowed.
+- maneuver names the move. Prefer a standard maneuver from the guide below; a lowercase custom
+  token is allowed, and the fallacy/<token> namespace is valid for classical argumentation
+  fallacies the guide doesn't list.
 - anchors is the evidence chain: at least ONE anchor, each with a VERBATIM quote. A finding with no quoted evidence is rejected.
 - counter_note is REQUIRED: the strongest alternative / exonerating reading — what would make this NOT the maneuver. A finding with no counter-read is rejected.
 - basis records how you know: use "quoted" ONLY when the evidence is the subject's own verbatim words; otherwise "paraphrased", "behavioral-cue", or "structural-inference".
