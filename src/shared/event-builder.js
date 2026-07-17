@@ -1044,6 +1044,30 @@ export const EventBuilder = {
       markdown = markdown.replace(transMatch[0], '').trim();
     }
 
+    // The PUBLISHED DRAFT: the value `content` held when this event was
+    // built — i.e. assembleArticleBody's INPUT, whose OUTPUT is the exact
+    // preimage of the `x` tag below. Snapshotted here, AFTER the section
+    // extraction, precisely because assembleArticleBody RE-APPENDS
+    // `## Description` / `## Transcript` for a video: handing it the full
+    // body would emit them twice. It is the remainder that composes.
+    //
+    // Carried, not recomputed, for the same reason as `_articleHash`:
+    // `content` below is a markdown->HTML RENDERING of this text, and
+    // turndowning that rendering back is not idempotent — it multiplies
+    // escape backslashes n -> 2n+1 per round trip, forking the x tag off
+    // the anchor every audit keys to. Republish paths must prefer this
+    // over re-deriving from `content`; `shared/archive-draft.js` decides
+    // when that is safe, by PROVING this text against `_articleHash`.
+    //
+    // Deliberately NOT named `markdown`: that key is the marker
+    // `isMarkdownCanonical` reads, and setting it here would silently arm
+    // that predicate on the relay path for the first time, declaring a
+    // lossily-reconstructed pdf/transcript body canonical WITHOUT proof.
+    // Deliberately not read from `textContent` either — same bytes here,
+    // but that key holds tag-stripped PLAIN TEXT on the capture path, so
+    // it cannot be trusted to mean this.
+    const publishedDraft = markdown;
+
     // Convert remaining markdown back to HTML
     let htmlContent = '';
     try {
@@ -1115,6 +1139,11 @@ export const EventBuilder = {
       // recomputed: a markdown→HTML→markdown round trip would not
       // byte-match the original body. Null on pre-13.4 events.
       _articleHash: tags['x'] || null,
+      // `_articleHash`'s matched pair: the draft that, rebuilt through
+      // assembleArticleBody, reproduces the hash above. Together they are
+      // a self-checking unit — anyone holding both can verify the body
+      // against the hash offline. See the `publishedDraft` snapshot.
+      _publishedDraft: publishedDraft,
     };
 
     // Reconstruct engagement
