@@ -158,6 +158,7 @@ banner state, click view-mode tabs, etc. — but cannot trigger
 | 5 claims | Same as Phase 4 — text selection in reader is drivable; modal is testable; publish blocked | Signing |
 | 6 sync | None — sidepanel + cross-device | All of it |
 | 7 cache | (none — archive surfaces in the reader) | Reader's archive banner UX on revisit |
+| 7 archive integrity (7.7–7.16) | Nothing. The unit tests simulate this state machine; they cannot drive it | **All of it.** Hash drift, wrong-article loads, and the empty-body publish all render correctly in the reader while being wrong on the wire — the event body is the only witness |
 | Polish #2 | The init-sequence signing-method line | — |
 
 ### Suggested agent-driven loop
@@ -1059,6 +1060,33 @@ inside (so a relay copy exists).
 | 7.4 | Visit the paywalled URL fresh → toolbar-icon capture → reader | ✅ banner above the body offers either "📦 Your archive (date)" OR "🌐 Relay archive by npub…" |
 | 7.5 | Click "Load archive" | ✅ body swaps to the longer cached/relay copy; toast confirms |
 | 7.6 | Click "Keep capture" instead | ✅ banner dismisses; current capture stays |
+
+### Archive integrity (the 2026-07-17 stack — MUST be walked by hand)
+
+Everything above checks that the body *swaps*. None of it checks that it
+swapped to the **right** body, or that the hash survived. All four bugs
+below shipped undetected past a green suite, and every fix was verified by
+**simulating** the reader (`tests/archive-reload-hash.test.mjs` replays the
+state machine) — nothing here has been driven in a real browser. Walk it
+after any change to `archive-draft.js`, `loadArchivedArticle`,
+`adoptArticle`, or the publish body assembly.
+
+Prereq: an article you have **published**, whose body contains characters
+turndown escapes — `5 * 3`, `that_is_it`, `[1]`, a line starting `14.`.
+Plain prose round-trips cleanly and will pass against the bug.
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 7.7 | Re-capture the published URL. Note the "content hash" line under the body. Click **Load archive**, then **Publish** again with no edits. Compare the hash line before and after | ✅ **identical**. A changed hash means the reload→republish drift is back; it forks every audit anchored to this article, and the new event REPLACES the old at the same NIP-33 coordinate |
+| 7.8 | Repeat 7.7 three more times on the same article | ✅ the hash never moves. Drift is exponential (escape backslashes n → 2n+1), so a second cycle makes it obvious |
+| 7.9 | Load archive → tag **one entity** → Publish | ✅ hash unchanged. Tagging is text-neutral; the span never reaches the wire |
+| 7.10 | Load archive → fix a typo in the **title** (not the body) → Publish | ✅ **body** hash unchanged |
+| 7.11 | Load archive → open the **Markdown** tab, look, switch back → Publish | ✅ hash unchanged, and the Markdown tab shows **markdown** (not HTML) |
+| 7.12 | Load archive → **Media** button → attach a transcript → Publish | ✅ the published body is **NOT empty** and contains both the transcript and the original text. ⚠️ This is the one that nearly shipped an empty kind-30023 (`x` = `e3b0c442…` = sha256 of "") **over the real article** — check the event body, not just the reader, which paints correctly either way |
+| 7.13 | Load archive → genuinely **edit the body** → Publish | ✅ the hash **does** change. The fix must not suppress real edits — that is a different article |
+| 7.14 | Capture article **A** that links to article **B**, publish A. Then visit **B** (never captured) and capture it | ✅ the banner does **NOT** offer A's body under B's URL. Publishing an article co-emits indexed `r` tags for its first 25 outbound links, so B's archive probe matches A; with no published capture of B, A is the only candidate and wins silently (`altCount: 0`, no "N versions" tell) |
+| 7.15 | Re-capture any published, unedited article | ✅ the archive banner does **not** appear. It used to fire ~100% falsely on every published article, every visit — it compared raw HTML across two substrates that can never match |
+| 7.16 | Options → Advanced → Archive banner → `always` (the default), then repeat 7.15 | ✅ still silent. `always` must mean "when it actually differs", not "always" |
 
 ---
 
