@@ -506,6 +506,47 @@ test('resolveModel defaults unknown ids to the latest capable model', () => {
     assert.equal(resolveModel('claude-sonnet-4-6'), 'claude-sonnet-4-6');
 });
 
+test('the model picker offers Fable 5 and Sonnet 5, and every id resolves', async () => {
+    const { LLM_MODELS } = await import('../src/shared/llm-prompts.js');
+    const ids = LLM_MODELS.map((m) => m.id);
+    assert.deepEqual(ids, [
+        'claude-fable-5', 'claude-opus-4-8', 'claude-opus-4-7',
+        'claude-sonnet-5', 'claude-sonnet-4-6', 'claude-haiku-4-5'
+    ]);
+    // Every offered id must survive resolveModel — a picker entry that
+    // silently falls back to the default is a lie to the user.
+    for (const id of ids) assert.equal(resolveModel(id), id);
+    for (const m of LLM_MODELS) assert.ok(m.label && m.label.length > 3, m.id);
+    assert.ok(ids.includes(DEFAULT_LLM_MODEL), 'the default is offered');
+});
+
+test('a model refusal is its own disclosed state, never a malformed-output error', async () => {
+    const { refusalResult } = await import('../src/shared/llm-client.js');
+    // Fable 5 declines with HTTP 200 + stop_reason refusal and an empty
+    // content array — the shape that would otherwise fall through to
+    // "the model did not return a structured extract".
+    const refused = refusalResult(
+        { stop_reason: 'refusal', stop_details: { type: 'refusal', category: 'bio' }, content: [] },
+        'the corpus brief');
+    assert.equal(refused.ok, false);
+    assert.equal(refused.refused, true);
+    assert.equal(refused.code, 'model-refusal');
+    assert.equal(refused.category, 'bio');
+    assert.match(refused.error, /declined to produce the corpus brief/);
+    assert.match(refused.error, /safety category: bio/);
+    assert.match(refused.error, /not a key, network, or X-Ray problem/);
+    assert.match(refused.error, /switching model/, 'names the actual workaround');
+    // stop_details is optional — never assume it is present (it is null
+    // for every non-refusal stop reason).
+    const bare = refusalResult({ stop_reason: 'refusal' }, 'suggestions');
+    assert.equal(bare.category, null);
+    assert.doesNotMatch(bare.error, /safety category/);
+    // Everything else passes through untouched.
+    assert.equal(refusalResult({ stop_reason: 'end_turn' }, 'x'), null);
+    assert.equal(refusalResult({ stop_reason: 'max_tokens' }, 'x'), null);
+    assert.equal(refusalResult(null, 'x'), null);
+});
+
 test('llmAssist flag defaults OFF', async () => {
     const { FLAGS_DEFAULTS } = await import('../src/shared/metadata/feature-flags.js');
     assert.equal(FLAGS_DEFAULTS.llmAssist, false);

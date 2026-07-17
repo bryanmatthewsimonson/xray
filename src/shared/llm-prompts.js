@@ -30,9 +30,16 @@ import { ENTITY_TYPES } from './entity-model.js';
 // latest capable Claude; the Options picker renders these.
 // ------------------------------------------------------------------
 
+// Ordered most-capable-first; the Options picker renders this verbatim.
+// Adding a model is this line + nothing else — every caller resolves
+// through resolveModel(), and the corpus/lens/audit passes all read the
+// user's stored choice. Cost note (per MTok in/out, 2026-07): Fable 5
+// $10/$50 · Opus 4.8 $5/$25 · Sonnet 5 $3/$15 · Haiku 4.5 $1/$5.
 export const LLM_MODELS = Object.freeze([
-    { id: 'claude-opus-4-8',   label: 'Claude Opus 4.8 (most capable)' },
+    { id: 'claude-fable-5',    label: 'Claude Fable 5 (most capable — highest cost)' },
+    { id: 'claude-opus-4-8',   label: 'Claude Opus 4.8 (most capable Opus)' },
     { id: 'claude-opus-4-7',   label: 'Claude Opus 4.7' },
+    { id: 'claude-sonnet-5',   label: 'Claude Sonnet 5 (near-Opus quality, Sonnet cost)' },
     { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (balanced)' },
     { id: 'claude-haiku-4-5',  label: 'Claude Haiku 4.5 (fastest / cheapest)' }
 ]);

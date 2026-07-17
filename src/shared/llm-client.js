@@ -202,6 +202,35 @@ async function postMessages(payload, apiKey, { signal } = {}) {
 }
 
 /**
+ * A model-side safety guardrail declining the request is its OWN state,
+ * never the generic "malformed output" error (the lens pass's §6 rule,
+ * generalized here). Claude Fable 5 runs classifiers that can decline —
+ * bio and cyber topics especially — and returns HTTP 200 with
+ * `stop_reason: 'refusal'` and an empty/partial content array. Without
+ * this check every caller falls through to extractToolInput() → null →
+ * "the model did not return a structured extract", which blames the
+ * wrong thing and sends the user hunting a bug that isn't there.
+ *
+ * Returns an `{ ok: false, refused: true, ... }` result to return as-is,
+ * or null when the response was not a refusal.
+ *
+ * @param {object} data  the parsed Messages response
+ * @param {string} what  what was being produced, for the message
+ */
+export function refusalResult(data, what) {
+    if (!data || data.stop_reason !== 'refusal') return null;
+    const category = (data.stop_details && data.stop_details.category) || null;
+    return {
+        ok: false, refused: true, code: 'model-refusal', category,
+        error: `The model declined to produce ${what}`
+            + (category ? ` (safety category: ${category})` : '')
+            + '. This is a model-side guardrail — not a key, network, or X-Ray problem. '
+            + 'Some models decline topics others allow; switching model in '
+            + 'Options → Advanced → LLM assist is the usual workaround.'
+    };
+}
+
+/**
  * Pull a forced tool's `input` out of a Messages response, by tool name.
  * Returns the input object, or null if no matching tool_use was found.
  * Exported for unit tests (no network involved).
@@ -280,6 +309,7 @@ export async function runSuggestionPass(req = {}) {
     if (!res.ok) return res;
     const data = res.data;
 
+    { const r = refusalResult(data, 'capture suggestions for this article'); if (r) return r; }
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, error: 'The model hit its output limit before finishing. Try a shorter article or fewer tasks.' };
     }
@@ -391,6 +421,7 @@ export async function runAuditPass(req = {}) {
     if (!res.ok) return res;
     const data = res.data;
 
+    { const r = refusalResult(data, 'this audit'); if (r) return r; }
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, error: 'The model hit its output limit before finishing the audit. Try a shorter article.' };
     }
@@ -478,6 +509,7 @@ export async function runAuditModulePass(req = {}) {
     if (!res.ok) return { ...res, module: name };
 
     const data = res.data;
+    { const r = refusalResult(data, `the ${name} audit module`); if (r) return { ...r, module: name }; }
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, module: name, error: `The ${name} module hit its output limit before finishing.` };
     }
@@ -562,6 +594,7 @@ export async function runCorpusMapPass(req = {}) {
     if (!res.ok) return { ...res, member_id: req.member_id };
 
     const data = res.data;
+    { const r = refusalResult(data, 'an extract for this article'); if (r) return { ...r, member_id: req.member_id }; }
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, member_id: req.member_id, error: 'The map call hit its output limit before finishing.' };
     }
@@ -602,6 +635,7 @@ export async function runCorpusReducePass(req = {}) {
     if (!res.ok) return res;
 
     const data = res.data;
+    { const r = refusalResult(data, 'the corpus brief'); if (r) return r; }
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, error: 'The synthesis hit its output limit before finishing.' };
     }
@@ -648,6 +682,7 @@ export async function runHypothesisEdgePass(req = {}) {
     if (!res.ok) return res;
 
     const data = res.data;
+    { const r = refusalResult(data, 'hypothesis edge proposals'); if (r) return r; }
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, error: 'The edge-suggestion call hit its output limit before finishing.' };
     }
