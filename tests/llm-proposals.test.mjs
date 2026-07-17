@@ -392,6 +392,12 @@ test('buildAssessmentInput: an unlocatable label quote saves the label WITHOUT a
     assert.equal(input.labels[1].label, 'unsupported');
 });
 
+test('captureAutomation defaults OFF — the #xray:capture marker is opt-in (27 K.4)', async () => {
+    const { FLAGS_DEFAULTS } = await import('../src/shared/metadata/feature-flags.js');
+    assert.equal(FLAGS_DEFAULTS.captureAutomation, false,
+        'the navigation-marker capture trigger must be explicitly enabled');
+});
+
 test('findings prompt carries the attribution rules — speaker vs reporter (27 F.2)', () => {
     const sys = buildSystemPrompt({ tasks: ['findings'] });
     assert.match(sys, /the party who\s+PERFORMED the move/);
