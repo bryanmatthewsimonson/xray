@@ -19,6 +19,46 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-17 — A cosmetic replaceState aborted the capture it preceded (27 K.4)
+
+Tags: `bug`, `external`.
+
+Found in the first live agent-driven capture run, on `archive.is`
+(several COVID-corpus frontier links are archive.is snapshots of
+paywalled reporting). The `#xray:capture` marker fired once, then
+never again on that host:
+
+```
+SecurityError: Failed to execute 'replaceState' on 'History':
+A history state object with URL 'https://d8w6fmknl1l6hl.archive.is/7gYpy'
+cannot be created in a document with origin 'https://archive.is'
+```
+
+archive.is serves snapshot content under a **randomized subdomain** and
+sets a `<base href>` to it. `history.replaceState(null, '', pathname +
+search)` resolves its RELATIVE argument against the document's **base
+URI**, not its origin — so the rewrite targeted another host and threw.
+The marker-strip sat before `UI.openReader()` inside the same `try`, so
+a cosmetic address-bar tidy killed the capture. It "worked" on the very
+first hit only because the base tag hadn't been applied yet — which is
+also why that capture archived the interstitial rather than the article.
+
+Two fixes, both worth keeping in mind for any content-script URL work:
+build the replacement **absolute from `location.origin`** (never
+relative — `<base href>` is another site's to control), and give
+best-effort cosmetics **their own try/catch** so they can never abort
+the load-bearing work behind them. Also fixed alongside: a hash-only
+navigation (`<url>` → `<url>#xray:capture`) is a same-document
+navigation, so `init()` never re-runs and the marker silently no-oped;
+a `hashchange` listener now covers it.
+
+No unit test would have caught either — both need a real page with a
+cross-origin base tag. The lesson generalizes past this slice: a
+try-block that wraps a nice-to-have around a must-have inherits the
+nice-to-have's failure modes.
+
+---
+
 ## 2026-07-16 — The scope question never reached the LLM; proposals were never asked for (27 S.1/S.2)
 
 Tags: `bug`, `design`.
