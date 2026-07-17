@@ -19,6 +19,54 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-17 — "Load archive" served the WRONG ARTICLE: `#r` is not an identity index
+
+Tags: `bug`, `design`.
+
+Reported from daily use: *"Once, I went ahead and clicked 'Load Archive'
+and it loaded a completely different article."* It reproduces, it needs
+no race, and the mechanism is entirely ours.
+
+`xray:archive:reconstruct` (`background/index.js`) asked relays for
+`{kinds:[30023], '#r':[url], limit:20}`, sorted by `created_at` desc,
+took `events[0]`, and reconstructed it — with **no authors filter and no
+identity check**. But `buildArticleEvent` co-emits an indexed `r` tag for
+`responds-to` targets and for the **first 25 outbound links** of every
+article (`event-builder.js`, the `if (linked < 25) pushR(link.url)`
+line). So **every article you publish poisons the `#r` index for up to 25
+URLs it merely links to.** A cross-linked corpus — which is the whole
+point of the tool — maximizes the over-match.
+
+The worst case needs no concurrency at all: if you never published a
+capture of X, a *linking* article is the **only** candidate, so it wins
+**100% of the time**, and `altCount` is 0 — the "N relay versions found"
+tell never fires. The swap is then disguised, because
+`loadArchivedArticle` pins `url: state.article.url`: the foreign body
+renders under X's address, and any claims or comments made on it key to
+X. `docs/NIP_DRAFT.md` already *mandated* the disambiguation this handler
+never did.
+
+**Fix:** `articleAnswersTo` in `url-identity.js` (pure, tested). An
+article answers to exactly two addresses — its identity URL (the FIRST
+`r`, per the `reconstructArticleFromEvent` invariant) and its
+`capture_url` mirror. Everything else in the `r` set is a reference to
+someone *else's* article. The handler now reconstructs first, keeps only
+events that ARE the requested URL, and reports `found: false` when none
+survive.
+
+**The trap worth recording:** link `r` targets are normalized
+(`content-extractor.js`) while the primary `r` and `capture-url` are
+emitted raw, and the probe URL is raw. Normalizing the *probe* against
+the raw `#r` set — the obvious "fix" — would have made the bug fire
+**more often**, not less. Normalization here is applied only to an
+article's OWN addresses, on both sides. The identity check and the
+normalization are one change and must not be separated.
+
+`tests/archive-identity.test.mjs` runs the real builder and asserts the
+poisoned `r` tag IS present (so the relay filter really would return the
+event) *before* asserting the gate rejects it — the repro is pinned, not
+just the fix.
+
 ## 2026-07-16 — xray-network stays out of WORKSPACE_DATABASES (25.2b)
 
 Tags: `design`.

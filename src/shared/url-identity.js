@@ -434,4 +434,49 @@ export function rewriteArchivedLinks(links, ownHost) {
     return [...out.values()];
 }
 
+/**
+ * The URLs an article ANSWERS TO: its identity URL and, when the
+ * capture came from a mirror, the address it was actually fetched from
+ * (`capture_url`). Normalized, so an archive capture and a direct
+ * capture of the same piece answer to the same canonical strings.
+ *
+ * Deliberately NOT "every URL the event mentions". `buildArticleEvent`
+ * co-emits indexed `r` tags for `responds-to` targets and for the first
+ * 25 outbound links, so a relay `#r=<url>` query also returns articles
+ * that merely REFERENCE `url` — someone else's article. Answering an
+ * archive probe with one of those renders a foreign body under the
+ * requested URL. These two fields are the only addresses that are the
+ * article itself.
+ *
+ * @param {{url?: string, capture_url?: string|null}} article
+ * @returns {string[]} normalized addresses, identity first, deduped
+ */
+export function articleAddresses(article) {
+    if (!article) return [];
+    const out = [];
+    for (const raw of [article.url, article.capture_url]) {
+        if (!raw || typeof raw !== 'string') continue;
+        let n = '';
+        try { n = normalize(raw); } catch (_) { continue; }
+        if (n && !out.includes(n)) out.push(n);
+    }
+    return out;
+}
+
+/**
+ * Is `article` the article located at `url` — as opposed to one that
+ * merely links to it? The identity gate for archive reconstruction.
+ *
+ * @param {{url?: string, capture_url?: string|null}} article
+ * @param {string} url
+ * @returns {boolean}
+ */
+export function articleAnswersTo(article, url) {
+    if (!url || typeof url !== 'string') return false;
+    let wanted = '';
+    try { wanted = normalize(url); } catch (_) { return false; }
+    if (!wanted) return false;
+    return articleAddresses(article).includes(wanted);
+}
+
 export { ARCHIVE_TODAY_HOSTS as _ARCHIVE_TODAY_HOSTS };

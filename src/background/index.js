@@ -28,6 +28,7 @@ import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/su
 import { handleScreenshotCapture } from '../shared/screenshot.js';
 import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, getCorpusConfig } from '../shared/llm-client.js';
 import { pdfDocumentUrl } from '../shared/pdf-detect.js';
+import { articleAnswersTo } from '../shared/url-identity.js';
 import { Signer } from '../shared/signer.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { publishConfirmed, IDENTITY_KINDS } from '../shared/confirmed-publish.js';
@@ -789,11 +790,47 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     sendResponse({ ok: true, found: false });
                     return;
                 }
+                // `#r` is NOT an identity index, and treating it as one
+                // served the WRONG ARTICLE. buildArticleEvent co-emits an
+                // indexed `r` for `responds-to` targets and for the first
+                // 25 OUTBOUND LINKS of every article, so an event matches
+                // this filter merely by LINKING to `url` — and when no
+                // capture of `url` was ever published, a linking article
+                // is the only candidate, so it won every time, with
+                // altCount 0 offering no tell. The reader then rendered
+                // that foreign body under the requested URL.
+                //
+                // An article has exactly two addresses of its own: the
+                // primary `r` (the identity URL — reconstruct reads the
+                // FIRST `r`) and `capture-url` (the mirror it was fetched
+                // from). Everything else in the `r` set is a reference to
+                // someone ELSE's article. Reconstruct first, keep only
+                // events that ARE the requested URL, and let the rest of
+                // the pipeline see nothing.
+                //
+                // `articleAnswersTo` normalizes both sides — the primary
+                // `r` and `capture-url` are emitted raw while the probe
+                // URL comes from a live capture — but it only ever
+                // normalizes an article's OWN addresses. Normalizing the
+                // probe against the raw `#r` set instead would widen the
+                // over-match rather than close it, so the identity check
+                // and the normalization must stay together.
+                // Mandated by docs/NIP_DRAFT.md (archive reconstruction:
+                // the link/capture-url/responds-to tags disambiguate).
+                const candidates = [];
+                for (const ev of events) {
+                    const rebuilt = EventBuilder.reconstructArticleFromEvent(ev);
+                    if (!rebuilt || !articleAnswersTo(rebuilt, url)) continue;
+                    candidates.push({ ev, article: rebuilt });
+                }
+                if (candidates.length === 0) {
+                    sendResponse({ ok: true, found: false });
+                    return;
+                }
                 // Most recent event wins. kind-30023 is NIP-33 replaceable
                 // per (pubkey, d-tag), so ties should be rare but real.
-                events.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-                const pick = events[0];
-                const article = EventBuilder.reconstructArticleFromEvent(pick);
+                candidates.sort((a, b) => (b.ev.created_at || 0) - (a.ev.created_at || 0));
+                const { ev: pick, article } = candidates[0];
                 sendResponse({
                     ok: true,
                     found: true,
@@ -801,7 +838,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     eventId: pick.id,
                     authorPubkey: pick.pubkey,
                     createdAt: pick.created_at,
-                    altCount: events.length - 1
+                    altCount: candidates.length - 1
                 });
             } catch (err) {
                 sendResponse({ ok: false, error: err && err.message ? err.message : String(err) });
