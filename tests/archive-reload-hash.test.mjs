@@ -44,6 +44,10 @@ const ESCAPE_PRONE_HTML =
 
 const backslashes = (s) => (s.match(/\\/g) || []).length;
 
+// sha256(''). If this ever shows up as an x tag, an empty body reached
+// the wire and replaced a real article at its own NIP-33 coordinate.
+const EMPTY_SHA256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+
 /** Publish an article: returns the event and its x tag. */
 async function publish(article) {
     const ev = await EventBuilder.buildArticleEvent(article, [], PUBKEY);
@@ -124,29 +128,53 @@ test('the fixture is actually escape-prone — otherwise this file proves nothin
  */
 async function session(ev, actions) {
     const archived = EventBuilder.reconstructArticleFromEvent(ev);
-    const st = { article: { ...archived }, dirtySource: 'reader', draftProven: false };
-    st.markdownDraft = archivedDraftSource(archived) || archived.content || '';
+    const st = { article: { ...archived }, dirtySource: 'reader', draftProven: false, provenDraft: null };
+    const proven = await archivedDraftIsCanonical(archived);
+    st.markdownDraft = proven
+        ? archivedDraftSource(archived)
+        : (archived.markdown || archived.content || '');
     st.htmlDraft = archived.content;
-    st.draftProven = await archivedDraftIsCanonical(archived);
+    st.draftProven = proven;
+    st.provenDraft = proven ? st.markdownDraft : null;
+
+    // reader/index.js draftIsProven()
+    const isProven = () => !!st.draftProven && st.provenDraft !== null
+        && st.markdownDraft === st.provenDraft;
+
     for (const act of actions) {
         if (act === 'tagEntity') {
             // Wraps a span in the body: text-neutral, and the span never
-            // reaches the wire. dirtySource flips; draftProven must not.
+            // reaches the wire. dirtySource flips; the proof must not.
             st.htmlDraft = st.htmlDraft.replace('Cost', '<span class="xr-entity">Cost</span>');
             st.dirtySource = 'reader';
         } else if (act === 'editTitle') {
             st.dirtySource = 'reader';      // unconditional, every field
         } else if (act === 'markdownTab') {
-            if (st.dirtySource === 'reader' && !st.draftProven) {
+            if (st.dirtySource === 'reader' && !isProven()) {
                 st.markdownDraft = ContentExtractor.htmlToMarkdown(st.htmlDraft);
             }
         } else if (act === 'editBody') {
             st.dirtySource = 'reader';
             st.draftProven = false;         // the content field clears it
             st.htmlDraft = st.htmlDraft.replace('Revision', 'Amended');
+        } else if (act === 'attachTranscript') {
+            // applyMediaResult's HTML-canonical branch (reader/index.js
+            // ~:1848): rewrites the body, then BLANKS markdownDraft and
+            // sets dirtySource='reader' to force the re-derivation.
+            st.htmlDraft += '<h2>Transcript</h2><p><strong>HOST:</strong> Welcome.</p>';
+            st.markdownDraft = '';          // "stale — regenerated on tab entry"
+            st.draftProven = false;
+            st.dirtySource = 'reader';
+        } else if (act === 'attachTranscriptForgettingTheFlag') {
+            // The SAME mutation by a writer that does not know the flag
+            // exists — the class of mistake that shipped an empty body.
+            // The byte check must catch it with no cooperation.
+            st.htmlDraft += '<h2>Transcript</h2><p><strong>HOST:</strong> Welcome.</p>';
+            st.markdownDraft = '';
+            st.dirtySource = 'reader';
         }
     }
-    if (st.dirtySource === 'reader' && !st.draftProven) {
+    if (st.dirtySource === 'reader' && !isProven()) {
         st.markdownDraft = ContentExtractor.htmlToMarkdown(st.htmlDraft);
     }
     return publish({ ...st.article, content: st.markdownDraft, markdown: st.markdownDraft, _contentIsMarkdown: true });
@@ -178,6 +206,34 @@ test('four cycles of load -> tag entity -> republish still converge on ONE x tag
         seen.add(cur.x);
     }
     assert.equal(seen.size, 1, `expected 1 x tag across four tag-and-republish cycles, got ${seen.size}`);
+});
+
+test('attaching a transcript after Load archive must not publish an EMPTY body', async () => {
+    // The regression that nearly shipped. applyMediaResult blanks
+    // markdownDraft on purpose and relies on the re-derivation the proof
+    // suppresses — so the blanked draft went STRAIGHT to the wire: an
+    // empty kind-30023, x tag = sha256(''), REPLACING the real article at
+    // the same NIP-33 coordinate (the d tag is URL-derived and unchanged)
+    // and orphaning every audit keyed to the original hash.
+    const base = await publish({ url: 'https://example.com/a', title: 'T', content: ESCAPE_PRONE_HTML });
+    const after = await session(base.ev, ['attachTranscript']);
+    const body = after.ev.content;
+    assert.ok(!/^---\n[\s\S]*?\n---\n\n?$/.test(body), 'the event must not be a metadata header alone');
+    assert.notEqual(after.x, EMPTY_SHA256, 'x must never be the hash of the empty string');
+    assert.ok(body.includes('HOST'), 'the transcript the user just attached must reach the wire');
+    assert.ok(body.includes('Revision'), 'and the original body must survive alongside it');
+    assert.notEqual(after.x, base.x, 'the body genuinely changed, so the hash SHOULD fork here');
+});
+
+test('the byte check catches a writer that blanks the draft without clearing the flag', async () => {
+    // Nine places assign markdownDraft. Relying on each of them to
+    // remember a flag is how the empty-body bug happened; draftIsProven()
+    // also compares the bytes, so an uncooperative writer cannot lie.
+    const base = await publish({ url: 'https://example.com/a', title: 'T', content: ESCAPE_PRONE_HTML });
+    const after = await session(base.ev, ['attachTranscriptForgettingTheFlag']);
+    assert.notEqual(after.x, EMPTY_SHA256, 'no cooperation required — the bytes changed, so the proof lapses');
+    assert.ok(after.ev.content.includes('HOST'));
+    assert.ok(after.ev.content.includes('Revision'));
 });
 
 test('a REAL body edit still forks the hash — that IS a different article', async () => {
@@ -304,6 +360,30 @@ test('a wrong hash is refused — the proof is a real check, not a shape test', 
     assert.equal(await archivedDraftIsCanonical({
         content: draft, markdown: draft, _articleHash: 'f'.repeat(64)
     }), false);
+});
+
+test('a STALE _publishedDraft must not shadow a newer markdown when the proof fails', async () => {
+    // archivedDraftSource prefers _publishedDraft over markdown. If a row
+    // carries a _publishedDraft left over from an OLDER publish while
+    // `markdown` holds the current body, seeding the draft from the
+    // carried value unconditionally would silently REVERT the article.
+    // The seed is gated on `proven` precisely so this cannot happen: the
+    // stale pair fails its own proof, and the unproven path falls back to
+    // `markdown` — exactly the pre-existing behavior.
+    const current = 'The CURRENT body, with 5 \\* 3.';
+    const stale   = 'An OLD body, with 5 \\* 3.';
+    const row = {
+        url: 'https://example.com/a',
+        title: 'T',
+        markdown: current,
+        content: current,
+        _publishedDraft: stale,
+        _articleHash: await articleHash(
+            EventBuilder.assembleArticleBody({ content: current, _contentIsMarkdown: true }))
+    };
+    assert.equal(archivedDraftSource(row), stale, 'the carried draft is what would be preferred...');
+    assert.equal(await archivedDraftIsCanonical(row), false,
+        '...but the stale pair cannot prove itself, so the reader falls back to `markdown`');
 });
 
 test('archivedDraftSource never reads textContent — the two load paths disagree on it', async () => {

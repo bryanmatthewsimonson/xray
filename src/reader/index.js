@@ -97,8 +97,18 @@ const state = {
     // an entity rewrites htmlDraft (so dirtySource flips to 'reader')
     // without changing a single character of text — a proven draft must
     // survive that, or the re-derivation it triggers silently drifts the
-    // body. Only a real body edit clears this.
+    // body. A real body edit clears this.
+    //
+    // NEVER read this flag directly — call draftIsProven(), which also
+    // checks the draft is still the bytes we proved. Nine places assign
+    // markdownDraft, and a flag they forget to clear is a flag that
+    // lies: one of them blanks the draft on purpose and relies on the
+    // re-derivation this flag suppresses, which shipped an EMPTY body
+    // over a real article. The byte check makes that class of mistake
+    // impossible rather than merely documented.
     draftProven: false,
+    // The exact bytes `draftProven` was proved against, or null.
+    provenDraft: null,
     // Platform comments — Substack today, YouTube/Twitter/etc. in later
     // phases. The tree is whatever the platform-specific fetcher returns
     // via `xray:substack:fetchComments` (or equivalent).
@@ -246,10 +256,18 @@ async function adoptArticle(article, stored) {
     try { renderExtractionWarningsBanner(); }
     catch (err) { console.warn('[X-Ray Reader] extraction banner failed:', err); }
     // A proven draft is the published body itself; prefer it over the
-    // derived `content` (whose turndown is what drifts).
-    state.markdownDraft = archivedDraftSource(article) || article.content || '';
+    // derived `content`, whose turndown is what drifts. Gated on `proven`
+    // rather than on merely HAVING a carried draft: `archivedDraftSource`
+    // prefers `_publishedDraft` over `markdown`, so an UNPROVEN carried
+    // draft left stale by an older publish would shadow a newer, correct
+    // `markdown` and silently revert the body. Unproven => exactly the
+    // pre-existing seed.
+    state.markdownDraft = proven
+        ? archivedDraftSource(article)
+        : (article.markdown || article.content || '');
     state.htmlDraft = article.content || ContentExtractor.markdownToHtml(state.markdownDraft);
     state.draftProven = proven;
+    state.provenDraft = proven ? state.markdownDraft : null;
 
     // PDFs: the reconstructed markdown IS the capture — `content` is a
     // rendering derived from it. Marking the markdown draft canonical
@@ -526,8 +544,39 @@ function isMarkdownCanonical(article) {
         && (article.contentType === 'pdf' || article.contentType === 'transcript'));
 }
 
+/**
+ * Is `markdownDraft` still the proven published body?
+ *
+ * Two conditions, and both are load-bearing:
+ *   - `draftProven` — the draft was proved against the archive's own
+ *     `x` tag at load. Cleared by a real body edit, where the TEXT
+ *     changes but `markdownDraft` itself does not (the reader edits
+ *     `htmlDraft`), so the byte check below cannot see it.
+ *   - the bytes are unchanged — catches every writer that rewrites or
+ *     blanks the draft without clearing the flag. `applyMediaResult`
+ *     parks `markdownDraft = ''` and relies on the re-derivation this
+ *     guard suppresses; the Substack backfill rewrites it outright.
+ *     Neither needs to know this flag exists.
+ *
+ * Read this, never `state.draftProven`.
+ */
+function draftIsProven() {
+    return !!state.draftProven
+        && state.provenDraft !== null
+        && state.markdownDraft === state.provenDraft;
+}
+
 // The body the canonical hash covers must be the body publish ships.
+//
+// A proven draft IS that body — publish sends it verbatim. Hashing a
+// turndown of the rendering instead would label the reader's hash line,
+// the audit anchor, and the archive row with a hash that DISAGREES with
+// the x tag publish then emits: the drifted value the proof exists to
+// avoid, displayed as if it were the article's identity.
 function hashableArticle(article) {
+    if (draftIsProven()) {
+        return { ...article, content: state.provenDraft, _contentIsMarkdown: true };
+    }
     return isMarkdownCanonical(article)
         ? { ...article, content: article.markdown, _contentIsMarkdown: true }
         : article;
@@ -755,15 +804,20 @@ async function loadArchivedArticle(archived, provenance) {
     if (provenance.createdAt) state.article._archiveCreatedAt = provenance.createdAt;
     if (provenance.author)   state.article._archiveAuthor = provenance.author;
 
-    // The carried published body when there is one — NOT `content`,
-    // which is only a markdown->HTML rendering of it. Re-deriving markdown
-    // from that rendering is the escape-doubling bug; on the relay path
-    // this line used to fall through to `content` and put HTML in the
-    // MARKDOWN draft outright, since a reconstruction has no `markdown`.
-    state.markdownDraft = archivedDraftSource(archived) || archived.content || '';
+    // The PROVEN published body when there is one — NOT `content`, which
+    // is only a markdown->HTML rendering of it. Re-deriving markdown from
+    // that rendering is the escape-doubling bug; on the relay path this
+    // line used to fall through to `content` and put HTML in the MARKDOWN
+    // draft outright, since a reconstruction has no `markdown`. Gated on
+    // `proven` for the same reason as adoptArticle: an unproven carried
+    // draft must not shadow a newer `markdown`.
+    state.markdownDraft = proven
+        ? archivedDraftSource(archived)
+        : (archived.markdown || archived.content || '');
     state.htmlDraft     = archived.content  || ContentExtractor.markdownToHtml(state.markdownDraft);
     state.dirtySource   = 'reader';
     state.draftProven   = proven;
+    state.provenDraft   = proven ? state.markdownDraft : null;
     // Same rule as adoptArticle: an archived PDF's / transcript's
     // markdown is the canonical body — republish must not
     // turndown-round-trip it.
@@ -1812,6 +1866,8 @@ async function applyMediaResult(result) {
         state.markdownDraft = a.markdown;
         a.content = ContentExtractor.markdownToHtml(a.markdown);
         state.htmlDraft = a.content;
+        // The body now has a section the published one did not.
+        state.draftProven = false;
     } else {
         // HTML-canonical (ordinary captures): upsert the RENDERED
         // section into the clean capture content, then re-derive the
@@ -1828,6 +1884,12 @@ async function applyMediaResult(result) {
         a.content = upsertTranscriptSection(a.content || '', sectionHtml, { isHtml: true });
         state.htmlDraft = a.content;
         state.markdownDraft = '';       // stale — regenerated on tab entry
+        // ...and that regeneration is exactly what a proven draft
+        // suppresses. Without this the blanked draft SHIPS: an empty
+        // kind-30023 replacing the real article at the same NIP-33
+        // coordinate, x tag = sha256(''). draftIsProven() also catches it
+        // via the byte check; this states the intent at the mutation.
+        state.draftProven = false;
         state.dirtySource = 'reader';
     }
 
@@ -3140,7 +3202,7 @@ function renderMarkdown() {
     // unless the draft is the proven published body, which this
     // re-derivation would corrupt (see shared/archive-draft.js). Merely
     // LOOKING at the markdown tab must not drift the body.
-    if (state.dirtySource === 'reader' && !state.draftProven) {
+    if (state.dirtySource === 'reader' && !draftIsProven()) {
         state.markdownDraft = ContentExtractor.htmlToMarkdown(state.htmlDraft);
     }
     const main = $('#xr-main');
@@ -3170,7 +3232,7 @@ function renderMarkdown() {
 function renderPreview() {
     // Make sure markdownDraft is current — but never at the cost of the
     // proven published body (see renderMarkdown).
-    if (state.dirtySource === 'reader' && !state.draftProven) {
+    if (state.dirtySource === 'reader' && !draftIsProven()) {
         state.markdownDraft = ContentExtractor.htmlToMarkdown(state.htmlDraft);
     }
     const roundtripHtml = ContentExtractor.markdownToHtml(state.markdownDraft);
@@ -3666,7 +3728,7 @@ async function publish() {
         // A real body edit clears `draftProven` (onReaderFieldInput), so
         // genuine changes still re-derive and still fork the hash, which
         // is correct: that IS a different article.
-        if (state.dirtySource === 'reader' && !state.draftProven) {
+        if (state.dirtySource === 'reader' && !draftIsProven()) {
             state.markdownDraft = ContentExtractor.htmlToMarkdown(state.htmlDraft);
         }
 

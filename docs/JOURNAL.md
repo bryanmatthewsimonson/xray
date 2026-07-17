@@ -112,6 +112,42 @@ deliberately escape-prone (`5 * 3`, `that_is_it`, a line starting `14.`):
 **plain prose round-trips byte-stably and passes against the bug** —
 including `audit-capture-hash.test.mjs`'s own fixture. Do not tidy them.
 
+**The near-miss, recorded because the lesson is the point.** A review of
+the *implemented* diff (not the design) found that the first cut of this
+fix **published an EMPTY body over the real article**. `applyMediaResult`
+(attach a transcript) deliberately parks `markdownDraft = ''` with the
+comment *"stale — regenerated on tab entry"* and sets
+`dirtySource='reader'` to force that regeneration — which the new
+`draftProven` guard suppressed. Publish then shipped `content: ''`: `x` =
+`e3b0c442…` (sha256 of the empty string), `d` unchanged, so the empty
+event **replaced the article at its own NIP-33 coordinate** and orphaned
+every audit anchored to it. The reader showed a correct body and a
+correct hash line throughout, because both read `htmlDraft`.
+
+This is the *same* mistake the design review had already caught once, one
+level down. The refuters proved `dirtySource='reader'` has four writers
+and that guarding one was useless — and then `draftProven` was introduced
+with the identical shape: **nine** places assign `markdownDraft`, and the
+flag was cleared at two of them. Enumerating writers does not work here,
+and reviewers cannot be relied on to catch the next one.
+
+So the guard is now **self-checking**: `draftIsProven()` requires the flag
+AND that `markdownDraft` still equals `provenDraft`, the exact bytes the
+proof covered. Any writer that rewrites or blanks the draft un-proves it
+**with no cooperation**, which is why the Substack backfill (`:3371`,
+also unguarded, also never noticed) is safe. The flag alone remains
+necessary for the opposite case — a real body edit changes `htmlDraft`
+while `markdownDraft` sits still, which the byte check cannot see. Both
+conditions are load-bearing; the tests fail if either is removed.
+
+Two smaller findings from the same review, both fixed here: the draft seed
+was not gated on `proven`, so a **stale `_publishedDraft` could shadow a
+newer `markdown`** and silently revert the body (unproven now falls back
+to exactly the pre-existing seed); and `hashableArticle` re-derived the
+hash from the rendering even when the draft was proven, so the hash line,
+the audit anchor, and the archive row all **disagreed with the `x` tag
+publish emits** — the drifted value, displayed as the article's identity.
+
 ## 2026-07-17 — the archive banner was ~100% false, and structurally so
 
 Tags: `bug`, `design`.
