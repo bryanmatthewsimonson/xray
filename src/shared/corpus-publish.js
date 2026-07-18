@@ -109,6 +109,15 @@ export function renderCaseBriefMarkdown(brief, { caseName, scopeQuestion, member
     // end resolves each. Same order the on-screen brief uses.
     const citedOrder = citedMemberOrder(b, memberIndex);
     const citeNum = new Map(citedOrder.map((h, i) => [h, i + 1]));
+    // A holder citation "[N]" whose NUMBER links to its source. The
+    // brackets are backslash-escaped so a CommonMark reader renders a
+    // literal "[N]" with N clickable — robust across markdown viewers and
+    // NOSTR clients (an anchor link into the Sources list is not). Falls
+    // back to a plain "[N]" if the source somehow doesn't resolve.
+    const citeMd = (num) => {
+        const s = sourceLink(citedOrder[num - 1], memberIndex);
+        return s ? `\\[[${num}](${s.url})\\]` : `[${num}]`;
+    };
     const lines = [];
     lines.push(`# Case brief — ${escapeMd(caseName || 'Untitled case')}`);
     lines.push('');
@@ -132,11 +141,12 @@ export function renderCaseBriefMarkdown(brief, { caseName, scopeQuestion, member
             lines.push(`### ${escapeMd(p.label || 'Position')}`);
             if (p.core_argument) lines.push('', p.core_argument);
             // Holders cite by number (they run to dozens on a big case) —
-            // the Sources list at the end carries the full links. Sorted
-            // ascending so the run reads [1], [2], [5] not [5], [1], [2].
+            // each number links to its source; the Sources list at the end
+            // is the readable index. Sorted ascending so the run reads
+            // [1], [2], [5] not [5], [1], [2].
             const nums = (p.holders || []).map((h) => citeNum.get(h.article_hash))
                 .filter((num) => num != null).sort((x, y) => x - y);
-            if (nums.length) lines.push('', `*Held by:* ${nums.map((num) => `[${num}]`).join(', ')}`);
+            if (nums.length) lines.push('', `*Held by:* ${nums.map(citeMd).join(', ')}`);
             lines.push('');
         }
     }
