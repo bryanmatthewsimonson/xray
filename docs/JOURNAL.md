@@ -19,6 +19,28 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-18 — Accepting a corpus proposal jumped the scroll to the bottom
+
+**Tags:** bug
+
+Every "Accept" on a synthesis proposal fired `onChanged → onReloadCase →
+render()`, a FULL portal re-render. `render()` rebuilds `#xr-view` and the
+synthesis block repopulates asynchronously, so the scroll reset (landing
+at the bottom) on every single accept — batch-accepting a run of proposals
+was miserable. The re-render was also redundant: the accept handler already
+updates the row in place (`✓`) and persists through the model firewalls
+(EvidenceLinker / ClaimModel) independently of any render.
+
+Fix: drop the per-accept re-render. `renderProposals` now gives in-place
+feedback only — the row marks `✓`, the open count ticks down, and a hint
+notes "N accepted — Refresh to fold them into the case view." The graph/
+dossier reflect the accepted claims/links on the next Refresh (the batch
+workflow), never mid-triage. Dismiss already used `row.remove()` (no
+re-render) and was unaffected; it now also decrements the count.
+`onChanged` is removed from the `renderProposals` contract.
+(Membership add/remove still re-renders via its own `onReloadCase` — that
+path is unchanged.)
+
 ## 2026-07-18 — The claim-join narrowed the brief: representative digest + a map/reduce version split
 
 **Tags:** design

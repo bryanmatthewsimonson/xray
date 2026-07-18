@@ -74,8 +74,14 @@ async function accept(p, { model, memberByHash }) {
  * Render the proposals list into `host`. `acceptable`/`rejected` come
  * from filterProposals; `claimsById` labels existing refs;
  * `memberByHash` (article_hash → {url, caseId}) resolves claim
- * proposals; `model` stamps suggested_by; `onChanged` re-renders the
- * case view after an accept.
+ * proposals; `model` stamps suggested_by.
+ *
+ * Accepting a proposal applies it immediately through the model
+ * firewalls and marks the row in place (✓). It deliberately does NOT
+ * re-render the whole case view: a per-accept full re-render reset the
+ * scroll position and threw the reader to the bottom, which made
+ * accepting a run of proposals painful. The graph/dossier fold the
+ * accepted claims/links in on the next Refresh.
  *
  * 27 S.3: `triage` is the brief record's per-proposal status map
  * (proposalKey → 'accepted' | 'dismissed'); `onTriage(key, status)`
@@ -85,7 +91,7 @@ async function accept(p, { model, memberByHash }) {
  * dismissal), and a zero-proposal run says so instead of rendering
  * nothing.
  */
-export function renderProposals(host, { acceptable, rejected, claimsById, memberByHash, model, onChanged, triage = {}, onTriage }) {
+export function renderProposals(host, { acceptable, rejected, claimsById, memberByHash, model, triage = {}, onTriage }) {
     host.replaceChildren();
     const setTriage = async (key, status) => {
         if (typeof onTriage === 'function') {
@@ -96,14 +102,35 @@ export function renderProposals(host, { acceptable, rejected, claimsById, member
 
     const { open, accepted, dismissed } = partitionProposals(acceptable, triage);
 
-    host.appendChild(el('h4', 'xr-case__heading',
-        `Proposals — review and accept (${open.length})`));
+    const heading = el('h4', 'xr-case__heading',
+        `Proposals — review and accept (${open.length})`);
+    host.appendChild(heading);
     if (open.length === 0 && accepted.length === 0 && dismissed.length === 0
             && (!rejected || rejected.length === 0)) {
         host.appendChild(el('div', 'xr-inspector__mono',
             '0 proposals — the synthesis found no reviewable actions this run.'));
         return;
     }
+
+    // Live, in-place feedback so a run of Accepts never re-renders (and
+    // never jumps the scroll): the open count ticks down and a hint
+    // appears. The accepted claim/link is already persisted; the case
+    // view folds it in on the next Refresh.
+    let openRemaining = open.length;
+    let acceptedCount = 0;
+    const updateCount = () => {
+        heading.textContent = `Proposals — review and accept (${openRemaining})`;
+    };
+    const refreshHint = el('div', 'xr-synth__status');
+    refreshHint.hidden = true;
+    host.appendChild(refreshHint);
+    const noteAccepted = ({ wasOpen }) => {
+        if (wasOpen) { openRemaining = Math.max(0, openRemaining - 1); updateCount(); }
+        acceptedCount += 1;
+        refreshHint.hidden = false;
+        refreshHint.textContent =
+            `${acceptedCount} accepted — Refresh (top right) to fold them into the case view.`;
+    };
 
     const proposalRow = (p, key, { undismiss = false } = {}) => {
         const row = el('div', 'xr-synth__prop');
@@ -117,7 +144,7 @@ export function renderProposals(host, { acceptable, rejected, claimsById, member
                 await accept(p, { model, memberByHash });
                 await setTriage(key, 'accepted');
                 row.replaceChildren(el('span', 'xr-synth__prop-desc', '✓ ' + describe(p, claimsById)));
-                if (typeof onChanged === 'function') onChanged();
+                noteAccepted({ wasOpen: !undismiss });
             } catch (err) {
                 Utils.error('Proposal accept failed', err);
                 acceptBtn.disabled = false;
@@ -130,6 +157,8 @@ export function renderProposals(host, { acceptable, rejected, claimsById, member
             rejectBtn.type = 'button';
             rejectBtn.addEventListener('click', async () => {
                 await setTriage(key, 'dismissed');
+                openRemaining = Math.max(0, openRemaining - 1);
+                updateCount();
                 row.remove();
             });
             row.appendChild(rejectBtn);

@@ -333,8 +333,11 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                 onTriage: async (key, status) => {
                     record.triage = { ...(record.triage || {}), [key]: status };
                     await saveCaseBrief(record);
-                },
-                onChanged: () => callbacks.onReloadCase && callbacks.onReloadCase()
+                }
+                // No onChanged: accepting updates the row in place and
+                // persists through the model firewalls; a full re-render
+                // per Accept reset the scroll (jumped to the bottom).
+                // The case view folds accepted items in on the next Refresh.
             });
         };
 
