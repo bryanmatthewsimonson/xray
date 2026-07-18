@@ -73,6 +73,31 @@ function escapeMd(s) {
 }
 
 /**
+ * The distinct RESOLVABLE members the brief cites, in first-appearance
+ * order — the citation-numbering backbone. Positions cite their (often
+ * dozens of) holders by number to keep the prose readable, and a Sources
+ * list at the end maps each number to its full link; the on-screen brief
+ * and this exported/published markdown number from the SAME order, so a
+ * citation [N] means the same source everywhere. Resolvable = has a
+ * memberIndex entry with a URL (an unlinkable holder is dropped, exactly
+ * as the inline render already dropped it). Distinct from
+ * `referencedMembers` (which feeds the wire `x`/`a` tags and must keep
+ * even unresolvable hashes) — do not conflate the two.
+ */
+export function citedMemberOrder(brief, memberIndex) {
+    const seen = new Set();
+    const order = [];
+    const add = (h) => {
+        if (h && !seen.has(h) && sourceLink(h, memberIndex)) { seen.add(h); order.push(h); }
+    };
+    const b = brief || {};
+    for (const p of b.positions || []) for (const h of p.holders || []) add(h.article_hash);
+    for (const c of b.cruxes || []) for (const e of c.evidence_refs || []) add(e.article_hash);
+    for (const l of b.load_bearing || []) add(l.article_hash);
+    return order;
+}
+
+/**
  * Render the brief to a readable markdown article body. Deterministic
  * and prose-only. `memberIndex` maps article_hash → {url, title} so
  * quotes link back to their source; missing members degrade to an
@@ -80,13 +105,20 @@ function escapeMd(s) {
  */
 export function renderCaseBriefMarkdown(brief, { caseName, scopeQuestion, memberCount, memberIndex } = {}) {
     const b = publishableBrief(brief);
+    // Citation numbering — positions cite by [N], the Sources list at the
+    // end resolves each. Same order the on-screen brief uses.
+    const citedOrder = citedMemberOrder(b, memberIndex);
+    const citeNum = new Map(citedOrder.map((h, i) => [h, i + 1]));
     const lines = [];
     lines.push(`# Case brief — ${escapeMd(caseName || 'Untitled case')}`);
     lines.push('');
     const n = memberCount != null ? memberCount : referencedMembers(b).length;
     const scope = scopeQuestion ? ` on **${escapeMd(scopeQuestion)}**` : '';
+    const citeNote = citedOrder.length
+        ? ' Positions cite their sources by number — the full list is under **Sources** at the end.'
+        : '';
     lines.push(`*A synthesis of ${n} captured source${n === 1 ? '' : 's'}${scope}. Every quote below is`
-        + ` verbatim from a captured source — open the linked source to read it in context. Compiled with`
+        + ` verbatim from a captured source — open the linked source to read it in context.${citeNote} Compiled with`
         + ` [X-Ray](${XRAY_URL}); this is a map of the disagreement, **not** a ruling.*`);
     lines.push('');
 
@@ -99,9 +131,12 @@ export function renderCaseBriefMarkdown(brief, { caseName, scopeQuestion, member
         for (const p of b.positions) {
             lines.push(`### ${escapeMd(p.label || 'Position')}`);
             if (p.core_argument) lines.push('', p.core_argument);
-            const held = (p.holders || []).map((h) => sourceLink(h.article_hash, memberIndex))
-                .filter(Boolean).map((s) => `[${escapeMd(s.title)}](${s.url})`);
-            if (held.length) lines.push('', `*Held by:* ${held.join(', ')}`);
+            // Holders cite by number (they run to dozens on a big case) —
+            // the Sources list at the end carries the full links. Sorted
+            // ascending so the run reads [1], [2], [5] not [5], [1], [2].
+            const nums = (p.holders || []).map((h) => citeNum.get(h.article_hash))
+                .filter((num) => num != null).sort((x, y) => x - y);
+            if (nums.length) lines.push('', `*Held by:* ${nums.map((num) => `[${num}]`).join(', ')}`);
             lines.push('');
         }
     }
@@ -133,6 +168,17 @@ export function renderCaseBriefMarkdown(brief, { caseName, scopeQuestion, member
     if (b.coverage_gaps.length) {
         lines.push('## Coverage gaps', '');
         for (const g of b.coverage_gaps) lines.push(`- ${String(g || '').trim()}`);
+        lines.push('');
+    }
+
+    // Sources — the numbered list the [N] citations resolve to. Full
+    // link text lives here so the prose above stays readable.
+    if (citedOrder.length) {
+        lines.push('## Sources', '');
+        citedOrder.forEach((h, i) => {
+            const s = sourceLink(h, memberIndex);
+            lines.push(`${i + 1}. [${escapeMd(s.title)}](${s.url})`);
+        });
         lines.push('');
     }
 

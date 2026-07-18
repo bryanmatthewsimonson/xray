@@ -28,7 +28,7 @@ import { renderProposals } from './synthesis-review.js';
 import { Signer } from '../shared/signer.js';
 import { Storage } from '../shared/storage.js';
 import { FALLBACK_RELAYS } from './corpus.js';
-import { buildCaseBriefArticle, buildCaseBriefEvent, renderCaseBriefMarkdown } from '../shared/corpus-publish.js';
+import { buildCaseBriefArticle, buildCaseBriefEvent, renderCaseBriefMarkdown, citedMemberOrder } from '../shared/corpus-publish.js';
 
 /** A source link for a member article_hash, or null when unresolved. */
 function sourceAnchor(hash, memberIndex) {
@@ -39,6 +39,24 @@ function sourceAnchor(hash, memberIndex) {
     a.target = '_blank';
     a.rel = 'noreferrer noopener';
     a.title = m.url;
+    return a;
+}
+
+/**
+ * A compact numbered citation "[N]" linking to its source — the readable
+ * stand-in for a position's holder list (dozens of full titles collapse
+ * to numbers, resolved by the Sources section). `hash` is always a
+ * resolvable member (from citedMemberOrder), so the URL is present.
+ */
+function citationLink(num, hash, memberIndex) {
+    const m = (memberIndex || {})[hash] || {};
+    const a = el('a', 'xr-synth__cite', `[${num}]`);
+    if (m.url) {
+        a.href = m.url;
+        a.target = '_blank';
+        a.rel = 'noreferrer noopener';
+        a.title = m.title || m.url;
+    }
     return a;
 }
 
@@ -116,6 +134,11 @@ function startSwKeepalive() {
 // `claimsById` resolves an optional load-bearing claim_ref best-effort.
 function section(brief, { memberIndex = {}, claimsById = {} } = {}) {
     const wrap = el('div', 'xr-synth__brief');
+    // Citation numbering — the SAME order the exported/published markdown
+    // uses (corpus-publish.citedMemberOrder), so [N] means one source
+    // across the on-screen brief, the .md, and the 30023 article.
+    const citedOrder = citedMemberOrder(brief, memberIndex);
+    const citeNum = new Map(citedOrder.map((h, i) => [h, i + 1]));
     if (brief.summary) {
         const s = el('details', 'xr-synth__sec'); s.open = true;
         s.appendChild(el('summary', null, 'Summary'));
@@ -129,11 +152,17 @@ function section(brief, { memberIndex = {}, claimsById = {} } = {}) {
             const d = el('div', 'xr-synth__pos');
             d.appendChild(el('span', 'xr-badge', p.label || 'position'));
             if (p.core_argument) d.appendChild(el('span', 'xr-synth__text', p.core_argument));
-            const held = (p.holders || []).map((h) => sourceAnchor(h.article_hash, memberIndex)).filter(Boolean);
-            if (held.length) {
+            // Holders as compact numbered citations (they run to dozens);
+            // the Sources section below resolves each. Sorted ascending.
+            const nums = (p.holders || []).map((h) => citeNum.get(h.article_hash))
+                .filter((num) => num != null).sort((x, y) => x - y);
+            if (nums.length) {
                 const row = el('div', 'xr-synth__prov-row');
                 row.appendChild(el('span', 'xr-synth__prov-label', 'Held by:'));
-                held.forEach((a, i) => { if (i) row.appendChild(document.createTextNode(', ')); row.appendChild(a); });
+                nums.forEach((num, i) => {
+                    if (i) row.appendChild(document.createTextNode(' '));
+                    row.appendChild(citationLink(num, citedOrder[num - 1], memberIndex));
+                });
                 d.appendChild(row);
             }
             s.appendChild(d);
@@ -194,6 +223,24 @@ function section(brief, { memberIndex = {}, claimsById = {} } = {}) {
         const ul = el('ul', 'xr-list');
         for (const g of brief.coverage_gaps) ul.appendChild(el('li', 'xr-synth__text', g));
         s.appendChild(ul);
+        wrap.appendChild(s);
+    }
+    // Sources — the numbered list the [N] holder citations resolve to.
+    // Collapsed by default so it doesn't crowd the prose; the <ol>'s own
+    // markers ARE the citation numbers (first-appearance order).
+    if (citedOrder.length) {
+        const s = el('details', 'xr-synth__sec');
+        s.appendChild(el('summary', null, `Sources (${citedOrder.length})`));
+        const ol = el('ol', 'xr-synth__sources');
+        for (const h of citedOrder) {
+            const m = memberIndex[h] || {};
+            const li = el('li');
+            const a = el('a', 'xr-synth__src', m.title || m.url || h);
+            if (m.url) { a.href = m.url; a.target = '_blank'; a.rel = 'noreferrer noopener'; a.title = m.url; }
+            li.appendChild(a);
+            ol.appendChild(li);
+        }
+        s.appendChild(ol);
         wrap.appendChild(s);
     }
     return wrap;

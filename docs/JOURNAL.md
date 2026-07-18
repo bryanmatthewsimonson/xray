@@ -19,6 +19,30 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-18 — Case brief: numbered citations + a Sources list (readability at 100+ members)
+
+**Tags:** design
+
+On a 100+ member case the brief's `*Held by:*` holder lists became a wall of
+full-title source links — position 1 alone ran ~41 `[Title](url)` links. Made
+the citations readable without losing comprehensiveness: holders now cite by
+number `[1], [2], …`, quote attributions (crux evidence + load-bearing) keep
+their inline title (the few, hand-picked, important ones), and a **`## Sources`**
+list at the end maps every `[N]` to its full link. On the COVID brief the
+"Held by" text dropped **18,539 → 778 chars (−95.8%)**; every source is still
+present, just in the appendix.
+
+Render-only — the brief DATA and the wire format are unchanged (kinds
+30023/30068, the `x`/`a` member tags, the no-fused-score firewall). The number
+comes from a shared `corpus-publish.citedMemberOrder(brief, memberIndex)`
+(first-appearance order over resolvable members) used by BOTH the on-screen
+portal brief (`synthesis-block.js` `section()`) and the exported/published
+markdown (`renderCaseBriefMarkdown`, feeding the `.md` and the 30023 article),
+so `[N]` denotes one source across all three surfaces. `referencedMembers`
+(which feeds the wire `x`/`a` tags and must keep even unresolvable hashes) is
+deliberately left distinct. Verified with a 3-dimension adversarial review
+(numbering consistency, on-screen DOM/edges, markdown/wire) — 0 findings.
+
 ## 2026-07-18 — "Open a PDF by URL" — a reader entry surface for the ?pdf=<url> path
 
 **Tags:** design
