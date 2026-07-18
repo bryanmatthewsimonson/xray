@@ -13,6 +13,7 @@ import { Signer } from '../shared/signer.js';
 import { NIP07Client } from './nip07-client.js';
 import { UI } from './ui.js';
 import { installBufferListener, configureInterceptor } from '../shared/api-hook-buffer.js';
+import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 
 async function init() {
     // Initialize storage (migrates from any legacy GM storage if present).
@@ -130,6 +131,78 @@ async function init() {
     }
 
     Utils.log('Initialization complete');
+
+    // Phase 27 K.4 — the automation capture marker. A driving agent
+    // (the xray-capture skill) can neither reach extension pages nor
+    // fire the command shortcut through the browser connector, so
+    // NAVIGATION is its only verb: opening `<url>#xray:capture`
+    // triggers the same capture the toolbar button would. Flag-gated,
+    // default OFF (Options → Advanced → Capture automation). The
+    // marker is navigation plumbing, not page identity — it is
+    // stripped before capture (the URL normalizer would drop it from
+    // stored URLs regardless), and the outcome is stamped on the DOM
+    // (`data-xray-captured`) so the driver can verify from ordinary
+    // page context. Captures the page, nothing more.
+    await maybeAutomationCapture();
+    // A hash-only navigation (same page, marker appended) does NOT
+    // re-run init — the driver's capture would silently no-op. Listen
+    // so the marker works from an already-loaded page too.
+    window.addEventListener('hashchange', () => {
+        maybeAutomationCapture().catch((err) =>
+            Utils.error('Automation capture marker failed:', err));
+    });
+}
+
+/**
+ * The `#xray:capture` automation marker (Phase 27 K.4). Flag-gated,
+ * default OFF. Triggers the same capture the toolbar button does, and
+ * stamps the outcome on the DOM so a driving agent can verify from
+ * ordinary page context.
+ */
+async function maybeAutomationCapture() {
+    if (window.location.hash !== '#xray:capture') return;
+    try {
+        await loadFlags();
+        if (!isEnabled('captureAutomation')) {
+            document.documentElement.dataset.xrayCaptured = 'flag-off';
+            Utils.log('#xray:capture marker present but captureAutomation is off');
+            return;
+        }
+        stripCaptureMarker();
+        // Give late-loading pages the settle time a human clicking the
+        // toolbar would naturally allow.
+        setTimeout(() => {
+            try {
+                UI.openReader();
+                document.documentElement.dataset.xrayCaptured = 'ok';
+            } catch (err) {
+                document.documentElement.dataset.xrayCaptured = 'error';
+                Utils.error('Automation capture failed:', err);
+            }
+        }, 1500);
+    } catch (err) {
+        document.documentElement.dataset.xrayCaptured = 'error';
+        Utils.error('Automation capture marker failed:', err);
+    }
+}
+
+/**
+ * Drop the marker from the address bar. Cosmetic ONLY — the URL
+ * normalizer strips fragments from stored URLs regardless — so it must
+ * never block the capture it precedes. The URL is rebuilt ABSOLUTE
+ * from the origin: a relative argument resolves against the document's
+ * base URI, and a page whose `<base href>` points at another host
+ * (archive.is serves content under a randomized subdomain) makes
+ * replaceState throw SecurityError — which previously aborted the
+ * whole capture.
+ */
+function stripCaptureMarker() {
+    try {
+        history.replaceState(null, '',
+            window.location.origin + window.location.pathname + window.location.search);
+    } catch (err) {
+        Utils.log('Capture marker left in the address bar (harmless):', err && err.message);
+    }
 }
 
 /**

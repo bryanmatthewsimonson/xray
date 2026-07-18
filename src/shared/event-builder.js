@@ -158,6 +158,23 @@ export const EventBuilder = {
       ['client', 'xray']
     ];
 
+    // Phase 18 C5 mirror (COMPLEX_CONTENT_DESIGN.md §6.3/§7): when the
+    // capture carries an extraction provenance record, `method` and
+    // `source_hash` publish as ADDITIVE tags so consumers can
+    // distinguish "deterministic text layer" from "model-transcribed"
+    // forever. WIRE-FORMAT ADDITION — additive only: no existing tag
+    // moves, and consumers skip unknown tags (the established
+    // pattern). `unverified_spans` stays local: it describes the
+    // reconstruction session, not the published text.
+    if (article.extraction && typeof article.extraction === 'object') {
+      if (article.extraction.method) {
+        tags.push(['extraction-method', String(article.extraction.method)]);
+      }
+      if (article.extraction.source_hash) {
+        tags.push(['source-hash', String(article.extraction.source_hash)]);
+      }
+    }
+
     // ONE r-dedupe mechanism for every co-emit below (responds-to,
     // capture-url, link): the primary r above stays FIRST (readers
     // take the first r as the article URL), and no duplicate r tag is
@@ -1044,6 +1061,30 @@ export const EventBuilder = {
       markdown = markdown.replace(transMatch[0], '').trim();
     }
 
+    // The PUBLISHED DRAFT: the value `content` held when this event was
+    // built — i.e. assembleArticleBody's INPUT, whose OUTPUT is the exact
+    // preimage of the `x` tag below. Snapshotted here, AFTER the section
+    // extraction, precisely because assembleArticleBody RE-APPENDS
+    // `## Description` / `## Transcript` for a video: handing it the full
+    // body would emit them twice. It is the remainder that composes.
+    //
+    // Carried, not recomputed, for the same reason as `_articleHash`:
+    // `content` below is a markdown->HTML RENDERING of this text, and
+    // turndowning that rendering back is not idempotent — it multiplies
+    // escape backslashes n -> 2n+1 per round trip, forking the x tag off
+    // the anchor every audit keys to. Republish paths must prefer this
+    // over re-deriving from `content`; `shared/archive-draft.js` decides
+    // when that is safe, by PROVING this text against `_articleHash`.
+    //
+    // Deliberately NOT named `markdown`: that key is the marker
+    // `isMarkdownCanonical` reads, and setting it here would silently arm
+    // that predicate on the relay path for the first time, declaring a
+    // lossily-reconstructed pdf/transcript body canonical WITHOUT proof.
+    // Deliberately not read from `textContent` either — same bytes here,
+    // but that key holds tag-stripped PLAIN TEXT on the capture path, so
+    // it cannot be trusted to mean this.
+    const publishedDraft = markdown;
+
     // Convert remaining markdown back to HTML
     let htmlContent = '';
     try {
@@ -1115,6 +1156,21 @@ export const EventBuilder = {
       // recomputed: a markdown→HTML→markdown round trip would not
       // byte-match the original body. Null on pre-13.4 events.
       _articleHash: tags['x'] || null,
+      // `_articleHash`'s matched pair: the draft that, rebuilt through
+      // assembleArticleBody, reproduces the hash above. Together they are
+      // a self-checking unit — anyone holding both can verify the body
+      // against the hash offline. See the `publishedDraft` snapshot.
+      _publishedDraft: publishedDraft,
+      // Phase 18 C5 — extraction provenance read-back. Only the two
+      // mirrored fields exist on the wire; a reconstructed article's
+      // extraction record is deliberately smaller than a local one.
+      // Absent on non-extracted captures (the common case).
+      ...(tags['extraction-method'] ? {
+        extraction: {
+          method: tags['extraction-method'],
+          ...(tags['source-hash'] ? { source_hash: tags['source-hash'] } : {})
+        }
+      } : {}),
     };
 
     // Reconstruct engagement

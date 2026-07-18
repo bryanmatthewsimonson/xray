@@ -1506,7 +1506,20 @@ grounding substrate*).
 - ✅ **C2 (light)** scholarly metadata — DOI/arXiv/journal/authors
   from citation meta tags on every capture (`platforms/scholar-meta.js`);
   additive `doi` + NIP-73 `i` + `arxiv` tags on 30023.
-  *(Deferred: ar5iv-preferring arXiv handler, PMC handler, Crossref.)*
+- ✅ **C2 (tail)** the deferred scholarly handlers — `platforms/pmc.js`
+  (references as structure via the shared `scholar-refs.js` parser —
+  title/authors only when DOM-marked, never guessed; figure captions;
+  PMCID/PMID ids) and `platforms/arxiv.js` (ar5iv full-text preference
+  on `/abs/` captures: body swap gated on a meaningfully-longer check,
+  `capture_url` records the rendition fetched, wire-bound
+  wordCount/links re-derived from the adopted body); `crossref.js`
+  (validated DOI → `api.crossref.org` request + fill-only-missing
+  mapping) behind the host-allowlisted `xray:scholar:fetch` /
+  `xray:scholar:crossref` SW messages. `references` stays a **local
+  capture record** (§7) — no wire change. *(Deferred: the reader-side
+  Crossref trigger — needs a scholar display surface and a careful
+  read-modify-write of the session stash; the naive write nulls
+  `sourceTabId` and breaks NIP-07 publish routing.)*
 - ✅ **C3** PDF routing + acquisition — background routes PDF tabs to
   the reader's `?pdf=` path (`shared/pdf-detect.js` + Content-Type
   sniff); Import-file fallback; IndexedDB v3 `source_documents` store
@@ -1528,8 +1541,24 @@ grounding substrate*).
   → blob URL at read time. Size/furniture/count guards; an image-only
   page is no longer flagged `sparse-pages`. *(Deferred: OCR inside
   figures; vector-drawn charts with no image XObject.)*
-- 📝 **C5** LLM extraction assist (dual-substrate re-grounding;
-  scans-only transcription, honestly labeled) — designed, not built.
+- ✅ **C5** LLM extraction assist — `shared/llm-extract.js` (the
+  dual-substrate re-grounding: every model span is a search key
+  grounded via `quote-grounding.js`, re-canonicalized to substrate
+  bytes or dropped and counted in `unverified_spans`; table structure
+  is the model's contribution but every cell re-grounds, and a
+  majority-fabricated table drops whole), `llm-extract-prompts.js`
+  (forced-tool span schema, two modes, the 100-page/30MB caps —
+  **page-range chunking is a documented deferral**: the API has no
+  page-range parameter and splitting PDFs needs a PDF library in the
+  SW), `runExtractPass` + the `xray:llm:extract` SW message (bytes
+  read from `source_documents` by hash, never sent over messaging).
+  Scans: the refusal is now a typed error and the reader offers
+  consent-gated transcription — the transcription IS the capture,
+  `extraction.method = 'llm:<model>'`, bannered with the archived
+  original one click away. Structure: "Reconstruct with LLM…" in the
+  extraction-warnings banner. **Wire addition (additive):**
+  `extraction-method` + `source-hash` tags on 30023 per §6.3/§7,
+  read back as a thin extraction record.
 - 📝 **C6** SMOKE §Phase 18 walk needs a human with a browser.
 
 Sequenced after the Epistack sprint (docs/code landed on the
@@ -1801,6 +1830,34 @@ Non-goals (v1): no kind-1 notes/replies; no DMs; no live relay
 subscriptions; no ranking/reputation; no persist-on-view; no
 auto-merge of foreign entities; no new wire kinds (kind 3 is standard
 NIP-02); no mute list; no sidepanel KS.4 feed changes.
+
+---
+
+## Phase 26 — Corpus analysis, deepened 🚧 in progress
+
+Driven from a maintainer review of the COVID-origins case dashboard.
+The **safe wins shipped** (Phase-26 prep, T1.1–T1.3): download the
+corpus brief (.md/.json), surface the provenance the brief already
+carried (crux evidence quotes, load-bearing source links, position
+holders), surface cross-article claim links, and clarify the
+Evidence/Case-graph vocabulary. The two larger capabilities were
+**approved 2026-07-16** (maintainer decisions recorded in each doc's
+open-questions section) — both bounded by the epistemic firewall (no
+fused score/probability; structure, not estimation), both
+computed-on-read with **no new wire kind**, one PR per slice:
+
+- 🚧 **Hypothesis map** (slices H.1–H.4; H.5 wire kind deferred) —
+  competing answers to the case question with captured claims attached
+  as *supporting/undermining* structural evidence, side by side, model
+  never picks, no score; neutral per-section edge counts allowed but
+  never cross-compared; verdict chips shown as context only
+  ([`HYPOTHESIS_MAP_DESIGN.md`](HYPOTHESIS_MAP_DESIGN.md)).
+- 🚧 **Structural counterfactual** (slices CF.1–CF.2, after the map) —
+  "what depends on this claim": the maintainer's "Monte Carlo" ask
+  reframed to counts-with-derivation over the case graph, never
+  probabilities (the constitution's answer to Rootclaim-style scoring
+  is a deliberate no); inline per-claim expander, remove + negate modes
+  ([`COUNTERFACTUAL_DESIGN.md`](COUNTERFACTUAL_DESIGN.md)).
 
 ---
 

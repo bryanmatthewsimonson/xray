@@ -357,6 +357,47 @@ export const ContentExtractor = {
     }
   },
 
+  // Extraction over a FETCHED HTML string (Phase 18 C2 tail) — the
+  // seam the arXiv handler's ar5iv full-text preference runs through.
+  // Same Readability contract as the live-DOM path: `content` stays
+  // HTML at capture time (markdown happens downstream in
+  // event-builder). A <base> element makes the fetched page's relative
+  // image/link URLs resolve against its own origin, and outbound links
+  // are extracted from the SAME parsed body so the `link` tags a later
+  // publish emits describe the adopted text, not the page it replaced
+  // (wire-bound — see arxiv.js's adopt block). `ownHost` is the fetched
+  // URL's host, so a rendition's internal anchors mark `internal` and
+  // never publish. Null on any failure — callers fail open.
+  extractFromHtmlString: (html, baseUrl) => {
+    try {
+      const parsedDoc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+      if (baseUrl && parsedDoc.head) {
+        const base = parsedDoc.createElement('base');
+        base.setAttribute('href', baseUrl);
+        parsedDoc.head.insertBefore(base, parsedDoc.head.firstChild);
+      }
+      const parsed = new Readability(parsedDoc).parse();
+      if (!parsed || !parsed.content || !parsed.textContent) return null;
+      const out = {
+        content: parsed.content,
+        textContent: parsed.textContent,
+        title: parsed.title || ''
+      };
+      try {
+        const bodyDiv = parsedDoc.createElement('div');
+        bodyDiv.innerHTML = parsed.content;
+        let ownHost = '';
+        try { ownHost = new URL(baseUrl).hostname; } catch (_) { /* no host */ }
+        const outbound = ContentExtractor.extractOutboundLinks(bodyDiv, baseUrl, ownHost);
+        out.links = outbound.links;
+        if (outbound.truncated) out.links_truncated = true;
+      } catch (_) { /* links stay absent — arxiv.js nulls them honestly */ }
+      return out;
+    } catch (_) {
+      return null;
+    }
+  },
+
   // Outbound links (docs/NIP_DRAFT.md `link` tags): every
   // http(s) anchor in the extracted body, deduped through the unified
   // normalizer so a link and its tracking-param variant count as ONE

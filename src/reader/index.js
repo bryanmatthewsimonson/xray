@@ -20,6 +20,7 @@ import { recordAccount, extractPostAuthor } from '../shared/identity/account-reg
 import { selectAccountsToPublish } from '../shared/identity/account-publish.js';
 import { ClaimModel, exactFromAnchor } from '../shared/claim-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
+import { HypothesisEdgeModel } from '../shared/hypothesis-model.js';
 import * as ArchiveCache from '../shared/archive-cache.js';
 import { recordAlias, resolveAlias } from '../shared/url-aliases.js';
 import { installEntityTagger, rehydrateEntityMarks, renderEntitiesBar, extractParagraphContext } from './entity-tagger.js';
@@ -37,11 +38,15 @@ import { TruthAdjudicationModel, VerdictModel } from '../shared/truth-adjudicati
 import { IntegrityModel } from '../shared/integrity-model.js';
 import { buildAssessmentEvent, buildClaimRelationshipEvent, buildAssessmentMirrorEvent, buildBehavioralFindingEvent, buildForensicFindingMirrorEvent } from '../shared/metadata/builders.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
-import { ForensicModel } from '../shared/forensic-model.js';
+import { ForensicModel, ForensicBaseline } from '../shared/forensic-model.js';
 import { openFindingModal, openBaselineModal } from '../shared/forensic-modal.js';
 import { renderFindingsBar } from './findings-section.js';
+import { shouldOfferArchive, describeMetric } from './archive-banner.js';
+import { archivedDraftIsCanonical, archivedDraftSource } from '../shared/archive-draft.js';
 import { openLlmReview } from './llm-review.js';
-import { capturePdfToArticle } from './pdf-capture.js';
+import { capturePdfToArticle, completeScanCapture } from './pdf-capture.js';
+import { assembleExtraction, extractionMethod } from '../shared/llm-extract.js';
+import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prompts.js';
 import { pageOfOffset, pageFragmentSelector } from '../shared/pdf-layout.js';
 import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { captureFromRange } from '../shared/metadata/anchor-capture.js';
@@ -87,6 +92,26 @@ const state = {
     htmlDraft: '',
     markdownDraft: '',
     dirtySource: 'reader', // which draft is canonical
+    // `markdownDraft` PROVABLY reproduces `articleHash` — it is the body
+    // that was published, carried rather than re-derived (see
+    // shared/archive-draft.js). Separate from `dirtySource` on purpose:
+    // dirtySource records where a draft CAME FROM, this records whether
+    // it can be TRUSTED, and the two answers move independently. Tagging
+    // an entity rewrites htmlDraft (so dirtySource flips to 'reader')
+    // without changing a single character of text — a proven draft must
+    // survive that, or the re-derivation it triggers silently drifts the
+    // body. A real body edit clears this.
+    //
+    // NEVER read this flag directly — call draftIsProven(), which also
+    // checks the draft is still the bytes we proved. Nine places assign
+    // markdownDraft, and a flag they forget to clear is a flag that
+    // lies: one of them blanks the draft on purpose and relies on the
+    // re-derivation this flag suppresses, which shipped an EMPTY body
+    // over a real article. The byte check makes that class of mistake
+    // impossible rather than merely documented.
+    draftProven: false,
+    // The exact bytes `draftProven` was proved against, or null.
+    provenDraft: null,
     // Platform comments — Substack today, YouTube/Twitter/etc. in later
     // phases. The tree is whatever the platform-specific fetcher returns
     // via `xray:substack:fetchComments` (or equivalent).
@@ -213,7 +238,16 @@ async function loadArticle() {
 }
 
 /** Shared adoption tail for every load path (session hand-off, PDF). */
-function adoptArticle(article, stored) {
+async function adoptArticle(article, stored) {
+    // Proven BEFORE any state write, so no render can fire mid-await and
+    // see a half-loaded draft. Costs one sha256 on a string we already
+    // hold; false for every fresh capture (no `_articleHash` yet), so the
+    // capture path is untouched. This entry point matters because the
+    // portal opens archive rows WRITABLE through it — the case view's
+    // "Extract claims" button and the case graph's article nodes both
+    // land here, not in loadArchivedArticle.
+    const proven = await archivedDraftIsCanonical(article);
+
     state.article = article;
     // Remembered for later writes (save-on-tag): a read-only open (the
     // portal's relay reconstructions) must never touch the archive row.
@@ -224,8 +258,19 @@ function adoptArticle(article, stored) {
     // quotes from an affected passage.
     try { renderExtractionWarningsBanner(); }
     catch (err) { console.warn('[X-Ray Reader] extraction banner failed:', err); }
-    state.markdownDraft = article.markdown || article.content || '';
+    // A proven draft is the published body itself; prefer it over the
+    // derived `content`, whose turndown is what drifts. Gated on `proven`
+    // rather than on merely HAVING a carried draft: `archivedDraftSource`
+    // prefers `_publishedDraft` over `markdown`, so an UNPROVEN carried
+    // draft left stale by an older publish would shadow a newer, correct
+    // `markdown` and silently revert the body. Unproven => exactly the
+    // pre-existing seed.
+    state.markdownDraft = proven
+        ? archivedDraftSource(article)
+        : (article.markdown || article.content || '');
     state.htmlDraft = article.content || ContentExtractor.markdownToHtml(state.markdownDraft);
+    state.draftProven = proven;
+    state.provenDraft = proven ? state.markdownDraft : null;
 
     // PDFs: the reconstructed markdown IS the capture — `content` is a
     // rendering derived from it. Marking the markdown draft canonical
@@ -402,17 +447,157 @@ async function loadPdfArticle(pdfParam) {
         try {
             return await capturePdfToArticle({ url: target });
         } catch (err) {
-            // Auth-bound refetch (403/401), CORS-ish failures, scans —
-            // surface the reason and offer the local-file path.
+            // A scan is not a fetch failure — the file-import fallback
+            // would just refuse the same bytes again. Offer the C5
+            // transcription path instead.
+            if (err && err.code === 'scan-no-text-layer') {
+                return transcribeScanFlow(err.scanContext);
+            }
+            // Auth-bound refetch (403/401), CORS-ish failures — surface
+            // the reason and offer the local-file path.
             const file = await pickPdfFile(
                 'Could not capture this PDF automatically: '
                 + ((err && err.message) || err) + ' '
                 + 'If it needs a login, save it from the browser and import the file:');
-            return capturePdfToArticle({ file, url: target });
+            try {
+                return await capturePdfToArticle({ file, url: target });
+            } catch (err2) {
+                if (err2 && err2.code === 'scan-no-text-layer') {
+                    return transcribeScanFlow(err2.scanContext);
+                }
+                throw err2;
+            }
         }
     }
     const file = await pickPdfFile('Capture a PDF from a local file:');
-    return capturePdfToArticle({ file });
+    try {
+        return await capturePdfToArticle({ file });
+    } catch (err) {
+        if (err && err.code === 'scan-no-text-layer') {
+            return transcribeScanFlow(err.scanContext);
+        }
+        throw err;
+    }
+}
+
+/**
+ * Phase 18 C5 — the scans path: consent, transcription, capture.
+ * The model's transcription IS the capture (there is no substrate to
+ * ground against); honesty comes from `extraction.method = 'llm:…'`
+ * and the reader banner, with the archived original one click away.
+ */
+async function transcribeScanFlow(scanContext) {
+    const { sourceHash, pageCount, bytes } = scanContext || {};
+    if (!sourceHash || !bytes) throw new Error('This PDF has no usable text layer — it is likely a scan.');
+
+    // EVERY refusable condition is checked BEFORE consent — asking
+    // someone to approve sending a document and then failing on a
+    // missing key or a size cap is a wasted consent (and the archive
+    // write would already have happened). The SW re-enforces the caps;
+    // this is UX honesty, not the security boundary.
+    await requireLlmReady();
+    if (bytes.byteLength > MAX_EXTRACT_BYTES) {
+        throw new Error(`This PDF is ${(bytes.byteLength / 1048576).toFixed(0)}MB — over the ${(MAX_EXTRACT_BYTES / 1048576).toFixed(0)}MB single-request limit for LLM transcription.`);
+    }
+    if (pageCount > MAX_EXTRACT_PAGES) {
+        throw new Error(`This PDF has ${pageCount} pages — over the ${MAX_EXTRACT_PAGES}-page single-request limit for LLM transcription.`);
+    }
+
+    const mb = (bytes.byteLength / 1048576).toFixed(1);
+    const consented = await confirmLlmSend(
+        'This PDF has no machine-readable text layer — it is likely a scan.',
+        `X-Ray can ask the model to TRANSCRIBE it. The document (${mb}MB, `
+        + `${pageCount} page${pageCount === 1 ? '' : 's'}) will be sent to the Anthropic API `
+        + 'under your API key — it leaves this device. The result is machine-transcribed '
+        + 'text, clearly labeled as such, with the original bytes archived for verification.',
+        'Transcribe with LLM');
+    if (!consented) throw new Error('PDF capture cancelled (no transcription consent).');
+
+    // Archive the bytes BEFORE the call: the SW reads them from
+    // IndexedDB (50MB through runtime messaging is a dropped channel),
+    // and the transcription's provenance needs them archived anyway. A
+    // failed transcription leaves an unreferenced row the age-gated
+    // pruner collects — bounded, honest cost. `stored: false` (the
+    // store's own 50MB cap) is a hard stop: the SW would find nothing,
+    // and its "re-capture" advice would be factually wrong here.
+    const put = await ArchiveCache.putSourceDocument({
+        hash: sourceHash, bytes, mime: 'application/pdf',
+        url: scanContext.sourceUrl || ''
+    });
+    if (!put || !put.stored) {
+        throw new Error('The PDF could not be archived (over the storage cap) — transcription needs the archived bytes.');
+    }
+
+    toast('Transcribing the scanned PDF — this can take a few minutes…', 'warning', 8000);
+    const resp = await browserApi.runtime.sendMessage({
+        type: 'xray:llm:extract', sourceHash, mode: 'transcription', pageCount
+    });
+    if (!resp || !resp.ok) {
+        throw new Error((resp && resp.error) || 'LLM transcription failed.');
+    }
+    const assembled = assembleExtraction(resp.spans, null, { mode: 'transcription' });
+    const article = await completeScanCapture({
+        scanContext, markdown: assembled.markdown,
+        pageMap: assembled.pageMap, model: resp.model
+    });
+    toast(`Transcribed ${assembled.total_spans} blocks with ${resp.model} — review before relying on it.`, 'success', 6000);
+    return article;
+}
+
+/**
+ * Both C5 flows gate on the same consent pair every LLM pass uses —
+ * checked HERE, before the consent modal, so nobody approves sending a
+ * document only to hit a missing-key error afterward.
+ */
+async function requireLlmReady() {
+    let cfg = {};
+    try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:llm:config' }) || {}; }
+    catch (_) { /* treated as not ready below */ }
+    if (!cfg.enabled) throw new Error('LLM assist is off. Enable it in Options → Advanced → LLM assist.');
+    if (!cfg.hasKey) throw new Error('No Anthropic API key set. Add one in Options → Advanced → LLM assist.');
+}
+
+/**
+ * Consent modal for any flow that sends the document off-device.
+ * Resolves true only on the explicit affirmative button.
+ */
+function confirmLlmSend(headline, body, actionLabel) {
+    return new Promise((resolveConfirm) => {
+        const host = document.createElement('div');
+        host.className = 'xr-pdf-pick';
+        const card = document.createElement('div');
+        card.className = 'xr-pdf-pick__card';
+        card.setAttribute('role', 'dialog');
+        card.setAttribute('aria-modal', 'true');
+        card.setAttribute('aria-label', headline);
+        const title = document.createElement('h2');
+        title.textContent = '🤖 ' + headline;
+        const note = document.createElement('p');
+        note.textContent = body;
+        const go = document.createElement('button');
+        go.type = 'button';
+        go.textContent = actionLabel;
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.textContent = 'Cancel';
+        card.append(title, note, go, cancel);
+        host.appendChild(card);
+        document.body.appendChild(host);
+        const close = (v) => {
+            document.removeEventListener('keydown', onKey, true);
+            if (host.parentNode) host.parentNode.removeChild(host);
+            resolveConfirm(v);
+        };
+        // Escape declines — for an off-device send, the safe default
+        // must be the reachable one.
+        const onKey = (ev) => {
+            if (ev.key === 'Escape') { ev.preventDefault(); close(false); }
+        };
+        document.addEventListener('keydown', onKey, true);
+        go.addEventListener('click', () => close(true));
+        cancel.addEventListener('click', () => close(false));
+        cancel.focus();
+    });
 }
 
 /**
@@ -569,8 +754,39 @@ function isMarkdownCanonical(article) {
         && (article.contentType === 'pdf' || article.contentType === 'transcript'));
 }
 
+/**
+ * Is `markdownDraft` still the proven published body?
+ *
+ * Two conditions, and both are load-bearing:
+ *   - `draftProven` — the draft was proved against the archive's own
+ *     `x` tag at load. Cleared by a real body edit, where the TEXT
+ *     changes but `markdownDraft` itself does not (the reader edits
+ *     `htmlDraft`), so the byte check below cannot see it.
+ *   - the bytes are unchanged — catches every writer that rewrites or
+ *     blanks the draft without clearing the flag. `applyMediaResult`
+ *     parks `markdownDraft = ''` and relies on the re-derivation this
+ *     guard suppresses; the Substack backfill rewrites it outright.
+ *     Neither needs to know this flag exists.
+ *
+ * Read this, never `state.draftProven`.
+ */
+function draftIsProven() {
+    return !!state.draftProven
+        && state.provenDraft !== null
+        && state.markdownDraft === state.provenDraft;
+}
+
 // The body the canonical hash covers must be the body publish ships.
+//
+// A proven draft IS that body — publish sends it verbatim. Hashing a
+// turndown of the rendering instead would label the reader's hash line,
+// the audit anchor, and the archive row with a hash that DISAGREES with
+// the x tag publish then emits: the drifted value the proof exists to
+// avoid, displayed as if it were the article's identity.
 function hashableArticle(article) {
+    if (draftIsProven()) {
+        return { ...article, content: state.provenDraft, _contentIsMarkdown: true };
+    }
     return isMarkdownCanonical(article)
         ? { ...article, content: article.markdown, _contentIsMarkdown: true }
         : article;
@@ -627,6 +843,24 @@ async function checkArchiveAvailability() {
     const currentBody = state.article.content || '';
     const currentLen = currentBody.length;
 
+    // The canonical hash of what's on screen — the only sound way to
+    // ask "is the archive the same content?" (see shouldOfferArchive).
+    // `state.articleHash` is filled by an async IIFE at load and this
+    // probe runs on a 100ms timer, so it can win that race; compute it
+    // here rather than silently degrading to the unsound body compare.
+    // When the user has edited, the hash is legitimately stale — leave
+    // it null and let the body heuristics answer, as before.
+    let currentHash = null;
+    if (!state.hashDirty) {
+        currentHash = state.articleHash;
+        if (!currentHash) {
+            try {
+                currentHash = await canonicalArticleHash(
+                    EventBuilder.assembleArticleBody(hashableArticle(state.article)));
+            } catch (_) { currentHash = null; }
+        }
+    }
+
     // 1. Try local cache first — then through the alias map (a prior
     //    capture of the same piece may key under the alias-resolved
     //    original of this address).
@@ -640,7 +874,7 @@ async function checkArchiveAvailability() {
     }
     if (cached && cached.article && cached.article.content) {
         const cachedBody = cached.article.content;
-        if (shouldOfferArchive(currentBody, cachedBody, mode)) {
+        if (shouldOfferArchive(currentBody, cachedBody, mode, currentHash, cached.articleHash)) {
             renderArchiveBanner({
                 source:   'cache',
                 cachedAt: cached.cachedAt,
@@ -663,7 +897,8 @@ async function checkArchiveAvailability() {
             });
             if (resp && resp.ok && resp.found && resp.article) {
                 const reconstructedBody = resp.article.content || '';
-                if (shouldOfferArchive(currentBody, reconstructedBody, mode)) {
+                if (shouldOfferArchive(currentBody, reconstructedBody, mode,
+                        currentHash, resp.article._articleHash)) {
                     renderArchiveBanner({
                         source:    'relay',
                         author:    resp.authorPubkey,
@@ -694,37 +929,6 @@ async function loadPreferences() {
             });
         } catch (_) { resolve({}); }
     });
-}
-
-/**
- * Decide whether an archived body is worth surfacing over the current
- * capture, given the user's sensitivity preference.
- *
- * 'richer' keeps the prior 1.3×/1000-char threshold.
- * 'always' shows whenever the archive is non-trivially different —
- *          skip byte-identical matches and skip when the archive is
- *          strictly contained in the current body (the current is a
- *          superset, so the archive can only lose information).
- */
-function shouldOfferArchive(currentBody, archiveBody, mode) {
-    if (!archiveBody) return false;
-    if (mode === 'richer') {
-        return archiveBody.length > currentBody.length * 1.3 && archiveBody.length > 1000;
-    }
-    if (archiveBody === currentBody) return false;
-    if (currentBody && currentBody.includes(archiveBody)) return false;
-    return true;
-}
-
-function describeMetric(currentBody, archiveBody) {
-    const cur = currentBody.length;
-    const arc = archiveBody.length;
-    if (cur > 0 && arc >= cur * 1.3) {
-        return `Archive is ${(arc / Math.max(cur, 1)).toFixed(1)}× longer`;
-    }
-    if (arc > cur) return `Archive is ${arc - cur} chars longer`;
-    if (arc < cur) return `Archive is ${cur - arc} chars shorter`;
-    return 'Archive differs from current capture';
 }
 
 /**
@@ -765,9 +969,27 @@ function renderArchiveBanner({ source, article, metric, cachedAt, createdAt, aut
 
     $('#xr-archive-dismiss').addEventListener('click', () => banner.remove());
     $('#xr-archive-load').addEventListener('click', () => {
-        loadArchivedArticle(article, { source, cachedAt, createdAt, author });
+        loadArchivedArticle(article, { source, cachedAt, createdAt, author })
+            .catch((err) => console.warn('[X-Ray Reader] archive load failed:', err));
         banner.remove();
     });
+}
+
+/**
+ * The extraction record to adopt when swapping in an archived copy.
+ * Rules, in order: nothing anywhere → nothing; only one side has a
+ * record → that one; both, describing the SAME source document →
+ * merge with the archived copy's fields winning (its method may be
+ * newer — e.g. a reconstruction published after this capture) and the
+ * session's rich fields (warnings/archived/page_count/figures)
+ * surviving; different source docs → the archived copy's, whole.
+ */
+function mergedExtraction(current, archived) {
+    if (!archived) return current ? { extraction: current } : {};
+    if (!current || current.source_hash !== archived.source_hash) {
+        return { extraction: archived };
+    }
+    return { extraction: { ...current, ...archived } };
 }
 
 /**
@@ -778,7 +1000,15 @@ function renderArchiveBanner({ source, article, metric, cachedAt, createdAt, aut
  * refs untouched" rule silently dropped every tag saved with the
  * archived copy — the reload-loses-tags bug.)
  */
-function loadArchivedArticle(archived, provenance) {
+async function loadArchivedArticle(archived, provenance) {
+    // Proven against the archive's OWN `_articleHash`, before any state
+    // write — everything below then runs synchronously, so no render can
+    // fire mid-await and re-derive the draft we are about to install.
+    // `archived` is the right subject rather than the merged
+    // `state.article`: the merge only overrides url/entities/extraction,
+    // none of which the body assembly reads.
+    const proven = await archivedDraftIsCanonical(archived);
+
     state.article = {
         ...archived,
         // Preserve the URL / id bridging so publish + session paths
@@ -787,12 +1017,15 @@ function loadArchivedArticle(archived, provenance) {
         entities: mergeEntityRefs(state.article.entities, archived.entities),
         // The extraction record names this URL's SOURCE DOCUMENT
         // (extraction.source_hash keys the archived original bytes).
-        // Relay reconstructions don't carry it; adopting one without
-        // the carry-over meant a later publish overwrote the archive
-        // row hashless and the orphan pruner deleted the original PDF
-        // bytes while the article still lived.
-        ...(archived.extraction ? {} : (state.article.extraction
-            ? { extraction: state.article.extraction } : {}))
+        // Adopting a copy without one meant a later publish overwrote
+        // the archive row hashless and the orphan pruner deleted the
+        // original PDF bytes while the article still lived. Since C5,
+        // relay reconstructions CAN carry a THIN record (the two
+        // mirrored wire fields) — a thin record must not silently
+        // replace the session's RICH one (warnings, archived,
+        // page_count, figures) when both describe the same source:
+        // MERGE, thin fields winning, rich fields surviving.
+        ...(mergedExtraction(state.article.extraction, archived.extraction))
     };
     // Tag the article object with archive provenance for the publish
     // flow's awareness + any downstream consumers that care.
@@ -801,9 +1034,20 @@ function loadArchivedArticle(archived, provenance) {
     if (provenance.createdAt) state.article._archiveCreatedAt = provenance.createdAt;
     if (provenance.author)   state.article._archiveAuthor = provenance.author;
 
-    state.markdownDraft = archived.markdown || archived.content || '';
+    // The PROVEN published body when there is one — NOT `content`, which
+    // is only a markdown->HTML rendering of it. Re-deriving markdown from
+    // that rendering is the escape-doubling bug; on the relay path this
+    // line used to fall through to `content` and put HTML in the MARKDOWN
+    // draft outright, since a reconstruction has no `markdown`. Gated on
+    // `proven` for the same reason as adoptArticle: an unproven carried
+    // draft must not shadow a newer `markdown`.
+    state.markdownDraft = proven
+        ? archivedDraftSource(archived)
+        : (archived.markdown || archived.content || '');
     state.htmlDraft     = archived.content  || ContentExtractor.markdownToHtml(state.markdownDraft);
     state.dirtySource   = 'reader';
+    state.draftProven   = proven;
+    state.provenDraft   = proven ? state.markdownDraft : null;
     // Same rule as adoptArticle: an archived PDF's / transcript's
     // markdown is the canonical body — republish must not
     // turndown-round-trip it.
@@ -829,6 +1073,12 @@ function loadArchivedArticle(archived, provenance) {
         case 'markdown': renderMarkdown(); break;
         case 'preview':  renderPreview();  break;
     }
+    // The adopted copy may be machine-transcribed or LLM-reconstructed
+    // — its provenance banner must follow it in. The only other call
+    // site is adopt-time, so without this a Load-archive swap rendered
+    // an llm: capture with no disclosure at all.
+    try { renderExtractionWarningsBanner(); }
+    catch (err) { console.warn('[X-Ray Reader] extraction banner failed:', err); }
     toast(`Archive loaded (${provenance.source})`, 'success', 3000);
 }
 
@@ -1250,8 +1500,19 @@ function renderHashMismatchBanner(prior) {
  * extraction presented as clean is a provenance failure.
  */
 function renderExtractionWarningsBanner() {
-    const warnings = state.article && state.article.extraction && state.article.extraction.warnings;
-    if (!Array.isArray(warnings) || warnings.length === 0) return;
+    const extraction = state.article && state.article.extraction;
+    const warnings = extraction && extraction.warnings;
+    const method = String((extraction && extraction.method) || '');
+    const transcribed = /^llm:/.test(method);
+    const reconstructed = /\+llm:/.test(method);
+    if ((!Array.isArray(warnings) || warnings.length === 0) && !transcribed && !reconstructed) {
+        // Re-rendered after a body swap (Load archive): a banner from
+        // the PREVIOUS article must not survive an adoption with
+        // nothing to disclose.
+        const stale = $('#xr-extract-banner');
+        if (stale) stale.remove();
+        return;
+    }
     let banner = $('#xr-extract-banner');
     if (!banner) {
         banner = document.createElement('aside');
@@ -1261,19 +1522,207 @@ function renderExtractionWarningsBanner() {
         if (!main || !main.parentElement) return;
         main.parentElement.insertBefore(banner, main);
     }
+    // C5's scans clause: a machine-transcribed capture is ALWAYS
+    // bannered — the method is the marker, not a warning entry, so a
+    // relay copy that round-trips only extraction-method still banners.
+    if (transcribed) {
+        banner.innerHTML = `
+          <div class="xr-hash-banner__body">
+            <div class="xr-hash-banner__label">🤖 Machine-transcribed from a scanned document</div>
+            <div class="xr-hash-banner__metric">This text was transcribed by ${escapeHtml(String(extraction.method).slice(4))} — it is not a deterministic text-layer extraction. Verify quotes against the archived original before relying on them.</div>
+            <div class="xr-hash-banner__metric">${extraction.archived
+                ? `The original PDF is archived (source_hash ${escapeHtml(String(extraction.source_hash || '').slice(0, 12))}…).`
+                : `Original source_hash ${escapeHtml(String(extraction.source_hash || '').slice(0, 12))}… — keep your own copy of the document for verification.`}</div>
+          </div>
+          <div class="xr-hash-banner__actions">
+            <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-extract-dismiss">Dismiss</button>
+          </div>
+        `;
+        $('#xr-extract-dismiss').addEventListener('click', () => banner.remove());
+        return;
+    }
+    // Structure-reconstructed (method 'pdfjs-…+llm:…'): the text spans
+    // are substrate bytes, but the STRUCTURE — reading order, heading
+    // levels, and especially table row/column association — is the
+    // model's reading and was never machine-verified. Disclosed
+    // persistently (a toast is not provenance), and on relay read-back
+    // too: the method tag round-trips, so this banner renders on a
+    // Load-archive copy as well. No Reconstruct button here — the body
+    // is no longer the deterministic substrate.
+    if (reconstructed) {
+        const model = method.slice(method.indexOf('+llm:') + 5);
+        const dropped = Number(extraction.unverified_spans) || 0;
+        const tables = Number(extraction.llm_tables) || 0;
+        banner.innerHTML = `
+          <div class="xr-hash-banner__body">
+            <div class="xr-hash-banner__label">🤖 Structure reconstructed by ${escapeHtml(model)}</div>
+            <div class="xr-hash-banner__metric">Text spans are the document's own extracted bytes; the layout${tables > 0 ? ` and ${tables} table${tables === 1 ? '' : 's'}` : ''} ${tables > 0 ? 'are' : 'is'} the model's reading — verify table associations against the archived original.</div>
+            ${dropped > 0 ? `<div class="xr-hash-banner__metric">${dropped} span${dropped === 1 ? '' : 's'} could not be verified against the document text and ${dropped === 1 ? 'was' : 'were'} discarded.</div>` : ''}
+            <div class="xr-hash-banner__metric">${extraction.archived
+                ? `The original PDF is archived (source_hash ${escapeHtml(String(extraction.source_hash || '').slice(0, 12))}…).`
+                : `Original source_hash ${escapeHtml(String(extraction.source_hash || '').slice(0, 12))}… — keep your own copy of the document for verification.`}</div>
+          </div>
+          <div class="xr-hash-banner__actions">
+            <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-extract-dismiss">Dismiss</button>
+          </div>
+        `;
+        $('#xr-extract-dismiss').addEventListener('click', () => banner.remove());
+        return;
+    }
+    // Warned deterministic extraction: quality notes + the C5
+    // structure-assist offer (explicit action, never automatic). The
+    // button needs the archived bytes — without them there is nothing
+    // to send.
+    const canReconstruct = !!(extraction.archived && extraction.source_hash);
     banner.innerHTML = `
       <div class="xr-hash-banner__body">
         <div class="xr-hash-banner__label">⚠️ Extraction quality warning${warnings.length > 1 ? 's' : ''}</div>
         ${warnings.map((w) => `<div class="xr-hash-banner__metric">${escapeHtml(w.message)}</div>`).join('')}
-        <div class="xr-hash-banner__metric">${state.article.extraction.archived
-            ? `The original PDF is archived (source_hash ${escapeHtml(String(state.article.extraction.source_hash || '').slice(0, 12))}…) — verify against it before relying on affected passages.`
-            : `The original PDF could NOT be archived (too large or storage full) — keep your own copy to verify affected passages against (source_hash ${escapeHtml(String(state.article.extraction.source_hash || '').slice(0, 12))}…).`}</div>
+        <div class="xr-hash-banner__metric">${extraction.archived
+            ? `The original PDF is archived (source_hash ${escapeHtml(String(extraction.source_hash || '').slice(0, 12))}…) — verify against it before relying on affected passages.`
+            : `The original PDF could NOT be archived (too large or storage full) — keep your own copy to verify affected passages against (source_hash ${escapeHtml(String(extraction.source_hash || '').slice(0, 12))}…).`}</div>
       </div>
       <div class="xr-hash-banner__actions">
+        ${canReconstruct ? '<button type="button" class="xr-reader__btn" id="xr-extract-llm">Reconstruct with LLM…</button>' : ''}
         <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-extract-dismiss">Dismiss</button>
       </div>
     `;
     $('#xr-extract-dismiss').addEventListener('click', () => banner.remove());
+    const llmBtn = $('#xr-extract-llm');
+    if (llmBtn) {
+        llmBtn.addEventListener('click', () => {
+            llmBtn.disabled = true;
+            reconstructWithLlmFlow()
+                .catch((err) => toast((err && err.message) || 'LLM reconstruction failed.', 'error', 6000))
+                .finally(() => { llmBtn.disabled = false; });
+        });
+    }
+}
+
+/**
+ * Phase 18 C5 — the structure-assist flow (text layer EXISTS, layout
+ * scrambled). The model returns structure; every span re-grounds
+ * against the deterministic substrate and re-canonicalizes to its
+ * bytes — dropped spans are counted and disclosed. The stored capture
+ * never contains model-authored body text.
+ */
+async function reconstructWithLlmFlow() {
+    const a = state.article;
+    const extraction = a && a.extraction;
+    if (!extraction || !extraction.source_hash) throw new Error('No archived source document for this capture.');
+    const substrate = a.markdown || '';
+    if (!substrate.trim()) throw new Error('No deterministic text to ground against.');
+
+    // Pending edits make the substrate ambiguous — a.markdown lags the
+    // drafts, so grounding against it would silently discard what the
+    // user typed and then overwrite it. Refuse; publish or revert first.
+    if (state.hashDirty || (state.dirtySource === 'markdown'
+            && state.markdownDraft && state.markdownDraft !== substrate)) {
+        throw new Error('You have unsaved edits — publish (or reload) before reconstructing, so they are not silently discarded.');
+    }
+
+    await requireLlmReady();
+    if (Number(extraction.page_count) > MAX_EXTRACT_PAGES) {
+        throw new Error(`This PDF has ${extraction.page_count} pages — over the ${MAX_EXTRACT_PAGES}-page single-request limit for LLM extraction.`);
+    }
+
+    const consented = await confirmLlmSend(
+        'Reconstruct this PDF with the LLM?',
+        `The archived PDF (${extraction.page_count || '?'} pages) will be sent to the `
+        + 'Anthropic API under your API key — the document leaves this device. The model '
+        + 'proposes STRUCTURE only: every text span is matched back against the extracted '
+        + 'text and replaced with the document’s own bytes; spans that fail the match are '
+        + 'discarded and counted. Your current capture is kept if the reconstruction is empty.',
+        'Reconstruct with LLM');
+    if (!consented) return;
+
+    toast('Reconstructing with the LLM — this can take a few minutes…', 'warning', 8000);
+    const resp = await browserApi.runtime.sendMessage({
+        type: 'xray:llm:extract',
+        sourceHash: extraction.source_hash,
+        mode: 'structure',
+        pageCount: extraction.page_count || 0
+    });
+    if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'LLM reconstruction failed.');
+
+    // The pass runs for minutes; the user may have edited or published
+    // meanwhile. Adopting over their changes would silently discard
+    // them — abort instead (their state wins, the API cost is sunk).
+    if (a !== state.article || a.markdown !== substrate || state.hashDirty) {
+        throw new Error('The capture changed while the reconstruction was running — keeping your version. Run it again from a settled state.');
+    }
+
+    const assembled = assembleExtraction(resp.spans, substrate, { mode: 'structure' });
+    if (!assembled.markdown.trim()) {
+        throw new Error(`Nothing survived re-grounding (${assembled.unverified_spans} of ${assembled.total_spans} spans failed verification) — keeping the deterministic capture.`);
+    }
+
+    // Adopt: the reconstructed markdown IS the new canonical body
+    // (markdown-canonical, like every PDF capture). The body changed,
+    // so the canonical hash changes with it — honest versioning, same
+    // rule as the transcript attach.
+    a.markdown = assembled.markdown;
+    a.content = ContentExtractor.markdownToHtml(assembled.markdown);
+    // The old pageMap indexed the OLD markdown — against the new body
+    // its offsets stamp WRONG page numbers into published claim
+    // anchors. The model's page hints are the only map that indexes
+    // this text; without them there is honestly no page map.
+    if (assembled.pageMap && assembled.pageMap.length) {
+        a.pageMap = assembled.pageMap;
+    } else {
+        delete a.pageMap;
+    }
+    a.extraction = {
+        ...extraction,
+        method: extractionMethod(extraction.method, resp.model, 'structure'),
+        unverified_spans: assembled.unverified_spans,
+        // Local-only (never on the wire): drives the structure-mode
+        // disclosure — table layout is the model's reading.
+        llm_tables: assembled.table_count
+    };
+    state.markdownDraft = a.markdown;
+    state.htmlDraft = a.content;
+    state.dirtySource = 'markdown';
+
+    try {
+        const fullBody = EventBuilder.assembleArticleBody(hashableArticle(a));
+        const fullHash = await canonicalArticleHash(fullBody);
+        // Both audit keys move with the body — leaving auditableHash
+        // stale made prior audit runs claim they scored "this capture".
+        const slice = auditableSlice(fullBody);
+        state.articleHash = fullHash;
+        state.auditableTotalChars = slice.totalChars;
+        state.auditableHash = slice.truncated
+            ? await canonicalArticleHash(slice.text) : fullHash;
+        state.hashDirty = false;
+        updateHashLine();
+        refreshAuditStatus().catch(() => { /* display refresh only */ });
+    } catch (err) {
+        console.warn('[X-Ray Reader] post-reconstruction hash failed:', err);
+    }
+    if (!(state.readOnlyOpen)) {
+        ArchiveCache.saveArticle({
+            article: state.articleHash ? { ...a, _articleHash: state.articleHash } : a,
+            source: 'capture'
+        }).catch((err) => console.warn('[X-Ray Reader] archive save failed:', err));
+    }
+    renderReader();
+    // Replace the stale warnings banner with the structure-mode
+    // disclosure. Deliberately NO second Reconstruct button: the body
+    // is no longer the deterministic substrate, so another pass would
+    // ground against a reconstruction — semantically meaningless.
+    renderExtractionWarningsBanner();
+    const dropped = assembled.unverified_spans;
+    // Never claim "verified" over a table: cell TEXT re-grounds to
+    // document bytes, but row/column association is the model's
+    // reading and cannot be machine-checked (adversarial-review fix).
+    const tableNote = assembled.table_count > 0
+        ? ` Text matched to the document's own bytes; table structure (${assembled.table_count}) is the model's reading — verify against the original.`
+        : '';
+    toast(dropped > 0
+        ? `Reconstructed with ${resp.model} — ${dropped} of ${assembled.total_spans} spans could not be verified and were discarded.${tableNote}`
+        : `Reconstructed with ${resp.model} — ${assembled.total_spans} text spans matched to the document text.${tableNote}`,
+    dropped > 0 ? 'warning' : 'success', 10000);
 }
 
 // Archive/mirror provenance note (url-identity.js). Two honest states:
@@ -1708,7 +2157,10 @@ async function refreshFindingsBar() {
     const findings = Object.values(all)
         .filter((f) => (f.anchors || []).some((a) => a.source_ref && a.source_ref.url === url))
         .sort((a, b) => (a.created || 0) - (b.created || 0));
-    host.innerHTML = renderFindingsBar(findings);
+    // 27 F.4 — baselines finally render (they were write-only: saved,
+    // toasted, and never shown anywhere).
+    const baselines = await ForensicBaseline.getForUrl(url);
+    host.innerHTML = renderFindingsBar(findings, baselines);
 
     const anchorContext  = { container: $('.xr-article__body') };
     const sourceRef      = { url: state.article.url, title: state.article.title || '' };
@@ -1727,7 +2179,29 @@ async function refreshFindingsBar() {
     const baseBtn = host.querySelector('#xr-findings-baseline');
     if (baseBtn) baseBtn.addEventListener('click', async () => {
         const result = await openBaselineModal({ subjectChoices, sourceRef });
-        if (result) toast('Baseline saved', 'success', 1500);
+        if (result) {
+            toast('Baseline saved', 'success', 1500);
+            await refreshFindingsBar();
+        }
+    });
+
+    host.querySelectorAll('.xr-findings__baseline').forEach((row) => {
+        const delBtn = row.querySelector('[data-action="baseline-delete"]');
+        if (delBtn) delBtn.addEventListener('click', async () => {
+            if (!confirm('Remove this baseline? Findings that marked a deviation from it keep their evidence but lose the baseline link.')) return;
+            const baselineId = row.dataset.id;
+            await ForensicBaseline.delete(baselineId);
+            // Clear dangling deviation links (baseline_ref is editable
+            // context, not identity, so this is an update not a rekey).
+            const findings = await ForensicModel.getAll();
+            for (const f of Object.values(findings)) {
+                if (f.baseline_ref === baselineId) {
+                    await ForensicModel.update(f.id, { baseline_ref: null }).catch(() => {});
+                }
+            }
+            toast('Baseline removed', 'success', 1500);
+            await refreshFindingsBar();
+        });
     });
 
     host.querySelectorAll('.xr-findings__item').forEach((row) => {
@@ -1852,6 +2326,8 @@ async function applyMediaResult(result) {
         state.markdownDraft = a.markdown;
         a.content = ContentExtractor.markdownToHtml(a.markdown);
         state.htmlDraft = a.content;
+        // The body now has a section the published one did not.
+        state.draftProven = false;
     } else {
         // HTML-canonical (ordinary captures): upsert the RENDERED
         // section into the clean capture content, then re-derive the
@@ -1868,6 +2344,12 @@ async function applyMediaResult(result) {
         a.content = upsertTranscriptSection(a.content || '', sectionHtml, { isHtml: true });
         state.htmlDraft = a.content;
         state.markdownDraft = '';       // stale — regenerated on tab entry
+        // ...and that regeneration is exactly what a proven draft
+        // suppresses. Without this the blanked draft SHIPS: an empty
+        // kind-30023 replacing the real article at the same NIP-33
+        // coordinate, x tag = sha256(''). draftIsProven() also catches it
+        // via the byte check; this states the intent at the mutation.
+        state.draftProven = false;
         state.dirtySource = 'reader';
     }
 
@@ -2672,6 +3154,7 @@ async function confirmDeleteClaim(id) {
     // user sees the blast radius before confirming.
     const links = await EvidenceLinker.getForClaim(id);
     const assessment = await AssessmentModel.getByClaimRef(id);
+    const hypothesisEdges = await HypothesisEdgeModel.getForClaim(id);
     const lines = [];
     if (claim.publishedAt) {
         lines.push('Already-published kind-30040 stays on relays until NIP-09 delete (later phase).');
@@ -2682,6 +3165,9 @@ async function confirmDeleteClaim(id) {
     if (assessment) {
         lines.push('Your assessment of it will also be removed.');
     }
+    if (hypothesisEdges.length > 0) {
+        lines.push(`${hypothesisEdges.length} hypothesis attachment${hypothesisEdges.length === 1 ? '' : 's'} will also be removed.`);
+    }
     const msg = lines.length > 0
         ? `Delete claim? ${lines.join(' ')}`
         : 'Delete claim?';
@@ -2690,6 +3176,7 @@ async function confirmDeleteClaim(id) {
     // registry, so it must still see the claim while matching.
     if (links.length > 0) await EvidenceLinker.deleteForClaim(id);
     if (assessment) await AssessmentModel.delete(assessment.id);
+    if (hypothesisEdges.length > 0) await HypothesisEdgeModel.deleteForClaim(id);
     // 13.6's dependent: a prediction promoted into this claim holds a
     // claim_ref — left dangling it defers the 30058 at every publish
     // forever and the audit panel shows a permanent "claim ✓".
@@ -3122,6 +3609,12 @@ function onReaderFieldInput(ev) {
     // draft: flag dirty, recompute at publish (13.4).
     if (ev && ev.target && ev.target.dataset.field === 'content' && !state.hashDirty) {
         state.hashDirty = true;
+        // The body is no longer the one that hashes to the anchor, so the
+        // draft is no longer proven and publish must re-derive it. Scoped
+        // to the CONTENT field on purpose: the unconditional
+        // dirtySource='reader' above fires for the title and every meta
+        // field too, and a typo fix in the title must not drift the body.
+        state.draftProven = false;
         updateHashLine();
         // The audit panel's header claims "for this exact text" —
         // no longer true; one refresh flips it to the edited-state
@@ -3170,8 +3663,11 @@ function onReaderFieldBlur(ev) {
 
 function renderMarkdown() {
     // If the reader view is where we last edited, refresh the markdown
-    // draft from the current HTML before handing off to the textarea.
-    if (state.dirtySource === 'reader') {
+    // draft from the current HTML before handing off to the textarea —
+    // unless the draft is the proven published body, which this
+    // re-derivation would corrupt (see shared/archive-draft.js). Merely
+    // LOOKING at the markdown tab must not drift the body.
+    if (state.dirtySource === 'reader' && !draftIsProven()) {
         state.markdownDraft = ContentExtractor.htmlToMarkdown(state.htmlDraft);
     }
     const main = $('#xr-main');
@@ -3188,6 +3684,8 @@ function renderMarkdown() {
     ta.addEventListener('input', () => {
         state.markdownDraft = ta.value;
         state.dirtySource = 'markdown';
+        // Hand-edited: no longer the published body, whatever it was.
+        state.draftProven = false;
     });
     ta.focus();
 }
@@ -3197,8 +3695,9 @@ function renderMarkdown() {
 // ------------------------------------------------------------------
 
 function renderPreview() {
-    // Make sure markdownDraft is current.
-    if (state.dirtySource === 'reader') {
+    // Make sure markdownDraft is current — but never at the cost of the
+    // proven published body (see renderMarkdown).
+    if (state.dirtySource === 'reader' && !draftIsProven()) {
         state.markdownDraft = ContentExtractor.htmlToMarkdown(state.htmlDraft);
     }
     const roundtripHtml = ContentExtractor.markdownToHtml(state.markdownDraft);
@@ -3687,7 +4186,14 @@ async function publish() {
     };
 
     try {
-        if (state.dirtySource === 'reader') {
+        // The drift point. A proven draft IS the published body, so
+        // re-deriving it from the rendered HTML would turndown text that
+        // was already turndowned — doubling every escape and minting a
+        // new x tag for an article nobody edited. Ship the proven bytes.
+        // A real body edit clears `draftProven` (onReaderFieldInput), so
+        // genuine changes still re-derive and still fork the hash, which
+        // is correct: that IS a different article.
+        if (state.dirtySource === 'reader' && !draftIsProven()) {
             state.markdownDraft = ContentExtractor.htmlToMarkdown(state.htmlDraft);
         }
 
@@ -3716,6 +4222,13 @@ async function publish() {
             ...state.article,
             content: state.markdownDraft,
             markdown: state.markdownDraft,
+            // Keep the carried pair matched to what we are about to ship:
+            // `_articleHash` is stamped from this event's x tag below, and
+            // a `_publishedDraft` inherited from a PREVIOUS publish would
+            // be stale beside it. Left stale it is safe (the proof simply
+            // fails) but it shadows `markdown` in archivedDraftSource, so
+            // this row would stop proving itself on the next reload.
+            _publishedDraft: state.markdownDraft,
             _contentIsMarkdown: true
         };
         const entityRefs = Array.isArray(state.article.entities) ? state.article.entities : [];

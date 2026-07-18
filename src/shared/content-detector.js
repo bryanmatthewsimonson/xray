@@ -1,3 +1,5 @@
+import { isPmcPage } from './platforms/pmc.js';
+
 export const ContentDetector = {
     /**
      * Analyze current page and return content type info
@@ -25,6 +27,18 @@ export const ContentDetector = {
         }
         if (hostname.includes('substack.com') || isSubstack()) {
             return { type: 'article', platform: 'substack', confidence: 0.9, metadata: {} };
+        }
+        // Phase 18 C2 tail — scholarly platforms. arXiv is exact-host
+        // on purpose: .includes('arxiv.org') would also claim
+        // ar5iv.labs.arxiv.org tabs (a rendition, not the platform).
+        // PMC goes through isPmcPage(url), not a bare hostname check —
+        // gene/pubmed/other NCBI pages must fall through to generic
+        // article detection (wrong platform label otherwise).
+        if (hostname === 'arxiv.org' || hostname === 'www.arxiv.org') {
+            return { type: 'article', platform: 'arxiv', confidence: 0.9, metadata: {} };
+        }
+        if (isPmcPage(url)) {
+            return { type: 'article', platform: 'pmc', confidence: 1.0, metadata: {} };
         }
         if (hostname.includes('reddit.com')) {
             return { type: 'social_post', platform: 'reddit', confidence: 1.0, metadata: {} };
