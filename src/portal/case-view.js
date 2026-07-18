@@ -17,12 +17,17 @@ import { renderEvidenceBlock } from './evidence-block.js';
 import { renderCaseTimeline } from './case-timeline.js';
 import { EntityModel } from '../shared/entity-model.js';
 import { collectCaseDossierData, buildCaseDossier } from '../shared/case-dossier.js';
+import { EvidenceLinker } from '../shared/evidence-linker.js';
+import { ClaimModel } from '../shared/claim-model.js';
+import { makeClaimRefCanonicalizer } from '../shared/claim-ref.js';
 import { getArticle } from '../shared/archive-cache.js';
 import { removeArticleFromCase } from '../shared/case-membership.js';
 import { mountAddSources } from './add-sources.js';
 import { mountTranscriptImport } from './import-transcript.js';
 import { renderCaseGraph } from './case-graph-view.js';
 import { renderSynthesisBlock } from './synthesis-block.js';
+import { renderHypothesesBlock } from './hypothesis-block.js';
+import { collectHypothesisEdgeJoins } from '../shared/hypothesis-map.js';
 import { Utils } from '../shared/utils.js';
 
 // Open a LOCAL archived record in the reader to extract claims from a
@@ -219,18 +224,24 @@ export function renderCaseView(host, params) {
     const shapeHost = el('div');
     const evidenceHost = el('div');
     const graphHost = el('div');
+    const hypothesesHost = el('div');
     const timelineHost = el('div');
     if (caseEnt && caseEnt.entityId) {
         host.appendChild(localCountsHost);
         host.appendChild(shapeHost);
         host.appendChild(evidenceHost);
         host.appendChild(graphHost);
+        host.appendChild(hypothesesHost);
         (async () => {
             // Collect once, then build the dossier AND the local graph
             // from the same `data` (the graph needs entitiesById/articles
             // that only the collector output carries).
             const data = await collectCaseDossierData(caseEnt.entityId);
             const dossier = buildCaseDossier(data, null);
+            // 26 CF.2 — the hypothesis-edge joins the per-claim trace
+            // expander folds into its deltas (one read, shared below).
+            const hypothesisEdges = await collectHypothesisEdgeJoins(caseEnt.entityId)
+                .catch(() => []);
             const c = dossier.coverage;
             localCountsHost.textContent =
                 `Local corpus: ${c.articles} source${c.articles === 1 ? '' : 's'} · `
@@ -239,6 +250,7 @@ export function renderCaseView(host, params) {
             if (c.articles === 0) localCountsHost.remove();
             renderShapeBlock(shapeHost, dossier);
             renderEvidenceBlock(evidenceHost, dossier, {
+                data, hypothesisEdges,
                 onExtractClaims: openArchivedInReader,
                 onRemoveFromCase: async (url) => {
                     try {
@@ -257,6 +269,14 @@ export function renderCaseView(host, params) {
             // 20.4 — LLM corpus synthesis (gated by caseSynthesis + key;
             // absent otherwise). Self-manages its own gating call.
             renderSynthesisBlock(graphHost, {
+                data, dossier,
+                callbacks: { onReloadCase: callbacks.onReloadCase }
+            });
+            // 26 H.2/H.3/H.4 — the hypothesis map, assembled from the
+            // same shared `data`, with the manual authoring affordances
+            // and the gated LLM edge suggestion (dossier feeds its
+            // digest). Renders nothing on a claimless case with no map.
+            renderHypothesesBlock(hypothesesHost, {
                 data, dossier,
                 callbacks: { onReloadCase: callbacks.onReloadCase }
             });
@@ -345,8 +365,10 @@ export function renderCaseView(host, params) {
     const section = el('div', 'xr-case__claims');
     section.appendChild(el('h3', 'xr-case__heading', `Claims (${claims.length})`));
     const list = el('ol', 'xr-portal__list');
+    const rowByCoord = new Map();   // 27 S.4 — local-link chip targets
     for (const item of claims) {
         const row = el('li', 'xr-row');
+        if (item.claimCoord) rowByCoord.set(item.claimCoord, row);
         const headRow = el('div', 'xr-row__head');
         headRow.appendChild(el('span', 'xr-row__kind', kindLabel(item.kind)));
         const titleEl = el('button', 'xr-row__title xr-row__title--link', truncate(item.title, 160));
@@ -393,6 +415,71 @@ export function renderCaseView(host, params) {
     }
     section.appendChild(list);
     host.appendChild(section);
+
+    // 27 S.4 — LOCAL relationship links (accepted proposals, hand-drawn
+    // links) that haven't published yet: the published-30055 chips
+    // above can't show them, so an accepted link looked like nothing
+    // happened. Async enrichment; chips carry a "local" marker.
+    if (rowByCoord.size > 0) {
+        (async () => {
+            const [allLinks, allClaims, canon] = await Promise.all([
+                EvidenceLinker.getAll(), ClaimModel.getAll(), makeClaimRefCanonicalizer()
+            ]);
+            const nameOf = (ref, link, side) => {
+                const c = allClaims[ref];
+                if (c && c.text) return c.text;
+                const snap = side === 'source' ? link.source_snapshot : link.target_snapshot;
+                return (snap && snap.text) || 'another claim';
+            };
+            // Canonical endpoints are row-invariant: index the global
+            // registry ONCE (O(links)), then each row is a map lookup —
+            // not rows × links × canon() re-parses.
+            const byEndpoint = new Map();   // canonical ref → [{link, src, tgt}]
+            for (const link of Object.values(allLinks)) {
+                if (link.publishedAt) continue;   // already a wire chip
+                const entry = { link, src: canon(link.source_claim_id), tgt: canon(link.target_claim_id) };
+                for (const ref of entry.src === entry.tgt ? [entry.src] : [entry.src, entry.tgt]) {
+                    if (!byEndpoint.has(ref)) byEndpoint.set(ref, []);
+                    byEndpoint.get(ref).push(entry);
+                }
+            }
+            const MAX_LOCAL_CHIPS = 6;   // the published-chip cap, matched
+            for (const [coord, row] of rowByCoord) {
+                const canonical = canon(coord);
+                const entries = byEndpoint.get(canonical) || [];
+                let shown = 0;
+                let over = 0;
+                let relRow = null;
+                for (const { link, src, tgt } of entries) {
+                    const isContradicts = link.relationship === 'contradicts';
+                    if (!isContradicts && !RELATED_RELATIONSHIPS.has(link.relationship)) continue;
+                    if (shown >= MAX_LOCAL_CHIPS) { over++; continue; }
+                    if (!relRow) {
+                        relRow = row.querySelector('.xr-case__related');
+                        if (!relRow) { relRow = el('div', 'xr-case__related'); row.appendChild(relRow); }
+                    }
+                    const dir = src === canonical ? 'out' : 'in';
+                    if (isContradicts) {
+                        const b = el('span', 'xr-badge xr-badge--warn', '⚠ contradicted (local)');
+                        b.title = 'A local contradiction link — not yet published';
+                        relRow.appendChild(b);
+                    } else {
+                        const otherRef = dir === 'out' ? tgt : src;
+                        const otherSide = dir === 'out' ? 'target' : 'source';
+                        const phrase = (RELATED_PHRASE[link.relationship] || {})[dir] || link.relationship;
+                        const b = el('span', 'xr-badge xr-badge--muted',
+                            `${dir === 'out' ? '→' : '←'} ${phrase} (local): ${truncate(nameOf(otherRef, link, otherSide), 60)}`);
+                        b.title = 'A local link — not yet published to relays';
+                        relRow.appendChild(b);
+                    }
+                    shown++;
+                }
+                if (over > 0 && relRow) {
+                    relRow.appendChild(el('span', 'xr-inspector__mono', `… +${over} more local`));
+                }
+            }
+        })().catch((err) => Utils.error('Local link chips failed', err));
+    }
 
     // --- the rest of the artifacts, compact ---
     const rest = everything.filter((i) => i.typeKey !== 'claim');

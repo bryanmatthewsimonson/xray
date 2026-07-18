@@ -37,6 +37,8 @@
 // (reports, filings, preprints). Pages it can't reconstruct still
 // emit their text in y-order — degraded, never dropped.
 
+import { normalize } from './metadata/url-normalizer.js';
+
 const LINE_Y_TOLERANCE_FACTOR = 0.4;   // × run height, baseline clustering
 const SUPERSUB_SIZE_RATIO     = 0.8;   // size mismatch that marks a sub/superscript
 const SUPERSUB_OVERLAP        = 0.4;   // × smaller height, min vertical band overlap
@@ -764,4 +766,93 @@ export function textDensity(pages) {
         for (const i of (p.items || [])) chars += String(i.str || '').trim().length;
     }
     return chars / list.length;
+}
+
+// ------------------------------------------------------------------
+// Outbound links (Phase 27) — the PDF analog of
+// ContentExtractor.extractOutboundLinks.
+// ------------------------------------------------------------------
+
+/**
+ * Outbound links from a PDF's link annotations, in the SAME shape the
+ * HTML extractor emits (`{url, text, count, internal}` + a `truncated`
+ * marker) so every downstream join — deriveLinkEdges, the case link
+ * graph, the capture frontier — treats a PDF exactly like a web page.
+ * Until this existed, `article.links` was simply absent on every PDF:
+ * not zero links, NO DATA, and a cited-in-a-PDF source was invisible to
+ * the corpus graph (a 129k-char paper contributing nothing).
+ *
+ * PURE, per this module's contract: the caller (reader/pdf-capture)
+ * owns pdf.js and passes annotation rectangles ALREADY mapped through
+ * the viewport into the same y-down space as `items` — the identical
+ * discipline the text runs use, so /Rotate pages behave.
+ *
+ * Annotation rects are EXPLICIT CORNERS (`x0,y0,x1,y1`, y0 = top),
+ * deliberately not the `{x,y,w,h}` items use: a run's `y` is its
+ * BASELINE with the glyphs above it, so an `h` on a rect would extend
+ * the opposite way from an `h` on a run. Two conventions one letter
+ * apart is a bug waiting to happen — corners cannot be misread.
+ *
+ * `text` is the anchor text, recovered from the runs the rect covers.
+ * Academic PDFs usually print the URL itself there, but a linked
+ * citation ("Worobey et al. 2022") carries the same
+ * characterize-the-source signal an HTML anchor does — which is the
+ * whole reason the HTML side keeps it.
+ *
+ * @param {Array<{items: Array<{str,x,y,w,h}>, annots?: Array<{url,x0,y0,x1,y1}>}>} pages
+ * @param {string} baseUrl   the PDF's own URL (resolves relative targets)
+ * @param {string} ownHost   hostname for the `internal` approximation
+ * @returns {{links: Array<{url,text,count,internal}>, truncated: boolean}}
+ */
+export function extractPdfLinks(pages, baseUrl, ownHost, { cap = 100 } = {}) {
+    const links = new Map();   // normalized url → {url, text, count, internal}
+    let truncated = false;
+    if (!Array.isArray(pages)) return { links: [], truncated };
+    const own = String(ownHost || '').toLowerCase().replace(/^www\./, '');
+
+    for (const page of pages) {
+        for (const annot of (page && page.annots) || []) {
+            const raw = annot && annot.url ? String(annot.url) : '';
+            if (!raw) continue;   // GoTo/internal destinations carry no url
+            let abs;
+            try { abs = new URL(raw, baseUrl || undefined); } catch (_) { continue; }
+            if (abs.protocol !== 'http:' && abs.protocol !== 'https:') continue;
+            const url = normalize(abs.href);
+            const existing = links.get(url);
+            if (existing) { existing.count += 1; continue; }
+            if (links.size >= cap) { truncated = true; continue; }
+            const host = abs.hostname.toLowerCase().replace(/^www\./, '');
+            links.set(url, {
+                url,
+                text: anchorTextUnder(page, annot),
+                count: 1,
+                internal: !!own && host === own
+            });
+        }
+    }
+    return { links: [...links.values()], truncated };
+}
+
+/**
+ * The text runs an annotation's rectangle covers, joined. A run counts
+ * when its CENTRE falls inside the rect: link rects are drawn around
+ * the glyphs and a run that merely grazes the edge (the neighbouring
+ * word) is not the anchor.
+ */
+function anchorTextUnder(page, annot) {
+    // Corners may arrive either way round once a /Rotate viewport has
+    // had its way with them; normalize rather than trust the order.
+    const x0 = Math.min(annot.x0, annot.x1);
+    const x1 = Math.max(annot.x0, annot.x1);
+    const y0 = Math.min(annot.y0, annot.y1);
+    const y1 = Math.max(annot.y0, annot.y1);
+    const parts = [];
+    for (const it of (page.items || [])) {
+        // A run's box is y-down from its baseline: glyphs sit ABOVE
+        // `it.y`, so the body spans [it.y - it.h, it.y].
+        const cx = it.x + (it.w || 0) / 2;
+        const cy = it.y - (it.h || 0) / 2;
+        if (cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1) parts.push(it.str);
+    }
+    return parts.join(' ').replace(/\s+/g, ' ').trim().slice(0, 200);
 }

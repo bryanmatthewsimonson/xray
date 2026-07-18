@@ -11,6 +11,7 @@
 import { el, truncate } from './dom.js';
 import { assembleCaseDossier } from '../shared/case-dossier.js';
 import { auditCardChipData } from '../shared/audit/display.js';
+import { mountTraceExpander } from './trace-block.js';
 import { Utils } from '../shared/utils.js';
 
 const MAX_ROWS = 40;
@@ -30,9 +31,12 @@ function captureChips(row) {
 // `dossierOrId`: a pre-built case dossier (shared assembly, 20.1) or a
 // case entity id. `opts.onExtractClaims(url)` opens a claimless member
 // row's archived article in the reader to extract claims (20.1).
+// `opts.data` + `opts.hypothesisEdges` (26 CF.2): when the shared
+// collector envelope rides along, each claim row gains the
+// "Trace dependencies" expander (trace-block.js).
 export function renderEvidenceBlock(host, dossierOrId, opts = {}) {
     if (!dossierOrId) return;
-    const { onExtractClaims, onRemoveFromCase } = opts;
+    const { onExtractClaims, onRemoveFromCase, data, hypothesisEdges } = opts;
     const block = el('div', 'xr-view__dossier');
     host.appendChild(block);
 
@@ -123,6 +127,12 @@ export function renderEvidenceBlock(host, dossierOrId, opts = {}) {
                     li.appendChild(el('blockquote', 'xr-finding-row__quote', truncate(c.quote, 160)));
                 } else {
                     li.appendChild(el('div', 'xr-ev__claim', truncate(c.text || '', 140)));
+                }
+                // 26 CF.2 — the structural counterfactual, per claim.
+                if (data && c.claim_id) {
+                    mountTraceExpander(li, {
+                        data, claimId: c.claim_id, hypothesisEdges: hypothesisEdges || []
+                    });
                 }
             }
             if (row.claims.length > MAX_CLAIMS_PER_ROW) {

@@ -20,6 +20,7 @@ import { recordAccount, extractPostAuthor } from '../shared/identity/account-reg
 import { selectAccountsToPublish } from '../shared/identity/account-publish.js';
 import { ClaimModel, exactFromAnchor } from '../shared/claim-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
+import { HypothesisEdgeModel } from '../shared/hypothesis-model.js';
 import * as ArchiveCache from '../shared/archive-cache.js';
 import { recordAlias, resolveAlias } from '../shared/url-aliases.js';
 import { installEntityTagger, rehydrateEntityMarks, renderEntitiesBar, extractParagraphContext } from './entity-tagger.js';
@@ -37,7 +38,7 @@ import { TruthAdjudicationModel, VerdictModel } from '../shared/truth-adjudicati
 import { IntegrityModel } from '../shared/integrity-model.js';
 import { buildAssessmentEvent, buildClaimRelationshipEvent, buildAssessmentMirrorEvent, buildBehavioralFindingEvent, buildForensicFindingMirrorEvent } from '../shared/metadata/builders.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
-import { ForensicModel } from '../shared/forensic-model.js';
+import { ForensicModel, ForensicBaseline } from '../shared/forensic-model.js';
 import { openFindingModal, openBaselineModal } from '../shared/forensic-modal.js';
 import { renderFindingsBar } from './findings-section.js';
 import { shouldOfferArchive, describeMetric } from './archive-banner.js';
@@ -1630,7 +1631,10 @@ async function refreshFindingsBar() {
     const findings = Object.values(all)
         .filter((f) => (f.anchors || []).some((a) => a.source_ref && a.source_ref.url === url))
         .sort((a, b) => (a.created || 0) - (b.created || 0));
-    host.innerHTML = renderFindingsBar(findings);
+    // 27 F.4 — baselines finally render (they were write-only: saved,
+    // toasted, and never shown anywhere).
+    const baselines = await ForensicBaseline.getForUrl(url);
+    host.innerHTML = renderFindingsBar(findings, baselines);
 
     const anchorContext  = { container: $('.xr-article__body') };
     const sourceRef      = { url: state.article.url, title: state.article.title || '' };
@@ -1649,7 +1653,29 @@ async function refreshFindingsBar() {
     const baseBtn = host.querySelector('#xr-findings-baseline');
     if (baseBtn) baseBtn.addEventListener('click', async () => {
         const result = await openBaselineModal({ subjectChoices, sourceRef });
-        if (result) toast('Baseline saved', 'success', 1500);
+        if (result) {
+            toast('Baseline saved', 'success', 1500);
+            await refreshFindingsBar();
+        }
+    });
+
+    host.querySelectorAll('.xr-findings__baseline').forEach((row) => {
+        const delBtn = row.querySelector('[data-action="baseline-delete"]');
+        if (delBtn) delBtn.addEventListener('click', async () => {
+            if (!confirm('Remove this baseline? Findings that marked a deviation from it keep their evidence but lose the baseline link.')) return;
+            const baselineId = row.dataset.id;
+            await ForensicBaseline.delete(baselineId);
+            // Clear dangling deviation links (baseline_ref is editable
+            // context, not identity, so this is an update not a rekey).
+            const findings = await ForensicModel.getAll();
+            for (const f of Object.values(findings)) {
+                if (f.baseline_ref === baselineId) {
+                    await ForensicModel.update(f.id, { baseline_ref: null }).catch(() => {});
+                }
+            }
+            toast('Baseline removed', 'success', 1500);
+            await refreshFindingsBar();
+        });
     });
 
     host.querySelectorAll('.xr-findings__item').forEach((row) => {
@@ -2594,6 +2620,7 @@ async function confirmDeleteClaim(id) {
     // user sees the blast radius before confirming.
     const links = await EvidenceLinker.getForClaim(id);
     const assessment = await AssessmentModel.getByClaimRef(id);
+    const hypothesisEdges = await HypothesisEdgeModel.getForClaim(id);
     const lines = [];
     if (claim.publishedAt) {
         lines.push('Already-published kind-30040 stays on relays until NIP-09 delete (later phase).');
@@ -2604,6 +2631,9 @@ async function confirmDeleteClaim(id) {
     if (assessment) {
         lines.push('Your assessment of it will also be removed.');
     }
+    if (hypothesisEdges.length > 0) {
+        lines.push(`${hypothesisEdges.length} hypothesis attachment${hypothesisEdges.length === 1 ? '' : 's'} will also be removed.`);
+    }
     const msg = lines.length > 0
         ? `Delete claim? ${lines.join(' ')}`
         : 'Delete claim?';
@@ -2612,6 +2642,7 @@ async function confirmDeleteClaim(id) {
     // registry, so it must still see the claim while matching.
     if (links.length > 0) await EvidenceLinker.deleteForClaim(id);
     if (assessment) await AssessmentModel.delete(assessment.id);
+    if (hypothesisEdges.length > 0) await HypothesisEdgeModel.deleteForClaim(id);
     // 13.6's dependent: a prediction promoted into this claim holds a
     // claim_ref — left dangling it defers the 30058 at every publish
     // forever and the audit panel shows a permanent "claim ✓".

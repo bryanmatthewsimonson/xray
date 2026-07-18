@@ -87,14 +87,33 @@ export async function corpusInputHash(members, orbitClaimIds, promptVersion = CO
  * (20.6). Size-capped; counts stay on the face so the model (and the
  * reader) see coverage.
  */
+// The digest's claim-index cap — exported so callers that must keep
+// their validation/grounding set identical to the digest set (the 20.6
+// discipline) can cap the SAME list, and so spend-confirms can state
+// what is actually sent.
+export const DIGEST_CLAIM_CAP = 150;
+
 export function digestDossier(dossier, { claims = [] } = {}) {
     const shape = dossier.shape_of_knowledge || {};
     const knots = dossier.knots || {};
-    const claimIndex = claims.slice(0, 150).map((c) => ({
+    // Claims carry a short per-article key (`art: 'A1'`) instead of a
+    // 64-hex hash (27 S.1): cross-ARTICLE relationship proposals need
+    // the model to see which claims come from different articles, and
+    // the short key makes pairs identifiable at a glance (and shrinks
+    // the digest). `articles` maps the keys back to hashes.
+    const capped = claims.slice(0, DIGEST_CLAIM_CAP);
+    const artKeyByHash = new Map();
+    for (const c of capped) {
+        const h = c.article_hash || null;
+        if (h && !artKeyByHash.has(h)) artKeyByHash.set(h, `A${artKeyByHash.size + 1}`);
+    }
+    const claimIndex = capped.map((c) => ({
         id: c.id,
         text: (c.text || '').slice(0, 160),
-        article_hash: c.article_hash || null
+        art: c.article_hash ? artKeyByHash.get(c.article_hash) : null
     }));
+    const articleKeys = {};
+    for (const [hash, key] of artKeyByHash) articleKeys[key] = hash;
     return JSON.stringify({
         coverage: dossier.coverage || {},
         distribution: (shape.distribution && {
@@ -108,6 +127,7 @@ export function digestDossier(dossier, { claims = [] } = {}) {
             notes: (k.edges || []).map((e) => e.note).filter(Boolean)
         })),
         claims: claimIndex,
+        articles: articleKeys,
         claim_count: claimIndex.length
     });
 }
@@ -203,6 +223,19 @@ export function groundCaseBrief(brief, indexByMember) {
 // ------------------------------------------------------------------
 
 /**
+ * Stable identity for one proposal — the dedup key inside
+ * filterProposals AND (27 S.3) the key the per-brief triage record
+ * (`record.triage[key] = 'accepted' | 'dismissed'`) is stored under,
+ * so a reopened brief doesn't resurrect already-triaged rows.
+ */
+export function proposalKey(p) {
+    if (p.kind === 'relationship') return `rel:${[p.source_claim_id, p.target_claim_id].sort().join('|')}:${p.relationship}`;
+    if (p.kind === 'is_key') return `key:${p.claim_id}`;
+    if (p.kind === 'claim') return `claim:${p.article_hash}|${p.text}`;
+    return `other:${JSON.stringify(p)}`;
+}
+
+/**
  * Split a grounded brief's proposals into `{acceptable, rejected}`.
  * A relationship needs two EXISTING claim ids and a valid enum; is_key
  * needs an existing claim id; claim needs a real member and (already
@@ -212,14 +245,8 @@ export function filterProposals(brief, { claimsById = {}, memberHashes = new Set
     const acceptable = [];
     const rejected = [];
     const seen = new Set();   // dedup key across all kinds
-    const keyOf = (p) => {
-        if (p.kind === 'relationship') return `rel:${[p.source_claim_id, p.target_claim_id].sort().join('|')}:${p.relationship}`;
-        if (p.kind === 'is_key') return `key:${p.claim_id}`;
-        if (p.kind === 'claim') return `claim:${p.article_hash}|${p.text}`;
-        return `other:${JSON.stringify(p)}`;
-    };
     for (const p of (brief.proposals || [])) {
-        const dk = keyOf(p);
+        const dk = proposalKey(p);
         if (seen.has(dk)) continue;   // silent dedup — a repeat is not a reject
         seen.add(dk);
 

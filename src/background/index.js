@@ -26,7 +26,7 @@ import { NostrClient } from '../shared/nostr-client.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
-import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, getCorpusConfig } from '../shared/llm-client.js';
+import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, runHypothesisEdgePass, getCorpusConfig } from '../shared/llm-client.js';
 import { pdfDocumentUrl } from '../shared/pdf-detect.js';
 import { articleAnswersTo } from '../shared/url-identity.js';
 import { Signer } from '../shared/signer.js';
@@ -576,6 +576,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         runCorpusReducePass(message.request || {}).then(
             (result) => sendResponse(result),
             (err) => sendResponse({ ok: false, error: (err && err.message) || 'Corpus reduce call failed' })
+        );
+        return true; // async sendResponse
+    }
+    // Portal → worker: hypothesis-edge suggestion (Phase 26 H.4). One
+    // reduce-shaped call; same triple gate inside the pass; returns RAW
+    // tool output (the portal validates, grounds, runs the both-sides
+    // post-check, and gates every mutation behind human Accept).
+    if (message.type === 'xray:llm:hypothesis-edges') {
+        runHypothesisEdgePass(message.request || {}).then(
+            (result) => sendResponse(result),
+            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Hypothesis edge call failed' })
         );
         return true; // async sendResponse
     }

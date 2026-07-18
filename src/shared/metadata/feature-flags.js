@@ -113,6 +113,13 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // ordinary 30040/30055 through the normal publish paths.
   caseSynthesis: false,
 
+  // Phase 27 K.4: the `#xray:capture` URL marker — a driving agent's
+  // capture trigger (the connector can neither reach extension pages
+  // nor fire the command shortcut, so navigation is the only verb it
+  // has). Gates ONLY the marker; the toolbar/shortcut/menu capture
+  // paths are unconditional as ever. Captures pages, nothing more.
+  captureAutomation: false,
+
   // Phase 25 (docs/NETWORK_CLIENT_DESIGN.md §8): gates the Network
   // SURFACE — the standalone follows-feed page, its context-menu item,
   // and the options/sidepanel links. Reading relays is not a
