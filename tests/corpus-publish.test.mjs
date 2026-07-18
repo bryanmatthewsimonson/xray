@@ -66,10 +66,12 @@ test('renderCaseBriefMarkdown: prose sections, linked quotes, NO score/proposals
     // important citations).
     assert.ok(md.includes('[The Zoonosis Case](https://b.example/zoo)'));
     assert.ok(md.includes('> No signatures of engineering were found.'));
-    // Readability: holders cite by number, not a full-title link soup.
-    // first-appearance order → Lab-Leak (HASH_A) is [1], Zoonosis (HASH_B) [2].
-    assert.ok(md.includes('*Held by:* [1]'), 'lab-leak holders cite by number');
-    assert.ok(md.includes('*Held by:* [2]'), 'zoonosis holders cite by number');
+    // Readability: holders cite by number (not a full-title link soup),
+    // and each number LINKS to its source (escaped brackets so a
+    // CommonMark reader shows "[N]" with N clickable). first-appearance
+    // order → Lab-Leak (HASH_A) is [1], Zoonosis (HASH_B) [2].
+    assert.ok(md.includes('*Held by:* \\[[1](https://a.example/leak)\\]'), 'lab-leak holder is a linked number');
+    assert.ok(md.includes('\\[[2](https://b.example/zoo)\\]'), 'zoonosis holder is a linked number');
     assert.ok(!md.includes('*Held by:* [The Lab-Leak Case]'), 'no full-title holder soup');
     // Sources appendix resolves every [N] with full link text.
     assert.ok(md.includes('## Sources'), 'has a Sources list');
