@@ -224,7 +224,7 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
         for (const m of members) {
             for (const c of m.claims) {
                 claimsById[c.id] = c;
-                claimIndex.push({ id: c.id, text: c.text, article_hash: m.article_hash });
+                claimIndex.push({ id: c.id, text: c.text, article_hash: m.article_hash, is_key: !!c.is_key });
             }
         }
         const memberByHash = {};

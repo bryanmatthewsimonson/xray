@@ -19,6 +19,43 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-18 — The claim-join narrowed the brief: representative digest + a map/reduce version split
+
+**Tags:** design
+
+Real-use finding. After the claim-join fix attached ~2,335 claims across
+~109 articles, an Opus brief came back DEEPER (19 grounded cross-article
+proposals vs ~none) but NARROWER than the earlier 2-claim brief: position
+`holders` collapsed to 1–3 each and central cruxes (furin cleavage site,
+DEFUSE) vanished. Cause, stated in the brief itself ("13 with extracted
+claims in the digest"): `DIGEST_CLAIM_CAP = 150` filled the reduce's claim
+index FIRST-COME by article order, so ~13 claim-dense articles ate all 150
+slots and the rest of the corpus never reached the reduce — starving
+cross-article proposals and claim-anchored cruxes of the whole tail.
+
+Three moves, all reduce-side (the map cache is untouched):
+
+1. **Representative claim index** — `selectDigestClaims`: keep EVERY
+   `is_key` claim, then round-robin one-per-article so the 150 span the
+   whole corpus instead of clustering in its densest few. (claimIndex now
+   carries `is_key`.)
+2. **A map/reduce version split.** `corpusExtractKey` (the map-extract
+   cache key) now keys on `MAP_PROMPT_VERSION` (held at 'corpus-v2'), NOT
+   the overall `CORPUS_PROMPT_VERSION` (bumped to 'corpus-v3'). So this
+   reduce change — and future reduce-prompt tuning — stales briefs via
+   `corpusInputHash` WITHOUT orphaning the expensive cached extracts. The
+   two versions start equal and diverge exactly when a reduce-only change
+   lands. (Without this, every reduce tweak would blow away the map cache
+   built the day before — the caching and the tuning were at war.)
+3. **A reduce-prompt completeness nudge** — list EVERY holder (the list is
+   the corpus map, not a sample) and enumerate ALL major cruxes including
+   the scientific disputes surfaced in the extracts, not only those with a
+   claim in the index.
+
+Model note (separate, load-bearing for use): `claude-sonnet-5` REFUSES
+this corpus (reduce + ~30 maps, `stop_reason:'refusal'`, category `bio`);
+`claude-opus-4-8` completes. Fix is model choice, not prompt trickery.
+
 ## 2026-07-18 — Corpus synthesis re-paid for every map call: a per-article extract cache
 
 **Tags:** design
