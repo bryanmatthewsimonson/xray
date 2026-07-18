@@ -42,6 +42,7 @@ import { ForensicModel, ForensicBaseline } from '../shared/forensic-model.js';
 import { openFindingModal, openBaselineModal } from '../shared/forensic-modal.js';
 import { renderFindingsBar } from './findings-section.js';
 import { shouldOfferArchive, describeMetric } from './archive-banner.js';
+import { archivedDraftIsCanonical, archivedDraftSource } from '../shared/archive-draft.js';
 import { openLlmReview } from './llm-review.js';
 import { capturePdfToArticle } from './pdf-capture.js';
 import { pageOfOffset, pageFragmentSelector } from '../shared/pdf-layout.js';
@@ -89,6 +90,26 @@ const state = {
     htmlDraft: '',
     markdownDraft: '',
     dirtySource: 'reader', // which draft is canonical
+    // `markdownDraft` PROVABLY reproduces `articleHash` — it is the body
+    // that was published, carried rather than re-derived (see
+    // shared/archive-draft.js). Separate from `dirtySource` on purpose:
+    // dirtySource records where a draft CAME FROM, this records whether
+    // it can be TRUSTED, and the two answers move independently. Tagging
+    // an entity rewrites htmlDraft (so dirtySource flips to 'reader')
+    // without changing a single character of text — a proven draft must
+    // survive that, or the re-derivation it triggers silently drifts the
+    // body. A real body edit clears this.
+    //
+    // NEVER read this flag directly — call draftIsProven(), which also
+    // checks the draft is still the bytes we proved. Nine places assign
+    // markdownDraft, and a flag they forget to clear is a flag that
+    // lies: one of them blanks the draft on purpose and relies on the
+    // re-derivation this flag suppresses, which shipped an EMPTY body
+    // over a real article. The byte check makes that class of mistake
+    // impossible rather than merely documented.
+    draftProven: false,
+    // The exact bytes `draftProven` was proved against, or null.
+    provenDraft: null,
     // Platform comments — Substack today, YouTube/Twitter/etc. in later
     // phases. The tree is whatever the platform-specific fetcher returns
     // via `xray:substack:fetchComments` (or equivalent).
@@ -215,7 +236,16 @@ async function loadArticle() {
 }
 
 /** Shared adoption tail for every load path (session hand-off, PDF). */
-function adoptArticle(article, stored) {
+async function adoptArticle(article, stored) {
+    // Proven BEFORE any state write, so no render can fire mid-await and
+    // see a half-loaded draft. Costs one sha256 on a string we already
+    // hold; false for every fresh capture (no `_articleHash` yet), so the
+    // capture path is untouched. This entry point matters because the
+    // portal opens archive rows WRITABLE through it — the case view's
+    // "Extract claims" button and the case graph's article nodes both
+    // land here, not in loadArchivedArticle.
+    const proven = await archivedDraftIsCanonical(article);
+
     state.article = article;
     // Remembered for later writes (save-on-tag): a read-only open (the
     // portal's relay reconstructions) must never touch the archive row.
@@ -226,8 +256,19 @@ function adoptArticle(article, stored) {
     // quotes from an affected passage.
     try { renderExtractionWarningsBanner(); }
     catch (err) { console.warn('[X-Ray Reader] extraction banner failed:', err); }
-    state.markdownDraft = article.markdown || article.content || '';
+    // A proven draft is the published body itself; prefer it over the
+    // derived `content`, whose turndown is what drifts. Gated on `proven`
+    // rather than on merely HAVING a carried draft: `archivedDraftSource`
+    // prefers `_publishedDraft` over `markdown`, so an UNPROVEN carried
+    // draft left stale by an older publish would shadow a newer, correct
+    // `markdown` and silently revert the body. Unproven => exactly the
+    // pre-existing seed.
+    state.markdownDraft = proven
+        ? archivedDraftSource(article)
+        : (article.markdown || article.content || '');
     state.htmlDraft = article.content || ContentExtractor.markdownToHtml(state.markdownDraft);
+    state.draftProven = proven;
+    state.provenDraft = proven ? state.markdownDraft : null;
 
     // PDFs: the reconstructed markdown IS the capture — `content` is a
     // rendering derived from it. Marking the markdown draft canonical
@@ -504,8 +545,39 @@ function isMarkdownCanonical(article) {
         && (article.contentType === 'pdf' || article.contentType === 'transcript'));
 }
 
+/**
+ * Is `markdownDraft` still the proven published body?
+ *
+ * Two conditions, and both are load-bearing:
+ *   - `draftProven` — the draft was proved against the archive's own
+ *     `x` tag at load. Cleared by a real body edit, where the TEXT
+ *     changes but `markdownDraft` itself does not (the reader edits
+ *     `htmlDraft`), so the byte check below cannot see it.
+ *   - the bytes are unchanged — catches every writer that rewrites or
+ *     blanks the draft without clearing the flag. `applyMediaResult`
+ *     parks `markdownDraft = ''` and relies on the re-derivation this
+ *     guard suppresses; the Substack backfill rewrites it outright.
+ *     Neither needs to know this flag exists.
+ *
+ * Read this, never `state.draftProven`.
+ */
+function draftIsProven() {
+    return !!state.draftProven
+        && state.provenDraft !== null
+        && state.markdownDraft === state.provenDraft;
+}
+
 // The body the canonical hash covers must be the body publish ships.
+//
+// A proven draft IS that body — publish sends it verbatim. Hashing a
+// turndown of the rendering instead would label the reader's hash line,
+// the audit anchor, and the archive row with a hash that DISAGREES with
+// the x tag publish then emits: the drifted value the proof exists to
+// avoid, displayed as if it were the article's identity.
 function hashableArticle(article) {
+    if (draftIsProven()) {
+        return { ...article, content: state.provenDraft, _contentIsMarkdown: true };
+    }
     return isMarkdownCanonical(article)
         ? { ...article, content: article.markdown, _contentIsMarkdown: true }
         : article;
@@ -688,7 +760,8 @@ function renderArchiveBanner({ source, article, metric, cachedAt, createdAt, aut
 
     $('#xr-archive-dismiss').addEventListener('click', () => banner.remove());
     $('#xr-archive-load').addEventListener('click', () => {
-        loadArchivedArticle(article, { source, cachedAt, createdAt, author });
+        loadArchivedArticle(article, { source, cachedAt, createdAt, author })
+            .catch((err) => console.warn('[X-Ray Reader] archive load failed:', err));
         banner.remove();
     });
 }
@@ -701,7 +774,15 @@ function renderArchiveBanner({ source, article, metric, cachedAt, createdAt, aut
  * refs untouched" rule silently dropped every tag saved with the
  * archived copy — the reload-loses-tags bug.)
  */
-function loadArchivedArticle(archived, provenance) {
+async function loadArchivedArticle(archived, provenance) {
+    // Proven against the archive's OWN `_articleHash`, before any state
+    // write — everything below then runs synchronously, so no render can
+    // fire mid-await and re-derive the draft we are about to install.
+    // `archived` is the right subject rather than the merged
+    // `state.article`: the merge only overrides url/entities/extraction,
+    // none of which the body assembly reads.
+    const proven = await archivedDraftIsCanonical(archived);
+
     state.article = {
         ...archived,
         // Preserve the URL / id bridging so publish + session paths
@@ -724,9 +805,20 @@ function loadArchivedArticle(archived, provenance) {
     if (provenance.createdAt) state.article._archiveCreatedAt = provenance.createdAt;
     if (provenance.author)   state.article._archiveAuthor = provenance.author;
 
-    state.markdownDraft = archived.markdown || archived.content || '';
+    // The PROVEN published body when there is one — NOT `content`, which
+    // is only a markdown->HTML rendering of it. Re-deriving markdown from
+    // that rendering is the escape-doubling bug; on the relay path this
+    // line used to fall through to `content` and put HTML in the MARKDOWN
+    // draft outright, since a reconstruction has no `markdown`. Gated on
+    // `proven` for the same reason as adoptArticle: an unproven carried
+    // draft must not shadow a newer `markdown`.
+    state.markdownDraft = proven
+        ? archivedDraftSource(archived)
+        : (archived.markdown || archived.content || '');
     state.htmlDraft     = archived.content  || ContentExtractor.markdownToHtml(state.markdownDraft);
     state.dirtySource   = 'reader';
+    state.draftProven   = proven;
+    state.provenDraft   = proven ? state.markdownDraft : null;
     // Same rule as adoptArticle: an archived PDF's / transcript's
     // markdown is the canonical body — republish must not
     // turndown-round-trip it.
@@ -1800,6 +1892,8 @@ async function applyMediaResult(result) {
         state.markdownDraft = a.markdown;
         a.content = ContentExtractor.markdownToHtml(a.markdown);
         state.htmlDraft = a.content;
+        // The body now has a section the published one did not.
+        state.draftProven = false;
     } else {
         // HTML-canonical (ordinary captures): upsert the RENDERED
         // section into the clean capture content, then re-derive the
@@ -1816,6 +1910,12 @@ async function applyMediaResult(result) {
         a.content = upsertTranscriptSection(a.content || '', sectionHtml, { isHtml: true });
         state.htmlDraft = a.content;
         state.markdownDraft = '';       // stale — regenerated on tab entry
+        // ...and that regeneration is exactly what a proven draft
+        // suppresses. Without this the blanked draft SHIPS: an empty
+        // kind-30023 replacing the real article at the same NIP-33
+        // coordinate, x tag = sha256(''). draftIsProven() also catches it
+        // via the byte check; this states the intent at the mutation.
+        state.draftProven = false;
         state.dirtySource = 'reader';
     }
 
@@ -3075,6 +3175,12 @@ function onReaderFieldInput(ev) {
     // draft: flag dirty, recompute at publish (13.4).
     if (ev && ev.target && ev.target.dataset.field === 'content' && !state.hashDirty) {
         state.hashDirty = true;
+        // The body is no longer the one that hashes to the anchor, so the
+        // draft is no longer proven and publish must re-derive it. Scoped
+        // to the CONTENT field on purpose: the unconditional
+        // dirtySource='reader' above fires for the title and every meta
+        // field too, and a typo fix in the title must not drift the body.
+        state.draftProven = false;
         updateHashLine();
         // The audit panel's header claims "for this exact text" —
         // no longer true; one refresh flips it to the edited-state
@@ -3123,8 +3229,11 @@ function onReaderFieldBlur(ev) {
 
 function renderMarkdown() {
     // If the reader view is where we last edited, refresh the markdown
-    // draft from the current HTML before handing off to the textarea.
-    if (state.dirtySource === 'reader') {
+    // draft from the current HTML before handing off to the textarea —
+    // unless the draft is the proven published body, which this
+    // re-derivation would corrupt (see shared/archive-draft.js). Merely
+    // LOOKING at the markdown tab must not drift the body.
+    if (state.dirtySource === 'reader' && !draftIsProven()) {
         state.markdownDraft = ContentExtractor.htmlToMarkdown(state.htmlDraft);
     }
     const main = $('#xr-main');
@@ -3141,6 +3250,8 @@ function renderMarkdown() {
     ta.addEventListener('input', () => {
         state.markdownDraft = ta.value;
         state.dirtySource = 'markdown';
+        // Hand-edited: no longer the published body, whatever it was.
+        state.draftProven = false;
     });
     ta.focus();
 }
@@ -3150,8 +3261,9 @@ function renderMarkdown() {
 // ------------------------------------------------------------------
 
 function renderPreview() {
-    // Make sure markdownDraft is current.
-    if (state.dirtySource === 'reader') {
+    // Make sure markdownDraft is current — but never at the cost of the
+    // proven published body (see renderMarkdown).
+    if (state.dirtySource === 'reader' && !draftIsProven()) {
         state.markdownDraft = ContentExtractor.htmlToMarkdown(state.htmlDraft);
     }
     const roundtripHtml = ContentExtractor.markdownToHtml(state.markdownDraft);
@@ -3640,7 +3752,14 @@ async function publish() {
     };
 
     try {
-        if (state.dirtySource === 'reader') {
+        // The drift point. A proven draft IS the published body, so
+        // re-deriving it from the rendered HTML would turndown text that
+        // was already turndowned — doubling every escape and minting a
+        // new x tag for an article nobody edited. Ship the proven bytes.
+        // A real body edit clears `draftProven` (onReaderFieldInput), so
+        // genuine changes still re-derive and still fork the hash, which
+        // is correct: that IS a different article.
+        if (state.dirtySource === 'reader' && !draftIsProven()) {
             state.markdownDraft = ContentExtractor.htmlToMarkdown(state.htmlDraft);
         }
 
@@ -3669,6 +3788,13 @@ async function publish() {
             ...state.article,
             content: state.markdownDraft,
             markdown: state.markdownDraft,
+            // Keep the carried pair matched to what we are about to ship:
+            // `_articleHash` is stamped from this event's x tag below, and
+            // a `_publishedDraft` inherited from a PREVIOUS publish would
+            // be stale beside it. Left stale it is safe (the proof simply
+            // fails) but it shadows `markdown` in archivedDraftSource, so
+            // this row would stop proving itself on the next reload.
+            _publishedDraft: state.markdownDraft,
             _contentIsMarkdown: true
         };
         const entityRefs = Array.isArray(state.article.entities) ? state.article.entities : [];

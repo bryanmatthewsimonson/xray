@@ -19,6 +19,135 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-17 — Load archive → republish drifted the x tag; the fix is a proof, not a flag
+
+Tags: `bug`, `design`.
+
+Publish → "Load archive" → republish minted a **new `x` tag for an
+article nobody edited**, and repeating it was exponential. Publish
+turndowns Readability HTML to markdown; `reconstructArticleFromEvent`
+renders that markdown back to HTML; republish turndowns the *rendering*
+again. turndown is not idempotent — it escapes already-escaped
+characters — so backslashes grow **n → 2n+1** per cycle. Measured on the
+real modules: `1 → 3 → 7 → 15`, four distinct `x` tags.
+
+`assembleArticleBody` states the invariant out loud — *"Conversion runs
+ONCE per body, ever"* — and the Load-archive path is where it broke.
+
+**Why this mattered more than it looked.** The `d` tag is URL-derived and
+survives reconstruct, so a drifted republish **replaces the original
+30023 at the same NIP-33 coordinate**. The bug was overwriting the very
+body the audits anchor to. The 2026-07-08 PDF fix did not cover it:
+`isMarkdownCanonical` needs `article.markdown`, and reconstruct never set
+it — so that protection was **dead code on the relay path**, for exactly
+the pdf/transcript captures it was written for.
+
+**The fix: carry the preimage, and PROVE it.** `reconstructArticleFromEvent`
+now emits `_publishedDraft` — the value `content` held when the event was
+built, i.e. `assembleArticleBody`'s *input*, whose *output* is the `x`
+tag's preimage. `shared/archive-draft.js` proves it: rebuild the body
+publish would ship and check it hashes to the carried `_articleHash`.
+True → ship those bytes; false → today's behavior. There is no third
+outcome, so being wrong is safe.
+
+**Four things this cost us to get right, each found by an adversary with
+a runnable repro rather than by reading:**
+
+1. **Guard the re-derivation READERS, not the `dirtySource` WRITERS.**
+   `dirtySource='reader'` has four writers. An earlier cut set the verdict
+   in `loadArchivedArticle` only — and `onTag`/`onEntityTag` flip it back
+   for any contentType outside pdf|transcript, so **tagging one entity —
+   the tool's primary workflow — re-armed the bug in full** (measured:
+   3→9→21→45→93). `onReaderFieldInput` is worse: it flips unconditionally,
+   so **fixing a typo in the title drifted the body**. Hence
+   `state.draftProven`, separate from `dirtySource` on purpose:
+   dirtySource records where a draft came from, draftProven records
+   whether it can be trusted, and text-neutral mutations move one without
+   the other. It guards the three `htmlToMarkdown(htmlDraft)` sites.
+2. **The carrier must not be named `markdown`.** That key arms
+   `isMarkdownCanonical`, which would have declared a relay-reconstructed
+   pdf/transcript canonical *without proof* — new behavior, since the
+   predicate was previously dead there. A PDF whose extracted text
+   contains a `## Description` heading (pdf-layout promotes short large
+   lines to h2) has that section cut out by reconstruct, and
+   `assembleArticleBody` only re-appends sections for `video` — so the
+   naive version republished a body that had **lost 48 of 120 bytes**.
+   Under the proof that body fails its own check and falls back.
+3. **Snapshot AFTER the section extraction, not before.** The first cut
+   carried the full preimage; `assembleArticleBody` then re-appended
+   Description/Transcript for a video and **emitted them twice**. It is
+   the remainder that composes.
+4. **Both entry points.** The portal opens archive rows *writable* via
+   `adoptArticle` (case view's "Extract claims", case-graph article
+   nodes) — never through `loadArchivedArticle`.
+
+**No cheaper discriminator works**, and each has a counter-example pinned
+in the tests: *"it has a markdown field"* — a YouTube capture's handler
+markdown is not the published preimage (publish turndowns the derived
+HTML), so trusting it re-mints the hash and orphans that article's
+audits; *"contentType is pdf/transcript"* — see (2); *"it came from a
+relay"* — provenance is not integrity. Also do **not** read `textContent`
+as the draft: reconstruct puts markdown in it, but a fresh capture puts
+tag-stripped plain text there.
+
+**Wire format: unchanged.** No kind, tag, or field moves; the hash
+algorithm is untouched; `_publishedDraft` is an in-memory read-side field
+`assembleArticleBody` never reads. What changes is the `x` tag a
+reload→republish *produces*: from "a fresh, drifting hash every cycle" to
+"the hash already on the wire." It mints no new anchor and re-anchors
+nothing.
+
+**Rejected alternatives, both tested:** making `markdownToHtml` a turndown
+inverse is a ~1-line unescape but fixes only 1 of 5 shapes (no tables, no
+nested lists) and is *retroactively unsafe* — platform handlers set
+`content = markdownToHtml(bodyMarkdown)`, so it silently moves every
+already-published platform capture's `x` tag. De-escaping inside the hash
+opens a **collision**: `5 \* 3` and `5 * 3` would share one content
+address.
+
+**Why 1739 tests stayed green while this was live:** nothing fed
+`reconstructArticleFromEvent`'s output back into `buildArticleEvent`.
+`tests/archive-reload-hash.test.mjs` closes that loop. Its fixtures are
+deliberately escape-prone (`5 * 3`, `that_is_it`, a line starting `14.`):
+**plain prose round-trips byte-stably and passes against the bug** —
+including `audit-capture-hash.test.mjs`'s own fixture. Do not tidy them.
+
+**The near-miss, recorded because the lesson is the point.** A review of
+the *implemented* diff (not the design) found that the first cut of this
+fix **published an EMPTY body over the real article**. `applyMediaResult`
+(attach a transcript) deliberately parks `markdownDraft = ''` with the
+comment *"stale — regenerated on tab entry"* and sets
+`dirtySource='reader'` to force that regeneration — which the new
+`draftProven` guard suppressed. Publish then shipped `content: ''`: `x` =
+`e3b0c442…` (sha256 of the empty string), `d` unchanged, so the empty
+event **replaced the article at its own NIP-33 coordinate** and orphaned
+every audit anchored to it. The reader showed a correct body and a
+correct hash line throughout, because both read `htmlDraft`.
+
+This is the *same* mistake the design review had already caught once, one
+level down. The refuters proved `dirtySource='reader'` has four writers
+and that guarding one was useless — and then `draftProven` was introduced
+with the identical shape: **nine** places assign `markdownDraft`, and the
+flag was cleared at two of them. Enumerating writers does not work here,
+and reviewers cannot be relied on to catch the next one.
+
+So the guard is now **self-checking**: `draftIsProven()` requires the flag
+AND that `markdownDraft` still equals `provenDraft`, the exact bytes the
+proof covered. Any writer that rewrites or blanks the draft un-proves it
+**with no cooperation**, which is why the Substack backfill (`:3371`,
+also unguarded, also never noticed) is safe. The flag alone remains
+necessary for the opposite case — a real body edit changes `htmlDraft`
+while `markdownDraft` sits still, which the byte check cannot see. Both
+conditions are load-bearing; the tests fail if either is removed.
+
+Two smaller findings from the same review, both fixed here: the draft seed
+was not gated on `proven`, so a **stale `_publishedDraft` could shadow a
+newer `markdown`** and silently revert the body (unproven now falls back
+to exactly the pre-existing seed); and `hashableArticle` re-derived the
+hash from the rendering even when the draft was proven, so the hash line,
+the audit anchor, and the archive row all **disagreed with the `x` tag
+publish emits** — the drifted value, displayed as the article's identity.
+
 ## 2026-07-17 — the archive banner was ~100% false, and structurally so
 
 Tags: `bug`, `design`.
