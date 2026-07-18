@@ -1512,6 +1512,23 @@ body {
   color: #fff;
 }
 
+/* Baselines (27 F.4) — descriptive register rows, deliberately plain:
+   a baseline is context, never a weight. */
+.xr-findings__baselines { padding: 4px 16px 0; }
+.xr-findings__baseline {
+  display: flex; gap: 8px; align-items: baseline;
+  padding: 4px 0; font-size: 12.5px;
+}
+.xr-findings__baseline-tag {
+  border: 1px dashed var(--xr-border); border-radius: 4px;
+  padding: 0 6px; font-size: 11px; opacity: 0.8;
+}
+.xr-findings__baseline-note { color: var(--xr-text-dim); flex: 1; }
+.xr-findings__baseline-chip {
+  border: 1px dashed var(--xr-border); border-radius: 4px;
+  padding: 0 6px; font-size: 11px; opacity: 0.8; margin-left: 6px;
+}
+
 .xr-findings__empty {
   padding: 14px 16px;
   color: var(--xr-text-dim);
