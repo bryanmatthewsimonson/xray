@@ -1048,6 +1048,9 @@ and at least one entity tagged on Device A.
 | 7.1 | Open any article via the toolbar icon → reader opens, capture is cached | ✅ |
 | 7.2 | Close the reader, navigate away, then re-capture the original URL | ✅ the reader's archive banner offers the cached copy |
 | 7.3 | DevTools → Application → IndexedDB → `xray-archive` → `articles` | ✅ entry exists for the URL hash |
+| 7.3a | On an open capture with claims, click the 🗑 header button (S4) | ✅ the confirm names the article, counts prior versions, and states what is KEPT (claims/audits by count, published relay events, source bytes) — never a bare "are you sure" |
+| 7.3b | Confirm 7.3a's delete, then re-run 7.3 and re-capture the URL | ✅ the IndexedDB row is gone; claims still list in the reader for the URL; the fresh re-capture starts a NEW row with no prior versions |
+| 7.3c | Options → Advanced → "Clear all X-Ray storage" | ✅ the confirm says SETTINGS only and points at "Start fresh workspace" for content — after confirming, entities/claims/archives are intact, relays/signing key are gone |
 
 ### Paywall fallback
 

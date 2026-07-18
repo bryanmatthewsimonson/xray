@@ -941,7 +941,17 @@ async function clearLlmKey() {
 }
 
 async function clearAll() {
-    if (!confirm('Erase all X-Ray settings, entities, the keypair registry, and the local signing key? This cannot be undone.')) return;
+    // The confirm must promise exactly what storageClearExtension
+    // delivers. The old text claimed "entities, the keypair registry"
+    // — but those keys (publications/people/organizations/
+    // keypair_registry) are the LEGACY userscript stores; the modern
+    // workspace (entities, local_keys, claims, the archives) lives
+    // elsewhere and is untouched here. That is what "Start fresh
+    // workspace" (above, Advanced) is for — say so.
+    if (!confirm('Erase X-Ray SETTINGS: relays, preferences, the local signing key, '
+        + 'the LLM API key, feature flags, and legacy userscript-era stores. '
+        + 'Your workspace CONTENT (entities, claims, captured articles, archives) is NOT touched — '
+        + 'use "Start fresh workspace" for that. This cannot be undone. Continue?')) return;
     await storageClearExtension();
     // Reset experimental flags too — otherwise a wipe leaves the
     // public judgment-publishing path enabled.

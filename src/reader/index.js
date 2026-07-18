@@ -415,6 +415,73 @@ async function loadPdfArticle(pdfParam) {
     return capturePdfToArticle({ file });
 }
 
+/**
+ * Delete the local archived copy of the open capture — with an honest
+ * account of what that does and does not remove. The row disappears
+ * from case membership, the corpus list, and the archive banner; the
+ * in-memory capture in this tab is untouched until the tab closes.
+ */
+async function deleteCaptureFlow() {
+    const url = state.article && state.article.url;
+    if (!url) throw new Error('No capture open.');
+    if (state.readOnlyOpen) throw new Error('Read-only view — nothing to delete.');
+
+    // Find the row the load path would find: primary URL, then the
+    // alias-resolved original (a prior capture of the same piece may
+    // key under either address).
+    let rowUrl = url;
+    let row = null;
+    try { row = await ArchiveCache.getArticle(url); } catch (_) { /* absent */ }
+    if (!row) {
+        try {
+            const aliased = await resolveAlias(url);
+            if (aliased && aliased !== url) {
+                row = await ArchiveCache.getArticle(aliased);
+                if (row) rowUrl = aliased;
+            }
+        } catch (_) { /* absent */ }
+    }
+    if (!row) {
+        toast('No local archived copy exists for this URL — nothing to delete.', 'warning', 4000);
+        return;
+    }
+
+    // The honest confirm: what goes, what stays. Counts are the
+    // difference between an informed choice and a guess.
+    const priors = Array.isArray(row.priorVersions) ? row.priorVersions.length : 0;
+    let claimCount = 0;
+    let auditCount = 0;
+    try { claimCount = (await ClaimModel.getBySourceUrl(url)).length; } catch (_) { /* best-effort */ }
+    try {
+        const hashes = [row.articleHash,
+            ...(row.priorVersions || []).map((v) => v && v.articleHash)].filter(Boolean);
+        const runs = [];
+        for (const h of hashes) runs.push(...await AuditRunModel.getByArticleHash(h));
+        auditCount = runs.length;
+    } catch (_) { /* best-effort */ }
+
+    const lines = [
+        `Delete the local archived copy of:\n${row.article && row.article.title ? row.article.title : rowUrl}`,
+        '',
+        `DELETED: the archived copy${priors ? ` and its ${priors} prior version${priors === 1 ? '' : 's'}` : ''}. It disappears from case membership, the corpus, and the archive banner.`,
+        '',
+        'KEPT: '
+        + `${claimCount} claim${claimCount === 1 ? '' : 's'} and ${auditCount} audit run${auditCount === 1 ? '' : 's'} on this URL (they key to the URL/hash, not the copy); `
+        + 'anything already PUBLISHED to relays (relays cannot be forced to delete); '
+        + 'archived source bytes, which the orphan pruner collects later.',
+        '',
+        'This cannot be undone locally. Delete?'
+    ].join('\n');
+    if (!confirm(lines)) return;
+
+    await ArchiveCache.deleteArticle(rowUrl);
+    // Both addresses may hold rows from before the alias was learned —
+    // deleting a missing row is a harmless no-op.
+    if (rowUrl !== url) { try { await ArchiveCache.deleteArticle(url); } catch (_) { /* no-op */ } }
+
+    toast('Local archived copy deleted. This tab still shows the in-memory capture until closed.', 'success', 6000);
+}
+
 /** Minimal modal file picker; resolves with the chosen File. */
 function pickPdfFile(message) {
     return new Promise((resolvePick, rejectPick) => {
@@ -5467,6 +5534,21 @@ async function init() {
     $('#xr-close').addEventListener('click', () => {
         window.close();
     });
+
+    // Delete the LOCAL archived copy (S4 — deleteArticle finally gets a
+    // caller). Scope is deliberately narrow and the confirm says so:
+    // local row + its prior versions only. Claims/assessments/audits
+    // key to the URL/hash in their own stores and survive; published
+    // relay events cannot be deleted from here (NIP-09 requests are
+    // advisory and relays ignore them freely — pretending otherwise
+    // would be dishonest); archived source bytes (PDFs, figures) are
+    // collected by the age-gated orphan pruner once unreferenced.
+    $('#xr-delete-capture').addEventListener('click', () => {
+        deleteCaptureFlow().catch((err) => {
+            toast('Delete failed: ' + ((err && err.message) || err), 'error', 5000);
+        });
+    });
+    if (state.readOnlyOpen) $('#xr-delete-capture').hidden = true;
 
     // Open the entity browser. Three openers, in preference order:
     //   1. browser.sidebarAction.toggle()  — Firefox sidebar
