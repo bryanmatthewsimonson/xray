@@ -171,6 +171,15 @@ async function loadArticle() {
     // built IN the reader (fetch → archive bytes → pdf.js → layout
     // reconstruction) and then adopted exactly like a normal capture.
     const pdfParam = params.get('pdf');
+
+    // `?pdf=open` — the URL-entry landing (toolbar menu "Open a PDF by
+    // URL…"). No capture yet; show the input and let the user paste a
+    // link, which reloads into the `?pdf=<url>` path below.
+    if (pdfParam === 'open') {
+        renderPdfUrlLanding();
+        return { __landing: true };
+    }
+
     if (pdfParam) {
         state.id = 'pdf-' + Date.now().toString(36);
         const article = await loadPdfArticle(pdfParam);
@@ -204,7 +213,15 @@ async function loadArticle() {
     }
 
     const id = params.get('id');
-    if (!id) throw new Error('Missing ?id= parameter. Capture a page with the X-Ray toolbar icon (or Ctrl/Cmd+Shift+X).');
+    if (!id) {
+        // A bare reader open is no longer a dead end — offer the URL
+        // entry so a PDF link can be opened straight from here.
+        renderPdfUrlLanding({
+            note: 'No article is open. Paste a PDF link to read it here, '
+                + 'or capture a page with the X-Ray toolbar icon (Ctrl/Cmd+Shift+X).'
+        });
+        return { __landing: true };
+    }
     state.id = id;
 
     const key = 'xray:article:' + id;
@@ -700,6 +717,90 @@ function pickPdfFile(message) {
             rejectPick(new Error('PDF capture cancelled.'));
         });
     });
+}
+
+/**
+ * The "Open a PDF by URL" landing. Shown for `?pdf=open` (the toolbar
+ * menu's "Open a PDF by URL…") and for a bare reader open (no `?id`),
+ * so the reader is never a dead end. Paste a PDF link → the page reloads
+ * at `?pdf=<url>`, which runs the EXISTING capture pipeline
+ * (loadPdfArticle → capturePdfToArticle). No capture happens here — this
+ * is purely the entry surface, so it reuses everything downstream.
+ */
+function renderPdfUrlLanding({ note = '' } = {}) {
+    // Hide the reader chrome (Publish/Entities/… would be dead here — no
+    // article is loaded); a body class keeps it out via CSS.
+    document.body.classList.add('xr-reader--landing');
+    const main = $('#xr-main');
+    if (!main) return;
+    main.textContent = '';
+
+    const wrap = document.createElement('div');
+    wrap.className = 'xr-pdf-open';
+
+    const title = document.createElement('h1');
+    title.className = 'xr-pdf-open__title';
+    title.textContent = '📄 Open a PDF';
+
+    const sub = document.createElement('p');
+    sub.className = 'xr-pdf-open__note';
+    sub.textContent = note || 'Paste a link to a PDF and X-Ray will open it in the reader.';
+
+    const form = document.createElement('form');
+    form.className = 'xr-pdf-open__form';
+    form.setAttribute('novalidate', '');
+
+    const input = document.createElement('input');
+    input.type = 'url';
+    input.className = 'xr-pdf-open__input';
+    input.placeholder = 'https://example.com/document.pdf';
+    input.setAttribute('aria-label', 'PDF URL');
+    input.setAttribute('spellcheck', 'false');
+
+    const go = document.createElement('button');
+    go.type = 'submit';
+    go.className = 'xr-reader__btn xr-reader__btn--primary';
+    go.textContent = 'Open PDF';
+
+    form.append(input, go);
+
+    const err = document.createElement('p');
+    err.className = 'xr-pdf-open__err';
+    err.setAttribute('role', 'alert');
+    err.hidden = true;
+
+    const localBtn = document.createElement('button');
+    localBtn.type = 'button';
+    localBtn.className = 'xr-pdf-open__local';
+    localBtn.textContent = 'Or choose a local PDF file instead…';
+    localBtn.addEventListener('click', () => { location.search = '?pdf=import'; });
+
+    form.addEventListener('submit', (ev) => {
+        ev.preventDefault();
+        const raw = (input.value || '').trim();
+        let target = null;
+        try {
+            const u = new URL(raw);
+            // http(s) only — the capture pipeline can't (and shouldn't)
+            // fetch file:/javascript:/data: URLs, and this mirrors the
+            // guard in loadPdfArticle so a bad link fails here, visibly.
+            if (u.protocol === 'https:' || u.protocol === 'http:') target = u.href;
+        } catch (_) { /* invalid — handled below */ }
+        if (!target) {
+            err.textContent = 'Enter a full web address starting with http:// or https:// '
+                + '(for example, https://example.com/paper.pdf).';
+            err.hidden = false;
+            input.focus();
+            return;
+        }
+        // Hand off to the existing PDF path via a reload.
+        location.search = '?pdf=' + encodeURIComponent(target);
+    });
+
+    wrap.append(title, sub, form, err, localBtn);
+    main.appendChild(wrap);
+    // autofocus is unreliable on freshly-inserted nodes; focus next tick.
+    setTimeout(() => { try { input.focus(); } catch (_) { /* non-fatal */ } }, 0);
 }
 
 /**
@@ -6014,7 +6115,9 @@ async function init() {
     }
 
     try {
-        await loadArticle();
+        const loaded = await loadArticle();
+        // The URL-entry landing (no article to render, no chrome to wire).
+        if (loaded && loaded.__landing) return;
     } catch (err) {
         console.error('[X-Ray Reader] Load failed:', err);
         $('#xr-main').innerHTML = `

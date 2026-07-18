@@ -2385,6 +2385,29 @@ body {
   padding: 6px 12px; cursor: pointer; border: 1px solid var(--xr-border);
   border-radius: 7px; background: var(--xr-surface); color: var(--xr-text); }
 
+/* "Open a PDF by URL" landing — ?pdf=open, or a bare reader open (no ?id).
+   Show ONLY #xr-main (the URL form): hide the header AND every always-
+   visible sibling (the epistemic-audit bar, the entity/claim/finding
+   hosts, …) so no dead, unwired chrome dangles below the form. The
+   :not() carries an id, so this outranks the siblings' own display rules. */
+.xr-reader--landing > *:not(#xr-main) { display: none; }
+.xr-pdf-open { max-width: 560px; margin: 0 auto; padding: 88px 24px 0;
+  display: flex; flex-direction: column; gap: 14px; }
+.xr-pdf-open__title { margin: 0; font-size: 24px; color: var(--xr-text); }
+.xr-pdf-open__note { margin: 0; font-size: 14px; line-height: 1.5;
+  color: var(--xr-text-dim); }
+.xr-pdf-open__form { display: flex; gap: 8px; align-items: stretch; }
+.xr-pdf-open__input { flex: 1 1 auto; min-width: 0; font: inherit; font-size: 14px;
+  padding: 9px 12px; border: 1px solid var(--xr-border); border-radius: 8px;
+  background: var(--xr-surface); color: var(--xr-text); }
+.xr-pdf-open__input:focus { outline: none; border-color: var(--xr-primary); }
+.xr-pdf-open__form .xr-reader__btn--primary { flex: 0 0 auto; }
+.xr-pdf-open__err { margin: 0; font-size: 13px; line-height: 1.45; color: var(--xr-danger); }
+.xr-pdf-open__local { align-self: flex-start; margin-top: 2px; padding: 0;
+  font: inherit; font-size: 13px; cursor: pointer; border: none;
+  background: none; color: var(--xr-text-dim); text-decoration: underline; }
+.xr-pdf-open__local:hover { color: var(--xr-text); }
+
 .xr-llm__row-actions { display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; }
 .xr-llm__btn { font: inherit; font-size: 13px; padding: 6px 12px; cursor: pointer;
   border: 1px solid var(--xr-border); border-radius: 7px; background: var(--xr-surface);
