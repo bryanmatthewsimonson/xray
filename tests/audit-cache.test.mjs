@@ -12,7 +12,8 @@ const {
     saveRun, getRun, runsByArticleHash, listRuns, deleteRun, countRuns,
     savePrediction, getPrediction, predictionsByArticleHash, predictionsByStatus,
     saveResolution, getResolution, resolutionsByPredictionCoord,
-    saveCaseBrief, getCaseBrief, deleteCaseBrief, listCaseBriefs
+    saveCaseBrief, getCaseBrief, deleteCaseBrief, listCaseBriefs,
+    saveCorpusExtract, getCorpusExtract, deleteCorpusExtract, listCorpusExtracts, countCorpusExtracts
 } = await import('../src/shared/audit/audit-cache.js');
 
 const HASH_A = 'a'.repeat(64);
@@ -111,4 +112,27 @@ test('case-briefs: CRUD keyed by caseId, coexists with runs (DB v2)', async () =
     assert.equal((await listCaseBriefs()).length, 1);
     await deleteCaseBrief('case_1');
     assert.equal(await getCaseBrief('case_1'), null);
+});
+
+// v3 store — the per-article map-extract cache.
+test('corpus-extracts: CRUD keyed by fingerprint, coexists with v1/v2 stores (DB v3)', async () => {
+    await saveRun({ id: 'audit_y', articleHash: HASH_A });            // v1
+    await saveCaseBrief({ caseId: 'case_2', brief: { summary: 'b' } }); // v2
+    await saveCorpusExtract({ key: 'k1', extract: { position: { summary: 'p' } }, model: 'm', cachedAt: 100 });
+    const got = await getCorpusExtract('k1');
+    assert.equal(got.extract.position.summary, 'p');
+    assert.equal(got.model, 'm');
+    assert.equal(await countCorpusExtracts(), 1);
+    assert.equal((await getRun('audit_y')).articleHash, HASH_A, 'v1 intact after v3 upgrade');
+    assert.equal((await getCaseBrief('case_2')).brief.summary, 'b', 'v2 intact after v3 upgrade');
+    // Overwrite by key (same fingerprint = same output = replace in place).
+    await saveCorpusExtract({ key: 'k1', extract: { position: { summary: 'p2' } } });
+    assert.equal((await getCorpusExtract('k1')).extract.position.summary, 'p2');
+    assert.equal((await listCorpusExtracts()).length, 1);
+    await deleteCorpusExtract('k1');
+    assert.equal(await getCorpusExtract('k1'), null);
+    // clear() drops it too.
+    await saveCorpusExtract({ key: 'k2', extract: {} });
+    await clear();
+    assert.equal(await countCorpusExtracts(), 0);
 });

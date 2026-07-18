@@ -17,11 +17,11 @@ import { el, truncate } from './dom.js';
 import { Utils } from '../shared/utils.js';
 import { AssessmentModel } from '../shared/assessment-model.js';
 import { orchestrateModuleRuns } from '../shared/audit/run-orchestrator.js';
-import { getCaseBrief, saveCaseBrief } from '../shared/audit/audit-cache.js';
+import { getCaseBrief, saveCaseBrief, getCorpusExtract, saveCorpusExtract } from '../shared/audit/audit-cache.js';
 import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { CORPUS_PROMPT_VERSION } from '../shared/corpus-prompts.js';
 import {
-    buildMemberUnits, corpusInputHash, digestDossier,
+    buildMemberUnits, corpusInputHash, corpusExtractKey, digestDossier,
     validateCorpusExtract, validateCaseBrief, groundCaseBrief, filterProposals
 } from '../shared/case-synthesis.js';
 import { renderProposals } from './synthesis-review.js';
@@ -343,18 +343,50 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
 
         runBtn.addEventListener('click', async () => {
             if (members.length === 0) { status.textContent = 'No archived member articles to analyze.'; return; }
-            const approxChars = members.reduce((a, m) => a + m.text.length, 0);
-            if (!confirm(`Analyze this corpus with the LLM?\n\n`
-                + `This sends ${members.length} member article${members.length === 1 ? '' : 's'} `
-                + `(~${Math.round(approxChars / 1000)}k characters) to Anthropic — one call per article, then one synthesis call.`)) return;
-
             runBtn.disabled = true;
+
             const caseName = data.case.name || '';
             const scopeQuestion = (dossier.scope && dossier.scope.question) || '';
             const unitById = {};
             for (const m of members) unitById[m.article_hash] = m;
 
+            // The exact map request for a member, and its cache key. The
+            // request shape is the map's whole input; the key fingerprints
+            // it so an unchanged article's extract is reused for free.
+            const reqOf = (m) => ({
+                member_id: m.article_hash, memberText: m.text,
+                memberMeta: { title: m.title, url: m.url },
+                claimsDigest: m.claims.map((c) => `${c.id} — ${c.text}`).join('\n'),
+                caseName, scopeQuestion
+            });
+
+            // Cost preview: the map is the bulk of a synthesis, so a re-run
+            // over an unchanged corpus should send nothing but the reduce.
+            status.textContent = 'Checking cache…';
+            const keyByHash = {};
+            const cachedByHash = {};
+            for (const m of members) {
+                const key = await corpusExtractKey(reqOf(m));
+                keyByHash[m.article_hash] = key;
+                const hit = await getCorpusExtract(key).catch(() => null);
+                if (hit && hit.extract && validateCorpusExtract(hit.extract).ok) cachedByHash[m.article_hash] = hit;
+            }
+            status.textContent = '';
+
+            const toSend = members.filter((m) => !cachedByHash[m.article_hash]);
+            const cachedCount = members.length - toSend.length;
+            const approxChars = toSend.reduce((a, m) => a + m.text.length, 0);
+            if (!confirm(`Analyze this corpus with the LLM?\n\n`
+                + (cachedCount ? `${cachedCount} of ${members.length} article${members.length === 1 ? '' : 's'} cached — reused for free.\n` : '')
+                + `This sends ${toSend.length} article${toSend.length === 1 ? '' : 's'} `
+                + `(~${Math.round(approxChars / 1000)}k characters) to Anthropic, then one synthesis call.`)) {
+                runBtn.disabled = false;
+                return;
+            }
+
             // MAP — bounded pool over member ids (the audit-module pattern).
+            // A cached member short-circuits with no LLM call; a miss calls
+            // and then persists the extract keyed by its input fingerprint.
             status.textContent = `Analyzing 0/${members.length} articles…`;
             const { modules, failures } = await orchestrateModuleRuns({
                 moduleNames: members.map((m) => m.article_hash),
@@ -363,16 +395,14 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                     if (p.phase === 'done') status.textContent = `Analyzing ${p.okCount}/${p.total} articles…`;
                 },
                 send: async (id) => {
-                    const u = unitById[id];
-                    const res = await sendMessage({ type: 'xray:llm:corpus-map', request: {
-                        member_id: id, memberText: u.text,
-                        memberMeta: { title: u.title, url: u.url },
-                        claimsDigest: u.claims.map((c) => `${c.id} — ${c.text}`).join('\n'),
-                        caseName, scopeQuestion
-                    } });
+                    const cached = cachedByHash[id];
+                    if (cached) return { ok: true, findings: cached.extract, model: cached.model };
+                    const res = await sendMessage({ type: 'xray:llm:corpus-map', request: reqOf(unitById[id]) });
                     if (!res || !res.ok) return { ...(res || {}), ok: false };
                     const v = validateCorpusExtract(res.extract);
                     if (!v.ok) return { ok: false, error: 'invalid extract' };
+                    saveCorpusExtract({ key: keyByHash[id], extract: res.extract, model: res.model, cachedAt: Math.floor(Date.now() / 1000) })
+                        .catch((err) => Utils.error('saveCorpusExtract failed', err));
                     return { ok: true, findings: res.extract, model: res.model };
                 }
             });
@@ -421,6 +451,7 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                 inputHash: liveHash, model: reduce.model, promptVersion: CORPUS_PROMPT_VERSION,
                 members: members.length,
                 analyzed: extracts.length, failed: failures.length,
+                cached: cachedCount,
                 usage: reduce.usage || null,
                 triage: (prior && prior.triage) || {}
             };
@@ -430,7 +461,8 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
             const coverageNote = failures.length
                 ? ` (${extracts.length} of ${members.length} members analyzed; ${failures.length} failed)`
                 : '';
-            status.textContent = `Done${coverageNote}.`;
+            const cacheNote = cachedCount ? ` — ${cachedCount} reused from cache` : '';
+            status.textContent = `Done${coverageNote}${cacheNote}.`;
             runBtn.disabled = false;
             renderStored(record);
         });

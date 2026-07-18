@@ -19,6 +19,39 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-18 — Corpus synthesis re-paid for every map call: a per-article extract cache
+
+**Tags:** design
+
+The corpus map/reduce re-ran the ENTIRE map every "Analyze corpus" —
+one LLM call per member, every time — because nothing persisted the
+per-article extracts (`xray-audits` stored only `runs`/`predictions`/
+`resolutions`/`case-briefs`). Three runs over a 129-member case paid
+for ~3× the map, which is the bulk of the cost (129 map calls vs 1
+reduce). The audit RUNS cache (keyed by article hash) is a different
+feature; the corpus map path was uncached.
+
+**Fix:** a `corpus-extracts` store (xray-audits v3), keyed by
+`corpusExtractKey` — a SHA-256 over the exact map inputs (sent text +
+claim digest + case framing + `CORPUS_PROMPT_VERSION`). The runner
+checks the cache before the confirm (so the spend preview says "N of M
+cached — reused for free"), short-circuits cached members with no LLM
+call, and persists each miss. **Invalidation falls out of the key:** a
+body edit changes the text; a Suggest pass changes the claim digest (so
+that article — and only that article — re-maps, which is correct); a
+prompt bump changes the version. The reduce still runs every time (one
+call, must see the full current extract set). After run 1, a re-run
+over an unchanged corpus costs just the reduce; adding one article
+costs one map call, not 129.
+
+Deliberately keyed on the *inputs*, not the article hash alone: the map
+prompt carries each article's claim digest, so keying on the hash would
+serve a stale extract after claims were added. The cache rides the
+export-included audit DB (a hit is a dollar saved, worth carrying
+across a restore); it is reconcilable and never auto-dropped. No wire
+kind, no prompt change — pure cost reuse, identical outputs, so brief
+quality is unchanged.
+
 ## 2026-07-18 — Case synthesis saw ~2 of ~1,900 claims: membership was a union, claim-attachment wasn't
 
 **Tags:** bug, design
