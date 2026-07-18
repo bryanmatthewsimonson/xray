@@ -31,7 +31,8 @@ _metadata/
 scratch/
 
 # Claude Code session state (if this dir is ever opened as a project root)
-.claude/
+.claude/*
+!.claude/skills/
 
 # tools/relay-probe.mjs output (paste results into the runbook, don't commit)
 relay-probe-results.md

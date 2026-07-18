@@ -30,9 +30,16 @@ import { ENTITY_TYPES } from './entity-model.js';
 // latest capable Claude; the Options picker renders these.
 // ------------------------------------------------------------------
 
+// Ordered most-capable-first; the Options picker renders this verbatim.
+// Adding a model is this line + nothing else — every caller resolves
+// through resolveModel(), and the corpus/lens/audit passes all read the
+// user's stored choice. Cost note (per MTok in/out, 2026-07): Fable 5
+// $10/$50 · Opus 4.8 $5/$25 · Sonnet 5 $3/$15 · Haiku 4.5 $1/$5.
 export const LLM_MODELS = Object.freeze([
-    { id: 'claude-opus-4-8',   label: 'Claude Opus 4.8 (most capable)' },
+    { id: 'claude-fable-5',    label: 'Claude Fable 5 (most capable — highest cost)' },
+    { id: 'claude-opus-4-8',   label: 'Claude Opus 4.8 (most capable Opus)' },
     { id: 'claude-opus-4-7',   label: 'Claude Opus 4.7' },
+    { id: 'claude-sonnet-5',   label: 'Claude Sonnet 5 (near-Opus quality, Sonnet cost)' },
     { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (balanced)' },
     { id: 'claude-haiku-4-5',  label: 'Claude Haiku 4.5 (fastest / cheapest)' }
 ]);
@@ -421,11 +428,23 @@ function rulesFindings() {
 FINDINGS (the criminology layer — name a structural MANEUVER a subject performs around the truth):
 - A finding describes a MOVE, never a verdict. There is NO field for intent, honesty, lying, or a score, by design — do not assert any.
 - subject_ref (or subject_label) identifies who. role is one of: ${ROLES.join(', ')}.
-- maneuver names the move. Prefer a standard maneuver from the guide below; a lowercase custom token is allowed.
+- ATTRIBUTION — the most common error, so read carefully: the subject is the party who
+  PERFORMED the move — the speaker of the quoted words or the actor of the described
+  behavior. An author who describes, quotes, or criticizes SOMEONE ELSE's maneuver is
+  NOT performing it. When an article reports "X said the criticism was politically
+  motivated", the deflection is X's move, not the reporter's — even though the only
+  verbatim span available is the reporter's sentence. Anchor to that span, attribute
+  to X, and set basis "paraphrased" (the anchor evidences the move second-hand).
+  If you cannot determine WHO performed a move, OMIT the finding entirely.
+- maneuver names the move. Prefer a standard maneuver from the guide below; a lowercase custom
+  token is allowed, and the fallacy/<token> namespace is valid for classical argumentation
+  fallacies the guide doesn't list.
 - anchors is the evidence chain: at least ONE anchor, each with a VERBATIM quote. A finding with no quoted evidence is rejected.
 - counter_note is REQUIRED: the strongest alternative / exonerating reading — what would make this NOT the maneuver. A finding with no counter-read is rejected.
-- basis records how you know: use "quoted" ONLY when the evidence is a verbatim span; otherwise "paraphrased", "behavioral-cue", or "structural-inference".
-- Run this symmetrically — apply the same scrutiny to every party, not just one side.
+- basis records how you know: use "quoted" ONLY when the evidence is the subject's own verbatim words; otherwise "paraphrased", "behavioral-cue", or "structural-inference".
+- Run this symmetrically — apply the same scrutiny to every SPEAKER whose own moves the
+  text carries. Symmetric scrutiny means no party's moves are exempt; it does NOT mean
+  attributing the covered parties' moves to the journalist reporting them.
 
 MANEUVER GUIDE (definition / indicators / counter-indicators):
 ${maneuverGuideText()}`;

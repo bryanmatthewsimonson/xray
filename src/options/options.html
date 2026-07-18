@@ -477,6 +477,23 @@
       </p>
 
       <hr />
+      <h3 class="xr-opt__subhead">Capture automation</h3>
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-capture-automation" />
+        <span>Allow the <code>#xray:capture</code> URL marker to trigger a capture</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Off by default. When on, opening any page whose address ends in
+        <code>#xray:capture</code> captures it and opens the reader —
+        exactly as the toolbar button would. This exists so a driving
+        agent (the <code>xray-capture</code> skill) can queue captures by
+        navigation alone; the marker is stripped before capture and never
+        reaches the stored URL. It captures pages, nothing more: no
+        accepting, no publishing. Leave off unless an agent session is
+        driving.
+      </p>
+
+      <hr />
       <h3 class="xr-opt__subhead">Case synthesis</h3>
       <label class="xr-opt__field xr-opt__field--inline">
         <input type="checkbox" id="pref-case-synthesis" />

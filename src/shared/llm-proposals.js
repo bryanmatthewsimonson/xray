@@ -40,7 +40,7 @@ import {
     CLAIM_RELATIONSHIPS, REVISION_RELATIONSHIPS
 } from './assessment-taxonomy.js';
 import {
-    isValidManeuver, isValidRole, isValidBasis, BASIS_VALUES
+    isValidManeuver, isValidRole, isValidBasis, BASIS_VALUES, ROLES
 } from './forensic-taxonomy.js';
 
 // Dependency order: a kind is only ever accepted after the kinds it can
@@ -266,7 +266,7 @@ export function validateProposal(prop, ctx = {}) {
         }
         case 'finding': {
             if (!subjectLabelOf(prop, ctx)) return fail('Finding needs a subject');
-            if (!isValidRole(prop.role)) return fail(`Role must be one of: apologist, critic, institution, witness, survivor, other`);
+            if (!isValidRole(prop.role)) return fail(`Role must be one of: ${ROLES.join(', ')}`);
             if (!isValidManeuver(prop.maneuver)) return fail(`Invalid maneuver: ${prop.maneuver}`);
             const basis = prop.basis || 'structural-inference';
             if (!isValidBasis(basis)) return fail(`Basis must be one of: ${BASIS_VALUES.join(', ')}`);
@@ -491,8 +491,13 @@ export function buildLinkInput(prop, { claimIdByRef = {}, suggestedBy = 'user' }
     };
 }
 
-export function buildFindingInput(prop, { articleText = '', sourceRef = {}, suggestedBy = 'user', subjectLabel = '' } = {}) {
+export function buildFindingInput(prop, { articleText = '', sourceRef = {}, suggestedBy = 'user', subjectLabel = '', entityIdByRef = {} } = {}) {
     const label = subjectLabel || '';
+    // 27 F.3 — carry the accepted entity's id when the subject ref
+    // resolved to one: modal findings key by identity_id, and a
+    // label-only finding lands in a DIFFERENT subject keyspace
+    // (fragmented aggregation, silently unpublishable).
+    const identityId = (prop.subject_ref && entityIdByRef[prop.subject_ref]) || null;
     const anchors = (Array.isArray(prop.anchors) ? prop.anchors : [])
         .filter((a) => a && String(a.quote || '').trim())
         .map((a) => {
@@ -507,7 +512,7 @@ export function buildFindingInput(prop, { articleText = '', sourceRef = {}, sugg
             };
         });
     return {
-        subject_ref:  { label },
+        subject_ref:  { identity_id: identityId, label },
         role:         prop.role,
         maneuver:     prop.maneuver,
         anchors,
@@ -518,9 +523,12 @@ export function buildFindingInput(prop, { articleText = '', sourceRef = {}, sugg
     };
 }
 
-export function buildBaselineInput(prop, { sourceRef = {}, subjectLabel = '' } = {}) {
+export function buildBaselineInput(prop, { sourceRef = {}, subjectLabel = '', entityIdByRef = {} } = {}) {
+    // Same identity join as findings (27 F.3) — a baseline in the
+    // label keyspace can never be found by an identity-keyed lookup.
+    const identityId = (prop.subject_ref && entityIdByRef[prop.subject_ref]) || null;
     return {
-        subject_ref: { label: subjectLabel || '' },
+        subject_ref: { identity_id: identityId, label: subjectLabel || '' },
         note:        String(prop.note || ''),
         source_url:  (sourceRef && sourceRef.url) || ''
     };
