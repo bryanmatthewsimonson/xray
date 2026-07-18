@@ -28,6 +28,7 @@ import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/su
 import { handleScreenshotCapture } from '../shared/screenshot.js';
 import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, runHypothesisEdgePass, getCorpusConfig } from '../shared/llm-client.js';
 import { pdfDocumentUrl } from '../shared/pdf-detect.js';
+import { crossrefRequestFor, mapCrossrefWork } from '../shared/crossref.js';
 import { articleAnswersTo } from '../shared/url-identity.js';
 import { Signer } from '../shared/signer.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
@@ -760,6 +761,59 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         fetchSubstackComments(apiOrigin, postId)
             .then((result) => sendResponse({ ok: true, ...result }))
             .catch((err) => sendResponse({ ok: false, error: err && err.message }));
+        return true; // async
+    }
+
+    // Content script → worker: fetch a scholarly rendition's HTML on
+    // the capture pipeline's behalf (Phase 18 C2 tail — the arXiv
+    // handler's ar5iv full-text preference). Lives here because MV3
+    // content scripts have no cross-origin fetch; the SW does, via
+    // host_permissions. HOST-ALLOWLISTED: this message must never
+    // become a generic fetch proxy — only the scholarly hosts the C2
+    // handlers actually consume. credentials:'omit' — public pages,
+    // no cookie riding.
+    if (message.type === 'xray:scholar:fetch') {
+        const SCHOLAR_FETCH_HOSTS = new Set([
+            'ar5iv.labs.arxiv.org', 'ar5iv.org', 'arxiv.org'
+        ]);
+        let target = null;
+        try { target = new URL(String(message.url || '')); } catch (_) { /* rejected below */ }
+        if (!target || target.protocol !== 'https:'
+                || !SCHOLAR_FETCH_HOSTS.has(target.hostname.toLowerCase().replace(/^www\./, ''))) {
+            sendResponse({ ok: false, error: 'host not allowed' });
+            return false;
+        }
+        (async () => {
+            try {
+                const resp = await fetch(target.href, { credentials: 'omit' });
+                if (!resp.ok) { sendResponse({ ok: false, error: 'HTTP ' + resp.status }); return; }
+                sendResponse({ ok: true, html: await resp.text() });
+            } catch (err) {
+                sendResponse({ ok: false, error: err && err.message ? err.message : String(err) });
+            }
+        })();
+        return true; // async
+    }
+
+    // Reader → worker: Crossref DOI lookup (Phase 18 C2 tail).
+    // Accepts a DOI ONLY — the URL is built exclusively by
+    // crossrefRequestFor, which hard-validates the shape; a
+    // caller-supplied URL would make this an open proxy. The patch is
+    // metadata-only and applyCrossref (shared/crossref.js) fills only
+    // fields the page itself did not provide.
+    if (message.type === 'xray:scholar:crossref') {
+        const req = crossrefRequestFor(message.doi);
+        if (!req) { sendResponse({ ok: false, error: 'invalid doi' }); return false; }
+        (async () => {
+            try {
+                const resp = await fetch(req.url, { headers: { Accept: 'application/json' } });
+                if (!resp.ok) { sendResponse({ ok: false, error: 'crossref HTTP ' + resp.status }); return; }
+                const patch = mapCrossrefWork(await resp.json());
+                sendResponse(patch ? { ok: true, patch } : { ok: false, error: 'unmappable response' });
+            } catch (err) {
+                sendResponse({ ok: false, error: err && err.message ? err.message : String(err) });
+            }
+        })();
         return true; // async
     }
 
