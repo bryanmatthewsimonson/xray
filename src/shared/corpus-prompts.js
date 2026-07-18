@@ -52,7 +52,16 @@ export const HYPOTHESIS_EDGE_TOOL_NAME = 'propose_hypothesis_edges';
 export const MAX_MEMBER_INPUT_CHARS = 60000;
 export const MAX_CLAIMS_DIGEST_CHARS = 4000;
 export const MAX_MAP_OUTPUT_TOKENS = 8192;
-export const MAX_REDUCE_OUTPUT_TOKENS = 16384;
+// The reduce emits the WHOLE-corpus brief: every position's holders, ALL
+// cruxes, the load-bearing claims, and the proposal queue (the corpus-v3
+// breadth nudge above). For a large case (~125 members) that legitimately
+// runs 18-25k output tokens, and on Sonnet 5 — where `thinking` is omitted
+// so adaptive thinking is ON by default — those thinking tokens share this
+// same budget. 16384 truncated it ("hit its output limit before finishing");
+// 32768 fits the breadth brief with headroom and stays far under every
+// current model's 128k output ceiling. NOT a prompt/tool/digest change, so
+// no version bump — the map cache and brief staleness are unaffected.
+export const MAX_REDUCE_OUTPUT_TOKENS = 32768;
 export const MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS = 8192;
 
 // ------------------------------------------------------------------
