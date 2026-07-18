@@ -28,6 +28,9 @@ import {
     buildAuditTool, buildAuditSystemPrompt, buildAuditUserPrompt, assembleAudit,
     buildSingleModuleTool, buildModuleSystemPrompt
 } from './audit/audit-prompt.js';
+import {
+    EXTRACT_TOOL_NAME, buildExtractTool, buildExtractSystemPrompt, buildExtractUserContent
+} from './llm-extract-prompts.js';
 import { MAX_AUDIT_INPUT_CHARS } from './audit/assemble.js';
 import { MODULE_NAMES } from './audit/findings-schemas.js';
 import {
@@ -865,6 +868,87 @@ export async function runLensPass(req = {}) {
         reading,
         provenance: { model: usedModel, prompt_version: LENS_PROMPT_VERSION, run_at: new Date().toISOString() },
         target: { content_hash: contentHash, truncated: truncationFlags.length > 0 },
+        usage: data && data.usage ? data.usage : undefined
+    };
+}
+
+// ------------------------------------------------------------------
+// LLM extraction assist (Phase 18 C5 — COMPLEX_CONTENT_DESIGN.md §6)
+// ------------------------------------------------------------------
+
+// PDF vision over up to 100 pages is the slowest pass this client
+// runs — same ceiling as the audit, no lower.
+const EXTRACT_TIMEOUT_MS = 300000;
+const MAX_EXTRACT_OUTPUT_TOKENS = 32768;
+
+/**
+ * One extraction pass over an archived PDF's bytes. RETURNS RAW SPANS —
+ * the caller (the reader) runs the dual-substrate re-grounding in
+ * shared/llm-extract.js, so the honesty mechanism is testable at the
+ * seam that applies it and the SW stays a dumb pipe. Same consent gates
+ * as every LLM pass; always an explicit user action upstream (the
+ * "Reconstruct with LLM…" button — never automatic).
+ *
+ * @param {object} req
+ * @param {string} req.pdfBase64            the document bytes, base64
+ * @param {'structure'|'transcription'} req.mode
+ * @returns {Promise<{ok:true, model:string, spans:Array, usage?:object}
+ *                  | {ok:false, error:string, status?:number, timeout?:boolean}>}
+ */
+export async function runExtractPass(req = {}) {
+    await loadFlags();
+    if (!isEnabled('llmAssist')) {
+        return { ok: false, error: 'LLM assist is off. Enable it in Options → Advanced → LLM assist.' };
+    }
+    const apiKey = await readApiKey();
+    if (!apiKey) {
+        return { ok: false, error: 'No Anthropic API key set. Add one in Options → Advanced → LLM assist.' };
+    }
+
+    const pdfBase64 = typeof req.pdfBase64 === 'string' ? req.pdfBase64 : '';
+    if (!pdfBase64) {
+        return { ok: false, error: 'No document bytes to extract.' };
+    }
+    const mode = req.mode === 'transcription' ? 'transcription' : 'structure';
+    const model = await readModel();
+
+    const payload = {
+        model,
+        max_tokens: MAX_EXTRACT_OUTPUT_TOKENS,
+        system: buildExtractSystemPrompt(mode),
+        tools: [buildExtractTool()],
+        tool_choice: { type: 'tool', name: EXTRACT_TOOL_NAME },
+        messages: [{ role: 'user', content: buildExtractUserContent(pdfBase64) }]
+    };
+
+    // Size only — never the payload (it embeds the whole document).
+    Utils.log('[X-Ray LLM] extract pass:', { model, mode, b64chars: pdfBase64.length });
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), EXTRACT_TIMEOUT_MS);
+    let res;
+    try {
+        res = await postMessages(payload, apiKey, { signal: controller.signal });
+    } finally {
+        clearTimeout(timer);
+    }
+    if (!res.ok) return res;
+    const data = res.data;
+
+    if (data && data.stop_reason === 'max_tokens') {
+        return { ok: false, error: 'The model hit its output limit before finishing the document. This document is too long for a single extraction pass.' };
+    }
+    const toolInput = extractToolInput(data, EXTRACT_TOOL_NAME);
+    if (toolInput === null || !Array.isArray(toolInput.spans)) {
+        return { ok: false, error: 'The model did not return structured spans. Try again.' };
+    }
+
+    const usedModel = (data && data.model) || model;
+    Utils.log('[X-Ray LLM] extract spans:', toolInput.spans.length);
+    return {
+        ok: true,
+        model: usedModel,
+        spans: toolInput.spans,
         usage: data && data.usage ? data.usage : undefined
     };
 }

@@ -19,6 +19,65 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-17 — Phase 18 C5: the LLM extraction assist, and the reversed-table attack
+
+Tags: `design`, `bug`.
+
+C5 landed (dual-substrate re-grounding, scans transcription, the
+`extraction-method`/`source-hash` wire mirror). The adversarial review
+of the implemented diff produced 18 findings, 17 confirmed unanimous.
+The one that matters most is constitutional:
+
+**The reversed-table attack.** quote-grounding's exact/normalized tiers
+are SUBSTRING searches; only the fuzzy tier has a short-quote guard.
+So `ground('9')` matched inside 'COVID-19', `'201'` inside '2017',
+`'12'` inside '12%' — and the review's repro assembled a **reversed
+mortality table** (2020→7, 2021→41 against a document saying the
+opposite) that reported `unverified_spans: 0` and toasted *"all spans
+verified against the document text."* A fabricated data table would
+have entered the corpus stamped verified.
+
+Two defenses plus one honesty change, and the honesty change is the
+load-bearing one:
+
+1. Short keys (<15 chars) only count as grounded when the match is
+   TOKEN-BOUNDED (non-alphanumeric neighbors) — kills sub-token shards.
+2. A table survives only if ≥1 grounded SUBSTANTIVE cell (real words,
+   not number-shaped strings) vouches for it — a table the substrate
+   cannot vouch one word for is the model's table.
+3. **Row/column association is never machine-checkable against a
+   scrambled substrate — that is the feature's own premise** (the
+   substrate IS the scrambled linearization; a correct reconstruction
+   legitimately has non-local cells, so a locality check would break
+   the feature). The residue is handled by DISCLOSURE, not fake
+   verification: the toast and a persistent structure-mode banner
+   (`+llm:` in the method, which round-trips the wire and so banners
+   relay copies too) say plainly that text re-grounds to document
+   bytes but table structure is the model's reading.
+
+The other review catches, all fixed: the raw-byte cap ignored base64
+inflation (a "30MB" PDF made a ~40MB request against the 32MB API cap
+— post-consent, guaranteed rejection; now 22MB raw); a reconstruction
+with no model page hints kept the OLD pageMap against the NEW markdown
+(wrong page numbers stamped into published claim anchors — the map is
+now deleted when unmapped); pending user edits were silently discarded
+(refused up front, and re-checked after the multi-minute flight);
+`extractionMethod` chained on re-runs ('…+llm:a+llm:b' — now idempotent
+over the deterministic base); the audit keys (`auditableHash`) went
+stale over the swapped body; Load archive rendered transcribed copies
+with no banner (the banner now re-renders on adoption, and removes
+itself when there is nothing to disclose); C5's thin wire read-back
+silently replaced the session's rich extraction record (now merged by
+`source_hash`); caps and the archive-store result are checked BEFORE
+the consent modal (a consent that ends in a foreseeable refusal is a
+wasted consent); Escape/focus/dialog semantics on the modal.
+
+Accepted residue, documented: a user's Cancel on the scans path still
+renders the ?pdf= error screen (pre-C5 scans dead-ended there too);
+plausible tables whose labels genuinely appear in the text can still
+carry wrong associations — that is exactly what the disclosure banner
+is for, and why it is persistent.
+
 ## 2026-07-17 — Phase 18 C2 tail: scholarly handlers, and what adversarial review caught
 
 Tags: `design`, `pattern`.

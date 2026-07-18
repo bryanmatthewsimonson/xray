@@ -44,7 +44,9 @@ import { renderFindingsBar } from './findings-section.js';
 import { shouldOfferArchive, describeMetric } from './archive-banner.js';
 import { archivedDraftIsCanonical, archivedDraftSource } from '../shared/archive-draft.js';
 import { openLlmReview } from './llm-review.js';
-import { capturePdfToArticle } from './pdf-capture.js';
+import { capturePdfToArticle, completeScanCapture } from './pdf-capture.js';
+import { assembleExtraction, extractionMethod } from '../shared/llm-extract.js';
+import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prompts.js';
 import { pageOfOffset, pageFragmentSelector } from '../shared/pdf-layout.js';
 import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { captureFromRange } from '../shared/metadata/anchor-capture.js';
@@ -445,17 +447,157 @@ async function loadPdfArticle(pdfParam) {
         try {
             return await capturePdfToArticle({ url: target });
         } catch (err) {
-            // Auth-bound refetch (403/401), CORS-ish failures, scans —
-            // surface the reason and offer the local-file path.
+            // A scan is not a fetch failure — the file-import fallback
+            // would just refuse the same bytes again. Offer the C5
+            // transcription path instead.
+            if (err && err.code === 'scan-no-text-layer') {
+                return transcribeScanFlow(err.scanContext);
+            }
+            // Auth-bound refetch (403/401), CORS-ish failures — surface
+            // the reason and offer the local-file path.
             const file = await pickPdfFile(
                 'Could not capture this PDF automatically: '
                 + ((err && err.message) || err) + ' '
                 + 'If it needs a login, save it from the browser and import the file:');
-            return capturePdfToArticle({ file, url: target });
+            try {
+                return await capturePdfToArticle({ file, url: target });
+            } catch (err2) {
+                if (err2 && err2.code === 'scan-no-text-layer') {
+                    return transcribeScanFlow(err2.scanContext);
+                }
+                throw err2;
+            }
         }
     }
     const file = await pickPdfFile('Capture a PDF from a local file:');
-    return capturePdfToArticle({ file });
+    try {
+        return await capturePdfToArticle({ file });
+    } catch (err) {
+        if (err && err.code === 'scan-no-text-layer') {
+            return transcribeScanFlow(err.scanContext);
+        }
+        throw err;
+    }
+}
+
+/**
+ * Phase 18 C5 — the scans path: consent, transcription, capture.
+ * The model's transcription IS the capture (there is no substrate to
+ * ground against); honesty comes from `extraction.method = 'llm:…'`
+ * and the reader banner, with the archived original one click away.
+ */
+async function transcribeScanFlow(scanContext) {
+    const { sourceHash, pageCount, bytes } = scanContext || {};
+    if (!sourceHash || !bytes) throw new Error('This PDF has no usable text layer — it is likely a scan.');
+
+    // EVERY refusable condition is checked BEFORE consent — asking
+    // someone to approve sending a document and then failing on a
+    // missing key or a size cap is a wasted consent (and the archive
+    // write would already have happened). The SW re-enforces the caps;
+    // this is UX honesty, not the security boundary.
+    await requireLlmReady();
+    if (bytes.byteLength > MAX_EXTRACT_BYTES) {
+        throw new Error(`This PDF is ${(bytes.byteLength / 1048576).toFixed(0)}MB — over the ${(MAX_EXTRACT_BYTES / 1048576).toFixed(0)}MB single-request limit for LLM transcription.`);
+    }
+    if (pageCount > MAX_EXTRACT_PAGES) {
+        throw new Error(`This PDF has ${pageCount} pages — over the ${MAX_EXTRACT_PAGES}-page single-request limit for LLM transcription.`);
+    }
+
+    const mb = (bytes.byteLength / 1048576).toFixed(1);
+    const consented = await confirmLlmSend(
+        'This PDF has no machine-readable text layer — it is likely a scan.',
+        `X-Ray can ask the model to TRANSCRIBE it. The document (${mb}MB, `
+        + `${pageCount} page${pageCount === 1 ? '' : 's'}) will be sent to the Anthropic API `
+        + 'under your API key — it leaves this device. The result is machine-transcribed '
+        + 'text, clearly labeled as such, with the original bytes archived for verification.',
+        'Transcribe with LLM');
+    if (!consented) throw new Error('PDF capture cancelled (no transcription consent).');
+
+    // Archive the bytes BEFORE the call: the SW reads them from
+    // IndexedDB (50MB through runtime messaging is a dropped channel),
+    // and the transcription's provenance needs them archived anyway. A
+    // failed transcription leaves an unreferenced row the age-gated
+    // pruner collects — bounded, honest cost. `stored: false` (the
+    // store's own 50MB cap) is a hard stop: the SW would find nothing,
+    // and its "re-capture" advice would be factually wrong here.
+    const put = await ArchiveCache.putSourceDocument({
+        hash: sourceHash, bytes, mime: 'application/pdf',
+        url: scanContext.sourceUrl || ''
+    });
+    if (!put || !put.stored) {
+        throw new Error('The PDF could not be archived (over the storage cap) — transcription needs the archived bytes.');
+    }
+
+    toast('Transcribing the scanned PDF — this can take a few minutes…', 'warning', 8000);
+    const resp = await browserApi.runtime.sendMessage({
+        type: 'xray:llm:extract', sourceHash, mode: 'transcription', pageCount
+    });
+    if (!resp || !resp.ok) {
+        throw new Error((resp && resp.error) || 'LLM transcription failed.');
+    }
+    const assembled = assembleExtraction(resp.spans, null, { mode: 'transcription' });
+    const article = await completeScanCapture({
+        scanContext, markdown: assembled.markdown,
+        pageMap: assembled.pageMap, model: resp.model
+    });
+    toast(`Transcribed ${assembled.total_spans} blocks with ${resp.model} — review before relying on it.`, 'success', 6000);
+    return article;
+}
+
+/**
+ * Both C5 flows gate on the same consent pair every LLM pass uses —
+ * checked HERE, before the consent modal, so nobody approves sending a
+ * document only to hit a missing-key error afterward.
+ */
+async function requireLlmReady() {
+    let cfg = {};
+    try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:llm:config' }) || {}; }
+    catch (_) { /* treated as not ready below */ }
+    if (!cfg.enabled) throw new Error('LLM assist is off. Enable it in Options → Advanced → LLM assist.');
+    if (!cfg.hasKey) throw new Error('No Anthropic API key set. Add one in Options → Advanced → LLM assist.');
+}
+
+/**
+ * Consent modal for any flow that sends the document off-device.
+ * Resolves true only on the explicit affirmative button.
+ */
+function confirmLlmSend(headline, body, actionLabel) {
+    return new Promise((resolveConfirm) => {
+        const host = document.createElement('div');
+        host.className = 'xr-pdf-pick';
+        const card = document.createElement('div');
+        card.className = 'xr-pdf-pick__card';
+        card.setAttribute('role', 'dialog');
+        card.setAttribute('aria-modal', 'true');
+        card.setAttribute('aria-label', headline);
+        const title = document.createElement('h2');
+        title.textContent = '🤖 ' + headline;
+        const note = document.createElement('p');
+        note.textContent = body;
+        const go = document.createElement('button');
+        go.type = 'button';
+        go.textContent = actionLabel;
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.textContent = 'Cancel';
+        card.append(title, note, go, cancel);
+        host.appendChild(card);
+        document.body.appendChild(host);
+        const close = (v) => {
+            document.removeEventListener('keydown', onKey, true);
+            if (host.parentNode) host.parentNode.removeChild(host);
+            resolveConfirm(v);
+        };
+        // Escape declines — for an off-device send, the safe default
+        // must be the reachable one.
+        const onKey = (ev) => {
+            if (ev.key === 'Escape') { ev.preventDefault(); close(false); }
+        };
+        document.addEventListener('keydown', onKey, true);
+        go.addEventListener('click', () => close(true));
+        cancel.addEventListener('click', () => close(false));
+        cancel.focus();
+    });
 }
 
 /** Minimal modal file picker; resolves with the chosen File. */
@@ -767,6 +909,23 @@ function renderArchiveBanner({ source, article, metric, cachedAt, createdAt, aut
 }
 
 /**
+ * The extraction record to adopt when swapping in an archived copy.
+ * Rules, in order: nothing anywhere → nothing; only one side has a
+ * record → that one; both, describing the SAME source document →
+ * merge with the archived copy's fields winning (its method may be
+ * newer — e.g. a reconstruction published after this capture) and the
+ * session's rich fields (warnings/archived/page_count/figures)
+ * surviving; different source docs → the archived copy's, whole.
+ */
+function mergedExtraction(current, archived) {
+    if (!archived) return current ? { extraction: current } : {};
+    if (!current || current.source_hash !== archived.source_hash) {
+        return { extraction: archived };
+    }
+    return { extraction: { ...current, ...archived } };
+}
+
+/**
  * Swap the reader's article payload for the archived version. Claims
  * and comments stay untouched (they key on the URL, not the body);
  * entity refs are MERGED — the current session's tags win on dupes,
@@ -791,12 +950,15 @@ async function loadArchivedArticle(archived, provenance) {
         entities: mergeEntityRefs(state.article.entities, archived.entities),
         // The extraction record names this URL's SOURCE DOCUMENT
         // (extraction.source_hash keys the archived original bytes).
-        // Relay reconstructions don't carry it; adopting one without
-        // the carry-over meant a later publish overwrote the archive
-        // row hashless and the orphan pruner deleted the original PDF
-        // bytes while the article still lived.
-        ...(archived.extraction ? {} : (state.article.extraction
-            ? { extraction: state.article.extraction } : {}))
+        // Adopting a copy without one meant a later publish overwrote
+        // the archive row hashless and the orphan pruner deleted the
+        // original PDF bytes while the article still lived. Since C5,
+        // relay reconstructions CAN carry a THIN record (the two
+        // mirrored wire fields) — a thin record must not silently
+        // replace the session's RICH one (warnings, archived,
+        // page_count, figures) when both describe the same source:
+        // MERGE, thin fields winning, rich fields surviving.
+        ...(mergedExtraction(state.article.extraction, archived.extraction))
     };
     // Tag the article object with archive provenance for the publish
     // flow's awareness + any downstream consumers that care.
@@ -844,6 +1006,12 @@ async function loadArchivedArticle(archived, provenance) {
         case 'markdown': renderMarkdown(); break;
         case 'preview':  renderPreview();  break;
     }
+    // The adopted copy may be machine-transcribed or LLM-reconstructed
+    // — its provenance banner must follow it in. The only other call
+    // site is adopt-time, so without this a Load-archive swap rendered
+    // an llm: capture with no disclosure at all.
+    try { renderExtractionWarningsBanner(); }
+    catch (err) { console.warn('[X-Ray Reader] extraction banner failed:', err); }
     toast(`Archive loaded (${provenance.source})`, 'success', 3000);
 }
 
@@ -1265,8 +1433,19 @@ function renderHashMismatchBanner(prior) {
  * extraction presented as clean is a provenance failure.
  */
 function renderExtractionWarningsBanner() {
-    const warnings = state.article && state.article.extraction && state.article.extraction.warnings;
-    if (!Array.isArray(warnings) || warnings.length === 0) return;
+    const extraction = state.article && state.article.extraction;
+    const warnings = extraction && extraction.warnings;
+    const method = String((extraction && extraction.method) || '');
+    const transcribed = /^llm:/.test(method);
+    const reconstructed = /\+llm:/.test(method);
+    if ((!Array.isArray(warnings) || warnings.length === 0) && !transcribed && !reconstructed) {
+        // Re-rendered after a body swap (Load archive): a banner from
+        // the PREVIOUS article must not survive an adoption with
+        // nothing to disclose.
+        const stale = $('#xr-extract-banner');
+        if (stale) stale.remove();
+        return;
+    }
     let banner = $('#xr-extract-banner');
     if (!banner) {
         banner = document.createElement('aside');
@@ -1276,19 +1455,207 @@ function renderExtractionWarningsBanner() {
         if (!main || !main.parentElement) return;
         main.parentElement.insertBefore(banner, main);
     }
+    // C5's scans clause: a machine-transcribed capture is ALWAYS
+    // bannered — the method is the marker, not a warning entry, so a
+    // relay copy that round-trips only extraction-method still banners.
+    if (transcribed) {
+        banner.innerHTML = `
+          <div class="xr-hash-banner__body">
+            <div class="xr-hash-banner__label">🤖 Machine-transcribed from a scanned document</div>
+            <div class="xr-hash-banner__metric">This text was transcribed by ${escapeHtml(String(extraction.method).slice(4))} — it is not a deterministic text-layer extraction. Verify quotes against the archived original before relying on them.</div>
+            <div class="xr-hash-banner__metric">${extraction.archived
+                ? `The original PDF is archived (source_hash ${escapeHtml(String(extraction.source_hash || '').slice(0, 12))}…).`
+                : `Original source_hash ${escapeHtml(String(extraction.source_hash || '').slice(0, 12))}… — keep your own copy of the document for verification.`}</div>
+          </div>
+          <div class="xr-hash-banner__actions">
+            <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-extract-dismiss">Dismiss</button>
+          </div>
+        `;
+        $('#xr-extract-dismiss').addEventListener('click', () => banner.remove());
+        return;
+    }
+    // Structure-reconstructed (method 'pdfjs-…+llm:…'): the text spans
+    // are substrate bytes, but the STRUCTURE — reading order, heading
+    // levels, and especially table row/column association — is the
+    // model's reading and was never machine-verified. Disclosed
+    // persistently (a toast is not provenance), and on relay read-back
+    // too: the method tag round-trips, so this banner renders on a
+    // Load-archive copy as well. No Reconstruct button here — the body
+    // is no longer the deterministic substrate.
+    if (reconstructed) {
+        const model = method.slice(method.indexOf('+llm:') + 5);
+        const dropped = Number(extraction.unverified_spans) || 0;
+        const tables = Number(extraction.llm_tables) || 0;
+        banner.innerHTML = `
+          <div class="xr-hash-banner__body">
+            <div class="xr-hash-banner__label">🤖 Structure reconstructed by ${escapeHtml(model)}</div>
+            <div class="xr-hash-banner__metric">Text spans are the document's own extracted bytes; the layout${tables > 0 ? ` and ${tables} table${tables === 1 ? '' : 's'}` : ''} ${tables > 0 ? 'are' : 'is'} the model's reading — verify table associations against the archived original.</div>
+            ${dropped > 0 ? `<div class="xr-hash-banner__metric">${dropped} span${dropped === 1 ? '' : 's'} could not be verified against the document text and ${dropped === 1 ? 'was' : 'were'} discarded.</div>` : ''}
+            <div class="xr-hash-banner__metric">${extraction.archived
+                ? `The original PDF is archived (source_hash ${escapeHtml(String(extraction.source_hash || '').slice(0, 12))}…).`
+                : `Original source_hash ${escapeHtml(String(extraction.source_hash || '').slice(0, 12))}… — keep your own copy of the document for verification.`}</div>
+          </div>
+          <div class="xr-hash-banner__actions">
+            <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-extract-dismiss">Dismiss</button>
+          </div>
+        `;
+        $('#xr-extract-dismiss').addEventListener('click', () => banner.remove());
+        return;
+    }
+    // Warned deterministic extraction: quality notes + the C5
+    // structure-assist offer (explicit action, never automatic). The
+    // button needs the archived bytes — without them there is nothing
+    // to send.
+    const canReconstruct = !!(extraction.archived && extraction.source_hash);
     banner.innerHTML = `
       <div class="xr-hash-banner__body">
         <div class="xr-hash-banner__label">⚠️ Extraction quality warning${warnings.length > 1 ? 's' : ''}</div>
         ${warnings.map((w) => `<div class="xr-hash-banner__metric">${escapeHtml(w.message)}</div>`).join('')}
-        <div class="xr-hash-banner__metric">${state.article.extraction.archived
-            ? `The original PDF is archived (source_hash ${escapeHtml(String(state.article.extraction.source_hash || '').slice(0, 12))}…) — verify against it before relying on affected passages.`
-            : `The original PDF could NOT be archived (too large or storage full) — keep your own copy to verify affected passages against (source_hash ${escapeHtml(String(state.article.extraction.source_hash || '').slice(0, 12))}…).`}</div>
+        <div class="xr-hash-banner__metric">${extraction.archived
+            ? `The original PDF is archived (source_hash ${escapeHtml(String(extraction.source_hash || '').slice(0, 12))}…) — verify against it before relying on affected passages.`
+            : `The original PDF could NOT be archived (too large or storage full) — keep your own copy to verify affected passages against (source_hash ${escapeHtml(String(extraction.source_hash || '').slice(0, 12))}…).`}</div>
       </div>
       <div class="xr-hash-banner__actions">
+        ${canReconstruct ? '<button type="button" class="xr-reader__btn" id="xr-extract-llm">Reconstruct with LLM…</button>' : ''}
         <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-extract-dismiss">Dismiss</button>
       </div>
     `;
     $('#xr-extract-dismiss').addEventListener('click', () => banner.remove());
+    const llmBtn = $('#xr-extract-llm');
+    if (llmBtn) {
+        llmBtn.addEventListener('click', () => {
+            llmBtn.disabled = true;
+            reconstructWithLlmFlow()
+                .catch((err) => toast((err && err.message) || 'LLM reconstruction failed.', 'error', 6000))
+                .finally(() => { llmBtn.disabled = false; });
+        });
+    }
+}
+
+/**
+ * Phase 18 C5 — the structure-assist flow (text layer EXISTS, layout
+ * scrambled). The model returns structure; every span re-grounds
+ * against the deterministic substrate and re-canonicalizes to its
+ * bytes — dropped spans are counted and disclosed. The stored capture
+ * never contains model-authored body text.
+ */
+async function reconstructWithLlmFlow() {
+    const a = state.article;
+    const extraction = a && a.extraction;
+    if (!extraction || !extraction.source_hash) throw new Error('No archived source document for this capture.');
+    const substrate = a.markdown || '';
+    if (!substrate.trim()) throw new Error('No deterministic text to ground against.');
+
+    // Pending edits make the substrate ambiguous — a.markdown lags the
+    // drafts, so grounding against it would silently discard what the
+    // user typed and then overwrite it. Refuse; publish or revert first.
+    if (state.hashDirty || (state.dirtySource === 'markdown'
+            && state.markdownDraft && state.markdownDraft !== substrate)) {
+        throw new Error('You have unsaved edits — publish (or reload) before reconstructing, so they are not silently discarded.');
+    }
+
+    await requireLlmReady();
+    if (Number(extraction.page_count) > MAX_EXTRACT_PAGES) {
+        throw new Error(`This PDF has ${extraction.page_count} pages — over the ${MAX_EXTRACT_PAGES}-page single-request limit for LLM extraction.`);
+    }
+
+    const consented = await confirmLlmSend(
+        'Reconstruct this PDF with the LLM?',
+        `The archived PDF (${extraction.page_count || '?'} pages) will be sent to the `
+        + 'Anthropic API under your API key — the document leaves this device. The model '
+        + 'proposes STRUCTURE only: every text span is matched back against the extracted '
+        + 'text and replaced with the document’s own bytes; spans that fail the match are '
+        + 'discarded and counted. Your current capture is kept if the reconstruction is empty.',
+        'Reconstruct with LLM');
+    if (!consented) return;
+
+    toast('Reconstructing with the LLM — this can take a few minutes…', 'warning', 8000);
+    const resp = await browserApi.runtime.sendMessage({
+        type: 'xray:llm:extract',
+        sourceHash: extraction.source_hash,
+        mode: 'structure',
+        pageCount: extraction.page_count || 0
+    });
+    if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'LLM reconstruction failed.');
+
+    // The pass runs for minutes; the user may have edited or published
+    // meanwhile. Adopting over their changes would silently discard
+    // them — abort instead (their state wins, the API cost is sunk).
+    if (a !== state.article || a.markdown !== substrate || state.hashDirty) {
+        throw new Error('The capture changed while the reconstruction was running — keeping your version. Run it again from a settled state.');
+    }
+
+    const assembled = assembleExtraction(resp.spans, substrate, { mode: 'structure' });
+    if (!assembled.markdown.trim()) {
+        throw new Error(`Nothing survived re-grounding (${assembled.unverified_spans} of ${assembled.total_spans} spans failed verification) — keeping the deterministic capture.`);
+    }
+
+    // Adopt: the reconstructed markdown IS the new canonical body
+    // (markdown-canonical, like every PDF capture). The body changed,
+    // so the canonical hash changes with it — honest versioning, same
+    // rule as the transcript attach.
+    a.markdown = assembled.markdown;
+    a.content = ContentExtractor.markdownToHtml(assembled.markdown);
+    // The old pageMap indexed the OLD markdown — against the new body
+    // its offsets stamp WRONG page numbers into published claim
+    // anchors. The model's page hints are the only map that indexes
+    // this text; without them there is honestly no page map.
+    if (assembled.pageMap && assembled.pageMap.length) {
+        a.pageMap = assembled.pageMap;
+    } else {
+        delete a.pageMap;
+    }
+    a.extraction = {
+        ...extraction,
+        method: extractionMethod(extraction.method, resp.model, 'structure'),
+        unverified_spans: assembled.unverified_spans,
+        // Local-only (never on the wire): drives the structure-mode
+        // disclosure — table layout is the model's reading.
+        llm_tables: assembled.table_count
+    };
+    state.markdownDraft = a.markdown;
+    state.htmlDraft = a.content;
+    state.dirtySource = 'markdown';
+
+    try {
+        const fullBody = EventBuilder.assembleArticleBody(hashableArticle(a));
+        const fullHash = await canonicalArticleHash(fullBody);
+        // Both audit keys move with the body — leaving auditableHash
+        // stale made prior audit runs claim they scored "this capture".
+        const slice = auditableSlice(fullBody);
+        state.articleHash = fullHash;
+        state.auditableTotalChars = slice.totalChars;
+        state.auditableHash = slice.truncated
+            ? await canonicalArticleHash(slice.text) : fullHash;
+        state.hashDirty = false;
+        updateHashLine();
+        refreshAuditStatus().catch(() => { /* display refresh only */ });
+    } catch (err) {
+        console.warn('[X-Ray Reader] post-reconstruction hash failed:', err);
+    }
+    if (!(state.readOnlyOpen)) {
+        ArchiveCache.saveArticle({
+            article: state.articleHash ? { ...a, _articleHash: state.articleHash } : a,
+            source: 'capture'
+        }).catch((err) => console.warn('[X-Ray Reader] archive save failed:', err));
+    }
+    renderReader();
+    // Replace the stale warnings banner with the structure-mode
+    // disclosure. Deliberately NO second Reconstruct button: the body
+    // is no longer the deterministic substrate, so another pass would
+    // ground against a reconstruction — semantically meaningless.
+    renderExtractionWarningsBanner();
+    const dropped = assembled.unverified_spans;
+    // Never claim "verified" over a table: cell TEXT re-grounds to
+    // document bytes, but row/column association is the model's
+    // reading and cannot be machine-checked (adversarial-review fix).
+    const tableNote = assembled.table_count > 0
+        ? ` Text matched to the document's own bytes; table structure (${assembled.table_count}) is the model's reading — verify against the original.`
+        : '';
+    toast(dropped > 0
+        ? `Reconstructed with ${resp.model} — ${dropped} of ${assembled.total_spans} spans could not be verified and were discarded.${tableNote}`
+        : `Reconstructed with ${resp.model} — ${assembled.total_spans} text spans matched to the document text.${tableNote}`,
+    dropped > 0 ? 'warning' : 'success', 10000);
 }
 
 // Archive/mirror provenance note (url-identity.js). Two honest states:
