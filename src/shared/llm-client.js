@@ -542,10 +542,12 @@ const CORPUS_MAP_TIMEOUT_MS = 120000;
 // The reduce is the ONE long single fetch in the corpus flow (the map phase
 // is many short calls). With MAX_REDUCE_OUTPUT_TOKENS raised to 32768, a
 // full breadth brief can generate ~20-25k tokens, which on the slower
-// (Opus-tier) models runs past the old 300s cap — so give it 7 min rather
-// than trade a token-cap failure for an abort. The pending sendResponse
-// keeps the MV3 service worker alive for the duration.
-const CORPUS_REDUCE_TIMEOUT_MS = 420000;
+// (Opus-tier) models runs ~350-455s. The portal keeps the service worker
+// alive across the whole run (synthesis-block startSwKeepalive), so this
+// AbortController — not the SW lifetime — is the limiter; 8 min gives the
+// largest breadth briefs headroom rather than trading a token-cap failure
+// for an abort or an SW teardown ("no response").
+const CORPUS_REDUCE_TIMEOUT_MS = 480000;
 
 /** Gating snapshot for the portal's "Analyze corpus" control. */
 export async function getCorpusConfig() {

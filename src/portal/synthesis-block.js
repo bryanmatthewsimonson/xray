@@ -71,9 +71,42 @@ async function resolveRelays() {
 
 function sendMessage(msg) {
     return new Promise((resolve) => {
-        try { chrome.runtime.sendMessage(msg, (resp) => resolve(resp)); }
-        catch (_) { resolve(null); }
+        try {
+            chrome.runtime.sendMessage(msg, (resp) => {
+                // A torn-down service worker fires the callback with no
+                // response and sets lastError ("The message port closed
+                // before a response was received."). Surface it as a real
+                // error rather than a bare undefined that every caller
+                // flattens to the opaque "no response".
+                const err = chrome.runtime.lastError;
+                if (err) { resolve({ ok: false, error: err.message, swLost: true }); return; }
+                resolve(resp);
+            });
+        } catch (_) { resolve(null); }
     });
+}
+
+// The reduce is the ONE long single fetch in a synthesis run: after the
+// last map message lands, nothing messages the service worker for the
+// minutes the reduce takes, so the MV3 idle timer is never reset and the
+// SW is torn down mid-fetch — the "no response" failure. Pinging a
+// zero-cost handler every 20s resets that timer for the duration (the
+// mechanism the reader's single-shot audit relies on, index.js
+// startSwKeepalive). The map phase already messages frequently, but the
+// keepalive spans the whole run so a slow tail map call is covered too.
+const SW_KEEPALIVE_MS = 20000;
+function startSwKeepalive() {
+    const timer = setInterval(() => {
+        // Callback form (the portal's convention) — works on both Chrome
+        // and Firefox; read lastError so a mid-restart ping doesn't log an
+        // unchecked-error warning. Fire-and-forget: the response is unused.
+        try {
+            chrome.runtime.sendMessage({ type: 'xray:llm:corpus-config' }, () => {
+                void chrome.runtime.lastError;
+            });
+        } catch (_) { /* SW restarting — the next ping lands */ }
+    }, SW_KEEPALIVE_MS);
+    return { stop: () => clearInterval(timer) };
 }
 
 // Render provenance already present in the brief but hidden by the
@@ -373,6 +406,10 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
             const stillCurrent = () => !(callbacks && typeof callbacks.isCurrentRun === 'function')
                 || callbacks.isCurrentRun(runToken);
             setAnalysis(true);
+            // Keep the service worker alive for the WHOLE run — the long
+            // reduce has no messages of its own to reset the MV3 idle timer.
+            // Stopped on every exit path in the finally.
+            const keepalive = startSwKeepalive();
             try {
                 const caseName = data.case.name || '';
                 const scopeQuestion = (dossier.scope && dossier.scope.question) || '';
@@ -453,7 +490,11 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                     dossierDigest: digestDossier(dossier, { claims: claimIndex }), extracts, caseName, scopeQuestion
                 } });
                 if (!reduce || !reduce.ok) {
-                    status.textContent = `Synthesis failed: ${(reduce && reduce.error) || 'no response'}`;
+                    const lost = reduce && reduce.swLost;
+                    const detail = (reduce && reduce.error)
+                        || 'no response — the run may have been lost to a service-worker restart';
+                    status.textContent = `Synthesis failed: ${detail}`
+                        + (lost ? ' — try again; the cached extracts make the retry cheap' : '');
                     return;
                 }
                 const v = validateCaseBrief(reduce.briefInput);
@@ -506,6 +547,7 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                 Utils.error('Corpus analysis failed', err);
                 status.textContent = `Analysis failed: ${(err && err.message) || 'unknown error'}`;
             } finally {
+                keepalive.stop();
                 runBtn.disabled = false;
                 setAnalysis(false);
             }
