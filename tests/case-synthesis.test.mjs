@@ -154,6 +154,22 @@ test('case-synthesis: proposalKey is stable and direction-insensitive for relati
     assert.equal(CS.proposalKey({ kind: 'claim', article_hash: 'A', text: 't' }), 'claim:A|t');
 });
 
+test('case-synthesis: corpusExtractKey is stable on identical inputs, changes on text/claims/prompt', async () => {
+    const base = { member_id: 'a'.repeat(64), memberText: 'Body text.', claimsDigest: 'c1 — one\nc2 — two',
+        caseName: 'covid', scopeQuestion: 'origin?', memberMeta: { title: 'T', url: 'https://x/a' } };
+    const k = await CS.corpusExtractKey(base);
+    assert.match(k, /^[0-9a-f]{64}$/);
+    // Same inputs → same key (deterministic reuse).
+    assert.equal(await CS.corpusExtractKey({ ...base }), k);
+    // member_id is derived from text and NOT part of the key.
+    assert.equal(await CS.corpusExtractKey({ ...base, member_id: 'z'.repeat(64) }), k);
+    // Each real input flips the key — these are the invalidation triggers.
+    assert.notEqual(await CS.corpusExtractKey({ ...base, memberText: 'Edited body.' }), k, 'body edit');
+    assert.notEqual(await CS.corpusExtractKey({ ...base, claimsDigest: 'c1 — one\nc2 — two\nc3 — three' }), k, 'a Suggest pass added a claim');
+    assert.notEqual(await CS.corpusExtractKey(base, 'corpus-v9'), k, 'prompt-version bump');
+    assert.notEqual(await CS.corpusExtractKey({ ...base, caseName: 'other' }), k, 'case framing');
+});
+
 test('case-synthesis: corpusInputHash is order-insensitive but sensitive to membership + prompt', async () => {
     const a = [{ article_hash: 'h1' }, { article_hash: 'h2' }];
     const aRev = [{ article_hash: 'h2' }, { article_hash: 'h1' }];

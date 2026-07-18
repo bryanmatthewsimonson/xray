@@ -89,6 +89,34 @@ export async function buildMemberUnits(data, { assessmentsByClaim = {} } = {}) {
 }
 
 /**
+ * Cache key for ONE member's map-stage extract: a SHA-256 over the exact
+ * inputs the map call consumes, so a cached extract is reused only when
+ * re-running would produce the same output. Any change to the sent text,
+ * the article's claim digest, the case framing, or the prompt version
+ * yields a new key — which is precisely the invalidation we want (a
+ * body edit changes `memberText`; a Suggest pass changes `claimsDigest`;
+ * a prompt bump changes the version). Pure; mirrors the map request the
+ * runner sends (member_id is derived from the text, so it is omitted).
+ *
+ * @param {object} request  { memberText, claimsDigest, caseName, scopeQuestion, memberMeta:{title,url} }
+ * @param {string} [promptVersion]
+ * @returns {Promise<string>} 64-char hex
+ */
+export async function corpusExtractKey(request, promptVersion = CORPUS_PROMPT_VERSION) {
+    const r = request || {};
+    const mm = r.memberMeta || {};
+    return Crypto.sha256(JSON.stringify({
+        v: promptVersion,
+        text: r.memberText || '',
+        claims: r.claimsDigest || '',
+        caseName: r.caseName || '',
+        scope: r.scopeQuestion || '',
+        title: mm.title || '',
+        url: mm.url || ''
+    }));
+}
+
+/**
  * Content hash over the corpus INPUT — order-insensitive, so it
  * invalidates a stored brief exactly when membership, member text (the
  * hash changes), the orbit claim set, or the prompt version changes.

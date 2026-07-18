@@ -12,7 +12,7 @@
 import { Utils } from '../utils.js';
 
 const DB_NAME = 'xray-audits';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const RUNS_STORE = 'runs';
 const PREDICTIONS_STORE = 'predictions';
 const RESOLUTIONS_STORE = 'resolutions';
@@ -20,6 +20,13 @@ const RESOLUTIONS_STORE = 'resolutions';
 // brief costs an LLM map/reduce run), so it rides the same
 // export-included DB; keyed by the local case entity id.
 const CASE_BRIEFS_STORE = 'case-briefs';
+// Per-article MAP-stage extracts, keyed by a fingerprint of the exact
+// map inputs (text + claims + prompt version). Lets a corpus re-run
+// reuse an unchanged article's extract instead of re-paying for the
+// LLM call — the map is the bulk of a synthesis's cost. Rides the same
+// export-included DB so the cache survives a restore (a hit is a
+// dollar saved); reconcilable, but never auto-dropped here.
+const CORPUS_EXTRACTS_STORE = 'corpus-extracts';
 
 function idb() {
     if (typeof indexedDB === 'undefined') {
@@ -79,6 +86,13 @@ export function openAuditDb() {
             if (oldVersion < 2) {
                 if (!db.objectStoreNames.contains(CASE_BRIEFS_STORE)) {
                     db.createObjectStore(CASE_BRIEFS_STORE, { keyPath: 'caseId' });
+                }
+            }
+
+            // v3 — the per-article MAP-extract cache.
+            if (oldVersion < 3) {
+                if (!db.objectStoreNames.contains(CORPUS_EXTRACTS_STORE)) {
+                    db.createObjectStore(CORPUS_EXTRACTS_STORE, { keyPath: 'key' });
                 }
             }
         };
@@ -172,16 +186,25 @@ export function getCaseBrief(caseId) { return get(CASE_BRIEFS_STORE, caseId); }
 export function deleteCaseBrief(caseId) { return remove(CASE_BRIEFS_STORE, caseId); }
 export function listCaseBriefs() { return getAll(CASE_BRIEFS_STORE); }
 
+// --- corpus map-extract cache (map/reduce cost reuse) ---------------------------
+
+export function saveCorpusExtract(record) { return put(CORPUS_EXTRACTS_STORE, record); }
+export function getCorpusExtract(key) { return get(CORPUS_EXTRACTS_STORE, key); }
+export function deleteCorpusExtract(key) { return remove(CORPUS_EXTRACTS_STORE, key); }
+export function listCorpusExtracts() { return getAll(CORPUS_EXTRACTS_STORE); }
+export function countCorpusExtracts() { return countStore(CORPUS_EXTRACTS_STORE); }
+
 // --- maintenance ----------------------------------------------------------------
 
 export async function clear() {
     const db = await openAuditDb();
     const transaction = db.transaction(
-        [RUNS_STORE, PREDICTIONS_STORE, RESOLUTIONS_STORE, CASE_BRIEFS_STORE], 'readwrite');
+        [RUNS_STORE, PREDICTIONS_STORE, RESOLUTIONS_STORE, CASE_BRIEFS_STORE, CORPUS_EXTRACTS_STORE], 'readwrite');
     transaction.objectStore(RUNS_STORE).clear();
     transaction.objectStore(PREDICTIONS_STORE).clear();
     transaction.objectStore(RESOLUTIONS_STORE).clear();
     transaction.objectStore(CASE_BRIEFS_STORE).clear();
+    transaction.objectStore(CORPUS_EXTRACTS_STORE).clear();
     await tx(transaction);
 }
 
