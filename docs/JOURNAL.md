@@ -19,6 +19,47 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-18 — Case synthesis saw ~2 of ~1,900 claims: membership was a union, claim-attachment wasn't
+
+**Tags:** bug, design
+
+A real corpus run reported only **2 claims** present across a 129-article
+case. Root cause: `buildMemberUnits` fed the map/reduce from
+`deriveArticleRows`' `row.claims`, and those rows attach only the
+**orbit** claims — `orbitClaims = allClaims.filter(c => c.about.includes(caseEntityId))`
+([case-dossier.js](../src/shared/case-dossier.js)). Claims are authored
+`about` their SUBJECTS (SARS-CoV-2, EcoHealth, Fauci…), not the case
+container, so exactly the 2 claims someone had tagged onto the case
+qualified. Phase 20.1 made ARTICLE membership a union (tag ∪
+claim-about-case) but left claim-attachment on the old orbit-only
+definition, so every tag-member article joined with `claims: []` — the
+whole point of atomizing claims, silently dropped before the LLM ever
+saw them.
+
+**Fix (surgical, synthesis-only):** `buildMemberUnits` now joins each
+member's claims by normalized `source_url` against the full registry
+(`data.claimsById`), key-first/oldest-first for determinism. On the
+real corpus this restores **~1,882 claims across 91 articles**. The
+deterministic dossier's own `deriveArticleRows` attachment is left
+untouched (it's governed separately by CASE_DOSSIER_DESIGN.md; its
+article-row claim display is a distinct concern). The URL join also
+sidesteps the claim-hash-freeze gotcha — a claim's `article_hash` is
+stamped at extraction (`buildClaimEvent`) and lags a re-publish, but
+inclusion now keys on URL and re-keys the unit to the member's CURRENT
+hash, so a stale claim hash never gates it in or out.
+
+Also: `synthesis-block.js` now derives the corpus staleness hash from
+the ACTUAL member-claim ids sent, not `dossier.orbit.claim_ids` — so
+adding/removing a claim on a member invalidates the stored brief (it
+did not before). Stored briefs re-hash once and show "stale," which is
+correct: the corpus definition changed.
+
+Not fixed here (surfaced, deferred): the 30 members with no LOCAL
+archive text can't feed the corpus (you can't synthesize bytes you
+don't have — `buildMemberUnits` skips non-archive-backed rows), and
+`DIGEST_CLAIM_CAP = 150` still bounds the reduce stage's cross-article
+claim index (the per-article map stage sees each article's full set).
+
 ## 2026-07-17 — Phase 18 C5: the LLM extraction assist, and the reversed-table attack
 
 Tags: `design`, `bug`.

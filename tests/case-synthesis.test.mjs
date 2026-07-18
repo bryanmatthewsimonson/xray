@@ -187,3 +187,44 @@ test('case-synthesis: orchestrateModuleRuns drives the map with injected send (r
     assert.equal(failures.length, 1);
     assert.equal(failures[0].module, 'C');
 });
+
+test('case-synthesis: buildMemberUnits joins ALL a member article\'s claims by source_url, not the orbit (about-case) subset', async () => {
+    const CASE = 'entity_case';
+    const SUBJ = 'entity_subject';
+    // Two member articles (tagged with the case). Their claims are
+    // `about` the SUBJECT, never the case entity — so the old orbit
+    // filter (`about` includes the case) would attach ZERO of them. A
+    // third article is NOT a member (untagged); its claim must not leak.
+    const data = {
+        case: { id: CASE, name: 'Test case' },
+        membership_ids: [CASE],
+        orbit: { claims: [] },              // nothing authored about the case itself
+        wire: { articles: [] },
+        claimsById: {
+            c1: { id: 'c1', text: 'Claim one',    source_url: 'https://ex.com/a', about: [SUBJ], created: 100 },
+            c2: { id: 'c2', text: 'Key claim',    source_url: 'https://ex.com/a', about: [SUBJ], is_key: true, created: 90 },
+            c3: { id: 'c3', text: 'From B',       source_url: 'https://ex.com/b', about: [SUBJ], created: 50 },
+            cX: { id: 'cX', text: 'Non-member',   source_url: 'https://other.com/z', about: [SUBJ], created: 10 }
+        },
+        articles: [
+            { url: 'https://ex.com/a',    articleHash: 'hashA', article: { title: 'A', content: 'Body A', entities: [{ entity_id: CASE }] } },
+            { url: 'https://ex.com/b',    articleHash: 'hashB', article: { title: 'B', content: 'Body B', entities: [{ entity_id: CASE }] } },
+            { url: 'https://other.com/z', articleHash: 'hashZ', article: { title: 'Z', content: 'Body Z', entities: [] } }
+        ]
+    };
+    const units = await CS.buildMemberUnits(data);
+    const byUrl = Object.fromEntries(units.map((u) => [u.url, u]));
+
+    assert.deepEqual(units.map((u) => u.url).sort(), ['https://ex.com/a', 'https://ex.com/b'],
+        'both tagged members present; the untagged article is not a member');
+    // Article A carries BOTH its claims, joined by URL though neither
+    // names the case; key-first ordering (c2 is_key) then oldest-first.
+    assert.deepEqual(byUrl['https://ex.com/a'].claims.map((c) => c.id), ['c2', 'c1']);
+    assert.equal(byUrl['https://ex.com/a'].claims[0].is_key, true);
+    assert.deepEqual(byUrl['https://ex.com/b'].claims.map((c) => c.id), ['c3']);
+    // The unit is keyed to the member's CURRENT hash, not any claim's.
+    assert.equal(byUrl['https://ex.com/a'].article_hash, 'hashA');
+    // The non-member article's claim never appears anywhere.
+    assert.ok(!units.some((u) => u.claims.some((c) => c.id === 'cX')),
+        'a claim from an untagged, non-member article stays out of the corpus');
+});

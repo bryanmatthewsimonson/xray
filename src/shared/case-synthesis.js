@@ -11,6 +11,7 @@
 // runner (synthesis-block.js) drives the actual LLM calls + storage.
 
 import { Crypto } from './crypto.js';
+import { Utils } from './utils.js';
 import { EventBuilder } from './event-builder.js';
 import { createGroundingIndex } from './quote-grounding.js';
 import { CLAIM_RELATIONSHIPS } from './assessment-taxonomy.js';
@@ -30,12 +31,32 @@ async function sha16(s) { return (await Crypto.sha256(String(s || ''))).slice(0,
  * hash covers (so quotes ground against exactly what was sent),
  * truncated to the budget with the flag surfaced. `assessmentsByClaim`
  * (claim id → stance) is joined in by the caller from AssessmentModel.
+ *
+ * A member's `claims` are ALL claims captured from its URL — joined by
+ * normalized `source_url` against the full registry (`data.claimsById`),
+ * NOT the orbit filter (`about` names the case). Union membership (20.1)
+ * makes an article a member by TAG, and its atomized claims must ride
+ * along, or a corpus of hundreds of claims collapses to the handful
+ * authored directly about the case entity — the map/reduce would then
+ * "see" almost none of the corpus. `deriveArticleRows` still supplies
+ * the member URL set (its orbit-scoped `row.claims` is intentionally
+ * bypassed here); the deterministic dossier keeps its own attachment.
+ * The URL join also means a claim's frozen `article_hash` lagging a
+ * re-publish never gates inclusion — the unit is keyed to the member's
+ * CURRENT hash regardless.
  */
 export async function buildMemberUnits(data, { assessmentsByClaim = {} } = {}) {
     const { rows } = deriveArticleRows(data);
     const recByUrl = new Map();
     for (const rec of data.articles || []) {
         if (rec && rec.url) recByUrl.set(rec.url, rec);
+    }
+    const claimsByUrl = new Map();
+    for (const c of Object.values(data.claimsById || {})) {
+        if (!c || !c.source_url) continue;
+        const u = Utils.normalizeUrl(c.source_url) || c.source_url;
+        if (!claimsByUrl.has(u)) claimsByUrl.set(u, []);
+        claimsByUrl.get(u).push(c);
     }
     const units = [];
     for (const row of rows) {
@@ -44,6 +65,13 @@ export async function buildMemberUnits(data, { assessmentsByClaim = {} } = {}) {
         const full = EventBuilder.assembleArticleBody(rec.article) || '';
         const text = full.slice(0, MAX_MEMBER_INPUT_CHARS);
         const id = rec.articleHash || (`url:${await sha16(row.url)}`);
+        // Key-first then oldest-first then id (the case-export order),
+        // so a truncating consumer keeps the key claims and the set is
+        // deterministic regardless of registry iteration order.
+        const rowClaims = (claimsByUrl.get(row.url) || []).slice().sort((a, b) =>
+            (b.is_key ? 1 : 0) - (a.is_key ? 1 : 0)
+            || (a.created || 0) - (b.created || 0)
+            || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
         units.push({
             article_hash: id,
             url: row.url,
@@ -51,7 +79,7 @@ export async function buildMemberUnits(data, { assessmentsByClaim = {} } = {}) {
             text,
             truncated: full.length > MAX_MEMBER_INPUT_CHARS,
             total_chars: full.length,
-            claims: (row.claims || []).map((c) => ({
+            claims: rowClaims.map((c) => ({
                 id: c.id, text: c.text, quote: c.quote || null, is_key: !!c.is_key,
                 stance: (c.id in assessmentsByClaim) ? assessmentsByClaim[c.id] : null
             }))
