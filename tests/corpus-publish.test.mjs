@@ -62,9 +62,19 @@ test('renderCaseBriefMarkdown: prose sections, linked quotes, NO score/proposals
     assert.ok(md.includes('## Cruxes of disagreement'));
     assert.ok(md.includes('## Load-bearing claims'));
     assert.ok(md.includes('## Coverage gaps'));
-    // Quotes link back to their member source.
+    // Quotes link back to their member source (kept inline — the few,
+    // important citations).
     assert.ok(md.includes('[The Zoonosis Case](https://b.example/zoo)'));
     assert.ok(md.includes('> No signatures of engineering were found.'));
+    // Readability: holders cite by number, not a full-title link soup.
+    // first-appearance order → Lab-Leak (HASH_A) is [1], Zoonosis (HASH_B) [2].
+    assert.ok(md.includes('*Held by:* [1]'), 'lab-leak holders cite by number');
+    assert.ok(md.includes('*Held by:* [2]'), 'zoonosis holders cite by number');
+    assert.ok(!md.includes('*Held by:* [The Lab-Leak Case]'), 'no full-title holder soup');
+    // Sources appendix resolves every [N] with full link text.
+    assert.ok(md.includes('## Sources'), 'has a Sources list');
+    assert.ok(md.includes('1. [The Lab-Leak Case](https://a.example/leak)'), 'source 1 full link');
+    assert.ok(md.includes('2. [The Zoonosis Case](https://b.example/zoo)'), 'source 2 full link');
     // Firewall: no fused numeric score, no verdict/rating language, and
     // proposals never leak into the prose.
     assert.ok(!/score|verdict|\d+\s*%|\d+\s*\/\s*100/i.test(md), 'no score/verdict/percentage');
