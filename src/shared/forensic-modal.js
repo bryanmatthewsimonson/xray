@@ -81,17 +81,27 @@ export async function openFindingModal({
 } = {}) {
     ensureStyles();
 
+    // An existing finding whose subject is no longer among the tagged
+    // entities must fall to the CUSTOM slot carrying its own label —
+    // otherwise the select silently lands on the first choice and an
+    // edit-save would offer (and persist context against) the wrong
+    // subject's baselines.
+    const existingKey = existing ? subjectKeyOf(existing.subject_ref) : null;
     const initialSubjectKey = existing
-        ? (subjectKeyOf(existing.subject_ref) || '__custom__')
+        ? ((existingKey && subjectChoices.some((c) => c.key === existingKey))
+            ? existingKey : '__custom__')
         : (subjectChoices[0] ? subjectChoices[0].key : '__custom__');
 
     const state = {
         subjectKey:  initialSubjectKey,
         customLabel: existing && !subjectChoices.some((c) => c.key === initialSubjectKey)
             ? (existing.subject_ref.label || '') : '',
-        role:        existing ? existing.role : 'apologist',
+        // 27 F.6 — no default role: 'apologist' was debate jargon
+        // silently stamped onto journalism content. Explicit choice.
+        role:        existing ? existing.role : '',
         maneuver:    existing ? existing.maneuver : null,
         basis:       existing ? existing.basis : 'quoted',
+        baselineRef: existing ? (existing.baseline_ref || null) : null,
         note:        existing ? existing.note : '',
         counter:     existing ? existing.counter_note : '',
         anchors:     seedAnchors(existing, seedAnchor)
@@ -158,11 +168,35 @@ export async function openFindingModal({
         // ---- subject + role ----------------------------------------
         const subjectSel = $('.xr-finding__subject');
         const customWrap = $('.xr-finding__custom-subject');
+        // 27 F.4 — the design's promised deviation link, reachable at
+        // last: when the selected subject has recorded baselines, offer
+        // them as optional CONTEXT (never a weight) via baseline_ref.
+        const populateBaselines = async () => {
+            const field = $('.xr-finding__baseline-field');
+            const sel = $('.xr-finding__baseline');
+            if (!field || !sel) return;
+            const ref = resolveSubjectRef(state, subjectChoices);
+            const bases = await ForensicBaseline.getForSubject(ref).catch(() => []);
+            // A baselineRef belonging to a DIFFERENT subject must not
+            // survive a subject switch — the rebuilt select would show
+            // "(none)" while the stale id silently persisted on save.
+            if (state.baselineRef && !bases.some((b) => b.id === state.baselineRef)) {
+                state.baselineRef = null;
+            }
+            if (!bases.length) { field.hidden = true; return; }
+            sel.innerHTML = `<option value="">(none)</option>${bases.map((b) =>
+                `<option value="${escapeHtml(b.id)}" ${b.id === state.baselineRef ? 'selected' : ''}>${escapeHtml((b.note || '').slice(0, 80))}</option>`).join('')}`;
+            field.hidden = false;
+        };
         const syncSubject = () => {
             state.subjectKey = subjectSel.value;
             customWrap.hidden = state.subjectKey !== '__custom__';
+            populateBaselines().catch(() => {});
         };
         subjectSel.addEventListener('change', syncSubject);
+        $('.xr-finding__baseline').addEventListener('change', (ev) => {
+            state.baselineRef = ev.target.value || null;
+        });
         $('.xr-finding__custom-subject-input').addEventListener('input', (ev) => {
             state.customLabel = ev.target.value;
         });
@@ -273,6 +307,7 @@ export async function openFindingModal({
                 }))
                 .filter((a) => String(a.quote || '').trim());
             // Friendly pre-checks (the model enforces these too).
+            if (!state.role) return showError('Pick a role — who makes this move.');
             if (!state.maneuver) return showError('Pick a maneuver.');
             if (anchors.length === 0) return showError('Add at least one evidence step with a quote.');
             if (!String(state.counter || '').trim()) {
@@ -280,13 +315,15 @@ export async function openFindingModal({
             }
             const fields = {
                 subject_ref, role: state.role, maneuver: state.maneuver,
-                anchors, note: state.note, counter_note: state.counter, basis: state.basis
+                anchors, note: state.note, counter_note: state.counter,
+                basis: state.basis, baseline_ref: state.baselineRef
             };
             try {
                 const saved = existing
                     ? await ForensicModel.update(existing.id, {
                         role: fields.role, note: fields.note,
-                        counter_note: fields.counter_note, basis: fields.basis
+                        counter_note: fields.counter_note, basis: fields.basis,
+                        baseline_ref: fields.baseline_ref
                     })
                     : await ForensicModel.create(fields);
                 close(saved);
@@ -298,6 +335,28 @@ export async function openFindingModal({
         syncSubject();
         syncManeuver();
         renderAnchors();
+
+        // Honest immutability (27 F.1): subject / maneuver / anchors
+        // DERIVE the finding's id — ForensicModel.update silently
+        // ignores edits to them, and until now this modal rendered
+        // them editable and discarded the changes on save. Freeze the
+        // structural controls on edit and say why.
+        if (existing) {
+            host.querySelectorAll(
+                '.xr-finding__subject, .xr-finding__custom-subject-input,'
+                + ' .xr-finding__man-btn, .xr-finding__custom-man-input,'
+                + ' .xr-finding__custom-man-add, .xr-finding__anchor-quote,'
+                + ' .xr-finding__anchor-mark, .xr-finding__anchor-del,'
+                + ' .xr-finding__anchor-add'
+            ).forEach((n) => { n.disabled = true; });
+            const hint = document.createElement('div');
+            hint.className = 'xr-finding__immutable-note';
+            hint.textContent = 'Subject, maneuver, and evidence anchors are this finding\'s identity '
+                + '— to change them, delete the finding and create a new one. '
+                + 'Role, note, counter-read, and basis stay editable.';
+            const err = host.querySelector('.xr-finding__err');
+            err.parentNode.insertBefore(hint, err.nextSibling);
+        }
     });
 }
 
@@ -416,7 +475,8 @@ function subjectSelectHtml(subjectChoices, selectedKey) {
 }
 
 function buildHtml(state, subjectChoices, isExisting, canAnchor) {
-    const roleOpts = ROLES.map((r) =>
+    const rolePlaceholder = state.role ? '' : '<option value="" selected disabled>who makes the move…</option>';
+    const roleOpts = rolePlaceholder + ROLES.map((r) =>
         `<option value="${r}" ${r === state.role ? 'selected' : ''}>${escapeHtml(r)}</option>`).join('');
     const basisOpts = BASIS_VALUES.map((b) =>
         `<option value="${b}" ${b === state.basis ? 'selected' : ''}>${escapeHtml(BASIS_LABELS[b] || b)}</option>`).join('');
@@ -476,6 +536,11 @@ function buildHtml(state, subjectChoices, isExisting, canAnchor) {
           <label class="xr-finding__field">
             <span class="xr-finding__field-label">Basis <em>(how we know — not a score)</em></span>
             <select class="xr-finding__basis">${basisOpts}</select>
+          </label>
+
+          <label class="xr-finding__field xr-finding__baseline-field" hidden>
+            <span class="xr-finding__field-label">Deviates from baseline <em>(optional context — never a weight)</em></span>
+            <select class="xr-finding__baseline"><option value="">(none)</option></select>
           </label>
 
           <label class="xr-finding__field">
@@ -538,6 +603,10 @@ function ensureStyles() {
 .xr-finding__title { margin: 0; font-size: 15px; flex: 1; }
 .xr-finding__close { background: none; border: none; color: inherit; cursor: pointer; font-size: 14px; }
 .xr-finding__body { padding: 12px 16px; overflow-y: auto; }
+.xr-finding__immutable-note {
+  border: 1px dashed var(--xr-border, #334155); border-radius: 6px;
+  padding: 6px 10px; margin-bottom: 10px; font-size: 12px; opacity: 0.85;
+}
 .xr-finding__err {
   background: color-mix(in srgb, var(--xr-danger, #f87171) 18%, transparent);
   border: 1px solid var(--xr-danger, #f87171); border-radius: 6px;

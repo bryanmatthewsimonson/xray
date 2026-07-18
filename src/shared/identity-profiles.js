@@ -58,9 +58,14 @@ export const WORKSPACE_CLEAR_KEYS = Object.freeze([
                                 // workspace content explicitly
     'incorporated_artifacts',   // Phase 25.3 reviewed-in foreign
                                 // artifacts (incorporation.js)
-    'incorporation_dismissals'  // Phase 25.3 declined proposals —
+    'incorporation_dismissals', // Phase 25.3 declined proposals —
                                 // judgments about network content,
                                 // same class as fact dismissals
+    'case_hypotheses',          // Phase 26 hypothesis records
+                                // (hypothesis-model.js)
+    'hypothesis_edges'          // Phase 26 claim→hypothesis edges —
+                                // authored structure, same class as
+                                // evidence_links
 ]);
 
 // What reset deliberately KEEPS — configuration and identity. Exported

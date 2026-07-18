@@ -140,6 +140,7 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
     // Links, endpoints pre-canonicalized once.
     const contradicts = [];
     const attestations = [];
+    const related = [];
     const orbitClaimIdForProposition = new Set(orbitPropositions.map((p) => p.claim_id));
     for (const link of Object.values(allLinks)) {
         const sourceRef = canon(link.source_claim_id);
@@ -153,14 +154,24 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
                 && orbitClaimIdForProposition.has(targetRef)) {
             attestations.push(withRefs);
         }
+        // Phase 26 CF.1 — the wider typed-edge family the structural
+        // counterfactual walks: EVERY supports/updates/duplicates link
+        // with an orbit endpoint (supports WITH attestation rides here
+        // too — `attestations` stays the §3.2-filtered view).
+        if (['supports', 'updates', 'duplicates'].includes(link.relationship)
+                && (orbitClaimIds.has(sourceRef) || orbitClaimIds.has(targetRef))) {
+            related.push(withRefs);
+        }
     }
     // Contradicts in id order (deterministic knot node ordering).
     // Attestations in AUTHORING order (created, then id) — the
     // convergence baseline is the earliest-authored origin, so this
-    // order must reach attestationConvergence intact.
+    // order must reach attestationConvergence intact. Related in id
+    // order (no order-sensitive consumer).
     const byIdAsc = (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
     contradicts.sort(byIdAsc);
     attestations.sort((a, b) => (a.created || 0) - (b.created || 0) || byIdAsc(a, b));
+    related.sort(byIdAsc);
 
     return {
         case: {
@@ -173,7 +184,9 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
         // Full entity registry snapshot (Phase 20.3) — the case graph
         // resolves names for entities TAGGED on member articles that
         // never entered an orbit claim (so aren't in orbit.entities).
-        // Builders ignore it; it only rides for graph consumers.
+        // Consumed by graph consumers AND (27 S.2) by buildCaseDossier
+        // itself, which reads the case entity's authored scope question
+        // from it.
         entitiesById: allEntities,
         orbit: {
             entity_ids:          entityIds,
@@ -187,7 +200,7 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
         integrity:     integrityHeads,
         integrityAll:  allIntegrity,
         forensic,
-        links:         { contradicts, attestations },
+        links:         { contradicts, attestations, related },
         articles,
         predictions,
         resolutions,
@@ -1001,9 +1014,17 @@ export function buildCaseDossier(data, generatedAt) {
     const articleRows = deriveArticleRows(data);
     const shape = buildShapeOfKnowledge(data);
     const evidence = buildEvidenceGroups(data, articleRows);
+    // The author's scope question (27 S.2). Consumers read
+    // `dossier.scope.question` — synthesis-block always has, but until
+    // this key existed the value was silently '' and the case question
+    // never reached any LLM call (JOURNAL 2026-07-16).
+    const caseEntity = (data.entitiesById || {})[data.case && data.case.id] || null;
+    const scopeField = caseEntity && caseEntity.authored_fields
+        && caseEntity.authored_fields.scope_question;
     return {
         case:         data.case,
         generated_at: generatedAt ?? null,
+        scope: { question: (scopeField && scopeField.value ? String(scopeField.value).trim() : '') },
         coverage: {
             articles:                 evidence.coverage.articles,
             articles_with_claims:     evidence.coverage.articles_with_claims,

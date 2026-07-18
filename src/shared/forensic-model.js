@@ -393,6 +393,20 @@ export const ForensicBaseline = {
     },
 
     /**
+     * Baselines recorded against one source URL — the findings bar's
+     * read path (27 F.4; until then baselines were write-only:
+     * getForSubject had no product caller and nothing rendered them).
+     */
+    getForUrl: async (url) => {
+        const norm = normalizeUrl(String(url || ''));
+        if (!norm) return [];
+        const all = await Storage.get(BASELINES_KEY, {});
+        return Object.values(all)
+            .filter((b) => b.source_ref && b.source_ref.url === norm)
+            .sort((a, b) => (a.created || 0) - (b.created || 0) || (a.id < b.id ? -1 : 1));
+    },
+
+    /**
      * Record a subject's established register for a source — descriptive
      * prose (+ optional illustrative anchors), never a score. Idempotent
      * on (subject, source url): re-marking updates the note in place.

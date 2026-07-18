@@ -202,6 +202,26 @@ test('baseline: create idempotent on (subject, url) + deviation ref', async () =
     assert.equal(f.baseline_ref, b.id);
 });
 
+test('baseline: getForUrl reads back by normalized source URL — the findings-bar path (27 F.4)', async () => {
+    resetState();
+    await ForensicBaseline.create({
+        subject_ref: SUBJECT, source_url: 'https://example.com/clip-1?utm_source=x',
+        note: 'Even register.'
+    });
+    await ForensicBaseline.create({
+        subject_ref: { label: 'Someone Else' }, source_url: 'https://example.com/clip-1',
+        note: 'Combative register.'
+    });
+    await ForensicBaseline.create({
+        subject_ref: SUBJECT, source_url: 'https://example.com/other',
+        note: 'Elsewhere.'
+    });
+    const here = await ForensicBaseline.getForUrl('https://example.com/clip-1');
+    assert.equal(here.length, 2, 'both subjects on this URL; tracking params normalized away');
+    assert.deepEqual(await ForensicBaseline.getForUrl('https://example.com/nowhere'), []);
+    assert.deepEqual(await ForensicBaseline.getForUrl(''), []);
+});
+
 // --- the revision/* edge substrate (kind 30055) ----------------------
 
 test('revision: the linker accepts directional revision/* edges', async () => {
