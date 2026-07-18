@@ -270,7 +270,11 @@ export function renderCaseView(host, params) {
             // absent otherwise). Self-manages its own gating call.
             renderSynthesisBlock(graphHost, {
                 data, dossier,
-                callbacks: { onReloadCase: callbacks.onReloadCase }
+                callbacks: {
+                    onReloadCase: callbacks.onReloadCase,
+                    onAnalysisState: callbacks.onAnalysisState,
+                    isCurrentRun: callbacks.isCurrentRun
+                }
             });
             // 26 H.2/H.3/H.4 — the hypothesis map, assembled from the
             // same shared `data`, with the manual authoring affordances

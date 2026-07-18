@@ -761,22 +761,103 @@ function closeInspector() {
     clear(host);
 }
 
+// A running corpus analysis OWNS the case-view DOM. A re-render — the
+// relay refresh landing, the audit-ledger / creator-binding /
+// archive-vintage enrichments in rebuildItems, or a membership change
+// (onReloadCase) — would tear the in-flight synthesis block out of the
+// tree, orphaning the analysis (it keeps writing to detached nodes, so
+// it looks "stopped") and jumping the scroll. Those renders route
+// through scheduleRender() (display-only background) or
+// scheduleUserRender() (an explicit edit), both of which DEFER while an
+// analysis is in flight.
+//
+// On completion the two DEFERRED classes are treated differently:
+//   - background renders are DROPPED — their data is display-only and in
+//     state already, so it lands on the next render; re-rendering here
+//     would tear the freshly-shown brief out and jump the scroll (the
+//     case body re-mounts async, so no single-frame scroll restore is
+//     reliable).
+//   - a user EDIT (add/remove source, hypothesis authoring) is FLUSHED —
+//     an explicit change must become visible; a scroll reset is the
+//     acceptable price for that (and only happens if the user edited
+//     mid-run, which is rare).
+//
+// Ownership is scoped to a per-run TOKEN, not a bare flag: navigating
+// away calls render() directly, which unmounts the block and RESETS the
+// guard (the abandoned run is gone with its DOM). That abandoned run's
+// async chain still finishes and calls onAnalysisState(false, itsToken),
+// but its token is no longer current, so it can neither clear the guard
+// for a NEWER run nor flush a render that would tear the new run down.
+let analysisInFlight = false;
+let userEditQueuedDuringAnalysis = false;
+let currentAnalysisToken = null;
+
+// Display-only background/boot renders: dropped (not queued) during a
+// run — the data is in state and repaints on the next render.
+function scheduleRender() {
+    if (analysisInFlight) return;
+    render();
+}
+
+// Explicit user edits (membership / hypothesis authoring): deferred
+// during a run, then FLUSHED on completion so the edit becomes visible.
+function scheduleUserRender() {
+    if (analysisInFlight) { userEditQueuedDuringAnalysis = true; return; }
+    render();
+}
+
+// Called by the synthesis block at run start (running=true) and end
+// (running=false), each with the SAME per-run token.
+function setAnalysisState(running, token) {
+    if (running) {
+        currentAnalysisToken = token;
+        analysisInFlight = true;
+        return;
+    }
+    // Only the run that currently owns the guard may release it — a
+    // stale/abandoned run's end is a no-op (its block is already gone).
+    if (token !== currentAnalysisToken) return;
+    analysisInFlight = false;
+    currentAnalysisToken = null;
+    if (userEditQueuedDuringAnalysis) {
+        userEditQueuedDuringAnalysis = false;
+        render();   // a deferred user edit must repaint; scroll reset is acceptable here
+    }
+}
+
 const viewCallbacks = {
     onBack: () => { state.view = { name: 'library' }; closeInspector(); render(); },
     onFocusEntity: (pubkey) => { state.view = { name: 'entity', pubkey }; state.expandedTypes = new Set(); closeInspector(); render(); },
     onOpenCase: (pubkey) => { state.view = { name: 'case', pubkey }; closeInspector(); render(); },
     // 20.2: re-render the current case view after a local membership
-    // change (add/remove sources) so its counts + rows refresh.
-    onReloadCase: () => { render(); },
+    // change (add/remove sources). An explicit edit, so it defers during
+    // a run and flushes on completion (scheduleUserRender) rather than
+    // orphaning the run (direct render) or being dropped (scheduleRender).
+    onReloadCase: () => { scheduleUserRender(); },
     onOpenGraph: (pubkey) => { state.view = { name: 'entity', pubkey }; state.expandedTypes = new Set(); closeInspector(); render(); },
     onExpand: (type) => { state.expandedTypes.add(type); render(); },
     onOpenItem: (item) => { openInspector(item); },
     // 19.4: the entity dossier is LOCAL-id addressed (local-first view
     // — the subject need not be published).
-    onOpenEntityDossier: (entityId) => { state.view = { name: 'entity-dossier', entityId }; closeInspector(); render(); }
+    onOpenEntityDossier: (entityId) => { state.view = { name: 'entity-dossier', entityId }; closeInspector(); render(); },
+    // The synthesis block signals its run boundaries (with a per-run
+    // token) so background re-renders defer while it runs (scheduleRender).
+    onAnalysisState: (running, token) => setAnalysisState(running, token),
+    // The synthesis block queries this before persisting its result: an
+    // abandoned run (user navigated away / started a newer run — render()
+    // cleared the token) must not clobber the current brief or render to
+    // its detached block.
+    isCurrentRun: (token) => token === currentAnalysisToken
 };
 
 function render() {
+    // Rebuilding #xr-view unmounts any live synthesis block, so a run
+    // that was deferring renders is abandoned along with its DOM — drop
+    // the guard so the NEW view renders freely. (The abandoned run's own
+    // end-signal is ignored: its token is no longer current.)
+    analysisInFlight = false;
+    userEditQueuedDuringAnalysis = false;
+    currentAnalysisToken = null;
     if (state.view.name === 'entity-dossier') {
         libraryChromeVisible(false);
         renderEntityDossierView($('#xr-view'), {
@@ -850,7 +931,7 @@ function rebuildItems(records) {
             mergeLocalRuns(state.auditIndex, runs);
             mergeLocalResolutions(state.auditIndex, resolutions);
             state.localPredictions = preds;
-            render();
+            scheduleRender();
         })
         .catch((err) => Utils.error('Portal: audit ledger load failed', err));
 
@@ -868,7 +949,7 @@ function rebuildItems(records) {
             }
         }
         state.creatorBinding = merged;
-        render();
+        scheduleRender();
     })().catch((err) => Utils.error('Portal: creator binding failed', err));
     // Prior capture vintages per URL (read-only archive lookup):
     // 13.8 anchors published audit events to the vintage they
@@ -887,7 +968,7 @@ function rebuildItems(records) {
                 if (hashes.length) map.set(rec.url, hashes);
             }
             state.priorHashesByUrl = map;
-            render();
+            scheduleRender();
         })
         .catch((err) => Utils.error('Portal: archive vintage map failed', err));
 }
@@ -937,7 +1018,7 @@ async function boot({ full = false } = {}) {
         }
         if (cached.length > 0) {
             rebuildItems(cached);
-            render();
+            scheduleRender();
             setStatus(`${state.items.length} item(s) from cache — refreshing…`);
             // Ledger diff against the cached view while the refresh runs.
             updateReconciliation().then(() => renderReconPanel());
@@ -1008,7 +1089,7 @@ async function boot({ full = false } = {}) {
             }
         }
         await updateReconciliation();
-        render();
+        scheduleRender();
 
         const failed = Object.keys(relayErrors);
         // Advance the cursor only on a CLEAN pass: every relay answered
