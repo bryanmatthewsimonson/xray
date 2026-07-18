@@ -209,8 +209,12 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
             if (cid && typeof a.stance === 'number') assessmentsByClaim[cid] = a.stance;
         }
         const members = await buildMemberUnits(data, { assessmentsByClaim });
-        const orbitClaimIds = (dossier.orbit && dossier.orbit.claim_ids) || [];
-        const liveHash = await corpusInputHash(members, orbitClaimIds);
+        // Staleness must track the ACTUAL claim set sent — the
+        // member-article claims joined by URL in buildMemberUnits — not
+        // the orbit's about-the-case subset, or adding/removing a claim
+        // on a member would never invalidate the stored brief.
+        const memberClaimIds = members.flatMap((m) => m.claims.map((c) => c.id));
+        const liveHash = await corpusInputHash(members, memberClaimIds);
 
         const claimsById = {};
         // The claim index handed to the reduce stage — id + text +
