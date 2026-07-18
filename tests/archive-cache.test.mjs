@@ -302,3 +302,29 @@ test('prune: a re-captured document is protected by a refreshed grace window', a
     assert.ok(await getSourceDocument(HASH),
         'bytes of an in-flight re-capture must survive the pruner');
 });
+
+test('archive: delete removes the row TOGETHER with its prior versions (S4)', async () => {
+    await resetStore();
+    // Two saves with different bodies → the second displaces the first
+    // into priorVersions; delete must take the whole row, snapshot
+    // included — a dangling prior would resurrect "deleted" content.
+    await saveArticle({ article: { url: 'https://example.com/s4', title: 'v1', content: 'first body' } });
+    await saveArticle({ article: { url: 'https://example.com/s4', title: 'v2', content: 'second body, different' } });
+    const before = await getArticle('https://example.com/s4');
+    assert.ok(Array.isArray(before.priorVersions) && before.priorVersions.length === 1,
+        'precondition: the displaced version was snapshotted');
+    await deleteArticle('https://example.com/s4');
+    assert.equal(await getArticle('https://example.com/s4'), null);
+    assert.equal(await hasArticle('https://example.com/s4'), false);
+});
+
+test('archive: deleting an absent row is a harmless no-op (S4)', async () => {
+    await resetStore();
+    await assert.doesNotReject(() => deleteArticle('https://example.com/never-saved'));
+    // And URL-normalization applies: delete by a tracking-param variant
+    // removes the row saved under the canonical form.
+    await saveArticle({ article: { url: 'https://example.com/s4b', title: 'T' } });
+    await deleteArticle('https://example.com/s4b?utm_source=x');
+    assert.equal(await hasArticle('https://example.com/s4b'), false,
+        'delete joins through the same normalizer as save');
+});
