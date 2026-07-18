@@ -70,6 +70,7 @@ const MENU_IDS = {
     OPEN_ENTITIES: 'xray:open-entities',
     OPEN_PORTAL: 'xray:open-portal',
     OPEN_NETWORK: 'xray:open-network',
+    OPEN_PDF: 'xray:open-pdf',
     OPEN_SETTINGS: 'xray:open-settings',
     CAPTURE_TIPS: 'xray:capture-tips'
 };
@@ -114,6 +115,11 @@ async function registerContextMenus() {
                 contexts: ['action']
             });
         }
+        chrome.contextMenus.create({
+            id: MENU_IDS.OPEN_PDF,
+            title: 'Open a PDF by URL…',
+            contexts: ['action']
+        });
         chrome.contextMenus.create({
             id: MENU_IDS.OPEN_SETTINGS,
             title: 'Settings…',
@@ -237,6 +243,18 @@ function openPdfReader(pdfUrl) {
 }
 
 /**
+ * Open the reader's "Open a PDF by URL" landing (`?pdf=open`) — the
+ * toolbar-menu entry so a remote PDF can be read without first landing
+ * on its tab. The landing hands the pasted URL to the same `?pdf=<url>`
+ * path openPdfReader uses.
+ */
+function openPdfEntry() {
+    chrome.tabs.create({
+        url: chrome.runtime.getURL('src/reader/index.html') + '?pdf=open'
+    });
+}
+
+/**
  * Content-Type sniff for PDF URLs without a .pdf extension. HEAD only,
  * http(s) only, best-effort — a blocked or failing HEAD just means "not
  * provably a PDF" and the caller falls through to Settings.
@@ -292,6 +310,10 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     }
     if (info.menuItemId === MENU_IDS.OPEN_NETWORK) {
         openNetwork();
+        return;
+    }
+    if (info.menuItemId === MENU_IDS.OPEN_PDF) {
+        openPdfEntry();
         return;
     }
     if (info.menuItemId === MENU_IDS.CAPTURE_TIPS) {

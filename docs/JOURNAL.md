@@ -19,6 +19,33 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-18 — "Open a PDF by URL" — a reader entry surface for the ?pdf=<url> path
+
+**Tags:** design
+
+The reader has always been able to open a remote PDF via its page URL
+(`?pdf=<url>` → `loadPdfArticle` → `capturePdfToArticle`), but the only way
+to trigger it was to already be on the PDF's tab and hit capture. Added a
+visible entry surface so a link can be opened cold:
+
+- `renderPdfUrlLanding()` (reader) — a URL-input card shown for the new
+  `?pdf=open` and, notably, for a **bare reader open (no `?id`)** which used
+  to `throw "Missing ?id="`. Submitting reloads at `?pdf=<url>`, reusing the
+  entire existing pipeline — no new capture code. `loadArticle` returns a
+  `{ __landing: true }` sentinel so `init()` skips `renderReader()` and the
+  button wiring; the landing hides everything but `#xr-main` (a `> *:not(#xr-main)`
+  rule) so no unwired chrome — e.g. the always-visible epistemic-audit bar —
+  dangles below the form.
+- A toolbar-menu item "Open a PDF by URL…" (`MENU_IDS.OPEN_PDF`) opens
+  `reader/index.html?pdf=open` — the discoverable way in.
+
+Guard: the landing accepts only `http(s)` URLs (mirrors `loadPdfArticle`), so
+`file:`/`javascript:`/`data:` can't reach the fetch. Verified with a
+4-dimension adversarial review (flow/sentinel, URL round-trip incl. the `%20`
+Zenodo path, menu/MV3, UI/a11y) — the one finding (dangling audit bar) is the
+`#xr-main`-only hide above. See `src/reader/index.js`, `src/background/index.js`,
+`src/reader/index.css`.
+
 ## 2026-07-18 — Corpus reduce lost to a service-worker teardown ("no response") — SW keepalive
 
 **Tags:** bug, external
