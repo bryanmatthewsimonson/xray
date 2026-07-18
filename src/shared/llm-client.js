@@ -41,8 +41,10 @@ import { articleHash } from './audit/article-hash.js';
 import {
     MAP_TOOL_NAME, REDUCE_TOOL_NAME,
     MAX_MEMBER_INPUT_CHARS, MAX_MAP_OUTPUT_TOKENS, MAX_REDUCE_OUTPUT_TOKENS,
+    MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS,
     buildMapTool, buildMapSystemPrompt, buildMapUserPrompt,
-    buildReduceTool, buildReduceSystemPrompt, buildReduceUserPrompt
+    buildReduceTool, buildReduceSystemPrompt, buildReduceUserPrompt,
+    buildHypothesisEdgeTool, buildHypothesisEdgeSystemPrompt, buildHypothesisEdgeUserPrompt
 } from './corpus-prompts.js';
 
 // Re-exported for callers that wrote against the client (the keys are
@@ -200,6 +202,35 @@ async function postMessages(payload, apiKey, { signal } = {}) {
 }
 
 /**
+ * A model-side safety guardrail declining the request is its OWN state,
+ * never the generic "malformed output" error (the lens pass's §6 rule,
+ * generalized here). Claude Fable 5 runs classifiers that can decline —
+ * bio and cyber topics especially — and returns HTTP 200 with
+ * `stop_reason: 'refusal'` and an empty/partial content array. Without
+ * this check every caller falls through to extractToolInput() → null →
+ * "the model did not return a structured extract", which blames the
+ * wrong thing and sends the user hunting a bug that isn't there.
+ *
+ * Returns an `{ ok: false, refused: true, ... }` result to return as-is,
+ * or null when the response was not a refusal.
+ *
+ * @param {object} data  the parsed Messages response
+ * @param {string} what  what was being produced, for the message
+ */
+export function refusalResult(data, what) {
+    if (!data || data.stop_reason !== 'refusal') return null;
+    const category = (data.stop_details && data.stop_details.category) || null;
+    return {
+        ok: false, refused: true, code: 'model-refusal', category,
+        error: `The model declined to produce ${what}`
+            + (category ? ` (safety category: ${category})` : '')
+            + '. This is a model-side guardrail — not a key, network, or X-Ray problem. '
+            + 'Some models decline topics others allow; switching model in '
+            + 'Options → Advanced → LLM assist is the usual workaround.'
+    };
+}
+
+/**
  * Pull a forced tool's `input` out of a Messages response, by tool name.
  * Returns the input object, or null if no matching tool_use was found.
  * Exported for unit tests (no network involved).
@@ -278,6 +309,7 @@ export async function runSuggestionPass(req = {}) {
     if (!res.ok) return res;
     const data = res.data;
 
+    { const r = refusalResult(data, 'capture suggestions for this article'); if (r) return r; }
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, error: 'The model hit its output limit before finishing. Try a shorter article or fewer tasks.' };
     }
@@ -389,6 +421,7 @@ export async function runAuditPass(req = {}) {
     if (!res.ok) return res;
     const data = res.data;
 
+    { const r = refusalResult(data, 'this audit'); if (r) return r; }
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, error: 'The model hit its output limit before finishing the audit. Try a shorter article.' };
     }
@@ -476,6 +509,7 @@ export async function runAuditModulePass(req = {}) {
     if (!res.ok) return { ...res, module: name };
 
     const data = res.data;
+    { const r = refusalResult(data, `the ${name} audit module`); if (r) return { ...r, module: name }; }
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, module: name, error: `The ${name} module hit its output limit before finishing.` };
     }
@@ -560,6 +594,7 @@ export async function runCorpusMapPass(req = {}) {
     if (!res.ok) return { ...res, member_id: req.member_id };
 
     const data = res.data;
+    { const r = refusalResult(data, 'an extract for this article'); if (r) return { ...r, member_id: req.member_id }; }
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, member_id: req.member_id, error: 'The map call hit its output limit before finishing.' };
     }
@@ -600,12 +635,60 @@ export async function runCorpusReducePass(req = {}) {
     if (!res.ok) return res;
 
     const data = res.data;
+    { const r = refusalResult(data, 'the corpus brief'); if (r) return r; }
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, error: 'The synthesis hit its output limit before finishing.' };
     }
     const briefInput = extractToolInput(data, tool.name);
     if (briefInput === null) return { ok: false, error: 'The model did not return a structured brief.' };
     return { ok: true, briefInput, model: (data && data.model) || model, usage: data && data.usage };
+}
+
+/**
+ * HYPOTHESIS EDGES — Phase 26 H.4: one reduce-shaped call over the
+ * dossier digest + the hypothesis list, proposing claim→hypothesis
+ * supports/undermines attachments. Same triple gate as the corpus
+ * passes; returns the RAW tool input — validation, grounding, the
+ * both-sides post-check, and the human-accept firewall all stay
+ * portal-side (hypothesis-suggest.js).
+ *
+ * @param {object} req { dossierDigest, hypotheses, caseName?, scopeQuestion? }
+ */
+export async function runHypothesisEdgePass(req = {}) {
+    const gate = await corpusGate();
+    if (gate.error) return { ok: false, error: gate.error };
+
+    const hypotheses = Array.isArray(req.hypotheses) ? req.hypotheses : [];
+    if (hypotheses.length === 0) return { ok: false, error: 'No hypotheses to map edges onto.' };
+
+    const model = await readModel();
+    const tool = buildHypothesisEdgeTool();
+    const payload = {
+        model,
+        max_tokens: MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS,
+        system: buildHypothesisEdgeSystemPrompt({ caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '' }),
+        tools: [tool],
+        tool_choice: { type: 'tool', name: tool.name },
+        messages: [{ role: 'user', content: buildHypothesisEdgeUserPrompt({
+            dossierDigest: req.dossierDigest || '', hypotheses
+        }) }]
+    };
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CORPUS_REDUCE_TIMEOUT_MS);
+    let res;
+    try { res = await postMessages(payload, gate.apiKey, { signal: controller.signal }); }
+    finally { clearTimeout(timer); }
+    if (!res.ok) return res;
+
+    const data = res.data;
+    { const r = refusalResult(data, 'hypothesis edge proposals'); if (r) return r; }
+    if (data && data.stop_reason === 'max_tokens') {
+        return { ok: false, error: 'The edge-suggestion call hit its output limit before finishing.' };
+    }
+    const edgesInput = extractToolInput(data, tool.name);
+    if (edgesInput === null) return { ok: false, error: 'The model did not return structured edge proposals.' };
+    return { ok: true, edgesInput, model: (data && data.model) || model, usage: data && data.usage };
 }
 
 // ------------------------------------------------------------------

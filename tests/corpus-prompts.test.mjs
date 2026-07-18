@@ -8,7 +8,18 @@ const CP = await import('../src/shared/corpus-prompts.js');
 test('corpus-prompts: tool names + version pinned', () => {
     assert.equal(CP.MAP_TOOL_NAME, 'emit_corpus_extract');
     assert.equal(CP.REDUCE_TOOL_NAME, 'emit_case_brief');
-    assert.equal(CP.CORPUS_PROMPT_VERSION, 'corpus-v1');
+    assert.equal(CP.CORPUS_PROMPT_VERSION, 'corpus-v2');
+});
+
+test('corpus-prompts: the reduce prompt AFFIRMATIVELY asks for cross-article relationship proposals (27 S.1)', () => {
+    const sys = CP.buildReduceSystemPrompt({ caseName: 'Origins', scopeQuestion: 'Where?' });
+    assert.match(sys, /pairs of claims from DIFFERENT articles/);
+    assert.match(sys, /Propose EVERY\s+such pair/);
+    assert.match(sys, /`art`\s+key/);
+    assert.match(sys, /nothing you propose is applied on its own/);
+    // The 20.6 discipline stays: never guess an id.
+    assert.match(sys, /OMIT it rather than guessing/);
+    assert.match(sys, /NEVER output a verdict, score, probability/);
 });
 
 test('corpus-prompts: NEITHER tool schema carries a numeric score/confidence field (P2)', () => {

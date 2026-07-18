@@ -1340,6 +1340,30 @@ stored brief (run "Analyze corpus…" once).
 
 ---
 
+## Phase 26 — Hypothesis map + structural counterfactual (H.1–H.4, CF.1–CF.2)
+
+Needs a case with claims; the LLM steps (P26.n–q) additionally need
+`caseSynthesis` + `llmAssist` flags on and an API key.
+
+| # | Step | Expected |
+|---|---|---|
+| P26.g | Case dashboard on a case WITH claims but no hypotheses | ✅ a "Hypotheses — competing answers, not a ranking" block renders with the explainer and an **Add hypothesis…** button; a claimless case shows no block at all |
+| P26.h | **Add hypothesis…** → label + statement → Add | ✅ the card appears after reload; re-adding the same label (any casing/spacing) lands on the SAME record, never a duplicate |
+| P26.i | **Attach claim…** on a card → pick claim + Supports → Attach; repeat with Undermines on another card | ✅ the claim appears under "Supporting evidence (N)" / "Undermining evidence (N)"; the SAME claim under two hypotheses gets a **crux** badge in both places |
+| P26.j | Run corpus synthesis first (Phase 20.4), then reopen the case | ✅ the brief's positions appear as seeded cards ("from brief" badge, holders as source links); attaching a claim to a seed PROMOTES it (survives brief regeneration) |
+| P26.k | A claim with a truth verdict (Phase 15) attached as an edge | ✅ a verdict chip ("Event fact: Contested" etc.) renders beside the claim with the tooltip "…does not weight the edge"; no chip for unruled propositions |
+| P26.l | Read the whole block with 2+ hypotheses of very different edge counts | ✅ NO cross-hypothesis comparison anywhere — no "leading", no totals compared, no bars/meters; section counts appear only inside each hypothesis's own sections |
+| P26.m | **✕ detach** an edge; **✕ delete hypothesis** on a persisted card | ✅ detach removes just the edge; delete confirms with the attachment count and removes the card + its edges |
+| P26.n | **Suggest edges (LLM)…** (flags + key on) | ✅ spend-confirm names the claim + hypothesis counts and "one call"; without the key the button is disabled with an Options hint; with `caseSynthesis` off the button is absent |
+| P26.o | Run the suggestion | ✅ a disclosure line reports "N quotes checked · M ungrounded (dropped) · K rejected · J proposals"; each proposal shows role, hypothesis ← claim, quote, rationale, **Accept** / **Dismiss** |
+| P26.p | Accept one proposal, then **Refresh map** | ✅ the edge lands with an `llm:<model>` badge; nothing applied without the click |
+| P26.q | Read the unopposed disclosure (when present) | ✅ hypotheses with zero undermining scrutiny are named: "…treat their support as unexamined, not established" |
+| P26.r | Evidence block ▸ any claim row ▸ **Trace dependencies** | ✅ expands to "If removed / If negated" with plain count lines, each carrying its derivation (link/edge/proposition ids); the explainer ends "Not a probability of anything." |
+| P26.s | Trace a claim inside a contradiction knot | ✅ remove mode reports the knot dissolving/splitting/shrinking with the removed edge ids; negate mode says the edges "flip to concordance" and reports zero entity/timeline change |
+| P26.t | Trace a claim nothing depends on | ✅ "No structural dependencies found — nothing else in the case graph rests on this claim." |
+
+---
+
 ## Reporting
 
 For each defect found:

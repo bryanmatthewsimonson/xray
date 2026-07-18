@@ -183,6 +183,10 @@ async function seedOrbit() {
         source_claim_id: 'claim_1111111111111111', target_claim_id: 'claim_2222222222222222',
         relationship: 'contradicts'
     });
+    await EvidenceLinker.create({
+        source_claim_id: 'claim_1111111111111111', target_claim_id: 'claim_2222222222222222',
+        relationship: 'supports'
+    });
     await ForensicModel.create({
         subject_ref: { label: 'Nobody' }, role: 'apologist', maneuver: 'defense/usefulness-pivot',
         anchors: [{ quote: 'Unrelated.', source_ref: { url: 'https://example.com/n' } }],
@@ -321,6 +325,24 @@ test('case-dossier: contradiction knot is a connected component with foreign sna
     assert.equal(foreign.ref, foreignCoord);
     assert.equal(foreign.text, 'We funded nothing.');
     assert.equal(foreign.url, 'https://example.com/denial');
+});
+
+test('case-dossier: links.related carries every orbit supports/updates/duplicates link, noise excluded (26 CF.1)', async () => {
+    resetState();
+    const { kase } = await seedOrbit();
+    const data = await collectCaseDossierData(kase.id, injected());
+    // The three attested supports links ride `related` too (the
+    // attestations family stays the §3.2-filtered view); the noise
+    // supports link between out-of-orbit ids does not leak.
+    assert.equal(data.links.related.length, 3);
+    for (const l of data.links.related) {
+        assert.equal(l.relationship, 'supports');
+        assert.ok(l.source_ref && l.target_ref, 'endpoints pre-canonicalized');
+    }
+    assert.ok(!data.links.related.some((l) => l.source_ref === 'claim_1111111111111111'));
+    // Sorted by id for determinism.
+    const ids = data.links.related.map((l) => l.id);
+    assert.deepEqual(ids, [...ids].sort());
 });
 
 test('case-dossier: integrity heads join by orbit entity; forensic bridge stamps matched_via', async () => {
@@ -466,6 +488,22 @@ test('case-dossier: timeline gaps — the three cross-axis anomalies', async () 
     // so it is not a false published-before-occurred.
     assert.equal(dossier.timeline.coverage.gaps, gaps.length);
     assert.equal(gaps.filter((g) => g.kind === 'published-before-occurred' && g.proposition_id === propY.id).length, 0);
+});
+
+test('case-dossier: the authored scope question rides the dossier (27 S.2)', async () => {
+    resetState();
+    const { kase } = await seedOrbit();
+    // Author the scope question the way the sidepanel does.
+    const all = await EntityModel.getAll();
+    all[kase.id].authored_fields = { scope_question: { value: 'Where did the outbreak begin?' } };
+    _stateStore.set('entities', JSON.stringify(all));
+    const dossier = await assembleCaseDossier(kase.id, { generatedAt: GENERATED, ...injected() });
+    assert.equal(dossier.scope.question, 'Where did the outbreak begin?');
+    // Unauthored → empty string, never fabricated (P4).
+    resetState();
+    const bare = await EntityModel.create({ name: 'Bare case', type: 'case' });
+    const bareDossier = await assembleCaseDossier(bare.id, { generatedAt: GENERATED, articles: [], auditRuns: [], predictions: [], resolutions: [] });
+    assert.equal(bareDossier.scope.question, '');
 });
 
 test('case-dossier: coverage counts on every section', async () => {

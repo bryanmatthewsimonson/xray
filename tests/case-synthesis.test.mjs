@@ -99,11 +99,59 @@ test('case-synthesis: digestDossier surfaces the claim index for the reduce stag
     assert.equal(digest.claim_count, 1);
     assert.equal(digest.claims[0].id, 'c1');
     assert.ok(digest.claims[0].text.includes('lab reported'));
-    assert.equal(digest.claims[0].article_hash, 'A');
     // No claims passed → empty index (not a crash), count 0.
     const empty = JSON.parse(CS.digestDossier(dossier));
     assert.deepEqual(empty.claims, []);
     assert.equal(empty.claim_count, 0);
+});
+
+test('case-synthesis: digest claims carry short per-article keys so cross-article pairs are identifiable (27 S.1)', () => {
+    const dossier = { coverage: {}, shape_of_knowledge: {}, knots: {}, orbit: {} };
+    const digest = JSON.parse(CS.digestDossier(dossier, { claims: [
+        { id: 'c1', text: 'One.', article_hash: 'a'.repeat(64) },
+        { id: 'c2', text: 'Two.', article_hash: 'b'.repeat(64) },
+        { id: 'c3', text: 'Three.', article_hash: 'a'.repeat(64) },
+        { id: 'c4', text: 'Hashless.' }
+    ] }));
+    assert.deepEqual(digest.claims.map((c) => c.art), ['A1', 'A2', 'A1', null],
+        'same article → same key; no hash → null, never fabricated');
+    assert.deepEqual(digest.articles, { A1: 'a'.repeat(64), A2: 'b'.repeat(64) },
+        'keys resolve back to the real hashes');
+    assert.ok(!JSON.stringify(digest.claims).includes('a'.repeat(64)),
+        'the 64-hex hash no longer rides every claim entry');
+});
+
+test('case-synthesis: DIGEST_CLAIM_CAP bounds the index AND the art-key map together (27 S.1)', () => {
+    const dossier = { coverage: {}, shape_of_knowledge: {}, knots: {}, orbit: {} };
+    const claims = [];
+    for (let i = 0; i < CS.DIGEST_CLAIM_CAP + 10; i++) {
+        claims.push({ id: `c${i}`, text: `Claim ${i}.`, article_hash: `${String(i % 3)}`.repeat(64) });
+    }
+    // The capped tail cites a hash NO capped claim carries — its art
+    // key must not leak into the articles map.
+    claims[CS.DIGEST_CLAIM_CAP + 5].article_hash = 'f'.repeat(64);
+    const digest = JSON.parse(CS.digestDossier(dossier, { claims }));
+    assert.equal(digest.claim_count, CS.DIGEST_CLAIM_CAP);
+    assert.equal(digest.claims.length, CS.DIGEST_CLAIM_CAP);
+    assert.ok(!digest.claims.some((c) => c.id === `c${CS.DIGEST_CLAIM_CAP}`), 'claims beyond the cap are absent');
+    const mapped = new Set(Object.values(digest.articles));
+    assert.ok(!mapped.has('f'.repeat(64)), 'articles map derives from the SAME capped slice');
+    for (const c of digest.claims) {
+        assert.ok(c.art === null || digest.articles[c.art], `art key ${c.art} resolves`);
+    }
+});
+
+test('case-synthesis: proposalKey is stable and direction-insensitive for relationships (27 S.3)', () => {
+    // The triage record persists under these keys — a key change would
+    // silently resurrect every dismissed proposal.
+    assert.equal(
+        CS.proposalKey({ kind: 'relationship', source_claim_id: 'c1', target_claim_id: 'c2', relationship: 'supports' }),
+        'rel:c1|c2:supports');
+    assert.equal(
+        CS.proposalKey({ kind: 'relationship', source_claim_id: 'c2', target_claim_id: 'c1', relationship: 'supports' }),
+        'rel:c1|c2:supports', 'endpoint order does not fork the key');
+    assert.equal(CS.proposalKey({ kind: 'is_key', claim_id: 'c1' }), 'key:c1');
+    assert.equal(CS.proposalKey({ kind: 'claim', article_hash: 'A', text: 't' }), 'claim:A|t');
 });
 
 test('case-synthesis: corpusInputHash is order-insensitive but sensitive to membership + prompt', async () => {
