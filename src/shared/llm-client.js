@@ -539,7 +539,13 @@ export async function runAuditModulePass(req = {}) {
 // ------------------------------------------------------------------
 
 const CORPUS_MAP_TIMEOUT_MS = 120000;
-const CORPUS_REDUCE_TIMEOUT_MS = 300000;
+// The reduce is the ONE long single fetch in the corpus flow (the map phase
+// is many short calls). With MAX_REDUCE_OUTPUT_TOKENS raised to 32768, a
+// full breadth brief can generate ~20-25k tokens, which on the slower
+// (Opus-tier) models runs past the old 300s cap — so give it 7 min rather
+// than trade a token-cap failure for an abort. The pending sendResponse
+// keeps the MV3 service worker alive for the duration.
+const CORPUS_REDUCE_TIMEOUT_MS = 420000;
 
 /** Gating snapshot for the portal's "Analyze corpus" control. */
 export async function getCorpusConfig() {

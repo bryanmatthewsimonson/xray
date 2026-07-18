@@ -19,6 +19,32 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-18 — Corpus reduce truncated on the breadth brief ("hit its output limit")
+
+**Tags:** bug, design
+
+After the corpus-v3 breadth nudge (list EVERY holder, enumerate ALL cruxes),
+the reduce for a large case (~125 members) started failing with "The
+synthesis hit its output limit before finishing" — `runCorpusReducePass`
+seeing `stop_reason: 'max_tokens'` against `MAX_REDUCE_OUTPUT_TOKENS =
+16384`. Two compounding causes: (1) the breadth brief legitimately runs
+18-25k output tokens now (every position's holders as full 64-hex hashes,
+all cruxes, load-bearing, the proposal queue); (2) the reduce omits the
+`thinking` param, so on **Sonnet 5** adaptive thinking is ON by default and
+its thinking tokens share the same `max_tokens` budget — Sonnet had *less*
+room for the brief than the earlier (pre-nudge) Opus run that fit in 16384.
+
+Fix (surgical, no prompt change — preserves the graded breadth):
+`MAX_REDUCE_OUTPUT_TOKENS` 16384 → 32768 (well under every current model's
+128k output ceiling), and `CORPUS_REDUCE_TIMEOUT_MS` 300000 → 420000 so the
+now-larger brief can finish on the slower Opus tier (~55 tok/s × ~22k tokens
+≈ 400s) instead of trading a token-cap failure for an abort. The reduce is
+the one long single fetch in the corpus flow; its pending sendResponse keeps
+the MV3 SW alive. Deliberately NOT a prompt/tool/digest change → no
+`MAP_PROMPT_VERSION`/`CORPUS_PROMPT_VERSION` bump → the ~100 cached map
+extracts and brief-staleness keys are untouched. See
+`src/shared/corpus-prompts.js`, `src/shared/llm-client.js`.
+
 ## 2026-07-18 — A background re-render KILLED the running corpus analysis (token-scoped render guard)
 
 **Tags:** bug, pattern
