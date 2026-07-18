@@ -24,7 +24,7 @@ test('forensic: namespace is pinned', () => {
 
 test('forensic: maneuver families are exhaustive', () => {
     assert.deepEqual(Object.keys(FORENSIC_MANEUVER_GROUPS).sort(),
-        ['darvo', 'defense', 'grooming', 'neutralization', 'thought-reform']);
+        ['darvo', 'defense', 'grooming', 'neutralization', 'source-credibility', 'thought-reform']);
     assert.deepEqual(FORENSIC_MANEUVER_GROUPS.darvo.slice().sort(),
         ['darvo/attack', 'darvo/deny', 'darvo/reverse-victim-offender']);
     assert.deepEqual(FORENSIC_MANEUVER_GROUPS.grooming.slice().sort(),
@@ -33,6 +33,23 @@ test('forensic: maneuver families are exhaustive', () => {
     assert.equal(FORENSIC_MANEUVER_GROUPS.neutralization.length, 9);
     assert.equal(FORENSIC_MANEUVER_GROUPS['thought-reform'].length, 7);
     assert.equal(FORENSIC_MANEUVER_GROUPS.defense.length, 8);
+    // 27 F.5 — the side-neutral persuasion-over-evidence family.
+    assert.deepEqual(FORENSIC_MANEUVER_GROUPS['source-credibility'].slice().sort(), [
+        'source-credibility/borrowed-authority',
+        'source-credibility/guilt-by-association',
+        'source-credibility/motive-speculation',
+        'source-credibility/track-record-substitution'
+    ]);
+});
+
+test('forensic: every source-credibility guide entry carries the reporter counter-indicator (27 F.5)', async () => {
+    const { MANEUVER_GUIDE } = await import('../src/shared/forensic-taxonomy.js');
+    for (const m of FORENSIC_MANEUVER_GROUPS['source-credibility']) {
+        const g = MANEUVER_GUIDE[m];
+        assert.ok(g && g.definition, `${m} has a guide entry`);
+        assert.ok(g.counterIndicators.some((c) => /REPORTING someone else/.test(c)),
+            `${m} counter-indicates the reporter — the F.2 attribution rule, restated per maneuver`);
+    }
 });
 
 test('forensic: flat list is the union of the groups, no duplicates', () => {
@@ -59,11 +76,13 @@ test('forensic: custom maneuvers ride the same rails (the escape hatch)', () => 
 
 test('forensic: role enum is exhaustive + symmetric across sides', () => {
     assert.deepEqual(ROLES.slice().sort(),
-        ['apologist', 'critic', 'institution', 'other', 'survivor', 'witness']);
+        ['apologist', 'commentator', 'critic', 'institution', 'journalist',
+         'official', 'other', 'survivor', 'witness']);
     for (const r of ROLES) assert.equal(isValidRole(r), true);
     // The bias-symmetry point: a critic is as profilable as an apologist.
     assert.equal(isValidRole('apologist'), true);
     assert.equal(isValidRole('critic'), true);
+    assert.equal(isValidRole('journalist'), true, '27 F.6 — journalism-fit roles');
     assert.equal(isValidRole('prosecutor'), false);
 });
 

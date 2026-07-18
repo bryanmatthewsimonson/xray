@@ -158,6 +158,7 @@ banner state, click view-mode tabs, etc. — but cannot trigger
 | 5 claims | Same as Phase 4 — text selection in reader is drivable; modal is testable; publish blocked | Signing |
 | 6 sync | None — sidepanel + cross-device | All of it |
 | 7 cache | (none — archive surfaces in the reader) | Reader's archive banner UX on revisit |
+| 7 archive integrity (7.7–7.16) | Nothing. The unit tests simulate this state machine; they cannot drive it | **All of it.** Hash drift, wrong-article loads, and the empty-body publish all render correctly in the reader while being wrong on the wire — the event body is the only witness |
 | Polish #2 | The init-sequence signing-method line | — |
 
 ### Suggested agent-driven loop
@@ -1060,6 +1061,33 @@ inside (so a relay copy exists).
 | 7.5 | Click "Load archive" | ✅ body swaps to the longer cached/relay copy; toast confirms |
 | 7.6 | Click "Keep capture" instead | ✅ banner dismisses; current capture stays |
 
+### Archive integrity (the 2026-07-17 stack — MUST be walked by hand)
+
+Everything above checks that the body *swaps*. None of it checks that it
+swapped to the **right** body, or that the hash survived. All four bugs
+below shipped undetected past a green suite, and every fix was verified by
+**simulating** the reader (`tests/archive-reload-hash.test.mjs` replays the
+state machine) — nothing here has been driven in a real browser. Walk it
+after any change to `archive-draft.js`, `loadArchivedArticle`,
+`adoptArticle`, or the publish body assembly.
+
+Prereq: an article you have **published**, whose body contains characters
+turndown escapes — `5 * 3`, `that_is_it`, `[1]`, a line starting `14.`.
+Plain prose round-trips cleanly and will pass against the bug.
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 7.7 | Re-capture the published URL. Note the "content hash" line under the body. Click **Load archive**, then **Publish** again with no edits. Compare the hash line before and after | ✅ **identical**. A changed hash means the reload→republish drift is back; it forks every audit anchored to this article, and the new event REPLACES the old at the same NIP-33 coordinate |
+| 7.8 | Repeat 7.7 three more times on the same article | ✅ the hash never moves. Drift is exponential (escape backslashes n → 2n+1), so a second cycle makes it obvious |
+| 7.9 | Load archive → tag **one entity** → Publish | ✅ hash unchanged. Tagging is text-neutral; the span never reaches the wire |
+| 7.10 | Load archive → fix a typo in the **title** (not the body) → Publish | ✅ **body** hash unchanged |
+| 7.11 | Load archive → open the **Markdown** tab, look, switch back → Publish | ✅ hash unchanged, and the Markdown tab shows **markdown** (not HTML) |
+| 7.12 | Load archive → **Media** button → attach a transcript → Publish | ✅ the published body is **NOT empty** and contains both the transcript and the original text. ⚠️ This is the one that nearly shipped an empty kind-30023 (`x` = `e3b0c442…` = sha256 of "") **over the real article** — check the event body, not just the reader, which paints correctly either way |
+| 7.13 | Load archive → genuinely **edit the body** → Publish | ✅ the hash **does** change. The fix must not suppress real edits — that is a different article |
+| 7.14 | Capture article **A** that links to article **B**, publish A. Then visit **B** (never captured) and capture it | ✅ the banner does **NOT** offer A's body under B's URL. Publishing an article co-emits indexed `r` tags for its first 25 outbound links, so B's archive probe matches A; with no published capture of B, A is the only candidate and wins silently (`altCount: 0`, no "N versions" tell) |
+| 7.15 | Re-capture any published, unedited article | ✅ the archive banner does **not** appear. It used to fire ~100% falsely on every published article, every visit — it compared raw HTML across two substrates that can never match |
+| 7.16 | Options → Advanced → Archive banner → `always` (the default), then repeat 7.15 | ✅ still silent. `always` must mean "when it actually differs", not "always" |
+
 ---
 
 ## Cross-cutting polish
@@ -1309,6 +1337,30 @@ stored brief (run "Analyze corpus…" once).
 | P26.d | Click a source link | ✅ opens the captured source's original URL in a new tab; nothing publishes |
 | P26.e | A case with a `supports`/`updates`/`duplicates` link between two claims → case dashboard ▸ Claims | ✅ the claim rows show a "→ supports: <other claim>" / "← updated by: <other>" badge naming the linked claim; contradiction still shows its ⚠ badge separately |
 | P26.f | Read the Evidence and Case-graph section headers | ✅ each has a one-line explainer; the source's link line reads "cites N outbound URLs (M also in this case) · cited by K case sources" |
+
+---
+
+## Phase 26 — Hypothesis map + structural counterfactual (H.1–H.4, CF.1–CF.2)
+
+Needs a case with claims; the LLM steps (P26.n–q) additionally need
+`caseSynthesis` + `llmAssist` flags on and an API key.
+
+| # | Step | Expected |
+|---|---|---|
+| P26.g | Case dashboard on a case WITH claims but no hypotheses | ✅ a "Hypotheses — competing answers, not a ranking" block renders with the explainer and an **Add hypothesis…** button; a claimless case shows no block at all |
+| P26.h | **Add hypothesis…** → label + statement → Add | ✅ the card appears after reload; re-adding the same label (any casing/spacing) lands on the SAME record, never a duplicate |
+| P26.i | **Attach claim…** on a card → pick claim + Supports → Attach; repeat with Undermines on another card | ✅ the claim appears under "Supporting evidence (N)" / "Undermining evidence (N)"; the SAME claim under two hypotheses gets a **crux** badge in both places |
+| P26.j | Run corpus synthesis first (Phase 20.4), then reopen the case | ✅ the brief's positions appear as seeded cards ("from brief" badge, holders as source links); attaching a claim to a seed PROMOTES it (survives brief regeneration) |
+| P26.k | A claim with a truth verdict (Phase 15) attached as an edge | ✅ a verdict chip ("Event fact: Contested" etc.) renders beside the claim with the tooltip "…does not weight the edge"; no chip for unruled propositions |
+| P26.l | Read the whole block with 2+ hypotheses of very different edge counts | ✅ NO cross-hypothesis comparison anywhere — no "leading", no totals compared, no bars/meters; section counts appear only inside each hypothesis's own sections |
+| P26.m | **✕ detach** an edge; **✕ delete hypothesis** on a persisted card | ✅ detach removes just the edge; delete confirms with the attachment count and removes the card + its edges |
+| P26.n | **Suggest edges (LLM)…** (flags + key on) | ✅ spend-confirm names the claim + hypothesis counts and "one call"; without the key the button is disabled with an Options hint; with `caseSynthesis` off the button is absent |
+| P26.o | Run the suggestion | ✅ a disclosure line reports "N quotes checked · M ungrounded (dropped) · K rejected · J proposals"; each proposal shows role, hypothesis ← claim, quote, rationale, **Accept** / **Dismiss** |
+| P26.p | Accept one proposal, then **Refresh map** | ✅ the edge lands with an `llm:<model>` badge; nothing applied without the click |
+| P26.q | Read the unopposed disclosure (when present) | ✅ hypotheses with zero undermining scrutiny are named: "…treat their support as unexamined, not established" |
+| P26.r | Evidence block ▸ any claim row ▸ **Trace dependencies** | ✅ expands to "If removed / If negated" with plain count lines, each carrying its derivation (link/edge/proposition ids); the explainer ends "Not a probability of anything." |
+| P26.s | Trace a claim inside a contradiction knot | ✅ remove mode reports the knot dissolving/splitting/shrinking with the removed edge ids; negate mode says the edges "flip to concordance" and reports zero entity/timeline change |
+| P26.t | Trace a claim nothing depends on | ✅ "No structural dependencies found — nothing else in the case graph rests on this claim." |
 
 ---
 

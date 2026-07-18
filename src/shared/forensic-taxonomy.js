@@ -64,6 +64,19 @@ export const FORENSIC_MANEUVER_GROUPS = Object.freeze({
     grooming: Object.freeze([
         'grooming/build-vulnerability', 'grooming/establish-trust',
         'grooming/redefine-boundaries', 'grooming/apply-pressure'
+    ]),
+    // Walton 1998 (ad hominem argumentation) — 27 F.5. SIDE-NEUTRAL
+    // moves that substitute facts ABOUT A SOURCE for engagement with
+    // the claim itself: persuasive power without evidential power.
+    // The existing families are the accused party's defensive canon;
+    // these are the attacker's/dismisser's mirror — anyone (critic,
+    // journalist, official) can perform them. Additive wire values
+    // (30062 maneuver tags admit them; see NIP_DRAFT).
+    'source-credibility': Object.freeze([
+        'source-credibility/track-record-substitution',
+        'source-credibility/borrowed-authority',
+        'source-credibility/guilt-by-association',
+        'source-credibility/motive-speculation'
     ])
 });
 
@@ -95,8 +108,11 @@ export function isValidManeuver(maneuver) {
 // interlocutor (the bias-symmetry requirement).
 // ------------------------------------------------------------------
 
+// 27 F.6 — journalist/official/commentator added (additive: role is
+// wire-visible on published 30062s; existing values never rename).
 export const ROLES = Object.freeze([
-    'apologist', 'critic', 'institution', 'witness', 'survivor', 'other'
+    'apologist', 'critic', 'institution', 'witness', 'survivor',
+    'journalist', 'official', 'commentator', 'other'
 ]);
 
 export function isValidRole(role) {
@@ -333,5 +349,38 @@ export const MANEUVER_GUIDE = Object.freeze({
         definition: 'Converts the relationship into compliance via obligation or fear (sequence step 4).',
         indicators: ['spiritual or social pressure to comply'],
         counterIndicators: ['compliance is freely refusable without penalty']
+    },
+    'source-credibility/track-record-substitution': {
+        source: 'Walton 1998',
+        definition: 'A source’s past errors or affiliations substitute for engagement with its present claims — the report is dismissed for who made it, with no evidence its content is wrong.',
+        indicators: ['"the same reporter previously got X wrong" offered as the WHOLE rebuttal',
+            'no specific claim in the disputed report is addressed'],
+        counterIndicators: ['specific claims in the report are also engaged on evidence',
+            'the track record is offered as calibration alongside engagement, not instead of it',
+            'the speaker is REPORTING someone else’s dismissal, not performing one']
+    },
+    'source-credibility/borrowed-authority': {
+        source: 'Walton 1998',
+        definition: 'Credentials, titles, or institutional affiliation invoked as if they settle a contested claim the speaker does not otherwise support.',
+        indicators: ['"experts agree" / "as a <title>, I can tell you" with no evidence following',
+            'authority cited outside its domain of competence'],
+        counterIndicators: ['the authority’s actual findings or data are cited, not just the mantle',
+            'the speaker is REPORTING someone else’s appeal, not making one']
+    },
+    'source-credibility/guilt-by-association': {
+        source: 'Walton 1998',
+        definition: 'A claim discredited through the claimant’s associations — funders, allies, outlets — rather than its content.',
+        indicators: ['"funded by X" / "the same people who said Y" as the operative rebuttal',
+            'the association named has no stated bearing on the claim’s evidence'],
+        counterIndicators: ['a concrete mechanism from the association to the claim’s reliability is stated and checkable',
+            'the speaker is REPORTING someone else’s association-move, not performing one']
+    },
+    'source-credibility/motive-speculation': {
+        source: 'Walton 1998',
+        definition: 'Imputed motives — political, financial, personal — substituted for evidence about whether the claim is true.',
+        indicators: ['"they would say that" / "this is politically convenient" as the rebuttal',
+            'the motive is asserted, not evidenced'],
+        counterIndicators: ['the motive is documented AND the claim is also engaged on its merits',
+            'the speaker is REPORTING someone else’s motive-attack, not making one']
     }
 });

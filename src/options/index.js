@@ -757,6 +757,7 @@ async function loadAdvanced() {
 
     // Case synthesis (Phase 20.4) — requires llmAssist + the key on top.
     document.getElementById('pref-case-synthesis').checked = isEnabled('caseSynthesis');
+    document.getElementById('pref-capture-automation').checked = isEnabled('captureAutomation');
 
     // LLM assist (Phase 14.5). The flag lives in feature-flags; the key
     // + model live under their own chrome.storage.local keys. We never
@@ -870,6 +871,10 @@ async function saveAdvanced() {
     // Case synthesis (Phase 20.4).
     const synthOn = document.getElementById('pref-case-synthesis').checked;
     await setOverride('caseSynthesis', synthOn ? true : null);
+
+    // Capture automation (Phase 27 K.4).
+    const captureAutoOn = document.getElementById('pref-capture-automation').checked;
+    await setOverride('captureAutomation', captureAutoOn ? true : null);
 
     // LLM assist: flag + model preference always; the key only when the
     // user typed a new one (blank leaves the saved key untouched).

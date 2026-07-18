@@ -67,6 +67,334 @@ NIP-07 publishes through the worker signer (`handleCapturePublish`'s
 tabless branch). It needs a read-modify-write and a surface; parked
 until there is one.
 
+## 2026-07-17 — Load archive → republish drifted the x tag; the fix is a proof, not a flag
+
+Tags: `bug`, `design`.
+
+Publish → "Load archive" → republish minted a **new `x` tag for an
+article nobody edited**, and repeating it was exponential. Publish
+turndowns Readability HTML to markdown; `reconstructArticleFromEvent`
+renders that markdown back to HTML; republish turndowns the *rendering*
+again. turndown is not idempotent — it escapes already-escaped
+characters — so backslashes grow **n → 2n+1** per cycle. Measured on the
+real modules: `1 → 3 → 7 → 15`, four distinct `x` tags.
+
+`assembleArticleBody` states the invariant out loud — *"Conversion runs
+ONCE per body, ever"* — and the Load-archive path is where it broke.
+
+**Why this mattered more than it looked.** The `d` tag is URL-derived and
+survives reconstruct, so a drifted republish **replaces the original
+30023 at the same NIP-33 coordinate**. The bug was overwriting the very
+body the audits anchor to. The 2026-07-08 PDF fix did not cover it:
+`isMarkdownCanonical` needs `article.markdown`, and reconstruct never set
+it — so that protection was **dead code on the relay path**, for exactly
+the pdf/transcript captures it was written for.
+
+**The fix: carry the preimage, and PROVE it.** `reconstructArticleFromEvent`
+now emits `_publishedDraft` — the value `content` held when the event was
+built, i.e. `assembleArticleBody`'s *input*, whose *output* is the `x`
+tag's preimage. `shared/archive-draft.js` proves it: rebuild the body
+publish would ship and check it hashes to the carried `_articleHash`.
+True → ship those bytes; false → today's behavior. There is no third
+outcome, so being wrong is safe.
+
+**Four things this cost us to get right, each found by an adversary with
+a runnable repro rather than by reading:**
+
+1. **Guard the re-derivation READERS, not the `dirtySource` WRITERS.**
+   `dirtySource='reader'` has four writers. An earlier cut set the verdict
+   in `loadArchivedArticle` only — and `onTag`/`onEntityTag` flip it back
+   for any contentType outside pdf|transcript, so **tagging one entity —
+   the tool's primary workflow — re-armed the bug in full** (measured:
+   3→9→21→45→93). `onReaderFieldInput` is worse: it flips unconditionally,
+   so **fixing a typo in the title drifted the body**. Hence
+   `state.draftProven`, separate from `dirtySource` on purpose:
+   dirtySource records where a draft came from, draftProven records
+   whether it can be trusted, and text-neutral mutations move one without
+   the other. It guards the three `htmlToMarkdown(htmlDraft)` sites.
+2. **The carrier must not be named `markdown`.** That key arms
+   `isMarkdownCanonical`, which would have declared a relay-reconstructed
+   pdf/transcript canonical *without proof* — new behavior, since the
+   predicate was previously dead there. A PDF whose extracted text
+   contains a `## Description` heading (pdf-layout promotes short large
+   lines to h2) has that section cut out by reconstruct, and
+   `assembleArticleBody` only re-appends sections for `video` — so the
+   naive version republished a body that had **lost 48 of 120 bytes**.
+   Under the proof that body fails its own check and falls back.
+3. **Snapshot AFTER the section extraction, not before.** The first cut
+   carried the full preimage; `assembleArticleBody` then re-appended
+   Description/Transcript for a video and **emitted them twice**. It is
+   the remainder that composes.
+4. **Both entry points.** The portal opens archive rows *writable* via
+   `adoptArticle` (case view's "Extract claims", case-graph article
+   nodes) — never through `loadArchivedArticle`.
+
+**No cheaper discriminator works**, and each has a counter-example pinned
+in the tests: *"it has a markdown field"* — a YouTube capture's handler
+markdown is not the published preimage (publish turndowns the derived
+HTML), so trusting it re-mints the hash and orphans that article's
+audits; *"contentType is pdf/transcript"* — see (2); *"it came from a
+relay"* — provenance is not integrity. Also do **not** read `textContent`
+as the draft: reconstruct puts markdown in it, but a fresh capture puts
+tag-stripped plain text there.
+
+**Wire format: unchanged.** No kind, tag, or field moves; the hash
+algorithm is untouched; `_publishedDraft` is an in-memory read-side field
+`assembleArticleBody` never reads. What changes is the `x` tag a
+reload→republish *produces*: from "a fresh, drifting hash every cycle" to
+"the hash already on the wire." It mints no new anchor and re-anchors
+nothing.
+
+**Rejected alternatives, both tested:** making `markdownToHtml` a turndown
+inverse is a ~1-line unescape but fixes only 1 of 5 shapes (no tables, no
+nested lists) and is *retroactively unsafe* — platform handlers set
+`content = markdownToHtml(bodyMarkdown)`, so it silently moves every
+already-published platform capture's `x` tag. De-escaping inside the hash
+opens a **collision**: `5 \* 3` and `5 * 3` would share one content
+address.
+
+**Why 1739 tests stayed green while this was live:** nothing fed
+`reconstructArticleFromEvent`'s output back into `buildArticleEvent`.
+`tests/archive-reload-hash.test.mjs` closes that loop. Its fixtures are
+deliberately escape-prone (`5 * 3`, `that_is_it`, a line starting `14.`):
+**plain prose round-trips byte-stably and passes against the bug** —
+including `audit-capture-hash.test.mjs`'s own fixture. Do not tidy them.
+
+**The near-miss, recorded because the lesson is the point.** A review of
+the *implemented* diff (not the design) found that the first cut of this
+fix **published an EMPTY body over the real article**. `applyMediaResult`
+(attach a transcript) deliberately parks `markdownDraft = ''` with the
+comment *"stale — regenerated on tab entry"* and sets
+`dirtySource='reader'` to force that regeneration — which the new
+`draftProven` guard suppressed. Publish then shipped `content: ''`: `x` =
+`e3b0c442…` (sha256 of the empty string), `d` unchanged, so the empty
+event **replaced the article at its own NIP-33 coordinate** and orphaned
+every audit anchored to it. The reader showed a correct body and a
+correct hash line throughout, because both read `htmlDraft`.
+
+This is the *same* mistake the design review had already caught once, one
+level down. The refuters proved `dirtySource='reader'` has four writers
+and that guarding one was useless — and then `draftProven` was introduced
+with the identical shape: **nine** places assign `markdownDraft`, and the
+flag was cleared at two of them. Enumerating writers does not work here,
+and reviewers cannot be relied on to catch the next one.
+
+So the guard is now **self-checking**: `draftIsProven()` requires the flag
+AND that `markdownDraft` still equals `provenDraft`, the exact bytes the
+proof covered. Any writer that rewrites or blanks the draft un-proves it
+**with no cooperation**, which is why the Substack backfill (`:3371`,
+also unguarded, also never noticed) is safe. The flag alone remains
+necessary for the opposite case — a real body edit changes `htmlDraft`
+while `markdownDraft` sits still, which the byte check cannot see. Both
+conditions are load-bearing; the tests fail if either is removed.
+
+Two smaller findings from the same review, both fixed here: the draft seed
+was not gated on `proven`, so a **stale `_publishedDraft` could shadow a
+newer `markdown`** and silently revert the body (unproven now falls back
+to exactly the pre-existing seed); and `hashableArticle` re-derived the
+hash from the rendering even when the draft was proven, so the hash line,
+the audit anchor, and the archive row all **disagreed with the `x` tag
+publish emits** — the drifted value, displayed as the article's identity.
+
+## 2026-07-17 — the archive banner was ~100% false, and structurally so
+
+Tags: `bug`, `design`.
+
+Reported from daily use: *"Major bugs are experienced daily by me in the
+content comparisons... very misleading banners so frequent that I ignore
+them."* The banner was not mistuned. It could not have worked.
+
+`shouldOfferArchive` compared **raw HTML strings**. The two sides are
+different substrates and always were:
+
+- capture → `article.content`, Readability `innerHTML`, wrapped in
+  `<div id="readability-page-1">`
+- relay → `markdownToHtml(markdown)`, rebuilt from the event
+
+For any **multi-paragraph** article — every real one — these cannot
+match: `markdownToHtml` joins paragraphs with `\n\n` while Readability
+emits `</p><p>` with no separator. So neither the equality guard nor the
+containment guard could fire, and with the default `'always'` mode
+probing unconditionally, the banner fired on every published article,
+every visit, carrying no information. Once a banner is always on, it is
+off.
+
+**Worth recording precisely, because the first cut of this was stated too
+strongly:** containment is not unreachable in *principle*. A
+single-paragraph body has no `\n\n` to introduce, so it IS a clean
+substring of its Readability wrapper and the guard suppressed correctly.
+Short pieces behaved; real articles did not. That asymmetry is why the
+flood looked erratic rather than total.
+`tests/archive-banner.test.mjs` pins both halves, with the relay fixture
+taken verbatim from real `markdownToHtml` output.
+
+**Fix:** gate on the canonical 13.4 hash, which was already correct on
+both sides and simply never consulted — the published `x` tag (read back
+as `_articleHash`), the archive row's `articleHash`, and
+`state.articleHash` agree by construction. The gate only ever
+*suppresses*: equal hashes ⇒ same canonical content ⇒ nothing to offer,
+in any mode. A missing hash (older rows, pre-13.4 events) or a real
+difference falls through to the prior heuristics untouched, so `'richer'`
+stays conservative.
+
+Two things fell out of doing it: the decision moved to
+`reader/archive-banner.js` (pure, so it can be tested — `index.js` is not
+importable from tests), and `checkArchiveAvailability` now computes the
+current hash itself when `state.articleHash` has not landed. That hash is
+filled by an async IIFE at load while the probe runs on a 100ms timer —
+the probe can win, and silently degrading to the unsound body compare is
+exactly the bug. When the user has edited, the hash is legitimately stale,
+so it stays null and the body heuristics answer, as before.
+
+**Not fixed here:** the markdown→HTML→markdown escape doubling that makes
+a Load-archive round trip mint a NEW `x` tag (see 2026-07-08, "PDF stack,
+round three" — fixed for the PDF path only; articles still re-derive).
+Until that lands, a hash difference after a round trip may be an artifact
+rather than a real edit.
+
+## 2026-07-17 — "Load archive" served the WRONG ARTICLE: `#r` is not an identity index
+
+Tags: `bug`, `design`.
+
+Reported from daily use: *"Once, I went ahead and clicked 'Load Archive'
+and it loaded a completely different article."* It reproduces, it needs
+no race, and the mechanism is entirely ours.
+
+`xray:archive:reconstruct` (`background/index.js`) asked relays for
+`{kinds:[30023], '#r':[url], limit:20}`, sorted by `created_at` desc,
+took `events[0]`, and reconstructed it — with **no authors filter and no
+identity check**. But `buildArticleEvent` co-emits an indexed `r` tag for
+`responds-to` targets and for the **first 25 outbound links** of every
+article (`event-builder.js`, the `if (linked < 25) pushR(link.url)`
+line). So **every article you publish poisons the `#r` index for up to 25
+URLs it merely links to.** A cross-linked corpus — which is the whole
+point of the tool — maximizes the over-match.
+
+The worst case needs no concurrency at all: if you never published a
+capture of X, a *linking* article is the **only** candidate, so it wins
+**100% of the time**, and `altCount` is 0 — the "N relay versions found"
+tell never fires. The swap is then disguised, because
+`loadArchivedArticle` pins `url: state.article.url`: the foreign body
+renders under X's address, and any claims or comments made on it key to
+X. `docs/NIP_DRAFT.md` already *mandated* the disambiguation this handler
+never did.
+
+**Fix:** `articleAnswersTo` in `url-identity.js` (pure, tested). An
+article answers to exactly two addresses — its identity URL (the FIRST
+`r`, per the `reconstructArticleFromEvent` invariant) and its
+`capture_url` mirror. Everything else in the `r` set is a reference to
+someone *else's* article. The handler now reconstructs first, keeps only
+events that ARE the requested URL, and reports `found: false` when none
+survive.
+
+**The trap worth recording:** link `r` targets are normalized
+(`content-extractor.js`) while the primary `r` and `capture-url` are
+emitted raw, and the probe URL is raw. Normalizing the *probe* against
+the raw `#r` set — the obvious "fix" — would have made the bug fire
+**more often**, not less. Normalization here is applied only to an
+article's OWN addresses, on both sides. The identity check and the
+normalization are one change and must not be separated.
+
+`tests/archive-identity.test.mjs` runs the real builder and asserts the
+poisoned `r` tag IS present (so the relay filter really would return the
+event) *before* asserting the gate rejects it — the repro is pinned, not
+just the fix.
+
+## 2026-07-17 — A cosmetic replaceState aborted the capture it preceded (27 K.4)
+
+Tags: `bug`, `external`.
+
+Found in the first live agent-driven capture run, on `archive.is`
+(several COVID-corpus frontier links are archive.is snapshots of
+paywalled reporting). The `#xray:capture` marker fired once, then
+never again on that host:
+
+```
+SecurityError: Failed to execute 'replaceState' on 'History':
+A history state object with URL 'https://d8w6fmknl1l6hl.archive.is/7gYpy'
+cannot be created in a document with origin 'https://archive.is'
+```
+
+archive.is serves snapshot content under a **randomized subdomain** and
+sets a `<base href>` to it. `history.replaceState(null, '', pathname +
+search)` resolves its RELATIVE argument against the document's **base
+URI**, not its origin — so the rewrite targeted another host and threw.
+The marker-strip sat before `UI.openReader()` inside the same `try`, so
+a cosmetic address-bar tidy killed the capture. It "worked" on the very
+first hit only because the base tag hadn't been applied yet — which is
+also why that capture archived the interstitial rather than the article.
+
+Two fixes, both worth keeping in mind for any content-script URL work:
+build the replacement **absolute from `location.origin`** (never
+relative — `<base href>` is another site's to control), and give
+best-effort cosmetics **their own try/catch** so they can never abort
+the load-bearing work behind them. Also fixed alongside: a hash-only
+navigation (`<url>` → `<url>#xray:capture`) is a same-document
+navigation, so `init()` never re-runs and the marker silently no-oped;
+a `hashchange` listener now covers it.
+
+No unit test would have caught either — both need a real page with a
+cross-origin base tag. The lesson generalizes past this slice: a
+try-block that wraps a nice-to-have around a must-have inherits the
+nice-to-have's failure modes.
+
+---
+
+## 2026-07-16 — The scope question never reached the LLM; proposals were never asked for (27 S.1/S.2)
+
+Tags: `bug`, `design`.
+
+Two quiet corpus-synthesis defects found by the Phase-27 investigation:
+
+**`dossier.scope.question` was always `''`.** `synthesis-block.js` read
+it for every map/reduce/publish call, but `buildCaseDossier` never
+emitted a `scope` key — the authored question lives on the case
+entity's `authored_fields.scope_question` and only rendered in the
+case header. Every synthesis ran unsteered. Fix: the dossier now emits
+`scope.question` at assembly (S.2). Lesson: a consumer reading a key
+the producer never writes fails silently as a falsy default — worth a
+grep when wiring a new prompt input.
+
+**Zero relationship proposals was prompt-shaped, not model-shaped.**
+The reduce deliverables list omitted proposals entirely; the only
+mention was 20.6's restriction ("OMIT rather than guessing"). An
+optional schema slot whose sole prompt mention is a prohibition
+predictably returns empty — the H.4 hypothesis prompt proved the
+affirmative form works. Fix: an explicit cross-article directive plus
+short per-article `art` keys in the digest (S.1), and
+`CORPUS_PROMPT_VERSION` bumped to `corpus-v2` — 20.6 changed the
+prompt WITHOUT bumping it, so broken-era briefs never showed a stale
+chip. The version constant now carries the discipline note: any
+prompt/schema/digest change bumps it.
+
+---
+
+## 2026-07-16 — Hypothesis identity is the label; case delete doesn't cascade the map (26 H.1)
+
+Tags: `design`.
+
+Two H.1 choices a contributor might second-guess
+(`src/shared/hypothesis-model.js`, `hypothesis-map.js`):
+
+**Label-derived ids + normalized-label merge.** A hypothesis id hashes
+`(case_id | normalized label)` — not the statement — and the map
+builder merges brief-seeded positions with persisted records by
+normalized label. Position labels are already the join key inside the
+brief itself (`cruxes[].sides[].position_label`), and label-as-identity
+lets a seed and its later human promotion converge on one record
+without persisting anything at seed time. Cost: labels are immutable
+(rename = delete + re-create), stated in the module header.
+
+**Case delete leaves the map in place.** The sidepanel's entity delete
+preserves dependents everywhere else (claims keep `about` refs, briefs
+stay in `xray-audits`), and case entity ids are name-derived — so a
+deleted-then-recreated case reattaches its hypotheses. Claim delete
+DOES cascade edges (the reader flow calls
+`HypothesisEdgeModel.deleteForClaim` beside the EvidenceLinker hook);
+`deleteForCase` exists as the explicit clear-the-map seam for H.3 UI.
+
+---
+
 ## 2026-07-16 — xray-network stays out of WORKSPACE_DATABASES (25.2b)
 
 Tags: `design`.
