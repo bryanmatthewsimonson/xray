@@ -171,7 +171,10 @@ function section(brief, { memberIndex = {}, claimsById = {} } = {}) {
  * @param {object} params
  * @param {object} params.data      collectCaseDossierData output (carries entitiesById/articles)
  * @param {object} params.dossier   buildCaseDossier output (for the digest + coverage)
- * @param {object} params.callbacks {onReloadCase()}
+ * @param {object} params.callbacks {onReloadCase(), onAnalysisState(running, token), isCurrentRun(token)}
+ *   — onAnalysisState marks the run's boundaries so background renders
+ *   defer; isCurrentRun lets the run skip its persist/paint tail if it
+ *   was abandoned (user navigated away / started a newer run).
  */
 export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
     const caseId = data.case && data.case.id;
@@ -348,126 +351,164 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
             if (members.length === 0) { status.textContent = 'No archived member articles to analyze.'; return; }
             runBtn.disabled = true;
 
-            const caseName = data.case.name || '';
-            const scopeQuestion = (dossier.scope && dossier.scope.question) || '';
-            const unitById = {};
-            for (const m of members) unitById[m.article_hash] = m;
-
-            // The exact map request for a member, and its cache key. The
-            // request shape is the map's whole input; the key fingerprints
-            // it so an unchanged article's extract is reused for free.
-            const reqOf = (m) => ({
-                member_id: m.article_hash, memberText: m.text,
-                memberMeta: { title: m.title, url: m.url },
-                claimsDigest: m.claims.map((c) => `${c.id} — ${c.text}`).join('\n'),
-                caseName, scopeQuestion
-            });
-
-            // Cost preview: the map is the bulk of a synthesis, so a re-run
-            // over an unchanged corpus should send nothing but the reduce.
-            status.textContent = 'Checking cache…';
-            const keyByHash = {};
-            const cachedByHash = {};
-            for (const m of members) {
-                const key = await corpusExtractKey(reqOf(m));
-                keyByHash[m.article_hash] = key;
-                const hit = await getCorpusExtract(key).catch(() => null);
-                if (hit && hit.extract && validateCorpusExtract(hit.extract).ok) cachedByHash[m.article_hash] = hit;
-            }
-            status.textContent = '';
-
-            const toSend = members.filter((m) => !cachedByHash[m.article_hash]);
-            const cachedCount = members.length - toSend.length;
-            const approxChars = toSend.reduce((a, m) => a + m.text.length, 0);
-            if (!confirm(`Analyze this corpus with the LLM?\n\n`
-                + (cachedCount ? `${cachedCount} of ${members.length} article${members.length === 1 ? '' : 's'} cached — reused for free.\n` : '')
-                + `This sends ${toSend.length} article${toSend.length === 1 ? '' : 's'} `
-                + `(~${Math.round(approxChars / 1000)}k characters) to Anthropic, then one synthesis call.`)) {
-                runBtn.disabled = false;
-                return;
-            }
-
-            // MAP — bounded pool over member ids (the audit-module pattern).
-            // A cached member short-circuits with no LLM call; a miss calls
-            // and then persists the extract keyed by its input fingerprint.
-            status.textContent = `Analyzing 0/${members.length} articles…`;
-            const { modules, failures } = await orchestrateModuleRuns({
-                moduleNames: members.map((m) => m.article_hash),
-                concurrency: 2,
-                onProgress: (p) => {
-                    if (p.phase === 'done') status.textContent = `Analyzing ${p.okCount}/${p.total} articles…`;
-                },
-                send: async (id) => {
-                    const cached = cachedByHash[id];
-                    if (cached) return { ok: true, findings: cached.extract, model: cached.model };
-                    const res = await sendMessage({ type: 'xray:llm:corpus-map', request: reqOf(unitById[id]) });
-                    if (!res || !res.ok) return { ...(res || {}), ok: false };
-                    const v = validateCorpusExtract(res.extract);
-                    if (!v.ok) return { ok: false, error: 'invalid extract' };
-                    saveCorpusExtract({ key: keyByHash[id], extract: res.extract, model: res.model, cachedAt: Math.floor(Date.now() / 1000) })
-                        .catch((err) => Utils.error('saveCorpusExtract failed', err));
-                    return { ok: true, findings: res.extract, model: res.model };
-                }
-            });
-
-            const extracts = Object.entries(modules).map(([hash, extract]) => ({
-                article_hash: hash, title: (unitById[hash] || {}).title || null, extract
-            }));
-            if (extracts.length === 0) {
-                status.textContent = `No articles could be analyzed (${failures.length} failed).`;
-                runBtn.disabled = false;
-                return;
-            }
-
-            // REDUCE — one synthesis call over the extracts + dossier digest.
-            status.textContent = `Synthesizing ${extracts.length} extract${extracts.length === 1 ? '' : 's'}…`;
-            const reduce = await sendMessage({ type: 'xray:llm:corpus-reduce', request: {
-                dossierDigest: digestDossier(dossier, { claims: claimIndex }), extracts, caseName, scopeQuestion
-            } });
-            if (!reduce || !reduce.ok) {
-                status.textContent = `Synthesis failed: ${(reduce && reduce.error) || 'no response'}`;
-                runBtn.disabled = false;
-                return;
-            }
-            const v = validateCaseBrief(reduce.briefInput);
-            if (!v.ok) {
-                status.textContent = 'The synthesis returned a malformed brief.';
-                Utils.error('case brief validation', v.errors);
-                runBtn.disabled = false;
-                return;
-            }
-
-            // Ground every quote against the member texts the map used.
-            const indexByMember = {};
-            for (const m of members) indexByMember[m.article_hash] = createGroundingIndex(m.text);
-            const grounded = groundCaseBrief(reduce.briefInput, indexByMember);
-
-            // Triage survives a RE-RUN too (27 S.3 review fix): keys are
-            // content-derived, so a re-proposed pair keeps its status
-            // and keys for proposals the new brief no longer makes are
-            // inert. Without this, every corpus-v2 re-run resurrected
-            // every dismissed proposal.
-            const prior = await getCaseBrief(caseId).catch(() => null);
-            const record = {
-                caseId, brief: grounded.brief,
-                grounding: { checked: grounded.checked, dropped: grounded.dropped },
-                inputHash: liveHash, model: reduce.model, promptVersion: CORPUS_PROMPT_VERSION,
-                members: members.length,
-                analyzed: extracts.length, failed: failures.length,
-                cached: cachedCount,
-                usage: reduce.usage || null,
-                triage: (prior && prior.triage) || {}
+            // Own the case-view DOM for the WHOLE run: tell the portal to
+            // defer background re-renders (a relay refresh or an async
+            // enrichment landing mid-run would otherwise tear this block
+            // out of the tree and orphan the analysis — it kept writing to
+            // detached nodes, so it looked like it "stopped" while the
+            // scroll jumped to the bottom). Released in the finally on
+            // EVERY exit path (cancel, error, success). A per-run token
+            // scopes ownership so that if the user navigates away and
+            // starts a NEW run, THIS (now-abandoned) run's finally cannot
+            // clear or flush the guard out from under the new one.
+            const runToken = {};
+            const setAnalysis = (v) => {
+                if (callbacks && typeof callbacks.onAnalysisState === 'function') callbacks.onAnalysisState(v, runToken);
             };
-            try { await saveCaseBrief(record); }
-            catch (err) { Utils.error('saveCaseBrief failed', err); }
+            // True while THIS run still owns the case view. Goes false if
+            // the user navigated away or started a newer run (render()
+            // cleared the token) — the guard for skipping the reduce spend
+            // and, critically, the persist/render tail so an abandoned run
+            // can't clobber a newer run's brief or paint a detached block.
+            const stillCurrent = () => !(callbacks && typeof callbacks.isCurrentRun === 'function')
+                || callbacks.isCurrentRun(runToken);
+            setAnalysis(true);
+            try {
+                const caseName = data.case.name || '';
+                const scopeQuestion = (dossier.scope && dossier.scope.question) || '';
+                const unitById = {};
+                for (const m of members) unitById[m.article_hash] = m;
 
-            const coverageNote = failures.length
-                ? ` (${extracts.length} of ${members.length} members analyzed; ${failures.length} failed)`
-                : '';
-            const cacheNote = cachedCount ? ` — ${cachedCount} reused from cache` : '';
-            status.textContent = `Done${coverageNote}${cacheNote}.`;
-            runBtn.disabled = false;
-            renderStored(record);
+                // The exact map request for a member, and its cache key. The
+                // request shape is the map's whole input; the key fingerprints
+                // it so an unchanged article's extract is reused for free.
+                const reqOf = (m) => ({
+                    member_id: m.article_hash, memberText: m.text,
+                    memberMeta: { title: m.title, url: m.url },
+                    claimsDigest: m.claims.map((c) => `${c.id} — ${c.text}`).join('\n'),
+                    caseName, scopeQuestion
+                });
+
+                // Cost preview: the map is the bulk of a synthesis, so a re-run
+                // over an unchanged corpus should send nothing but the reduce.
+                status.textContent = 'Checking cache…';
+                const keyByHash = {};
+                const cachedByHash = {};
+                for (const m of members) {
+                    const key = await corpusExtractKey(reqOf(m));
+                    keyByHash[m.article_hash] = key;
+                    const hit = await getCorpusExtract(key).catch(() => null);
+                    if (hit && hit.extract && validateCorpusExtract(hit.extract).ok) cachedByHash[m.article_hash] = hit;
+                }
+                status.textContent = '';
+
+                const toSend = members.filter((m) => !cachedByHash[m.article_hash]);
+                const cachedCount = members.length - toSend.length;
+                const approxChars = toSend.reduce((a, m) => a + m.text.length, 0);
+                if (!confirm(`Analyze this corpus with the LLM?\n\n`
+                    + (cachedCount ? `${cachedCount} of ${members.length} article${members.length === 1 ? '' : 's'} cached — reused for free.\n` : '')
+                    + `This sends ${toSend.length} article${toSend.length === 1 ? '' : 's'} `
+                    + `(~${Math.round(approxChars / 1000)}k characters) to Anthropic, then one synthesis call.`)) {
+                    return;
+                }
+
+                // MAP — bounded pool over member ids (the audit-module pattern).
+                // A cached member short-circuits with no LLM call; a miss calls
+                // and then persists the extract keyed by its input fingerprint.
+                status.textContent = `Analyzing 0/${members.length} articles…`;
+                const { modules, failures } = await orchestrateModuleRuns({
+                    moduleNames: members.map((m) => m.article_hash),
+                    concurrency: 2,
+                    onProgress: (p) => {
+                        if (p.phase === 'done') status.textContent = `Analyzing ${p.okCount}/${p.total} articles…`;
+                    },
+                    send: async (id) => {
+                        const cached = cachedByHash[id];
+                        if (cached) return { ok: true, findings: cached.extract, model: cached.model };
+                        const res = await sendMessage({ type: 'xray:llm:corpus-map', request: reqOf(unitById[id]) });
+                        if (!res || !res.ok) return { ...(res || {}), ok: false };
+                        const v = validateCorpusExtract(res.extract);
+                        if (!v.ok) return { ok: false, error: 'invalid extract' };
+                        saveCorpusExtract({ key: keyByHash[id], extract: res.extract, model: res.model, cachedAt: Math.floor(Date.now() / 1000) })
+                            .catch((err) => Utils.error('saveCorpusExtract failed', err));
+                        return { ok: true, findings: res.extract, model: res.model };
+                    }
+                });
+
+                const extracts = Object.entries(modules).map(([hash, extract]) => ({
+                    article_hash: hash, title: (unitById[hash] || {}).title || null, extract
+                }));
+                if (extracts.length === 0) {
+                    status.textContent = `No articles could be analyzed (${failures.length} failed).`;
+                    return;
+                }
+
+                // Abandoned during the map? Stop before spending the reduce
+                // call (and before touching the persisted brief).
+                if (!stillCurrent()) return;
+
+                // REDUCE — one synthesis call over the extracts + dossier digest.
+                status.textContent = `Synthesizing ${extracts.length} extract${extracts.length === 1 ? '' : 's'}…`;
+                const reduce = await sendMessage({ type: 'xray:llm:corpus-reduce', request: {
+                    dossierDigest: digestDossier(dossier, { claims: claimIndex }), extracts, caseName, scopeQuestion
+                } });
+                if (!reduce || !reduce.ok) {
+                    status.textContent = `Synthesis failed: ${(reduce && reduce.error) || 'no response'}`;
+                    return;
+                }
+                const v = validateCaseBrief(reduce.briefInput);
+                if (!v.ok) {
+                    status.textContent = 'The synthesis returned a malformed brief.';
+                    Utils.error('case brief validation', v.errors);
+                    return;
+                }
+
+                // Ground every quote against the member texts the map used.
+                const indexByMember = {};
+                for (const m of members) indexByMember[m.article_hash] = createGroundingIndex(m.text);
+                const grounded = groundCaseBrief(reduce.briefInput, indexByMember);
+
+                // Triage survives a RE-RUN too (27 S.3 review fix): keys are
+                // content-derived, so a re-proposed pair keeps its status
+                // and keys for proposals the new brief no longer makes are
+                // inert. Without this, every corpus-v2 re-run resurrected
+                // every dismissed proposal.
+                const prior = await getCaseBrief(caseId).catch(() => null);
+                const record = {
+                    caseId, brief: grounded.brief,
+                    grounding: { checked: grounded.checked, dropped: grounded.dropped },
+                    inputHash: liveHash, model: reduce.model, promptVersion: CORPUS_PROMPT_VERSION,
+                    members: members.length,
+                    analyzed: extracts.length, failed: failures.length,
+                    cached: cachedCount,
+                    usage: reduce.usage || null,
+                    triage: (prior && prior.triage) || {}
+                };
+                // Final ownership check, immediately before the write (no
+                // await between here and saveCaseBrief): if this run was
+                // abandoned — user navigated away or started a newer run —
+                // don't persist (an older run would clobber the newer run's
+                // brief) or paint its detached block.
+                if (!stillCurrent()) return;
+
+                let saved = true;
+                try { await saveCaseBrief(record); }
+                catch (err) { saved = false; Utils.error('saveCaseBrief failed', err); }
+
+                const coverageNote = failures.length
+                    ? ` (${extracts.length} of ${members.length} members analyzed; ${failures.length} failed)`
+                    : '';
+                const cacheNote = cachedCount ? ` — ${cachedCount} reused from cache` : '';
+                const saveNote = saved ? '' : ' — could NOT be saved (see console); it will be lost on reload';
+                status.textContent = `Done${coverageNote}${cacheNote}${saveNote}.`;
+                renderStored(record);
+            } catch (err) {
+                Utils.error('Corpus analysis failed', err);
+                status.textContent = `Analysis failed: ${(err && err.message) || 'unknown error'}`;
+            } finally {
+                runBtn.disabled = false;
+                setAnalysis(false);
+            }
         });
     })().catch((err) => {
         Utils.error('Synthesis block render failed', err);

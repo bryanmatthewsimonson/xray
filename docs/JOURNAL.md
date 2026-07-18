@@ -19,6 +19,45 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-18 — A background re-render KILLED the running corpus analysis (token-scoped render guard)
+
+**Tags:** bug, pattern
+
+Worse than the Accept-scroll bug: starting "Analyze corpus" and then having
+the analysis silently STOP, with the scroll thrown to the bottom. Root
+cause: the portal renders cache-first, then `boot()` re-renders when the
+relay refresh lands, and `rebuildItems` fires three more async re-renders
+as enrichments arrive (audit-ledger, creator-binding, archive-vintage).
+Any of those landing WHILE a synthesis run was executing called `render()`,
+which rebuilds `#xr-view` and tore the in-flight synthesis block out of the
+tree. The run's async chain kept executing against detached nodes (so it
+looked "stopped"), and the rebuild reset the scroll.
+
+Fix — a render-deferral guard in `src/portal/index.js`, scoped to a per-run
+TOKEN (not a bare flag):
+- background/boot renders → `scheduleRender()` (dropped during a run; their
+  data is display-only and in state, so it repaints on the next render);
+- explicit user edits (membership add/remove, hypothesis authoring via
+  `onReloadCase`) → `scheduleUserRender()` (deferred during a run, FLUSHED
+  on completion so an edit always becomes visible);
+- `render()` resets the guard first, so navigating away cleanly abandons a
+  run (destination view never freezes);
+- `setAnalysisState(running, token)` — only the run whose token is current
+  may release the guard, so an abandoned run (after navigate-away or a
+  newer run) can't clear/flush for a live one;
+- the synthesis run signals boundaries (`onAnalysisState`) and checks
+  `isCurrentRun(token)` SYNCHRONOUSLY right before `saveCaseBrief` (no await
+  between) so an abandoned run can't clobber a newer run's brief or paint a
+  detached block; a save failure now surfaces in the status.
+
+**Pattern worth remembering:** this module re-renders the whole view from
+many async sources; any long-lived in-place UI (an LLM run, an editor) must
+either own the DOM against those re-renders or survive a teardown. Three
+rounds of adversarial subagent review drove the design here — the first
+naive boolean flag had 6 confirmed holes (re-orphaning across abandoned
+runs, stuck-flag stale views); the token + navigation-reset + drop-vs-flush
+split closed them. Cheap to review, expensive to ship wrong.
+
 ## 2026-07-18 — Accepting a corpus proposal jumped the scroll to the bottom
 
 **Tags:** bug
