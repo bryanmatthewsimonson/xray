@@ -24,11 +24,23 @@
 
 import { CLAIM_RELATIONSHIPS } from './assessment-taxonomy.js';
 
-// DISCIPLINE (the 20.6 lesson, institutionalized 27 S.1): ANY change
-// to prompt text, tool schemas, or digest shape bumps this version.
-// It rides corpusInputHash, so every stored brief correctly goes stale
-// and shows the re-run chip; recompute stays human-triggered.
-export const CORPUS_PROMPT_VERSION = 'corpus-v2';
+// DISCIPLINE (the 20.6 lesson, institutionalized 27 S.1): a prompt /
+// tool / digest change must bump a version so stored briefs correctly go
+// stale. The version is SPLIT so reduce-side iteration does not throw
+// away the expensive per-article map cache (Phase 20.x):
+//   - MAP_PROMPT_VERSION gates the map-extract CACHE key
+//     (corpusExtractKey). Bump ONLY when the MAP prompt / tool / user
+//     prompt changes — otherwise every cached extract is orphaned.
+//   - CORPUS_PROMPT_VERSION is the OVERALL staleness + provenance version
+//     (rides corpusInputHash, shown on the brief). Bump on ANY change to
+//     either stage.
+// They start equal ('corpus-v2') and diverge when a reduce-only change
+// bumps the overall version while the map cache stays valid — which is
+// exactly this change (representative digest + crux/holder nudge): the
+// map prompt is untouched, so MAP_PROMPT_VERSION holds and cached
+// extracts survive; CORPUS_PROMPT_VERSION goes to v3 so briefs re-run.
+export const MAP_PROMPT_VERSION = 'corpus-v2';
+export const CORPUS_PROMPT_VERSION = 'corpus-v3';
 export const MAP_TOOL_NAME = 'emit_corpus_extract';
 export const REDUCE_TOOL_NAME = 'emit_case_brief';
 export const HYPOTHESIS_EDGE_PROMPT_VERSION = 'hyp-edges-v1';
@@ -248,6 +260,14 @@ export function buildReduceSystemPrompt({ caseName = '', scopeQuestion = '' } = 
         'Produce a grounded brief: a neutral summary, the positions present (attributed to the',
         'member articles that hold them), the cruxes of disagreement with each side\'s view SIDE',
         'BY SIDE, the load-bearing claims, the coverage gaps, and reviewable PROPOSALS.',
+        'COMPLETENESS — the brief is a MAP of the WHOLE corpus, not a sample of it:',
+        '- In each position\'s `holders`, list EVERY member article (by article_hash) that argues',
+        '  that position, not a few examples. The holder lists are how a reader sees where all',
+        '  the sources sit; a position held by twenty articles must name twenty holders.',
+        '- Enumerate ALL the major cruxes the extracts reveal — the central contested questions of',
+        '  the case, INCLUDING the specific scientific/evidentiary disputes surfaced in the',
+        '  assertions (do not limit cruxes to those with a claim in the index). Cover every',
+        '  significant disagreement rather than stopping at a handful.',
         'PROPOSALS (a human accepts or rejects each — nothing you propose is applied on its own):',
         '- Scan the digest\'s claims index for pairs of claims from DIFFERENT articles (the `art`',
         '  key differs) that contradict, support, update, or duplicate each other. Propose EVERY',

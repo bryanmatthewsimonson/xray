@@ -17,7 +17,7 @@ import { createGroundingIndex } from './quote-grounding.js';
 import { CLAIM_RELATIONSHIPS } from './assessment-taxonomy.js';
 import { walk, obj, str, nullableStr, arr, en } from './schema-walker.js';
 import { deriveArticleRows } from './case-dossier.js';
-import { MAX_MEMBER_INPUT_CHARS, CORPUS_PROMPT_VERSION } from './corpus-prompts.js';
+import { MAX_MEMBER_INPUT_CHARS, MAP_PROMPT_VERSION, CORPUS_PROMPT_VERSION } from './corpus-prompts.js';
 
 // ------------------------------------------------------------------
 // Member units — one per archive-backed member row
@@ -98,11 +98,15 @@ export async function buildMemberUnits(data, { assessmentsByClaim = {} } = {}) {
  * a prompt bump changes the version). Pure; mirrors the map request the
  * runner sends (member_id is derived from the text, so it is omitted).
  *
+ * Keyed on MAP_PROMPT_VERSION, NOT the overall corpus version: a
+ * reduce-side change (prompt or digest selection) must not orphan the
+ * expensive map cache. Only a change to the MAP prompt bumps this.
+ *
  * @param {object} request  { memberText, claimsDigest, caseName, scopeQuestion, memberMeta:{title,url} }
  * @param {string} [promptVersion]
  * @returns {Promise<string>} 64-char hex
  */
-export async function corpusExtractKey(request, promptVersion = CORPUS_PROMPT_VERSION) {
+export async function corpusExtractKey(request, promptVersion = MAP_PROMPT_VERSION) {
     const r = request || {};
     const mm = r.memberMeta || {};
     return Crypto.sha256(JSON.stringify({
@@ -149,6 +153,41 @@ export async function corpusInputHash(members, orbitClaimIds, promptVersion = CO
 // what is actually sent.
 export const DIGEST_CLAIM_CAP = 150;
 
+/**
+ * Choose which claims populate the reduce's claim index when the corpus
+ * exceeds the cap. Naive first-N clusters in a few claim-dense articles —
+ * with all member claims attached, 150 slots fill from ~13 articles and
+ * the rest of the corpus never reaches the reduce, starving cross-article
+ * proposals and claim-anchored cruxes. Instead: keep EVERY is_key claim,
+ * then round-robin one-per-article so every article is represented within
+ * the budget. Per-article order is preserved (key-first upstream). Object
+ * identity dedups across the two passes.
+ */
+export function selectDigestClaims(claims, cap = DIGEST_CLAIM_CAP) {
+    if (!Array.isArray(claims) || claims.length <= cap) return claims || [];
+    const out = [];
+    const taken = new Set();
+    for (const c of claims) {                 // all key claims first (bounded by cap)
+        if (out.length >= cap) break;
+        if (c && c.is_key) { out.push(c); taken.add(c); }
+    }
+    const byArticle = new Map();              // the rest, grouped by article, order kept
+    for (const c of claims) {
+        if (!c || taken.has(c)) continue;
+        const h = c.article_hash || '';
+        if (!byArticle.has(h)) byArticle.set(h, []);
+        byArticle.get(h).push(c);
+    }
+    const queues = [...byArticle.values()];
+    let i = 0;
+    while (out.length < cap && queues.some((q) => q.length)) {
+        const q = queues[i % queues.length];
+        if (q.length) out.push(q.shift());
+        i++;
+    }
+    return out.slice(0, cap);
+}
+
 export function digestDossier(dossier, { claims = [] } = {}) {
     const shape = dossier.shape_of_knowledge || {};
     const knots = dossier.knots || {};
@@ -156,8 +195,10 @@ export function digestDossier(dossier, { claims = [] } = {}) {
     // 64-hex hash (27 S.1): cross-ARTICLE relationship proposals need
     // the model to see which claims come from different articles, and
     // the short key makes pairs identifiable at a glance (and shrinks
-    // the digest). `articles` maps the keys back to hashes.
-    const capped = claims.slice(0, DIGEST_CLAIM_CAP);
+    // the digest). `articles` maps the keys back to hashes. Selection is
+    // representative (is_key + round-robin per article), not first-N, so
+    // the index spans the whole corpus, not its densest few articles.
+    const capped = selectDigestClaims(claims, DIGEST_CLAIM_CAP);
     const artKeyByHash = new Map();
     for (const c of capped) {
         const h = c.article_hash || null;

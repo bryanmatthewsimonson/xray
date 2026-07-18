@@ -5,10 +5,23 @@ import assert from 'node:assert/strict';
 
 const CP = await import('../src/shared/corpus-prompts.js');
 
-test('corpus-prompts: tool names + version pinned', () => {
+test('corpus-prompts: tool names + versions pinned (map/overall split)', () => {
     assert.equal(CP.MAP_TOOL_NAME, 'emit_corpus_extract');
     assert.equal(CP.REDUCE_TOOL_NAME, 'emit_case_brief');
-    assert.equal(CP.CORPUS_PROMPT_VERSION, 'corpus-v2');
+    assert.equal(CP.CORPUS_PROMPT_VERSION, 'corpus-v3');
+    // Cache-preservation invariant: MAP_PROMPT_VERSION gates the map-extract
+    // cache key, so it MUST stay 'corpus-v2' unless the MAP prompt changes —
+    // bumping it orphans every cached extract. A reduce-only change bumps
+    // CORPUS_PROMPT_VERSION (staleness) but NOT this.
+    assert.equal(CP.MAP_PROMPT_VERSION, 'corpus-v2');
+    assert.notEqual(CP.MAP_PROMPT_VERSION, CP.CORPUS_PROMPT_VERSION);
+});
+
+test('corpus-prompts: the reduce prompt asks for FULL holders + all major cruxes (breadth)', () => {
+    const sys = CP.buildReduceSystemPrompt({ caseName: 'Origins', scopeQuestion: 'Where?' });
+    assert.match(sys, /list EVERY member article/);
+    assert.match(sys, /Enumerate ALL the major cruxes/);
+    assert.match(sys, /do not limit cruxes to those with a claim in the index/);
 });
 
 test('corpus-prompts: the reduce prompt AFFIRMATIVELY asks for cross-article relationship proposals (27 S.1)', () => {

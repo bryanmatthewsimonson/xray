@@ -121,24 +121,47 @@ test('case-synthesis: digest claims carry short per-article keys so cross-articl
         'the 64-hex hash no longer rides every claim entry');
 });
 
-test('case-synthesis: DIGEST_CLAIM_CAP bounds the index AND the art-key map together (27 S.1)', () => {
+test('case-synthesis: digest claim index is capped AND representative — spans articles, not the densest few', () => {
     const dossier = { coverage: {}, shape_of_knowledge: {}, knots: {}, orbit: {} };
+    // 200 articles × 2 claims = 400. Naive first-N would show ~75 articles;
+    // representative round-robin should surface DIGEST_CLAIM_CAP distinct ones.
     const claims = [];
-    for (let i = 0; i < CS.DIGEST_CLAIM_CAP + 10; i++) {
-        claims.push({ id: `c${i}`, text: `Claim ${i}.`, article_hash: `${String(i % 3)}`.repeat(64) });
+    for (let a = 0; a < 200; a++) {
+        const hash = `${a}`.padStart(2, '0').repeat(32).slice(0, 64);
+        claims.push({ id: `c${a}_0`, text: `A${a} c0`, article_hash: hash });
+        claims.push({ id: `c${a}_1`, text: `A${a} c1`, article_hash: hash });
     }
-    // The capped tail cites a hash NO capped claim carries — its art
-    // key must not leak into the articles map.
-    claims[CS.DIGEST_CLAIM_CAP + 5].article_hash = 'f'.repeat(64);
     const digest = JSON.parse(CS.digestDossier(dossier, { claims }));
     assert.equal(digest.claim_count, CS.DIGEST_CLAIM_CAP);
     assert.equal(digest.claims.length, CS.DIGEST_CLAIM_CAP);
-    assert.ok(!digest.claims.some((c) => c.id === `c${CS.DIGEST_CLAIM_CAP}`), 'claims beyond the cap are absent');
-    const mapped = new Set(Object.values(digest.articles));
-    assert.ok(!mapped.has('f'.repeat(64)), 'articles map derives from the SAME capped slice');
-    for (const c of digest.claims) {
-        assert.ok(c.art === null || digest.articles[c.art], `art key ${c.art} resolves`);
-    }
+    const arts = new Set(digest.claims.map((c) => c.art));
+    assert.equal(arts.size, CS.DIGEST_CLAIM_CAP, 'one claim from each of 150 distinct articles (breadth, not clustering)');
+    // art-key map consistency (27 S.1): every art key resolves to a hash.
+    for (const c of digest.claims) assert.ok(c.art === null || digest.articles[c.art], `art key ${c.art} resolves`);
+    // Small corpora (<= cap) pass through untouched.
+    const few = JSON.parse(CS.digestDossier(dossier, { claims: claims.slice(0, 3) }));
+    assert.equal(few.claims.length, 3);
+});
+
+test('case-synthesis: selectDigestClaims keeps ALL is_key claims, then rounds robin so a dense article cannot monopolize', () => {
+    const claims = [];
+    for (let i = 0; i < 200; i++) claims.push({ id: `dense_${i}`, text: 't', article_hash: 'd'.repeat(64), is_key: i < 3 });
+    for (let a = 0; a < 50; a++) claims.push({ id: `a${a}`, text: 't', article_hash: `${a}`.padStart(2, '0').repeat(32).slice(0, 64) });
+    const sel = CS.selectDigestClaims(claims, 20);
+    assert.equal(sel.length, 20);
+    assert.equal(sel.filter((c) => c.is_key).length, 3, 'every is_key claim survives the cap');
+    assert.ok(new Set(sel.map((c) => c.article_hash)).size >= 15, 'breadth: the 200-claim article does not eat the budget');
+    // <= cap returns as-is (identity).
+    const small = [{ id: 'x', article_hash: 'h' }];
+    assert.equal(CS.selectDigestClaims(small, 20), small);
+});
+
+test('case-synthesis: corpusExtractKey keys on MAP_PROMPT_VERSION, not the overall version (map cache survives reduce bumps)', async () => {
+    const { MAP_PROMPT_VERSION, CORPUS_PROMPT_VERSION } = await import('../src/shared/corpus-prompts.js');
+    const req = { memberText: 'body', claimsDigest: 'c1 — x', caseName: 'c', scopeQuestion: 'q', memberMeta: { title: 'T', url: 'u' } };
+    const dflt = await CS.corpusExtractKey(req);
+    assert.equal(dflt, await CS.corpusExtractKey(req, MAP_PROMPT_VERSION), 'default keys on MAP_PROMPT_VERSION');
+    assert.notEqual(dflt, await CS.corpusExtractKey(req, CORPUS_PROMPT_VERSION), 'overall version differs — a reduce bump would NOT move the cache key');
 });
 
 test('case-synthesis: proposalKey is stable and direction-insensitive for relationships (27 S.3)', () => {
