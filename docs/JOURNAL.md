@@ -19,6 +19,38 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-18 — Corpus reduce lost to a service-worker teardown ("no response") — SW keepalive
+
+**Tags:** bug, external
+
+Immediate sequel to the output-cap fix below. Raising
+`MAX_REDUCE_OUTPUT_TOKENS` to 32768 made the reduce *generate longer*, and the
+reduce is the ONE long single fetch in the corpus flow. The map phase sends
+many short `xray:llm:corpus-map` messages that naturally reset the MV3 idle
+timer, but after the last map lands the reduce runs "cold" — no messages for
+the minutes it takes — so Chrome tears the background SW down mid-fetch.
+`chrome.runtime.sendMessage`'s callback then fires with `undefined`
+(`lastError` = "message port closed"), which `synthesis-block.js` flattened to
+the opaque **"Synthesis failed: no response"**. (This corrects the note in the
+entry below that "the pending sendResponse keeps the MV3 SW alive" — a pending
+response holds the SW only up to the lifetime window, not past it; my 420s →
+teardown proved it.)
+
+Fix — mirror the reader's proven `startSwKeepalive()` (index.js ~2599, which
+`runQuickAudit` already uses for its single-shot audit call): a 20s
+`setInterval` ping to the zero-cost `xray:llm:corpus-config` handler, spanning
+the WHOLE synthesis run (declared before the `try`, `stop()` in the `finally`
+so it's cleaned up on every exit path). Each `onMessage` delivery resets the
+idle timer, keeping the SW alive during the cold reduce. Also:
+`sendMessage()` now reads `chrome.runtime.lastError` and returns
+`{ok:false, error, swLost:true}` instead of a bare `undefined`, so a lost SW
+surfaces a real reason + an actionable "try again — cached extracts make the
+retry cheap" hint; and `CORPUS_REDUCE_TIMEOUT_MS` 420000 → 480000 (with the SW
+now kept alive, the AbortController is the sole limiter). Verified with a
+5-dimension adversarial review (keepalive lifecycle, sendMessage blast radius,
+MV3 semantics, render-guard interaction, timeout) — 0 confirmed findings. See
+`src/portal/synthesis-block.js`, `src/shared/llm-client.js`.
+
 ## 2026-07-18 — Corpus reduce truncated on the breadth brief ("hit its output limit")
 
 **Tags:** bug, design
