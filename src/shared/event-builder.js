@@ -158,6 +158,23 @@ export const EventBuilder = {
       ['client', 'xray']
     ];
 
+    // Phase 18 C5 mirror (COMPLEX_CONTENT_DESIGN.md §6.3/§7): when the
+    // capture carries an extraction provenance record, `method` and
+    // `source_hash` publish as ADDITIVE tags so consumers can
+    // distinguish "deterministic text layer" from "model-transcribed"
+    // forever. WIRE-FORMAT ADDITION — additive only: no existing tag
+    // moves, and consumers skip unknown tags (the established
+    // pattern). `unverified_spans` stays local: it describes the
+    // reconstruction session, not the published text.
+    if (article.extraction && typeof article.extraction === 'object') {
+      if (article.extraction.method) {
+        tags.push(['extraction-method', String(article.extraction.method)]);
+      }
+      if (article.extraction.source_hash) {
+        tags.push(['source-hash', String(article.extraction.source_hash)]);
+      }
+    }
+
     // ONE r-dedupe mechanism for every co-emit below (responds-to,
     // capture-url, link): the primary r above stays FIRST (readers
     // take the first r as the article URL), and no duplicate r tag is
@@ -1115,6 +1132,16 @@ export const EventBuilder = {
       // recomputed: a markdown→HTML→markdown round trip would not
       // byte-match the original body. Null on pre-13.4 events.
       _articleHash: tags['x'] || null,
+      // Phase 18 C5 — extraction provenance read-back. Only the two
+      // mirrored fields exist on the wire; a reconstructed article's
+      // extraction record is deliberately smaller than a local one.
+      // Absent on non-extracted captures (the common case).
+      ...(tags['extraction-method'] ? {
+        extraction: {
+          method: tags['extraction-method'],
+          ...(tags['source-hash'] ? { source_hash: tags['source-hash'] } : {})
+        }
+      } : {}),
     };
 
     // Reconstruct engagement

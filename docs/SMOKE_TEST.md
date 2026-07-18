@@ -783,6 +783,17 @@ publishes. Requires a real Anthropic API key
 | 18.30 | Open a PDF in **Google Drive's preview** (`drive.google.com/file/d/…/view`) → toolbar icon | ✅ the PDF reader opens on the DOCUMENT (real title, all pages, pageMap) — not an HTML scrape of the viewer titled "Page N of M" with line-per-paragraph text; a Drive preview of a non-PDF file still captures as a normal page |
 | 18.31 | Capture a PDF with an evidence/results **table** (3+ columns) | ✅ each row reads left-to-right on one line (`label · value · value`) with row↔value links intact — not every label in one paragraph followed by a scrambled column of numbers; prose around the table still flows |
 
+**LLM extraction assist (C5 — needs the `llmAssist` flag + an API key; each pass costs real API money)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 18.32 | Capture a SCANNED PDF (no text layer) | ✅ instead of the old dead-end refusal, a consent modal offers "Transcribe with LLM" and states plainly the document leaves the device (size + page count shown); Cancel aborts the capture with a clear message |
+| 18.33 | Consent to 18.32's transcription | ✅ the article renders with a 🤖 "Machine-transcribed from a scanned document" banner naming the model; `extraction.method` is `llm:<model>`; the original bytes are archived (source_hash in the banner) |
+| 18.34 | Publish 18.33's capture, then Load archive from a fresh tab | ✅ the 30023 carries `extraction-method` + `source-hash` tags; the reloaded article STILL shows the transcription banner (the marker survives the relay round trip) |
+| 18.35 | Capture a PDF that triggers extraction-quality warnings, click "Reconstruct with LLM…" | ✅ consent modal first (gates checked BEFORE it — with LLM assist off the button errors immediately, no consent asked); after the pass, a toast reports "N of M spans could not be verified and were discarded" (or all-verified); the body text is byte-identical to substrate text wherever it survived |
+| 18.36 | With LLM assist configured, capture a CLEAN PDF (no warnings) | ✅ no "Reconstruct with LLM…" button appears — the assist is offered only where deterministic extraction says it struggled |
+| 18.37 | After 18.35, make a claim quoting the reconstructed body | ✅ quote grounding works and page anchors resolve (the reconstructed pageMap feeds them) |
+
 **Scholarly metadata (C2)**
 
 | # | Test | Pass criteria |

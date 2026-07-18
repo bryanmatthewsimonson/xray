@@ -1528,8 +1528,24 @@ grounding substrate*).
   → blob URL at read time. Size/furniture/count guards; an image-only
   page is no longer flagged `sparse-pages`. *(Deferred: OCR inside
   figures; vector-drawn charts with no image XObject.)*
-- 📝 **C5** LLM extraction assist (dual-substrate re-grounding;
-  scans-only transcription, honestly labeled) — designed, not built.
+- ✅ **C5** LLM extraction assist — `shared/llm-extract.js` (the
+  dual-substrate re-grounding: every model span is a search key
+  grounded via `quote-grounding.js`, re-canonicalized to substrate
+  bytes or dropped and counted in `unverified_spans`; table structure
+  is the model's contribution but every cell re-grounds, and a
+  majority-fabricated table drops whole), `llm-extract-prompts.js`
+  (forced-tool span schema, two modes, the 100-page/30MB caps —
+  **page-range chunking is a documented deferral**: the API has no
+  page-range parameter and splitting PDFs needs a PDF library in the
+  SW), `runExtractPass` + the `xray:llm:extract` SW message (bytes
+  read from `source_documents` by hash, never sent over messaging).
+  Scans: the refusal is now a typed error and the reader offers
+  consent-gated transcription — the transcription IS the capture,
+  `extraction.method = 'llm:<model>'`, bannered with the archived
+  original one click away. Structure: "Reconstruct with LLM…" in the
+  extraction-warnings banner. **Wire addition (additive):**
+  `extraction-method` + `source-hash` tags on 30023 per §6.3/§7,
+  read back as a thin extraction record.
 - 📝 **C6** SMOKE §Phase 18 walk needs a human with a browser.
 
 Sequenced after the Epistack sprint (docs/code landed on the

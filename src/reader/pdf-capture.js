@@ -492,10 +492,24 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
         }
 
         if (textDensity(pages) < 8) {
-            throw new Error(
-                'This PDF has no usable text layer — it is likely a scan. '
-                + 'Machine transcription for scans is designed but not built yet '
-                + '(COMPLEX_CONTENT_DESIGN.md §6).');
+            // Phase 18 C5: a scan is no longer a dead end — the reader
+            // offers LLM transcription (explicit consent, the document
+            // leaves the device). The typed error carries everything
+            // completeScanCapture needs; plain values only, since the
+            // finally block below destroys the pdf.js document.
+            let scanInfo = {};
+            try { scanInfo = (await doc.getMetadata())?.info || {}; } catch (_) { /* optional */ }
+            const err = new Error(
+                'This PDF has no usable text layer — it is likely a scan.');
+            err.code = 'scan-no-text-layer';
+            err.scanContext = {
+                bytes,
+                sourceHash,
+                sourceUrl,
+                pageCount: doc.numPages,
+                info: scanInfo
+            };
+            throw err;
         }
 
         // Pass 2 — figures (C4.2): best-effort, deduped by content hash,
@@ -674,4 +688,92 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
         try { await loadingTask.destroy(); }
         catch (_) { /* teardown is best-effort */ }
     }
+}
+
+/**
+ * Build the article for a MACHINE-TRANSCRIBED scan (Phase 18 C5 —
+ * COMPLEX_CONTENT_DESIGN.md §6.2's scans clause). Called by the reader
+ * after the user consented and the transcription spans were assembled
+ * (shared/llm-extract.js): the transcription IS the capture — allowed,
+ * but `extraction.method = 'llm:<model>'` marks it forever and the
+ * reader banners it with the archived original one click away.
+ *
+ * Mirrors capturePdfToArticle's article shape (identity, scholar meta,
+ * filename-title fallback) so a transcribed capture flows through
+ * claims/publish/archive exactly like a deterministic one. Figures are
+ * deliberately absent: figure extraction needs the pdf.js document,
+ * which was torn down at refusal — the archived source bytes remain
+ * the figure evidence.
+ *
+ * @param {object} p
+ * @param {object} p.scanContext  the typed refusal's context
+ *        ({ bytes, sourceHash, sourceUrl, pageCount, info })
+ * @param {string} p.markdown     assembled transcription markdown
+ * @param {Array|null} p.pageMap  assembled page map (may be null)
+ * @param {string} p.model        the model that transcribed
+ * @returns {Promise<object>} the article
+ */
+export async function completeScanCapture({ scanContext, markdown, pageMap, model }) {
+    const { bytes, sourceHash, sourceUrl, pageCount, info } = scanContext || {};
+    if (!markdown || !markdown.trim()) {
+        throw new Error('The transcription came back empty.');
+    }
+
+    // The transcription's provenance NEEDS the archived original — the
+    // banner points at it. Archive first; a failure downgrades honestly
+    // (archived:false renders the keep-your-own-copy wording).
+    let archived = false;
+    try {
+        const res = await putSourceDocument({
+            hash: sourceHash, bytes, mime: 'application/pdf', url: sourceUrl
+        });
+        archived = !!res.stored;
+    } catch (err) {
+        console.warn('[X-Ray PDF] source archive failed (continuing):', err);
+    }
+
+    // Same identity/scholar treatment as the deterministic path — a
+    // scanned arXiv PDF still keys to its abs page.
+    const scholar = extractScholarlyMeta({ querySelectorAll: () => [] }, sourceUrl);
+    const identity = resolveUrlIdentityFromUrl(sourceUrl);
+    const identityFields = identity
+        ? {
+            archive_host: identity.archiveHost,
+            ...(identity.original
+                ? { url: identity.original, capture_url: identity.captureUrl }
+                : {})
+        }
+        : {};
+
+    let fileName = '';
+    try {
+        fileName = decodeURIComponent((String(sourceUrl || '').split('/').pop() || '')
+            .replace(/[?#].*$/, '').replace(/\.pdf$/i, ''));
+    } catch (_) {
+        fileName = (String(sourceUrl || '').split('/').pop() || '')
+            .replace(/[?#].*$/, '').replace(/\.pdf$/i, '');
+    }
+    const docInfo = info || {};
+    const title = String(docInfo.Title || '').trim() || fileName || 'PDF document';
+
+    return {
+        url: sourceUrl,
+        title,
+        byline: String(docInfo.Author || '').trim(),
+        markdown,
+        content: ContentExtractor.markdownToHtml(markdown),
+        excerpt: markdown.replace(/\s+/g, ' ').slice(0, 280),
+        contentType: 'pdf',
+        platform: 'pdf',
+        entities: [],
+        ...(scholar ? { scholar } : {}),
+        ...identityFields,
+        ...(pageMap && pageMap.length ? { pageMap } : {}),
+        extraction: {
+            method: 'llm:' + (model || 'unknown'),
+            source_hash: sourceHash,
+            page_count: pageCount || 0,
+            archived
+        }
+    };
 }

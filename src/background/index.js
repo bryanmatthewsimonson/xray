@@ -26,7 +26,9 @@ import { NostrClient } from '../shared/nostr-client.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
-import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, getCorpusConfig } from '../shared/llm-client.js';
+import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, getCorpusConfig, runExtractPass } from '../shared/llm-client.js';
+import { getSourceDocument } from '../shared/archive-cache.js';
+import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prompts.js';
 import { pdfDocumentUrl } from '../shared/pdf-detect.js';
 import { Signer } from '../shared/signer.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
@@ -488,6 +490,54 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             (err) => sendResponse({ ok: false, error: (err && err.message) || 'LLM pass failed' })
         );
         return true; // async sendResponse
+    }
+
+    // Reader → worker: LLM extraction assist over an ARCHIVED PDF
+    // (Phase 18 C5). The reader sends the source-document HASH, never
+    // the bytes — a 50MB PDF through runtime messaging is asking for a
+    // dropped channel; the SW reads the same IndexedDB row the reader
+    // archived. Returns RAW SPANS: the reader runs the dual-substrate
+    // re-grounding (shared/llm-extract.js) where it holds the substrate
+    // text, so the SW never decides what counts as verified.
+    if (message.type === 'xray:llm:extract') {
+        const sourceHash = String(message.sourceHash || '');
+        const mode = message.mode === 'transcription' ? 'transcription' : 'structure';
+        if (!sourceHash) { sendResponse({ ok: false, error: 'missing sourceHash' }); return false; }
+        (async () => {
+            try {
+                const row = await getSourceDocument(sourceHash);
+                const bytes = row && row.bytes;
+                if (!bytes || !bytes.byteLength) {
+                    sendResponse({ ok: false, error: 'The archived document bytes were not found (they may have been pruned). Re-capture the PDF first.' });
+                    return;
+                }
+                // Anthropic PDF-input caps; chunking would require
+                // splitting the PDF (no page-range API parameter) and
+                // is a documented deferral — refuse honestly instead.
+                if (bytes.byteLength > MAX_EXTRACT_BYTES) {
+                    sendResponse({ ok: false, error: `This PDF is ${(bytes.byteLength / 1048576).toFixed(0)}MB — over the ${(MAX_EXTRACT_BYTES / 1048576).toFixed(0)}MB single-request limit for LLM extraction.` });
+                    return;
+                }
+                const pageCount = Number(message.pageCount) || 0;
+                if (pageCount > MAX_EXTRACT_PAGES) {
+                    sendResponse({ ok: false, error: `This PDF has ${pageCount} pages — over the ${MAX_EXTRACT_PAGES}-page single-request limit for LLM extraction.` });
+                    return;
+                }
+                // Chunked btoa: String.fromCharCode over a whole 30MB
+                // buffer blows the argument-count limit.
+                const u8 = new Uint8Array(bytes);
+                let binary = '';
+                const CHUNK = 32768;
+                for (let i = 0; i < u8.length; i += CHUNK) {
+                    binary += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
+                }
+                const result = await runExtractPass({ pdfBase64: btoa(binary), mode });
+                sendResponse(result);
+            } catch (err) {
+                sendResponse({ ok: false, error: (err && err.message) || 'LLM extraction failed' });
+            }
+        })();
+        return true; // async
     }
 
     // Reader page → worker: run an in-extension epistemic-audit pass
