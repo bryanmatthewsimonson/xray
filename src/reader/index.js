@@ -41,6 +41,7 @@ import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { ForensicModel, ForensicBaseline } from '../shared/forensic-model.js';
 import { openFindingModal, openBaselineModal } from '../shared/forensic-modal.js';
 import { renderFindingsBar } from './findings-section.js';
+import { shouldOfferArchive, describeMetric } from './archive-banner.js';
 import { openLlmReview } from './llm-review.js';
 import { capturePdfToArticle } from './pdf-capture.js';
 import { pageOfOffset, pageFragmentSelector } from '../shared/pdf-layout.js';
@@ -561,6 +562,24 @@ async function checkArchiveAvailability() {
     const currentBody = state.article.content || '';
     const currentLen = currentBody.length;
 
+    // The canonical hash of what's on screen — the only sound way to
+    // ask "is the archive the same content?" (see shouldOfferArchive).
+    // `state.articleHash` is filled by an async IIFE at load and this
+    // probe runs on a 100ms timer, so it can win that race; compute it
+    // here rather than silently degrading to the unsound body compare.
+    // When the user has edited, the hash is legitimately stale — leave
+    // it null and let the body heuristics answer, as before.
+    let currentHash = null;
+    if (!state.hashDirty) {
+        currentHash = state.articleHash;
+        if (!currentHash) {
+            try {
+                currentHash = await canonicalArticleHash(
+                    EventBuilder.assembleArticleBody(hashableArticle(state.article)));
+            } catch (_) { currentHash = null; }
+        }
+    }
+
     // 1. Try local cache first — then through the alias map (a prior
     //    capture of the same piece may key under the alias-resolved
     //    original of this address).
@@ -574,7 +593,7 @@ async function checkArchiveAvailability() {
     }
     if (cached && cached.article && cached.article.content) {
         const cachedBody = cached.article.content;
-        if (shouldOfferArchive(currentBody, cachedBody, mode)) {
+        if (shouldOfferArchive(currentBody, cachedBody, mode, currentHash, cached.articleHash)) {
             renderArchiveBanner({
                 source:   'cache',
                 cachedAt: cached.cachedAt,
@@ -597,7 +616,8 @@ async function checkArchiveAvailability() {
             });
             if (resp && resp.ok && resp.found && resp.article) {
                 const reconstructedBody = resp.article.content || '';
-                if (shouldOfferArchive(currentBody, reconstructedBody, mode)) {
+                if (shouldOfferArchive(currentBody, reconstructedBody, mode,
+                        currentHash, resp.article._articleHash)) {
                     renderArchiveBanner({
                         source:    'relay',
                         author:    resp.authorPubkey,
@@ -628,37 +648,6 @@ async function loadPreferences() {
             });
         } catch (_) { resolve({}); }
     });
-}
-
-/**
- * Decide whether an archived body is worth surfacing over the current
- * capture, given the user's sensitivity preference.
- *
- * 'richer' keeps the prior 1.3×/1000-char threshold.
- * 'always' shows whenever the archive is non-trivially different —
- *          skip byte-identical matches and skip when the archive is
- *          strictly contained in the current body (the current is a
- *          superset, so the archive can only lose information).
- */
-function shouldOfferArchive(currentBody, archiveBody, mode) {
-    if (!archiveBody) return false;
-    if (mode === 'richer') {
-        return archiveBody.length > currentBody.length * 1.3 && archiveBody.length > 1000;
-    }
-    if (archiveBody === currentBody) return false;
-    if (currentBody && currentBody.includes(archiveBody)) return false;
-    return true;
-}
-
-function describeMetric(currentBody, archiveBody) {
-    const cur = currentBody.length;
-    const arc = archiveBody.length;
-    if (cur > 0 && arc >= cur * 1.3) {
-        return `Archive is ${(arc / Math.max(cur, 1)).toFixed(1)}× longer`;
-    }
-    if (arc > cur) return `Archive is ${arc - cur} chars longer`;
-    if (arc < cur) return `Archive is ${cur - arc} chars shorter`;
-    return 'Archive differs from current capture';
 }
 
 /**

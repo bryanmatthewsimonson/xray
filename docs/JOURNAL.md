@@ -19,6 +19,62 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-17 — the archive banner was ~100% false, and structurally so
+
+Tags: `bug`, `design`.
+
+Reported from daily use: *"Major bugs are experienced daily by me in the
+content comparisons... very misleading banners so frequent that I ignore
+them."* The banner was not mistuned. It could not have worked.
+
+`shouldOfferArchive` compared **raw HTML strings**. The two sides are
+different substrates and always were:
+
+- capture → `article.content`, Readability `innerHTML`, wrapped in
+  `<div id="readability-page-1">`
+- relay → `markdownToHtml(markdown)`, rebuilt from the event
+
+For any **multi-paragraph** article — every real one — these cannot
+match: `markdownToHtml` joins paragraphs with `\n\n` while Readability
+emits `</p><p>` with no separator. So neither the equality guard nor the
+containment guard could fire, and with the default `'always'` mode
+probing unconditionally, the banner fired on every published article,
+every visit, carrying no information. Once a banner is always on, it is
+off.
+
+**Worth recording precisely, because the first cut of this was stated too
+strongly:** containment is not unreachable in *principle*. A
+single-paragraph body has no `\n\n` to introduce, so it IS a clean
+substring of its Readability wrapper and the guard suppressed correctly.
+Short pieces behaved; real articles did not. That asymmetry is why the
+flood looked erratic rather than total.
+`tests/archive-banner.test.mjs` pins both halves, with the relay fixture
+taken verbatim from real `markdownToHtml` output.
+
+**Fix:** gate on the canonical 13.4 hash, which was already correct on
+both sides and simply never consulted — the published `x` tag (read back
+as `_articleHash`), the archive row's `articleHash`, and
+`state.articleHash` agree by construction. The gate only ever
+*suppresses*: equal hashes ⇒ same canonical content ⇒ nothing to offer,
+in any mode. A missing hash (older rows, pre-13.4 events) or a real
+difference falls through to the prior heuristics untouched, so `'richer'`
+stays conservative.
+
+Two things fell out of doing it: the decision moved to
+`reader/archive-banner.js` (pure, so it can be tested — `index.js` is not
+importable from tests), and `checkArchiveAvailability` now computes the
+current hash itself when `state.articleHash` has not landed. That hash is
+filled by an async IIFE at load while the probe runs on a 100ms timer —
+the probe can win, and silently degrading to the unsound body compare is
+exactly the bug. When the user has edited, the hash is legitimately stale,
+so it stays null and the body heuristics answer, as before.
+
+**Not fixed here:** the markdown→HTML→markdown escape doubling that makes
+a Load-archive round trip mint a NEW `x` tag (see 2026-07-08, "PDF stack,
+round three" — fixed for the PDF path only; articles still re-derive).
+Until that lands, a hash difference after a round trip may be an artifact
+rather than a real edit.
+
 ## 2026-07-17 — "Load archive" served the WRONG ARTICLE: `#r` is not an identity index
 
 Tags: `bug`, `design`.
