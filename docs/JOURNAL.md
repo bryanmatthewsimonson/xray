@@ -19,6 +19,29 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-18 — Book ingestion (EPUB), slice 1: the parser
+
+**Tags:** design
+
+Kicking off EPUB book ingestion, **Model B** (each chapter = one capture,
+grouped under a book entity; author→byline, book title→publisher/`site_name`,
+release date→`published_at`, ISBN on the book entity). Slice 1 is the pure
+parser, `src/shared/epub-parse.js`.
+
+Non-obvious choices: **no new dependency** for the ZIP — EPUB entries are
+stored or raw-deflate, so `readZipEntries` parses the central directory by
+hand and inflates with the platform `DecompressionStream('deflate-raw')`;
+XML/XHTML via `DOMParser`, HTML→markdown via the existing `ContentExtractor`
+(Turndown). Inline images are content-addressed to `xray-figure:<sha256>` and
+collected as a `Map<hash,{bytes,mime}>`, so they ride the SAME figure archive
+the PDF path uses (`putSourceDocument` + `hydrateFigureImages`) — no new image
+machinery. Chapter order comes from the OPF `<spine>`; titles from the EPUB3
+`nav.xhtml` / EPUB2 `toc.ncx`; empty/cover/nav spine shells are skipped. The
+ZIP reader + path/date helpers are node-tested (`tests/epub-parse.test.mjs`,
+ZIP built with node's zlib, inflated by the module) — the DOMParser parts are
+verified in-extension. Slices 2–3 (the `book` entity type; the batch import
+flow + entry point) follow.
+
 ## 2026-07-18 — Delete works from a read-only archive open (read-only ≠ un-deletable)
 
 **Tags:** bug
