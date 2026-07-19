@@ -60,10 +60,16 @@ export { LLM_KEY_STORAGE, LLM_MODEL_STORAGE };
 // SW-side slice is a defensive no-op on the audit path (the hash gate
 // covers exactly the text that was scored).
 const MAX_ARTICLE_CHARS = MAX_AUDIT_INPUT_CHARS;
-// Output cap for the structured tool call. Generous enough for a rich
-// proposal set; if the model still hits it we surface a clear error
-// rather than feeding truncated JSON to the validators.
-const MAX_OUTPUT_TOKENS = 8192;
+// Output cap for the structured tool call. A dense, long capture — a book
+// chapter is the pathological case — yields a big proposal set (entities +
+// claims + optional relationships/assessments), and 8192 truncated it
+// ("hit its output limit before finishing"). 32768 matches the extraction
+// cap, fits a rich proposal set with headroom, and stays well under every
+// current model's per-request output limit; the suggest call carries no
+// client-side timeout, so a longer completion is not aborted. If the model
+// still hits it we surface a clear error rather than feeding truncated JSON
+// to the validators.
+const MAX_OUTPUT_TOKENS = 32768;
 // A full eight-module audit is much larger than a proposal set (eight
 // nested findings payloads in one tool call), so it gets its own cap.
 const MAX_AUDIT_OUTPUT_TOKENS = 16384;
@@ -314,7 +320,7 @@ export async function runSuggestionPass(req = {}) {
 
     { const r = refusalResult(data, 'capture suggestions for this article'); if (r) return r; }
     if (data && data.stop_reason === 'max_tokens') {
-        return { ok: false, error: 'The model hit its output limit before finishing. Try a shorter article or fewer tasks.' };
+        return { ok: false, error: 'The model hit its output limit before finishing. This can happen on a very long or dense capture — try narrowing the suggestion types in Options → Advanced → LLM assist, or run Suggest on a shorter section.' };
     }
 
     const proposals = extractProposals(data);

@@ -19,6 +19,25 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-18 — Suggest hit its output limit on book chapters (8192 → 32768)
+
+**Tags:** bug
+
+A Suggest (LLM-assist) run over an imported book chapter failed with "The model
+hit its output limit before finishing" (`stop_reason: max_tokens`). The
+suggestion pass's `MAX_OUTPUT_TOKENS` was **8192** — fine for an article, but a
+long, dense chapter yields a big structured proposal set (entities + claims +
+optional relationships/assessments) that overruns it.
+
+Raised to **32768**, matching the PDF-extraction cap (`MAX_EXTRACT_OUTPUT_TOKENS`)
+— the same class of large structured tool call. Safe because the suggest call
+carries **no client-side timeout** (the reader awaits the SW; the SW's
+`postMessages` passes no abort signal), so a longer completion is never aborted,
+and 32768 stays well under every current model's per-request output limit. The
+`max_tokens` guard message now points at narrowing the enabled suggestion types
+/ running on a shorter section rather than the (now much rarer) truncation. See
+`src/shared/llm-client.js`.
+
 ## 2026-07-18 — Publish routed Local signing through a (missing) source tab
 
 **Tags:** bug
