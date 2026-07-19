@@ -24,6 +24,7 @@ import {
 import { buildBuckets, brushRange } from './timeline.js';
 import { el, svgEl, clear, truncate, shortKey } from './dom.js';
 import { mountTranscriptImport } from './import-transcript.js';
+import { mountBookImport } from './import-book.js';
 import { renderEntityView } from './entity-view.js';
 import { renderCaseView } from './case-view.js';
 import { renderEntityDossierView } from './entity-dossier-view.js';
@@ -1128,6 +1129,15 @@ function wireChrome() {
         const importHost = $('#xr-import-host');
         if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
         mountTranscriptImport(importHost, { onDone: null });
+    });
+
+    // Import an EPUB book — each chapter becomes a capture grouped under a
+    // book `thing` entity. Toggle-close like the transcript import; a
+    // successful import refreshes the library so the book appears.
+    $('#xr-import-book').addEventListener('click', () => {
+        const importHost = $('#xr-import-host');
+        if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
+        mountBookImport(importHost, { onDone: () => { boot(); } });
     });
 
     $('#xr-resync').addEventListener('click', async () => {

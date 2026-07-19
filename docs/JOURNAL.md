@@ -19,6 +19,41 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-18 — Book ingestion (EPUB), slice 3: the import flow + entry point
+
+**Tags:** design
+
+Completes EPUB ingestion. "Import book (EPUB)…" (portal header, next to Import
+transcript) → file picker → `parseEpub` → one capture per chapter, grouped
+under a **book `thing` entity** (Bryan chose `thing` over a new `book` type —
+grouping/browsing are identical and it can be added to a real case later).
+Mirrors `import-transcript.js`: `src/portal/import-book.js` builds a synthetic
+per-chapter article, precomputes a markdown-canonical hash, and
+`ArchiveCache.saveArticle`s it — no reader tab or publish needed.
+
+Load-bearing details:
+- **Metadata:** author→`byline`, book title→`siteName` (Publisher), release
+  date→`publishedAt` (unix s), ISBN→the book entity's `description` (which
+  flows to its kind-0 `about`).
+- **Markdown-canonical hash:** chapters get `contentType: 'epub'` + a
+  `markdown` field, and `'epub'` was added to the reader's `isMarkdownCanonical`
+  so a chapter hashes/publishes over the extracted markdown (no turndown
+  drift) — `chapterArticleHash` matches what the reader + publish recompute, so
+  the row hash never forks from the wire `x` tag (tested: the hash ignores the
+  derived HTML `content`).
+- **Images + bytes survive the pruner:** chapter bodies carry
+  `xray-figure:<hash>` refs (which `pruneSourceOrphans` scans in
+  `markdown`+`content`) and each chapter's `extraction.source_hash` = the epub
+  hash keeps the `.epub`.
+- **Idempotent:** same file → same epub hash → same chapter URLs (upsert) and
+  the same `type+name` book entity — re-import updates, never duplicates.
+- `importEpub` self-inits `installEntityStorageBridge` + `LocalKeyManager.init`
+  so `EntityModel.create` works from the portal.
+
+Verified with a 4-dimension adversarial review (hash consistency, grouping/
+idempotency, image/byte retention + robustness, entity-infra/XSS/nav) — 0
+findings — plus pure-helper unit tests (`tests/import-book.test.mjs`).
+
 ## 2026-07-18 — Book ingestion (EPUB), slice 1: the parser
 
 **Tags:** design

@@ -560,6 +560,19 @@ body.xr-portal {
 .xr-synth__prov-label { color: var(--xr-text-dim); margin-right: 4px; }
 .xr-synth__src { color: var(--xr-accent, #22d3ee); text-decoration: none; }
 .xr-synth__src:hover { text-decoration: underline; }
+/* "Import book (EPUB)" panel (portal header → #xr-import-host). */
+.xr-bookimport { border: 1px solid var(--xr-border); border-radius: 8px;
+  padding: 14px 16px; margin: 8px 0; background: var(--xr-surface);
+  display: flex; flex-direction: column; gap: 8px; max-width: 640px; }
+.xr-bookimport__title { margin: 0; font-size: 15px; color: var(--xr-text); }
+.xr-bookimport__note { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--xr-text-dim); }
+.xr-bookimport__row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.xr-bookimport__file { font: inherit; font-size: 13px; color: var(--xr-text); }
+.xr-bookimport__status { font-size: 13px; color: var(--xr-text-dim); min-height: 1.2em; }
+.xr-bookimport__done { color: var(--xr-text); }
+.xr-bookimport__open { color: var(--xr-accent, #22d3ee); text-decoration: none; margin-left: 4px; }
+.xr-bookimport__open:hover { text-decoration: underline; }
+
 /* Compact numbered citation "[N]" in a position's Held-by row. */
 .xr-synth__cite { color: var(--xr-accent, #22d3ee); text-decoration: none;
   font-variant-numeric: tabular-nums; white-space: nowrap; }
