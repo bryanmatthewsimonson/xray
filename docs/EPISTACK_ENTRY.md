@@ -212,11 +212,22 @@ uncertainty markers and their own accountability anchor.
 
   Relay list (both corpora): `wss://relay.primal.net`,
   `wss://relay.nostr.net`, `wss://nos.lol`, `wss://nostr.mom`,
-  `wss://nostr.oxtr.dev`, `wss://offchain.pub`. Kind-by-kind index with
-  counts: `TBD` after the eggs run completes. Raw signed events are
-  fetchable from any NOSTR client; long-form articles render in
-  long-form clients (njump, habla); the structured graph renders in the
-  portal. Or fetch by hand:
+  `wss://nostr.oxtr.dev`, `wss://offchain.pub`.
+
+  **Kind-by-kind index — eggs corpus** (published 2026-07-19, from the
+  signed-event journal; 314 events total): kind `0` entity profiles
+  ×112 · `30023` long-form source articles ×9 · `30040` atomized claims
+  ×133 · `30055` claim relationships ×12 · `32125` entity↔article
+  relations ×48. Each kind-0 is signed by its own HKDF-derived entity
+  key (112 distinct entity pubkeys, all under the one corpus primary);
+  everything else is signed by the corpus primary. **COVID corpus
+  index:** `TBD` — recover from a full workspace backup's `xray-events`
+  journal (Options → Advanced → Download backup, the `xray-backup/1`
+  form, not the workspace-backup) or a live relay query.
+
+  Raw signed events are fetchable from any NOSTR client; long-form
+  articles render in long-form clients (njump, habla); the structured
+  graph renders in the portal. Or fetch by hand:
 
   ```js
   const ws = new WebSocket('wss://<relay>');
@@ -247,7 +258,18 @@ uncertainty markers and their own accountability anchor.
   quality-audit and stance, the never-average rule, the honest-display
   rules) and `docs/NIP_DRAFT.md` (the wire format).
 - **Per-case effort/cost table** (sources, browser-hours, LLM calls) —
-  the "what does case #4 cost" number: `TBD` from the two runs.
+  the "what does case #4 cost" number. **Eggs corpus** (measured):
+  9 captured sources → 314 published events (9 articles, 133 claims,
+  112 entity profiles, 48 entity↔article relations, 12 claim links).
+  LLM calls: ≈9 per-source Suggest passes (entity/claim extraction,
+  human-reviewed) + the corpus synthesis (8 map calls + 1 reduce; the
+  reduce alone was ~23k input / ~10k output tokens on
+  `claude-sonnet-5`, prompt `corpus-v3`); 8 of 9 members analyzed, 1
+  failed, 24 brief quotes grounded / 1 dropped. Browser-hours: `TBD`
+  (maintainer wall-clock). **COVID corpus:** `TBD` from its full
+  backup. The point the table makes: a contested case reaches a
+  navigable, signed, reusable graph for single-digit dollars of
+  inference plus a bounded human review pass — no per-case code.
 
 ### 5.4 What the corpus surfaced
 
