@@ -267,3 +267,49 @@ test('case-synthesis: buildMemberUnits joins ALL a member article\'s claims by s
     assert.ok(!units.some((u) => u.claims.some((c) => c.id === 'cX')),
         'a claim from an untagged, non-member article stays out of the corpus');
 });
+
+test('case-synthesis: computeEntitySummary — canonical fold, per-claim dedup, type filter, dangling alias', () => {
+    // p_alias → p (canonical person); o (org); c (case) and t (thing) must
+    // be excluded; d is a DANGLING alias (its canonical target is absent),
+    // so it resolves to itself and must still appear with its counts.
+    const entitiesById = {
+        p:       { id: 'p', name: 'Anthony Fauci', type: 'person' },
+        p_alias: { id: 'p_alias', name: 'Dr. Fauci', type: 'person', canonical_id: 'p' },
+        o:       { id: 'o', name: 'WIV', type: 'organization' },
+        c:       { id: 'c', name: 'Origin of Covid', type: 'case' },
+        t:       { id: 't', name: 'DEFUSE', type: 'thing' },
+        d:       { id: 'd', name: 'Ghost', type: 'person', canonical_id: 'missing_target' }
+    };
+    const claimsById = {
+        c1: { id: 'c1', about: ['p'] },
+        c2: { id: 'c2', about: ['p_alias'] },              // alias → folds into p
+        c3: { id: 'c3', about: ['p', 'p_alias'] },         // dedupe: counts once for p
+        c4: { id: 'c4', about: ['o'] },
+        c5: { id: 'c5', about: ['c'] },                    // case → excluded
+        c6: { id: 'c6', about: ['d'] },                    // dangling alias → itself
+        c7: { id: 'c7', about: ['unknown_id'] }            // no record → dropped
+    };
+    const memberByHash = {
+        hashA: { entities: [{ id: 'p', type: 'person' }, { id: 'o', type: 'organization' }] },
+        hashB: { entities: [{ id: 'p_alias', type: 'person' }] },  // alias tag folds to p
+        hashC: { entities: [{ id: 'd', type: 'person' }] }
+    };
+
+    const { people, orgs } = CS.computeEntitySummary({ entitiesById, claimsById }, memberByHash);
+
+    // People: Fauci (3 claims: c1+c2+c3, aliases folded, dedup) then Ghost (1).
+    assert.deepEqual(people.map((e) => e.name), ['Anthony Fauci', 'Ghost'], 'people sorted by claim weight; dangling alias INCLUDED');
+    const fauci = people.find((e) => e.name === 'Anthony Fauci');
+    assert.equal(fauci.claimCount, 3, 'alias claims fold in and a dual-about claim counts once');
+    assert.deepEqual(fauci.sourceHashes.slice().sort(), ['hashA', 'hashB'], 'alias source tag folds to canonical → 2 sources');
+    const ghost = people.find((e) => e.name === 'Ghost');
+    assert.equal(ghost.claimCount, 1, 'dangling-alias root keeps its folded count (the fixed predicate)');
+    assert.deepEqual(ghost.sourceHashes, ['hashC']);
+
+    // Orgs: only WIV. Cases, things, and unknown ids never surface.
+    assert.deepEqual(orgs.map((e) => e.name), ['WIV']);
+    assert.equal(orgs[0].claimCount, 1);
+    const allNames = [...people, ...orgs].map((e) => e.name);
+    assert.ok(!allNames.includes('Origin of Covid') && !allNames.includes('DEFUSE'), 'case/thing excluded');
+    assert.ok(!people.some((e) => e.name === 'Dr. Fauci'), 'the alias never appears as its own entry');
+});

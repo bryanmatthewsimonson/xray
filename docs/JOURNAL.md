@@ -19,6 +19,38 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-18 — Case-brief appendix metadata: outlet/date-annotated sources + a People/Organizations index
+
+**Tags:** design
+
+Turned the Sources appendix into a reference-document index. Each source now
+carries its outlet (`outletFor` = hostname minus www) and publication date
+(`rec.article.date||publishedTime`, formatted to a sortable ISO day); the
+on-screen Sources list is re-sortable (# / Date / Outlet) with rows carrying
+their citation number explicitly so re-sorting never renumbers. Two new
+indexes — **People** and **Organizations** — list the tagged CANONICAL
+entities (aliases folded), each with a claim count, a source count, and the
+clickable citation refs of the sources it appears in. All three surfaces (the
+on-screen brief, the `.md`, and the published kind-30023) get it; the
+structured kind-30068 event and the LLM pipeline are unchanged.
+
+Plumbing: `memberByHash` (the render index) gains `date` + canonical
+`entities` in `synthesis-block.js`; the entity index is computed by the new
+pure, tested `case-synthesis.computeEntitySummary(data, memberByHash)`.
+
+Non-obvious bug caught in adversarial review and worth remembering: the
+canonical fold buckets counts onto `canonicalIdOf(id)`, which for a **dangling
+alias** (a `canonical_id` pointing at a missing entity — reachable via
+`importRecord`/bundle import, which don't validate the target) returns the
+alias *itself*. Filtering the buckets with raw `e.canonical_id` truthiness then
+drops that entity — its raw `canonical_id` is set even though it IS the family's
+resolved root. The predicate must be self-canonicality (`canonicalIdOf(id) === id`,
+i.e. just "has a record" once ids are already canonical), matching how the fold
+assigns ids. `computeEntitySummary` also canonicalizes the source-tag ids itself
+rather than trusting the caller. Covered by `tests/case-synthesis.test.mjs`.
+See `src/shared/case-synthesis.js`, `src/portal/synthesis-block.js`,
+`src/shared/corpus-publish.js`.
+
 ## 2026-07-18 — Case brief: numbered citations + a Sources list (readability at 100+ members)
 
 **Tags:** design

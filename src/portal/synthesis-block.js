@@ -22,13 +22,15 @@ import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { CORPUS_PROMPT_VERSION } from '../shared/corpus-prompts.js';
 import {
     buildMemberUnits, corpusInputHash, corpusExtractKey, digestDossier,
-    validateCorpusExtract, validateCaseBrief, groundCaseBrief, filterProposals
+    validateCorpusExtract, validateCaseBrief, groundCaseBrief, filterProposals,
+    computeEntitySummary
 } from '../shared/case-synthesis.js';
 import { renderProposals } from './synthesis-review.js';
 import { Signer } from '../shared/signer.js';
 import { Storage } from '../shared/storage.js';
 import { FALLBACK_RELAYS } from './corpus.js';
-import { buildCaseBriefArticle, buildCaseBriefEvent, renderCaseBriefMarkdown, citedMemberOrder } from '../shared/corpus-publish.js';
+import { buildCaseBriefArticle, buildCaseBriefEvent, renderCaseBriefMarkdown, citedMemberOrder, outletFor } from '../shared/corpus-publish.js';
+import { canonicalIdOf } from '../shared/entity-model.js';
 
 /** A source link for a member article_hash, or null when unresolved. */
 function sourceAnchor(hash, memberIndex) {
@@ -127,12 +129,23 @@ function startSwKeepalive() {
     return { stop: () => clearInterval(timer) };
 }
 
+/** A source's publication date as a sortable ISO day (YYYY-MM-DD), or ''.
+ * From the captured article metadata (date / publishedTime) — NOT the
+ * capture time. ISO days sort lexically = chronologically. */
+function fmtSourceDate(article) {
+    const raw = (article && (article.date || article.publishedTime)) || '';
+    if (!raw) return '';
+    const t = Date.parse(raw);
+    if (!Number.isFinite(t)) return '';
+    return new Date(t).toISOString().slice(0, 10);
+}
+
 // Render provenance already present in the brief but hidden by the
 // dashboard until Phase-26 prep (T1.2): every crux quote, load-bearing
 // claim, and position holder links back to its source article + a
-// machine-grounded quote. `memberIndex` = article_hash → {url,title};
+// machine-grounded quote. `memberIndex` = article_hash → {url,title,date,entities};
 // `claimsById` resolves an optional load-bearing claim_ref best-effort.
-function section(brief, { memberIndex = {}, claimsById = {} } = {}) {
+function section(brief, { memberIndex = {}, claimsById = {}, entitySummary = null } = {}) {
     const wrap = el('div', 'xr-synth__brief');
     // Citation numbering — the SAME order the exported/published markdown
     // uses (corpus-publish.citedMemberOrder), so [N] means one source
@@ -225,23 +238,88 @@ function section(brief, { memberIndex = {}, claimsById = {} } = {}) {
         s.appendChild(ul);
         wrap.appendChild(s);
     }
-    // Sources — the numbered list the [N] holder citations resolve to.
-    // Collapsed by default so it doesn't crowd the prose; the <ol>'s own
-    // markers ARE the citation numbers (first-appearance order).
+    // Sources — the list the [N] citations resolve to, annotated with
+    // outlet + date and re-sortable (by number / date / outlet) so the
+    // reader can organize the corpus by source or date. Rows carry their
+    // citation number explicitly, so re-sorting never renumbers.
     if (citedOrder.length) {
         const s = el('details', 'xr-synth__sec');
         s.appendChild(el('summary', null, `Sources (${citedOrder.length})`));
-        const ol = el('ol', 'xr-synth__sources');
-        for (const h of citedOrder) {
-            const m = memberIndex[h] || {};
-            const li = el('li');
-            const a = el('a', 'xr-synth__src', m.title || m.url || h);
-            if (m.url) { a.href = m.url; a.target = '_blank'; a.rel = 'noreferrer noopener'; a.title = m.url; }
-            li.appendChild(a);
-            ol.appendChild(li);
+        const rows = citedOrder.map((h, i) => ({ hash: h, num: i + 1, m: memberIndex[h] || {} }));
+        const comparators = {
+            num: (a, b) => a.num - b.num,
+            // newest first; undated sink to the bottom (empty string sorts first asc → invert).
+            date: (a, b) => (b.m.date || '').localeCompare(a.m.date || '') || a.num - b.num,
+            outlet: (a, b) => outletFor(a.m.url).localeCompare(outletFor(b.m.url)) || a.num - b.num
+        };
+        const listHost = el('div', 'xr-synth__srclist');
+        const paint = (key) => {
+            listHost.replaceChildren();
+            for (const r of rows.slice().sort(comparators[key] || comparators.num)) {
+                const row = el('div', 'xr-synth__srcrow');
+                row.appendChild(citationLink(r.num, r.hash, memberIndex));
+                const a = el('a', 'xr-synth__src', r.m.title || r.m.url || r.hash);
+                if (r.m.url) { a.href = r.m.url; a.target = '_blank'; a.rel = 'noreferrer noopener'; a.title = r.m.url; }
+                row.appendChild(a);
+                const meta = [outletFor(r.m.url), r.m.date].filter(Boolean).join(' · ');
+                if (meta) row.appendChild(el('span', 'xr-synth__srcmeta', ` — ${meta}`));
+                listHost.appendChild(row);
+            }
+        };
+        const bar = el('div', 'xr-synth__srcsort');
+        bar.appendChild(el('span', 'xr-synth__prov-label', 'Sort:'));
+        const btns = [];
+        for (const [key, label] of [['num', '#'], ['date', 'Date'], ['outlet', 'Outlet']]) {
+            const b = el('button', 'xr-synth__sortbtn', label);
+            b.type = 'button';
+            if (key === 'num') b.classList.add('is-active');
+            b.addEventListener('click', () => {
+                for (const other of btns) other.classList.toggle('is-active', other === b);
+                paint(key);
+            });
+            btns.push(b);
+            bar.appendChild(b);
         }
-        s.appendChild(ol);
+        s.appendChild(bar);
+        s.appendChild(listHost);
+        paint('num');
         wrap.appendChild(s);
+    }
+
+    // People / Organizations — the tagged canonical entities (aliases
+    // folded), each with claim + source counts and clickable source refs:
+    // the "organize by entity" index. Cases/things omitted.
+    if (entitySummary) {
+        const entSection = (title, list) => {
+            if (!Array.isArray(list) || !list.length) return;
+            const s = el('details', 'xr-synth__sec');
+            s.appendChild(el('summary', null, `${title} (${list.length})`));
+            const ul = el('ul', 'xr-synth__entlist');
+            for (const e of list) {
+                const nums = (e.sourceHashes || []).map((h) => citeNum.get(h))
+                    .filter((num) => num != null).sort((x, y) => x - y);
+                const li = el('li');
+                li.appendChild(el('span', 'xr-synth__entname', e.name || '(unnamed)'));
+                const count = e.claimCount || 0;
+                const bits = [`${count} claim${count === 1 ? '' : 's'}`];
+                if (nums.length) bits.push(`in ${nums.length} source${nums.length === 1 ? '' : 's'}`);
+                li.appendChild(el('span', 'xr-synth__entmeta', ` — ${bits.join(' · ')}`));
+                if (nums.length) {
+                    const refs = el('span', 'xr-synth__entrefs');
+                    refs.appendChild(document.createTextNode(': '));
+                    nums.forEach((num, i) => {
+                        if (i) refs.appendChild(document.createTextNode(' '));
+                        refs.appendChild(citationLink(num, citedOrder[num - 1], memberIndex));
+                    });
+                    li.appendChild(refs);
+                }
+                ul.appendChild(li);
+            }
+            s.appendChild(ul);
+            wrap.appendChild(s);
+        };
+        entSection('People', entitySummary.people);
+        entSection('Organizations', entitySummary.orgs);
     }
     return wrap;
 }
@@ -310,8 +388,33 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                 claimIndex.push({ id: c.id, text: c.text, article_hash: m.article_hash, is_key: !!c.is_key });
             }
         }
+        // Enrich the member index with the appendix metadata: publication
+        // date and the canonical entities tagged on the source (aliases
+        // folded). Reads the archive record by url; entity refs resolve to
+        // their canonical {id,name,type}. None of this touches the LLM map
+        // input or its cache — it's presentation only.
+        const recByUrl = new Map();
+        for (const rec of data.articles || []) if (rec && rec.url) recByUrl.set(rec.url, rec);
+        const entitiesById = data.entitiesById || {};
+        const canonEnt = (id) => {
+            const cid = canonicalIdOf(id, entitiesById);
+            const e = entitiesById[cid];
+            return e ? { id: cid, name: e.name || '(unnamed)', type: e.type || 'thing' } : null;
+        };
         const memberByHash = {};
-        for (const m of members) memberByHash[m.article_hash] = { url: m.url, title: m.title, caseId };
+        for (const m of members) {
+            const art = (recByUrl.get(m.url) || {}).article || null;
+            const ents = [];
+            const seen = new Set();
+            for (const ref of (art && art.entities) || []) {
+                const c = canonEnt(ref.entity_id);
+                if (c && !seen.has(c.id)) { seen.add(c.id); ents.push(c); }
+            }
+            memberByHash[m.article_hash] = {
+                url: m.url, title: m.title, caseId, date: fmtSourceDate(art), entities: ents
+            };
+        }
+        const entitySummary = computeEntitySummary(data, memberByHash);
         const memberHashes = new Set(members.map((m) => m.article_hash));
 
         // Publish the brief as a readable kind-30023 article + the
@@ -330,6 +433,7 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                     caseName: data.case.name || '',
                     scopeQuestion: (dossier.scope && dossier.scope.question) || '',
                     memberIndex: memberByHash,
+                    entitySummary,
                     userPubkey
                 };
                 const article = buildCaseBriefArticle(opts);
@@ -390,7 +494,7 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
             mdBtn.title = 'Download the brief as a readable Markdown file (quotes linked to their sources)';
             mdBtn.addEventListener('click', () => {
                 const md = renderCaseBriefMarkdown(record.brief, {
-                    caseName, scopeQuestion, memberCount: record.members, memberIndex: memberByHash
+                    caseName, scopeQuestion, memberCount: record.members, memberIndex: memberByHash, entitySummary
                 });
                 downloadFile(`case-brief-${fileSlug(caseName)}.md`, md, 'text/markdown');
             });
@@ -405,7 +509,7 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
             pubRow.appendChild(pubStatus);
             briefHost.appendChild(pubRow);
 
-            briefHost.appendChild(section(record.brief, { memberIndex: memberByHash, claimsById }));
+            briefHost.appendChild(section(record.brief, { memberIndex: memberByHash, claimsById, entitySummary }));
             const filtered = filterProposals(record.brief, { claimsById, memberHashes });
             renderProposals(proposalHost, {
                 acceptable: filtered.acceptable, rejected: filtered.rejected,
