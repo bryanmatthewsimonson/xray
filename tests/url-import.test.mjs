@@ -300,3 +300,35 @@ test('url-import: a throwing onImported marks row.post but never un-imports', as
     assert.equal(rows[0].post, 'suggest exploded');
     assert.ok(await getArticle(PAGE(15)), 'article stays archived');
 });
+
+test('url-import: parseUrlList — bare host/path lines are auto-prefixed with https://', () => {
+    const text = [
+        'pubmed.ncbi.nlm.nih.gov/32132002/',
+        'nmcd-journal.com/article/S0939-4753(25)00003-1/fulltext',
+        '- sciencedaily.com/releases/2018/05/180521184702.htm',   // bullet tolerated
+        'nutritionsource.hsph.harvard.edu/2019/03/18/eggs-and-cholesterol-back-in-the-spotlight-in-new-jama-study/'
+    ].join('\n');
+    assert.deepEqual(parseUrlList(text), [
+        'https://pubmed.ncbi.nlm.nih.gov/32132002/',
+        'https://nmcd-journal.com/article/S0939-4753(25)00003-1/fulltext',
+        'https://sciencedaily.com/releases/2018/05/180521184702.htm',
+        'https://nutritionsource.hsph.harvard.edu/2019/03/18/eggs-and-cholesterol-back-in-the-spotlight-in-new-jama-study/'
+    ]);
+});
+
+test('url-import: parseUrlList — the bare-line fallback never matches prose', () => {
+    const text = [
+        'Compare the eggs and butter coverage.',
+        'e.g. the JAMA study below',
+        'eggs',
+        'see 2019/03/18 for details'
+    ].join('\n');
+    assert.deepEqual(parseUrlList(text), []);
+});
+
+test('url-import: parseUrlList — schemed and bare forms of one URL dedupe; schemed URLs keep first position', () => {
+    const text = 'a.example/x\nhttps://a.example/x\nb.example/y';
+    // URL_RE (schemed) runs first, then the line fallback — dedupe
+    // collapses the pair either way.
+    assert.deepEqual(parseUrlList(text), ['https://a.example/x', 'https://b.example/y']);
+});

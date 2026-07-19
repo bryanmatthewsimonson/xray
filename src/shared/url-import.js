@@ -54,20 +54,40 @@ const URL_RE = /https?:\/\/[^\s<>"')\]]+(?:\([^\s<>"')\]]*\)[^\s<>"')\]]*)*/g;
  * @param {string} text
  * @returns {string[]}
  */
+// A WHOLE line that reads as bare host/path — "pubmed.ncbi.nlm.nih.gov/
+// 32132002/". Anchored to the full line so prose can never match (any
+// space fails); the hostname needs at least one dot and an alphabetic
+// TLD-ish final label.
+const BARE_URL_LINE_RE = /^[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:\/[^\s<>"']*)?$/i;
+
 export function parseUrlList(text) {
     const seen = new Set();
     const out = [];
-    for (const raw of String(text || '').match(URL_RE) || []) {
+    const push = (raw) => {
         let url = raw.replace(/[.,;:!?]+$/, '');
         try {
             const u = new URL(url);
-            if (u.protocol !== 'http:' && u.protocol !== 'https:') continue;
+            if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
             u.hash = '';
             url = u.toString();
-        } catch (_) { continue; }
-        if (seen.has(url)) continue;
+        } catch (_) { return; }
+        if (seen.has(url)) return;
         seen.add(url);
         out.push(url);
+    };
+    for (const raw of String(text || '').match(URL_RE) || []) push(raw);
+    // Scheme-less fallback, LINE-scoped and conservative: a whole line
+    // that is nothing but host/path is unambiguous paste intent (the
+    // address bar accepts it; the import box should too — pasting a
+    // worksheet of bare "pubmed.ncbi.nlm.nih.gov/…" lines used to
+    // yield 0 URLs and a silently disabled Import button). Prose never
+    // matches the anchored shape; lines already carrying a scheme were
+    // handled by URL_RE above (dedupe absorbs any overlap).
+    for (const line of String(text || '').split(/\r?\n/)) {
+        const t = line.trim().replace(/^[-*+]\s+/, '');   // tolerate list bullets
+        if (!t || /https?:\/\//i.test(t)) continue;
+        if (!BARE_URL_LINE_RE.test(t.replace(/[.,;:!?]+$/, ''))) continue;
+        push('https://' + t);
     }
     return out;
 }
