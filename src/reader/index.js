@@ -626,7 +626,11 @@ function confirmLlmSend(headline, body, actionLabel) {
 async function deleteCaptureFlow() {
     const url = state.article && state.article.url;
     if (!url) throw new Error('No capture open.');
-    if (state.readOnlyOpen) throw new Error('Read-only view — nothing to delete.');
+    // A read-only open (a relay reconstruction from "My Archive") can still
+    // delete the LOCAL archived copy — that removes the local row, never the
+    // published relay event (see the "KEPT" line in the confirm below). So
+    // no readOnlyOpen guard here; the button is shown only when a local row
+    // exists (see init), and the row lookup below re-confirms.
 
     // Find the row the load path would find: primary URL, then the
     // alias-resolved original (a prior capture of the same piece may
@@ -6164,7 +6168,29 @@ async function init() {
             toast('Delete failed: ' + ((err && err.message) || err), 'error', 5000);
         });
     });
-    if (state.readOnlyOpen) $('#xr-delete-capture').hidden = true;
+    // A read-only open is a relay reconstruction (portal → "Open in reader"),
+    // which must not re-archive or edit the body — but the user browsing
+    // their archive still needs to PRUNE the local copy. Hide the trash by
+    // default, then reveal it once we confirm a local archived row actually
+    // exists for this URL (or its alias), so it's shown exactly when it can
+    // act and never dangles on a copy that lives only on relays.
+    if (state.readOnlyOpen) {
+        const delBtn = $('#xr-delete-capture');
+        delBtn.hidden = true;
+        (async () => {
+            const url = state.article && state.article.url;
+            if (!url) return;
+            let has = false;
+            try { has = !!(await ArchiveCache.getArticle(url)); } catch (_) { /* absent */ }
+            if (!has) {
+                try {
+                    const aliased = await resolveAlias(url);
+                    if (aliased && aliased !== url) has = !!(await ArchiveCache.getArticle(aliased));
+                } catch (_) { /* absent */ }
+            }
+            if (has) delBtn.hidden = false;
+        })();
+    }
 
     // Open the entity browser. Three openers, in preference order:
     //   1. browser.sidebarAction.toggle()  — Firefox sidebar
