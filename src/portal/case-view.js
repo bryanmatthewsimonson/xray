@@ -27,6 +27,7 @@ import { mountTranscriptImport } from './import-transcript.js';
 import { mountUrlImport } from './import-urls.js';
 import { renderCaseGraph } from './case-graph-view.js';
 import { renderSynthesisBlock } from './synthesis-block.js';
+import { renderLinksBlock } from './links-block.js';
 import { renderHypothesesBlock } from './hypothesis-block.js';
 import { collectHypothesisEdgeJoins } from '../shared/hypothesis-map.js';
 import { Utils } from '../shared/utils.js';
@@ -277,6 +278,13 @@ export function renderCaseView(host, params) {
                     onOpenEntityDossier: callbacks.onOpenEntityDossier,
                     onOpenArticle: openArchivedInReader
                 }
+            });
+            // 28.3 — standalone cross-article link suggestion (same
+            // gate as the synthesis, decoupled from it: structure can
+            // be proposed BEFORE the brief run and feeds its digest).
+            renderLinksBlock(graphHost, {
+                data, dossier,
+                callbacks: { onReloadCase: callbacks.onReloadCase }
             });
             // 20.4 — LLM corpus synthesis (gated by caseSynthesis + key;
             // absent otherwise). Self-manages its own gating call.

@@ -162,3 +162,28 @@ test('pending-suggestions: CRUD keyed by url, coexists with earlier stores (DB v
     await clear();
     assert.equal(await getPendingSuggestions(rec.url), null);
 });
+
+// v5 store — the standalone link-suggestion run (28.3).
+test('case-link-suggestions: CRUD keyed by caseId, coexists with earlier stores (DB v5)', async () => {
+    const { saveCaseLinkRun, getCaseLinkRun, deleteCaseLinkRun } =
+        await import('../src/shared/audit/audit-cache.js');
+    await saveRun({ id: 'audit_w', articleHash: HASH_A });   // v1 still works
+    const rec = {
+        caseId: 'case_9', acceptable: [{ kind: 'relationship' }], rejected: [],
+        model: 'claude-test', promptVersion: 'claim-links-v1',
+        claimCount: 5, truncatedClaims: 0, triage: {}, createdAt: 100
+    };
+    await saveCaseLinkRun(rec);
+    const got = await getCaseLinkRun('case_9');
+    assert.equal(got.acceptable.length, 1);
+    assert.equal((await getRun('audit_w')).articleHash, HASH_A, 'v1 intact after v5 upgrade');
+    // Latest-wins per case; triage rides the record.
+    await saveCaseLinkRun({ ...rec, triage: { 'rel:a|b:supports': 'accepted' } });
+    assert.equal((await getCaseLinkRun('case_9')).triage['rel:a|b:supports'], 'accepted');
+    await deleteCaseLinkRun('case_9');
+    assert.equal(await getCaseLinkRun('case_9'), null);
+    // clear() drops it too.
+    await saveCaseLinkRun(rec);
+    await clear();
+    assert.equal(await getCaseLinkRun('case_9'), null);
+});

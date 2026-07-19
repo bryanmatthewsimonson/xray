@@ -26,7 +26,7 @@ import { NostrClient } from '../shared/nostr-client.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
-import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, runHypothesisEdgePass, getCorpusConfig, runExtractPass } from '../shared/llm-client.js';
+import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, runHypothesisEdgePass, runClaimLinksPass, getCorpusConfig, runExtractPass } from '../shared/llm-client.js';
 import { getSourceDocument } from '../shared/archive-cache.js';
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prompts.js';
 import { pdfDocumentUrl } from '../shared/pdf-detect.js';
@@ -675,6 +675,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         runHypothesisEdgePass(message.request || {}).then(
             (result) => sendResponse(result),
             (err) => sendResponse({ ok: false, error: (err && err.message) || 'Hypothesis edge call failed' })
+        );
+        return true; // async sendResponse
+    }
+    // Portal → worker: standalone cross-article link suggestion (28.3).
+    // One reduce-shaped call over the claims index; same triple gate
+    // inside the pass; returns RAW tool output (the portal validates,
+    // drops existing pairs, and gates every mutation behind Accept).
+    if (message.type === 'xray:llm:corpus-links') {
+        runClaimLinksPass(message.request || {}).then(
+            (result) => sendResponse(result),
+            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Link suggestion call failed' })
         );
         return true; // async sendResponse
     }

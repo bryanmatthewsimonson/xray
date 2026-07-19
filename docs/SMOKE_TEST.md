@@ -1397,6 +1397,11 @@ Network required (real fetches). Use 2–3 easy-tier URLs from
 | P28.j | Check the suggest box ▸ Import 2 URLs | ✅ a spend-confirm names the call count; rows gain "✨ N suggestions — review in the reader"; the summary reports "suggestions parked for N pages" |
 | P28.k | Open a parked page in the reader | ✅ a "✨ Review N suggestions" button appears beside Suggest (even with the key since removed — review needs no gate); clicking opens the SAME review modal as the live pass; Accept routes through the normal model firewalls with `llm:<model>` provenance |
 | P28.l | Close the review modal, reload the reader | ✅ the parked record is gone (the button no longer appears — close = session over, matching the live pass); re-running the import re-parks fresh suggestions |
+| P28.m | Case dashboard with `caseSynthesis`+`llmAssist`+key on | ✅ a "Cross-article links — suggested relationships, not a ruling" block renders with its explainer ABOVE the corpus-synthesis block; flag off ⇒ absent; keyless ⇒ button disabled with hint |
+| P28.n | **Suggest links…** on a case with 2+ claims from different sources | ✅ spend-confirm states the claim count and "text only — no article bodies, one call"; result renders through the standard Proposals UI (Accept / Dismiss) with a provenance line (model · claim-links-v1 · N claims indexed) |
+| P28.o | Accept a proposed link, then Refresh | ✅ the relationship lands in the claims list / case graph exactly like a synthesis-accepted link (`llm:<model>` provenance); the next Analyze-corpus digest includes it |
+| P28.p | Re-run Suggest links after accepting | ✅ the accepted pair comes back REJECTED with "this relationship already exists" (never silently dropped); prior Accept/Dismiss triage survives the re-run and the page reload |
+| P28.q | A case with >150 claims | ✅ the provenance line discloses "(N beyond the cap not sent)" |
 
 ---
 

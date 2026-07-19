@@ -444,3 +444,40 @@ export function filterProposals(brief, { claimsById = {}, memberHashes = new Set
     }
     return { acceptable, rejected };
 }
+
+// ------------------------------------------------------------------
+// Standalone link proposals — Phase 28.3
+// ------------------------------------------------------------------
+
+/**
+ * Normalize + validate a claim-links pass's raw tool output into
+ * `{acceptable, rejected}` relationship proposals. Pure: wraps each
+ * row as `kind: 'relationship'`, reuses filterProposals (existing ids,
+ * no self-link, valid enum, dedup), then moves proposals whose
+ * pair+relationship ALREADY EXISTS (`existingKeys` = proposalKey
+ * strings built from the live EvidenceLinker records) into `rejected`
+ * with an honest reason — the model was told not to re-propose them,
+ * and a silent drop would hide that it did.
+ */
+export function prepareLinkProposals(linksInput, { claimsById = {}, existingKeys = new Set() } = {}) {
+    const raw = (linksInput && Array.isArray(linksInput.proposals)) ? linksInput.proposals : [];
+    const wrapped = raw.map((p) => ({
+        kind: 'relationship',
+        source_claim_id: p && p.source_claim_id,
+        target_claim_id: p && p.target_claim_id,
+        relationship: p && p.relationship,
+        note: (p && p.note) || ''
+    }));
+    const { acceptable, rejected } = filterProposals({ proposals: wrapped }, { claimsById });
+    const fresh = [];
+    for (const p of acceptable) {
+        if (existingKeys.has(proposalKey(p))) rejected.push({ ...p, reason: 'this relationship already exists' });
+        else fresh.push(p);
+    }
+    return { acceptable: fresh, rejected };
+}
+
+/** proposalKey-shaped identity for an EXISTING EvidenceLinker record. */
+export function linkRecordKey(link) {
+    return `rel:${[link.source_claim_id, link.target_claim_id].sort().join('|')}:${link.relationship}`;
+}

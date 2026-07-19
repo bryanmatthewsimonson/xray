@@ -44,10 +44,11 @@ import { articleHash } from './audit/article-hash.js';
 import {
     MAP_TOOL_NAME, REDUCE_TOOL_NAME,
     MAX_MEMBER_INPUT_CHARS, MAX_MAP_OUTPUT_TOKENS, MAX_REDUCE_OUTPUT_TOKENS,
-    MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS,
+    MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS, MAX_CLAIM_LINKS_OUTPUT_TOKENS,
     buildMapTool, buildMapSystemPrompt, buildMapUserPrompt,
     buildReduceTool, buildReduceSystemPrompt, buildReduceUserPrompt,
-    buildHypothesisEdgeTool, buildHypothesisEdgeSystemPrompt, buildHypothesisEdgeUserPrompt
+    buildHypothesisEdgeTool, buildHypothesisEdgeSystemPrompt, buildHypothesisEdgeUserPrompt,
+    buildClaimLinksTool, buildClaimLinksSystemPrompt, buildClaimLinksUserPrompt
 } from './corpus-prompts.js';
 
 // Re-exported for callers that wrote against the client (the keys are
@@ -706,6 +707,53 @@ export async function runHypothesisEdgePass(req = {}) {
     const edgesInput = extractToolInput(data, tool.name);
     if (edgesInput === null) return { ok: false, error: 'The model did not return structured edge proposals.' };
     return { ok: true, edgesInput, model: (data && data.model) || model, usage: data && data.usage };
+}
+
+/**
+ * CLAIM LINKS — Phase 28.3: standalone cross-article relationship
+ * suggestion, decoupled from the full synthesis. One reduce-shaped
+ * call over the case's claims index (+ the already-linked list) — no
+ * member texts, no map pass. Same triple gate; returns the RAW tool
+ * input — validation, existing-pair filtering, and the human-accept
+ * firewall all stay portal-side (links-block.js).
+ *
+ * @param {object} req { claims, existing, caseName?, scopeQuestion? }
+ */
+export async function runClaimLinksPass(req = {}) {
+    const gate = await corpusGate();
+    if (gate.error) return { ok: false, error: gate.error };
+
+    const claims = Array.isArray(req.claims) ? req.claims : [];
+    if (claims.length < 2) return { ok: false, error: 'Fewer than two claims — nothing to link.' };
+
+    const model = await readModel();
+    const tool = buildClaimLinksTool();
+    const payload = {
+        model,
+        max_tokens: MAX_CLAIM_LINKS_OUTPUT_TOKENS,
+        system: buildClaimLinksSystemPrompt({ caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '' }),
+        tools: [tool],
+        tool_choice: { type: 'tool', name: tool.name },
+        messages: [{ role: 'user', content: buildClaimLinksUserPrompt({
+            claims, existing: Array.isArray(req.existing) ? req.existing : []
+        }) }]
+    };
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CORPUS_REDUCE_TIMEOUT_MS);
+    let res;
+    try { res = await postMessages(payload, gate.apiKey, { signal: controller.signal }); }
+    finally { clearTimeout(timer); }
+    if (!res.ok) return res;
+
+    const data = res.data;
+    { const r = refusalResult(data, 'claim relationship proposals'); if (r) return r; }
+    if (data && data.stop_reason === 'max_tokens') {
+        return { ok: false, error: 'The link-suggestion call hit its output limit before finishing.' };
+    }
+    const linksInput = extractToolInput(data, tool.name);
+    if (linksInput === null) return { ok: false, error: 'The model did not return structured link proposals.' };
+    return { ok: true, linksInput, model: (data && data.model) || model, usage: data && data.usage };
 }
 
 // ------------------------------------------------------------------
