@@ -19,6 +19,36 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-19 — Hypothesis map: article-level seed edges (Phase 26, H.1)
+
+`design`. The approved `HYPOTHESIS_MAP_DESIGN.md` §2 says synthesis
+`positions` become hypotheses and their article `holders` "become a
+starting set of `supports` edges to promote to claim-level." That
+phrase admits two readings: (a) seed one article-level `supports` edge
+per holder (`claim_ref: null`, `article_hash` set), or (b) expand each
+holder to one edge per orbit claim captured from that article. H.1
+takes **(a)**. A `position` is an ARTICLE-level assertion ("this whole
+source holds this view"); expanding it to per-claim edges would
+fabricate a support assertion the synthesis never made at claim
+granularity, and it would flood a hypothesis with every claim in a
+holder article. "Promote to claim-level" is then exactly the explicit
+downstream step — the human affordance (H.3) and the LLM edge-suggester
+(H.4) — not something the seed does automatically. The edge model
+carries `claim_ref: null` for these article-level seeds and a real ref
+for human/LLM edges; the render (H.2) distinguishes "this source holds
+it" from "this claim supports/undermines it."
+
+Two other H.1 calls worth recording: hypothesis ids are a deterministic
+slug of the position **label** (`hyp_<slug>`, collisions get `-2`) so a
+human edge keyed by `hypothesis_id` survives re-synthesis as long as the
+label is stable; and a human edge whose `hypothesis_id` matches no
+current position is kept in `orphaned_edges` rather than dropped (P6 —
+coverage on its face). The whole module is pure/deterministic with a
+key-grep test asserting no `score`/`weight`/`probability`/`likelihood`/
+`confidence`/`strength` key appears anywhere in the output — the
+firewall, machine-checked. Files: `src/shared/hypothesis-map.js`,
+`tests/hypothesis-map.test.mjs`.
+
 ## 2026-07-16 — xray-network stays out of WORKSPACE_DATABASES (25.2b)
 
 Tags: `design`.

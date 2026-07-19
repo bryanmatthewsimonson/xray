@@ -1823,6 +1823,10 @@ computed-on-read with **no new wire kind**, one PR per slice:
   never picks, no score; neutral per-section edge counts allowed but
   never cross-compared; verdict chips shown as context only
   ([`HYPOTHESIS_MAP_DESIGN.md`](HYPOTHESIS_MAP_DESIGN.md)).
+    - ✅ **H.1** — pure model + assembler (`src/shared/hypothesis-map.js`):
+      positions → hypotheses, holders → article-level `supports` edges,
+      human edges carried or orphaned (P6); key-grep firewall test. No
+      surface yet (that's H.2).
 - 🚧 **Structural counterfactual** (slices CF.1–CF.2, after the map) —
   "what depends on this claim": the maintainer's "Monte Carlo" ask
   reframed to counts-with-derivation over the case graph, never

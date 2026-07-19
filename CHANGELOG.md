@@ -12,6 +12,21 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Hypothesis map — structural model + assembler (Phase 26, H.1).**
+  A new pure module (`src/shared/hypothesis-map.js`) that assembles a
+  **structural argument map** for a case: the corpus brief's
+  `positions` become competing **hypotheses** (label + statement),
+  their holder sources seed article-level **`supports`** edges, and any
+  human-drawn claim→hypothesis edges (`supports` / `undermines`) are
+  carried on top — an edge to a position that no longer exists is kept
+  as an `orphaned_edges` entry rather than silently dropped (P6).
+  Rendered side by side (H.2), the model never picks a winner, and —
+  the firewall — there is **no score, probability, weight, confidence,
+  or strength** on any hypothesis or edge (a key-grep test forbids the
+  numeric slots). Local-derived, computed on read; no wire kind. Not
+  yet wired into a surface (that is H.2). See
+  `docs/HYPOTHESIS_MAP_DESIGN.md`.
+
 - **Case dashboard — cross-article claim links + clearer vocabulary
   (Phase 26 prep, T1.3).** The claims list now surfaces the
   **cross-article relationship links** that already existed but were
