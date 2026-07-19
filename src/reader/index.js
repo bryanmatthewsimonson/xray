@@ -6182,12 +6182,18 @@ async function init() {
         (async () => {
             const url = state.article && state.article.url;
             if (!url) return;
+            // We only need a boolean ("is there a local archived row for
+            // this URL/alias?"), so use hasArticle (keyed getKey): it loads
+            // NO payload and fires NO lastAccessed readwrite bump. getArticle
+            // would structured-clone the whole row — ruinous now that a row
+            // can be a multi-MB EPUB chapter — and its readwrite bump would
+            // serialize against the reader's render-time archive reads.
             let has = false;
-            try { has = !!(await ArchiveCache.getArticle(url)); } catch (_) { /* absent */ }
+            try { has = await ArchiveCache.hasArticle(url); } catch (_) { /* absent */ }
             if (!has) {
                 try {
                     const aliased = await resolveAlias(url);
-                    if (aliased && aliased !== url) has = !!(await ArchiveCache.getArticle(aliased));
+                    if (aliased && aliased !== url) has = await ArchiveCache.hasArticle(aliased);
                 } catch (_) { /* absent */ }
             }
             if (has) delBtn.hidden = false;
