@@ -167,8 +167,12 @@ export function citedMemberOrder(brief, memberIndex) {
  * they nest under their canonical Sources entry. `provenance`
  * ({npub, pubkeyHex, relays}) turns on the self-locating header; an
  * unresolved field renders a visible placeholder, never nothing.
+ * `coverage` ({analyzed, failed}) discloses a PARTIAL run on its face
+ * (P6/P12): when fewer members were analyzed than captured, the intro
+ * says so — the un-analyzed sources are absent from the synthesis and
+ * the header must not read as if they were covered.
  */
-export function renderCaseBriefMarkdown(brief, { caseName, scopeQuestion, memberCount, memberIndex, entitySummary, provenance } = {}) {
+export function renderCaseBriefMarkdown(brief, { caseName, scopeQuestion, memberCount, memberIndex, entitySummary, provenance, coverage } = {}) {
     const b = publishableBrief(brief);
     // Citation numbering — positions cite by [N], the Sources list at the
     // end resolves each. Same order the on-screen brief uses.
@@ -231,7 +235,18 @@ export function renderCaseBriefMarkdown(brief, { caseName, scopeQuestion, member
     const citeNote = citedOrder.length
         ? ' Positions cite their sources by number — the full list is under **Sources** at the end.'
         : '';
-    lines.push(`*A synthesis of ${n} captured source${n === 1 ? '' : 's'}${scope}.${collapseNote} Every quote below is`
+    // Partial-run disclosure (P6/P12): when the model analyzed fewer
+    // than all captured members, the un-analyzed ones are absent from
+    // everything below — say so, rather than let "N captured sources"
+    // imply N were synthesized. `analyzed`/`failed` come from the
+    // stored run record; only emit when analyzed is known and < n.
+    const analyzed = coverage && Number.isFinite(coverage.analyzed) ? coverage.analyzed : null;
+    const unanalyzed = analyzed != null ? n - analyzed : 0;
+    const coverageNote = (analyzed != null && unanalyzed > 0)
+        ? ` Of these, ${analyzed} ${analyzed === 1 ? 'was' : 'were'} analyzed for this synthesis;`
+            + ` ${unanalyzed} could not be processed and ${unanalyzed === 1 ? 'is' : 'are'} absent from the sections below.`
+        : '';
+    lines.push(`*A synthesis of ${n} captured source${n === 1 ? '' : 's'}${scope}.${coverageNote}${collapseNote} Every quote below is`
         + ` verbatim from a captured source — open the linked source to read it in context.${citeNote} Compiled with`
         + ` [X-Ray](${XRAY_URL}); this is a map of the disagreement, **not** a ruling.*`);
     lines.push('');
@@ -415,7 +430,8 @@ export function buildCaseBriefArticle({
     if (!record || !record.brief) throw new Error('buildCaseBriefArticle: record.brief is required');
     const caseId = record.caseId;
     const body = renderCaseBriefMarkdown(record.brief, {
-        caseName, scopeQuestion, memberCount: record.members, memberIndex, entitySummary
+        caseName, scopeQuestion, memberCount: record.members, memberIndex, entitySummary,
+        coverage: { analyzed: record.analyzed, failed: record.failed }
     });
     const tags = [
         ['d', caseBriefDTag(caseId)],

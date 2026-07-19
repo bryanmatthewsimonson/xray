@@ -506,10 +506,17 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
             if (!record || !record.brief) return;
             const g = record.grounding || { checked: 0, dropped: 0 };
             const stale = record.inputHash && record.inputHash !== liveHash;
+            // Members line discloses a partial run on its face (P6):
+            // "141/147 members analyzed" when some failed, else just the
+            // count — matches the exported/published brief's coverage note.
+            const totalMembers = record.members != null ? record.members : members.length;
+            const membersLabel = (Number.isFinite(record.analyzed) && record.analyzed < totalMembers)
+                ? `${record.analyzed}/${totalMembers} members analyzed`
+                : `${totalMembers} members`;
             const prov = el('div', 'xr-synth__prov',
                 `${record.model || 'model'} · ${record.promptVersion || CORPUS_PROMPT_VERSION} · `
                 + `${g.checked} quote${g.checked === 1 ? '' : 's'} checked, ${g.dropped} dropped · `
-                + `${(record.members || members.length)} members`);
+                + membersLabel);
             if (stale) {
                 const chip = el('span', 'xr-badge xr-badge--warn', 'stale — corpus changed since this brief');
                 prov.appendChild(chip);
@@ -550,7 +557,8 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                 try { relays = await resolveRelays(); } catch (_) { /* placeholder renders */ }
                 const md = renderCaseBriefMarkdown(record.brief, {
                     caseName, scopeQuestion, memberCount: record.members, memberIndex: memberByHash, entitySummary,
-                    provenance: { npub, pubkeyHex, relays }
+                    provenance: { npub, pubkeyHex, relays },
+                    coverage: { analyzed: record.analyzed, failed: record.failed }
                 });
                 downloadFile(`case-brief-${fileSlug(caseName)}.md`, md, 'text/markdown');
             });

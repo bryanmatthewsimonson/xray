@@ -315,3 +315,37 @@ test('parseCaseBriefEvent: round-trips the structured event', () => {
     // a non-30068 event is rejected.
     assert.equal(parseCaseBriefEvent({ kind: 30023, content: '{}', tags: [] }), null);
 });
+
+test('renderCaseBriefMarkdown: partial-run coverage disclosed on its face (P6/P12)', () => {
+    // 9 captured, 8 analyzed, 1 failed → the intro must say so.
+    const md = renderCaseBriefMarkdown(RECORD.brief, {
+        caseName: 'X', memberCount: 9, memberIndex: MEMBER_INDEX,
+        coverage: { analyzed: 8, failed: 1 }
+    });
+    assert.ok(md.includes('A synthesis of 9 captured sources.'), 'total captured count kept');
+    assert.ok(md.includes('8 were analyzed for this synthesis; 1 could not be processed and is absent from the sections below'),
+        'discloses analyzed-vs-total and that the rest are absent');
+    // Full coverage → no note.
+    const full = renderCaseBriefMarkdown(RECORD.brief, {
+        caseName: 'X', memberCount: 9, memberIndex: MEMBER_INDEX, coverage: { analyzed: 9, failed: 0 }
+    });
+    assert.ok(!full.includes('could not be processed'), 'no partial note when all analyzed');
+    // Absent coverage → unchanged header (back-compat).
+    const bare = renderCaseBriefMarkdown(RECORD.brief, { caseName: 'X', memberCount: 9, memberIndex: MEMBER_INDEX });
+    assert.ok(!bare.includes('could not be processed'), 'no note without a coverage arg');
+    // Plural agreement for many-failed (the COVID shape: 147 / 141).
+    const many = renderCaseBriefMarkdown(RECORD.brief, {
+        caseName: 'X', memberCount: 147, memberIndex: MEMBER_INDEX, coverage: { analyzed: 141 }
+    });
+    assert.ok(many.includes('141 were analyzed for this synthesis; 6 could not be processed and are absent'),
+        'derives the unanalyzed count and agrees in plural');
+    // Firewall holds.
+    assert.ok(!/score|verdict|\d+\s*%|\d+\s*\/\s*100/i.test(md), 'no score/verdict/percentage');
+});
+
+test('buildCaseBriefArticle: the published article carries the partial-run disclosure too', () => {
+    const partialRecord = { ...RECORD, members: 9, analyzed: 8, failed: 1 };
+    const ev = buildCaseBriefArticle({ record: partialRecord, caseName: 'X', memberIndex: MEMBER_INDEX, userPubkey: PUB, createdAt: 1000 });
+    assert.ok(ev.content.includes('8 were analyzed for this synthesis; 1 could not be processed'),
+        'publish path is honest about coverage, not just the local export');
+});
