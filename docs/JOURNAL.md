@@ -19,6 +19,37 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-18 — Publish routed Local signing through a (missing) source tab
+
+**Tags:** bug
+
+Publishing an imported EPUB chapter (and, generally, any capture opened from the
+portal — transcript import, case view) to NOSTR failed with **"Source tab
+unreachable (likely closed)"** even under **Local** signing, which needs no page
+at all.
+
+Two conflated assumptions:
+1. `xray:reader:open` recorded `sourceTabId = sender.tab.id` for **every** opener.
+   For the genuine capture path the sender is the content script (a real web page
+   with the NIP-07 bridge) — correct. But the portal openers are **extension
+   pages**; their tab has no bridge, yet its id got recorded as the "source tab".
+2. `handleCapturePublish` / the `getPubkey` handler branched on **whether a tab id
+   was present**, not on the signing **method** — so a non-null (but bridge-less)
+   tab id forced a `chrome.tabs.sendMessage(..., 'xray:sign')` that no one answers.
+
+Routing through the source tab is a **NIP-07-only** requirement (`window.nostr`
+lives in the page); Local and NSecBunker sign in the worker via the `Signer`
+façade. Fix: (a) `Signer.methodRequiresPageContext(method)` (= `method==='nip07'`)
+now gates tab-routing in both handlers — Local/NSecBunker always sign in the SW,
+so tabless captures publish fine; (b) `xray:reader:open` records a `sourceTabId`
+only for a genuine web-page sender (`sender.url` outside the extension origin),
+so portal opens are tabless by construction. A NIP-07 method with no page falls
+to the façade and gets the clear "needs a web page — switch to Local" message
+instead of a misleading tab error. See `src/shared/signer.js`,
+`src/background/index.js` (`xray:reader:open`, `xray:capture:getPubkey`,
+`handleCapturePublish`). Pre-signed entity events (`xray:relay:publish`) were
+never affected.
+
 ## 2026-07-18 — Book ingestion (EPUB), slice 3: the import flow + entry point
 
 **Tags:** design
