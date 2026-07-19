@@ -68,6 +68,9 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
         throw new Error(`Entity ${caseEntityId} is not a case (type: ${caseEntity.type})`);
     }
 
+    // Articles resolve FIRST so the union orbit walk (tag ∪ claim,
+    // CW.3) shares the injected set — IDB-free callers stay IDB-free.
+    const articles = options.articles ?? await listArticles();
     const [allClaims, allEntities, allLinks, allPropositions, allVerdicts,
            allIntegrity, canon, orbitEntityIds] = await Promise.all([
         ClaimModel.getAll(),
@@ -77,10 +80,9 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
         VerdictModel.list(),
         IntegrityModel.list(),
         makeClaimRefCanonicalizer(),
-        collectCaseEntityIds(caseEntityId)
+        collectCaseEntityIds(caseEntityId, { articles })
     ]);
 
-    const articles    = options.articles    ?? await listArticles();
     const predictions = options.predictions ?? await listPredictions();
     const resolutions = options.resolutions ?? await listResolutions();
     const auditRuns   = options.auditRuns   ?? await listRuns();

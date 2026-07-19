@@ -31,11 +31,14 @@ import { listArticles, getArticle, saveArticle } from './archive-cache.js';
  * `claimUrls` (a claim's `about` names a family member). Both are
  * normalized. `familyIds` is the case's alias family.
  */
-export async function memberUrlSets(caseEntityId) {
+export async function memberUrlSets(caseEntityId, { articles: injectedArticles } = {}) {
+    // `articles` is injectable so IDB-free callers (the dossier
+    // assembler's tests inject their article set) can reuse THE union
+    // membership definition without touching the archive cache.
     const [entities, allClaims, articles] = await Promise.all([
         EntityModel.getAll(),
         ClaimModel.getAll(),
-        listArticles()
+        injectedArticles ? Promise.resolve(injectedArticles) : listArticles()
     ]);
     const family = await EntityModel.aliasFamily(caseEntityId, entities);
     const familyIds = new Set((family && family.ids && family.ids.length) ? family.ids : [caseEntityId]);

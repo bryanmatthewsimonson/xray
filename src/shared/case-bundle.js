@@ -15,23 +15,30 @@
 // side's bundle and re-tag).
 
 import { Storage } from './storage.js';
+import { Utils } from './utils.js';
 import { ClaimModel } from './claim-model.js';
 import { EntityModel, ENTITY_TYPES } from './entity-model.js';
 import { LocalKeyManager } from './local-key-manager.js';
+import { memberUrlSets } from './case-membership.js';
+import { listArticles } from './archive-cache.js';
 
 export const CASE_BUNDLE_FORMAT = 'xray-case-bundle';
 export const CASE_BUNDLE_VERSION = 1;
 
 /**
- * Every entity id in the case's orbit: the case itself, every entity
- * a claim about the case is `about`, entity claim sources, and the
+ * The CLAIM-mediated orbit only: the case itself, every entity a
+ * claim about the case is `about`, entity claim sources, and the
  * canonical targets of any of those (aliases must travel with their
  * canonical or the importer's alias graph dangles).
  *
- * Exported as THE definition of case-orbit membership — the dossier
- * assembler (`case-dossier.js`, CD.1) walks the same orbit.
+ * This narrow walk deliberately remains the BUNDLE's orbit: the
+ * bundle exports entity PRIVATE KEYS, and widening what one click
+ * hands over from ~a handful to the full tag-union (hundreds on a
+ * real case) is its own decision (CASE_WORKSPACE_KICKOFF §6 Q2 —
+ * unresolved). Do not point the bundle at the union without a scope
+ * selector + a count in its confirm.
  */
-export async function collectCaseEntityIds(caseEntityId) {
+export async function collectClaimOrbitEntityIds(caseEntityId) {
     const ids = new Set([caseEntityId]);
     const claims = Object.values(await ClaimModel.getAll())
         .filter((c) => (c.about || []).includes(caseEntityId));
@@ -49,6 +56,45 @@ export async function collectCaseEntityIds(caseEntityId) {
 }
 
 /**
+ * Every entity id in the case's orbit under the Phase-20.1 UNION
+ * membership (tag OR claim) — THE definition of case-orbit
+ * membership, now finally matching `case-membership.js`'s
+ * `memberUrlSets`: the claim walk above, plus every entity TAGGED on
+ * a member article (an article is a member if the case's alias family
+ * tags it or a claim about the family sources it), plus the alias
+ * family itself and the canonical closure.
+ *
+ * Before this widening a tag-built case (the real COVID workspace: 49
+ * member articles, zero claims `about` the case) had an orbit of ONE
+ * entity — itself (CASE_WORKSPACE_KICKOFF §1.5). The dossier/graph
+ * read this; the bundle deliberately does NOT (see above).
+ *
+ * `articles` is injectable (archive-record list) so IDB-free callers
+ * can pass their own set; absent, the archive cache is read.
+ */
+export async function collectCaseEntityIds(caseEntityId, { articles } = {}) {
+    const ids = new Set(await collectClaimOrbitEntityIds(caseEntityId));
+    const arts = articles ?? await listArticles();
+    const { familyIds, tagUrls, claimUrls } = await memberUrlSets(caseEntityId, { articles: arts });
+    for (const id of familyIds) ids.add(id);
+    const memberUrls = new Set([...tagUrls, ...claimUrls]);
+    for (const rec of arts) {
+        if (!rec || !rec.url) continue;
+        if (!memberUrls.has(Utils.normalizeUrl(rec.url))) continue;
+        for (const e of (rec.article && rec.article.entities) || []) {
+            if (e && e.entity_id) ids.add(e.entity_id);
+        }
+    }
+    // Canonical closure over the widened set (depth ≤ 1 by design).
+    const all = await Storage.get('entities', {});
+    for (const id of [...ids]) {
+        const rec = all[id];
+        if (rec && rec.canonical_id) ids.add(rec.canonical_id);
+    }
+    return [...ids];
+}
+
+/**
  * Build the shareable bundle for a case. Returns the plain object;
  * `buildCaseBundleJson` serializes it.
  */
@@ -56,7 +102,8 @@ export async function collectCaseBundle(caseEntityId) {
     const caseEntity = await EntityModel.get(caseEntityId);
     if (!caseEntity) throw new Error(`Entity not found: ${caseEntityId}`);
 
-    const ids = await collectCaseEntityIds(caseEntityId);
+    // NARROW orbit on purpose — the bundle ships private keys (Q2).
+    const ids = await collectClaimOrbitEntityIds(caseEntityId);
     const entities = [];
     for (const id of ids) {
         const e = await EntityModel.get(id);
