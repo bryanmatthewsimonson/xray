@@ -12,6 +12,21 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Batch URL import (Phase 28.1).** A new **Import URLs…** panel —
+  on the case view (tags every import into the case) and the portal
+  header (library-only) — batch-captures a pasted URL list without a
+  tab per page: paste plain lines or a whole markdown worksheet (links
+  are parsed out), and each page is fetched from the extension page
+  (the reader's remote-PDF fetch precedent), extracted with the same
+  Readability path a live capture uses, archived with the canonical
+  precomputed hash, and tagged into the case. Per-row live status;
+  failures never stop the batch; re-runs are idempotent
+  ("already archived", no re-fetch). Paywalled/thin extractions import
+  **with a "thin" flag** (a real capture, honestly marked); PDF
+  responses are skipped toward the reader's "Open a PDF by URL" path.
+  No LLM in this slice. New shared module `src/shared/url-import.js`
+  (+16 tests).
+
 - **Case dashboard — cross-article claim links + clearer vocabulary
   (Phase 26 prep, T1.3).** The claims list now surfaces the
   **cross-article relationship links** that already existed but were

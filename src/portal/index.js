@@ -24,6 +24,7 @@ import {
 import { buildBuckets, brushRange } from './timeline.js';
 import { el, svgEl, clear, truncate, shortKey } from './dom.js';
 import { mountTranscriptImport } from './import-transcript.js';
+import { mountUrlImport } from './import-urls.js';
 import { mountBookImport } from './import-book.js';
 import { renderEntityView } from './entity-view.js';
 import { renderCaseView } from './case-view.js';
@@ -1138,6 +1139,14 @@ function wireChrome() {
         const importHost = $('#xr-import-host');
         if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
         mountBookImport(importHost, { onDone: () => { boot(); } });
+    });
+
+    // 28.1 — batch-import a pasted URL list (standalone; the case-view
+    // mount tags into the case). Toggle-close like the others.
+    $('#xr-import-urls').addEventListener('click', () => {
+        const importHost = $('#xr-import-host');
+        if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
+        mountUrlImport(importHost, { onDone: null });
     });
 
     $('#xr-resync').addEventListener('click', async () => {
