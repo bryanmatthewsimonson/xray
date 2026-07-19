@@ -93,6 +93,32 @@ test('renderCaseBriefMarkdown: missing member degrades to an unlinked quote', ()
     assert.ok(!md.includes('*Held by:*'), 'no holder links either');
 });
 
+test('renderCaseBriefMarkdown: appendix metadata — outlet/date annotation + People/Organizations index', () => {
+    const memberIndex = {
+        [HASH_A]: { url: 'https://a.example/leak', title: 'The Lab-Leak Case', date: '2021-05-27' },
+        [HASH_B]: { url: 'https://www.b.example/zoo', title: 'The Zoonosis Case' }   // no date
+    };
+    const entitySummary = {
+        people: [{ name: 'Anthony Fauci', claimCount: 3, sourceHashes: [HASH_A] }],
+        orgs: [{ name: 'Wuhan Institute of Virology', claimCount: 5, sourceHashes: [HASH_A, HASH_B] }]
+    };
+    const md = renderCaseBriefMarkdown(RECORD.brief, { caseName: 'X', memberIndex, entitySummary });
+    // Sources annotated with outlet (www. stripped) and date when present.
+    assert.ok(md.includes('1. [The Lab-Leak Case](https://a.example/leak) — a.example · 2021-05-27'), 'source 1: outlet + date');
+    assert.ok(md.includes('2. [The Zoonosis Case](https://www.b.example/zoo) — b.example'), 'source 2: outlet, www stripped, no date');
+    // People + Organizations, each with claim count, source count, and
+    // LINKED citation refs (HASH_A → [1], HASH_B → [2]).
+    assert.ok(md.includes('## People'));
+    assert.ok(md.includes('- **Anthony Fauci** — 3 claims · in 1 source: \\[[1](https://a.example/leak)\\]'), 'person: count + linked ref');
+    assert.ok(md.includes('## Organizations'));
+    assert.ok(md.includes('- **Wuhan Institute of Virology** — 5 claims · in 2 sources: \\[[1](https://a.example/leak)\\], \\[[2](https://www.b.example/zoo)\\]'), 'org: counts + two refs');
+    // Firewall survives the new sections.
+    assert.ok(!/score|verdict|\d+\s*%|\d+\s*\/\s*100/i.test(md), 'no score/verdict/percentage');
+    // Absent entitySummary → no entity sections at all.
+    const bare = renderCaseBriefMarkdown(RECORD.brief, { caseName: 'X', memberIndex });
+    assert.ok(!bare.includes('## People') && !bare.includes('## Organizations'), 'entity index omitted when not supplied');
+});
+
 test('buildCaseBriefArticle: kind 30023, recognizer + d + member a-tags + cross-link', () => {
     const ev = buildCaseBriefArticle({ record: RECORD, caseName: 'COVID origins', memberIndex: MEMBER_INDEX, userPubkey: PUB, createdAt: 1000 });
     assert.equal(ev.kind, 30023);

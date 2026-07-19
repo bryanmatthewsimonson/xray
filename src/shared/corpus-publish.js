@@ -72,6 +72,13 @@ function escapeMd(s) {
     return String(s == null ? '' : s).replace(/[\[\]]/g, '');
 }
 
+/** The publisher/outlet for a source URL — the hostname minus a leading "www.". */
+export function outletFor(url) {
+    try {
+        return new URL(String(url || '')).hostname.replace(/^www\./, '');
+    } catch (_) { return ''; }
+}
+
 /**
  * The distinct RESOLVABLE members the brief cites, in first-appearance
  * order — the citation-numbering backbone. Positions cite their (often
@@ -103,7 +110,7 @@ export function citedMemberOrder(brief, memberIndex) {
  * quotes link back to their source; missing members degrade to an
  * unlinked quote.
  */
-export function renderCaseBriefMarkdown(brief, { caseName, scopeQuestion, memberCount, memberIndex } = {}) {
+export function renderCaseBriefMarkdown(brief, { caseName, scopeQuestion, memberCount, memberIndex, entitySummary } = {}) {
     const b = publishableBrief(brief);
     // Citation numbering — positions cite by [N], the Sources list at the
     // end resolves each. Same order the on-screen brief uses.
@@ -182,14 +189,41 @@ export function renderCaseBriefMarkdown(brief, { caseName, scopeQuestion, member
     }
 
     // Sources — the numbered list the [N] citations resolve to. Full
-    // link text lives here so the prose above stays readable.
+    // link text lives here so the prose above stays readable; each entry
+    // is annotated with its outlet and publication date when known, so a
+    // reader can scan the corpus by source or by date.
     if (citedOrder.length) {
         lines.push('## Sources', '');
         citedOrder.forEach((h, i) => {
             const s = sourceLink(h, memberIndex);
-            lines.push(`${i + 1}. [${escapeMd(s.title)}](${s.url})`);
+            const meta = [outletFor(s.url), (memberIndex[h] || {}).date].filter(Boolean).join(' · ');
+            lines.push(`${i + 1}. [${escapeMd(s.title)}](${s.url})${meta ? ` — ${meta}` : ''}`);
         });
         lines.push('');
+    }
+
+    // People / Organizations — the tagged canonical entities (aliases
+    // folded), each with how many claims concern it and which sources it
+    // appears in: an index that organizes the corpus by entity. A human's
+    // reference document, not a ranking. Omitted when absent.
+    const entIndex = (heading, list) => {
+        if (!Array.isArray(list) || !list.length) return;
+        lines.push(`## ${heading}`, '');
+        for (const e of list) {
+            const nums = (e.sourceHashes || []).map((h) => citeNum.get(h))
+                .filter((num) => num != null).sort((x, y) => x - y);
+            const count = e.claimCount || 0;
+            const bits = [`${count} claim${count === 1 ? '' : 's'}`];
+            if (nums.length) bits.push(`in ${nums.length} source${nums.length === 1 ? '' : 's'}`);
+            let line = `- **${escapeMd(e.name || '(unnamed)')}** — ${bits.join(' · ')}`;
+            if (nums.length) line += `: ${nums.map(citeMd).join(', ')}`;
+            lines.push(line);
+        }
+        lines.push('');
+    };
+    if (entitySummary) {
+        entIndex('People', entitySummary.people);
+        entIndex('Organizations', entitySummary.orgs);
     }
 
     lines.push('---', '',
@@ -224,12 +258,12 @@ function memberRefTags(brief, memberIndex, userPubkey, siblingKind, caseId) {
 // ------------------------------------------------------------------
 
 export function buildCaseBriefArticle({
-    record, caseName, scopeQuestion, memberIndex, userPubkey = null, createdAt = nowSeconds()
+    record, caseName, scopeQuestion, memberIndex, entitySummary = null, userPubkey = null, createdAt = nowSeconds()
 } = {}) {
     if (!record || !record.brief) throw new Error('buildCaseBriefArticle: record.brief is required');
     const caseId = record.caseId;
     const body = renderCaseBriefMarkdown(record.brief, {
-        caseName, scopeQuestion, memberCount: record.members, memberIndex
+        caseName, scopeQuestion, memberCount: record.members, memberIndex, entitySummary
     });
     const tags = [
         ['d', caseBriefDTag(caseId)],

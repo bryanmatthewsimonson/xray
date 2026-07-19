@@ -17,6 +17,7 @@ import { createGroundingIndex } from './quote-grounding.js';
 import { CLAIM_RELATIONSHIPS } from './assessment-taxonomy.js';
 import { walk, obj, str, nullableStr, arr, en } from './schema-walker.js';
 import { deriveArticleRows } from './case-dossier.js';
+import { canonicalIdOf } from './entity-model.js';
 import { MAX_MEMBER_INPUT_CHARS, MAP_PROMPT_VERSION, CORPUS_PROMPT_VERSION } from './corpus-prompts.js';
 
 // ------------------------------------------------------------------
@@ -86,6 +87,83 @@ export async function buildMemberUnits(data, { assessmentsByClaim = {} } = {}) {
         });
     }
     return units;
+}
+
+/**
+ * The appendix's entity index: the tagged CANONICAL people and
+ * organizations, each with the number of claims that concern it and the
+ * member sources it appears in.
+ *
+ * Counting folds the alias family — a claim's `about` id and a source's
+ * tagged entity are both resolved to their canonical id via
+ * `canonicalIdOf` before bucketing, so an alias and its canonical are one
+ * entry. Every bucket key is therefore ALREADY canonical, so the only
+ * gate is "a real, typed person/organization record" (`!e` drops ids with
+ * no record; cases/things/places are omitted). Deliberately does NOT
+ * re-test `e.canonical_id`: a DANGLING alias (canonical_id pointing at a
+ * missing entity) resolves to ITSELF as canonical — its raw canonical_id
+ * is truthy even though it is the family's resolved root, so testing it
+ * would silently drop that entity's already-folded counts.
+ *
+ * `memberByHash[hash].entities` must already be canonical {id,name,type}
+ * (the caller resolves them). Pure over the claim + entity registries.
+ *
+ * @param {object} data          { claimsById, entitiesById }
+ * @param {object} memberByHash  article_hash → { entities:[{id,name,type}] }
+ * @returns {{ people: Array<{name,claimCount,sourceHashes}>, orgs: Array }}
+ */
+export function computeEntitySummary(data, memberByHash) {
+    const entitiesById = (data && data.entitiesById) || {};
+    const claimsById = (data && data.claimsById) || {};
+    const canonOf = (id) => canonicalIdOf(id, entitiesById);
+
+    // claims concerning each canonical entity (dedupe per claim, so a
+    // claim about both an alias and its canonical counts once).
+    const claimCount = new Map();
+    for (const c of Object.values(claimsById)) {
+        const seen = new Set();
+        for (const id of (c && c.about) || []) {
+            const cid = canonOf(id);
+            if (seen.has(cid)) continue;
+            seen.add(cid);
+            claimCount.set(cid, (claimCount.get(cid) || 0) + 1);
+        }
+    }
+
+    // member sources tagged with each canonical entity. The source ids
+    // are canonicalized here too (not just trusted from the caller), so
+    // alias folding holds regardless — a source tagged with both an alias
+    // and its canonical dedupes to one hash under the canonical.
+    const srcHashes = new Map();
+    for (const [hash, m] of Object.entries(memberByHash || {})) {
+        for (const e of (m && m.entities) || []) {
+            if (!e || !e.id) continue;
+            const cid = canonOf(e.id);
+            if (!srcHashes.has(cid)) srcHashes.set(cid, new Set());
+            srcHashes.get(cid).add(hash);
+        }
+    }
+
+    const people = [];
+    const orgs = [];
+    for (const id of new Set([...claimCount.keys(), ...srcHashes.keys()])) {
+        const e = entitiesById[id];
+        if (!e) continue;                                    // no record → can't type it
+        const row = {
+            name: e.name || '(unnamed)',
+            claimCount: claimCount.get(id) || 0,
+            sourceHashes: [...(srcHashes.get(id) || [])]
+        };
+        if (row.claimCount === 0 && row.sourceHashes.length === 0) continue;
+        if (e.type === 'person') people.push(row);
+        else if (e.type === 'organization') orgs.push(row);  // cases/things/places omitted
+    }
+    const byWeight = (a, b) => (b.claimCount - a.claimCount)
+        || (b.sourceHashes.length - a.sourceHashes.length)
+        || a.name.localeCompare(b.name);
+    people.sort(byWeight);
+    orgs.sort(byWeight);
+    return { people, orgs };
 }
 
 /**
