@@ -99,9 +99,14 @@ export function mountUrlImport(host, { caseEntityId = null, onDone } = {}) {
 
     const refresh = () => {
         urls = parseUrlList(textarea.value);
+        // Never a silent no-op: pasted text that yields zero importable
+        // URLs must SAY so — an empty preview beside a disabled Import
+        // button reads as "the button is broken" (2026-07-19).
         preview.textContent = urls.length
             ? `${urls.length} URL${urls.length === 1 ? '' : 's'} detected`
-            : '';
+            : textarea.value.trim()
+                ? 'No importable URLs found — one web address per line (bare "example.com/page" lines are auto-prefixed with https://)'
+                : '';
         importBtn.disabled = running || urls.length === 0;
     };
     textarea.addEventListener('input', refresh);
