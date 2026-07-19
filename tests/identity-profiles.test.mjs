@@ -34,7 +34,8 @@ globalThis.chrome = {
 
 const {
     IdentityProfiles, workspaceBackup, resetWorkspace,
-    WORKSPACE_CLEAR_KEYS, WORKSPACE_KEEP_KEYS, WORKSPACE_DATABASES
+    WORKSPACE_CLEAR_KEYS, WORKSPACE_KEEP_KEYS, WORKSPACE_DATABASES,
+    DERIVED_CACHE_DATABASES
 } = await import('../src/shared/identity-profiles.js');
 const { Storage } = await import('../src/shared/storage.js');
 
@@ -67,6 +68,16 @@ test('WORKSPACE_KEEP_KEYS is pinned exactly', () => {
 
 test('WORKSPACE_DATABASES is pinned exactly', () => {
     assert.deepEqual([...WORKSPACE_DATABASES], ['xray-archive', 'xray-audits', 'xray-events']);
+});
+
+test('DERIVED_CACHE_DATABASES: cleared on reset, never backed up', () => {
+    assert.deepEqual([...DERIVED_CACHE_DATABASES], ['xray-portal', 'xray-network']);
+    // Backup coverage is WORKSPACE_DATABASES; a rebuildable cache in a
+    // backup is dead weight — the two lists must stay disjoint.
+    const backup = new Set(WORKSPACE_DATABASES);
+    for (const name of DERIVED_CACHE_DATABASES) {
+        assert.ok(!backup.has(name), `${name} must not be in the backup list`);
+    }
 });
 
 test('clear and keep lists are disjoint', () => {
@@ -188,7 +199,10 @@ test('resetWorkspace() clears exactly the clear list and keeps the keep list', a
     const deleted = [];
     const result = await resetWorkspace({ idb: { deleteDatabase: (n) => deleted.push(n) } });
     assert.deepEqual(result.cleared, [...WORKSPACE_CLEAR_KEYS]);
-    assert.deepEqual(deleted, [...WORKSPACE_DATABASES]);
+    // Content DBs AND the derived relay caches — a cache that survives
+    // the reset resurfaces the old project's corpus under the new
+    // identity (2026-07-19 incident).
+    assert.deepEqual(deleted, [...WORKSPACE_DATABASES, ...DERIVED_CACHE_DATABASES]);
     for (const k of WORKSPACE_CLEAR_KEYS) {
         assert.equal(await Storage.get(k, null), null, `${k} cleared`);
     }

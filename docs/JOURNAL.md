@@ -19,6 +19,35 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-19 — Fresh workspace kept showing the old corpus in the portal
+
+**Tags:** bug design
+
+After a by-the-book project switch (backup → new identity profile →
+Start fresh workspace), My Archive still rendered the previous
+project's ENTIRE corpus — 13,516 events — under the new signer chip,
+and Full resync didn't fix it. Four causes stacked: (1) `xray-portal`
+is deliberately outside `WORKSPACE_DATABASES` (it doubles as the
+backup-coverage list, and a rebuildable cache in a backup is dead
+weight), so the reset never touched it; (2) `loadRecords()` is
+identity-unscoped — it renders every cached event no matter which
+identities resolved; (3) Full resync's `clearAll()` failure was
+console-only, after which the refetch MERGES into the stale cache and
+looks like it worked; (4) any still-open portal tab re-saves its stale
+in-memory state into the shared cache.
+
+Fix (this commit): a new `DERIVED_CACHE_DATABASES` list
+(`xray-portal`, `xray-network`) that `resetWorkspace()` clears but
+backups still exclude — the two lists are pin-tested disjoint; the
+resync clear failure now renders on the page ("close every other X-Ray
+tab and retry") and aborts instead of refetching into a dirty cache;
+the reset confirm tells the user to close other X-Ray tabs first
+(an open tab's IDB connection defers `deleteDatabase` until it
+closes). This narrows the trap; the class (identity-unscoped reads on
+an out-of-boundary cache) is closed structurally by
+`CASE_BOUND_WORKSPACES_KICKOFF.md` (workspace-namespaced storage —
+the caches join the boundary).
+
 ## 2026-07-19 — `case` means workspace; the model may no longer propose one (CW.1)
 
 **Tags:** design

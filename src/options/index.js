@@ -529,10 +529,13 @@ async function workspaceResetFlow() {
         'CLEARS: entities (+ their keypairs and the entity-sync key), claims, ' +
         'evidence links, assessments, forensic findings, truth adjudications, ' +
         'platform accounts, portal viewer npubs, the archive cache, audit ' +
-        'records (audits cost money to recompute!), and the signed-event ' +
-        'journal.\n\n' +
+        'records (audits cost money to recompute!), the signed-event ' +
+        'journal, and the portal/network relay caches (rebuildable — they ' +
+        'would otherwise keep showing the old project).\n\n' +
         'KEEPS: settings, relays, feature flags, the LLM key, and your saved ' +
         'identities.\n\n' +
+        'Close every other X-Ray tab first — an open portal tab can block ' +
+        'the cache deletion until it closes.\n\n' +
         'A backup will download first. Type RESET to continue.');
     if (typed === null) return;
     if (String(typed).trim().toUpperCase() !== 'RESET') {
