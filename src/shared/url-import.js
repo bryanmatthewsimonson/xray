@@ -109,7 +109,10 @@ export function pickDocMeta(doc) {
  * happens downstream in assembleArticleBody, exactly once), `links`
  * are the outbound citations of the EXTRACTED body, contentType
  * 'article' / platform null (the generic-detection labels). Returns
- * `{ article, thin }` or null when Readability finds no article.
+ * `{ article, thin, text }` or null when Readability finds no
+ * article — `text` is the extracted body text (the 28.2 suggest
+ * substrate; close to what the reader's rendered body yields, and
+ * quote grounding tolerates the residual whitespace differences).
  *
  * DOM-dependent (DOMParser) — the portal page provides it; tests
  * inject a stub `extract` into importUrlList instead.
@@ -150,7 +153,7 @@ export function extractWebArticle({ html, url }) {
         // import, not a live tab (cachedAt records when).
         imported: { via: 'url-import' }
     };
-    return { article, thin: text.length < minChars };
+    return { article, thin: text.length < minChars, text };
 }
 
 /** The ONE hash recipe for an imported web article — identical to the
@@ -200,6 +203,13 @@ async function defaultFetcher(url) {
  *   concurrency  — bounded pool width (default 2 — polite to origins)
  *   onProgress   — orchestrator progress callback, plus per-row
  *                  results as they land via onResult(row)
+ *   onImported   — async callback fired ONLY for imported/thin rows,
+ *                  with { row, article, text } — the 28.2 seam (the
+ *                  suggest pass needs the article + its extracted
+ *                  text; rows alone don't carry them). Awaited inside
+ *                  the worker, so its work shares the pool bound; a
+ *                  throw marks the row's `post` error but never fails
+ *                  the import (the archive row already exists).
  *
  * Resolves to rows in INPUT order:
  *   { url, status: 'imported'|'thin'|'already-archived'|'pdf'|'failed',
@@ -218,7 +228,8 @@ export async function importUrlList(urls, {
     concurrency = 2,
     retryDelayMs = 15000,
     onProgress = () => {},
-    onResult = () => {}
+    onResult = () => {},
+    onImported = null
 } = {}) {
     const list = Array.isArray(urls) ? urls.filter(Boolean) : [];
     const rowByUrl = new Map();
@@ -242,15 +253,22 @@ export async function importUrlList(urls, {
         if (!result || !result.article) {
             return { url, status: 'failed', error: 'no article content found (Readability)' };
         }
-        const { article, thin } = result;
+        const { article, thin, text } = result;
         article._articleHash = await computeWebArticleHash(article);
         await saveArticle({ article, source: 'capture' });
         if (caseEntityId) await addArticlesToCase(caseEntityId, [article.url]);
-        return {
+        const row = {
             url, status: thin ? 'thin' : 'imported',
             title: article.title, articleHash: article._articleHash,
             ...(finalUrl !== url ? { finalUrl } : {})
         };
+        if (typeof onImported === 'function') {
+            // Post-import work (28.2 suggest) rides the same worker slot;
+            // its failure marks the row but never un-imports the article.
+            try { await onImported({ row, article, text: text || '' }); }
+            catch (err) { row.post = (err && err.message) || 'post-import step failed'; }
+        }
+        return row;
     };
 
     await orchestrateModuleRuns({

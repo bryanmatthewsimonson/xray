@@ -925,6 +925,34 @@ DOES cascade edges (the reader flow calls
 
 ---
 
+## 2026-07-19 — Parked suggestions: clear-on-close, keyed by URL (28.2)
+
+`design`. Import-time LLM suggestions park in a new `xray-audits` v4
+store and surface as a reader button. Three calls worth second-guessing:
+
+- **Clear-on-close.** The parked record deletes when its review modal
+  closes — even if the user accepted nothing. This matches the LIVE
+  suggest pass exactly (close the modal, the proposals are gone;
+  re-run to regenerate); keeping unreviewed leftovers around would
+  create a second, stale-able source of truth about "what the model
+  said", and regeneration is one click and one cheap call.
+- **Keyed by article URL,** not hash — the reader knows its URL at
+  load unconditionally; the hash can be dirty/absent mid-edit. A
+  re-import replaces the parked set (latest-wins), which is the right
+  semantics for a regenerated suggestion.
+- **The review button has NO llmAssist gate.** Generation already
+  happened (gated at import time, spend-confirmed); the modal is
+  local, and every Accept still routes through the model firewalls
+  with `llm:<model>` provenance. Gating review on a key would strand
+  parked suggestions if the key were removed — the constitution's
+  human-accept requirement wants that review to HAPPEN.
+
+The reader gained one refactor: the live pass's `openLlmReview` option
+block became `reviewSuggestions(proposals, model)`, shared by both
+paths — one grounding substrate, one accept path, so the two review
+flows cannot drift. Files: `src/shared/audit/audit-cache.js` (v4),
+`src/portal/import-urls.js`, `src/reader/index.js`.
+
 ## 2026-07-19 — URL-list import: identity, thinness, and PDFs (28.1)
 
 `design`. Three second-guessable calls in `shared/url-import.js`:

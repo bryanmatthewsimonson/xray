@@ -1393,6 +1393,10 @@ Network required (real fetches). Use 2–3 easy-tier URLs from
 | P28.f | Include a dead URL (404) | ✅ "✗ failed HTTP 404" on that row; every other row imports; the batch never aborts |
 | P28.g | Open an imported row in the reader | ✅ renders like a normal capture (title/byline/body); Load archive banner logic behaves; the record publishes with the standard 30023 path |
 | P28.h | Portal header ▸ **Import URLs…** (library mount, no case) | ✅ same flow without the case tagging; summary omits "added to case" |
+| P28.i | Import URLs panel with `llmAssist` OFF / on-but-keyless / on+key | ✅ the suggest checkbox is absent / disabled with an Options hint / enabled |
+| P28.j | Check the suggest box ▸ Import 2 URLs | ✅ a spend-confirm names the call count; rows gain "✨ N suggestions — review in the reader"; the summary reports "suggestions parked for N pages" |
+| P28.k | Open a parked page in the reader | ✅ a "✨ Review N suggestions" button appears beside Suggest (even with the key since removed — review needs no gate); clicking opens the SAME review modal as the live pass; Accept routes through the normal model firewalls with `llm:<model>` provenance |
+| P28.l | Close the review modal, reload the reader | ✅ the parked record is gone (the button no longer appears — close = session over, matching the live pass); re-running the import re-parks fresh suggestions |
 
 ---
 

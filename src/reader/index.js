@@ -54,7 +54,10 @@ import { normalize as normalizeUrl } from '../shared/metadata/url-normalizer.js'
 import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
 import { importAuditJson } from '../shared/audit/import.js';
 import { AuditRunModel, PredictionModel, ResolutionModel, staleModules } from '../shared/audit/audit-model.js';
-import { listResolutions as listAuditResolutions } from '../shared/audit/audit-cache.js';
+import {
+    listResolutions as listAuditResolutions,
+    getPendingSuggestions, deletePendingSuggestions
+} from '../shared/audit/audit-cache.js';
 import { assembleAuditBatch } from '../shared/audit/publish-batch.js';
 import { CURRENT_MODULE_VERSIONS, MODULE_NAMES } from '../shared/audit/findings-schemas.js';
 // The lean assembly half only — never audit-prompt.js, whose generated
@@ -2555,9 +2558,21 @@ async function runSuggestPass() {
         toast('The model returned no suggestions for this article.', 'success', 4000);
         return;
     }
-    await openLlmReview({
-        proposals:  resp.proposals,
-        model:      resp.model,
+    await reviewSuggestions(resp.proposals, resp.model);
+}
+
+/**
+ * Open the 14.5.3 review modal over a set of suggest-pass proposals —
+ * shared by the live Suggest button and the 28.2 pending (import-time)
+ * path, so both review flows are ONE code path: same grounding
+ * substrate (the rendered body text), same accept firewalls, same
+ * provenance stamping.
+ */
+async function reviewSuggestions(proposals, model) {
+    const articleText = articleBodyText();
+    return openLlmReview({
+        proposals,
+        model,
         articleText,
         sourceUrl:  state.article.url || '',
         articleHash: claimArticleHash() || '',
@@ -2606,6 +2621,41 @@ async function runSuggestPass() {
         onAccepted: async () => {
             await refreshClaimsBar().catch(() => {});
             await refreshFindingsBar().catch(() => {});
+        }
+    });
+}
+
+/**
+ * Pending import-time suggestions (Phase 28.2): a batch URL import may
+ * have parked a suggest-pass result for this URL. Offer it as a review
+ * button — NO gate (generation already happened; the modal is local
+ * and every Accept still runs the model firewalls). The parked record
+ * clears when the modal closes, matching the live pass's semantics
+ * (close = session over; re-run Suggest to regenerate).
+ */
+async function setupPendingSuggestControl() {
+    const btn = $('#xr-pending-suggest');
+    if (!btn || !state.article || !state.article.url) return;
+    let rec = null;
+    try { rec = await getPendingSuggestions(state.article.url); }
+    catch (_) { rec = null; }
+    if (!rec || !Array.isArray(rec.proposals) || rec.proposals.length === 0) return;
+
+    const n = rec.proposals.length;
+    btn.textContent = `✨ Review ${n} suggestion${n === 1 ? '' : 's'}`;
+    btn.title = `A batch import parked ${n} draft LLM suggestion${n === 1 ? '' : 's'} for this page — `
+        + 'nothing saves without Accept; the parked set clears when the review closes';
+    btn.hidden = false;
+    btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+            await reviewSuggestions(rec.proposals, rec.model || 'unknown');
+            await deletePendingSuggestions(state.article.url);
+            btn.hidden = true;
+        } catch (err) {
+            console.warn('[X-Ray Reader] pending-suggestion review failed:', err);
+        } finally {
+            btn.disabled = false;
         }
     });
 }
@@ -6234,6 +6284,7 @@ async function init() {
     // on; disabled (with a hint) when on but no key — so flag-off OR
     // no-key means zero network calls are possible from here.
     setupSuggestControl().catch((err) => console.warn('[X-Ray Reader] suggest setup failed:', err));
+    setupPendingSuggestControl().catch((err) => console.warn('[X-Ray Reader] pending-suggest setup failed:', err));
 
     // In-extension epistemic auditor (the LLM execution path). Same
     // gating as Suggest; absent unless llmAssist is on. Publishing the

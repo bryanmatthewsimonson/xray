@@ -141,7 +141,8 @@ function fakeExtract({ html, url }) {
             content: `<p>${html}</p>`, contentType: 'article', platform: null,
             entities: [], imported: { via: 'url-import' }
         },
-        thin: html.length < 20
+        thin: html.length < 20,
+        text: html
     };
 }
 
@@ -265,4 +266,37 @@ test('url-import: redirect — the FINAL url is the identity, disclosed on the r
     assert.equal(rows[0].status, 'imported');
     assert.equal(rows[0].finalUrl, finalUrl);
     assert.ok(await getArticle(finalUrl), 'archived under the final url');
+});
+
+test('url-import: onImported fires only for imported/thin rows, with article + text', async () => {
+    _resetForTests();
+    const seen = [];
+    const fetcher = fetcherFromMap({
+        [PAGE(12)]: { ok: true, html: 'A long enough body for a full import.', finalUrl: PAGE(12) },
+        [PAGE(13)]: { ok: false, pdf: true, error: 'PDF response' },
+        [PAGE(14)]: { ok: false, status: 404, error: 'HTTP 404' }
+    });
+    const rows = await importUrlList([PAGE(12), PAGE(13), PAGE(14)], {
+        fetcher, extract: fakeExtract,
+        onImported: async ({ row, article, text }) => { seen.push({ url: row.url, title: article.title, text }); }
+    });
+    assert.equal(seen.length, 1, 'only the imported row');
+    assert.equal(seen[0].url, PAGE(12));
+    assert.equal(seen[0].title, `Title of ${PAGE(12)}`);
+    assert.ok(seen[0].text.length > 0, 'text substrate carried');
+    assert.equal(rows[0].status, 'imported');
+});
+
+test('url-import: a throwing onImported marks row.post but never un-imports', async () => {
+    _resetForTests();
+    const fetcher = fetcherFromMap({
+        [PAGE(15)]: { ok: true, html: 'A long enough body for a full import.', finalUrl: PAGE(15) }
+    });
+    const rows = await importUrlList([PAGE(15)], {
+        fetcher, extract: fakeExtract,
+        onImported: async () => { throw new Error('suggest exploded'); }
+    });
+    assert.equal(rows[0].status, 'imported', 'import status unaffected');
+    assert.equal(rows[0].post, 'suggest exploded');
+    assert.ok(await getArticle(PAGE(15)), 'article stays archived');
 });

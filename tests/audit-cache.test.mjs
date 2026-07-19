@@ -13,7 +13,8 @@ const {
     savePrediction, getPrediction, predictionsByArticleHash, predictionsByStatus,
     saveResolution, getResolution, resolutionsByPredictionCoord,
     saveCaseBrief, getCaseBrief, deleteCaseBrief, listCaseBriefs,
-    saveCorpusExtract, getCorpusExtract, deleteCorpusExtract, listCorpusExtracts, countCorpusExtracts
+    saveCorpusExtract, getCorpusExtract, deleteCorpusExtract, listCorpusExtracts, countCorpusExtracts,
+    savePendingSuggestions, getPendingSuggestions, deletePendingSuggestions, listPendingSuggestions
 } = await import('../src/shared/audit/audit-cache.js');
 
 const HASH_A = 'a'.repeat(64);
@@ -135,4 +136,29 @@ test('corpus-extracts: CRUD keyed by fingerprint, coexists with v1/v2 stores (DB
     await saveCorpusExtract({ key: 'k2', extract: {} });
     await clear();
     assert.equal(await countCorpusExtracts(), 0);
+});
+
+// v4 store — pending import-time suggestions (28.2).
+test('pending-suggestions: CRUD keyed by url, coexists with earlier stores (DB v4)', async () => {
+    await saveRun({ id: 'audit_z', articleHash: HASH_A });   // v1 still works
+    const rec = {
+        url: 'https://site.example/a', articleHash: HASH_B, title: 'A',
+        proposals: [{ kind: 'claim', text: 'x', quote: 'q' }],
+        model: 'claude-test', source: 'url-import', createdAt: 100
+    };
+    await savePendingSuggestions(rec);
+    const got = await getPendingSuggestions('https://site.example/a');
+    assert.equal(got.proposals.length, 1);
+    assert.equal(got.model, 'claude-test');
+    assert.equal((await getRun('audit_z')).articleHash, HASH_A, 'v1 intact after v4 upgrade');
+    // Latest-wins per url (a re-import replaces the parked set).
+    await savePendingSuggestions({ ...rec, proposals: [] });
+    assert.equal((await getPendingSuggestions(rec.url)).proposals.length, 0);
+    assert.equal((await listPendingSuggestions()).length, 1);
+    await deletePendingSuggestions(rec.url);
+    assert.equal(await getPendingSuggestions(rec.url), null);
+    // clear() drops it too.
+    await savePendingSuggestions(rec);
+    await clear();
+    assert.equal(await getPendingSuggestions(rec.url), null);
 });

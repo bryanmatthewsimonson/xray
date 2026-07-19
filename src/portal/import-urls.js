@@ -14,6 +14,7 @@
 import { el } from './dom.js';
 import { Utils } from '../shared/utils.js';
 import { parseUrlList, importUrlList } from '../shared/url-import.js';
+import { savePendingSuggestions } from '../shared/audit/audit-cache.js';
 
 const STATUS_LABEL = {
     'imported':         '✓ imported',
@@ -22,6 +23,13 @@ const STATUS_LABEL = {
     'pdf':              '↷ PDF — open via the reader',
     'failed':           '✗ failed'
 };
+
+function sendMessage(msg) {
+    return new Promise((resolve) => {
+        try { chrome.runtime.sendMessage(msg, (resp) => resolve(resp)); }
+        catch (_) { resolve(null); }
+    });
+}
 
 /**
  * @param {HTMLElement} host
@@ -46,6 +54,27 @@ export function mountUrlImport(host, { caseEntityId = null, onDone } = {}) {
 
     const preview = el('div', 'xr-import__preview');
 
+    // 28.2 — optional suggest-after-import. Auto-RUN, never auto-accept:
+    // suggestions land as pending records reviewed in the reader (the
+    // 14.5.3 modal remains the only path to a saved artifact). Shown
+    // only when llmAssist is on; disabled without a key.
+    const suggestWrap = el('label', 'xr-import__suggest');
+    suggestWrap.hidden = true;
+    const suggestCheck = el('input');
+    suggestCheck.type = 'checkbox';
+    suggestWrap.appendChild(suggestCheck);
+    suggestWrap.appendChild(el('span', 'xr-import__hint',
+        ' Suggest entities & claims for each imported page (LLM) — suggestions wait in the reader for your review; nothing is saved without an Accept.'));
+    (async () => {
+        const cfg = await sendMessage({ type: 'xray:llm:config' });
+        if (!cfg || !cfg.enabled) return;   // flag off ⇒ absent
+        suggestWrap.hidden = false;
+        if (!cfg.hasKey) {
+            suggestCheck.disabled = true;
+            suggestWrap.title = 'Set an Anthropic API key in Options → Advanced → LLM assist';
+        }
+    })();
+
     const importBtn = el('button', 'xr-portal__btn', 'Import');
     importBtn.type = 'button';
     importBtn.disabled = true;
@@ -60,6 +89,7 @@ export function mountUrlImport(host, { caseEntityId = null, onDone } = {}) {
 
     panel.appendChild(textarea);
     panel.appendChild(preview);
+    panel.appendChild(suggestWrap);
     panel.appendChild(actions);
     panel.appendChild(status);
     panel.appendChild(rowsHost);
@@ -78,6 +108,11 @@ export function mountUrlImport(host, { caseEntityId = null, onDone } = {}) {
 
     importBtn.addEventListener('click', async () => {
         if (running || urls.length === 0) return;
+        const suggest = !suggestWrap.hidden && suggestCheck.checked && !suggestCheck.disabled;
+        // Spend confirmation (the corpus-synthesis discipline): the
+        // suggest option sends each imported page's text to Anthropic.
+        if (suggest && !confirm(`Import ${urls.length} URL${urls.length === 1 ? '' : 's'} and suggest artifacts for each?\n\n`
+            + `This sends each successfully imported page's extracted text to Anthropic — up to ${urls.length} calls.`)) return;
         running = true;
         importBtn.disabled = true;
         rowsHost.replaceChildren();
@@ -96,9 +131,35 @@ export function mountUrlImport(host, { caseEntityId = null, onDone } = {}) {
         }
 
         let done = 0;
+        let parked = 0;
         try {
             const rows = await importUrlList(urls, {
                 caseEntityId,
+                // 28.2 — run the reader's suggest pass per imported page
+                // and PARK the proposals for in-reader review. The SW
+                // gates on llmAssist + key; a failure marks the row and
+                // never un-imports the article.
+                onImported: !suggest ? null : async ({ row, article, text }) => {
+                    if (!text || !text.trim()) return;
+                    const resp = await sendMessage({ type: 'xray:llm:suggest', request: {
+                        articleText: text,
+                        articleUrl: article.url || '',
+                        articleTitle: article.title || ''
+                    } });
+                    if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'suggest failed');
+                    if (!Array.isArray(resp.proposals) || resp.proposals.length === 0) return;
+                    await savePendingSuggestions({
+                        url: article.url,
+                        articleHash: article._articleHash || null,
+                        title: article.title || '',
+                        proposals: resp.proposals,
+                        model: resp.model || null,
+                        source: 'url-import',
+                        createdAt: Math.floor(Date.now() / 1000)
+                    });
+                    row.suggestions = resp.proposals.length;
+                    parked += 1;
+                },
                 onProgress: (p) => {
                     if (p.phase === 'done' || p.phase === 'failed') {
                         done += 1;
@@ -118,6 +179,11 @@ export function mountUrlImport(host, { caseEntityId = null, onDone } = {}) {
                     }
                     if (r.error && r.status !== 'pdf') row.appendChild(el('span', 'xr-import__row-err', r.error));
                     if (r.status === 'pdf') row.appendChild(el('span', 'xr-import__row-err', r.error || ''));
+                    if (r.suggestions) {
+                        row.appendChild(el('span', 'xr-import__row-sugg',
+                            `✨ ${r.suggestions} suggestion${r.suggestions === 1 ? '' : 's'} — review in the reader`));
+                    }
+                    if (r.post) row.appendChild(el('span', 'xr-import__row-err', `suggest: ${r.post}`));
                 }
             });
 
@@ -129,7 +195,9 @@ export function mountUrlImport(host, { caseEntityId = null, onDone } = {}) {
                 + (dup ? `, ${dup} already archived` : '')
                 + (pdf ? `, ${pdf} PDF skipped` : '')
                 + (failed ? `, ${failed} failed` : '')
-                + (caseEntityId ? ' · added to case' : '') + '.';
+                + (caseEntityId ? ' · added to case' : '')
+                + (parked ? ` · suggestions parked for ${parked} page${parked === 1 ? '' : 's'} — open each in the reader to review` : '')
+                + '.';
             if (typeof onDone === 'function') onDone();
         } catch (err) {
             Utils.error('URL import failed', err);
