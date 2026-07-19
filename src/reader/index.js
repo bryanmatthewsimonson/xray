@@ -849,14 +849,16 @@ async function hydrateFigureImages(root) {
 }
 
 // Content types whose `markdown` is the canonical substrate and
-// `content` a derived rendering: PDFs (reconstructed markdown) and
-// imported transcripts (speaker-labeled markdown, Phase 21). Hashing
-// the turndown round trip of the derived HTML would fork the capture
-// hash from the published x tag, so these hash + publish over the
-// markdown directly and never flip dirtySource to 'reader' on a tag.
+// `content` a derived rendering: PDFs (reconstructed markdown), imported
+// transcripts (speaker-labeled markdown, Phase 21), and EPUB chapters
+// (markdown extracted from the chapter XHTML). Hashing the turndown round
+// trip of the derived HTML would fork the capture hash from the published
+// x tag, so these hash + publish over the markdown directly and never flip
+// dirtySource to 'reader' on a tag.
 function isMarkdownCanonical(article) {
     return !!(article && article.markdown
-        && (article.contentType === 'pdf' || article.contentType === 'transcript'));
+        && (article.contentType === 'pdf' || article.contentType === 'transcript'
+            || article.contentType === 'epub'));
 }
 
 /**
