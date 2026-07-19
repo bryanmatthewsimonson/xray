@@ -19,6 +19,44 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-19 — `case` means workspace; the model may no longer propose one (CW.1)
+
+**Tags:** design
+
+The LLM Suggest pass kept minting `case` entities for scientific papers
+and court cases ("Proximal Origin paper", "the pending litigation…").
+Root cause (CASE_WORKSPACE_KICKOFF §1.2): the word does three jobs, the
+prompt literally asked for "cases named in the text," and `case` was the
+one type the rules never defined — so the model resolved it to ordinary
+English. Meanwhile the field schema (`entity-field-schemas.js`, all four
+rows `provenance: 'authored'`) and every Phase-20 module had already
+redefined `case` as the researcher's PROJECT. Only the `entity-model.js`
+type comment and the prompt were stale — and `CASE_DOSSIER_DESIGN.md`
+blessed the bug as "consistent with the intent" (now amended).
+
+Fix is CW.1 from the kickoff: `SUGGESTABLE_ENTITY_TYPES` (= ENTITY_TYPES
+minus `case`) drives the tool enum, the rewritten `RULES_ENTITIES` (every
+type now defined; "a SCIENTIFIC PAPER is a thing, never anything else";
+"when in doubt, it is a thing"), the review-modal type select, and a hard
+validator guard with a human-pointing message. The side-panel create form
+remains the sovereign — and only — path to a case.
+
+**Why the type was NOT split** (no `project`/`paper`/`proceeding` type),
+recorded so it isn't re-litigated: (1) the entity type is WIRE-VISIBLE —
+`adopt-entity.js` parses `"<type> entity created by X-Ray"` from published
+kind-0 `about` with a regex built from the live `ENTITY_TYPES`, so a
+rename orphans every published case profile (adopted as the default type
+instead); (2) the type→tag mapping is quadruplicated (`entityTypeToTag`
++ two inline ternaries in `event-builder.js` + `TAG_TO_TYPE`) with only a
+comment guarding sync — a new type that misses one copy falls back to
+`'place'` silently on the wire; (3) `case-bundle.js` import hard-rejects
+unknown types, so a collaborator on an older build silently drops every
+new-typed entity. `ASSESSMENTS_DESIGN.md`'s own compat rule (wire
+vocabulary churn means a migration + republish) now cuts against the
+split. Papers/lawsuits carry their metadata as `thing` fields:
+`thing_type`, `creator`, `created_date`, `custom:journal` /
+`custom:docket` / `custom:court`.
+
 ## 2026-07-19 — Case-brief render fixes (Epistack): four render-layer defects
 
 **Tags:** design

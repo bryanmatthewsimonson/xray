@@ -12,9 +12,15 @@
 > borrowed principles with attribution.
 
 A **case** is an entity (`type: 'case'`) used as a folder: articles,
-claims, entities, and judgments accumulate in its orbit, and on several
-occasions the LLM Suggest pass has proposed court cases as case
-entities — consistent with the intent. This design answers four
+claims, entities, and judgments accumulate in its orbit. *(Amended
+2026-07-19: this paragraph previously blessed the LLM Suggest pass
+proposing court cases as case entities — "consistent with the intent."
+That is superseded: a case is the researcher's own investigation
+workspace, created by a human in the side panel, and the suggest pass
+may propose only person / organization / place / thing —
+`SUGGESTABLE_ENTITY_TYPES` in `llm-prompts.js`. A court case or a
+scientific paper types as `thing`, with `thing_type` / `creator` /
+`custom:*` fields carrying its metadata.)* This design answers four
 questions for one case: how the evidence assembles, how the important
 parts surface without burying the rest, how provenance traces, and what
 actually advances a human's understanding.

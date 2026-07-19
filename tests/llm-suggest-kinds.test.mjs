@@ -81,3 +81,29 @@ test('facts: the prompt rules carry the design-verbatim extraction ban', () => {
     // And it stays OUT of the default scope.
     assert.ok(!/ENTITY FACTS/.test(buildSystemPrompt({ tasks: ['entities', 'claims'] })));
 });
+
+// --- Case is the researcher's workspace, never a suggestion (CW.1) ----------
+
+test('case-workspace: SUGGESTABLE_ENTITY_TYPES is ENTITY_TYPES minus case — and ENTITY_TYPES itself is untouched', async () => {
+    const { SUGGESTABLE_ENTITY_TYPES, buildSuggestTool } = await import('../src/shared/llm-prompts.js');
+    const { ENTITY_TYPES } = await import('../src/shared/entity-model.js');
+    assert.deepEqual([...SUGGESTABLE_ENTITY_TYPES], ['person', 'organization', 'place', 'thing']);
+    assert.ok(!SUGGESTABLE_ENTITY_TYPES.includes('case'), 'the model may not mint a workspace');
+    // The wire vocabulary keeps `case` — it is parsed back from published
+    // kind-0 `about` text (adopt-entity.js); only the SUGGEST surface narrows.
+    assert.deepEqual([...ENTITY_TYPES], ['person', 'organization', 'place', 'thing', 'case']);
+    // The tool schema offers only the suggestable subset.
+    const tool = buildSuggestTool();
+    const enumTypes = tool.input_schema.properties.proposals.items.properties.entity_type.enum;
+    assert.deepEqual([...enumTypes], ['person', 'organization', 'place', 'thing']);
+});
+
+test('case-workspace: the entity rules define every type and forbid proposing a case', () => {
+    const p = buildSystemPrompt({ tasks: ['entities'] });
+    assert.ok(!/cases named in the text/.test(p), 'the old case-minting instruction is gone');
+    assert.match(p, /A SCIENTIFIC PAPER is a thing/, 'paper→thing stated explicitly');
+    assert.match(p, /LAWSUIT or COURT CASE is a thing/, 'lawsuit→thing stated explicitly');
+    assert.match(p, /When in doubt, it is a thing/, 'the fallback rule rides');
+    assert.match(p, /never propose one/, 'the workspace refusal is explicit');
+    assert.match(p, /person: a named human being/, 'every suggestable type is defined');
+});
