@@ -128,16 +128,35 @@ export function normalizeProposals(raw) {
         const kind = String(p.kind || '').trim();
         if (!PROPOSAL_ORDER.includes(kind)) return;
         const item = { ...p, kind, pid: `p${i}`, ref: p.ref ? String(p.ref) : '' };
+        if (kind === 'entity') {
+            // "When in doubt, it is a thing" — the prompt's own fallback,
+            // applied mechanically. Strict tool mode is off (only `kind`
+            // is required in the schema), so a model can omit entity_type
+            // on ambiguous names (named cohort studies were the live
+            // case) — that used to dead-end the row on the type error
+            // until the human re-typed it in Edit. Default it instead,
+            // KEEP the model's original value, and flag the row so the
+            // human sees the default BEFORE accepting. A valid but cased
+            // value only normalizes, unflagged.
+            const t = String(item.entity_type || '').trim().toLowerCase();
+            if (SUGGESTABLE_ENTITY_TYPES.includes(t)) {
+                item.entity_type = t;
+            } else {
+                item.type_original = item.entity_type ? String(item.entity_type) : null;
+                item.entity_type = 'thing';
+                item.type_defaulted = true;
+            }
+        }
         byKind[kind].push(item);
         all.push(item);
         if (kind === 'entity' && item.ref) {
             entityRefs.add(item.ref);
             entityLabelByRef[item.ref] = String(p.name || '').trim();
             // Fact validation needs the subject's TYPE (the field
-            // registry); the proposal's declared type is the initial
-            // answer, refreshed at accept when "use existing" picks a
-            // registry record.
-            entityTypeByRef[item.ref] = ENTITY_TYPES.includes(p.entity_type) ? p.entity_type : null;
+            // registry); the proposal's declared (post-default) type is
+            // the initial answer, refreshed at accept when "use
+            // existing" picks a registry record.
+            entityTypeByRef[item.ref] = item.entity_type;
         }
         // Deliberately: only CLAIM refs register into claimRefs — a
         // fact's ref ("F1") is not a claim ref other kinds may target.

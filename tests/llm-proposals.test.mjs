@@ -791,3 +791,28 @@ test('validateProposal: a `thing` entity (paper / lawsuit) is accepted', () => {
     const v = P.validateProposal({ kind: 'entity', name: 'Proximal Origin paper', entity_type: 'thing' });
     assert.equal(v.ok, true);
 });
+
+test('normalizeProposals: missing/unknown entity_type defaults to thing, flagged, original kept (when-in-doubt rule)', () => {
+    const n = P.normalizeProposals([
+        { kind: 'entity', ref: 'E1', name: 'HPFS' },                          // omitted entirely
+        { kind: 'entity', ref: 'E2', name: 'EPIC', entity_type: 'study' },    // model-invented value
+        { kind: 'entity', ref: 'E3', name: 'Miller v. Bonta', entity_type: 'case' },   // unsuggestable
+        { kind: 'entity', ref: 'E4', name: 'Frank Hu', entity_type: 'Person' }         // valid, just cased
+    ]);
+    const [e1, e2, e3, e4] = n.byKind.entity;
+    assert.equal(e1.entity_type, 'thing');
+    assert.equal(e1.type_defaulted, true);
+    assert.equal(e1.type_original, null, 'omitted type recorded as null original');
+    assert.equal(e2.entity_type, 'thing');
+    assert.equal(e2.type_original, 'study', 'the model\'s own value is preserved for display');
+    assert.equal(e3.entity_type, 'thing');
+    assert.equal(e3.type_original, 'case', 'case coerces to thing — visibly, per the CW.1 rule');
+    assert.equal(e4.entity_type, 'person', 'valid types only normalize casing');
+    assert.ok(!e4.type_defaulted, 'a normalized valid type is never flagged');
+    // Defaulted rows now pass the validator instead of dead-ending the review.
+    assert.equal(P.validateProposal(e1, {}).ok, true);
+    assert.equal(P.validateProposal(e3, {}).ok, true);
+    // Fact validation sees the post-default type.
+    assert.equal(n.entityTypeByRef.E1, 'thing');
+    assert.equal(n.entityTypeByRef.E4, 'person');
+});

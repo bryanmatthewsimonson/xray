@@ -179,8 +179,9 @@ export function buildSuggestTool() {
                             },
                             entity_type: {
                                 type: 'string', enum: SUGGESTABLE_ENTITY_TYPES,
-                                description: 'Entity type (kind=entity). Papers, lawsuits, books, '
-                                    + 'products, reports are "thing" — never propose a case.'
+                                description: 'Entity type (kind=entity) — always set it. Papers, lawsuits, '
+                                    + 'books, products, reports, and named studies/cohorts are "thing" — '
+                                    + 'never propose a case. If unsure, use "thing".'
                             },
                             mention: {
                                 type: 'string',
@@ -399,7 +400,7 @@ ENTITIES (people / organizations / places / things named in the text):
   - person: a named human being.
   - organization: a named institution, company, agency, court, lab, publication, or movement.
   - place: a named geographic or physical location.
-  - thing: anything else with a name — a scientific paper, a lawsuit or court case, a book, a study, a product, a report, a policy, a dataset, an event. When in doubt, it is a thing.
+  - thing: anything else with a name — a scientific paper, a lawsuit or court case, a book, a study or named cohort, a product, a report, a policy, a dataset, an event. When in doubt, it is a thing.
 - A SCIENTIFIC PAPER is a thing, never anything else. A LAWSUIT or COURT CASE is a thing. In X-Ray, "case" names the researcher's own investigation workspace — it is never named inside an article, it is not in your type list, and you must never propose one.`;
 
 function rulesClaims() {

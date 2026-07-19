@@ -251,7 +251,12 @@ export async function openLlmReview(opts) {
             const p = row.prop;
             switch (row.kind) {
                 case 'entity': {
-                    const base = `${escapeHtml(p.name || '(unnamed)')} <span class="xr-llm__dim">· ${escapeHtml(p.entity_type || '?')}</span>`;
+                    // A mechanically-defaulted type is disclosed on the
+                    // row — the human sees it before any Accept.
+                    const typeNote = p.type_defaulted
+                        ? ` — type defaulted${p.type_original ? ` from “${escapeHtml(String(p.type_original))}”` : ' (model omitted it)'}`
+                        : '';
+                    const base = `${escapeHtml(p.name || '(unnamed)')} <span class="xr-llm__dim">· ${escapeHtml(p.entity_type || '?')}${typeNote}</span>`;
                     const mention = quoteHtml(p.mention, { max: 80 });
                     let dedupe = '';
                     if (row.status === 'pending' && row.entityMatches && row.entityMatches.length) {
@@ -493,6 +498,12 @@ export async function openLlmReview(opts) {
                 } else {
                     if (String(row.prop[f.key] ?? '') !== input.value) { row.prop[f.key] = input.value; changed.add(f.key); }
                 }
+            }
+            // A human-chosen type supersedes the mechanical default —
+            // drop the marker so the row reads as their decision.
+            if (changed.has('entity_type')) {
+                delete row.prop.type_defaulted;
+                delete row.prop.type_original;
             }
             // Provenance honesty: a substantive (content) edit makes the
             // artifact the user's. A quote-only edit does NOT — the
