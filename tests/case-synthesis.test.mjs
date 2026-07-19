@@ -313,3 +313,27 @@ test('case-synthesis: computeEntitySummary — canonical fold, per-claim dedup, 
     assert.ok(!allNames.includes('Origin of Covid') && !allNames.includes('DEFUSE'), 'case/thing excluded');
     assert.ok(!people.some((e) => e.name === 'Dr. Fauci'), 'the alias never appears as its own entry');
 });
+
+test('case-synthesis: foldMemberAliases collapses same-hash captures to one entry with aliases — content hash is the ONLY key (P4/P9)', () => {
+    const members = [
+        { article_hash: 'H1', url: 'https://drive.google.com/file/d/abc123def456/view', title: 'Judge decision (view)' },
+        { article_hash: 'H2', url: 'https://example.org/other', title: 'Other article' },
+        { article_hash: 'H1', url: 'https://drive.google.com/uc?export=download&id=abc123def456', title: 'Judge decision (download)' }
+    ];
+    const folded = CS.foldMemberAliases(members);
+    assert.equal(folded.size, 2, 'two distinct artifacts remain');
+    const h1 = folded.get('H1');
+    assert.equal(h1.member.url, 'https://drive.google.com/file/d/abc123def456/view', 'the FIRST capture (unit order) is canonical');
+    assert.deepEqual(h1.aliases, [{ url: 'https://drive.google.com/uc?export=download&id=abc123def456', title: 'Judge decision (download)' }],
+        'the re-capture folds in as an alias, not a member');
+    assert.deepEqual(folded.get('H2').aliases, [], 'a singleton has no aliases');
+    // No semantic/near-duplicate dedup: DIFFERENT hashes never merge,
+    // whatever their URLs look like.
+    const distinct = CS.foldMemberAliases([
+        { article_hash: 'H3', url: 'https://example.org/a', title: 'A' },
+        { article_hash: 'H4', url: 'https://example.org/a', title: 'A (recaptured, text changed)' }
+    ]);
+    assert.equal(distinct.size, 2, 'same URL with differing content stays two artifacts');
+    // hashless/null units are skipped, never grouped together.
+    assert.equal(CS.foldMemberAliases([{ url: 'https://x.example' }, null]).size, 0);
+});

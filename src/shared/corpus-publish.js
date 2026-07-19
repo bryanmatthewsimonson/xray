@@ -80,6 +80,60 @@ export function outletFor(url) {
 }
 
 /**
+ * Conservative same-underlying-file key for a URL, or null. Recognizes
+ * exactly one identity today: a Google-Drive/Docs file id — the
+ * view-URL and download-URL of one Drive file share it. Deliberately
+ * NOT a general URL normalizer, and deliberately narrow: when two
+ * DIFFERENT-content captures share this key, the render may HINT that
+ * they could be one underlying file, but it never merges them (content
+ * addressing governs — differing text is a different artifact, P4/P9)
+ * and never asserts or denies independence (P5/P8).
+ */
+export function underlyingFileKey(url) {
+    try {
+        const u = new URL(String(url || ''));
+        if (!/(^|\.)(drive|docs)\.google\.com$/.test(u.hostname)) return null;
+        const m = u.pathname.match(/\/(?:file|document|presentation|spreadsheets)\/d\/([\w-]{10,})/);
+        if (m) return `gdrive:${m[1]}`;
+        const id = u.searchParams.get('id');
+        if (id && id.length >= 10) return `gdrive:${id}`;
+        return null;
+    } catch (_) { return null; }
+}
+
+/**
+ * Associate each coverage-gap finding with the ONE position whose label
+ * it names, so the caveat can render beside the position it qualifies
+ * (P5/P8 — a gap about a position rendered hundreds of lines away reads
+ * as false balance). Pure placement over EXISTING brief data: matching
+ * is a conservative normalized-substring test of the position label in
+ * the gap text — nothing is added, ranked, or adjudicated. A gap that
+ * names zero or MULTIPLE positions stays general (a cross-position
+ * caveat is not position-adjacent).
+ *
+ * @returns {{byPosition: string[][], general: string[]}} byPosition is
+ *   index-aligned with brief.positions.
+ */
+export function matchCoverageGapsToPositions(brief) {
+    const b = brief || {};
+    const norm = (s) => ` ${String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `;
+    const positions = Array.isArray(b.positions) ? b.positions : [];
+    const labels = positions.map((p) => norm(p && p.label));
+    const byPosition = positions.map(() => []);
+    const general = [];
+    for (const gap of b.coverage_gaps || []) {
+        const g = norm(gap);
+        const hits = [];
+        labels.forEach((label, i) => {
+            if (label.trim() && g.includes(label)) hits.push(i);
+        });
+        if (hits.length === 1) byPosition[hits[0]].push(gap);
+        else general.push(gap);
+    }
+    return { byPosition, general };
+}
+
+/**
  * The distinct RESOLVABLE members the brief cites, in first-appearance
  * order — the citation-numbering backbone. Positions cite their (often
  * dozens of) holders by number to keep the prose readable, and a Sources
@@ -108,9 +162,13 @@ export function citedMemberOrder(brief, memberIndex) {
  * Render the brief to a readable markdown article body. Deterministic
  * and prose-only. `memberIndex` maps article_hash → {url, title} so
  * quotes link back to their source; missing members degrade to an
- * unlinked quote.
+ * unlinked quote. A memberIndex entry may carry `aliases`
+ * ([{url,title}] — same-content captures folded by foldMemberAliases);
+ * they nest under their canonical Sources entry. `provenance`
+ * ({npub, pubkeyHex, relays}) turns on the self-locating header; an
+ * unresolved field renders a visible placeholder, never nothing.
  */
-export function renderCaseBriefMarkdown(brief, { caseName, scopeQuestion, memberCount, memberIndex, entitySummary } = {}) {
+export function renderCaseBriefMarkdown(brief, { caseName, scopeQuestion, memberCount, memberIndex, entitySummary, provenance } = {}) {
     const b = publishableBrief(brief);
     // Citation numbering — positions cite by [N], the Sources list at the
     // end resolves each. Same order the on-screen brief uses.
@@ -128,15 +186,59 @@ export function renderCaseBriefMarkdown(brief, { caseName, scopeQuestion, member
     const lines = [];
     lines.push(`# Case brief — ${escapeMd(caseName || 'Untitled case')}`);
     lines.push('');
+
+    // Self-locating provenance header (P12): the exported file says where
+    // it stands — a rendered, local view whose interrogable artifact is
+    // the signed event graph on the relays. Emitted only when the caller
+    // passes `provenance`; an unresolved identity/relay list renders a
+    // VISIBLE placeholder rather than silently vanishing (P6/P12).
+    if (provenance) {
+        const p = provenance;
+        const identity = (p.npub || p.pubkeyHex)
+            ? [p.npub ? `\`${p.npub}\`` : null, p.pubkeyHex ? `hex \`${p.pubkeyHex}\`` : null]
+                .filter(Boolean).join(' · ')
+            : '[unresolved at render time — no signing identity was configured when this file was exported]';
+        const relays = (Array.isArray(p.relays) && p.relays.length)
+            ? p.relays.map((r) => `\`${r}\``).join(', ')
+            : '[unresolved at render time — no relay list was configured when this file was exported]';
+        lines.push('> **This document is a rendered view, not the record.** It is a local,'
+            + ' non-authoritative rendering of a signed NOSTR event corpus. The interrogable'
+            + ' artifact is the signed event graph itself — the captures, claims, links, and'
+            + ' audits it cites — fetchable and verifiable from the relays below without this file.');
+        lines.push('>');
+        lines.push(`> **Publishing identity:** ${identity}`);
+        lines.push('>');
+        lines.push(`> **Relays:** ${relays}`);
+        lines.push('>');
+        lines.push('> **Query the corpus:** from any NOSTR client or a raw WebSocket, request events'
+            + ` by author — e.g. \`["REQ","xray",{"authors":["${p.pubkeyHex || '<pubkey-hex>'}"],"kinds":[30023]}]\`,`
+            + " one kind per query; the kind vocabulary is documented in X-Ray's NIP draft (`docs/NIP_DRAFT.md`).");
+        lines.push('');
+    }
+
     const n = memberCount != null ? memberCount : referencedMembers(b).length;
     const scope = scopeQuestion ? ` on **${escapeMd(scopeQuestion)}**` : '';
+    // Same-content captures fold into one Sources entry; say so at the
+    // point the capture count is shown, so N captures of one artifact are
+    // never read as N independent sources (P4/P9).
+    const aliasTotal = Object.values(memberIndex || {})
+        .reduce((a, m) => a + (Array.isArray(m && m.aliases) ? m.aliases.length : 0), 0);
+    const collapseNote = aliasTotal
+        ? ` Of these, ${aliasTotal} ${aliasTotal === 1 ? 'is a same-content re-capture' : 'are same-content re-captures'}`
+            + ` of another capture (identical canonical text) and ${aliasTotal === 1 ? 'is' : 'are'} folded into a`
+            + ' single entry under **Sources** — capture counts are not independent-source counts.'
+        : '';
     const citeNote = citedOrder.length
         ? ' Positions cite their sources by number — the full list is under **Sources** at the end.'
         : '';
-    lines.push(`*A synthesis of ${n} captured source${n === 1 ? '' : 's'}${scope}. Every quote below is`
+    lines.push(`*A synthesis of ${n} captured source${n === 1 ? '' : 's'}${scope}.${collapseNote} Every quote below is`
         + ` verbatim from a captured source — open the linked source to read it in context.${citeNote} Compiled with`
         + ` [X-Ray](${XRAY_URL}); this is a map of the disagreement, **not** a ruling.*`);
     lines.push('');
+
+    // Coverage-gap findings that name exactly one position render beside
+    // that position (P5/P8): the caveat travels with what it qualifies.
+    const gapsByPosition = matchCoverageGapsToPositions(b);
 
     if (b.summary) {
         lines.push('## Summary', '', b.summary, '');
@@ -144,7 +246,7 @@ export function renderCaseBriefMarkdown(brief, { caseName, scopeQuestion, member
 
     if (b.positions.length) {
         lines.push('## Positions', '');
-        for (const p of b.positions) {
+        b.positions.forEach((p, i) => {
             lines.push(`### ${escapeMd(p.label || 'Position')}`);
             if (p.core_argument) lines.push('', p.core_argument);
             // Holders cite by number (they run to dozens on a big case) —
@@ -154,8 +256,11 @@ export function renderCaseBriefMarkdown(brief, { caseName, scopeQuestion, member
             const nums = (p.holders || []).map((h) => citeNum.get(h.article_hash))
                 .filter((num) => num != null).sort((x, y) => x - y);
             if (nums.length) lines.push('', `*Held by:* ${nums.map(citeMd).join(', ')}`);
+            for (const gap of gapsByPosition.byPosition[i]) {
+                lines.push('', `*Coverage note (from this brief's coverage-gap findings):* ${String(gap).trim()}`);
+            }
             lines.push('');
-        }
+        });
     }
 
     if (b.cruxes.length) {
@@ -182,48 +287,95 @@ export function renderCaseBriefMarkdown(brief, { caseName, scopeQuestion, member
         }
     }
 
-    if (b.coverage_gaps.length) {
+    // Coverage gaps — position-specific notes moved beside their
+    // positions above (with a pointer here, so nothing silently
+    // disappears); cross-position and unmatched gaps stay in this list.
+    const movedGaps = gapsByPosition.byPosition.reduce((a, g) => a + g.length, 0);
+    if (gapsByPosition.general.length || movedGaps) {
         lines.push('## Coverage gaps', '');
-        for (const g of b.coverage_gaps) lines.push(`- ${String(g || '').trim()}`);
+        if (movedGaps) {
+            lines.push(`*${movedGaps} position-specific coverage note${movedGaps === 1 ? ' is' : 's are'} shown beside`
+                + ` the position${movedGaps === 1 ? ' it qualifies' : 's they qualify'} under **Positions** above.*`, '');
+        }
+        for (const g of gapsByPosition.general) lines.push(`- ${String(g || '').trim()}`);
         lines.push('');
     }
 
     // Sources — the numbered list the [N] citations resolve to. Full
     // link text lives here so the prose above stays readable; each entry
     // is annotated with its outlet and publication date when known, so a
-    // reader can scan the corpus by source or by date.
+    // reader can scan the corpus by source or by date. Same-content
+    // captures nest under their canonical entry as aliases; a soft
+    // same-Drive-file hint may connect entries whose content differs.
     if (citedOrder.length) {
         lines.push('## Sources', '');
+        const urlsOf = (h) => {
+            const m = memberIndex[h] || {};
+            return [m.url, ...((m.aliases || []).map((a) => a && a.url))].filter(Boolean);
+        };
+        const numsByFileKey = new Map();
+        citedOrder.forEach((h, i) => {
+            for (const u of urlsOf(h)) {
+                const k = underlyingFileKey(u);
+                if (!k) continue;
+                if (!numsByFileKey.has(k)) numsByFileKey.set(k, new Set());
+                numsByFileKey.get(k).add(i + 1);
+            }
+        });
         citedOrder.forEach((h, i) => {
             const s = sourceLink(h, memberIndex);
-            const meta = [outletFor(s.url), (memberIndex[h] || {}).date].filter(Boolean).join(' · ');
+            const entry = memberIndex[h] || {};
+            const meta = [outletFor(s.url), entry.date].filter(Boolean).join(' · ');
             lines.push(`${i + 1}. [${escapeMd(s.title)}](${s.url})${meta ? ` — ${meta}` : ''}`);
+            for (const alias of entry.aliases || []) {
+                if (!alias || !alias.url) continue;
+                lines.push(`   - also captured at [${escapeMd(alias.title || alias.url)}](${alias.url})`
+                    + ' — identical canonical content: the same artifact, not an independent source');
+            }
+            const others = new Set();
+            for (const u of urlsOf(h)) {
+                const k = underlyingFileKey(u);
+                if (!k) continue;
+                for (const num of numsByFileKey.get(k)) if (num !== i + 1) others.add(num);
+            }
+            if (others.size) {
+                lines.push(`   - *may share an underlying file with ${[...others].sort((x, y) => x - y).map((num) => `[${num}]`).join(', ')}`
+                    + ' (same Google Drive file id, but the captured text differs, so the entries stay'
+                    + ' separate) — a hint only, not a sameness or independence determination*');
+            }
         });
         lines.push('');
     }
 
-    // People / Organizations — the tagged canonical entities (aliases
-    // folded), each with how many claims concern it and which sources it
-    // appears in: an index that organizes the corpus by entity. A human's
-    // reference document, not a ranking. Omitted when absent.
-    const entIndex = (heading, list) => {
-        if (!Array.isArray(list) || !list.length) return;
-        lines.push(`## ${heading}`, '');
-        for (const e of list) {
-            const nums = (e.sourceHashes || []).map((h) => citeNum.get(h))
-                .filter((num) => num != null).sort((x, y) => x - y);
-            const count = e.claimCount || 0;
-            const bits = [`${count} claim${count === 1 ? '' : 's'}`];
-            if (nums.length) bits.push(`in ${nums.length} source${nums.length === 1 ? '' : 's'}`);
-            let line = `- **${escapeMd(e.name || '(unnamed)')}** — ${bits.join(' · ')}`;
-            if (nums.length) line += `: ${nums.map(citeMd).join(', ')}`;
-            lines.push(line);
-        }
-        lines.push('');
-    };
-    if (entitySummary) {
-        entIndex('People', entitySummary.people);
-        entIndex('Organizations', entitySummary.orgs);
+    // Entity index → a clearly-labeled APPENDIX after the substantive
+    // sections (P2/P5): counts are navigation, never weight, and a
+    // 0-claim row adds nothing a reader could misread as corroboration —
+    // dropped from the render entirely (computeEntitySummary still
+    // reports it; this is presentation).
+    const withClaims = (list) => (Array.isArray(list) ? list.filter((e) => e && (e.claimCount || 0) > 0) : []);
+    const people = withClaims(entitySummary && entitySummary.people);
+    const orgs = withClaims(entitySummary && entitySummary.orgs);
+    if (people.length || orgs.length) {
+        lines.push('## Appendix — entity index', '');
+        lines.push('*Claim counts are provenance and navigation aids — how many captured claims in this corpus'
+            + ' mention each entity. They are not weight, importance, or credibility.*', '');
+        const entIndex = (heading, list) => {
+            if (!list.length) return;
+            lines.push(`### ${heading}`, '');
+            for (const e of list) {
+                const nums = (e.sourceHashes || []).map((h) => citeNum.get(h))
+                    .filter((num) => num != null).sort((x, y) => x - y);
+                const count = e.claimCount || 0;
+                const bits = [`${count} claim${count === 1 ? '' : 's'}`];
+                if (nums.length) bits.push(`in ${nums.length} source${nums.length === 1 ? '' : 's'}`);
+                let line = `- **${escapeMd(e.name || '(unnamed)')}** — ${bits.join(' · ')}`;
+                if (nums.length) line += `: ${nums.map(citeMd).join(', ')}`;
+                lines.push(line);
+            }
+            lines.push('');
+        };
+        entIndex('People', people);
+        entIndex('Organizations', orgs);
     }
 
     lines.push('---', '',

@@ -19,6 +19,54 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-19 — Case-brief render fixes (Epistack): four render-layer defects
+
+**Tags:** design
+
+A real COVID case brief judged against the FLF Epistack rubric surfaced
+four render-layer defects — all fixable over the already-stored brief
+record + `digestDossier`, **no LLM re-run** and **no `CORPUS_PROMPT_VERSION`
+bump** (a prompt bump would needlessly stale every stored brief). Render
+from canonical only (§9). Changes, with the PHILOSOPHY tension each hit:
+
+1. **Self-locating provenance header** on the exported `.md` (P12): names
+   the publishing identity (npub + hex) and relays, states the file is a
+   rendered VIEW whose interrogable artifact is the signed event graph,
+   and gives a REQ query pointer. **Scoped to the export path, not the
+   published 30023 article** — the guardrail forbids touching publish
+   paths, and the published article is *itself* the record fetched by
+   author from a relay, so a "this is not the record" header there is both
+   self-contradictory and a wire-content change. Tension: P12 (transparency
+   everywhere) vs the surgical/publish-path guardrail — resolved toward the
+   export the judges actually receive. Unresolved identity/relays render a
+   VISIBLE placeholder, never a silent omission (P6/P12).
+2. **Entity index demoted to a labeled appendix** after the substance
+   (P2/P5), with a "counts are provenance/navigation, not weight" caption;
+   **0-claim rows dropped from the render** (raw counts invite a
+   volume=credibility misread). `computeEntitySummary` still reports them —
+   this is presentation only.
+3. **Same-content captures collapse to one Source node** with the extra
+   capture URLs nested as aliases (`foldMemberAliases`, keyed on the
+   canonical `article_hash` — the ONLY collapse key, so N captures of one
+   Drive PDF never read as N sources). No semantic/near-dup dedup, no
+   independence judgment (would violate P5/P8). A conservative SOFT hint
+   (`underlyingFileKey`, Google-Drive file id) cross-references
+   different-hash entries that may share an underlying file — clearly
+   marked "a hint only, not a sameness or independence determination."
+4. **Position-specific coverage-gap findings render adjacent to the
+   position** they name (P5/P8), via `matchCoverageGapsToPositions`
+   (conservative single-label substring match). Pure association/placement
+   of EXISTING brief data — nothing added, ranked, or adjudicated; a gap
+   naming zero or multiple positions stays in the general list. Kills the
+   false-balance surface of a caveat rendered hundreds of lines from what
+   it qualifies.
+
+Touch points: `src/shared/corpus-publish.js` (markdown export + the three
+new pure helpers), `src/shared/case-synthesis.js` (`foldMemberAliases`),
+`src/portal/synthesis-block.js` (on-screen parity + export header wiring),
+`src/portal/index.css`. No new numeric score/verdict/ranking anywhere; no
+wire-format or grounding-firewall change.
+
 ## 2026-07-18 — Suggest hit its output limit on book chapters (8192 → 32768)
 
 **Tags:** bug
