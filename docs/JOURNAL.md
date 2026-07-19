@@ -19,6 +19,28 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-18 — Delete works from a read-only archive open (read-only ≠ un-deletable)
+
+**Tags:** bug
+
+Browsing "My Archive" → inspector → "Open in reader" reconstructs a published
+kind-30023 from its relay event and opens the reader **read-only**
+(`readOnly:true`, so the reconstruction is never re-archived — the Q5
+write-guarantee). But that path also hid the trash button
+(`#xr-delete-capture`) and `deleteCaptureFlow` threw "Read-only view — nothing
+to delete", so a user could not prune their **local** captures from there.
+
+The conflation was the bug: read-only means "don't WRITE/edit/re-archive the
+reconstruction," NOT "the local copy can't be removed." `deleteCaptureFlow`
+deletes the local archive ROW (by URL + alias), which is exactly what archive
+pruning wants and never touches the published relay event (the confirm's
+"KEPT: anything already published to relays" is accurate here). Fix: dropped
+the read-only guard, and on a read-only open reveal the trash only after an
+async `ArchiveCache.getArticle(url|alias)` confirms a local row exists — so it
+shows exactly when it can act, never dangling on a relay-only reconstruction.
+Adversarially reviewed (correct-row targeting, the write-guarantee, race,
+other callers) — no issues. See `src/reader/index.js` deleteCaptureFlow + init.
+
 ## 2026-07-18 — Case-brief appendix metadata: outlet/date-annotated sources + a People/Organizations index
 
 **Tags:** design
