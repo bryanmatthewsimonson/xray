@@ -1892,10 +1892,12 @@ the Phase-14.5 review discipline unchanged).
   fetched-HTML seam, archive with the canonical hash, tag into the
   case. Idempotent re-runs; thin (paywall) captures flagged, never
   dropped; PDFs deferred to the reader's `?pdf=` path. No LLM.
-- 🚧 **28.2 — Suggest-after-import.** Optional batch entity/claim
+- ✅ **28.2 — Suggest-after-import.** Optional batch entity/claim
   suggestion over freshly imported members (the reader's
-  `xray:llm:suggest` pass, portal-driven), landing as PENDING
-  suggestions reviewed in the reader — auto-run, never auto-accept.
+  `xray:llm:suggest` pass, portal-driven), parked in the new
+  `pending-suggestions` store (`xray-audits` v4) and reviewed in the
+  reader through the SAME 14.5.3 modal as the live pass — auto-run,
+  never auto-accept; the parked set clears when its review closes.
 - 🚧 **28.3 — Standalone "Suggest links".** Decouple cross-article
   relationship suggestion from the full corpus synthesis: a
   claims-index-only LLM pass proposing 30055

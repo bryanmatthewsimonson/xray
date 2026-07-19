@@ -23,6 +23,10 @@
       <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-suggest" title="Suggest capture artifacts with an LLM" hidden>
         ✨ Suggest…
       </button>
+      <!-- Pending import-time suggestions (Phase 28.2): shown only when a
+           batch import parked proposals for this URL. Opens the same
+           review modal; the parked record is cleared when it closes. -->
+      <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-pending-suggest" hidden></button>
       <!-- Media & transcript (Phase 22): declare what this URL contains
            (podcast / video), set the universal podcast IDs, and attach a
            pasted/uploaded transcript to THIS capture. Hidden on

@@ -12,7 +12,7 @@
 import { Utils } from '../utils.js';
 
 const DB_NAME = 'xray-audits';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const RUNS_STORE = 'runs';
 const PREDICTIONS_STORE = 'predictions';
 const RESOLUTIONS_STORE = 'resolutions';
@@ -27,6 +27,14 @@ const CASE_BRIEFS_STORE = 'case-briefs';
 // export-included DB so the cache survives a restore (a hit is a
 // dollar saved); reconcilable, but never auto-dropped here.
 const CORPUS_EXTRACTS_STORE = 'corpus-extracts';
+// Phase 28.2 — LLM suggestions generated at batch import, parked until
+// a human reviews them in the reader (the 14.5.3 modal). Keyed by the
+// article URL (what the reader knows at load). Semi-precious: each
+// record cost one suggest call, but is cheap to regenerate — it rides
+// this DB for the free backup coverage, and a record is deleted when
+// its review modal closes (matching the live suggest-pass semantics:
+// close = the session is over, re-run to see them again).
+const PENDING_SUGGESTIONS_STORE = 'pending-suggestions';
 
 function idb() {
     if (typeof indexedDB === 'undefined') {
@@ -93,6 +101,13 @@ export function openAuditDb() {
             if (oldVersion < 3) {
                 if (!db.objectStoreNames.contains(CORPUS_EXTRACTS_STORE)) {
                     db.createObjectStore(CORPUS_EXTRACTS_STORE, { keyPath: 'key' });
+                }
+            }
+
+            // v4 — pending import-time suggestions (Phase 28.2).
+            if (oldVersion < 4) {
+                if (!db.objectStoreNames.contains(PENDING_SUGGESTIONS_STORE)) {
+                    db.createObjectStore(PENDING_SUGGESTIONS_STORE, { keyPath: 'url' });
                 }
             }
         };
@@ -194,17 +209,26 @@ export function deleteCorpusExtract(key) { return remove(CORPUS_EXTRACTS_STORE, 
 export function listCorpusExtracts() { return getAll(CORPUS_EXTRACTS_STORE); }
 export function countCorpusExtracts() { return countStore(CORPUS_EXTRACTS_STORE); }
 
+// --- pending import-time suggestions (28.2) -------------------------------------
+
+export function savePendingSuggestions(record) { return put(PENDING_SUGGESTIONS_STORE, record); }
+export function getPendingSuggestions(url) { return get(PENDING_SUGGESTIONS_STORE, url); }
+export function deletePendingSuggestions(url) { return remove(PENDING_SUGGESTIONS_STORE, url); }
+export function listPendingSuggestions() { return getAll(PENDING_SUGGESTIONS_STORE); }
+
 // --- maintenance ----------------------------------------------------------------
 
 export async function clear() {
     const db = await openAuditDb();
     const transaction = db.transaction(
-        [RUNS_STORE, PREDICTIONS_STORE, RESOLUTIONS_STORE, CASE_BRIEFS_STORE, CORPUS_EXTRACTS_STORE], 'readwrite');
+        [RUNS_STORE, PREDICTIONS_STORE, RESOLUTIONS_STORE, CASE_BRIEFS_STORE, CORPUS_EXTRACTS_STORE,
+         PENDING_SUGGESTIONS_STORE], 'readwrite');
     transaction.objectStore(RUNS_STORE).clear();
     transaction.objectStore(PREDICTIONS_STORE).clear();
     transaction.objectStore(RESOLUTIONS_STORE).clear();
     transaction.objectStore(CASE_BRIEFS_STORE).clear();
     transaction.objectStore(CORPUS_EXTRACTS_STORE).clear();
+    transaction.objectStore(PENDING_SUGGESTIONS_STORE).clear();
     await tx(transaction);
 }
 

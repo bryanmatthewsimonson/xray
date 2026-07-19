@@ -12,6 +12,20 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Suggest-after-import (Phase 28.2).** The Import URLs… panel gains
+  an optional **"Suggest entities & claims for each imported page
+  (LLM)"** checkbox (visible only with `llmAssist` on; disabled
+  without a key; a spend-confirm dialog states the call count).
+  Auto-RUN, never auto-accept: each imported page's extracted text
+  runs the existing reader suggest pass and the proposals are
+  **parked** in a new `pending-suggestions` store (`xray-audits` v4,
+  keyed by URL, backup-covered). Opening the page in the reader shows
+  a **"✨ Review N suggestions"** button that opens the same 14.5.3
+  review modal as the live Suggest button — one code path, same
+  grounding, same accept firewalls — and the parked set clears when
+  the review closes. A suggest failure marks the import row but never
+  un-imports the article.
+
 - **Batch URL import (Phase 28.1).** A new **Import URLs…** panel —
   on the case view (tags every import into the case) and the portal
   header (library-only) — batch-captures a pasted URL list without a

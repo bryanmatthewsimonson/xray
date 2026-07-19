@@ -723,6 +723,8 @@ body.xr-portal {
     max-width: 480px; color: var(--xr-text);
 }
 .xr-import__row-err { font-size: 12px; color: var(--xr-text-dim); }
+.xr-import__row-sugg { font-size: 12px; color: var(--xr-accent); }
+.xr-import__suggest { display: flex; align-items: baseline; gap: 6px; margin-top: 8px; cursor: pointer; }
 
 .xr-badge--agree { color: var(--xr-success); border-color: var(--xr-success); }
 .xr-badge--disagree { color: var(--xr-danger); border-color: var(--xr-danger); }
