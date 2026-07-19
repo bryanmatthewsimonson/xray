@@ -110,19 +110,61 @@ Phase 19 ████████████████████  COMPLETE 
                                 entityCorpusPublishing (kind 0 + NEW kind
                                 30067) (docs/ENTITY_DOSSIER_DESIGN.md);
                                 §Phase 19 smoke-run pending
+Phase 20 ████████████████████  COMPLETE (20.1–20.5) — case-first: tag∪claim
+                                membership, add-to-case outside the reader,
+                                the local case dossier + ego-graph, and the
+                                flag-gated LLM corpus synthesis brief
+                                (caseSynthesis) (docs/CASE_SYNTHESIS_DESIGN.md)
+Phase 21 ████████████████████  COMPLETE — podcast transcript import
+                                (URL-first + portal fallback); markdown-
+                                canonical captures
+Phase 22 ████████████████████  COMPLETE — URL-first media metadata + reader
+                                transcript attach (media / podcast identity
+                                tags on kind 30023)
+Phase 23 ████████████████████  COMPLETE — publish the corpus + evidence
+                                provenance: a stored case brief publishes as
+                                kind 30023 + NEW kind 30068 CaseBrief
+                                (corpus-publish.js)
+Phase 24 ████████████████████  COMPLETE — durable, creator-bound entity
+                                identity: HKDF-derived entity keys + NEW kind
+                                30069 OwnedKeys manifest + NIP-26 delegation
+                                (docs/ENTITY_IDENTITY_DESIGN.md)
+Phase 25 ████████████████████  COMPLETE — the Network client: follow by npub,
+                                pull-not-live feed, incorporate-as-proposals,
+                                opt-in kind-3 follow mirror + NIP-65 relay
+                                widening + trust-graph filter
+                                (docs/NETWORK_CLIENT_DESIGN.md)
+Phase 26 ████████████████░░░░  core shipped — corpus analysis, deepened:
+                                per-case hypothesis maps + structural
+                                counterfactuals (local-only, no score, no wire
+                                kind); consolidated with Phase 27 in one merge;
+                                a small tail stays open
+Phase 27 ████████████████████  COMPLETE (PR #183) — capture automation +
+                                hardening: flag-gated #xray:capture marker
+                                (captureAutomation), corpus-synthesis v2, EPUB
+                                book import, scholar tail (PMC refs / ar5iv /
+                                Crossref), LLM extraction assist, Fable 5 /
+                                Sonnet 5 model options
+Phase 28 ████████████████░░░░  28.1–28.3 landed — corpus intake automation:
+                                batch URL-list import (url-import.js), suggest-
+                                after-import (parked proposals), and standalone
+                                cross-article "Suggest links"
+                                (xray:llm:corpus-links); tail open
 ```
 
 Parity with the v4.2 userscript is long reached; the project now ships
 claims, assessments, the "My Archive" portal, epistemic audits, forensic
-findings, opt-in LLM assist, and truth adjudication (Phase 15, merged as
-PR #89 — **v0.7.0 tagged 2026-07-16**, the first release tag since
-v0.5.1, covering Phases 15.6–24.3), plus the moral lens (Phase 16,
-16.1–16.4 implemented per the 16.0.5 amendment; §Phase 16 smoke-run
-pending). The **FLF Epistack competition (deadline 2026-07-19) is being
-pursued maintainer-driven from real use cases (COVID first)**,
-exercising Phase 15 in the wild. There is no committed sprint plan —
-the tool is tailored from that experience; Phase 16 is not on its
-critical path.
+findings, opt-in LLM assist, truth adjudication, the moral lens, entity
+dossiers, the case workspace with corpus synthesis, durable creator-bound
+entity identity, the Network client, and capture / intake automation.
+**v0.7.0 was tagged 2026-07-16** — the first GitHub Release since v0.5.1
+(v0.6.0 was tagged but never cut as a Release), covering Phases 15.6–24.3.
+Phases 25–27 have since merged, and **Phase 28** (corpus intake
+automation) is in progress. The **FLF Epistack competition (deadline
+2026-07-19)** is being pursued maintainer-driven from real use cases
+(COVID first); there is no committed sprint plan — the tool is tailored
+from that experience. Several per-phase smoke-runs (Phases 11–16, 19)
+remain pending — they are manual and need a human with a browser.
 
 ---
 

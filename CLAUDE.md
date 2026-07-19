@@ -18,7 +18,7 @@ modules still carry userscript-era idioms (see Conventions).
 npm install            # required first — a fresh clone has no node_modules
 npm run build          # esbuild → dist/*.bundle.js (+ .map). No transpile step.
 npm run watch          # incremental rebuild
-npm test               # node --test tests/*.test.mjs  (1277 tests, must be green)
+npm test               # node --test tests/*.test.mjs  (2026 tests, must be green)
 npm run lint           # web-ext lint --self-hosted (what CI gates on)
 npm run version:set X  # bump package.json + manifest.json in lockstep
 npm run clean          # rm -rf dist
@@ -41,14 +41,15 @@ npm run clean          # rm -rf dist
 
 ## Build model (esbuild → dist/)
 
-`esbuild.config.mjs` produces seven bundles from entry points. The manifest
+`esbuild.config.mjs` produces ten bundles from entry points. The manifest
 and HTML shells reference `dist/*.bundle.js`; **`src/` is never loaded
 directly except the two MAIN-world page scripts.** Entry points:
 
 - `src/content/index.js` → `content.bundle.js` (IIFE, isolated world, every tab)
 - `src/background/index.js` → `background.bundle.js` (**ESM** service worker, `conditions: ['worker','browser']`)
-- `src/options|sidepanel|reader|portal/index.js` → matching IIFE bundles (loaded by their HTML shells)
+- `src/options|sidepanel|reader|portal|network/index.js` → matching IIFE bundles (loaded by their HTML shells)
 - `src/page/api-interceptor.js` → `api-interceptor.bundle.js` (IIFE; runs in the page MAIN world — **no shared imports allowed**, the file's IIFE is the whole module)
+- `src/reader/pdf-engine.js` → `pdf-engine.bundle.js` (ESM) and `src/reader/pdf-worker-entry.js` → `pdf.worker.bundle.js` (IIFE) — the pdf.js text/figure extractor and its worker; the build also copies pdf.js runtime assets (cmaps / standard fonts / wasm) into `dist/`
 
 `src/page/nip07-bridge.js` is loaded **unbundled** straight from `src/` as a
 MAIN-world content script (and is a `web_accessible_resource`). There is no
@@ -76,11 +77,13 @@ the single most important thing here.
    SWs sleep/wake, so startup re-reads the debug pref and re-attaches a
    `chrome.storage.onChanged` listener every wake.
 3. **Extension pages** (`src/options/`, `src/reader/`, `src/sidepanel/`,
-   `src/portal/`) — options is the single settings hub (Relays / Signing /
-   Advanced); reader renders the captured
-   article + publish flow; sidepanel is the entity browser; portal is the
-   full-tab "My Archive" page (Phase 12) — a read-only view of everything
-   published, reconciled against relays.
+   `src/portal/`, `src/network/`) — options is the single settings hub
+   (Relays / Signing / Advanced); reader renders the captured
+   article + publish flow; sidepanel is the entity browser + per-entity
+   dossier; portal is the full-tab "My Archive" page (Phase 12) — a
+   read-mostly view of everything published, reconciled against relays,
+   with per-case dashboards; network is the flag-gated "truth-seeker"
+   client (Phase 25) — Feed / Queue / Follows over the people you follow.
 4. **MAIN world page scripts** (`src/page/`) — `nip07-bridge.js` exposes
    `window.nostr` to the extension via tagged `postMessage` envelopes;
    `api-interceptor.js` hooks `fetch`/XHR on FB/IG/YouTube to capture
@@ -132,7 +135,13 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   and integrity findings `30064` (deliberately no mirror), `30065`
   reserved — in `truth-builders.js`; entity fact sheets `30067`
   (Phase 19.7 — entity-signed, every fact `a`-refs a published claim)
-  plus the enriched kind-`0` `about` in `entity-profile.js`.
+  plus the enriched kind-`0` `about` in `entity-profile.js`; the
+  case-brief `30068` (Phase 23, user-signed) in `corpus-publish.js`; the
+  creator-binding OwnedKeys manifest `30069` (Phase 24) + NIP-26
+  delegation tags; and the opt-in NIP-02 follow-list mirror (kind `3`)
+  in `follow-publish.js`. The moral lens (Phase 16) and the case
+  dossier / graph / hypothesis-map / counterfactual (Phases 20 + 26) are
+  derived views with **no wire kind** (`30066` stays free, guard-tested).
   **Wire-format changes in any of these have compatibility
   consequences for anyone consuming X-Ray events — call them out
   explicitly.**
@@ -215,9 +224,10 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
 
 ## Project docs (read these for non-trivial work)
 
-- **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 20
-  (manifest still says v0.6.0 — untagged; see CONTRIBUTING for the
-  tag-driven release process). Complete and merged: Phases 10 (thin
+- **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 28
+  (v0.7.0 tagged 2026-07-16 — the first GitHub Release since v0.5.1; see
+  CONTRIBUTING for the tag-driven release process). Complete and merged:
+  Phases 10 (thin
   claims), 11 (assessments; `docs/ASSESSMENTS_DESIGN.md`), 12 (portal;
   `docs/PORTAL_DESIGN.md`), 13 (epistemic audits, kinds `30056`–`30061`;
   `docs/EPISTEMIC_AUDIT_DESIGN.md`), 14 (forensic findings, kind `30062`;
@@ -229,15 +239,37 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   `docs/MORAL_LENS_JURISDICTION_DESIGN.md`, amended 2026-07-03 — the
   amendment governs; its wire-kind/portal/durable-cache tail is
   deferred), 17 Part A (entity health + canonical sweep;
-  `docs/ENTITY_CORPUS_DESIGN.md` — E2/E4–E6 still design-only), and 19
+  `docs/ENTITY_CORPUS_DESIGN.md` — E2/E4–E6 still design-only), 18 C1–C4.2
+  (complex content: tables/math, scholarly meta, PDF routing + pdf.js
+  extraction; `docs/COMPLEX_CONTENT_DESIGN.md` — C5/C6 open), 19
   (entity dossiers — facts on claims, the dossier assembler + UI,
   Add-fact, LLM facts default-off, publishing behind
   `entityCorpusPublishing` with the NEW kind `30067` fact sheet;
-  `docs/ENTITY_DOSSIER_DESIGN.md`), and 20 (case-first: union
-  membership, add-to-case outside the reader, the local case graph, and
-  the flag-gated LLM corpus synthesis — a grounded brief + reviewable
-  proposals behind `caseSynthesis`, NO new wire kind, brief in the
-  `xray-audits` v2 `case-briefs` store; `docs/CASE_SYNTHESIS_DESIGN.md`).
+  `docs/ENTITY_DOSSIER_DESIGN.md`), 20 (case-first: tag∪claim
+  membership, add-to-case outside the reader, the local case dossier +
+  graph, and the flag-gated LLM corpus synthesis — a grounded brief +
+  reviewable proposals behind `caseSynthesis`, the brief local-only in
+  the `xray-audits` v2 `case-briefs` store;
+  `docs/CASE_SYNTHESIS_DESIGN.md`), 21 (podcast transcript import), 22
+  (URL-first media metadata + reader transcript attach — media/podcast
+  identity tags on `30023`), 23 (publish the corpus — a stored case brief
+  publishes as `30023` + the NEW kind `30068` CaseBrief via
+  `corpus-publish.js`), 24 (durable, creator-bound entity identity —
+  HKDF-derived entity keys + the NEW kind `30069` OwnedKeys manifest +
+  NIP-26 delegation; `docs/ENTITY_IDENTITY_DESIGN.md`), 25 (the Network
+  client — follow by npub, pull-not-live feed, incorporate-as-proposals,
+  opt-in kind-`3` follow-list mirror, NIP-65 relay widening, trust-graph
+  feed filter; `docs/NETWORK_CLIENT_DESIGN.md`), 26 (corpus analysis,
+  deepened — per-case hypothesis maps + structural counterfactuals,
+  local-only, no score, NO wire kind; `docs/HYPOTHESIS_MAP_DESIGN.md`,
+  `docs/COUNTERFACTUAL_DESIGN.md`), and 27 (capture automation +
+  hardening, PR #183 — flag-gated `#xray:capture` marker
+  `captureAutomation`, corpus-synthesis v2, EPUB book import, scholar
+  tail, LLM extraction assist, Fable 5 / Sonnet 5 model options).
+  **Phase 28** (corpus intake automation) is IN PROGRESS: batch URL-list
+  import (`url-import.js`), suggest-after-import (parked proposals), and
+  the standalone cross-article "Suggest links" pass
+  (`xray:llm:corpus-links`) — every LLM suggestion still human-accepted.
   The FLF Epistack competition
   (deadline 2026-07-19) is being pursued **maintainer-driven from real
   use cases (COVID first)** — there is no committed sprint plan; the tool

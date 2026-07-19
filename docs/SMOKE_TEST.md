@@ -1254,6 +1254,21 @@ Rootclaim debate transcript with `Speaker:` lines is ideal.
 
 ---
 
+## Book import (EPUB — Model B)
+
+Import an `.epub` from the portal Library header (**Import book…**). Any
+small EPUB with a handful of chapters works.
+
+| # | Test | Pass criteria |
+|---|---|---|
+| EP.a | Library-header **Import book…** → pick a small `.epub` | ✅ progress shows; on completion the portal gains **one record per chapter**, all tagged with a single **book entity** (a `thing`); each chapter has a synthetic `file:///imported/epub/…` URL |
+| EP.b | Open a chapter in the reader | ✅ markdown body renders; **byline = author**, **publisher = book title**, **published_at = release date**; a hash line is present; inline images resolve from the archived figures |
+| EP.c | Open the book entity in the side panel | ✅ its description carries author · date · `ISBN …` (whichever the EPUB provided); the chapters group under it |
+| EP.d | Open a case's **Add sources…** picker (or side-panel **Add to case**) and select some book chapters | ✅ chapters appear as **individual article rows** (there is no book-level "add all"); selecting them tags each with the case (per-article membership) and the case re-renders. The picker caps display at 200 rows |
+| EP.e | (If available) import an EPUB with a very large spine | ✅ the import is capped at **500 chapters** and the importer **discloses the truncation** rather than write-storming |
+
+---
+
 ## Phase 22 — URL-first media metadata + reader transcript attach (22.1–22.2)
 
 Capture a podcast episode's PAGE first (a Substack podcast post or any

@@ -31,9 +31,11 @@ They are placeholders — a human with a browser fills them in.
 6. [Publishing](#6-publishing)
 7. [The portal ("My Archive")](#7-the-portal-my-archive)
 8. [The side panel](#8-the-side-panel)
-9. [Glossary](#9-glossary)
-10. [Troubleshooting](#10-troubleshooting)
-11. [Appendix: screenshot shot list](#appendix-screenshot-shot-list)
+9. [Cases (the investigation workspace)](#9-cases-the-investigation-workspace)
+10. [The Network (following other researchers)](#10-the-network-following-other-researchers)
+11. [Glossary](#11-glossary)
+12. [Troubleshooting](#12-troubleshooting)
+13. [Appendix: screenshot shot list](#appendix-screenshot-shot-list)
 
 ---
 
@@ -54,8 +56,16 @@ fetch and verify. Because everything is signed and content-addressed,
 your corpus is portable, independently checkable, and not locked inside
 any one app.
 
+Two more verbs sit on top: **organize** and **share.** Group related
+captures into a **case** — an investigation workspace that shows your
+corpus as a dossier, a graph, competing hypotheses, and (optionally) an
+LLM-written brief ([§9](#9-cases-the-investigation-workspace)) — and
+**follow** other researchers on the **Network** to pull their claims in
+and weigh them against your own
+([§10](#10-the-network-following-other-researchers)).
+
 Nothing is published until you say so, and the analytical work (tagging,
-claims, verdicts, audits, the dossier) is fully usable **without ever
+claims, verdicts, audits, dossiers, cases) is fully usable **without ever
 publishing** — publishing is opt-in per feature.
 
 ---
@@ -112,14 +122,22 @@ so no single operator can drop your corpus. `[SCREENSHOT-03]`
 
 ### 2.4 LLM assist and the API key
 
-Two X-Ray features can call a large language model on your behalf: the
-**epistemic audit** and the **moral lens**. Both need an **Anthropic API
-key**, set in **Settings → Advanced → LLM assist**. The key is stored in
-its own secret slot and is never logged or exported. `[SCREENSHOT-04]`
+Several X-Ray features can call a large language model on your behalf —
+the **Suggest** pass (proposes entities / claims / facts to review), the
+**epistemic audit**, the **moral lens**, the case **corpus synthesis**
+brief, the **cross-article link** suggester, and the batch
+**suggest-after-import** pass. Every one needs an **Anthropic API key**,
+set in **Settings → Advanced → LLM assist**, *and* its own feature flag
+(§2.5): the flag reveals the control, the key lets it run. You can also
+pick the model (Fable 5 / Sonnet 5 / Opus). The key is stored in its own
+secret slot, is never logged or exported, and no article text leaves the
+device until **both** gates are satisfied. Every result is a draft you
+review — nothing auto-saves or auto-publishes. `[SCREENSHOT-04]`
 
 Cost note: a **quick** audit is **one** API call; a **thorough** audit is
 **eight** (one per dimension). A lens reading is one call per
-jurisdiction. You pay your own Anthropic bill; X-Ray never proxies.
+jurisdiction. A corpus synthesis is roughly one call per member article
+plus a reduce. You pay your own Anthropic bill; X-Ray never proxies.
 
 ### 2.5 Feature flags
 
@@ -135,17 +153,24 @@ gate your **publish** paths and some panel tabs, not what you can read.
 | `annotations` | on | Publishing crowdsourced URL annotations (kind 30050) |
 | `respondsTo` | on | The "responds-to" relationship tag on articles |
 | `topicTrust` | on | Topic-trust metadata (kind 30053) |
-| `trustGraphFilter` | on | Trust-graph filtering of what you see |
+| `trustGraphFilter` | on | The Network feed's "trusted provenance only" narrow toggle (the "followed by N of your follows" chips always show) |
 | `factchecks` | off | Publishing fact-check events (kind 30051) |
 | `ratings` | off | Publishing rating events (kind 30052) |
-| `helpfulnessVoting` | off | Publishing helpfulness votes (incoming always accepted) |
+| `helpfulnessVoting` | off | Publishing helpfulness votes (kind 9803; incoming always accepted) |
 | `assessmentPublishing` | off | Publishing assessments (30054), claim relationships (30055), and the 1985 label mirror |
 | `epistemicAuditing` | off | Publishing the audit family (30056–30061). *Running* an audit needs the API key too |
 | `forensicPublishing` | off | Publishing behavioral findings (30062) + their `revision/*` story-change edges |
 | `truthAdjudicationPublishing` | off | Publishing verdicts (30063) + integrity findings (30064) |
 | `platformAccountPublishing` | off | Publishing platform-account identity links (32126) — discloses your account↔entity graph |
-| `llmAssist` | off | The reader "Suggest…" pass + audit *execution* (needs the API key) |
+| `entityCorpusPublishing` | off | Publishing the enriched kind-0 entity profile + the entity fact sheet (kind 30067); entity keys sign these and publication is irrevocable in practice |
+| `llmAssist` | off | The reader "Suggest…" pass + audit / synthesis / hypothesis / cross-article-link LLM *execution* (needs the API key) |
 | `moralLens` | off | The reader's lens-reading surface (needs the API key; independent of `llmAssist`) |
+| `readerAddFact` | off | The reader tagger's "Add fact" button (structured-fact capture) |
+| `caseSynthesis` | off | The case dashboard's "Analyze corpus…" brief, "Suggest links", and hypothesis-edge suggestions (needs `llmAssist` + the API key) |
+| `networkPage` | off | The whole Network client surface (Feed / Queue / Follows page + its menu item and links) |
+| `reviewCoordination` | off | The portal "Request review" label + the Network "re-broadcast follows" button |
+| `followListPublishing` | off | Publishing a NIP-02 kind-3 mirror of who you follow (global scope only; consent dialog on first enable) |
+| `captureAutomation` | off | The `#xray:capture` URL marker a driving agent can navigate to (capture only) |
 | `bridgingRanking`, `transitiveTrust` | off | Experimental ranking/trust (not yet shipped) |
 
 The rule of thumb: **local analysis is never gated** (capturing,
@@ -206,13 +231,33 @@ post open, TikTok wants the video page. The details live in the
 [capture guide](CAPTURE_GUIDE.md); the reader will tell you when a
 capture looks thin and how to improve it.
 
-### 3.3 PDFs, Google Drive, and the import fallback
+### 3.3 PDFs, books, transcripts, and batch import
 
 X-Ray reconstructs PDF text (and tables, row-by-row) into Markdown, and
 archives the original bytes so figures resolve later. A Google Drive PDF
 preview routes into the PDF pipeline automatically when the tab's title
 names a `.pdf`. When automatic capture can't reach a document, an import
 picker lets you hand X-Ray the file directly.
+
+The portal header adds import entry points that don't need a live tab:
+
+- **Import transcript…** — a podcast or video transcript (URL-first, or
+  paste / upload; see the
+  [capture guide](CAPTURE_GUIDE.md#podcast-transcripts-import)).
+- **Import book…** — an **EPUB**, parsed into one capture per chapter,
+  all grouped under a single book entity so the chapters can later join a
+  case.
+- **Import URLs…** — paste a whole list of URLs (or a markdown worksheet;
+  links are parsed out) and X-Ray batch-captures each one into your
+  archive without a tab per page. On a case view it also tags every
+  import into that case. Re-runs are idempotent; a page it can only
+  thinly extract (paywalled) is imported and honestly flagged **thin**,
+  not dropped. You can optionally seed each imported page with LLM
+  Suggest proposals that park for later review
+  ([§9](#9-cases-the-investigation-workspace)).
+
+All of these produce markdown-canonical captures, identical in every
+downstream respect to a captured web page.
 
 ### 3.4 Evidence: screenshots and HTML snapshots
 
@@ -684,12 +729,18 @@ reader's **Publish** flow, signing happens via your Active method (local
 toast, NIP-07 signer prompt, or bunker), and you get per-relay accept/
 reject results. `[SCREENSHOT-12]`
 
-**What each flag gates** (recap of §2.5): the article (30023) always
-publishes; assessments/relationships (30054/30055) need
-`assessmentPublishing`; audits (30056–30061) need `epistemicAuditing`;
-forensic findings (30062) need `forensicPublishing`; verdicts and
-integrity findings (30063/30064) need `truthAdjudicationPublishing`;
-platform-account links (32126) need `platformAccountPublishing`.
+**What publishes, and what each flag gates** (recap of §2.5): the article
+(30023), your claims (30040), entity profiles (kind 0), and entity↔article
+relationships (32125) publish by default with the reader's **Publish**.
+Everything else is opt-in — assessments / claim-relationships (30054/30055)
+need `assessmentPublishing`; audits (30056–30061) need `epistemicAuditing`;
+forensic findings (30062) need `forensicPublishing`; verdicts and integrity
+findings (30063/30064) need `truthAdjudicationPublishing`; platform-account
+links (32126) need `platformAccountPublishing`; the enriched entity profile
+and fact sheet (kind 0 + 30067) need `entityCorpusPublishing`; and the case
+brief (30023 + 30068) publishes from the case dashboard. The moral lens and
+the case dossier / hypothesis map / counterfactual are derived views and
+never publish.
 
 **Privacy at publish.** Everything published is public and signed with
 your `npub`. Your `nsec` never leaves the device. Publishing a
@@ -708,8 +759,11 @@ this.
 
 ## 7. The portal ("My Archive")
 
-The portal is a full-tab, read-only view of everything you've published,
-reconciled against your relays. `[SCREENSHOT-13]`
+The portal is a full-tab, read-mostly view of everything you've
+published, reconciled against your relays. Its header also carries
+authoring-adjacent controls — add a viewer `npub`, **Import transcript…**,
+**Import book…**, **Import URLs…**, **Refresh**, and **Resync**.
+`[SCREENSHOT-13]`
 
 - **Library + facets + brush** — browse your corpus, filter by facets,
   brush a time range.
@@ -735,6 +789,23 @@ reconciled against your relays. `[SCREENSHOT-13]`
     ("links to N external sources · linked from M case articles").
   - **Entities × roles** — routing into each entity's coverage-capped
     record.
+  - **Add sources…** — an inline picker of archived articles not yet in
+    the case; choosing them tags them with the case entity (local only —
+    re-publish from the reader to update the wire `p`-tags).
+  - **Hypothesis map** — competing answers to the scope question side by
+    side, with shared claims surfaced as **cruxes**; no winner is picked
+    and there are no scores
+    ([§9.3](#9-cases-the-investigation-workspace)).
+  - **Trace dependencies** (per claim) — a structural **counterfactual**:
+    what changes if a claim is removed or negated, as counts that show
+    their derivation, never a probability
+    ([§9.4](#9-cases-the-investigation-workspace)).
+  - **Analyze corpus…** and **Suggest links** — the optional, flag-gated
+    LLM **corpus synthesis** brief over every member article, and a
+    lighter cross-article claim-link pass that proposes
+    supports / contradicts / updates / duplicates edges between existing
+    captured claims from different sources
+    ([§9.5](#9-cases-the-investigation-workspace)).
 - **Entity view** — a person/org's audit dossier, integrity record, and
   forensic lenses; the ego graph; viewer `npub`s.
 
@@ -745,20 +816,171 @@ events in, same dossier out. Nothing new is published to build it.
 
 ## 8. The side panel
 
-The side panel is the entity browser and network feed. `[SCREENSHOT-14]`
+The side panel is the **entity browser** — where you create, edit, and
+organize the people, organizations, places, things, and cases you've
+tagged. `[SCREENSHOT-14]`
 
-- **Entity browser** — every entity you've tagged, by type, with
-  merge/alias tools to collapse cross-platform accounts into one person.
-- **Keys** — per-entity `npub`/`nsec` and case bundles. Case bundles are
-  **password-grade** material — treat them accordingly.
-- **Network feed** — assessments, verdicts, and other events seen on your
-  relays, grouped by kind (⚖ Assessments, 🏛 Verdicts, …), with
-  **adopt-on-sight**: pull a foreign entity or claim into your local view.
-- **Sync** — reconcile local entities against the network.
+- **Entity browser** — every entity you've tagged, filterable by type,
+  with a **＋ New** button, search, and merge/alias tools to collapse
+  cross-platform accounts into one person. A **Health** view in the footer
+  reports likely duplicates.
+- **Entity dossier** — open an entity for a compact dossier (its top
+  cited facts, a *contested* badge); **Open full dossier** hands off to
+  the portal.
+- **Cases** — **Add to case**, **Save scope** (set an entity's feed
+  scope), and **Export case** as JSON or Markdown.
+- **Keys** — per-entity `npub`/`nsec` and case bundles. Case bundles and
+  entity `nsec`s are **password-grade** material — treat them accordingly.
+- **Network activity about this entity** — an on-demand relay query for
+  claims and other events about the open entity, with **assess** controls
+  and **Adopt…** for foreign entity pubkeys seen in the feed
+  (adopt-on-sight — always a confirm, as an alias or a separate entity).
+  For the standalone follows feed, see
+  [§10](#10-the-network-following-other-researchers).
+- **Sync** — reconcile the local entity registry against the network
+  (NIP-78 encrypt-to-self).
 
 ---
 
-## 9. Glossary
+## 9. Cases (the investigation workspace)
+
+A **case** is a special entity (type `case`) that acts as an
+investigation *workspace* — a folder for everything you've gathered on
+one question, not a subject you make claims about. You create cases by
+hand in the side panel (**＋ New → Case**); they are never auto-extracted
+from an article. A case carries only authored fields: a **scope
+question**, a **status**, and opened / closed dates.
+
+### 9.1 What's "in" a case
+
+An archived capture belongs to a case if **either** one of its claims is
+*about* the case **or** the article itself is **tagged** with the case
+entity — the tag-∪-claim union. So there are a few ways to add a source:
+
+- **Tag it** — from the reader's entity tagger, or the portal / side-panel
+  **Add sources…** and **Add to case** pickers. Tagging outside the reader
+  is local-only; an already-published capture keeps its old wire `p`-tags
+  until you re-publish it from the reader.
+- **Claim about it** — mark a claim whose subject is the case.
+- **Batch-import into it** — a case view's **Import URLs…** panel captures
+  a pasted URL list straight into the case (§3.3).
+
+### 9.2 The case dashboard
+
+Open a case in the portal to see its **dossier** — all derived and
+computed-on-read, with nothing extra published to build it: the shape of
+knowledge, contradiction knots, a four-axis timeline, convergence-
+collapsed evidence, and entities × roles (detailed in
+[§7](#7-the-portal-my-archive)). Alongside it, an **ego-graph** plots the
+case at the center with its member articles and the entities they share.
+
+There is deliberately **no case-level score of any kind**. Where sources
+disagree, the disagreement is shown side by side, never averaged away.
+
+### 9.3 Hypothesis maps
+
+A scope question usually has more than one candidate answer. The
+**hypothesis map** lays those answers out side by side and files each
+attached claim as **supports** or **undermines** — a claim edged to two
+hypotheses with opposing roles surfaces as a **crux**. Add a hypothesis,
+attach a claim, or (with `caseSynthesis` + an API key) run **Suggest
+edges…**. There is no weight, probability, or confidence anywhere, and
+nothing here is published — it has no wire kind.
+
+### 9.4 Structural counterfactuals
+
+Each claim in a case offers a **trace dependencies** expander: what in the
+case graph *structurally* changes if this claim is removed or negated. The
+answer is always **counts that show their derivation** — contradiction
+knots that fragment, typed-support edges lost, propositions that fall,
+entities left with no claim — never "more/less likely" or a percentage. It
+runs locally, saves nothing, and publishes nothing.
+
+### 9.5 Corpus synthesis and link suggestion (optional, LLM)
+
+With the `caseSynthesis` flag on and an API key set, the case dashboard
+offers two LLM passes:
+
+- **Analyze corpus…** runs a map/reduce over **every** member article and
+  produces a **grounded brief** — a summary, the positions in play, the
+  cruxes, the load-bearing claims, and coverage gaps — where every quote
+  is checked verbatim against its source. It also proposes claims and
+  relationships to accept or reject one at a time.
+- **Suggest links** is a lighter, standalone pass over just the case's
+  captured claim texts (no article bodies): it proposes
+  supports / contradicts / updates / duplicates edges between claims from
+  different sources. Already-existing pairs are rejected with a reason,
+  never silently dropped.
+
+Accepted proposals become ordinary `kind 30040` / `30055` events through
+the normal publish path; the brief is stored **locally**. You can also
+**publish the brief itself** as a readable `kind 30023` article plus a
+structured `kind 30068` CaseBrief, signed by *you* — it's your synthesis,
+not an entity's.
+
+### 9.6 Sharing a case
+
+Two exports (side panel → **Export case**):
+
+- **Case file (JSON / Markdown)** — a machine-readable case file plus a
+  readable report of the claims, assessments, and contradictions.
+- **Collaboration bundle** — a shareable bundle that carries the case's
+  orbit entities **including their private keys**, so a collaborator can
+  tag claims under the *same* entity pubkeys and both sides' published
+  claims aggregate under one identity. Treat it like an `nsec` backup;
+  importing one never overwrites a key you already hold.
+
+---
+
+## 10. The Network (following other researchers)
+
+X-Ray reads and writes NOSTR, so other people's captures, claims, and
+verdicts are already out on the relays. The **Network** page turns that
+into a working feed. It ships **off by default** — enable the `networkPage`
+flag (Settings → Advanced), then open it from the toolbar icon's
+right-click menu, the Settings page, or the side panel.
+
+The design is deliberately conservative: it **pulls, it doesn't stream**;
+it shows work **newest-first and never re-ranks it**; and it collapses
+material from people you *don't* follow into counts, so a hostile relay
+can't flood your view. `npub`s sit beside names everywhere.
+
+Three tabs:
+
+- **Feed** — the newest published work from the researchers you follow
+  (articles, claims, assessments, verdicts, integrity and forensic
+  findings, case briefs). An optional **"trusted provenance only"** toggle
+  narrows the feed to items whose provenance is entirely inside the people
+  you follow (it only ever hides — it never reorders).
+- **Follows** — add researchers by `npub` (with an optional local label),
+  relabel, or unfollow. Unfollowing keeps anything you already
+  incorporated — no memory-holing.
+- **Queue** — inbound work arrives here as **proposals**, never as facts.
+  Accept or decline each one. Accepted foreign **claims** enter your claim
+  model tagged with their author's key as provenance; foreign
+  **assessments and verdicts** land in a separate read-only store, so they
+  can never be mistaken for — or republished as — your own.
+
+**Publishing on the Network is opt-in and separately gated:**
+
+- **Follow-list mirror** (`followListPublishing`) — publish a standard
+  NIP-02 **kind-3** contact list of who you follow (global scope only;
+  case- and entity-scoped follows never publish). The first enable shows a
+  consent dialog — who you follow becomes public and is irrevocable in
+  practice — and every publish first merges with your existing remote
+  kind-3 so a contact list from another client is never clobbered.
+- **Request review / re-broadcast** (`reviewCoordination`) — ask your
+  followers for adversarial review of a published artifact, or
+  re-broadcast the events of people you follow (verbatim, under their own
+  signatures).
+
+Following someone also **widens your relay reach**: X-Ray harvests each
+followee's NIP-65 relay list (`kind 10002`) so your reads reach where they
+actually publish.
+
+---
+
+## 11. Glossary
 
 - **Anchor** — a stored pointer from a claim/quote back to its passage.
 - **Assessment** — your stance + labels on one claim (§5.1).
@@ -777,19 +999,35 @@ The side panel is the entity browser and network feed. `[SCREENSHOT-14]`
   ties judgments to exact text.
 - **Convergence** — collapsing attestations by origin so reprints count
   once (§5.3).
+- **Corpus synthesis / brief** — the optional LLM map/reduce over a case's
+  member articles: a grounded, source-linked brief plus reviewable
+  proposals (§9.5).
+- **Counterfactual (structural)** — a "what depends on this claim" trace
+  over a case, reported as counts, never a probability (§9.4).
+- **Crux** — a claim attached to two hypotheses with opposing roles (§9.3).
 - **Disposition** — how a jurisdiction reads a non-factual assertion
   (§5.8).
+- **Dossier** — an entity's (or case's) provenance-pinned knowledge base,
+  derived on read; every fact links back to a published claim.
 - **Event-fact vs state-fact** — a dated act vs a standing condition
   (§5.4).
 - **Firewall** — the rule that values/interpretations never get
   true/false verdicts (§5.4).
+- **Follow / follow-list** — the researchers you track on the Network; an
+  opt-in kind-3 mirror publishes the list (§10).
 - **Forensic finding** — a named rhetorical maneuver bound to evidence,
   no score/intent (§5.7).
+- **Hypothesis map** — competing answers to a case's scope question, with
+  cruxes surfaced and no winner picked (§9.3).
+- **Incorporation** — accepting another researcher's Network claim as a
+  proposal, tagged with their key as provenance (§10).
 - **Integrity finding** — a words-vs-deeds match on one entity (§5.5).
 - **Jurisdiction** — a legal code, worldview, or author corpus you author
   for the lens (§5.8).
 - **Knowability ceiling** — a cap on an audit score when the subject is
   inherently hard to know (§5.6).
+- **Network** — the follows-based feed of other researchers' published
+  work; pull-not-live, newest-first (§10).
 - **`nsec` / `npub`** — your private / public NOSTR key. `nsec` never
   leaves the device.
 - **Proposition** — a classified claim that can carry verdicts (§5.4).
@@ -809,7 +1047,7 @@ claim · ⚖️ evaluative claim · 🔮 predictive claim.
 
 ---
 
-## 10. Troubleshooting
+## 12. Troubleshooting
 
 - **Capture is thin / wrong title / scrambled.** Check the provenance
   chip (§3.5) and the platform notes in [CAPTURE_GUIDE.md](CAPTURE_GUIDE.md).
