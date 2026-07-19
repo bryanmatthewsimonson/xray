@@ -50,6 +50,34 @@ instead of a misleading tab error. See `src/shared/signer.js`,
 `handleCapturePublish`). Pre-signed entity events (`xray:relay:publish`) were
 never affected.
 
+## 2026-07-18 — Read-only reader opens got slow: existence-check loaded the whole row
+
+**Tags:** bug, pattern
+
+Regression from the #202 delete-from-read-only fix (entry below). To decide
+whether to reveal the trash on a read-only open, `init()`'s
+`if (state.readOnlyOpen)` block called `ArchiveCache.getArticle(url)` (and, on a
+miss, `resolveAlias` + a second `getArticle(alias)`) — purely to compute a
+boolean. `getArticle` structured-clones the **full row** and fires a
+fire-and-forget `lastAccessed` **readwrite** bump (re-get + put of that same
+row). On a local hit that row is the article being opened, and once EPUB book
+import landed the same day a row can be a multi-MB chapter (markdown + embedded
+figure bytes) — so every My-Archive open paid a big deserialize plus a readwrite
+transaction that serializes against the reader's own render-time archive reads
+(claims/entities/audit/findings bars).
+
+Fix: use the purpose-built `ArchiveCache.hasArticle` (keyed `getKey`, no payload,
+no write) for both the primary and the alias existence checks — same boolean
+(`getKey(hash) !== undefined` ⟺ `!!getArticle`), same alias fallback, `#202`'s
+reveal-only-when-a-local-row-exists behavior and the dropped read-only delete
+guard both intact. A micro-benchmark over the real module (fake-indexeddb, a
+~8MB row in a 40-chapter store) measured `getArticle` ~16ms/call **with** the
+`lastAccessed` bump firing vs `hasArticle` ~0.6ms/call with **no** bump — ~25×,
+and larger in real IDB where the payload also crosses serialize/deserialize.
+Pattern: when all a caller needs is "does this row exist?", reach for
+`hasArticle`, never `getArticle` — the latter's payload load + LRU bump is pure
+waste there. See `src/reader/index.js` init read-only block.
+
 ## 2026-07-18 — Book ingestion (EPUB), slice 3: the import flow + entry point
 
 **Tags:** design
