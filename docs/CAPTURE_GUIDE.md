@@ -9,8 +9,10 @@ This guide covers:
 - [Instagram](#instagram)
 - [Facebook](#facebook)
 - [TikTok](#tiktok)
-- [Easy-tier platforms](#easy-tier-platforms) (YouTube, Twitter/X, Substack, general articles)
+- [Easy-tier platforms](#easy-tier-platforms) (YouTube, Twitter/X, Substack, academic papers, general articles)
 - [Podcast transcripts (import)](#podcast-transcripts-import)
+- [Books (EPUB import)](#books-epub-import)
+- [Batch URL import](#batch-url-import)
 - [What to check after capture](#what-to-check-after-capture)
 - [When a capture looks wrong](#when-a-capture-looks-wrong)
 
@@ -403,6 +405,63 @@ apply to the standalone portal import:
 - If you imported without an Episode URL, the reader shows the synthetic
   `file:///imported/…` URL; edit it to the real episode URL before
   publishing if you have it.
+
+---
+
+## Books (EPUB import)
+
+A whole book can come in as a corpus of its own. From the portal ("My
+Archive"), the Library header's **Import book…** button takes an
+**`.epub`** file and turns it into **one capture per chapter**, all
+grouped under a single **book entity** (a `thing`) so the chapters hang
+together and can later join a case.
+
+- **What you provide** — just the `.epub`. X-Ray reads the book's own
+  metadata: the author becomes each chapter's **byline**, the book title
+  becomes the **publisher** field, the release date becomes
+  **published_at**, and the ISBN (with author and date) forms the book
+  entity's description.
+- **What you get** — each chapter is a markdown-canonical capture (the
+  same substrate a captured web page produces), archived with the
+  original `.epub` bytes and any inline images, at a synthetic
+  `file:///imported/epub/…` URL. Chapters open in the reader like any
+  other capture — tag entities, mark claims, publish.
+- **Limits** — a book is capped at **500 chapters** (a pathological EPUB
+  with thousands of micro-sections is truncated, and the importer says
+  so). Very large EPUBs take a moment to parse and archive.
+
+Every chapter is grouped under the book entity, so the book stays
+together in your archive. To pull the book into a **case**, open the
+case's **Add sources…** picker (or **Add to case** from the side panel):
+it lists archived articles — the chapters among them — and tags the ones
+you select. Case membership is **per-article**, so you add chapters
+individually (the picker shows up to 200 rows at a time); there is no
+single book-level "add all chapters".
+
+---
+
+## Batch URL import
+
+When you already have a *list* of sources — a research worksheet, a
+bibliography, a set of links — you don't have to open and capture each
+one by hand. From the portal, **Import URLs…** (in the Library header, or
+on a case view) batch-captures a pasted list:
+
+- **Paste plain URLs or a whole markdown worksheet** — X-Ray parses the
+  links out either way.
+- Each page is **fetched and extracted** with the same Readability path a
+  live capture uses, archived with the canonical hash, and — on a case
+  view — **tagged into that case**.
+- **Per-row live status**; a failure never stops the batch, and re-runs
+  are **idempotent** ("already archived", no re-fetch).
+- A page X-Ray can only thinly extract (paywalled) is imported and
+  honestly flagged **thin** — a real capture, marked as such — not
+  dropped. PDF links are deferred to the reader's PDF path.
+- Optionally tick **"Suggest entities & claims for each imported page"**
+  (needs `llmAssist` + a key) to run the LLM Suggest pass on each import
+  and **park** the proposals; a **"✨ Review N suggestions"** button in
+  the reader opens them later in the normal review modal. Auto-run, never
+  auto-accept.
 
 ---
 

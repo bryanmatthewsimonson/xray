@@ -22,10 +22,10 @@ codebase — here's what you need to know.
   future-you might reasonably second-guess, or when working around
   something a third party changed. Keep entries tight.
 - **Smoke test.** [`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md) is the
-  ~20-minute manual checklist that exercises every shipped surface
-  across Phases 0–8. Run it before any release tag, after any
-  cross-cutting refactor, or when adding a new contributor to the
-  project. File one issue per defect found.
+  manual checklist that exercises every shipped surface, phase by phase.
+  Run it before any release tag, after any cross-cutting refactor, or
+  when adding a new contributor to the project. File one issue per
+  defect found.
 - **Shared modules** live at `src/shared/`. Platform handlers live at
   `src/shared/platforms/`; they run in the content script and return
   plain data objects (no DOM mutation, no UI).
@@ -63,13 +63,12 @@ web-ext build          # produces a .zip in web-ext-artifacts/
 - **Indentation:** 4 spaces in JS authored here; 2 spaces in files
   ported verbatim from the userscript (preserved so diffs against the
   userscript stay readable).
-- **CSS class prefixes:**
-  - `xr-*` — extension-chrome UI (options, reader, side panel).
-  - `nac-*` / `nmd-*` — legacy userscript prefixes still permeating
-    the FAB / capture-panel content-script CSS. Don't introduce new
-    `nac-*` classes; new content-script UI should use `xr-*`. A bulk
-    rename of the existing `nac-*` styling to `xr-*` is a known
-    cosmetic-only follow-up.
+- **CSS class prefixes:** everything is `xr-*` now — the
+  extension-chrome UI (options / reader / side panel / portal /
+  network), the content-script UI, and the capture-pipeline markers
+  in `content-extractor.js` (class names on cloned nodes the Turndown
+  rules match, not UI). The legacy `nac-*` / `nmd-*` userscript
+  prefixes are fully gone; don't reintroduce them.
 - **Logging:** use `Utils.log` / `Utils.error`. They're no-ops when
   `CONFIG.debug` is false.
 - **User-visible strings** use "X-Ray" (with a hyphen). Avoid emoji
