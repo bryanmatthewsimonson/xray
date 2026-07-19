@@ -196,14 +196,27 @@ uncertainty markers and their own accountability anchor.
 
 ### 5.3 What the judges receive
 
-- **The live graph on public NOSTR relays.** The publishing identity in
-  both encodings — npub (bech32, for clients): `TBD`; hex pubkey (for
-  filters): `TBD` — the relay list (`TBD`), a kind-by-kind index with
-  counts (`TBD` after the run), and a curated permalink (njump.me /
-  nostr.band view of the npub: `TBD`). Raw signed events are fetchable
-  from any NOSTR client; long-form articles render in long-form clients
-  (njump, habla); the structured graph renders in the portal. Or fetch
-  by hand:
+- **The live graph on public NOSTR relays.** One publishing identity
+  per corpus (each is its own workspace + signing key, so the corpora
+  are independently fetchable and never interleave under one author):
+  - **COVID-19 origins** — npub (bech32, for clients):
+    `npub1dk487wer85fzc9ar0jdndxfsty4ygnn88h2qeseflgshgc8f27esamkdyr`;
+    hex pubkey (for filters):
+    `6daa7f3b233d122c17a37c9b369930592a444e673dd40cc329fa217460e957b3`;
+    permalink: <https://njump.me/npub1dk487wer85fzc9ar0jdndxfsty4ygnn88h2qeseflgshgc8f27esamkdyr>.
+  - **Eggs (health effects)** — npub:
+    `npub1wj9cy7zyhz3jak3krztjqzkfugkk7n57dp3h32uzh6lxpcqw22kszd24dp`;
+    hex pubkey:
+    `748b827844b8a32eda361897200ac9e22d6f4e9e686378ab82bebe60e00e52ad`;
+    permalink: <https://njump.me/npub1wj9cy7zyhz3jak3krztjqzkfugkk7n57dp3h32uzh6lxpcqw22kszd24dp>.
+
+  Relay list (both corpora): `wss://relay.primal.net`,
+  `wss://relay.nostr.net`, `wss://nos.lol`, `wss://nostr.mom`,
+  `wss://nostr.oxtr.dev`, `wss://offchain.pub`. Kind-by-kind index with
+  counts: `TBD` after the eggs run completes. Raw signed events are
+  fetchable from any NOSTR client; long-form articles render in
+  long-form clients (njump, habla); the structured graph renders in the
+  portal. Or fetch by hand:
 
   ```js
   const ws = new WebSocket('wss://<relay>');
