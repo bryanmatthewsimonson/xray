@@ -430,8 +430,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         // Track the source tab so the reader's publish flow can route
         // NIP-07 signing back through a tab that has the content script
-        // + MAIN-world bridge loaded.
-        const sourceTabId = sender && sender.tab && sender.tab.id;
+        // + MAIN-world bridge loaded. ONLY a genuine web-page sender (the
+        // content script's openReader) qualifies: an extension-page opener
+        // (the portal — "Open in reader", transcript/book import, case
+        // view) has no NIP-07 bridge, so recording its tab id would make
+        // the publish flow try to sign through a page that can't, failing
+        // with "Source tab unreachable". Those opens are tabless — the SW
+        // signs Local/NSecBunker itself; NIP-07 gets a clear switch-to-Local
+        // message instead of a misleading tab error.
+        const extOrigin = chrome.runtime.getURL('');
+        const fromExtensionPage = !!(sender && sender.url && sender.url.startsWith(extOrigin));
+        const sourceTabId = (!fromExtensionPage && sender && sender.tab && sender.tab.id != null)
+            ? sender.tab.id
+            : null;
         // readOnly (Phase 12.7): set by the portal's "Open in reader" —
         // the article is a relay reconstruction for VIEWING, and the
         // reader must not let it touch the local archive cache.
@@ -458,11 +469,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 area.get(['xray:article:' + id], (res) => r(res && res['xray:article:' + id]));
             });
             if (!record) return sendResponse({ ok: false, error: 'Session record missing' });
-            // Tabless captures (PDFs — content scripts never run in the
-            // browsers' PDF viewers, so there is no source tab) resolve
-            // the pubkey right here via the Signer façade. Local and
-            // NSecBunker work in the worker; NIP-07 needs a page.
-            if (record.sourceTabId == null) {
+            // Only NIP-07 needs the source tab (its `window.nostr` lives in
+            // the page). Local and NSecBunker resolve the pubkey right here
+            // in the worker — so tabless captures (PDFs, imported EPUB
+            // chapters, transcript imports, portal opens) work regardless of
+            // whether a tab id was recorded. A NIP-07 method with no source
+            // tab falls through to the façade, which throws the clear
+            // "needs a web page — switch to Local" error.
+            const method = await Signer.getMethod();
+            if (!Signer.methodRequiresPageContext(method) || record.sourceTabId == null) {
                 try {
                     return sendResponse({ ok: true, pubkey: await Signer.getPublicKey() });
                 } catch (err) {
@@ -1322,15 +1337,16 @@ async function captureTranscriptInPage() {
 }
 
 /**
- * Map a Signer failure on the tabless (PDF) signing path to a message
- * the user can act on. NIP-07 structurally can't work here: the signer
- * extension lives in web pages, and PDF captures have none.
+ * Map a Signer failure on the tabless signing path to a message the user
+ * can act on. NIP-07 structurally can't work here: the signer extension
+ * lives in web pages, and these captures have none — PDFs, imported EPUB
+ * chapters, transcript imports, and portal reconstructions.
  */
 function tablessSignError(err) {
     const msg = (err && err.message) || String(err);
     if (/nip-?07|not available in this context/i.test(msg)) {
-        return 'NIP-07 signing needs a normal web page, which a PDF capture does not have. '
-            + 'Switch Settings → Signing to Local (or NSecBunker) to publish PDF captures.';
+        return 'NIP-07 signing needs a normal web page, which this capture does not have. '
+            + 'Switch Settings → Signing to Local (or NSecBunker) to publish it.';
     }
     return msg;
 }
@@ -1347,12 +1363,17 @@ async function handleCapturePublish(id, unsignedEvent) {
     }
     const sourceTabId = record.sourceTabId;
 
-    // 2. Sign. Tabless captures (the PDF reader path — no content
-    //    script, no NIP-07 bridge) sign right here via the Signer
-    //    façade; everything else routes through the source tab's
-    //    NIP-07 bridge as before.
+    // 2. Sign. ONLY NIP-07 needs a page: its `window.nostr` bridge lives in
+    //    the source tab, so a NIP-07 sign routes through that tab. Local and
+    //    NSecBunker sign right here in the worker via the Signer façade — no
+    //    tab required — so captures with no live web page (imported EPUB
+    //    chapters, transcript imports, PDFs, portal reconstructions) publish
+    //    fine. A NIP-07 method with no source tab falls through to the
+    //    façade, which raises the clear "needs a web page — switch to Local"
+    //    error rather than a misleading "tab unreachable".
+    const method = await Signer.getMethod();
     let signed;
-    if (sourceTabId == null) {
+    if (!Signer.methodRequiresPageContext(method) || sourceTabId == null) {
         try {
             signed = { ok: true, event: await Signer.signEvent(unsignedEvent) };
         } catch (err) {
@@ -1367,7 +1388,7 @@ async function handleCapturePublish(id, unsignedEvent) {
         } catch (err) {
             return {
                 ok: false,
-                error: 'Source tab unreachable (likely closed). Keep the article tab open while publishing.'
+                error: 'Source tab unreachable (likely closed). Keep the article tab open while publishing, or switch Settings → Signing to Local.'
             };
         }
     }

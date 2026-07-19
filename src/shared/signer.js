@@ -38,6 +38,21 @@ export const Signer = {
     return m === 'nip07' || m === 'nsecbunker' ? m : 'local';
   },
 
+  /**
+   * Does this signing method need an actual web page — a NIP-07
+   * `window.nostr` bridge — to sign? ONLY NIP-07 does. Local and
+   * NSecBunker sign in any context (service worker, extension page),
+   * so they never need a tab.
+   *
+   * This is WHY the capture→publish flow routes signing back through the
+   * source tab: it is a NIP-07-only requirement, not a general one.
+   * Callers must gate tab-routing on this — routing a Local/NSecBunker
+   * sign through a tab (or failing for lack of one) is a bug, and breaks
+   * publishing captures that have no live web page (imported EPUB
+   * chapters, transcript imports, PDFs, portal reconstructions).
+   */
+  methodRequiresPageContext: (method) => method === 'nip07',
+
   isConfigured: async () => {
     const prefs = await Storage.get('preferences', {});
     return prefs && prefs.signing_method_configured === true;

@@ -172,6 +172,20 @@ test('Signer routes nsecbunker calls to injected client', async () => {
     assert.equal(signed.id, 'b');
 });
 
+test('methodRequiresPageContext: only nip07 needs a web page', () => {
+    // This predicate is the contract behind the capture→publish routing:
+    // Local / NSecBunker sign in the service worker (no tab), so publishing
+    // captures with no live page (imported EPUB chapters, transcript
+    // imports, PDFs, portal reconstructions) must NOT route through a tab.
+    assert.equal(Signer.methodRequiresPageContext('nip07'), true);
+    assert.equal(Signer.methodRequiresPageContext('local'), false);
+    assert.equal(Signer.methodRequiresPageContext('nsecbunker'), false);
+    // Unknown / falsy methods are treated as not-needing a page (they fall
+    // to the in-worker façade, never to a phantom tab).
+    assert.equal(Signer.methodRequiresPageContext(undefined), false);
+    assert.equal(Signer.methodRequiresPageContext('whatever'), false);
+});
+
 test('Signer.isReady is honest about local key presence', async () => {
     resetStorage();
     await Storage.initialize();

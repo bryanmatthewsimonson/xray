@@ -38,6 +38,65 @@ and 32768 stays well under every current model's per-request output limit. The
 / running on a shorter section rather than the (now much rarer) truncation. See
 `src/shared/llm-client.js`.
 
+## 2026-07-18 — Publish routed Local signing through a (missing) source tab
+
+**Tags:** bug
+
+Publishing an imported EPUB chapter (and, generally, any capture opened from the
+portal — transcript import, case view) to NOSTR failed with **"Source tab
+unreachable (likely closed)"** even under **Local** signing, which needs no page
+at all.
+
+Two conflated assumptions:
+1. `xray:reader:open` recorded `sourceTabId = sender.tab.id` for **every** opener.
+   For the genuine capture path the sender is the content script (a real web page
+   with the NIP-07 bridge) — correct. But the portal openers are **extension
+   pages**; their tab has no bridge, yet its id got recorded as the "source tab".
+2. `handleCapturePublish` / the `getPubkey` handler branched on **whether a tab id
+   was present**, not on the signing **method** — so a non-null (but bridge-less)
+   tab id forced a `chrome.tabs.sendMessage(..., 'xray:sign')` that no one answers.
+
+Routing through the source tab is a **NIP-07-only** requirement (`window.nostr`
+lives in the page); Local and NSecBunker sign in the worker via the `Signer`
+façade. Fix: (a) `Signer.methodRequiresPageContext(method)` (= `method==='nip07'`)
+now gates tab-routing in both handlers — Local/NSecBunker always sign in the SW,
+so tabless captures publish fine; (b) `xray:reader:open` records a `sourceTabId`
+only for a genuine web-page sender (`sender.url` outside the extension origin),
+so portal opens are tabless by construction. A NIP-07 method with no page falls
+to the façade and gets the clear "needs a web page — switch to Local" message
+instead of a misleading tab error. See `src/shared/signer.js`,
+`src/background/index.js` (`xray:reader:open`, `xray:capture:getPubkey`,
+`handleCapturePublish`). Pre-signed entity events (`xray:relay:publish`) were
+never affected.
+
+## 2026-07-18 — Read-only reader opens got slow: existence-check loaded the whole row
+
+**Tags:** bug, pattern
+
+Regression from the #202 delete-from-read-only fix (entry below). To decide
+whether to reveal the trash on a read-only open, `init()`'s
+`if (state.readOnlyOpen)` block called `ArchiveCache.getArticle(url)` (and, on a
+miss, `resolveAlias` + a second `getArticle(alias)`) — purely to compute a
+boolean. `getArticle` structured-clones the **full row** and fires a
+fire-and-forget `lastAccessed` **readwrite** bump (re-get + put of that same
+row). On a local hit that row is the article being opened, and once EPUB book
+import landed the same day a row can be a multi-MB chapter (markdown + embedded
+figure bytes) — so every My-Archive open paid a big deserialize plus a readwrite
+transaction that serializes against the reader's own render-time archive reads
+(claims/entities/audit/findings bars).
+
+Fix: use the purpose-built `ArchiveCache.hasArticle` (keyed `getKey`, no payload,
+no write) for both the primary and the alias existence checks — same boolean
+(`getKey(hash) !== undefined` ⟺ `!!getArticle`), same alias fallback, `#202`'s
+reveal-only-when-a-local-row-exists behavior and the dropped read-only delete
+guard both intact. A micro-benchmark over the real module (fake-indexeddb, a
+~8MB row in a 40-chapter store) measured `getArticle` ~16ms/call **with** the
+`lastAccessed` bump firing vs `hasArticle` ~0.6ms/call with **no** bump — ~25×,
+and larger in real IDB where the payload also crosses serialize/deserialize.
+Pattern: when all a caller needs is "does this row exist?", reach for
+`hasArticle`, never `getArticle` — the latter's payload load + LRU bump is pure
+waste there. See `src/reader/index.js` init read-only block.
+
 ## 2026-07-18 — Book ingestion (EPUB), slice 3: the import flow + entry point
 
 **Tags:** design
