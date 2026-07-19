@@ -375,6 +375,86 @@ export function buildHypothesisEdgeUserPrompt({ dossierDigest = '', hypotheses =
         + `DOSSIER DIGEST (deterministic, code-computed; its claims index is the only id source):\n${dossierDigest}`;
 }
 
+// ------------------------------------------------------------------
+// CLAIM LINKS — Phase 28.3: standalone cross-article relationship
+// suggestion, decoupled from the full synthesis. One reduce-shaped
+// call over the case's claims index — no member texts, no map pass —
+// so argument structure can be proposed BEFORE (and independently of)
+// the brief run; accepted links then enrich the dossier the brief
+// consumes. The tool schema has NO numeric slot (grep-tested) and the
+// output is proposals ONLY: every mutation stays behind human Accept.
+// ------------------------------------------------------------------
+
+export const CLAIM_LINKS_PROMPT_VERSION = 'claim-links-v1';
+export const CLAIM_LINKS_TOOL_NAME = 'propose_claim_links';
+export const MAX_CLAIM_LINKS_OUTPUT_TOKENS = 8192;
+// The claims-index cap, matching digestDossier's 150-claim bound.
+export const MAX_CLAIM_LINKS_CLAIMS = 150;
+
+export function buildClaimLinksTool() {
+    return {
+        name: CLAIM_LINKS_TOOL_NAME,
+        description: 'Propose typed relationships between EXISTING captured claims from '
+            + 'DIFFERENT articles: which contradict, support, update, or duplicate which. '
+            + 'NEVER judge which claim is right or attach any strength — a human reviews '
+            + 'every proposal.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                proposals: {
+                    type: 'array',
+                    description: 'The proposed cross-article claim relationships.',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            source_claim_id: { type: 'string', description: 'An EXISTING claim id from the supplied index. Never invent one.' },
+                            target_claim_id: { type: 'string', description: 'An EXISTING claim id from the supplied index. Never the same as source.' },
+                            relationship: { type: 'string', enum: [...CLAIM_RELATIONSHIPS], description: 'How source relates to target.' },
+                            note: { type: 'string', description: 'One sentence: why these two claims relate this way.' }
+                        },
+                        required: ['source_claim_id', 'target_claim_id', 'relationship']
+                    }
+                }
+            },
+            required: ['proposals']
+        }
+    };
+}
+
+export function buildClaimLinksSystemPrompt({ caseName = '', scopeQuestion = '' } = {}) {
+    return [
+        'You are mapping the argument structure of a captured evidence corpus',
+        caseName ? `for the case "${caseName}".` : '.',
+        scopeQuestion ? `The question the case investigates: "${scopeQuestion}".` : '',
+        'You are given an index of captured claims (id — article — text) and the list of',
+        'relationships that already exist.',
+        'Scan the index for pairs of claims from DIFFERENT articles that contradict, support,',
+        'update, or duplicate each other, and propose EVERY such pair you find.',
+        'HARD RULES (docs/PHILOSOPHY.md, docs/CASE_SYNTHESIS_DESIGN.md):',
+        '- NEVER output a verdict, score, probability, or "who is right". Disagreement is DATA —',
+        '  surface it, do not resolve it. A `contradicts` proposal takes no side.',
+        '- Claim ids come ONLY from the supplied index; never invent, abbreviate, or shorthand',
+        '  one. Never link a claim to itself. If no listed pair relates, propose nothing.',
+        '- Do not re-propose a relationship that already exists (the existing list is supplied).',
+        '- Propose relationships in BOTH directions of disagreement where they exist — a corpus',
+        '  whose contradictions all point one way deserves scrutiny, not smoothing.',
+        '- The `note` explains the relation in one sentence; it must not argue a conclusion.'
+    ].filter(Boolean).join('\n');
+}
+
+/**
+ * `claims` = [{id, text, article_hash}] (pre-capped by the caller to
+ * MAX_CLAIM_LINKS_CLAIMS, disclosure included there); `existing` =
+ * ['<id> <relationship> <id>'] lines for the already-linked pairs.
+ */
+export function buildClaimLinksUserPrompt({ claims = [], existing = [] } = {}) {
+    const claimLines = claims.map((c) =>
+        `${c.id} [art:${(c.article_hash || 'unknown').slice(0, 8)}] — ${(c.text || '').slice(0, 200)}`).join('\n');
+    const existingLines = existing.length ? existing.join('\n') : '(none yet)';
+    return `CLAIMS INDEX (id [article] — text; the ONLY source of ids):\n${claimLines}\n\n`
+        + `EXISTING RELATIONSHIPS (do not re-propose):\n${existingLines}`;
+}
+
 export function buildReduceUserPrompt({ dossierDigest = '', extracts = [] } = {}) {
     const extractText = extracts.map((e) => {
         const lines = [`ARTICLE ${e.article_hash}${e.title ? ` — ${e.title}` : ''}`];

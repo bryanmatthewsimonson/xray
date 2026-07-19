@@ -12,6 +12,22 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Standalone "Suggest links" (Phase 28.3).** Cross-article claim
+  relationship suggestion is **decoupled from "Analyze corpus"**: a
+  new "Cross-article links" block on the case dashboard runs ONE
+  claims-index LLM call (`xray:llm:corpus-links`, the same
+  `caseSynthesis`+`llmAssist`+key triple gate — claim texts only, no
+  article bodies) proposing `supports` / `contradicts` / `updates` /
+  `duplicates` pairs between existing captured claims from different
+  sources. Proposals review through the same Accept/Dismiss UI as the
+  synthesis (`renderProposals` → `EvidenceLinker`, `llm:<model>`
+  provenance); already-existing pairs are rejected with a reason,
+  never silently dropped; the run + its triage persist per case
+  (`xray-audits` v5, `case-link-suggestions`). Structure built here
+  feeds the dossier digest a later Analyze-corpus run consumes — the
+  point of the decoupling. No fused score anywhere; the tool schema is
+  grep-tested for numeric slots.
+
 - **Suggest-after-import (Phase 28.2).** The Import URLs… panel gains
   an optional **"Suggest entities & claims for each imported page
   (LLM)"** checkbox (visible only with `llmAssist` on; disabled

@@ -925,6 +925,40 @@ DOES cascade edges (the reader flow calls
 
 ---
 
+## 2026-07-19 — Standalone link suggestion: claims-only, decoupled (28.3)
+
+`design`. The maintainer's ask: cross-article relationship suggestions
+were "strictly part of the analyze corpus feature" — decouple them,
+because argument structure probably helps the analysis itself. The
+shape that clears both the cost and the firewall:
+
+- **Claims-index only, one call.** The pass sends claim ids + texts
+  (capped at the digest's 150, cut disclosed) — never member bodies.
+  Cheap enough to run early and often; the full synthesis map/reduce
+  stays the expensive, deliberate step. The dependency now runs the
+  RIGHT direction: accepted links land in EvidenceLinker → the dossier
+  → `digestDossier` → the reduce prompt, so a later Analyze-corpus run
+  sees the structure instead of rediscovering it.
+- **Existing pairs are rejected, not hidden.** The model is given the
+  already-linked list and told not to re-propose; anything it
+  re-proposes anyway comes back as a rejected row with "this
+  relationship already exists" — an honest record of model behavior
+  (and the sorted-pair+relationship key means the reversed direction
+  of an existing link is still caught, while a DIFFERENT relationship
+  on the same pair legitimately coexists, per evidence-linker's id
+  scheme).
+- **Durable per-case triage, brief-independent.** The 27 S.3 triage
+  pattern rides the brief record — unusable here since the point is
+  running WITHOUT a brief. A v5 store (`case-link-suggestions`, keyed
+  by caseId, latest-wins, prior triage carried across re-runs) keeps
+  Accept/Dismiss decisions without coupling to the synthesis.
+
+Same triple gate as the corpus passes; the tool schema is grep-tested
+for numeric slots; the system prompt forbids verdicts. Files:
+`corpus-prompts.js`, `llm-client.js` (runClaimLinksPass),
+`background/index.js` (xray:llm:corpus-links), `case-synthesis.js`
+(prepareLinkProposals), `portal/links-block.js`, `audit-cache.js` (v5).
+
 ## 2026-07-19 — Parked suggestions: clear-on-close, keyed by URL (28.2)
 
 `design`. Import-time LLM suggestions park in a new `xray-audits` v4

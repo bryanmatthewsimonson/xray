@@ -12,7 +12,7 @@
 import { Utils } from '../utils.js';
 
 const DB_NAME = 'xray-audits';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const RUNS_STORE = 'runs';
 const PREDICTIONS_STORE = 'predictions';
 const RESOLUTIONS_STORE = 'resolutions';
@@ -35,6 +35,13 @@ const CORPUS_EXTRACTS_STORE = 'corpus-extracts';
 // its review modal closes (matching the live suggest-pass semantics:
 // close = the session is over, re-run to see them again).
 const PENDING_SUGGESTIONS_STORE = 'pending-suggestions';
+// Phase 28.3 — the standalone link-suggestion run per case: the
+// proposals a claims-index pass returned plus their triage map
+// (proposalKey → accepted|dismissed), so a reopened case view neither
+// loses the run nor resurrects triaged rows. One record per case
+// (latest-wins, the case-brief posture); cheap to regenerate but the
+// triage decisions are the part worth keeping.
+const CASE_LINKS_STORE = 'case-link-suggestions';
 
 function idb() {
     if (typeof indexedDB === 'undefined') {
@@ -108,6 +115,13 @@ export function openAuditDb() {
             if (oldVersion < 4) {
                 if (!db.objectStoreNames.contains(PENDING_SUGGESTIONS_STORE)) {
                     db.createObjectStore(PENDING_SUGGESTIONS_STORE, { keyPath: 'url' });
+                }
+            }
+
+            // v5 — the standalone link-suggestion run (Phase 28.3).
+            if (oldVersion < 5) {
+                if (!db.objectStoreNames.contains(CASE_LINKS_STORE)) {
+                    db.createObjectStore(CASE_LINKS_STORE, { keyPath: 'caseId' });
                 }
             }
         };
@@ -216,19 +230,26 @@ export function getPendingSuggestions(url) { return get(PENDING_SUGGESTIONS_STOR
 export function deletePendingSuggestions(url) { return remove(PENDING_SUGGESTIONS_STORE, url); }
 export function listPendingSuggestions() { return getAll(PENDING_SUGGESTIONS_STORE); }
 
+// --- standalone link-suggestion runs (28.3) -------------------------------------
+
+export function saveCaseLinkRun(record) { return put(CASE_LINKS_STORE, record); }
+export function getCaseLinkRun(caseId) { return get(CASE_LINKS_STORE, caseId); }
+export function deleteCaseLinkRun(caseId) { return remove(CASE_LINKS_STORE, caseId); }
+
 // --- maintenance ----------------------------------------------------------------
 
 export async function clear() {
     const db = await openAuditDb();
     const transaction = db.transaction(
         [RUNS_STORE, PREDICTIONS_STORE, RESOLUTIONS_STORE, CASE_BRIEFS_STORE, CORPUS_EXTRACTS_STORE,
-         PENDING_SUGGESTIONS_STORE], 'readwrite');
+         PENDING_SUGGESTIONS_STORE, CASE_LINKS_STORE], 'readwrite');
     transaction.objectStore(RUNS_STORE).clear();
     transaction.objectStore(PREDICTIONS_STORE).clear();
     transaction.objectStore(RESOLUTIONS_STORE).clear();
     transaction.objectStore(CASE_BRIEFS_STORE).clear();
     transaction.objectStore(CORPUS_EXTRACTS_STORE).clear();
     transaction.objectStore(PENDING_SUGGESTIONS_STORE).clear();
+    transaction.objectStore(CASE_LINKS_STORE).clear();
     await tx(transaction);
 }
 

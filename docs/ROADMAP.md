@@ -1898,12 +1898,14 @@ the Phase-14.5 review discipline unchanged).
   `pending-suggestions` store (`xray-audits` v4) and reviewed in the
   reader through the SAME 14.5.3 modal as the live pass — auto-run,
   never auto-accept; the parked set clears when its review closes.
-- 🚧 **28.3 — Standalone "Suggest links".** Decouple cross-article
-  relationship suggestion from the full corpus synthesis: a
-  claims-index-only LLM pass proposing 30055
-  supports/contradicts/updates/duplicates pairs, reviewed through the
-  existing proposals UI, so argument structure can be built BEFORE
-  the brief run (and feed it).
+- ✅ **28.3 — Standalone "Suggest links".** Cross-article relationship
+  suggestion decoupled from the full corpus synthesis: a
+  claims-index-only LLM pass (`xray:llm:corpus-links`, one call, claim
+  texts only) proposing supports/contradicts/updates/duplicates pairs,
+  reviewed through the existing proposals UI with per-case durable
+  triage (`xray-audits` v5) — argument structure built BEFORE the
+  brief run, feeding the digest it consumes. Existing pairs rejected
+  with a reason, never silently dropped.
 
 ---
 
