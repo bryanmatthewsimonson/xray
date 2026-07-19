@@ -83,15 +83,26 @@ export const WORKSPACE_KEEP_KEYS = Object.freeze([
 ]);
 
 // IndexedDB databases holding workspace content.
-// NOTE deliberately absent: the derived, droppable relay caches
-// (`xray-portal`, and Phase 25's `xray-network`) — this list doubles
-// as the BACKUP coverage list (backup.js), and a rebuildable cache in
-// a backup is dead weight. Each cache has its own clear affordance.
+// NOTE deliberately absent: the derived relay caches below — this list
+// doubles as the BACKUP coverage list (backup.js), and a rebuildable
+// cache in a backup is dead weight.
 export const WORKSPACE_DATABASES = Object.freeze([
     'xray-archive',             // captured article cache (archive-cache.js)
     'xray-audits',              // audit records — PRECIOUS, hence the
                                 // export-first flow in the options UI
     'xray-events'               // signed-event journal (event-journal.js)
+]);
+
+// Derived, rebuildable relay caches. Excluded from WORKSPACE_DATABASES
+// (never backed up) but CLEARED by resetWorkspace: they are keyed by
+// neither workspace nor identity, and their reads are unscoped — a
+// cache that survives a fresh-workspace reset resurfaces the previous
+// project's entire corpus in the portal under the new identity
+// (2026-07-19 incident; the cross-case-leakage risk Q7 of
+// CASE_WORKSPACE_KICKOFF flagged). Deleting them costs one re-fetch.
+export const DERIVED_CACHE_DATABASES = Object.freeze([
+    'xray-portal',              // portal event cache (portal-cache.js)
+    'xray-network'              // Phase 25 network cache
 ]);
 
 function normalizeLabel(label) {
@@ -258,7 +269,11 @@ export async function resetWorkspace({ idb } = {}) {
     const databases = [];
     const factory = idb || (typeof indexedDB !== 'undefined' ? indexedDB : null);
     if (factory && typeof factory.deleteDatabase === 'function') {
-        for (const name of WORKSPACE_DATABASES) {
+        // Content databases AND the derived caches: a delete request
+        // with another X-Ray tab holding the DB open completes only
+        // when that tab closes — best-effort here, and the options UI
+        // tells the user to close other X-Ray tabs.
+        for (const name of [...WORKSPACE_DATABASES, ...DERIVED_CACHE_DATABASES]) {
             try { factory.deleteDatabase(name); databases.push(name); } catch (_) { /* best-effort */ }
         }
     }

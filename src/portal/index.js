@@ -1154,7 +1154,13 @@ function wireChrome() {
         try {
             await clearAll();
         } catch (err) {
+            // A failed clear means the refetch would MERGE into the stale
+            // cache and render the old corpus as if the resync worked —
+            // say so on the page and stop, never silently (console-only
+            // was how a fresh workspace kept showing the prior project).
             Utils.error('Portal resync: cache clear failed', err);
+            setStatus('Cache clear failed — close every other X-Ray tab and retry Full resync', true);
+            return;
         }
         boot({ full: true });
     });
