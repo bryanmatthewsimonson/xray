@@ -4,10 +4,14 @@
 //   - List view: type-filter chips, search, entity list with a
 //     published-indicator and alias-chevron. Footer shows count +
 //     export/import.
-//   - Detail view: editable name / description / nip05, type (shown
-//     but immutable — changing it would re-derive the id), canonical
-//     link picker, npub (copy), nsec (reveal+copy), publish status,
-//     delete button.
+//   - Detail view: editable name / description / nip05 / type,
+//     canonical link picker, npub (copy), nsec (reveal+copy), publish
+//     status, delete button. Retype is IN PLACE — EntityModel.update
+//     deliberately never re-derives the id (the id anchors published
+//     kind-0s), so changing the type keeps the keypair and every
+//     relay address. This is the sanctioned migration for entities
+//     created under the wrong type (CASE_WORKSPACE_KICKOFF §4.6 /
+//     CW.2 — e.g. an LLM-era "case" that is really a paper → thing).
 //
 // The panel lives at `chrome.sidePanel.default_path` and is opened
 // either via Chrome's sidepanel button or programmatically. It reads
@@ -196,6 +200,7 @@ async function openDetail(id) {
     state.selectedId = id;
     state.draft = {
         name:         entity.name,
+        type:         entity.type,
         description:  entity.description || '',
         nip05:        entity.nip05 || '',
         canonical_id: entity.canonical_id || null
@@ -224,6 +229,13 @@ function renderDetail(entity) {
       <div class="xr-side__field">
         <label for="xr-field-name">Name</label>
         <input type="text" id="xr-field-name" value="${escapeHtml(entity.name)}" />
+      </div>
+
+      <div class="xr-side__field">
+        <label for="xr-field-type">Type</label>
+        <select id="xr-field-type" ${isForeign ? 'disabled title="Foreign entity — its type is read from its owner’s published profile"' : ''}>
+          ${ENTITY_TYPES.map((t) => `<option value="${t}" ${t === entity.type ? 'selected' : ''}>${ENTITY_ICONS[t]} ${t}</option>`).join('')}
+        </select>
       </div>
 
       <div class="xr-side__field">
@@ -361,16 +373,19 @@ function renderDetail(entity) {
 
     // Wire the editable fields to mark dirty + enable Save.
     const nameEl = $('#xr-field-name');
+    const typeEl = $('#xr-field-type');
     const descEl = $('#xr-field-desc');
     const nip05El = $('#xr-field-nip05');
     const saveBtn = $('#xr-save');
     const sync = () => {
         state.draft.name        = nameEl.value;
+        state.draft.type        = typeEl.value;
         state.draft.description = descEl.value;
         state.draft.nip05       = nip05El.value;
         saveBtn.disabled = !hasChanges(entity, state.draft);
     };
     nameEl.addEventListener('input', sync);
+    typeEl.addEventListener('change', sync);
     descEl.addEventListener('input', sync);
     nip05El.addEventListener('input', sync);
 
@@ -1160,17 +1175,30 @@ async function openAccountPicker(entity) {
 
 function hasChanges(entity, draft) {
     return draft.name !== entity.name
+        || draft.type !== entity.type
         || draft.description !== (entity.description || '')
         || draft.nip05 !== (entity.nip05 || '');
 }
 
 async function saveDetail(entity) {
     try {
-        await EntityModel.update(entity.id, {
+        const updates = {
             name:        state.draft.name,
             description: state.draft.description,
             nip05:       state.draft.nip05
-        });
+        };
+        if (state.draft.type !== entity.type) {
+            // Retype-in-place: id + keypair are immutable (see header
+            // comment), so published kind-0s keep their address. But
+            // authored fields belong to the CURRENT type's schema —
+            // refuse to strand them under a type that can't edit them.
+            if (entity.authored_fields && Object.keys(entity.authored_fields).length > 0) {
+                toast('This entity has authored fields (case scope) — clear them before changing its type', 'error');
+                return;
+            }
+            updates.type = state.draft.type;
+        }
+        await EntityModel.update(entity.id, updates);
         await refreshEntities();
         toast('Saved — will re-publish on next article capture', 'success');
         const updated = await EntityModel.get(entity.id);

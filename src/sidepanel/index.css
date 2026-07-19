@@ -253,7 +253,8 @@ body.xr-side {
 }
 
 .xr-side__field input,
-.xr-side__field textarea {
+.xr-side__field textarea,
+.xr-side__field select {
   padding: 7px 9px;
   border: 1px solid var(--xr-border);
   border-radius: 4px;
@@ -266,7 +267,8 @@ body.xr-side {
 }
 
 .xr-side__field input:focus,
-.xr-side__field textarea:focus {
+.xr-side__field textarea:focus,
+.xr-side__field select:focus {
   border-color: var(--xr-primary);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--xr-primary) 30%, transparent);
 }

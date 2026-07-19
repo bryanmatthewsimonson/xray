@@ -526,3 +526,24 @@ test('entity: publish_excluded_fields — the per-field checklist persists via u
     const cleared = await EntityModel.update(e.id, { publish_excluded_fields: [] });
     assert.equal('publish_excluded_fields' in cleared, false, 'empty clears the key');
 });
+
+test('retype-in-place (CW.2): update({type}) keeps id, keyName, and pubkey — the sanctioned migration for mistyped entities', async () => {
+    const paper = await EntityModel.create({ name: 'Proximal Origin Retype Test', type: 'case' });
+    const beforePubkey = paper.keypair && paper.keypair.pubkey;
+    assert.ok(beforePubkey, 'entity has a keypair');
+
+    const retyped = await EntityModel.update(paper.id, { type: 'thing' });
+    assert.equal(retyped.type, 'thing', 'type changed');
+    assert.equal(retyped.id, paper.id, 'id never re-derives on retype');
+    assert.equal(retyped.keyName, paper.keyName, 'key slot unchanged');
+    assert.equal(retyped.keypair && retyped.keypair.pubkey, beforePubkey,
+        'pubkey unchanged — published kind-0s keep their address');
+
+    // The id stays sha16(ORIGINAL type:name) — the wire-visible stable
+    // identifier — so it deliberately no longer matches a fresh
+    // derivation from the NEW type (CASE_WORKSPACE_KICKOFF §4.6).
+    assert.equal(paper.id, await generateEntityId('case', 'Proximal Origin Retype Test'));
+
+    // An invalid type is still rejected.
+    await assert.rejects(EntityModel.update(paper.id, { type: 'project' }), /type/i);
+});
