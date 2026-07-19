@@ -778,3 +778,16 @@ test('buildClaimInput / buildFactInput never set source (accept-time default own
         { entityIdByRef: { E1: 'entity_x' }, articleText: 'irrelevant body text' });
     assert.ok(!('source' in fact), 'buildFactInput must not emit a source key');
 });
+
+test('validateProposal: rejects a `case` entity with the workspace message (CW.1)', () => {
+    const v = P.validateProposal({ kind: 'entity', name: 'Miller v. Bonta', entity_type: 'case' });
+    assert.equal(v.ok, false);
+    assert.match(v.reason, /workspace/i, 'the reason tells the human what a case is');
+    assert.match(v.reason, /side panel/i, 'and where to create one');
+    assert.match(v.reason, /thing/i, 'and what type a paper/lawsuit takes');
+});
+
+test('validateProposal: a `thing` entity (paper / lawsuit) is accepted', () => {
+    const v = P.validateProposal({ kind: 'entity', name: 'Proximal Origin paper', entity_type: 'thing' });
+    assert.equal(v.ok, true);
+});

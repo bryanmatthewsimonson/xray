@@ -33,6 +33,7 @@
 import { buildSelectors } from './metadata/anchor-capture.js';
 import { createGroundingIndex, isGroundingIndex } from './quote-grounding.js';
 import { ENTITY_TYPES, canonicalIdOf } from './entity-model.js';
+import { SUGGESTABLE_ENTITY_TYPES } from './llm-prompts.js';
 import { getFieldDef } from './entity-field-schemas.js';
 import { parseMetaDate } from './dossier-time.js';
 import {
@@ -176,8 +177,15 @@ export function validateProposal(prop, ctx = {}) {
     switch (prop.kind) {
         case 'entity': {
             if (!String(prop.name || '').trim()) return fail('Entity needs a name');
-            if (!ENTITY_TYPES.includes(prop.entity_type)) {
-                return fail(`Entity type must be one of: ${ENTITY_TYPES.join(', ')}`);
+            // The suggestable subset, not ENTITY_TYPES: a `case` is the
+            // researcher's workspace and may never arrive as a proposal —
+            // the tool enum already excludes it, but strict mode is off
+            // and this validator is the real firewall.
+            if (!SUGGESTABLE_ENTITY_TYPES.includes(prop.entity_type)) {
+                if (prop.entity_type === 'case') {
+                    return fail('A case is your investigation workspace, never an article entity — create cases in the side panel; type a paper or lawsuit as "thing"');
+                }
+                return fail(`Entity type must be one of: ${SUGGESTABLE_ENTITY_TYPES.join(', ')}`);
             }
             if (ctx.grounding) {
                 // The mention is the entity's provenance in THIS article —

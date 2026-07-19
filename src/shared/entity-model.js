@@ -43,10 +43,19 @@ import { getFieldDef } from './entity-field-schemas.js';
 // one — every previously-derived pubkey depends on it.
 export const ENTITY_KEY_DOMAIN = 'xray-entity-v1';
 
-// `case` (Phase 11.1) models a real-world story under assessment —
-// "John Dehlin excommunication", "Bricks & Minifigs scandal" — so the
-// side-panel entity detail can serve as the case dashboard
-// (docs/ASSESSMENTS_DESIGN.md).
+// `case` (Phase 11.1; redefined by Phase 19's field schema and all of
+// Phase 20) is the RESEARCHER's investigation workspace — the project
+// folder that articles, claims, entities, and judgments accumulate
+// around. It carries only AUTHORED fields (entity-field-schemas.js:
+// scope question / status / opened / closed) and is created by a human
+// in the side panel, never extracted from an article — the LLM suggest
+// pass may not propose one (llm-prompts.js SUGGESTABLE_ENTITY_TYPES).
+// Real-world named subjects that read like "cases" — court cases,
+// scientific papers, reports — are `thing`s (thing_type / creator /
+// custom:* carry their metadata). `case` stays in ENTITY_TYPES because
+// the type is wire-visible (adopt-entity.js parses it from published
+// kind-0 `about` text); removing or renaming it would orphan every
+// published case profile.
 export const ENTITY_TYPES = ['person', 'organization', 'place', 'thing', 'case'];
 
 /**

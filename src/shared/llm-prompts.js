@@ -25,6 +25,16 @@ import {
 } from './forensic-taxonomy.js';
 import { ENTITY_TYPES } from './entity-model.js';
 
+// The entity types the MODEL may propose. A `case` is the RESEARCHER's
+// investigation workspace — authored fields only (entity-field-schemas.js),
+// never a thing named inside an article — so the model is structurally
+// unable to mint one; humans create cases in the side panel, which
+// remains the only path. Papers, lawsuits, books, products type as
+// `thing`. (ENTITY_TYPES itself is untouched: it is wire-visible via
+// the kind-0 `about` parse in adopt-entity.js and must keep `case`.)
+export const SUGGESTABLE_ENTITY_TYPES = Object.freeze(
+    ENTITY_TYPES.filter((t) => t !== 'case'));
+
 // ------------------------------------------------------------------
 // Model roster — exact ids only (no date suffixes). Default to the
 // latest capable Claude; the Options picker renders these.
@@ -168,8 +178,9 @@ export function buildSuggestTool() {
                                     + 'beyond the article’s wording ("Elena Vargas", not "the mayor").'
                             },
                             entity_type: {
-                                type: 'string', enum: ENTITY_TYPES,
-                                description: 'Entity type (kind=entity).'
+                                type: 'string', enum: SUGGESTABLE_ENTITY_TYPES,
+                                description: 'Entity type (kind=entity). Papers, lawsuits, books, '
+                                    + 'products, reports are "thing" — never propose a case.'
                             },
                             mention: {
                                 type: 'string',
@@ -380,11 +391,16 @@ GROUND RULES (non-negotiable):
 - Use the propose_capture tool and nothing else.`;
 
 const RULES_ENTITIES = `
-ENTITIES (people / organizations / places / things / cases named in the text):
+ENTITIES (people / organizations / places / things named in the text):
 - name is the DISPLAY name — disambiguate when helpful ("Elena Vargas", not "the mayor"), and reuse the same name for the same real-world entity across proposals.
 - mention is REQUIRED: the single verbatim span where the text names this entity. An entity whose mention cannot be located in the article is rejected.
 - Give each a short local ref ("E1", "E2", …) so claims and findings can point at it.
-- type must be one of: ${ENTITY_TYPES.join(', ')}.`;
+- type must be one of: ${SUGGESTABLE_ENTITY_TYPES.join(', ')}. The definitions matter — misclassification is the most common entity error, so read them carefully:
+  - person: a named human being.
+  - organization: a named institution, company, agency, court, lab, publication, or movement.
+  - place: a named geographic or physical location.
+  - thing: anything else with a name — a scientific paper, a lawsuit or court case, a book, a study, a product, a report, a policy, a dataset, an event. When in doubt, it is a thing.
+- A SCIENTIFIC PAPER is a thing, never anything else. A LAWSUIT or COURT CASE is a thing. In X-Ray, "case" names the researcher's own investigation workspace — it is never named inside an article, it is not in your type list, and you must never propose one.`;
 
 function rulesClaims() {
     return `

@@ -38,7 +38,7 @@ import { ClaimModel } from '../shared/claim-model.js';
 import { AssessmentModel } from '../shared/assessment-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import { ForensicModel, ForensicBaseline } from '../shared/forensic-model.js';
-import { ENTITY_TYPES } from '../shared/entity-model.js';
+import { SUGGESTABLE_ENTITY_TYPES } from '../shared/llm-prompts.js';
 import { STANCE_VALUES, STANCE_LABELS, CLAIM_RELATIONSHIPS, REVISION_RELATIONSHIPS } from '../shared/assessment-taxonomy.js';
 import { ROLES, BASIS_VALUES } from '../shared/forensic-taxonomy.js';
 import {
@@ -63,7 +63,10 @@ const KIND_TITLES = {
 const EDIT_FIELDS = {
     entity: [
         { key: 'name', label: 'Name', type: 'text' },
-        { key: 'entity_type', label: 'Type', type: 'select', options: ENTITY_TYPES },
+        // The suggestable subset — the validator rejects `case`, so the
+        // select must not offer it (a workspace is created in the side
+        // panel, never inside a per-article review).
+        { key: 'entity_type', label: 'Type', type: 'select', options: SUGGESTABLE_ENTITY_TYPES },
         { key: 'mention', label: 'Verbatim mention (checked against the article)', type: 'textarea' }
     ],
     claim: [
