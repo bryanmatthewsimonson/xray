@@ -925,6 +925,33 @@ DOES cascade edges (the reader flow calls
 
 ---
 
+## 2026-07-19 — URL-list import: identity, thinness, and PDFs (28.1)
+
+`design`. Three second-guessable calls in `shared/url-import.js`:
+
+- **Redirect identity = the FINAL url.** A worksheet URL that 301s
+  (www.ncbi → pmc.ncbi) archives under `resp.url`, not the requested
+  string — the record honestly names what was captured, the result row
+  disclosed `finalUrl`, and the Phase-18 url-alias layer joins the two
+  forms. The alternative (keep the requested URL) would store a body
+  under an identity that never served it.
+- **Thin extractions import anyway, flagged `thin`.** A paywalled
+  journal landing page yields a Readability body under the config
+  minimum; that abstract is a REAL capture (the eggs worksheet's
+  paywall-reconstruction tier) — dropping it would silently shrink
+  the corpus (P6). The flag rides the result row, not the article.
+- **PDF content-type is a skip, not a failure.** The reader's `?pdf=`
+  path owns PDF capture (page-map provenance, source-doc bytes);
+  fetching bytes here and archiving them as an "article" would fork
+  that pipeline. The row says where to go.
+
+Also worth recording: the batch runner is `orchestrateModuleRuns`
+reused verbatim with URLs as the unit list — transport-shaped failures
+(no HTTP status) throw so the orchestrator's one-retry covers them,
+while HTTP failures return with `status` so only 429/5xx retry.
+Files: `src/shared/url-import.js`, `src/portal/import-urls.js`,
+`tests/url-import.test.mjs`.
+
 ## 2026-07-16 — xray-network stays out of WORKSPACE_DATABASES (25.2b)
 
 Tags: `design`.

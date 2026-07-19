@@ -24,6 +24,7 @@ import { getArticle } from '../shared/archive-cache.js';
 import { removeArticleFromCase } from '../shared/case-membership.js';
 import { mountAddSources } from './add-sources.js';
 import { mountTranscriptImport } from './import-transcript.js';
+import { mountUrlImport } from './import-urls.js';
 import { renderCaseGraph } from './case-graph-view.js';
 import { renderSynthesisBlock } from './synthesis-block.js';
 import { renderHypothesesBlock } from './hypothesis-block.js';
@@ -157,6 +158,17 @@ export function renderCaseView(host, params) {
             });
         });
         head.appendChild(importBtn);
+        // 28.1 — batch-import a URL list straight into this case.
+        const urlsBtn = el('button', 'xr-portal__btn', 'Import URLs…');
+        urlsBtn.type = 'button';
+        urlsBtn.addEventListener('click', () => {
+            addSourcesHost.replaceChildren();
+            mountUrlImport(addSourcesHost, {
+                caseEntityId: caseEnt.entityId,
+                onDone: () => callbacks.onReloadCase && callbacks.onReloadCase()
+            });
+        });
+        head.appendChild(urlsBtn);
     }
     host.appendChild(head);
     host.appendChild(addSourcesHost);

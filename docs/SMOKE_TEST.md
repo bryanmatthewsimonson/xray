@@ -1378,6 +1378,24 @@ Needs a case with claims; the LLM steps (P26.n–q) additionally need
 
 ---
 
+## Phase 28 — Corpus intake automation (28.1)
+
+Network required (real fetches). Use 2–3 easy-tier URLs from
+`docs/EPISTACK_EGGS_CORPUS.md` (PubMed/PMC pages are the happy path).
+
+| # | Step | Expected |
+|---|---|---|
+| P28.a | Case view ▸ **Import URLs…** ▸ paste 2–3 URLs (mix a plain list with a markdown line) | ✅ "N URLs detected" previews the parsed count; markdown link syntax is parsed out |
+| P28.b | **Import** | ✅ one row per URL updates live: "✓ imported" with the page title replacing the URL; the summary line reports counts and "added to case"; the case reloads with the new sources as member rows |
+| P28.c | Re-run the same list | ✅ every row reads "✓ already archived" (no re-fetch); still tagged into the case (idempotent) |
+| P28.d | Include a paywalled journal landing page | ✅ imports with "✓ imported (thin — possible paywall/abstract)" — flagged, never silently dropped |
+| P28.e | Include a direct PDF URL | ✅ "↷ PDF — open via the reader" — skipped, not archived, batch continues |
+| P28.f | Include a dead URL (404) | ✅ "✗ failed HTTP 404" on that row; every other row imports; the batch never aborts |
+| P28.g | Open an imported row in the reader | ✅ renders like a normal capture (title/byline/body); Load archive banner logic behaves; the record publishes with the standard 30023 path |
+| P28.h | Portal header ▸ **Import URLs…** (library mount, no case) | ✅ same flow without the case tagging; summary omits "added to case" |
+
+---
+
 ## Reporting
 
 For each defect found:

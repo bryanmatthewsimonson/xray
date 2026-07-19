@@ -711,6 +711,18 @@ body.xr-portal {
 .xr-import__ids > summary { cursor: pointer; color: var(--xr-text-dim); font-size: 13px; }
 .xr-import__actions { display: flex; gap: 8px; margin-top: 12px; }
 .xr-import__status { margin-top: 8px; font-size: 13px; color: var(--xr-text-dim); }
+.xr-import__rows { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.xr-import__row { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+.xr-import__row-status { flex: 0 0 auto; font-size: 12px; color: var(--xr-text-dim); }
+.xr-import__row-status--imported,
+.xr-import__row-status--already-archived { color: var(--xr-success); }
+.xr-import__row-status--thin { color: var(--xr-warning); }
+.xr-import__row-status--failed { color: var(--xr-danger); }
+.xr-import__row-url {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 480px; color: var(--xr-text);
+}
+.xr-import__row-err { font-size: 12px; color: var(--xr-text-dim); }
 
 .xr-badge--agree { color: var(--xr-success); border-color: var(--xr-success); }
 .xr-badge--disagree { color: var(--xr-danger); border-color: var(--xr-danger); }

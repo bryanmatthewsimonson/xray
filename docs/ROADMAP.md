@@ -1859,6 +1859,50 @@ computed-on-read with **no new wire kind**, one PR per slice:
   is a deliberate no); inline per-claim expander, remove + negate modes
   ([`COUNTERFACTUAL_DESIGN.md`](COUNTERFACTUAL_DESIGN.md)).
 
+Both landed via the Phases 26+27 consolidation (PR #183): H.1–H.4 and
+CF.1–CF.2 shipped (H.5 wire kind stays deferred); SMOKE walk P26.g–t.
+
+---
+
+## Phase 27 — Capture automation + hardening ✅ (landed via PR #183)
+
+Consolidated with Phase 26 in one merge: the `xray-capture` skill +
+flag-gated `#xray:capture` navigation marker (K.1–K.4,
+`captureAutomation` default off), corpus-synthesis v2 (cross-article
+relationship ask, scope-question wiring, map-extract cache, breadth
+briefs — S.1–S.4), forensic misattribution/baseline/taxonomy fixes
+(F.1–F.6), archive-integrity fixes (identity-gated Load archive, the
+hash-gated banner, x-tag drift proof), scholar tail (PMC references,
+ar5iv full text, Crossref), LLM extraction assist (C5), EPUB book
+import, PDF outbound links, and the Fable 5 / Sonnet 5 model options.
+
+---
+
+## Phase 28 — Corpus intake automation 🚧 in progress
+
+Driven by the Epistack corpus work: the eggs and LHC worksheets exist
+as verified URL lists, but capturing them was one tab at a time. Goal:
+paste a worksheet → archived, case-tagged, suggestion-seeded corpus —
+with every LLM suggestion still human-accepted (nothing auto-applies;
+the Phase-14.5 review discipline unchanged).
+
+- ✅ **28.1 — Batch URL import.** `shared/url-import.js` +
+  the **Import URLs…** panel (case view + portal header): fetch each
+  pasted URL from the extension page, extract via the Readability
+  fetched-HTML seam, archive with the canonical hash, tag into the
+  case. Idempotent re-runs; thin (paywall) captures flagged, never
+  dropped; PDFs deferred to the reader's `?pdf=` path. No LLM.
+- 🚧 **28.2 — Suggest-after-import.** Optional batch entity/claim
+  suggestion over freshly imported members (the reader's
+  `xray:llm:suggest` pass, portal-driven), landing as PENDING
+  suggestions reviewed in the reader — auto-run, never auto-accept.
+- 🚧 **28.3 — Standalone "Suggest links".** Decouple cross-article
+  relationship suggestion from the full corpus synthesis: a
+  claims-index-only LLM pass proposing 30055
+  supports/contradicts/updates/duplicates pairs, reviewed through the
+  existing proposals UI, so argument structure can be built BEFORE
+  the brief run (and feed it).
+
 ---
 
 ## Abandonment criteria
