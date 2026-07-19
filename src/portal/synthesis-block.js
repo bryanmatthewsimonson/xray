@@ -23,13 +23,17 @@ import { CORPUS_PROMPT_VERSION } from '../shared/corpus-prompts.js';
 import {
     buildMemberUnits, corpusInputHash, corpusExtractKey, digestDossier,
     validateCorpusExtract, validateCaseBrief, groundCaseBrief, filterProposals,
-    computeEntitySummary
+    computeEntitySummary, foldMemberAliases
 } from '../shared/case-synthesis.js';
 import { renderProposals } from './synthesis-review.js';
 import { Signer } from '../shared/signer.js';
 import { Storage } from '../shared/storage.js';
+import { Crypto } from '../shared/crypto.js';
 import { FALLBACK_RELAYS } from './corpus.js';
-import { buildCaseBriefArticle, buildCaseBriefEvent, renderCaseBriefMarkdown, citedMemberOrder, outletFor } from '../shared/corpus-publish.js';
+import {
+    buildCaseBriefArticle, buildCaseBriefEvent, renderCaseBriefMarkdown,
+    citedMemberOrder, outletFor, matchCoverageGapsToPositions
+} from '../shared/corpus-publish.js';
 import { canonicalIdOf } from '../shared/entity-model.js';
 
 /** A source link for a member article_hash, or null when unresolved. */
@@ -158,10 +162,13 @@ function section(brief, { memberIndex = {}, claimsById = {}, entitySummary = nul
         s.appendChild(el('p', 'xr-synth__text', brief.summary));
         wrap.appendChild(s);
     }
+    // Coverage-gap findings that name exactly one position render beside
+    // that position (P5/P8) — pure placement of existing brief data.
+    const gapsByPosition = matchCoverageGapsToPositions(brief);
     if ((brief.positions || []).length) {
         const s = el('details', 'xr-synth__sec'); s.open = true;
         s.appendChild(el('summary', null, `Positions (${brief.positions.length})`));
-        for (const p of brief.positions) {
+        brief.positions.forEach((p, pi) => {
             const d = el('div', 'xr-synth__pos');
             d.appendChild(el('span', 'xr-badge', p.label || 'position'));
             if (p.core_argument) d.appendChild(el('span', 'xr-synth__text', p.core_argument));
@@ -178,8 +185,11 @@ function section(brief, { memberIndex = {}, claimsById = {}, entitySummary = nul
                 });
                 d.appendChild(row);
             }
+            for (const gap of gapsByPosition.byPosition[pi]) {
+                d.appendChild(el('div', 'xr-synth__gapnote', `Coverage note: ${gap}`));
+            }
             s.appendChild(d);
-        }
+        });
         wrap.appendChild(s);
     }
     if ((brief.cruxes || []).length) {
@@ -233,9 +243,17 @@ function section(brief, { memberIndex = {}, claimsById = {}, entitySummary = nul
     if ((brief.coverage_gaps || []).length) {
         const s = el('details', 'xr-synth__sec');
         s.appendChild(el('summary', null, `Coverage gaps (${brief.coverage_gaps.length})`));
-        const ul = el('ul', 'xr-list');
-        for (const g of brief.coverage_gaps) ul.appendChild(el('li', 'xr-synth__text', g));
-        s.appendChild(ul);
+        const moved = gapsByPosition.byPosition.reduce((a, g) => a + g.length, 0);
+        if (moved) {
+            s.appendChild(el('div', 'xr-synth__gapnote',
+                `${moved} position-specific note${moved === 1 ? ' is' : 's are'} shown beside`
+                + ` the position${moved === 1 ? ' it qualifies' : 's they qualify'} under Positions above.`));
+        }
+        if (gapsByPosition.general.length) {
+            const ul = el('ul', 'xr-list');
+            for (const g of gapsByPosition.general) ul.appendChild(el('li', 'xr-synth__text', g));
+            s.appendChild(ul);
+        }
         wrap.appendChild(s);
     }
     // Sources — the list the [N] citations resolve to, annotated with
@@ -264,6 +282,18 @@ function section(brief, { memberIndex = {}, claimsById = {}, entitySummary = nul
                 const meta = [outletFor(r.m.url), r.m.date].filter(Boolean).join(' · ');
                 if (meta) row.appendChild(el('span', 'xr-synth__srcmeta', ` — ${meta}`));
                 listHost.appendChild(row);
+                // Same-content captures nest under their canonical entry:
+                // one artifact, several capture URLs — never several sources.
+                for (const alias of r.m.aliases || []) {
+                    if (!alias || !alias.url) continue;
+                    const arow = el('div', 'xr-synth__srcrow xr-synth__srcrow--alias');
+                    arow.appendChild(el('span', 'xr-synth__srcmeta', 'also captured at '));
+                    const al = el('a', 'xr-synth__src', alias.title || alias.url);
+                    al.href = alias.url; al.target = '_blank'; al.rel = 'noreferrer noopener'; al.title = alias.url;
+                    arow.appendChild(al);
+                    arow.appendChild(el('span', 'xr-synth__srcmeta', ' — identical canonical content (same artifact)'));
+                    listHost.appendChild(arow);
+                }
             }
         };
         const bar = el('div', 'xr-synth__srcsort');
@@ -288,8 +318,17 @@ function section(brief, { memberIndex = {}, claimsById = {}, entitySummary = nul
 
     // People / Organizations — the tagged canonical entities (aliases
     // folded), each with claim + source counts and clickable source refs:
-    // the "organize by entity" index. Cases/things omitted.
+    // the "organize by entity" index. Cases/things omitted. An appendix,
+    // not a finding (P2/P5): counts are navigation, never weight, and
+    // 0-claim rows are dropped from the render.
     if (entitySummary) {
+        const withClaims = (list) => (Array.isArray(list) ? list.filter((e) => e && (e.claimCount || 0) > 0) : []);
+        const people = withClaims(entitySummary.people);
+        const orgs = withClaims(entitySummary.orgs);
+        if (people.length || orgs.length) {
+            wrap.appendChild(el('div', 'xr-synth__entcaption',
+                'Entity claim counts are provenance and navigation aids — not weight, importance, or credibility.'));
+        }
         const entSection = (title, list) => {
             if (!Array.isArray(list) || !list.length) return;
             const s = el('details', 'xr-synth__sec');
@@ -318,8 +357,8 @@ function section(brief, { memberIndex = {}, claimsById = {}, entitySummary = nul
             s.appendChild(ul);
             wrap.appendChild(s);
         };
-        entSection('People', entitySummary.people);
-        entSection('Organizations', entitySummary.orgs);
+        entSection('Appendix — People', people);
+        entSection('Appendix — Organizations', orgs);
     }
     return wrap;
 }
@@ -401,8 +440,12 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
             const e = entitiesById[cid];
             return e ? { id: cid, name: e.name || '(unnamed)', type: e.type || 'thing' } : null;
         };
+        // Same-content captures (identical article_hash — e.g. the
+        // view-URL and download-URL of one Drive PDF) fold to one entry
+        // with the extra capture URLs as aliases, so N captures of one
+        // artifact never render as N sources (P4/P9).
         const memberByHash = {};
-        for (const m of members) {
+        for (const { member: m, aliases } of foldMemberAliases(members).values()) {
             const art = (recByUrl.get(m.url) || {}).article || null;
             const ents = [];
             const seen = new Set();
@@ -411,7 +454,7 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                 if (c && !seen.has(c.id)) { seen.add(c.id); ents.push(c); }
             }
             memberByHash[m.article_hash] = {
-                url: m.url, title: m.title, caseId, date: fmtSourceDate(art), entities: ents
+                url: m.url, title: m.title, caseId, date: fmtSourceDate(art), entities: ents, aliases
             };
         }
         const entitySummary = computeEntitySummary(data, memberByHash);
@@ -492,9 +535,22 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
             const mdBtn = el('button', 'xr-portal__btn xr-portal__btn--ghost', 'Download .md');
             mdBtn.type = 'button';
             mdBtn.title = 'Download the brief as a readable Markdown file (quotes linked to their sources)';
-            mdBtn.addEventListener('click', () => {
+            mdBtn.addEventListener('click', async () => {
+                // Self-locating header (P12): the exported file names the
+                // publishing identity + relays and how to query the event
+                // graph it renders. Unresolvable values still render — as
+                // visible placeholders, never a silent omission (P6/P12).
+                let pubkeyHex = null;
+                try { pubkeyHex = await Signer.getPublicKey(); } catch (_) { /* placeholder renders */ }
+                let npub = null;
+                if (pubkeyHex) {
+                    try { npub = Crypto.hexToNpub(pubkeyHex); } catch (_) { /* hex still renders */ }
+                }
+                let relays = [];
+                try { relays = await resolveRelays(); } catch (_) { /* placeholder renders */ }
                 const md = renderCaseBriefMarkdown(record.brief, {
-                    caseName, scopeQuestion, memberCount: record.members, memberIndex: memberByHash, entitySummary
+                    caseName, scopeQuestion, memberCount: record.members, memberIndex: memberByHash, entitySummary,
+                    provenance: { npub, pubkeyHex, relays }
                 });
                 downloadFile(`case-brief-${fileSlug(caseName)}.md`, md, 'text/markdown');
             });

@@ -90,6 +90,30 @@ export async function buildMemberUnits(data, { assessmentsByClaim = {} } = {}) {
 }
 
 /**
+ * Fold same-content captures: member units sharing an `article_hash`
+ * (the canonical normalized-text hash — e.g. the view-URL and the
+ * download-URL captures of one Drive PDF) collapse to ONE entry — the
+ * first capture in unit order (URL-sorted upstream, so deterministic) —
+ * with the rest carried as `{url, title}` aliases. Content addressing
+ * is the ONLY collapse key (P4/P9): no semantic or near-duplicate
+ * dedup, no independence judgment — N captures of one artifact must
+ * not read as N sources, and two artifacts must never merge on a guess.
+ *
+ * @param {Array} members  buildMemberUnits output
+ * @returns {Map<string, {member: object, aliases: Array<{url,title}>}>}
+ */
+export function foldMemberAliases(members) {
+    const byHash = new Map();
+    for (const m of members || []) {
+        if (!m || !m.article_hash) continue;
+        const existing = byHash.get(m.article_hash);
+        if (existing) existing.aliases.push({ url: m.url || null, title: m.title || null });
+        else byHash.set(m.article_hash, { member: m, aliases: [] });
+    }
+    return byHash;
+}
+
+/**
  * The appendix's entity index: the tagged CANONICAL people and
  * organizations, each with the number of claims that concern it and the
  * member sources it appears in.
