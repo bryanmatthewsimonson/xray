@@ -248,8 +248,142 @@ uncertainty markers and their own accountability anchor.
 > 3–6 line summary of the baseline comparison, honest in both
 > directions; the full side-by-side (portal-rendered treatment vs the
 > deep-research report on the same sub-question) is an appendix.
-> Content: `TBD` — filled from the run; nothing here is written before
-> the corpus exists.
+> Grounded from the case-brief export (`caseId
+> entity_94bab542528cc322`; 147 sources; prompt `corpus-v3`). Every
+> quote below is **verbatim** from a captured source and every `x=…`
+> is the real canonical article hash carried in that export — a judge
+> recomputes it from the published 30023's `content`. What is **not**
+> yet real is the publish layer: the corpus is unpublished, so NOSTR
+> event ids, njump permalinks, `«NPUB»`, and `«RELAY»` stay
+> `«placeholder»` tokens that resolve in one pass after runbook §4/§6
+> (logged, never guessed). Each "why deep research misses it" describes
+> X-Ray's shipped mechanism, not any origin fact. Nothing here
+> adjudicates the question (§10 red lines 1, 5).
+
+**(a) A crux made queryable — Huanan-market clustering.** The export
+carries the clustering dispute as a first-class crux — *"Does the
+geographic clustering of early cases around the Huanan Seafood Market
+constitute strong evidence for a market-origin spillover, or is it an
+artifact of ascertainment/proximity detection bias?"* — with each side
+anchored to a verbatim claim. The market reading: *"our analyses
+indicate that the emergence of SARS-CoV-2 occurred via the live wildlife
+trade in China, and show that the Huanan market was the epicenter of the
+COVID-19 pandemic"* (`x=dddf539785b9add0…`). The collider objection:
+*"The probable existence of major proximity detecIon bias should not be
+taken to imply that there is no actual clustering of the unlinked cases.
+It does mean that these data provide no reliable way of knowing if there
+is."* (`x=f4cdfd6470eedb27…`). Rootclaim's quantified downgrade: *"The
+HSM early cluster is therefore negligible as evidence. Our analysis
+assigns it 2x."* (`x=90b872e151a04c93…`; the brief's side text: worth
+"only ~2x rather than ~10,000x"). The crux ships its own resolver —
+*"Independent, bias-free ascertainment of all early Wuhan pneumonia
+cases … ideally with raw Chinese case data released."* Permalink
+`«EVENT:clustering»`. *Why deep research misses it:* a strong run on
+"did early cases cluster at the market?" reports the clustering and
+presents it as the leading zoonosis datum; it does not make the
+clustering's *evidentiary status* — the collider objection, the
+2x-vs-10,000x weighting gap — the queryable object with "what would
+resolve it" attached. X-Ray stores the hinge, not a settled bullet.
+
+**(b) A rhetorical-vs-evidential move pinned to a verbatim quote —
+"Proximal Origin."** The paper's genomic argument is captured as its own
+claim: *"Our analyses clearly show that SARS-CoV-2 is not a laboratory
+construct or a purposefully manipulated virus."* (`x=7400679218004bcc…`).
+Separately, the export captures a move that engages none of that genomics
+but attacks the paper's *provenance* — the House Select Subcommittee
+majority's *“The Proximal Origin of SARS-CoV-2” Was “Prompted” by Dr.
+Anthony Fauci to “Disprove” the Lab Leak Theory* (`x=59287ed60272fac7…`)
+— and, beside it, the counter that the provenance claim is unfounded:
+*"all authors interviewed by the Select Subcommittee confirmed that Drs.
+Fauci and Collins did not lead, oversee, or influence the drafting of the
+paper."* (`x=2850b921a9d450cf…`). Three coordinates, one structure;
+permalink `«EVENT:proximal»`. *Why deep research misses it:* asked what
+the paper argues, deep research summarizes the genomic case; asked
+whether it was influenced, it summarizes the email controversy — in two
+separate answers. It does not, in one artifact, *type the "prompted by
+Fauci" move as an attack on how the paper came to exist rather than an
+evidential rebuttal of its genomics,* and hold both plus the counter
+adjacent. Neither side adjudicated (§10 red lines 1, 5).
+
+**(c) Correlated sourcing collapsed by convergence grouping.** Identity
+in X-Ray is the SHA-256 of normalized text, so one artifact recurs under
+one `x=…` however many times or ways it is cited: the House majority
+report backs both the provenance quote in (b) and the majority conclusion
+in (5) under the single hash `x=59287ed60272fac7…`; the Democratic
+minority report recurs under `x=2850b921a9d450cf…`. The corpus's source
+list also holds the same underlying artifacts under multiple URLs — the
+WSJ "intelligence on sick staff at Wuhan lab" report three ways (`amp`,
+`world/china` canonical, and an `archive.is` snapshot) and each Rootclaim
+debate-judge decision as a Google-Drive *view* URL and a *download* URL of
+the same file. Grouping by `x=…` reads those as one line of evidence
+apiece. *Bounded, stated plainly:* only byte-identical normalized captures
+share a hash — the two Drive URL forms of one judge PDF do; a cross-host
+`amp`-vs-`archive.is` pair may not — and a portal renderer that visually
+folds same-hash captures into one node with URL aliases is **not yet
+shipped**; today the guarantee is the shared hash on the signed event,
+which any consumer can group on. *Why deep research misses it:* a
+deep-research source list shows the WSJ story, its amp copy, the archive
+mirror, and downstream pieces quoting it as separate line items that
+*read as corroboration*; with no content-identity primitive it cannot say
+"these are one artifact."
+
+**(d) A banked prediction with a resolution horizon — shown on eggs, not
+COVID.** This brief is retrospective and banks no clean dated, resolvable
+prediction, so the capability is honestly better shown on the eggs corpus
+(P11). The eggs worksheet pre-registers two falsifiable propositions to
+bank as `30058` ledger entries — *"Dietary cholesterol raises serum
+LDL-C"* (predicted `established-true`, preponderance) and *"Egg
+consumption increases cardiovascular disease risk"* (predicted
+`insufficient-evidence`/`contested`) — with the 2025 umbrella review as
+the declared ceiling. Events `«EVENT:eggs-ldl»`/`«EVENT:eggs-cvd»`,
+resolution horizon `«FILL:eggs-horizon — resolution criterion/date from
+the eggs run, e.g. the next umbrella review or RCT»`. The two
+propositions are verbatim in `EPISTACK_EGGS_WORKSHEET.md`. *Why deep
+research misses it:* deep research answers "does dietary cholesterol raise
+LDL-C?" well today, but cannot *bank a dated, falsifiable pre-registration
+and hold itself to resolving it.* X-Ray writes the 30058 when the
+prediction is made and a 30059 resolution against reality later,
+computing calibration over time — the one axis where outsider and insider
+hold identical information: time (`PHILOSOPHY.md` §5).
+
+**(5) The distribution surfaced instead of merged.** On the same
+evidence, the formal exercises the corpus captures reach opposite
+high-confidence conclusions, each stored as its own claim and rendered
+side by side, never averaged (§4.1; §10 red line 1): a Rootclaim
+debate-judge — *"I find with high confidence that zoonotic spillover is
+the more likely origin of sars-cov-2."* (`x=1ba436bb1ba141ad…`) — against
+Rootclaim itself — *"we would like to explain why we still believe the
+lab leak hypothesis is the most likely explanation for the origin of
+COVID-19"* (`x=72215f239cd1d2de…`) — and a Bayesian treatment putting
+*"the probability that the COVID-19 community outbreak first observed in
+Wuhan is linked to some Wuhan lab activity is at least 54.5%"*
+(`x=a8036f255f8b1638…`). At the institutional level the House majority's
+*"Likely Emerged Because of a Laboratory or Research Related Accident"*
+(`x=59287ed60272fac7…`) sits beside the minority's *"the origins of
+COVID-19 are unknown"* (`x=2850b921a9d450cf…`). Permalink
+`«EVENT:distribution»`. *Why deep research misses it:* asked "so how
+likely is a lab leak?", deep research lands a single bottom line, however
+hedged. X-Ray's constitution forbids the merge and shows instead that
+careful analysts of the *same* evidence run from "high-confidence
+zoonosis" to "≥54.5% lab" to "origins … unknown" — the shape of the
+disagreement is the finding, not a manufactured consensus.
+
+**Baseline comparison (honest both directions).** *Where the X-Ray
+treatment beats a strong deep-research run on the same sub-question:*
+every claim carries a verbatim anchor and a real content hash a stranger
+can recompute (deep research paraphrases, and its links rot); the crux
+(a) ships with "what would resolve it"; content addressing collapses
+correlated captures (c) a deep-research source list inflates; and the
+never-merge rule (5) refuses the single-number roll-up deep research is
+pulled toward. *Where deep research is genuinely as good or better:* it is
+far more readable and hands the reader a usable bottom line in minutes; it
+brings in source-credibility and outside context X-Ray does not model; and
+on a well-trodden sub-question its synthesis is fast and substantially
+right. X-Ray's edge is durability, contestability, and provenance — not
+speed or narrative. *Full side-by-side* (portal-rendered treatment vs a
+deep-research report on one COVID sub-question): appendix
+`«APPENDIX:baseline»` — TBD from runbook §6; until then this summary is
+the non-strawman characterization.
 
 ### 5.5 Why this compounds
 
@@ -288,13 +422,13 @@ follow/incorporation engine on this substrate.
 
 | Dimension | Where demonstrated | How to check |
 |---|---|---|
-| Epistemic uplift | §5.4's findings, each with event ids; verbatim-anchored claims; audits with quoted findings + paired confidence | Follow a §5.4 finding to its events; walk a claim from verdict to archived bytes; read the baseline appendix |
-| Generalizability | Same pipeline, zero per-case code, on COVID (PDF/video/blog-heavy) and eggs (journals/news); per-case cost table (§5.3) | The two corpora on the relays; `src/shared/platforms/` handler architecture |
-| Compounding & shareability | Signed events on public relays in a documented format; second-investigator walkthrough | Query the corpus (snippet or client); repeat the walkthrough from any NOSTR key |
-| Scalability | Audit modules parallelize; model roster upgrades slot in; more scrutiny = more auditors publishing side-by-side. Owned bottleneck: ingestion is interactive (§4.8) | Re-run an audit against the same `x` hash — requires your own Anthropic key + the `epistemicAuditing` flag; cost ≈ 1 call (quick) or 8 parallel calls (thorough) over the article body |
-| Methodological transparency | `PHILOSOPHY.md` (versioned normative constitution), `NIP_DRAFT.md`, decision JOURNAL, this doc's §4 | Read them; every score carries confidence + module version on the wire |
-| Adversarial robustness | BIP-340 verify-on-ingest; content addressing; stance/quality firewall; never-average; flooding named and bounded (§4.3) | Fetch an event via the snippet, flip one character, re-import it through the portal — verify-on-ingest rejects it (or run `node --test tests/nostr-verify.test.mjs`); recompute a `30023`'s `x` hash from its `content` and compare |
-| Insight contribution | The competition's own case brief documents a 23-orders-of-magnitude spread among careful analysts — evidence that never-merge side-by-side is the honest form of judgment there; graded-vs-calibrated and the audit/stance firewall as reusable framings | Read §4 against `epistack/COMPETITION.md`'s COVID description |
+| Epistemic uplift | §5.4(a)–(5): verbatim-anchored claims, real content hashes, cruxes carrying "what would resolve it" | Open §5.4(a) and confirm *"…proximity detecIon bias…"* appears character-for-character in the source at `x=f4cdfd6470eedb27…`; follow §5.4(5) and confirm the judge (`x=1ba436bb1ba141ad…`) and Rootclaim (`x=72215f239cd1d2de…`) claims render side by side, unaveraged; read baseline appendix `«APPENDIX:baseline»` |
+| Generalizability | One pipeline, zero per-case code, on COVID (147 sources, `caseId entity_94bab542528cc322`; PDF/video/blog-heavy) and eggs (journals/news); §5.4(d) is eggs | Load both corpora under `«NPUB»` (§5.3); confirm §5.4(d)'s `«EVENT:eggs-ldl»`/`«EVENT:eggs-cvd»` are 30058s from the same code path as the COVID events; skim `src/shared/platforms/` |
+| Compounding & shareability | Signed events, documented kinds; second-investigator walkthrough (§5.5); real `claim_id`s + 30055 edges (e.g. `claim_32d767d5f24740d4` contradicts `claim_0ecd32327b410b4a`) | Query `«NPUB»` per kind via the §5.3 snippet; re-run §5.5 from your own key against a §5.4 coordinate (e.g. the Proximal-Origin claim `x=7400679218004bcc…`) and publish a side-by-side 30063/30054 |
+| Scalability | Audit modules parallelize; convergence-collapse §5.4(c) scales with captures; owned bottleneck: ingestion is interactive (§4.8) | Re-run a quick audit against `x=7400679218004bcc…` — your own Anthropic key + the `epistemicAuditing` flag; ≈ 1 call (quick) or 8 parallel calls (thorough); confirm it anchors to that same hash |
+| Methodological transparency | `PHILOSOPHY.md`, `NIP_DRAFT.md`, decision JOURNAL, §4; grounded suggest anchors (verbatim, typos and all) | Recompute the `x` hash from the published 30023's `content` for §5.4(a)'s collider claim and compare to `x=f4cdfd6470eedb27…` (the value in the case-brief JSON export); every audit score on the wire carries confidence + module version |
+| Adversarial robustness | BIP-340 verify-on-ingest; content addressing §5.4(c); never-average §5.4(5); flooding named and bounded (§4.3) | Fetch `«EVENT:distribution»` via the snippet, flip one character, re-import through the portal — verify-on-ingest rejects it (or `node --test tests/nostr-verify.test.mjs`); confirm §5.4(5)'s conclusions render side by side, never merged. **Bounded:** §5.4(c)'s visual collapse-to-one-node-with-aliases is not yet shipped — today the guarantee is the shared `x=…` any consumer groups on |
+| Insight contribution | §5.4(5): high-confidence zoonosis, "≥54.5% lab", and "origins … unknown" side by side is why never-merge is the honest form here; graded-vs-calibrated; audit/stance firewall | Read §5.4(5) + §4.1 against `epistack/COMPETITION.md`'s COVID description; confirm no aggregate origin number is emitted anywhere in the corpus |
 
 ## 6. Path to submission
 
