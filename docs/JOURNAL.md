@@ -19,6 +19,38 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-20 — Dangling workspace bindings after a restore (repair mode)
+
+**Tags:** bug, design
+
+**Incident:** restoring a workspace backup REPLACES `identity_profiles`
+and the active workspace's content stores, but the workspaces registry
+(deliberately outside the namespace) keeps its old pointers. Both
+bindings then DANGLE: `identity_pubkey` names a profile the restore
+wiped, and `case_entity_id` names an entity absent from the restored
+registry. Three failures compounded: the row meta rendered a dangling
+identity as "unbound" (masking it), the bind controls only rendered
+when a slot was EMPTY (so a dirty slot hid every repair path), and
+Activate hard-failed on the dead identity with no way forward. The
+maintainer hit all three at once mid-casework; recovery required a
+DevTools storage edit.
+
+**Fix:** the row meta now distinguishes `MISSING` from `unbound`
+(`identityBindingState` — one shared predicate so the display can
+never drift from the check activate() performs); the binders render in
+REPAIR MODE whenever a binding is absent OR unresolvable (with a
+clear-binding option for a dangling case); and Activate on a
+dead-identity workspace offers a consented clear-then-switch.
+
+**Deliberately kept strict:** `Workspaces.activate` still refuses a
+dead identity binding at the model layer (pinned) — switching into a
+workspace and silently signing under whatever key happens to be live
+is exactly the mis-attribution the atomic switch exists to prevent.
+Clearing a binding is a HUMAN act with a confirm, never an automatic
+fallback.
+
+---
+
 ## 2026-07-20 — The Phase 19 fact layer is ripped out
 
 **Tags:** design

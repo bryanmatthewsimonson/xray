@@ -30,7 +30,8 @@ globalThis.chrome = {
 
 const { Storage } = await import('../src/shared/storage.js');
 const { workspaceDbName, WORKSPACE_CONTENT_KEYS } = await import('../src/shared/workspace-keys.js');
-const { Workspaces, IdentityProfiles, WORKSPACE_CLEAR_KEYS, WORKSPACE_DATABASES, DERIVED_CACHE_DATABASES } =
+const { Workspaces, IdentityProfiles, WORKSPACE_CLEAR_KEYS, WORKSPACE_DATABASES, DERIVED_CACHE_DATABASES,
+        identityBindingState } =
     await import('../src/shared/identity-profiles.js');
 const { LocalKeyManager } = await import('../src/shared/local-key-manager.js');
 
@@ -146,4 +147,33 @@ test('ws: remove refuses the default and the active workspace; deletes a foreign
 
 test('ws: WORKSPACE_CLEAR_KEYS re-export is the same frozen list (pin compat)', () => {
     assert.equal(WORKSPACE_CLEAR_KEYS, WORKSPACE_CONTENT_KEYS, 'one list, two names');
+});
+
+// ---- dangling bindings (the 2026-07-20 restore incident) -------------
+
+test('ws: identityBindingState — unbound / bound / missing, the one predicate the repair UI trusts', async () => {
+    await reset();
+    const profile = await IdentityProfiles.create('eggs', { activate: false });
+    const profiles = await IdentityProfiles.getAll();
+    assert.equal(identityBindingState({ identity_pubkey: null }, profiles), 'unbound');
+    assert.equal(identityBindingState({}, profiles), 'unbound');
+    assert.equal(identityBindingState({ identity_pubkey: profile.pubkey }, profiles), 'bound');
+    assert.equal(identityBindingState({ identity_pubkey: 'f'.repeat(64) }, profiles), 'missing');
+    assert.equal(identityBindingState({ identity_pubkey: profile.pubkey }, {}), 'missing',
+        'a replaced profile registry (restore) dangles every binding');
+});
+
+test('ws: activate REFUSES a dead identity binding and moves nothing — the model stays strict; repair is a consented UI act', async () => {
+    await reset();
+    await IdentityProfiles.create('keeper');         // the surviving active identity
+    const profile = await IdentityProfiles.create('doomed', { activate: false });
+    const made = await Workspaces.create({ label: 'Orphaned', identityPubkey: profile.pubkey });
+    await IdentityProfiles.remove(profile.pubkey);   // the profile dies; the binding dangles
+    await assert.rejects(() => Workspaces.activate(made.id), /No saved profile/);
+    assert.equal(await Storage.activeWorkspaceId(), 'default',
+        'a refused switch must not move the namespace pointer');
+    // The repair path the UI drives: clear the dead binding, THEN switch.
+    await Workspaces.update(made.id, { identityPubkey: null });
+    await Workspaces.activate(made.id);
+    assert.equal(await Storage.activeWorkspaceId(), made.id, 'clears then switches cleanly');
 });

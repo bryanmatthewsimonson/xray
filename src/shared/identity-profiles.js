@@ -256,6 +256,22 @@ export const WORKSPACES_KEY = 'workspaces';
 
 function nowSec() { return Math.floor(Date.now() / 1000); }
 
+/**
+ * The health of a workspace's identity binding against a profiles
+ * snapshot: 'unbound' (no binding), 'bound' (profile present), or
+ * 'missing' — bound to a profile the registry no longer holds, the
+ * dangling state a profile delete or a backup restore leaves behind
+ * (2026-07-20 incident: a restore REPLACES `identity_profiles`, so
+ * every workspace bound to a profile absent from the backup dangles).
+ * Pure; the Options repair UI and its tests share this predicate so
+ * the display can never drift from the check activate() performs.
+ */
+export function identityBindingState(ws, profiles) {
+    const pk = ws && ws.identity_pubkey;
+    if (!pk) return 'unbound';
+    return (profiles && profiles[pk]) ? 'bound' : 'missing';
+}
+
 export const Workspaces = {
     async getAll() {
         return await Storage.get(WORKSPACES_KEY, null) || {};
