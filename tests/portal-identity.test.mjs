@@ -78,9 +78,9 @@ function sourcesFor(identities, pubkey) {
     return hit ? [...hit.sources].sort() : null;
 }
 
-test('resolveIdentities unions all four sources with provenance', async () => {
+test('resolveIdentities: me-sources union into identities; a pasted npub is a VIEWER (28.4)', async () => {
     await seedEverything();
-    const { identities, entities, signer } = await resolveIdentities();
+    const { identities, viewers, entities, signer } = await resolveIdentities();
 
     assert.equal(signer.method, 'local');
     assert.equal(signer.pubkey, SIGNER_PK);
@@ -88,8 +88,11 @@ test('resolveIdentities unions all four sources with provenance', async () => {
     assert.deepEqual(sourcesFor(identities, SYNC_PK), ['sync-key']);
     assert.deepEqual(sourcesFor(identities, HISTORY_PK_1), ['publish-history']);
     assert.deepEqual(sourcesFor(identities, HISTORY_PK_2), ['publish-history']);
-    assert.deepEqual(sourcesFor(identities, MANUAL_PK), ['manual']);
-    assert.equal(identities.length, 5);
+    assert.equal(identities.length, 4, 'the pasted npub is NOT an identity');
+    // The fence: manual-only pubkeys are read-only viewers — never "me".
+    assert.equal(sourcesFor(identities, MANUAL_PK), null);
+    assert.deepEqual(sourcesFor(viewers, MANUAL_PK), ['manual']);
+    assert.equal(viewers.length, 1);
 
     assert.equal(entities.length, 1);
     assert.equal(entities[0].pubkey, ENTITY_PK);
@@ -97,11 +100,14 @@ test('resolveIdentities unions all four sources with provenance', async () => {
     assert.equal(entities[0].type, 'person');
 });
 
-test('a pubkey reachable via several sources gets one entry, merged provenance', async () => {
+test('a pubkey reachable via several sources gets one entry, merged provenance — and stays an IDENTITY', async () => {
     await seedEverything();
     await Storage.set('portal_identities', [SYNC_PK]); // manual duplicate of the sync key
-    const { identities } = await resolveIdentities();
+    const { identities, viewers } = await resolveIdentities();
+    // Pasting your OWN key must not demote it to a viewer (28.4): any
+    // me-source keeps it in identities, provenance intact.
     assert.deepEqual(sourcesFor(identities, SYNC_PK), ['manual', 'sync-key']);
+    assert.equal(sourcesFor(viewers, SYNC_PK), null);
 });
 
 test('NIP-07 mode: signer unresolved with a reason, other sources still flow', async () => {
@@ -120,9 +126,9 @@ test('garbage in storage never reaches the identity set', async () => {
     await Storage.set('article_claims', {
         claim_y: { id: 'claim_y', text: 't', source_url: 'https://x.com', publishedPubkeys: ['xyz', HISTORY_PK_1] }
     });
-    const { identities } = await resolveIdentities();
-    for (const id of identities) assert.match(id.pubkey, /^[0-9a-f]{64}$/);
-    assert.deepEqual(sourcesFor(identities, MANUAL_PK), ['manual']);
+    const { identities, viewers } = await resolveIdentities();
+    for (const id of [...identities, ...viewers]) assert.match(id.pubkey, /^[0-9a-f]{64}$/);
+    assert.deepEqual(sourcesFor(viewers, MANUAL_PK), ['manual'], 'valid pasted key survives as a viewer');
     assert.deepEqual(sourcesFor(identities, HISTORY_PK_1), ['publish-history']);
 });
 

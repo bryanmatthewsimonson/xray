@@ -116,6 +116,8 @@ body.xr-portal {
 
 .xr-chip__src--signer  { color: var(--xr-success); }
 .xr-chip__src--manual  { color: var(--xr-accent); }
+.xr-chip__src--viewer  { color: var(--xr-warning); }
+.xr-chip--viewer       { border-style: dotted; }
 
 .xr-chip__remove {
   border: none;

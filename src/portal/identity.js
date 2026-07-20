@@ -72,7 +72,8 @@ async function resolveSignerPubkey() {
  * Resolve the full identity picture for the portal.
  *
  * @returns {Promise<{
- *   identities: Array<{pubkey: string, sources: string[]}>,
+ *   identities: Array<{pubkey: string, sources: string[]}>,   // "me"
+ *   viewers:    Array<{pubkey: string, sources: string[]}>,   // pasted read-only archives (28.4)
  *   entities:   Array<{pubkey: string, entityId: string, name: string, type: string}>,
  *   signer:     {method: string, pubkey: string|null, reason: string|null}
  * }>}
@@ -128,9 +129,22 @@ export async function resolveIdentities() {
         Utils.error('Portal identity: entity scan failed', err);
     }
 
-    const identities = [...sourcesByPubkey.entries()]
-        .map(([pubkey, sources]) => ({ pubkey, sources: [...sources] }));
-    return { identities, entities, signer };
+    // 28.4 — the FENCE: a pubkey whose ONLY source is 'manual' is a
+    // pasted VIEWER — someone else's archive to look at, never "me".
+    // It must not enter the identities set: reconcile expected-sets,
+    // creator binding, and the resolver identity all treat that set as
+    // the user, and unioning a viewer into it is exactly how two
+    // projects' ledgers interlocked (CASE_WORKSPACE_KICKOFF §1.4). A
+    // pasted npub that ALSO has a me-source (signer / sync-key /
+    // publish-history) stays an identity, chip provenance intact.
+    const identities = [];
+    const viewers = [];
+    for (const [pubkey, sources] of sourcesByPubkey.entries()) {
+        const row = { pubkey, sources: [...sources] };
+        if (sources.size === 1 && sources.has('manual')) viewers.push(row);
+        else identities.push(row);
+    }
+    return { identities, viewers, entities, signer };
 }
 
 /** The persisted manual pubkeys (hex, validated on write). */

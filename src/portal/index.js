@@ -49,7 +49,8 @@ import { openResolveForm } from './resolve-form.js';
 const $ = (sel) => document.querySelector(sel);
 
 const state = {
-    identities: [],      // [{pubkey, sources}]
+    identities: [],      // [{pubkey, sources}] — "me"
+    viewers: [],         // [{pubkey, sources}] — pasted read-only archives (28.4)
     entities: [],        // [{pubkey, entityId, name, type}]
     entityIndex: {},     // pubkey → {entityId, name, type}
     signer: null,        // {method, pubkey, reason}
@@ -102,6 +103,23 @@ function renderIdentityChips() {
             });
             chip.appendChild(btn);
         }
+        host.appendChild(chip);
+    }
+    // 28.4 — pasted archives render as VIEWER chips: fetched and
+    // browsable, never "me" (excluded from reconcile/binding/resolver).
+    for (const v of state.viewers) {
+        const chip = el('span', 'xr-chip xr-chip--viewer');
+        chip.appendChild(el('span', 'xr-chip__key', shortKey(v.pubkey)));
+        chip.title = `${v.pubkey}\nRead-only viewer — this archive is browsed, never treated as yours.`;
+        chip.appendChild(el('span', 'xr-chip__src xr-chip__src--viewer', 'viewer'));
+        const btn = el('button', 'xr-chip__remove', '✕');
+        btn.type = 'button';
+        btn.title = 'Stop viewing this archive';
+        btn.addEventListener('click', async () => {
+            await removeManualIdentity(v.pubkey);
+            await boot();
+        });
+        chip.appendChild(btn);
         host.appendChild(chip);
     }
     if (state.entities.length > 0) {
@@ -995,8 +1013,9 @@ async function boot({ full = false } = {}) {
     setBusy(true);
     try {
         setStatus('Resolving identity…');
-        const { identities, entities, signer } = await resolveIdentities();
+        const { identities, viewers, entities, signer } = await resolveIdentities();
         state.identities = identities;
+        state.viewers = viewers;
         state.entities = entities;
         state.signer = signer;
         renderIdentityChips();
@@ -1026,7 +1045,7 @@ async function boot({ full = false } = {}) {
             updateReconciliation().then(() => renderReconPanel());
         }
 
-        if (state.identities.length === 0 && state.entities.length === 0) {
+        if (state.identities.length === 0 && state.viewers.length === 0 && state.entities.length === 0) {
             if (cached.length === 0) {
                 setStatus('');
                 const reason = state.signer && state.signer.reason
@@ -1048,6 +1067,7 @@ async function boot({ full = false } = {}) {
         // last hour (12.7 review fix). Cache-broken mode always runs full.
         const authorsKey = [
             ...state.identities.map((i) => i.pubkey),
+            ...state.viewers.map((v) => v.pubkey),   // a viewer change needs its full history
             ...state.entities.map((e) => e.pubkey)
         ].sort().join(',');
         const relaysKey = [...state.relays].sort().join(',');
@@ -1061,8 +1081,11 @@ async function boot({ full = false } = {}) {
         const fetchStartedAt = Math.floor(Date.now() / 1000);
 
         setStatus(`Querying ${state.relays.length} relay(s)${since ? ' for new events' : ''}…`);
+        // Viewers' events are FETCHED (that is the read-only-archive
+        // feature) but viewers never join state.identities — reconcile,
+        // creator binding, and the resolver identity stay "me"-only (28.4).
         const { records, relayErrors, truncated } = await fetchCorpus({
-            pubkeys: state.identities.map((i) => i.pubkey),
+            pubkeys: [...state.identities, ...state.viewers].map((i) => i.pubkey),
             entityPubkeys: state.entities.map((e) => e.pubkey),
             relays: state.relays,
             since,
