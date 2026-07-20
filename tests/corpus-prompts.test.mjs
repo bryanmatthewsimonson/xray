@@ -8,12 +8,13 @@ const CP = await import('../src/shared/corpus-prompts.js');
 test('corpus-prompts: tool names + versions pinned (map/overall split)', () => {
     assert.equal(CP.MAP_TOOL_NAME, 'emit_corpus_extract');
     assert.equal(CP.REDUCE_TOOL_NAME, 'emit_case_brief');
-    assert.equal(CP.CORPUS_PROMPT_VERSION, 'corpus-v3');
+    assert.equal(CP.CORPUS_PROMPT_VERSION, 'corpus-v5');
     // Cache-preservation invariant: MAP_PROMPT_VERSION gates the map-extract
-    // cache key, so it MUST stay 'corpus-v2' unless the MAP prompt changes —
-    // bumping it orphans every cached extract. A reduce-only change bumps
-    // CORPUS_PROMPT_VERSION (staleness) but NOT this.
-    assert.equal(CP.MAP_PROMPT_VERSION, 'corpus-v2');
+    // cache key — bumping it orphans every cached extract, so it moves only
+    // on a real MAP input change. corpus-v4 was one (the claims digest left
+    // the map input — the claims-independent cache). A reduce-only change
+    // bumps CORPUS_PROMPT_VERSION (staleness) but NOT this.
+    assert.equal(CP.MAP_PROMPT_VERSION, 'corpus-v4');
     assert.notEqual(CP.MAP_PROMPT_VERSION, CP.CORPUS_PROMPT_VERSION);
 });
 
@@ -76,10 +77,14 @@ test('corpus-prompts: reduce system prompt points at the claims index + forbids 
     assert.match(sys, /Never link a\s+claim to itself/);
 });
 
-test('corpus-prompts: user prompt slices the claims digest to budget', () => {
-    const big = 'x'.repeat(CP.MAX_CLAIMS_DIGEST_CHARS + 5000);
-    const out = CP.buildMapUserPrompt({ memberText: 'body', memberMeta: { title: 'T', url: 'u' }, claimsDigest: big });
+test('corpus-prompts: the map input is claims-blind (corpus-v4 — the stable-cache pin)', () => {
+    // The claims digest must NEVER re-enter the map input: its absence
+    // is what makes the extract cache key stable from capture (the
+    // Pre-analyze economics). Linking is local (linkAssertionsToClaims).
+    const out = CP.buildMapUserPrompt({ memberText: 'body', memberMeta: { title: 'T', url: 'u' } });
     assert.ok(out.includes('body'));
-    // digest appended but capped.
-    assert.ok(out.length < CP.MAX_CLAIMS_DIGEST_CHARS + 6000);
+    assert.ok(!/EXISTING CLAIMS/.test(out), 'no claims digest section');
+    const schemaJson = JSON.stringify(CP.buildMapTool().input_schema);
+    assert.ok(!schemaJson.includes('claim_ref'), 'the map tool no longer asks the model for claim links');
+    assert.ok(!/claim_ref/.test(CP.buildMapSystemPrompt({ caseName: 'c' })), 'no claim-linking rule in the system prompt');
 });

@@ -587,7 +587,7 @@ async function corpusGate() {
  * MAP: one member article → its position + load-bearing assertions.
  * Mirrors runAuditModulePass. Echoes `member_id` for the orchestrator.
  *
- * @param {object} req { member_id, memberText, memberMeta?, claimsDigest?, caseName?, scopeQuestion? }
+ * @param {object} req { member_id, memberText, memberMeta?, caseName?, scopeQuestion? }
  */
 export async function runCorpusMapPass(req = {}) {
     const gate = await corpusGate();
@@ -605,7 +605,7 @@ export async function runCorpusMapPass(req = {}) {
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
         messages: [{ role: 'user', content: buildMapUserPrompt({
-            memberText, memberMeta: req.memberMeta || {}, claimsDigest: req.claimsDigest || ''
+            memberText, memberMeta: req.memberMeta || {}
         }) }]
     };
 
