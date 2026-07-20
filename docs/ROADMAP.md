@@ -1695,8 +1695,13 @@ emitted or fetched; NIP-26 delegations narrow to kind 0). Legacy
 `claim.fact` payloads and `publishedFactSheet*` stamps are inert.
 What survives: the dossier assembler (claims-first), kind-0 +
 mention-note publishing, entity health, and the case authored fields.
-The Wikipedia-style goal returns claims-first — see JOURNAL
-2026-07-20 and the entity-page design work.
+The Wikipedia-style goal returns claims-first as **Entity Pages**
+(docs/ENTITY_PAGE_KICKOFF.md, approved + built 2026-07-20): the case
+brief engine pointed at a subject — EP.1/EP.2 engine (emit_entity_page
+reduce, cache-shared map via corpusMapRequest, entity-pages store, DB
+v6) and EP.3–EP.5 (dossier-view generate/review block, key facts as
+curated CLAIMS, user-signed replaceable 30023 publish behind
+entityCorpusPublishing, input-hash staleness).
 
 ---
 

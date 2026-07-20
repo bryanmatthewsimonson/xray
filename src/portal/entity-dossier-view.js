@@ -1,10 +1,8 @@
 // Entity dossier view — Phase 19.4 (docs/ENTITY_DOSSIER_DESIGN.md §5).
-// The full-page dossier: identity, the typed field table
-// (unknown-by-default, contested side-by-side), content timeline,
-// judgment distributions, relationships. A thin projection of the pure
-// `assembleEntityDossier` — all logic lives in entity-dossier.js; this
-// file only paints. Every field value click-throughs to its evidence
-// (quote + source + article hash): the §5 provenance contract.
+// The full-page dossier: identity, the entity page (EP.3), content
+// timeline, judgment distributions, relationships. A thin projection
+// of the pure `assembleEntityDossier` — all logic lives in
+// entity-dossier.js; this file only paints.
 //
 // Firewall note (§3.5): the judgments block routes to
 // renderIntegrityBlock (the coverage-capped record) and paints
@@ -22,6 +20,7 @@ import { EventBuilder } from '../shared/event-builder.js';
 import { buildProfileAbout, profileContentHash } from '../shared/entity-profile.js';
 import { mintDelegationTag, entityDelegationConditions } from '../shared/identity-builders.js';
 import { Crypto } from '../shared/crypto.js';
+import { mountEntityPageBlock } from './entity-page-block.js';
 
 function hostOf(url) {
     try { return new URL(url).hostname.replace(/^www\./, ''); } catch (_) { return url || ''; }
@@ -56,6 +55,10 @@ export function renderEntityDossierView(host, params) {
             `${dossier.coverage.claims} claim(s) · ${dossier.coverage.articles} article(s)`));
 
         renderIdentityBlock(bodyHost, dossier);
+        // EP.3 — the grounded entity page (generate / review / publish).
+        // Mounted on the CANONICAL subject id so alias opens share one
+        // page record.
+        mountEntityPageBlock(bodyHost, { entityId: dossier.subject.id });
         renderRelationshipsBlock(bodyHost, dossier, callbacks);
         renderJudgmentsBlock(bodyHost, dossier);
         renderContentBlock(bodyHost, dossier);

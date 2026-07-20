@@ -1263,3 +1263,25 @@ button.xr-badge--case { cursor: pointer; background: transparent; }
 .xr-trace { margin: 4px 0 8px; }
 .xr-trace__modes { display: flex; gap: 6px; margin: 6px 0; }
 .xr-trace__line { margin: 6px 0; font-size: 12.5px; }
+
+/* Entity page (EP.3, docs/ENTITY_PAGE_KICKOFF.md) — the grounded
+   claims-first page block on the dossier view. Review chrome only;
+   the published artifact is plain markdown. */
+.xr-epage__actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
+.xr-epage__hint { color: var(--xr-text-dim); font-size: 12.5px; }
+.xr-epage__status { color: var(--xr-text-dim); font-size: 12px; min-height: 14px; margin: 2px 0; }
+.xr-epage__prov { color: var(--xr-text-dim); font-size: 12px; margin: 4px 0 8px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.xr-epage__lead { font-size: 13.5px; margin: 6px 0 10px; }
+.xr-epage__subhead { font-size: 12.5px; margin: 8px 0 4px; color: var(--xr-text-dim); }
+.xr-epage__facts { border-left: 3px solid var(--xr-accent, #60a5fa); padding: 4px 10px; margin: 8px 0; }
+.xr-epage__fact { display: flex; gap: 6px; align-items: baseline; font-size: 12.5px; margin: 3px 0; }
+.xr-epage__section { margin: 10px 0; }
+.xr-epage__sec-head { display: flex; gap: 8px; align-items: center; }
+.xr-epage__sec-body { font-size: 13px; margin: 4px 0; }
+.xr-epage__quote { border-left: 2px solid var(--xr-border, #334); color: var(--xr-text-dim); font-size: 12px; margin: 4px 0 4px 8px; padding: 2px 8px; }
+.xr-epage__edit { width: 100%; font: inherit; font-size: 13px; }
+.xr-epage__dispute { margin: 8px 0; font-size: 12.5px; }
+.xr-epage__side { margin: 2px 0 2px 10px; }
+.xr-epage__gaps { margin: 8px 0; font-size: 12.5px; color: var(--xr-text-dim); }
+.xr-epage__gap { margin: 2px 0 2px 10px; }
+.xr-epage__pubstamp { color: var(--xr-text-dim); font-size: 12px; }
