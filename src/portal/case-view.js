@@ -27,6 +27,7 @@ import { mountTranscriptImport } from './import-transcript.js';
 import { mountUrlImport } from './import-urls.js';
 import { renderCaseGraph } from './case-graph-view.js';
 import { renderSynthesisBlock } from './synthesis-block.js';
+import { renderCorpusAuditBlock } from './corpus-audit-block.js';
 import { renderLinksBlock } from './links-block.js';
 import { renderHypothesesBlock } from './hypothesis-block.js';
 import { collectHypothesisEdgeJoins } from '../shared/hypothesis-map.js';
@@ -292,6 +293,16 @@ export function renderCaseView(host, params) {
             // absent otherwise). Self-manages its own gating call.
             renderSynthesisBlock(graphHost, {
                 data, dossier,
+                callbacks: {
+                    onReloadCase: callbacks.onReloadCase,
+                    onAnalysisState: callbacks.onAnalysisState,
+                    isCurrentRun: callbacks.isCurrentRun
+                }
+            });
+            // CA.1 — the corpus audit runner (epistemicAuditing-gated;
+            // absent when off). Same run-ownership guard as synthesis.
+            renderCorpusAuditBlock(graphHost, {
+                data,
                 callbacks: {
                     onReloadCase: callbacks.onReloadCase,
                     onAnalysisState: callbacks.onAnalysisState,
