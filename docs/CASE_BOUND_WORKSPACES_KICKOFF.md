@@ -155,16 +155,19 @@ the judges' read-only viewer flow, `ENTITY_TYPES`.
    as first-class cross-case edges. Deliberate, read-only, side by
    side (P8).
 
-## §7. Open questions for the maintainer
+## §7. Open questions — DECIDED (maintainer, 2026-07-19)
 
-1. Workspace id scheme: random id vs the bound case entity id?
-   (Random recommended — a workspace can outlive a renamed/retyped
-   case anchor, and ids must never collide with entity-id derivation.)
-2. Should "delete workspace" require the same typed confirmation as
-   today's reset, plus an automatic backup? (Recommended: yes, both.)
-3. Does the `default` migration workspace get retro-bound to the
-   maintainer's existing `epistack` profile + COVID case? (Recommended:
-   yes, with a one-time confirm.)
-4. Is a read-only "all workspaces" library view wanted before 28.6, or
-   is per-workspace strictness the point until then? (Recommended:
-   strictness until 28.6.)
+All four resolved as recommended; the 28.x slices are unblocked.
+
+1. **Workspace id scheme: random id.** A workspace can outlive a
+   renamed/retyped case anchor, and ids must never collide with
+   entity-id derivation.
+2. **"Delete workspace" requires BOTH** the typed confirmation and an
+   automatic backup download first — the same posture as today's
+   fresh-workspace reset.
+3. **The `default` migration workspace IS retro-bound** to the
+   existing `epistack` profile + the COVID case, behind a one-time
+   confirm at migration.
+4. **Per-workspace strictness holds until 28.6** — no early
+   all-workspaces view; cross-workspace visibility arrives only as
+   the deliberate, read-only 28.6 surface.
