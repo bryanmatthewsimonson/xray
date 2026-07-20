@@ -75,6 +75,8 @@ import { openMediaModal } from './media-modal.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { resolveActiveCaseRef, describeActiveContext } from '../shared/case-membership.js';
+import { autoPreAnalyzeCapture } from '../shared/auto-preanalyze.js';
+import { Utils } from '../shared/utils.js';
 import {
     buildMentionNoteEvent, selectMentionQuote, mentionKey,
     MentionLedger, MENTION_NOTE_CAP_PER_ARTICLE
@@ -409,9 +411,11 @@ async function adoptArticle(article, stored) {
             // this article carries it and no archive-side write can be
             // clobbered by a reader-side save. Same ref shape as the
             // case-membership writer; idempotent on re-opens.
+            let caseBinding = null;
             try {
                 const binding = await resolveActiveCaseRef();
                 if (binding) {
+                    caseBinding = binding;
                     if (!Array.isArray(state.article.entities)) state.article.entities = [];
                     if (!state.article.entities.some((e) => e && e.entity_id === binding.ref.entity_id)) {
                         state.article.entities.push(binding.ref);
@@ -431,6 +435,12 @@ async function adoptArticle(article, stored) {
                     ? { ...state.article, _articleHash: state.articleHash }
                     : state.article,
                 source: 'capture'
+            }).then(() => {
+                // Phase 28 — opt-in per-capture map prepay. Fires only
+                // AFTER the archive save (the member unit reads the
+                // archived record) and only into a bound case; every
+                // gate and outcome is handled inside.
+                maybeAutoPreAnalyze(caseBinding);
             }).catch((err) => console.warn('[X-Ray Reader] archive cache save failed:', err));
         })();
     } else if (stored && stored.readOnly && state.article && state.article._articleHash) {
@@ -452,6 +462,29 @@ async function adoptArticle(article, stored) {
     // render on a network round-trip.
     setTimeout(() => checkArchiveAvailability().catch((err) =>
         console.warn('[X-Ray Reader] archive check failed:', err)), 100);
+}
+
+// Phase 28 — opt-in per-capture map prepay (flag `autoPreAnalyze`,
+// default off). Fire-and-forget after the capture's archive save: run
+// the ONE synthesis map call for this member so the case's next
+// Analyze finds its extract cached. Quiet by design — skips and
+// failures are log-only and never disturb the capture flow; an actual
+// SPEND gets a small toast so per-capture cost stays visible.
+async function maybeAutoPreAnalyze(binding) {
+    if (!binding || state.readOnlyOpen || !state.article || !state.article.url) return;
+    try {
+        const out = await autoPreAnalyzeCapture({
+            caseEntityId: binding.caseId,
+            url: state.article.url,
+            sendMessage: (msg) => browserApi.runtime.sendMessage(msg)
+        });
+        if (out && out.status === 'ran') {
+            toast(`Pre-analyzed into “${binding.caseName || 'case'}”`, 'success', 2500);
+        }
+        Utils.log('[X-Ray Reader] auto pre-analyze:', out && out.status, (out && out.error) || '');
+    } catch (err) {
+        Utils.log('[X-Ray Reader] auto pre-analyze failed:', (err && err.message) || err);
+    }
 }
 
 // Persist the current article (with its tagged entities) to the archive

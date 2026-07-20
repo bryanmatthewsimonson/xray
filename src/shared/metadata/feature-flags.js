@@ -113,6 +113,18 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // ordinary 30040/30055 through the normal publish paths.
   caseSynthesis: false,
 
+  // Phase 28 — opt-in per-capture map prepay (auto-preanalyze.js): when
+  // a capture saves into a workspace bound to a case, run the synthesis
+  // MAP stage for that one article immediately, so the later "Analyze
+  // corpus" run finds its extract cached (corpus-v4 keys are
+  // claims-independent, so the prepaid extract stays valid however much
+  // claim extraction follows). Default OFF deliberately: turning it on
+  // converts the per-click spend confirm into a STANDING authorization
+  // — one Anthropic call per capture — so the Options disclosure states
+  // the per-capture cost. Effective only with caseSynthesis + llmAssist
+  // + the API key (the SW's corpusGate re-checks all three).
+  autoPreAnalyze: false,
+
   // Phase 27 K.4: the `#xray:capture` URL marker — a driving agent's
   // capture trigger (the connector can neither reach extension pages
   // nor fire the command shortcut, so navigation is the only verb it

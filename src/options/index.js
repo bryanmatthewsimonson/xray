@@ -937,6 +937,8 @@ async function loadAdvanced() {
 
     // Case synthesis (Phase 20.4) — requires llmAssist + the key on top.
     document.getElementById('pref-case-synthesis').checked = isEnabled('caseSynthesis');
+    // Phase 28 — per-capture map prepay (a standing spend authorization).
+    document.getElementById('pref-auto-preanalyze').checked = isEnabled('autoPreAnalyze');
     document.getElementById('pref-capture-automation').checked = isEnabled('captureAutomation');
 
     // LLM assist (Phase 14.5). The flag lives in feature-flags; the key
@@ -1051,6 +1053,11 @@ async function saveAdvanced() {
     // Case synthesis (Phase 20.4).
     const synthOn = document.getElementById('pref-case-synthesis').checked;
     await setOverride('caseSynthesis', synthOn ? true : null);
+
+    // Auto pre-analyze on capture (Phase 28) — a standing per-capture
+    // spend authorization; the checkbox hint carries the disclosure.
+    const autoPreOn = document.getElementById('pref-auto-preanalyze').checked;
+    await setOverride('autoPreAnalyze', autoPreOn ? true : null);
 
     // Capture automation (Phase 27 K.4).
     const captureAutoOn = document.getElementById('pref-capture-automation').checked;
