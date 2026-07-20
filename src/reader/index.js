@@ -76,6 +76,10 @@ import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { resolveActiveCaseRef, describeActiveContext } from '../shared/case-membership.js';
 import {
+    buildMentionNoteEvent, selectMentionQuote, mentionKey,
+    MentionLedger, MENTION_NOTE_CAP_PER_ARTICLE
+} from '../shared/mention-notes.js';
+import {
     buildOwnedKeysManifest, mintDelegationTag, entityDelegationConditions
 } from '../shared/identity-builders.js';
 import { renderLensSetup, renderJurisdictionCard, renderJurisdictionFailure, renderPanelSummary } from './lens-section.js';
@@ -4611,7 +4615,7 @@ async function publish() {
                         if (canonical && canonical.keypair) canonicalNpub = canonical.keypair.npub;
                     }
 
-                    const unsignedProfile = EventBuilder.buildProfileEvent(entity, canonicalNpub);
+                    const unsignedProfile = EventBuilder.buildProfileEvent(entity, canonicalNpub, null, entity.external_ids || []);
                     await attachCreatorBinding(unsignedProfile, entity.keypair && entity.keypair.pubkey);
                     const signed = await LocalKeyManager.signEvent(unsignedProfile, entity.keyName);
 
@@ -5609,7 +5613,7 @@ async function publish() {
                 try {
                     if (sel.profileChanged) {
                         btn.textContent = `Publishing (${corpusBase + (++cStep)}/${totalEvents})…`;
-                        const unsigned = EventBuilder.buildProfileEvent(entity, canonicalNpub, sel.about);
+                        const unsigned = EventBuilder.buildProfileEvent(entity, canonicalNpub, sel.about, entity.external_ids || []);
                         await attachCreatorBinding(unsigned, entity.keypair && entity.keypair.pubkey);
                         const signed = await LocalKeyManager.signEvent(unsigned, entity.keyName);
                         const resp = await browserApi.runtime.sendMessage({
@@ -5670,6 +5674,83 @@ async function publish() {
             // a manifest failure never fails the batch.
             try { await publishOwnedKeysManifest(); }
             catch (err) { console.warn('[X-Ray Reader] manifest publish failed:', err); }
+        }
+
+        // E4 — mention notes (ENTITY_CORPUS_DESIGN §4.2): one kind-1
+        // note per tagged entity, signed by the ENTITY's key, so
+        // following its npub in ANY client surfaces the corpus. Only
+        // when the article itself landed (referenced-before-referencer),
+        // capped per article; the local ledger keys (entity, url, hash)
+        // so re-publishing the SAME article version never re-sends and
+        // a changed hash deliberately mints a new note (edition
+        // provenance). Case-typed roots are EXCLUDED — the custody rule
+        // (TEAM_CASE_DESIGN §2.1): a case key signs only its kind-0 and
+        // 32125s, and the builder refuses too.
+        if (isEnabled('entityCorpusPublishing') && articleResults.successful > 0) {
+            try {
+                const entitiesForMentions = await EntityModel.getAll();
+                const mentionDTag = (unsignedArticle.tags.find((t) => t[0] === 'd') || [])[1];
+                const mentionCoord = mentionDTag ? `30023:${userPubkey}:${mentionDTag}` : null;
+                const articleClaims = await ClaimModel.getBySourceUrl(state.article.url).catch(() => []);
+                const seenRoots = new Set();
+                const mentionTargets = [];
+                for (const ref of entityRefs) {
+                    if (!ref || !ref.entity_id) continue;
+                    const rootId = canonicalIdOf(ref.entity_id, entitiesForMentions);
+                    if (seenRoots.has(rootId)) continue;
+                    seenRoots.add(rootId);
+                    const entity = entitiesForMentions[rootId];
+                    if (!entity || !entity.keypair || !entity.keypair.privateKey) continue;   // keyless/foreign
+                    if (entity.type === 'case') continue;   // custody rule
+                    if (mentionTargets.length >= MENTION_NOTE_CAP_PER_ARTICLE) break;
+                    const key = mentionKey(rootId, state.article.url, captureHashForLedger);
+                    if (await MentionLedger.has(key)) continue;
+                    mentionTargets.push({ entity, ref, key });
+                }
+                if (mentionTargets.length > 0) {
+                    const mBase = totalEvents;
+                    totalEvents += mentionTargets.length;
+                    let mStep = 0;
+                    for (const t of mentionTargets) {
+                        btn.textContent = `Publishing (${mBase + (++mStep)}/${totalEvents})…`;
+                        try {
+                            const unsignedNote = buildMentionNoteEvent({
+                                entityPubkey: t.entity.keypair.pubkey,
+                                entityType: t.entity.type,
+                                publisherPubkey: userPubkey,
+                                articleTitle: state.article.title,
+                                articleUrl: state.article.url,
+                                articleCoord: mentionCoord,
+                                articleHash: captureHashForLedger || null,
+                                quote: selectMentionQuote({
+                                    ref: t.ref, entityId: t.entity.id,
+                                    articleUrl: state.article.url, claims: articleClaims
+                                })
+                            });
+                            await attachCreatorBinding(unsignedNote, t.entity.keypair.pubkey);
+                            const signedNote = await LocalKeyManager.signEvent(unsignedNote, t.entity.keyName);
+                            const resp = await browserApi.runtime.sendMessage({
+                                type: 'xray:relay:publish', event: signedNote, relays: await getConfiguredRelays()
+                            });
+                            if (resp && resp.ok && resp.results) recordRelayResults(resp.results);
+                            if (resp && resp.ok && await publishOk({ ...resp, signedEvent: signedNote })) {
+                                corpusResults.ok++;
+                                await MentionLedger.record(t.key, { eventId: signedNote.id });
+                            } else {
+                                corpusResults.fail++;
+                                corpusResults.errors.push(`${t.entity.name} mention note: ${(resp && resp.error) || 'no relays accepted'}`);
+                            }
+                        } catch (err) {
+                            corpusResults.fail++;
+                            corpusResults.errors.push(`${t.entity.name} mention note: ${err.message || String(err)}`);
+                        }
+                        setProgress(mBase + mStep, totalEvents);
+                        await sleep(BATCH_PUBLISH_DELAY_MS);
+                    }
+                }
+            } catch (err) {
+                console.warn('[X-Ray Reader] mention notes failed:', err);
+            }
         }
 
         // Build + surface the end-of-batch summary.
@@ -6080,8 +6161,8 @@ function showPublishSummary({
     if (integrityCount > 0) {
         segments.push(`${integrityResults.ok}/${integrityCount} integrity finding${integrityCount === 1 ? '' : 's'}`);
     }
-    if (corpusCount > 0) {
-        segments.push(`${corpusResults.ok}/${corpusResults.ok + corpusResults.fail} corpus event${(corpusResults.ok + corpusResults.fail) === 1 ? '' : 's'} (profiles + fact sheets)`);
+    if (corpusCount > 0 || corpusResults.ok + corpusResults.fail > 0) {
+        segments.push(`${corpusResults.ok}/${corpusResults.ok + corpusResults.fail} corpus event${(corpusResults.ok + corpusResults.fail) === 1 ? '' : 's'} (profiles, fact sheets & mention notes)`);
     }
     let line = 'Published: ' + segments.join(', ') + '.';
 

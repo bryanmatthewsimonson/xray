@@ -49,6 +49,19 @@ test('custody: the kind-0 profile REMAINS allowed for a case (one of the two per
     assert.ok(about.length > 0);
 });
 
+test('custody: buildMentionNoteEvent REFUSES a case-typed entity (E4 — a case key never signs kind-1)', async () => {
+    const { buildMentionNoteEvent } = await import('../src/shared/mention-notes.js');
+    assert.throws(() => buildMentionNoteEvent({
+        entityPubkey: 'a'.repeat(64), entityType: 'case',
+        publisherPubkey: 'b'.repeat(64), articleTitle: 'T', articleUrl: 'https://x/a'
+    }), /custody rule/);
+    const ok = buildMentionNoteEvent({
+        entityPubkey: 'a'.repeat(64), entityType: 'person',
+        publisherPubkey: 'b'.repeat(64), articleTitle: 'T', articleUrl: 'https://x/a'
+    });
+    assert.equal(ok.kind, 1);
+});
+
 test('custody: entity-key signing sites in src/ are pinned — a new one must confront this rule', async () => {
     // Every LocalKeyManager.signEvent call site signs with an ENTITY
     // key. The allowlist today: the reader's kind-0 profile publishes
@@ -56,11 +69,14 @@ test('custody: entity-key signing sites in src/ are pinned — a new one must co
     // fails this pin so its author must check TEAM_CASE_DESIGN §2.1
     // before widening what entity keys sign.
     // The allowlist, with per-file counts. Reader: 2× kind-0 profile +
-    // 1× fact sheet. Portal entity-dossier view: 1× (kind-0 + 30067
-    // publish loop — both events flow through buildFactSheetEvent /
-    // buildProfileAbout, so the case refusal above covers it).
+    // 1× fact sheet + 1× E4 mention note (buildMentionNoteEvent throws
+    // /custody rule/ on a case-typed entity — guarded below — and the
+    // reader's target loop skips case roots besides). Portal
+    // entity-dossier view: 1× (kind-0 + 30067 publish loop — both
+    // events flow through buildFactSheetEvent / buildProfileAbout, so
+    // the case refusal above covers it).
     const ALLOWED = {
-        'src/reader/index.js': 3,
+        'src/reader/index.js': 4,
         'src/portal/entity-dossier-view.js': 1
     };
     async function walk(dir) {

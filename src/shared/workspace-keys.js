@@ -34,7 +34,9 @@ export const WORKSPACE_CONTENT_KEYS = Object.freeze([
     'incorporated_artifacts',   // Phase 25.3 reviewed-in foreign artifacts
     'incorporation_dismissals', // Phase 25.3 declined proposals
     'case_hypotheses',          // Phase 26 hypothesis records
-    'hypothesis_edges'          // Phase 26 claim→hypothesis edges
+    'hypothesis_edges',         // Phase 26 claim→hypothesis edges
+    'published_mentions'        // E4 mention-note idempotence ledger —
+                                // publish stamps for THIS workspace's corpus
 ]);
 
 // IndexedDB databases holding workspace content. Doubles as the BACKUP
