@@ -236,6 +236,27 @@
       </p>
 
       <hr />
+      <h3 class="xr-opt__subhead">Workspaces (case-bound)</h3>
+      <p class="xr-opt__hint">
+        Each workspace is an isolated project — its own entities, claims,
+        archive, audits, and signed-event journal — bound to one signing
+        identity and one case. Activating a workspace switches the storage
+        namespace <strong>and</strong> the active identity together.
+        Reload any open X-Ray tabs after switching.
+      </p>
+      <div id="ws-list" class="xr-opt__wslist"></div>
+      <div class="xr-opt__actions">
+        <input type="text" id="ws-new-label" placeholder="New workspace label" />
+        <select id="ws-new-profile"></select>
+        <button class="xr-opt__btn" id="ws-create">Create workspace</button>
+      </div>
+      <p class="xr-opt__hint">
+        Deleting a workspace requires typing its label and downloads its
+        backup first. The default workspace cannot be deleted.
+      </p>
+      <span class="xr-opt__status" id="ws-status"></span>
+
+      <hr />
       <h3 class="xr-opt__subhead">Workspace</h3>
       <p class="xr-opt__hint">
         A workspace is everything you have captured or authored:

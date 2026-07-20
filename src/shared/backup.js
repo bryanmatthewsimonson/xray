@@ -22,7 +22,7 @@
 // Options UI does.
 
 import { WORKSPACE_DATABASES } from './identity-profiles.js';
-import { WORKSPACE_CONTENT_KEYS, activeWorkspaceId } from './workspace-keys.js';
+import { WORKSPACE_CONTENT_KEYS, activeWorkspaceId, workspaceDbName } from './workspace-keys.js';
 
 const WORKSPACE_CONTENT = new Set(WORKSPACE_CONTENT_KEYS);
 import { openArchiveDb } from './archive-cache.js';
@@ -286,6 +286,67 @@ export async function collectBackup({ includeSourceBytes = true } = {}) {
         exportedAt: new Date().toISOString(),
         includesSourceBytes: !!includeSourceBytes,
         storage: await collectStorage(),
+        databases
+    };
+}
+
+// Versionless open for a workspace snapshot dump: an EXISTING database
+// opens at its current version with its real schema; a missing one
+// would mint an empty v1 — irrelevant in the one flow that uses this
+// (delete-workspace backs up, then deletes the database anyway). Never
+// use this for the covered/active path — openCovered's warning applies.
+function openRaw(name) {
+    return new Promise((resolve, reject) => {
+        let open;
+        try {
+            const idb = globalThis.indexedDB || (typeof self !== 'undefined' && self.indexedDB);
+            if (!idb) { reject(new Error('no indexedDB')); return; }
+            open = idb.open(name);
+        } catch (err) { reject(err); return; }
+        open.onsuccess = () => resolve(open.result);
+        open.onerror = () => reject(open.error);
+    });
+}
+
+/**
+ * Snapshot ONE workspace by id — the delete-flow backup (§7 Q2: delete
+ * = typed confirm + automatic backup first), usable on a NON-active
+ * workspace, which `collectBackup` cannot reach (the module openers
+ * resolve the active namespace). Same `xray-backup/1` format with
+ * LOGICAL names throughout, so the file restores into whatever
+ * workspace is active at apply time.
+ */
+export async function collectWorkspaceSnapshot(wsId) {
+    const ws = String(wsId || '');
+    if (!ws) throw new Error('collectWorkspaceSnapshot: workspace id required');
+    const prefix = `ws:${ws}:`;
+    const all = await areaGetAll(storageArea());
+    const storage = {};
+    for (const [k, v] of Object.entries(all)) {
+        if (ws === 'default') {
+            if (WORKSPACE_CONTENT.has(k)) storage[k] = v;
+        } else if (k.startsWith(prefix)) {
+            const bare = k.slice(prefix.length);
+            if (!EXCLUDED_STORAGE_KEYS.includes(bare)) storage[bare] = v;
+        }
+    }
+    const databases = {};
+    for (const base of WORKSPACE_DATABASES) {
+        const db = await openRaw(workspaceDbName(base, ws)).catch(() => null);
+        if (!db) { databases[base] = {}; continue; }
+        const out = {};
+        for (const store of Array.from(db.objectStoreNames)) {
+            out[store] = toSerializable(await getAllRows(db, store));
+        }
+        try { db.close(); } catch (_) { /* snapshot handle */ }
+        databases[base] = out;
+    }
+    return {
+        format: BACKUP_FORMAT,
+        exportedAt: new Date().toISOString(),
+        includesSourceBytes: true,
+        workspaceId: ws,
+        storage,
         databases
     };
 }

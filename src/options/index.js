@@ -17,7 +17,7 @@ import { importAuditJson } from '../shared/audit/import.js';
 import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
 import { listRuns, listPredictions, listResolutions } from '../shared/audit/audit-cache.js';
 import { listArticles } from '../shared/archive-cache.js';
-import { IdentityProfiles, workspaceBackup, resetWorkspace } from '../shared/identity-profiles.js';
+import { IdentityProfiles, Workspaces, workspaceBackup, resetWorkspace } from '../shared/identity-profiles.js';
 import { EntityModel } from '../shared/entity-model.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 
@@ -32,7 +32,7 @@ const ROTATION_WARNING =
     '• Entity keys DERIVED from the old primary cannot be re-derived from the new one (stored keys keep working — back them up first).\n' +
     '• The OwnedKeys manifest and entity profiles should be republished under the new identity.\n\n' +
     'Continue?';
-import { collectBackup, applyBackup, validateBackup, estimateBackupSize } from '../shared/backup.js';
+import { collectBackup, applyBackup, validateBackup, estimateBackupSize, collectWorkspaceSnapshot } from '../shared/backup.js';
 import { exportBundle } from '../shared/event-journal.js';
 
 const browserApi = (typeof browser !== 'undefined' && browser.runtime) ? browser : chrome;
@@ -533,6 +533,158 @@ async function workspaceDownloadBackup() {
     } catch (e) {
         flash(status, 'Backup failed: ' + (e && e.message), false);
     }
+}
+
+// ------------------------------------------------------------------
+// Case-bound workspaces (28.1b) — list / create / bind / activate /
+// delete. Lifecycle rules live HERE: activate confirms and reloads;
+// delete = typed label + snapshot download first (§7 Q2); binding the
+// active workspace to the current identity/case is the generic form
+// of §7 Q3's retro-bind (one click while the right things are active).
+// ------------------------------------------------------------------
+
+function wsBtn(label, danger = false) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'xr-opt__btn' + (danger ? ' xr-opt__btn--danger' : '');
+    b.textContent = label;
+    return b;
+}
+
+async function renderWorkspaces() {
+    const host = document.getElementById('ws-list');
+    const status = document.getElementById('ws-status');
+    if (!host) return;
+    const [list, profiles, active, primary] = await Promise.all([
+        Workspaces.list(), IdentityProfiles.getAll(),
+        Storage.activeWorkspaceId(), Storage.primaryIdentity.get()
+    ]);
+    host.replaceChildren();
+    for (const ws of list) {
+        const isActive = ws.id === active;
+        const profile = ws.identity_pubkey ? profiles[ws.identity_pubkey] : null;
+        const row = document.createElement('div');
+        row.className = 'xr-opt__wsrow' + (isActive ? ' xr-opt__wsrow--active' : '');
+
+        const title = document.createElement('span');
+        title.className = 'xr-opt__wsname';
+        title.textContent = ws.label;
+        title.title = ws.id;
+        row.appendChild(title);
+
+        // A bound case's NAME resolves only inside its own namespace —
+        // foreign workspaces show the binding state, not a guessed name.
+        let caseName = null;
+        if (isActive && ws.case_entity_id) {
+            const ent = await EntityModel.get(ws.case_entity_id).catch(() => null);
+            caseName = ent && ent.name;
+        }
+        const meta = document.createElement('span');
+        meta.className = 'xr-opt__wsmeta';
+        meta.textContent = ' — ' + [
+            profile ? `identity: ${profile.label}` : 'identity: unbound',
+            ws.case_entity_id ? `case: ${caseName || '(bound)'}` : 'case: unbound'
+        ].join(' · ');
+        row.appendChild(meta);
+
+        if (isActive) {
+            const badge = document.createElement('span');
+            badge.className = 'xr-opt__wsbadge';
+            badge.textContent = 'ACTIVE';
+            row.appendChild(badge);
+        }
+
+        const actions = document.createElement('span');
+        actions.className = 'xr-opt__wsactions';
+        if (isActive) {
+            if (!ws.identity_pubkey && primary && primary.pubkey && profiles[primary.pubkey]) {
+                const bindBtn = wsBtn('Bind current identity');
+                bindBtn.addEventListener('click', async () => {
+                    await Workspaces.update(ws.id, { identityPubkey: primary.pubkey });
+                    flash(status, `Bound "${ws.label}" to identity "${profiles[primary.pubkey].label}".`);
+                    renderWorkspaces();
+                });
+                actions.appendChild(bindBtn);
+            }
+            if (!ws.case_entity_id) {
+                const sel = document.createElement('select');
+                const cases = Object.values(await EntityModel.getAll()).filter((e) => e.type === 'case');
+                sel.appendChild(new Option(cases.length ? 'Bind a case…' : 'No case entities yet', ''));
+                for (const c of cases) sel.appendChild(new Option(c.name, c.id));
+                sel.addEventListener('change', async () => {
+                    if (!sel.value) return;
+                    await Workspaces.update(ws.id, { caseEntityId: sel.value });
+                    flash(status, `Bound the case to "${ws.label}".`);
+                    renderWorkspaces();
+                });
+                actions.appendChild(sel);
+            }
+        } else {
+            const actBtn = wsBtn('Activate');
+            actBtn.addEventListener('click', async () => {
+                if (!confirm(`Switch to workspace "${ws.label}"?\n\nThis moves the storage namespace AND the signing identity together. Reload any open X-Ray tabs afterwards.`)) return;
+                try {
+                    await Workspaces.activate(ws.id);
+                    location.reload();
+                } catch (e) { flash(status, 'Switch failed: ' + (e && e.message), false); }
+            });
+            actions.appendChild(actBtn);
+            if (ws.id !== 'default') {
+                const delBtn = wsBtn('Delete…', true);
+                delBtn.addEventListener('click', () => deleteWorkspaceFlow(ws));
+                actions.appendChild(delBtn);
+            }
+        }
+        row.appendChild(actions);
+        host.appendChild(row);
+    }
+
+    const profSel = document.getElementById('ws-new-profile');
+    if (profSel) {
+        profSel.replaceChildren();
+        profSel.appendChild(new Option('New identity (same label)', ''));
+        for (const p of Object.values(profiles)) profSel.appendChild(new Option(`Identity: ${p.label}`, p.pubkey));
+    }
+}
+
+async function createWorkspaceFlow() {
+    const status = document.getElementById('ws-status');
+    const labelEl = document.getElementById('ws-new-label');
+    const profSel = document.getElementById('ws-new-profile');
+    try {
+        const label = labelEl.value.trim();
+        if (!label) { flash(status, 'Give the workspace a label first.', false); return; }
+        let pubkey = profSel.value || null;
+        if (!pubkey) {
+            // Minting the identity does NOT activate it — the workspace
+            // switch is the only thing that moves the primary (atomic).
+            const p = await IdentityProfiles.create(label, { activate: false });
+            pubkey = p.pubkey;
+        }
+        const ws = await Workspaces.create({ label, identityPubkey: pubkey });
+        labelEl.value = '';
+        flash(status, `Created "${ws.label}". Activate it to work in it; bind its case after activating.`);
+        renderWorkspaces();
+    } catch (e) { flash(status, 'Create failed: ' + (e && e.message), false); }
+}
+
+async function deleteWorkspaceFlow(ws) {
+    const status = document.getElementById('ws-status');
+    const typed = prompt(
+        `Delete workspace "${ws.label}"?\n\n` +
+        'Its backup downloads first (restorable into any workspace). This removes its ' +
+        'entities (with their keypairs), claims, archive, audits, and signed-event ' +
+        'journal from this device. Published events stay on the relays.\n\n' +
+        `Type the label (${ws.label}) to continue.`);
+    if (typed === null) return;
+    if (String(typed).trim() !== ws.label) { flash(status, 'Not deleted — the label did not match.', false); return; }
+    try {
+        downloadJson(await collectWorkspaceSnapshot(ws.id),
+            `xray-workspace-${ws.label.replace(/[^a-z0-9-]+/gi, '-')}-${new Date().toISOString().slice(0, 10)}.json`);
+        await Workspaces.remove(ws.id);
+        flash(status, `Deleted "${ws.label}" — its backup downloaded first.`);
+        renderWorkspaces();
+    } catch (e) { flash(status, 'Delete failed: ' + (e && e.message), false); }
 }
 
 async function workspaceResetFlow() {
@@ -1036,6 +1188,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('restore-entity-keys').addEventListener('click', restoreEntityKeys);
     document.getElementById('workspace-backup').addEventListener('click', workspaceDownloadBackup);
     document.getElementById('workspace-reset').addEventListener('click', workspaceResetFlow);
+    document.getElementById('ws-create').addEventListener('click', createWorkspaceFlow);
+    renderWorkspaces();
     document.getElementById('backup-download').addEventListener('click', backupDownloadFull);
     document.getElementById('backup-restore').addEventListener('click', () => {
         document.getElementById('backup-file').click();

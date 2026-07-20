@@ -348,3 +348,20 @@ hr {
 }
 
 
+
+/* ---------------- case-bound workspaces (28.1b) ---------------- */
+
+.xr-opt__wslist { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.xr-opt__wsrow {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 10px; border: 1px solid var(--xr-border); border-radius: 6px;
+}
+.xr-opt__wsrow--active { border-color: var(--xr-primary, #8b5cf6); }
+.xr-opt__wsname { font-weight: 600; }
+.xr-opt__wsmeta { color: var(--xr-text-dim); font-size: 12px; }
+.xr-opt__wsbadge {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+  color: var(--xr-primary, #8b5cf6); border: 1px solid var(--xr-primary, #8b5cf6);
+  border-radius: 999px; padding: 1px 8px;
+}
+.xr-opt__wsactions { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; }
