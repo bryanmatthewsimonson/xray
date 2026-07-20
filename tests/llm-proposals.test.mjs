@@ -398,14 +398,12 @@ test('captureAutomation defaults OFF — the #xray:capture marker is opt-in (27 
         'the navigation-marker capture trigger must be explicitly enabled');
 });
 
-test('findings prompt carries the attribution rules — speaker vs reporter (27 F.2)', () => {
+test('findings are RETIRED from Suggest — even asked for, no forensic content enters the prompt (2026-07-20)', () => {
+    // The per-subject forensic corpus pass (FA.1) owns findings now;
+    // per-article suggestion could never see the cross-source pattern.
     const sys = buildSystemPrompt({ tasks: ['findings'] });
-    assert.match(sys, /the party who\s+PERFORMED the move/);
-    assert.match(sys, /criticizes SOMEONE ELSE's maneuver is\s+NOT performing it/);
-    assert.match(sys, /the deflection is X's move, not the reporter's/);
-    assert.match(sys, /OMIT the finding entirely/);
-    assert.match(sys, /every SPEAKER whose own moves/);
-    assert.match(sys, /does NOT mean\s+attributing the covered parties' moves to the journalist/);
+    assert.doesNotMatch(sys, /MANEUVER GUIDE/);
+    assert.doesNotMatch(sys, /PERFORMED the move/);
 });
 
 test('buildFindingInput/buildBaselineInput: subject carries identity_id when the ref resolved (27 F.3)', () => {
@@ -481,13 +479,12 @@ test('extractProposals: null when no tool call present', () => {
 // prompt invariants
 // ---------------------------------------------------------------------
 
-test('system prompt embeds the maneuver guide, label taxonomy, and no-verdict discipline', () => {
+test('system prompt is extraction-only: anchoring stays, judgment content is gone (2026-07-20)', () => {
     const sys = buildSystemPrompt({ task: 'all', url: URL, title: 'Test' });
-    assert.match(sys, /defense\/usefulness-pivot/);          // a maneuver from the guide
-    assert.match(sys, /counter-indicators/);                  // falsifiability discipline
-    assert.match(sys, /misleading/);                          // an assessment label
-    assert.match(sys, /never a fact verdict|never a verdict|PERSONAL/i);
-    assert.match(sys, /VERBATIM/);                            // anchoring instruction
+    assert.match(sys, /VERBATIM/);                            // anchoring instruction survives
+    assert.match(sys, /EXTRACT|Extraction only/i);            // the pass names its job
+    assert.doesNotMatch(sys, /defense\/usefulness-pivot/);    // no maneuver guide
+    assert.doesNotMatch(sys, /counter-indicators/);           // no forensic discipline block
 });
 
 test('system prompt + schema state the machine-checked quote contract', () => {
@@ -552,20 +549,16 @@ test('llmAssist flag defaults OFF', async () => {
     assert.equal(FLAGS_DEFAULTS.llmAssist, false);
 });
 
-test('system prompt scopes by task: findings-only embeds the guide; entities-only does not', () => {
-    const findings = buildSystemPrompt({ task: 'findings' });
-    assert.match(findings, /MANEUVER GUIDE/);
+test('system prompt scopes by task within the extraction kinds', () => {
     const entities = buildSystemPrompt({ task: 'entities' });
     assert.doesNotMatch(entities, /MANEUVER GUIDE/);
     assert.match(entities, /people \/ organizations/i);
 });
 
-test('tool schema exposes every artifact kind', () => {
+test('tool schema exposes exactly the extraction kinds (retired kinds cannot be emitted)', () => {
     const tool = buildSuggestTool();
     const kinds = tool.input_schema.properties.proposals.items.properties.kind.enum;
-    for (const k of ['entity', 'claim', 'assessment', 'relationship', 'finding', 'baseline', 'revision']) {
-        assert.ok(kinds.includes(k), `schema kind enum must include ${k}`);
-    }
+    assert.deepEqual([...kinds].sort(), ['claim', 'entity', 'fact']);
 });
 
 // ---------------------------------------------------------------------

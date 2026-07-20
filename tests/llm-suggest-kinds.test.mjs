@@ -1,6 +1,8 @@
-// LLM Suggest — per-kind defaults + scoping. Default ON is the
-// extraction kinds (entities, claims); the judgment kinds
-// (relationships, assessments, findings) are opt-in.
+// LLM Suggest — per-kind defaults + scoping. Suggest IS the
+// extraction pass (2026-07-20): entities/claims/facts only. The
+// judgment kinds are RETIRED here — relationships live in the
+// cross-article links pass, findings in the FA.1 forensic pass,
+// assessments in the assess modal — and these pins keep them out.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,53 +15,61 @@ globalThis.chrome = globalThis.chrome || {
 
 const {
     SUGGEST_KINDS, SUGGEST_DEFAULT_KINDS, SUGGEST_KIND_LABELS,
+    RETIRED_SUGGEST_KINDS,
     normalizeSuggestKinds, categoryOfProposalKind, buildSystemPrompt
 } = await import('../src/shared/llm-prompts.js');
 
-test('default ON = entities + claims only (extraction, not judgment)', () => {
+test('Suggest is extraction-only: entities/claims/facts selectable, judgment kinds RETIRED', () => {
+    assert.deepEqual([...SUGGEST_KINDS].sort(), ['claims', 'entities', 'facts']);
     assert.deepEqual([...SUGGEST_DEFAULT_KINDS], ['entities', 'claims']);
-    for (const judgment of ['relationships', 'assessments', 'findings']) {
-        assert.ok(!SUGGEST_DEFAULT_KINDS.includes(judgment), `${judgment} must be opt-in`);
-        assert.ok(SUGGEST_KINDS.includes(judgment), `${judgment} is still a selectable kind`);
+    assert.deepEqual([...RETIRED_SUGGEST_KINDS].sort(), ['assessments', 'findings', 'relationships']);
+    for (const retired of RETIRED_SUGGEST_KINDS) {
+        assert.ok(!SUGGEST_KINDS.includes(retired), `${retired} must stay retired`);
     }
 });
 
-test('normalizeSuggestKinds: absent → defaults, explicit → filtered (empty allowed)', () => {
+test('normalizeSuggestKinds: absent → defaults, explicit → filtered — RETIRED kinds migrate away silently', () => {
     assert.deepEqual(normalizeSuggestKinds(undefined), ['entities', 'claims']);
     assert.deepEqual(normalizeSuggestKinds(null), ['entities', 'claims']);
     assert.deepEqual(normalizeSuggestKinds('all'), ['entities', 'claims'], 'non-array → defaults');
     assert.deepEqual(normalizeSuggestKinds([]), [], 'explicit empty is honored, not defaulted');
-    assert.deepEqual(normalizeSuggestKinds(['claims', 'bogus', 'findings']), ['claims', 'findings']);
+    // THE migration: a stored setting from before the retirement sheds
+    // the retired kinds with no user action.
+    assert.deepEqual(normalizeSuggestKinds(['claims', 'bogus', 'findings', 'relationships', 'assessments']),
+        ['claims']);
 });
 
-test('categoryOfProposalKind: forensic kinds collapse to findings', () => {
+test('categoryOfProposalKind: extraction kinds map; retired proposal kinds fall to null (the filter gate)', () => {
     assert.equal(categoryOfProposalKind('entity'), 'entities');
     assert.equal(categoryOfProposalKind('claim'), 'claims');
-    assert.equal(categoryOfProposalKind('relationship'), 'relationships');
-    assert.equal(categoryOfProposalKind('assessment'), 'assessments');
-    for (const k of ['finding', 'baseline', 'revision']) {
-        assert.equal(categoryOfProposalKind(k), 'findings', `${k} → findings`);
+    assert.equal(categoryOfProposalKind('fact'), 'facts');
+    // A model that volunteers a retired kind anyway is filtered out.
+    for (const k of ['relationship', 'assessment', 'finding', 'baseline', 'revision', 'nope']) {
+        assert.equal(categoryOfProposalKind(k), null, `${k} → null`);
     }
-    assert.equal(categoryOfProposalKind('nope'), null);
 });
 
 test('SUGGEST_KIND_LABELS covers every selectable kind', () => {
     assert.deepEqual(SUGGEST_KIND_LABELS.map((k) => k.kind).sort(), [...SUGGEST_KINDS].sort());
 });
 
-test('buildSystemPrompt scopes to tasks: default omits assessments + the maneuver guide', () => {
+test('buildSystemPrompt is extraction-scoped — judgment rules can never enter the prompt', () => {
     const def = buildSystemPrompt({ tasks: ['entities', 'claims'] });
     assert.match(def, /ENTITIES/);
     assert.match(def, /CLAIMS/);
-    assert.ok(!/ASSESSMENTS/.test(def), 'no assessment rules when not enabled');
-    assert.ok(!/MANEUVER GUIDE/.test(def), 'no heavy forensic guide when findings off');
-
-    const withFindings = buildSystemPrompt({ tasks: ['findings'] });
-    assert.match(withFindings, /MANEUVER GUIDE/, 'findings pulls in the guide');
-
-    // Back-compat: the single-string task path still works.
+    assert.ok(!/ASSESSMENTS/.test(def), 'no assessment rules');
+    assert.ok(!/MANEUVER GUIDE/.test(def), 'no forensic guide');
+    // Even asked for explicitly, a retired task is filtered to nothing
+    // beyond the shared rules — the prompt cannot regrow judgment.
+    const asked = buildSystemPrompt({ tasks: ['findings', 'relationships', 'assessments'] });
+    assert.ok(!/MANEUVER GUIDE/.test(asked));
+    assert.ok(!/ASSESSMENTS/.test(asked));
+    // Back-compat: the single-string task path still works, and 'all'
+    // now means every EXTRACTION kind.
     assert.match(buildSystemPrompt({ task: 'entities' }), /ENTITIES/);
-    assert.match(buildSystemPrompt({ task: 'all' }), /MANEUVER GUIDE/);
+    const all = buildSystemPrompt({ task: 'all' });
+    assert.match(all, /CLAIMS/);
+    assert.ok(!/MANEUVER GUIDE/.test(all), "'all' is extraction-all, not judgment-all");
 });
 
 // --- Entity facts category (Phase 19.6) --------------------------------------
