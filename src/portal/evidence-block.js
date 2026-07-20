@@ -13,6 +13,8 @@ import { assembleCaseDossier } from '../shared/case-dossier.js';
 import { auditCardChipData } from '../shared/audit/display.js';
 import { mountTraceExpander } from './trace-block.js';
 import { Utils } from '../shared/utils.js';
+import { EventBuilder } from '../shared/event-builder.js';
+import { linkRunFindingsToClaims } from '../shared/audit/findings-claims.js';
 
 const MAX_ROWS = 40;
 const MAX_CLAIMS_PER_ROW = 4;
@@ -57,6 +59,33 @@ export function renderEvidenceBlock(host, dossierOrId, opts = {}) {
         block.appendChild(el('div', 'xr-view__dossier-line',
             `${ev.coverage.articles} sources · ${ev.coverage.attested_articles} attested · `
             + `${ev.coverage.articles_with_audit} audited · ${ev.coverage.unprocessed} unprocessed`));
+
+        // CA.2 — audit findings joined to claims by quote-span overlap
+        // (findings-claims.js). Enrichment only: any failure leaves the
+        // table exactly as before. Labeled as LOCATION, never verdicts.
+        const findingsByClaim = {};
+        if (data && Array.isArray(data.auditRuns) && data.auditRuns.length) {
+            try {
+                const recByUrl = new Map();
+                for (const r of (data.articles || [])) {
+                    if (r && r.url) recByUrl.set(Utils.normalizeUrl(r.url), r);
+                }
+                for (const row of ev.articles) {
+                    if (!row.claims || row.claims.length === 0) continue;
+                    const rec = recByUrl.get(Utils.normalizeUrl(row.url));
+                    if (!rec || !rec.article) continue;
+                    const hashes = new Set(row.article_hashes || []);
+                    const run = data.auditRuns.find((r) => hashes.has(r.articleHash)
+                        || (r.captureArticleHash && hashes.has(r.captureArticleHash)));
+                    if (!run) continue;
+                    Object.assign(findingsByClaim, linkRunFindingsToClaims({
+                        moduleResults: run.moduleResults || [],
+                        memberText: EventBuilder.assembleArticleBody(rec.article) || '',
+                        claims: row.claims.map((c) => ({ id: c.claim_id, quote: c.quote }))
+                    }));
+                }
+            } catch (err) { Utils.error('Audit-claim join failed (enrichment only)', err); }
+        }
 
         const list = el('ul', 'xr-list');
         for (const row of ev.articles.slice(0, MAX_ROWS)) {
@@ -127,6 +156,17 @@ export function renderEvidenceBlock(host, dossierOrId, opts = {}) {
                     li.appendChild(el('blockquote', 'xr-finding-row__quote', truncate(c.quote, 160)));
                 } else {
                     li.appendChild(el('div', 'xr-ev__claim', truncate(c.text || '', 140)));
+                }
+                // CA.2 — the audit's observations AT this passage.
+                const af = c.claim_id ? findingsByClaim[c.claim_id] : null;
+                if (af && af.length) {
+                    const modules = [...new Set(af.map((f) => f.module))];
+                    const chip = el('span', 'xr-badge xr-badge--muted',
+                        `audit: ${modules.slice(0, 3).join(', ')}${modules.length > 3 ? ` +${modules.length - 3}` : ''}`);
+                    chip.title = 'Article-process observations at this passage (the epistemic audit) — '
+                        + 'location, never a verdict on the claim:\n'
+                        + af.slice(0, 4).map((f) => `[${f.module}] “${f.quote.slice(0, 120)}”`).join('\n');
+                    li.appendChild(chip);
                 }
                 // 26 CF.2 — the structural counterfactual, per claim.
                 if (data && c.claim_id) {
