@@ -194,9 +194,10 @@ COMPLETE as of 2026-07-20 (PRs #223–#231): one workspace per corpus,
 fail-closed namespace isolation, and cross-workspace visibility only
 through the deliberate read-only graph. The **FLF Epistack entry has
 been submitted** (deadline was 2026-07-19; docs/EPISTACK_ENTRY.md); the
-tool continues to be tailored maintainer-driven from real casework. Several per-phase
-smoke-runs (Phases 11–16, 19) remain pending — they are manual and need
-a human with a browser.
+tool continues to be tailored maintainer-driven from real casework. The 0.8.0 release smoke walk
+passed 2026-07-20, and the Phase 11–15 section walks were completed with
+it; the Phase 16 and 19 section walks remain pending — manual, needing a
+human with a browser.
 
 ---
 
