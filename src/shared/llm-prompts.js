@@ -136,6 +136,49 @@ export function normalizeSuggestKinds(value) {
 }
 
 // ------------------------------------------------------------------
+// Vocabulary injection (Phase 28) — the entity registry rides the
+// suggest prompt as NAMING vocabulary, so a re-mentioned entity is
+// proposed under its established name and merges on accept (the id is
+// a hash of type+normalized name) instead of fragmenting into
+// near-duplicates the E2 entity audit must clean up later. Capped so
+// a large registry can't balloon the prompt; most-recently-touched
+// entities survive the cap (they're the live vocabulary of the case).
+// ------------------------------------------------------------------
+
+export const SUGGEST_VOCAB_MAX = 60;
+
+/** One vocabulary entry as rendered into the prompt. */
+function vocabEntryLabel(e) {
+    const name = String(e.name).replace(/\s+/g, ' ').trim().slice(0, 80);
+    const type = SUGGESTABLE_ENTITY_TYPES.includes(e.type) ? ` (${e.type})` : '';
+    return `${name}${type}`;
+}
+
+/**
+ * Distill an entity-registry snapshot (the `entities` storage dict)
+ * into the prompt vocabulary: `[{name, type}]`, most-recently-touched
+ * first, capped at SUGGEST_VOCAB_MAX. Case-typed entities are EXCLUDED
+ * — the case is the researcher's workspace (CW.1), never extraction
+ * vocabulary. Alias records ride under their own names deliberately:
+ * reusing an alias name maps back onto the existing alias entity,
+ * which canonicalizes. Pure — callers pass the snapshot in.
+ */
+export function vocabularyFromRegistry(records) {
+    const out = [];
+    for (const rec of Object.values(records || {})) {
+        if (!rec || typeof rec.name !== 'string' || !rec.name.trim()) continue;
+        if (rec.type === 'case') continue;
+        out.push({
+            name: rec.name.replace(/\s+/g, ' ').trim().slice(0, 80),
+            type: rec.type,
+            touched: Number(rec.updated || rec.created || 0) || 0
+        });
+    }
+    out.sort((a, b) => b.touched - a.touched);
+    return out.slice(0, SUGGEST_VOCAB_MAX).map(({ name, type }) => ({ name, type }));
+}
+
+// ------------------------------------------------------------------
 // Tool schema — one discriminated-union tool keyed by `kind`. We do NOT
 // use strict mode: the real firewall is each model's create() at accept
 // time, so the schema stays permissive and human-readable. Every field
@@ -488,8 +531,10 @@ BASELINES (a subject's established register — secondary, descriptive prose, no
  * @param {string} [opts.task='all'] single category, or 'all' (fallback)
  * @param {string} [opts.url]
  * @param {string} [opts.title]
+ * @param {Array<{name:string,type:string}>} [opts.entityVocabulary]
+ *        known-entity naming vocabulary (vocabularyFromRegistry)
  */
-export function buildSystemPrompt({ tasks = null, task = 'all', url = '', title = '', caseName = '', scopeQuestion = '' } = {}) {
+export function buildSystemPrompt({ tasks = null, task = 'all', url = '', title = '', caseName = '', scopeQuestion = '', entityVocabulary = null } = {}) {
     const effective = Array.isArray(tasks)
         ? tasks.filter((t) => SUGGEST_KINDS.includes(t))
         : (task === 'all' ? SUGGEST_KINDS.slice()
@@ -512,7 +557,26 @@ export function buildSystemPrompt({ tasks = null, task = 'all', url = '', title 
             + ' never invent relevance, and never propose the case itself as an entity.'
         : '';
 
-    const parts = [head + meta + caseFrame, RULES_ALL];
+    // Vocabulary block — defense in depth: re-filter case-typed entries
+    // and re-cap here even though the client assembles through
+    // vocabularyFromRegistry, so a mis-built list can never reach the
+    // prompt oversized or carrying the workspace itself.
+    const vocab = Array.isArray(entityVocabulary)
+        ? entityVocabulary
+            .filter((e) => e && typeof e.name === 'string' && e.name.trim() && e.type !== 'case')
+            .slice(0, SUGGEST_VOCAB_MAX)
+        : [];
+    const vocabBlock = vocab.length
+        ? '\nKNOWN ENTITIES — naming vocabulary from the researcher\'s existing registry: '
+            + vocab.map(vocabEntryLabel).join('; ') + '.'
+            + ' When this article mentions one of these real-world entities, reuse the EXACT name'
+            + ' listed (so the mention merges with the existing record instead of fragmenting into'
+            + ' a near-duplicate). This list is vocabulary, NOT a quota: never propose a listed'
+            + ' entity that this text does not itself mention, and never let the list stop you'
+            + ' from proposing a NEW entity the text names.'
+        : '';
+
+    const parts = [head + meta + caseFrame + vocabBlock, RULES_ALL];
     if (wants('entities')) parts.push(RULES_ENTITIES);
     if (wants('claims'))   parts.push(rulesClaims());
     if (wants('facts'))    parts.push(rulesFacts());
