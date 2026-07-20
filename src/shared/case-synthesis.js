@@ -208,6 +208,23 @@ export function computeEntitySummary(data, memberByHash) {
  * @param {string} [promptVersion]
  * @returns {Promise<string>} 64-char hex
  */
+/**
+ * The EXACT map-stage request for one member unit — the ONE builder
+ * shared by the Analyze run and the Pre-analyze pass, so an extract
+ * cached ahead of time carries precisely the cache key Analyze will
+ * later compute (corpusExtractKey fingerprints this shape). A change
+ * here is a map-input change: bump MAP_PROMPT_VERSION.
+ */
+export function corpusMapRequest(member, { caseName = '', scopeQuestion = '' } = {}) {
+    return {
+        member_id: member.article_hash,
+        memberText: member.text,
+        memberMeta: { title: member.title, url: member.url },
+        claimsDigest: (member.claims || []).map((c) => `${c.id} — ${c.text}`).join('\n'),
+        caseName, scopeQuestion
+    };
+}
+
 export async function corpusExtractKey(request, promptVersion = MAP_PROMPT_VERSION) {
     const r = request || {};
     const mm = r.memberMeta || {};

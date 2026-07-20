@@ -21,7 +21,7 @@ import { getCaseBrief, saveCaseBrief, getCorpusExtract, saveCorpusExtract } from
 import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { CORPUS_PROMPT_VERSION } from '../shared/corpus-prompts.js';
 import {
-    buildMemberUnits, corpusInputHash, corpusExtractKey, digestDossier,
+    buildMemberUnits, corpusInputHash, corpusExtractKey, corpusMapRequest, digestDossier,
     validateCorpusExtract, validateCaseBrief, groundCaseBrief, filterProposals,
     computeEntitySummary, foldMemberAliases
 } from '../shared/case-synthesis.js';
@@ -387,11 +387,21 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
         const controls = el('div', 'xr-synth__controls');
         const runBtn = el('button', 'xr-portal__btn', 'Analyze corpus…');
         runBtn.type = 'button';
+        // 28.x — prepay the expensive per-article pass: run ONLY the map
+        // stage now and cache the extracts, so the eventual Analyze pays
+        // just the one synthesis call. Same requests, same cache.
+        const preBtn = el('button', 'xr-portal__btn xr-portal__btn--ghost', 'Pre-analyze…');
+        preBtn.type = 'button';
+        preBtn.title = 'Run only the per-article pass now and cache it — a later "Analyze corpus…" '
+            + 'reuses every cached article and pays just the synthesis call. Already-cached members are skipped.';
         if (!cfg.hasKey) {
             runBtn.disabled = true;
             runBtn.title = 'Set an Anthropic API key in Options → Advanced → LLM assist';
+            preBtn.disabled = true;
+            preBtn.title = runBtn.title;
         }
         controls.appendChild(runBtn);
+        controls.appendChild(preBtn);
         const status = el('span', 'xr-synth__status');
         controls.appendChild(status);
         block.appendChild(controls);
@@ -459,6 +469,55 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
         }
         const entitySummary = computeEntitySummary(data, memberByHash);
         const memberHashes = new Set(members.map((m) => m.article_hash));
+
+        // Hoisted for BOTH LLM passes (Analyze and Pre-analyze): the
+        // case frame, the member lookup, the cache plan, and the map
+        // stage itself. Requests come from corpusMapRequest — the ONE
+        // builder both paths share, so a pre-analyzed extract's cache
+        // key can never drift from the key Analyze later computes.
+        const caseName = data.case.name || '';
+        const scopeQuestion = (dossier.scope && dossier.scope.question) || '';
+        const unitById = {};
+        for (const m of members) unitById[m.article_hash] = m;
+        const reqOf = (m) => corpusMapRequest(m, { caseName, scopeQuestion });
+
+        // The cache plan: every member's cache key, the valid hits, and
+        // what an LLM pass would actually send.
+        const mapPlan = async () => {
+            const keyByHash = {};
+            const cachedByHash = {};
+            for (const m of members) {
+                const key = await corpusExtractKey(reqOf(m));
+                keyByHash[m.article_hash] = key;
+                const hit = await getCorpusExtract(key).catch(() => null);
+                if (hit && hit.extract && validateCorpusExtract(hit.extract).ok) cachedByHash[m.article_hash] = hit;
+            }
+            return { keyByHash, cachedByHash, toSend: members.filter((m) => !cachedByHash[m.article_hash]) };
+        };
+
+        // The map stage over ALL members: a cached member short-circuits
+        // with no LLM call; a miss calls and persists the extract keyed
+        // by its input fingerprint. Bounded pool (the audit-module
+        // pattern).
+        const runMapStage = async (plan, onProgress) => {
+            const { keyByHash, cachedByHash } = plan;
+            return await orchestrateModuleRuns({
+                moduleNames: members.map((m) => m.article_hash),
+                concurrency: 2,
+                onProgress,
+                send: async (id) => {
+                    const cached = cachedByHash[id];
+                    if (cached) return { ok: true, findings: cached.extract, model: cached.model };
+                    const res = await sendMessage({ type: 'xray:llm:corpus-map', request: reqOf(unitById[id]) });
+                    if (!res || !res.ok) return { ...(res || {}), ok: false };
+                    const v = validateCorpusExtract(res.extract);
+                    if (!v.ok) return { ok: false, error: 'invalid extract' };
+                    saveCorpusExtract({ key: keyByHash[id], extract: res.extract, model: res.model, cachedAt: Math.floor(Date.now() / 1000) })
+                        .catch((err) => Utils.error('saveCorpusExtract failed', err));
+                    return { ok: true, findings: res.extract, model: res.model };
+                }
+            });
+        };
 
         // Publish the brief as a readable kind-30023 article + the
         // structured kind-30068 CaseBrief (23.2b). User-signed (the
@@ -595,9 +654,65 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
         const existing = await getCaseBrief(caseId);
         if (existing) renderStored(existing);
 
+        // Pre-analyze: the map stage alone. No brief is written and no
+        // reduce is spent — the extracts land in the same cache the
+        // Analyze run checks first.
+        preBtn.addEventListener('click', async () => {
+            if (members.length === 0) { status.textContent = 'No archived member articles to pre-analyze.'; return; }
+            preBtn.disabled = true;
+            runBtn.disabled = true;
+            // Own the case-view DOM while running (same reason as the
+            // full run: a background re-render would tear this block out
+            // mid-pass) and keep the SW awake for slow tail calls.
+            const runToken = {};
+            const setAnalysis = (v) => {
+                if (callbacks && typeof callbacks.onAnalysisState === 'function') callbacks.onAnalysisState(v, runToken);
+            };
+            setAnalysis(true);
+            const keepalive = startSwKeepalive();
+            try {
+                status.textContent = 'Checking cache…';
+                const plan = await mapPlan();
+                const toSend = plan.toSend;
+                const cachedCount = members.length - toSend.length;
+                if (toSend.length === 0) {
+                    status.textContent = `All ${members.length} member${members.length === 1 ? '' : 's'} already cached — `
+                        + '"Analyze corpus…" will only pay the synthesis call.';
+                    return;
+                }
+                const approxChars = toSend.reduce((a, m) => a + m.text.length, 0);
+                if (!confirm('Pre-analyze this corpus?\n\n'
+                    + (cachedCount ? `${cachedCount} of ${members.length} article${members.length === 1 ? '' : 's'} already cached — skipped.\n` : '')
+                    + `This sends ${toSend.length} article${toSend.length === 1 ? '' : 's'} `
+                    + `(~${Math.round(approxChars / 1000)}k characters) to Anthropic and caches the per-article extracts.\n`
+                    + 'No brief is written — run "Analyze corpus…" later; it will reuse every cached extract.')) {
+                    status.textContent = '';
+                    return;
+                }
+                status.textContent = `Pre-analyzing 0/${members.length} articles…`;
+                const { failures } = await runMapStage(plan, (p) => {
+                    if (p.phase === 'done') status.textContent = `Pre-analyzing ${p.okCount}/${p.total} articles…`;
+                });
+                const okCount = toSend.length - failures.length;
+                status.textContent = `Pre-analyzed ${okCount} member${okCount === 1 ? '' : 's'}`
+                    + (cachedCount ? ` (${cachedCount} already cached)` : '')
+                    + (failures.length ? `; ${failures.length} failed — failures are not cached, retry later` : '')
+                    + '. "Analyze corpus…" now only pays the synthesis call.';
+            } catch (err) {
+                Utils.error('Pre-analyze failed', err);
+                status.textContent = `Pre-analyze failed: ${(err && err.message) || 'unknown error'}`;
+            } finally {
+                keepalive.stop();
+                preBtn.disabled = false;
+                runBtn.disabled = false;
+                setAnalysis(false);
+            }
+        });
+
         runBtn.addEventListener('click', async () => {
             if (members.length === 0) { status.textContent = 'No archived member articles to analyze.'; return; }
             runBtn.disabled = true;
+            preBtn.disabled = true;
 
             // Own the case-view DOM for the WHOLE run: tell the portal to
             // defer background re-renders (a relay refresh or an async
@@ -626,35 +741,14 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
             // Stopped on every exit path in the finally.
             const keepalive = startSwKeepalive();
             try {
-                const caseName = data.case.name || '';
-                const scopeQuestion = (dossier.scope && dossier.scope.question) || '';
-                const unitById = {};
-                for (const m of members) unitById[m.article_hash] = m;
-
-                // The exact map request for a member, and its cache key. The
-                // request shape is the map's whole input; the key fingerprints
-                // it so an unchanged article's extract is reused for free.
-                const reqOf = (m) => ({
-                    member_id: m.article_hash, memberText: m.text,
-                    memberMeta: { title: m.title, url: m.url },
-                    claimsDigest: m.claims.map((c) => `${c.id} — ${c.text}`).join('\n'),
-                    caseName, scopeQuestion
-                });
-
                 // Cost preview: the map is the bulk of a synthesis, so a re-run
-                // over an unchanged corpus should send nothing but the reduce.
+                // over an unchanged (or pre-analyzed) corpus should send
+                // nothing but the reduce.
                 status.textContent = 'Checking cache…';
-                const keyByHash = {};
-                const cachedByHash = {};
-                for (const m of members) {
-                    const key = await corpusExtractKey(reqOf(m));
-                    keyByHash[m.article_hash] = key;
-                    const hit = await getCorpusExtract(key).catch(() => null);
-                    if (hit && hit.extract && validateCorpusExtract(hit.extract).ok) cachedByHash[m.article_hash] = hit;
-                }
+                const plan = await mapPlan();
                 status.textContent = '';
 
-                const toSend = members.filter((m) => !cachedByHash[m.article_hash]);
+                const toSend = plan.toSend;
                 const cachedCount = members.length - toSend.length;
                 const approxChars = toSend.reduce((a, m) => a + m.text.length, 0);
                 if (!confirm(`Analyze this corpus with the LLM?\n\n`
@@ -664,27 +758,10 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                     return;
                 }
 
-                // MAP — bounded pool over member ids (the audit-module pattern).
-                // A cached member short-circuits with no LLM call; a miss calls
-                // and then persists the extract keyed by its input fingerprint.
+                // MAP — the shared stage (cached members are free).
                 status.textContent = `Analyzing 0/${members.length} articles…`;
-                const { modules, failures } = await orchestrateModuleRuns({
-                    moduleNames: members.map((m) => m.article_hash),
-                    concurrency: 2,
-                    onProgress: (p) => {
-                        if (p.phase === 'done') status.textContent = `Analyzing ${p.okCount}/${p.total} articles…`;
-                    },
-                    send: async (id) => {
-                        const cached = cachedByHash[id];
-                        if (cached) return { ok: true, findings: cached.extract, model: cached.model };
-                        const res = await sendMessage({ type: 'xray:llm:corpus-map', request: reqOf(unitById[id]) });
-                        if (!res || !res.ok) return { ...(res || {}), ok: false };
-                        const v = validateCorpusExtract(res.extract);
-                        if (!v.ok) return { ok: false, error: 'invalid extract' };
-                        saveCorpusExtract({ key: keyByHash[id], extract: res.extract, model: res.model, cachedAt: Math.floor(Date.now() / 1000) })
-                            .catch((err) => Utils.error('saveCorpusExtract failed', err));
-                        return { ok: true, findings: res.extract, model: res.model };
-                    }
+                const { modules, failures } = await runMapStage(plan, (p) => {
+                    if (p.phase === 'done') status.textContent = `Analyzing ${p.okCount}/${p.total} articles…`;
                 });
 
                 const extracts = Object.entries(modules).map(([hash, extract]) => ({
@@ -764,6 +841,7 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
             } finally {
                 keepalive.stop();
                 runBtn.disabled = false;
+                preBtn.disabled = false;
                 setAnalysis(false);
             }
         });
