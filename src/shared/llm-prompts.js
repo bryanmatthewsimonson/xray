@@ -78,17 +78,26 @@ export const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 export const ANTHROPIC_VERSION = '2023-06-01';
 
 // The set of artifact kinds a pass can request. 'all' covers them all.
+//
+// 2026-07-20 — Suggest IS the extraction pass. The judgment kinds are
+// RETIRED from the per-capture Suggest because each has a strictly
+// better corpus-level home where its evidence actually lives:
+//   relationships → the cross-article links pass (28.3, case dashboard)
+//   findings      → the per-subject forensic corpus pass (FA.1)
+//   assessments   → the assess modal (a stance is the human's to own)
+// normalizeSuggestKinds drops retired values from stored settings, so
+// existing installs migrate silently. The mental model: per capture,
+// EXTRACT (atoms from this text); per corpus, CONNECT AND JUDGE.
 export const SUGGEST_TASKS = Object.freeze([
-    'all', 'entities', 'claims', 'facts', 'assessments', 'relationships', 'findings'
+    'all', 'entities', 'claims', 'facts'
 ]);
+export const RETIRED_SUGGEST_KINDS = Object.freeze(['assessments', 'relationships', 'findings']);
 
 // The selectable suggestion categories (SUGGEST_TASKS without the 'all'
 // convenience). Each maps to a rules block in buildSystemPrompt and a
-// checkbox in Options. Default ON = the EXTRACTION kinds only (entities,
-// claims); the JUDGMENT kinds (relationships, assessments, findings) are
-// opt-in. The rationale: a false-positive extraction is a one-click
-// reject, but a false-positive judgment is the tool manufacturing a
-// verdict — the exact thing X-Ray refuses to render automatically.
+// checkbox in Options. All three are EXTRACTION kinds — a
+// false-positive extraction is a one-click reject; judgment never
+// rides this pass.
 export const SUGGEST_KINDS = Object.freeze(SUGGEST_TASKS.filter((t) => t !== 'all'));
 export const SUGGEST_DEFAULT_KINDS = Object.freeze(['entities', 'claims']);
 export const LLM_SUGGEST_KINDS_STORAGE = 'xray:llm:suggest_kinds';
@@ -101,20 +110,13 @@ export const SUGGEST_KIND_LABELS = Object.freeze([
         hint: 'atomized assertions the article makes, each anchored to a verbatim quote' },
     { kind: 'facts', label: 'Entity facts',
         hint: 'structured biographical values (birth date, headquarters, role) — ONLY what this article\u2019s text asserts, never the model\u2019s own knowledge' },
-    { kind: 'relationships', label: 'Relationships (evidence links)',
-        hint: 'typed links between claims — most useful across multiple articles' },
-    { kind: 'assessments', label: 'Assessments',
-        hint: 'a stance / issue labels on a claim — your judgment to own, not the model’s' },
-    { kind: 'findings', label: 'Forensic findings',
-        hint: 'structural maneuvers, plus baselines & story-change edges — experimental' }
 ]);
 
-// Proposal kind → selectable category. Baselines and revisions ride with
-// the forensic-findings layer (the prompt bundles their rules with it).
+// Proposal kind → selectable category. Retired judgment kinds map to
+// null DELIBERATELY: a model that volunteers one anyway is filtered
+// out by the category gate, never rendered.
 const PROPOSAL_KIND_TO_CATEGORY = Object.freeze({
-    entity: 'entities', claim: 'claims', fact: 'facts', assessment: 'assessments',
-    relationship: 'relationships', finding: 'findings',
-    baseline: 'findings', revision: 'findings'
+    entity: 'entities', claim: 'claims', fact: 'facts'
 });
 
 /** The selectable category a raw proposal kind belongs to (or null). */
@@ -140,9 +142,7 @@ export function normalizeSuggestKinds(value) {
 // is optional; `kind` selects which ones matter.
 // ------------------------------------------------------------------
 
-const PROPOSAL_KINDS = Object.freeze([
-    'entity', 'claim', 'fact', 'assessment', 'relationship', 'finding', 'baseline', 'revision'
-]);
+const PROPOSAL_KINDS = Object.freeze(['entity', 'claim', 'fact']);
 
 export function buildSuggestTool() {
     return {
@@ -496,7 +496,7 @@ export function buildSystemPrompt({ tasks = null, task = 'all', url = '', title 
             : (SUGGEST_KINDS.includes(task) ? [task] : SUGGEST_KINDS.slice()));
     const wants = (kind) => effective.includes(kind);
 
-    const head = `You are X-Ray's capture assistant. You read an article a person has captured and propose structured "capture artifacts" — entities, claims, assessments, relationships, and forensic findings — for that person to review and confirm. X-Ray is an evidence tool: it records WHAT was said and the STRUCTURE of how it was argued, and it renders no automated verdicts on truth or intent.`;
+    const head = `You are X-Ray's capture assistant. You read an article a person has captured and EXTRACT structured capture artifacts — entities, claims, and entity facts — for that person to review and confirm. Extraction only: you record WHAT this text says, verbatim-anchored; you never judge, link, or assess (those happen at corpus level, with the human).`;
 
     const meta = (title || url)
         ? `\nArticle: ${title ? `"${title}"` : ''}${url ? ` <${url}>` : ''}`
@@ -513,12 +513,9 @@ export function buildSystemPrompt({ tasks = null, task = 'all', url = '', title 
         : '';
 
     const parts = [head + meta + caseFrame, RULES_ALL];
-    if (wants('entities'))      parts.push(RULES_ENTITIES);
-    if (wants('claims'))        parts.push(rulesClaims());
-    if (wants('facts'))         parts.push(rulesFacts());
-    if (wants('assessments'))   parts.push(rulesAssessments());
-    if (wants('relationships')) parts.push(rulesRelationships());
-    if (wants('findings'))    { parts.push(rulesFindings()); parts.push(rulesRevisionsBaselines()); }
+    if (wants('entities')) parts.push(RULES_ENTITIES);
+    if (wants('claims'))   parts.push(rulesClaims());
+    if (wants('facts'))    parts.push(rulesFacts());
     return parts.join('\n');
 }
 

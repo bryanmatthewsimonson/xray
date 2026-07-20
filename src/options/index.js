@@ -1115,6 +1115,16 @@ function populateLlmKinds() {
         wrap.appendChild(span);
         host.appendChild(wrap);
     }
+    // 2026-07-20 — Suggest is the EXTRACTION pass. The judgment kinds
+    // moved to their corpus-level homes; say where, so nobody hunts
+    // for the old checkboxes.
+    const note = document.createElement('p');
+    note.className = 'xr-opt__hint';
+    note.textContent = 'Relationships, assessments, and forensic findings are no longer '
+        + 'suggested per capture — cross-article links and the per-subject forensic pass '
+        + 'run from the case dashboard, where their evidence actually lives; assessments '
+        + 'are authored in the reader\'s assess modal.';
+    host.appendChild(note);
 }
 
 async function clearLlmKey() {
