@@ -249,10 +249,10 @@ test('dumpDatabase dumps every store of a covered database', async () => {
     const dump = await dumpDatabase('xray-audits');
     // 20.4: case-briefs (DB v2) and corpus-extracts (DB v3) are dumped
     // generically too; 28.2 adds pending-suggestions (DB v4); 28.3 adds
-    // case-link-suggestions (DB v5).
+    // case-link-suggestions (DB v5); EP.2 adds entity-pages (DB v6).
     assert.deepEqual(Object.keys(dump).sort(),
-        ['case-briefs', 'case-link-suggestions', 'corpus-extracts', 'pending-suggestions',
-         'predictions', 'resolutions', 'runs']);
+        ['case-briefs', 'case-link-suggestions', 'corpus-extracts', 'entity-pages',
+         'pending-suggestions', 'predictions', 'resolutions', 'runs']);
     assert.equal(dump.runs.length, 1);
     await assert.rejects(() => dumpDatabase('unknown-db'), /no opener/);
 });

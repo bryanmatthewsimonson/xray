@@ -59,6 +59,10 @@ import {
     buildHypothesisEdgeTool, buildHypothesisEdgeSystemPrompt, buildHypothesisEdgeUserPrompt,
     buildClaimLinksTool, buildClaimLinksSystemPrompt, buildClaimLinksUserPrompt
 } from './corpus-prompts.js';
+import {
+    MAX_ENTITY_PAGE_OUTPUT_TOKENS,
+    buildEntityPageTool, buildEntityPageSystemPrompt, buildEntityPageUserPrompt
+} from './entity-page.js';
 
 // Re-exported for callers that wrote against the client (the keys are
 // defined in the pure prompts module so the Options page can share them).
@@ -784,6 +788,57 @@ export async function runCorpusReducePass(req = {}) {
     const briefInput = extractToolInput(data, tool.name);
     if (briefInput === null) return { ok: false, error: 'The model did not return a structured brief.' };
     return { ok: true, briefInput, model: (data && data.model) || model, usage: data && data.usage };
+}
+
+/**
+ * ENTITY PAGE — EP.2 (docs/ENTITY_PAGE_KICKOFF.md): one reduce-shaped
+ * call over the entity digest + the member extracts, producing the
+ * grounded page tool output. Same triple gate as the corpus passes
+ * (the page IS the synthesis engine pointed at a subject — same spend
+ * class, same consent). Returns the RAW tool input — validation,
+ * key-claim subset filtering, grounding, and the human review all
+ * stay portal-side (entity-page.js + the dossier view).
+ *
+ * @param {object} req { entityDigest, extracts, entityName?, entityType?, caseName?, scopeQuestion? }
+ */
+export async function runEntityPagePass(req = {}) {
+    const gate = await corpusGate();
+    if (gate.error) return { ok: false, error: gate.error };
+
+    const extracts = Array.isArray(req.extracts) ? req.extracts : [];
+    if (extracts.length === 0) return { ok: false, error: 'No article extracts to synthesize a page from.' };
+
+    const model = await readModel();
+    const tool = buildEntityPageTool();
+    const payload = {
+        model,
+        max_tokens: MAX_ENTITY_PAGE_OUTPUT_TOKENS,
+        system: buildEntityPageSystemPrompt({
+            entityName: req.entityName || '', entityType: req.entityType || '',
+            caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || ''
+        }),
+        tools: [tool],
+        tool_choice: { type: 'tool', name: tool.name },
+        messages: [{ role: 'user', content: buildEntityPageUserPrompt({
+            entityDigest: req.entityDigest || '', extracts
+        }) }]
+    };
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CORPUS_REDUCE_TIMEOUT_MS);
+    let res;
+    try { res = await postMessages(payload, gate.apiKey, { signal: controller.signal }); }
+    finally { clearTimeout(timer); }
+    if (!res.ok) return res;
+
+    const data = res.data;
+    { const r = refusalResult(data, 'the entity page'); if (r) return r; }
+    if (data && data.stop_reason === 'max_tokens') {
+        return { ok: false, error: 'The page synthesis hit its output limit before finishing.' };
+    }
+    const pageInput = extractToolInput(data, tool.name);
+    if (pageInput === null) return { ok: false, error: 'The model did not return a structured page.' };
+    return { ok: true, pageInput, model: (data && data.model) || model, usage: data && data.usage };
 }
 
 /**

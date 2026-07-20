@@ -13,7 +13,7 @@ import { Utils } from '../utils.js';
 import { resolveActiveDbName } from '../workspace-keys.js';
 
 const DB_NAME = 'xray-audits';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const RUNS_STORE = 'runs';
 const PREDICTIONS_STORE = 'predictions';
 const RESOLUTIONS_STORE = 'resolutions';
@@ -43,6 +43,11 @@ const PENDING_SUGGESTIONS_STORE = 'pending-suggestions';
 // (latest-wins, the case-brief posture); cheap to regenerate but the
 // triage decisions are the part worth keeping.
 const CASE_LINKS_STORE = 'case-link-suggestions';
+// EP.2 (docs/ENTITY_PAGE_KICKOFF.md) — the stored entity pages, keyed
+// by the subject's entity id (latest-wins, the case-brief posture).
+// PRECIOUS like the briefs: a page costs a reduce run (plus any map
+// misses), and the human's section edits live on the record.
+const ENTITY_PAGES_STORE = 'entity-pages';
 
 function idb() {
     if (typeof indexedDB === 'undefined') {
@@ -139,6 +144,13 @@ function openNamed(dbName) {
             if (oldVersion < 5) {
                 if (!db.objectStoreNames.contains(CASE_LINKS_STORE)) {
                     db.createObjectStore(CASE_LINKS_STORE, { keyPath: 'caseId' });
+                }
+            }
+
+            // v6 — the entity pages (EP.2).
+            if (oldVersion < 6) {
+                if (!db.objectStoreNames.contains(ENTITY_PAGES_STORE)) {
+                    db.createObjectStore(ENTITY_PAGES_STORE, { keyPath: 'entityId' });
                 }
             }
         };
@@ -247,6 +259,13 @@ export function getPendingSuggestions(url) { return get(PENDING_SUGGESTIONS_STOR
 export function deletePendingSuggestions(url) { return remove(PENDING_SUGGESTIONS_STORE, url); }
 export function listPendingSuggestions() { return getAll(PENDING_SUGGESTIONS_STORE); }
 
+// --- entity pages (EP.2) --------------------------------------------------------
+
+export function saveEntityPage(record) { return put(ENTITY_PAGES_STORE, record); }
+export function getEntityPage(entityId) { return get(ENTITY_PAGES_STORE, entityId); }
+export function deleteEntityPage(entityId) { return remove(ENTITY_PAGES_STORE, entityId); }
+export function listEntityPages() { return getAll(ENTITY_PAGES_STORE); }
+
 // --- standalone link-suggestion runs (28.3) -------------------------------------
 
 export function saveCaseLinkRun(record) { return put(CASE_LINKS_STORE, record); }
@@ -259,7 +278,7 @@ export async function clear() {
     const db = await openAuditDb();
     const transaction = db.transaction(
         [RUNS_STORE, PREDICTIONS_STORE, RESOLUTIONS_STORE, CASE_BRIEFS_STORE, CORPUS_EXTRACTS_STORE,
-         PENDING_SUGGESTIONS_STORE, CASE_LINKS_STORE], 'readwrite');
+         PENDING_SUGGESTIONS_STORE, CASE_LINKS_STORE, ENTITY_PAGES_STORE], 'readwrite');
     transaction.objectStore(RUNS_STORE).clear();
     transaction.objectStore(PREDICTIONS_STORE).clear();
     transaction.objectStore(RESOLUTIONS_STORE).clear();
@@ -267,6 +286,7 @@ export async function clear() {
     transaction.objectStore(CORPUS_EXTRACTS_STORE).clear();
     transaction.objectStore(PENDING_SUGGESTIONS_STORE).clear();
     transaction.objectStore(CASE_LINKS_STORE).clear();
+    transaction.objectStore(ENTITY_PAGES_STORE).clear();
     await tx(transaction);
 }
 

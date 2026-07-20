@@ -188,3 +188,32 @@ test('case-link-suggestions: CRUD keyed by caseId, coexists with earlier stores 
     await clear();
     assert.equal(await getCaseLinkRun('case_9'), null);
 });
+
+// v6 store — the entity pages (EP.2, docs/ENTITY_PAGE_KICKOFF.md).
+test('entity-pages: CRUD keyed by entityId, coexists with earlier stores (DB v6)', async () => {
+    const { saveEntityPage, getEntityPage, deleteEntityPage, listEntityPages } =
+        await import('../src/shared/audit/audit-cache.js');
+    await saveRun({ id: 'audit_v6', articleHash: HASH_A });   // v1 still works
+    const rec = {
+        entityId: 'entity_' + 'a'.repeat(16),
+        page: { lead: 'About the subject.', sections: [], key_claim_ids: [], disputes: [], gaps: [] },
+        grounding: { checked: 3, dropped: 1 },
+        model: 'claude-test', promptVersion: 'entity-page-v1',
+        inputHash: 'f'.repeat(64), members: 4, analyzed: 4, createdAt: 100
+    };
+    await saveEntityPage(rec);
+    const got = await getEntityPage(rec.entityId);
+    assert.equal(got.page.lead, 'About the subject.');
+    assert.equal(got.grounding.dropped, 1);
+    assert.equal((await getRun('audit_v6')).articleHash, HASH_A, 'v1 intact after v6 upgrade');
+    // Latest-wins per entity (the case-brief posture).
+    await saveEntityPage({ ...rec, page: { ...rec.page, lead: 'Revised.' }, inputHash: 'e'.repeat(64) });
+    assert.equal((await getEntityPage(rec.entityId)).page.lead, 'Revised.');
+    assert.equal((await listEntityPages()).length, 1);
+    await deleteEntityPage(rec.entityId);
+    assert.equal(await getEntityPage(rec.entityId), null);
+    // clear() drops it too.
+    await saveEntityPage(rec);
+    await clear();
+    assert.equal(await getEntityPage(rec.entityId), null);
+});
