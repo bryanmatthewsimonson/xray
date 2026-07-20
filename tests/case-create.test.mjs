@@ -120,6 +120,37 @@ test('createCase validation: empty name / both profile params → throws with NO
     assert.deepEqual(Object.keys(all).filter((id) => id !== 'default'), [], 'no workspace minted');
 });
 
+test('describeActiveContext — the chrome chip line: bound case, unbound workspace, default', async () => {
+    const { describeActiveContext } = await import('../src/shared/case-membership.js');
+
+    // Default, unbound: the chrome shows the workspace label, no case.
+    await reset();
+    const dflt = await describeActiveContext();
+    assert.equal(dflt.isDefault, true);
+    assert.equal(dflt.caseName, null);
+    assert.equal(dflt.profileLabel, null);
+
+    // A created case: name + owning profile resolve for the chip.
+    const { workspace, caseEntity } = await createCase({
+        caseName: 'The stolen Legos saga', newProfileLabel: 'anon'
+    });
+    const ctx = await describeActiveContext();
+    assert.deepEqual(ctx, {
+        wsId: workspace.id,
+        wsLabel: 'The stolen Legos saga',
+        caseName: 'The stolen Legos saga',
+        profileLabel: 'anon',
+        isDefault: false
+    });
+
+    // A broken binding (case retyped) falls back to the workspace
+    // label — never a guessed case name.
+    await EntityModel.update(caseEntity.id, { type: 'thing' });
+    const broken = await describeActiveContext();
+    assert.equal(broken.caseName, null);
+    assert.equal(broken.wsLabel, 'The stolen Legos saga');
+});
+
 test('two cases owned by ONE profile — "a profile owns a set of cases"', async () => {
     await reset();
     const owner = await IdentityProfiles.create('home', { activate: false });

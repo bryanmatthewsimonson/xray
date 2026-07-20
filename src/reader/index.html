@@ -10,6 +10,10 @@
   <header class="xr-reader__chrome">
     <div class="xr-reader__chrome-left">
       <span class="xr-reader__brand">🩻 X-Ray</span>
+      <!-- The active case, always visible: this is the case new captures
+           and tags belong to. Click opens Settings ▸ Cases. -->
+      <button class="xr-reader__case" id="xr-case-chip" type="button" hidden
+              title="The active case — this capture and its tags belong to it. Manage cases in Settings."></button>
     </div>
     <nav class="xr-reader__modes" role="tablist" aria-label="View mode">
       <button class="xr-reader__mode-btn xr-reader__mode-btn--active" data-mode="reader"   role="tab" aria-selected="true">Reader</button>

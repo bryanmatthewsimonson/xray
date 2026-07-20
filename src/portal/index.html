@@ -10,6 +10,10 @@
   <header class="xr-portal__chrome">
     <div class="xr-portal__chrome-left">
       <span class="xr-portal__brand">🩻 X-Ray — My Archive</span>
+      <!-- The active case, always visible (you should never wonder whose
+           data you are looking at) — doubles as the case switcher. -->
+      <select id="xr-case-switch" class="xr-portal__case" hidden
+              title="The active case — everything shown, captured, and published belongs to it. Switching moves the storage namespace and signing identity together."></select>
     </div>
     <div class="xr-portal__chrome-right">
       <button class="xr-portal__btn xr-portal__btn--ghost" id="xr-import-transcript"

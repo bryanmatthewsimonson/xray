@@ -30,6 +30,8 @@ import { renderEntityView } from './entity-view.js';
 import { renderCaseView } from './case-view.js';
 import { renderEntityDossierView } from './entity-dossier-view.js';
 import { renderCrossWorkspaceView } from './cross-workspace-view.js';
+import { Workspaces } from '../shared/identity-profiles.js';
+import { describeActiveContext } from '../shared/case-membership.js';
 import { findingsForEntity } from './forensic-data.js';
 import { loadLocalLedger, reconcile, countLocalOnly, listLocalArtifacts } from './reconcile.js';
 import { getByEventId as journalGetByEventId } from '../shared/event-journal.js';
@@ -1149,7 +1151,57 @@ async function boot({ full = false } = {}) {
     }
 }
 
+// The active-case switcher in the header (kickoff §4: the active case
+// name always visible). The select's chosen option IS the chip; picking
+// another case runs the same confirmed atomic switch as Options ▸ Cases
+// and reloads. "Manage cases…" routes to Options.
+async function renderCaseSwitcher() {
+    const sel = $('#xr-case-switch');
+    if (!sel) return;
+    try {
+        const [list, ctx] = await Promise.all([Workspaces.list(), describeActiveContext()]);
+        sel.replaceChildren();
+        for (const ws of list) {
+            const label = ws.id === ctx.wsId
+                ? `🗂 ${ctx.caseName || ctx.wsLabel}${ctx.profileLabel ? ` · ${ctx.profileLabel}` : ''}`
+                : ws.label;
+            const opt = new Option(label, ws.id);
+            if (ws.id === ctx.wsId) opt.selected = true;
+            sel.appendChild(opt);
+        }
+        sel.appendChild(new Option('⚙ Manage cases…', '__manage'));
+        sel.dataset.active = ctx.wsId;
+        sel.hidden = false;
+        sel.onchange = async () => {
+            const picked = sel.value;
+            const active = sel.dataset.active;
+            if (picked === '__manage') {
+                sel.value = active;
+                try { chrome.runtime.openOptionsPage(); } catch (_) { /* non-extension context */ }
+                return;
+            }
+            if (picked === active) return;
+            const target = list.find((w) => w.id === picked);
+            if (!confirm(`Switch to "${(target && target.label) || picked}"?\n\nThis moves the storage namespace AND the signing identity together. Reload any other open X-Ray tabs afterwards.`)) {
+                sel.value = active;
+                return;
+            }
+            try {
+                await Workspaces.activate(picked);
+                location.reload();
+            } catch (e) {
+                sel.value = active;
+                setStatus('Switch failed: ' + (e && e.message), true);
+            }
+        };
+    } catch (err) {
+        Utils.error('Case switcher failed', err);
+        sel.hidden = true;
+    }
+}
+
 function wireChrome() {
+    renderCaseSwitcher();
     $('#xr-refresh').addEventListener('click', () => { boot(); });
 
     // 21.2 — import a podcast transcript into the archive (standalone;
