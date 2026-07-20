@@ -489,7 +489,7 @@ BASELINES (a subject's established register — secondary, descriptive prose, no
  * @param {string} [opts.url]
  * @param {string} [opts.title]
  */
-export function buildSystemPrompt({ tasks = null, task = 'all', url = '', title = '' } = {}) {
+export function buildSystemPrompt({ tasks = null, task = 'all', url = '', title = '', caseName = '', scopeQuestion = '' } = {}) {
     const effective = Array.isArray(tasks)
         ? tasks.filter((t) => SUGGEST_KINDS.includes(t))
         : (task === 'all' ? SUGGEST_KINDS.slice()
@@ -502,7 +502,17 @@ export function buildSystemPrompt({ tasks = null, task = 'all', url = '', title 
         ? `\nArticle: ${title ? `"${title}"` : ''}${url ? ` <${url}>` : ''}`
         : '';
 
-    const parts = [head + meta, RULES_ALL];
+    // 28.3 — the researcher's active case frames the extraction: prefer
+    // what is relevant to it, but faithfulness rules everything above
+    // preference — and CW.1's no-minting rule gets restated where the
+    // frame might otherwise tempt the model.
+    const caseFrame = caseName
+        ? `\nThe researcher's ACTIVE CASE: "${caseName}".${scopeQuestion ? ` Its scope question: "${scopeQuestion}".` : ''}`
+            + ' Prefer artifacts relevant to this case when the article offers a choice, but extract FAITHFULLY:'
+            + ' never invent relevance, and never propose the case itself as an entity.'
+        : '';
+
+    const parts = [head + meta + caseFrame, RULES_ALL];
     if (wants('entities'))      parts.push(RULES_ENTITIES);
     if (wants('claims'))        parts.push(rulesClaims());
     if (wants('facts'))         parts.push(rulesFacts());

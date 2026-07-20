@@ -299,7 +299,12 @@ export async function runSuggestionPass(req = {}) {
     }
 
     const model = await readModel();
-    const system = buildSystemPrompt({ tasks: enabledKinds, url: req.articleUrl || '', title: req.articleTitle || '' });
+    const system = buildSystemPrompt({
+        tasks: enabledKinds, url: req.articleUrl || '', title: req.articleTitle || '',
+        // 28.3 — the reader resolves the active workspace's case frame
+        // and sends it along; absent → the prompt stays frame-free.
+        caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || ''
+    });
     const userContent = buildUserPrompt({ articleText, context: req.context || '' });
     const tool = buildSuggestTool();
 
