@@ -572,6 +572,23 @@ body.xr-portal {
 /* Corpus audit block (CA.1) */
 .xr-caudit { margin-top: 14px; }
 
+/* Collapsible case sections (2026-07-20 declutter) */
+.xr-case__sec {
+  border: 1px solid var(--xr-border);
+  border-radius: 8px;
+  margin: 10px 0;
+  background: var(--xr-surface);
+}
+.xr-case__sec-head {
+  cursor: pointer;
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 14px;
+  list-style-position: inside;
+}
+.xr-case__sec-head:hover { color: var(--xr-accent); }
+.xr-case__sec-body { padding: 0 14px 12px; }
+
 /* Entity corpus view (E5) — the wire-first timeline */
 .xr-ecorpus { margin-top: 10px; }
 .xr-ecorpus__profile {

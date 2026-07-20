@@ -111,6 +111,30 @@ const RELATED_PHRASE = {
     duplicates: { out: 'duplicates', in: 'duplicated by' }
 };
 
+// 2026-07-20 declutter — collapsible sections with per-case memory.
+// Everything stays one click away; the scroll becomes readable. The
+// open/closed choice persists per case (localStorage), so the view
+// reopens the way the researcher left it.
+function collapsibleSection(host, { id, title, casePubkey, open = false }) {
+    const key = `xr-case-sec:${casePubkey}:${id}`;
+    const det = document.createElement('details');
+    det.className = 'xr-case__sec';
+    let stored = null;
+    try { stored = localStorage.getItem(key); } catch (_) { /* private mode */ }
+    det.open = stored === null ? open : stored === '1';
+    const sum = document.createElement('summary');
+    sum.className = 'xr-case__sec-head';
+    sum.textContent = title;
+    det.appendChild(sum);
+    const body = el('div', 'xr-case__sec-body');
+    det.appendChild(body);
+    det.addEventListener('toggle', () => {
+        try { localStorage.setItem(key, det.open ? '1' : '0'); } catch (_) { /* best effort */ }
+    });
+    host.appendChild(det);
+    return body;
+}
+
 /**
  * @param {HTMLElement} host
  * @param {object} params
@@ -138,43 +162,30 @@ export function renderCaseView(host, params) {
     graphBtn.type = 'button';
     graphBtn.addEventListener('click', () => callbacks.onOpenGraph(casePubkey));
     head.appendChild(graphBtn);
-    // 28.5 — the source manager: members with membership chips +
-    // honest removal, and the add picker, in one panel (replaces the
-    // 20.2 add-only strip).
+    // Declutter: the three source affordances fold into ONE menu (the
+    // head-button diet). Selecting an action mounts its panel below.
     const addSourcesHost = el('div');
     if (caseEnt && caseEnt.entityId) {
-        const manageBtn = el('button', 'xr-portal__btn', 'Manage sources…');
-        manageBtn.type = 'button';
-        manageBtn.addEventListener('click', () => {
+        const srcSel = el('select', 'xr-portal__case');
+        srcSel.title = 'Manage or import this case\'s sources';
+        srcSel.appendChild(new Option('Sources ▾', ''));
+        srcSel.appendChild(new Option('Manage sources…', 'manage'));
+        srcSel.appendChild(new Option('Import transcript…', 'transcript'));
+        srcSel.appendChild(new Option('Import URLs…', 'urls'));
+        srcSel.addEventListener('change', () => {
+            const v = srcSel.value;
+            srcSel.value = '';
             addSourcesHost.replaceChildren();
-            mountSourceManager(addSourcesHost, {
-                caseEntityId: caseEnt.entityId,
-                onChanged: () => callbacks.onReloadCase && callbacks.onReloadCase()
-            });
+            const done = () => callbacks.onReloadCase && callbacks.onReloadCase();
+            if (v === 'manage') {
+                mountSourceManager(addSourcesHost, { caseEntityId: caseEnt.entityId, onChanged: done });
+            } else if (v === 'transcript') {
+                mountTranscriptImport(addSourcesHost, { caseEntityId: caseEnt.entityId, onDone: done });
+            } else if (v === 'urls') {
+                mountUrlImport(addSourcesHost, { caseEntityId: caseEnt.entityId, onDone: done });
+            }
         });
-        head.appendChild(manageBtn);
-        // 21.2 — import a podcast transcript straight into this case.
-        const importBtn = el('button', 'xr-portal__btn', 'Import transcript…');
-        importBtn.type = 'button';
-        importBtn.addEventListener('click', () => {
-            addSourcesHost.replaceChildren();
-            mountTranscriptImport(addSourcesHost, {
-                caseEntityId: caseEnt.entityId,
-                onDone: () => callbacks.onReloadCase && callbacks.onReloadCase()
-            });
-        });
-        head.appendChild(importBtn);
-        // 28.1 — batch-import a URL list straight into this case.
-        const urlsBtn = el('button', 'xr-portal__btn', 'Import URLs…');
-        urlsBtn.type = 'button';
-        urlsBtn.addEventListener('click', () => {
-            addSourcesHost.replaceChildren();
-            mountUrlImport(addSourcesHost, {
-                caseEntityId: caseEnt.entityId,
-                onDone: () => callbacks.onReloadCase && callbacks.onReloadCase()
-            });
-        });
-        head.appendChild(urlsBtn);
+        head.appendChild(srcSel);
     }
     host.appendChild(head);
     host.appendChild(addSourcesHost);
@@ -228,9 +239,13 @@ export function renderCaseView(host, params) {
 
     // --- Audit dossier (13.7) — the design assigns the block to
     // entity AND case views; a case is a pubkey-keyed entity.
-    renderDossierBlock(host, dossier, populationMean);
+    const publishedSec = collapsibleSection(host, {
+        id: 'published-record', casePubkey,
+        title: 'Published audit & forensic record', open: false
+    });
+    renderDossierBlock(publishedSec, dossier, populationMean);
     // --- Forensic findings (14.4) — the four lenses, beside the dossier.
-    renderFindingsBlock(host, findings, { subjectName: caseName || 'this case' });
+    renderFindingsBlock(publishedSec, findings, { subjectName: caseName || 'this case' });
 
     // --- Case dossier (CD.2/CD.3) — the shape-of-knowledge header, the
     // convergence-collapsed evidence table, and the four-axis timeline,
@@ -239,17 +254,35 @@ export function renderCaseView(host, params) {
     // passes). Placeholder hosts hold each block's slot; the shared
     // assembly self-removes empty blocks and fills the local-counts line.
     const localCountsHost = el('div', 'xr-view__dossier-line xr-case__localcounts');
-    const shapeHost = el('div');
-    const evidenceHost = el('div');
-    const graphHost = el('div');
-    const hypothesesHost = el('div');
-    const timelineHost = el('div');
+    let shapeHost = el('div');
+    let evidenceHost = el('div');
+    let graphViewHost = el('div');
+    let analysisHost = el('div');
+    let hypothesesHost = el('div');
+    let timelineHost = el('div');
     if (caseEnt && caseEnt.entityId) {
         host.appendChild(localCountsHost);
-        host.appendChild(shapeHost);
-        host.appendChild(evidenceHost);
-        host.appendChild(graphHost);
-        host.appendChild(hypothesesHost);
+        // The workflow order, as sections: evidence (open — the daily
+        // surface), analysis (open — the LLM passes in ONE place),
+        // then the derived reading views, collapsed until wanted.
+        evidenceHost = collapsibleSection(host, {
+            id: 'evidence', casePubkey, title: 'Evidence — sources & claims', open: true
+        });
+        analysisHost = collapsibleSection(host, {
+            id: 'analysis', casePubkey, title: 'Analysis — the LLM passes over this corpus', open: true
+        });
+        shapeHost = collapsibleSection(host, {
+            id: 'shape', casePubkey, title: 'Shape of knowledge', open: false
+        });
+        graphViewHost = collapsibleSection(host, {
+            id: 'graph', casePubkey, title: 'Case graph', open: false
+        });
+        hypothesesHost = collapsibleSection(host, {
+            id: 'hypotheses', casePubkey, title: 'Hypothesis map', open: false
+        });
+        timelineHost = collapsibleSection(host, {
+            id: 'timeline', casePubkey, title: 'Timeline & publish density', open: false
+        });
         (async () => {
             // Collect once, then build the dossier AND the local graph
             // from the same `data` (the graph needs entitiesById/articles
@@ -277,7 +310,7 @@ export function renderCaseView(host, params) {
                     } catch (err) { Utils.error('Remove from case failed', err); }
                 }
             });
-            renderCaseGraph(graphHost, {
+            renderCaseGraph(graphViewHost, {
                 data,
                 callbacks: {
                     onOpenEntityDossier: callbacks.onOpenEntityDossier,
@@ -287,13 +320,13 @@ export function renderCaseView(host, params) {
             // 28.3 — standalone cross-article link suggestion (same
             // gate as the synthesis, decoupled from it: structure can
             // be proposed BEFORE the brief run and feeds its digest).
-            renderLinksBlock(graphHost, {
+            renderLinksBlock(analysisHost, {
                 data, dossier,
                 callbacks: { onReloadCase: callbacks.onReloadCase }
             });
             // 20.4 — LLM corpus synthesis (gated by caseSynthesis + key;
             // absent otherwise). Self-manages its own gating call.
-            renderSynthesisBlock(graphHost, {
+            renderSynthesisBlock(analysisHost, {
                 data, dossier,
                 callbacks: {
                     onReloadCase: callbacks.onReloadCase,
@@ -303,15 +336,15 @@ export function renderCaseView(host, params) {
             });
             // CA.3 — the corpus epistemics distributions (absent until
             // something is audited; no corpus score exists anywhere).
-            renderEpistemicsBlock(graphHost, { data });
+            renderEpistemicsBlock(analysisHost, { data });
             // FA.1 — the per-subject forensic corpus pass (counter-read
             // first; findings local until the forensicPublishing batch).
-            renderForensicCorpusBlock(graphHost, {
+            renderForensicCorpusBlock(analysisHost, {
                 data, callbacks: { onReloadCase: callbacks.onReloadCase }
             });
             // CA.1 — the corpus audit runner (epistemicAuditing-gated;
             // absent when off). Same run-ownership guard as synthesis.
-            renderCorpusAuditBlock(graphHost, {
+            renderCorpusAuditBlock(analysisHost, {
                 data,
                 callbacks: {
                     onReloadCase: callbacks.onReloadCase,
@@ -354,15 +387,12 @@ export function renderCaseView(host, params) {
             bar.appendChild(tip);
             strip.appendChild(bar);
         });
-        host.appendChild(strip);
+        if (!timelineHost.parentElement) host.appendChild(timelineHost);   // wire-only case: no sections
+        timelineHost.appendChild(strip);
     }
 
-    // --- Four-axis case timeline (CD.3) — mounted here in reading
-    // order, but rendered by the SHARED assembly above (its host was
-    // created before the density strip so the timeline lands after it).
-    if (caseEnt && caseEnt.entityId) {
-        host.appendChild(timelineHost);
-    }
+    // (The four-axis timeline renders into its section body, created
+    // above — the density strip lands in the same section.)
 
     // --- members: people/orgs tagged alongside the case ---
     const members = new Map(); // pubkey → {name, type, count}
@@ -400,7 +430,8 @@ export function renderCaseView(host, params) {
             }
         }
         section.appendChild(wrap);
-        host.appendChild(section);
+        collapsibleSection(host, { id: 'people', casePubkey, title: 'People & organizations', open: false })
+            .appendChild(section);
     }
 
     // --- claims with stance/⚠ badges ---
@@ -461,7 +492,8 @@ export function renderCaseView(host, params) {
         list.appendChild(el('li', 'xr-view__empty', 'No published claims reference this case yet.'));
     }
     section.appendChild(list);
-    host.appendChild(section);
+    collapsibleSection(host, { id: 'published-claims', casePubkey, title: `Published claims (${claims.length})`, open: true })
+        .appendChild(section);
 
     // 27 S.4 — LOCAL relationship links (accepted proposals, hand-drawn
     // links) that haven't published yet: the published-30055 chips
@@ -550,6 +582,7 @@ export function renderCaseView(host, params) {
             ul.appendChild(row);
         }
         other.appendChild(ul);
-        host.appendChild(other);
+        collapsibleSection(host, { id: 'artifacts', casePubkey, title: `Other artifacts (${rest.length})`, open: false })
+            .appendChild(other);
     }
 }
