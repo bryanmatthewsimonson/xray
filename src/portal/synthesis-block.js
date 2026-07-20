@@ -35,6 +35,8 @@ import {
     citedMemberOrder, outletFor, matchCoverageGapsToPositions
 } from '../shared/corpus-publish.js';
 import { canonicalIdOf } from '../shared/entity-model.js';
+import { corpusAuditRollup } from '../shared/audit/corpus-rollup.js';
+import { deriveArticleRows } from '../shared/case-dossier.js';
 
 /** A source link for a member article_hash, or null when unresolved. */
 function sourceAnchor(hash, memberIndex) {
@@ -793,7 +795,16 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                 // REDUCE — one synthesis call over the extracts + dossier digest.
                 status.textContent = `Synthesizing ${extracts.length} extract${extracts.length === 1 ? '' : 's'}…`;
                 const reduce = await sendMessage({ type: 'xray:llm:corpus-reduce', request: {
-                    dossierDigest: digestDossier(dossier, { claims: claimIndex }), extracts, caseName, scopeQuestion
+                    // CA.4 — the epistemics summary rides the digest
+                    // (distributions only; the prompt forbids using it
+                    // to adjudicate). Absent when nothing is audited.
+                    dossierDigest: digestDossier(dossier, {
+                        claims: claimIndex,
+                        auditRollup: corpusAuditRollup({
+                            rows: deriveArticleRows(data).rows,
+                            runs: data.auditRuns || []
+                        })
+                    }), extracts, caseName, scopeQuestion
                 } });
                 if (!reduce || !reduce.ok) {
                     const lost = reduce && reduce.swLost;

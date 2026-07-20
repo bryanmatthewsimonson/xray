@@ -156,6 +156,31 @@ test('case-synthesis: selectDigestClaims keeps ALL is_key claims, then rounds ro
     assert.equal(CS.selectDigestClaims(small, 20), small);
 });
 
+test('CA.4: digestDossier carries audit_coverage when a rollup is given — distributions only, absent otherwise', () => {
+    const dossier = { coverage: { articles: 2 }, shape_of_knowledge: {}, knots: {} };
+    const bare = JSON.parse(CS.digestDossier(dossier, { claims: [] }));
+    assert.equal(bare.audit_coverage, null, 'no rollup → null, never fabricated');
+
+    const withAudit = JSON.parse(CS.digestDossier(dossier, {
+        claims: [],
+        auditRollup: {
+            audited: 2, unaudited: 1, ceilingBound: 1,
+            scoreRange: { min: 40, max: 70, scores: [40, 70] },
+            members: [{ title: 'Weak piece', score: 40, concerns: 3 }, { title: 'Strong', score: 70, concerns: 0 }],
+            modules: [{ module: 'source_architecture', n: 2, min: 35, max: 65, failed: 0 }]
+        }
+    }));
+    assert.deepEqual(withAudit.audit_coverage.score_range, [40, 70]);
+    assert.equal(withAudit.audit_coverage.weakest[0].title, 'Weak piece');
+    assert.deepEqual(withAudit.audit_coverage.module_ranges,
+        [{ module: 'source_architecture', min: 35, max: 65, n: 2 }]);
+    // The §10 structural pin: no fused number anywhere in the summary.
+    const json = JSON.stringify(withAudit.audit_coverage).toLowerCase();
+    for (const banned of ['mean', 'average', 'avg', 'corpus_score']) {
+        assert.ok(!json.includes(banned), `forbidden aggregate "${banned}"`);
+    }
+});
+
 test('case-synthesis: corpusExtractKey keys on MAP_PROMPT_VERSION, not the overall version (map cache survives reduce bumps)', async () => {
     const { MAP_PROMPT_VERSION, CORPUS_PROMPT_VERSION } = await import('../src/shared/corpus-prompts.js');
     const req = { memberText: 'body', claimsDigest: 'c1 — x', caseName: 'c', scopeQuestion: 'q', memberMeta: { title: 'T', url: 'u' } };
