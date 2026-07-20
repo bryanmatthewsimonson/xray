@@ -26,7 +26,7 @@ import { NostrClient } from '../shared/nostr-client.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
-import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, runHypothesisEdgePass, runClaimLinksPass, getCorpusConfig, runExtractPass, runEntityAuditPass, runForensicCorpusPass } from '../shared/llm-client.js';
+import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, runHypothesisEdgePass, runClaimLinksPass, getCorpusConfig, runExtractPass, runEntityAuditPass, runForensicCorpusPass, runEntityPagePass } from '../shared/llm-client.js';
 import { getSourceDocument } from '../shared/archive-cache.js';
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prompts.js';
 import { pdfDocumentUrl } from '../shared/pdf-detect.js';
@@ -686,6 +686,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         runCorpusReducePass(message.request || {}).then(
             (result) => sendResponse(result),
             (err) => sendResponse({ ok: false, error: (err && err.message) || 'Corpus reduce call failed' })
+        );
+        return true; // async sendResponse
+    }
+    // Portal → worker: the entity-page reduce (EP.2). One reduce-shaped
+    // call over the entity digest + member extracts; same triple gate
+    // inside the pass; returns RAW tool output (the portal validates,
+    // subset-filters key claims, grounds citations, and nothing
+    // persists without the human's Save).
+    if (message.type === 'xray:llm:entity-page') {
+        runEntityPagePass(message.request || {}).then(
+            (result) => sendResponse(result),
+            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Entity page call failed' })
         );
         return true; // async sendResponse
     }
