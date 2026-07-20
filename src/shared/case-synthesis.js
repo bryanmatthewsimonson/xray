@@ -368,7 +368,7 @@ export function selectDigestClaims(claims, cap = DIGEST_CLAIM_CAP) {
     return out.slice(0, cap);
 }
 
-export function digestDossier(dossier, { claims = [] } = {}) {
+export function digestDossier(dossier, { claims = [], auditRollup = null } = {}) {
     const shape = dossier.shape_of_knowledge || {};
     const knots = dossier.knots || {};
     // Claims carry a short per-article key (`art: 'A1'`) instead of a
@@ -405,7 +405,23 @@ export function digestDossier(dossier, { claims = [] } = {}) {
         })),
         claims: claimIndex,
         articles: articleKeys,
-        claim_count: claimIndex.length
+        claim_count: claimIndex.length,
+        // CA.4 — the corpus epistemics summary (corpusAuditRollup):
+        // process-quality CONTEXT the reduce may cite per position.
+        // Distributions only, never a fused number (§10.1/.9); absent
+        // when nothing is audited.
+        audit_coverage: auditRollup && auditRollup.audited > 0 ? {
+            audited: auditRollup.audited,
+            unaudited: auditRollup.unaudited,
+            score_range: auditRollup.scoreRange
+                ? [auditRollup.scoreRange.min, auditRollup.scoreRange.max] : null,
+            ceiling_bound: auditRollup.ceilingBound,
+            weakest: auditRollup.members.slice(0, 5).map((m) => ({
+                title: (m.title || '').slice(0, 80), score: m.score, concerns: m.concerns
+            })),
+            module_ranges: auditRollup.modules.filter((s) => s.n > 0).slice(0, 8)
+                .map((s) => ({ module: s.module, min: s.min, max: s.max, n: s.n }))
+        } : null
     });
 }
 

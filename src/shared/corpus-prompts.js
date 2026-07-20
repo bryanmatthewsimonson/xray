@@ -48,8 +48,12 @@ import { CLAIM_RELATIONSHIPS } from './assessment-taxonomy.js';
 // matching. One-time cost: every corpus-v2 cached extract is orphaned
 // by this bump. MAP goes to v4; the overall version to v5 (the reduce
 // input's assertion refs changed provenance).
+// corpus-v6 (CA.4): the dossier digest gained `audit_coverage` — the
+// corpus epistemics summary the reduce may cite per position (never
+// adjudicating). Reduce-input change only: MAP holds at v4, the map
+// cache survives.
 export const MAP_PROMPT_VERSION = 'corpus-v4';
-export const CORPUS_PROMPT_VERSION = 'corpus-v5';
+export const CORPUS_PROMPT_VERSION = 'corpus-v6';
 export const MAP_TOOL_NAME = 'emit_corpus_extract';
 export const REDUCE_TOOL_NAME = 'emit_case_brief';
 export const HYPOTHESIS_EDGE_PROMPT_VERSION = 'hyp-edges-v1';
@@ -299,6 +303,10 @@ export function buildReduceSystemPrompt({ caseName = '', scopeQuestion = '' } = 
         'HARD RULES (docs/PHILOSOPHY.md):',
         '- NEVER output a verdict, score, probability, or "who is right". Disagreement is DATA —',
         '  present it, do not resolve it.',
+        '- The digest may carry `audit_coverage` (per-article epistemic-audit distributions). It',
+        '  is PROCESS-quality context about how members were written — you may note it where it',
+        '  bears on a position\'s sourcing (e.g. in coverage_gaps), but it never decides truth,',
+        '  never ranks positions, and you never compute or imply a combined corpus score.',
         '- Every quote must be VERBATIM from the named member article (identified by its',
         '  article_hash). A quote that cannot be located there is dropped downstream.',
         '- Attribute positions only to articles that actually hold them; never invent holders.',

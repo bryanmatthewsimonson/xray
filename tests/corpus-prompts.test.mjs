@@ -8,7 +8,7 @@ const CP = await import('../src/shared/corpus-prompts.js');
 test('corpus-prompts: tool names + versions pinned (map/overall split)', () => {
     assert.equal(CP.MAP_TOOL_NAME, 'emit_corpus_extract');
     assert.equal(CP.REDUCE_TOOL_NAME, 'emit_case_brief');
-    assert.equal(CP.CORPUS_PROMPT_VERSION, 'corpus-v5');
+    assert.equal(CP.CORPUS_PROMPT_VERSION, 'corpus-v6');
     // Cache-preservation invariant: MAP_PROMPT_VERSION gates the map-extract
     // cache key — bumping it orphans every cached extract, so it moves only
     // on a real MAP input change. corpus-v4 was one (the claims digest left
