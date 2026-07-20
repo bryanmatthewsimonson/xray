@@ -42,6 +42,10 @@ import {
     MAX_ENTITY_AUDIT_OUTPUT_TOKENS,
     buildEntityAuditTool, buildEntityAuditSystemPrompt, buildEntityAuditUserPrompt
 } from './llm-entity-audit.js';
+import {
+    MAX_FORENSIC_OUTPUT_TOKENS,
+    buildForensicCorpusTool, buildForensicCorpusSystemPrompt, buildForensicCorpusUserPrompt
+} from './forensic-corpus.js';
 import { JurisdictionModel, treatAsLiving, admissibleAuthorities } from './jurisdiction-model.js';
 import { isValidLensAssertionType, LENS_ASSERTION_TYPES } from './lens-taxonomy.js';
 import { articleHash } from './audit/article-hash.js';
@@ -400,6 +404,51 @@ export async function runEntityAuditPass(req = {}) {
         return { ok: false, error: 'The model did not return a structured op list.' };
     }
     return { ok: true, model: (data && data.model) || model, ops: input.ops, usage: data && data.usage };
+}
+
+/**
+ * Run one per-subject FORENSIC CORPUS pass (FA.1 —
+ * docs/CORPUS_AUDIT_KICKOFF.md §4b). Same consent gates as Suggest;
+ * raw findings out — the caller runs validateForensicProposals and
+ * gates every mutation behind a human Accept (counter-read first).
+ *
+ * @param {object} req { bundle: string, subjectName?: string }
+ */
+export async function runForensicCorpusPass(req = {}) {
+    await loadFlags();
+    if (!isEnabled('llmAssist')) {
+        return { ok: false, error: 'LLM assist is off. Enable it in Options → Advanced → LLM assist.' };
+    }
+    const apiKey = await readApiKey();
+    if (!apiKey) {
+        return { ok: false, error: 'No Anthropic API key set. Add one in Options → Advanced → LLM assist.' };
+    }
+    const bundle = String(req.bundle || '');
+    if (!bundle.trim()) return { ok: false, error: 'No subject material to analyze.' };
+
+    const model = await readModel();
+    const tool = buildForensicCorpusTool();
+    const payload = {
+        model,
+        max_tokens: MAX_FORENSIC_OUTPUT_TOKENS,
+        system: buildForensicCorpusSystemPrompt(),
+        tools: [tool],
+        tool_choice: { type: 'tool', name: tool.name },
+        messages: [{ role: 'user', content: buildForensicCorpusUserPrompt(bundle) }]
+    };
+    Utils.log('[X-Ray LLM] forensic corpus pass:', { model, chars: bundle.length });
+    const res = await postMessages(payload, apiKey);
+    if (!res.ok) return res;
+    const data = res.data;
+    { const r = refusalResult(data, 'a behavioral analysis of this subject'); if (r) return r; }
+    if (data && data.stop_reason === 'max_tokens') {
+        return { ok: false, error: 'The pass hit its output limit before finishing.' };
+    }
+    const input = extractToolInput(data, tool.name);
+    if (input === null || !Array.isArray(input.findings)) {
+        return { ok: false, error: 'The model did not return a structured finding list.' };
+    }
+    return { ok: true, model: (data && data.model) || model, findings: input.findings, usage: data && data.usage };
 }
 
 /**

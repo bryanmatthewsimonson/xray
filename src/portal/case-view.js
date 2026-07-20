@@ -29,6 +29,7 @@ import { renderCaseGraph } from './case-graph-view.js';
 import { renderSynthesisBlock } from './synthesis-block.js';
 import { renderCorpusAuditBlock } from './corpus-audit-block.js';
 import { renderEpistemicsBlock } from './epistemics-block.js';
+import { renderForensicCorpusBlock } from './forensic-corpus-block.js';
 import { renderLinksBlock } from './links-block.js';
 import { renderHypothesesBlock } from './hypothesis-block.js';
 import { collectHypothesisEdgeJoins } from '../shared/hypothesis-map.js';
@@ -303,6 +304,11 @@ export function renderCaseView(host, params) {
             // CA.3 — the corpus epistemics distributions (absent until
             // something is audited; no corpus score exists anywhere).
             renderEpistemicsBlock(graphHost, { data });
+            // FA.1 — the per-subject forensic corpus pass (counter-read
+            // first; findings local until the forensicPublishing batch).
+            renderForensicCorpusBlock(graphHost, {
+                data, callbacks: { onReloadCase: callbacks.onReloadCase }
+            });
             // CA.1 — the corpus audit runner (epistemicAuditing-gated;
             // absent when off). Same run-ownership guard as synthesis.
             renderCorpusAuditBlock(graphHost, {
