@@ -244,3 +244,51 @@ test('bundle keyed rows are unchanged by the foreign field', async () => {
     assert.equal(row.foreign_pubkey, null);
     assert.ok(row.privkey);
 });
+
+// ---------------------------------------------------------------------
+// CW.3 — the union orbit (tag ∪ claim) vs the bundle's narrow orbit
+// ---------------------------------------------------------------------
+
+test('CW.3: collectCaseEntityIds is tag-inclusive — a tag-built case orbits its member articles’ entities', async () => {
+    resetState();
+    const { collectCaseEntityIds, collectClaimOrbitEntityIds } = await import('../src/shared/case-bundle.js');
+    const kase   = await EntityModel.create({ name: 'Origin of Covid', type: 'case' });
+    const person = await EntityModel.create({ name: 'Tagged Person', type: 'person' });
+    const org    = await EntityModel.create({ name: 'Tagged Org', type: 'organization' });
+    const noise  = await EntityModel.create({ name: 'Unrelated Noise', type: 'thing' });
+    // Tag-mediated membership ONLY: zero claims about the case.
+    const articles = [
+        { url: 'https://example.com/member', article: {
+            title: 'Member by tag',
+            entities: [{ entity_id: kase.id }, { entity_id: person.id }, { entity_id: org.id }] } },
+        { url: 'https://example.com/nonmember', article: {
+            title: 'Not a member',
+            entities: [{ entity_id: noise.id }] } }
+    ];
+    const union = await collectCaseEntityIds(kase.id, { articles });
+    for (const id of [kase.id, person.id, org.id]) {
+        assert.ok(union.includes(id), `union orbit has ${id}`);
+    }
+    assert.ok(!union.includes(noise.id), 'a non-member article’s entities stay out');
+    // The narrow (claim-only) walk still sees ONE entity — the case.
+    assert.deepEqual(await collectClaimOrbitEntityIds(kase.id), [kase.id],
+        'claim-only orbit unchanged: the pre-CW.3 behavior, kept for the bundle');
+});
+
+test('CW.3: the BUNDLE keeps the narrow orbit — tag-only entities never ride the key export (Q2 held)', async () => {
+    resetState();
+    const kase   = await EntityModel.create({ name: 'Origin of Covid', type: 'case' });
+    const person = await EntityModel.create({ name: 'Claimed Person', type: 'person' });
+    const tagOnly = await EntityModel.create({ name: 'Tag Only Person', type: 'person' });
+    await ClaimModel.create({
+        text: 'A claim about the case.', source_url: 'https://example.com/v1',
+        about: [kase.id, person.id]
+    });
+    // The tag-only entity is a member via the archive record — but the
+    // archive cache is empty in this test and the bundle must not read
+    // it anyway: its orbit is the claim walk.
+    const bundle = await collectCaseBundle(kase.id);
+    const bundledIds = bundle.entities.map((e) => e.id);
+    assert.ok(bundledIds.includes(person.id), 'claim-orbit entity bundled');
+    assert.ok(!bundledIds.includes(tagOnly.id), 'tag-only entity’s PRIVATE KEY never exported by the bundle');
+});
