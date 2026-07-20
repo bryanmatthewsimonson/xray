@@ -43,7 +43,7 @@ import { resolveActiveDbName } from './workspace-keys.js';
 
 const DB_NAME        = 'xray-archive';
 const DB_VERSION     = 3;     // v2 (Phase 9a) metadata stores; v3 (Phase 18) source documents
-const ARTICLES_STORE = 'articles';
+export const ARTICLES_STORE = 'articles';
 const MAX_ENTRIES    = 500;  // cheap starting budget; revisit if needed
 
 // Stealth-edit retention bound (13.4): displaced article versions kept

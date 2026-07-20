@@ -546,6 +546,13 @@ body.xr-portal {
 .xr-cgedge--about { stroke: var(--xr-primary); stroke-opacity: 0.4; }
 .xr-cgedge--cotag { stroke: var(--xr-text-dim); stroke-opacity: 0.5; stroke-dasharray: 2 2; }
 
+/* Cross-workspace graph (28.6) — shared names span the case columns */
+.xr-xws { margin-top: 10px; }
+.xr-xws__svg { width: 100%; max-height: 70vh; }
+.xr-xwsedge--shared { stroke: var(--xr-warning); stroke-width: 2; stroke-dasharray: 5 3; stroke-opacity: 0.85; }
+.xr-xwsnode--shared circle { fill: var(--xr-warning); fill-opacity: 0.25; stroke: var(--xr-warning); }
+.xr-xws__shared { margin-top: 14px; }
+
 /* Case corpus synthesis (20.4) */
 .xr-synth { margin: 16px 0; }
 .xr-synth__controls { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
