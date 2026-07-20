@@ -741,6 +741,33 @@ publishes. Requires a real Anthropic API key
 
 ---
 
+## Phase 17 — Entity corpus tail (E2 audit, E4 mention notes, E5 corpus view)
+
+**LLM entity audit (E2 — needs `llmAssist` + a key; costs real API money)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 17.1 | Sidepanel → Health → "🤖 Audit with LLM…" with LLM assist OFF | ✅ an immediate error names the Options toggle — no disclosure shown, nothing sent |
+| 17.2 | Same with assist on: read the disclosure, then run on a registry with a known name-variant pair | ✅ the disclosure names exactly what leaves the device (names, types, descriptions, stored mention snippets); proposals render with evidence quotes; the firewall's rejected list shows reasons |
+| 17.3 | Accept a merge proposal | ✅ it lands as an alias link (Recent merges shows it with Unlink); nothing is deleted |
+| 17.4 | Accept a retype proposal | ✅ the row warned about id derivation first; the entity's id is unchanged after the retype |
+
+**Mention notes (E4 — needs `entityCorpusPublishing` on)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 17.5 | Publish an article tagging 2–3 keyed entities | ✅ the publish summary counts the mention notes in the corpus line; each note is signed by the ENTITY's key (inspect kind 1: `p` publisher marker, `a` mention ref, `x` hash, verbatim `quote`) |
+| 17.6 | Follow one entity's npub in another NOSTR client | ✅ the "Mentioned in…" note renders as a normal text note with the quote and the article link |
+| 17.7 | Re-publish the SAME article | ✅ no duplicate notes (the ledger keys on entity+url+hash); edit the article so its hash changes and re-publish → a NEW note appears (edition provenance) |
+| 17.8 | Check the workspace's bound CASE entity | ✅ it emitted NO kind-1 note — the custody rule holds |
+
+**Entity corpus view (E5)**
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 17.9 | Portal → an entity → "Entity corpus" | ✅ the wire kind-0 card (name/about/`i` tags), per-kind counts, and the merged timeline (entity-signed rows labeled); everything renders without the local registry |
+| 17.10 | Open the corpus of a pubkey with nothing on relays | ✅ the honest empty states ("No kind-0 profile found…", "Nothing on these relays yet") — never invented content |
+
 ## Phase 18 — Complex content (tables, math, PDFs)
 
 **Tables & math (C1)**
