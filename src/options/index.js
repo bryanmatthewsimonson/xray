@@ -18,6 +18,7 @@ import { articleHash as canonicalArticleHash } from '../shared/audit/article-has
 import { listRuns, listPredictions, listResolutions } from '../shared/audit/audit-cache.js';
 import { listArticles } from '../shared/archive-cache.js';
 import { IdentityProfiles, Workspaces, workspaceBackup, resetWorkspace } from '../shared/identity-profiles.js';
+import { createCase } from '../shared/case-create.js';
 import { EntityModel } from '../shared/entity-model.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 
@@ -639,32 +640,43 @@ async function renderWorkspaces() {
         host.appendChild(row);
     }
 
+    // The owner picker: the CURRENT saved profile is the default (a
+    // profile owns its cases), then the other profiles, then the two
+    // escape hatches — mint a fresh identity for this case, or bind no
+    // identity at all (NIP-07 / keep whatever signer is active).
     const profSel = document.getElementById('ws-new-profile');
     if (profSel) {
         profSel.replaceChildren();
-        profSel.appendChild(new Option('New identity (same label)', ''));
-        for (const p of Object.values(profiles)) profSel.appendChild(new Option(`Identity: ${p.label}`, p.pubkey));
+        for (const p of Object.values(profiles)) {
+            const opt = new Option(`Owner: ${p.label}`, p.pubkey);
+            if (primary && primary.pubkey === p.pubkey) opt.selected = true;
+            profSel.appendChild(opt);
+        }
+        profSel.appendChild(new Option('New identity for this case', 'new'));
+        profSel.appendChild(new Option('No identity binding (keep current signer)', ''));
     }
 }
 
-async function createWorkspaceFlow() {
+// One-step "New case" (the 28.x simplification): workspace + identity +
+// case entity + scope + binding in a single verb, then reload into the
+// new case. The mechanics live in shared/case-create.js.
+async function createCaseFlow() {
     const status = document.getElementById('ws-status');
-    const labelEl = document.getElementById('ws-new-label');
+    const nameEl = document.getElementById('ws-new-label');
+    const scopeEl = document.getElementById('ws-new-scope');
     const profSel = document.getElementById('ws-new-profile');
+    const name = nameEl.value.trim();
+    if (!name) { flash(status, 'Name the case first.', false); return; }
+    const sel = profSel ? profSel.value : '';
+    if (!confirm(`Create the case "${name}"?\n\nThis creates its workspace, switches you into it (storage namespace + signing identity together), and binds the case automatically. Reload any other open X-Ray tabs afterwards.`)) return;
     try {
-        const label = labelEl.value.trim();
-        if (!label) { flash(status, 'Give the workspace a label first.', false); return; }
-        let pubkey = profSel.value || null;
-        if (!pubkey) {
-            // Minting the identity does NOT activate it — the workspace
-            // switch is the only thing that moves the primary (atomic).
-            const p = await IdentityProfiles.create(label, { activate: false });
-            pubkey = p.pubkey;
-        }
-        const ws = await Workspaces.create({ label, identityPubkey: pubkey });
-        labelEl.value = '';
-        flash(status, `Created "${ws.label}". Activate it to work in it; bind its case after activating.`);
-        renderWorkspaces();
+        await createCase({
+            caseName: name,
+            scopeQuestion: scopeEl ? scopeEl.value.trim() : '',
+            profilePubkey: sel && sel !== 'new' ? sel : null,
+            newProfileLabel: sel === 'new' ? name : null
+        });
+        location.reload();
     } catch (e) { flash(status, 'Create failed: ' + (e && e.message), false); }
 }
 
@@ -1188,7 +1200,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('restore-entity-keys').addEventListener('click', restoreEntityKeys);
     document.getElementById('workspace-backup').addEventListener('click', workspaceDownloadBackup);
     document.getElementById('workspace-reset').addEventListener('click', workspaceResetFlow);
-    document.getElementById('ws-create').addEventListener('click', createWorkspaceFlow);
+    document.getElementById('ws-create').addEventListener('click', createCaseFlow);
     renderWorkspaces();
     document.getElementById('backup-download').addEventListener('click', backupDownloadFull);
     document.getElementById('backup-restore').addEventListener('click', () => {
