@@ -545,6 +545,28 @@ most common cases:
 
 ---
 
+## Entity naming discipline
+
+Entity ids derive from `(type, normalized name)` at create time, and
+the corpus machinery (dedupe detectors, the LLM audit, alias
+families, mention notes) all key off names — so a little discipline
+at tagging time saves merge work later:
+
+- **Use the fullest form you know** ("Robert Smith", not "Bob") —
+  nicknames and abbreviations are what the Health panel and the E2
+  audit exist to catch, but they can only *propose*; you review every
+  merge.
+- **One real-world thing, one record.** If a name is shared by two
+  different people, keep them as two records (the audit's `split` op
+  handles a record that accidentally mixed them).
+- **Renames are safe** — display names can be corrected any time
+  without breaking ids, published events, or claims (the id never
+  rederives). Merges are safe too: nothing is deleted, alias links
+  are undoable.
+- **Papers, court cases, books are Things** with metadata — never
+  case-typed entities. Case entities anchor project workspaces and
+  deliberately never sign mention notes.
+
 ## Filing bugs
 
 When reporting a bad capture, include:

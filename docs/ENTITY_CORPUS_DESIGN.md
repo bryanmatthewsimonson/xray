@@ -1,11 +1,11 @@
 # Entity Corpus & Smart Entity Management — Design
 
-**Status: PART A (E1+E3) SHIPPED** (v0.1, 2026-07-03; Part A landed
-2026-07-13, pulled forward as Phase 19.7's hard prerequisite — the
-Entity health panel + the canonical-resolution sweep; the
-`entityCorpusPublishing` flag and enriched kind-0 shipped with Phase
-19.7). **E2, E4, E5, E6 remain design-only.** No other code in this
-document is implemented except where explicitly marked *(shipped)*.
+**Status: COMPLETE — E1–E6 shipped** (v0.1, 2026-07-03; Part A
+(E1+E3) landed 2026-07-13, pulled forward as Phase 19.7's hard
+prerequisite; the `entityCorpusPublishing` flag and enriched kind-0
+shipped with Phase 19.7; **the tail — E2 LLM entity audit, E4 mention
+notes, E5 wire-first corpus view, E6 docs — landed 2026-07-20**, PRs
+#238–#241). §7's open questions carry their resolutions at the end.
 
 Related: `docs/CLAIMS_REDESIGN.md` (thin claims), `docs/NIP_DRAFT.md`
 (wire formats), `docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md` (LLM assist),
@@ -329,20 +329,26 @@ No new kinds. No changes to existing tag semantics.
 - **E6 — Docs.** NIP_DRAFT mention-note section, SMOKE_TEST walks,
   CAPTURE_GUIDE note on entity naming discipline.
 
-## 7. Open questions
+## 7. Open questions — resolutions (2026-07-20)
 
-1. **Rename vs id derivation.** Entity ids derive from
-   `(type, normalized name)` at *create* time. Confirm
-   `EntityModel.update({name})` keeps the id stable (it appears to);
-   if any path re-derives, a rename must instead create-and-alias.
-   Decide in E2 before shipping `rename`.
-2. **Mention-note volume.** One article tagging 12 entities emits 12
-   entity-signed notes. Cap + checklist (§4.2) is the v1 answer; a
-   per-entity digest note ("mentioned in 3 articles this week") is the
-   escalation if relays or followers complain.
-3. **Retraction.** If a published article is deleted/unpublished,
-   should its mention notes get NIP-09 deletion requests? Leaning yes
-   (best-effort, honestly disclosed as such).
+1. **Rename vs id derivation.** RESOLVED by pin:
+   `EntityModel.update({name})` (and `{type}`) never rederive the id —
+   the model documents it as intentional and
+   `tests/llm-entity-audit.test.mjs` pins it. `rename` shipped as a
+   plain update; no create-and-alias needed.
+2. **Mention-note volume.** The v1 cap shipped (10/article, the
+   idempotence ledger prevents re-sends per article version). The
+   per-publish checklist and the digest-note escalation stay open —
+   deliberately deferred until real follower/relay feedback exists.
+3. **Retraction.** DEFERRED, honestly: no NIP-09 requests are sent for
+   unpublished articles' mention notes in v1. The Options disclosure
+   already states notes are irrevocable-in-practice; wiring
+   best-effort deletion is future work if real use demands it.
+4. **(New, from the build) Case keys.** With case-bound workspaces
+   every capture is case-tagged; mention notes therefore EXCLUDE
+   case-typed entities twice over (builder refusal + call-site skip) —
+   the custody rule (TEAM_CASE_DESIGN §2.1) holds: a case key signs
+   only its kind-0 and its 32125s.
 4. **NIP-05 for entities.** `buildProfileEvent` already carries
    `nip05`; a verification story (who hosts the identifiers?) is out
    of scope here.

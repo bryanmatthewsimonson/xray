@@ -64,6 +64,33 @@ Both tags are additive: no existing tag moves, and consumers that do not know th
 
 For page-level anchoring of claims quoted from such captures, see `FragmentSelector` (`page=N`) above.
 
+## Kind 1 — Mention note (entity-signed)
+
+When an X-Ray archive publishes an article with entity-corpus publishing enabled, each entity tagged on the article receives one **kind-1 text note signed by the entity's own key**. Deliberately kind 1, not a custom kind: following the entity's npub in ANY NOSTR client surfaces its corpus with no prior knowledge of the publisher.
+
+```
+content:
+  Mentioned in "<article title>"
+
+  "<the grounded verbatim mention, or the strongest claim quote>"
+
+  <article url>
+
+tags:
+  ['r',      <article url>]
+  ['a',      '30023:<publisher pubkey>:<dTag>', '', 'mention']   (when the article landed)
+  ['x',      <canonical article hash>]
+  ['p',      <publisher pubkey>, '', 'publisher']
+  ['quote',  <verbatim mention>]                                  (omitted when nothing verbatim is stored — never a paraphrase)
+  ['client', 'xray']
+```
+
+Consumer notes:
+
+- The `a` ref joins the note to the article event; the `x` hash joins the audit family's `#x` queries; `quote` is a verbatim span of the article, machine-grounded at capture time. The user-signed kind-32125 remains the structured entity↔article edge — the note is the human-readable, follow-anywhere layer.
+- Idempotence is the **publisher's** (local ledger keyed on entity + url + article hash); a *changed* article hash deliberately produces a new note — edition provenance, not a duplicate.
+- Publishers cap notes per article (default 10) and never emit them for case-typed entities (an X-Ray case key signs only its kind-0 profile and its 32125 relations).
+
 ## Kind 30040 — Claim
 
 Addressable. An atomized assertion extracted from web content: the claim text plus the real-world entities it concerns. This is the unit the assessment (30054) and relationship (30055) kinds target.

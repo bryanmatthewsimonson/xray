@@ -92,12 +92,13 @@ Phase 16 ████████████████████  complete 
                                 guard-tested; derived view only, behind
                                 the moralLens flag. 16.1–16.4 in one PR;
                                 §Phase 16 smoke-run pending
-Phase 17 ██████░░░░░░░░░░░░░░  Part A landed (E1 health panel + E3
-                                canonical sweep) — entity corpus & smart
-                                entity management
-                                (docs/ENTITY_CORPUS_DESIGN.md); E2/E4–E6
-                                (LLM audit, mention notes, network reader)
-                                still design-only
+Phase 17 ████████████████████  COMPLETE — entity corpus & smart entity
+                                management: E1 health panel + E3 canonical
+                                sweep (2026-07-13), then the tail (PRs
+                                #238–#241): E2 LLM entity audit, E4 mention
+                                notes (entity-signed kind-1), E5 wire-first
+                                corpus view, E6 docs
+                                (docs/ENTITY_CORPUS_DESIGN.md)
 Phase 18 ████████████████████  COMPLETE — complex content capture:
                                 tables/math, scholarly meta, PDF routing +
                                 pdf.js extraction + figures, LLM extraction
@@ -1517,7 +1518,7 @@ imports):
 
 ---
 
-## Phase 17 — Entity corpus & smart entity management 🚧 Part A (E1+E3) done
+## Phase 17 — Entity corpus & smart entity management ✅ COMPLETE
 
 **`docs/ENTITY_CORPUS_DESIGN.md`** (v0.1, 2026-07-03). Two halves:
 **(A)** registry hygiene — a deterministic duplicate report (name
@@ -1539,10 +1540,23 @@ sidepanel Merge…/Not-duplicates/Unlink, `entity_dedupe_dismissals`);
 publish/tag/suggest call site (claims, 32125, 32126, assessments,
 forensic/truth subject refs, `findEntityMatches`). The
 `entityCorpusPublishing` flag + enriched kind-0 shipped with Phase
-19.7 (whose kind-30067 fact sheet carries the field data Part B's
-kind-1 mention notes were sketched for). Still design-only: **E2**
-(LLM entity audit), **E4** (mention notes), **E5/E6** (network
-corpus reader).
+19.7.
+
+**Shipped 2026-07-20 (the tail, PRs #238–#241):**
+✅ **E2** — the LLM entity audit (`llm-entity-audit.js`:
+`propose_entity_ops` — merge/rename/retype/split/external_id — behind
+a validation firewall that grounds merge/split evidence against
+STORED mentions; sidepanel review with per-op Accept; §7 Q1 decided
+by pin: rename/retype never rederive the id; `external_ids` gained
+its writer). ✅ **E4** — mention notes (`mention-notes.js`: the §4.2
+kind-1 wire shape pinned byte-for-byte, the (entity, url, hash)
+idempotence ledger with edition provenance, the per-article cap, the
+custody refusal — a CASE key never signs a kind-1 — and the kind-0
+NIP-39 `i`-tag wiring). ✅ **E5** — the wire-first entity corpus view
+(portal: `{authors:[P]}` + `{#p:[P]}` merged into one read-only
+timeline; works identically on entities you didn't create).
+✅ **E6** — docs (NIP_DRAFT mention-note section, SMOKE §Phase 17
+walk, CAPTURE_GUIDE naming discipline, design §7 resolutions).
 
 ---
 
