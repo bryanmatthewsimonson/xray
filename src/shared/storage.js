@@ -10,9 +10,48 @@
 import { CONFIG } from './config.js';
 import { Utils } from './utils.js';
 import { Crypto } from './crypto.js';
+import {
+  WORKSPACE_CONTENT_KEYS, WORKSPACE_DATABASES, DERIVED_CACHE_DATABASES, workspaceDbName
+} from './workspace-keys.js';
 
 export const Storage = (() => {
   const area = (typeof browser !== 'undefined' && browser.storage) ? browser.storage.local : chrome.storage.local;
+
+  // ---- Case-bound workspaces (Phase 28.1) --------------------------
+  // The active workspace id namespaces every WORKSPACE-CONTENT key:
+  // 'default' (or unset) reads/writes the bare key — an existing
+  // install's data IS the default workspace, so this ships with zero
+  // migration — while any other id maps content keys to
+  // `ws:<id>:<key>`. The pointer and the registry live OUTSIDE the
+  // namespace (like identity_profiles). The id is cached per module
+  // lifetime (an MV3 SW restart naturally re-reads) and invalidated by
+  // the storage change event so long-lived extension pages track
+  // switches.
+  const ACTIVE_WS_KEY = 'active_workspace';
+  const CONTENT_KEYS = new Set(WORKSPACE_CONTENT_KEYS);
+  let activeWs;   // undefined = not yet read this lifetime
+  const readActiveWs = async () => {
+    const raw = await new Promise((resolve) => {
+      try { area.get([ACTIVE_WS_KEY], (res) => resolve(res ? res[ACTIVE_WS_KEY] : undefined)); }
+      catch (_) { resolve(undefined); }
+    });
+    let id = 'default';
+    if (typeof raw === 'string') {
+      try { id = JSON.parse(raw) || 'default'; } catch (_) { id = raw || 'default'; }
+    }
+    activeWs = String(id);
+    return activeWs;
+  };
+  const ensureWs = async () => (activeWs === undefined ? readActiveWs() : activeWs);
+  try {
+    area.onChanged.addListener((changes) => {
+      if (ACTIVE_WS_KEY in changes) activeWs = undefined;   // lazy re-read
+    });
+  } catch (_) { /* older shims — per-lifetime lazy read still applies */ }
+  const mapKey = async (key) => {
+    const ws = await ensureWs();
+    return (ws !== 'default' && CONTENT_KEYS.has(key)) ? `ws:${ws}:${key}` : key;
+  };
 
   const rawGet = (key) => new Promise((resolve) => {
     try {
@@ -41,7 +80,7 @@ export const Storage = (() => {
   const Store = {
     get: async (key, defaultValue = null) => {
       try {
-        const value = await rawGet(key);
+        const value = await rawGet(await mapKey(key));
         if (value === undefined || value === null) return defaultValue;
         // Values written by this wrapper are JSON strings. Tolerate raw
         // values just in case older or unmigrated data shows up.
@@ -54,9 +93,64 @@ export const Storage = (() => {
         return defaultValue;
       }
     },
-    set:    async (key, value) => { try { return await rawSet(key, JSON.stringify(value)); } catch (e) { Utils.error('Storage set error:', e); return false; } },
-    delete: async (key)        => { try { return await rawDelete(key); }                   catch (e) { Utils.error('Storage delete error:', e); return false; } },
-    keys:   async ()           => { try { return await rawKeys(); }                        catch (e) { Utils.error('Storage keys error:', e); return []; } },
+    set:    async (key, value) => { try { return await rawSet(await mapKey(key), JSON.stringify(value)); } catch (e) { Utils.error('Storage set error:', e); return false; } },
+    delete: async (key)        => { try { return await rawDelete(await mapKey(key)); }                    catch (e) { Utils.error('Storage delete error:', e); return false; } },
+    // The LOGICAL key view for the active workspace: content keys of
+    // OTHER workspaces are invisible; the active workspace's prefixed
+    // keys come back bare. Global keys always show.
+    keys: async () => {
+      try {
+        const ws = await ensureWs();
+        const all = await rawKeys();
+        const prefix = `ws:${ws}:`;
+        const out = [];
+        for (const k of all) {
+          if (k.startsWith('ws:')) {
+            if (ws !== 'default' && k.startsWith(prefix)) out.push(k.slice(prefix.length));
+          } else if (ws === 'default' || !CONTENT_KEYS.has(k)) {
+            out.push(k);
+          }
+        }
+        return out;
+      } catch (e) { Utils.error('Storage keys error:', e); return []; }
+    },
+
+    // ---- workspace plumbing (Phase 28.1) ---------------------------
+    /** The active workspace id ('default' when none was ever set). */
+    activeWorkspaceId: async () => ensureWs(),
+    /** Point the namespace at another workspace. Callers own the
+     *  lifecycle rules (registry, identity binding, page reloads) —
+     *  this only moves the pointer, atomically, outside the namespace. */
+    setActiveWorkspaceId: async (id) => {
+      const clean = String(id || 'default');
+      await rawSet(ACTIVE_WS_KEY, JSON.stringify(clean));
+      activeWs = clean;
+      return clean;
+    },
+    /** The on-disk IndexedDB name for `base` under the ACTIVE workspace. */
+    workspaceDbName: async (base) => workspaceDbName(base, await ensureWs()),
+    /** Destroy workspace `id`'s namespaced keys + databases. Refuses
+     *  'default' (its content keys ARE the bare install data) and the
+     *  active workspace (switch away first). Lifecycle rules — typed
+     *  confirm, backup-first (§7 Q2) — live with the caller. */
+    removeWorkspaceData: async (id, { idb } = {}) => {
+      const clean = String(id || '');
+      if (!clean || clean === 'default') throw new Error('removeWorkspaceData: the default workspace cannot be deleted');
+      if (clean === await ensureWs()) throw new Error('removeWorkspaceData: switch away from the active workspace first');
+      const prefix = `ws:${clean}:`;
+      for (const k of await rawKeys()) {
+        if (k.startsWith(prefix)) await rawDelete(k);
+      }
+      const factory = idb || (typeof indexedDB !== 'undefined' ? indexedDB : null);
+      const databases = [];
+      if (factory && typeof factory.deleteDatabase === 'function') {
+        for (const base of [...WORKSPACE_DATABASES, ...DERIVED_CACHE_DATABASES]) {
+          const name = workspaceDbName(base, clean);
+          try { factory.deleteDatabase(name); databases.push(name); } catch (_) { /* best-effort */ }
+        }
+      }
+      return { databases };
+    },
 
     initialize: async () => {
       const defaults = {

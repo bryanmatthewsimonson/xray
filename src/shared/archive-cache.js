@@ -39,6 +39,7 @@
 import { Utils } from './utils.js';
 import { EventBuilder } from './event-builder.js';
 import { articleHash as canonicalArticleHash } from './audit/article-hash.js';
+import { resolveActiveDbName } from './workspace-keys.js';
 
 const DB_NAME        = 'xray-archive';
 const DB_VERSION     = 3;     // v2 (Phase 9a) metadata stores; v3 (Phase 18) source documents
@@ -119,11 +120,25 @@ function tx(transaction) {
  * returned across calls so we don't thrash open handles.
  */
 let _dbPromise = null;
+let _dbName = null;   // the on-disk name _dbPromise opened (28.1)
 export function openArchiveDb() {
-    if (_dbPromise) return _dbPromise;
+    // 28.1: the DB name is workspace-suffixed; the memoized handle is
+    // keyed by name so a workspace switch in a live context re-opens
+    // the right database instead of reusing the old workspace's.
+    return resolveActiveDbName(DB_NAME).then((dbName) => {
+        if (_dbPromise && _dbName === dbName) return _dbPromise;
+        if (_dbPromise) {
+            _dbPromise.then((db) => { try { db.close(); } catch (_) { /* noop */ } }).catch(() => {});
+            _dbPromise = null;   // never let openNamed short-circuit onto the old workspace's handle
+        }
+        _dbName = dbName;
+        return openNamed(dbName);
+    });
+}
+function openNamed(dbName) {
     _dbPromise = new Promise((resolve, reject) => {
         let open;
-        try { open = idb().open(DB_NAME, DB_VERSION); }
+        try { open = idb().open(dbName, DB_VERSION); }
         catch (err) { reject(err); return; }
 
         open.onupgradeneeded = (ev) => {
@@ -204,6 +219,7 @@ export function openArchiveDb() {
  */
 export function _resetForTests() {
     _dbPromise = null;
+    _dbName = null;
 }
 
 /**

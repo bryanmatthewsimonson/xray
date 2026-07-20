@@ -22,12 +22,13 @@ const HASH_B = 'b'.repeat(64);
 
 test.beforeEach(async () => { await clear(); });
 
-test('openAuditDb is idempotent — one connection promise', async () => {
-    const a = openAuditDb();
-    const b = openAuditDb();
-    assert.equal(a, b);
-    const db = await a;
-    assert.equal(db.name, 'xray-audits');
+test('openAuditDb is idempotent — one shared connection', async () => {
+    // 28.1: the outer promise now resolves the workspace-suffixed DB
+    // name per call, so reference-equality of the RETURN value is no
+    // longer the contract — the shared underlying connection is.
+    const [a, b] = await Promise.all([openAuditDb(), openAuditDb()]);
+    assert.equal(a, b, 'both calls resolve the same IDBDatabase instance');
+    assert.equal(a.name, 'xray-audits', 'default workspace keeps the bare name');
 });
 
 test('runs: CRUD + articleHash index', async () => {

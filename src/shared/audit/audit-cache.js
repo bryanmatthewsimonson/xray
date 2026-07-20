@@ -10,6 +10,7 @@
 // droppable (docs/EPISTEMIC_AUDIT_DESIGN.md §"Local model and ledger").
 
 import { Utils } from '../utils.js';
+import { resolveActiveDbName } from '../workspace-keys.js';
 
 const DB_NAME = 'xray-audits';
 const DB_VERSION = 5;
@@ -66,12 +67,28 @@ function tx(transaction) {
 }
 
 let _dbPromise = null;
+let _dbName = null;   // the on-disk name _dbPromise opened (28.1)
 
 export function openAuditDb() {
+    // 28.1: the DB name is workspace-suffixed; the memoized handle is
+    // keyed by name so a workspace switch in a live context re-opens
+    // the right database instead of reusing the old workspace's.
+    return resolveActiveDbName(DB_NAME).then((dbName) => {
+        if (_dbPromise && _dbName === dbName) return _dbPromise;
+        if (_dbPromise) {
+            _dbPromise.then((db) => { try { db.close(); } catch (_) { /* noop */ } }).catch(() => {});
+            _dbPromise = null;   // never let openNamed short-circuit onto the old workspace's handle
+        }
+        _dbName = dbName;
+        return openNamed(dbName);
+    });
+}
+
+function openNamed(dbName) {
     if (_dbPromise) return _dbPromise;
     _dbPromise = new Promise((resolve, reject) => {
         let open;
-        try { open = idb().open(DB_NAME, DB_VERSION); }
+        try { open = idb().open(dbName, DB_VERSION); }
         catch (err) { reject(err); return; }
 
         open.onupgradeneeded = (ev) => {
