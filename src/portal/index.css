@@ -569,6 +569,9 @@ body.xr-portal {
 .xr-cgedge--about { stroke: var(--xr-primary); stroke-opacity: 0.4; }
 .xr-cgedge--cotag { stroke: var(--xr-text-dim); stroke-opacity: 0.5; stroke-dasharray: 2 2; }
 
+/* Corpus audit block (CA.1) */
+.xr-caudit { margin-top: 14px; }
+
 /* Entity corpus view (E5) — the wire-first timeline */
 .xr-ecorpus { margin-top: 10px; }
 .xr-ecorpus__profile {
