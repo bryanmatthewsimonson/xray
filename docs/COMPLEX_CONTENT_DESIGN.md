@@ -1,11 +1,20 @@
 # Complex Content Capture — Design (PDFs, tables, scientific papers)
 
-**Status: C1–C4.2 SHIPPED** (design v0.1, 2026-07-03; status updated
-2026-07-08). Tables/math islands, scholarly metadata, PDF routing +
-pdf.js extraction, extraction-quality warnings, and PDF figures are
-implemented and merged (see `ROADMAP.md` §Phase 18 for the landed/
-deferred split). **C5 (LLM extraction assist) and C6 (SMOKE walk)
-remain design-only.** Slices at the end.
+**Status: COMPLETE — C1–C6 shipped** (design v0.1, 2026-07-03; status
+updated 2026-07-20). Tables/math islands, scholarly metadata, PDF
+routing + pdf.js extraction, extraction-quality warnings, and PDF
+figures shipped as Phase 18 C1–C4.2. **C5 (LLM extraction assist)
+shipped with Phase 27** (PR #183): `shared/llm-extract.js` (the
+dual-substrate re-grounding pass with `unverified_spans` accounting),
+`llm-extract-prompts.js` (forced-tool span schema, structure +
+transcription modes, the 100-page / 22MB-raw request caps —
+page-range chunking is a documented deferral), the consent-gated
+scanned-document transcription with its reader banner, and the
+`extraction-method`/`source-hash` 30023 mirror (§6.3/§7). **C6
+docs are done**: the SMOKE_TEST §Phase 18 walk covers C1–C5
+(18.1–18.37) and `NIP_DRAFT.md` §"Extraction provenance" documents
+the additive tags; browser verification rides real-case use.
+§9's open questions are annotated with their resolutions.
 
 Related: `docs/CAPTURE_GUIDE.md` (per-platform capture),
 `docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md` (LLM assist + consent gates),
@@ -335,25 +344,28 @@ consumers (the established pattern).
 Suggested order: C1/C2 are independent quick wins; C3→C4 is the
 unlock; C5 only after C4's substrate exists (the rule requires it).
 
-## 9. Open questions
+## 9. Open questions — resolutions (2026-07-20)
 
-1. **PDF viewer URL normalization coverage** — Chrome's viewer,
-   Firefox's `resource://pdf.js` wrapper, and embedded `<embed>`
-   viewers on publisher sites; enumerate shapes in C3 and keep a
-   JOURNAL entry per discovered variant (the CAPTURE_GUIDE pattern).
-2. **Very large PDFs** — bytes in IndexedDB are fine to ~tens of MB;
-   set a cap (50MB?) with a keep-bytes-or-hash-only choice above it.
-3. **`references` → claims/entities** — capturing the structure is
-   this design; whether references auto-suggest `thing`/`case`
-   entities belongs to the entity-corpus work
-   (`docs/ENTITY_CORPUS_DESIGN.md`), not here.
-4. **EPUB and other document formats** — the Tier-2 pattern (fetch
-   bytes → parse in reader → markdown + source_hash) generalizes;
-   out of scope until PDFs prove it.
-5. **Turndown GFM edge**: whether to *also* emit a linearized GFM
-   approximation next to an HTML-island table for grep-ability of
-   published markdown — leaning no (two renderings of one table is
-   two chances to disagree).
+1. **PDF viewer URL normalization coverage** — RESOLVED in practice:
+   Chrome/Firefox/Edge viewers, Drive preview, `file:///`, fragment
+   URLs, and `?file=` decoys all normalize (SMOKE 18.15–18.30 attest
+   the shapes); new variants keep getting a JOURNAL entry each (the
+   CAPTURE_GUIDE pattern).
+2. **Very large PDFs** — RESOLVED: the `source_documents` store caps
+   bytes at 50MB per document (over-cap keeps hash-only provenance),
+   and LLM extraction refuses over 22MB raw / 100 pages per request
+   (page-range chunking is a documented deferral — the API has no
+   page-range parameter and splitting PDFs would need a PDF library
+   in the service worker).
+3. **`references` → claims/entities** — still deliberately out of
+   scope here; belongs to the entity-corpus work
+   (`docs/ENTITY_CORPUS_DESIGN.md`).
+4. **EPUB and other document formats** — RESOLVED as predicted: the
+   Tier-2 pattern generalized. EPUB book import shipped in Phase 27
+   (each chapter a capture, grouped under the book).
+5. **Turndown GFM edge** — DECIDED no: one rendering per table. A
+   linearized GFM shadow next to an HTML island is two renderings of
+   one table and two chances to disagree.
 6. **Figures and captions in PDFs — shipped (C4.2).** The Tier-2 path
    originally dropped images entirely — a real gap for papers and
    reports where the figure IS the evidence. Now `pdf-capture.js` walks
