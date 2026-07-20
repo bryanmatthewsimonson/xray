@@ -30,6 +30,7 @@ import { renderEntityView } from './entity-view.js';
 import { renderCaseView } from './case-view.js';
 import { renderEntityDossierView } from './entity-dossier-view.js';
 import { renderCrossWorkspaceView } from './cross-workspace-view.js';
+import { renderEntityCorpusView } from './entity-corpus-view.js';
 import { Workspaces } from '../shared/identity-profiles.js';
 import { describeActiveContext } from '../shared/case-membership.js';
 import { findingsForEntity } from './forensic-data.js';
@@ -863,6 +864,8 @@ const viewCallbacks = {
     // 19.4: the entity dossier is LOCAL-id addressed (local-first view
     // — the subject need not be published).
     onOpenEntityDossier: (entityId) => { state.view = { name: 'entity-dossier', entityId }; closeInspector(); render(); },
+    // E5: the wire-first corpus view — works on any pubkey.
+    onOpenEntityCorpus: (pubkey) => { state.view = { name: 'entity-corpus', pubkey }; closeInspector(); render(); },
     // The synthesis block signals its run boundaries (with a per-run
     // token) so background re-renders defer while it runs (scheduleRender).
     onAnalysisState: (running, token) => setAnalysisState(running, token),
@@ -903,6 +906,15 @@ function render() {
                 : null,
             findings: findingsForEntity(state.items, state.view.pubkey),
             populationMean: DEFAULT_POPULATION_MEAN,
+            callbacks: viewCallbacks
+        });
+    } else if (state.view.name === 'entity-corpus') {
+        // E5 — wire-first: renders from relay data, local names enrich.
+        libraryChromeVisible(false);
+        renderEntityCorpusView($('#xr-view'), {
+            pubkey: state.view.pubkey,
+            relays: state.relays.length ? state.relays : FALLBACK_RELAYS,
+            entityIndex: state.entityIndex,
             callbacks: viewCallbacks
         });
     } else if (state.view.name === 'cross-workspace') {

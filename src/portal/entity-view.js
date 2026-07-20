@@ -72,6 +72,15 @@ export function renderEntityView(host, params) {
         dossierBtn.addEventListener('click', () => callbacks.onOpenEntityDossier(localEntityId));
         head.appendChild(dossierBtn);
     }
+    // E5: the wire-first corpus view — what the NETWORK holds for this
+    // pubkey (works identically for entities you didn't create).
+    if (callbacks.onOpenEntityCorpus) {
+        const corpusBtn = el('button', 'xr-portal__btn xr-portal__btn--ghost', 'Entity corpus');
+        corpusBtn.type = 'button';
+        corpusBtn.title = 'Query the relays for this entity\'s own notes and everything that p-tags it';
+        corpusBtn.addEventListener('click', () => callbacks.onOpenEntityCorpus(focusPubkey));
+        head.appendChild(corpusBtn);
+    }
 
     const locate = el('input', 'xr-view__locate');
     locate.type = 'search';
