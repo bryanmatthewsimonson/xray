@@ -19,6 +19,30 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-20 — 28.6 cross-workspace read: never mint a foreign IDB
+
+**Tags:** design
+
+The cross-workspace graph (`workspace-read.js`) reads other
+workspaces' archive DBs with a **versionless** `indexedDB.open` — and
+aborts inside `onupgradeneeded`. A versionless open only upgrades when
+the database did not exist (fresh v1), and letting that creation
+proceed would be worse than junk: `archive-cache.js` runs its whole
+schema creation off `oldVersion === 0`, so an empty v1 shell would
+make the workspace's first REAL open skip store creation and break its
+archive permanently. Pinned in `tests/cross-workspace-graph.test.mjs`
+("missing DB is NOT minted"). Same reason `backup.js`'s `openRaw`
+is documented delete-flow-only.
+
+Also second-guessable: cross-case "shared entities" are a
+**normalized-name match**, not an identity join. Workspaces keep
+separate entity records with separate derived keys (kickoff §5.1);
+the edge is labeled `match: 'name'` and the view says "signal, not an
+identity assertion". Merging on name across corpora would be silent
+identity laundering — the thing 28.x exists to prevent.
+
+---
+
 ## 2026-07-20 — Case-bound workspaces: the storage namespace ships dark (28.1a)
 
 **Tags:** design

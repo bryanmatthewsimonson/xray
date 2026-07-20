@@ -92,7 +92,7 @@ export const ENTITY_ICONS = {
  * "donald j. trump" hash to the same id — the alias mechanism handles
  * the *intentional* disambiguation cases.
  */
-function normalizeName(name) {
+export function normalizeName(name) {
     return String(name || '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 

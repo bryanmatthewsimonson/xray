@@ -29,6 +29,7 @@ import { mountBookImport } from './import-book.js';
 import { renderEntityView } from './entity-view.js';
 import { renderCaseView } from './case-view.js';
 import { renderEntityDossierView } from './entity-dossier-view.js';
+import { renderCrossWorkspaceView } from './cross-workspace-view.js';
 import { findingsForEntity } from './forensic-data.js';
 import { loadLocalLedger, reconcile, countLocalOnly, listLocalArtifacts } from './reconcile.js';
 import { getByEventId as journalGetByEventId } from '../shared/event-journal.js';
@@ -902,6 +903,11 @@ function render() {
             populationMean: DEFAULT_POPULATION_MEAN,
             callbacks: viewCallbacks
         });
+    } else if (state.view.name === 'cross-workspace') {
+        // 28.6 — the read-only view across workspaces; independent of
+        // the relay corpus, it reads workspace snapshots itself.
+        libraryChromeVisible(false);
+        renderCrossWorkspaceView($('#xr-view'), { callbacks: viewCallbacks });
     } else if (state.view.name === 'case') {
         libraryChromeVisible(false);
         renderCaseView($('#xr-view'), {
@@ -1170,6 +1176,13 @@ function wireChrome() {
         const importHost = $('#xr-import-host');
         if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
         mountUrlImport(importHost, { onDone: null });
+    });
+
+    // 28.6 — the read-only cross-workspace graph.
+    $('#xr-cross-ws').addEventListener('click', () => {
+        state.view = { name: 'cross-workspace' };
+        closeInspector();
+        render();
     });
 
     $('#xr-resync').addEventListener('click', async () => {
