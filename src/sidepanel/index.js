@@ -38,6 +38,7 @@ import { equivalencePubkeys } from '../shared/entity-equivalence.js';
 import { buildFeedFilters, claimCoords, buildJudgmentFilter, assembleFeed } from '../shared/entity-feed.js';
 import { pushEntities, pullEntities, clearRemote, pushRelayList, pullRelayList, normalizeRelayUrl } from '../shared/entity-sync.js';
 import { dedupeReport, recentMerges, DedupeDismissals } from '../shared/entity-health.js';
+import { buildRegistryDigest, validateEntityOps } from '../shared/llm-entity-audit.js';
 import { assembleEntityDossier, compactFieldRows } from '../shared/entity-dossier.js';
 import { Storage } from '../shared/storage.js';
 import { listArticles } from '../shared/archive-cache.js';
@@ -1949,9 +1950,20 @@ async function renderHealth() {
           </div>`).join('')}`;
 
     body.innerHTML = `
-        <div class="xr-side__health-summary">${report.counts.pairs} suspect pair${report.counts.pairs === 1 ? '' : 's'} in ${report.counts.clusters} cluster${report.counts.clusters === 1 ? '' : 's'}</div>
+        <div class="xr-side__health-summary">${report.counts.pairs} suspect pair${report.counts.pairs === 1 ? '' : 's'} in ${report.counts.clusters} cluster${report.counts.clusters === 1 ? '' : 's'}
+          <button type="button" class="xr-side__ghost-btn" id="xr-entity-audit"
+                  title="Ask the LLM for merge/rename/type corrections the deterministic detectors can't see. Every proposal is reviewed here before anything changes.">🤖 Audit with LLM…</button>
+        </div>
+        <div id="xr-entity-audit-review"></div>
         ${clusterHtml}
         ${mergeHtml}`;
+
+    // E2 — the LLM entity audit (ENTITY_CORPUS_DESIGN §3.2). Explicit
+    // click → explicit disclosure → one call → firewall → per-op Accept.
+    $('#xr-entity-audit').addEventListener('click', () =>
+        runEntityAudit({ entities, archiveRecords }).catch((err) => {
+            toast(err.message || String(err), 'error');
+        }));
 
     body.querySelectorAll('[data-act]').forEach((btn) => {
         btn.addEventListener('click', async () => {
@@ -1981,6 +1993,126 @@ async function renderHealth() {
             }
         });
     });
+}
+
+// E2 — the LLM entity audit run. Gates (llmAssist + key) are checked
+// BEFORE the disclosure so nobody consents into a missing-key error;
+// the disclosure names exactly what leaves the device (the §3.2
+// privacy note: names, types, descriptions, and stored mention
+// snippets — no new class of data). Raw ops go through the
+// validateEntityOps firewall; every mutation is a human Accept here.
+async function runEntityAudit({ entities, archiveRecords }) {
+    const status = () => $('#xr-entity-audit-review');
+    const cfg = await new Promise((resolve) =>
+        chrome.runtime.sendMessage({ type: 'xray:llm:config' }, (r) => resolve(r || {})));
+    if (!cfg.enabled) throw new Error('LLM assist is off. Enable it in Settings → Advanced → LLM assist.');
+    if (!cfg.hasKey) throw new Error('No Anthropic API key set. Add one in Settings → Advanced → LLM assist.');
+
+    const { digest, included, truncated, mentionTextByEntity } =
+        buildRegistryDigest({ entities, articles: archiveRecords });
+    if (!digest.trim()) { toast('Nothing to audit — the registry is empty.'); return; }
+
+    if (!confirm(`Audit ${included} entit${included === 1 ? 'y' : 'ies'} with the LLM?\n\n`
+        + 'This sends entity names, types, descriptions, and stored mention snippets '
+        + '(already-captured article fragments) to the Anthropic API under your key — '
+        + 'no new class of data, but it leaves this device.'
+        + (truncated ? `\n\n${truncated} entit${truncated === 1 ? 'y' : 'ies'} did not fit the size budget and are excluded.` : '')
+        + '\n\nEvery proposal is reviewed here before anything changes.')) return;
+
+    status().innerHTML = '<div class="xr-side__empty">Auditing the registry…</div>';
+    const resp = await new Promise((resolve) =>
+        chrome.runtime.sendMessage({ type: 'xray:llm:entity-audit', request: { digest } }, (r) => resolve(r)));
+    if (!resp || !resp.ok) {
+        status().innerHTML = '';
+        throw new Error((resp && resp.error) || 'Entity audit failed (no response).');
+    }
+
+    const { accepted, rejected } = validateEntityOps(resp.ops, { entities, mentionTextByEntity });
+    renderEntityAuditReview({ accepted, rejected, model: resp.model, entities });
+}
+
+function describeEntityOp(op, nameOf) {
+    if (op.op === 'merge') return `Merge: ${nameOf(op.alias_id)} → ${nameOf(op.canonical_id)} (alias, undoable)`;
+    if (op.op === 'rename') return `Rename: ${nameOf(op.entity_id)} → “${op.name}”`;
+    if (op.op === 'retype') return `Retype: ${nameOf(op.entity_id)} → ${op.entity_type} ⚠ changes id derivation for future lookups`;
+    if (op.op === 'split') return `Split: ${nameOf(op.entity_id)} into ${(op.sides || []).map((s) => `“${s.name}”`).join(' + ')} — you re-point the article tags afterwards`;
+    if (op.op === 'external_id') return `External id: ${nameOf(op.entity_id)} ← ${op.scheme}:${op.value} (published as a NIP-39 i tag)`;
+    return op.op;
+}
+
+function renderEntityAuditReview({ accepted, rejected, model, entities }) {
+    const host = $('#xr-entity-audit-review');
+    const nameOf = (id) => (entities[id] && entities[id].name) || id;
+    const opRows = accepted.length === 0
+        ? '<div class="xr-side__empty">No accepted proposals — the registry looks consistent to the model.</div>'
+        : accepted.map((op, i) => `
+            <div class="xr-side__health-pair" data-op-i="${i}">
+              <div class="xr-side__health-names">${escapeHtml(describeEntityOp(op, nameOf))}</div>
+              <div class="xr-side__health-evidence">${escapeHtml(op.note || '')}${
+                  (op.evidence || []).length ? '<br>' + op.evidence.map((e) =>
+                      `“${escapeHtml(String(e.quote || '').slice(0, 90))}”`).join(' · ') : ''}</div>
+              <div class="xr-side__health-actions">
+                <button type="button" class="xr-side__ghost-btn" data-audit-act="accept" data-i="${i}">Accept</button>
+                <button type="button" class="xr-side__ghost-btn" data-audit-act="reject" data-i="${i}">Reject</button>
+              </div>
+            </div>`).join('');
+    const rejectedHtml = rejected.length === 0 ? '' : `
+        <details class="xr-side__health-rejected">
+          <summary>${rejected.length} proposal${rejected.length === 1 ? '' : 's'} rejected by the firewall</summary>
+          ${rejected.map((r) => `<div class="xr-side__hint">${escapeHtml((r.op && r.op.op) || '?')}: ${escapeHtml(r.reason)}</div>`).join('')}
+        </details>`;
+    host.innerHTML = `
+        <div class="xr-side__health-cluster">
+          <div class="xr-side__health-cluster-head">LLM audit (${escapeHtml(model || 'model')}) — ${accepted.length} proposal${accepted.length === 1 ? '' : 's'}</div>
+          ${opRows}
+          ${rejectedHtml}
+        </div>`;
+
+    host.querySelectorAll('[data-audit-act]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const i = Number(btn.dataset.i);
+            const op = accepted[i];
+            const row = host.querySelector(`[data-op-i="${i}"]`);
+            if (btn.dataset.auditAct === 'reject') { row.remove(); return; }
+            try {
+                await applyEntityOp(op, model);
+                row.remove();
+                toast('Applied');
+                await refreshEntities();
+            } catch (err) {
+                toast(err.message || String(err), 'error');
+            }
+        });
+    });
+}
+
+// Accept = the design's op → model mapping (§3.2 table). linkAlias
+// validates types/cycles itself; split is manual-assisted — Accept
+// creates the OTHER sides as new entities (llm provenance) and the
+// human re-points article tags at their leisure.
+async function applyEntityOp(op, model) {
+    const provenance = `llm:${model || 'model'}`;
+    if (op.op === 'merge') {
+        await EntityModel.linkAlias(op.alias_id, op.canonical_id);
+    } else if (op.op === 'rename') {
+        await EntityModel.update(op.entity_id, { name: op.name });
+    } else if (op.op === 'retype') {
+        await EntityModel.update(op.entity_id, { type: op.entity_type });
+    } else if (op.op === 'split') {
+        const original = await EntityModel.get(op.entity_id);
+        for (const side of (op.sides || [])) {
+            const name = String(side.name || '').trim();
+            if (!name || name === original.name) continue;   // the original keeps its record
+            await EntityModel.create({ name, type: original.type, suggested_by: provenance });
+        }
+    } else if (op.op === 'external_id') {
+        const rec = await EntityModel.get(op.entity_id);
+        await EntityModel.update(op.entity_id, {
+            external_ids: [...(rec.external_ids || []), `${op.scheme}:${op.value}`]
+        });
+    } else {
+        throw new Error(`Unknown op: ${op.op}`);
+    }
 }
 
 function showMergeChoice(pairEl, pair, entities) {
