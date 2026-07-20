@@ -51,6 +51,19 @@ The recommended selector types, in order of robustness preference:
 
 Authors SHOULD include multiple selectors. Consumers SHOULD try them in order and treat the first match with confidence ≥ 0.7 as the resolution. Annotations whose selectors do not resolve on the current page are NOT discarded; they are surfaced as page-level annotations with a "could not be located" indicator.
 
+### Extraction provenance (kind-30023 additive tags)
+
+X-Ray articles publish as standard NIP-23 kind-30023 events. When the capture was extracted from an archived source document (a PDF), two ADDITIVE tags mirror the local extraction record so consumers can distinguish "deterministic text layer" from "model-transcribed" forever:
+
+| tag | value | meaning |
+|---|---|---|
+| `extraction-method` | `pdfjs-<ver>` \| `llm:<model>` \| `pdfjs-<ver>+llm:<model>` | How the body text was produced: the deterministic pdf.js text layer; a model transcription of a scanned document (no text layer existed); or a model structure pass whose every span was re-grounded verbatim against the deterministic text (model-authored spans that failed grounding were discarded, never published). |
+| `source-hash` | sha256 (64 hex) of the ORIGINAL document bytes | Pins the capture to the exact source document. The capturer archives the bytes locally under this hash; anyone holding the same document can verify the binding. |
+
+Both tags are additive: no existing tag moves, and consumers that do not know them skip them (the established pattern). A consumer that DOES know them SHOULD surface `llm:` methods as machine-transcribed — that text was not produced by a deterministic extractor and should be verified against the source document before being quoted as the document's text. The local `unverified_spans` count (model spans dropped by re-grounding) deliberately does NOT publish: it describes the reconstruction session, not the published text.
+
+For page-level anchoring of claims quoted from such captures, see `FragmentSelector` (`page=N`) above.
+
 ## Kind 30040 — Claim
 
 Addressable. An atomized assertion extracted from web content: the claim text plus the real-world entities it concerns. This is the unit the assessment (30054) and relationship (30055) kinds target.

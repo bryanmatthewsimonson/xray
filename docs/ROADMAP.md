@@ -98,10 +98,11 @@ Phase 17 ██████░░░░░░░░░░░░░░  Part A la
                                 (docs/ENTITY_CORPUS_DESIGN.md); E2/E4–E6
                                 (LLM audit, mention notes, network reader)
                                 still design-only
-Phase 18 ████████████████░░░░  C1–C4.2 landed — complex content capture:
+Phase 18 ████████████████████  COMPLETE — complex content capture:
                                 tables/math, scholarly meta, PDF routing +
-                                pdf.js extraction + figures
-                                (docs/COMPLEX_CONTENT_DESIGN.md); C5/C6 open
+                                pdf.js extraction + figures, LLM extraction
+                                assist (C5, shipped with Phase 27), C6 docs
+                                (docs/COMPLEX_CONTENT_DESIGN.md)
 Phase 19 ████████████████████  COMPLETE (19.1–19.8) — entity dossiers &
                                 the provenance-pinned knowledge base:
                                 fact layer + 30040 tags, assembler,
@@ -1545,7 +1546,7 @@ corpus reader).
 
 ---
 
-## Phase 18 — Complex content capture (PDFs, tables, scientific papers) 🚧 C1–C4.2 landed
+## Phase 18 — Complex content capture (PDFs, tables, scientific papers) ✅ COMPLETE
 
 **`docs/COMPLEX_CONTENT_DESIGN.md`** (v0.1, 2026-07-03). Three tiers
 under one substrate rule (*the deterministic text layer is always the
@@ -1611,7 +1612,12 @@ grounding substrate*).
   extraction-warnings banner. **Wire addition (additive):**
   `extraction-method` + `source-hash` tags on 30023 per §6.3/§7,
   read back as a thin extraction record.
-- 📝 **C6** SMOKE §Phase 18 walk needs a human with a browser.
+- ✅ **C6** docs — the SMOKE_TEST §Phase 18 walk is written through
+  C5 (18.1–18.37) and `NIP_DRAFT.md` §"Extraction provenance"
+  documents the `extraction-method`/`source-hash` additive tags.
+  Browser verification rides real-case use (maintainer decision,
+  2026-07-20); the design doc's §9 open questions carry their
+  resolutions.
 
 Sequenced after the Epistack sprint (docs/code landed on the
 provenance train, PR #108).
