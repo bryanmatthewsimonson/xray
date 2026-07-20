@@ -38,6 +38,10 @@ import {
     buildLensTool, buildLensSystemPrompt, buildLensUserPrompt
 } from './lens-prompt.js';
 import { lensPreflightRefusal, assembleJurisdictionReading } from './lens-engine.js';
+import {
+    MAX_ENTITY_AUDIT_OUTPUT_TOKENS,
+    buildEntityAuditTool, buildEntityAuditSystemPrompt, buildEntityAuditUserPrompt
+} from './llm-entity-audit.js';
 import { JurisdictionModel, treatAsLiving, admissibleAuthorities } from './jurisdiction-model.js';
 import { isValidLensAssertionType, LENS_ASSERTION_TYPES } from './lens-taxonomy.js';
 import { articleHash } from './audit/article-hash.js';
@@ -345,6 +349,57 @@ export async function runSuggestionPass(req = {}) {
         proposals: filtered,
         usage: data && data.usage ? data.usage : undefined
     };
+}
+
+/**
+ * Run one user-invoked ENTITY AUDIT pass (Phase 17 E2 —
+ * docs/ENTITY_CORPUS_DESIGN.md §3.2). Same two consent gates as
+ * Suggest (llmAssist flag + key); never scheduled, never automatic.
+ * Returns RAW ops — the caller runs validateEntityOps and gates every
+ * mutation behind a human Accept.
+ *
+ * @param {object} req { digest: string }  buildRegistryDigest output
+ * @returns {Promise<{ok:true, model, ops:Array, usage?:object}
+ *                  | {ok:false, error:string, status?:number}>}
+ */
+export async function runEntityAuditPass(req = {}) {
+    await loadFlags();
+    if (!isEnabled('llmAssist')) {
+        return { ok: false, error: 'LLM assist is off. Enable it in Options → Advanced → LLM assist.' };
+    }
+    const apiKey = await readApiKey();
+    if (!apiKey) {
+        return { ok: false, error: 'No Anthropic API key set. Add one in Options → Advanced → LLM assist.' };
+    }
+    const digest = String(req.digest || '');
+    if (!digest.trim()) {
+        return { ok: false, error: 'No registry digest to audit.' };
+    }
+
+    const model = await readModel();
+    const tool = buildEntityAuditTool();
+    const payload = {
+        model,
+        max_tokens: MAX_ENTITY_AUDIT_OUTPUT_TOKENS,
+        system: buildEntityAuditSystemPrompt(),
+        tools: [tool],
+        tool_choice: { type: 'tool', name: tool.name },
+        messages: [{ role: 'user', content: buildEntityAuditUserPrompt(digest) }]
+    };
+    Utils.log('[X-Ray LLM] entity audit pass:', { model, chars: digest.length });
+
+    const res = await postMessages(payload, apiKey);
+    if (!res.ok) return res;
+    const data = res.data;
+    { const r = refusalResult(data, 'an audit of this entity registry'); if (r) return r; }
+    if (data && data.stop_reason === 'max_tokens') {
+        return { ok: false, error: 'The audit hit its output limit before finishing.' };
+    }
+    const input = extractToolInput(data, tool.name);
+    if (input === null || !Array.isArray(input.ops)) {
+        return { ok: false, error: 'The model did not return a structured op list.' };
+    }
+    return { ok: true, model: (data && data.model) || model, ops: input.ops, usage: data && data.usage };
 }
 
 /**

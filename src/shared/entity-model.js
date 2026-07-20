@@ -573,6 +573,16 @@ export const EntityModel = {
         if (updates.description != null) patched.description = updates.description;
         if (updates.nip05 != null)       patched.nip05 = updates.nip05;
         if ('canonical_id' in updates)   patched.canonical_id = updates.canonical_id || null;
+        // E2 external identifiers ('wikidata:Q42', 'url:https://…') —
+        // published as NIP-39 `i` tags on the entity's kind-0 / fact
+        // sheet. Whole-array replace, deduped; empty clears.
+        if ('external_ids' in updates) {
+            const list = Array.isArray(updates.external_ids)
+                ? [...new Set(updates.external_ids.filter((v) => typeof v === 'string' && v.trim()).map((v) => v.trim()))]
+                : [];
+            if (list.length > 0) patched.external_ids = list.sort();
+            else delete patched.external_ids;
+        }
         // 19.7: the per-field publish checklist — fields the user
         // excluded from the public profile/fact sheet. Persisted so
         // the AUTOMATIC hash-compare republish honors it, not just

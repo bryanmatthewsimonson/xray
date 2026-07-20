@@ -26,7 +26,7 @@ import { NostrClient } from '../shared/nostr-client.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
-import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, runHypothesisEdgePass, runClaimLinksPass, getCorpusConfig, runExtractPass } from '../shared/llm-client.js';
+import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, runHypothesisEdgePass, runClaimLinksPass, getCorpusConfig, runExtractPass, runEntityAuditPass } from '../shared/llm-client.js';
 import { getSourceDocument } from '../shared/archive-cache.js';
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prompts.js';
 import { pdfDocumentUrl } from '../shared/pdf-detect.js';
@@ -643,6 +643,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         getLensConfig().then(
             (cfg) => sendResponse({ ok: true, ...cfg }),
             () => sendResponse({ ok: false, enabled: false, hasKey: false })
+        );
+        return true; // async sendResponse
+    }
+
+    // Sidepanel → worker: the LLM entity audit (Phase 17 E2). Gated by
+    // llmAssist + key inside the pass; returns RAW ops — the sidepanel
+    // runs the validation firewall and gates every mutation behind a
+    // human Accept. Nothing is saved or published here.
+    if (message.type === 'xray:llm:entity-audit') {
+        runEntityAuditPass(message.request || {}).then(
+            (result) => sendResponse(result),
+            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Entity audit call failed' })
         );
         return true; // async sendResponse
     }
