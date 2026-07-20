@@ -101,6 +101,39 @@ chrome connector) executing SMOKE_TEST sections and reporting
 pass/fail; and the staged "Process corpus" chaining
 (import → pre-analyze → audit → links → analyze) once CA.1 lands.
 
+## §4b. FA slices — forensic findings at corpus scale (approved 2026-07-20)
+
+CA.1–CA.4 shipped (PRs #242–#245). The same treatment extends to the
+forensic family (kind 30062, `CRIMINOLOGY_DESIGN.md`) — with a twist
+that makes the payoff LARGER: a maneuver (evasion, immunizing defense,
+self-serving revision) is a pattern ACROSS a subject's statements over
+time, and the only LLM authoring path today (the reader's per-article
+Suggest) structurally cannot see it. Corpus scale is not an efficiency
+here; it is the first time the tooling can do what the methodology
+describes. The atoms exist (Rule 2: every anchor requires a verbatim
+quote, enforced at the model).
+
+- **FA.1 — the per-subject corpus pass.** For each orbit person/org
+  with material in ≥2 members, a compact cross-article evidence bundle
+  (their claims with quotes + mention contexts) feeds ONE call
+  proposing maneuver findings whose anchor chains span members.
+  Firewall (the E2 discipline): subject must be a known person/org,
+  maneuver valid per the taxonomy, every anchor quote GROUNDED in its
+  named member's stored text, `counter_note` non-empty (Rule 6),
+  per-subject proposal cap. Review renders the counter-read FIRST;
+  Accept → the existing idempotent `ForensicModel.create` with
+  `suggested_by: 'llm:<model>'`. No intent/honesty field exists
+  anywhere (Rule 1 — structurally, as with CA.3's no-mean pin).
+- **FA.2 — claim-spine join.** Anchor quotes ↔ claim quotes, the same
+  span-overlap join; chips labeled as location, never verdicts.
+- **FA.3 — the subject rollup.** Per-subject maneuver counts by type
+  across the corpus (+ baseline comparison). Red line, pinned: no
+  deception/honesty score can exist in the output.
+
+The volume caution, recorded: corpus-scale proposals about named
+people raise the review burden — the cap and counter-read-first
+review exist so acceptance never becomes rubber-stamping.
+
 ## §5. Costs, stated plainly
 
 A corpus audit is N members × 8 module calls — the most expensive
