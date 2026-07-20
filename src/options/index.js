@@ -420,13 +420,26 @@ async function restoreEntityKeys() {
     const status = document.getElementById('local-status');
     try {
         await LocalKeyManager.init();
-        const restored = await EntityModel.restoreDerivedKeys();
-        if (restored.length === 0) {
+        const { restored, skipped } = await EntityModel.restoreDerivedKeys();
+        // CW.4: entities derived under a DIFFERENT identity profile are
+        // refused, loudly — restoring them here would mint wrong pubkeys.
+        const skipNote = skipped.length
+            ? ` ${skipped.length} entit${skipped.length === 1 ? 'y belongs' : 'ies belong'} to a DIFFERENT identity profile`
+                + ` (${skipped.map((s) => s.name).join(', ')}) — switch to that profile to restore them.`
+            : '';
+        const unverified = restored.filter((r) => !r.verified).length;
+        const unverifiedNote = unverified
+            ? ` ${unverified} had no recorded origin — verify their pubkeys against published events`
+                + ' (entities created before key derivation come back with a NEW pubkey).'
+            : '';
+        if (restored.length === 0 && skipped.length === 0) {
             flash(status, 'Nothing to restore — every owned entity already has its key.');
+        } else if (restored.length === 0) {
+            flash(status, `Nothing restored.${skipNote}`, false);
         } else {
             flash(status, `Restored ${restored.length} entity key${restored.length === 1 ? '' : 's'}: `
-                + restored.map((r) => r.name).join(', ')
-                + '. Entities created before key derivation come back with a NEW pubkey.');
+                + restored.map((r) => r.name).join(', ') + '.' + unverifiedNote + skipNote,
+                skipped.length === 0);
         }
     } catch (e) {
         flash(status, 'Restore failed: ' + (e && e.message), false);

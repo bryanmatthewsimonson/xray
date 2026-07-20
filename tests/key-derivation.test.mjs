@@ -92,9 +92,11 @@ test('EntityModel.create derives the key from the primary; keystore loss is reco
     _store.delete('local_keys');
     assert.equal(LocalKeyManager.getKey(e.keyName), null);
 
-    const restored = await EntityModel.restoreDerivedKeys();
+    const { restored, skipped } = await EntityModel.restoreDerivedKeys();
     assert.equal(restored.length, 1);
+    assert.equal(skipped.length, 0);
     assert.equal(restored[0].pubkey, originalPubkey, 'the SAME pubkey came back');
+    assert.equal(restored[0].verified, true, 'derivation root matched the active primary');
     assert.equal(LocalKeyManager.getKey(e.keyName).pubkey, originalPubkey);
 });
 
@@ -111,12 +113,71 @@ test('restoreDerivedKeys never clobbers a present key and requires a primary', a
     await Storage.primaryIdentity.set(PARENT);
     const e = await EntityModel.create({ name: 'Present Key', type: 'person' });
     const before = LocalKeyManager.getKey(e.keyName).privateKey;
-    const restored = await EntityModel.restoreDerivedKeys();
+    const { restored } = await EntityModel.restoreDerivedKeys();
     assert.equal(restored.length, 0, 'present keys are left alone');
     assert.equal(LocalKeyManager.getKey(e.keyName).privateKey, before);
 
     await Storage.primaryIdentity.clear();
     await assert.rejects(() => EntityModel.restoreDerivedKeys(), /no primary identity/);
+});
+
+// ---- CW.4: the derivation-root guard --------------------------------
+
+const PARENT_B = '22'.repeat(32);
+
+test('CW.4: create stamps the derivation root; restore under a DIFFERENT primary refuses instead of minting a wrong pubkey', async () => {
+    await reset();
+    await Storage.primaryIdentity.set(PARENT);
+    const e = await EntityModel.create({ name: 'Rooted Person', type: 'person' });
+    const originalPubkey = LocalKeyManager.getKey(e.keyName).pubkey;
+    assert.equal(e.derived_from, Crypto.getPublicKey(PARENT), 'create records WHICH primary derived the key');
+
+    // Keystore loss, then a profile switch — the exact §2.5.1 footgun.
+    LocalKeyManager.keys.clear();
+    _store.delete('local_keys');
+    await Storage.primaryIdentity.set(PARENT_B);
+
+    const wrong = await EntityModel.restoreDerivedKeys();
+    assert.equal(wrong.restored.length, 0, 'nothing restored under the wrong primary');
+    assert.equal(wrong.skipped.length, 1, 'the mismatch is REPORTED, not silent');
+    assert.equal(wrong.skipped[0].id, e.id);
+    assert.equal(wrong.skipped[0].derived_from, Crypto.getPublicKey(PARENT));
+    assert.equal(LocalKeyManager.getKey(e.keyName), null, 'no wrong key was minted');
+
+    // Switching back to the recorded root restores the ORIGINAL pubkey.
+    await Storage.primaryIdentity.set(PARENT);
+    const right = await EntityModel.restoreDerivedKeys();
+    assert.equal(right.restored.length, 1);
+    assert.equal(right.restored[0].pubkey, originalPubkey, 'original pubkey back under the right root');
+});
+
+test('CW.4: a pre-guard record (no derived_from) restores unverified and is stamped so the NEXT restore is guarded', async () => {
+    await reset();
+    await Storage.primaryIdentity.set(PARENT);
+    const e = await EntityModel.create({ name: 'Legacy Rootless', type: 'person' });
+    // Simulate a pre-CW.4 record: strip the stamp (the shim stores
+    // Storage's JSON-serialized value — handle both encodings).
+    const raw = _store.get('entities');
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    delete parsed[e.id].derived_from;
+    _store.set('entities', typeof raw === 'string' ? JSON.stringify(parsed) : parsed);
+    LocalKeyManager.keys.clear();
+    _store.delete('local_keys');
+
+    // Restore under a different primary: allowed (pre-guard contract),
+    // but reported unverified — and the stamp is written.
+    await Storage.primaryIdentity.set(PARENT_B);
+    const first = await EntityModel.restoreDerivedKeys();
+    assert.equal(first.restored.length, 1);
+    assert.equal(first.restored[0].verified, false, 'no recorded origin ⇒ unverified');
+
+    // Second loss: the guard is now armed — the original root refuses.
+    LocalKeyManager.keys.clear();
+    _store.delete('local_keys');
+    await Storage.primaryIdentity.set(PARENT);
+    const second = await EntityModel.restoreDerivedKeys();
+    assert.equal(second.skipped.length, 1, 'stamped at restore ⇒ guarded thereafter');
+    assert.equal(second.skipped[0].derived_from, Crypto.getPublicKey(PARENT_B));
 });
 
 test('installDerivedKey: idempotent on the same key, CONFLICT on a different one', async () => {
