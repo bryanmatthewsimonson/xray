@@ -164,6 +164,41 @@ test('case-synthesis: corpusExtractKey keys on MAP_PROMPT_VERSION, not the overa
     assert.notEqual(dflt, await CS.corpusExtractKey(req, CORPUS_PROMPT_VERSION), 'overall version differs — a reduce bump would NOT move the cache key');
 });
 
+test('case-synthesis: corpusMapRequest is THE shared request shape — pre-analyze and Analyze compute one key', async () => {
+    // The pre-analyze pass (28.x) caches extracts AHEAD of the Analyze
+    // run; both build their request through corpusMapRequest, and this
+    // pins the shape so the cache key can never drift between them. A
+    // field change here is a map-input change (bump MAP_PROMPT_VERSION).
+    const member = {
+        article_hash: 'a'.repeat(64),
+        url: 'https://x/a', title: 'T',
+        text: 'Body text.', truncated: false, total_chars: 10,
+        claims: [
+            { id: 'c1', text: 'one', quote: null, is_key: false, stance: null },
+            { id: 'c2', text: 'two', quote: 'q', is_key: true, stance: 1 }
+        ]
+    };
+    const frame = { caseName: 'legos', scopeQuestion: 'who took them?' };
+    const req = CS.corpusMapRequest(member, frame);
+    assert.deepEqual(req, {
+        member_id: 'a'.repeat(64),
+        memberText: 'Body text.',
+        memberMeta: { title: 'T', url: 'https://x/a' },
+        claimsDigest: 'c1 — one\nc2 — two',
+        caseName: 'legos', scopeQuestion: 'who took them?'
+    });
+    // Two independent builds → byte-identical cache keys.
+    assert.equal(
+        await CS.corpusExtractKey(CS.corpusMapRequest(member, frame)),
+        await CS.corpusExtractKey(req));
+    // A claimless member (the pre-analyze common case: imported, not
+    // yet claim-extracted) keys cleanly on an empty digest.
+    const bare = CS.corpusMapRequest({ ...member, claims: [] }, frame);
+    assert.equal(bare.claimsDigest, '');
+    assert.notEqual(await CS.corpusExtractKey(bare), await CS.corpusExtractKey(req),
+        'claim extraction later invalidates the pre-analyzed extract — by design');
+});
+
 test('case-synthesis: proposalKey is stable and direction-insensitive for relationships (27 S.3)', () => {
     // The triage record persists under these keys — a key change would
     // silently resurrect every dismissed proposal.
