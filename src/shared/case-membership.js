@@ -88,6 +88,40 @@ export async function memberUrlSets(caseEntityId, { articles: injectedArticles }
 }
 
 /**
+ * 28.5 — the source-manager's member model, pure over the url sets:
+ * every archived record that IS a member, with HOW it is a member
+ * (`tag`, `claims`, or both) — the manager renders chips from this and
+ * offers tag-removal only where a tag exists (claim membership is
+ * edited through claims, never silently stripped). Newest capture
+ * first; counts on the face.
+ *
+ * @param {Array} articles  archive records
+ * @param {{tagUrls:Set, claimUrls:Set}} sets  memberUrlSets output
+ * @returns {{rows: Array<{rec, url, viaTag, viaClaims}>,
+ *            counts: {members:number, tagOnly:number, claimBacked:number}}}
+ */
+export function describeMembership(articles, { tagUrls, claimUrls }) {
+    const rows = [];
+    for (const rec of articles || []) {
+        if (!rec || !rec.url) continue;
+        const url = Utils.normalizeUrl(rec.url);
+        const viaTag = tagUrls.has(url);
+        const viaClaims = claimUrls.has(url);
+        if (!viaTag && !viaClaims) continue;
+        rows.push({ rec, url, viaTag, viaClaims });
+    }
+    rows.sort((a, b) => (b.rec.cachedAt || 0) - (a.rec.cachedAt || 0));
+    return {
+        rows,
+        counts: {
+            members: rows.length,
+            tagOnly: rows.filter((r) => r.viaTag && !r.viaClaims).length,
+            claimBacked: rows.filter((r) => r.viaClaims).length
+        }
+    };
+}
+
+/**
  * Archive records not yet members of this case (neither tag- nor
  * claim-mediated), newest capture first — the candidate list for an
  * "Add sources…" picker.

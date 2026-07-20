@@ -32,7 +32,8 @@ const { ClaimModel } = await import('../src/shared/claim-model.js');
 const { LocalKeyManager } = await import('../src/shared/local-key-manager.js');
 const { saveArticle, getArticle, clear: clearArchive } = await import('../src/shared/archive-cache.js');
 const {
-    memberUrlSets, listAddableArticles, addArticlesToCase, removeArticleFromCase
+    memberUrlSets, describeMembership, listAddableArticles,
+    addArticlesToCase, removeArticleFromCase
 } = await import('../src/shared/case-membership.js');
 
 async function reset() {
@@ -135,6 +136,62 @@ test('membership: RMW preserves publishedToRelay + articleHash on a published ad
     assert.equal(rec.publishedToRelay, true);
     assert.equal(rec.publishedEventId, 'evtX');
     assert.equal(rec.articleHash, before.articleHash, 'content hash unchanged by a tag mutation');
+});
+
+// ---------------------------------------------------------------------
+// 28.5 — describeMembership: the source-manager's member model
+// ---------------------------------------------------------------------
+
+test('28.5: describeMembership — HOW each member belongs, non-members excluded, counts honest', async () => {
+    const articles = [
+        { url: 'https://ex.com/tag-only', cachedAt: 100 },
+        { url: 'https://ex.com/claims-only', cachedAt: 200 },
+        { url: 'https://ex.com/both', cachedAt: 300 },
+        { url: 'https://ex.com/outsider', cachedAt: 400 },
+        null,
+        { cachedAt: 500 } // no url → skipped, never throws
+    ];
+    const sets = {
+        tagUrls: new Set(['https://ex.com/tag-only', 'https://ex.com/both']),
+        claimUrls: new Set(['https://ex.com/claims-only', 'https://ex.com/both'])
+    };
+    const { rows, counts } = describeMembership(articles, sets);
+
+    assert.deepEqual(rows.map((r) => r.url),
+        ['https://ex.com/both', 'https://ex.com/claims-only', 'https://ex.com/tag-only'],
+        'members only, newest capture first');
+    const byUrl = new Map(rows.map((r) => [r.url, r]));
+    assert.deepEqual(
+        [byUrl.get('https://ex.com/tag-only').viaTag, byUrl.get('https://ex.com/tag-only').viaClaims],
+        [true, false]);
+    assert.deepEqual(
+        [byUrl.get('https://ex.com/claims-only').viaTag, byUrl.get('https://ex.com/claims-only').viaClaims],
+        [false, true]);
+    assert.deepEqual(
+        [byUrl.get('https://ex.com/both').viaTag, byUrl.get('https://ex.com/both').viaClaims],
+        [true, true]);
+    // tagOnly + claimBacked = members (claimBacked includes "both" —
+    // the union, never double-counted).
+    assert.deepEqual(counts, { members: 3, tagOnly: 1, claimBacked: 2 });
+});
+
+test('28.5: describeMembership over the REAL memberUrlSets — normalization agrees end to end', async () => {
+    await reset();
+    const kase = await EntityModel.create({ name: 'Case', type: 'case' });
+    await seedArchive('https://ex.com/a', { entities: [{ entity_id: kase.id, context: '' }] });
+    await seedArchive('https://ex.com/b');
+    await seedArchive('https://ex.com/c');
+    await ClaimModel.create({ text: 'x', source_url: 'https://ex.com/b', about: [kase.id] });
+
+    const sets = await memberUrlSets(kase.id);
+    const { listArticles } = await import('../src/shared/archive-cache.js');
+    const { rows, counts } = describeMembership(await listArticles(), sets);
+    assert.equal(counts.members, 2, 'the tag member and the claim member; c excluded');
+    const byUrl = new Map(rows.map((r) => [r.url, r]));
+    assert.equal(byUrl.get('https://ex.com/a').viaTag, true);
+    assert.equal(byUrl.get('https://ex.com/a').viaClaims, false);
+    assert.equal(byUrl.get('https://ex.com/b').viaClaims, true);
+    assert.ok(rows.every((r) => r.rec && r.rec.article), 'rows carry the full archive record');
 });
 
 // ---------------------------------------------------------------------
