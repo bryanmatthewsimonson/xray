@@ -54,7 +54,8 @@ test('WORKSPACE_CLEAR_KEYS is pinned exactly', () => {
         'lens_jurisdictions', 'url_aliases', 'entity_fact_dismissals',
         'entity_dedupe_dismissals', 'follow_sets',
         'incorporated_artifacts', 'incorporation_dismissals',
-        'case_hypotheses', 'hypothesis_edges'
+        'case_hypotheses', 'hypothesis_edges',
+        'published_mentions'   // E4 — mention-note publish stamps
     ]);
 });
 
