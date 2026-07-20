@@ -66,6 +66,23 @@ body.xr-side {
   font-weight: 600;
 }
 
+/* The active-case chip — always visible so you never wonder whose
+   data you are looking at; click opens Settings ▸ Cases */
+.xr-side__case {
+  max-width: 45%;
+  padding: 3px 10px;
+  border: 1px solid var(--xr-accent);
+  border-radius: 999px;
+  background: var(--xr-surface-2);
+  color: var(--xr-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------------- list view ---------------- */
 
 .xr-side__list-view {

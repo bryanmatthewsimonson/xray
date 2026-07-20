@@ -29,6 +29,7 @@ import { collectCaseData, buildCaseJson, buildCaseMarkdown } from '../shared/cas
 import { collectCaseBundle, buildCaseBundleJson, isCaseBundle, importCaseBundle } from '../shared/case-bundle.js';
 import { accountsForEntity, listUnlinkedAccounts, linkAccountToEntity, unlinkAccount } from '../shared/identity/account-registry.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
+import { describeActiveContext } from '../shared/case-membership.js';
 import { Crypto } from '../shared/crypto.js';
 import { dedupeReplaceable } from '../shared/nostr-events.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
@@ -2031,6 +2032,19 @@ async function init() {
         state.searchQuery = ev.target.value;
         renderList();
     });
+
+    // The active-case chip (kickoff §4: always visible). Read-only
+    // here — switching lives in Settings ▸ Cases, which the chip opens.
+    describeActiveContext().then((ctx) => {
+        const chip = $('#xr-case-chip');
+        if (!chip) return;
+        chip.textContent = `🗂 ${ctx.caseName || ctx.wsLabel}`;
+        if (ctx.profileLabel) chip.title = `Case "${ctx.caseName || ctx.wsLabel}" · profile "${ctx.profileLabel}" — manage cases in Settings.`;
+        chip.hidden = false;
+        chip.addEventListener('click', () => {
+            try { chrome.runtime.openOptionsPage(); } catch (_) { /* non-extension context */ }
+        });
+    }).catch(() => { /* chip stays hidden */ });
 
     // Header buttons.
     $('#xr-new-entity').addEventListener('click', openCreateModal);

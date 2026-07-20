@@ -64,6 +64,29 @@ body.xr-portal {
   font-size: 15px;
 }
 
+.xr-portal__chrome-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* The active-case chip/switcher — always visible so you never wonder
+   whose data you are looking at */
+.xr-portal__case {
+  max-width: 320px;
+  padding: 4px 8px;
+  border: 1px solid var(--xr-accent);
+  border-radius: 999px;
+  background: var(--xr-surface-2);
+  color: var(--xr-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .xr-portal__btn {
   border: 1px solid var(--xr-border);
   background: var(--xr-surface-2);

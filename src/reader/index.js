@@ -74,7 +74,7 @@ import { buildTranscriptSection, upsertTranscriptSection } from '../shared/trans
 import { openMediaModal } from './media-modal.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
-import { resolveActiveCaseRef } from '../shared/case-membership.js';
+import { resolveActiveCaseRef, describeActiveContext } from '../shared/case-membership.js';
 import {
     buildOwnedKeysManifest, mintDelegationTag, entityDelegationConditions
 } from '../shared/identity-builders.js';
@@ -6192,6 +6192,19 @@ async function init() {
     try { await LocalKeyManager.init(); } catch (err) {
         console.warn('[X-Ray Reader] LocalKeyManager init failed:', err);
     }
+
+    // The active-case chip (kickoff §4: always visible) — the case this
+    // capture and its tags belong to. Read-only; Settings owns switching.
+    describeActiveContext().then((ctx) => {
+        const chip = document.getElementById('xr-case-chip');
+        if (!chip) return;
+        chip.textContent = `🗂 ${ctx.caseName || ctx.wsLabel}`;
+        if (ctx.profileLabel) chip.title = `Case "${ctx.caseName || ctx.wsLabel}" · profile "${ctx.profileLabel}" — manage cases in Settings.`;
+        chip.hidden = false;
+        chip.addEventListener('click', () => {
+            try { chrome.runtime.openOptionsPage(); } catch (_) { /* non-extension context */ }
+        });
+    }).catch(() => { /* chip stays hidden */ });
 
     try {
         const loaded = await loadArticle();

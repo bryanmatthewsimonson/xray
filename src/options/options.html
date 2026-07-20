@@ -260,19 +260,20 @@
       <span class="xr-opt__status" id="ws-status"></span>
 
       <hr />
-      <h3 class="xr-opt__subhead">Workspace</h3>
+      <h3 class="xr-opt__subhead">Active case data</h3>
       <p class="xr-opt__hint">
-        A workspace is everything you have captured or authored:
-        entities (and their keypairs, including the entity-sync key),
-        claims, evidence links, assessments, forensic findings, truth
+        These act on the <strong>active case's workspace</strong> —
+        everything you have captured or authored in it: entities (and
+        their keypairs, including the entity-sync key), claims,
+        evidence links, assessments, forensic findings, truth
         adjudications, platform accounts, the archive cache, audit
         records, and the signed-event journal. Settings, relays,
-        feature flags, the LLM key, and your <strong>saved
-        identities</strong> are not part of it.
+        feature flags, the LLM key, your <strong>saved
+        identities</strong>, and other cases are untouched.
       </p>
       <div class="xr-opt__actions">
         <button class="xr-opt__btn" id="workspace-backup">Download backup (JSON)</button>
-        <button class="xr-opt__btn xr-opt__btn--danger" id="workspace-reset">Start fresh workspace…</button>
+        <button class="xr-opt__btn xr-opt__btn--danger" id="workspace-reset">Reset this case's data…</button>
       </div>
       <p class="xr-opt__hint">
         The backup contains your saved identities and their private

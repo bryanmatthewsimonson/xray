@@ -24,7 +24,7 @@ import { Utils } from './utils.js';
 import { EntityModel } from './entity-model.js';
 import { ClaimModel } from './claim-model.js';
 import { listArticles, getArticle, saveArticle } from './archive-cache.js';
-import { Workspaces } from './identity-profiles.js';
+import { Workspaces, IdentityProfiles } from './identity-profiles.js';
 
 /**
  * 28.3 — the ACTIVE workspace's bound case, resolved to the exact
@@ -47,6 +47,36 @@ export async function resolveActiveCaseRef() {
         caseName: root.name,
         scopeQuestion: (scopeSlot && scopeSlot.value) || '',
         ref: { entity_id: root.id, type: 'case', name: root.name, context: '' }
+    };
+}
+
+/**
+ * The active-context line every surface's chrome renders (the kickoff
+ * §4 promise: "the active case name always visible — you should never
+ * wonder whose data you are looking at"). One shape for the portal,
+ * side panel, and reader:
+ *
+ *   { wsId, wsLabel, caseName|null, profileLabel|null, isDefault }
+ *
+ * `caseName` resolves inside the ACTIVE namespace via
+ * resolveActiveCaseRef (null when the workspace is unbound or the
+ * binding is broken — the chrome then shows the workspace label, never
+ * a guessed name).
+ */
+export async function describeActiveContext() {
+    const ws = await Workspaces.active();
+    const ref = await resolveActiveCaseRef().catch(() => null);
+    let profileLabel = null;
+    if (ws.identity_pubkey) {
+        const profiles = await IdentityProfiles.getAll().catch(() => ({}));
+        profileLabel = (profiles[ws.identity_pubkey] || {}).label || null;
+    }
+    return {
+        wsId: ws.id,
+        wsLabel: ws.label,
+        caseName: ref ? ref.caseName : null,
+        profileLabel,
+        isDefault: ws.id === 'default'
     };
 }
 
