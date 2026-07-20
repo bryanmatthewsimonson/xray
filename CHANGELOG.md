@@ -10,6 +10,10 @@ Sections per release: **Added** (new features), **Changed**
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.8.0] — 2026-07-20
+
 ### Added
 
 - **Entity Pages (EP.1–EP.5, `docs/ENTITY_PAGE_KICKOFF.md`).** The
@@ -2304,7 +2308,8 @@ roadmap landed:
 - **Phase 7** — Archive reader: IndexedDB cache, paywall detection,
   relay-backed reconstruction.
 
-[Unreleased]: https://github.com/bryanmatthewsimonson/xray/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/bryanmatthewsimonson/xray/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/bryanmatthewsimonson/xray/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/bryanmatthewsimonson/xray/compare/eee77e4...v0.7.0
 [0.6.0]: https://github.com/bryanmatthewsimonson/xray/compare/v0.5.1...eee77e4
 [0.5.1]: https://github.com/bryanmatthewsimonson/xray/compare/v0.5.0...v0.5.1
