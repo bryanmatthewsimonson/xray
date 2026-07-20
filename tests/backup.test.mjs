@@ -256,3 +256,61 @@ test('dumpDatabase dumps every store of a covered database', async () => {
     assert.equal(dump.runs.length, 1);
     await assert.rejects(() => dumpDatabase('unknown-db'), /no opener/);
 });
+
+// ---------------------------------------------------------------------
+// 28.1 — workspace scoping: backups snapshot ONE workspace
+// ---------------------------------------------------------------------
+
+test('28.1: collectBackup under a non-default workspace carries ITS content under logical names, never other workspaces’', async () => {
+    const { Storage } = await import('../src/shared/storage.js');
+    // default workspace content + a foreign workspace's content
+    _stateStore.set('entities', JSON.stringify({ home: 'default' }));
+    _stateStore.set('ws:ws_other:entities', JSON.stringify({ home: 'other' }));
+    _stateStore.set('preferences', JSON.stringify({ debug: true }));
+    await Storage.setActiveWorkspaceId('ws_mine');
+    _stateStore.set('ws:ws_mine:entities', JSON.stringify({ home: 'mine' }));
+    try {
+        const backup = await collectBackup();
+        assert.equal(backup.storage.entities, JSON.stringify({ home: 'mine' }), 'active ws content, logical name');
+        assert.equal(backup.storage.preferences, JSON.stringify({ debug: true }), 'install config rides');
+        assert.ok(!('ws:ws_other:entities' in backup.storage), 'foreign ws content never rides');
+        assert.ok(!('ws:ws_mine:entities' in backup.storage), 'no raw names in the file');
+        assert.ok(!('workspaces' in backup.storage) && !('active_workspace' in backup.storage),
+            'registry + pointer are install plumbing, excluded');
+
+        // applyBackup while ws_mine is active: replaces ITS scope only.
+        _stateStore.set('ws:ws_other:entities', JSON.stringify({ home: 'other' }));
+        await applyBackup(backup);
+        assert.equal(_stateStore.get('ws:ws_mine:entities'), JSON.stringify({ home: 'mine' }), 'restored mapped');
+        assert.equal(_stateStore.get('ws:ws_other:entities'), JSON.stringify({ home: 'other' }), 'other ws untouched');
+        assert.equal(_stateStore.get('entities'), JSON.stringify({ home: 'default' }), 'default ws untouched');
+    } finally {
+        await Storage.setActiveWorkspaceId('default');
+        _stateStore.delete('ws:ws_mine:entities');
+        _stateStore.delete('ws:ws_other:entities');
+    }
+});
+
+test('28.1: collectWorkspaceSnapshot dumps a NON-active workspace under logical names (the delete-flow backup, §7 Q2)', async () => {
+    const { collectWorkspaceSnapshot } = await import('../src/shared/backup.js');
+    const { Storage } = await import('../src/shared/storage.js');
+    assert.equal(await Storage.activeWorkspaceId(), 'default', 'precondition: default active');
+    _stateStore.set('ws:ws_doomed:entities', JSON.stringify({ doomed: true }));
+    _stateStore.set('ws:ws_doomed:article_claims', JSON.stringify({ c1: {} }));
+    _stateStore.set('ws:ws_doomed:xray:llm:key', JSON.stringify('smuggled'));   // excluded even here
+    try {
+        const snap = await collectWorkspaceSnapshot('ws_doomed');
+        assert.equal(snap.format, BACKUP_FORMAT, 'same restorable format');
+        assert.equal(snap.workspaceId, 'ws_doomed');
+        assert.equal(snap.storage.entities, JSON.stringify({ doomed: true }), 'logical names');
+        assert.equal(snap.storage.article_claims, JSON.stringify({ c1: {} }));
+        assert.ok(!('xray:llm:key' in snap.storage), 'excluded keys never ride, even prefixed');
+        assert.equal(validateBackup(snap).length, 0, 'validates as a normal backup');
+        // Its databases dump by BASE name (empty here — never created).
+        assert.ok('xray-archive' in snap.databases);
+    } finally {
+        _stateStore.delete('ws:ws_doomed:entities');
+        _stateStore.delete('ws:ws_doomed:article_claims');
+        _stateStore.delete('ws:ws_doomed:xray:llm:key');
+    }
+});
