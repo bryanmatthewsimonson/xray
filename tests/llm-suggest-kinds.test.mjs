@@ -107,3 +107,17 @@ test('case-workspace: the entity rules define every type and forbid proposing a 
     assert.match(p, /never propose one/, 'the workspace refusal is explicit');
     assert.match(p, /person: a named human being/, 'every suggestable type is defined');
 });
+
+// --- The active-case frame (28.3) -------------------------------------------
+
+test('case frame: the active case names the extraction context without licensing invention', () => {
+    const p = buildSystemPrompt({ tasks: ['entities'], caseName: 'Are eggs bad for you?', scopeQuestion: 'Do eggs raise CVD risk?' });
+    assert.match(p, /ACTIVE CASE: "Are eggs bad for you\?"/);
+    assert.match(p, /scope question: "Do eggs raise CVD risk\?"/);
+    assert.match(p, /extract FAITHFULLY/, 'faithfulness rules over preference');
+    assert.match(p, /never propose the case itself as an entity/, 'CW.1 restated where the frame tempts');
+    // Absent frame → absent block, and no scope line without a scope.
+    assert.ok(!/ACTIVE CASE/.test(buildSystemPrompt({ tasks: ['entities'] })), 'no frame without a case');
+    const noScope = buildSystemPrompt({ tasks: ['entities'], caseName: 'X' });
+    assert.ok(/ACTIVE CASE: "X"/.test(noScope) && !/scope question/.test(noScope), 'scope line only when a scope exists');
+});

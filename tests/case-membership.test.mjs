@@ -136,3 +136,37 @@ test('membership: RMW preserves publishedToRelay + articleHash on a published ad
     assert.equal(rec.publishedEventId, 'evtX');
     assert.equal(rec.articleHash, before.articleHash, 'content hash unchanged by a tag mutation');
 });
+
+// ---------------------------------------------------------------------
+// 28.3 — resolveActiveCaseRef: the active workspace's bound case
+// ---------------------------------------------------------------------
+
+test('28.3: resolveActiveCaseRef — unbound → null; bound case → the membership ref shape + scope; non-case binding → null', async () => {
+    const { resolveActiveCaseRef } = await import('../src/shared/case-membership.js');
+    const { Workspaces } = await import('../src/shared/identity-profiles.js');
+    const { Storage } = await import('../src/shared/storage.js');
+
+    // Unbound default workspace → null.
+    assert.equal(await resolveActiveCaseRef(), null, 'unbound → null');
+
+    // Bind a real case with a scope question → the exact writer ref shape.
+    const kase = await EntityModel.create({ name: 'Origin of Covid', type: 'case' });
+    await EntityModel.update(kase.id, {
+        authored_fields: { scope_question: { value: 'Where did it come from?' } }
+    });
+    const active = await Workspaces.active();
+    await Workspaces.update(active.id, { caseEntityId: kase.id });
+    const resolved = await resolveActiveCaseRef();
+    assert.equal(resolved.caseId, kase.id);
+    assert.equal(resolved.caseName, 'Origin of Covid');
+    assert.equal(resolved.scopeQuestion, 'Where did it come from?');
+    assert.deepEqual(resolved.ref, { entity_id: kase.id, type: 'case', name: 'Origin of Covid', context: '' },
+        'the exact ref shape addArticlesToCase writes');
+
+    // A binding pointing at a NON-case (retyped or wrong id) → null.
+    await EntityModel.update(kase.id, { authored_fields: null });
+    await EntityModel.update(kase.id, { type: 'thing' });
+    assert.equal(await resolveActiveCaseRef(), null, 'non-case binding never mints tags');
+    await Workspaces.update(active.id, { caseEntityId: null });
+    await Storage.setActiveWorkspaceId('default');
+});

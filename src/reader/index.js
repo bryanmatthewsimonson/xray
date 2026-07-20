@@ -74,6 +74,7 @@ import { buildTranscriptSection, upsertTranscriptSection } from '../shared/trans
 import { openMediaModal } from './media-modal.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
+import { resolveActiveCaseRef } from '../shared/case-membership.js';
 import {
     buildOwnedKeysManifest, mintDelegationTag, entityDelegationConditions
 } from '../shared/identity-builders.js';
@@ -397,6 +398,24 @@ async function adoptArticle(article, stored) {
                 }
             } catch (err) {
                 console.warn('[X-Ray Reader] hash check failed:', err);
+            }
+            // 28.3 — a capture lands in the ACTIVE workspace's bound
+            // case automatically. The ref goes into the IN-MEMORY
+            // article BEFORE the save, so every later save/publish of
+            // this article carries it and no archive-side write can be
+            // clobbered by a reader-side save. Same ref shape as the
+            // case-membership writer; idempotent on re-opens.
+            try {
+                const binding = await resolveActiveCaseRef();
+                if (binding) {
+                    if (!Array.isArray(state.article.entities)) state.article.entities = [];
+                    if (!state.article.entities.some((e) => e && e.entity_id === binding.ref.entity_id)) {
+                        state.article.entities.push(binding.ref);
+                        refreshEntitiesBar().catch(() => {});
+                    }
+                }
+            } catch (err) {
+                console.warn('[X-Ray Reader] case auto-tag skipped:', err);
             }
             // Attach the computed hash so the archive row records the
             // same identity the reader displays — archive-cache would
@@ -2534,6 +2553,8 @@ async function runSuggestPass() {
     btn.textContent = '✨ Thinking…';
     let resp;
     try {
+        // 28.3 — the active workspace's case frames the extraction.
+        const binding = await resolveActiveCaseRef().catch(() => null);
         resp = await browserApi.runtime.sendMessage({
             type: 'xray:llm:suggest',
             request: {
@@ -2541,7 +2562,9 @@ async function runSuggestPass() {
                 // (default: entities + claims); the SW reads it.
                 articleText,
                 articleUrl: state.article.url || '',
-                articleTitle: state.article.title || ''
+                articleTitle: state.article.title || '',
+                caseName: binding ? binding.caseName : '',
+                scopeQuestion: binding ? binding.scopeQuestion : ''
             }
         });
     } catch (err) {

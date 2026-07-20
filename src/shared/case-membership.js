@@ -24,6 +24,31 @@ import { Utils } from './utils.js';
 import { EntityModel } from './entity-model.js';
 import { ClaimModel } from './claim-model.js';
 import { listArticles, getArticle, saveArticle } from './archive-cache.js';
+import { Workspaces } from './identity-profiles.js';
+
+/**
+ * 28.3 — the ACTIVE workspace's bound case, resolved to the exact
+ * entity-ref shape the membership writer uses ({entity_id: canonical
+ * root, type:'case', name, context:''}) plus the case frame the
+ * suggest prompt consumes ({caseName, scopeQuestion}). Null when the
+ * workspace is unbound, or the bound id does not resolve to a
+ * case-typed entity in THIS workspace's registry — a binding must
+ * never mint tags for an entity that isn't actually here.
+ */
+export async function resolveActiveCaseRef() {
+    const ws = await Workspaces.active();
+    const boundId = ws && ws.case_entity_id;
+    if (!boundId) return null;
+    const root = await EntityModel.resolveCanonical(boundId).catch(() => null);
+    if (!root || root.type !== 'case') return null;
+    const scopeSlot = root.authored_fields && root.authored_fields.scope_question;
+    return {
+        caseId: root.id,
+        caseName: root.name,
+        scopeQuestion: (scopeSlot && scopeSlot.value) || '',
+        ref: { entity_id: root.id, type: 'case', name: root.name, context: '' }
+    };
+}
 
 /**
  * The url sets that already make an archive record a member of this

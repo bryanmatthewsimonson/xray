@@ -281,6 +281,14 @@ export const Workspaces = {
         return Object.values(all).sort((a, b) => (a.created || 0) - (b.created || 0));
     },
 
+    /** The ACTIVE workspace's registry record (default when the
+     *  pointer names a deleted/unknown id). */
+    async active() {
+        const all = await Workspaces.ensure();
+        const id = await Storage.activeWorkspaceId();
+        return all[id] || all.default;
+    },
+
     /** Create a workspace with a RANDOM id (§7 Q1: never collides with
      *  entity-id derivation; outlives a renamed/retyped case anchor). */
     async create({ label, caseEntityId = null, identityPubkey = null } = {}) {
