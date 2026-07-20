@@ -1009,6 +1009,21 @@ export function buildEntitiesInvolved(data) {
  * score-bearing subtree is the raw per-article audit aggregates,
  * which are never rolled up).
  */
+/**
+ * The author's scope question (27 S.2), read from the case entity's
+ * authored fields in a collected `data` snapshot. Extracted as THE one
+ * reader shared by buildCaseDossier and the capture-time auto
+ * pre-analyze pass (auto-preanalyze.js) — the corpus cache key
+ * fingerprints this string, so the two paths must trim and default it
+ * identically or a prepaid extract would never be found by Analyze.
+ */
+export function caseScopeQuestion(data) {
+    const caseEntity = (data.entitiesById || {})[data.case && data.case.id] || null;
+    const scopeField = caseEntity && caseEntity.authored_fields
+        && caseEntity.authored_fields.scope_question;
+    return scopeField && scopeField.value ? String(scopeField.value).trim() : '';
+}
+
 export function buildCaseDossier(data, generatedAt) {
     // Derive the article rows ONCE — three section builders consume
     // the same deterministic derivation (they accept it as an optional
@@ -1020,13 +1035,10 @@ export function buildCaseDossier(data, generatedAt) {
     // `dossier.scope.question` — synthesis-block always has, but until
     // this key existed the value was silently '' and the case question
     // never reached any LLM call (JOURNAL 2026-07-16).
-    const caseEntity = (data.entitiesById || {})[data.case && data.case.id] || null;
-    const scopeField = caseEntity && caseEntity.authored_fields
-        && caseEntity.authored_fields.scope_question;
     return {
         case:         data.case,
         generated_at: generatedAt ?? null,
-        scope: { question: (scopeField && scopeField.value ? String(scopeField.value).trim() : '') },
+        scope: { question: caseScopeQuestion(data) },
         coverage: {
             articles:                 evidence.coverage.articles,
             articles_with_claims:     evidence.coverage.articles_with_claims,

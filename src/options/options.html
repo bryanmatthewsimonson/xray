@@ -541,6 +541,24 @@
         materialize as ordinary claims/links after you Accept them.
       </p>
 
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-auto-preanalyze" />
+        <span>Pre-analyze each capture into the bound case automatically</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Off by default. Requires case synthesis (above) plus LLM assist and
+        the API key. When on, every capture that lands in a case-bound
+        workspace immediately runs the synthesis <em>map</em> stage for that
+        one article, so a later <strong>Analyze corpus</strong> starts from a
+        warm cache instead of re-reading the whole corpus.
+        <strong>This is a standing authorization to spend: each capture sends
+        that article&rsquo;s text to Anthropic (one map call per capture,
+        roughly the cost of one Suggest pass)</strong> — with it off, the
+        same work happens only when you click Analyze or Pre-analyze and
+        confirm. Already-analyzed articles are skipped (cache first, no
+        call), and a failure never affects the capture itself.
+      </p>
+
       <hr />
       <h3 class="xr-opt__subhead">Power user</h3>
 
