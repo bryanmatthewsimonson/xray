@@ -33,9 +33,6 @@ import {
     EVIDENCE_RELATIONSHIP_ICONS
 } from '../shared/evidence-linker.js';
 import { EntityModel, ENTITY_ICONS, ENTITY_TYPES } from '../shared/entity-model.js';
-import { fieldsForType, isCustomField } from '../shared/entity-field-schemas.js';
-import { preflightConflicts, FactDismissals, isFactClaim } from '../shared/entity-facts.js';
-import { parseMetaDate } from '../shared/dossier-time.js';
 import { resolveSelectors } from '../shared/metadata/anchor-resolver.js';
 import { openAssessModal, renderAssessmentBadges, assessmentsByCanonicalRef } from '../shared/assess-modal.js';
 import { renderAdjudicationBadges, adjudicationsByClaimId } from '../shared/adjudicate-modal.js';
@@ -69,7 +66,7 @@ export function openClaimModal(opts) {
     return new Promise((resolve) => {
         const { sourceUrl, initialText = '', initialClaim = null, context = '', anchor = null,
                 quote = null, articleHash = null, initialAbout = [], quoteMode = false,
-                factMode = false, defaultSource = null } = opts;
+                defaultSource = null } = opts;
 
         const isEdit = !!initialClaim;
         const initial = initialClaim || {
@@ -87,7 +84,7 @@ export function openClaimModal(opts) {
 
         const modal = document.createElement('div');
         modal.className = 'xr-claim-modal';
-        modal.innerHTML = buildModalHtml(initial, isEdit, quoteMode, sourceSearchPrefill, factMode);
+        modal.innerHTML = buildModalHtml(initial, isEdit, quoteMode, sourceSearchPrefill);
         document.body.appendChild(modal);
 
         wireModal(modal, initial, isEdit, quoteMode, async (saved) => {
@@ -104,14 +101,14 @@ export function openClaimModal(opts) {
             } catch (err) {
                 showModalError(modal, err.message || String(err));
             }
-        }, factMode);
+        });
 
         function closeModal() { if (modal.parentNode) modal.parentNode.removeChild(modal); }
     });
 }
 
-function buildModalHtml(initial, isEdit, quoteMode = false, sourceSearchPrefill = '', factMode = false) {
-    const title = factMode ? 'Add fact' : (quoteMode ? 'Capture quote' : (isEdit ? 'Edit claim' : 'Add claim'));
+function buildModalHtml(initial, isEdit, quoteMode = false, sourceSearchPrefill = '') {
+    const title = quoteMode ? 'Capture quote' : (isEdit ? 'Edit claim' : 'Add claim');
     // `source` is an entity id, free text, or null (= the article).
     const sourceIsEntity = typeof initial.source === 'string' && /^entity_/.test(initial.source);
     const sourceText = (initial.source && !sourceIsEntity) ? initial.source : '';
@@ -148,11 +145,9 @@ function buildModalHtml(initial, isEdit, quoteMode = false, sourceSearchPrefill 
             ${isEdit ? '<small class="xr-claim-modal__hint">Text is immutable after creation. Delete + recreate to change it.</small>' : ''}
           </label>
 
-          ${factMode ? buildFactFields() : ''}
-
           ${quoteMode ? sourcePicker : ''}
 
-          ${factMode ? '' : buildAboutPicker(initial.about)}
+          ${buildAboutPicker(initial.about)}
 
           ${quoteMode ? '' : sourcePicker}
 
@@ -191,72 +186,6 @@ function buildAboutPicker(entityIds) {
           ${buildPickerCreateRow()}
         </div>
       </div>
-    `;
-}
-
-/**
- * Fact fields (Phase 19.5, factMode): subject picker (single,
- * entity-only), field select re-rendered per subject TYPE (sourced
- * registry fields + a custom: token), a value slot that adapts to the
- * field's value_type (text / enum select / entity picker), and three
- * honest-band date inputs. The conflict pre-flight strip INFORMS,
- * never blocks. The selection the modal opened from is the verbatim
- * quote, so manual facts ground by construction.
- */
-function buildFactFields() {
-    return `
-      <div class="xr-claim-modal__field xr-claim-modal__picker xr-claim-modal__fact-subject" data-prefix="subject">
-        <span class="xr-claim-modal__label">Fact about <em>(the entity this fact describes)</em></span>
-        <div class="xr-claim-modal__picker-entity">
-          <div class="xr-claim-modal__picked" data-role="picked"></div>
-          <input type="text" class="xr-claim-modal__picker-search" data-role="search"
-                 placeholder="Search entities by name…" spellcheck="false" />
-          <div class="xr-claim-modal__picker-results" data-role="results" hidden></div>
-          ${buildPickerCreateRow()}
-        </div>
-      </div>
-
-      <div class="xr-claim-modal__fact-grid">
-        <label class="xr-claim-modal__field">
-          <span class="xr-claim-modal__label">Field</span>
-          <select class="xr-claim-modal__fact-field" disabled>
-            <option value="">Pick the subject first…</option>
-          </select>
-          <input type="text" class="xr-claim-modal__fact-custom" hidden
-                 placeholder="custom field token (lowercase, e.g. blood-type)" spellcheck="false" />
-        </label>
-        <label class="xr-claim-modal__field xr-claim-modal__fact-value-wrap">
-          <span class="xr-claim-modal__label">Value</span>
-          <input type="text" class="xr-claim-modal__fact-value" maxlength="500"
-                 placeholder="The value as the article states it" />
-          <select class="xr-claim-modal__fact-enum" hidden></select>
-        </label>
-      </div>
-      <div class="xr-claim-modal__picker xr-claim-modal__fact-ref" data-prefix="factref" hidden>
-        <span class="xr-claim-modal__label">Value entity <em>(this field points at another entity)</em></span>
-        <div class="xr-claim-modal__picker-entity">
-          <div class="xr-claim-modal__picked" data-role="picked"></div>
-          <input type="text" class="xr-claim-modal__picker-search" data-role="search"
-                 placeholder="Search entities by name…" spellcheck="false" />
-          <div class="xr-claim-modal__picker-results" data-role="results" hidden></div>
-          ${buildPickerCreateRow()}
-        </div>
-      </div>
-
-      <div class="xr-claim-modal__fact-dates">
-        ${['valid_from|Valid from', 'valid_to|Valid to', 'observed_at|Observed'].map((pair) => {
-            const [slot, label] = pair.split('|');
-            return `
-              <label class="xr-claim-modal__field xr-claim-modal__fact-date">
-                <span class="xr-claim-modal__label">${label}</span>
-                <input type="text" class="xr-claim-modal__fact-date-input" data-slot="${slot}"
-                       placeholder="YYYY / YYYY-MM / YYYY-MM-DD" spellcheck="false" />
-                <small class="xr-claim-modal__hint xr-claim-modal__fact-precision" data-slot="${slot}"></small>
-              </label>`;
-        }).join('')}
-      </div>
-
-      <div class="xr-claim-modal__fact-preflight" hidden></div>
     `;
 }
 
@@ -317,7 +246,7 @@ function buildPickerCreateRow() {
 // Modal wiring
 // ------------------------------------------------------------------
 
-function wireModal(modal, initial, isEdit, quoteMode, onSubmit, factMode = false) {
+function wireModal(modal, initial, isEdit, quoteMode, onSubmit) {
     const $ = (sel) => modal.querySelector(sel);
 
     // Close / cancel
@@ -340,8 +269,6 @@ function wireModal(modal, initial, isEdit, quoteMode, onSubmit, factMode = false
     const sourceIsFreeText = !!(initial.source && !sourceIsEntity);
     const pickerState = {
         about:   { mode: 'entity', ids: (initial.about || []).slice(), text: '' },
-        subject: { mode: 'entity', ids: [], text: '' },
-        factref: { mode: 'entity', ids: [], text: '' },
         source: {
             mode: sourceIsFreeText ? 'text' : 'entity',
             ids:  sourceIsEntity ? [initial.source] : [],
@@ -349,194 +276,10 @@ function wireModal(modal, initial, isEdit, quoteMode, onSubmit, factMode = false
         }
     };
 
-    // Fact-mode state + wiring (Phase 19.5). All fact widgets live
-    // behind buildFactFields; the deltas here are one subject-change
-    // hook (re-populates the field select from the subject's TYPE
-    // registry), one field-change hook (adapts the value slot), and
-    // the pre-flight, which re-runs on any fact input.
-    const fact = factMode ? {
-        subjectType: null,
-        fieldDefs: [],
-        el: {
-            field:      $('.xr-claim-modal__fact-field'),
-            custom:     $('.xr-claim-modal__fact-custom'),
-            value:      $('.xr-claim-modal__fact-value'),
-            enumSel:    $('.xr-claim-modal__fact-enum'),
-            refWrap:    $('.xr-claim-modal__fact-ref'),
-            preflight:  $('.xr-claim-modal__fact-preflight')
-        }
-    } : null;
-
-    const currentFieldDef = () => {
-        if (!fact) return null;
-        const v = fact.el.field.value;
-        if (v === '__custom__') {
-            const token = fact.el.custom.value.trim();
-            return { field: token.startsWith('custom:') ? token : `custom:${token}`,
-                     value_type: 'text', enum_values: null, isCustom: true };
-        }
-        return fact.fieldDefs.find((d) => d.field === v) || null;
-    };
-
-    const onSubjectChange = async () => {
-        if (!fact) return;
-        const id = pickerState.subject.ids[0] || null;
-        const entity = id ? await EntityModel.get(id) : null;
-        fact.subjectType = entity ? entity.type : null;
-        const prevCustom = fact.el.field.value === '__custom__' ? fact.el.custom.value : null;
-        fact.fieldDefs = fact.subjectType
-            ? fieldsForType(fact.subjectType).filter((d) => d.provenance === 'sourced')
-            : [];
-        fact.el.field.disabled = !fact.subjectType;
-        fact.el.field.innerHTML = !fact.subjectType
-            ? '<option value="">Pick the subject first…</option>'
-            : [
-                '<option value="">Pick a field…</option>',
-                ...fact.fieldDefs.map((d) => `<option value="${escapeHtml(d.field)}">${escapeHtml(d.label)}</option>`),
-                '<option value="__custom__">Custom…</option>'
-              ].join('');
-        // Preserve a chosen custom token across subject changes.
-        if (prevCustom !== null) {
-            fact.el.field.value = '__custom__';
-            fact.el.custom.value = prevCustom;
-            fact.el.custom.hidden = false;
-        }
-        onFieldChange();
-    };
-
-    const onFieldChange = () => {
-        if (!fact) return;
-        const isCustom = fact.el.field.value === '__custom__';
-        fact.el.custom.hidden = !isCustom;
-        const def = currentFieldDef();
-        const isEnum = !!(def && def.value_type === 'enum' && def.enum_values);
-        const isRef = !!(def && def.value_type === 'entity-ref');
-        fact.el.enumSel.hidden = !isEnum;
-        fact.el.value.hidden = isEnum || isRef;
-        fact.el.refWrap.hidden = !isRef;
-        if (isEnum) {
-            fact.el.enumSel.innerHTML = def.enum_values
-                .map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
-        }
-        runPreflight();
-    };
-
-    // Honest-band date parsing with a live precision hint (the Phase-15
-    // occurred_precision UX rule: the input only accepts the three band
-    // grammars + full ISO; the inferred precision is shown, never
-    // silently upgraded).
-    const readDateSlot = (slot) => {
-        const input = modal.querySelector(`.xr-claim-modal__fact-date-input[data-slot="${slot}"]`);
-        const s = (input && input.value.trim()) || '';
-        if (!s) return { value: null, precision: null, invalid: false };
-        const parsed = parseMetaDate(s);
-        if (!parsed) return { value: null, precision: null, invalid: true };
-        return { value: parsed.at, precision: parsed.precision, invalid: false };
-    };
-    modal.querySelectorAll('.xr-claim-modal__fact-date-input').forEach((input) => {
-        input.addEventListener('input', () => {
-            const slot = input.dataset.slot;
-            const hint = modal.querySelector(`.xr-claim-modal__fact-precision[data-slot="${slot}"]`);
-            const { precision, invalid } = readDateSlot(slot);
-            hint.textContent = invalid ? '⚠ not a date — use YYYY, YYYY-MM, or YYYY-MM-DD'
-                : precision ? `${precision} precision` : '';
-            runPreflight();
-        });
-    });
-
-    // Assemble the draft fact from the widgets (null when incomplete).
-    const readFactDraft = () => {
-        if (!fact) return null;
-        const subjectId = pickerState.subject.ids[0] || null;
-        const def = currentFieldDef();
-        if (!subjectId || !def || !def.field) return null;
-        const isEnum = !fact.el.enumSel.hidden;
-        const isRef = !fact.el.refWrap.hidden;
-        let value = null;
-        let value_ref = null;
-        if (isRef) {
-            value_ref = pickerState.factref.ids[0] || null;
-            value = fact._refName || null;
-        } else if (isEnum) {
-            value = fact.el.enumSel.value || null;
-        } else {
-            value = fact.el.value.value.trim() || null;
-        }
-        if (!value) return null;
-        const from = readDateSlot('valid_from');
-        const to = readDateSlot('valid_to');
-        const obs = readDateSlot('observed_at');
-        return {
-            entity_id: subjectId, field: def.field, value, value_ref,
-            valid_from: from.value, valid_from_precision: from.precision,
-            valid_to: to.value, valid_to_precision: to.precision,
-            observed_at: obs.value, observed_precision: obs.precision
-        };
-    };
-
-    // Conflict pre-flight (§5): existing differing value + its evidence
-    // rendered above Save — inform, never block.
-    let preflightSeq = 0;
-    const runPreflight = async () => {
-        if (!fact) return;
-        const seq = ++preflightSeq;
-        const draft = readFactDraft();
-        const strip = fact.el.preflight;
-        if (!draft) { strip.hidden = true; strip.innerHTML = ''; return; }
-        try {
-            const [allClaims, dismissals, allEntities] = await Promise.all([
-                ClaimModel.getAll(), FactDismissals.getAll(), EntityModel.getAll()
-            ]);
-            if (seq !== preflightSeq) return;   // stale run
-            // The dossier detects conflicts across the subject's whole
-            // ALIAS FAMILY — the pre-flight must warn on the same scope
-            // or a fact captured under an alias slips past silently
-            // (19.8 review fix).
-            const { ids } = await EntityModel.aliasFamily(draft.entity_id, allEntities);
-            const family = new Set(ids.length ? ids : [draft.entity_id]);
-            const existing = Object.values(allClaims)
-                .filter((c) => isFactClaim(c) && family.has(c.fact.entity_id));
-            const conflicts = preflightConflicts(existing, draft, {
-                entityType: fact.subjectType, dismissals
-            });
-            if (conflicts.length === 0) { strip.hidden = true; strip.innerHTML = ''; return; }
-            strip.innerHTML = conflicts.map((c) => {
-                const otherId = c.claim_ids.find((id) => id !== '__draft__');
-                const other = allClaims[otherId];
-                const otherValue = c.values[c.claim_ids.indexOf(otherId)];
-                return `
-                  <div class="xr-claim-modal__fact-conflict">
-                    ⚠ A captured source says <strong>${escapeHtml(otherValue)}</strong>
-                    ${other && other.quote ? `— “${escapeHtml(other.quote.slice(0, 140))}”` : ''}
-                    ${other && other.source_url ? `<span class="xr-claim-modal__hint">(${escapeHtml(other.source_url)})</span>` : ''}
-                    <div class="xr-claim-modal__hint">Both values will render side by side as contested — saving is fine; sources disagree sometimes.</div>
-                  </div>`;
-            }).join('');
-            strip.hidden = false;
-        } catch (err) {
-            console.warn('[X-Ray Claim] fact pre-flight failed:', err);
-            strip.hidden = true;
-        }
-    };
-
-    if (fact) {
-        fact.el.field.addEventListener('change', onFieldChange);
-        fact.el.custom.addEventListener('input', runPreflight);
-        fact.el.value.addEventListener('input', runPreflight);
-        fact.el.enumSel.addEventListener('change', runPreflight);
-    }
-
     modal.querySelectorAll('.xr-claim-modal__picker').forEach((picker) => {
         const prefix = picker.dataset.prefix;
-        // `source`/`subject`/`factref` are single-select; `about` is multi.
-        wirePicker(picker, pickerState[prefix], prefix, prefix !== 'about',
-            prefix === 'subject' ? onSubjectChange
-            : prefix === 'factref' ? async () => {
-                const id = pickerState.factref.ids[0];
-                const e = id ? await EntityModel.get(id) : null;
-                if (fact) fact._refName = e ? e.name : null;
-                runPreflight();
-            } : null);
+        // `source` is single-select; `about` is multi.
+        wirePicker(picker, pickerState[prefix], prefix, prefix !== 'about');
     });
 
     // The article-author default with no matching entity yet: the
@@ -571,24 +314,6 @@ function wireModal(modal, initial, isEdit, quoteMode, onSubmit, factMode = false
             is_key:  keyCb.checked,
             context: initial.context || ''
         };
-
-        // factMode: the fact rides the claim; the subject IS the about
-        // (a fact about X is a claim about X). Incomplete widgets fail
-        // here with a readable message — cleanFact would reject them
-        // anyway, but "pick a field" beats a registry error.
-        if (factMode) {
-            const draft = readFactDraft();
-            if (!pickerState.subject.ids[0]) { showModalError(modal, 'Pick the entity this fact is about'); return; }
-            if (!draft) { showModalError(modal, 'Pick a field and enter the value the article states'); return; }
-            if (draft.field.startsWith('custom:') && !isCustomField(draft.field)) {
-                showModalError(modal, 'Custom field tokens are lowercase letters/digits/hyphens (e.g. custom:blood-type)');
-                return;
-            }
-            const invalidSlot = ['valid_from', 'valid_to', 'observed_at'].find((s) => readDateSlot(s).invalid);
-            if (invalidSlot) { showModalError(modal, `"${invalidSlot.replace('_', ' ')}" is not a date — use YYYY, YYYY-MM, or YYYY-MM-DD`); return; }
-            record.fact = draft;
-            record.about = [...new Set([draft.entity_id, ...record.about])];
-        }
 
         document.removeEventListener('keydown', escHandler);
         onSubmit(record);

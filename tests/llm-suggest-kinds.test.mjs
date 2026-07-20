@@ -1,8 +1,9 @@
 // LLM Suggest — per-kind defaults + scoping. Suggest IS the
-// extraction pass (2026-07-20): entities/claims/facts only. The
-// judgment kinds are RETIRED here — relationships live in the
-// cross-article links pass, findings in the FA.1 forensic pass,
-// assessments in the assess modal — and these pins keep them out.
+// extraction pass (2026-07-20): entities/claims only. The judgment
+// kinds are RETIRED here — relationships live in the cross-article
+// links pass, findings in the FA.1 forensic pass, assessments in the
+// assess modal — and facts are retired OUTRIGHT (2026-07-20, with the
+// whole Phase 19 fact layer). These pins keep them all out.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -20,10 +21,10 @@ const {
     vocabularyFromRegistry
 } = await import('../src/shared/llm-prompts.js');
 
-test('Suggest is extraction-only: entities/claims/facts selectable, judgment kinds RETIRED', () => {
-    assert.deepEqual([...SUGGEST_KINDS].sort(), ['claims', 'entities', 'facts']);
+test('Suggest is extraction-only: entities/claims selectable, everything else RETIRED', () => {
+    assert.deepEqual([...SUGGEST_KINDS].sort(), ['claims', 'entities']);
     assert.deepEqual([...SUGGEST_DEFAULT_KINDS], ['entities', 'claims']);
-    assert.deepEqual([...RETIRED_SUGGEST_KINDS].sort(), ['assessments', 'findings', 'relationships']);
+    assert.deepEqual([...RETIRED_SUGGEST_KINDS].sort(), ['assessments', 'facts', 'findings', 'relationships']);
     for (const retired of RETIRED_SUGGEST_KINDS) {
         assert.ok(!SUGGEST_KINDS.includes(retired), `${retired} must stay retired`);
     }
@@ -34,18 +35,17 @@ test('normalizeSuggestKinds: absent → defaults, explicit → filtered — RETI
     assert.deepEqual(normalizeSuggestKinds(null), ['entities', 'claims']);
     assert.deepEqual(normalizeSuggestKinds('all'), ['entities', 'claims'], 'non-array → defaults');
     assert.deepEqual(normalizeSuggestKinds([]), [], 'explicit empty is honored, not defaulted');
-    // THE migration: a stored setting from before the retirement sheds
+    // THE migration: a stored setting from before the retirements sheds
     // the retired kinds with no user action.
-    assert.deepEqual(normalizeSuggestKinds(['claims', 'bogus', 'findings', 'relationships', 'assessments']),
+    assert.deepEqual(normalizeSuggestKinds(['claims', 'bogus', 'facts', 'findings', 'relationships', 'assessments']),
         ['claims']);
 });
 
 test('categoryOfProposalKind: extraction kinds map; retired proposal kinds fall to null (the filter gate)', () => {
     assert.equal(categoryOfProposalKind('entity'), 'entities');
     assert.equal(categoryOfProposalKind('claim'), 'claims');
-    assert.equal(categoryOfProposalKind('fact'), 'facts');
     // A model that volunteers a retired kind anyway is filtered out.
-    for (const k of ['relationship', 'assessment', 'finding', 'baseline', 'revision', 'nope']) {
+    for (const k of ['fact', 'relationship', 'assessment', 'finding', 'baseline', 'revision', 'nope']) {
         assert.equal(categoryOfProposalKind(k), null, `${k} → null`);
     }
 });
@@ -73,24 +73,14 @@ test('buildSystemPrompt is extraction-scoped — judgment rules can never enter 
     assert.ok(!/MANEUVER GUIDE/.test(all), "'all' is extraction-all, not judgment-all");
 });
 
-// --- Entity facts category (Phase 19.6) --------------------------------------
+// --- Entity facts: RETIRED (2026-07-20, with the whole fact layer) -----------
 
-test('facts: a selectable category, DEFAULT OFF, mapped from kind=fact', () => {
-    assert.ok(SUGGEST_KINDS.includes('facts'), 'facts is selectable');
-    assert.ok(!SUGGEST_DEFAULT_KINDS.includes('facts'),
-        'facts is OPT-IN — external-knowledge risk makes it a judgment-class default');
-    assert.equal(categoryOfProposalKind('fact'), 'facts');
-    assert.ok(SUGGEST_KIND_LABELS.some((k) => k.kind === 'facts'), 'options row exists');
-});
-
-test('facts: the prompt rules carry the design-verbatim extraction ban', () => {
-    const p = buildSystemPrompt({ tasks: ['facts'] });
-    assert.match(p, /ENTITY FACTS/);
-    assert.match(p, /never supply a value from your own knowledge of the entity/,
-        'the §19.6 rule rides verbatim');
-    assert.match(p, /only what this article's text asserts/);
-    // And it stays OUT of the default scope.
-    assert.ok(!/ENTITY FACTS/.test(buildSystemPrompt({ tasks: ['entities', 'claims'] })));
+test('facts: no longer selectable, no options row, no prompt rules — even when asked for', () => {
+    assert.ok(!SUGGEST_KINDS.includes('facts'));
+    assert.ok(!SUGGEST_KIND_LABELS.some((k) => k.kind === 'facts'), 'no options row');
+    const asked = buildSystemPrompt({ tasks: ['facts'] });
+    assert.ok(!/ENTITY FACTS/.test(asked), 'the fact rules cannot regrow');
+    assert.ok(!/ENTITY FACTS/.test(buildSystemPrompt({ task: 'all' })), "'all' excludes facts");
 });
 
 // --- Case is the researcher's workspace, never a suggestion (CW.1) ----------

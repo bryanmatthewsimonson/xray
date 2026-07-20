@@ -1218,26 +1218,20 @@ dossier detail is CD.5's deliverable.)
 
 ## Phase 19 — Entity dossiers (17A + 19.1–19.8)
 
-The key walk (design §8): two articles that disagree on a biographical
-fact, captured as facts, rendered contested, published only when the
-flag says so. Needs two captured articles (any two pages you can edit
-locally work — the disagreement is what matters) and one person entity
-tagged in both.
+**2026-07-20: the fact layer (typed fields, Add-fact, fact conflicts,
+the kind-30067 fact sheet) is RETIRED — the old fact walks are gone.**
+What remains testable: the dossier (claims/identity/judgments), entity
+health, case scope, and kind-0 + mention-note publishing.
 
 | # | Test | Pass criteria |
 |---|---|---|
-| 19.a-flag | Fresh profile, select any sentence → tagger popover | ✅ the popover shows only **Add as claim / ❝ Quote / 🔎 Mark finding** — **no 📇 Add fact** (gated behind `readerAddFact`, default OFF). Options → Advanced → Reader → check **Show "Add fact" in the reader selection menu** → Save → reload the reader tab → the 📇 Add fact row is back |
-| 19.a | With **Show "Add fact"** ON: select a birth-date sentence → tagger popover → **📇 Add fact** | ✅ the Add-fact modal opens with the selection as the value seed and quote; picking the subject populates the **field** select with person fields + "Custom…"; typing `1962` under *Valid from* shows a live "year precision" hint; free-text garbage in a date field shows "not a date", never saves fabricated precision |
-| 19.b | Save `birth_date = 1962`; in a second article add `birth_date = 1963` for the same person | ✅ the pre-flight strip appears BEFORE save: "A captured source says **1962**" with its quote and URL — and **Save stays enabled** (inform, never block) |
-| 19.c | Side panel → the person → **Dossier** block | ✅ compact table shows top known fields; a "⚠ 1 contested field" banner; **Open full dossier** opens the portal dossier view via `#dossier=` deep-link |
-| 19.d | Portal dossier → the `birth_date` row | ✅ row is highlighted **contested** with BOTH values side by side (no winner, no auto-resolution); clicking each value opens its evidence — verbatim quote, source host, capture date, hash chip |
-| 19.e | Unknown rows | ✅ every registry field renders; empty ones say "unknown — no captured source" (never silently absent) |
-| 19.f | Side panel footer → **Health** | ✅ the duplicate report lists suspect pairs with evidence; **Merge…** offers a keep-which choice and links the alias (dossiers re-unify — re-open the dossier and both families' facts aggregate); **Not duplicates** persists across rescans; **Unlink** undoes a merge |
+| 19.c | Side panel → a person entity → **Dossier** block | ✅ the block shows coverage ("N claims · M articles captured"); **Open full dossier** opens the portal dossier view via `#dossier=` deep-link |
+| 19.d | Portal dossier | ✅ identity (family/aliases/accounts), captured content rows, judgment distributions (never a score), and co-tagged relationships render; every judgment count routes to its own surface |
+| 19.f | Side panel footer → **Health** | ✅ the duplicate report lists suspect pairs with evidence; **Merge…** offers a keep-which choice and links the alias (dossiers re-unify — re-open the dossier and both families' claims aggregate); **Not duplicates** persists across rescans; **Unlink** undoes a merge |
 | 19.g | Case entity detail → **Case scope** | ✅ scope question / status / opened / closed save and re-render; the case export (JSON + Markdown) carries a "Case scope (author's framing)" block; the portal case view header shows the framing; each member chip has a **dossier →** link |
-| 19.h | Options → LLM assist → enable **Entity facts** + run Suggest on an article | ✅ facts arrive quote-grounded in the review panel (default OFF — the checkbox starts unchecked); a fact whose quote isn't verbatim in the article is rejected; accepting requires its subject entity first; accepted facts appear in the dossier stamped `llm:<model>` |
-| 19.i | **Flag OFF** (default): publish an article with tagged entities; watch the network panel / relay log | ✅ **no kind-0-enriched or kind-30067 event leaves the device** — the publish summary shows no corpus segment |
-| 19.j | Options → Entity corpus → ON (read the disclosure) → publish an article citing a PUBLISHED fact | ✅ the entity's kind-0 `about` gains only published-claim lines, each "per <source>"; the CONTESTED field is absent from the profile; kind-30067 carries both published sides with `contested: true`; every `a` coordinate resolves to a real published claim |
-| 19.k | Publish the same article again with nothing changed | ✅ no corpus events re-emit (the hash gate skips); edit + publish a new fact → exactly the changed surfaces re-emit; portal dossier's **Republish profile** force-publishes both |
+| 19.i | **Flag OFF** (default): publish an article with tagged entities; watch the network panel / relay log | ✅ **no entity kind-0 or kind-1 mention note leaves the device** — the publish summary shows no corpus segment |
+| 19.j | Options → Entity corpus → ON (read the disclosure) → publish an article with tagged entities | ✅ each tagged entity's kind-0 emits (maintainer line + type + aliases — no biography lines) plus one kind-1 mention note per entity, entity-signed |
+| 19.k | Publish the same article again with nothing changed | ✅ no corpus events re-emit (the hash gate skips); rename the entity + publish → the kind-0 re-emits; portal dossier's **Republish profile** force-publishes the kind-0 |
 
 ---
 

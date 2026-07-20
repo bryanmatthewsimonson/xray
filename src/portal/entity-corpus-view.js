@@ -1,7 +1,7 @@
 // Entity corpus view — Phase 17 E5 (ENTITY_CORPUS_DESIGN.md §4.4).
 // Given ANY entity pubkey — yours or a stranger's — two relay queries:
 //
-//   { authors: [P], kinds: [0, 1, 30067] }          the entity's own voice
+//   { authors: [P], kinds: [0, 1] }                 the entity's own voice
 //   { '#p': [P], kinds: [30023, 30040, 30054,       what the network says
 //               30062, 30063, 32125] }              about it
 //
@@ -16,12 +16,13 @@ import { Utils } from '../shared/utils.js';
 import { dedupeReplaceable } from '../shared/nostr-events.js';
 
 // Exported: these two filters ARE the §4.4 wire contract.
-export const AUTHORED_FILTER = (pk) => ({ authors: [pk], kinds: [0, 1, 30067], limit: 200 });
+// (kind 30067 fact sheets retired 2026-07-20 — no longer requested;
+// foreign sheets still on relays are simply never fetched.)
+export const AUTHORED_FILTER = (pk) => ({ authors: [pk], kinds: [0, 1], limit: 200 });
 export const ABOUT_FILTER = (pk) => ({ '#p': [pk], kinds: [30023, 30040, 30054, 30062, 30063, 32125], limit: 300 });
 
 const KIND_LABELS = {
     1: 'mention note',
-    30067: 'fact sheet',
     30023: 'article',
     30040: 'claim about',
     30054: 'assessment',
@@ -37,10 +38,6 @@ function firstTag(ev, name) {
 
 export function rowText(ev) {
     if (ev.kind === 1) return (ev.content || '').split('\n')[0];
-    if (ev.kind === 30067) {
-        const facts = (ev.tags || []).filter((t) => t[0] === 'fact').length;
-        return `${facts} sourced fact${facts === 1 ? '' : 's'}`;
-    }
     if (ev.kind === 30023) return firstTag(ev, 'title') || firstTag(ev, 'r') || '(untitled article)';
     if (ev.kind === 30040) return ev.content || firstTag(ev, 'claim-text') || '(claim)';
     if (ev.kind === 32125) return firstTag(ev, 'r') || '(article relationship)';

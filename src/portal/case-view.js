@@ -417,14 +417,13 @@ export function renderCaseView(host, params) {
             chip.title = `${m.type} — open spokes graph`;
             chip.addEventListener('click', () => callbacks.onFocusEntity(pk));
             wrap.appendChild(chip);
-            // 19.8 (§7.3): the case surfaces each orbit entity's fact
-            // table as a LINK into its own dossier — routing, never
-            // inlining a second fact table here.
+            // 19.8 (§7.3): the case surfaces each orbit entity as a
+            // LINK into its own dossier — routing, never inlining.
             const entRec = entityIndex[pk];
             if (entRec && entRec.entityId && callbacks.onOpenEntityDossier) {
                 const dossierLink = el('button', 'xr-chip xr-chip--clickable', 'dossier →');
                 dossierLink.type = 'button';
-                dossierLink.title = `Open ${m.name}'s full dossier (fields, evidence, history)`;
+                dossierLink.title = `Open ${m.name}'s full dossier (claims, evidence, history)`;
                 dossierLink.addEventListener('click', () => callbacks.onOpenEntityDossier(entRec.entityId));
                 wrap.appendChild(dossierLink);
             }

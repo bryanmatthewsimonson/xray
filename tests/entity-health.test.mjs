@@ -28,7 +28,9 @@ const {
     nameClusterPairs, sharedAccountPairs, coMentionPairs,
     dedupeReport, recentMerges, DedupeDismissals
 } = await import('../src/shared/entity-health.js');
-const { dismissalKey } = await import('../src/shared/entity-facts.js');
+// The order-independent pair key entity-health inlines (formerly
+// entity-facts' dismissalKey — that module retired 2026-07-20).
+const dismissalKey = (a, b) => [String(a), String(b)].sort().join('|');
 
 const E = (id, name, type, extra = {}) => ({ id: `entity_${id}`, name, type, ...extra });
 

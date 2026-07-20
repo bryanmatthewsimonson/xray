@@ -34,8 +34,6 @@ import { buildSelectors } from './metadata/anchor-capture.js';
 import { createGroundingIndex, isGroundingIndex } from './quote-grounding.js';
 import { ENTITY_TYPES, canonicalIdOf } from './entity-model.js';
 import { SUGGESTABLE_ENTITY_TYPES } from './llm-prompts.js';
-import { getFieldDef } from './entity-field-schemas.js';
-import { parseMetaDate } from './dossier-time.js';
 import {
     isValidLabel, isValidStance, isValidSuggestedBy,
     CLAIM_RELATIONSHIPS, REVISION_RELATIONSHIPS
@@ -48,7 +46,7 @@ import {
 // reference. Entities → claims → (assessments / relationships / revisions)
 // → findings → baselines.
 export const PROPOSAL_ORDER = Object.freeze([
-    'entity', 'claim', 'fact', 'assessment', 'relationship', 'revision', 'finding', 'baseline'
+    'entity', 'claim', 'assessment', 'relationship', 'revision', 'finding', 'baseline'
 ]);
 
 const PREFIX_SUFFIX = 40; // buildSelectors trims to 32; give it headroom.
@@ -152,14 +150,10 @@ export function normalizeProposals(raw) {
         if (kind === 'entity' && item.ref) {
             entityRefs.add(item.ref);
             entityLabelByRef[item.ref] = String(p.name || '').trim();
-            // Fact validation needs the subject's TYPE (the field
-            // registry); the proposal's declared (post-default) type is
-            // the initial answer, refreshed at accept when "use
-            // existing" picks a registry record.
+            // The proposal's declared (post-default) type, refreshed at
+            // accept when "use existing" picks a registry record.
             entityTypeByRef[item.ref] = item.entity_type;
         }
-        // Deliberately: only CLAIM refs register into claimRefs — a
-        // fact's ref ("F1") is not a claim ref other kinds may target.
         if (kind === 'claim' && item.ref) claimRefs.add(item.ref);
     });
 
@@ -225,45 +219,6 @@ export function validateProposal(prop, ctx = {}) {
                 if (!quote) return fail('Claim needs a verbatim quote from the article');
                 if (ctx.grounding.ground(quote).status === 'missing') {
                     return fail('Quote not found in the article — edit it to match the text exactly');
-                }
-            }
-            return OK;
-        }
-        case 'fact': {
-            // A fact is a claim carrying a typed field layer (19.6).
-            // Same quote-grounding firewall as claims, PLUS the subject/
-            // field/value rules. accept-time cleanFact is the hard
-            // firewall regardless — this is the review-panel gate.
-            const subjectRef = String(prop.subject_ref || '').trim();
-            if (!subjectRef) return fail('Fact needs a subject_ref (the entity it describes)');
-            if (ctx.entityRefs && !ctx.entityRefs.has(subjectRef)) {
-                return fail('Fact subject is not among the proposed/known entities');
-            }
-            const field = String(prop.field || '').trim();
-            if (!field) return fail('Fact needs a field');
-            const subjectType = ctx.entityTypeByRef ? ctx.entityTypeByRef[subjectRef] : null;
-            if (subjectType && !getFieldDef(subjectType, field)) {
-                return fail(`"${field}" is not a ${subjectType} field (or custom:<token>)`);
-            }
-            const value = String(prop.value || '').trim();
-            if (!value) return fail('Fact needs the value as the article states it');
-            if (value.length > 500) return fail('Fact value too long (max 500)');
-            const def = subjectType ? getFieldDef(subjectType, field) : null;
-            if (def && def.value_type === 'entity-ref') {
-                const vref = String(prop.value_entity_ref || '').trim();
-                if (!vref) return fail(`"${field}" points at another entity — set value_entity_ref`);
-                if (ctx.entityRefs && !ctx.entityRefs.has(vref)) {
-                    return fail('Fact value entity is not among the proposed/known entities');
-                }
-            }
-            if (def && def.value_type === 'enum' && !(def.enum_values || []).includes(value)) {
-                return fail(`"${value}" is not one of ${(def.enum_values || []).join(', ')}`);
-            }
-            if (ctx.grounding) {
-                const quote = String(prop.quote || '').trim();
-                if (!quote) return fail('Fact needs a verbatim quote from the article');
-                if (ctx.grounding.ground(quote).status === 'missing') {
-                    return fail('Quote not found in the article — the value must come from THIS text, not model knowledge');
                 }
             }
             return OK;
@@ -421,43 +376,6 @@ export function findEntityMatches(name, type, entities) {
         if (out.length === 3) break;
     }
     return out;
-}
-
-/**
- * A fact proposal creates a CLAIM carrying the fact layer (MD-5):
- * buildClaimInput runs unchanged — the quote-grounding firewall, the
- * article's own span as quote, anchor provenance, suggested_by — and
- * the fact object is attached on top. Dates go through the honest-band
- * grammar; the claim text defaults to "<field>: <value>" when the
- * model gave none; the subject always joins `about`.
- */
-export function buildFactInput(prop, ctx = {}) {
-    const { entityIdByRef = {} } = ctx;
-    const subjectId = entityIdByRef[prop.subject_ref] || null;
-    const dateSlot = (s) => {
-        const parsed = s ? parseMetaDate(String(s).trim()) : null;
-        return parsed ? { value: parsed.at, precision: parsed.precision } : { value: null, precision: null };
-    };
-    const from = dateSlot(prop.valid_from);
-    const to = dateSlot(prop.valid_to);
-    const obs = dateSlot(prop.observed_at);
-    const base = buildClaimInput({
-        ...prop,
-        text: String(prop.text || '').trim() || `${prop.field}: ${prop.value}`,
-        about: [...new Set([prop.subject_ref, ...(Array.isArray(prop.about) ? prop.about : [])])]
-    }, ctx);
-    return {
-        ...base,
-        fact: {
-            entity_id: subjectId,
-            field: String(prop.field || '').trim(),
-            value: String(prop.value || '').trim(),
-            value_ref: entityIdByRef[prop.value_entity_ref] || null,
-            valid_from: from.value, valid_from_precision: from.precision,
-            valid_to: to.value, valid_to_precision: to.precision,
-            observed_at: obs.value, observed_precision: obs.precision
-        }
-    };
 }
 
 export function buildClaimInput(prop, { entityIdByRef = {}, articleText = '', sourceUrl = '', articleHash = '', suggestedBy = 'user' } = {}) {

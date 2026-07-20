@@ -19,6 +19,39 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-20 — The Phase 19 fact layer is ripped out
+
+**Tags:** design
+
+Maintainer decision: entity facts — the typed field registries, the
+`claim.fact` layer, Add-fact, the LLM `fact` suggestion kind, the
+dossier fields section, the 30040 `fact`/validity tags, and the
+kind-30067 fact sheet — are REMOVED wholesale. The data model was too
+stringent to be useful: real corpora yielded few values that fit the
+typed slots, and what did fit carried less information than the
+ordinary quoted claim it rode on. The removal degrades gracefully
+because a fact always WAS a claim: legacy records keep their claim
+identity, the dead `fact` payload goes inert (never validated, never
+serialized), and `parseClaimEvent` ignores foreign fact tags exactly
+as any client that never knew them would.
+
+Wire consequences (called out per CLAUDE.md): kind **30067 is
+retired** — never emitted, never fetched (E5's authored filter narrows
+to `[0, 1]`); 30040s stop carrying `fact`/`valid_from`/`valid_to`/
+`observed_at` tags; new NIP-26 entity delegations narrow to kind 0;
+the kind-0 `about` drops its fact lines (maintainer line + type +
+aliases remain). `readerAddFact` is removed from FLAGS_DEFAULTS;
+`entityCorpusPublishing` now gates kind-0 + mention notes only.
+
+Deliberately KEPT: the case entity's AUTHORED fields
+(scope_question/status/opened/closed) — they are the case layer's
+spine, not facts — plus the dossier assembler (claims-first), entity
+health, and `entity_fact_dismissals` in the workspace clear-list so
+legacy data still purges. The Wikipedia-like entity-page goal that
+motivated facts returns claims-first (see the entity-page design).
+
+---
+
 ## 2026-07-20 — Suggest vocabulary is assembled SW-side, not caller-side
 
 **Tags:** design

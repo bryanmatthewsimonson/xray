@@ -15,7 +15,7 @@ import { EventBuilder } from '../shared/event-builder.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { EntityModel, installEntityStorageBridge, mergeEntityRefs, findEntityByName, canonicalIdOf } from '../shared/entity-model.js';
 import { assembleEntityDossier } from '../shared/entity-dossier.js';
-import { buildProfileAbout, buildFactSheetEvent, profileContentHash, factSheetContentHash } from '../shared/entity-profile.js';
+import { buildProfileAbout, profileContentHash } from '../shared/entity-profile.js';
 import { recordAccount, extractPostAuthor } from '../shared/identity/account-registry.js';
 import { selectAccountsToPublish } from '../shared/identity/account-publish.js';
 import { ClaimModel, exactFromAnchor } from '../shared/claim-model.js';
@@ -2030,10 +2030,6 @@ function renderReader() {
     if (state._taggerUninstall) state._taggerUninstall();
     state._taggerUninstall = installEntityTagger({
         container: body,
-        // Phase 19.5: the "Add fact" row is gated behind `readerAddFact`
-        // (default off). The flag cache is primed in init() before the
-        // first renderReader(), so this synchronous read is accurate.
-        showFactButton: isEnabled('readerAddFact'),
         onTag: (ref) => {
             // De-dup: same entity_id + context → ignore. Avoids accidental
             // double-tagging when the user re-selects the same text.
@@ -2052,7 +2048,7 @@ function renderReader() {
             refreshEntitiesBar().catch(() => {});
             scheduleTagSave();
         },
-        onClaim: async ({ text, context, anchor, quoteMode, factMode }) => {
+        onClaim: async ({ text, context, anchor, quoteMode }) => {
             // PDF captures: page-level provenance rides as an additive
             // FragmentSelector (resolvers that don't know it skip it).
             const page = pdfPageOfQuote(text);
@@ -2066,13 +2062,10 @@ function renderReader() {
                 articleHash: claimArticleHash(),
                 // Sticky default (Phase 11.3): a case-capture session tags
                 // dozens of claims with the same case entity + people.
-                initialAbout: factMode ? [] : (state.lastClaimAbout || []),
+                initialAbout: state.lastClaimAbout || [],
                 // "❝ Quote" shortcut: same record, quote-framed modal
                 // with the speaker picker front-and-center.
                 quoteMode:    !!quoteMode,
-                // "📇 Add fact" (19.5): the same record carrying a
-                // structured fact layer; the selection grounds it.
-                factMode:     !!factMode,
                 // The asserter is usually the article's author — default
                 // the speaker to the author entity (or offer its create).
                 // For a transcript, prefer the SELECTION's turn speaker
@@ -2080,8 +2073,8 @@ function renderReader() {
                 defaultSource: (await resolveTranscriptSpeaker(context)) || (await resolveDefaultSpeaker())
             });
             if (saved) {
-                if (!factMode) state.lastClaimAbout = saved.about || [];
-                toast(factMode ? 'Fact saved' : quoteMode ? 'Quote saved' : 'Claim saved', 'success', 2000);
+                state.lastClaimAbout = saved.about || [];
+                toast(quoteMode ? 'Quote saved' : 'Claim saved', 'success', 2000);
                 await refreshClaimsBar();
             }
         },
@@ -5559,15 +5552,13 @@ async function publish() {
         }
 
         // ---- Entity corpus (19.7, flag-gated) --------------------------
-        // Enriched kind-0 profiles + kind-30067 fact sheets, ENTITY-
-        // signed. For each tagged entity resolved to canonical: assemble
-        // the dossier off ONE preloaded snapshot set, hash-compare
-        // (generated_at-free) against the stored publish stamps, and
-        // republish only what changed — both kinds are replaceable, so
-        // retries are idempotent. Foreign/keyless entities skip (we
-        // can't sign for them); the per-field checklist persisted as
-        // publish_excluded_fields is honored here, which is why it is
-        // persisted at all.
+        // Enriched kind-0 profiles, ENTITY-signed. (The kind-30067 fact
+        // sheet retired 2026-07-20 with the fact layer.) For each tagged
+        // entity resolved to canonical: assemble the dossier off ONE
+        // preloaded snapshot set, hash-compare against the stored
+        // publish stamp, and republish only what changed — kind 0 is
+        // replaceable, so retries are idempotent. Foreign/keyless
+        // entities skip (we can't sign for them).
         const corpusResults = { ok: 0, fail: 0, errors: [] };
         let corpusSel = [];
         await loadFlags();
@@ -5594,7 +5585,6 @@ async function publish() {
                 for (const rootId of [...roots].sort()) {
                     const entity = entitiesAllForCorpus[rootId];
                     if (!entity || !entity.keypair || !entity.keypair.privateKey) continue;
-                    const excluded = entity.publish_excluded_fields || [];
                     const dossier = await assembleEntityDossier(rootId, {
                         ...snapshots, generatedAt: Math.floor(Date.now() / 1000)
                     });
@@ -5602,33 +5592,15 @@ async function publish() {
                     // maintainer, so generic clients render an honestly
                     // labeled record (ENTITY_IDENTITY_DESIGN §5).
                     const about = buildProfileAbout(dossier, {
-                        excludedFields: excluded,
                         maintainerNpub: userPubkey ? Crypto.hexToNpub(userPubkey) : null
-                    });
-                    const sheet = buildFactSheetEvent(dossier, {
-                        entityPubkey: entity.keypair.pubkey,
-                        publisherPubkey: userPubkey,
-                        generatedAt: Math.floor(Date.now() / 1000),
-                        excludedFields: excluded,
-                        entities: entitiesAllForCorpus
                     });
                     // The profile gate hashes the FULL kind-0 content
                     // (name + about + nip05) — a rename must republish
                     // the enriched profile even when the about text is
                     // unchanged (19.8 review fix).
-                    const [contentHash, sheetHash] = await Promise.all([
-                        profileContentHash(entity, about), factSheetContentHash(sheet)
-                    ]);
-                    const profileChanged = contentHash !== entity.publishedProfileHash;
-                    const sheetHasFacts = sheet.tags.some((t) => t[0] === 'fact');
-                    // An empty sheet still publishes when a previous
-                    // sheet is on relays — replaceable overwrite is the
-                    // only retraction path (19.8 review fix).
-                    const sheetChanged = (sheetHasFacts || entity.publishedFactSheetHash)
-                        && sheetHash !== entity.publishedFactSheetHash;
-                    if (profileChanged || sheetChanged) {
-                        corpusSel.push({ entity, about, aboutHash: contentHash, sheet, sheetHash,
-                                         profileChanged, sheetChanged });
+                    const contentHash = await profileContentHash(entity, about);
+                    if (contentHash !== entity.publishedProfileHash) {
+                        corpusSel.push({ entity, about, aboutHash: contentHash });
                     }
                 }
             } catch (err) {
@@ -5637,62 +5609,35 @@ async function publish() {
         }
         if (corpusSel.length > 0) {
             const corpusBase = totalEvents;
-            totalEvents += corpusSel.reduce((n, s) =>
-                n + (s.profileChanged ? 1 : 0) + (s.sheetChanged ? 1 : 0), 0);
+            totalEvents += corpusSel.length;
             let cStep = 0;
             for (const sel of corpusSel) {
                 const { entity } = sel;
                 const canonicalNpub = null;   // roots only — never an alias here
                 try {
-                    if (sel.profileChanged) {
-                        btn.textContent = `Publishing (${corpusBase + (++cStep)}/${totalEvents})…`;
-                        const unsigned = EventBuilder.buildProfileEvent(entity, canonicalNpub, sel.about, entity.external_ids || []);
-                        await attachCreatorBinding(unsigned, entity.keypair && entity.keypair.pubkey);
-                        const signed = await LocalKeyManager.signEvent(unsigned, entity.keyName);
-                        const resp = await browserApi.runtime.sendMessage({
-                            type: 'xray:relay:publish', event: signed, relays: await getConfiguredRelays()
-                        });
-                        if (resp && resp.ok && resp.results) recordRelayResults(resp.results);
-                        // signedEvent attached so publishOk journals it
-                        // (the entity-batch precedent); stamp EACH
-                        // surface as it lands — a later sheet failure
-                        // must not lose a confirmed profile stamp.
-                        if (resp && resp.ok && await publishOk({ ...resp, signedEvent: signed })) {
-                            corpusResults.ok++;
-                            try {
-                                await EntityModel.markProfilePublished(entity.id, {
-                                    profileEventId: signed.id, profileHash: sel.aboutHash
-                                });
-                            } catch (_) { /* best-effort */ }
-                        } else {
-                            corpusResults.fail++;
-                            corpusResults.errors.push(`${entity.name} profile: ${(resp && resp.error) || 'no relays accepted'}`);
-                        }
-                        setProgress(corpusBase + cStep, totalEvents);
-                        await sleep(BATCH_PUBLISH_DELAY_MS);
+                    btn.textContent = `Publishing (${corpusBase + (++cStep)}/${totalEvents})…`;
+                    const unsigned = EventBuilder.buildProfileEvent(entity, canonicalNpub, sel.about, entity.external_ids || []);
+                    await attachCreatorBinding(unsigned, entity.keypair && entity.keypair.pubkey);
+                    const signed = await LocalKeyManager.signEvent(unsigned, entity.keyName);
+                    const resp = await browserApi.runtime.sendMessage({
+                        type: 'xray:relay:publish', event: signed, relays: await getConfiguredRelays()
+                    });
+                    if (resp && resp.ok && resp.results) recordRelayResults(resp.results);
+                    // signedEvent attached so publishOk journals it (the
+                    // entity-batch precedent).
+                    if (resp && resp.ok && await publishOk({ ...resp, signedEvent: signed })) {
+                        corpusResults.ok++;
+                        try {
+                            await EntityModel.markProfilePublished(entity.id, {
+                                profileEventId: signed.id, profileHash: sel.aboutHash
+                            });
+                        } catch (_) { /* best-effort */ }
+                    } else {
+                        corpusResults.fail++;
+                        corpusResults.errors.push(`${entity.name} profile: ${(resp && resp.error) || 'no relays accepted'}`);
                     }
-                    if (sel.sheetChanged) {
-                        btn.textContent = `Publishing (${corpusBase + (++cStep)}/${totalEvents})…`;
-                        await attachCreatorBinding(sel.sheet, entity.keypair && entity.keypair.pubkey);
-                        const signedSheet = await LocalKeyManager.signEvent(sel.sheet, entity.keyName);
-                        const resp = await browserApi.runtime.sendMessage({
-                            type: 'xray:relay:publish', event: signedSheet, relays: await getConfiguredRelays()
-                        });
-                        if (resp && resp.ok && resp.results) recordRelayResults(resp.results);
-                        if (resp && resp.ok && await publishOk({ ...resp, signedEvent: signedSheet })) {
-                            corpusResults.ok++;
-                            try {
-                                await EntityModel.markProfilePublished(entity.id, {
-                                    factSheetEventId: signedSheet.id, factSheetHash: sel.sheetHash
-                                });
-                            } catch (_) { /* best-effort */ }
-                        } else {
-                            corpusResults.fail++;
-                            corpusResults.errors.push(`${entity.name} fact sheet: ${(resp && resp.error) || 'no relays accepted'}`);
-                        }
-                        setProgress(corpusBase + cStep, totalEvents);
-                        await sleep(BATCH_PUBLISH_DELAY_MS);
-                    }
+                    setProgress(corpusBase + cStep, totalEvents);
+                    await sleep(BATCH_PUBLISH_DELAY_MS);
                 } catch (err) {
                     corpusResults.fail++;
                     corpusResults.errors.push(`${entity.name}: ${err.message || String(err)}`);
@@ -5868,7 +5813,7 @@ async function attachCreatorBinding(unsigned, entityPubkey) {
                 && !unsigned.tags.some((t) => t[0] === 'delegation')) {
             const now = Math.floor(Date.now() / 1000);
             const conditions = entityDelegationConditions({
-                kinds: [0, 30067], from: now - 86400, until: now + DELEGATION_WINDOW_S
+                kinds: [0], from: now - 86400, until: now + DELEGATION_WINDOW_S
             });
             unsigned.tags.push(await mintDelegationTag(primary.privateKey, entityPubkey, conditions));
         }
@@ -6195,7 +6140,7 @@ function showPublishSummary({
         segments.push(`${integrityResults.ok}/${integrityCount} integrity finding${integrityCount === 1 ? '' : 's'}`);
     }
     if (corpusCount > 0 || corpusResults.ok + corpusResults.fail > 0) {
-        segments.push(`${corpusResults.ok}/${corpusResults.ok + corpusResults.fail} corpus event${(corpusResults.ok + corpusResults.fail) === 1 ? '' : 's'} (profiles, fact sheets & mention notes)`);
+        segments.push(`${corpusResults.ok}/${corpusResults.ok + corpusResults.fail} corpus event${(corpusResults.ok + corpusResults.fail) === 1 ? '' : 's'} (profiles & mention notes)`);
     }
     let line = 'Published: ' + segments.join(', ') + '.';
 
@@ -6335,8 +6280,8 @@ async function init() {
     }
 
     // Prime the feature-flag cache before renderReader() so its
-    // synchronous isEnabled() gates (e.g. the 19.5 "Add fact" popover
-    // button) reflect the user's overrides, not the defaults.
+    // synchronous isEnabled() gates reflect the user's overrides, not
+    // the defaults.
     try { await loadFlags(); } catch (_) { /* falls back to defaults */ }
 
     renderReader();

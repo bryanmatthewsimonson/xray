@@ -490,41 +490,22 @@ test('entity: canonicalIdOf — pure chain walk with cycle guard and dangling fa
     assert.equal(await EntityModel.resolveCanonical('entity_0000000000000000'), null);
 });
 
-// --- markProfilePublished + publish_excluded_fields (Phase 19.7) --------------
+// --- markProfilePublished (Phase 19.7; fact-sheet stamps retired 2026-07-20) --
 
-test('entity: markProfilePublished stamps hashes WITHOUT bumping updated', async () => {
+test('entity: markProfilePublished stamps the profile hash WITHOUT bumping updated', async () => {
     resetState();
     const e = await EntityModel.create({ name: 'Corpus Person', type: 'person' });
     const updatedBefore = e.updated;
 
     const stamped = await EntityModel.markProfilePublished(e.id, {
-        profileEventId: 'evt_profile', profileHash: 'p'.repeat(64),
-        factSheetEventId: 'evt_sheet', factSheetHash: 's'.repeat(64)
+        profileEventId: 'evt_profile', profileHash: 'p'.repeat(64)
     });
     assert.equal(stamped.publishedProfileHash, 'p'.repeat(64));
-    assert.equal(stamped.publishedFactSheetHash, 's'.repeat(64));
     assert.equal(stamped.publishedProfileEventId, 'evt_profile');
     assert.ok(Number.isFinite(stamped.profilePublishedAt));
     assert.equal(stamped.updated, updatedBefore,
         'stamping a publish must not look like a local edit — or republish self-triggers forever');
-
-    // Partial stamp (only the profile landed) leaves the sheet fields alone.
-    const partial = await EntityModel.markProfilePublished(e.id, { profileHash: 'q'.repeat(64) });
-    assert.equal(partial.publishedProfileHash, 'q'.repeat(64));
-    assert.equal(partial.publishedFactSheetHash, 's'.repeat(64), 'unmentioned stamps survive');
     assert.equal(await EntityModel.markProfilePublished('entity_0000000000000000', {}), null);
-});
-
-test('entity: publish_excluded_fields — the per-field checklist persists via update', async () => {
-    resetState();
-    const e = await EntityModel.create({ name: 'Checklist Person', type: 'person' });
-    const withList = await EntityModel.update(e.id, {
-        publish_excluded_fields: ['residence', 'birth_date', 'residence', '', null]
-    });
-    assert.deepEqual(withList.publish_excluded_fields, ['birth_date', 'residence'],
-        'deduped, cleaned, sorted');
-    const cleared = await EntityModel.update(e.id, { publish_excluded_fields: [] });
-    assert.equal('publish_excluded_fields' in cleared, false, 'empty clears the key');
 });
 
 test('retype-in-place (CW.2): update({type}) keeps id, keyName, and pubkey — the sanctioned migration for mistyped entities', async () => {
