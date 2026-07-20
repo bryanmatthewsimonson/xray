@@ -17,7 +17,7 @@ import { importAuditJson } from '../shared/audit/import.js';
 import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
 import { listRuns, listPredictions, listResolutions } from '../shared/audit/audit-cache.js';
 import { listArticles } from '../shared/archive-cache.js';
-import { IdentityProfiles, Workspaces, workspaceBackup, resetWorkspace } from '../shared/identity-profiles.js';
+import { IdentityProfiles, Workspaces, workspaceBackup, resetWorkspace, identityBindingState } from '../shared/identity-profiles.js';
 import { createCase } from '../shared/case-create.js';
 import { EntityModel } from '../shared/entity-model.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
@@ -563,7 +563,11 @@ async function renderWorkspaces() {
     host.replaceChildren();
     for (const ws of list) {
         const isActive = ws.id === active;
-        const profile = ws.identity_pubkey ? profiles[ws.identity_pubkey] : null;
+        // Binding health — 'unbound' | 'bound' | 'missing'. A restore
+        // replaces `identity_profiles`, so bindings can DANGLE; the row
+        // must say so instead of masking it as "unbound" (2026-07-20).
+        const idState = identityBindingState(ws, profiles);
+        const profile = idState === 'bound' ? profiles[ws.identity_pubkey] : null;
         const row = document.createElement('div');
         row.className = 'xr-opt__wsrow' + (isActive ? ' xr-opt__wsrow--active' : '');
 
@@ -575,17 +579,25 @@ async function renderWorkspaces() {
 
         // A bound case's NAME resolves only inside its own namespace —
         // foreign workspaces show the binding state, not a guessed name.
+        // For the ACTIVE row an unresolvable binding is DANGLING (the
+        // restore incident: the registry was replaced under it) and is
+        // reported as missing, which flips the binder into repair mode.
         let caseName = null;
+        let caseDangling = false;
         if (isActive && ws.case_entity_id) {
             const ent = await EntityModel.get(ws.case_entity_id).catch(() => null);
-            caseName = ent && ent.name;
+            caseName = (ent && ent.name) || null;
+            caseDangling = !caseName;
         }
+        const identityMeta = idState === 'bound' ? `identity: ${profile.label}`
+            : idState === 'missing' ? `identity: MISSING (was ${ws.identity_pubkey.slice(0, 8)}…)`
+            : 'identity: unbound';
+        const caseMeta = !ws.case_entity_id ? 'case: unbound'
+            : caseDangling ? 'case: MISSING (binding does not resolve here)'
+            : `case: ${caseName || '(bound)'}`;
         const meta = document.createElement('span');
         meta.className = 'xr-opt__wsmeta';
-        meta.textContent = ' — ' + [
-            profile ? `identity: ${profile.label}` : 'identity: unbound',
-            ws.case_entity_id ? `case: ${caseName || '(bound)'}` : 'case: unbound'
-        ].join(' · ');
+        meta.textContent = ` — ${identityMeta} · ${caseMeta}`;
         row.appendChild(meta);
 
         if (isActive) {
@@ -598,8 +610,13 @@ async function renderWorkspaces() {
         const actions = document.createElement('span');
         actions.className = 'xr-opt__wsactions';
         if (isActive) {
-            if (!ws.identity_pubkey && primary && primary.pubkey && profiles[primary.pubkey]) {
-                const bindBtn = wsBtn('Bind current identity');
+            // REPAIR MODE: the binders render whenever the slot lacks a
+            // RESOLVABLE binding — empty OR dangling — never only when
+            // empty (the trap that hid every repair path after a
+            // restore).
+            if (idState !== 'bound' && primary && primary.pubkey && profiles[primary.pubkey]) {
+                const bindBtn = wsBtn(idState === 'missing' ? 'Rebind current identity' : 'Bind current identity');
+                if (idState === 'missing') bindBtn.title = 'Replaces the dead binding with the active saved profile';
                 bindBtn.addEventListener('click', async () => {
                     await Workspaces.update(ws.id, { identityPubkey: primary.pubkey });
                     flash(status, `Bound "${ws.label}" to identity "${profiles[primary.pubkey].label}".`);
@@ -607,15 +624,20 @@ async function renderWorkspaces() {
                 });
                 actions.appendChild(bindBtn);
             }
-            if (!ws.case_entity_id) {
+            if (!ws.case_entity_id || caseDangling) {
                 const sel = document.createElement('select');
                 const cases = Object.values(await EntityModel.getAll()).filter((e) => e.type === 'case');
-                sel.appendChild(new Option(cases.length ? 'Bind a case…' : 'No case entities yet', ''));
+                const lead = caseDangling ? 'Rebind a case… (current binding is missing)'
+                    : cases.length ? 'Bind a case…' : 'No case entities yet';
+                sel.appendChild(new Option(lead, ''));
                 for (const c of cases) sel.appendChild(new Option(c.name, c.id));
+                if (caseDangling) sel.appendChild(new Option('— Clear the case binding —', '__clear__'));
                 sel.addEventListener('change', async () => {
                     if (!sel.value) return;
-                    await Workspaces.update(ws.id, { caseEntityId: sel.value });
-                    flash(status, `Bound the case to "${ws.label}".`);
+                    const clear = sel.value === '__clear__';
+                    await Workspaces.update(ws.id, { caseEntityId: clear ? null : sel.value });
+                    flash(status, clear ? `Cleared the dead case binding on "${ws.label}".`
+                        : `Bound the case to "${ws.label}".`);
                     renderWorkspaces();
                 });
                 actions.appendChild(sel);
@@ -623,6 +645,20 @@ async function renderWorkspaces() {
         } else {
             const actBtn = wsBtn('Activate');
             actBtn.addEventListener('click', async () => {
+                // A dead identity binding would make activate() refuse
+                // (correctly — never sign under a guessed key). Offer
+                // the consented repair instead of a dead end: clear the
+                // binding, then switch. The signer stays whatever is
+                // currently active until the user rebinds.
+                if (idState === 'missing') {
+                    if (!confirm(`Switch to workspace "${ws.label}"?\n\nIts bound signing identity no longer exists (the profile was deleted or replaced by a restore). Switching will CLEAR the dead identity binding — the current signer stays active until you rebind one. Reload any open X-Ray tabs afterwards.`)) return;
+                    try {
+                        await Workspaces.update(ws.id, { identityPubkey: null });
+                        await Workspaces.activate(ws.id);
+                        location.reload();
+                    } catch (e) { flash(status, 'Switch failed: ' + (e && e.message), false); }
+                    return;
+                }
                 if (!confirm(`Switch to workspace "${ws.label}"?\n\nThis moves the storage namespace AND the signing identity together. Reload any open X-Ray tabs afterwards.`)) return;
                 try {
                     await Workspaces.activate(ws.id);
