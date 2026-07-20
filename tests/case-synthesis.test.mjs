@@ -184,19 +184,81 @@ test('case-synthesis: corpusMapRequest is THE shared request shape — pre-analy
         member_id: 'a'.repeat(64),
         memberText: 'Body text.',
         memberMeta: { title: 'T', url: 'https://x/a' },
-        claimsDigest: 'c1 — one\nc2 — two',
         caseName: 'legos', scopeQuestion: 'who took them?'
     });
     // Two independent builds → byte-identical cache keys.
     assert.equal(
         await CS.corpusExtractKey(CS.corpusMapRequest(member, frame)),
         await CS.corpusExtractKey(req));
-    // A claimless member (the pre-analyze common case: imported, not
-    // yet claim-extracted) keys cleanly on an empty digest.
-    const bare = CS.corpusMapRequest({ ...member, claims: [] }, frame);
-    assert.equal(bare.claimsDigest, '');
-    assert.notEqual(await CS.corpusExtractKey(bare), await CS.corpusExtractKey(req),
-        'claim extraction later invalidates the pre-analyzed extract — by design');
+    // THE corpus-v4 invariant: the member's claims are NOT in the
+    // request — extracting claims later (the import → pre-analyze →
+    // read-and-extract workflow) never orphans a cached extract.
+    assert.equal(
+        await CS.corpusExtractKey(CS.corpusMapRequest({ ...member, claims: [] }, frame)),
+        await CS.corpusExtractKey(req),
+        'claim changes never move the map cache key');
+});
+
+test('case-synthesis: linkAssertionsToClaims joins by quote-span overlap — local, current, never a guess', () => {
+    const text = 'The store owner reported the theft on June 3. Police confirmed the case was opened. Nothing else is known.';
+    const member = {
+        article_hash: 'h', url: 'https://x/a', title: 'T', text,
+        claims: [
+            { id: 'c_theft', text: 'theft reported', quote: 'reported the theft on June 3' },
+            { id: 'c_police', text: 'police confirmed', quote: 'Police confirmed the case was opened' },
+            { id: 'c_noquote', text: 'quoteless claim', quote: null }
+        ]
+    };
+    const extract = {
+        position: { summary: 's', side_label: null },
+        key_assertions: [
+            { quote: 'The store owner reported the theft on June 3', why_load_bearing: 'w' },
+            { quote: 'Police confirmed the case', why_load_bearing: 'w' },
+            { quote: 'Nothing else is known', why_load_bearing: 'w' },
+            { quote: 'this span is not in the article at all', why_load_bearing: 'w' }
+        ]
+    };
+    const linked = CS.linkAssertionsToClaims(extract, member);
+    const refs = linked.key_assertions.map((a) => a.claim_ref);
+    assert.deepEqual(refs, [
+        'c_theft',    // overlapping span → linked
+        'c_police',   // assertion contained in the claim span → linked
+        null,         // grounded but overlaps no claim span
+        null          // ungrounded assertion quote → never a guess
+    ]);
+    // Pure + non-mutating: the input extract is untouched.
+    assert.equal(extract.key_assertions[0].claim_ref, undefined);
+    // Deterministic: a second run reproduces the join exactly.
+    assert.deepEqual(CS.linkAssertionsToClaims(extract, member), linked);
+});
+
+test('case-synthesis: linkAssertionsToClaims — largest overlap wins, ties break to the smaller claim id', () => {
+    const text = 'Alpha beta gamma delta epsilon zeta.';
+    const member = {
+        article_hash: 'h', url: 'u', title: 't', text,
+        claims: [
+            { id: 'c_big', text: 'x', quote: 'beta gamma delta epsilon' },
+            { id: 'c_small', text: 'y', quote: 'gamma delta' }
+        ]
+    };
+    const out = CS.linkAssertionsToClaims({
+        position: { summary: 's' },
+        key_assertions: [{ quote: 'Alpha beta gamma delta epsilon zeta.' }]
+    }, member);
+    assert.equal(out.key_assertions[0].claim_ref, 'c_big', 'largest overlapping span wins');
+
+    // Identical spans → the smaller id, deterministically.
+    const tied = CS.linkAssertionsToClaims({
+        position: { summary: 's' },
+        key_assertions: [{ quote: 'gamma delta' }]
+    }, {
+        ...member,
+        claims: [
+            { id: 'c_z', text: 'x', quote: 'gamma delta' },
+            { id: 'c_a', text: 'y', quote: 'gamma delta' }
+        ]
+    });
+    assert.equal(tied.key_assertions[0].claim_ref, 'c_a');
 });
 
 test('case-synthesis: proposalKey is stable and direction-insensitive for relationships (27 S.3)', () => {
@@ -212,8 +274,8 @@ test('case-synthesis: proposalKey is stable and direction-insensitive for relati
     assert.equal(CS.proposalKey({ kind: 'claim', article_hash: 'A', text: 't' }), 'claim:A|t');
 });
 
-test('case-synthesis: corpusExtractKey is stable on identical inputs, changes on text/claims/prompt', async () => {
-    const base = { member_id: 'a'.repeat(64), memberText: 'Body text.', claimsDigest: 'c1 — one\nc2 — two',
+test('case-synthesis: corpusExtractKey is stable on identical inputs, changes on text/frame/prompt — NEVER on claims', async () => {
+    const base = { member_id: 'a'.repeat(64), memberText: 'Body text.',
         caseName: 'covid', scopeQuestion: 'origin?', memberMeta: { title: 'T', url: 'https://x/a' } };
     const k = await CS.corpusExtractKey(base);
     assert.match(k, /^[0-9a-f]{64}$/);
@@ -221,11 +283,15 @@ test('case-synthesis: corpusExtractKey is stable on identical inputs, changes on
     assert.equal(await CS.corpusExtractKey({ ...base }), k);
     // member_id is derived from text and NOT part of the key.
     assert.equal(await CS.corpusExtractKey({ ...base, member_id: 'z'.repeat(64) }), k);
+    // corpus-v4: claims are NOT map input — a stray claimsDigest field
+    // (an old caller, an old cached request) must not move the key.
+    assert.equal(await CS.corpusExtractKey({ ...base, claimsDigest: 'c1 — one' }), k,
+        'claims never invalidate the map cache');
     // Each real input flips the key — these are the invalidation triggers.
     assert.notEqual(await CS.corpusExtractKey({ ...base, memberText: 'Edited body.' }), k, 'body edit');
-    assert.notEqual(await CS.corpusExtractKey({ ...base, claimsDigest: 'c1 — one\nc2 — two\nc3 — three' }), k, 'a Suggest pass added a claim');
     assert.notEqual(await CS.corpusExtractKey(base, 'corpus-v9'), k, 'prompt-version bump');
     assert.notEqual(await CS.corpusExtractKey({ ...base, caseName: 'other' }), k, 'case framing');
+    assert.notEqual(await CS.corpusExtractKey({ ...base, scopeQuestion: 'edited?' }), k, 'scope question');
 });
 
 test('case-synthesis: corpusInputHash is order-insensitive but sensitive to membership + prompt', async () => {

@@ -22,8 +22,8 @@ import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { CORPUS_PROMPT_VERSION } from '../shared/corpus-prompts.js';
 import {
     buildMemberUnits, corpusInputHash, corpusExtractKey, corpusMapRequest, digestDossier,
-    validateCorpusExtract, validateCaseBrief, groundCaseBrief, filterProposals,
-    computeEntitySummary, foldMemberAliases
+    linkAssertionsToClaims, validateCorpusExtract, validateCaseBrief, groundCaseBrief,
+    filterProposals, computeEntitySummary, foldMemberAliases
 } from '../shared/case-synthesis.js';
 import { renderProposals } from './synthesis-review.js';
 import { Signer } from '../shared/signer.js';
@@ -764,8 +764,22 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                     if (p.phase === 'done') status.textContent = `Analyzing ${p.okCount}/${p.total} articles…`;
                 });
 
+                // Grounding indexes over the member texts — shared by the
+                // local assertion→claim join here AND the brief grounding
+                // after the reduce.
+                const indexByMember = {};
+                for (const m of members) indexByMember[m.article_hash] = createGroundingIndex(m.text);
+
+                // corpus-v4: extracts come back (or out of cache) claims-
+                // blind; join their assertions to the CURRENT claim set
+                // locally, by quote-span overlap. Cached-before-claims
+                // extracts link here too — fresher than a frozen map-time
+                // link ever was.
                 const extracts = Object.entries(modules).map(([hash, extract]) => ({
-                    article_hash: hash, title: (unitById[hash] || {}).title || null, extract
+                    article_hash: hash, title: (unitById[hash] || {}).title || null,
+                    extract: unitById[hash]
+                        ? linkAssertionsToClaims(extract, unitById[hash], indexByMember[hash])
+                        : extract
                 }));
                 if (extracts.length === 0) {
                     status.textContent = `No articles could be analyzed (${failures.length} failed).`;
@@ -796,9 +810,8 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                     return;
                 }
 
-                // Ground every quote against the member texts the map used.
-                const indexByMember = {};
-                for (const m of members) indexByMember[m.article_hash] = createGroundingIndex(m.text);
+                // Ground every quote against the member texts the map used
+                // (the indexes built before the join above).
                 const grounded = groundCaseBrief(reduce.briefInput, indexByMember);
 
                 // Triage survives a RE-RUN too (27 S.3 review fix): keys are

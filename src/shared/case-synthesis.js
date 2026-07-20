@@ -214,13 +214,18 @@ export function computeEntitySummary(data, memberByHash) {
  * cached ahead of time carries precisely the cache key Analyze will
  * later compute (corpusExtractKey fingerprints this shape). A change
  * here is a map-input change: bump MAP_PROMPT_VERSION.
+ *
+ * DELIBERATELY claims-free (corpus-v4): the extract depends only on
+ * the article text + case frame, so its cache key is stable from the
+ * moment of capture — extracting claims later never orphans it.
+ * Assertion→claim linking is local, at analyze time
+ * (linkAssertionsToClaims), against the CURRENT claim set.
  */
 export function corpusMapRequest(member, { caseName = '', scopeQuestion = '' } = {}) {
     return {
         member_id: member.article_hash,
         memberText: member.text,
         memberMeta: { title: member.title, url: member.url },
-        claimsDigest: (member.claims || []).map((c) => `${c.id} — ${c.text}`).join('\n'),
         caseName, scopeQuestion
     };
 }
@@ -228,15 +233,71 @@ export function corpusMapRequest(member, { caseName = '', scopeQuestion = '' } =
 export async function corpusExtractKey(request, promptVersion = MAP_PROMPT_VERSION) {
     const r = request || {};
     const mm = r.memberMeta || {};
+    // No claims field (corpus-v4) — claim changes must NOT move the
+    // key; that independence is the Pre-analyze economics.
     return Crypto.sha256(JSON.stringify({
         v: promptVersion,
         text: r.memberText || '',
-        claims: r.claimsDigest || '',
         caseName: r.caseName || '',
         scope: r.scopeQuestion || '',
         title: mm.title || '',
         url: mm.url || ''
     }));
+}
+
+/**
+ * Attach `claim_ref` to a map extract's key assertions LOCALLY, by
+ * quote-span overlap against the member's CURRENT claims (corpus-v4 —
+ * the model no longer sees the claims, so its extract can be cached
+ * from capture; the join happens fresh on every analyze, so claims
+ * extracted AFTER a pre-analyze still link).
+ *
+ * The join is deliberately mechanical, not semantic: both the
+ * assertion quote and each claim's stored quote are located in the
+ * SAME canonical member text (the grounding tiers absorb typographic
+ * drift), and an assertion links to the claim whose span overlaps its
+ * own the most (ties: smaller claim id). No overlap — including a
+ * claim that stored no quote — is claim_ref: null, never a guess. A
+ * paraphrased claim the old model-side join might have caught is the
+ * accepted cost of the stable cache.
+ *
+ * Pure. `index` (a reusable grounding index over member.text) is
+ * injectable so the analyze run can share the one it already builds
+ * for brief grounding.
+ *
+ * @param {object} extract  validated map-tool output
+ * @param {object} member   the buildMemberUnits unit (text + claims)
+ * @param {object} [index]  createGroundingIndex(member.text)
+ * @returns {object} the extract with claim_ref set on each assertion
+ */
+export function linkAssertionsToClaims(extract, member, index = null) {
+    const assertions = (extract && extract.key_assertions) || [];
+    if (assertions.length === 0) return extract;
+    const idx = index || createGroundingIndex((member && member.text) || '');
+
+    const claimSpans = [];
+    for (const c of (member && member.claims) || []) {
+        if (!c || !c.id || !c.quote) continue;
+        const g = idx.ground(c.quote);
+        if (g.status !== 'missing') claimSpans.push({ id: c.id, start: g.start, end: g.end });
+    }
+
+    const linked = assertions.map((a) => {
+        const g = idx.ground(a && a.quote);
+        if (g.status === 'missing' || claimSpans.length === 0) return { ...a, claim_ref: null };
+        let best = null;
+        let bestOverlap = 0;
+        for (const s of claimSpans) {
+            const overlap = Math.min(g.end, s.end) - Math.max(g.start, s.start);
+            if (overlap <= 0) continue;
+            if (!best || overlap > bestOverlap || (overlap === bestOverlap && s.id < best.id)) {
+                best = s;
+                bestOverlap = overlap;
+            }
+        }
+        return { ...a, claim_ref: best ? best.id : null };
+    });
+    return { ...extract, key_assertions: linked };
 }
 
 /**

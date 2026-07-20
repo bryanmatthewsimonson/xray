@@ -19,6 +19,31 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-20 — corpus-v4: the claims-independent map cache
+
+**Tags:** design
+
+The synthesis map stage's cache key used to fingerprint the claims
+digest, so extracting claims on a member orphaned its cached extract —
+which made the new Pre-analyze pass pay twice in the import → analyze →
+read-and-extract workflow. corpus-v4 removes claims from the map input
+entirely: the extract depends only on article text + case frame, so
+its cache key is stable from the moment of capture.
+
+The model therefore no longer emits `claim_ref`; the assertion→claim
+join moved to analyze time, computed locally by quote-span overlap in
+the SAME canonical member text (`linkAssertionsToClaims`, over the
+grounding tiers). Two consequences, both deliberate: (1) the join now
+runs against the CURRENT claim set on every analyze — claims extracted
+after a pre-analyze still link, which the frozen map-time link never
+did; (2) the join is mechanical — a paraphrased claim the model might
+have matched now links only if quote spans intersect, and no overlap
+is `claim_ref: null`, never a guess. One-time cost: the
+MAP_PROMPT_VERSION bump (v2→v4) orphans every previously cached
+extract; the next Analyze on an old corpus re-pays its map once.
+
+---
+
 ## 2026-07-20 — 28.6 cross-workspace read: never mint a foreign IDB
 
 **Tags:** design

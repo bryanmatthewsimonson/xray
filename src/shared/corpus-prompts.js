@@ -35,12 +35,21 @@ import { CLAIM_RELATIONSHIPS } from './assessment-taxonomy.js';
 //     (rides corpusInputHash, shown on the brief). Bump on ANY change to
 //     either stage.
 // They start equal ('corpus-v2') and diverge when a reduce-only change
-// bumps the overall version while the map cache stays valid — which is
-// exactly this change (representative digest + crux/holder nudge): the
-// map prompt is untouched, so MAP_PROMPT_VERSION holds and cached
-// extracts survive; CORPUS_PROMPT_VERSION goes to v3 so briefs re-run.
-export const MAP_PROMPT_VERSION = 'corpus-v2';
-export const CORPUS_PROMPT_VERSION = 'corpus-v3';
+// bumps the overall version while the map cache stays valid.
+//
+// corpus-v4 (the claims-independent map, 2026-07-20): the claims digest
+// LEFT the map input entirely — the extract now depends only on the
+// article text + case frame, so its cache key is stable from the moment
+// of capture and later claim extraction never orphans it (the
+// Pre-analyze economics). Assertion→claim linking moved to analyze
+// time, computed locally by quote-span overlap against the CURRENT
+// claim set (case-synthesis.js linkAssertionsToClaims) — fresher than
+// the model's frozen map-time links, at the cost of overlap-only
+// matching. One-time cost: every corpus-v2 cached extract is orphaned
+// by this bump. MAP goes to v4; the overall version to v5 (the reduce
+// input's assertion refs changed provenance).
+export const MAP_PROMPT_VERSION = 'corpus-v4';
+export const CORPUS_PROMPT_VERSION = 'corpus-v5';
 export const MAP_TOOL_NAME = 'emit_corpus_extract';
 export const REDUCE_TOOL_NAME = 'emit_case_brief';
 export const HYPOTHESIS_EDGE_PROMPT_VERSION = 'hyp-edges-v1';
@@ -50,7 +59,6 @@ export const HYPOTHESIS_EDGE_TOOL_NAME = 'propose_hypothesis_edges';
 // make cost linear, and position/assertion extraction doesn't need the
 // tail of a very long capture. Truncation is disclosed per member.
 export const MAX_MEMBER_INPUT_CHARS = 60000;
-export const MAX_CLAIMS_DIGEST_CHARS = 4000;
 export const MAX_MAP_OUTPUT_TOKENS = 8192;
 // The reduce emits the WHOLE-corpus brief: every position's holders, ALL
 // cruxes, the load-bearing claims, and the proposal queue (the corpus-v3
@@ -92,7 +100,6 @@ export function buildMapTool() {
                         type: 'object',
                         properties: {
                             quote: { type: 'string', description: 'ONE contiguous VERBATIM span copied from THIS article, character for character. Machine-checked — an unlocatable quote is dropped.' },
-                            claim_ref: { type: ['string', 'null'], description: 'An EXISTING claim id from the supplied claims digest that states this assertion, or null if none.' },
                             why_load_bearing: { type: 'string', description: 'Why this assertion carries weight for the position.' }
                         },
                         required: ['quote']
@@ -133,21 +140,20 @@ export function buildMapSystemPrompt({ caseName = '', scopeQuestion = '' } = {})
         '  for character (keep punctuation, capitalization, typos). It is machine-checked; a quote',
         '  that cannot be located in the article is dropped.',
         '- Do NOT adjudicate, rate, or say which side is right. Report the article\'s claims.',
-        '- If the article takes no side, say so (side_label = null).',
-        '- Prefer claim_ref values from the supplied digest when an assertion matches an existing',
-        '  claim; otherwise leave claim_ref null. Never invent a claim id.'
+        '- If the article takes no side, say so (side_label = null).'
     ].filter(Boolean).join('\n');
 }
 
-export function buildMapUserPrompt({ memberText = '', memberMeta = {}, claimsDigest = '' } = {}) {
+// DELIBERATELY no claims digest here (corpus-v4): the map input is the
+// article text + case frame ONLY, so the extract cache key is stable
+// from capture and later claim extraction never orphans it. Assertion→
+// claim linking happens locally at analyze time (linkAssertionsToClaims).
+export function buildMapUserPrompt({ memberText = '', memberMeta = {} } = {}) {
     const head = [
         memberMeta.title ? `TITLE: ${memberMeta.title}` : '',
         memberMeta.url ? `URL: ${memberMeta.url}` : ''
     ].filter(Boolean).join('\n');
-    const digest = claimsDigest
-        ? `\n\nEXISTING CLAIMS ALREADY EXTRACTED FROM THIS ARTICLE (id — text):\n${claimsDigest.slice(0, MAX_CLAIMS_DIGEST_CHARS)}`
-        : '';
-    return `${head}\n\nARTICLE TEXT:\n---\n${memberText}\n---${digest}`;
+    return `${head}\n\nARTICLE TEXT:\n---\n${memberText}\n---`;
 }
 
 // ------------------------------------------------------------------
