@@ -150,6 +150,12 @@ Phase 28 ████████████████░░░░  28.1–28
                                 after-import (parked proposals), and standalone
                                 cross-article "Suggest links"
                                 (xray:llm:corpus-links); tail open
+Case WS  ████████████████████  COMPLETE (PRs #223–#231) — case-bound
+                                workspaces: fail-closed storage/IDB namespace,
+                                registry + switcher, capture auto-tagging,
+                                viewer fencing, the source manager, and the
+                                read-only cross-workspace graph
+                                (CASE_BOUND_WORKSPACES_KICKOFF.md)
 ```
 
 Parity with the v4.2 userscript is long reached; the project now ships
@@ -160,7 +166,11 @@ entity identity, the Network client, and capture / intake automation.
 **v0.7.0 was tagged 2026-07-16** — the first GitHub Release since v0.5.1
 (v0.6.0 was tagged but never cut as a Release), covering Phases 15.6–24.3.
 Phases 25–27 have since merged, and **Phase 28** (corpus intake
-automation) is in progress. The **FLF Epistack competition (deadline
+automation) is in progress. The **case-bound workspaces** track
+(`docs/CASE_BOUND_WORKSPACES_KICKOFF.md`, its own 28.x numbering) is
+COMPLETE as of 2026-07-20 (PRs #223–#231): one workspace per corpus,
+fail-closed namespace isolation, and cross-workspace visibility only
+through the deliberate read-only graph. The **FLF Epistack competition (deadline
 2026-07-19)** is being pursued maintainer-driven from real use cases
 (COVID first); there is no committed sprint plan — the tool is tailored
 from that experience. Several per-phase smoke-runs (Phases 11–16, 19)
