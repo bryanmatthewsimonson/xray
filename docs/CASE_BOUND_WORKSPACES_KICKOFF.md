@@ -132,28 +132,31 @@ the judges' read-only viewer flow, `ENTITY_TYPES`.
    pinned before/after test over a synthetic full workspace, and the
    backup-first flow already in the options UI.
 
-## §6. Slices (one PR each, post-submission; branches `claude/case-ws-*`)
+## §6. Slices — ALL DELIVERED (2026-07-20)
 
-1. **28.1 — registry + namespace + migration + switcher.** The core.
-   `storage.js` prefixing, IDB renaming, `default`-workspace
-   migration, the switcher UI. Everything else stacks on this.
-2. **28.2 — binding + guards.** Case entity + identity profile bound
-   at workspace creation; atomic activate; derivation-root recording +
-   `restoreDerivedKeys` refusal (CW.4); the custody guard test (CW.5);
-   the NIP-07 refusal surface.
-3. **28.3 — capture scoping.** Auto-tag captures to the bound case;
-   pass the case frame into Suggest; active-case chrome in the reader
-   and side panel.
-4. **28.4 — viewer fencing.** The portal's foreign-npub viewer becomes
-   read-only-by-construction: never in "me", never in reconcile,
-   distinct rendering. (The caches already joined the boundary in
-   28.1.)
-5. **28.5 — the source manager.** The case dossier's add/remove UI
-   rebuilt as a real surface.
-6. **28.6 — cross-workspace graph.** The prior kickoff's §3.5:
-   an explicit multi-case root over `buildCaseGraph`, shared entities
-   as first-class cross-case edges. Deliberate, read-only, side by
-   side (P8).
+1. **28.1 — registry + namespace + migration + switcher.** ✅ PR #226
+   (28.1a — the namespace, dark) + PR #227 (28.1b — the Workspaces
+   UI). The `default`-workspace "migration" is a no-op by
+   construction: the default workspace IS the bare keys.
+2. **28.2 — binding + guards.** ✅ Folded into #226/#227 (binding at
+   creation, atomic activate, the NIP-07 refusal) plus PR #225
+   (the CW.5 custody guard test; CW.4 derivation-root recording +
+   `restoreDerivedKeys` refusal landed with it).
+3. **28.3 — capture scoping.** ✅ PR #228 — captures auto-tag the
+   bound case; Suggest receives the case frame.
+4. **28.4 — viewer fencing.** ✅ PR #229 — a pasted npub is a
+   read-only viewer, never "me", never in reconcile.
+5. **28.5 — the source manager.** ✅ PR #230 — membership chips
+   (tag / claims), honest tag removal, the add picker, one panel.
+6. **28.6 — cross-workspace graph.** ✅ PR #231 — the read-only
+   multi-case view (`cross-case-graph.js` + the portal's "Across
+   workspaces"), shared NAMES as first-class cross-case edges
+   (signal, never an identity join), side by side (P8). The
+   cross-boundary read lives in exactly one module
+   (`workspace-read.js`) and cannot write.
+
+(Groundwork that preceded the slices: PR #223 — orbit membership is
+the 20.1 union; PR #224 — the §7 decisions recorded.)
 
 ## §7. Open questions — DECIDED (maintainer, 2026-07-19)
 
