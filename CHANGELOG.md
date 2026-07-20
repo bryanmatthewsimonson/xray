@@ -12,6 +12,89 @@ Sections per release: **Added** (new features), **Changed**
 
 ### Added
 
+- **Entity Pages (EP.1–EP.5, `docs/ENTITY_PAGE_KICKOFF.md`).** The
+  claims-first successor to the retired fact layer: a grounded,
+  Wikipedia-like page per entity, synthesized from its captured corpus
+  and reviewed by the human before anything persists. The engine
+  (`shared/entity-page.js`) reuses the case-synthesis map/reduce — the
+  map stage rides the SAME per-article extract cache Analyze /
+  Pre-analyze fill (requests built via `corpusMapRequest`, so cache
+  keys are byte-identical and a page inside a worked case usually
+  costs one synthesis call — the confirm discloses the exact split).
+  The page: a lead, prose sections whose every citation is a verbatim
+  machine-checked quote (sections with no surviving citation are
+  badged **uncited**), a **key-facts box that is a curated list of
+  claims** (each entry's quote is its verification — no typed fields,
+  no model knowledge), disputes side by side, and honest coverage
+  gaps. Review on the portal entity dossier (edit/remove sections,
+  curate key facts); staleness via input hash; publish (behind
+  `entityCorpusPublishing`) as a **user-signed replaceable
+  kind-30023** (`d: xray-entity-page:<entityId>`, `t:
+  xray-entity-page`, `p` subject, `a`-refs only to published claims) —
+  deliberately no new wire kind. New `entity-pages` store
+  (`xray-audits` v6).
+
+- **Corpus-level epistemic audits (CA.1–CA.4,
+  `docs/CORPUS_AUDIT_KICKOFF.md`).** The per-article epistemic audit
+  scaled to the case: a **corpus audit block** on the case dashboard
+  plans and runs audits across every unaudited member (bounded pool,
+  cache-first against the existing runs ledger), a span-overlap join
+  attaches run findings to the claims they overlap, an **epistemics
+  block** renders per-dimension score DISTRIBUTIONS and ranges across
+  the corpus (structurally no mean, no fused number — red-line
+  tested), and the case-brief digest gains `audit_coverage` so the
+  synthesis may cite process quality per position without ever
+  adjudicating truth.
+
+- **Forensic corpus passes (FA.1–FA.3).** The behavioral layer scaled
+  the same way: a per-subject forensic pass over every member naming a
+  subject (maneuver taxonomy + REQUIRED counter-read, reviewed
+  counter-read-first; Rule-1 no-intent enforcement in the validator),
+  a conservative containment join from finding anchors to claims, and
+  a per-subject rollup of maneuver/role distributions — counts only,
+  never a character score.
+
+- **Auto pre-analyze on capture (`autoPreAnalyze`, default OFF).**
+  Opt-in per-capture prepay: a capture that saves into a case-bound
+  workspace immediately runs the synthesis map stage for that member,
+  so later Analyze / entity-page runs start warm. Default off because
+  it converts the per-click spend confirm into a STANDING
+  authorization — the Options disclosure states the per-capture cost;
+  the auto path's cache key is pinned byte-identical to Analyze's.
+
+- **Known-entity vocabulary injection.** The Suggest pass now carries
+  the workspace's existing entity names into the prompt as naming
+  VOCABULARY (capped, case-typed entries excluded), so a re-mentioned
+  entity is proposed under its established name and merges on accept
+  instead of minting a near-duplicate — with the no-minting guard
+  stated both ways (never propose a listed entity the text doesn't
+  mention; never suppress a new one).
+
+- **Pre-analyze + the corpus-v4 claims-independent map cache.** The
+  case dashboard gains **Pre-analyze…** (the map stage alone, no brief
+  written), and the map extract's cache key now depends ONLY on
+  article text + case frame — extracting claims later never orphans
+  it; assertion→claim linking moved to analyze time, computed locally
+  by quote-span overlap. One-time cost: pre-v4 cached extracts are
+  orphaned.
+
+- **Case-bound workspaces (PRs #223–#231,
+  `docs/CASE_BOUND_WORKSPACES_KICKOFF.md`).** One workspace per
+  corpus: fail-closed `ws:<id>:` storage/IDB namespacing, a registry +
+  switcher, capture auto-tagging into the bound case, viewer fencing,
+  the source manager, and a read-only cross-workspace graph. Plus
+  **one-step case creation** (name + scope → workspace + case entity +
+  binding in one action) and the always-visible **active-case chrome**
+  (the case chip/switcher).
+
+- **Entity-corpus tail (E2/E4–E6, PRs #238–#241).** The LLM entity
+  audit (merge/retype proposals over the registry, human-accepted),
+  per-article kind-1 **mention notes** (entity-signed, capped,
+  never re-sent for the same article version; case roots excluded by
+  the custody rule), the wire-first **entity corpus view** (any
+  pubkey's authored + about timeline from relays alone), and the E6
+  docs closeout.
+
 - **Standalone "Suggest links" (Phase 28.3).** Cross-article claim
   relationship suggestion is **decoupled from "Analyze corpus"**: a
   new "Cross-article links" block on the case dashboard runs ONE
@@ -210,6 +293,37 @@ Sections per release: **Added** (new features), **Changed**
   the fresh-workspace reset list. No UI yet: the Network page (25.2a)
   is the consumer. Design: `docs/NETWORK_CLIENT_DESIGN.md` (Phase 25,
   slice map §10).
+
+### Changed
+
+- **Suggest IS the extraction pass.** The per-capture Suggest now
+  proposes **entities and claims only**. The judgment kinds are
+  retired from it — each to a strictly better corpus-level home:
+  relationships → the cross-article links pass, findings → the
+  forensic corpus pass, assessments → the assess modal — and stored
+  kind settings migrate silently. The mental model: per capture,
+  EXTRACT; per corpus, CONNECT AND JUDGE.
+
+- **Case dashboard declutter.** The dashboard reorganizes into
+  collapsible workflow sections (Evidence and Analysis open by
+  default; Shape / Graph / Hypotheses / Published record / People
+  collapsed, state remembered per case) and the three source-adding
+  head buttons collapse into one **Sources ▾** menu.
+
+### Removed
+
+- **The Phase-19 entity-fact layer (BREAKING on the wire).** The typed
+  fact data model proved too stringent to be useful and is removed
+  wholesale: the `claim.fact` layer, the typed field registries (the
+  case's AUTHORED fields survive), the reader Add-fact flow and its
+  `readerAddFact` flag, the LLM `facts` suggest kind, the dossier
+  fields section, the 30040 `fact`/validity tags (no longer produced;
+  ignored on read), and **kind 30067 (EntityFactSheet) — retired**:
+  never emitted or fetched again, the number stays reserved. New
+  NIP-26 entity delegations narrow to kind 0; the entity kind-0
+  `about` drops its fact lines. Legacy `claim.fact` payloads are
+  inert; fact-claims survive as ordinary claims. Superseded by Entity
+  Pages (above) — the claim is the fact.
 
 ## [0.7.0] — 2026-07-16
 
