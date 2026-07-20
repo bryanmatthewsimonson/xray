@@ -22,6 +22,9 @@
 // Options UI does.
 
 import { WORKSPACE_DATABASES } from './identity-profiles.js';
+import { WORKSPACE_CONTENT_KEYS, activeWorkspaceId } from './workspace-keys.js';
+
+const WORKSPACE_CONTENT = new Set(WORKSPACE_CONTENT_KEYS);
 import { openArchiveDb } from './archive-cache.js';
 import { openAuditDb } from './audit/audit-cache.js';
 import { openEventJournalDb } from './event-journal.js';
@@ -29,7 +32,12 @@ import { openEventJournalDb } from './event-journal.js';
 export const BACKUP_FORMAT = 'xray-backup/1';
 
 // The one storage key a backup must never contain.
-const EXCLUDED_STORAGE_KEYS = ['xray:llm:key'];
+// 28.1: 'workspaces' + 'active_workspace' are install-level plumbing —
+// a backup is a portable snapshot of ONE workspace (the active one)
+// plus install config, restorable into whatever workspace is active at
+// apply time. Carrying the registry/pointer would let one workspace's
+// file stomp every other workspace on restore.
+const EXCLUDED_STORAGE_KEYS = ['xray:llm:key', 'workspaces', 'active_workspace'];
 
 // Stores whose rows carry raw bytes; skipped when includeSourceBytes=false.
 const BYTE_STORES = { 'xray-archive': ['source_documents'] };
@@ -204,26 +212,56 @@ function areaSet(area, obj) {
     return new Promise((resolve) => area.set(obj, () => resolve()));
 }
 
+// 28.1 scope: the backup carries the ACTIVE workspace's content keys
+// under their LOGICAL (bare) names — the same view Storage exposes —
+// plus install-level config. Other workspaces' `ws:*` keys never ride
+// along, and (under a non-default workspace) neither does the default
+// workspace's bare content. The databases section is already
+// active-scoped the same way: openCovered routes through the module
+// openers, which resolve the workspace-suffixed on-disk names.
 async function collectStorage() {
+    const ws = await activeWorkspaceId();
+    const prefix = `ws:${ws}:`;
     const all = await areaGetAll(storageArea());
     const out = {};
     for (const [k, v] of Object.entries(all)) {
+        if (k.startsWith('ws:')) {
+            if (ws !== 'default' && k.startsWith(prefix)) {
+                const bare = k.slice(prefix.length);
+                if (!EXCLUDED_STORAGE_KEYS.includes(bare)) out[bare] = v;
+            }
+            continue;
+        }
         if (EXCLUDED_STORAGE_KEYS.includes(k)) continue;
+        if (ws !== 'default' && WORKSPACE_CONTENT.has(k)) continue;   // default ws's content
         out[k] = v;
     }
     return out;
 }
 
 async function applyStorage(entries) {
+    const ws = await activeWorkspaceId();
+    const prefix = `ws:${ws}:`;
     const area = storageArea();
     const current = await areaGetAll(area);
-    const toRemove = Object.keys(current).filter((k) => !EXCLUDED_STORAGE_KEYS.includes(k));
+    const mapK = (k) => (ws !== 'default' && WORKSPACE_CONTENT.has(k)) ? prefix + k : k;
+    // Replace-all WITHIN this workspace's logical scope: its own content
+    // keys plus install config. Other workspaces are untouchable.
+    const toRemove = Object.keys(current).filter((k) => {
+        if (EXCLUDED_STORAGE_KEYS.includes(k)) return false;
+        if (k.startsWith('ws:')) {
+            return ws !== 'default' && k.startsWith(prefix)
+                && !EXCLUDED_STORAGE_KEYS.includes(k.slice(prefix.length));
+        }
+        if (ws !== 'default' && WORKSPACE_CONTENT.has(k)) return false;   // default ws's content
+        return true;
+    });
     if (toRemove.length) await areaRemove(area, toRemove);
     // Never write the excluded keys even if a hand-edited file smuggles them in.
     const clean = {};
     for (const [k, v] of Object.entries(entries || {})) {
         if (EXCLUDED_STORAGE_KEYS.includes(k)) continue;
-        clean[k] = v;
+        clean[mapK(k)] = v;
     }
     if (Object.keys(clean).length) await areaSet(area, clean);
 }

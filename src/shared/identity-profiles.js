@@ -30,43 +30,18 @@ const PROFILES_KEY = 'identity_profiles';
 const HEX64 = /^[0-9a-f]{64}$/;
 
 // What "Start fresh workspace" clears — every store that holds captured
-// or authored CONTENT (and its publish stamps), plus the per-workspace
-// key registry and the portal's pasted viewer npubs. Exported so tests
-// pin the list; extend it when a new content store ships.
-export const WORKSPACE_CLEAR_KEYS = Object.freeze([
-    'entities',                 // entity records (keypairs joined from local_keys)
-    'local_keys',               // per-entity keys + the xray:user sync key
-    'article_claims',           // claims + their publish stamps
-    'evidence_links',           // 30055 edges + attestation metadata
-    'claim_assessments',        // 30054 assessments
-    'behavioral_findings',      // 30062 forensic findings
-    'adjudicable_propositions', // Phase 15 propositions
-    'adjudicated_verdicts',     // Phase 15 verdict chains
-    'integrity_findings',       // Phase 15 words-vs-deeds findings
-    'platform_accounts',        // Phase 9 account registry
-    'portal_identities',        // portal viewer npubs (pasted, read-only)
-    'lens_jurisdictions',       // Phase 16 jurisdiction registry + corpora
-    'url_aliases',              // URL alias map (url-aliases.js) — derived
-                                // from captured content, so workspace data
-    'entity_fact_dismissals',   // Phase 19 fact-conflict dismissals
-                                // (entity-facts.js) — judgments about
-                                // captured content, so workspace data
-    'entity_dedupe_dismissals', // Phase 17A "Not duplicates" record
-                                // (entity-health.js) — same class
-    'follow_sets',              // Phase 25 follow registry
-                                // (follow-model.js) — KS §5 names it
-                                // workspace content explicitly
-    'incorporated_artifacts',   // Phase 25.3 reviewed-in foreign
-                                // artifacts (incorporation.js)
-    'incorporation_dismissals', // Phase 25.3 declined proposals —
-                                // judgments about network content,
-                                // same class as fact dismissals
-    'case_hypotheses',          // Phase 26 hypothesis records
-                                // (hypothesis-model.js)
-    'hypothesis_edges'          // Phase 26 claim→hypothesis edges —
-                                // authored structure, same class as
-                                // evidence_links
-]);
+// or authored CONTENT. The list itself moved to workspace-keys.js
+// (Phase 28.1) so storage.js can namespace these keys per workspace
+// without an import cycle; re-exported here under the historical name
+// so every existing import and pin test keeps working.
+import {
+    WORKSPACE_CONTENT_KEYS,
+    WORKSPACE_DATABASES as WS_DATABASES,
+    DERIVED_CACHE_DATABASES as WS_DERIVED_CACHES,
+    workspaceDbName
+} from './workspace-keys.js';
+
+export const WORKSPACE_CLEAR_KEYS = WORKSPACE_CONTENT_KEYS;
 
 // What reset deliberately KEEPS — configuration and identity. Exported
 // for the same pin-test reason. (`xray:llm:key` is config too: kept,
@@ -82,28 +57,12 @@ export const WORKSPACE_KEEP_KEYS = Object.freeze([
     'xray:llm:suggest_kinds'    // llm-prompts.js LLM_SUGGEST_KINDS_STORAGE
 ]);
 
-// IndexedDB databases holding workspace content.
-// NOTE deliberately absent: the derived relay caches below — this list
-// doubles as the BACKUP coverage list (backup.js), and a rebuildable
-// cache in a backup is dead weight.
-export const WORKSPACE_DATABASES = Object.freeze([
-    'xray-archive',             // captured article cache (archive-cache.js)
-    'xray-audits',              // audit records — PRECIOUS, hence the
-                                // export-first flow in the options UI
-    'xray-events'               // signed-event journal (event-journal.js)
-]);
-
-// Derived, rebuildable relay caches. Excluded from WORKSPACE_DATABASES
-// (never backed up) but CLEARED by resetWorkspace: they are keyed by
-// neither workspace nor identity, and their reads are unscoped — a
-// cache that survives a fresh-workspace reset resurfaces the previous
-// project's entire corpus in the portal under the new identity
-// (2026-07-19 incident; the cross-case-leakage risk Q7 of
-// CASE_WORKSPACE_KICKOFF flagged). Deleting them costs one re-fetch.
-export const DERIVED_CACHE_DATABASES = Object.freeze([
-    'xray-portal',              // portal event cache (portal-cache.js)
-    'xray-network'              // Phase 25 network cache
-]);
+// IndexedDB lists — moved to workspace-keys.js (28.1), re-exported
+// under the historical names. WORKSPACE_DATABASES doubles as the
+// BACKUP coverage list; the derived caches are cleared on reset but
+// never backed up (2026-07-19 incident).
+export const WORKSPACE_DATABASES = WS_DATABASES;
+export const DERIVED_CACHE_DATABASES = WS_DERIVED_CACHES;
 
 function normalizeLabel(label) {
     const trimmed = String(label || '').trim();
@@ -269,13 +228,109 @@ export async function resetWorkspace({ idb } = {}) {
     const databases = [];
     const factory = idb || (typeof indexedDB !== 'undefined' ? indexedDB : null);
     if (factory && typeof factory.deleteDatabase === 'function') {
-        // Content databases AND the derived caches: a delete request
-        // with another X-Ray tab holding the DB open completes only
-        // when that tab closes — best-effort here, and the options UI
-        // tells the user to close other X-Ray tabs.
-        for (const name of [...WORKSPACE_DATABASES, ...DERIVED_CACHE_DATABASES]) {
+        // Content databases AND the derived caches, under the ACTIVE
+        // workspace's on-disk names (28.1 — a reset clears only the
+        // workspace it runs in). A delete request with another X-Ray
+        // tab holding the DB open completes only when that tab closes —
+        // best-effort here, and the options UI tells the user to close
+        // other X-Ray tabs.
+        const ws = await Storage.activeWorkspaceId();
+        for (const base of [...WORKSPACE_DATABASES, ...DERIVED_CACHE_DATABASES]) {
+            const name = workspaceDbName(base, ws);
             try { factory.deleteDatabase(name); databases.push(name); } catch (_) { /* best-effort */ }
         }
     }
     return { cleared, databases };
 }
+
+// ------------------------------------------------------------------
+// Case-bound workspaces (Phase 28.1 — CASE_BOUND_WORKSPACES_KICKOFF §2,
+// §7 decisions 2026-07-19). The registry and pointer live OUTSIDE the
+// namespace by construction ('workspaces' / 'active_workspace' are not
+// workspace-content keys). Activation moves the namespace pointer AND
+// the bound signing identity together — the atomic switch whose absence
+// caused both §1 incidents. The UI (28.1b) owns confirms and reloads.
+// ------------------------------------------------------------------
+
+export const WORKSPACES_KEY = 'workspaces';
+
+function nowSec() { return Math.floor(Date.now() / 1000); }
+
+export const Workspaces = {
+    async getAll() {
+        return await Storage.get(WORKSPACES_KEY, null) || {};
+    },
+
+    /** Ensure the registry exists — the default workspace is minted on
+     *  first touch, so every existing install has one (bindings null
+     *  until the user sets them; §7 Q3's retro-bind is a UI confirm). */
+    async ensure() {
+        const all = await Workspaces.getAll();
+        if (!all.default) {
+            all.default = {
+                id: 'default', label: 'Default workspace',
+                case_entity_id: null, identity_pubkey: null, created: nowSec()
+            };
+            await Storage.set(WORKSPACES_KEY, all);
+        }
+        return all;
+    },
+
+    async list() {
+        const all = await Workspaces.ensure();
+        return Object.values(all).sort((a, b) => (a.created || 0) - (b.created || 0));
+    },
+
+    /** Create a workspace with a RANDOM id (§7 Q1: never collides with
+     *  entity-id derivation; outlives a renamed/retyped case anchor). */
+    async create({ label, caseEntityId = null, identityPubkey = null } = {}) {
+        const clean = normalizeLabel(label);
+        const all = await Workspaces.ensure();
+        const id = 'ws_' + Crypto.bytesToHex(globalThis.crypto.getRandomValues(new Uint8Array(8)));
+        all[id] = {
+            id, label: clean,
+            case_entity_id: caseEntityId, identity_pubkey: identityPubkey, created: nowSec()
+        };
+        await Storage.set(WORKSPACES_KEY, all);
+        return all[id];
+    },
+
+    /** Patch label/bindings. Id is immutable. */
+    async update(id, patch = {}) {
+        const all = await Workspaces.ensure();
+        const ws = all[id];
+        if (!ws) throw new Error(`Workspace not found: ${id}`);
+        if (patch.label != null) ws.label = normalizeLabel(patch.label);
+        if ('caseEntityId' in patch) ws.case_entity_id = patch.caseEntityId || null;
+        if ('identityPubkey' in patch) ws.identity_pubkey = patch.identityPubkey || null;
+        await Storage.set(WORKSPACES_KEY, all);
+        return ws;
+    },
+
+    /** Activate: switch the bound signing identity (when bound) and the
+     *  storage namespace together. A bound-but-missing profile refuses —
+     *  activating without its identity would publish the workspace's
+     *  content under the wrong key. Callers reload X-Ray pages after. */
+    async activate(id) {
+        const all = await Workspaces.ensure();
+        const ws = all[id];
+        if (!ws) throw new Error(`Workspace not found: ${id}`);
+        if (ws.identity_pubkey) {
+            await IdentityProfiles.activate(ws.identity_pubkey);
+        }
+        await Storage.setActiveWorkspaceId(id);
+        return ws;
+    },
+
+    /** Delete a workspace's registry row + all its data. Refuses the
+     *  default and the active workspace (Storage enforces both too).
+     *  The UI owns §7 Q2's typed confirm + backup-first. */
+    async remove(id, { idb } = {}) {
+        const all = await Workspaces.ensure();
+        if (!all[id]) throw new Error(`Workspace not found: ${id}`);
+        const result = await Storage.removeWorkspaceData(id, { idb });
+        delete all[id];
+        await Storage.set(WORKSPACES_KEY, all);
+        return result;
+    }
+};

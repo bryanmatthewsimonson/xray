@@ -19,6 +19,50 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-20 — Case-bound workspaces: the storage namespace ships dark (28.1a)
+
+**Tags:** design
+
+The core of `CASE_BOUND_WORKSPACES_KICKOFF.md` (§7 decided 2026-07-19),
+merged with zero behavior change until something activates a
+non-default workspace. Four second-guessable choices, recorded:
+
+1. **The default workspace IS the bare keys.** `ws === 'default'` maps
+   every content key to itself and every DB to its bare name — an
+   existing install's data is already "workspace default," so the
+   migration is a no-op by construction (no rename pass, no copy, no
+   failure mode). Only non-default workspaces pay the `ws:<id>:<key>` /
+   `base::<id>` prefixes.
+2. **`workspace-keys.js` touches chrome only at CALL time.** The IDB
+   cache modules (archive/audits/events/portal/network) are
+   deliberately dependency-light and several of their Node suites run
+   with no chrome stub. The name resolver therefore lives in a
+   dependency-free module whose `activeWorkspaceId()` probes
+   chrome.storage inside a try at call time and falls back to
+   'default' — every existing cache test runs unmodified. storage.js
+   keeps its own CACHED copy (invalidated by onChanged; MV3 SW
+   restarts re-read naturally) for hot key mapping.
+3. **DB handles memoize BY NAME.** Each cache's `_dbPromise` now pairs
+   with `_dbName`; a workspace switch in a live context closes the old
+   handle and opens the right database instead of silently reusing the
+   previous workspace's connection. The audit-cache "idempotent"
+   reference-equality pin was retargeted to the real invariant (same
+   underlying connection).
+4. **The full backup is a snapshot of ONE workspace** (the active one)
+   plus install config — 'workspaces' and 'active_workspace' joined
+   the excluded keys. The alternative (whole-install dumps) made
+   `applyBackup`'s replace-all semantics a cross-workspace data-loss
+   hazard: restoring any older file would have deleted every other
+   workspace's `ws:*` keys. Storage collect/apply now operate on the
+   active workspace's LOGICAL view (bare names in the file, mapped at
+   apply), so pre-workspace backups restore cleanly into any active
+   workspace.
+
+Registry + atomic activation (`Workspaces.activate` moves the
+namespace pointer and the bound signing identity together — the switch
+whose absence caused both §1 incidents) live in identity-profiles.js;
+the switcher UI is 28.1b.
+
 ## 2026-07-19 — Fresh workspace kept showing the old corpus in the portal
 
 **Tags:** bug design
