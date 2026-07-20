@@ -569,6 +569,16 @@ body.xr-portal {
 .xr-cgedge--about { stroke: var(--xr-primary); stroke-opacity: 0.4; }
 .xr-cgedge--cotag { stroke: var(--xr-text-dim); stroke-opacity: 0.5; stroke-dasharray: 2 2; }
 
+/* Entity corpus view (E5) — the wire-first timeline */
+.xr-ecorpus { margin-top: 10px; }
+.xr-ecorpus__profile {
+  border: 1px solid var(--xr-border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: var(--xr-surface);
+}
+
 /* Cross-workspace graph (28.6) — shared names span the case columns */
 .xr-xws { margin-top: 10px; }
 .xr-xws__svg { width: 100%; max-height: 70vh; }
