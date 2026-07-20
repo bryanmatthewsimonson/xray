@@ -73,6 +73,41 @@ test('FA.1: the firewall — grounded anchors, counter-read, intent red line, ca
     assert.ok(capped.accepted.length <= MAX_FINDINGS_PER_SUBJECT);
 });
 
+test('FA.2: anchors join claims by conservative containment, per URL — never a false link', async () => {
+    const { linkFindingAnchorsToClaims } = await import('../src/shared/forensic-corpus.js');
+    const byClaim = linkFindingAnchorsToClaims({
+        findings: [{
+            id: 'f1', maneuver: 'nonresponsive-answer',
+            anchors: [
+                { quote: 'declined to answer questions', source_ref: { url: 'https://x/a' } },
+                { quote: 'unrelated span', source_ref: { url: 'https://x/b' } }
+            ]
+        }],
+        claims: [
+            { id: 'c1', quote: 'Bob Smith declined to answer questions about the inventory', source_url: 'https://x/a' },
+            { id: 'c2', quote: 'declined to answer', source_url: 'https://x/b' },   // same words, WRONG url overlap? no: url b + anchor b quote differs
+            { id: 'c3', source_url: 'https://x/a' }                                  // quoteless — never joins
+        ]
+    });
+    assert.deepEqual(Object.keys(byClaim), ['c1'], 'containment within the SAME url only');
+    assert.equal(byClaim.c1[0].maneuver, 'nonresponsive-answer');
+});
+
+test('FA.3: the subject rollup counts structure — and can never carry a score (Rule 1 pin)', async () => {
+    const { forensicSubjectRollup } = await import('../src/shared/forensic-corpus.js');
+    const roll = forensicSubjectRollup({ findings: [
+        { subject_ref: { label: 'Bob' }, maneuver: 'm-a', anchors: [{ source_ref: { url: 'https://x/a' } }, { source_ref: { url: 'https://x/b' } }] },
+        { subject_ref: { label: 'Bob' }, maneuver: 'm-a', anchors: [{ source_ref: { url: 'https://x/a' } }] },
+        { subject_ref: { label: 'Ann' }, maneuver: 'm-b', anchors: [] }
+    ] });
+    assert.deepEqual(roll.map((s) => s.label), ['Bob', 'Ann'], 'total-desc');
+    assert.deepEqual(roll[0], { label: 'Bob', total: 2, byManeuver: { 'm-a': 2 }, sources: 2 });
+    const json = JSON.stringify(roll).toLowerCase();
+    for (const banned of ['score', 'honest', 'decept', 'intent', 'mean', 'average']) {
+        assert.ok(!json.includes(banned), `forbidden field family "${banned}"`);
+    }
+});
+
 test('FA.1: no intent/honesty field exists in the tool schema (Rule 1, structural)', async () => {
     const { buildForensicCorpusTool } = await import('../src/shared/forensic-corpus.js');
     const json = JSON.stringify(buildForensicCorpusTool().input_schema).toLowerCase();

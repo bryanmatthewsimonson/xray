@@ -160,6 +160,67 @@ export function validateForensicProposals(findings, { memberTexts = {} } = {}) {
     return { accepted, rejected };
 }
 
-// Reused by the grounding substrate above — a per-source index is
-// overkill for containment checks, but exported for FA.2's span join.
+/**
+ * FA.2 — forensic anchors ⇄ claim spine. Both quotes are verbatim
+ * spans of the same source; without the article text at hand the join
+ * is deliberately CONSERVATIVE: normalized containment either way,
+ * per URL — it can miss a partial overlap, it can never false-link.
+ * Location, never a verdict (the CA.2 firewall wording applies).
+ *
+ * @returns {Object<claimId, Array<{maneuver, finding_id, quote}>>}
+ */
+export function linkFindingAnchorsToClaims({ findings = [], claims = [] } = {}) {
+    const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const claimList = claims
+        .filter((c) => c && c.id && c.quote && c.source_url)
+        .map((c) => ({ id: c.id, url: Utils.normalizeUrl(c.source_url), q: norm(c.quote) }));
+    const byClaim = {};
+    const seen = new Set();
+    for (const f of findings) {
+        if (!f) continue;
+        for (const a of (f.anchors || [])) {
+            const aurl = Utils.normalizeUrl((a && a.source_ref && a.source_ref.url) || '');
+            const aq = norm(a && a.quote);
+            if (!aurl || !aq) continue;
+            for (const c of claimList) {
+                if (c.url !== aurl) continue;
+                if (!(c.q.includes(aq) || aq.includes(c.q))) continue;
+                const key = `${c.id}|${f.id}|${f.maneuver}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                (byClaim[c.id] = byClaim[c.id] || []).push({
+                    maneuver: f.maneuver, finding_id: f.id || null, quote: a.quote
+                });
+            }
+        }
+    }
+    return byClaim;
+}
+
+/**
+ * FA.3 — the per-subject maneuver rollup: counts by maneuver type and
+ * sources touched, per subject, total-desc. STRUCTURALLY no
+ * honesty/deception/score field can exist here (Rule 1 — pinned).
+ */
+export function forensicSubjectRollup({ findings = [] } = {}) {
+    const bySubject = new Map();
+    for (const f of findings) {
+        if (!f || !f.subject_ref) continue;
+        const label = f.subject_ref.label || f.subject_ref.identity_id || f.subject_ref.pubkey || '(unnamed)';
+        const s = bySubject.get(label) || { label, total: 0, byManeuver: {}, sources: new Set() };
+        s.total++;
+        s.byManeuver[f.maneuver] = (s.byManeuver[f.maneuver] || 0) + 1;
+        for (const a of (f.anchors || [])) {
+            const url = (a && a.source_ref && a.source_ref.url) || '';
+            if (url) s.sources.add(url);
+        }
+        bySubject.set(label, s);
+    }
+    return [...bySubject.values()]
+        .map((s) => ({ label: s.label, total: s.total, byManeuver: s.byManeuver, sources: s.sources.size }))
+        .sort((a, b) => b.total - a.total || (a.label < b.label ? -1 : 1));
+}
+
+// Exported for FA.2 consumers that DO hold the article text and want
+// the span-overlap join instead of containment.
 export { createGroundingIndex };

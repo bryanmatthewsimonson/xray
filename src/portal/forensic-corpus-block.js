@@ -13,7 +13,8 @@ import { el } from './dom.js';
 import { Utils } from '../shared/utils.js';
 import { ForensicModel } from '../shared/forensic-model.js';
 import {
-    buildSubjectBundle, validateForensicProposals, MAX_FINDINGS_PER_SUBJECT
+    buildSubjectBundle, validateForensicProposals, forensicSubjectRollup,
+    MAX_FINDINGS_PER_SUBJECT
 } from '../shared/forensic-corpus.js';
 
 function sendMessage(msg) {
@@ -52,6 +53,20 @@ export function renderForensicCorpusBlock(host, { data, callbacks = {} }) {
             + 'cross-source patterns a per-article pass cannot see. Structure, never intent: no '
             + 'honesty score exists; every anchor quote is machine-checked against stored text; '
             + `every proposal carries its own counter-read (shown first) and you accept at most ${MAX_FINDINGS_PER_SUBJECT} per subject.`));
+
+        // FA.3 — what's already recorded, per subject: maneuver counts
+        // and sources touched. Counts are structure; there is no
+        // honesty score and never will be (Rule 1).
+        try {
+            const roll = forensicSubjectRollup({ findings: Object.values(await ForensicModel.getAll()) });
+            if (roll.length) {
+                block.appendChild(el('div', 'xr-view__dossier-line',
+                    'Recorded findings: ' + roll.slice(0, 6).map((s) =>
+                        `${s.label} — ${s.total} (${Object.entries(s.byManeuver)
+                            .map(([m, n]) => `${m}×${n}`).join(', ')}) across ${s.sources} source${s.sources === 1 ? '' : 's'}`)
+                        .join(' · ')));
+            }
+        } catch (_) { /* rollup is enrichment */ }
 
         const controls = el('div', 'xr-synth__controls');
         const sel = el('select', 'xr-portal__case');
