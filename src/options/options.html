@@ -236,23 +236,26 @@
       </p>
 
       <hr />
-      <h3 class="xr-opt__subhead">Workspaces (case-bound)</h3>
+      <h3 class="xr-opt__subhead">Cases</h3>
       <p class="xr-opt__hint">
-        Each workspace is an isolated project — its own entities, claims,
-        archive, audits, and signed-event journal — bound to one signing
-        identity and one case. Activating a workspace switches the storage
-        namespace <strong>and</strong> the active identity together.
-        Reload any open X-Ray tabs after switching.
+        A case is an isolated project workspace owned by a profile — its
+        own entities, claims, archive, audits, and signed-event journal.
+        <strong>New case</strong> creates and binds everything in one
+        step and switches you into it; every capture then joins the case
+        automatically. Switching cases moves the storage namespace
+        <strong>and</strong> the signing identity together — reload any
+        open X-Ray tabs after switching.
       </p>
       <div id="ws-list" class="xr-opt__wslist"></div>
       <div class="xr-opt__actions">
-        <input type="text" id="ws-new-label" placeholder="New workspace label" />
-        <select id="ws-new-profile"></select>
-        <button class="xr-opt__btn" id="ws-create">Create workspace</button>
+        <input type="text" id="ws-new-label" placeholder="Case name (e.g. The stolen Legos saga)" />
+        <input type="text" id="ws-new-scope" placeholder="Scope question (optional — frames suggestions and the brief)" />
+        <select id="ws-new-profile" title="Which profile owns this case"></select>
+        <button class="xr-opt__btn" id="ws-create">New case</button>
       </div>
       <p class="xr-opt__hint">
-        Deleting a workspace requires typing its label and downloads its
-        backup first. The default workspace cannot be deleted.
+        Deleting a case workspace requires typing its name and downloads
+        its backup first. The default workspace cannot be deleted.
       </p>
       <span class="xr-opt__status" id="ws-status"></span>
 
