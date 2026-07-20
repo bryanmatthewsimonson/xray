@@ -304,9 +304,16 @@ export const EntityModel = {
         const keyName = `entity:${id}`;
         const keyMeta = { entityId: id, entityName: name, entityType: type };
         const primary = await Storage.primaryIdentity.get();
+        // CW.4: record WHICH primary the key derives from (its pubkey)
+        // on the entity record — the record survives keystore loss, so
+        // restoreDerivedKeys can refuse to re-derive under a different
+        // profile instead of silently minting a wrong pubkey. Legacy
+        // random keys record null (they are not recoverable anyway).
+        let derivedFrom = null;
         if (primary && primary.privateKey) {
             const child = await Crypto.deriveChildKey(primary.privateKey, ENTITY_KEY_DOMAIN, id);
             await LocalKeyManager.installDerivedKey(keyName, child, keyMeta);
+            derivedFrom = primary.pubkey || Crypto.getPublicKey(primary.privateKey);
         } else {
             await LocalKeyManager.createKey(keyName, keyMeta);
         }
@@ -320,6 +327,7 @@ export const EntityModel = {
             nip05:        fields.nip05 || '',
             canonical_id: fields.canonical_id || null,
             keyName,
+            derived_from: derivedFrom,
             suggested_by: cleanSuggestedBy(fields.suggested_by),
             created: now,
             updated: now
@@ -335,33 +343,54 @@ export const EntityModel = {
      * Re-derive missing entity keys from the primary identity (Phase
      * 24.1 — the keystore-loss recovery path). For every owned entity
      * whose keyName has no key in the store, re-derive the child from
-     * the primary + entity id and install it. Derived-era entities get
-     * back their ORIGINAL pubkey; entities minted under the legacy
-     * random scheme re-derive to a NEW pubkey — that discontinuity is
-     * inherent to random keys and is reported, never hidden (the
-     * caller can compare against published events).
+     * the primary + entity id and install it.
      *
-     * @returns {Promise<Array<{id, name, keyName, pubkey}>>} the keys installed
+     * CW.4 guard (CASE_WORKSPACE_KICKOFF §2.5.1): an entity records
+     * the primary it derives from (`derived_from`, stamped at create).
+     * Re-deriving under a DIFFERENT primary would silently mint a
+     * WRONG pubkey — every event published under the original pubkey
+     * would orphan — so mismatched entities are SKIPPED and reported,
+     * never derived. Records that predate the stamp restore under the
+     * active primary (the pre-guard contract; refusing would break the
+     * documented recovery path for all existing data), are reported
+     * `verified: false`, and are stamped at restore so the NEXT
+     * restore is guarded.
+     *
+     * @returns {Promise<{restored: Array<{id,name,keyName,pubkey,verified}>,
+     *                    skipped:  Array<{id,name,derived_from}>}>}
      */
     restoreDerivedKeys: async () => {
         const primary = await Storage.primaryIdentity.get();
         if (!primary || !primary.privateKey) {
             throw new Error('restoreDerivedKeys: no primary identity to derive from');
         }
+        const primaryPubkey = primary.pubkey || Crypto.getPublicKey(primary.privateKey);
         const all = await Storage.get('entities', {});
         const restored = [];
+        const skipped = [];
+        let stamped = false;
         for (const record of Object.values(all)) {
             // Foreign/reference entities carry no key of ours.
             if (!record || !record.keyName) continue;
             if (LocalKeyManager.getKey(record.keyName)) continue;   // present — leave it
+            if (record.derived_from && record.derived_from !== primaryPubkey) {
+                skipped.push({ id: record.id, name: record.name, derived_from: record.derived_from });
+                continue;
+            }
+            const verified = record.derived_from === primaryPubkey;
             const child = await Crypto.deriveChildKey(primary.privateKey, ENTITY_KEY_DOMAIN, record.id);
             const installed = await LocalKeyManager.installDerivedKey(record.keyName, child, {
                 entityId: record.id, entityName: record.name, entityType: record.type, restored: true
             });
-            restored.push({ id: record.id, name: record.name, keyName: record.keyName, pubkey: installed.pubkey });
+            if (!record.derived_from) {
+                record.derived_from = primaryPubkey;
+                stamped = true;
+            }
+            restored.push({ id: record.id, name: record.name, keyName: record.keyName, pubkey: installed.pubkey, verified });
         }
-        Utils.log('restoreDerivedKeys:', restored.length, 'key(s) restored');
-        return restored;
+        if (stamped) await Storage.set('entities', all);
+        Utils.log('restoreDerivedKeys:', restored.length, 'restored,', skipped.length, 'skipped (different primary)');
+        return { restored, skipped };
     },
 
     /**
