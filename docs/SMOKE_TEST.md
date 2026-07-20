@@ -692,21 +692,20 @@ publishes. Requires a real Anthropic API key
 | 14.5.2 | Settings → Advanced → **LLM assist**: confirm the toggle is **unchecked** and "No key saved yet." | ✅ default off, no key |
 | 14.5.3 | Check **Enable LLM-assisted suggestions**, leave the key blank, Save → reopen the reader | ✅ the **✨ Suggest…** button is present but **disabled**, tooltip points to the key field; still zero network |
 | 14.5.4 | Paste an Anthropic key + pick a **Model**, Save. Confirm the key field clears and status reads "A key is saved." | ✅ key stored; reader's Suggest button now **enabled** |
-| 14.5.4b | In **Suggest these artifact types**, confirm the defaults | ✅ **Entities + Claims checked**, Relationships / Assessments / Forensic findings **unchecked** |
+| 14.5.4b | In **Suggest these artifact types**, confirm the options | ✅ ONLY **Entities + Claims** rows exist (both checked by default) — the judgment kinds (relationships / assessments / findings / entity facts) are retired from Suggest, and the hint says where each moved (2026-07-20: Suggest IS the extraction pass) |
 
 **Run a pass + review**
 
 | # | Test | Pass criteria |
 |---|---|---|
-| 14.5.5 | On an op-ed / debate with named people, click **✨ Suggest…** (defaults) | ✅ button shows "✨ Thinking…", then a **Suggestions** modal opens with **only Entities + Claims** sections (no Assessments / Relationships / Findings); a model badge shows the model id |
-| 14.5.5b | Enable **Forensic findings** in Options, Save, re-run a pass | ✅ the modal now also shows a Findings section (and Baselines/Revisions if any) — opt-in kinds appear only once enabled |
+| 14.5.5 | On an op-ed / debate with named people, click **✨ Suggest…** (defaults) | ✅ button shows "✨ Thinking…", then a **Suggestions** modal opens with **only Entities + Claims** sections — judgment kinds can never appear here (they live at corpus level); a model badge shows the model id |
+| 14.5.5b | With entities already in the case registry, re-run Suggest on an article that re-mentions one under a variant name | ✅ the proposal arrives under the registry's EXACT existing name (the vocabulary injection) and accepting links the existing entity instead of minting a near-duplicate |
 | 14.5.6 | Inspect a **Claim** proposal | ✅ summary shows the claim text + the about-entities it links, the **quote it is drawn from**, and a **⚓ grounding chip** (verbatim / typography normalized / close match %); Accept / Edit / Reject buttons |
 | 14.5.6b | Inspect an **Entity** proposal | ✅ shows name · type, the **verbatim mention** with its ⚓ chip; if a same-type entity with a token-matching name already exists, a **"≈ may already exist"** select offers *Use existing* (defaulted when there is exactly one candidate) |
 | 14.5.6c | Accept an entity, then `chrome.storage.local` + the article: | ✅ *Use existing* links (no duplicate id minted, row notes "Linked to existing"); either way the article gains the entity ref with the **grounded mention as context** (the mention span highlights in the body) |
-| 14.5.7 | Inspect a **Finding** proposal | ✅ shows subject + maneuver + role/basis + a quoted lead + the **counter-read** (`↔ …`); **no stance/score/confidence anywhere** |
-| 14.5.8 | **Accept** an entity, then its claim, then a finding (or click **Accept all valid**) | ✅ rows flip to "✓ accepted"; the **claims bar** and **Forensic findings bar** gain the artifacts |
+| 14.5.8 | **Accept** an entity, then its claim (or click **Accept all valid**) | ✅ rows flip to "✓ accepted"; the **claims bar** gains the claims (findings are proposed by the case dashboard's forensic pass now, not here) |
 | 14.5.8b | Scroll down the suggestions list, Accept a row mid-list | ✅ the list **stays where you were** — no jump back to the top |
-| 14.5.8c | Click a section header's **"Accept all entities (N)"** button | ✅ only that section's valid rows accept (claims/assessments untouched); the count reflects what a click can actually do; dependency-blocked rows in an accepted section show why |
+| 14.5.8c | Click a section header's **"Accept all entities (N)"** button | ✅ only that section's valid rows accept (claims untouched); the count reflects what a click can actually do; dependency-blocked rows in an accepted section show why |
 | 14.5.8d | After accepting entities, check above the claims bar | ✅ an **Entities bar** lists each tagged entity as a chip (icon + name + type, mention in the tooltip); clicking a chip scrolls to the mention in the body (mark pulses, or the mention text is selected); manual tagger tags appear there too |
 | 14.5.9 | DevTools: `chrome.storage.local.get(['article_claims','behavioral_findings','entities'], console.log)` | ✅ accepted records carry `suggested_by: "llm:<model>"`; accepted claims carry a first-class `quote` (the article's own text) and, when the body wasn't edited, an `article_hash`; the finding has `counter_note`, `anchors[].quote`, and **no** `stance`/`intent`/`score` field |
 | 14.5.10 | Click a claim's tagged passage / a finding's evidence in the article body | ✅ the LLM's verbatim quote resolved to a real anchor (the span highlights / jumps) |
@@ -1438,6 +1437,27 @@ Network required (real fetches). Use 2–3 easy-tier URLs from
 | P28.o | Accept a proposed link, then Refresh | ✅ the relationship lands in the claims list / case graph exactly like a synthesis-accepted link (`llm:<model>` provenance); the next Analyze-corpus digest includes it |
 | P28.p | Re-run Suggest links after accepting | ✅ the accepted pair comes back REJECTED with "this relationship already exists" (never silently dropped); prior Accept/Dismiss triage survives the re-run and the page reload |
 | P28.q | A case with >150 claims | ✅ the provenance line discloses "(N beyond the cap not sent)" |
+
+---
+
+## Post-28 — Pre-analyze, corpus passes, entity pages (2026-07-20)
+
+Needs a case-bound workspace with a few captured members, `caseSynthesis`
++ `llmAssist` + a key. These walks exercise the workflow wave: the map
+cache, the corpus-level analyses, and the entity page.
+
+| # | Test | Pass criteria |
+|---|---|---|
+| P28.a | Case dashboard → Analysis → **Pre-analyze…** | ✅ the confirm discloses the member count; a re-run immediately after reports everything cached (no second spend) |
+| P28.b | Options → Case synthesis → check **Pre-analyze each capture** (read the disclosure) → capture an article into the bound case | ✅ a "Pre-analyzed into '<case>'" toast appears once; the dashboard's Analyze plan then shows that member as cached |
+| P28.c | Extract claims on a pre-analyzed member, then **Analyze corpus…** | ✅ the member is STILL cached (corpus-v4: claim extraction never orphans the map cache); the brief's assertions still link to the new claims |
+| P28.d | Analysis → the **corpus audit** block → Run all pending | ✅ per-member audits run bounded; the epistemics block shows per-dimension DISTRIBUTIONS and ranges — no fused corpus number anywhere |
+| P28.e | Analysis → the **forensic pass** for a subject with multiple members | ✅ findings arrive counter-read-first in review; accepting files ordinary findings; nothing asserts intent |
+| P28.f | Case dashboard chrome | ✅ sections are collapsible (Evidence + Analysis open by default; state remembered per case); the head shows **Sources ▾** instead of three separate buttons |
+| P28.g | Open a person's full dossier (portal) → **Generate page…** | ✅ the confirm shows the cached/misses split (inside an analyzed case: mostly "already analyzed (free)"); the page renders lead / cited sections / key-facts checkboxes / disputes / gaps; an uncited section is badged |
+| P28.h | Edit one section (✎), remove another (✕), uncheck a key fact | ✅ all three persist across reopen; the provenance line gains an **edited** badge |
+| P28.i | Capture one more article mentioning the subject → reopen the dossier | ✅ a **stale** chip appears; **Regenerate page…** pays only for the new member |
+| P28.j | With `entityCorpusPublishing` on → **Publish page** | ✅ ONE kind-30023 signed by YOUR identity (`t: xray-entity-page`, `p` the subject, `a` refs only for key claims that are themselves published); republish overwrites the same `d` |
 
 ---
 

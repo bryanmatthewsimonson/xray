@@ -18,7 +18,7 @@ modules still carry userscript-era idioms (see Conventions).
 npm install            # required first — a fresh clone has no node_modules
 npm run build          # esbuild → dist/*.bundle.js (+ .map). No transpile step.
 npm run watch          # incremental rebuild
-npm test               # node --test tests/*.test.mjs  (2026 tests, must be green)
+npm test               # node --test tests/*.test.mjs  (2100 tests, must be green)
 npm run lint           # web-ext lint --self-hosted (what CI gates on)
 npm run version:set X  # bump package.json + manifest.json in lockstep
 npm run clean          # rm -rf dist
@@ -133,10 +133,12 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   `forensic-model.js`/`forensic-publish.js`; truth adjudication —
   verdicts `30063` (with a kind-`1985` mirror on the claim coordinate)
   and integrity findings `30064` (deliberately no mirror), `30065`
-  reserved — in `truth-builders.js`; entity fact sheets `30067`
-  (Phase 19.7 — entity-signed, every fact `a`-refs a published claim)
-  plus the enriched kind-`0` `about` in `entity-profile.js`; the
-  case-brief `30068` (Phase 23, user-signed) in `corpus-publish.js`; the
+  reserved — in `truth-builders.js`; the entity kind-`0` `about` in
+  `entity-profile.js` (kind `30067` fact sheets are RETIRED with the
+  whole Phase-19 fact layer, 2026-07-20 — never emitted or fetched; the
+  number stays reserved); the case-brief `30068` (Phase 23,
+  user-signed) in `corpus-publish.js`; the user-signed entity page (an
+  ordinary replaceable `30023`) in `entity-page-publish.js`; the
   creator-binding OwnedKeys manifest `30069` (Phase 24) + NIP-26
   delegation tags; and the opt-in NIP-02 follow-list mirror (kind `3`)
   in `follow-publish.js`. The moral lens (Phase 16) and the case
@@ -238,14 +240,16 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   deferred), 16 (moral lens, NO wire kind — derived view only;
   `docs/MORAL_LENS_JURISDICTION_DESIGN.md`, amended 2026-07-03 — the
   amendment governs; its wire-kind/portal/durable-cache tail is
-  deferred), 17 Part A (entity health + canonical sweep;
-  `docs/ENTITY_CORPUS_DESIGN.md` — E2/E4–E6 still design-only), 18 C1–C4.2
+  deferred), 17 (entity corpus, E1–E6 complete;
+  `docs/ENTITY_CORPUS_DESIGN.md`), 18
   (complex content: tables/math, scholarly meta, PDF routing + pdf.js
-  extraction; `docs/COMPLEX_CONTENT_DESIGN.md` — C5/C6 open), 19
-  (entity dossiers — facts on claims, the dossier assembler + UI,
-  Add-fact, LLM facts default-off, publishing behind
-  `entityCorpusPublishing` with the NEW kind `30067` fact sheet;
-  `docs/ENTITY_DOSSIER_DESIGN.md`), 20 (case-first: tag∪claim
+  extraction + LLM extraction assist;
+  `docs/COMPLEX_CONTENT_DESIGN.md`), 19
+  (entity dossiers — the dossier assembler + UI, kind-0 + mention-note
+  publishing behind `entityCorpusPublishing`; the Phase-19 FACT LAYER —
+  typed fields, Add-fact, 30040 fact tags, kind `30067` — was RETIRED
+  2026-07-20 as too stringent to be useful, superseded by ENTITY PAGES;
+  `docs/ENTITY_DOSSIER_DESIGN.md` banner), 20 (case-first: tag∪claim
   membership, add-to-case outside the reader, the local case dossier +
   graph, and the flag-gated LLM corpus synthesis — a grounded brief +
   reviewable proposals behind `caseSynthesis`, the brief local-only in
@@ -266,16 +270,24 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   hardening, PR #183 — flag-gated `#xray:capture` marker
   `captureAutomation`, corpus-synthesis v2, EPUB book import, scholar
   tail, LLM extraction assist, Fable 5 / Sonnet 5 model options).
-  **Phase 28** (corpus intake automation) is IN PROGRESS: batch URL-list
+  **Phase 28** (corpus intake automation) is COMPLETE: batch URL-list
   import (`url-import.js`), suggest-after-import (parked proposals), and
   the standalone cross-article "Suggest links" pass
   (`xray:llm:corpus-links`) — every LLM suggestion still human-accepted.
-  The FLF Epistack competition
-  (deadline 2026-07-19) is being pursued **maintainer-driven from real
-  use cases (COVID first)** — there is no committed sprint plan; the tool
-  is tailored from that experience. Several SMOKE_TEST section walks
-  (Phases 11–16, 19) are still pending — they're manual and need a human
-  with a browser.
+  A **post-28 workflow wave** (2026-07-20, PRs #233–#254) then landed:
+  case-bound workspaces (PRs #223–#231), one-step case creation +
+  Pre-analyze with the corpus-v4 claims-independent map cache, the
+  active-case chrome, corpus-level epistemic audits CA.1–CA.4 + forensic
+  passes FA.1–FA.3 (`docs/CORPUS_AUDIT_KICKOFF.md`), Suggest narrowed to
+  the EXTRACTION pass (entities+claims; judgment kinds live at corpus
+  level) + case-dashboard workflow declutter, known-entity vocabulary
+  injection, the opt-in `autoPreAnalyze` capture prepay, the fact-layer
+  retirement, and **Entity Pages** (`docs/ENTITY_PAGE_KICKOFF.md` —
+  EP.1–EP.5, the claims-first knowledge artifacts). The FLF Epistack
+  entry has been submitted (deadline was 2026-07-19); the tool continues
+  to be tailored **maintainer-driven from real casework (COVID first)**.
+  Several SMOKE_TEST section walks (Phases 11–16, 19) are still pending —
+  they're manual and need a human with a browser.
 - **`docs/JOURNAL.md`** — chronological log of bugs, design decisions, and
   external-platform changes. **Add a tight entry** when fixing a non-obvious
   bug, making a second-guessable design choice, or working around a

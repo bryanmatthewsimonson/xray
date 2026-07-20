@@ -148,17 +148,35 @@ Phase 27 ████████████████████  COMPLETE 
                                 book import, scholar tail (PMC refs / ar5iv /
                                 Crossref), LLM extraction assist, Fable 5 /
                                 Sonnet 5 model options
-Phase 28 ████████████████░░░░  28.1–28.3 landed — corpus intake automation:
-                                batch URL-list import (url-import.js), suggest-
-                                after-import (parked proposals), and standalone
+Phase 28 ████████████████████  COMPLETE (28.1–28.3) — corpus intake
+                                automation: batch URL-list import
+                                (url-import.js), suggest-after-import
+                                (parked proposals), and standalone
                                 cross-article "Suggest links"
-                                (xray:llm:corpus-links); tail open
+                                (xray:llm:corpus-links)
 Case WS  ████████████████████  COMPLETE (PRs #223–#231) — case-bound
                                 workspaces: fail-closed storage/IDB namespace,
                                 registry + switcher, capture auto-tagging,
                                 viewer fencing, the source manager, and the
                                 read-only cross-workspace graph
                                 (CASE_BOUND_WORKSPACES_KICKOFF.md)
+Post-28  ████████████████████  COMPLETE (2026-07-20, PRs #233–#254) —
+                                the workflow-hardening wave: one-step
+                                case creation + Pre-analyze (corpus-v4
+                                claims-independent map cache), the
+                                active-case chrome, corpus-level
+                                epistemic audits CA.1–CA.4 + forensic
+                                passes FA.1–FA.3
+                                (docs/CORPUS_AUDIT_KICKOFF.md), Suggest
+                                narrowed to the EXTRACTION pass +
+                                case-dashboard declutter, known-entity
+                                vocabulary injection, the opt-in
+                                autoPreAnalyze capture prepay, the
+                                Phase-19 FACT-LAYER RETIREMENT (kind
+                                30067 retired), and ENTITY PAGES
+                                (docs/ENTITY_PAGE_KICKOFF.md — the
+                                claims-first knowledge artifacts,
+                                EP.1–EP.5)
 ```
 
 Parity with the v4.2 userscript is long reached; the project now ships
@@ -168,16 +186,17 @@ dossiers, the case workspace with corpus synthesis, durable creator-bound
 entity identity, the Network client, and capture / intake automation.
 **v0.7.0 was tagged 2026-07-16** — the first GitHub Release since v0.5.1
 (v0.6.0 was tagged but never cut as a Release), covering Phases 15.6–24.3.
-Phases 25–27 have since merged, and **Phase 28** (corpus intake
-automation) is in progress. The **case-bound workspaces** track
+Phases 25–28 have since merged, followed by the post-28 workflow wave
+(corpus-level audits, the fact-layer retirement, Entity Pages — see the
+snapshot above). The **case-bound workspaces** track
 (`docs/CASE_BOUND_WORKSPACES_KICKOFF.md`, its own 28.x numbering) is
 COMPLETE as of 2026-07-20 (PRs #223–#231): one workspace per corpus,
 fail-closed namespace isolation, and cross-workspace visibility only
-through the deliberate read-only graph. The **FLF Epistack competition (deadline
-2026-07-19)** is being pursued maintainer-driven from real use cases
-(COVID first); there is no committed sprint plan — the tool is tailored
-from that experience. Several per-phase smoke-runs (Phases 11–16, 19)
-remain pending — they are manual and need a human with a browser.
+through the deliberate read-only graph. The **FLF Epistack entry has
+been submitted** (deadline was 2026-07-19; docs/EPISTACK_ENTRY.md); the
+tool continues to be tailored maintainer-driven from real casework. Several per-phase
+smoke-runs (Phases 11–16, 19) remain pending — they are manual and need
+a human with a browser.
 
 ---
 
@@ -1072,7 +1091,7 @@ specified but logged-only until an explicit activation decision;
 kinds 30056–30061 confirmed (upstream registry checked clean
 2026-06-11) with the `d`-scheme constraint written into the draft
 NIP; beats become a curated versioned vocabulary (`beats-v1`).
-Implementation slices 13.1+ are in progress.
+Implementation slices 13.1+ have all shipped.
 
 - ✅ **13.1** Model + hashing + schemas + tests — canonical article
   hash (vendored-scorer parity pinned by source-extracted vectors),
@@ -1925,7 +1944,7 @@ NIP-02); no mute list; no sidepanel KS.4 feed changes.
 
 ---
 
-## Phase 26 — Corpus analysis, deepened 🚧 in progress
+## Phase 26 — Corpus analysis, deepened ✅ core complete (H.5 wire kind deferred)
 
 Driven from a maintainer review of the COVID-origins case dashboard.
 The **safe wins shipped** (Phase-26 prep, T1.1–T1.3): download the
@@ -1938,13 +1957,13 @@ open-questions section) — both bounded by the epistemic firewall (no
 fused score/probability; structure, not estimation), both
 computed-on-read with **no new wire kind**, one PR per slice:
 
-- 🚧 **Hypothesis map** (slices H.1–H.4; H.5 wire kind deferred) —
+- ✅ **Hypothesis map** (slices H.1–H.4 shipped; H.5 wire kind deferred) —
   competing answers to the case question with captured claims attached
   as *supporting/undermining* structural evidence, side by side, model
   never picks, no score; neutral per-section edge counts allowed but
   never cross-compared; verdict chips shown as context only
   ([`HYPOTHESIS_MAP_DESIGN.md`](HYPOTHESIS_MAP_DESIGN.md)).
-- 🚧 **Structural counterfactual** (slices CF.1–CF.2, after the map) —
+- ✅ **Structural counterfactual** (slices CF.1–CF.2 shipped) —
   "what depends on this claim": the maintainer's "Monte Carlo" ask
   reframed to counts-with-derivation over the case graph, never
   probabilities (the constitution's answer to Rootclaim-style scoring
@@ -1970,7 +1989,7 @@ import, PDF outbound links, and the Fable 5 / Sonnet 5 model options.
 
 ---
 
-## Phase 28 — Corpus intake automation 🚧 in progress
+## Phase 28 — Corpus intake automation ✅ COMPLETE
 
 Driven by the Epistack corpus work: the eggs and LHC worksheets exist
 as verified URL lists, but capturing them was one tab at a time. Goal:

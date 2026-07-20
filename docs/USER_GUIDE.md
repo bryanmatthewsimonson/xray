@@ -123,10 +123,12 @@ so no single operator can drop your corpus. `[SCREENSHOT-03]`
 ### 2.4 LLM assist and the API key
 
 Several X-Ray features can call a large language model on your behalf —
-the **Suggest** pass (proposes entities / claims / facts to review), the
-**epistemic audit**, the **moral lens**, the case **corpus synthesis**
-brief, the **cross-article link** suggester, and the batch
-**suggest-after-import** pass. Every one needs an **Anthropic API key**,
+the **Suggest** pass (extracts entities and claims for review), the
+**epistemic audit**, the **moral lens**, and the corpus-level passes on
+the case dashboard and dossiers: the **corpus synthesis** brief, the
+**cross-article link** suggester, the batch **suggest-after-import**
+pass, the **corpus audit** and **forensic** sweeps, the **entity audit**,
+and the **entity page**. Every one needs an **Anthropic API key**,
 set in **Settings → Advanced → LLM assist**, *and* its own feature flag
 (§2.5): the flag reveals the control, the key lets it run. You can also
 pick the model (Fable 5 / Sonnet 5 / Opus). The key is stored in its own
@@ -137,7 +139,10 @@ review — nothing auto-saves or auto-publishes. `[SCREENSHOT-04]`
 Cost note: a **quick** audit is **one** API call; a **thorough** audit is
 **eight** (one per dimension). A lens reading is one call per
 jurisdiction. A corpus synthesis is roughly one call per member article
-plus a reduce. You pay your own Anthropic bill; X-Ray never proxies.
+plus a reduce — and the per-article analyses are **cached**, so
+Pre-analyze / the opt-in per-capture prepay (`autoPreAnalyze`) make later
+corpus runs and entity pages nearly reduce-only. You pay your own
+Anthropic bill; X-Ray never proxies.
 
 ### 2.5 Feature flags
 
@@ -162,11 +167,11 @@ gate your **publish** paths and some panel tabs, not what you can read.
 | `forensicPublishing` | off | Publishing behavioral findings (30062) + their `revision/*` story-change edges |
 | `truthAdjudicationPublishing` | off | Publishing verdicts (30063) + integrity findings (30064) |
 | `platformAccountPublishing` | off | Publishing platform-account identity links (32126) — discloses your account↔entity graph |
-| `entityCorpusPublishing` | off | Publishing the enriched kind-0 entity profile + the entity fact sheet (kind 30067); entity keys sign these and publication is irrevocable in practice |
+| `entityCorpusPublishing` | off | Publishing entity kind-0 profiles + per-article kind-1 mention notes (entity-signed; publication is irrevocable in practice), and the user-signed entity page (kind 30023) |
 | `llmAssist` | off | The reader "Suggest…" pass + audit / synthesis / hypothesis / cross-article-link LLM *execution* (needs the API key) |
 | `moralLens` | off | The reader's lens-reading surface (needs the API key; independent of `llmAssist`) |
-| `readerAddFact` | off | The reader tagger's "Add fact" button (structured-fact capture) |
-| `caseSynthesis` | off | The case dashboard's "Analyze corpus…" brief, "Suggest links", and hypothesis-edge suggestions (needs `llmAssist` + the API key) |
+| `caseSynthesis` | off | The corpus-level LLM passes: "Analyze corpus…", "Pre-analyze", "Suggest links", hypothesis-edge suggestions, and entity-page generation (needs `llmAssist` + the API key) |
+| `autoPreAnalyze` | off | Auto pre-analyze each capture into its bound case — a STANDING per-capture spend authorization (one analysis call per capture; cache-first) |
 | `networkPage` | off | The whole Network client surface (Feed / Queue / Follows page + its menu item and links) |
 | `reviewCoordination` | off | The portal "Request review" label + the Network "re-broadcast follows" button |
 | `followListPublishing` | off | Publishing a NIP-02 kind-3 mirror of who you follow (global scope only; consent dialog on first enable) |
@@ -736,11 +741,11 @@ Everything else is opt-in — assessments / claim-relationships (30054/30055)
 need `assessmentPublishing`; audits (30056–30061) need `epistemicAuditing`;
 forensic findings (30062) need `forensicPublishing`; verdicts and integrity
 findings (30063/30064) need `truthAdjudicationPublishing`; platform-account
-links (32126) need `platformAccountPublishing`; the enriched entity profile
-and fact sheet (kind 0 + 30067) need `entityCorpusPublishing`; and the case
-brief (30023 + 30068) publishes from the case dashboard. The moral lens and
-the case dossier / hypothesis map / counterfactual are derived views and
-never publish.
+links (32126) need `platformAccountPublishing`; entity profiles, mention
+notes, and the entity page (kind 0 + kind-1 + a user-signed 30023) need
+`entityCorpusPublishing`; and the case brief (30023 + 30068) publishes
+from the case dashboard. The moral lens and the case dossier / hypothesis
+map / counterfactual are derived views and never publish.
 
 **Privacy at publish.** Everything published is public and signed with
 your `npub`. Your `nsec` never leaves the device. Publishing a
@@ -808,6 +813,19 @@ authoring-adjacent controls — add a viewer `npub`, **Import transcript…**,
     ([§9.5](#9-cases-the-investigation-workspace)).
 - **Entity view** — a person/org's audit dossier, integrity record, and
   forensic lenses; the ego graph; viewer `npub`s.
+- **Entity page** — on the full entity dossier, a grounded
+  Wikipedia-like page synthesized from the subject's captured corpus
+  (with `caseSynthesis` + the API key): cited prose sections whose every
+  quote is machine-checked (sections whose citations all fail grounding
+  are badged **uncited**), a **key-facts box** that is a curated list of
+  claims — each entry shows its verbatim quote as the verification — the
+  disputes side by side, and what the corpus does *not* establish. You
+  review it (edit or remove sections, curate the key facts) before
+  anything persists; a **stale** chip appears when the corpus changes;
+  with `entityCorpusPublishing` you can publish it as a replaceable
+  `kind 30023` signed by *you* (it's your synthesis — entity keys never
+  sign it). Inside a case you've already analyzed, generation reuses the
+  cached per-article analyses and usually costs one synthesis call.
 
 Everything in the dossier is **derived and computed-on-read** — same
 events in, same dossier out. Nothing new is published to build it.
@@ -824,9 +842,9 @@ tagged. `[SCREENSHOT-14]`
   with a **＋ New** button, search, and merge/alias tools to collapse
   cross-platform accounts into one person. A **Health** view in the footer
   reports likely duplicates.
-- **Entity dossier** — open an entity for a compact dossier (its top
-  cited facts, a *contested* badge); **Open full dossier** hands off to
-  the portal.
+- **Entity dossier** — open an entity for a compact summary (claim and
+  article coverage); **Open full dossier** hands off to the portal, where
+  the **Entity page** block lives ([§7](#7-the-portal-my-archive)).
 - **Cases** — **Add to case**, **Save scope** (set an entity's feed
   scope), and **Export case** as JSON or Markdown.
 - **Keys** — per-entity `npub`/`nsec` and case bundles. Case bundles and
@@ -874,6 +892,16 @@ collapsed evidence, and entities × roles (detailed in
 [§7](#7-the-portal-my-archive)). Alongside it, an **ego-graph** plots the
 case at the center with its member articles and the entities they share.
 
+The dashboard is organized as **collapsible workflow sections**
+(Evidence and Analysis open by default; Shape / Graph / Published record
+and the rest collapsed until you need them — each remembers its state
+per case), with a **Sources ▾** menu gathering the add/import actions.
+The **Analysis** section is the LLM workbench: the corpus synthesis and
+link passes (§9.5) plus the corpus-level **epistemic audit** and
+**forensic** sweeps — run the audit across every unaudited member, see
+per-dimension **distributions** (never a fused number), and run the
+per-subject behavioral pass with its counter-read-first review.
+
 There is deliberately **no case-level score of any kind**. Where sources
 disagree, the disagreement is shown side by side, never averaged away.
 
@@ -911,6 +939,17 @@ offers two LLM passes:
   supports / contradicts / updates / duplicates edges between claims from
   different sources. Already-existing pairs are rejected with a reason,
   never silently dropped.
+
+**Pre-analyze** runs just the per-article half of Analyze (the map
+stage) ahead of time, so the eventual Analyze — and any entity page —
+starts from a warm cache; the per-article analyses are keyed to the
+article text + case frame, so extracting claims later never invalidates
+them. The opt-in `autoPreAnalyze` flag does this automatically after
+every capture into a bound case (a standing per-capture spend — the
+Options disclosure says so). The Suggest pass also carries your case's
+existing entity names into the prompt as **naming vocabulary**, so a
+re-mentioned entity is proposed under its established name instead of
+minting a near-duplicate.
 
 Accepted proposals become ordinary `kind 30040` / `30055` events through
 the normal publish path; the brief is stored **locally**. You can also

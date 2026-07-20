@@ -16,12 +16,12 @@ has already said about it.*
 
 ## Status
 
-**v0.7.0** (tagged 2026-07-16). Parity with the v4.2 userscript is long
-past; the project now spans the full **capture → structure → judge →
-publish** arc, plus a case workspace, a follow-based network layer, and
-corpus-intake automation. Every phase through 27 has landed at least its
-core (17, 18, and 26 carry deferred tails), and **Phase 28** (corpus
-intake automation) is in progress. Highlights beyond capture parity:
+**v0.7.0** (tagged 2026-07-16), with every phase through 28 landed
+since, plus a post-28 workflow wave (corpus-level audits, Entity Pages).
+Parity with the v4.2 userscript is long past; the project now spans the
+full **capture → structure → judge → publish** arc, plus a case
+workspace, a follow-based network layer, and corpus-intake automation.
+Highlights beyond capture parity:
 
 - **Claims & assessments (Phases 10–11).** Atomized claim events
   (`kind 30040`), typed claim↔claim relationships (`kind 30055`), and
@@ -51,9 +51,13 @@ intake automation) is in progress. Highlights beyond capture parity:
   wire kind.
 - **Complex content (Phase 18).** Tables and math, scholarly metadata,
   and PDF routing with pdf.js text + figure extraction.
-- **Entity dossiers (Phase 19).** A provenance-pinned knowledge base
-  where every fact links back to a published claim; publishable as an
-  entity-signed fact sheet (`kind 30067`).
+- **Entity dossiers & Entity Pages (Phase 19, reworked 2026-07-20).**
+  A claims-first dossier per entity, and a grounded **entity page** —
+  Wikipedia-like prose synthesized from the captured corpus, every
+  citation a verbatim machine-checked quote, disagreement side by side,
+  human-reviewed, publishable as a user-signed replaceable article.
+  (The earlier typed fact layer and its `kind 30067` fact sheet were
+  retired as too stringent to be useful — the claim is the fact.)
 - **Cases (Phase 20).** Group captures into an investigation workspace,
   see the corpus as a dossier and graph, and run an optional LLM
   **corpus synthesis** brief over all member articles.
@@ -73,11 +77,16 @@ intake automation) is in progress. Highlights beyond capture parity:
   book import, scholarly-reference / full-text enrichment (PMC, ar5iv,
   Crossref), corpus-synthesis v2, and selectable LLM models (Fable 5 /
   Sonnet 5 / Opus).
-- **Corpus intake automation (Phase 28, in progress).** Batch-import a
-  whole URL list (a pasted worksheet) into your archive and a case in one
-  pass, optionally seed each page with parked LLM suggestions to review
-  later, and get cross-article claim-link suggestions between sources —
-  every suggestion still human-accepted.
+- **Corpus intake automation (Phase 28).** Batch-import a whole URL
+  list (a pasted worksheet) into your archive and a case in one pass,
+  optionally seed each page with parked LLM suggestions to review later,
+  and get cross-article claim-link suggestions between sources — every
+  suggestion still human-accepted.
+- **Corpus-level analysis passes (post-28).** Run the epistemic audit
+  and the forensic (behavioral) pass across a whole case from its
+  dashboard — per-article findings joined back to claims, distributions
+  never fused into a score — plus an opt-in per-capture **pre-analyze**
+  prepay so later corpus runs start from a warm cache.
 
 The extension still captures across every shipped platform handler,
 publishes end-to-end, syncs entity data across devices (`kind 30078`),
@@ -150,9 +159,12 @@ manual checklist that exercises every shipped surface.
 - **Moral lens** — per-jurisdiction perspectival readings of normative /
   evaluative / framing assertions, grounded in each jurisdiction's own
   corpus. A derived view only — no wire kind, nothing published.
-- **Entity dossiers** — a provenance-pinned knowledge base per entity
-  where every fact links back to a published claim; publishable as an
-  entity-signed fact sheet (`kind 30067`).
+- **Entity dossiers & pages** — a claims-first dossier per entity
+  (identity, content, judgment distributions, relationships), and a
+  grounded **entity page** synthesized from the corpus: cited prose
+  sections, a key-facts box that is a curated list of claims (the quote
+  is the verification), disputes side by side, honest gaps — reviewed by
+  you, published as a user-signed replaceable `kind 30023`.
 - **Cases & corpus synthesis** — group captures into an investigation
   workspace with a derived dossier and ego-graph; an optional, flag-gated
   LLM pass produces a grounded, source-linked brief over all member
@@ -167,11 +179,13 @@ manual checklist that exercises every shipped surface.
 - **"My Archive" portal** — a full-tab, read-mostly view of everything
   you've published, reconciled against relays, with faceted filters and
   per-case dashboards.
-- **LLM assist (opt-in)** — a **Suggest** pass proposes capture artifacts
-  (entities + claims by default; relationships / assessments / findings
-  opt-in) and an **in-extension auditor** (Quick / Thorough) runs the
-  audit. Both require the `llmAssist` flag **and** your own Anthropic key;
-  every result is a draft you review, and nothing auto-saves or publishes.
+- **LLM assist (opt-in)** — a **Suggest** pass extracts entities and
+  claims from each capture (extraction only — judgment lives in the
+  corpus-level passes: cross-article links, corpus audit, forensic pass,
+  entity audit, entity page), and an **in-extension auditor**
+  (Quick / Thorough) runs the audit. Everything requires the `llmAssist`
+  flag **and** your own Anthropic key; every result is a draft you
+  review, and nothing auto-saves or publishes.
 - **Entity sync across devices** — NIP-78 (`kind 30078`) with NIP-44 v2
   encrypt-to-self.
 - **Archive reader** — IndexedDB cache + paywall detection +
@@ -323,8 +337,8 @@ runtime assets (cmaps / standard fonts / wasm) into `dist/`.
 │       │                          forensic-*, entity-*, corpus-publish.js,
 │       │                          follow-publish.js for the other kinds)
 │       ├── local-key-manager.js   derived per-entity keypair registry
-│       ├── entity-{model,sync,dossier,facts}.js   entities, NIP-78 sync,
-│       │                          provenance-pinned dossiers
+│       ├── entity-{model,sync,dossier,page}.js   entities, NIP-78 sync,
+│       │                          dossiers + grounded entity pages
 │       ├── case-{dossier,graph,membership,synthesis,export}.js  cases
 │       ├── hypothesis-*.js / case-counterfactual.js   Phase 26 analysis
 │       ├── url-import.js          Phase 28 batch URL-list import
@@ -334,7 +348,7 @@ runtime assets (cmaps / standard fonts / wasm) into `dist/`.
 │       └── platforms/             substack, youtube (+ comments), twitter,
 │                                  facebook, instagram, tiktok, arxiv, pmc,
 │                                  scholar-meta, comment-extractor, …
-└── tests/                         node --test suite (2026 passing)
+└── tests/                         node --test suite (2100 passing)
 ```
 
 ## Permissions
@@ -359,8 +373,8 @@ runtime assets (cmaps / standard fonts / wasm) into `dist/`.
 - **Build:** `npm install`, then `npm run build` to produce
   `dist/*.bundle.js` and `dist/*.bundle.js.map`. esbuild handles all
   bundling; no transpile step. `npm run watch` for incremental.
-- **Tests:** `npm test` runs `node --test tests/*.test.mjs`. **2026
-  tests** across 153 files today, covering crypto, event-builder, every
+- **Tests:** `npm test` runs `node --test tests/*.test.mjs`. **2100
+  tests** across 165 files today, covering crypto, event-builder, every
   platform handler, entity sync/identity, claim model, archive cache, the
   Signer façade, the URL normalizer, and the assessment / audit /
   forensic / truth-adjudication / moral-lens / case / network model and
