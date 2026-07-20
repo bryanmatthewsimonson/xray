@@ -15,6 +15,8 @@ import { mountTraceExpander } from './trace-block.js';
 import { Utils } from '../shared/utils.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { linkRunFindingsToClaims } from '../shared/audit/findings-claims.js';
+import { ForensicModel } from '../shared/forensic-model.js';
+import { linkFindingAnchorsToClaims } from '../shared/forensic-corpus.js';
 
 const MAX_ROWS = 40;
 const MAX_CLAIMS_PER_ROW = 4;
@@ -86,6 +88,20 @@ export function renderEvidenceBlock(host, dossierOrId, opts = {}) {
                 }
             } catch (err) { Utils.error('Audit-claim join failed (enrichment only)', err); }
         }
+
+        // FA.2 — forensic anchors joined to claims (containment, per
+        // URL — conservative, never a false link). Enrichment only.
+        let forensicByClaim = {};
+        try {
+            const allFindings = Object.values(await ForensicModel.getAll());
+            const allClaims = [];
+            for (const row of ev.articles) {
+                for (const c of (row.claims || [])) {
+                    if (c.claim_id) allClaims.push({ id: c.claim_id, quote: c.quote, source_url: row.url });
+                }
+            }
+            forensicByClaim = linkFindingAnchorsToClaims({ findings: allFindings, claims: allClaims });
+        } catch (err) { Utils.error('Forensic-claim join failed (enrichment only)', err); }
 
         const list = el('ul', 'xr-list');
         for (const row of ev.articles.slice(0, MAX_ROWS)) {
@@ -166,6 +182,15 @@ export function renderEvidenceBlock(host, dossierOrId, opts = {}) {
                     chip.title = 'Article-process observations at this passage (the epistemic audit) — '
                         + 'location, never a verdict on the claim:\n'
                         + af.slice(0, 4).map((f) => `[${f.module}] “${f.quote.slice(0, 120)}”`).join('\n');
+                    li.appendChild(chip);
+                }
+                // FA.2 — forensic maneuvers anchored at this passage.
+                const ff = c.claim_id ? forensicByClaim[c.claim_id] : null;
+                if (ff && ff.length) {
+                    const chip = el('span', 'xr-badge xr-badge--muted',
+                        `forensic: ${[...new Set(ff.map((f) => f.maneuver))].slice(0, 3).join(', ')}`);
+                    chip.title = 'Behavioral findings whose evidence anchors this passage — '
+                        + 'structure at this location, never a verdict on the claim or the person.';
                     li.appendChild(chip);
                 }
                 // 26 CF.2 — the structural counterfactual, per claim.
