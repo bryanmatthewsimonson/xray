@@ -3,7 +3,7 @@
 // as an ordinary archive record — which then joins cases (20.2) and
 // feeds corpus synthesis (20.4) untouched. Two mounts (library header +
 // case view) share this one implementation; the case mount also tags
-// the imported record into the case. The add-sources.js idiom: el()
+// the imported record into the case. The source-manager.js idiom: el()
 // builders, self-managed lifecycle, no innerHTML.
 
 import { el } from './dom.js';

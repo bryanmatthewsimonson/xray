@@ -22,7 +22,7 @@ import { ClaimModel } from '../shared/claim-model.js';
 import { makeClaimRefCanonicalizer } from '../shared/claim-ref.js';
 import { getArticle } from '../shared/archive-cache.js';
 import { removeArticleFromCase } from '../shared/case-membership.js';
-import { mountAddSources } from './add-sources.js';
+import { mountSourceManager } from './source-manager.js';
 import { mountTranscriptImport } from './import-transcript.js';
 import { mountUrlImport } from './import-urls.js';
 import { renderCaseGraph } from './case-graph-view.js';
@@ -135,19 +135,21 @@ export function renderCaseView(host, params) {
     graphBtn.type = 'button';
     graphBtn.addEventListener('click', () => callbacks.onOpenGraph(casePubkey));
     head.appendChild(graphBtn);
-    // 20.2 — add archived articles to this case without the reader.
+    // 28.5 — the source manager: members with membership chips +
+    // honest removal, and the add picker, in one panel (replaces the
+    // 20.2 add-only strip).
     const addSourcesHost = el('div');
     if (caseEnt && caseEnt.entityId) {
-        const addBtn = el('button', 'xr-portal__btn', 'Add sources…');
-        addBtn.type = 'button';
-        addBtn.addEventListener('click', () => {
+        const manageBtn = el('button', 'xr-portal__btn', 'Manage sources…');
+        manageBtn.type = 'button';
+        manageBtn.addEventListener('click', () => {
             addSourcesHost.replaceChildren();
-            mountAddSources(addSourcesHost, {
+            mountSourceManager(addSourcesHost, {
                 caseEntityId: caseEnt.entityId,
                 onChanged: () => callbacks.onReloadCase && callbacks.onReloadCase()
             });
         });
-        head.appendChild(addBtn);
+        head.appendChild(manageBtn);
         // 21.2 — import a podcast transcript straight into this case.
         const importBtn = el('button', 'xr-portal__btn', 'Import transcript…');
         importBtn.type = 'button';
