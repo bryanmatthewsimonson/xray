@@ -16,7 +16,7 @@
 //   split       → manual-assisted: Accept creates the second entity;
 //                 re-pointing article refs stays the human's job
 //   external_id → appended to record.external_ids; published as a
-//                 NIP-39 `i` tag on the entity's kind-0 / fact sheet
+//                 NIP-39 `i` tag on the entity's kind-0
 //
 // The firewall mirrors the 14.5 discipline: merges/splits must cite
 // evidence grounded in STORED mention text (never re-fetched), op

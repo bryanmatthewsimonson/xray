@@ -1,11 +1,12 @@
 // CW.5 — the custody rule, machine-checked (TEAM_CASE_DESIGN §2.1,
 // normative): a case entity's key signs EXACTLY two things — its own
 // kind-0 profile and its 32125 entity↔article relations. It NEVER
-// signs judgment kinds (30054, 30056–30061, 30062, 30063, 30064) and
-// never a 30067 fact sheet. Until now the rule was doc-only
-// (CASE_WORKSPACE_KICKOFF §2.5.2); these guards mirror the Phase-16
-// "30066 stays free" idiom: functional refusals at the pure builders +
-// source-grep pins over the signing call sites.
+// signs judgment kinds (30054, 30056–30061, 30062, 30063, 30064).
+// These guards mirror the Phase-16 "30066 stays free" idiom:
+// functional refusals at the pure builders + source-grep pins over
+// the signing call sites. (The 30067 fact sheet this file once also
+// guarded retired 2026-07-20 with the fact layer — the retirement
+// itself is pinned in tests/fact-retirement.test.mjs.)
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,7 +18,7 @@ globalThis.chrome = globalThis.chrome || {
     storage: { local: { get(_k, cb) { cb({}); }, set(_o, cb) { cb && cb(); }, remove(_k, cb) { cb && cb(); } } }
 };
 
-const { buildFactSheetEvent, buildProfileAbout } = await import('../src/shared/entity-profile.js');
+const { buildProfileAbout } = await import('../src/shared/entity-profile.js');
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -25,21 +26,9 @@ function caseDossier() {
     return {
         subject: { id: 'entity_' + '1'.repeat(16), name: 'Origin of Covid', type: 'case',
                    description: 'The investigation workspace.', foreign: false },
-        identity: { family: [], external_ids: [], accounts: [], equivalence_pubkeys: [], mentions: [] },
-        fields: []
+        identity: { family: [], external_ids: [], accounts: [], equivalence_pubkeys: [], mentions: [] }
     };
 }
-
-test('custody: buildFactSheetEvent REFUSES a case-typed subject (the case key never signs a 30067)', () => {
-    assert.throws(() => buildFactSheetEvent(caseDossier(), {
-        entityPubkey: 'a'.repeat(64), publisherPubkey: 'b'.repeat(64)
-    }), /custody rule/);
-    // The same dossier retyped is buildable — the refusal keys on type.
-    const d = caseDossier();
-    d.subject = { ...d.subject, type: 'organization' };
-    const ev = buildFactSheetEvent(d, { entityPubkey: 'a'.repeat(64), publisherPubkey: 'b'.repeat(64) });
-    assert.equal(ev.kind, 30067);
-});
 
 test('custody: the kind-0 profile REMAINS allowed for a case (one of the two permitted kinds)', () => {
     // buildProfileAbout is the kind-0 content assembler — a case must
@@ -64,19 +53,15 @@ test('custody: buildMentionNoteEvent REFUSES a case-typed entity (E4 — a case 
 
 test('custody: entity-key signing sites in src/ are pinned — a new one must confront this rule', async () => {
     // Every LocalKeyManager.signEvent call site signs with an ENTITY
-    // key. The allowlist today: the reader's kind-0 profile publishes
-    // (×2) and the fact-sheet publish (guarded above). A new call site
-    // fails this pin so its author must check TEAM_CASE_DESIGN §2.1
-    // before widening what entity keys sign.
+    // key. A new call site fails this pin so its author must check
+    // TEAM_CASE_DESIGN §2.1 before widening what entity keys sign.
     // The allowlist, with per-file counts. Reader: 2× kind-0 profile +
-    // 1× fact sheet + 1× E4 mention note (buildMentionNoteEvent throws
-    // /custody rule/ on a case-typed entity — guarded below — and the
-    // reader's target loop skips case roots besides). Portal
-    // entity-dossier view: 1× (kind-0 + 30067 publish loop — both
-    // events flow through buildFactSheetEvent / buildProfileAbout, so
-    // the case refusal above covers it).
+    // 1× E4 mention note (buildMentionNoteEvent throws /custody rule/
+    // on a case-typed entity — guarded above — and the reader's target
+    // loop skips case roots besides). Portal entity-dossier view: 1×
+    // (the kind-0 republish).
     const ALLOWED = {
-        'src/reader/index.js': 4,
+        'src/reader/index.js': 3,
         'src/portal/entity-dossier-view.js': 1
     };
     async function walk(dir) {

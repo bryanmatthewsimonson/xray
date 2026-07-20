@@ -14,7 +14,6 @@ import { ContentExtractor } from './content-extractor.js';
 import { buildRespondsToTag, RESPONDS_TO_RELATIONSHIPS } from './metadata/builders.js';
 import { articleHash } from './audit/article-hash.js';
 import { generateEntityId, canonicalIdOf } from './entity-model.js';
-import { bandISO } from './dossier-time.js';
 
 // Phase 23.1 — the source-type whitelist, inlined (the `media` pattern)
 // to keep event-builder free of a truth-taxonomy import edge. Kept in
@@ -565,10 +564,9 @@ export const EventBuilder = {
 
   // Build kind 0 profile event for entity. `about` (19.7, additive
   // param) is the enriched dossier-assembled text from
-  // entity-profile.js#buildProfileAbout — published-claim facts only,
-  // contested fields omitted, "per <source>" attribution; when absent
-  // the pre-19.7 boilerplate ships unchanged. `externalIds` emits
-  // NIP-39 ['i', ...] tags (E2 is unshipped, so usually empty).
+  // entity-profile.js#buildProfileAbout (maintainer line + type +
+  // aliases); when absent the pre-19.7 boilerplate ships unchanged.
+  // `externalIds` emits NIP-39 ['i', ...] tags.
   buildProfileEvent: (entity, canonicalNpub, about = null, externalIds = []) => {
     const tags = [];
     if (canonicalNpub) {
@@ -666,39 +664,10 @@ export const EventBuilder = {
     if (claim.article_hash) tags.push(['x', claim.article_hash]);
     if (claim.created) tags.push(['captured_at', String(claim.created)]);
 
-    // Fact layer (Phase 19 §4, additive): ['fact', field, value,
-    // subject pubkey] + per-slot band-truncated ISO dates — a
-    // year-precision date goes out as '1962', never a fabricated full
-    // timestamp. Wire facts are pubkey-keyed; a subject with no
-    // resolvable pubkey emits NO fact tags at all (a fact tag without
-    // its subject is dead wire data). Readers that don't know `fact`
-    // see a normal claim.
-    if (claim.fact) {
-      // Wire facts are pubkey-keyed, and a foreign-adopted subject's
-      // foreign_pubkey is exactly as resolvable as a local keypair —
-      // requiring a LOCAL keypair silently dropped the whole fact
-      // layer for adopted subjects (19.8 review fix). Root-else-alias
-      // pick by usable wire pubkey.
-      const wirePk = (r) => (r && ((r.keypair && r.keypair.pubkey) || r.foreign_pubkey)) || null;
-      const fcid = canonicalIdOf(claim.fact.entity_id, dict);
-      const subj = wirePk(dict[fcid]) ? dict[fcid] : dict[claim.fact.entity_id];
-      const subjPk = wirePk(subj);
-      if (subjPk) {
-        tags.push(['fact', claim.fact.field, claim.fact.value, subjPk]);
-        const slots = [
-          ['valid_from',  claim.fact.valid_from,  claim.fact.valid_from_precision],
-          ['valid_to',    claim.fact.valid_to,    claim.fact.valid_to_precision],
-          ['observed_at', claim.fact.observed_at, claim.fact.observed_precision]
-        ];
-        for (const [slot, at, precision] of slots) {
-          if (at !== null && at !== undefined) {
-            tags.push([slot, bandISO(at, precision || 'exact'), precision || 'exact']);
-          }
-        }
-      } else {
-        Utils.log('Fact subject unresolvable in entity dict — omitting fact tags for claim', claim.id);
-      }
-    }
+    // NOTE (2026-07-20): the Phase 19 fact layer is RETIRED — 30040s no
+    // longer emit ['fact', …] / validity-slot tags. A legacy record's
+    // inert `fact` field is simply not serialized; readers that never
+    // knew the tag family see the same normal claim they always did.
     tags.push(['client', 'xray']);
 
     return {

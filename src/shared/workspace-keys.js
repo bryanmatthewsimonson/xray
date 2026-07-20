@@ -28,7 +28,9 @@ export const WORKSPACE_CONTENT_KEYS = Object.freeze([
     'lens_jurisdictions',       // Phase 16 jurisdiction registry + corpora
     'url_aliases',              // URL alias map (url-aliases.js) — derived
                                 // from captured content, so workspace data
-    'entity_fact_dismissals',   // Phase 19 fact-conflict dismissals
+    'entity_fact_dismissals',   // RETIRED (2026-07-20, with the fact
+                                // layer) — kept listed so workspace
+                                // clears still purge legacy data
     'entity_dedupe_dismissals', // Phase 17A "Not duplicates" record
     'follow_sets',              // Phase 25 follow registry
     'incorporated_artifacts',   // Phase 25.3 reviewed-in foreign artifacts

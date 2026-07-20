@@ -104,14 +104,15 @@ Phase 18 ████████████████████  COMPLETE 
                                 pdf.js extraction + figures, LLM extraction
                                 assist (C5, shipped with Phase 27), C6 docs
                                 (docs/COMPLEX_CONTENT_DESIGN.md)
-Phase 19 ████████████████████  COMPLETE (19.1–19.8) — entity dossiers &
-                                the provenance-pinned knowledge base:
-                                fact layer + 30040 tags, assembler,
-                                portal/sidepanel UI, Add-fact, LLM facts
-                                (default off), publishing behind
-                                entityCorpusPublishing (kind 0 + NEW kind
-                                30067) (docs/ENTITY_DOSSIER_DESIGN.md);
-                                §Phase 19 smoke-run pending
+Phase 19 ████████████████████  COMPLETE, then PARTIALLY RETIRED
+                                (2026-07-20) — entity dossiers shipped
+                                19.1–19.8; the FACT LAYER (typed fields,
+                                Add-fact, 30040 fact tags, kind 30067)
+                                was ripped out as too stringent to be
+                                useful. Survives: the dossier assembler,
+                                kind-0 + mention-note publishing, case
+                                authored fields
+                                (docs/ENTITY_DOSSIER_DESIGN.md banner)
 Phase 20 ████████████████████  COMPLETE (20.1–20.5) — case-first: tag∪claim
                                 membership, add-to-case outside the reader,
                                 the local case dossier + ego-graph, and the
@@ -1682,6 +1683,20 @@ Maintainer decisions baked in (2026-07-12): facts-as-claims; contested
 fields off the public profile; kind 30067 taken now; unsourced
 biographical facts forbidden in v1; recompute-on-read over
 materialization.
+
+**RETIREMENT (2026-07-20, maintainer decision):** the fact layer —
+19.1 registries (except the case's authored fields), 19.2 fact-riding
+claims + 30040 fact tags, the §5.2 fields section, 19.5 Add-fact,
+19.6 LLM facts, and the kind-30067 fact sheet — is REMOVED. The typed
+data model was too stringent to be useful in practice: real corpora
+yielded few typed values, and the value they carried lived better as
+ordinary quoted claims. Kind 30067 is retired on the wire (no longer
+emitted or fetched; NIP-26 delegations narrow to kind 0). Legacy
+`claim.fact` payloads and `publishedFactSheet*` stamps are inert.
+What survives: the dossier assembler (claims-first), kind-0 +
+mention-note publishing, entity health, and the case authored fields.
+The Wikipedia-style goal returns claims-first — see JOURNAL
+2026-07-20 and the entity-page design work.
 
 ---
 

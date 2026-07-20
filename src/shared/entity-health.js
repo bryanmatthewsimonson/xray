@@ -12,15 +12,16 @@
 
 import { Storage } from './storage.js';
 import { canonicalIdOf } from './entity-model.js';
-import { dismissalKey } from './entity-facts.js';
 import { nameTokens } from './llm-proposals.js';
 
 // ------------------------------------------------------------------
 // Pair helpers
 // ------------------------------------------------------------------
 
+// Order-independent pair key (formerly entity-facts' dismissalKey —
+// inlined when the fact layer retired, 2026-07-20).
 function pairKey(a, b) {
-    return dismissalKey(a, b);
+    return [String(a), String(b)].sort().join('|');
 }
 
 // Union-find over entity ids, for collapsing pairwise evidence into

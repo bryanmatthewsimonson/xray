@@ -562,16 +562,18 @@ test('buildClaimEvent — canonical missing from dict falls back to the alias re
         ['p', ALIAS_PK, '', 'about'], 'best effort: reference survives rather than vanishing');
 });
 
-// --- Fact layer tags (Phase 19.2; docs/NIP_DRAFT.md kind 30040) --------------
+// --- Fact layer tags: RETIRED (2026-07-20) -----------------------------------
 
-test('buildClaimEvent — fact tags: subject pubkey + band-truncated ISO dates', async () => {
-    const { parseClaimEvent } = await import('../src/shared/claim-model.js');
+test('buildClaimEvent — a legacy fact field is NOT serialized (the fact tag family is retired)', () => {
     const SUBJ_PK = 'd'.repeat(64);
     const entities = {
         entity_w: { id: 'entity_w', name: 'W.H.O.', type: 'organization', keypair: { pubkey: SUBJ_PK } }
     };
+    // A stored record from before the retirement still carries `fact`
+    // — the builder must ignore it entirely: no fact tag, no validity
+    // slots, and the claim otherwise publishes exactly as before.
     const claim = {
-        id: 'claim_fact1', text: 'Founded in April 1948.', about: ['entity_w'],
+        id: 'claim_legacy_fact', text: 'Founded in April 1948.', about: ['entity_w'],
         source: null, is_key: false, created: 1751500000,
         fact: {
             entity_id: 'entity_w', field: 'founded', value: '1948', value_ref: null,
@@ -581,60 +583,10 @@ test('buildClaimEvent — fact tags: subject pubkey + band-truncated ISO dates',
         }
     };
     const ev = EventBuilder.buildClaimEvent(claim, 'https://x.test/a', '', PUBKEY, entities);
-
-    assert.deepEqual(ev.tags.find((t) => t[0] === 'fact'),
-        ['fact', 'founded', '1948', SUBJ_PK]);
-    // Band-truncated ISO: month precision goes out as YYYY-MM — never a
-    // fabricated full timestamp.
-    assert.deepEqual(ev.tags.find((t) => t[0] === 'valid_from'),
-        ['valid_from', '1948-04', 'month']);
-    assert.equal(ev.tags.find((t) => t[0] === 'valid_to'), undefined, 'null slot emits no tag');
-    const obs = ev.tags.find((t) => t[0] === 'observed_at');
-    assert.equal(obs[2], 'exact');
-    assert.match(obs[1], /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/, 'exact emits full ISO');
-
-    // Tag order: fact tags sit between captured_at and client.
-    const names = ev.tags.map((t) => t[0]);
-    assert.ok(names.indexOf('fact') > names.indexOf('captured_at'));
-    assert.ok(names.indexOf('fact') < names.indexOf('client'));
-
-    // Round-trip through parseClaimEvent recovers the band faithfully.
-    const parsed = parseClaimEvent(ev);
-    assert.equal(parsed.fact.subject_pubkey, SUBJ_PK);
-    assert.equal(parsed.fact.valid_from.at, claim.fact.valid_from);
-    assert.equal(parsed.fact.valid_from.precision, 'month');
-    assert.equal(parsed.fact.observed_at.at, 1751000000);
-});
-
-test('buildClaimEvent — fact with unresolvable subject emits NO fact tags', () => {
-    const claim = {
-        id: 'claim_fact2', text: 'A.', about: ['entity_gone'], source: null, is_key: false,
-        fact: { entity_id: 'entity_gone', field: 'founded', value: '1948',
-                valid_from: 0, valid_from_precision: 'year' }
-    };
-    const ev = EventBuilder.buildClaimEvent(claim, 'https://x.test/a', '', PUBKEY, {});
     for (const name of ['fact', 'valid_from', 'valid_to', 'observed_at']) {
-        assert.equal(ev.tags.find((t) => t[0] === name), undefined,
-            `${name} omitted when the subject has no pubkey (dead wire data)`);
+        assert.equal(ev.tags.find((t) => t[0] === name), undefined, `no ${name} tag, ever`);
     }
-});
-
-test('buildClaimEvent — foreign fact subject uses its synthesized keypair pubkey', () => {
-    const FOREIGN_PK = 'e'.repeat(64);
-    const entities = {
-        entity_f: { id: 'entity_f', name: 'Foreign Person', type: 'person',
-                    foreign: true, keypair: { pubkey: FOREIGN_PK } }
-    };
-    const claim = {
-        id: 'claim_fact3', text: 'Born 1962.', about: ['entity_f'], source: null, is_key: false,
-        fact: { entity_id: 'entity_f', field: 'birth_date', value: '1962',
-                valid_from: Date.UTC(1962, 0, 1) / 1000, valid_from_precision: 'year' }
-    };
-    const ev = EventBuilder.buildClaimEvent(claim, 'https://x.test/a', '', PUBKEY, entities);
-    assert.deepEqual(ev.tags.find((t) => t[0] === 'fact'),
-        ['fact', 'birth_date', '1962', FOREIGN_PK]);
-    assert.deepEqual(ev.tags.find((t) => t[0] === 'valid_from'),
-        ['valid_from', '1962', 'year'], 'year precision emits bare YYYY');
+    assert.ok(ev.tags.find((t) => t[0] === 'p' && t[3] === 'about'), 'the claim itself is intact');
 });
 
 // --- capture-url extension (url-identity; docs/NIP_DRAFT.md) -----------------

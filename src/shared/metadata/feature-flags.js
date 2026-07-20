@@ -88,21 +88,15 @@ export const FLAGS_DEFAULTS = Object.freeze({
   moralLens: false,
 
   // Phase 19.7 (docs/ENTITY_DOSSIER_DESIGN.md §6, ECD §4.5): gates the
-  // PUBLISH paths for the enriched kind-0 entity profile and the
-  // kind-30067 entity fact sheet. ENTITY KEYS SIGN these, relays are
-  // public, and publication is irrevocable in practice (NIP-09
-  // deletion is best-effort only) — the Options disclosure says all
-  // of this. Local dossiers / facts / conflicts are never gated —
-  // they're the product. Hard prereq honored: Phase 17A (E1 dedupe +
-  // E3 canonical sweep) shipped first.
+  // PUBLISH paths for the kind-0 entity profile and the E4 kind-1
+  // mention notes. ENTITY KEYS SIGN these, relays are public, and
+  // publication is irrevocable in practice (NIP-09 deletion is
+  // best-effort only) — the Options disclosure says all of this.
+  // Local dossiers are never gated — they're the product. (The
+  // kind-30067 fact sheet this flag once also gated retired
+  // 2026-07-20 with the fact layer; `readerAddFact`, which gated the
+  // Add-fact button, is removed outright.)
   entityCorpusPublishing: false,
-
-  // Phase 19.5 — gates the reader tagger popover's "Add fact" button
-  // (the structured-fact capture entry). Purely a UI-visibility gate:
-  // the fact flow, records, 30040 fact tags, and dossier assembly are
-  // unchanged. Off by default because the button crowds the popover
-  // and facts are a power-user surface.
-  readerAddFact: false,
 
   // Phase 20.4 (docs/CASE_SYNTHESIS_DESIGN.md) — gates the portal case
   // dashboard's "Analyze corpus" LLM synthesis (a grounded brief +

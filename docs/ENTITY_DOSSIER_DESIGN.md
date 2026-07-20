@@ -1,6 +1,21 @@
 # Entity Dossiers & the Provenance-Pinned Knowledge Base — Design
 
-**Status: IMPLEMENTED** (v1.0, 2026-07-12; shipped 2026-07-13 —
+**Status: PARTIALLY RETIRED** (2026-07-20). The Phase 19 **fact
+layer** — the typed field registries (§3), fact-riding claims (§4),
+the fields section of the dossier (§5.2), the Add-fact flow (19.5),
+the 30040 `fact` tags (19.2), and the kind-30067 fact sheet (19.7) —
+is **removed**. The typed data model proved too stringent to be
+useful in practice (maintainer decision; see `docs/JOURNAL.md`
+2026-07-20). What SURVIVES: the dossier assembler (identity /
+content / judgments / co-tagged relationships over claims), the
+kind-0 profile + E4 mention-note publishing under
+`entityCorpusPublishing`, and the case's AUTHORED fields
+(scope_question/status/opened/closed — load-bearing for the case
+layer). Entity knowledge artifacts are being rebuilt claims-first;
+see the entity-page design work that replaces this. The §§ below are
+retained as history.
+
+**Original status: IMPLEMENTED** (v1.0, 2026-07-12; shipped 2026-07-13 —
 slices 19.1–19.8 landed as eight sequential PRs, together with the
 pulled-forward Phase 17 Part A prerequisite). Where implementation
 forced a choice the text didn't make, `docs/JOURNAL.md` records it

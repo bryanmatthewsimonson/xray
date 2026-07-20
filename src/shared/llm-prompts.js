@@ -85,13 +85,17 @@ export const ANTHROPIC_VERSION = '2023-06-01';
 //   relationships → the cross-article links pass (28.3, case dashboard)
 //   findings      → the per-subject forensic corpus pass (FA.1)
 //   assessments   → the assess modal (a stance is the human's to own)
+//   facts         → RETIRED OUTRIGHT (2026-07-20, with the whole Phase
+//                   19 fact layer — the typed-field data model was too
+//                   stringent to be useful; entity knowledge artifacts
+//                   are being rebuilt claims-first)
 // normalizeSuggestKinds drops retired values from stored settings, so
 // existing installs migrate silently. The mental model: per capture,
 // EXTRACT (atoms from this text); per corpus, CONNECT AND JUDGE.
 export const SUGGEST_TASKS = Object.freeze([
-    'all', 'entities', 'claims', 'facts'
+    'all', 'entities', 'claims'
 ]);
-export const RETIRED_SUGGEST_KINDS = Object.freeze(['assessments', 'relationships', 'findings']);
+export const RETIRED_SUGGEST_KINDS = Object.freeze(['assessments', 'relationships', 'findings', 'facts']);
 
 // The selectable suggestion categories (SUGGEST_TASKS without the 'all'
 // convenience). Each maps to a rules block in buildSystemPrompt and a
@@ -108,15 +112,13 @@ export const SUGGEST_KIND_LABELS = Object.freeze([
         hint: 'people, organizations, places, and things named in the text' },
     { kind: 'claims', label: 'Claims',
         hint: 'atomized assertions the article makes, each anchored to a verbatim quote' },
-    { kind: 'facts', label: 'Entity facts',
-        hint: 'structured biographical values (birth date, headquarters, role) — ONLY what this article\u2019s text asserts, never the model\u2019s own knowledge' },
 ]);
 
-// Proposal kind → selectable category. Retired judgment kinds map to
-// null DELIBERATELY: a model that volunteers one anyway is filtered
-// out by the category gate, never rendered.
+// Proposal kind → selectable category. Retired kinds map to null
+// DELIBERATELY: a model that volunteers one anyway is filtered out by
+// the category gate, never rendered.
 const PROPOSAL_KIND_TO_CATEGORY = Object.freeze({
-    entity: 'entities', claim: 'claims', fact: 'facts'
+    entity: 'entities', claim: 'claims'
 });
 
 /** The selectable category a raw proposal kind belongs to (or null). */
@@ -185,7 +187,7 @@ export function vocabularyFromRegistry(records) {
 // is optional; `kind` selects which ones matter.
 // ------------------------------------------------------------------
 
-const PROPOSAL_KINDS = Object.freeze(['entity', 'claim', 'fact']);
+const PROPOSAL_KINDS = Object.freeze(['entity', 'claim']);
 
 export function buildSuggestTool() {
     return {
@@ -255,49 +257,9 @@ export function buildSuggestTool() {
                                 type: 'boolean',
                                 description: 'True if this is a central/load-bearing claim (kind=claim).'
                             },
-                            // fact (Phase 19.6) — a structured biographical value the
-                            // ARTICLE asserts, riding a claim. quote is REQUIRED and
-                            // machine-checked; the value must come from the text, never
-                            // from your own knowledge of the entity.
-                            subject_ref: {
-                                type: 'string',
-                                description: 'REQUIRED for kind=fact: the entity ref ("E1") this fact '
-                                    + 'describes. For kind=finding/baseline: the subject performing '
-                                    + 'the maneuver.'
-                            },
-                            field: {
-                                type: 'string',
-                                description: 'REQUIRED for kind=fact: the typed field name from the subject\'s '
-                                    + 'registry (person: birth_date, death_date, occupation, affiliation, role, '
-                                    + 'religion, residence, nationality, education; organization: founded, '
-                                    + 'dissolved, headquarters, leadership, org_type, parent_org; place: '
-                                    + 'located_in, place_type; thing: thing_type, creator, created_date) — or '
-                                    + '"custom:<lowercase-token>" for a field the registry lacks.'
-                            },
-                            value: {
-                                type: 'string',
-                                description: 'REQUIRED for kind=fact: the value AS THIS ARTICLE\'S TEXT states '
-                                    + 'it (dates as "1962", "1962-03", or "1962-03-15" — only as precise as the '
-                                    + 'text is). NEVER supply a value from your own knowledge of the entity.'
-                            },
-                            value_entity_ref: {
-                                type: 'string',
-                                description: 'For entity-ref fields (affiliation, leadership, parent_org, '
-                                    + 'creator): the entity ref ("E2") the value points at (kind=fact).'
-                            },
-                            valid_from: {
-                                type: 'string',
-                                description: 'Validity start as the text states it — "1962", "1962-03", or '
-                                    + '"1962-03-15" (kind=fact). Omit when the text gives none.'
-                            },
-                            valid_to: {
-                                type: 'string',
-                                description: 'Validity end, same grammar (kind=fact). Omit when open/unstated.'
-                            },
-                            observed_at: {
-                                type: 'string',
-                                description: 'When the source observed the value, same grammar (kind=fact).'
-                            },
+                            // (The Phase 19.6 fact fields — subject_ref/field/value/
+                            // value_entity_ref/valid_from/valid_to/observed_at — were
+                            // retired 2026-07-20 with the fact layer.)
                             // assessment
                             claim_ref: {
                                 type: 'string',
@@ -455,17 +417,6 @@ CLAIMS (atomized assertions the article makes or reports):
 - Give each claim a ref ("C1", "C2", …) so assessments and relationships can point at it.`;
 }
 
-function rulesFacts() {
-    return `
-ENTITY FACTS (structured biographical values THIS ARTICLE asserts — a fact is a claim with a typed field):
-- never supply a value from your own knowledge of the entity — only what this article's text asserts. If you know the WHO was founded in 1948 but this article doesn't say so, there is NO fact to propose.
-- quote is REQUIRED: the single contiguous VERBATIM span asserting the value — a fact whose quote cannot be located in the article is rejected.
-- subject_ref points at the entity the fact describes (propose the entity too if it isn't already); field comes from the subject's type registry or "custom:<token>".
-- value carries EXACTLY the precision the text does: a year stays "1962" — never expand to a full date the text didn't state. Same for valid_from/valid_to/observed_at.
-- for entity-ref fields (affiliation, leadership, parent_org, creator) also set value_entity_ref to the target entity's ref.
-- Give each fact a ref ("F1", "F2", …).`;
-}
-
 function rulesAssessments() {
     return `
 ASSESSMENTS (your judgment on a claim — a PERSONAL stance, never a fact verdict):
@@ -541,7 +492,7 @@ export function buildSystemPrompt({ tasks = null, task = 'all', url = '', title 
             : (SUGGEST_KINDS.includes(task) ? [task] : SUGGEST_KINDS.slice()));
     const wants = (kind) => effective.includes(kind);
 
-    const head = `You are X-Ray's capture assistant. You read an article a person has captured and EXTRACT structured capture artifacts — entities, claims, and entity facts — for that person to review and confirm. Extraction only: you record WHAT this text says, verbatim-anchored; you never judge, link, or assess (those happen at corpus level, with the human).`;
+    const head = `You are X-Ray's capture assistant. You read an article a person has captured and EXTRACT structured capture artifacts — entities and claims — for that person to review and confirm. Extraction only: you record WHAT this text says, verbatim-anchored; you never judge, link, or assess (those happen at corpus level, with the human).`;
 
     const meta = (title || url)
         ? `\nArticle: ${title ? `"${title}"` : ''}${url ? ` <${url}>` : ''}`
@@ -579,7 +530,6 @@ export function buildSystemPrompt({ tasks = null, task = 'all', url = '', title 
     const parts = [head + meta + caseFrame + vocabBlock, RULES_ALL];
     if (wants('entities')) parts.push(RULES_ENTITIES);
     if (wants('claims'))   parts.push(rulesClaims());
-    if (wants('facts'))    parts.push(rulesFacts());
     return parts.join('\n');
 }
 

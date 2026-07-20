@@ -736,7 +736,15 @@ Addressable. The adjudicated **word-deed match**: links a subject's **stated** c
 
 **Kind 30065 is RESERVED** for a future PrecedentCitation — a verdict/finding citing prior rulings of the same proposition or match class as `binding`/`persuasive` precedent (§stare-decisis, deferred). Until it ships, precedent MAY be expressed as an `a` tag on 30063/30064 with a slot-4 `precedent` marker and a slot-5 weight (`binding` | `persuasive`); consumers MUST treat it as informational only.
 
-## Kind 30067 — EntityFactSheet
+## Kind 30067 — EntityFactSheet **[RETIRED 2026-07-20]**
+
+> **Retired.** X-Ray no longer emits or consumes kind 30067 (the whole
+> Phase 19 fact layer was removed — see `docs/JOURNAL.md` 2026-07-20).
+> Events of this kind already on relays remain valid historical
+> records under this spec; new implementations should not produce
+> them. The 30040 `fact`/`valid_from`/`valid_to`/`observed_at` tags
+> documented alongside are likewise no longer produced. The kind
+> number stays reserved to this retired meaning — do not reuse it.
 
 Addressable. The full structured field table for one entity — an adjudicable **index over verifiable events**: every fact references a *published* kind-30040 claim, so any consumer can follow the `a` coordinates to the verbatim quotes and `x`-hashed article versions each value rests on. Signed by the **entity's own key** (the same key its kind-0 profile uses); the publishing archive is named in a `p` tag. (Kind 30066 is deliberately unused — the moral-lens feature is wire-less by design and its guards machine-check that; 30067 is the next free slot.)
 
@@ -813,9 +821,9 @@ Addressable. A creator's signed list of the entity pubkeys their archive operate
 - **Rotation-survivable**: a new primary republishes the manifest under its own key (dual-listing old + new entity pubkeys during a migration window).
 - Rows are sorted by pubkey (deterministic republish comparison). Consumers MUST take the newest manifest per creator.
 
-## Kind 0 / 30067 — creator binding on entity-signed events (extension)
+## Kind 0 — creator binding on entity-signed events (extension)
 
-Entity-signed events (the kind-0 profile and the kind-30067 fact sheet) additionally carry:
+Entity-signed events (the kind-0 profile; historically also the retired kind-30067 fact sheet) additionally carry:
 
 ```
 ["p", "<creator primary pubkey>", "", "creator"]

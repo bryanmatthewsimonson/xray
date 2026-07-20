@@ -71,7 +71,7 @@ export function parseOwnedKeysManifest(event) {
  * entities actually sign, plus a bounded created_at window.
  * Deterministic field order (kinds sorted, then window).
  */
-export function entityDelegationConditions({ kinds = [0, 30067], from, until } = {}) {
+export function entityDelegationConditions({ kinds = [0], from, until } = {}) {
     const parts = [...kinds].sort((a, b) => a - b).map((k) => `kind=${k}`);
     if (from != null) parts.push(`created_at>${from}`);
     if (until != null) parts.push(`created_at<${until}`);

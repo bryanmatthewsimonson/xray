@@ -39,7 +39,7 @@ import { buildFeedFilters, claimCoords, buildJudgmentFilter, assembleFeed } from
 import { pushEntities, pullEntities, clearRemote, pushRelayList, pullRelayList, normalizeRelayUrl } from '../shared/entity-sync.js';
 import { dedupeReport, recentMerges, DedupeDismissals } from '../shared/entity-health.js';
 import { buildRegistryDigest, validateEntityOps } from '../shared/llm-entity-audit.js';
-import { assembleEntityDossier, compactFieldRows } from '../shared/entity-dossier.js';
+import { assembleEntityDossier } from '../shared/entity-dossier.js';
 import { Storage } from '../shared/storage.js';
 import { listArticles } from '../shared/archive-cache.js';
 import { listAddableArticles, addArticlesToCase } from '../shared/case-membership.js';
@@ -284,7 +284,7 @@ function renderDetail(entity) {
 
       <div class="xr-side__dossier">
         <h3>Dossier</h3>
-        <p class="xr-side__hint">The top captured facts about ${escapeHtml(entity.name)} — every value cites a source. Contested fields show both sides in the full dossier.</p>
+        <p class="xr-side__hint">Everything captured about ${escapeHtml(entity.name)} — claims, articles, judgments — every line citing its source.</p>
         <div id="xr-dossier-compact">Loading…</div>
         <button type="button" class="xr-side__ghost-btn" id="xr-open-dossier">Open full dossier</button>
       </div>
@@ -1830,10 +1830,9 @@ async function runClear(userKey) {
 // ------------------------------------------------------------------
 
 // ------------------------------------------------------------------
-// Compact dossier block (Phase 19.4) — the side panel's projection of
-// the full dossier: top known fields, a contested badge, and the
-// "Open full dossier" hand-off. All selection logic is the pure
-// compactFieldRows; this only paints.
+// Compact dossier block — the side panel's summary of the full
+// dossier: coverage counts + the "Open full dossier" hand-off. (The
+// Phase 19 typed-fields table retired 2026-07-20 with the fact layer.)
 // ------------------------------------------------------------------
 
 async function renderCompactDossier(entity) {
@@ -1841,23 +1840,12 @@ async function renderCompactDossier(entity) {
     if (!host) return;
     try {
         const dossier = await assembleEntityDossier(entity.id);
-        const compact = compactFieldRows(dossier, 5);
-        if (compact.rows.length === 0 && compact.contested === 0) {
-            host.innerHTML = '<p class="xr-side__hint">No captured facts yet — select text in a captured article and choose "Add fact".</p>';
+        const c = dossier.coverage;
+        if (!c.claims && !c.articles) {
+            host.innerHTML = '<p class="xr-side__hint">Nothing captured yet — tag this entity on a captured article, or extract claims about it.</p>';
             return;
         }
-        host.innerHTML = `
-            ${compact.contested > 0
-                ? `<div class="xr-side__dossier-contested">⚠ ${compact.contested} contested field${compact.contested === 1 ? '' : 's'} — sources disagree</div>`
-                : ''}
-            <table class="xr-side__dossier-table">
-              ${compact.rows.map((r) => `
-                <tr>
-                  <td class="xr-side__dossier-label">${escapeHtml(r.label)}</td>
-                  <td>${escapeHtml(r.value || '')}${r.extra > 0 ? ` <span class="xr-side__dossier-extra">+${r.extra}</span>` : ''}${r.status === 'multiple' ? ' <span class="xr-side__dossier-extra">(multiple)</span>' : ''}</td>
-                </tr>`).join('')}
-            </table>
-            ${compact.more > 0 ? `<p class="xr-side__hint">+${compact.more} more known field${compact.more === 1 ? '' : 's'} in the full dossier</p>` : ''}`;
+        host.innerHTML = `<p class="xr-side__hint">${c.claims} claim${c.claims === 1 ? '' : 's'} · ${c.articles} article${c.articles === 1 ? '' : 's'} captured</p>`;
     } catch (err) {
         console.warn('[X-Ray Sidepanel] compact dossier failed:', err);
         host.innerHTML = '<p class="xr-side__hint">Dossier unavailable.</p>';
