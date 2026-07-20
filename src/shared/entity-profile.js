@@ -167,6 +167,14 @@ export function buildFactSheetEvent(dossier, {
     entityPubkey, publisherPubkey, generatedAt = null,
     excludedFields = [], entities = {}
 } = {}) {
+    // Custody rule (TEAM_CASE_DESIGN §2.1, normative): a case entity's
+    // key signs EXACTLY two things — its kind-0 and its 32125s. A
+    // case-signed 30067 would be a container key publishing an
+    // adjudicable index; refuse at the builder so no signing path can
+    // reach it (CW.5 — previously the rule was doc-only).
+    if (dossier && dossier.subject && dossier.subject.type === 'case') {
+        throw new Error('custody rule: a case entity signs only its kind-0 profile and 32125 relations — no fact sheet');
+    }
     const fields = wireFields(dossier, { excludedFields, forAbout: false });
 
     const tags = [
