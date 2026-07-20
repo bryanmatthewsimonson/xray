@@ -19,6 +19,28 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-20 — Suggest vocabulary is assembled SW-side, not caller-side
+
+**Tags:** design
+
+The Phase-28 vocabulary injection (known entity names ride the Suggest
+prompt so re-mentions merge instead of fragmenting) is assembled inside
+`runSuggestionPass` in the service worker — `Storage.get('entities')`
+resolves the active workspace, so under a case-bound workspace the
+registry read IS the case vocabulary. This deliberately diverges from
+the 28.3 case-frame pattern, where the READER resolves
+caseName/scopeQuestion and sends them in the request. Why: the frame
+needs `resolveActiveCaseRef()` (case-membership plumbing that lives
+page-side), but the vocabulary is a plain namespaced storage read the
+SW can do itself — and doing it SW-side gives BOTH suggest callers (the
+reader button and the import panel's suggest-after-import, which never
+sent a case frame at all) one shared path with zero per-caller wiring.
+The prompt builder re-filters and re-caps defensively
+(`SUGGEST_VOCAB_MAX`, case-typed entries dropped), so a mis-built list
+can't oversize the prompt or leak the workspace entity into it.
+
+---
+
 ## 2026-07-20 — corpus-v4: the claims-independent map cache
 
 **Tags:** design

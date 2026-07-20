@@ -21,8 +21,9 @@ import {
     ANTHROPIC_API_URL, ANTHROPIC_VERSION, resolveModel,
     LLM_KEY_STORAGE, LLM_MODEL_STORAGE, LLM_SUGGEST_KINDS_STORAGE,
     buildSuggestTool, buildSystemPrompt, buildUserPrompt,
-    normalizeSuggestKinds, categoryOfProposalKind
+    normalizeSuggestKinds, categoryOfProposalKind, vocabularyFromRegistry
 } from './llm-prompts.js';
+import { Storage } from './storage.js';
 import {
     AUDIT_TOOL_NAME, STANDING_SINGLE_SHOT_CAVEAT,
     buildAuditTool, buildAuditSystemPrompt, buildAuditUserPrompt, assembleAudit,
@@ -306,12 +307,26 @@ export async function runSuggestionPass(req = {}) {
         return { ok: false, error: 'No suggestion types are enabled. Turn some on in Options → Advanced → LLM assist.' };
     }
 
+    // Vocabulary injection (Phase 28): the active workspace's entity
+    // registry rides the prompt as naming vocabulary, so re-mentioned
+    // entities are proposed under their established names and merge on
+    // accept instead of fragmenting. Assembled HERE, not by callers, so
+    // the reader's Suggest button and the import panel's
+    // suggest-after-import share one path. Storage resolves the active
+    // workspace, so under a case-bound workspace this IS the case's
+    // registry — and we read the raw dict rather than
+    // EntityModel.getAll(): the vocabulary needs names, never keypairs.
+    let entityVocabulary = [];
+    try { entityVocabulary = vocabularyFromRegistry(await Storage.get('entities', {})); }
+    catch (_) { entityVocabulary = []; }
+
     const model = await readModel();
     const system = buildSystemPrompt({
         tasks: enabledKinds, url: req.articleUrl || '', title: req.articleTitle || '',
         // 28.3 — the reader resolves the active workspace's case frame
         // and sends it along; absent → the prompt stays frame-free.
-        caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || ''
+        caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '',
+        entityVocabulary
     });
     const userContent = buildUserPrompt({ articleText, context: req.context || '' });
     const tool = buildSuggestTool();
@@ -326,7 +341,7 @@ export async function runSuggestionPass(req = {}) {
         messages: [{ role: 'user', content: userContent }]
     };
 
-    Utils.log('[X-Ray LLM] suggestion pass:', { kinds: enabledKinds, model, chars: articleText.length });
+    Utils.log('[X-Ray LLM] suggestion pass:', { kinds: enabledKinds, model, chars: articleText.length, vocab: entityVocabulary.length });
 
     const res = await postMessages(payload, apiKey);
     if (!res.ok) return res;
