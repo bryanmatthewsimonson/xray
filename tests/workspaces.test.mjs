@@ -177,3 +177,18 @@ test('ws: activate REFUSES a dead identity binding and moves nothing — the mod
     await Workspaces.activate(made.id);
     assert.equal(await Storage.activeWorkspaceId(), made.id, 'clears then switches cleanly');
 });
+
+test('ws: update rebinds the identity of an ALREADY-BOUND workspace — a healthy binding is changeable, not locked', async () => {
+    await reset();
+    const alpha = await IdentityProfiles.create('alpha');
+    const beta = await IdentityProfiles.create('beta', { activate: false });
+    const made = await Workspaces.create({ label: 'Rebindable', identityPubkey: alpha.pubkey });
+    // Rebind bound → bound (the 2026-07-21 gap: the UI only offered
+    // binders on EMPTY/dangling slots, so this path had no affordance).
+    const patched = await Workspaces.update(made.id, { identityPubkey: beta.pubkey });
+    assert.equal(patched.identity_pubkey, beta.pubkey, 'binding replaced in place');
+    // Activating now switches the live signer to the NEW owner.
+    await Workspaces.activate(made.id);
+    const { identity } = await IdentityProfiles.active();
+    assert.equal(identity.pubkey, beta.pubkey, 'activate follows the rebound identity');
+});
