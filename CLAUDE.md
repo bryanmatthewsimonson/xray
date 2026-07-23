@@ -241,6 +241,18 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   first principles), Art. 13 (three-tier
   amendment). Machine-checked by `tests/constitution-guards.test.mjs`
   — a red guard is a bug or an unratified amendment; keep it green.
+- **`docs/DISCIPLINES.md`** — **Discipline Standards** (organic statute
+  under CONSTITUTION Art. 9): fifteen disciplines, each with standards
+  **derived from first principles** (§0 documents the method that
+  produced PHILOSOPHY.md — the idealized-practitioner question is
+  elicitation scaffolding, never the deliverable), its failure mode
+  and countervailing standard, and its codification status. Forensic
+  accounting is the one named gap; the advisory operator seed is
+  `respectGate`. **Before adding or editing any LLM prompt, read the
+  governing discipline's section and name it in the file header**
+  (`// Standards: <id> — docs/DISCIPLINES.md §n.`) —
+  `tests/disciplines.test.mjs` fails any "You are" prompt file without
+  one.
 - **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 28
   (v0.7.0 tagged 2026-07-16 — the first GitHub Release since v0.5.1; see
   CONTRIBUTING for the tag-driven release process). Complete and merged:

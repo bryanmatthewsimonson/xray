@@ -1,3 +1,4 @@
+// Standards: journalism-audit — docs/DISCIPLINES.md §2.
 // X-Ray — vendored per-module audit methodology prompts.
 //
 // GENERATED, verbatim, from docs/auditor-prototype/prompts/01-08 (the
