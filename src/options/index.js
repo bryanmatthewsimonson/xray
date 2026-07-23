@@ -357,6 +357,7 @@ async function renderIdentityList(activeIdentity) {
             ${isActive
         ? '<span class="xr-opt__identity-active">active</span>'
         : '<button type="button" class="xr-opt__btn xr-opt__btn--small" data-act="use">Use</button>'}
+            <button type="button" class="xr-opt__btn xr-opt__btn--small" data-act="rename">Rename</button>
             <button type="button" class="xr-opt__btn xr-opt__btn--small" data-act="copy">Copy npub</button>
             ${isActive ? '' : '<button type="button" class="xr-opt__btn xr-opt__btn--small xr-opt__btn--danger" data-act="remove">Remove</button>'}
         </div>`;
@@ -376,6 +377,17 @@ async function onIdentityAction(btn) {
             if (!confirm(ROTATION_WARNING)) return;
             const profile = await IdentityProfiles.activate(pubkey);
             flash(status, `Switched to "${profile.label}". New captures publish under this identity; existing records keep their old stamps — use Start fresh workspace (Advanced) for a clean slate.`);
+        } else if (act === 'rename') {
+            // Label-only: bindings (workspaces, derived entity keys,
+            // publish stamps) all key on the PUBKEY, so a relabel is
+            // safe everywhere. The flash says so — the reasonable fear
+            // here is that renaming re-derives something.
+            const all = await IdentityProfiles.getAll();
+            const p = all[pubkey];
+            const label = prompt('New label for this profile:', p ? p.label : '');
+            if (label === null) return;
+            const profile = await IdentityProfiles.rename(pubkey, label);
+            flash(status, `Renamed to "${profile.label}". Labels are display-only — workspace bindings and entity keys follow the pubkey, not the name.`);
         } else if (act === 'copy') {
             const all = await IdentityProfiles.getAll();
             const p = all[pubkey];

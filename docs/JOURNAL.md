@@ -19,6 +19,29 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-21 — Identity profiles were renameable in the model, not the UI
+
+**Tags:** design
+
+`IdentityProfiles.rename()` has existed and been unit-tested since the
+profiles registry landed (2026-07-03), but Signing ▸ Identity never
+exposed it — a profile's label was fixed at whatever it was created or
+imported under, and the only way to change it was to remove the profile
+(destroying its nsec) and re-import. Every identity row now carries a
+**Rename** button.
+
+Safe by construction, and the flash says so: labels are display-only.
+Workspace identity bindings key on `identity_pubkey`, HKDF entity keys
+derive from `(primary private key, entity id)`, and publish stamps
+record pubkeys — nothing anywhere resolves a profile by its label, so a
+relabel cannot orphan a binding or re-derive a key. The reasonable fear
+at this control is exactly that it might, which is why the confirmation
+message answers it rather than staying silent.
+
+Scope note: the workspace-binding half of this problem (a healthy
+binding exposing no control) is a separate concern and shipped in its
+own change — see the entry immediately below.
+
 ## 2026-07-21 — Workspace bindings are always editable on the active row
 
 **Tags:** design
