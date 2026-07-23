@@ -266,6 +266,13 @@ tested contract, not an aspiration.
   first principles), Art. 13 (three-tier
   amendment). Machine-checked by `tests/constitution-guards.test.mjs`
   — a red guard is a bug or an unratified amendment; keep it green.
+- **`docs/TRUTH_SYSTEMS.md`** — the constitution's evidentiary annex:
+  16 truth-adjudication systems surveyed, invariants I-1–I-18 (the gap
+  list is the constitutional roadmap-seed registry), subversion modes
+  S-1–S-9 with residual risks stated honestly, the seven-constraint
+  §3.3 bridging license (what CONSTITUTION Art. 5.5 adopts), and the
+  honest-limits clauses H-1–H-7 (including H-7, the persuasion line:
+  make honesty louder, never make loudness a method).
 - **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 28
   (v0.7.0 tagged 2026-07-16 — the first GitHub Release since v0.5.1; see
   CONTRIBUTING for the tag-driven release process). Complete and merged:

@@ -277,6 +277,27 @@ test('guard: CASE_SYNTHESIS cites P8 for disagreement-is-data (drift fixed 2026-
     assert.equal(doc.includes('(P5): positions'), false, 'the drifted citation is gone');
 });
 
+// ------------------------------------------------------------------
+// The TRUTH_SYSTEMS annex resolves the constitution's references
+// (Preamble H-clauses; Art. 5.5 → §3.3)
+// ------------------------------------------------------------------
+
+test('guard: the TRUTH_SYSTEMS annex carries what the constitution cites', async () => {
+    const annex = await readFile(new URL('../docs/TRUTH_SYSTEMS.md', import.meta.url), 'utf8');
+    assert.ok(annex.includes('### 3.3 The bridging license'),
+        'Art. 5.5 cites §3.3 — the heading exists');
+    for (const label of ['Distribution-not-number', 'Annotate-never-adjudicate',
+        'Labeled as what it is', 'Method-disclosed and re-derivable',
+        'Roster-scoped or history-costly inputs only',
+        'Never crossing the never-merge firewall',
+        'Published as a signed, disputable measurement']) {
+        assert.ok(annex.includes(`**${label}.**`), `bridging constraint "${label}"`);
+    }
+    for (let n = 1; n <= 7; n++) assert.ok(annex.includes(`**H-${n}.`), `honest-limit clause H-${n}`);
+    for (let n = 1; n <= 18; n++) assert.ok(annex.includes(`**I-${n}.`), `invariant I-${n}`);
+    for (let n = 1; n <= 9; n++) assert.ok(annex.includes(`**S-${n}.`), `subversion mode S-${n}`);
+});
+
 // Deferred guard (recorded per the lens-guards idiom): when the first
 // Art. 5 estimation surface ships, add a functional guard asserting its
 // stored/wire record carries the machine-readable estimate label and
