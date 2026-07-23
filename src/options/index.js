@@ -651,7 +651,12 @@ async function renderWorkspaces() {
                         renderWorkspaces();
                         return;
                     }
-                    if (!confirm(`Bind workspace "${ws.label}" to identity "${target.label}"?\n\nThis workspace is active, so the live signing identity switches to "${target.label}" now. Reload any open X-Ray tabs afterwards.`)) {
+                    // This path SWITCHES the primary identity, so it owes
+                    // the same Phase-24.3 disclosure every other switch
+                    // site shows (Signing ▸ use/create/import). Without
+                    // it this select would be a second, quieter door to
+                    // a rotation with real consequences.
+                    if (!confirm(`Bind workspace "${ws.label}" to identity "${target.label}"?\n\nThis workspace is active, so the live signing identity switches to "${target.label}" now. Reload any open X-Ray tabs afterwards.\n\n${ROTATION_WARNING}`)) {
                         renderWorkspaces();
                         return;
                     }
@@ -684,12 +689,24 @@ async function renderWorkspaces() {
                 const v = sel.value;
                 if (!v || v === ws.case_entity_id) return;
                 try {
+                    // The case confirms name what the binding actually
+                    // governs and say plainly that nothing moves —
+                    // membership is tag∪claim on the records, so the
+                    // fear a user brings to this control ("do I lose
+                    // the case?") is answered in the dialog itself. A
+                    // DEAD binding clears without a prompt: there is
+                    // nothing to lose and it is a repair, not a change.
                     if (v === '__clear__') {
+                        if (boundCase && !confirm(`Unbind case "${caseName}" from "${ws.label}"?\n\nNothing is deleted or moved — the case and its records stay in this workspace. New captures stop auto-joining it, Suggest loses its case frame, and it leaves the portal's cross-workspace view until rebound.`)) {
+                            renderWorkspaces();
+                            return;
+                        }
                         await Workspaces.update(ws.id, { caseEntityId: null });
-                        flash(status, `Cleared the case binding on "${ws.label}".`);
+                        flash(status, boundCase ? `Unbound the case from "${ws.label}".`
+                            : `Cleared the dead case binding on "${ws.label}".`);
                     } else {
                         const next = cases.find((c) => c.id === v);
-                        if (boundCase && !confirm(`Rebind workspace "${ws.label}" from case "${caseName}" to "${next ? next.name : v}"?\n\nCaptures and corpus tools follow the bound case.`)) {
+                        if (boundCase && !confirm(`Rebind workspace "${ws.label}" from case "${caseName}" to "${next ? next.name : v}"?\n\nNew captures auto-join the new case from now on. Existing membership tags keep pointing at "${caseName}"; nothing is deleted or moved.`)) {
                             renderWorkspaces();
                             return;
                         }

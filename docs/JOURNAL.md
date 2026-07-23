@@ -41,6 +41,17 @@ rebind makes the same atomic move. Clearing a binding keeps the
 current signer (matching the existing dead-binding repair semantics).
 Foreign rows are unchanged — rebind after activating.
 
+Because that rebind rotates the primary identity, it carries the full
+Phase-24.3 `ROTATION_WARNING` (unreadable 30078 sync blobs, publish
+stamps left with the old npub, HKDF entity keys that cannot be
+re-derived) on top of the binding message — the select must not be a
+quieter door to a rotation than Signing ▸ Use. Binding the
+already-live profile and clearing a binding rotate nothing, so
+neither prompts. The case confirms likewise state what the binding
+governs (capture auto-join, the Suggest frame, the cross-workspace
+view) and that unbinding moves no data, since membership is tag∪claim
+on the records; a dead case binding clears unprompted as a repair.
+
 ## 2026-07-20 — Dangling workspace bindings after a restore (repair mode)
 
 **Tags:** bug, design
