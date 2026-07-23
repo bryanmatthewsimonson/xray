@@ -353,5 +353,12 @@ No new kinds. No changes to existing tag semantics.
    `nip05`; a verification story (who hosts the identifiers?) is out
    of scope here.
 5. **Cross-archive discovery UX.** Given NIP-39 ids, should the corpus
-   view offer "other archives publishing about wikidata:Q42"? Powerful,
-   but touches the descoped trust territory — needs its own decision.
+   view offer "other archives publishing about wikidata:Q42"? Powerful.
+   The "descoped trust territory" blocker is **struck** (JOURNAL
+   2026-07-21): that descope was sprint-scoped, not doctrine, and this
+   view adjudicates nothing — it surfaces who *else* published about a
+   shared external id, which is discovery, not consensus. Still open,
+   but now answerable on its own merits. The real design questions are
+   the join key (NIP-39 `i` tags are the only user-independent entity
+   handle we publish, and they are optional and sparsely populated) and
+   the query's scope — follows-only, or open to any archive.

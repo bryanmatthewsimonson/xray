@@ -19,6 +19,76 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-21 — The 7/3 consensus descope was sprint-scoped, not doctrine
+
+**Tags:** design, pattern
+
+**What the record said.** The 2026-07-03 "Sprint descopes" entry recorded
+two owner decisions — no self-hosted relay, and
+`docs/ideas/CONSENSUS_PROTOCOLS_PLAN.md` deleted with the line "the
+aggregation/web-of-trust/bridging direction is not being pursued." Every
+design written since has read that as settled doctrine.
+
+**What actually happened.** The maintainer clarified (2026-07-21) that he
+scrapped the plan because *Claude was being too prescriptive about the
+project's direction*, not because he had evaluated and rejected the
+technical direction: "you have no way of knowing what's a work in
+progress plan versus ironclad." The surrounding commits corroborate. The
+plan had existed for days — harvested from the dead
+`claude/decentralized-trust-systems-m393u` branch during the cleanup
+sweep (`7f10a74`), carrying its own `[TENTATIVE — IDEA, NOT APPROVED]`
+header — and was one of a cluster of Claude-authored forward-planning
+artifacts cleared that week; `EPISTACK_WIN_PLAN.md` went the next day
+(`32f23ed`, "Epistack work is maintainer-driven"). The relay cut was
+explicitly "to maximize time on X-Ray itself." Both were deadline calls
+during the FLF Epistack sprint (submitted 2026-07-19), not verdicts.
+
+**What the misreading cost.** The kill deleted one ideas doc, but later
+designs treated the *territory* as radioactive:
+`KNOWLEDGE_SHARING_DESIGN.md:16` hard-codes "no aggregation / consensus /
+reputation layer" as a substrate constraint; `ENTITY_CORPUS_DESIGN.md` §7
+Q5 (cross-archive discovery) was left undecided because it "touches the
+descoped trust territory" — though it is discovery, not consensus;
+trust-graph v2/v3 stayed unbuilt (`metadata/trust-graph.js`),
+`metadata/ranker.js` stays unwired (`network-trust.js:9`), and kind-30053
+TopicTrust is consumable by `composeGraph` but never fetched ("the
+parameter keeps the seam open", `network-trust.js:33-37`). Phase 15's
+precedent/bridging tail was deferred. The code kept every door ajar while
+the docs said closed.
+
+**Reopened, casework-pulled.** Post-submission the territory is open on
+the project's own terms: revive by real casework need, never by grand
+plan — the shared lesson of this descope and the Phase-19 fact-layer
+retirement. Cheapest first, none of which compute consensus: the §7 Q5
+discovery view (blocker struck in this commit), TopicTrust fetching into
+the waiting seam, trust-graph v2 transitive walks as a *narrow-only*
+filter. Bridging consensus is gated **empirically, not philosophically** —
+it needs attestor sets and the network has ~one participant; assessments
+(30054) and verdicts (30063) are already structured attestations, so a
+bridging *view* over existing kinds needs no new wire kind once the data
+exists. Credentials, bounties/zaps, and the assembly/meta-system stay
+dead until something pulls them; knowledge bases were absorbed by case
+briefs and entity pages. The self-hosted relay is likewise revisitable.
+
+**Unresolved tension, now on the record.** PHILOSOPHY §8 endorses "weight
+follows track record … the structural defense against brigading,
+ideological capture, and crowd-quality decay" (`PHILOSOPHY.md:185`) while
+the descope ruled out computed reputation. The codebase has been quietly
+carrying both; anything built here must resolve it explicitly.
+
+**The generalizable lesson.** A JOURNAL entry compresses away the *reason*
+a decision was made, and a deadline-scoped descope reads identically to a
+considered rejection a year later. Deliberate rejections with stated
+rationale — the fact layer as "premature ontology", "no global entity
+registry, ever" (`KNOWLEDGE_SHARING_DESIGN.md` §2) — remain firm. Sprint
+descopes do not. Check which kind a recorded decision was before treating
+it as a constraint.
+
+Recovery: `git show 7f10a74:docs/ideas/CONSENSUS_PROTOCOLS_PLAN.md` (553
+lines; its proposed kinds 30050–30056 now collide with live X-Ray kinds
+and would need renumbering, and its substrate descriptions predate Phases
+11–15).
+
 ## 2026-07-21 — Identity profiles were renameable in the model, not the UI
 
 **Tags:** design
