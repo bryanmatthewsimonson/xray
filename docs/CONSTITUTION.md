@@ -309,69 +309,80 @@ adjudicated — structure, not intent, in every family; living persons
 get published-positions-only reconstruction; and good-faith-wrong is
 never treated as bad-faith.
 
-## Article 8 — The plank protocol
+## Article 8 — Operator accountability
 
-The operator is bound first, hardest. This article generalizes P10
-project-wide and makes it concrete.
+The operator is held to every standard in this document, at the
+strictest applicable degree. This article generalizes P10 project-wide
+— and draws one boundary the maintainer has fixed: accountability
+attaches to the operator's **published record**, never as a gate on
+the pursuit of truth. A pre-publication gate heavy enough to matter
+would stop meaningful truth-seeking and become self-censorship
+infrastructure; a gate light enough not to matter would be theater.
+Neither is this system.
 
-*Roots: the plank protocol takes its name and its order of operations
-from Matthew 7:1–5 — the plank comes out of the operator's eye before
-anyone's speck is touched. Stated here as attribution of origin, not as
-a confessional requirement.*
+*Roots: Matthew 7:1–5 — the plank comes out of the operator's eye
+before anyone's speck is touched. Stated as the standard's derivation
+and its order of severity, not as a confessional requirement and not
+as a gate.*
 
-1. **First subject.** The tool runs on its operator first. Before the
-   operator publishes a judgment-family artifact about another party at
-   a given rigor tier, at least one artifact of the operator's own
-   authorship must have been run through the same pipeline at the same
-   tier, with results retained under the same rules. The operator's
-   published corpus is a standing member of the operator's own audit
-   queue.
-2. **The exposure file.** The operator maintains a dated record of
-   conflicts, memberships, priors, and history with named subjects —
-   and discloses from it before exposing anyone else's conflicts.
-3. **The reverse-forensic pass.** Before publishing operator-authored
-   criticism, the forensic maneuver taxonomy is run against the
-   operator's own draft; findings are resolved or published unresolved
-   with the artifact. The detector pointed outward points inward first.
-4. **The reverse-criticism attestation.** Each operator-authored
-   criticism records the answer to: would I accept this standard
-   applied to me, by my least charitable critic, on my worst day? A
-   "no" is a publication bar; a recorded "yes" is disputable like
-   everything else.
-5. **Corrections at operator grade.** The operator's corrections
+1. **Disclosure.** The operator maintains a dated record of conflicts,
+   memberships, priors, and history with named subjects, and
+   disclosures from it accompany operator-authored judgments about
+   filed subjects. Disclosure attaches to the publish; it never blocks
+   one.
+2. **Corrections at operator grade.** The operator's corrections
    receive at least the prominence of the original claim — the
    strictest correction standard in the system is the one the operator
    bears.
-6. **No special cases in code.** No code path may condition on the
+3. **No special cases in code.** No code path may condition on the
    operator's identity. The operator's key never appears in source.
    Guard-tested (Art. 12).
-7. **Severity order.** Where any standard in this document admits
+4. **Severity order.** Where any standard in this document admits
    degrees, it binds the operator at the strictest degree. Ties resolve
    against the operator.
+5. **Same instruments, on the record.** The operator's published
+   corpus is subject to the same audits, forensic passes, disputes, and
+   verdicts as anyone's — run by anyone, on the operator's artifacts as
+   published, with the results as visible as any other subject's.
+   Self-scrutiny is exercised *on the record*, not demanded *before*
+   it.
+6. **Self-examination by instrument, not gate.** The designated
+   direction for identifying the operator's own hypocrisies is the
+   moral lens applied to the operator's own corpus — reading one's
+   record under the jurisdictions one claims (the Phase 16 lineage),
+   plus the words-vs-deeds machinery every subject faces. Any
+   operator-facing safeguard (tone advisories, disclosure prompts,
+   self-audit reminders) is advisory, never blocking, with declines
+   recorded: a safeguard that blocks becomes a censor; a safeguard that
+   records becomes a conscience.
 
-Obligations 1–5 bind as discipline from ratification, using existing
-machinery; their dedicated surfaces (the Plank Check, the Respect Gate,
-the About-Me view — `docs/PERSONAS.md` §6) are roadmap seeds, advisory
-by design, never blocking: a safeguard that blocks becomes a censor; a
-safeguard that records becomes a conscience.
+## Article 9 — Discipline standards
 
-## Article 9 — The college of personas
+The project's judgment surfaces answer to per-discipline **standards
+derived from first principles** — the method that produced
+`docs/PHILOSOPHY.md`: ask how the best practitioner of the discipline,
+across all time, actually worked (the idealized-practitioner question
+is elicitation scaffolding, never the deliverable); extract what must
+be true for the practice to reliably produce trustworthy output;
+codify it as numbered, checkable standards with red lines and decision
+heuristics; and machine-enforce what can be enforced.
+`docs/DISCIPLINES.md` indexes these derivations and enters the Concord
+Schedule on its adoption. Constraints on any discipline standard:
 
-The project's judgment surfaces answer to named offices — idealized
-standards with jurisdictions, non-negotiables, and known failure modes
-— chartered in `docs/PERSONAS.md`, which enters the Concord Schedule as
-an organic statute on its adoption. Whatever its content, any college
-must satisfy these constraints:
-
-- A persona is a **named jurisdiction with a cited corpus** — it speaks
-  from its corpus, on its authority, never as the system's own voice
-  (the Phase-16 architecture is the constitutional pattern).
-- Persona output is perspectival reconstruction, never a verdict
-  (Art. 6).
-- The college must span priors such that Art. 4.3's discomfort test can
-  bind — a college that always agrees with the operator is broken.
-- Personas of living persons obey published-positions-only.
-- No office is unchecked; no office checks itself.
+- **Derived, not decreed.** Every standard shows the first principles
+  it follows from; a rule that cannot state its derivation is a
+  preference, not a standard.
+- **Form of judgment obeys Art. 5 and Art. 6.** Each discipline's
+  outputs take the form its subject matter honestly bears, and never
+  fuse across the firewall.
+- **Failure modes named.** Every discipline's characteristic failure
+  is stated beside its standards, with the countervailing standard
+  that checks it. No discipline exempts itself or its practitioners.
+- **Perspectives stay named.** Where a surface reconstructs how a
+  perspective would read something, the perspective is a named
+  jurisdiction with a cited corpus, speaking on its own authority,
+  never the tool's voice — and its output is never a verdict (the
+  Phase-16 pattern; living persons get published-positions-only).
 
 ## Article 10 — The wire covenant
 
@@ -505,7 +516,7 @@ the guards:
 | Art. 12 | PHILOSOPHY.md §10 (enforcement formula, quoted verbatim) | two-sided quote pin |
 | Organic statute | PHILOSOPHY.md v1.1.0 (audit family) | version + concord sentence pinned |
 | Organic statute | TRUTH_ADJUDICATION_DESIGN.md §1/§5 (truth family) | §-headings pinned |
-| On adoption | docs/PERSONAS.md (Art. 9) | enters schedule when merged |
+| On adoption | docs/DISCIPLINES.md (Art. 9) | enters schedule when merged |
 | On adoption | docs/TRUTH_SYSTEMS.md (Preamble, Art. 5.5) | enters schedule when merged |
 
 Concord points enacted with this document's ratification:
@@ -531,16 +542,26 @@ Amendments follow Art. 13, Tier 1. Silent edits are void.
 definitions; supremacy and the organic statutes; the two missions'
 mutual constraint; eight universal principles; the form of judgment and
 the license of estimation (enacting the aggregation reopening); the
-never-merge firewall; targets of criticism; the plank protocol; the
-college of personas; the wire covenant; governance; red lines and
+never-merge firewall; targets of criticism; operator accountability;
+discipline standards; the wire covenant; governance; red lines and
 enforcement; three-tier amendment; ratification and the Concord
 Schedule. Register: universal operative text, roots credited by name
-(maintainer decision, 2026-07-22). Failure modes accepted and named:
+(maintainer decision, 2026-07-22). Revised pre-ratification on
+maintainer review (2026-07-22): Art. 8 carries no publication gates —
+accountability attaches to the published record, with the moral lens
+designated as the self-examination instrument; Art. 9 charters
+discipline standards derived from first principles, not a college of
+personas — the idealized-practitioner question is elicitation
+scaffolding, never the deliverable. Failure modes accepted and named:
 Art. 5 accepts that licensed estimates can be misread as authority
 despite labels (mitigated by the five conditions and Art. 6); Art. 2
 accepts that audit-family law can be overridden by a document written
 later than it (mitigated by verbatim adoption of its universal
-principles and the two-sided guard pins).
+principles and the two-sided guard pins); Art. 8 accepts that a
+gateless standard depends on the record catching the operator after
+the fact rather than stopping them before it (mitigated by obligations
+2 and 5 — corrections at operator grade, same instruments on the
+record).
 
 ---
 

@@ -2034,10 +2034,14 @@ the truth family's — siblings under it. Enacts **licensed estimation**
 narrowed under the 2026-07-08 kill-and-revisit precedent — crude
 estimates and cross-author distributions are lawful as labeled,
 method-disclosed, spread-shown *instruments*, never as verdict content.
-Machine-checked by `tests/constitution-guards.test.mjs`. Annexes land
-in their own PRs and enter the Concord Schedule on adoption:
-`docs/PERSONAS.md` (the college of eighteen offices + the operator
-covenant seeds: `plankProtocol`, `respectGate`) and
+Machine-checked by `tests/constitution-guards.test.mjs`. Art. 8 is
+gateless operator accountability (revised pre-ratification 2026-07-22:
+no publication gates; the moral lens applied to one's own corpus is
+the designated self-examination instrument, later). Annexes land in
+their own PRs and enter the Concord Schedule on adoption:
+`docs/DISCIPLINES.md` (per-discipline standards derived from first
+principles — the PHILOSOPHY.md method generalized; includes the
+advisory operator-safeguard seed `respectGate`) and
 `docs/TRUTH_SYSTEMS.md` (the comparative synthesis: invariants
 I-1–I-18, subversion modes S-1–S-9, honest limits H-1–H-7).
 `docs/VISION.md` (non-normative) is a follow-up.

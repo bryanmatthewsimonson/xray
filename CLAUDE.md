@@ -235,8 +235,10 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   articles: Art. 3 (exposure never deletion), Art. 5 (licensed
   estimation — the five-condition test any estimate/aggregate must
   pass), Art. 6 (never-merge firewall), Art. 7 (criticism targets
-  behaviors/claims/artifacts, never identities), Art. 8 (the plank
-  protocol — the operator is bound first, hardest), Art. 13 (three-tier
+  behaviors/claims/artifacts, never identities), Art. 8 (operator
+  accountability — strictest degree, on the published record, never a
+  gate on truth pursuit), Art. 9 (discipline standards derived from
+  first principles), Art. 13 (three-tier
   amendment). Machine-checked by `tests/constitution-guards.test.mjs`
   — a red guard is a bug or an unratified amendment; keep it green.
 - **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 28
@@ -321,8 +323,8 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   under `TRUTH_ADJUDICATION_DESIGN.md`'s own form-of-judgment (§1/§5,
   its sibling statute) — deliberately no 0–100 score or knowability
   ceiling there; project-wide law (universal principles, licensed
-  estimation, the never-merge firewall, the plank protocol) lives in
-  the constitution.
+  estimation, the never-merge firewall, operator accountability) lives
+  in the constitution.
 - **`CONTRIBUTING.md`** — release process (git-tag-driven via
   `.github/workflows/release.yml`) and the Firefox-floor rationale.
 

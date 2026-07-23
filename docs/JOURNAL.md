@@ -50,8 +50,23 @@ as proposals only. The kill entry stands, visible; this entry narrows
 it, per Art. 11.
 
 Register decision (maintainer, 2026-07-22): universal operative text,
-roots credited by name — the plank protocol names Matthew 7:1–5 as its
-derivation; obligations bind identically under any worldview.
+roots credited by name — Art. 8 names Matthew 7:1–5 as its derivation;
+obligations bind identically under any worldview.
+
+Revised pre-ratification on maintainer review (2026-07-22): the first
+draft's Art. 8 ("the plank protocol") gated publication on
+self-audit obligations — impractical as a gate for auditing truth; an
+obstacle that heavy would stop meaningful truth pursuit. Art. 8 is now
+gateless operator *accountability* (disclosure attaches to publishes,
+corrections at operator grade, same instruments on the operator's
+published record, ties resolve against the operator), and the
+designated self-examination instrument is the moral lens applied to
+one's own corpus (Phase 16 lineage), later. Likewise Art. 9 was
+redrawn from "the college of personas" to **discipline standards
+derived from first principles** — the persona question ("the best
+editor of all time — how did you do it?") is elicitation scaffolding,
+the way PHILOSOPHY.md was actually derived; the deliverable is the
+standards, not the college.
 
 Files: `docs/CONSTITUTION.md` (new), `docs/PHILOSOPHY.md` (v1.1.0
 concord), `docs/TRUTH_ADJUDICATION_DESIGN.md` (concord status line),
@@ -62,8 +77,8 @@ Art.-5), `docs/SMOKE_TEST.md`, `CLAUDE.md`, `CONTRIBUTING.md`
 time), `docs/ROADMAP.md`, `tests/constitution-guards.test.mjs` (new).
 So-what: consult the constitution before any normative change; a red
 constitution guard is a bug or an unratified amendment, never a test
-to "fix". Annexes (`PERSONAS.md`, `TRUTH_SYSTEMS.md`) follow in their
-own PRs and enter the Concord Schedule on adoption.
+to "fix". Annexes (`DISCIPLINES.md`, `TRUTH_SYSTEMS.md`) follow in
+their own PRs and enter the Concord Schedule on adoption.
 
 ## 2026-07-21 — Identity profiles were renameable in the model, not the UI
 
