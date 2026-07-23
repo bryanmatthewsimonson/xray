@@ -241,6 +241,15 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   first principles), Art. 13 (three-tier
   amendment). Machine-checked by `tests/constitution-guards.test.mjs`
   — a red guard is a bug or an unratified amendment; keep it green.
+- **`docs/PERSONAS.md`** — the **College of Personas** (organic statute
+  under CONSTITUTION Art. 9): eighteen named offices owning the
+  judgment families, each with non-negotiables, an occupational
+  disease, and a named checker; the operator covenant seeds
+  (`plankProtocol`, `respectGate`). **Before adding or editing any LLM
+  prompt, read the owning office's section and name the office in the
+  file header** (`// Office: … (slug) — docs/PERSONAS.md §n.`) —
+  `tests/personas.test.mjs` fails any "You are" prompt file without
+  one.
 - **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 28
   (v0.7.0 tagged 2026-07-16 — the first GitHub Release since v0.5.1; see
   CONTRIBUTING for the tag-driven release process). Complete and merged:

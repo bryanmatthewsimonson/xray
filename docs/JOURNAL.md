@@ -19,6 +19,37 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-22 — The College of Personas is chartered
+
+**Tags:** design
+
+`docs/PERSONAS.md` v1.0.0 — the second constitutional document
+(CONSTITUTION Art. 9's organic statute). Eighteen offices generalize
+the move that built Phase 13 (the "bigshot editor" persona prompt):
+each judgment family gets a named owner with non-negotiables that
+restate what its validators already enforce, a named occupational
+disease, and a named checker — no office unchecked, none checks
+itself, and the check-graph is connected (guard-tested, with the
+roster table as the machine-parsed edge list). The never-merge
+firewall is restated as separation of powers: five wire families,
+five distinct owners.
+
+Second-guessable calls: (1) NO runtime persona injection — validators
+enforce, prompts instruct; pasting charter prose into prompts would
+erode the lens layer's voice discipline. Integration is one greppable
+`// Office:` header per "You are" prompt file (8 files), enforced by
+`tests/personas.test.mjs`. (2) The three operator-binding offices
+(Confessor, Peacemaker, Ombudsman) ship as chartered seeds with flags
+named (`plankProtocol`, `respectGate`), not as built surfaces —
+maintainer scope decision 2026-07-22 (docs + seeds only this wave).
+(3) The Forensic Accountant is chartered before it is built: the
+inflation mandate enters as a measured office (unit/baseline/
+counterparty discipline, `money/*` maneuver family seeded) precisely
+so the mandate's own confirmation-bias risk has a named check
+(advocate + forecaster) before any code exists. Files:
+`docs/PERSONAS.md`, `tests/personas.test.mjs`, Office headers in the
+eight prompt files, `CLAUDE.md`.
+
 ## 2026-07-22 — The constitution is ratified; the aggregation kill is narrowed
 
 **Tags:** design

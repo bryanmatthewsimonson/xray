@@ -1,3 +1,4 @@
+// Office: the Analyst (analyst) — docs/PERSONAS.md §7.
 // Case-corpus synthesis prompts — Phase 20.4
 // (docs/CASE_SYNTHESIS_DESIGN.md). The pure prompt-and-tool layer for
 // the two-stage map/reduce over a case's member articles:

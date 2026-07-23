@@ -1,3 +1,4 @@
+// Office: the Detective (detective) + the Psychologist of Manipulation (psychologist) — docs/PERSONAS.md §6, §9.
 // Forensic corpus pass — FA.1 (docs/CORPUS_AUDIT_KICKOFF.md §4b).
 // The pure half: the per-subject cross-article evidence bundle, the
 // propose_forensic_findings tool, and the validation firewall. The

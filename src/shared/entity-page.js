@@ -1,3 +1,4 @@
+// Office: the Historian (historian) — docs/PERSONAS.md §11.
 // Entity pages — EP.1/EP.2 (docs/ENTITY_PAGE_KICKOFF.md). The pure
 // half of the entity-page pipeline: the reduce tool + prompts, the
 // deterministic entity digest, the schema validator, citation

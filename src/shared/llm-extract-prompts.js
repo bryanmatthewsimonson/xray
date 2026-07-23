@@ -1,3 +1,4 @@
+// Office: the Archivist-Librarian (archivist), clerk desk — docs/PERSONAS.md §17.
 // LLM extraction assist — prompt + tool schema (Phase 18 C5,
 // docs/COMPLEX_CONTENT_DESIGN.md §6).
 //
