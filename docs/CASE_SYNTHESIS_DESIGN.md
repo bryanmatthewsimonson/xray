@@ -97,8 +97,9 @@ Nothing the model returns is trusted or applied automatically:
   never above it.
 - **Evidence-bound** (P3/P4): every brief quote is machine-grounded
   against its named member; ungrounded quotes are dropped.
-- **Disagreement is data** (P5): positions and cruxes present each
-  side's view side by side; the model never picks one.
+- **Disagreement is data** (P8; citation corrected 2026-07-22 — P5 is
+  symmetry): positions and cruxes present each side's view side by
+  side; the model never picks one.
 - **Coverage on its face** (P6): members analyzed / truncated / quotes
   dropped are stamped on the block and the stored record; a partial run
   ("K of N members analyzed") is disclosed, not hidden.

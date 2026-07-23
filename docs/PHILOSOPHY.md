@@ -1,10 +1,10 @@
 # Epistemic Auditing: Philosophy and Standards
 
-**Document version:** 1.0.0
+**Document version:** 1.1.0
 **Status:** Normative
-**Date:** 2026-06-11
+**Date:** 2026-06-11 (concord amendment 2026-07-22)
 
-This document is the constitution of the X-Ray Epistemic Auditor. It codifies the principles that every prompt, schema, scorer, rollup, dispute mechanism, and user-facing surface must implement. Code expresses this document; when code and this document conflict, this document governs until it is formally amended (§13).
+This document is the organic statute of the X-Ray Epistemic Auditor — the audit family's governing law under the project constitution, `docs/CONSTITUTION.md`. It codifies the principles that every prompt, schema, scorer, rollup, dispute mechanism, and user-facing surface of the audit family must implement. Within its scope, unchanged: code expresses this document; when code and this document conflict, this document governs until it is formally amended (§13). Where this document and the constitution conflict, the constitution governs (CONSTITUTION Art. 14).
 
 ---
 
@@ -253,6 +253,8 @@ When two of these conflict, document the tension, cite this section, and choose 
 ## §13. Amendment Log
 
 Amendments to this document require: a version bump, a dated entry below, a written rationale, and — for any removal or weakening of a principle or red line — an explicit statement of what failure mode the change accepts. Silent edits to this document violate P9 and are void.
+
+**v1.1.0 — 2026-07-22. Concord amendment.** This document's self-description changes from "the constitution of the X-Ray Epistemic Auditor" to the **organic statute of the audit family under `docs/CONSTITUTION.md`**. Rationale: two normative spines had grown in the repo — this document's estimated-score-with-ceiling and `TRUTH_ADJUDICATION_DESIGN.md` §1's measurements-never-estimations — with every post-Phase-15 design citing an unwritten bundle of both as "the epistemic constitution." The constitution writes that bundle down, adopts P2–P5 and P8–P12 as project-wide law verbatim, and harmonizes the spines via its Art. 5 (which licenses this document's score exactly as TRUTH_ADJUDICATION §1 always had). No principle, dimension, or red line is altered; P-numbering remains canonical project-wide. Accepted failure mode (§13 requirement): audit-family law can henceforth be overridden by a document written later than it — mitigated because the constitution adopts the universal principles verbatim and `tests/constitution-guards.test.mjs` pins the concord from both sides.
 
 **v1.0.0 — 2026-06-11.** Initial codification. Twelve principles, eight news dimensions, opinion rubric, scoring philosophy, time/truth mechanics, triage, dispute process, auditor-of-auditors, engineering derivations, red lines, decision heuristics.
 

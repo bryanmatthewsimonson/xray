@@ -10,6 +10,13 @@ the amendment governs): prompted by the maintainer's §Phase 15 smoke walk,
 which found red line 5 unmet in practice — evidence rows were free-floating
 typed quotes with no followable reference.
 
+**Concord (2026-07-22):** §1 and §5 of this document are adopted as the
+organic statute of the truth-adjudication family under
+`docs/CONSTITUTION.md` (Art. 2; Art. 5 adopts the §1 spine verbatim as
+project-wide law). The non-derivation note above stands — this document
+and `PHILOSOPHY.md` are siblings under the constitution, not derivations
+of one another.
+
 **Depends on Phase 14** (`docs/CRIMINOLOGY_DESIGN.md`, forensic findings
 `30062`, the `forensicPublishing` flag) landing on `main` first — this layer
 composes `30062` as a raw signal and takes the **next disjoint wire kinds**

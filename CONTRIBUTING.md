@@ -181,3 +181,28 @@ tag if the source tree doesn't need to change.
   explicitly — those have compatibility consequences for anyone
   consuming X-Ray's events.
 - Screenshots help for any UI change.
+
+## Governance
+
+Mirrors [`docs/CONSTITUTION.md`](docs/CONSTITUTION.md) Art. 11 and
+Art. 13 — the constitution governs where this summary and it disagree.
+
+- **Merge authority.** The maintainer alone merges to `main`. Agents
+  (Claude) author PRs and never merge. A maintainer merge is the
+  ratifying act for any normative change.
+- **Decision recording.** Every decision that accepts a design, kills
+  a feature, or resolves an open question gets a
+  [`docs/JOURNAL.md`](docs/JOURNAL.md) entry with date and rationale.
+  Agent–maintainer disagreements are recorded, not silently resolved.
+- **Kill-and-revisit.** Kills are recorded with rationale and left
+  git-recoverable. A killed plan is not frozen doctrine — inherited
+  decisions may be re-argued on merits. Only an explicit red line
+  requires a constitutional (Tier-1) amendment to reverse.
+- **Amendment tiers.** Tier 1: constitution articles and red lines
+  (version bump + dated log entry + rationale + stated accepted
+  failure mode). Tier 2: normative sections of design docs (inline
+  "Amended <date> — the amendment governs"). Tier 3: implementation
+  details (ordinary PR).
+- **Guards stay green.** PRs touching normative docs must keep
+  `tests/constitution-guards.test.mjs` (and every family's guard
+  tests) green. A red guard is a bug or an unratified amendment.

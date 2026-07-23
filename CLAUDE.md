@@ -226,6 +226,19 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
 
 ## Project docs (read these for non-trivial work)
 
+- **`docs/CONSTITUTION.md`** — the **supreme normative document**
+  (v1.0.0, ratified 2026-07-22). Consult it before any structural,
+  normative, scoring, schema, or wire-format change anywhere in the
+  project. Citation convention (binding): bare `P<n>` refers only to
+  PHILOSOPHY.md; constitution articles are cited `CONSTITUTION
+  Art. <n>`; every other doc's principle is cited `<DOC> §<n>`. Key
+  articles: Art. 3 (exposure never deletion), Art. 5 (licensed
+  estimation — the five-condition test any estimate/aggregate must
+  pass), Art. 6 (never-merge firewall), Art. 7 (criticism targets
+  behaviors/claims/artifacts, never identities), Art. 8 (the plank
+  protocol — the operator is bound first, hardest), Art. 13 (three-tier
+  amendment). Machine-checked by `tests/constitution-guards.test.mjs`
+  — a red guard is a bug or an unratified amendment; keep it green.
 - **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 28
   (v0.7.0 tagged 2026-07-16 — the first GitHub Release since v0.5.1; see
   CONTRIBUTING for the tag-driven release process). Complete and merged:
@@ -298,15 +311,18 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
 - **`docs/CAPTURE_GUIDE.md`** — per-platform URL-shape/timing requirements
   (FB/IG/TikTok are finicky).
 - **`docs/NIP_DRAFT.md`** — the crowdsourced-metadata wire format.
-- **`docs/PHILOSOPHY.md`** — the **normative** constitution of the
-  Phase-13 epistemic auditor (v1.0.0). Consult it before any
-  structural, scoring, schema, or methodology change to audit
+- **`docs/PHILOSOPHY.md`** — the **organic statute of the audit
+  family** (v1.1.0, under `docs/CONSTITUTION.md`). Consult it before
+  any structural, scoring, schema, or methodology change to audit
   surfaces; when code and it conflict, it governs until amended.
   When two of its principles conflict, document the tension and cite
   them by number (e.g. "P9 over convenience"). Scope note: it governs
   the audit family (`30056`–`30061`); Phase 15 truth verdicts operate
-  under `TRUTH_ADJUDICATION_DESIGN.md`'s own form-of-judgment (§1/§5)
-  — deliberately no 0–100 score or knowability ceiling there.
+  under `TRUTH_ADJUDICATION_DESIGN.md`'s own form-of-judgment (§1/§5,
+  its sibling statute) — deliberately no 0–100 score or knowability
+  ceiling there; project-wide law (universal principles, licensed
+  estimation, the never-merge firewall, the plank protocol) lives in
+  the constitution.
 - **`CONTRIBUTING.md`** — release process (git-tag-driven via
   `.github/workflows/release.yml`) and the Firefox-floor rationale.
 
