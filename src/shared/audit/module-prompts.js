@@ -1,4 +1,4 @@
-// Office: the Editor-in-Chief (editor) — docs/PERSONAS.md §3.
+// Standards: journalism-audit — docs/DISCIPLINES.md §2.
 // X-Ray — vendored per-module audit methodology prompts.
 //
 // GENERATED, verbatim, from docs/auditor-prototype/prompts/01-08 (the

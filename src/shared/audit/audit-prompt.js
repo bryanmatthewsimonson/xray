@@ -1,4 +1,4 @@
-// Office: the Editor-in-Chief (editor) — docs/PERSONAS.md §3.
+// Standards: journalism-audit — docs/DISCIPLINES.md §2.
 // X-Ray — in-extension epistemic auditor: prompt + tool + assembly
 // (Phase 13.x, the LLM execution path alongside the CLI import).
 //

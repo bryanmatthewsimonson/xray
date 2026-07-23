@@ -19,36 +19,40 @@ or files, and the "so-what" for future readers.
 
 ---
 
-## 2026-07-22 — The College of Personas is chartered
+## 2026-07-22 — Discipline standards, derived from first principles
 
 **Tags:** design
 
-`docs/PERSONAS.md` v1.0.0 — the second constitutional document
-(CONSTITUTION Art. 9's organic statute). Eighteen offices generalize
-the move that built Phase 13 (the "bigshot editor" persona prompt):
-each judgment family gets a named owner with non-negotiables that
-restate what its validators already enforce, a named occupational
-disease, and a named checker — no office unchecked, none checks
-itself, and the check-graph is connected (guard-tested, with the
-roster table as the machine-parsed edge list). The never-merge
-firewall is restated as separation of powers: five wire families,
-five distinct owners.
+`docs/DISCIPLINES.md` v1.0.0 — the second constitutional document
+(CONSTITUTION Art. 9's organic statute). Fifteen disciplines, each
+with the §0 method applied: the idealized-practitioner question
+("pretend you are the editor of the most prestigious news
+organization of all time — how did you do it?") used as elicitation
+scaffolding, the first principles extracted, the standards codified,
+the failure mode named beside its countervailing standard. For
+disciplines already codified (PHILOSOPHY, TRUTH_ADJUDICATION,
+CRIMINOLOGY, HYPOTHESIS_MAP, MORAL_LENS), the section records the
+derivation and points at the statute; for the rest, the standards
+bind from this document.
 
-Second-guessable calls: (1) NO runtime persona injection — validators
-enforce, prompts instruct; pasting charter prose into prompts would
-erode the lens layer's voice discipline. Integration is one greppable
-`// Office:` header per "You are" prompt file (8 files), enforced by
-`tests/personas.test.mjs`. (2) The three operator-binding offices
-(Confessor, Peacemaker, Ombudsman) ship as chartered seeds with flags
-named (`plankProtocol`, `respectGate`), not as built surfaces —
-maintainer scope decision 2026-07-22 (docs + seeds only this wave).
-(3) The Forensic Accountant is chartered before it is built: the
-inflation mandate enters as a measured office (unit/baseline/
-counterparty discipline, `money/*` maneuver family seeded) precisely
-so the mandate's own confirmation-bias risk has a named check
-(advocate + forecaster) before any code exists. Files:
-`docs/PERSONAS.md`, `tests/personas.test.mjs`, Office headers in the
-eight prompt files, `CLAUDE.md`.
+This entry supersedes an earlier draft of the same PR that chartered
+a "College of Personas" — eighteen anthropomorphized offices with a
+check-graph. Maintainer review (2026-07-22): the college reified the
+scaffolding; the deliverable was always the standards, the way
+PHILOSOPHY.md was actually derived. Kept from that draft, because
+they were standards all along: the failure-mode-plus-counter
+discipline (no discipline exempts itself), the never-merge ownership
+mapping, and the prompt-file self-registration (now `// Standards:`
+headers, 8 files, enforced by `tests/disciplines.test.mjs`). Also
+kept: forensic accounting specified before it is built — the
+inflation mandate is prosecuted UNDER the money standards
+(unit/baseline/counterparty, base rates before accusations), never
+assumed by them, so the mandate's own confirmation-bias risk has a
+named counter before any code exists. The advisory operator seed
+(`respectGate`) stays; the plank-check seed was dropped with the
+Art. 8 de-gating (see the constitution entry below). Files:
+`docs/DISCIPLINES.md`, `tests/disciplines.test.mjs`, Standards
+headers in the eight prompt files, `CLAUDE.md`.
 
 ## 2026-07-22 — The constitution is ratified; the aggregation kill is narrowed
 
