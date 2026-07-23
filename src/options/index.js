@@ -610,38 +610,113 @@ async function renderWorkspaces() {
         const actions = document.createElement('span');
         actions.className = 'xr-opt__wsactions';
         if (isActive) {
-            // REPAIR MODE: the binders render whenever the slot lacks a
-            // RESOLVABLE binding — empty OR dangling — never only when
-            // empty (the trap that hid every repair path after a
-            // restore).
-            if (idState !== 'bound' && primary && primary.pubkey && profiles[primary.pubkey]) {
-                const bindBtn = wsBtn(idState === 'missing' ? 'Rebind current identity' : 'Bind current identity');
-                if (idState === 'missing') bindBtn.title = 'Replaces the dead binding with the active saved profile';
-                bindBtn.addEventListener('click', async () => {
-                    await Workspaces.update(ws.id, { identityPubkey: primary.pubkey });
-                    flash(status, `Bound "${ws.label}" to identity "${profiles[primary.pubkey].label}".`);
-                    renderWorkspaces();
-                });
-                actions.appendChild(bindBtn);
+            // The binding selects are ALWAYS present on the active row —
+            // a healthy binding is changeable, not locked (2026-07-21:
+            // the repair-only gating left a bound slot with no control
+            // at all). Rebinding the ACTIVE workspace's identity
+            // switches the live signer with it — the same atomic move
+            // activate() makes — so it confirms and reloads.
+            const idSel = document.createElement('select');
+            idSel.title = 'The signing identity bound to this workspace';
+            if (idState !== 'bound') {
+                const lead = new Option(
+                    idState === 'missing' ? `identity MISSING (was ${ws.identity_pubkey.slice(0, 8)}…)`
+                        : Object.keys(profiles).length ? 'Bind an identity…' : 'No saved identities yet', '');
+                lead.disabled = true;
+                lead.selected = true;
+                idSel.appendChild(lead);
             }
-            if (!ws.case_entity_id || caseDangling) {
-                const sel = document.createElement('select');
-                const cases = Object.values(await EntityModel.getAll()).filter((e) => e.type === 'case');
-                const lead = caseDangling ? 'Rebind a case… (current binding is missing)'
-                    : cases.length ? 'Bind a case…' : 'No case entities yet';
-                sel.appendChild(new Option(lead, ''));
-                for (const c of cases) sel.appendChild(new Option(c.name, c.id));
-                if (caseDangling) sel.appendChild(new Option('— Clear the case binding —', '__clear__'));
-                sel.addEventListener('change', async () => {
-                    if (!sel.value) return;
-                    const clear = sel.value === '__clear__';
-                    await Workspaces.update(ws.id, { caseEntityId: clear ? null : sel.value });
-                    flash(status, clear ? `Cleared the dead case binding on "${ws.label}".`
-                        : `Bound the case to "${ws.label}".`);
-                    renderWorkspaces();
-                });
-                actions.appendChild(sel);
+            for (const p of Object.values(profiles)) {
+                const opt = new Option(`Identity: ${p.label}`, p.pubkey);
+                if (idState === 'bound' && p.pubkey === ws.identity_pubkey) opt.selected = true;
+                idSel.appendChild(opt);
             }
+            if (ws.identity_pubkey) idSel.appendChild(new Option('— No identity binding —', '__clear__'));
+            idSel.addEventListener('change', async () => {
+                const v = idSel.value;
+                if (!v || v === ws.identity_pubkey) return;
+                try {
+                    if (v === '__clear__') {
+                        await Workspaces.update(ws.id, { identityPubkey: null });
+                        flash(status, `Unbound the identity from "${ws.label}" — the current signer stays active.`);
+                        renderWorkspaces();
+                        return;
+                    }
+                    const target = profiles[v];
+                    if (primary && primary.pubkey === v) {
+                        // Binding the identity that is already live —
+                        // nothing else changes, so no reload.
+                        await Workspaces.update(ws.id, { identityPubkey: v });
+                        flash(status, `Bound "${ws.label}" to identity "${target.label}".`);
+                        renderWorkspaces();
+                        return;
+                    }
+                    // This path SWITCHES the primary identity, so it owes
+                    // the same Phase-24.3 disclosure every other switch
+                    // site shows (Signing ▸ use/create/import). Without
+                    // it this select would be a second, quieter door to
+                    // a rotation with real consequences.
+                    if (!confirm(`Bind workspace "${ws.label}" to identity "${target.label}"?\n\nThis workspace is active, so the live signing identity switches to "${target.label}" now. Reload any open X-Ray tabs afterwards.\n\n${ROTATION_WARNING}`)) {
+                        renderWorkspaces();
+                        return;
+                    }
+                    await Workspaces.update(ws.id, { identityPubkey: v });
+                    await IdentityProfiles.activate(v);
+                    location.reload();
+                } catch (e) { flash(status, 'Rebind failed: ' + (e && e.message), false); }
+            });
+            actions.appendChild(idSel);
+
+            const sel = document.createElement('select');
+            sel.title = 'The case bound to this workspace';
+            const cases = Object.values(await EntityModel.getAll()).filter((e) => e.type === 'case');
+            const boundCase = ws.case_entity_id && !caseDangling ? ws.case_entity_id : null;
+            if (!boundCase) {
+                const lead = new Option(
+                    caseDangling ? 'case MISSING — rebind…'
+                        : cases.length ? 'Bind a case…' : 'No case entities yet', '');
+                lead.disabled = true;
+                lead.selected = true;
+                sel.appendChild(lead);
+            }
+            for (const c of cases) {
+                const opt = new Option(`Case: ${c.name}`, c.id);
+                if (c.id === boundCase) opt.selected = true;
+                sel.appendChild(opt);
+            }
+            if (ws.case_entity_id) sel.appendChild(new Option('— No case binding —', '__clear__'));
+            sel.addEventListener('change', async () => {
+                const v = sel.value;
+                if (!v || v === ws.case_entity_id) return;
+                try {
+                    // The case confirms name what the binding actually
+                    // governs and say plainly that nothing moves —
+                    // membership is tag∪claim on the records, so the
+                    // fear a user brings to this control ("do I lose
+                    // the case?") is answered in the dialog itself. A
+                    // DEAD binding clears without a prompt: there is
+                    // nothing to lose and it is a repair, not a change.
+                    if (v === '__clear__') {
+                        if (boundCase && !confirm(`Unbind case "${caseName}" from "${ws.label}"?\n\nNothing is deleted or moved — the case and its records stay in this workspace. New captures stop auto-joining it, Suggest loses its case frame, and it leaves the portal's cross-workspace view until rebound.`)) {
+                            renderWorkspaces();
+                            return;
+                        }
+                        await Workspaces.update(ws.id, { caseEntityId: null });
+                        flash(status, boundCase ? `Unbound the case from "${ws.label}".`
+                            : `Cleared the dead case binding on "${ws.label}".`);
+                    } else {
+                        const next = cases.find((c) => c.id === v);
+                        if (boundCase && !confirm(`Rebind workspace "${ws.label}" from case "${caseName}" to "${next ? next.name : v}"?\n\nNew captures auto-join the new case from now on. Existing membership tags keep pointing at "${caseName}"; nothing is deleted or moved.`)) {
+                            renderWorkspaces();
+                            return;
+                        }
+                        await Workspaces.update(ws.id, { caseEntityId: v });
+                        flash(status, `Bound the case to "${ws.label}".`);
+                    }
+                    renderWorkspaces();
+                } catch (e) { flash(status, 'Rebind failed: ' + (e && e.message), false); }
+            });
+            actions.appendChild(sel);
         } else {
             const actBtn = wsBtn('Activate');
             actBtn.addEventListener('click', async () => {

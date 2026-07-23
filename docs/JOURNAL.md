@@ -19,6 +19,39 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-21 — Workspace bindings are always editable on the active row
+
+**Tags:** design
+
+The 2026-07-20 repair-mode fix rendered the bind controls whenever a
+binding slot was empty OR dangling — but a HEALTHY binding still
+showed no control at all, so there was no way to move a workspace to
+a different identity (the maintainer wanted the default workspace
+owned by a different profile than the one it was created under).
+`renderWorkspaces()` now renders both binding selects unconditionally
+on the ACTIVE row: an identity picker listing every saved profile
+(plus an unbind option) and a case picker listing every case entity
+(plus a clear option). The second-guessable choice: **rebinding the
+active workspace's identity switches the live signer immediately**
+(confirm → `Workspaces.update` + `IdentityProfiles.activate` +
+reload) rather than deferring to the next activation — a workspace
+whose binding disagrees with the live signer is exactly the
+inconsistent state `Workspaces.activate()` exists to prevent, so the
+rebind makes the same atomic move. Clearing a binding keeps the
+current signer (matching the existing dead-binding repair semantics).
+Foreign rows are unchanged — rebind after activating.
+
+Because that rebind rotates the primary identity, it carries the full
+Phase-24.3 `ROTATION_WARNING` (unreadable 30078 sync blobs, publish
+stamps left with the old npub, HKDF entity keys that cannot be
+re-derived) on top of the binding message — the select must not be a
+quieter door to a rotation than Signing ▸ Use. Binding the
+already-live profile and clearing a binding rotate nothing, so
+neither prompts. The case confirms likewise state what the binding
+governs (capture auto-join, the Suggest frame, the cross-workspace
+view) and that unbinding moves no data, since membership is tag∪claim
+on the records; a dead case binding clears unprompted as a repair.
+
 ## 2026-07-20 — Dangling workspace bindings after a restore (repair mode)
 
 **Tags:** bug, design
