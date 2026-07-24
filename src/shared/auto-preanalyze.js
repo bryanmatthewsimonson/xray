@@ -30,6 +30,7 @@ import {
     buildMemberUnits, corpusMapRequest, corpusExtractKey, validateCorpusExtract
 } from './case-synthesis.js';
 import { getCorpusExtract, saveCorpusExtract } from './audit/audit-cache.js';
+import { recordArticleExtraction } from './map-artifacts.js';
 import { loadFlags, isEnabled } from './metadata/feature-flags.js';
 import { Utils } from './utils.js';
 
@@ -55,6 +56,9 @@ export async function autoPreAnalyzeCapture({ caseEntityId, url, sendMessage }, 
         collectData: (id) => collectCaseDossierData(id),
         getExtract:  getCorpusExtract,
         saveExtract: saveCorpusExtract,
+        // MA.1 — the durable per-article fold (never rejects; O(1) on
+        // an already-folded fingerprint).
+        record:      recordArticleExtraction,
         now: () => Math.floor(Date.now() / 1000),
         ...io
     };
@@ -84,6 +88,9 @@ export async function autoPreAnalyzeCapture({ caseEntityId, url, sendMessage }, 
 
     const hit = await Promise.resolve(d.getExtract(key)).catch(() => null);
     if (hit && hit.extract && validateCorpusExtract(hit.extract).ok) {
+        await Promise.resolve(d.record({
+            member: unit, extract: hit.extract, frame, key, model: hit.model
+        })).catch(() => {});
         return { status: 'cached', key };
     }
 
@@ -93,5 +100,8 @@ export async function autoPreAnalyzeCapture({ caseEntityId, url, sendMessage }, 
     if (!v.ok) return { status: 'failed', key, error: 'invalid extract' };
 
     await d.saveExtract({ key, extract: res.extract, model: res.model, cachedAt: d.now() });
+    await Promise.resolve(d.record({
+        member: unit, extract: res.extract, frame, key, model: res.model
+    })).catch(() => {});
     return { status: 'ran', key, model: res.model };
 }

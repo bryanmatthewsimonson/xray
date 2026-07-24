@@ -50,7 +50,9 @@ function fixtureData() {
 
 const VALID_EXTRACT = { position: { summary: 'the member position' } };
 
-// io defaults: every gate open, everything injectable per-test.
+// io defaults: every gate open, everything injectable per-test. The
+// MA.1 durable fold (`record`) is stubbed so the unit test touches no
+// IndexedDB; individual tests inspect the calls it receives.
 function io(overrides = {}) {
     return {
         loadFlags: async () => {},
@@ -58,6 +60,7 @@ function io(overrides = {}) {
         collectData: async () => fixtureData(),
         getExtract: async () => null,
         saveExtract: async () => {},
+        record: async () => ({ status: 'unchanged' }),
         now: () => 1234,
         ...overrides
     };
@@ -132,6 +135,41 @@ test('the auto request and cache key are BYTE-IDENTICAL to the Analyze path\'s',
     assert.deepEqual(saved.extract, VALID_EXTRACT);
     assert.equal(saved.model, 'test-model');
     assert.equal(saved.cachedAt, 1234);
+});
+
+// ---- MA.1: the durable fold rides both paths -------------------------------
+
+test('a fresh run folds the extract into the durable record (MA.1)', async () => {
+    let folded = null;
+    const out = await autoPreAnalyzeCapture(
+        { caseEntityId: CASE, url: URL_A,
+          sendMessage: async () => ({ ok: true, extract: VALID_EXTRACT, model: 'test-model' }) },
+        io({ record: async (r) => { folded = r; return { status: 'saved' }; } }));
+    assert.equal(out.status, 'ran');
+    assert.ok(folded, 'the fold fires on a fresh call');
+    assert.equal(folded.member.url, URL_A, 'folded with the SAME member unit');
+    assert.deepEqual(folded.extract, VALID_EXTRACT);
+    assert.equal(folded.key, out.key, 'the fold carries the fingerprint for idempotence');
+    assert.equal(folded.model, 'test-model');
+});
+
+test('a CACHED hit still folds — hit-folding backfills durable records (MA.1)', async () => {
+    let folded = null;
+    const out = await autoPreAnalyzeCapture(
+        { caseEntityId: CASE, url: URL_A, sendMessage: async () => ({ ok: true }) },
+        io({ getExtract: async () => ({ extract: VALID_EXTRACT, model: 'cached-model' }),
+             record: async (r) => { folded = r; return { status: 'unchanged' }; } }));
+    assert.equal(out.status, 'cached');
+    assert.ok(folded, 'a hit folds too (records prepaid before the layer existed get backfilled)');
+    assert.equal(folded.model, 'cached-model');
+});
+
+test('a fold failure never disturbs the capture — status is unchanged', async () => {
+    const out = await autoPreAnalyzeCapture(
+        { caseEntityId: CASE, url: URL_A,
+          sendMessage: async () => ({ ok: true, extract: VALID_EXTRACT, model: 'm' }) },
+        io({ record: async () => { throw new Error('idb down'); } }));
+    assert.equal(out.status, 'ran', 'the paid run succeeds even if the durable fold throws');
 });
 
 // ---- cache-first economics -------------------------------------------------

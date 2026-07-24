@@ -19,6 +19,58 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-24 — Map artifacts: the map stage was a cache; it should be knowledge (MA.1/MA.2)
+
+**Tags:** design
+
+**The diagnosis.** corpus-v4 (2026-07-20) fixed the map cache's
+staleness but left its *citizenship* wrong. The map stage — the
+expensive per-article LLM pass that emits an article's position,
+load-bearing assertions (verbatim, groundable quotes), cited sources,
+and open questions — persisted its output ONLY as a fingerprint-keyed
+`corpus-extracts` row: unbrowsable, orphaned wholesale by any
+`MAP_PROMPT_VERSION` bump, duplicated per case frame, and invisible
+outside the reduce call (its `source_references` / `open_questions`
+were paid for and consumed by nothing). A load-bearing assertion
+became a durable claim only if the reduce happened to re-propose it and
+a human accepted. That conflated two orthogonal axes: the consent
+firewall governs *review status* (nothing enters the claim registry
+without a human Accept); it says nothing about *retention*. The audit
+ledger already proves unreviewed LLM output can be first-class,
+per-article, export-included knowledge — the map extract deserved the
+same. (See `docs/MAP_ARTIFACT_KICKOFF.md`.)
+
+**The fix.** A durable `article-extractions` store (`xray-audits` v7,
+keyed by `articleHash`, export-included, never auto-dropped). Every map
+runner — Analyze, Pre-analyze, auto-pre-analyze, entity-page
+`ensureExtracts` — folds its extract in, on cache HIT as well as fresh
+call (hit-folding backfills records for extracts prepaid before this
+layer). The fold (`shared/map-artifacts.js`, pure) is a merge, not a
+replace: assertions ground against the canonical member text and dedup
+by quote-span overlap (≥60% of the shorter span), first-sighting
+provenance kept, triage preserved across re-runs; a `merged_keys`
+ledger makes a re-fold O(1). MA.2 renders the open assertions as a
+durable claim-proposal queue in the case view — Accept mints through
+`ClaimModel.create` stamped `llm:<model>`, Dismiss is remembered.
+
+**Second-guessable choices, recorded.** (1) **Claims-free storage,
+kept** (the corpus-v4 lesson): the record NEVER stores `claim_ref`;
+assertion→claim coverage is computed on read against the CURRENT claim
+set (`assertionClaimCoverage`), so it can never go stale. The only
+claim id on the record is `accepted_claim_id` — a human action, not a
+computed join. (2) **Dedup is span-overlap, never semantic** (P4/P9):
+over-splitting is reviewable, silent merging is not. (3) **The fold
+never throws** — a fold failure is logged and the paid run still
+succeeds (the extract stays in the fingerprint cache; the next run
+re-folds). (4) A `MAP_PROMPT_VERSION` bump now costs exact-reuse, not
+knowledge — which is what makes the deferred case-free map split
+(MA.5) affordable. The reduce still reads the run's in-memory extracts
+(MA.3 will point it at the accumulated record); Suggest convergence
+(MA.4) and publishing the layer as a wire kind (MA.6) are deferred as
+their own decisions.
+
+---
+
 ## 2026-07-21 — The 7/3 consensus descope was sprint-scoped, not doctrine
 
 **Tags:** design, pattern

@@ -27,6 +27,7 @@ import { mountTranscriptImport } from './import-transcript.js';
 import { mountUrlImport } from './import-urls.js';
 import { renderCaseGraph } from './case-graph-view.js';
 import { renderSynthesisBlock } from './synthesis-block.js';
+import { renderExtractionBlock } from './extraction-block.js';
 import { renderCorpusAuditBlock } from './corpus-audit-block.js';
 import { renderEpistemicsBlock } from './epistemics-block.js';
 import { renderForensicCorpusBlock } from './forensic-corpus-block.js';
@@ -333,6 +334,13 @@ export function renderCaseView(host, params) {
                     onAnalysisState: callbacks.onAnalysisState,
                     isCurrentRun: callbacks.isCurrentRun
                 }
+            });
+            // MA.2 — the durable map-artifact review queue: atomized
+            // assertions from every analysis pass, parked until a human
+            // mints or dismisses them. No LLM call; absent until records
+            // exist (docs/MAP_ARTIFACT_KICKOFF.md).
+            renderExtractionBlock(analysisHost, {
+                data, callbacks: { onReloadCase: callbacks.onReloadCase }
             });
             // CA.3 — the corpus epistemics distributions (absent until
             // something is audited; no corpus score exists anywhere).

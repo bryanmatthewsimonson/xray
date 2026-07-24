@@ -13,7 +13,7 @@ import { Utils } from '../utils.js';
 import { resolveActiveDbName } from '../workspace-keys.js';
 
 const DB_NAME = 'xray-audits';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 const RUNS_STORE = 'runs';
 const PREDICTIONS_STORE = 'predictions';
 const RESOLUTIONS_STORE = 'resolutions';
@@ -48,6 +48,15 @@ const CASE_LINKS_STORE = 'case-link-suggestions';
 // PRECIOUS like the briefs: a page costs a reduce run (plus any map
 // misses), and the human's section edits live on the record.
 const ENTITY_PAGES_STORE = 'entity-pages';
+// MA.1 (docs/MAP_ARTIFACT_KICKOFF.md) — the durable per-article
+// extraction records: every map pass's atomized output (assertions /
+// sources / open questions / positions), accumulated by span-dedup
+// merge, keyed by the article's canonical content hash. KNOWLEDGE, not
+// cache — unlike `corpus-extracts` (the fingerprint-keyed exact-reuse
+// hint) this store is never orphaned by a prompt bump, and the human's
+// triage decisions (accept/dismiss) live on the record. Nothing in the
+// codebase may auto-drop it.
+const ARTICLE_EXTRACTIONS_STORE = 'article-extractions';
 
 function idb() {
     if (typeof indexedDB === 'undefined') {
@@ -151,6 +160,13 @@ function openNamed(dbName) {
             if (oldVersion < 6) {
                 if (!db.objectStoreNames.contains(ENTITY_PAGES_STORE)) {
                     db.createObjectStore(ENTITY_PAGES_STORE, { keyPath: 'entityId' });
+                }
+            }
+
+            // v7 — the durable per-article extraction records (MA.1).
+            if (oldVersion < 7) {
+                if (!db.objectStoreNames.contains(ARTICLE_EXTRACTIONS_STORE)) {
+                    db.createObjectStore(ARTICLE_EXTRACTIONS_STORE, { keyPath: 'articleHash' });
                 }
             }
         };
@@ -266,6 +282,14 @@ export function getEntityPage(entityId) { return get(ENTITY_PAGES_STORE, entityI
 export function deleteEntityPage(entityId) { return remove(ENTITY_PAGES_STORE, entityId); }
 export function listEntityPages() { return getAll(ENTITY_PAGES_STORE); }
 
+// --- durable per-article extraction records (MA.1) ------------------------------
+
+export function saveArticleExtraction(record) { return put(ARTICLE_EXTRACTIONS_STORE, record); }
+export function getArticleExtraction(articleHash) { return get(ARTICLE_EXTRACTIONS_STORE, articleHash); }
+export function deleteArticleExtraction(articleHash) { return remove(ARTICLE_EXTRACTIONS_STORE, articleHash); }
+export function listArticleExtractions() { return getAll(ARTICLE_EXTRACTIONS_STORE); }
+export function countArticleExtractions() { return countStore(ARTICLE_EXTRACTIONS_STORE); }
+
 // --- standalone link-suggestion runs (28.3) -------------------------------------
 
 export function saveCaseLinkRun(record) { return put(CASE_LINKS_STORE, record); }
@@ -278,7 +302,7 @@ export async function clear() {
     const db = await openAuditDb();
     const transaction = db.transaction(
         [RUNS_STORE, PREDICTIONS_STORE, RESOLUTIONS_STORE, CASE_BRIEFS_STORE, CORPUS_EXTRACTS_STORE,
-         PENDING_SUGGESTIONS_STORE, CASE_LINKS_STORE, ENTITY_PAGES_STORE], 'readwrite');
+         PENDING_SUGGESTIONS_STORE, CASE_LINKS_STORE, ENTITY_PAGES_STORE, ARTICLE_EXTRACTIONS_STORE], 'readwrite');
     transaction.objectStore(RUNS_STORE).clear();
     transaction.objectStore(PREDICTIONS_STORE).clear();
     transaction.objectStore(RESOLUTIONS_STORE).clear();
@@ -287,6 +311,7 @@ export async function clear() {
     transaction.objectStore(PENDING_SUGGESTIONS_STORE).clear();
     transaction.objectStore(CASE_LINKS_STORE).clear();
     transaction.objectStore(ENTITY_PAGES_STORE).clear();
+    transaction.objectStore(ARTICLE_EXTRACTIONS_STORE).clear();
     await tx(transaction);
 }
 
