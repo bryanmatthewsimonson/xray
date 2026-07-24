@@ -121,6 +121,20 @@ paid work.
   Dismiss with durable triage, sources + open questions rendered,
   drop counts disclosed. Renders only when records exist for members;
   costs no LLM call and is therefore not consent-gated.
+- **MA.2b — verification where you are** (this PR).
+  `src/reader/extraction-bar.js` + `refreshExtractionBar` in the reader:
+  the per-article view of the durable record, so a mapping run is
+  visible **from the article itself** — counts, model/prompt
+  provenance, and each grounded assertion quote click-to-locate in the
+  body (selection only; the body is contenteditable and syncs the
+  draft). Keyed by the canonical content hash, the same key the record
+  is stored under. Deliberately READ-ONLY: triage stays in the case
+  dashboard, which has the case context a minted claim needs
+  (`about: [caseId]`) — a second, context-poorer accept path would
+  invite claims with no case. Renders nothing when the text has no
+  record; a record anchored to a RETAINED PRIOR version is disclosed
+  rather than shown as if it applied (the audit panel's convention —
+  assertions are exact spans and never transfer across edits).
 - **MA.3 — reduce reads the layer** (deferred). The reduce input
   currently rides the run's in-memory extracts (same content). Once
   the record accumulates across frames, the reduce should prefer the
