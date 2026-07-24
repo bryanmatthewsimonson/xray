@@ -26,6 +26,7 @@ import {
     filterProposals, computeEntitySummary, foldMemberAliases
 } from '../shared/case-synthesis.js';
 import { renderProposals } from './synthesis-review.js';
+import { recordArticleExtraction } from '../shared/map-artifacts.js';
 import { Signer } from '../shared/signer.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
@@ -508,14 +509,27 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                 concurrency: 2,
                 onProgress,
                 send: async (id) => {
+                    // MA.1: every extract — cached or fresh — also folds into
+                    // the durable per-article record. Never rejects; a hit's
+                    // fold is O(1) once its fingerprint is in merged_keys, and
+                    // hit-folding backfills records for extracts prepaid
+                    // before the artifact layer existed.
+                    const fold = (extract, model) => recordArticleExtraction({
+                        member: unitById[id], extract, model,
+                        frame: { caseName, scopeQuestion }, key: keyByHash[id]
+                    });
                     const cached = cachedByHash[id];
-                    if (cached) return { ok: true, findings: cached.extract, model: cached.model };
+                    if (cached) {
+                        fold(cached.extract, cached.model);
+                        return { ok: true, findings: cached.extract, model: cached.model };
+                    }
                     const res = await sendMessage({ type: 'xray:llm:corpus-map', request: reqOf(unitById[id]) });
                     if (!res || !res.ok) return { ...(res || {}), ok: false };
                     const v = validateCorpusExtract(res.extract);
                     if (!v.ok) return { ok: false, error: 'invalid extract' };
                     saveCorpusExtract({ key: keyByHash[id], extract: res.extract, model: res.model, cachedAt: Math.floor(Date.now() / 1000) })
                         .catch((err) => Utils.error('saveCorpusExtract failed', err));
+                    fold(res.extract, res.model);
                     return { ok: true, findings: res.extract, model: res.model };
                 }
             });

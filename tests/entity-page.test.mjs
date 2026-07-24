@@ -181,6 +181,7 @@ test('ensureExtracts: valid cache hits cost nothing; misses call, validate, and 
 
     const saved = [];
     const sentRequests = [];
+    const folded = [];
     const out = await EP.ensureExtracts([mA, mB], frame, {
         sendMessage: async (msg) => {
             assert.equal(msg.type, 'xray:llm:corpus-map');
@@ -190,6 +191,7 @@ test('ensureExtracts: valid cache hits cost nothing; misses call, validate, and 
     }, {
         getExtract: async (key) => key === keyA ? { extract: VALID_EXTRACT, model: 'm-cached' } : null,
         saveExtract: async (rec) => { saved.push(rec); },
+        record: async (r) => { folded.push(r); return { status: 'saved' }; },
         now: () => 1234
     });
 
@@ -203,6 +205,11 @@ test('ensureExtracts: valid cache hits cost nothing; misses call, validate, and 
     assert.equal(saved.length, 1);
     assert.equal(saved[0].key, keyB, 'persisted under exactly the key Analyze will look up');
     assert.equal(saved[0].cachedAt, 1234);
+    // MA.1 — BOTH members fold into their durable records: the cache
+    // hit (A) backfills, the fresh call (B) records for the first time.
+    assert.equal(folded.length, 2, 'the durable fold rides both the hit and the miss');
+    assert.deepEqual(folded.map((f) => f.member.article_hash).sort(), [HASH_A, HASH_B].sort());
+    assert.deepEqual(folded.map((f) => f.key).sort(), [keyA, keyB].sort());
 });
 
 test('ensureExtracts: an invalid cached extract re-runs; a failed member lands in failures, not extracts', async () => {
@@ -218,6 +225,7 @@ test('ensureExtracts: an invalid cached extract re-runs; a failed member lands i
     }, {
         getExtract: async () => ({ extract: { not: 'valid' }, model: 'm' }),   // invalid — never a hit
         saveExtract: async () => {},
+        record: async () => ({ status: 'saved' }),
         now: () => 1
     });
     assert.equal(out.hits, 0, 'invalid cache entries never count as hits');

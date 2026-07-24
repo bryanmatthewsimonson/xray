@@ -26,6 +26,7 @@ import {
 } from './case-synthesis.js';
 import { orchestrateModuleRuns } from './audit/run-orchestrator.js';
 import { getCorpusExtract, saveCorpusExtract } from './audit/audit-cache.js';
+import { recordArticleExtraction } from './map-artifacts.js';
 
 // Version discipline (the 20.6 lesson): a prompt / tool / digest
 // change bumps this so stored pages correctly go stale. The MAP side
@@ -383,6 +384,9 @@ export async function ensureExtracts(members, frame, { sendMessage, onProgress =
     const d = {
         getExtract: getCorpusExtract,
         saveExtract: saveCorpusExtract,
+        // MA.1 — the durable per-article fold (never rejects; O(1) on
+        // an already-folded fingerprint).
+        record: recordArticleExtraction,
         now: () => Math.floor(Date.now() / 1000),
         ...io
     };
@@ -404,7 +408,13 @@ export async function ensureExtracts(members, frame, { sendMessage, onProgress =
         onProgress: onProgress || (() => {}),
         send: async (id) => {
             const cached = cachedById[id];
-            if (cached) return { ok: true, findings: cached.extract, model: cached.model };
+            if (cached) {
+                await Promise.resolve(d.record({
+                    member: unitById[id], extract: cached.extract, frame,
+                    key: keyById[id], model: cached.model
+                })).catch(() => {});
+                return { ok: true, findings: cached.extract, model: cached.model };
+            }
             calls++;
             const res = await sendMessage({ type: 'xray:llm:corpus-map', request: corpusMapRequest(unitById[id], frame) });
             if (!res || !res.ok) return { ...(res || {}), ok: false };
@@ -412,6 +422,10 @@ export async function ensureExtracts(members, frame, { sendMessage, onProgress =
             if (!v.ok) return { ok: false, error: 'invalid extract' };
             await Promise.resolve(d.saveExtract({
                 key: keyById[id], extract: res.extract, model: res.model, cachedAt: d.now()
+            })).catch(() => {});
+            await Promise.resolve(d.record({
+                member: unitById[id], extract: res.extract, frame,
+                key: keyById[id], model: res.model
             })).catch(() => {});
             return { ok: true, findings: res.extract, model: res.model };
         }
