@@ -28,6 +28,21 @@ export function renderExtractionBar(record, { priorRuns = 0 } = {}) {
     const questions = (record && record.open_questions) || [];
 
     if (!record || (assertions.length + sources.length + questions.length) === 0) {
+        // A record that stored NOTHING but dropped quotes: the pass ran
+        // and was paid for, and every quote failed grounding. Say that
+        // (P6) rather than render as if no analysis exists.
+        if (record && (record.dropped_ungrounded || 0) > 0) {
+            const d = record.dropped_ungrounded;
+            return `
+              <section class="xr-extract">
+                <div class="xr-extract__head">
+                  <h3 class="xr-extract__title">Extracted assertions</h3>
+                  <span class="xr-extract__gap"></span>
+                  <span class="xr-extract__counts">none retained</span>
+                </div>
+                <div class="xr-extract__note">An analysis pass ran on this capture but <strong>none</strong> of its ${d} proposed quote${d === 1 ? '' : 's'} could be located verbatim in this text, so ${d === 1 ? 'it was' : 'they were'} dropped rather than stored ungrounded. Re-running the corpus analysis may do better; a quote that cannot be located is never turned into a claim.</div>
+              </section>`;
+        }
         // No record for THIS text. Only speak up if a prior version has
         // one — otherwise stay silent (an unanalyzed article should not
         // carry an empty block).

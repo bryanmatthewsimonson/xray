@@ -33,7 +33,13 @@ import { recordArticleExtraction } from './map-artifacts.js';
 // deliberately has NO version of its own here — ensureExtracts rides
 // MAP_PROMPT_VERSION through corpusExtractKey, so a page iteration
 // never orphans the shared map cache.
-export const ENTITY_PAGE_PROMPT_VERSION = 'entity-page-v1';
+// v2 (2026-07-25): corpus-v7 changed what a map extract's `position`
+// MEANS — the article's stance on its OWN central question, not on the
+// case/subject question — and digestExtracts feeds those positions
+// straight into the page's reduce input. Stored pages built from
+// v4-semantics positions must therefore read as stale, exactly as
+// CORPUS_PROMPT_VERSION does that job for case briefs.
+export const ENTITY_PAGE_PROMPT_VERSION = 'entity-page-v2';
 export const ENTITY_PAGE_TOOL_NAME = 'emit_entity_page';
 // A page is narrower than a whole-case brief (one subject, not every
 // position in a corpus) — half the reduce budget fits with headroom.

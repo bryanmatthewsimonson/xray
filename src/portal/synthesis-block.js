@@ -591,9 +591,15 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
             // "141/147 members analyzed" when some failed, else just the
             // count — matches the exported/published brief's coverage note.
             const totalMembers = record.members != null ? record.members : members.length;
-            const membersLabel = (Number.isFinite(record.analyzed) && record.analyzed < totalMembers)
+            // MA.3: `analyzed` counts members that CONTRIBUTED, including
+            // any recovered from a stored extraction record after a failed
+            // live call. Recovery must not silently paper over a partial
+            // run (P6/P12) — it is disclosed on its own, so "147 members"
+            // never implies 147 fresh passes.
+            const membersLabel = ((Number.isFinite(record.analyzed) && record.analyzed < totalMembers)
                 ? `${record.analyzed}/${totalMembers} members analyzed`
-                : `${totalMembers} members`;
+                : `${totalMembers} members`)
+                + (record.recovered ? ` (${record.recovered} from stored extraction records, not this run)` : '');
             const prov = el('div', 'xr-synth__prov',
                 `${record.model || 'model'} · ${record.promptVersion || CORPUS_PROMPT_VERSION} · `
                 + `${g.checked} quote${g.checked === 1 ? '' : 's'} checked, ${g.dropped} dropped · `
@@ -639,7 +645,7 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                 const md = renderCaseBriefMarkdown(record.brief, {
                     caseName, scopeQuestion, memberCount: record.members, memberIndex: memberByHash, entitySummary,
                     provenance: { npub, pubkeyHex, relays },
-                    coverage: { analyzed: record.analyzed, failed: record.failed }
+                    coverage: { analyzed: record.analyzed, failed: record.failed, recovered: record.recovered }
                 });
                 downloadFile(`case-brief-${fileSlug(caseName)}.md`, md, 'text/markdown');
             });
@@ -805,10 +811,18 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                 // pre-analyses already found. A member whose live call
                 // FAILED but whose record holds prior analysis is
                 // recovered from the record instead of dropped.
+                // Iterated per MEMBER but deduped by article_hash: same-
+                // content captures share a hash (foldMemberAliases above),
+                // and feeding one artifact to the reduce twice would read
+                // as two independent sources (P4/P9) — the old
+                // Object.entries(modules) shape was unique by construction.
                 const extracts = [];
+                const seenExtract = new Set();
                 let recovered = 0;
                 for (const m of members) {
                     const hash = m.article_hash;
+                    if (seenExtract.has(hash)) continue;
+                    seenExtract.add(hash);
                     const live = modules[hash] || null;
                     const rec = await getArticleExtraction(hash).catch(() => null);
                     let extract = live;

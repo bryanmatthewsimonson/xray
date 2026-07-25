@@ -58,8 +58,12 @@ function idbGetAll(db, storeName) {
     });
 }
 
+// A real 64-hex content hash — the merge only trusts spans under a
+// text-pinned key (isTextPinnedKey), so a non-hex id would be skipped.
+const HASH_X = 'e'.repeat(64);
+
 const extractionRecord = (over = {}) => ({
-    articleHash: 'x'.repeat(64), url: 'https://ex.com/x', title: 'X',
+    articleHash: HASH_X, url: 'https://ex.com/x', title: 'X',
     assertions: [{ key: 'a:0-10', quote: 'local span', start: 0, end: 10, why: 'local why',
                    status: 'open', accepted_claim_id: null, triaged_at: null,
                    first_seen: { model: 'm-local', promptVersion: 'corpus-v7', at: 100 } }],
@@ -185,7 +189,7 @@ test('mergeBackup: config and identity in the file are NEVER applied', async () 
 test('mergeBackup: article-extractions deep-merge — atoms accrue, foreign triage lands on open atoms', async () => {
     await seedLocal();
     await mergeBackup(foreignBackup());
-    const rec = await getArticleExtraction('x'.repeat(64));
+    const rec = await getArticleExtraction(HASH_X);
     assert.equal(rec.assertions.length, 2, 'the foreign-only atom accrued');
     const localAtom = rec.assertions.find((a) => a.key === 'a:0-10');
     assert.equal(localAtom.why, 'local why', 'the local atom body is untouched');
@@ -200,12 +204,12 @@ test('mergeBackup: running the SAME merge twice is idempotent', async () => {
     const before = {
         claims: _stateStore.get('article_claims'),
         runs: (await listRuns()).length,
-        rec: JSON.stringify(await getArticleExtraction('x'.repeat(64)))
+        rec: JSON.stringify(await getArticleExtraction(HASH_X))
     };
     const second = await mergeBackup(foreignBackup());
     assert.equal(_stateStore.get('article_claims'), before.claims);
     assert.equal((await listRuns()).length, before.runs);
-    assert.equal(JSON.stringify(await getArticleExtraction('x'.repeat(64))), before.rec);
+    assert.equal(JSON.stringify(await getArticleExtraction(HASH_X)), before.rec);
     assert.equal(second.storage.idsAdded, 0);
     assert.equal(second.databases['xray-audits'].runs.added, 0);
 });
@@ -215,6 +219,74 @@ test('mergeBackup: an invalid file throws before touching anything', async () =>
     const claimsBefore = _stateStore.get('article_claims');
     await assert.rejects(() => mergeBackup({ format: 'wrong' }), /invalid backup/);
     assert.equal(_stateStore.get('article_claims'), claimsBefore);
+});
+
+test('mergeBackup: an UNPINNED (url:) extraction record is skipped, not merged or added', async () => {
+    await seedLocal();
+    const unpinned = extractionRecord({ articleHash: 'url:deadbeefdeadbeef' });
+    const b = foreignBackup();
+    b.databases['xray-audits']['article-extractions'] = [unpinned];
+    const summary = await mergeBackup(b);
+    assert.equal(await getArticleExtraction('url:deadbeefdeadbeef'), null,
+        'a url:-keyed record never lands — its spans index the FOREIGN text');
+    assert.equal(summary.databases['xray-audits']['article-extractions'].skipped, 1);
+    assert.equal(summary.databases['xray-audits']['article-extractions'].added, 0);
+});
+
+test('mergeBackup: idsAdded counts the records INSIDE a wholly-new key (honest summary)', async () => {
+    await seedLocal();
+    _stateStore.delete('evidence_links');   // make the key wholly new
+    const b = foreignBackup();
+    b.storage.evidence_links = JSON.stringify({
+        l1: { id: 'l1' }, l2: { id: 'l2' }, l3: { id: 'l3' }
+    });
+    const summary = await mergeBackup(b);
+    assert.ok(summary.storage.keysAdded >= 1);
+    // 3 links + claim_foreign + entity_foreign = 5 records, not "1 key".
+    assert.ok(summary.storage.idsAdded >= 5,
+        `idsAdded must count records inside new keys (got ${summary.storage.idsAdded})`);
+});
+
+test('mergeBackup: a failing database stage is COLLECTED, not thrown — partial completion is reported', async () => {
+    await seedLocal();
+    const b = foreignBackup();
+    // A row whose keyPath value is an unclonable structure makes the
+    // store.put throw inside the transaction → the stage rejects.
+    b.databases['xray-audits'].runs = [{ id: 'run_boom', bad: () => {} }];
+    const summary = await mergeBackup(b);
+    assert.ok(Array.isArray(summary.errors));
+    assert.equal(summary.errors.length, 1, 'the failure is surfaced, not swallowed and not thrown');
+    assert.equal(summary.errors[0].database, 'xray-audits');
+    // Storage committed BEFORE the databases, so it must still be there.
+    assert.ok(JSON.parse(_stateStore.get('article_claims')).claim_foreign,
+        'what landed before the failure stays landed — re-running is idempotent');
+});
+
+test('mergeBackup: under a NON-default workspace, content merges into THAT workspace only', async () => {
+    const { Storage } = await import('../src/shared/storage.js');
+    await seedLocal();
+    // Another workspace's content must be untouchable, and the active
+    // workspace's content lives under ws:<id>: prefixes.
+    _stateStore.set('ws:ws_other:article_claims', JSON.stringify({ claim_other: { id: 'claim_other' } }));
+    await Storage.setActiveWorkspaceId('ws_mine');
+    _stateStore.set('ws:ws_mine:article_claims', JSON.stringify({
+        claim_shared: { id: 'claim_shared', text: 'MINE under ws_mine' }
+    }));
+    try {
+        await mergeBackup(foreignBackup());
+        const mine = JSON.parse(_stateStore.get('ws:ws_mine:article_claims'));
+        assert.equal(mine.claim_shared.text, 'MINE under ws_mine', 'local wins inside the active workspace');
+        assert.ok(mine.claim_foreign, 'the foreign claim accrued under the ACTIVE workspace prefix');
+        assert.equal(_stateStore.get('ws:ws_other:article_claims'),
+            JSON.stringify({ claim_other: { id: 'claim_other' } }), 'another workspace is untouched');
+        // The bare (default-workspace) key must not gain the foreign content.
+        assert.ok(!JSON.parse(_stateStore.get('article_claims')).claim_foreign,
+            'the default workspace\'s content is not written while ws_mine is active');
+    } finally {
+        await Storage.setActiveWorkspaceId('default');
+        _stateStore.delete('ws:ws_mine:article_claims');
+        _stateStore.delete('ws:ws_other:article_claims');
+    }
 });
 
 test('mergeStorageValue: map-shape guard — non-maps and malformed JSON keep local', () => {

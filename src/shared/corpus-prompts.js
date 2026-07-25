@@ -165,10 +165,12 @@ export function buildMapSystemPrompt() {
     ].join('\n');
 }
 
-// DELIBERATELY no claims digest here (corpus-v4): the map input is the
-// article text + case frame ONLY, so the extract cache key is stable
-// from capture and later claim extraction never orphans it. Assertion→
-// claim linking happens locally at analyze time (linkAssertionsToClaims).
+// DELIBERATELY no claims digest (corpus-v4) and no case frame
+// (corpus-v7): the map input is the article text + its title/url ONLY,
+// so the extract cache key is stable from capture — later claim
+// extraction never orphans it, and one extract serves every case and
+// entity page. Assertion→claim linking happens locally at analyze time
+// (linkAssertionsToClaims); case-relative framing is the reduce's job.
 export function buildMapUserPrompt({ memberText = '', memberMeta = {} } = {}) {
     const head = [
         memberMeta.title ? `TITLE: ${memberMeta.title}` : '',

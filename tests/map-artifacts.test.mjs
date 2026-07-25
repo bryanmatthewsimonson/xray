@@ -21,7 +21,7 @@ const {
     mergeExtractIntoRecord, assertionClaimCoverage, partitionAssertions,
     setAssertionTriage, recordArticleExtraction, ASSERTION_OVERLAP_MIN,
     unionExtractWithRecord, reduceExtractFromRecord, mergeExtractionRecords,
-    MAX_REDUCE_ASSERTIONS_PER_MEMBER
+    MAX_REDUCE_ASSERTIONS_PER_MEMBER, isTextPinnedKey
 } = await import('../src/shared/map-artifacts.js');
 const { createGroundingIndex } = await import('../src/shared/quote-grounding.js');
 
@@ -30,8 +30,13 @@ const TEXT = 'The lab leak hypothesis remains unproven. '
     + 'Gain-of-function research was funded at the Wuhan Institute. '
     + 'Zoonotic spillover is the mainstream scientific view.';
 
+// A real 64-hex content hash: the merge path only trusts spans under a
+// text-PINNED key (isTextPinnedKey), so a fixture with a toy id would
+// silently skip every merge assertion below.
+const HASH_A = 'a'.repeat(64);
+
 function member(over = {}) {
-    return { article_hash: 'hashA', url: 'https://ex.com/a', title: 'A', text: TEXT, claims: [], ...over };
+    return { article_hash: HASH_A, url: 'https://ex.com/a', title: 'A', text: TEXT, claims: [], ...over };
 }
 
 function extract(over = {}) {
@@ -200,7 +205,7 @@ test('recordArticleExtraction folds through injected io and reports added count'
         { getRecord: async () => null, saveRecord: async (r) => { saved = r; }, now: () => 99 });
     assert.equal(out.status, 'saved');
     assert.ok(out.added >= 1);
-    assert.equal(saved.articleHash, 'hashA');
+    assert.equal(saved.articleHash, HASH_A);
     assert.equal(saved.updatedAt, 99);
 });
 
@@ -331,6 +336,32 @@ test('mergeExtractionRecords: a foreign human triage is adopted onto an OPEN loc
     assert.equal(zoo.accepted_claim_id, 'claim_foreign');
     assert.equal(gof.status, 'dismissed', 'foreign dismissal adopted onto an open atom');
     assert.equal(lab.status, 'dismissed', 'CONFLICTING decisions resolve to the LOCAL one');
+});
+
+test('mergeExtractionRecords: an UNPINNED (url:) key is refused — spans across machines are meaningless there', () => {
+    // buildMemberUnits keys a member `url:<sha16>` when the archive row
+    // has no canonical hash. That key names a URL, not a text, so two
+    // installs can hold same-key records over DIFFERENT bodies: span
+    // arithmetic would adopt a foreign dismissal onto an unrelated
+    // sentence and insert quotes absent from the local article.
+    const local = { ...storedRecord(), articleHash: 'url:abc123' };
+    const incoming = { ...storedRecord(), articleHash: 'url:abc123' };
+    const out = mergeExtractionRecords(local, incoming);
+    assert.equal(out.skipped, 'unpinned-key');
+    assert.equal(out.changed, false);
+    assert.equal(out.record, local, 'the local record is returned untouched');
+    // The wholesale ADD is refused too: an incoming url:-keyed record's
+    // quotes may appear nowhere in the local article, and the merge has
+    // no text to re-ground them against (guard rail 3).
+    const add = mergeExtractionRecords(null, incoming);
+    assert.equal(add.skipped, 'unpinned-key');
+    assert.equal(add.changed, false);
+    // A real 64-hex content hash still merges.
+    assert.equal(isTextPinnedKey('a'.repeat(64)), true);
+    assert.equal(isTextPinnedKey('url:abc123'), false);
+    assert.equal(isTextPinnedKey(''), false);
+    assert.equal(isTextPinnedKey('A'.repeat(64)), false, 'uppercase is not the canonical form');
+    assert.equal(mergeExtractionRecords(storedRecord(), storedRecord()).skipped, undefined);
 });
 
 test('mergeExtractionRecords: null sides, positions latest-wins per frame, counts take max', () => {

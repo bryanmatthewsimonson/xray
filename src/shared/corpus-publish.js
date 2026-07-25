@@ -167,10 +167,14 @@ export function citedMemberOrder(brief, memberIndex) {
  * they nest under their canonical Sources entry. `provenance`
  * ({npub, pubkeyHex, relays}) turns on the self-locating header; an
  * unresolved field renders a visible placeholder, never nothing.
- * `coverage` ({analyzed, failed}) discloses a PARTIAL run on its face
- * (P6/P12): when fewer members were analyzed than captured, the intro
- * says so — the un-analyzed sources are absent from the synthesis and
- * the header must not read as if they were covered.
+ * `coverage` ({analyzed, failed, recovered}) discloses a PARTIAL run on
+ * its face (P6/P12): when fewer members were analyzed than captured,
+ * the intro says so — the un-analyzed sources are absent from the
+ * synthesis and the header must not read as if they were covered.
+ * `recovered` (MA.3) names members whose contribution came from a
+ * STORED extraction record rather than a live pass in this run; it is
+ * stated separately so a fully-recovered run never reads as fully
+ * re-analyzed.
  */
 export function renderCaseBriefMarkdown(brief, { caseName, scopeQuestion, memberCount, memberIndex, entitySummary, provenance, coverage } = {}) {
     const b = publishableBrief(brief);
@@ -242,10 +246,15 @@ export function renderCaseBriefMarkdown(brief, { caseName, scopeQuestion, member
     // stored run record; only emit when analyzed is known and < n.
     const analyzed = coverage && Number.isFinite(coverage.analyzed) ? coverage.analyzed : null;
     const unanalyzed = analyzed != null ? n - analyzed : 0;
-    const coverageNote = (analyzed != null && unanalyzed > 0)
+    const recovered = coverage && Number.isFinite(coverage.recovered) ? coverage.recovered : 0;
+    const recoveredNote = recovered > 0
+        ? ` ${recovered} of the analyzed source${recovered === 1 ? '' : 's'} contributed from a`
+            + ` previously stored extraction record rather than a fresh pass in this run.`
+        : '';
+    const coverageNote = ((analyzed != null && unanalyzed > 0)
         ? ` Of these, ${analyzed} ${analyzed === 1 ? 'was' : 'were'} analyzed for this synthesis;`
             + ` ${unanalyzed} could not be processed and ${unanalyzed === 1 ? 'is' : 'are'} absent from the sections below.`
-        : '';
+        : '') + recoveredNote;
     lines.push(`*A synthesis of ${n} captured source${n === 1 ? '' : 's'}${scope}.${coverageNote}${collapseNote} Every quote below is`
         + ` verbatim from a captured source — open the linked source to read it in context.${citeNote} Compiled with`
         + ` [X-Ray](${XRAY_URL}); this is a map of the disagreement, **not** a ruling.*`);

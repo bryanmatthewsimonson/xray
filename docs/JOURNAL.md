@@ -19,6 +19,70 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-25 — Adversarial review of the map-artifact wave: two real defects, one refuted
+
+**Tags:** bug, pattern
+
+A multi-agent review over the whole branch diff (five dimension-focused
+finders, then two adversarial refuters per finding) surfaced two
+defects that both refuters CONFIRMED, plus a cluster of smaller
+disclosure/staleness gaps. Worth recording because the two majors are
+the same class of mistake — **an invariant assumed rather than
+enforced**:
+
+1. **The record key does not always pin a text.** `mergeExtractionRecords`
+   was documented as safe because "the articleHash pins the canonical
+   text, so spans are exact across machines." False for the
+   `url:<sha16(url)>` fallback `buildMemberUnits` mints when an archive
+   row has no computed hash (best-effort hashing; pre-13.4 rows): that
+   key names a URL, not a text. Two installs could hold same-key
+   records over different bodies, and the merge — the ONE writer with
+   no text to re-ground against — would adopt a foreign
+   accepted/dismissed onto an unrelated sentence and insert quotes
+   absent from the local article. Fixed by gating the merge on
+   `isTextPinnedKey` (64-hex only); unpinned records are skipped and
+   the skip is counted and disclosed. Locally-folded url:-keyed records
+   are unaffected (every fold grounds against the live member text).
+2. **A stale whole-record snapshot on write.** The extraction block's
+   triage did `saveArticleExtraction(setAssertionTriage(rec, …))` with
+   `rec` captured at render; a whole-object put therefore erased any
+   assertions folded in since — exactly the "re-runs only add"
+   guarantee the layer exists to provide. Deterministic (no race
+   needed) when two capture URLs share one `article_hash`: two sections
+   over one row, each with its own snapshot. Fixed by re-reading the
+   record inside `persistTriage`, and by rendering ONE section per
+   record (dedup by hash) instead of per capture URL.
+
+**Refuted, correctly:** a claim that `recordArticleExtraction`'s
+non-atomic read-merge-write loses data unrecoverably. Both refuters
+showed the loss is bounded and self-healing — concurrent folds for one
+hash carry the same fingerprint, so a later fold re-adds what a lost
+write dropped. Left as-is; recorded so it is not "fixed" twice.
+
+**Also fixed from the same pass:** `ENTITY_PAGE_PROMPT_VERSION` bumped
+to v2 (corpus-v7 changed what a `position` MEANS, and pages embed
+positions — briefs went stale, pages did not); the MA.3 reduce loop
+deduped by `article_hash` (same-content captures would have fed one
+artifact to the reduce twice, reading as two sources — P4/P9);
+recovered members disclosed on the brief block and in the exported /
+published markdown (they were being counted as `analyzed`, which
+silently defeated the partial-run note); an all-ungroundable record now
+says so on the reader bar instead of rendering nothing; four reader
+paths that recompute the article hash now refresh the extraction bar;
+merge-summary counts now count records inside a wholly-new key; and a
+failing database stage is reported as a PARTIAL merge (storage commits
+first and there is no cross-stage rollback — re-running the same file
+is idempotent, which is what makes partial completion recoverable).
+
+**Process note:** the verification stage was cut short by a spend
+limit, so ~9 findings went unverified and were triaged by hand instead.
+Two test fixtures also used non-hex placeholder hashes (`'hashA'`,
+`'x'.repeat(64)`), which the new pinned-key gate correctly refused —
+caught only because the gate made the tests fail. Placeholder ids in
+fixtures should look like the real thing.
+
+---
+
 ## 2026-07-25 — corpus-v7: the case-free map (MA.5) + the reduce reads the durable layer (MA.3)
 
 **Tags:** design

@@ -162,7 +162,12 @@ test('entityPageInputHash: order-insensitive; member/claim/version changes each 
     assert.equal(h1, h1rev, 'order-insensitive');
     assert.notEqual(h1, await EP.entityPageInputHash([members[0]], ['c1', 'c2']), 'membership change flips it');
     assert.notEqual(h1, await EP.entityPageInputHash(members, ['c1']), 'claim change flips it');
-    assert.notEqual(h1, await EP.entityPageInputHash(members, ['c1', 'c2'], 'entity-page-v2'), 'version bump flips it');
+    // Version-agnostic: pass a string that is never the live default, so
+    // the pin survives future bumps (the live version IS the default and
+    // was itself bumped to v2 for the corpus-v7 position semantics).
+    assert.notEqual(h1, await EP.entityPageInputHash(members, ['c1', 'c2'], 'entity-page-vNEXT'), 'version bump flips it');
+    assert.equal(h1, await EP.entityPageInputHash(members, ['c1', 'c2'], EP.ENTITY_PAGE_PROMPT_VERSION),
+        'the default is the live version');
 });
 
 // ---- ensureExtracts: cache-first + the one-request-builder rule -------------

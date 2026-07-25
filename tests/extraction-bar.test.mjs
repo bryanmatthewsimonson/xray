@@ -101,6 +101,23 @@ test('sources and open questions render — the fields that were previously paid
     assert.match(html, /Who approved the funding\?/);
 });
 
+test('an ALL-ungroundable record still speaks: a paid pass that retained nothing is disclosed, not silent (P6)', () => {
+    // mergeExtractIntoRecord saves a record with zero assertions when
+    // every quote failed grounding. Rendering nothing would read as
+    // "never analyzed" — the opposite of coverage on its face.
+    const html = renderExtractionBar(record({
+        assertions: [], sources: [], open_questions: [], dropped_ungrounded: 4
+    }));
+    assert.match(html, /Extracted assertions/);
+    assert.match(html, /none retained/);
+    assert.match(html, /4 proposed quotes could be located/);
+    assert.match(html, /never turned into a claim/);
+    // Still silent when there is genuinely nothing at all.
+    assert.equal(renderExtractionBar(record({
+        assertions: [], sources: [], open_questions: [], dropped_ungrounded: 0
+    })), '');
+});
+
 // ---- honesty about prior versions ------------------------------------------
 
 test('no current record but a PRIOR-version record → discloses it instead of rendering nothing', () => {

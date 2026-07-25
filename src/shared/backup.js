@@ -467,6 +467,11 @@ async function mergeStorage(entries) {
         if (local === undefined) {
             writes[liveKey] = v;
             stats.keysAdded += 1;
+            // Count the RECORDS inside a wholly-new key too, or the
+            // summary reports "1 item added" for a key carrying two
+            // hundred claims (P12: the count must mean what it says).
+            const decoded = decodeStorageValue(v);
+            if (decoded) stats.idsAdded += Object.keys(decoded.obj).length;
             continue;
         }
         const merged = mergeStorageValue(local, v);
@@ -501,13 +506,24 @@ function mergeRows(db, storeName, rows, deepMerge) {
                 const getReq = store.get(key);
                 getReq.onsuccess = () => {
                     const existing = getReq.result;
+                    // A deep merge runs on BOTH paths when present: it
+                    // owns the decision to accept a brand-new row too
+                    // (it may refuse — e.g. an extraction record whose
+                    // key does not pin a text), so an add can never
+                    // bypass its safety check.
+                    if (deepMerge) {
+                        const m = deepMerge(existing === undefined ? null : existing, row);
+                        if (m && m.skipped) { stats.skipped += 1; return; }
+                        if (m && m.changed) {
+                            store.put(m.record);
+                            if (existing === undefined) stats.added += 1;
+                            else stats.merged += 1;
+                        } else stats.kept += 1;
+                        return;
+                    }
                     if (existing === undefined) {
                         store.put(row);
                         stats.added += 1;
-                    } else if (deepMerge) {
-                        const m = deepMerge(existing, row);
-                        if (m && m.changed) { store.put(m.record); stats.merged += 1; }
-                        else stats.kept += 1;
                     } else {
                         stats.kept += 1;   // local wins
                     }
@@ -553,14 +569,28 @@ export async function mergeBackup(backup, { warn = () => {} } = {}) {
     if (problems.length) throw new Error(`invalid backup: ${problems.join('; ')}`);
     const storage = await mergeStorage(backup.storage);
     const databases = {};
+    // A merge has NO cross-stage rollback: storage commits before the
+    // databases, and each store commits in its own transaction. So a
+    // later failure must never be reported as "nothing happened" — it
+    // is collected per database and returned alongside what DID land,
+    // and the caller states both (P12). Re-running the same file is
+    // safe and idempotent, which is what makes partial completion
+    // recoverable rather than corrupting.
+    const errors = [];
     for (const [name, dump] of Object.entries(backup.databases || {})) {
         if (!WORKSPACE_DATABASES.includes(name)) {
             warn(`backup merge: database ${name} not covered — skipped`);
             continue;
         }
-        databases[name] = await mergeIntoDatabase(name, dump, { warn });
+        try {
+            databases[name] = await mergeIntoDatabase(name, dump, { warn });
+        } catch (err) {
+            const message = (err && err.message) || String(err);
+            errors.push({ database: name, error: message });
+            warn(`backup merge: database ${name} failed — ${message}`);
+        }
     }
-    return { storage, databases };
+    return { storage, databases, errors };
 }
 
 /**

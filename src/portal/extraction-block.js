@@ -39,11 +39,23 @@ export function renderExtractionBlock(host, { data, callbacks = {} }) {
 
     (async () => {
         const members = await buildMemberUnits(data);
+        // ONE section per RECORD, not per capture URL: same-content
+        // captures share an article_hash (what foldMemberAliases exists
+        // for), and two sections over one store row would let a triage
+        // click in one revert the other's (each holding its own stale
+        // snapshot of the same record).
         const withRecords = [];
+        const seenHash = new Set();
         for (const m of members) {
+            if (seenHash.has(m.article_hash)) continue;
+            seenHash.add(m.article_hash);
             const rec = await getArticleExtraction(m.article_hash).catch(() => null);
-            if (rec && (rec.assertions || []).length + (rec.sources || []).length
-                    + (rec.open_questions || []).length > 0) {
+            // A record whose every quote failed grounding stores NO
+            // assertions but a nonzero drop count — it must still
+            // surface, or the paid pass reads as "never ran" (P6:
+            // coverage on its face).
+            if (rec && ((rec.assertions || []).length + (rec.sources || []).length
+                    + (rec.open_questions || []).length > 0 || (rec.dropped_ungrounded || 0) > 0)) {
                 withRecords.push({ member: m, rec });
             }
         }
@@ -144,12 +156,20 @@ function paintMember(body, { member, rec, caseId, noteAccepted, relabel }) {
     const openUncovered = open.filter((a) => !coverage[a.key]);
     const openCovered = open.filter((a) => coverage[a.key]);
 
-    // `rec` is shared, mutable state for this section: every triage
-    // persists the LATEST record, so sequential accepts never clobber
-    // each other.
+    // Triage is a read-modify-write against the STORE, never against
+    // the snapshot this section painted from: an analysis pass (or
+    // another view) may have folded new assertions into the record
+    // since render, and a whole-object put of the stale snapshot would
+    // erase them — the opposite of "re-runs only add" (kickoff guard
+    // rail 1). Re-reading also means the atom being triaged is matched
+    // by key against current state, so a fold that renumbered nothing
+    // (keys are span-derived) stays consistent.
     const persistTriage = async (key, status, claimId = null) => {
-        const updated = setAssertionTriage(rec, key, status, { claimId, now: now() });
+        const fresh = await getArticleExtraction(member.article_hash).catch(() => null) || rec;
+        const updated = setAssertionTriage(fresh, key, status, { claimId, now: now() });
         await saveArticleExtraction(updated);
+        // Keep the painted snapshot's triage view in step (labels read
+        // from `rec`); newly folded atoms appear on the next Refresh.
         rec.assertions = updated.assertions;
         rec.updatedAt = updated.updatedAt;
         relabel();

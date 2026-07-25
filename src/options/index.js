@@ -958,17 +958,32 @@ async function backupMergeFromFile(file) {
         const s = summary.storage || {};
         let rowsAdded = 0;
         let rowsMerged = 0;
+        let rowsSkipped = 0;
         for (const stores of Object.values(summary.databases || {})) {
             for (const st of Object.values(stores || {})) {
                 rowsAdded += st.added || 0;
                 rowsMerged += st.merged || 0;
+                rowsSkipped += st.skipped || 0;
             }
         }
-        flash(status,
-            `Merged — ${(s.idsAdded || 0) + (s.keysAdded || 0)} item(s) added across ` +
-            `${(s.keysMerged || 0) + (s.keysAdded || 0)} storage key(s); ` +
-            `${rowsAdded} database record(s) added, ${rowsMerged} merged in place. Reloading…`);
-        setTimeout(() => location.reload(), 2500);
+        const errs = summary.errors || [];
+        const parts = [
+            `${s.idsAdded || 0} item(s) added across ${(s.keysMerged || 0) + (s.keysAdded || 0)} storage key(s)`,
+            `${rowsAdded} database record(s) added, ${rowsMerged} merged in place`
+        ];
+        if (rowsSkipped) parts.push(`${rowsSkipped} record(s) skipped (not safely mergeable — see console)`);
+        // A partial merge is reported as partial, never as a failure or
+        // a clean success: what landed is already durable, and
+        // re-running the same file is idempotent.
+        if (errs.length) {
+            flash(status,
+                `Partly merged — ${parts.join('; ')}. ${errs.length} database stage(s) FAILED ` +
+                `(${errs.map((e) => e.database).join(', ')}); what landed is saved and re-importing ` +
+                'the same file is safe. See console. Reloading…', false);
+        } else {
+            flash(status, `Merged — ${parts.join('; ')}. Reloading…`);
+        }
+        setTimeout(() => location.reload(), 3000);
     } catch (e) {
         flash(status, 'Merge failed: ' + (e && e.message), false);
     }

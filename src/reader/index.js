@@ -1236,7 +1236,12 @@ async function loadArchivedArticle(archived, provenance) {
     state.hashDirty = false;
     if (!state.articleHash) {
         canonicalArticleHash(EventBuilder.assembleArticleBody(hashableArticle(state.article)))
-            .then((h) => { state.articleHash = h; updateHashLine(); })
+            .then((h) => {
+                state.articleHash = h;
+                updateHashLine();
+                // The extraction record keys on this hash (MA.2b).
+                refreshExtractionBar().catch(() => { /* display refresh only */ });
+            })
             .catch((err) => console.warn('[X-Ray Reader] archive hash failed:', err));
     }
 
@@ -2108,6 +2113,7 @@ function renderReader() {
     refreshClaimsBar().catch((err) => console.warn('[X-Ray Reader] claims-bar render failed:', err));
     refreshEntitiesBar().catch((err) => console.warn('[X-Ray Reader] entities-bar render failed:', err));
     refreshFindingsBar().catch((err) => console.warn('[X-Ray Reader] findings-bar render failed:', err));
+    refreshExtractionBar().catch((err) => console.warn('[X-Ray Reader] extraction bar failed:', err));
 
     // Re-fill the hash line — the template above recreates it hidden,
     // and the hash (computed async at load) may already be known.
@@ -2596,6 +2602,11 @@ async function applyMediaResult(result) {
         state.auditableHash = slicedHash;
         updateHashLine();
         refreshAuditStatus().catch(() => {});
+        // Attaching a transcript CHANGES the canonical text, so the old
+        // text's extraction record no longer applies to this capture —
+        // re-resolve rather than leave a stale bar on screen (MA.2b's
+        // prior-version disclosure handles the old record).
+        refreshExtractionBar().catch(() => { /* display refresh only */ });
     } catch (err) {
         console.warn('[X-Ray Reader] attach hash failed:', err);
     }
@@ -4540,6 +4551,7 @@ async function publish() {
             state.articleHash = publishedXTag[1];
             state.hashDirty = false;
             updateHashLine();
+            refreshExtractionBar().catch(() => { /* display refresh only */ });
         }
 
         btn.textContent = totalEvents > 1 ? `Publishing (1/${totalEvents})…` : 'Publishing…';

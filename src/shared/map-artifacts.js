@@ -212,11 +212,29 @@ export function mergeExtractIntoRecord(existing, { member, extract, frame = {}, 
 // Record ⊕ record — the backup merge-import path
 // ------------------------------------------------------------------
 
+// A record key that actually PINS the text: the 64-hex canonical
+// content hash. `buildMemberUnits` falls back to `url:<sha16(url)>`
+// when an archive row has no computed hash (best-effort hashing, or a
+// pre-13.4 legacy row) — that key names a URL, NOT a text, so two
+// installs (or two captures over time) can hold same-key records whose
+// spans index DIFFERENT bodies. Locally that is harmless (every fold
+// grounds against the live member text before storing), but a
+// cross-machine MERGE has no text to re-ground against, so span
+// arithmetic across an unpinned key is meaningless — it would adopt a
+// foreign accept/dismiss onto an unrelated sentence and insert quotes
+// that appear nowhere in the local article. Those records are
+// therefore skipped by the merge and the skip is disclosed.
+export function isTextPinnedKey(articleHash) {
+    return /^[0-9a-f]{64}$/.test(String(articleHash || ''));
+}
+
 /**
  * Merge an INCOMING extraction record (from a backup file) into the
- * LOCAL one for the same articleHash. Both records' spans index the
- * SAME canonical text — the articleHash pins it — so span-overlap
- * dedup is exact across machines and time.
+ * LOCAL one for the same articleHash. Span-overlap dedup is exact
+ * across machines and time ONLY because the 64-hex articleHash pins
+ * the canonical text both sides' spans index; records under the
+ * `url:` fallback key are refused (see isTextPinnedKey) rather than
+ * merged on untrustworthy span arithmetic.
  *
  * Accrual rules (docs/MAP_ARTIFACT_KICKOFF.md guard rails):
  *   - assertions: local atoms all survive untouched; incoming atoms
@@ -232,10 +250,19 @@ export function mergeExtractIntoRecord(existing, { member, extract, frame = {}, 
  *     from two histories can't be summed without double-counting).
  *   - url/title: local wins, incoming fills gaps.
  *
- * Pure; returns { record, changed }.
+ * Pure; returns { record, changed } — plus `skipped: 'unpinned-key'`
+ * when the key does not pin a text (nothing is written in that case).
  */
 export function mergeExtractionRecords(local, incoming) {
     if (!incoming) return { record: local, changed: false };
+    // Refuse BOTH the merge and the wholesale add for an unpinned key:
+    // an incoming url:-keyed record's spans and quotes belong to the
+    // FOREIGN capture's text, which the local article may not contain.
+    // Guard rail 3 (grounded or dropped) has no text to check against
+    // here, so the honest move is to skip and say so.
+    if (!isTextPinnedKey((local && local.articleHash) || (incoming && incoming.articleHash))) {
+        return { record: local, changed: false, skipped: 'unpinned-key' };
+    }
     if (!local) return { record: incoming, changed: true };
 
     let changed = false;

@@ -74,7 +74,7 @@ export async function autoPreAnalyzeCapture({ caseEntityId, url, sendMessage }, 
 
     const data = await d.collectData(caseEntityId);
     // No assessments joined: claim stances never enter the map request
-    // (corpus-v4 — the request carries only text + meta + case frame).
+    // (corpus-v4/v7 — the request carries only text + title/url).
     const units = await buildMemberUnits(data);
     const target = Utils.normalizeUrl(url) || url;
     const unit = units.find((u) => u.url === target) || units.find((u) => u.url === url) || null;

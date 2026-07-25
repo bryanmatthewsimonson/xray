@@ -343,6 +343,32 @@ test('renderCaseBriefMarkdown: partial-run coverage disclosed on its face (P6/P1
     assert.ok(!/score|verdict|\d+\s*%|\d+\s*\/\s*100/i.test(md), 'no score/verdict/percentage');
 });
 
+test('renderCaseBriefMarkdown: MA.3 recovered members are disclosed separately, never as fresh analysis', () => {
+    // A run where every member "analyzed" but 5 of them contributed from
+    // a STORED extraction record after a failed live call. The header
+    // must not read as 9 fresh passes (P6/P12).
+    const md = renderCaseBriefMarkdown(RECORD.brief, {
+        caseName: 'X', memberCount: 9, memberIndex: MEMBER_INDEX,
+        coverage: { analyzed: 9, failed: 5, recovered: 5 }
+    });
+    assert.ok(md.includes('A synthesis of 9 captured sources.'));
+    assert.ok(md.includes('5 of the analyzed sources contributed from a previously stored extraction record rather than a fresh pass in this run'),
+        'recovery is stated on the brief\'s face');
+    // Recovery and partial coverage can co-occur and both render.
+    const both = renderCaseBriefMarkdown(RECORD.brief, {
+        caseName: 'X', memberCount: 9, memberIndex: MEMBER_INDEX,
+        coverage: { analyzed: 8, failed: 3, recovered: 2 }
+    });
+    assert.ok(both.includes('1 could not be processed'));
+    assert.ok(both.includes('2 of the analyzed sources contributed from a previously stored'));
+    // No recovery → no note (back-compat with pre-MA.3 records).
+    const none = renderCaseBriefMarkdown(RECORD.brief, {
+        caseName: 'X', memberCount: 9, memberIndex: MEMBER_INDEX, coverage: { analyzed: 9, failed: 0 }
+    });
+    assert.ok(!none.includes('previously stored extraction record'));
+    assert.ok(!/score|verdict/i.test(md), 'no score/verdict leaked by the new note');
+});
+
 test('buildCaseBriefArticle: the published article carries the partial-run disclosure too', () => {
     const partialRecord = { ...RECORD, members: 9, analyzed: 8, failed: 1 };
     const ev = buildCaseBriefArticle({ record: partialRecord, caseName: 'X', memberIndex: MEMBER_INDEX, userPubkey: PUB, createdAt: 1000 });
