@@ -13,11 +13,11 @@
 // — `key_claim_ids` is subset-filtered in code, citations ground or
 // drop, disclosed.
 //
-// THE ONE-REQUEST-BUILDER RULE (corpus-v4): ensureExtracts builds map
-// requests via `corpusMapRequest` with the caller-supplied frame — in
-// a case-bound workspace that frame is the CASE's, so the cache keys
-// are byte-identical to the ones Analyze / Pre-analyze already paid
-// for. Never hand-build a lookalike request here.
+// THE ONE-REQUEST-BUILDER RULE (corpus-v4, tightened by corpus-v7):
+// ensureExtracts builds map requests via `corpusMapRequest`, which is
+// CASE-FREE — the cache keys are byte-identical to the ones Analyze /
+// Pre-analyze / the capture prepay already paid for, for every case.
+// Never hand-build a lookalike request here.
 
 import { Crypto } from './crypto.js';
 import { walk, obj, str, nullableStr, arr } from './schema-walker.js';
@@ -367,9 +367,10 @@ export async function entityPageInputHash(members, claimIds, version = ENTITY_PA
  * Ensure a valid map extract exists for every member: reuse cached
  * hits, call `xray:llm:corpus-map` only on misses, persist each new
  * extract under its `corpusExtractKey`. Requests come from
- * `corpusMapRequest` with the caller's frame — in a case-bound
- * workspace pass the CASE's frame so the keys are byte-identical to
- * Analyze / Pre-analyze's and the cache is shared (kickoff §3 rail 5).
+ * `corpusMapRequest` — CASE-FREE since corpus-v7 (MA.5), so the cache
+ * is shared with Analyze / Pre-analyze / the capture prepay by
+ * construction: an article the case already paid for is free here,
+ * and vice versa. `frame` rides only the durable fold's provenance.
  *
  * @param {Array}  members  buildMemberUnits output
  * @param {object} frame    { caseName, scopeQuestion }
@@ -395,7 +396,7 @@ export async function ensureExtracts(members, frame, { sendMessage, onProgress =
     const cachedById = {};
     for (const m of members || []) {
         unitById[m.article_hash] = m;
-        const key = await corpusExtractKey(corpusMapRequest(m, frame));
+        const key = await corpusExtractKey(corpusMapRequest(m));
         keyById[m.article_hash] = key;
         const hit = await Promise.resolve(d.getExtract(key)).catch(() => null);
         if (hit && hit.extract && validateCorpusExtract(hit.extract).ok) cachedById[m.article_hash] = hit;
@@ -416,7 +417,7 @@ export async function ensureExtracts(members, frame, { sendMessage, onProgress =
                 return { ok: true, findings: cached.extract, model: cached.model };
             }
             calls++;
-            const res = await sendMessage({ type: 'xray:llm:corpus-map', request: corpusMapRequest(unitById[id], frame) });
+            const res = await sendMessage({ type: 'xray:llm:corpus-map', request: corpusMapRequest(unitById[id]) });
             if (!res || !res.ok) return { ...(res || {}), ok: false };
             const v = validateCorpusExtract(res.extract);
             if (!v.ok) return { ok: false, error: 'invalid extract' };

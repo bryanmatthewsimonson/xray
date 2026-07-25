@@ -135,24 +135,40 @@ paid work.
   record; a record anchored to a RETAINED PRIOR version is disclosed
   rather than shown as if it applied (the audit panel's convention —
   assertions are exact spans and never transfer across edits).
-- **MA.3 — reduce reads the layer** (deferred). The reduce input
-  currently rides the run's in-memory extracts (same content). Once
-  the record accumulates across frames, the reduce should prefer the
-  record's richer assertion set, with the digest disclosing counts.
+- **MA.3 — reduce reads the layer** (SHIPPED 2026-07-25). The Analyze
+  run's reduce input is the UNION of each member's live extract and
+  its accumulated record (`unionExtractWithRecord` — span-dedup,
+  live atoms never dropped, record extras capped at
+  `MAX_REDUCE_ASSERTIONS_PER_MEMBER`, dismissed atoms excluded: a
+  human said not-load-bearing and stays said). A member whose live
+  call FAILED but whose record holds prior analysis is RECOVERED
+  (`reduceExtractFromRecord`) instead of dropped — disclosed on the
+  run status and stored on the brief record (`recovered`).
 - **MA.4 — Suggest convergence** (deferred). The reader's EXTRACTION
   pass and the map's assertion extraction are two parallel producers
   of claim-shaped output; they should feed ONE per-article atomic
   layer (this store), with one review surface. Requires reconciling
   the suggest modal's session semantics with durable triage.
-- **MA.5 — the case-free map split** (deferred; bumps
-  `MAP_PROMPT_VERSION`). Split the map into an article-intrinsic
-  extraction pass (assertions/sources/questions — a pure article
-  asset, paid once ever) and a cheap case-framed position pass. Kills
-  the per-frame duplication structurally instead of caching around
-  it. After MA.1, a version bump no longer destroys knowledge — only
-  exact-reuse — which is what makes this split affordable at all.
+- **MA.5 — the case-free map** (SHIPPED 2026-07-25 as corpus-v7,
+  simplified from the original two-pass split). Rather than paying a
+  second case-framed position call per article, the WHOLE map went
+  case-free: the extract reports what the article argues on its own
+  central question, and relating that to a case is the reduce's job
+  (it has the frame and always did). One request builder, no frame in
+  the prompt or the cache key ⇒ an article's extract is paid ONCE
+  EVER, shared by every case, entity page, and capture prepay. The
+  v4→v7 bump orphaned the fingerprint cache exactly as MA.1 priced
+  in: knowledge (the records) survived; only exact-reuse re-pays.
 - **MA.6 — publish the layer** (deferred, own decision; see guard
   rail 5).
+- **Adjacent (2026-07-25): backup merge-import.** `mergeBackup`
+  (backup.js) accrues a backup file into the live corpus — content
+  only, add-if-missing by id, nothing local deleted or overwritten —
+  and this layer supplies its one deep merge:
+  `mergeExtractionRecords` unions assertion atoms by span (the hash
+  pins the text, so spans are exact across machines), adopts a
+  foreign human triage onto atoms still open locally, and resolves
+  conflicting decisions to the local one.
 
 ## 5. Storage shape (MA.1)
 

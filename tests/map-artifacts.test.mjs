@@ -19,8 +19,11 @@ globalThis.chrome = globalThis.chrome || {
 
 const {
     mergeExtractIntoRecord, assertionClaimCoverage, partitionAssertions,
-    setAssertionTriage, recordArticleExtraction, ASSERTION_OVERLAP_MIN
+    setAssertionTriage, recordArticleExtraction, ASSERTION_OVERLAP_MIN,
+    unionExtractWithRecord, reduceExtractFromRecord, mergeExtractionRecords,
+    MAX_REDUCE_ASSERTIONS_PER_MEMBER
 } = await import('../src/shared/map-artifacts.js');
+const { createGroundingIndex } = await import('../src/shared/quote-grounding.js');
 
 // A member whose text CONTAINS the quotes we ground against.
 const TEXT = 'The lab leak hypothesis remains unproven. '
@@ -223,4 +226,125 @@ test('recordArticleExtraction skips cleanly on missing member or extract', async
     const out = await recordArticleExtraction({ member: null, extract: extract() },
         { getRecord: async () => null, saveRecord: async () => {} });
     assert.equal(out.status, 'skipped');
+});
+
+// ---- MA.3: the durable layer feeds the reduce -------------------------------
+
+function storedRecord() {
+    // A record accumulated across two frames: one assertion the live
+    // run will re-find, one it won't, one dismissed by a human.
+    const base = mergeExtractIntoRecord(null, {
+        member: member(),
+        extract: extract({ key_assertions: [
+            { quote: 'Gain-of-function research was funded at the Wuhan Institute', why_load_bearing: 'w1' },
+            { quote: 'Zoonotic spillover is the mainstream scientific view', why_load_bearing: 'w2' },
+            { quote: 'The lab leak hypothesis remains unproven', why_load_bearing: 'w3' }
+        ] }),
+        key: 'k-old', model: 'm-old', now: 100
+    }).record;
+    // Human dismissed the lab-leak atom.
+    const dismissedKey = base.assertions.find((a) => a.quote.startsWith('The lab leak')).key;
+    return setAssertionTriage(base, dismissedKey, 'dismissed', { now: 200 });
+}
+
+test('unionExtractWithRecord: live assertions all ride; record-only ones diff in; dismissed stay out', () => {
+    const rec = storedRecord();
+    const live = {
+        position: { summary: 'live position', side_label: 'x' },
+        key_assertions: [{ quote: 'Gain-of-function research was funded at the Wuhan Institute', why_load_bearing: 'live-why' }]
+    };
+    const idx = createGroundingIndex(member().text);
+    const out = unionExtractWithRecord(live, rec, idx);
+    const quotes = out.key_assertions.map((a) => a.quote);
+    assert.equal(quotes.length, 2, 'one live + one record-only');
+    assert.equal(quotes[0], 'Gain-of-function research was funded at the Wuhan Institute', 'live first, untouched');
+    assert.equal(out.key_assertions[0].why_load_bearing, 'live-why', 'the live atom is not replaced by the stored twin');
+    assert.ok(quotes.includes('Zoonotic spillover is the mainstream scientific view'), 'the record-only atom joined');
+    assert.ok(!quotes.some((q) => q.startsWith('The lab leak')), 'a dismissed atom never re-enters the reduce');
+    assert.equal(out.position.summary, 'live position', 'the live position wins');
+});
+
+test('unionExtractWithRecord: the cap protects the reduce, live atoms are never dropped', () => {
+    const rec = storedRecord();
+    const manyLive = {
+        position: { summary: 's' },
+        key_assertions: Array.from({ length: MAX_REDUCE_ASSERTIONS_PER_MEMBER + 3 },
+            (_, i) => ({ quote: `live quote ${i}` }))
+    };
+    const out = unionExtractWithRecord(manyLive, rec, createGroundingIndex(member().text));
+    assert.equal(out.key_assertions.length, MAX_REDUCE_ASSERTIONS_PER_MEMBER + 3,
+        'over-cap LIVE output rides in full — only record extras are capped (to zero here)');
+});
+
+test('reduceExtractFromRecord: recovery for a failed member — latest position + open/accepted atoms', () => {
+    let rec = storedRecord();
+    // A second frame's position, newer.
+    rec = mergeExtractIntoRecord(rec, {
+        member: member(),
+        extract: { position: { summary: 'newer position', side_label: 'later' }, key_assertions: [] },
+        key: 'k-new', now: 300, frame: { caseName: 'Another case' }
+    }).record;
+    const out = reduceExtractFromRecord(rec);
+    assert.equal(out.position.summary, 'newer position', 'latest stored position');
+    assert.equal(out.key_assertions.length, 2, 'open atoms ride, the dismissed one does not');
+    assert.ok(out.key_assertions.every((a) => a.quote && typeof a.why_load_bearing === 'string'));
+    assert.equal(reduceExtractFromRecord(null), null);
+    assert.equal(reduceExtractFromRecord({ assertions: [], positions: [] }), null, 'an empty record recovers nothing');
+});
+
+// ---- record ⊕ record: the backup merge-import path --------------------------
+
+test('mergeExtractionRecords: incoming-only atoms accrue; overlapping ones keep the local atom', () => {
+    const local = storedRecord();
+    const incoming = mergeExtractIntoRecord(null, {
+        member: member(),
+        extract: extract({ key_assertions: [
+            { quote: 'Gain-of-function research was funded at the Wuhan Institute', why_load_bearing: 'foreign-why' },
+            { quote: 'Police confirmed nothing at all', why_load_bearing: 'unfindable' }   // won't ground
+        ] }),
+        key: 'k-foreign', model: 'm-foreign', now: 500
+    }).record;
+    const { record, changed } = mergeExtractionRecords(local, incoming);
+    assert.equal(changed, true, 'merged_keys accrue even when atoms dedup');
+    const gof = record.assertions.find((a) => a.quote.startsWith('Gain-of-function'));
+    assert.equal(gof.why, 'w1', 'the local atom wins on overlap — foreign copy never replaces it');
+    assert.ok(record.merged_keys.includes('k-old') && record.merged_keys.includes('k-foreign'));
+});
+
+test('mergeExtractionRecords: a foreign human triage is adopted onto an OPEN local atom, never over a local decision', () => {
+    const local = storedRecord();
+    // Foreign side accepted the zoonosis atom and dismissed the GOF one;
+    // locally the GOF atom is open and lab-leak is already dismissed.
+    let incoming = storedRecord();
+    const zooKey = incoming.assertions.find((a) => a.quote.startsWith('Zoonotic')).key;
+    const gofKey = incoming.assertions.find((a) => a.quote.startsWith('Gain-of-function')).key;
+    const labKey = incoming.assertions.find((a) => a.quote.startsWith('The lab leak')).key;
+    incoming = setAssertionTriage(incoming, zooKey, 'accepted', { claimId: 'claim_foreign', now: 900 });
+    incoming = setAssertionTriage(incoming, gofKey, 'dismissed', { now: 901 });
+    incoming = setAssertionTriage(incoming, labKey, 'accepted', { claimId: 'claim_conflict', now: 902 });
+
+    const { record } = mergeExtractionRecords(local, incoming);
+    const zoo = record.assertions.find((a) => a.quote.startsWith('Zoonotic'));
+    const gof = record.assertions.find((a) => a.quote.startsWith('Gain-of-function'));
+    const lab = record.assertions.find((a) => a.quote.startsWith('The lab leak'));
+    assert.equal(zoo.status, 'accepted', 'a decision made anywhere beats undecided');
+    assert.equal(zoo.accepted_claim_id, 'claim_foreign');
+    assert.equal(gof.status, 'dismissed', 'foreign dismissal adopted onto an open atom');
+    assert.equal(lab.status, 'dismissed', 'CONFLICTING decisions resolve to the LOCAL one');
+});
+
+test('mergeExtractionRecords: null sides, positions latest-wins per frame, counts take max', () => {
+    const local = storedRecord();
+    assert.deepEqual(mergeExtractionRecords(local, null), { record: local, changed: false });
+    assert.deepEqual(mergeExtractionRecords(null, local), { record: local, changed: true });
+    const incoming = {
+        ...storedRecord(),
+        positions: [{ caseName: '', scopeQuestion: '', summary: 'newer intrinsic', side_label: null, at: 9999 }],
+        dropped_ungrounded: 7,
+        updatedAt: 9999
+    };
+    const { record } = mergeExtractionRecords(local, incoming);
+    assert.equal(record.positions.find((p) => !p.caseName).summary, 'newer intrinsic', 'same frame → newer at wins');
+    assert.equal(record.dropped_ungrounded, 7, 'counts take max, never a double-counting sum');
+    assert.equal(record.updatedAt, 9999);
 });

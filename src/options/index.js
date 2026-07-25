@@ -33,7 +33,7 @@ const ROTATION_WARNING =
     '• Entity keys DERIVED from the old primary cannot be re-derived from the new one (stored keys keep working — back them up first).\n' +
     '• The OwnedKeys manifest and entity profiles should be republished under the new identity.\n\n' +
     'Continue?';
-import { collectBackup, applyBackup, validateBackup, estimateBackupSize, collectWorkspaceSnapshot } from '../shared/backup.js';
+import { collectBackup, applyBackup, mergeBackup, validateBackup, estimateBackupSize, collectWorkspaceSnapshot } from '../shared/backup.js';
 import { exportBundle } from '../shared/event-journal.js';
 
 const browserApi = (typeof browser !== 'undefined' && browser.runtime) ? browser : chrome;
@@ -925,6 +925,55 @@ async function backupRestoreFromFile(file) {
     }
 }
 
+// Merge-import — accrual, not replacement. A colleague's (or an older)
+// backup folds INTO the current corpus: missing items added by id,
+// extraction records merged at the assertion level, local data never
+// deleted or overwritten, config/identities in the file ignored.
+async function backupMergeFromFile(file) {
+    const status = document.getElementById('backup-status');
+    try {
+        const parsed = JSON.parse(await file.text());
+        const problems = validateBackup(parsed);
+        if (problems.length) throw new Error(problems.join('; '));
+        const storageKeys = Object.keys(parsed.storage || {}).length;
+        const dbNames = Object.keys(parsed.databases || {}).join(', ') || 'none';
+        const typed = prompt(
+            'Import & merge this backup into the current corpus?\n\n' +
+            `ADDS the file's content to what you already have (${storageKeys} storage keys; ` +
+            `databases: ${dbNames}; exported ${parsed.exportedAt || 'unknown'}).\n\n` +
+            'Nothing local is deleted or overwritten: items are deduplicated by id, ' +
+            'per-article extraction records merge at the assertion level, and the ' +
+            'file\'s settings/identities are ignored.\n\n' +
+            'A safety backup of the CURRENT data downloads first.\n\nType MERGE to continue.');
+        if (typed === null) return;
+        if (String(typed).trim().toUpperCase() !== 'MERGE') {
+            flash(status, 'Not merged — confirmation text did not match.', false);
+            return;
+        }
+        flash(status, 'Downloading safety backup…');
+        downloadJson(await collectBackup({ includeSourceBytes: true }),
+            `xray-backup-safety-${new Date().toISOString().slice(0, 10)}.json`);
+        flash(status, 'Merging…');
+        const summary = await mergeBackup(parsed, { warn: (m) => console.warn('[X-Ray Options]', m) });
+        const s = summary.storage || {};
+        let rowsAdded = 0;
+        let rowsMerged = 0;
+        for (const stores of Object.values(summary.databases || {})) {
+            for (const st of Object.values(stores || {})) {
+                rowsAdded += st.added || 0;
+                rowsMerged += st.merged || 0;
+            }
+        }
+        flash(status,
+            `Merged — ${(s.idsAdded || 0) + (s.keysAdded || 0)} item(s) added across ` +
+            `${(s.keysMerged || 0) + (s.keysAdded || 0)} storage key(s); ` +
+            `${rowsAdded} database record(s) added, ${rowsMerged} merged in place. Reloading…`);
+        setTimeout(() => location.reload(), 2500);
+    } catch (e) {
+        flash(status, 'Merge failed: ' + (e && e.message), false);
+    }
+}
+
 // The win-plan §5.1 durability artifact: every published event, verbatim
 // signed JSON, replayable by anyone against any relay. No keys inside.
 async function backupExportEventsBundle() {
@@ -1343,6 +1392,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('backup-file').addEventListener('change', (e) => {
         const file = e.target.files && e.target.files[0];
         if (file) backupRestoreFromFile(file);
+        e.target.value = '';
+    });
+    document.getElementById('backup-merge').addEventListener('click', () => {
+        document.getElementById('backup-merge-file').click();
+    });
+    document.getElementById('backup-merge-file').addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (file) backupMergeFromFile(file);
         e.target.value = '';
     });
     document.getElementById('backup-events-bundle').addEventListener('click', backupExportEventsBundle);

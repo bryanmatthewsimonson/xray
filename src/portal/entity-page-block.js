@@ -126,7 +126,7 @@ export function mountEntityPageBlock(host, { entityId } = {}) {
             // Spend disclosure BEFORE anything runs: exact hit/miss split.
             let misses = 0;
             for (const m of members) {
-                const key = await corpusExtractKey(corpusMapRequest(m, frame));
+                const key = await corpusExtractKey(corpusMapRequest(m));
                 const hit = await getCorpusExtract(key).catch(() => null);
                 if (!(hit && hit.extract && validateCorpusExtract(hit.extract).ok)) misses++;
             }

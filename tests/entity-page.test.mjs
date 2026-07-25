@@ -175,9 +175,10 @@ test('ensureExtracts: valid cache hits cost nothing; misses call, validate, and 
     const mB = member(HASH_B, 'Body of article B.');
     const frame = { caseName: 'Egg case', scopeQuestion: 'Do eggs raise CVD risk?' };
 
-    // The Analyze-side keys, computed exactly as synthesis-block does.
-    const keyA = await corpusExtractKey(corpusMapRequest(mA, frame));
-    const keyB = await corpusExtractKey(corpusMapRequest(mB, frame));
+    // The Analyze-side keys, computed exactly as synthesis-block does —
+    // CASE-FREE (corpus-v7), so entity pages share the cases' cache.
+    const keyA = await corpusExtractKey(corpusMapRequest(mA));
+    const keyB = await corpusExtractKey(corpusMapRequest(mB));
 
     const saved = [];
     const sentRequests = [];
@@ -200,7 +201,7 @@ test('ensureExtracts: valid cache hits cost nothing; misses call, validate, and 
     assert.equal(out.extracts.length, 2);
     assert.equal(out.failures.length, 0);
     assert.equal(sentRequests.length, 1);
-    assert.equal(JSON.stringify(sentRequests[0]), JSON.stringify(corpusMapRequest(mB, frame)),
+    assert.equal(JSON.stringify(sentRequests[0]), JSON.stringify(corpusMapRequest(mB)),
         'the wire request is byte-identical to the Analyze path\'s — corpusMapRequest is the ONE builder');
     assert.equal(saved.length, 1);
     assert.equal(saved[0].key, keyB, 'persisted under exactly the key Analyze will look up');

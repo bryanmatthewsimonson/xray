@@ -11,14 +11,15 @@
 // default is off and the per-click Analyze/Pre-analyze confirms remain
 // the normal path.
 //
-// THE ONE-REQUEST-BUILDER RULE (corpus-v4): the request here is built
-// by `corpusMapRequest` over a `buildMemberUnits` unit assembled from
-// the SAME collector the Analyze run uses, with the case frame read by
-// the SAME `caseScopeQuestion` the dossier builder uses — so the cache
-// key is byte-identical to the key Analyze later computes. Never
-// hand-build a lookalike unit here: a one-character drift in text,
-// title, url, caseName, or scope silently orphans every prepaid
-// extract.
+// THE ONE-REQUEST-BUILDER RULE (corpus-v4, tightened by corpus-v7):
+// the request here is built by `corpusMapRequest` over a
+// `buildMemberUnits` unit assembled from the SAME collector the
+// Analyze run uses — so the cache key is byte-identical to the key
+// Analyze later computes. The map is case-free (corpus-v7): no frame
+// rides the request or the key, so this prepaid extract also serves
+// every OTHER case and entity page that ever includes the article.
+// Never hand-build a lookalike unit here: a one-character drift in
+// text, title, or url silently orphans every prepaid extract.
 //
 // Quiet by design: every outcome is returned as a status for the
 // caller to log (and optionally toast on an actual spend); a failure
@@ -79,11 +80,13 @@ export async function autoPreAnalyzeCapture({ caseEntityId, url, sendMessage }, 
     const unit = units.find((u) => u.url === target) || units.find((u) => u.url === url) || null;
     if (!unit) return { status: 'no-member' };
 
+    // The frame rides only the durable fold's provenance (which case
+    // triggered this prepay) — never the request or the cache key.
     const frame = {
         caseName: (data.case && data.case.name) || '',
         scopeQuestion: caseScopeQuestion(data)
     };
-    const request = corpusMapRequest(unit, frame);
+    const request = corpusMapRequest(unit);
     const key = await corpusExtractKey(request);
 
     const hit = await Promise.resolve(d.getExtract(key)).catch(() => null);

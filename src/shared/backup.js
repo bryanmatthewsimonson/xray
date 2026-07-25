@@ -15,11 +15,21 @@
 // {__xrayBytes: <base64>} markers so the file survives JSON round-trips;
 // restore decodes them back to ArrayBuffers.
 //
-// Restore semantics are REPLACE-ALL, not merge: storage.local is cleared
-// (except `xray:llm:key`, which is preserved from the running profile) and
-// rewritten from the backup; each covered database has every store cleared
-// and re-filled. Callers are expected to take a safety backup first — the
-// Options UI does.
+// TWO ways in (2026-07-25):
+//   - applyBackup — REPLACE-ALL: storage.local is cleared (except
+//     `xray:llm:key`, preserved from the running profile) and rewritten
+//     from the backup; each covered database has every store cleared
+//     and re-filled. Callers take a safety backup first — the Options
+//     UI does.
+//   - mergeBackup — ACCRUAL: the file's CONTENT folds into the live
+//     workspace, deduplicated, and local data is never deleted or
+//     overwritten. Content maps and stores add what's missing by id
+//     (claim/entity ids are content-derived, so identical items dedup
+//     naturally; distinct records from another install stay distinct —
+//     no name-based identity merging, ever). The one deep merge is
+//     `article-extractions` (span-level union via map-artifacts.js).
+//     Install config and the primary identity are NEVER touched by a
+//     merge — only WORKSPACE_CONTENT_KEYS accrue.
 
 import { WORKSPACE_DATABASES } from './identity-profiles.js';
 import { WORKSPACE_CONTENT_KEYS, activeWorkspaceId, workspaceDbName } from './workspace-keys.js';
@@ -28,6 +38,7 @@ const WORKSPACE_CONTENT = new Set(WORKSPACE_CONTENT_KEYS);
 import { openArchiveDb } from './archive-cache.js';
 import { openAuditDb } from './audit/audit-cache.js';
 import { openEventJournalDb } from './event-journal.js';
+import { mergeExtractionRecords } from './map-artifacts.js';
 
 export const BACKUP_FORMAT = 'xray-backup/1';
 
@@ -378,6 +389,178 @@ export async function applyBackup(backup, { warn = () => {} } = {}) {
         }
         await restoreDatabase(name, dump, { warn });
     }
+}
+
+// ---------------------------------------------------------------------------
+// Merge-import — accrual, not replacement
+//
+// The semantics, stated once (JOURNAL 2026-07-25):
+//   - CONTENT ONLY. Storage keys outside WORKSPACE_CONTENT_KEYS
+//     (preferences, relays, flags, the primary identity, the LLM key)
+//     are ignored — a merge grows the corpus, it never reconfigures
+//     the install or swaps identities.
+//   - LOCAL WINS. An id present on both sides keeps the local record
+//     verbatim. Dedup is BY ID ONLY: claim ids are content-derived
+//     (sha256 of url|text) so identical claims collapse naturally;
+//     entities from another install keep their own ids and arrive as
+//     distinct records — merging them on name would be silent identity
+//     laundering (the 28.6 lesson), so it never happens here. The
+//     dedup-review surfaces exist for the human to unify them.
+//   - NOTHING DELETED. A merge only ever adds rows/ids or (for
+//     article-extractions) folds new atoms into an existing record.
+
+// Per-database deep merges: stores where an existing row can absorb an
+// incoming one instead of just winning. Must be synchronous and pure.
+const DEEP_MERGE_STORES = {
+    'xray-audits': { 'article-extractions': mergeExtractionRecords }
+};
+
+function decodeStorageValue(raw) {
+    // Storage-wrapper values are JSON strings; tolerate legacy raw
+    // objects. Returns null when the value isn't a mergeable id→record
+    // map (arrays, scalars, malformed JSON).
+    let val = raw;
+    let wasString = false;
+    if (typeof raw === 'string') {
+        wasString = true;
+        try { val = JSON.parse(raw); } catch (_) { return null; }
+    }
+    if (!val || typeof val !== 'object' || Array.isArray(val)) return null;
+    return { obj: val, wasString };
+}
+
+/**
+ * Merge one backup storage value into the local one. Local wins on
+ * every shared id; incoming-only ids are added. Returns null when the
+ * shapes aren't mergeable maps (caller keeps local), else
+ * { value, added } with `value` encoded the way the LOCAL side was.
+ */
+export function mergeStorageValue(localRaw, incomingRaw) {
+    const local = decodeStorageValue(localRaw);
+    const incoming = decodeStorageValue(incomingRaw);
+    if (!local || !incoming) return null;
+    let added = 0;
+    const out = { ...local.obj };
+    for (const [id, rec] of Object.entries(incoming.obj)) {
+        if (id in out) continue;
+        out[id] = rec;
+        added += 1;
+    }
+    return { added, value: local.wasString ? JSON.stringify(out) : out };
+}
+
+async function mergeStorage(entries) {
+    const ws = await activeWorkspaceId();
+    const prefix = `ws:${ws}:`;
+    const area = storageArea();
+    const current = await areaGetAll(area);
+    const mapK = (k) => (ws !== 'default' && WORKSPACE_CONTENT.has(k)) ? prefix + k : k;
+    const stats = { keysAdded: 0, keysMerged: 0, idsAdded: 0, keysUnchanged: 0, keysSkippedNonContent: 0 };
+    const writes = {};
+    for (const [k, v] of Object.entries(entries || {})) {
+        if (EXCLUDED_STORAGE_KEYS.includes(k) || !WORKSPACE_CONTENT.has(k)) {
+            stats.keysSkippedNonContent += 1;   // config/identity never merges
+            continue;
+        }
+        const liveKey = mapK(k);
+        const local = current[liveKey];
+        if (local === undefined) {
+            writes[liveKey] = v;
+            stats.keysAdded += 1;
+            continue;
+        }
+        const merged = mergeStorageValue(local, v);
+        if (merged === null || merged.added === 0) {
+            stats.keysUnchanged += 1;   // unmergeable shape or nothing new — local kept
+            continue;
+        }
+        writes[liveKey] = merged.value;
+        stats.keysMerged += 1;
+        stats.idsAdded += merged.added;
+    }
+    if (Object.keys(writes).length) await areaSet(area, writes);
+    return stats;
+}
+
+function mergeRows(db, storeName, rows, deepMerge) {
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const keyPath = store.keyPath;
+        const stats = { added: 0, merged: 0, kept: 0, skipped: 0 };
+        if (typeof keyPath !== 'string') {
+            // No covered store uses out-of-line or compound keys; if one
+            // ever does, refusing is safer than guessing (auto-keys
+            // would duplicate rows on every merge).
+            stats.skipped = (rows || []).length;
+        } else {
+            for (const raw of rows || []) {
+                const row = fromSerializable(raw);
+                const key = row && row[keyPath];
+                if (key === undefined || key === null) { stats.skipped += 1; continue; }
+                const getReq = store.get(key);
+                getReq.onsuccess = () => {
+                    const existing = getReq.result;
+                    if (existing === undefined) {
+                        store.put(row);
+                        stats.added += 1;
+                    } else if (deepMerge) {
+                        const m = deepMerge(existing, row);
+                        if (m && m.changed) { store.put(m.record); stats.merged += 1; }
+                        else stats.kept += 1;
+                    } else {
+                        stats.kept += 1;   // local wins
+                    }
+                };
+            }
+        }
+        tx.oncomplete = () => resolve(stats);
+        tx.onerror = () => reject(tx.error || new Error(`merge ${storeName} failed`));
+        tx.onabort = () => reject(tx.error || new Error(`merge ${storeName} aborted`));
+    });
+}
+
+async function mergeIntoDatabase(name, dump, { warn = () => {} } = {}) {
+    const db = await openCovered(name);
+    const live = new Set(Array.from(db.objectStoreNames));
+    const deep = DEEP_MERGE_STORES[name] || {};
+    const out = {};
+    for (const [storeName, rows] of Object.entries(dump || {})) {
+        if (!live.has(storeName)) {
+            warn(`backup merge: store ${name}/${storeName} not in current schema — skipped`);
+            continue;
+        }
+        if (rows === null) {
+            // Bytes omitted at export — deliberate, nothing to add.
+            out[storeName] = { added: 0, merged: 0, kept: 0, skipped: 0, omitted: true };
+            continue;
+        }
+        out[storeName] = await mergeRows(db, storeName, rows, deep[storeName] || null);
+    }
+    return out;
+}
+
+/**
+ * Accrue a validated backup file into the live workspace. Never
+ * deletes, never overwrites a local record, never touches config or
+ * identity keys. Returns a summary:
+ *   { storage: {keysAdded, keysMerged, idsAdded, keysUnchanged,
+ *               keysSkippedNonContent},
+ *     databases: { <db>: { <store>: {added, merged, kept, skipped} } } }
+ */
+export async function mergeBackup(backup, { warn = () => {} } = {}) {
+    const problems = validateBackup(backup);
+    if (problems.length) throw new Error(`invalid backup: ${problems.join('; ')}`);
+    const storage = await mergeStorage(backup.storage);
+    const databases = {};
+    for (const [name, dump] of Object.entries(backup.databases || {})) {
+        if (!WORKSPACE_DATABASES.includes(name)) {
+            warn(`backup merge: database ${name} not covered — skipped`);
+            continue;
+        }
+        databases[name] = await mergeIntoDatabase(name, dump, { warn });
+    }
+    return { storage, databases };
 }
 
 /**

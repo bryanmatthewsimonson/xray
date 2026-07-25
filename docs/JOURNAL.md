@@ -19,6 +19,76 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-25 — corpus-v7: the case-free map (MA.5) + the reduce reads the durable layer (MA.3)
+
+**Tags:** design
+
+**MA.5.** The map prompt and cache key carried the case frame, so the
+same article analyzed under a second case — or for an entity page —
+paid the map again and stored a separate extract. corpus-v7 removes
+the frame from the map input entirely: the extract is
+article-INTRINSIC (what the article argues on its own central
+question), `corpusMapRequest` takes no frame, `corpusExtractKey`
+hashes only text + meta + version. One extract now serves every case,
+entity page, and capture prepay — an article is paid ONCE EVER. The
+original MA.5 sketch was a two-pass split (case-free extraction +
+cheap case-framed position); shipped simpler because the position
+call would have re-sent the article text (input tokens dominate) and
+the reduce already receives the frame and does the case-relative
+work. MAP jumps v4→v7 to re-converge with the overall version; the
+bump orphans every v4 fingerprint-cache entry — priced in by MA.1:
+the durable records survive, only exact-reuse re-pays.
+
+**MA.3.** The Analyze run's reduce input is now the union of each
+member's live extract and its accumulated `article-extractions`
+record (`unionExtractWithRecord`): span-dedup against the live atoms,
+live atoms never dropped, record extras capped
+(`MAX_REDUCE_ASSERTIONS_PER_MEMBER = 24`), and DISMISSED atoms
+excluded — a human's not-load-bearing stays decided across runs. A
+member whose live map call failed but whose record holds prior
+analysis is recovered from the record (`reduceExtractFromRecord`)
+instead of dropped; the run status and the stored brief disclose the
+recovery count. The union reads the record synchronously after the
+map stage, so this run's own fire-and-forget folds can't race it —
+the live extract is already in hand.
+
+---
+
+## 2026-07-25 — Backup merge-import: accrual, not replacement
+
+**Tags:** design
+
+`mergeBackup` (backup.js) is the second way to load a backup file:
+fold its content INTO the live workspace instead of replacing it —
+the asynchronous-collaboration path (import a colleague's corpus, or
+re-join an older snapshot, without losing current work). The
+second-guessable choices, recorded:
+
+1. **Content only.** Only `WORKSPACE_CONTENT_KEYS` merge. Preferences,
+   relays, flags, `local_primary_identity`, and `xray:llm:key` in the
+   file are ignored — a merge grows the corpus, it never reconfigures
+   the install or swaps identities. (Per-entity keys in `local_keys`
+   ARE content and do merge — foreign entities arrive usable.)
+2. **Local wins, by id only.** A shared id keeps the local record
+   verbatim. Claim ids are content-derived (sha256 of url|text), so
+   identical claims dedup naturally; entities from another install
+   keep their own ids and arrive as DISTINCT records — merging on
+   name would be silent identity laundering (the 28.6 lesson). The
+   dedupe-review surfaces exist for a human to unify them.
+3. **Nothing deleted, ever.** The merge only adds ids/rows or deep-
+   merges `article-extractions` (span-level union; a foreign human
+   triage is adopted onto a locally-OPEN atom; conflicting decisions
+   resolve local — a file never overrides a local decision).
+4. **Unknown shapes keep local.** A storage value that isn't an
+   id→record map (or fails to parse) is left alone and counted, never
+   guessed at. IDB stores merge generically by keyPath; a store with
+   a non-string keyPath is skipped rather than risking auto-key dupes.
+
+Options → Advanced → "Import & merge…" (typed MERGE confirm, safety
+backup first, counts disclosed). Replace-all restore is unchanged.
+
+---
+
 ## 2026-07-24 — Map artifacts: the map stage was a cache; it should be knowledge (MA.1/MA.2)
 
 **Tags:** design

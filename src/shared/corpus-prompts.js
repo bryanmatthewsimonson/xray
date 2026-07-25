@@ -52,8 +52,20 @@ import { CLAIM_RELATIONSHIPS } from './assessment-taxonomy.js';
 // corpus epistemics summary the reduce may cite per position (never
 // adjudicating). Reduce-input change only: MAP holds at v4, the map
 // cache survives.
-export const MAP_PROMPT_VERSION = 'corpus-v4';
-export const CORPUS_PROMPT_VERSION = 'corpus-v6';
+// corpus-v7 (MA.5, the case-free map — docs/MAP_ARTIFACT_KICKOFF.md):
+// the CASE FRAME left the map input entirely. The extract is now
+// article-INTRINSIC — what THIS article argues on its own central
+// question — so one extract serves every case, every entity page, and
+// every future re-framing: the cache key depends only on text + meta +
+// prompt version, and an article is paid for ONCE EVER. Case-relative
+// synthesis is the reduce's job (it has the frame and always did).
+// MAP jumps v4→v7 to re-converge with the overall version; CORPUS
+// v6→v7 (the reduce input's position semantics changed). One-time
+// cost: every corpus-v4 cached extract is orphaned — but since MA.1
+// the knowledge (the durable article-extractions records) survives
+// every bump; only exact-reuse is re-paid.
+export const MAP_PROMPT_VERSION = 'corpus-v7';
+export const CORPUS_PROMPT_VERSION = 'corpus-v7';
 export const MAP_TOOL_NAME = 'emit_corpus_extract';
 export const REDUCE_TOOL_NAME = 'emit_case_brief';
 export const HYPOTHESIS_EDGE_PROMPT_VERSION = 'hyp-edges-v1';
@@ -83,7 +95,7 @@ export const MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS = 8192;
 export function buildMapTool() {
     return {
         name: MAP_TOOL_NAME,
-        description: 'Report what THIS ONE article argues about the case — its position, its '
+        description: 'Report what THIS ONE article argues — its own position, its '
             + 'load-bearing assertions (each grounded in a verbatim quote), and the outside '
             + 'sources it points at. Do NOT adjudicate; report what the article claims.',
         input_schema: {
@@ -91,10 +103,10 @@ export function buildMapTool() {
             properties: {
                 position: {
                     type: 'object',
-                    description: 'The stance this article takes on the case question.',
+                    description: 'The stance this article takes on its own central question.',
                     properties: {
                         summary: { type: 'string', description: 'One or two sentences: what this article argues.' },
-                        side_label: { type: ['string', 'null'], description: 'A short label for the side it takes (e.g. "lab leak", "zoonosis"), or null if it takes none.' }
+                        side_label: { type: ['string', 'null'], description: 'A short label for the side it takes on its central question (e.g. "lab leak", "zoonosis"), or null if it takes none.' }
                     }
                 },
                 key_assertions: {
@@ -132,20 +144,25 @@ export function buildMapTool() {
     };
 }
 
-export function buildMapSystemPrompt({ caseName = '', scopeQuestion = '' } = {}) {
+// DELIBERATELY case-free (corpus-v7 / MA.5): the map sees only the
+// article. Its extract is article-intrinsic and therefore reusable by
+// every case and entity page that ever includes this article — the
+// cache key (corpusExtractKey) carries no frame, so an article is paid
+// for once ever. Relating the article to a CASE's question is the
+// reduce's job; it receives the frame and these extracts together.
+export function buildMapSystemPrompt() {
     return [
-        'You are analyzing ONE article that belongs to a case corpus.',
-        caseName ? `The case: "${caseName}".` : '',
-        scopeQuestion ? `The question it investigates: "${scopeQuestion}".` : '',
-        'Report only what THIS article argues — its position on the case question, the',
-        'load-bearing assertions its position rests on, and the outside sources it cites.',
+        'You are analyzing ONE article from an evidence corpus.',
+        'Report only what THIS article argues — the position it takes on its own central',
+        'question, the load-bearing assertions that position rests on, and the outside',
+        'sources it cites.',
         'RULES:',
         '- Every quote must be ONE contiguous span copied VERBATIM from this article, character',
         '  for character (keep punctuation, capitalization, typos). It is machine-checked; a quote',
         '  that cannot be located in the article is dropped.',
         '- Do NOT adjudicate, rate, or say which side is right. Report the article\'s claims.',
         '- If the article takes no side, say so (side_label = null).'
-    ].filter(Boolean).join('\n');
+    ].join('\n');
 }
 
 // DELIBERATELY no claims digest here (corpus-v4): the map input is the

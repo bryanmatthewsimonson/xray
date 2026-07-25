@@ -106,14 +106,12 @@ test('missing case or url → "no-case"', async () => {
 test('the auto request and cache key are BYTE-IDENTICAL to the Analyze path\'s', async () => {
     const data = fixtureData();
     // The Analyze side, exactly as synthesis-block computes it: units
-    // from buildMemberUnits, frame from data.case.name +
-    // dossier.scope.question (= caseScopeQuestion — code-shared),
-    // request from corpusMapRequest, key from corpusExtractKey.
+    // from buildMemberUnits, request from corpusMapRequest (CASE-FREE
+    // since corpus-v7), key from corpusExtractKey.
     const units = await buildMemberUnits(data);
     const unit = units.find((u) => u.url === URL_A);
     assert.ok(unit, 'fixture sanity: the member unit exists');
-    const analyzeReq = corpusMapRequest(unit,
-        { caseName: data.case.name || '', scopeQuestion: caseScopeQuestion(data) });
+    const analyzeReq = corpusMapRequest(unit);
     const analyzeKey = await corpusExtractKey(analyzeReq);
 
     let sentReq = null, saved = null;
