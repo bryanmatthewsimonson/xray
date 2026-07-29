@@ -40,11 +40,13 @@ export function openVisionModal(opts) {
     <button type="button" class="xr-vision__btn" data-act="close" aria-label="Close">✕</button>
   </div>
   <p class="xr-vision__hint">
-    Each selected image is sent to the Anthropic API under your key — it
-    leaves this device. The model returns a factual caption, plus a
-    verbatim transcription when the image contains legible text. Nothing
-    touches the article until you accept it below, and accepted notes are
-    labeled in the body with the model that wrote them.
+    Each selected image is sent to the Anthropic API under your key —
+    along with the article's title and URL and the image's alt text and
+    caption — it leaves this device. The model returns a factual
+    caption, plus a verbatim transcription when the image contains
+    legible text. Nothing touches the article until you accept it below,
+    and accepted notes are labeled in the body with the model that wrote
+    them.
   </p>
   <div class="xr-vision__list"></div>
   <div class="xr-vision__foot">

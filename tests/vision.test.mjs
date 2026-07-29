@@ -25,13 +25,14 @@ function resetStore() { for (const k of Object.keys(_store)) delete _store[k]; }
 
 const {
     VISION_TOOL_NAME, VISION_MEDIA_TYPES, VISION_CONTENT_KINDS,
-    MAX_VISION_RAW_BYTES, VISION_TARGET_DIMENSION,
+    MAX_VISION_RAW_BYTES, VISION_TARGET_DIMENSION, VISION_PROMPT_VERSION,
     buildVisionTool, buildVisionSystemPrompt, buildVisionUserContent
 } = await import('../src/shared/vision-prompts.js');
 const {
     sniffImageMediaType, needsReencode, visionScalePlan,
-    bytesToBase64, decodeDataUrl
+    bytesToBase64, decodeDataUrl, blockedImageUrl
 } = await import('../src/shared/vision-image.js');
+const { ContentExtractor } = await import('../src/shared/content-extractor.js');
 const { runVisionPass, getVisionConfig, LLM_KEY_STORAGE } = await import('../src/shared/llm-client.js');
 const {
     collectArticleImages, buildVisionNoteMarkdown, buildVisionNoteHtml,
@@ -515,4 +516,134 @@ test('upsertVisionNoteHtml: bare image gets the note right after the tag', () =>
         caption: 'Bare.', model: MODEL
     });
     assert.ok(out.startsWith('<img src="https://x.test/a.jpg">\n<p class="xr-vision-note"'));
+});
+
+// --- review-hardening regressions --------------------------------------------
+
+test('upsertVisionNoteMarkdown re-run: an article blockquote after the note survives', () => {
+    const md = '![scan](https://x.test/p.jpg)\n\n> A pull quote the article itself contains\n\nBody text.\n';
+    let out = upsertVisionNoteMarkdown(md, 'https://x.test/p.jpg', {
+        transcription: 'FIRST TEXT', model: MODEL
+    });
+    out = upsertVisionNoteMarkdown(out, 'https://x.test/p.jpg', {
+        transcription: 'SECOND TEXT', model: MODEL
+    });
+    assert.ok(out.includes('> A pull quote the article itself contains'), 'article pull quote intact');
+    assert.doesNotMatch(out, /FIRST TEXT/);
+    assert.ok(out.includes('> SECOND TEXT'));
+    assert.ok(out.includes('Body text.'));
+});
+
+test('upsertVisionNoteMarkdown re-run: consecutive article blockquotes all survive', () => {
+    const md = '![scan](https://x.test/p.jpg)\n\n> Tweet embed one\n\n> Tweet embed two\n\nEnd.\n';
+    let out = upsertVisionNoteMarkdown(md, 'https://x.test/p.jpg', {
+        caption: 'A scan.', transcription: 'OCR', model: MODEL
+    });
+    out = upsertVisionNoteMarkdown(out, 'https://x.test/p.jpg', {
+        caption: 'A scan again.', transcription: 'OCR2', model: MODEL
+    });
+    assert.ok(out.includes('> Tweet embed one'));
+    assert.ok(out.includes('> Tweet embed two'));
+    assert.doesNotMatch(out, /\bOCR\b(?!2)/);
+});
+
+test('markdown images: parenthesized URLs and single-quoted titles round-trip', () => {
+    const parenUrl = 'https://upload.wikimedia.org/wiki/Dr._Strangelove_(1964).jpg';
+    const md = `![Poster](${parenUrl})\n\nBody.\n\n![t](https://x.test/t.jpg 'my title')\n`;
+    const images = collectArticleImages(md, { isHtml: false });
+    assert.deepEqual(images.map((i) => i.ref), [parenUrl, 'https://x.test/t.jpg']);
+    const out = upsertVisionNoteMarkdown(md, parenUrl, { caption: 'A poster.', model: MODEL });
+    assert.ok(out.indexOf('Image description') !== -1);
+    assert.ok(out.indexOf('Image description') < out.indexOf('Body.'));
+});
+
+test('upsertVisionNoteHtml: div-wrapped image never adopts the next paragraph', () => {
+    const html = '<div><img src="https://x.test/a.jpg"></div><p>Totally unrelated paragraph.</p><p>More.</p>';
+    const out = upsertVisionNoteHtml(html, 'https://x.test/a.jpg', {
+        caption: 'In a div.', model: MODEL
+    });
+    const noteAt = out.indexOf('xr-vision-note');
+    assert.ok(noteAt !== -1);
+    assert.ok(noteAt < out.indexOf('Totally unrelated paragraph.'),
+        'note sits with its image, not after someone else\'s paragraph');
+});
+
+test('upsertVisionNoteHtml: p-wrapped image before an image-less figure keeps its own close', () => {
+    const html = '<p><img src="https://x.test/a.jpg"></p><figure><figcaption>Other</figcaption></figure><p>End.</p>';
+    const out = upsertVisionNoteHtml(html, 'https://x.test/a.jpg', {
+        caption: 'Own paragraph.', model: MODEL
+    });
+    assert.ok(out.indexOf('</p>\n<p class="xr-vision-note"') !== -1);
+    assert.ok(out.indexOf('xr-vision-note') < out.indexOf('<figure>'));
+});
+
+test('upsertVisionNoteHtml: attribute-less round-tripped note is replaced, not stacked', () => {
+    // A markdown-tab round trip drops the data-xray-vision key.
+    const html = '<p><img src="https://x.test/a.jpg"></p>\n'
+        + `<p><em>Image description (AI — ${MODEL}): Old caption.</em></p>\n`
+        + `<p><strong>Text in image (AI transcription — ${MODEL}):</strong></p><blockquote><p>OLD OCR</p></blockquote>\n`
+        + '<p>Body.</p>';
+    const out = upsertVisionNoteHtml(html, 'https://x.test/a.jpg', {
+        caption: 'New caption.', model: MODEL
+    });
+    assert.doesNotMatch(out, /Old caption/);
+    assert.doesNotMatch(out, /OLD OCR/);
+    assert.ok(out.includes('New caption.'));
+    assert.ok(out.includes('<p>Body.</p>'));
+    assert.equal((out.match(/Image description \(AI/g) || []).length, 1);
+});
+
+test('blockedImageUrl: refuses local/private/link-local, allows public hosts', () => {
+    assert.equal(blockedImageUrl('https://cdn.example.com/img.jpg'), null);
+    assert.equal(blockedImageUrl('http://8.8.8.8/x.png'), null);
+    assert.ok(blockedImageUrl('http://localhost/x.png'));
+    assert.ok(blockedImageUrl('http://127.0.0.1:8080/x.png'));
+    assert.ok(blockedImageUrl('http://10.1.2.3/x.png'));
+    assert.ok(blockedImageUrl('http://172.20.0.1/x.png'));
+    assert.ok(blockedImageUrl('http://192.168.1.1/admin.png'));
+    assert.ok(blockedImageUrl('http://169.254.169.254/latest/meta-data'));
+    assert.ok(blockedImageUrl('http://100.64.0.1/x.png'));
+    assert.ok(blockedImageUrl('http://0.0.0.0/x.png'));
+    assert.ok(blockedImageUrl('http://[::1]/x.png'));
+    assert.ok(blockedImageUrl('http://[fe80::1]/x.png'));
+    assert.ok(blockedImageUrl('http://[fd00::1]/x.png'));
+    assert.ok(blockedImageUrl('http://[::ffff:127.0.0.1]/x.png'));
+    assert.ok(blockedImageUrl('http://printer.local/x.png'));
+    assert.ok(blockedImageUrl('ftp://example.com/x.png'));
+    assert.ok(blockedImageUrl('not a url'));
+});
+
+test('markdownToHtml: model-authored note text cannot break out of attributes', () => {
+    // The verified exploit shape: a quote in the image target used to
+    // land unescaped in src, forming an onerror attribute.
+    const out = ContentExtractor.markdownToHtml('![a](x"onerror=alert(document.domain))');
+    assert.doesNotMatch(out, /"onerror/, 'no attribute breakout');
+    assert.ok(!out.includes('src="x"'), 'quote is escaped inside the attribute');
+});
+
+test('markdownToHtml: javascript:/data:text targets are rejected, safe ones kept', () => {
+    assert.doesNotMatch(
+        ContentExtractor.markdownToHtml('[click](javascript:alert(1))'), /<a /,
+        'javascript: link degrades to bare text');
+    assert.doesNotMatch(
+        ContentExtractor.markdownToHtml('[click](java\nscript:alert(1))'), /javascript:/i);
+    assert.match(
+        ContentExtractor.markdownToHtml('[ok](https://x.test/a)'), /<a href="https:\/\/x\.test\/a">/);
+    assert.match(
+        ContentExtractor.markdownToHtml('![f](xray-figure:abc123)'), /<img src="xray-figure:abc123"/,
+        'figure refs still render');
+});
+
+test('runVisionPass result carries the pinned prompt version', async () => {
+    assert.equal(VISION_PROMPT_VERSION, 'vision-v1');
+    enableVision();
+    const original = globalThis.fetch;
+    stubFetch(toolResponse({
+        content_kind: 'photo', caption: 'A dog.', transcription: '', transcription_complete: true
+    }));
+    let res;
+    try { res = await runVisionPass({ imageBase64: 'AAAA', mediaType: 'image/png' }); }
+    finally { globalThis.fetch = original; }
+    assert.equal(res.ok, true);
+    assert.equal(res.prompt_version, 'vision-v1');
 });

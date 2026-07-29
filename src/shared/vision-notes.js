@@ -25,9 +25,15 @@ const TRANSCRIPTION_LABEL = 'Text in image (AI transcription';
 // Collection
 // ------------------------------------------------------------------
 
-// ![alt](target) / ![alt](<target>) / ![alt](target "title")
-const MD_IMG_RE = /!\[([^\]]*)\]\(\s*(<[^>]+>|[^)\s]+)(?:\s+"[^"]*")?\s*\)/g;
+// ![alt](target) / ![alt](<target>) / ![alt](target "title"|'title').
+// The bare-target alternative tolerates ONE level of balanced parens —
+// turndown emits raw URLs unescaped, and Wikipedia-style media names
+// (`…/Foo_(1964).jpg`) are routine — and the optional title takes
+// either quote style. One source string, composed into the collect and
+// find regexes so the two can never disagree on what an image is.
+const MD_IMG_SRC = '!\\[([^\\]]*)\\]\\(\\s*(<[^>]+>|(?:\\([^()\\s]*\\)|[^()\\s])+)(?:\\s+(?:"[^"]*"|\'[^\']*\'))?\\s*\\)';
 const HTML_IMG_RE = /<img\b[^>]*>/gi;
+const combinedImgRe = () => new RegExp(MD_IMG_SRC + '|<img\\b[^>]*>', 'g');
 
 function parseAttrs(tag) {
     const attrs = {};
@@ -93,7 +99,7 @@ export function collectArticleImages(body, { isHtml = false } = {}) {
     // Markdown: both native image syntax and inline-HTML imgs (small
     // images survive capture as raw <img> tags — content-extractor
     // Fix D), scanned in one pass so document order is preserved.
-    const combined = /!\[([^\]]*)\]\(\s*(<[^>]+>|[^)\s]+)(?:\s+"[^"]*")?\s*\)|<img\b[^>]*>/g;
+    const combined = combinedImgRe();
     let m;
     while ((m = combined.exec(text)) !== null) {
         if (m[0].startsWith('<img')) {
@@ -212,7 +218,7 @@ function isItalicCaptionLine(line) {
 
 /** Find the first markdown/inline-HTML image whose target is `ref`. */
 function findImageInMarkdown(md, ref) {
-    const combined = /!\[[^\]]*\]\(\s*(<[^>]+>|[^)\s]+)(?:\s+"[^"]*")?\s*\)|<img\b[^>]*>/g;
+    const combined = combinedImgRe();
     let m;
     while ((m = combined.exec(md)) !== null) {
         if (m[0].startsWith('<img')) {
@@ -220,7 +226,7 @@ function findImageInMarkdown(md, ref) {
             if (entry && entry.ref === ref) return m;
             continue;
         }
-        let target = m[1] || '';
+        let target = m[2] || '';
         if (target.startsWith('<') && target.endsWith('>')) target = target.slice(1, -1);
         if (target === ref) return m;
     }
@@ -245,16 +251,23 @@ function stripNoteAtMd(md, pos) {
             continue;
         }
         if (t.startsWith(`**${TRANSCRIPTION_LABEL}`)) {
-            // Label line, then blank lines, then the "> " block.
+            // Label line, blank line(s), then ONE contiguous "> " block
+            // — the exact shape buildVisionNoteMarkdown emits. Stop at
+            // the first blank line after the block: a blockquote that
+            // follows across a blank line is the ARTICLE's own (pull
+            // quotes, tweet embeds render as blockquotes), never ours.
             let i = next.end === out.length ? next.end : next.end + 1;
+            let sawQuote = false;
             for (;;) {
                 const lineEnd = out.indexOf('\n', i);
                 const line = lineEnd === -1 ? out.slice(i) : out.slice(i, lineEnd);
-                if (line.trim() === '' || line.startsWith('> ') || line.trim() === '>') {
-                    if (lineEnd === -1) { i = out.length; break; }
-                    i = lineEnd + 1;
-                    if (line.trim() === '' && !(out.slice(i).startsWith('> '))) break;
-                } else break;
+                const isBlank = line.trim() === '';
+                const isQuote = line.startsWith('> ') || line.trim() === '>';
+                if (isBlank && sawQuote) break;
+                if (!isBlank && !isQuote) break;
+                if (isQuote) sawQuote = true;
+                if (lineEnd === -1) { i = out.length; break; }
+                i = lineEnd + 1;
             }
             out = out.slice(0, pos) + out.slice(i);
             continue;
@@ -348,14 +361,42 @@ export function upsertVisionNoteHtml(html, ref, note) {
 
     const from = m.index + m[0].length;
     const tail = body.slice(from);
-    // Prefer the figure close; fall back to the paragraph close; fall
-    // back to right after the tag. Never look past the next image.
+    // Never look past the next image.
     const stop = tail.search(/<img\b/i);
     const scan = stop === -1 ? tail : tail.slice(0, stop);
-    let insertAt = from;
-    const fig = scan.search(/<\/figure>/i);
-    const par = scan.search(/<\/p>/i);
-    if (fig !== -1) insertAt = from + fig + '</figure>'.length;
-    else if (par !== -1) insertAt = from + par + '</p>'.length;
+    // A candidate close belongs to THIS image's wrapper only when no
+    // matching open tag sits between the img and it — a div-wrapped
+    // img followed by a paragraph must not adopt that paragraph's
+    // close. Of the valid closes, the positionally nearer wins; with
+    // neither, the note lands right after the tag.
+    const closeOf = (tag) => {
+        const close = scan.search(new RegExp(`</${tag}>`, 'i'));
+        if (close === -1) return null;
+        const open = scan.slice(0, close).search(new RegExp(`<${tag}\\b`, 'i'));
+        return open === -1 ? { at: close, len: tag.length + 3 } : null;
+    };
+    const best = [closeOf('figure'), closeOf('p')]
+        .filter(Boolean).sort((a, b) => a.at - b.at)[0];
+    let insertAt = best ? from + best.at + best.len : from;
+
+    // A markdown-tab round trip strips attributes, so an earlier note
+    // can survive as bare <p><em>…</em></p> blocks the keyed removal
+    // above can't see. Strip label-shaped blocks sitting exactly at
+    // the insertion point (stripNoteAtMd's fallback, HTML side).
+    for (;;) {
+        const ahead = body.slice(insertAt);
+        const capm = BARE_CAPTION_RE.exec(ahead);
+        if (capm) { body = body.slice(0, insertAt) + ahead.slice(capm[0].length); continue; }
+        const trm = BARE_TRANSCRIPTION_RE.exec(ahead);
+        if (trm) { body = body.slice(0, insertAt) + ahead.slice(trm[0].length); continue; }
+        break;
+    }
     return body.slice(0, insertAt) + '\n' + noteHtml + body.slice(insertAt);
 }
+
+// The attribute-less shapes markdownToHtml round-trips our notes into.
+// Anchored (^) — only ever tested right at the insertion point.
+const BARE_CAPTION_RE = new RegExp(
+    `^\\s*<p[^>]*>\\s*<em[^>]*>\\s*${escapeRegExp(CAPTION_LABEL)}[\\s\\S]*?</em>\\s*</p>`);
+const BARE_TRANSCRIPTION_RE = new RegExp(
+    `^\\s*<p[^>]*>\\s*<strong[^>]*>\\s*${escapeRegExp(TRANSCRIPTION_LABEL)}[\\s\\S]*?</strong>\\s*</p>\\s*(?:<blockquote>[\\s\\S]*?</blockquote>)?`);

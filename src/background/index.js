@@ -29,7 +29,7 @@ import { handleScreenshotCapture } from '../shared/screenshot.js';
 import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, runHypothesisEdgePass, runClaimLinksPass, getCorpusConfig, runExtractPass, runEntityAuditPass, runForensicCorpusPass, runEntityPagePass, runVisionPass, getVisionConfig } from '../shared/llm-client.js';
 import { getSourceDocument } from '../shared/archive-cache.js';
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prompts.js';
-import { prepareImageForVision, decodeDataUrl } from '../shared/vision-image.js';
+import { prepareImageForVision, decodeDataUrl, blockedImageUrl } from '../shared/vision-image.js';
 import { pdfDocumentUrl } from '../shared/pdf-detect.js';
 import { crossrefRequestFor, mapCrossrefWork } from '../shared/crossref.js';
 import { articleAnswersTo } from '../shared/url-identity.js';
@@ -1421,8 +1421,11 @@ async function captureTranscriptInPage() {
 // The gate runs FIRST so a disabled feature never fetches an image;
 // runVisionPass re-checks it (defense in depth). Byte acquisition by
 // ref kind:
-//   http(s)       — SW fetch (outside page CSP, <all_urls> credentials
-//                   the way the site expects — the timedtext reasoning)
+//   http(s)       — SW fetch, credentials OMITTED and non-public
+//                   addresses refused (blockedImageUrl): the ref comes
+//                   from the untrusted article body, and the scholar
+//                   handler's open-proxy rule applies here as an
+//                   address filter
 //   xray-figure:  — the IndexedDB byte archive (figures dedupe there
 //                   by content hash; getSourceDocument reads both PDFs
 //                   and figure rows)
@@ -1452,9 +1455,13 @@ async function handleVisionDescribe(message) {
         if (!decoded) return { ok: false, error: 'This inline image could not be decoded.' };
         bytes = decoded.bytes;
     } else if (/^https?:\/\//i.test(ref)) {
+        const blocked = blockedImageUrl(ref);
+        if (blocked) {
+            return { ok: false, error: `This image URL points at ${blocked} — not fetched.` };
+        }
         let resp;
         try {
-            resp = await fetch(ref);
+            resp = await fetch(ref, { credentials: 'omit' });
         } catch (err) {
             return { ok: false, error: 'Could not fetch the image: ' + ((err && err.message) || 'network error') };
         }

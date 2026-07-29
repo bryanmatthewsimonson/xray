@@ -67,6 +67,19 @@ the image contains legible text — behind the new `aiVision` flag.
   merges without a per-image, per-part (caption vs transcription)
   Accept.
 
+**Two review catches worth remembering** (adversarial pass on the
+initial diff): (1) `markdownToHtml`'s img/link emitters interpolated
+src/href into attributes UNESCAPED — model-authored note text could
+form `![a](x"onerror=…)` and break out into an onerror attribute on a
+privileged extension page. The emitters now quote-escape and
+scheme-check (javascript:/vbscript:/data:non-image rejected); the fix
+is at the sink, so verbatim transcriptions stay verbatim. (2) The
+vision fetch ran with `<all_urls>` on any ref the article body named —
+an open probe of localhost/RFC-1918/link-local from a crafted page.
+`blockedImageUrl` (vision-image.js) now refuses non-public literals
+and the fetch omits credentials, per the scholar-fetch open-proxy
+rule.
+
 ## 2026-07-21 — The 7/3 consensus descope was sprint-scoped, not doctrine
 
 **Tags:** design, pattern

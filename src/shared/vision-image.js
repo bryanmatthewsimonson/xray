@@ -166,6 +166,64 @@ export async function prepareImageForVision(bytes) {
 }
 
 /**
+ * Is this image URL pointed somewhere the vision fetch must not go?
+ * The SW fetch behind `xray:vision:describe` holds `<all_urls>`, and
+ * the ref comes from the captured (untrusted) article body — an <img>
+ * naming http://127.0.0.1/… or http://192.168.1.1/… must not turn the
+ * pass into a probe of the user's local network (the scholar-fetch
+ * open-proxy rule, applied as an address filter since image CDNs are
+ * legitimately arbitrary hosts). Literal checks only — a SW cannot
+ * pin DNS. Returns a short human-readable reason, or null when the
+ * URL is fetchable.
+ *
+ * @param {string} raw
+ * @returns {string|null}
+ */
+export function blockedImageUrl(raw) {
+    let u;
+    try { u = new URL(String(raw || '')); } catch (_) { return 'not a valid URL'; }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return 'not an http(s) URL';
+    let host = u.hostname.toLowerCase();
+    if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) {
+        return 'a local hostname';
+    }
+    // IPv6 literal (URL.hostname keeps the brackets).
+    if (host.startsWith('[') && host.endsWith(']')) {
+        const h = host.slice(1, -1);
+        // v4-mapped, in either the dotted spelling or the hex form the
+        // URL parser canonicalizes it to (::ffff:7f00:1).
+        const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(h);
+        if (mapped) return blockedV4(mapped[1]);
+        const mappedHex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(h);
+        if (mappedHex) {
+            const hi = parseInt(mappedHex[1], 16);
+            const lo = parseInt(mappedHex[2], 16);
+            return blockedV4(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+        }
+        if (h === '::' || h === '::1') return 'a loopback address';
+        const head = h.split(':')[0].padStart(4, '0');
+        if (/^fe[89ab]/.test(head)) return 'a link-local address';
+        if (/^f[cd]/.test(head)) return 'a private address';
+        return null;
+    }
+    if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) return blockedV4(host);
+    return null;
+}
+
+function blockedV4(ip) {
+    const o = ip.split('.').map(Number);
+    if (o.some((n) => !(n >= 0 && n <= 255))) return 'not a valid address';
+    if (o[0] === 0) return 'a non-routable address';
+    if (o[0] === 127) return 'a loopback address';
+    if (o[0] === 10) return 'a private address';
+    if (o[0] === 172 && o[1] >= 16 && o[1] <= 31) return 'a private address';
+    if (o[0] === 192 && o[1] === 168) return 'a private address';
+    if (o[0] === 100 && o[1] >= 64 && o[1] <= 127) return 'a private (CGNAT) address';
+    if (o[0] === 169 && o[1] === 254) return 'a link-local address';
+    return null;
+}
+
+/**
  * Decode a `data:` URL into bytes. Returns null for anything that is
  * not a base64 data URL (SVG-as-text data URLs are deliberately not
  * handled — rasterizing SVG needs a DOM image pipeline, not worth it

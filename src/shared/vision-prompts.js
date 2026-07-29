@@ -22,8 +22,10 @@
 //                    verbatim, reading order, "[illegible]" over
 //                    guessing.
 //
-// VISION_PROMPT_VERSION stamps provenance the way EXTRACT_PROMPT_VERSION
-// does — bump it whenever prompt text or schema changes meaning.
+// VISION_PROMPT_VERSION rides every runVisionPass result (next to the
+// model id, the lens-provenance pattern) — bump it whenever prompt
+// text or schema changes meaning. The version is pinned in tests so a
+// meaning change without a bump fails loudly.
 
 export const VISION_PROMPT_VERSION = 'vision-v1';
 export const VISION_TOOL_NAME = 'xray_vision';

@@ -2588,8 +2588,14 @@ async function setupVisionControl() {
     }
     btn.disabled = false;
     btn.title = 'Describe images with AI (sends the images you pick to Anthropic)';
-    btn.addEventListener('click', () => {
-        runVisionFlow().catch((err) => toast((err && err.message) || 'Vision pass failed', 'error'));
+    btn.addEventListener('click', async () => {
+        // Disabled for the flow's duration (the runSuggestPass idiom) —
+        // the still-focused button must not stack a second modal.
+        if (btn.disabled) return;
+        btn.disabled = true;
+        try { await runVisionFlow(); }
+        catch (err) { toast((err && err.message) || 'Vision pass failed', 'error'); }
+        finally { btn.disabled = false; }
     });
 }
 
@@ -2609,22 +2615,32 @@ function visionCanonicalBody() {
 }
 
 /**
- * Modal thumbnails: archived figures render in the body as hydrated
- * blob URLs — reuse the live one (valid while the modal is open; no
- * re-render happens mid-modal). Everything else shows its own src.
+ * Modal thumbnails. Archived figures try the hydrated blob URL in the
+ * live reader body first (a fast path — absent on the Markdown/Preview
+ * tabs and before hydrateFigureImages lands), then fall back to
+ * minting a fresh blob URL from the byte archive; minted URLs are
+ * collected for the caller to revoke after the modal closes.
+ * Everything else shows its own src.
  */
-function visionThumbSrc(ref) {
-    if (ref.startsWith('xray-figure:')) {
-        const hash = ref.slice('xray-figure:'.length);
-        const img = document.querySelector(`.xr-article__body img[data-xray-figure="${CSS.escape(hash)}"]`);
-        return (img && img.src) || '';
-    }
-    return ref;
+async function visionThumbSrc(ref, minted) {
+    if (!ref.startsWith('xray-figure:')) return ref;
+    const hash = ref.slice('xray-figure:'.length);
+    const img = document.querySelector(`.xr-article__body img[data-xray-figure="${CSS.escape(hash)}"]`);
+    if (img && img.src && !img.src.startsWith('xray-figure:')) return img.src;
+    try {
+        const row = await ArchiveCache.getSourceDocument(hash);
+        if (row && row.bytes && row.bytes.byteLength) {
+            const url = URL.createObjectURL(new Blob([row.bytes], { type: row.mime || 'image/png' }));
+            minted.push(url);
+            return url;
+        }
+    } catch (_) { /* evicted bytes — a blank thumb, honestly */ }
+    return '';
 }
 
 async function runVisionFlow() {
     const btn = $('#xr-vision');
-    if (!btn || btn.disabled || !state.article) return;
+    if (!btn || !state.article) return;
 
     const { body, isHtml } = visionCanonicalBody();
     const images = collectArticleImages(body, { isHtml });
@@ -2642,17 +2658,35 @@ async function runVisionFlow() {
     }
 
     const article = state.article;
-    const accepted = await openVisionModal({
-        images: images.map((img) => ({ ...img, thumbSrc: visionThumbSrc(img.ref) })),
-        model: cfg.model || '',
-        keepalive: startSwKeepalive,
-        runOne: (img) => browserApi.runtime.sendMessage({
-            type: 'xray:vision:describe',
-            ref: img.ref, alt: img.alt, captionText: img.captionText,
-            articleTitle: article.title || '', articleUrl: article.url || ''
-        })
-    });
-    if (accepted && accepted.length) await applyVisionNotes(accepted);
+    const minted = [];
+    let accepted;
+    try {
+        const withThumbs = await Promise.all(images.map(async (img) => (
+            { ...img, thumbSrc: await visionThumbSrc(img.ref, minted) }
+        )));
+        accepted = await openVisionModal({
+            images: withThumbs,
+            model: cfg.model || '',
+            keepalive: startSwKeepalive,
+            runOne: (img) => browserApi.runtime.sendMessage({
+                type: 'xray:vision:describe',
+                ref: img.ref, alt: img.alt, captionText: img.captionText,
+                articleTitle: article.title || '', articleUrl: article.url || ''
+            })
+        });
+    } finally {
+        for (const url of minted) { try { URL.revokeObjectURL(url); } catch (_) { /* done */ } }
+    }
+    if (!accepted || !accepted.length) return;
+    // Staleness guard: a background body swap (the Substack API stage
+    // can land mid-modal) or a navigation replaces state.article —
+    // merging accepted notes into a body they were not collected from
+    // must not pass silently.
+    if (state.article !== article) {
+        toast('The capture changed while the modal was open — nothing merged.', 'error');
+        return;
+    }
+    await applyVisionNotes(accepted);
 }
 
 /**
@@ -2667,17 +2701,37 @@ async function applyVisionNotes(accepted) {
     const a = state.article;
     if (!a || !accepted.length) return;
 
+    // Upserts no-op (return the body unchanged) when an image isn't in
+    // the body anymore — count those instead of reporting a blanket
+    // success over a merge that didn't happen.
+    let merged = 0;
+    let missed = 0;
+
     if (isMarkdownCanonical(a)) {
         // Markdown-canonical: the markdown IS the substrate. Fold the
         // live markdown draft first — it may be ahead of article.markdown.
         let md = (state.dirtySource === 'markdown' && state.markdownDraft)
             ? state.markdownDraft : (a.markdown || '');
-        for (const note of accepted) md = upsertVisionNoteMarkdown(md, note.ref, note);
+        for (const note of accepted) {
+            const next = upsertVisionNoteMarkdown(md, note.ref, note);
+            if (next === md) missed += 1; else merged += 1;
+            md = next;
+        }
+        if (!merged) {
+            toast('No accepted note could be placed — the article body changed.', 'error');
+            return;
+        }
         a.markdown = md;
         state.markdownDraft = md;
         a.content = ContentExtractor.markdownToHtml(md);
         state.htmlDraft = a.content;
         state.draftProven = false;
+        // The substrate stays markdown: without this, a prior reader
+        // edit leaves dirtySource='reader' and publish re-derives the
+        // body through the destructive turndown round trip
+        // isMarkdownCanonical exists to prevent (the
+        // reconstructWithLlmFlow precedent).
+        state.dirtySource = 'markdown';
     } else {
         // HTML-canonical: upsert into the clean capture content. A
         // markdown-tab edit is mark-free and canonical by contract, so
@@ -2686,7 +2740,15 @@ async function applyVisionNotes(accepted) {
             a.content = ContentExtractor.markdownToHtml(state.markdownDraft);
         }
         let html = a.content || '';
-        for (const note of accepted) html = upsertVisionNoteHtml(html, note.ref, note);
+        for (const note of accepted) {
+            const next = upsertVisionNoteHtml(html, note.ref, note);
+            if (next === html) missed += 1; else merged += 1;
+            html = next;
+        }
+        if (!merged) {
+            toast('No accepted note could be placed — the article body changed.', 'error');
+            return;
+        }
         a.content = html;
         state.htmlDraft = a.content;
         state.markdownDraft = '';       // stale — regenerated on tab entry
@@ -2720,9 +2782,17 @@ async function applyVisionNotes(accepted) {
         }).catch((err) => console.warn('[X-Ray Reader] vision-note save failed:', err));
     }
 
-    renderReader();
-    const n = accepted.length;
-    toast(`Merged AI image notes for ${n} image${n === 1 ? '' : 's'}`, 'success', 2500);
+    // Re-render the pane the user is actually on — a bare
+    // renderReader() would desync the Markdown/Preview tab state.
+    switch (state.viewMode) {
+        case 'markdown': renderMarkdown(); break;
+        case 'preview': renderPreview(); break;
+        default: renderReader(); break;
+    }
+    toast(missed
+        ? `Merged AI notes for ${merged} image${merged === 1 ? '' : 's'} — ${missed} could not be placed (the body changed)`
+        : `Merged AI image notes for ${merged} image${merged === 1 ? '' : 's'}`,
+    missed ? 'warning' : 'success', 3000);
 }
 
 async function setupSuggestControl() {

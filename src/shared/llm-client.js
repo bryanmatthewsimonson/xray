@@ -64,7 +64,7 @@ import {
     buildEntityPageTool, buildEntityPageSystemPrompt, buildEntityPageUserPrompt
 } from './entity-page.js';
 import {
-    VISION_TOOL_NAME, VISION_MEDIA_TYPES,
+    VISION_TOOL_NAME, VISION_MEDIA_TYPES, VISION_PROMPT_VERSION,
     buildVisionTool, buildVisionSystemPrompt, buildVisionUserContent
 } from './vision-prompts.js';
 
@@ -1042,6 +1042,7 @@ export async function runVisionPass(req = {}) {
     return {
         ok: true,
         model: usedModel,
+        prompt_version: VISION_PROMPT_VERSION,
         result: {
             content_kind: typeof input.content_kind === 'string' ? input.content_kind : 'other',
             caption: input.caption.trim(),

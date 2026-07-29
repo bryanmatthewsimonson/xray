@@ -505,7 +505,9 @@
         returns a factual caption for each — plus a verbatim transcription
         when an image contains legible text (a scanned page, a chart, a
         document photo). <strong>The selected images are sent to
-        Anthropic</strong> when you run a pass — one API call per image,
+        Anthropic — along with the article's title and URL and each
+        image's alt text and caption</strong> (context that improves the
+        naming rules) when you run a pass — one API call per image,
         never automatically. Every caption and transcription is a
         <strong>draft you accept per image</strong>; accepted notes merge
         into the article body labeled with the model that wrote them, so
