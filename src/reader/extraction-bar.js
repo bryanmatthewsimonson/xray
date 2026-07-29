@@ -20,9 +20,13 @@
  * @param {number} [opts.priorRuns]  extraction records anchored to a
  *   RETAINED PRIOR version of this URL's text (the audit panel's
  *   honesty convention: say so rather than render nothing)
+ * @param {object} [opts.coverage]  MA.4 — assertion key → existing claim
+ *   id (or null), computed on read by the caller. A covered atom is not
+ *   an open proposal: it folds into the triaged section, so a claim
+ *   accepted in the review modal stops reading as outstanding here.
  * @returns {string} HTML — '' when there is nothing to say
  */
-export function renderExtractionBar(record, { priorRuns = 0 } = {}) {
+export function renderExtractionBar(record, { priorRuns = 0, coverage = {} } = {}) {
     const assertions = (record && record.assertions) || [];
     const sources = (record && record.sources) || [];
     const questions = (record && record.open_questions) || [];
@@ -58,13 +62,20 @@ export function renderExtractionBar(record, { priorRuns = 0 } = {}) {
         return '';
     }
 
-    const open = assertions.filter((a) => a.status !== 'accepted' && a.status !== 'dismissed');
+    // An atom already covered by a captured claim is not outstanding
+    // work, whatever its stored status (MA.4): the claim may have been
+    // minted through the review modal, which never touches this record.
+    const isCovered = (a) => !!(coverage && coverage[a.key]);
+    const triaged = (a) => a.status === 'accepted' || a.status === 'dismissed';
+    const open = assertions.filter((a) => !triaged(a) && !isCovered(a));
     const accepted = assertions.filter((a) => a.status === 'accepted');
     const dismissed = assertions.filter((a) => a.status === 'dismissed');
+    const covered = assertions.filter((a) => !triaged(a) && isCovered(a));
 
     const counts = [`${assertions.length} assertion${assertions.length === 1 ? '' : 's'}`];
     if (open.length) counts.push(`${open.length} open`);
     if (accepted.length) counts.push(`${accepted.length} accepted as claims`);
+    if (covered.length) counts.push(`${covered.length} already covered by a claim`);
     if (dismissed.length) counts.push(`${dismissed.length} dismissed`);
     if (record.dropped_ungrounded) {
         counts.push(`${record.dropped_ungrounded} ungroundable quote${record.dropped_ungrounded === 1 ? '' : 's'} dropped`);
@@ -72,27 +83,36 @@ export function renderExtractionBar(record, { priorRuns = 0 } = {}) {
 
     // Provenance from the first assertion's first sighting (the fold
     // stamps every atom); fall back to the record's own timestamp.
+    // MA.4: name WHICH passes contributed — a record can hold atoms
+    // from the corpus map stage and the reader's suggest pass at once.
     const fs = (assertions[0] && assertions[0].first_seen) || {};
-    const provBits = [fs.model, fs.promptVersion].filter(Boolean);
+    const producers = [...new Set(assertions
+        .map((a) => (a.first_seen && a.first_seen.producer) || 'map'))].sort();
+    const producerLabel = producers.length
+        ? producers.map((p) => (p === 'suggest' ? 'reader suggest' : 'corpus map')).join(' + ')
+        : '';
+    const provBits = [producerLabel, fs.model, fs.promptVersion].filter(Boolean);
     const stamp = fs.at || record.updatedAt;
     if (stamp) provBits.push(new Date(stamp * 1000).toISOString().slice(0, 10));
 
     const rows = (list, { settled = false } = {}) => list.map((a) => `
       <div class="xr-extract__row${settled ? ' xr-extract__row--settled' : ''}">
         <blockquote class="xr-extract__quote" data-action="locate" data-quote="${escapeHtml(a.quote || '')}" title="Click to locate this span in the article body">${escapeHtml(truncate(a.quote || '', 240))}</blockquote>
+        ${a.text ? `<div class="xr-extract__why">suggested claim: ${escapeHtml(truncate(a.text, 160))}</div>` : ''}
         ${a.why ? `<div class="xr-extract__why">${escapeHtml(truncate(a.why, 160))}</div>` : ''}
         ${a.status === 'accepted' ? '<div class="xr-extract__status">✓ accepted as a claim</div>' : ''}
         ${a.status === 'dismissed' ? '<div class="xr-extract__status">dismissed</div>' : ''}
+        ${!triaged(a) && isCovered(a) ? '<div class="xr-extract__status">already covered by a captured claim</div>' : ''}
       </div>`).join('');
 
     const openBlock = open.length ? `
       <div class="xr-extract__list">${rows(open)}</div>
       <div class="xr-extract__hint">Accept these as claims (or dismiss them) in the portal's case dashboard — "Extracted assertions" there mints a claim with the case attached.</div>` : '';
 
-    const settled = accepted.concat(dismissed);
+    const settled = accepted.concat(dismissed).concat(covered);
     const settledBlock = settled.length ? `
       <details class="xr-extract__more">
-        <summary>Already triaged (${settled.length})</summary>
+        <summary>Already triaged or covered (${settled.length})</summary>
         <div class="xr-extract__list">${rows(settled, { settled: true })}</div>
       </details>` : '';
 

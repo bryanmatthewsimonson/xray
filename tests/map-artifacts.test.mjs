@@ -21,7 +21,7 @@ const {
     mergeExtractIntoRecord, assertionClaimCoverage, partitionAssertions,
     setAssertionTriage, recordArticleExtraction, ASSERTION_OVERLAP_MIN,
     unionExtractWithRecord, reduceExtractFromRecord, mergeExtractionRecords,
-    MAX_REDUCE_ASSERTIONS_PER_MEMBER, isTextPinnedKey
+    MAX_REDUCE_ASSERTIONS_PER_MEMBER, isTextPinnedKey, suggestExtractFromProposals
 } = await import('../src/shared/map-artifacts.js');
 const { createGroundingIndex } = await import('../src/shared/quote-grounding.js');
 
@@ -231,6 +231,93 @@ test('recordArticleExtraction skips cleanly on missing member or extract', async
     const out = await recordArticleExtraction({ member: null, extract: extract() },
         { getRecord: async () => null, saveRecord: async () => {} });
     assert.equal(out.status, 'skipped');
+});
+
+// ---- MA.4: both producers share ONE layer ----------------------------------
+
+test('suggestExtractFromProposals: only quote-bearing CLAIM proposals become atoms', () => {
+    const out = suggestExtractFromProposals([
+        { kind: 'claim', text: 'Funding went to Wuhan', quote: 'Gain-of-function research was funded at the Wuhan Institute' },
+        { kind: 'claim', text: 'no quote so not an atom' },              // dropped: nothing to ground
+        { kind: 'claim', text: 'blank quote', quote: '   ' },            // dropped
+        { kind: 'entity', name: 'WIV', entity_type: 'organization' },    // not claim-shaped
+        { kind: 'assessment', claim_ref: 'c1', stance: 1 },
+        { kind: 'finding', subject_ref: 'e1' },
+        null
+    ]);
+    assert.equal(out.key_assertions.length, 1, 'entities/assessments/findings are NOT this layer\'s business');
+    assert.equal(out.key_assertions[0].text, 'Funding went to Wuhan');
+    assert.equal(out.key_assertions[0].why_load_bearing, '');
+    assert.deepEqual(suggestExtractFromProposals(null).key_assertions, []);
+});
+
+test('MA.4: a suggest fold stamps producer + suggested text, and dedups against a MAP atom on the same span', () => {
+    // The map found this sentence first.
+    const mapped = mergeExtractIntoRecord(null, {
+        member: member(), extract: extract(), key: 'k-map', model: 'm-map', now: 10
+    }).record;
+    assert.equal(mapped.assertions[0].first_seen.producer, 'map');
+    assert.equal(mapped.assertions[0].text, null, 'a map atom carries no authored claim text');
+
+    // The reader's suggest pass proposes the SAME sentence plus a new one.
+    const sugg = suggestExtractFromProposals([
+        { kind: 'claim', text: 'Funding claim', quote: 'Gain-of-function research was funded at the Wuhan Institute' },
+        { kind: 'claim', text: 'Spillover is mainstream', quote: 'Zoonotic spillover is the mainstream scientific view' }
+    ]);
+    const out = mergeExtractIntoRecord(mapped, {
+        member: member(), extract: sugg, model: 'm-suggest', now: 20, producer: 'suggest'
+    });
+    assert.equal(out.changed, true);
+    assert.equal(out.added, 1, 'the overlapping sentence is ONE atom, not two rows');
+    assert.equal(out.record.assertions.length, 2);
+    const kept = out.record.assertions.find((a) => a.quote.startsWith('Gain-of-function'));
+    assert.equal(kept.first_seen.producer, 'map', 'first sighting wins — the map found it');
+    const fresh = out.record.assertions.find((a) => a.quote.startsWith('Zoonotic'));
+    assert.equal(fresh.first_seen.producer, 'suggest');
+    assert.equal(fresh.text, 'Spillover is mainstream', 'the suggest pass\'s authored claim text rides along');
+});
+
+test('MA.4: a KEYLESS fold that adds nothing reports changed:false (no pointless rewrite)', () => {
+    const rec = mergeExtractIntoRecord(null, {
+        member: member(), extract: extract(), key: 'k1', now: 10
+    }).record;
+    // Same sentence, no fingerprint — the suggest path's shape.
+    const again = mergeExtractIntoRecord(rec, {
+        member: member(),
+        extract: suggestExtractFromProposals([
+            { kind: 'claim', text: 't', quote: 'Gain-of-function research was funded at the Wuhan Institute' }
+        ]),
+        now: 99, producer: 'suggest'
+    });
+    assert.equal(again.changed, false, 'every Suggest run must not bump updatedAt for nothing');
+    assert.equal(again.added, 0);
+    assert.equal(again.record.updatedAt, 10, 'the stored record is returned untouched');
+    // A keyed fold still counts as changed even when atoms dedup (the
+    // merged_keys ledger is what makes the NEXT identical fold free).
+    const keyed = mergeExtractIntoRecord(rec, {
+        member: member(), extract: extract(), key: 'k2', now: 50
+    });
+    assert.equal(keyed.changed, true);
+});
+
+test('MA.4: an ungroundable suggest quote is dropped and counted, never stored', () => {
+    const out = mergeExtractIntoRecord(null, {
+        member: member(),
+        extract: suggestExtractFromProposals([
+            { kind: 'claim', text: 'nope', quote: 'this sentence is not in the article at all' }
+        ]),
+        now: 5, producer: 'suggest'
+    });
+    assert.equal(out.record.assertions.length, 0);
+    assert.equal(out.droppedUngrounded, 1);
+    assert.equal(out.changed, true, 'a first-ever record with a disclosed drop count is worth storing');
+});
+
+test('MA.4: an unknown producer value normalizes to map — never an arbitrary string', () => {
+    const out = mergeExtractIntoRecord(null, {
+        member: member(), extract: extract(), key: 'k', now: 1, producer: 'something-else'
+    });
+    assert.equal(out.record.assertions[0].first_seen.producer, 'map');
 });
 
 // ---- MA.3: the durable layer feeds the reduce -------------------------------

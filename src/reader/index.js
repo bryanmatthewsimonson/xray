@@ -42,6 +42,9 @@ import { ForensicModel, ForensicBaseline } from '../shared/forensic-model.js';
 import { openFindingModal, openBaselineModal } from '../shared/forensic-modal.js';
 import { renderFindingsBar } from './findings-section.js';
 import { renderExtractionBar } from './extraction-bar.js';
+import {
+    recordArticleExtraction, suggestExtractFromProposals, assertionClaimCoverage
+} from '../shared/map-artifacts.js';
 import { shouldOfferArchive, describeMetric } from './archive-banner.js';
 import { archivedDraftIsCanonical, archivedDraftSource } from '../shared/archive-draft.js';
 import { openLlmReview } from './llm-review.js';
@@ -2317,6 +2320,51 @@ function captureSelectionSeed() {
 }
 
 /**
+ * MA.4 — fold the suggest pass's claim proposals into this article's
+ * durable extraction record, so both producers of claim-shaped atoms
+ * (the corpus map stage and this reader pass) accumulate in ONE layer.
+ *
+ * Two invariants this must respect, both learned the hard way:
+ *
+ *  1. GROUND AGAINST THE CANONICAL TEXT, not the rendered body. The
+ *     record's spans index `assembleArticleBody(hashableArticle(...))`
+ *     — the same text the articleHash covers and the map stage sent.
+ *     The review modal grounds against the rendered DOM text, which
+ *     can differ. Folding reader-side offsets would store spans that
+ *     index nothing, so the merge re-grounds every quote here; one
+ *     that cannot be located in the canonical text is dropped and
+ *     counted, never stored ungrounded (guard rail 3).
+ *  2. ONLY WHEN THE HASH DESCRIBES THE BODY. An edited body dirties
+ *     the hash (`claimArticleHash()` returns null), and the record is
+ *     keyed BY that hash — folding then would attach this text's
+ *     assertions to a different text's identity. Skip instead.
+ *
+ * Never throws; a fold failure must not disturb the review flow.
+ */
+async function foldSuggestionsIntoRecord(proposals, model) {
+    const hash = claimArticleHash();
+    if (!hash) return { status: 'skipped-unhashed' };
+    const extract = suggestExtractFromProposals(proposals);
+    if (extract.key_assertions.length === 0) return { status: 'skipped-empty' };
+    const canonicalText = EventBuilder.assembleArticleBody(hashableArticle(state.article)) || '';
+    if (!canonicalText) return { status: 'skipped-no-text' };
+    return recordArticleExtraction({
+        member: {
+            article_hash: hash,
+            url: state.article.url || null,
+            title: state.article.title || null,
+            text: canonicalText
+        },
+        extract,
+        model: model || '',
+        producer: 'suggest'
+        // No `key`: the suggest pass has no input fingerprint to dedup
+        // on, so the merge's span-dedup is what makes a re-run a no-op
+        // (and a keyless fold reports changed:false when nothing is new).
+    });
+}
+
+/**
  * Render the extracted-assertions bar (MA.2b): this capture's DURABLE
  * map-artifact record, so a mapping run is verifiable from the article
  * itself. Keyed by the canonical content hash (NOT the URL) — same key
@@ -2356,7 +2404,25 @@ async function refreshExtractionBar() {
         return;
     }
 
-    host.innerHTML = renderExtractionBar(record, { priorRuns });
+    // MA.4 — which atoms are already covered by a captured claim,
+    // computed on read against the CURRENT claim set (never stored).
+    // Without this, a claim accepted in the review modal would keep
+    // reading as an open proposal here while the case dashboard
+    // (which has always computed coverage) showed it as covered.
+    let coverage = {};
+    try {
+        // getBySourceUrl returns an ARRAY of claims (url-normalized +
+        // alias-resolved join), not a map.
+        const claims = (state.article && state.article.url)
+            ? await ClaimModel.getBySourceUrl(state.article.url) : [];
+        const canonicalText = EventBuilder.assembleArticleBody(hashableArticle(state.article)) || '';
+        coverage = assertionClaimCoverage(record, {
+            text: canonicalText,
+            claims: claims.map((c) => ({ id: c.id, quote: c.quote || null }))
+        });
+    } catch (_) { coverage = {}; }
+
+    host.innerHTML = renderExtractionBar(record, { priorRuns, coverage });
 
     for (const q of host.querySelectorAll('[data-action="locate"]')) {
         q.addEventListener('click', () => {
@@ -2694,6 +2760,14 @@ async function runSuggestPass() {
  */
 async function reviewSuggestions(proposals, model) {
     const articleText = articleBodyText();
+    // MA.4 — the suggest pass's claim proposals become DURABLE atoms in
+    // this article's extraction record BEFORE the modal opens, so
+    // closing the review no longer discards paid analysis: whatever is
+    // not accepted now stays reviewable in the case dashboard and the
+    // reader's extraction bar, deduped against whatever the corpus map
+    // stage found for the same spans.
+    foldSuggestionsIntoRecord(proposals, model)
+        .catch((err) => console.warn('[X-Ray Reader] suggestion fold failed:', err));
     return openLlmReview({
         proposals,
         model,

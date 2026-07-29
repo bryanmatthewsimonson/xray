@@ -144,11 +144,43 @@ paid work.
   call FAILED but whose record holds prior analysis is RECOVERED
   (`reduceExtractFromRecord`) instead of dropped — disclosed on the
   run status and stored on the brief record (`recovered`).
-- **MA.4 — Suggest convergence** (deferred). The reader's EXTRACTION
-  pass and the map's assertion extraction are two parallel producers
-  of claim-shaped output; they should feed ONE per-article atomic
-  layer (this store), with one review surface. Requires reconciling
-  the suggest modal's session semantics with durable triage.
+- **MA.4 — Suggest convergence** (SHIPPED 2026-07-27). The reader's
+  EXTRACTION pass and the corpus map stage were two parallel producers
+  of claim-shaped output, one durable and one session-only. They now
+  feed ONE layer: `suggestExtractFromProposals` converts the suggest
+  pass's **claim** proposals into the map-extract shape, and
+  `reviewSuggestions` folds them through the SAME
+  `mergeExtractIntoRecord` — one span-dedup rule, so a sentence both
+  passes find is one atom, not two rows. Closing the review modal no
+  longer discards paid analysis. Details:
+  - **Grounded against the CANONICAL text, not the rendered body.**
+    The modal grounds against `articleBodyText()` (DOM text); the
+    record's spans index `assembleArticleBody(hashableArticle(…))`.
+    The fold re-grounds every quote against the canonical body, so a
+    reader-only rendering artifact is dropped-and-counted rather than
+    stored as a span that indexes nothing (guard rail 3). This is the
+    same class of assumed-invariant the 2026-07-25 review caught in
+    the backup merge — enforced here, not documented.
+  - **Only when the hash describes the body.** An edited body dirties
+    the hash and the record is keyed BY that hash, so the fold skips
+    rather than attach this text's atoms to another text's identity.
+  - **`producer` stamp** (`'map' | 'suggest'`, absent ⇒ map) on each
+    atom's `first_seen`; both review surfaces name which pass found
+    it, and a record can hold both.
+  - **The suggest pass's authored claim text** rides as `text` and
+    prefills the mint box — that paraphrase is what it adds over the
+    map's bare span.
+  - **Keyless folds report `changed: false`** when every atom dedups:
+    the suggest path has no input fingerprint, so without this every
+    Suggest run would rewrite the record for nothing.
+  - **One review surface**: the reader bar now computes claim coverage
+    (as the case dashboard always did), so a claim minted through the
+    modal stops reading as an open proposal.
+  - **Scope**: only `kind: 'claim'` proposals fold. Entities,
+    assessments, relationships, findings, and baselines are different
+    artifacts with their own models and stay the modal's business —
+    folding them here would invent a storage contract this record
+    does not have.
 - **MA.5 — the case-free map** (SHIPPED 2026-07-25 as corpus-v7,
   simplified from the original two-pass split). Rather than paying a
   second case-framed position call per article, the WHOLE map went

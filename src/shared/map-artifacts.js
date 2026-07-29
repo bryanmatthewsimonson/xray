@@ -99,7 +99,7 @@ function emptyRecord(articleHash) {
  * @param {object} [input.index]  reusable createGroundingIndex(member.text)
  * @returns {{record: object, changed: boolean, added: number, droppedUngrounded: number}}
  */
-export function mergeExtractIntoRecord(existing, { member, extract, frame = {}, key, model = '', promptVersion = MAP_PROMPT_VERSION, now = 0, index = null }) {
+export function mergeExtractIntoRecord(existing, { member, extract, frame = {}, key, model = '', promptVersion = MAP_PROMPT_VERSION, now = 0, index = null, producer = 'map' }) {
     const base = existing || emptyRecord(member.article_hash);
     // Idempotence short-circuit BEFORE any grounding work: a fold of an
     // already-folded fingerprint is free.
@@ -125,6 +125,13 @@ export function mergeExtractIntoRecord(existing, { member, extract, frame = {}, 
         promptVersion,
         caseName: (frame && frame.caseName) || '',
         scopeQuestion: (frame && frame.scopeQuestion) || '',
+        // MA.4 — WHICH pass found this atom: 'map' (the corpus map
+        // stage) or 'suggest' (the reader's extraction pass). Both are
+        // claim-shaped output grounded in the same canonical text, so
+        // they share this layer and its span-dedup; the stamp keeps the
+        // provenance honest on the review surfaces. Absent on records
+        // written before MA.4 — readers treat that as 'map'.
+        producer: producer === 'suggest' ? 'suggest' : 'map',
         at: now
     };
 
@@ -149,6 +156,12 @@ export function mergeExtractIntoRecord(existing, { member, extract, frame = {}, 
             start: g.start,
             end: g.end,
             why: (a && a.why_load_bearing) || '',
+            // MA.4: the suggest pass authors a CLAIM TEXT beside the
+            // quote (a paraphrase of the assertion). Keep it — the
+            // review surface prefills the mint box with it instead of
+            // the raw span, which is the whole value the suggest pass
+            // adds over the map. Map assertions have none (null).
+            text: (a && typeof a.text === 'string' && a.text.trim()) ? a.text.trim() : null,
             status: 'open',
             accepted_claim_id: null,
             triaged_at: null,
@@ -179,8 +192,10 @@ export function mergeExtractIntoRecord(existing, { member, extract, frame = {}, 
 
     // Position — per case frame, latest-wins (a re-analyze under the
     // same frame refreshes it; a different frame appends beside it).
+    let positionChanged = false;
     const pos = extract && extract.position;
     if (pos && (pos.summary || pos.side_label)) {
+        positionChanged = true;
         const same = (p) => p.caseName === firstSeen.caseName && p.scopeQuestion === firstSeen.scopeQuestion;
         const entry = {
             caseName: firstSeen.caseName,
@@ -205,7 +220,53 @@ export function mergeExtractIntoRecord(existing, { member, extract, frame = {}, 
     record.dropped_ungrounded = (base.dropped_ungrounded || 0) + droppedUngrounded;
     record.updatedAt = now;
 
-    return { record, changed: true, added, droppedUngrounded };
+    // `changed` reports whether this fold actually altered anything.
+    // A keyed fold always counts (merged_keys grew, which is what makes
+    // the next identical fold free). A KEYLESS fold — the MA.4 suggest
+    // path, which has no fingerprint to dedup on — must report false
+    // when every atom deduped, or every Suggest run would rewrite the
+    // record and bump updatedAt for nothing.
+    const changed = !!key || added > 0 || droppedUngrounded > 0 || positionChanged
+        || (!existing);
+    if (!changed) return { record: base, changed: false, added: 0, droppedUngrounded: 0 };
+    return { record, changed, added, droppedUngrounded };
+}
+
+/**
+ * MA.4 — convert the reader Suggest pass's CLAIM proposals into the
+ * map-extract shape, so both producers of claim-shaped atoms flow
+ * through ONE merge path (`mergeExtractIntoRecord`) and therefore share
+ * one span-dedup rule, one triage model, and one review surface. The
+ * same sentence found by both passes is ONE atom, not two rows.
+ *
+ * Only `kind: 'claim'` proposals convert: they are the claim-shaped
+ * atoms this layer holds. Entities / assessments / relationships /
+ * findings / baselines are different artifacts with their own models
+ * and stay the review modal's business — folding them here would
+ * invent a storage contract this record does not have.
+ *
+ * Pure. `quote` becomes the grounded span (the merge re-grounds it
+ * against the canonical text and drops it if absent); `text` rides as
+ * the suggested claim text.
+ *
+ * @param {Array} proposals  raw suggest-pass proposals
+ * @returns {{key_assertions: Array<{quote,text,why_load_bearing}>}}
+ */
+export function suggestExtractFromProposals(proposals) {
+    const key_assertions = [];
+    for (const p of Array.isArray(proposals) ? proposals : []) {
+        if (!p || p.kind !== 'claim') continue;
+        const quote = typeof p.quote === 'string' ? p.quote.trim() : '';
+        if (!quote) continue;   // no quote ⇒ nothing to ground ⇒ not an atom here
+        key_assertions.push({
+            quote,
+            text: typeof p.text === 'string' ? p.text.trim() : '',
+            // The suggest pass states the claim rather than arguing its
+            // weight, so there is no load-bearing rationale to carry.
+            why_load_bearing: ''
+        });
+    }
+    return { key_assertions };
 }
 
 // ------------------------------------------------------------------

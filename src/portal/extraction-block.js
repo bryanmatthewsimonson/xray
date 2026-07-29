@@ -112,7 +112,10 @@ export function renderExtractionBlock(host, { data, callbacks = {} }) {
 
 function provChip(a) {
     const fs = a.first_seen || {};
-    const bits = [fs.model, fs.promptVersion].filter(Boolean);
+    // MA.4: which pass found this atom. Records written before MA.4
+    // carry no producer — those are all corpus-map extracts.
+    const producer = fs.producer === 'suggest' ? 'reader suggest' : 'corpus map';
+    const bits = [producer, fs.model, fs.promptVersion].filter(Boolean);
     if (fs.at) bits.push(new Date(fs.at * 1000).toISOString().slice(0, 10));
     return el('span', 'xr-synth__prov-row', bits.join(' · '));
 }
@@ -184,12 +187,16 @@ function paintMember(body, { member, rec, caseId, noteAccepted, relabel }) {
         row.appendChild(main);
 
         // The claim text is the human's to author — prefilled with the
-        // article's own span, editable before Accept (the quote is kept
-        // verbatim as the evidence anchor regardless).
+        // suggest pass's authored claim text when there is one (MA.4:
+        // that paraphrase is what the suggest pass adds over the map),
+        // else the article's own span. Editable before Accept; the
+        // quote is kept verbatim as the evidence anchor regardless.
         const input = el('input', 'xr-hyp__input xr-extr__text');
         input.type = 'text';
-        input.value = a.quote;
-        input.title = 'The claim text to mint — edit freely; the verbatim quote stays attached as evidence';
+        input.value = a.text || a.quote;
+        input.title = a.text
+            ? 'The claim text to mint — suggested by the extraction pass; edit freely. The verbatim quote stays attached as evidence.'
+            : 'The claim text to mint — edit freely; the verbatim quote stays attached as evidence';
         row.appendChild(input);
 
         const acceptBtn = el('button', 'xr-portal__btn', 'Accept as claim');

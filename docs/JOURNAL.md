@@ -19,6 +19,61 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-27 — MA.4: the reader's Suggest pass joins the durable layer
+
+**Tags:** design
+
+X-Ray had **two producers of claim-shaped output** and only one of them
+kept anything. The corpus map stage folds into `article-extractions`
+(MA.1); the reader's Suggest EXTRACTION pass rendered proposals in the
+14.5.3 modal and discarded everything unaccepted when the modal closed
+— "close = the session is over, re-run to see them again." The 28.2
+parked-suggestions store softened that for import-time passes only, and
+deleted its record on close too. So the same sentence could be found by
+both passes, cost two LLM calls, and survive as zero atoms.
+
+MA.4 routes both through ONE merge: `suggestExtractFromProposals`
+converts claim proposals into the map-extract shape and
+`reviewSuggestions` folds them via `mergeExtractIntoRecord` before the
+modal opens. One span-dedup rule, so a sentence both passes find is one
+atom with the FIRST sighting's provenance kept. Second-guessable
+choices, recorded:
+
+1. **Ground against the canonical text, never the rendered body.** The
+   modal grounds against `articleBodyText()` (DOM text); the record's
+   spans index `assembleArticleBody(hashableArticle(…))` — the text the
+   articleHash covers and the map stage sent. These can differ. Folding
+   reader-side offsets would store spans indexing nothing, so the fold
+   re-grounds every quote in canonical space and drops what it cannot
+   locate. This is deliberately the same discipline the 2026-07-25
+   review had to retrofit onto the backup merge: an invariant about
+   which text a span indexes must be ENFORCED, not commented.
+2. **Skip when the hash is dirty.** The record is keyed by
+   `articleHash`; an edited body dirties it (`claimArticleHash()` →
+   null). Folding then would file this text's atoms under a different
+   text's identity, so the fold declines.
+3. **Claims only.** Entities / assessments / relationships / findings /
+   baselines have their own models and stay modal-only. This record
+   holds claim-shaped atoms; widening it would invent a contract.
+4. **Keyless folds must be able to report "nothing changed."** The
+   suggest path has no input fingerprint to put in `merged_keys`, so
+   `mergeExtractIntoRecord`'s unconditional `changed: true` would have
+   rewritten the record and bumped `updatedAt` on every Suggest run.
+   `changed` is now `key || added || dropped || positionChanged ||
+   first-ever-record`.
+5. **Coverage beats status on the reader bar.** Accepting a claim in
+   the modal never touches the record, so those atoms stay
+   `status: 'open'`. The case dashboard always computed claim coverage
+   on read; the reader bar now does too, and a covered atom folds out
+   of the open list. Without this the two surfaces disagreed about the
+   same record.
+
+The 28.2 parked-suggestions store keeps its delete-on-close semantics
+— it is now a staging queue, not the only copy, because the fold has
+already made the atoms durable.
+
+---
+
 ## 2026-07-25 — Adversarial review of the map-artifact wave: two real defects, one refuted
 
 **Tags:** bug, pattern
