@@ -291,11 +291,32 @@ export function isTextPinnedKey(articleHash) {
 
 /**
  * Merge an INCOMING extraction record (from a backup file) into the
- * LOCAL one for the same articleHash. Span-overlap dedup is exact
- * across machines and time ONLY because the 64-hex articleHash pins
- * the canonical text both sides' spans index; records under the
- * `url:` fallback key are refused (see isTextPinnedKey) rather than
- * merged on untrustworthy span arithmetic.
+ * LOCAL one for the same articleHash. Records under the `url:` fallback
+ * key are refused (see isTextPinnedKey) rather than merged on
+ * untrustworthy span arithmetic.
+ *
+ * KNOWN LIMIT — the hash pins the text only up to a normalization
+ * equivalence class (found by the MA.6 design panel, 2026-07-29; the
+ * previous wording here claimed span-overlap dedup was "exact across
+ * machines", which is FALSE). `articleHash` hashes
+ * `normalizeForHash(body)` — CRLF→LF, trailing spaces stripped, 3+
+ * newlines collapsed — while these spans index the UN-normalized
+ * `assembleArticleBody(...)`. Two machines whose bodies differ only
+ * inside that equivalence class therefore agree on the hash and
+ * DISAGREE on offsets, so a cross-machine merge can misalign spans by
+ * the whitespace delta: an incoming atom may dedup against the wrong
+ * local atom, or fail to dedup against its true twin.
+ *
+ * Bounded, not silent: misalignment is at most the accumulated
+ * whitespace difference before the span, the overlap threshold absorbs
+ * small deltas, and the worst case is a duplicate or mis-adopted
+ * triage row a human sees on the review surface — never a corrupted
+ * quote (quotes are stored verbatim, never reconstructed from offsets).
+ * The real fix is to re-ground incoming quotes against the LOCAL
+ * canonical text on import instead of trusting foreign offsets; that
+ * needs the body at merge time, which `mergeBackup` does not have, so
+ * it is deferred to its own slice. Do NOT restore the "exact across
+ * machines" claim.
  *
  * Accrual rules (docs/MAP_ARTIFACT_KICKOFF.md guard rails):
  *   - assertions: local atoms all survive untouched; incoming atoms
