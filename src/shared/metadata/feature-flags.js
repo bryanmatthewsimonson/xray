@@ -148,7 +148,23 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // merges with the current remote kind 3 first (never blind-replace,
   // for users who also run another client on the same nsec). The
   // options checkbox shows a consent dialog on first enable.
-  followListPublishing: false
+  followListPublishing: false,
+
+  // MA.6 (docs/MAP_ARTIFACT_KICKOFF.md §MA.6, docs/NIP_DRAFT.md
+  // §ExtractionAnalysis): gates the PUBLISH path for kind 30070 — the
+  // reviewed extraction analysis of an article (which accepted claims
+  // carry its argument and WHY, which outside sources it leans on,
+  // what it leaves open). The local extraction layer, its review
+  // surfaces, and the backup merge-import are never gated — they're
+  // the product.
+  //
+  // Publishing here is narrow BY CONSTRUCTION, not merely by this
+  // flag: extraction-publish.js projects only human-ACCEPTED material
+  // and references claims by coordinate rather than restating their
+  // quotes, so neither unreviewed model output nor a duplicate copy of
+  // an already-published span can leave the machine even with the flag
+  // on.
+  extractionAnalysisPublishing: false
 });
 
 /**

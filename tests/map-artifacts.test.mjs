@@ -21,7 +21,8 @@ const {
     mergeExtractIntoRecord, assertionClaimCoverage, partitionAssertions,
     setAssertionTriage, recordArticleExtraction, ASSERTION_OVERLAP_MIN,
     unionExtractWithRecord, reduceExtractFromRecord, mergeExtractionRecords,
-    MAX_REDUCE_ASSERTIONS_PER_MEMBER, isTextPinnedKey, suggestExtractFromProposals
+    MAX_REDUCE_ASSERTIONS_PER_MEMBER, isTextPinnedKey, suggestExtractFromProposals,
+    setAssertionRationale, setRowTriage
 } = await import('../src/shared/map-artifacts.js');
 const { createGroundingIndex } = await import('../src/shared/quote-grounding.js');
 
@@ -318,6 +319,56 @@ test('MA.4: an unknown producer value normalizes to map — never an arbitrary s
         member: member(), extract: extract(), key: 'k', now: 1, producer: 'something-else'
     });
     assert.equal(out.record.assertions[0].first_seen.producer, 'map');
+});
+
+// ---- MA.6: the review fields the publish projection reads -------------------
+
+test('MA.6 setAssertionRationale: accept, edit-flips-provenance, and withdraw', () => {
+    const rec = mergeExtractIntoRecord(null, {
+        member: member(), extract: extract(), key: 'k1', model: 'm', now: 10
+    }).record;
+    const key = rec.assertions[0].key;
+
+    // Accepting the model's draft keeps it attributed to the model.
+    const a = setAssertionRationale(rec, key, '  carries the funding argument  ', { now: 20 });
+    assert.equal(a.assertions[0].accepted_why, 'carries the funding argument', 'trimmed');
+    assert.equal(a.assertions[0].accepted_why_provenance, 'llm');
+    assert.equal(a.assertions[0].rationale_accepted_at, 20);
+
+    // An edited rationale is the human's words.
+    const b = setAssertionRationale(a, key, 'my own wording', { provenance: 'user', now: 30 });
+    assert.equal(b.assertions[0].accepted_why_provenance, 'user');
+
+    // Withdrawing leaves the atom accepted but rationale-less.
+    const c = setAssertionRationale(b, key, null, { now: 40 });
+    assert.equal(c.assertions[0].accepted_why, null);
+    assert.equal(c.assertions[0].accepted_why_provenance, null);
+    // Blank/whitespace is a withdrawal, not an empty rationale.
+    assert.equal(setAssertionRationale(b, key, '   ', { now: 41 }).assertions[0].accepted_why, null);
+    // The model's own draft is never touched.
+    assert.equal(c.assertions[0].why, 'funding link');
+});
+
+test('MA.6 setRowTriage: sources and open questions are individually acceptable', () => {
+    const rec = mergeExtractIntoRecord(null, {
+        member: member(), extract: extract(), key: 'k1', now: 10
+    }).record;
+    const srcKey = rec.sources[0].key;
+    const qKey = rec.open_questions[0].key;
+
+    const withSrc = setRowTriage(rec, 'sources', srcKey, 'accepted', { now: 20, note: 'chased it' });
+    assert.equal(withSrc.sources[0].status, 'accepted');
+    assert.equal(withSrc.sources[0].triaged_at, 20);
+    assert.equal(withSrc.sources[0].accepted_note, 'chased it');
+
+    const withQ = setRowTriage(withSrc, 'open_questions', qKey, 'dismissed', { now: 21 });
+    assert.equal(withQ.open_questions[0].status, 'dismissed');
+
+    // Re-opening clears the triage stamp.
+    assert.equal(setRowTriage(withQ, 'open_questions', qKey, 'open', { now: 22 })
+        .open_questions[0].triaged_at, null);
+    // A bad list name is a programming error, not a silent no-op.
+    assert.throws(() => setRowTriage(rec, 'assertions', 'x', 'accepted'), /unknown list/);
 });
 
 // ---- MA.3: the durable layer feeds the reduce -------------------------------

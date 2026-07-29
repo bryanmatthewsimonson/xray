@@ -539,6 +539,59 @@ export function partitionAssertions(record) {
 }
 
 /**
+ * MA.6 — accept (or edit) an assertion's RATIONALE: the answer to "why
+ * does this claim carry the article's argument". The model's `why` is
+ * only a draft; `accepted_why` is the human-endorsed text and the ONLY
+ * rationale that may ever publish (extraction-publish.js). Editing the
+ * text flips provenance to 'user' — the same honest-record-keeping rule
+ * the review modal uses for edited claim text.
+ *
+ * Pass `why: null` to withdraw an accepted rationale (the atom stays
+ * accepted; it simply publishes as a bare claim reference again).
+ *
+ * Deliberately independent of triage status: a rationale can be drafted
+ * before acceptance, and a dismissed atom's rationale never publishes
+ * regardless because the publish projection requires BOTH.
+ */
+export function setAssertionRationale(record, key, why, { provenance = 'llm', now = 0 } = {}) {
+    const text = (typeof why === 'string' && why.trim()) ? why.trim() : null;
+    const assertions = ((record && record.assertions) || []).map((a) => {
+        if (a.key !== key) return a;
+        return {
+            ...a,
+            accepted_why: text,
+            accepted_why_provenance: text ? (provenance === 'user' ? 'user' : 'llm') : null,
+            rationale_accepted_at: text ? now : null
+        };
+    });
+    return { ...record, assertions, updatedAt: now };
+}
+
+/**
+ * MA.6 — triage one SOURCE or OPEN QUESTION row. These are model-
+ * authored text, so like assertions they publish only once a human has
+ * accepted them individually; `accepted_note` is an optional human
+ * annotation that rides with an accepted source.
+ *
+ * @param {'sources'|'open_questions'} listName
+ */
+export function setRowTriage(record, listName, key, status, { now = 0, note = null } = {}) {
+    if (listName !== 'sources' && listName !== 'open_questions') {
+        throw new Error(`setRowTriage: unknown list "${listName}"`);
+    }
+    const rows = ((record && record[listName]) || []).map((r) => {
+        if (r.key !== key) return r;
+        const next = { ...r, status, triaged_at: status === 'open' ? null : now };
+        if (listName === 'sources') {
+            const n = (typeof note === 'string' && note.trim()) ? note.trim() : null;
+            if (n !== null) next.accepted_note = n;
+        }
+        return next;
+    });
+    return { ...record, [listName]: rows, updatedAt: now };
+}
+
+/**
  * Apply a triage decision to one assertion — pure; returns the new
  * record (the caller persists). `status` 'accepted' carries the minted
  * claim id; 'dismissed' clears none of the atom's content (a dismissal

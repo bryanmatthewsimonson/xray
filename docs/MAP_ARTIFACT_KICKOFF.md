@@ -191,8 +191,66 @@ paid work.
   EVER, shared by every case, entity page, and capture prepay. The
   v4→v7 bump orphaned the fingerprint cache exactly as MA.1 priced
   in: knowledge (the records) survived; only exact-reuse re-pays.
-- **MA.6 — publish the layer** (deferred, own decision; see guard
-  rail 5).
+- **MA.6 — publish the layer** (IN FLIGHT 2026-07-29). New wire kind
+  **30070 `ExtractionAnalysis`**: the *reviewed* extraction analysis of
+  one article, published per (author, articleHash) as a replaceable
+  event. Decided by a four-way design panel (§MA.6 below) under one
+  binding maintainer rule.
+
+  **The rule (maintainer, 2026-07-29):** *nothing publishes that the
+  user has not reviewed and accepted.* Three of the four panel designs
+  published the whole durable queue — open and dismissed atoms
+  included — and are disqualified by it, whatever their other merits.
+
+  **Why a kind at all, given accepted atoms already publish as
+  kind-30040 claims?** Because the analysis is not the atoms. A claim
+  carries text + quote + anchor + `about`; it has no slot for *why this
+  assertion carries the article's argument*, which outside sources the
+  article leans on, or what it leaves open. That reasoning structure is
+  what makes a corpus interrogable rather than a pile of quotes, and it
+  is currently discarded at accept time.
+
+  **The move that removes the redundancy:** 30070 **references** claims
+  by `a`-coordinate and never restates their quotes. One copy of a
+  quote exists on the wire — in the claim — so an edited claim can
+  never leave two signed events disagreeing about the same span. 30070
+  is an analysis layer *over* published claims, not a second copy of
+  them.
+
+  **What it takes to satisfy the rule:** the `why` is not inherently
+  unpublishable, it is merely un*reviewed* today — the accept path
+  mints a claim from text + quote and silently drops the rationale.
+  MA.6 therefore extends the review surface first: a rationale is
+  editable and accepted alongside its atom (the review modal's existing
+  pattern — a content edit flips provenance to `user`), and the
+  record-level `sources` / `open_questions` become individually
+  acceptable items rather than automatic ones. Accepting a rationale is
+  OPTIONAL: an atom accepted without one publishes as a bare claim
+  reference, which is the honest representation of "I endorsed the
+  claim, not a rationale for it".
+
+  **Scope guard — `why` is article-intrinsic here.** "Load-bearing" is
+  load-bearing *for* something, and case-scoped `load_bearing` with a
+  `why` already publishes on the kind-30068 CaseBrief. 30070's
+  rationale answers only *"why this claim carries THIS ARTICLE's
+  argument"* (corpus-v7 made extraction article-intrinsic); anything
+  case-relative belongs to the brief.
+
+  **Grafted from the panel's losing designs** (their real
+  contributions, absorbed without their publishing posture):
+  cross-machine merge — a fetched foreign 30070 must fold through the
+  same span-dedup discipline as `mergeExtractionRecords`, which means
+  the wire must carry enough to re-locate a span in the reader's OWN
+  copy of the article rather than trusting foreign offsets (the
+  `TextPositionSelector`-is-verification-only rule in
+  `docs/NIP_DRAFT.md` already states exactly this, and applies here).
+
+  **Deliberately NOT published:** open atoms, dismissed atoms, model
+  rationales the human did not accept, `merged_keys`, and any
+  `caseName`/`scopeQuestion` frame. Coverage counts
+  (`dropped_ungrounded`, atoms-not-accepted) are a P6 question settled
+  in the slice: counts may publish because they disclose the shape of
+  what was examined, but never the examined text itself.
 - **Adjacent (2026-07-25): backup merge-import.** `mergeBackup`
   (backup.js) accrues a backup file into the live corpus — content
   only, add-if-missing by id, nothing local deleted or overwritten —
