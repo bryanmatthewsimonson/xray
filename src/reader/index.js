@@ -41,6 +41,10 @@ import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { ForensicModel, ForensicBaseline } from '../shared/forensic-model.js';
 import { openFindingModal, openBaselineModal } from '../shared/forensic-modal.js';
 import { renderFindingsBar } from './findings-section.js';
+import { renderExtractionBar } from './extraction-bar.js';
+import {
+    recordArticleExtraction, suggestExtractFromProposals, assertionClaimCoverage
+} from '../shared/map-artifacts.js';
 import { shouldOfferArchive, describeMetric } from './archive-banner.js';
 import { archivedDraftIsCanonical, archivedDraftSource } from '../shared/archive-draft.js';
 import { openLlmReview } from './llm-review.js';
@@ -58,7 +62,8 @@ import { importAuditJson } from '../shared/audit/import.js';
 import { AuditRunModel, PredictionModel, ResolutionModel, staleModules } from '../shared/audit/audit-model.js';
 import {
     listResolutions as listAuditResolutions,
-    getPendingSuggestions, deletePendingSuggestions
+    getPendingSuggestions, deletePendingSuggestions,
+    getArticleExtraction
 } from '../shared/audit/audit-cache.js';
 import { assembleAuditBatch } from '../shared/audit/publish-batch.js';
 import { CURRENT_MODULE_VERSIONS, MODULE_NAMES } from '../shared/audit/findings-schemas.js';
@@ -367,6 +372,9 @@ async function adoptArticle(article, stored) {
                 // the hash is known (init wired it before this resolved).
                 refreshAuditStatus().catch((err) =>
                     console.warn('[X-Ray Reader] audit status failed:', err));
+                // MA.2b — the extraction record keys on the same hash.
+                refreshExtractionBar().catch((err) =>
+                    console.warn('[X-Ray Reader] extraction bar failed:', err));
             } catch (err) {
                 console.warn('[X-Ray Reader] article hash failed:', err);
             }
@@ -455,6 +463,8 @@ async function adoptArticle(article, stored) {
         updateHashLine();
         refreshAuditStatus().catch((err) =>
             console.warn('[X-Ray Reader] audit status failed:', err));
+        refreshExtractionBar().catch((err) =>
+            console.warn('[X-Ray Reader] extraction bar failed:', err));
     }
 
     // Archive-reader affordance — if this capture looks paywalled OR
@@ -1231,7 +1241,12 @@ async function loadArchivedArticle(archived, provenance) {
     state.hashDirty = false;
     if (!state.articleHash) {
         canonicalArticleHash(EventBuilder.assembleArticleBody(hashableArticle(state.article)))
-            .then((h) => { state.articleHash = h; updateHashLine(); })
+            .then((h) => {
+                state.articleHash = h;
+                updateHashLine();
+                // The extraction record keys on this hash (MA.2b).
+                refreshExtractionBar().catch(() => { /* display refresh only */ });
+            })
             .catch((err) => console.warn('[X-Ray Reader] archive hash failed:', err));
     }
 
@@ -1865,6 +1880,7 @@ async function reconstructWithLlmFlow() {
         state.hashDirty = false;
         updateHashLine();
         refreshAuditStatus().catch(() => { /* display refresh only */ });
+        refreshExtractionBar().catch(() => { /* display refresh only */ });
     } catch (err) {
         console.warn('[X-Ray Reader] post-reconstruction hash failed:', err);
     }
@@ -2102,6 +2118,7 @@ function renderReader() {
     refreshClaimsBar().catch((err) => console.warn('[X-Ray Reader] claims-bar render failed:', err));
     refreshEntitiesBar().catch((err) => console.warn('[X-Ray Reader] entities-bar render failed:', err));
     refreshFindingsBar().catch((err) => console.warn('[X-Ray Reader] findings-bar render failed:', err));
+    refreshExtractionBar().catch((err) => console.warn('[X-Ray Reader] extraction bar failed:', err));
 
     // Re-fill the hash line — the template above recreates it hidden,
     // and the hash (computed async at load) may already be known.
@@ -2302,6 +2319,121 @@ function captureSelectionSeed() {
         const captured = captureFromRange(range, body);
         return { quote, selector: captured ? captured.selectors : null };
     } catch (_) { return { quote, selector: null }; }
+}
+
+/**
+ * MA.4 — fold the suggest pass's claim proposals into this article's
+ * durable extraction record, so both producers of claim-shaped atoms
+ * (the corpus map stage and this reader pass) accumulate in ONE layer.
+ *
+ * Two invariants this must respect, both learned the hard way:
+ *
+ *  1. GROUND AGAINST THE CANONICAL TEXT, not the rendered body. The
+ *     record's spans index `assembleArticleBody(hashableArticle(...))`
+ *     — the same text the articleHash covers and the map stage sent.
+ *     The review modal grounds against the rendered DOM text, which
+ *     can differ. Folding reader-side offsets would store spans that
+ *     index nothing, so the merge re-grounds every quote here; one
+ *     that cannot be located in the canonical text is dropped and
+ *     counted, never stored ungrounded (guard rail 3).
+ *  2. ONLY WHEN THE HASH DESCRIBES THE BODY. An edited body dirties
+ *     the hash (`claimArticleHash()` returns null), and the record is
+ *     keyed BY that hash — folding then would attach this text's
+ *     assertions to a different text's identity. Skip instead.
+ *
+ * Never throws; a fold failure must not disturb the review flow.
+ */
+async function foldSuggestionsIntoRecord(proposals, model) {
+    const hash = claimArticleHash();
+    if (!hash) return { status: 'skipped-unhashed' };
+    const extract = suggestExtractFromProposals(proposals);
+    if (extract.key_assertions.length === 0) return { status: 'skipped-empty' };
+    const canonicalText = EventBuilder.assembleArticleBody(hashableArticle(state.article)) || '';
+    if (!canonicalText) return { status: 'skipped-no-text' };
+    return recordArticleExtraction({
+        member: {
+            article_hash: hash,
+            url: state.article.url || null,
+            title: state.article.title || null,
+            text: canonicalText
+        },
+        extract,
+        model: model || '',
+        producer: 'suggest'
+        // No `key`: the suggest pass has no input fingerprint to dedup
+        // on, so the merge's span-dedup is what makes a re-run a no-op
+        // (and a keyless fold reports changed:false when nothing is new).
+    });
+}
+
+/**
+ * Render the extracted-assertions bar (MA.2b): this capture's DURABLE
+ * map-artifact record, so a mapping run is verifiable from the article
+ * itself. Keyed by the canonical content hash (NOT the URL) — same key
+ * the record is stored under, so same-content captures share one record
+ * and an edited body never inherits the old text's assertions.
+ *
+ * Read-only: quotes are click-to-locate in the body (selection only, no
+ * DOM mutation — the body is contenteditable and syncs the draft), and
+ * triage stays in the portal case dashboard where the case context a
+ * minted claim needs is available.
+ */
+async function refreshExtractionBar() {
+    const host = $('#xr-extraction-host');
+    if (!host) return;
+    if (!state.articleHash) { host.innerHTML = ''; return; }
+
+    let record = null;
+    let priorRuns = 0;
+    try {
+        record = await getArticleExtraction(state.articleHash);
+        // Records anchored to a RETAINED PRIOR version of this URL's
+        // text: assertions are exact spans, so they never transfer
+        // across edits. Say so rather than render nothing (the audit
+        // panel's honesty convention).
+        const cached = state.article && state.article.url
+            ? await ArchiveCache.getArticle(state.article.url) : null;
+        for (const v of (cached && cached.priorVersions) || []) {
+            if (!v || !v.articleHash || v.articleHash === state.articleHash) continue;
+            const prior = await getArticleExtraction(v.articleHash);
+            if (prior && (prior.assertions || []).length) priorRuns += 1;
+        }
+    } catch (err) {
+        // Display-only surface: a read failure must never break the
+        // reader. Log and render nothing.
+        console.warn('[X-Ray Reader] extraction bar read failed:', err);
+        host.innerHTML = '';
+        return;
+    }
+
+    // MA.4 — which atoms are already covered by a captured claim,
+    // computed on read against the CURRENT claim set (never stored).
+    // Without this, a claim accepted in the review modal would keep
+    // reading as an open proposal here while the case dashboard
+    // (which has always computed coverage) showed it as covered.
+    let coverage = {};
+    try {
+        // getBySourceUrl returns an ARRAY of claims (url-normalized +
+        // alias-resolved join), not a map.
+        const claims = (state.article && state.article.url)
+            ? await ClaimModel.getBySourceUrl(state.article.url) : [];
+        const canonicalText = EventBuilder.assembleArticleBody(hashableArticle(state.article)) || '';
+        coverage = assertionClaimCoverage(record, {
+            text: canonicalText,
+            claims: claims.map((c) => ({ id: c.id, quote: c.quote || null }))
+        });
+    } catch (_) { coverage = {}; }
+
+    host.innerHTML = renderExtractionBar(record, { priorRuns, coverage });
+
+    for (const q of host.querySelectorAll('[data-action="locate"]')) {
+        q.addEventListener('click', () => {
+            const quote = q.getAttribute('data-quote') || '';
+            if (!locateQuoteInBody(quote)) {
+                toast('Could not locate that span in the current text', 'info', 2000);
+            }
+        });
+    }
 }
 
 /**
@@ -2538,6 +2670,11 @@ async function applyMediaResult(result) {
         state.auditableHash = slicedHash;
         updateHashLine();
         refreshAuditStatus().catch(() => {});
+        // Attaching a transcript CHANGES the canonical text, so the old
+        // text's extraction record no longer applies to this capture —
+        // re-resolve rather than leave a stale bar on screen (MA.2b's
+        // prior-version disclosure handles the old record).
+        refreshExtractionBar().catch(() => { /* display refresh only */ });
     } catch (err) {
         console.warn('[X-Ray Reader] attach hash failed:', err);
     }
@@ -2865,6 +3002,14 @@ async function runSuggestPass() {
  */
 async function reviewSuggestions(proposals, model) {
     const articleText = articleBodyText();
+    // MA.4 — the suggest pass's claim proposals become DURABLE atoms in
+    // this article's extraction record BEFORE the modal opens, so
+    // closing the review no longer discards paid analysis: whatever is
+    // not accepted now stays reviewable in the case dashboard and the
+    // reader's extraction bar, deduped against whatever the corpus map
+    // stage found for the same spans.
+    foldSuggestionsIntoRecord(proposals, model)
+        .catch((err) => console.warn('[X-Ray Reader] suggestion fold failed:', err));
     return openLlmReview({
         proposals,
         model,
@@ -4722,6 +4867,7 @@ async function publish() {
             state.articleHash = publishedXTag[1];
             state.hashDirty = false;
             updateHashLine();
+            refreshExtractionBar().catch(() => { /* display refresh only */ });
         }
 
         btn.textContent = totalEvents > 1 ? `Publishing (1/${totalEvents})…` : 'Publishing…';
@@ -6681,6 +6827,7 @@ async function init() {
         }
     });
     refreshAuditStatus().catch((err) => console.warn('[X-Ray Reader] audit status failed:', err));
+    refreshExtractionBar().catch((err) => console.warn('[X-Ray Reader] extraction bar failed:', err));
 
     // Kick off the platform-specific data fetch, if any.
     // Non-blocking — the reader is already interactive.

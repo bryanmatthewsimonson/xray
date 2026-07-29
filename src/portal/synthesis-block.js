@@ -17,7 +17,9 @@ import { el, truncate } from './dom.js';
 import { Utils } from '../shared/utils.js';
 import { AssessmentModel } from '../shared/assessment-model.js';
 import { orchestrateModuleRuns } from '../shared/audit/run-orchestrator.js';
-import { getCaseBrief, saveCaseBrief, getCorpusExtract, saveCorpusExtract } from '../shared/audit/audit-cache.js';
+import {
+    getCaseBrief, saveCaseBrief, getCorpusExtract, saveCorpusExtract, getArticleExtraction
+} from '../shared/audit/audit-cache.js';
 import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { CORPUS_PROMPT_VERSION } from '../shared/corpus-prompts.js';
 import {
@@ -26,6 +28,9 @@ import {
     filterProposals, computeEntitySummary, foldMemberAliases
 } from '../shared/case-synthesis.js';
 import { renderProposals } from './synthesis-review.js';
+import {
+    recordArticleExtraction, unionExtractWithRecord, reduceExtractFromRecord
+} from '../shared/map-artifacts.js';
 import { Signer } from '../shared/signer.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
@@ -473,15 +478,17 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
         const memberHashes = new Set(members.map((m) => m.article_hash));
 
         // Hoisted for BOTH LLM passes (Analyze and Pre-analyze): the
-        // case frame, the member lookup, the cache plan, and the map
-        // stage itself. Requests come from corpusMapRequest — the ONE
-        // builder both paths share, so a pre-analyzed extract's cache
-        // key can never drift from the key Analyze later computes.
+        // case frame (reduce + fold provenance only — the map is
+        // case-free since corpus-v7), the member lookup, the cache
+        // plan, and the map stage itself. Requests come from
+        // corpusMapRequest — the ONE builder every map consumer shares,
+        // so a pre-analyzed extract's cache key can never drift from
+        // the key Analyze later computes.
         const caseName = data.case.name || '';
         const scopeQuestion = (dossier.scope && dossier.scope.question) || '';
         const unitById = {};
         for (const m of members) unitById[m.article_hash] = m;
-        const reqOf = (m) => corpusMapRequest(m, { caseName, scopeQuestion });
+        const reqOf = (m) => corpusMapRequest(m);
 
         // The cache plan: every member's cache key, the valid hits, and
         // what an LLM pass would actually send.
@@ -508,14 +515,27 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                 concurrency: 2,
                 onProgress,
                 send: async (id) => {
+                    // MA.1: every extract — cached or fresh — also folds into
+                    // the durable per-article record. Never rejects; a hit's
+                    // fold is O(1) once its fingerprint is in merged_keys, and
+                    // hit-folding backfills records for extracts prepaid
+                    // before the artifact layer existed.
+                    const fold = (extract, model) => recordArticleExtraction({
+                        member: unitById[id], extract, model,
+                        frame: { caseName, scopeQuestion }, key: keyByHash[id]
+                    });
                     const cached = cachedByHash[id];
-                    if (cached) return { ok: true, findings: cached.extract, model: cached.model };
+                    if (cached) {
+                        fold(cached.extract, cached.model);
+                        return { ok: true, findings: cached.extract, model: cached.model };
+                    }
                     const res = await sendMessage({ type: 'xray:llm:corpus-map', request: reqOf(unitById[id]) });
                     if (!res || !res.ok) return { ...(res || {}), ok: false };
                     const v = validateCorpusExtract(res.extract);
                     if (!v.ok) return { ok: false, error: 'invalid extract' };
                     saveCorpusExtract({ key: keyByHash[id], extract: res.extract, model: res.model, cachedAt: Math.floor(Date.now() / 1000) })
                         .catch((err) => Utils.error('saveCorpusExtract failed', err));
+                    fold(res.extract, res.model);
                     return { ok: true, findings: res.extract, model: res.model };
                 }
             });
@@ -571,9 +591,15 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
             // "141/147 members analyzed" when some failed, else just the
             // count — matches the exported/published brief's coverage note.
             const totalMembers = record.members != null ? record.members : members.length;
-            const membersLabel = (Number.isFinite(record.analyzed) && record.analyzed < totalMembers)
+            // MA.3: `analyzed` counts members that CONTRIBUTED, including
+            // any recovered from a stored extraction record after a failed
+            // live call. Recovery must not silently paper over a partial
+            // run (P6/P12) — it is disclosed on its own, so "147 members"
+            // never implies 147 fresh passes.
+            const membersLabel = ((Number.isFinite(record.analyzed) && record.analyzed < totalMembers)
                 ? `${record.analyzed}/${totalMembers} members analyzed`
-                : `${totalMembers} members`;
+                : `${totalMembers} members`)
+                + (record.recovered ? ` (${record.recovered} from stored extraction records, not this run)` : '');
             const prov = el('div', 'xr-synth__prov',
                 `${record.model || 'model'} · ${record.promptVersion || CORPUS_PROMPT_VERSION} · `
                 + `${g.checked} quote${g.checked === 1 ? '' : 's'} checked, ${g.dropped} dropped · `
@@ -619,7 +645,7 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                 const md = renderCaseBriefMarkdown(record.brief, {
                     caseName, scopeQuestion, memberCount: record.members, memberIndex: memberByHash, entitySummary,
                     provenance: { npub, pubkeyHex, relays },
-                    coverage: { analyzed: record.analyzed, failed: record.failed }
+                    coverage: { analyzed: record.analyzed, failed: record.failed, recovered: record.recovered }
                 });
                 downloadFile(`case-brief-${fileSlug(caseName)}.md`, md, 'text/markdown');
             });
@@ -777,12 +803,41 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                 // locally, by quote-span overlap. Cached-before-claims
                 // extracts link here too — fresher than a frozen map-time
                 // link ever was.
-                const extracts = Object.entries(modules).map(([hash, extract]) => ({
-                    article_hash: hash, title: (unitById[hash] || {}).title || null,
-                    extract: unitById[hash]
-                        ? linkAssertionsToClaims(extract, unitById[hash], indexByMember[hash])
-                        : extract
-                }));
+                //
+                // MA.3 — the durable layer feeds the reduce: each live
+                // extract is unioned with the member's accumulated
+                // article-extractions record (span-dedup, live-first), so
+                // this run benefits from what earlier prompts, frames, and
+                // pre-analyses already found. A member whose live call
+                // FAILED but whose record holds prior analysis is
+                // recovered from the record instead of dropped.
+                // Iterated per MEMBER but deduped by article_hash: same-
+                // content captures share a hash (foldMemberAliases above),
+                // and feeding one artifact to the reduce twice would read
+                // as two independent sources (P4/P9) — the old
+                // Object.entries(modules) shape was unique by construction.
+                const extracts = [];
+                const seenExtract = new Set();
+                let recovered = 0;
+                for (const m of members) {
+                    const hash = m.article_hash;
+                    if (seenExtract.has(hash)) continue;
+                    seenExtract.add(hash);
+                    const live = modules[hash] || null;
+                    const rec = await getArticleExtraction(hash).catch(() => null);
+                    let extract = live;
+                    if (live && rec) {
+                        extract = unionExtractWithRecord(live, rec, indexByMember[hash]);
+                    } else if (!live && rec) {
+                        extract = reduceExtractFromRecord(rec);
+                        if (extract) recovered += 1;
+                    }
+                    if (!extract) continue;
+                    extracts.push({
+                        article_hash: hash, title: m.title || null,
+                        extract: linkAssertionsToClaims(extract, m, indexByMember[hash])
+                    });
+                }
                 if (extracts.length === 0) {
                     status.textContent = `No articles could be analyzed (${failures.length} failed).`;
                     return;
@@ -837,6 +892,7 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                     inputHash: liveHash, model: reduce.model, promptVersion: CORPUS_PROMPT_VERSION,
                     members: members.length,
                     analyzed: extracts.length, failed: failures.length,
+                    recovered,
                     cached: cachedCount,
                     usage: reduce.usage || null,
                     triage: (prior && prior.triage) || {}
@@ -853,7 +909,9 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                 catch (err) { saved = false; Utils.error('saveCaseBrief failed', err); }
 
                 const coverageNote = failures.length
-                    ? ` (${extracts.length} of ${members.length} members analyzed; ${failures.length} failed)`
+                    ? ` (${extracts.length} of ${members.length} members analyzed`
+                        + (recovered ? ` — ${recovered} recovered from stored extraction records` : '')
+                        + `; ${Math.max(0, failures.length - recovered)} unavailable)`
                     : '';
                 const cacheNote = cachedCount ? ` — ${cachedCount} reused from cache` : '';
                 const saveNote = saved ? '' : ' — could NOT be saved (see console); it will be lost on reload';

@@ -181,12 +181,15 @@ test('CA.4: digestDossier carries audit_coverage when a rollup is given — dist
     }
 });
 
-test('case-synthesis: corpusExtractKey keys on MAP_PROMPT_VERSION, not the overall version (map cache survives reduce bumps)', async () => {
-    const { MAP_PROMPT_VERSION, CORPUS_PROMPT_VERSION } = await import('../src/shared/corpus-prompts.js');
-    const req = { memberText: 'body', claimsDigest: 'c1 — x', caseName: 'c', scopeQuestion: 'q', memberMeta: { title: 'T', url: 'u' } };
+test('case-synthesis: corpusExtractKey keys on MAP_PROMPT_VERSION, and a version change moves it', async () => {
+    const { MAP_PROMPT_VERSION } = await import('../src/shared/corpus-prompts.js');
+    const req = { memberText: 'body', memberMeta: { title: 'T', url: 'u' } };
     const dflt = await CS.corpusExtractKey(req);
     assert.equal(dflt, await CS.corpusExtractKey(req, MAP_PROMPT_VERSION), 'default keys on MAP_PROMPT_VERSION');
-    assert.notEqual(dflt, await CS.corpusExtractKey(req, CORPUS_PROMPT_VERSION), 'overall version differs — a reduce bump would NOT move the cache key');
+    // A map-input change (a future v8) must orphan the exact-reuse
+    // cache; the versions happen to coincide at v7, so prove the
+    // version participates with an explicit different string.
+    assert.notEqual(dflt, await CS.corpusExtractKey(req, 'corpus-vNEXT'), 'the version participates in the key');
 });
 
 test('case-synthesis: corpusMapRequest is THE shared request shape — pre-analyze and Analyze compute one key', async () => {
@@ -203,25 +206,31 @@ test('case-synthesis: corpusMapRequest is THE shared request shape — pre-analy
             { id: 'c2', text: 'two', quote: 'q', is_key: true, stance: 1 }
         ]
     };
-    const frame = { caseName: 'legos', scopeQuestion: 'who took them?' };
-    const req = CS.corpusMapRequest(member, frame);
+    const req = CS.corpusMapRequest(member);
     assert.deepEqual(req, {
         member_id: 'a'.repeat(64),
         memberText: 'Body text.',
-        memberMeta: { title: 'T', url: 'https://x/a' },
-        caseName: 'legos', scopeQuestion: 'who took them?'
+        memberMeta: { title: 'T', url: 'https://x/a' }
     });
     // Two independent builds → byte-identical cache keys.
     assert.equal(
-        await CS.corpusExtractKey(CS.corpusMapRequest(member, frame)),
+        await CS.corpusExtractKey(CS.corpusMapRequest(member)),
         await CS.corpusExtractKey(req));
     // THE corpus-v4 invariant: the member's claims are NOT in the
     // request — extracting claims later (the import → pre-analyze →
     // read-and-extract workflow) never orphans a cached extract.
     assert.equal(
-        await CS.corpusExtractKey(CS.corpusMapRequest({ ...member, claims: [] }, frame)),
+        await CS.corpusExtractKey(CS.corpusMapRequest({ ...member, claims: [] })),
         await CS.corpusExtractKey(req),
         'claim changes never move the map cache key');
+    // THE corpus-v7 invariant (MA.5): no case frame in the request or
+    // the key — smuggled frame fields must not move it either, so one
+    // extract serves every case and entity page (paid once, ever).
+    assert.ok(!('caseName' in req) && !('scopeQuestion' in req), 'the request carries no frame');
+    assert.equal(
+        await CS.corpusExtractKey({ ...req, caseName: 'other case', scopeQuestion: 'other q?' }),
+        await CS.corpusExtractKey(req),
+        'case re-framing never moves the map cache key');
 });
 
 test('case-synthesis: linkAssertionsToClaims joins by quote-span overlap — local, current, never a guess', () => {
@@ -299,9 +308,9 @@ test('case-synthesis: proposalKey is stable and direction-insensitive for relati
     assert.equal(CS.proposalKey({ kind: 'claim', article_hash: 'A', text: 't' }), 'claim:A|t');
 });
 
-test('case-synthesis: corpusExtractKey is stable on identical inputs, changes on text/frame/prompt — NEVER on claims', async () => {
+test('case-synthesis: corpusExtractKey is stable on identical inputs, changes on text/prompt — NEVER on claims or frame', async () => {
     const base = { member_id: 'a'.repeat(64), memberText: 'Body text.',
-        caseName: 'covid', scopeQuestion: 'origin?', memberMeta: { title: 'T', url: 'https://x/a' } };
+        memberMeta: { title: 'T', url: 'https://x/a' } };
     const k = await CS.corpusExtractKey(base);
     assert.match(k, /^[0-9a-f]{64}$/);
     // Same inputs → same key (deterministic reuse).
@@ -312,11 +321,17 @@ test('case-synthesis: corpusExtractKey is stable on identical inputs, changes on
     // (an old caller, an old cached request) must not move the key.
     assert.equal(await CS.corpusExtractKey({ ...base, claimsDigest: 'c1 — one' }), k,
         'claims never invalidate the map cache');
+    // corpus-v7: the case frame is NOT map input either — stray frame
+    // fields (an old caller, an old cached request) must not move the
+    // key. One extract per article, ever, across every case.
+    assert.equal(await CS.corpusExtractKey({ ...base, caseName: 'other' }), k,
+        'case name never invalidates the map cache');
+    assert.equal(await CS.corpusExtractKey({ ...base, scopeQuestion: 'edited?' }), k,
+        'scope question never invalidates the map cache');
     // Each real input flips the key — these are the invalidation triggers.
     assert.notEqual(await CS.corpusExtractKey({ ...base, memberText: 'Edited body.' }), k, 'body edit');
     assert.notEqual(await CS.corpusExtractKey(base, 'corpus-v9'), k, 'prompt-version bump');
-    assert.notEqual(await CS.corpusExtractKey({ ...base, caseName: 'other' }), k, 'case framing');
-    assert.notEqual(await CS.corpusExtractKey({ ...base, scopeQuestion: 'edited?' }), k, 'scope question');
+    assert.notEqual(await CS.corpusExtractKey({ ...base, memberMeta: { title: 'T2', url: 'https://x/a' } }), k, 'title change');
 });
 
 test('case-synthesis: corpusInputHash is order-insensitive but sensitive to membership + prompt', async () => {

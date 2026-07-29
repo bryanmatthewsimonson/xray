@@ -284,7 +284,19 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   level) + case-dashboard workflow declutter, known-entity vocabulary
   injection, the opt-in `autoPreAnalyze` capture prepay, the fact-layer
   retirement, and **Entity Pages** (`docs/ENTITY_PAGE_KICKOFF.md` —
-  EP.1–EP.5, the claims-first knowledge artifacts). The FLF Epistack
+  EP.1–EP.5, the claims-first knowledge artifacts). A **map-artifact
+  wave** (2026-07-24/25, `docs/MAP_ARTIFACT_KICKOFF.md`) then made the
+  corpus map stage's output DURABLE: per-article `article-extractions`
+  records (`xray-audits` v7, span-dedup merge, human triage on the
+  record; `shared/map-artifacts.js`), review surfaces in the case
+  dashboard + reader, the map went CASE-FREE (corpus-v7 — one extract
+  per article ever, shared across cases/entity pages; the old
+  corpus-v4 claims-independent cache key is superseded), the reduce
+  reads the accumulated layer, the reader's Suggest pass folds into the
+  SAME layer (MA.4 — one span-dedup rule across both producers, a
+  `producer` stamp, claims-only scope), and backups gained
+  **merge-import** (`mergeBackup` — accrual by id, local wins,
+  config/identities never merged). The FLF Epistack
   entry has been submitted (deadline was 2026-07-19); the tool continues
   to be tailored **maintainer-driven from real casework (COVID first)**.
   The 0.8.0 smoke walk passed (2026-07-20; Phases 11–15

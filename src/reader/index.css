@@ -1518,6 +1518,52 @@ body {
   border-radius: 10px;
 }
 
+/* --- Extracted assertions (MA.2b) — the per-article view of the
+   durable map artifacts. Read-only: quotes locate in the body, triage
+   happens in the portal case dashboard. Deliberately plain — these are
+   proposals awaiting a human, never findings. */
+.xr-extract {
+  max-width: var(--xr-reader-max-w);
+  margin: 0 auto 16px;
+  padding: 14px 24px 16px;
+  background: var(--xr-surface);
+  border: 1px solid var(--xr-border);
+  border-radius: 10px;
+}
+.xr-extract__head { display: flex; align-items: center; gap: 8px; }
+.xr-extract__title { margin: 0; font-size: 16px; font-weight: 600; }
+.xr-extract__gap { flex: 1; }
+.xr-extract__durable {
+  border: 1px dashed var(--xr-border); border-radius: 4px;
+  padding: 0 6px; font-size: 11px; opacity: 0.8;
+}
+.xr-extract__counts { color: var(--xr-text-dim); font-size: 12.5px; }
+.xr-extract__prov { color: var(--xr-text-dim); font-size: 12px; margin-top: 4px; }
+.xr-extract__note {
+  color: var(--xr-text-dim); font-size: 12.5px; line-height: 1.5; margin-top: 8px;
+}
+.xr-extract__hint {
+  color: var(--xr-text-dim); font-size: 12.5px; line-height: 1.5; margin-top: 8px;
+}
+.xr-extract__list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.xr-extract__row--settled { opacity: 0.7; }
+.xr-extract__quote {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--xr-border);
+  background: var(--xr-surface-2);
+  border-radius: 0 6px 6px 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.xr-extract__quote:hover { border-left-color: var(--xr-primary, #8b5cf6); }
+.xr-extract__why { color: var(--xr-text-dim); font-size: 12.5px; margin: 3px 0 0 13px; }
+.xr-extract__status { color: var(--xr-text-dim); font-size: 12px; margin: 3px 0 0 13px; }
+.xr-extract__more { margin-top: 10px; font-size: 13px; }
+.xr-extract__more > summary { cursor: pointer; color: var(--xr-text-dim); }
+.xr-extract__ul { margin: 8px 0 0; padding-left: 20px; font-size: 13px; line-height: 1.6; }
+
 .xr-findings__head {
   display: flex;
   align-items: center;

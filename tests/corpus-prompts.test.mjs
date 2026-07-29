@@ -8,14 +8,15 @@ const CP = await import('../src/shared/corpus-prompts.js');
 test('corpus-prompts: tool names + versions pinned (map/overall split)', () => {
     assert.equal(CP.MAP_TOOL_NAME, 'emit_corpus_extract');
     assert.equal(CP.REDUCE_TOOL_NAME, 'emit_case_brief');
-    assert.equal(CP.CORPUS_PROMPT_VERSION, 'corpus-v6');
     // Cache-preservation invariant: MAP_PROMPT_VERSION gates the map-extract
     // cache key — bumping it orphans every cached extract, so it moves only
     // on a real MAP input change. corpus-v4 was one (the claims digest left
-    // the map input — the claims-independent cache). A reduce-only change
-    // bumps CORPUS_PROMPT_VERSION (staleness) but NOT this.
-    assert.equal(CP.MAP_PROMPT_VERSION, 'corpus-v4');
-    assert.notEqual(CP.MAP_PROMPT_VERSION, CP.CORPUS_PROMPT_VERSION);
+    // the map input); corpus-v7 was one too (the CASE FRAME left — the
+    // case-free, pay-once extract, MA.5). A reduce-only change bumps
+    // CORPUS_PROMPT_VERSION (staleness) but NOT this. The two versions
+    // re-converged at v7 (both sides changed); they may diverge again.
+    assert.equal(CP.MAP_PROMPT_VERSION, 'corpus-v7');
+    assert.equal(CP.CORPUS_PROMPT_VERSION, 'corpus-v7');
 });
 
 test('corpus-prompts: the reduce prompt asks for FULL holders + all major cruxes (breadth)', () => {
@@ -86,5 +87,24 @@ test('corpus-prompts: the map input is claims-blind (corpus-v4 — the stable-ca
     assert.ok(!/EXISTING CLAIMS/.test(out), 'no claims digest section');
     const schemaJson = JSON.stringify(CP.buildMapTool().input_schema);
     assert.ok(!schemaJson.includes('claim_ref'), 'the map tool no longer asks the model for claim links');
-    assert.ok(!/claim_ref/.test(CP.buildMapSystemPrompt({ caseName: 'c' })), 'no claim-linking rule in the system prompt');
+    assert.ok(!/claim_ref/.test(CP.buildMapSystemPrompt()), 'no claim-linking rule in the system prompt');
+});
+
+test('corpus-prompts: the map input is CASE-blind too (corpus-v7 — the pay-once pin, MA.5)', () => {
+    // The case frame must never re-enter the map input: its absence is
+    // what makes one extract serve every case and entity page. Relating
+    // the article to a case's question is the REDUCE's job — that
+    // prompt still takes the frame.
+    const sys = CP.buildMapSystemPrompt();
+    assert.equal(CP.buildMapSystemPrompt.length, 0, 'the map system prompt takes NO frame');
+    assert.ok(!/case corpus|The case:|question it investigates/.test(sys),
+        'no case framing in the map system prompt');
+    assert.match(sys, /its own central\s*\n?\s*question/, 'position is article-intrinsic');
+    assert.match(sys, /VERBATIM/, 'the grounding contract survives the reframe');
+    const user = CP.buildMapUserPrompt({ memberText: 'body', memberMeta: { title: 'T', url: 'u' } });
+    assert.ok(!/case/i.test(user), 'no case text in the map user prompt');
+    // The reduce, by contrast, IS case-framed — the frame moved, it did
+    // not disappear.
+    assert.match(CP.buildReduceSystemPrompt({ caseName: 'Origins', scopeQuestion: 'Where?' }),
+        /"Origins"/);
 });

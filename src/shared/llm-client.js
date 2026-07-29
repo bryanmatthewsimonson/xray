@@ -713,8 +713,10 @@ async function corpusGate() {
 /**
  * MAP: one member article → its position + load-bearing assertions.
  * Mirrors runAuditModulePass. Echoes `member_id` for the orchestrator.
+ * Case-free since corpus-v7 (MA.5): the request carries no frame — the
+ * extract is article-intrinsic and shared across cases/entity pages.
  *
- * @param {object} req { member_id, memberText, memberMeta?, caseName?, scopeQuestion? }
+ * @param {object} req { member_id, memberText, memberMeta? }
  */
 export async function runCorpusMapPass(req = {}) {
     const gate = await corpusGate();
@@ -728,7 +730,7 @@ export async function runCorpusMapPass(req = {}) {
     const payload = {
         model,
         max_tokens: MAX_MAP_OUTPUT_TOKENS,
-        system: buildMapSystemPrompt({ caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '' }),
+        system: buildMapSystemPrompt(),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
         messages: [{ role: 'user', content: buildMapUserPrompt({

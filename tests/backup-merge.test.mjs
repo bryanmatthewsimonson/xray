@@ -1,0 +1,305 @@
+// Backup merge-import (backup.js mergeBackup) — accrual, not
+// replacement. Load-bearing pins:
+//   - CONTENT ONLY: config/identity keys in the file are ignored — a
+//     merge grows the corpus, it never reconfigures the install.
+//   - LOCAL WINS: shared ids keep the local record verbatim; dedup is
+//     by id only (no name-based identity merging, ever).
+//   - NOTHING DELETED: every pre-existing local row and id survives.
+//   - article-extractions deep-merge at the assertion level.
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+await import('fake-indexeddb/auto');
+
+const _stateStore = new Map();
+globalThis.chrome = {
+    storage: {
+        local: {
+            get(keys, cb) {
+                if (keys === null) { cb(Object.fromEntries(_stateStore)); return; }
+                const out = {};
+                for (const k of Array.isArray(keys) ? keys : [keys]) {
+                    if (_stateStore.has(k)) out[k] = _stateStore.get(k);
+                }
+                cb(out);
+            },
+            set(obj, cb) {
+                for (const [k, v] of Object.entries(obj)) _stateStore.set(k, v);
+                cb && cb();
+            },
+            remove(keys, cb) {
+                for (const k of Array.isArray(keys) ? keys : [keys]) _stateStore.delete(k);
+                cb && cb();
+            }
+        }
+    }
+};
+
+const { BACKUP_FORMAT, mergeBackup, mergeStorageValue } = await import('../src/shared/backup.js');
+const { openAuditDb, clear: clearAudits, getRun, listRuns, getArticleExtraction, saveArticleExtraction }
+    = await import('../src/shared/audit/audit-cache.js');
+const { openArchiveDb } = await import('../src/shared/archive-cache.js');
+
+function idbPut(db, storeName, row) {
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readwrite');
+        tx.objectStore(storeName).put(row);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
+function idbGetAll(db, storeName) {
+    return new Promise((resolve, reject) => {
+        const req = db.transaction(storeName, 'readonly').objectStore(storeName).getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+// A real 64-hex content hash — the merge only trusts spans under a
+// text-pinned key (isTextPinnedKey), so a non-hex id would be skipped.
+const HASH_X = 'e'.repeat(64);
+
+const extractionRecord = (over = {}) => ({
+    articleHash: HASH_X, url: 'https://ex.com/x', title: 'X',
+    assertions: [{ key: 'a:0-10', quote: 'local span', start: 0, end: 10, why: 'local why',
+                   status: 'open', accepted_claim_id: null, triaged_at: null,
+                   first_seen: { model: 'm-local', promptVersion: 'corpus-v7', at: 100 } }],
+    sources: [], open_questions: [], positions: [],
+    merged_keys: ['k-local'], dropped_ungrounded: 0, updatedAt: 100,
+    ...over
+});
+
+async function seedLocal() {
+    _stateStore.clear();
+    _stateStore.set('preferences', JSON.stringify({ debug: false, default_relays: ['wss://mine.example'] }));
+    _stateStore.set('local_primary_identity', JSON.stringify({ nsec: 'nsec1MINE', pubkey: 'p'.repeat(64) }));
+    _stateStore.set('xray:llm:key', 'sk-ant-LOCAL');
+    _stateStore.set('article_claims', JSON.stringify({
+        claim_shared: { id: 'claim_shared', text: 'LOCAL version', source_url: 'https://ex.com/a' },
+        claim_local_only: { id: 'claim_local_only', text: 'only mine' }
+    }));
+    _stateStore.set('entities', JSON.stringify({
+        entity_local: { id: 'entity_local', name: 'Mine', type: 'person' }
+    }));
+
+    const audits = await openAuditDb();
+    await clearAudits();
+    await idbPut(audits, 'runs', { id: 'run_shared', articleHash: 'ah1', note: 'LOCAL run' });
+    await saveArticleExtraction(extractionRecord());
+
+    // The archive DB must exist so its dump section merges cleanly.
+    await openArchiveDb();
+}
+
+function foreignBackup() {
+    return {
+        format: BACKUP_FORMAT,
+        exportedAt: '2026-07-20T00:00:00.000Z',
+        includesSourceBytes: true,
+        storage: {
+            // Config the merge must IGNORE:
+            preferences: JSON.stringify({ debug: true, default_relays: ['wss://theirs.example'] }),
+            local_primary_identity: JSON.stringify({ nsec: 'nsec1THEIRS', pubkey: 'q'.repeat(64) }),
+            'xray:llm:key': 'sk-ant-SMUGGLED',
+            // Content that accrues:
+            article_claims: JSON.stringify({
+                claim_shared: { id: 'claim_shared', text: 'FOREIGN version — must not win' },
+                claim_foreign: { id: 'claim_foreign', text: 'theirs, new to me' }
+            }),
+            entities: JSON.stringify({
+                entity_foreign: { id: 'entity_foreign', name: 'Theirs', type: 'organization' }
+            }),
+            // A content key the local side doesn't have at all:
+            evidence_links: JSON.stringify({
+                link_1: { id: 'link_1', source_claim_id: 'claim_foreign', target_claim_id: 'claim_shared', relationship: 'supports' }
+            })
+        },
+        databases: {
+            'xray-audits': {
+                runs: [
+                    { id: 'run_shared', articleHash: 'ah1', note: 'FOREIGN run — must not win' },
+                    { id: 'run_foreign', articleHash: 'ah2', note: 'theirs' }
+                ],
+                'article-extractions': [extractionRecord({
+                    assertions: [
+                        { key: 'a:0-10', quote: 'local span', start: 0, end: 10, why: 'foreign why',
+                          status: 'accepted', accepted_claim_id: 'claim_foreign', triaged_at: 500,
+                          first_seen: { model: 'm-foreign', promptVersion: 'corpus-v7', at: 400 } },
+                        { key: 'a:20-40', quote: 'a foreign-only span here', start: 20, end: 40, why: 'new atom',
+                          status: 'open', accepted_claim_id: null, triaged_at: null,
+                          first_seen: { model: 'm-foreign', promptVersion: 'corpus-v7', at: 400 } }
+                    ],
+                    merged_keys: ['k-foreign'], updatedAt: 400
+                })]
+            },
+            'xray-archive': {
+                source_documents: null   // bytes omitted at export — deliberate
+            },
+            'not-a-covered-db': { anything: [] }
+        }
+    };
+}
+
+test('mergeBackup: content accrues by id, local wins on conflict, nothing deleted', async () => {
+    await seedLocal();
+    const warns = [];
+    const summary = await mergeBackup(foreignBackup(), { warn: (m) => warns.push(m) });
+
+    // storage — the shared claim keeps the LOCAL text; the foreign one arrives.
+    const claims = JSON.parse(_stateStore.get('article_claims'));
+    assert.equal(claims.claim_shared.text, 'LOCAL version');
+    assert.equal(claims.claim_foreign.text, 'theirs, new to me');
+    assert.ok(claims.claim_local_only, 'nothing local deleted');
+    // entities — foreign entity arrives as a DISTINCT record (id-only dedup).
+    const ents = JSON.parse(_stateStore.get('entities'));
+    assert.ok(ents.entity_local && ents.entity_foreign);
+    // a wholly-new content key arrives verbatim.
+    assert.ok(_stateStore.has('evidence_links'));
+    assert.equal(JSON.parse(_stateStore.get('evidence_links')).link_1.relationship, 'supports');
+
+    // databases — runs add-if-missing, local wins on the shared id.
+    assert.equal((await getRun('run_shared')).note, 'LOCAL run');
+    assert.equal((await getRun('run_foreign')).note, 'theirs');
+    assert.equal((await listRuns()).length, 2);
+
+    // the uncovered database was skipped with a warning, not an error.
+    assert.ok(warns.some((w) => w.includes('not-a-covered-db')));
+
+    // summary counts are honest.
+    assert.equal(summary.storage.idsAdded >= 2, true, 'claim_foreign + entity_foreign at least');
+    assert.equal(summary.storage.keysAdded >= 1, true, 'evidence_links was new');
+    assert.equal(summary.databases['xray-audits'].runs.added, 1);
+    assert.equal(summary.databases['xray-audits'].runs.kept, 1);
+    assert.equal(summary.databases['xray-archive'].source_documents.omitted, true);
+});
+
+test('mergeBackup: config and identity in the file are NEVER applied', async () => {
+    await seedLocal();
+    await mergeBackup(foreignBackup());
+    assert.equal(JSON.parse(_stateStore.get('preferences')).default_relays[0], 'wss://mine.example',
+        'preferences untouched');
+    assert.equal(JSON.parse(_stateStore.get('local_primary_identity')).nsec, 'nsec1MINE',
+        'the primary identity can never be swapped by a merge');
+    assert.equal(_stateStore.get('xray:llm:key'), 'sk-ant-LOCAL', 'a smuggled API key is ignored');
+});
+
+test('mergeBackup: article-extractions deep-merge — atoms accrue, foreign triage lands on open atoms', async () => {
+    await seedLocal();
+    await mergeBackup(foreignBackup());
+    const rec = await getArticleExtraction(HASH_X);
+    assert.equal(rec.assertions.length, 2, 'the foreign-only atom accrued');
+    const localAtom = rec.assertions.find((a) => a.key === 'a:0-10');
+    assert.equal(localAtom.why, 'local why', 'the local atom body is untouched');
+    assert.equal(localAtom.status, 'accepted', 'the foreign decision landed on the open local atom');
+    assert.equal(localAtom.accepted_claim_id, 'claim_foreign');
+    assert.ok(rec.merged_keys.includes('k-local') && rec.merged_keys.includes('k-foreign'));
+});
+
+test('mergeBackup: running the SAME merge twice is idempotent', async () => {
+    await seedLocal();
+    await mergeBackup(foreignBackup());
+    const before = {
+        claims: _stateStore.get('article_claims'),
+        runs: (await listRuns()).length,
+        rec: JSON.stringify(await getArticleExtraction(HASH_X))
+    };
+    const second = await mergeBackup(foreignBackup());
+    assert.equal(_stateStore.get('article_claims'), before.claims);
+    assert.equal((await listRuns()).length, before.runs);
+    assert.equal(JSON.stringify(await getArticleExtraction(HASH_X)), before.rec);
+    assert.equal(second.storage.idsAdded, 0);
+    assert.equal(second.databases['xray-audits'].runs.added, 0);
+});
+
+test('mergeBackup: an invalid file throws before touching anything', async () => {
+    await seedLocal();
+    const claimsBefore = _stateStore.get('article_claims');
+    await assert.rejects(() => mergeBackup({ format: 'wrong' }), /invalid backup/);
+    assert.equal(_stateStore.get('article_claims'), claimsBefore);
+});
+
+test('mergeBackup: an UNPINNED (url:) extraction record is skipped, not merged or added', async () => {
+    await seedLocal();
+    const unpinned = extractionRecord({ articleHash: 'url:deadbeefdeadbeef' });
+    const b = foreignBackup();
+    b.databases['xray-audits']['article-extractions'] = [unpinned];
+    const summary = await mergeBackup(b);
+    assert.equal(await getArticleExtraction('url:deadbeefdeadbeef'), null,
+        'a url:-keyed record never lands — its spans index the FOREIGN text');
+    assert.equal(summary.databases['xray-audits']['article-extractions'].skipped, 1);
+    assert.equal(summary.databases['xray-audits']['article-extractions'].added, 0);
+});
+
+test('mergeBackup: idsAdded counts the records INSIDE a wholly-new key (honest summary)', async () => {
+    await seedLocal();
+    _stateStore.delete('evidence_links');   // make the key wholly new
+    const b = foreignBackup();
+    b.storage.evidence_links = JSON.stringify({
+        l1: { id: 'l1' }, l2: { id: 'l2' }, l3: { id: 'l3' }
+    });
+    const summary = await mergeBackup(b);
+    assert.ok(summary.storage.keysAdded >= 1);
+    // 3 links + claim_foreign + entity_foreign = 5 records, not "1 key".
+    assert.ok(summary.storage.idsAdded >= 5,
+        `idsAdded must count records inside new keys (got ${summary.storage.idsAdded})`);
+});
+
+test('mergeBackup: a failing database stage is COLLECTED, not thrown — partial completion is reported', async () => {
+    await seedLocal();
+    const b = foreignBackup();
+    // A row whose keyPath value is an unclonable structure makes the
+    // store.put throw inside the transaction → the stage rejects.
+    b.databases['xray-audits'].runs = [{ id: 'run_boom', bad: () => {} }];
+    const summary = await mergeBackup(b);
+    assert.ok(Array.isArray(summary.errors));
+    assert.equal(summary.errors.length, 1, 'the failure is surfaced, not swallowed and not thrown');
+    assert.equal(summary.errors[0].database, 'xray-audits');
+    // Storage committed BEFORE the databases, so it must still be there.
+    assert.ok(JSON.parse(_stateStore.get('article_claims')).claim_foreign,
+        'what landed before the failure stays landed — re-running is idempotent');
+});
+
+test('mergeBackup: under a NON-default workspace, content merges into THAT workspace only', async () => {
+    const { Storage } = await import('../src/shared/storage.js');
+    await seedLocal();
+    // Another workspace's content must be untouchable, and the active
+    // workspace's content lives under ws:<id>: prefixes.
+    _stateStore.set('ws:ws_other:article_claims', JSON.stringify({ claim_other: { id: 'claim_other' } }));
+    await Storage.setActiveWorkspaceId('ws_mine');
+    _stateStore.set('ws:ws_mine:article_claims', JSON.stringify({
+        claim_shared: { id: 'claim_shared', text: 'MINE under ws_mine' }
+    }));
+    try {
+        await mergeBackup(foreignBackup());
+        const mine = JSON.parse(_stateStore.get('ws:ws_mine:article_claims'));
+        assert.equal(mine.claim_shared.text, 'MINE under ws_mine', 'local wins inside the active workspace');
+        assert.ok(mine.claim_foreign, 'the foreign claim accrued under the ACTIVE workspace prefix');
+        assert.equal(_stateStore.get('ws:ws_other:article_claims'),
+            JSON.stringify({ claim_other: { id: 'claim_other' } }), 'another workspace is untouched');
+        // The bare (default-workspace) key must not gain the foreign content.
+        assert.ok(!JSON.parse(_stateStore.get('article_claims')).claim_foreign,
+            'the default workspace\'s content is not written while ws_mine is active');
+    } finally {
+        await Storage.setActiveWorkspaceId('default');
+        _stateStore.delete('ws:ws_mine:article_claims');
+        _stateStore.delete('ws:ws_other:article_claims');
+    }
+});
+
+test('mergeStorageValue: map-shape guard — non-maps and malformed JSON keep local', () => {
+    assert.equal(mergeStorageValue(JSON.stringify({ a: 1 }), JSON.stringify([1, 2])), null, 'array incoming');
+    assert.equal(mergeStorageValue(JSON.stringify([1]), JSON.stringify({ a: 1 })), null, 'array local');
+    assert.equal(mergeStorageValue('not json', JSON.stringify({ a: 1 })), null, 'malformed local');
+    assert.equal(mergeStorageValue(JSON.stringify({ a: 1 }), 'not json'), null, 'malformed incoming');
+    // Legacy raw-object local values merge and stay raw objects.
+    const legacy = mergeStorageValue({ a: 1 }, JSON.stringify({ a: 9, b: 2 }));
+    assert.equal(legacy.added, 1);
+    assert.deepEqual(legacy.value, { a: 1, b: 2 });
+    // String-encoded local values stay string-encoded.
+    const enc = mergeStorageValue(JSON.stringify({ a: 1 }), JSON.stringify({ b: 2 }));
+    assert.equal(typeof enc.value, 'string');
+    assert.deepEqual(JSON.parse(enc.value), { a: 1, b: 2 });
+});

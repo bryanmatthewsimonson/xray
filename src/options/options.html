@@ -290,16 +290,24 @@
       <div class="xr-opt__actions">
         <button class="xr-opt__btn" id="backup-download">Download full backup</button>
         <button class="xr-opt__btn xr-opt__btn--danger" id="backup-restore">Restore from backup…</button>
+        <button class="xr-opt__btn" id="backup-merge">Import &amp; merge…</button>
         <button class="xr-opt__btn" id="backup-events-bundle">Export signed-events bundle</button>
       </div>
       <p class="xr-opt__hint">
         Restore <strong>replaces</strong> everything with the backup's
         contents — a safety backup of the current data downloads first.
+        Import &amp; merge instead <strong>accrues</strong> a backup's
+        content into the current corpus: articles, claims, entities,
+        analysis records, and audits it has and you don't are added
+        (deduplicated by id; per-article extraction records merge at the
+        assertion level), nothing local is deleted or overwritten, and
+        settings/identities in the file are ignored.
         The signed-events bundle is the raw signed JSON of every event you
         have published (no keys inside) — anyone can rebroadcast it to any
         relay, so your corpus survives a relay outage.
       </p>
       <input type="file" id="backup-file" accept="application/json,.json" style="display:none" />
+      <input type="file" id="backup-merge-file" accept="application/json,.json" style="display:none" />
       <span class="xr-opt__status" id="backup-status"></span>
 
       <hr />

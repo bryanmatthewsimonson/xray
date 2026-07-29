@@ -79,6 +79,246 @@ an open probe of localhost/RFC-1918/link-local from a crafted page.
 `blockedImageUrl` (vision-image.js) now refuses non-public literals
 and the fetch omits credentials, per the scholar-fetch open-proxy
 rule.
+## 2026-07-27 — MA.4: the reader's Suggest pass joins the durable layer
+
+**Tags:** design
+
+X-Ray had **two producers of claim-shaped output** and only one of them
+kept anything. The corpus map stage folds into `article-extractions`
+(MA.1); the reader's Suggest EXTRACTION pass rendered proposals in the
+14.5.3 modal and discarded everything unaccepted when the modal closed
+— "close = the session is over, re-run to see them again." The 28.2
+parked-suggestions store softened that for import-time passes only, and
+deleted its record on close too. So the same sentence could be found by
+both passes, cost two LLM calls, and survive as zero atoms.
+
+MA.4 routes both through ONE merge: `suggestExtractFromProposals`
+converts claim proposals into the map-extract shape and
+`reviewSuggestions` folds them via `mergeExtractIntoRecord` before the
+modal opens. One span-dedup rule, so a sentence both passes find is one
+atom with the FIRST sighting's provenance kept. Second-guessable
+choices, recorded:
+
+1. **Ground against the canonical text, never the rendered body.** The
+   modal grounds against `articleBodyText()` (DOM text); the record's
+   spans index `assembleArticleBody(hashableArticle(…))` — the text the
+   articleHash covers and the map stage sent. These can differ. Folding
+   reader-side offsets would store spans indexing nothing, so the fold
+   re-grounds every quote in canonical space and drops what it cannot
+   locate. This is deliberately the same discipline the 2026-07-25
+   review had to retrofit onto the backup merge: an invariant about
+   which text a span indexes must be ENFORCED, not commented.
+2. **Skip when the hash is dirty.** The record is keyed by
+   `articleHash`; an edited body dirties it (`claimArticleHash()` →
+   null). Folding then would file this text's atoms under a different
+   text's identity, so the fold declines.
+3. **Claims only.** Entities / assessments / relationships / findings /
+   baselines have their own models and stay modal-only. This record
+   holds claim-shaped atoms; widening it would invent a contract.
+4. **Keyless folds must be able to report "nothing changed."** The
+   suggest path has no input fingerprint to put in `merged_keys`, so
+   `mergeExtractIntoRecord`'s unconditional `changed: true` would have
+   rewritten the record and bumped `updatedAt` on every Suggest run.
+   `changed` is now `key || added || dropped || positionChanged ||
+   first-ever-record`.
+5. **Coverage beats status on the reader bar.** Accepting a claim in
+   the modal never touches the record, so those atoms stay
+   `status: 'open'`. The case dashboard always computed claim coverage
+   on read; the reader bar now does too, and a covered atom folds out
+   of the open list. Without this the two surfaces disagreed about the
+   same record.
+
+The 28.2 parked-suggestions store keeps its delete-on-close semantics
+— it is now a staging queue, not the only copy, because the fold has
+already made the atoms durable.
+
+---
+
+## 2026-07-25 — Adversarial review of the map-artifact wave: two real defects, one refuted
+
+**Tags:** bug, pattern
+
+A multi-agent review over the whole branch diff (five dimension-focused
+finders, then two adversarial refuters per finding) surfaced two
+defects that both refuters CONFIRMED, plus a cluster of smaller
+disclosure/staleness gaps. Worth recording because the two majors are
+the same class of mistake — **an invariant assumed rather than
+enforced**:
+
+1. **The record key does not always pin a text.** `mergeExtractionRecords`
+   was documented as safe because "the articleHash pins the canonical
+   text, so spans are exact across machines." False for the
+   `url:<sha16(url)>` fallback `buildMemberUnits` mints when an archive
+   row has no computed hash (best-effort hashing; pre-13.4 rows): that
+   key names a URL, not a text. Two installs could hold same-key
+   records over different bodies, and the merge — the ONE writer with
+   no text to re-ground against — would adopt a foreign
+   accepted/dismissed onto an unrelated sentence and insert quotes
+   absent from the local article. Fixed by gating the merge on
+   `isTextPinnedKey` (64-hex only); unpinned records are skipped and
+   the skip is counted and disclosed. Locally-folded url:-keyed records
+   are unaffected (every fold grounds against the live member text).
+2. **A stale whole-record snapshot on write.** The extraction block's
+   triage did `saveArticleExtraction(setAssertionTriage(rec, …))` with
+   `rec` captured at render; a whole-object put therefore erased any
+   assertions folded in since — exactly the "re-runs only add"
+   guarantee the layer exists to provide. Deterministic (no race
+   needed) when two capture URLs share one `article_hash`: two sections
+   over one row, each with its own snapshot. Fixed by re-reading the
+   record inside `persistTriage`, and by rendering ONE section per
+   record (dedup by hash) instead of per capture URL.
+
+**Refuted, correctly:** a claim that `recordArticleExtraction`'s
+non-atomic read-merge-write loses data unrecoverably. Both refuters
+showed the loss is bounded and self-healing — concurrent folds for one
+hash carry the same fingerprint, so a later fold re-adds what a lost
+write dropped. Left as-is; recorded so it is not "fixed" twice.
+
+**Also fixed from the same pass:** `ENTITY_PAGE_PROMPT_VERSION` bumped
+to v2 (corpus-v7 changed what a `position` MEANS, and pages embed
+positions — briefs went stale, pages did not); the MA.3 reduce loop
+deduped by `article_hash` (same-content captures would have fed one
+artifact to the reduce twice, reading as two sources — P4/P9);
+recovered members disclosed on the brief block and in the exported /
+published markdown (they were being counted as `analyzed`, which
+silently defeated the partial-run note); an all-ungroundable record now
+says so on the reader bar instead of rendering nothing; four reader
+paths that recompute the article hash now refresh the extraction bar;
+merge-summary counts now count records inside a wholly-new key; and a
+failing database stage is reported as a PARTIAL merge (storage commits
+first and there is no cross-stage rollback — re-running the same file
+is idempotent, which is what makes partial completion recoverable).
+
+**Process note:** the verification stage was cut short by a spend
+limit, so ~9 findings went unverified and were triaged by hand instead.
+Two test fixtures also used non-hex placeholder hashes (`'hashA'`,
+`'x'.repeat(64)`), which the new pinned-key gate correctly refused —
+caught only because the gate made the tests fail. Placeholder ids in
+fixtures should look like the real thing.
+
+---
+
+## 2026-07-25 — corpus-v7: the case-free map (MA.5) + the reduce reads the durable layer (MA.3)
+
+**Tags:** design
+
+**MA.5.** The map prompt and cache key carried the case frame, so the
+same article analyzed under a second case — or for an entity page —
+paid the map again and stored a separate extract. corpus-v7 removes
+the frame from the map input entirely: the extract is
+article-INTRINSIC (what the article argues on its own central
+question), `corpusMapRequest` takes no frame, `corpusExtractKey`
+hashes only text + meta + version. One extract now serves every case,
+entity page, and capture prepay — an article is paid ONCE EVER. The
+original MA.5 sketch was a two-pass split (case-free extraction +
+cheap case-framed position); shipped simpler because the position
+call would have re-sent the article text (input tokens dominate) and
+the reduce already receives the frame and does the case-relative
+work. MAP jumps v4→v7 to re-converge with the overall version; the
+bump orphans every v4 fingerprint-cache entry — priced in by MA.1:
+the durable records survive, only exact-reuse re-pays.
+
+**MA.3.** The Analyze run's reduce input is now the union of each
+member's live extract and its accumulated `article-extractions`
+record (`unionExtractWithRecord`): span-dedup against the live atoms,
+live atoms never dropped, record extras capped
+(`MAX_REDUCE_ASSERTIONS_PER_MEMBER = 24`), and DISMISSED atoms
+excluded — a human's not-load-bearing stays decided across runs. A
+member whose live map call failed but whose record holds prior
+analysis is recovered from the record (`reduceExtractFromRecord`)
+instead of dropped; the run status and the stored brief disclose the
+recovery count. The union reads the record synchronously after the
+map stage, so this run's own fire-and-forget folds can't race it —
+the live extract is already in hand.
+
+---
+
+## 2026-07-25 — Backup merge-import: accrual, not replacement
+
+**Tags:** design
+
+`mergeBackup` (backup.js) is the second way to load a backup file:
+fold its content INTO the live workspace instead of replacing it —
+the asynchronous-collaboration path (import a colleague's corpus, or
+re-join an older snapshot, without losing current work). The
+second-guessable choices, recorded:
+
+1. **Content only.** Only `WORKSPACE_CONTENT_KEYS` merge. Preferences,
+   relays, flags, `local_primary_identity`, and `xray:llm:key` in the
+   file are ignored — a merge grows the corpus, it never reconfigures
+   the install or swaps identities. (Per-entity keys in `local_keys`
+   ARE content and do merge — foreign entities arrive usable.)
+2. **Local wins, by id only.** A shared id keeps the local record
+   verbatim. Claim ids are content-derived (sha256 of url|text), so
+   identical claims dedup naturally; entities from another install
+   keep their own ids and arrive as DISTINCT records — merging on
+   name would be silent identity laundering (the 28.6 lesson). The
+   dedupe-review surfaces exist for a human to unify them.
+3. **Nothing deleted, ever.** The merge only adds ids/rows or deep-
+   merges `article-extractions` (span-level union; a foreign human
+   triage is adopted onto a locally-OPEN atom; conflicting decisions
+   resolve local — a file never overrides a local decision).
+4. **Unknown shapes keep local.** A storage value that isn't an
+   id→record map (or fails to parse) is left alone and counted, never
+   guessed at. IDB stores merge generically by keyPath; a store with
+   a non-string keyPath is skipped rather than risking auto-key dupes.
+
+Options → Advanced → "Import & merge…" (typed MERGE confirm, safety
+backup first, counts disclosed). Replace-all restore is unchanged.
+
+---
+
+## 2026-07-24 — Map artifacts: the map stage was a cache; it should be knowledge (MA.1/MA.2)
+
+**Tags:** design
+
+**The diagnosis.** corpus-v4 (2026-07-20) fixed the map cache's
+staleness but left its *citizenship* wrong. The map stage — the
+expensive per-article LLM pass that emits an article's position,
+load-bearing assertions (verbatim, groundable quotes), cited sources,
+and open questions — persisted its output ONLY as a fingerprint-keyed
+`corpus-extracts` row: unbrowsable, orphaned wholesale by any
+`MAP_PROMPT_VERSION` bump, duplicated per case frame, and invisible
+outside the reduce call (its `source_references` / `open_questions`
+were paid for and consumed by nothing). A load-bearing assertion
+became a durable claim only if the reduce happened to re-propose it and
+a human accepted. That conflated two orthogonal axes: the consent
+firewall governs *review status* (nothing enters the claim registry
+without a human Accept); it says nothing about *retention*. The audit
+ledger already proves unreviewed LLM output can be first-class,
+per-article, export-included knowledge — the map extract deserved the
+same. (See `docs/MAP_ARTIFACT_KICKOFF.md`.)
+
+**The fix.** A durable `article-extractions` store (`xray-audits` v7,
+keyed by `articleHash`, export-included, never auto-dropped). Every map
+runner — Analyze, Pre-analyze, auto-pre-analyze, entity-page
+`ensureExtracts` — folds its extract in, on cache HIT as well as fresh
+call (hit-folding backfills records for extracts prepaid before this
+layer). The fold (`shared/map-artifacts.js`, pure) is a merge, not a
+replace: assertions ground against the canonical member text and dedup
+by quote-span overlap (≥60% of the shorter span), first-sighting
+provenance kept, triage preserved across re-runs; a `merged_keys`
+ledger makes a re-fold O(1). MA.2 renders the open assertions as a
+durable claim-proposal queue in the case view — Accept mints through
+`ClaimModel.create` stamped `llm:<model>`, Dismiss is remembered.
+
+**Second-guessable choices, recorded.** (1) **Claims-free storage,
+kept** (the corpus-v4 lesson): the record NEVER stores `claim_ref`;
+assertion→claim coverage is computed on read against the CURRENT claim
+set (`assertionClaimCoverage`), so it can never go stale. The only
+claim id on the record is `accepted_claim_id` — a human action, not a
+computed join. (2) **Dedup is span-overlap, never semantic** (P4/P9):
+over-splitting is reviewable, silent merging is not. (3) **The fold
+never throws** — a fold failure is logged and the paid run still
+succeeds (the extract stays in the fingerprint cache; the next run
+re-folds). (4) A `MAP_PROMPT_VERSION` bump now costs exact-reuse, not
+knowledge — which is what makes the deferred case-free map split
+(MA.5) affordable. The reduce still reads the run's in-memory extracts
+(MA.3 will point it at the accumulated record); Suggest convergence
+(MA.4) and publishing the layer as a wire kind (MA.6) are deferred as
+their own decisions.
+
+---
 
 ## 2026-07-21 — The 7/3 consensus descope was sprint-scoped, not doctrine
 

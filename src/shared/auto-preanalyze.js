@@ -11,14 +11,15 @@
 // default is off and the per-click Analyze/Pre-analyze confirms remain
 // the normal path.
 //
-// THE ONE-REQUEST-BUILDER RULE (corpus-v4): the request here is built
-// by `corpusMapRequest` over a `buildMemberUnits` unit assembled from
-// the SAME collector the Analyze run uses, with the case frame read by
-// the SAME `caseScopeQuestion` the dossier builder uses — so the cache
-// key is byte-identical to the key Analyze later computes. Never
-// hand-build a lookalike unit here: a one-character drift in text,
-// title, url, caseName, or scope silently orphans every prepaid
-// extract.
+// THE ONE-REQUEST-BUILDER RULE (corpus-v4, tightened by corpus-v7):
+// the request here is built by `corpusMapRequest` over a
+// `buildMemberUnits` unit assembled from the SAME collector the
+// Analyze run uses — so the cache key is byte-identical to the key
+// Analyze later computes. The map is case-free (corpus-v7): no frame
+// rides the request or the key, so this prepaid extract also serves
+// every OTHER case and entity page that ever includes the article.
+// Never hand-build a lookalike unit here: a one-character drift in
+// text, title, or url silently orphans every prepaid extract.
 //
 // Quiet by design: every outcome is returned as a status for the
 // caller to log (and optionally toast on an actual spend); a failure
@@ -30,6 +31,7 @@ import {
     buildMemberUnits, corpusMapRequest, corpusExtractKey, validateCorpusExtract
 } from './case-synthesis.js';
 import { getCorpusExtract, saveCorpusExtract } from './audit/audit-cache.js';
+import { recordArticleExtraction } from './map-artifacts.js';
 import { loadFlags, isEnabled } from './metadata/feature-flags.js';
 import { Utils } from './utils.js';
 
@@ -55,6 +57,9 @@ export async function autoPreAnalyzeCapture({ caseEntityId, url, sendMessage }, 
         collectData: (id) => collectCaseDossierData(id),
         getExtract:  getCorpusExtract,
         saveExtract: saveCorpusExtract,
+        // MA.1 — the durable per-article fold (never rejects; O(1) on
+        // an already-folded fingerprint).
+        record:      recordArticleExtraction,
         now: () => Math.floor(Date.now() / 1000),
         ...io
     };
@@ -69,21 +74,26 @@ export async function autoPreAnalyzeCapture({ caseEntityId, url, sendMessage }, 
 
     const data = await d.collectData(caseEntityId);
     // No assessments joined: claim stances never enter the map request
-    // (corpus-v4 — the request carries only text + meta + case frame).
+    // (corpus-v4/v7 — the request carries only text + title/url).
     const units = await buildMemberUnits(data);
     const target = Utils.normalizeUrl(url) || url;
     const unit = units.find((u) => u.url === target) || units.find((u) => u.url === url) || null;
     if (!unit) return { status: 'no-member' };
 
+    // The frame rides only the durable fold's provenance (which case
+    // triggered this prepay) — never the request or the cache key.
     const frame = {
         caseName: (data.case && data.case.name) || '',
         scopeQuestion: caseScopeQuestion(data)
     };
-    const request = corpusMapRequest(unit, frame);
+    const request = corpusMapRequest(unit);
     const key = await corpusExtractKey(request);
 
     const hit = await Promise.resolve(d.getExtract(key)).catch(() => null);
     if (hit && hit.extract && validateCorpusExtract(hit.extract).ok) {
+        await Promise.resolve(d.record({
+            member: unit, extract: hit.extract, frame, key, model: hit.model
+        })).catch(() => {});
         return { status: 'cached', key };
     }
 
@@ -93,5 +103,8 @@ export async function autoPreAnalyzeCapture({ caseEntityId, url, sendMessage }, 
     if (!v.ok) return { status: 'failed', key, error: 'invalid extract' };
 
     await d.saveExtract({ key, extract: res.extract, model: res.model, cachedAt: d.now() });
+    await Promise.resolve(d.record({
+        member: unit, extract: res.extract, frame, key, model: res.model
+    })).catch(() => {});
     return { status: 'ran', key, model: res.model };
 }
