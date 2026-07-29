@@ -26,9 +26,10 @@ import { NostrClient } from '../shared/nostr-client.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
-import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, runHypothesisEdgePass, runClaimLinksPass, getCorpusConfig, runExtractPass, runEntityAuditPass, runForensicCorpusPass, runEntityPagePass } from '../shared/llm-client.js';
+import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, runHypothesisEdgePass, runClaimLinksPass, getCorpusConfig, runExtractPass, runEntityAuditPass, runForensicCorpusPass, runEntityPagePass, runVisionPass, getVisionConfig } from '../shared/llm-client.js';
 import { getSourceDocument } from '../shared/archive-cache.js';
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prompts.js';
+import { prepareImageForVision, decodeDataUrl } from '../shared/vision-image.js';
 import { pdfDocumentUrl } from '../shared/pdf-detect.js';
 import { crossrefRequestFor, mapCrossrefWork } from '../shared/crossref.js';
 import { articleAnswersTo } from '../shared/url-identity.js';
@@ -632,6 +633,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         runLensPass(message.request || {}).then(
             (result) => sendResponse(result),
             (err) => sendResponse({ ok: false, error: (err && err.message) || 'Lens pass failed' })
+        );
+        return true; // async sendResponse
+    }
+
+    // Reader page → worker: describe ONE article image (the AI-vision
+    // pass). The reader sends a REF, never bytes — the SW acquires them
+    // itself (an <all_urls> fetch for web images, the IndexedDB byte
+    // archive for xray-figure: refs — the extract path's reasoning) and
+    // normalizes via OffscreenCanvas before the Anthropic call. Gated
+    // by `aiVision` + key inside runVisionPass (the gate is ALSO
+    // checked here first, so no image is fetched for a call that can't
+    // run). One message per image — the lens/audit-module topology.
+    // Returns the raw caption/transcription; the reader gates every
+    // body merge behind a per-image human Accept.
+    if (message.type === 'xray:vision:describe') {
+        handleVisionDescribe(message).then(
+            (result) => sendResponse(result),
+            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Vision pass failed' })
+        );
+        return true; // async sendResponse
+    }
+
+    // Reader page → worker: AI-vision gating snapshot — whether the
+    // `aiVision` flag is on, whether a key is present (NEVER the key
+    // value), and the chosen model.
+    if (message.type === 'xray:vision:config') {
+        getVisionConfig().then(
+            (cfg) => sendResponse({ ok: true, ...cfg }),
+            () => sendResponse({ ok: false, enabled: false, hasKey: false })
         );
         return true; // async sendResponse
     }
@@ -1387,6 +1417,72 @@ async function captureTranscriptInPage() {
  * lives in web pages, and these captures have none — PDFs, imported EPUB
  * chapters, transcript imports, and portal reconstructions.
  */
+// The AI-vision describe handler: gate → acquire → normalize → call.
+// The gate runs FIRST so a disabled feature never fetches an image;
+// runVisionPass re-checks it (defense in depth). Byte acquisition by
+// ref kind:
+//   http(s)       — SW fetch (outside page CSP, <all_urls> credentials
+//                   the way the site expects — the timedtext reasoning)
+//   xray-figure:  — the IndexedDB byte archive (figures dedupe there
+//                   by content hash; getSourceDocument reads both PDFs
+//                   and figure rows)
+//   data:         — decoded in place (small inline images)
+async function handleVisionDescribe(message) {
+    const cfg = await getVisionConfig();
+    if (!cfg.enabled) {
+        return { ok: false, error: 'AI vision is off. Enable it in Options → Advanced → AI vision.' };
+    }
+    if (!cfg.hasKey) {
+        return { ok: false, error: 'No Anthropic API key set. Add one in Options → Advanced → LLM assist.' };
+    }
+
+    const ref = String(message.ref || '');
+    if (!ref) return { ok: false, error: 'missing image ref' };
+
+    let bytes = null;
+    if (ref.startsWith('xray-figure:')) {
+        const hash = ref.slice('xray-figure:'.length);
+        const row = await getSourceDocument(hash);
+        if (!row || !row.bytes || !row.bytes.byteLength) {
+            return { ok: false, error: 'The archived figure bytes were not found (they may have been pruned).' };
+        }
+        bytes = row.bytes;
+    } else if (ref.startsWith('data:')) {
+        const decoded = decodeDataUrl(ref);
+        if (!decoded) return { ok: false, error: 'This inline image could not be decoded.' };
+        bytes = decoded.bytes;
+    } else if (/^https?:\/\//i.test(ref)) {
+        let resp;
+        try {
+            resp = await fetch(ref);
+        } catch (err) {
+            return { ok: false, error: 'Could not fetch the image: ' + ((err && err.message) || 'network error') };
+        }
+        if (!resp.ok) {
+            return { ok: false, error: `Could not fetch the image (HTTP ${resp.status}).` };
+        }
+        bytes = await resp.arrayBuffer();
+    } else {
+        return { ok: false, error: 'Unsupported image ref: ' + ref.slice(0, 64) };
+    }
+
+    let prepared;
+    try {
+        prepared = await prepareImageForVision(bytes);
+    } catch (err) {
+        return { ok: false, error: 'Could not prepare the image: ' + ((err && err.message) || err) };
+    }
+
+    return runVisionPass({
+        imageBase64: prepared.base64,
+        mediaType: prepared.mediaType,
+        alt: message.alt || '',
+        captionText: message.captionText || '',
+        articleTitle: message.articleTitle || '',
+        articleUrl: message.articleUrl || ''
+    });
+}
+
 function tablessSignError(err) {
     const msg = (err && err.message) || String(err);
     if (/nip-?07|not available in this context/i.test(msg)) {

@@ -119,6 +119,17 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // + the API key (the SW's corpusGate re-checks all three).
   autoPreAnalyze: false,
 
+  // AI vision (post-28): gates the reader's "Describe images" surface —
+  // per-image OCR transcription + captioning via the Anthropic vision
+  // API (`xray:vision:describe`). Independent of `llmAssist` (its
+  // consent covers the article TEXT leaving the device; this one covers
+  // the article's IMAGES), and additionally requires the shared
+  // user-supplied API key. Every run is an explicit per-click action
+  // with an image-count confirm, and every caption/transcription is a
+  // proposal the human accepts per image — accepted notes merge into
+  // the body WITH the model id inline, so provenance survives publish.
+  aiVision: false,
+
   // Phase 27 K.4: the `#xray:capture` URL marker — a driving agent's
   // capture trigger (the connector can neither reach extension pages
   // nor fire the command shortcut, so navigation is the only verb it

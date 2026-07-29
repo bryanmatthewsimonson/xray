@@ -1056,6 +1056,9 @@ async function loadAdvanced() {
     // Moral lens (Phase 16) — independent of llmAssist; shares the key.
     document.getElementById('pref-moral-lens').checked = isEnabled('moralLens');
 
+    // AI vision — independent of llmAssist; shares the key.
+    document.getElementById('pref-ai-vision').checked = isEnabled('aiVision');
+
     // Case synthesis (Phase 20.4) — requires llmAssist + the key on top.
     document.getElementById('pref-case-synthesis').checked = isEnabled('caseSynthesis');
     // Phase 28 — per-capture map prepay (a standing spend authorization).
@@ -1166,6 +1169,10 @@ async function saveAdvanced() {
     // clear the override back to the default (off).
     const lensOn = document.getElementById('pref-moral-lens').checked;
     await setOverride('moralLens', lensOn ? true : null);
+
+    // AI vision: same override shape.
+    const visionOn = document.getElementById('pref-ai-vision').checked;
+    await setOverride('aiVision', visionOn ? true : null);
 
     // Case synthesis (Phase 20.4).
     const synthOn = document.getElementById('pref-case-synthesis').checked;

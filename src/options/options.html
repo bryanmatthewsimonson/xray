@@ -492,6 +492,27 @@
       </p>
 
       <hr />
+      <h3 class="xr-opt__subhead">AI vision</h3>
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-ai-vision" />
+        <span>Enable "Describe images" in the reader (AI captions + text-in-image transcription)</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Off by default, and independent of LLM assist above. When on
+        <strong>and</strong> an Anthropic API key is set (same key field as
+        LLM assist), the reader gains a <strong>Describe images…</strong>
+        control: pick which of the capture's images to send, and the model
+        returns a factual caption for each — plus a verbatim transcription
+        when an image contains legible text (a scanned page, a chart, a
+        document photo). <strong>The selected images are sent to
+        Anthropic</strong> when you run a pass — one API call per image,
+        never automatically. Every caption and transcription is a
+        <strong>draft you accept per image</strong>; accepted notes merge
+        into the article body labeled with the model that wrote them, so
+        the AI provenance stays visible in the published text.
+      </p>
+
+      <hr />
       <h3 class="xr-opt__subhead">Capture automation</h3>
       <label class="xr-opt__field xr-opt__field--inline">
         <input type="checkbox" id="pref-capture-automation" />

@@ -31,6 +31,14 @@
            batch import parked proposals for this URL. Opens the same
            review modal; the parked record is cleared when it closes. -->
       <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-pending-suggest" hidden></button>
+      <!-- AI vision: hidden unless the aiVision flag is on. Sends the
+           SELECTED article images to Anthropic and returns captions +
+           text-in-image transcriptions — merged into the body only on
+           per-image Accept, labeled with the model. Hidden on
+           read-only opens. -->
+      <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-vision" title="Describe images with AI (captions + text-in-image transcription)" hidden>
+        🖼 Describe images…
+      </button>
       <!-- Media & transcript (Phase 22): declare what this URL contains
            (podcast / video), set the universal podcast IDs, and attach a
            pasted/uploaded transcript to THIS capture. Hidden on
