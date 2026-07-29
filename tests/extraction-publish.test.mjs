@@ -412,3 +412,12 @@ test('claimCoordIndex: only PUBLISHED claims get coordinates', () => {
     assert.equal(idx.claim_1, `30040:${PUBKEY}:claim_1`);
     assert.deepEqual(EP.claimCoordIndex(null), {});
 });
+
+// ---- 6. the gate ----------------------------------------------------------
+
+test('publishing is OPT-IN: the flag defaults off', async () => {
+    const { FLAGS_DEFAULTS } = await import('../src/shared/metadata/feature-flags.js');
+    assert.ok(Object.prototype.hasOwnProperty.call(FLAGS_DEFAULTS, 'extractionAnalysisPublishing'));
+    assert.equal(FLAGS_DEFAULTS.extractionAnalysisPublishing, false,
+        'a format whose safeguard is its marking does not publish by default');
+});

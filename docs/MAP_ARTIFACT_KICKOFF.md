@@ -191,7 +191,7 @@ paid work.
   EVER, shared by every case, entity page, and capture prepay. The
   v4→v7 bump orphaned the fingerprint cache exactly as MA.1 priced
   in: knowledge (the records) survived; only exact-reuse re-pays.
-- **MA.6 — publish the layer** (IN FLIGHT 2026-07-29). New wire kind
+- **MA.6 — publish the layer** (SHIPPED 2026-07-29). New wire kind
   **30070 `ExtractionAnalysis`**: the extraction analysis of one
   article, published per (author, articleHash) as a replaceable event.
   Behind `extractionAnalysisPublishing` (default off).
@@ -281,7 +281,18 @@ paid work.
   ceiling on scores, of which this format has none.
 
   **Publishing is human-initiated per article** and never automatic or
-  bulk-by-default; any batch takes an explicit N-count confirm.
+  bulk-by-default: the case dashboard's extraction block grows a
+  per-article "Publish analysis…" button (with a confirm naming what
+  leaves the machine) and, when more than one record can publish, one
+  batch button whose confirm names the exact N and the skip count.
+  Read-back registers 30070 in the portal's `CONTENT_KINDS`, an
+  **Extractions** library facet summarized BY REVIEW STATE (never "24
+  assertions" with the states hidden), and an inspector section where
+  the state badge leads every row. It is deliberately NOT in
+  `NETWORK_FEED_KINDS` — that feed carries what a followee stands
+  behind, and safely folding a foreign analysis needs the deferred
+  re-grounding slice; the omission is pinned by a test so it does not
+  read as an oversight.
 - **Adjacent (2026-07-25): backup merge-import.** `mergeBackup`
   (backup.js) accrues a backup file into the live corpus — content
   only, add-if-missing by id, nothing local deleted or overwritten —

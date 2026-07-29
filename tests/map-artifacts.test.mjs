@@ -22,7 +22,7 @@ const {
     setAssertionTriage, recordArticleExtraction, ASSERTION_OVERLAP_MIN,
     unionExtractWithRecord, reduceExtractFromRecord, mergeExtractionRecords,
     MAX_REDUCE_ASSERTIONS_PER_MEMBER, isTextPinnedKey, suggestExtractFromProposals,
-    setAssertionRationale, setRowTriage
+    setAssertionRationale, setRowTriage, markRecordPublished
 } = await import('../src/shared/map-artifacts.js');
 const { createGroundingIndex } = await import('../src/shared/quote-grounding.js');
 
@@ -516,4 +516,28 @@ test('mergeExtractionRecords: null sides, positions latest-wins per frame, count
     assert.equal(record.positions.find((p) => !p.caseName).summary, 'newer intrinsic', 'same frame → newer at wins');
     assert.equal(record.dropped_ungrounded, 7, 'counts take max, never a double-counting sum');
     assert.equal(record.updatedAt, 9999);
+});
+
+test('markRecordPublished: a LEDGER stamp — it never gates accrual', () => {
+    const rec = storedRecord();
+    const stamped = markRecordPublished(rec, { eventId: 'e'.repeat(64), now: 5000 });
+    assert.equal(stamped.published_at, 5000);
+    assert.equal(stamped.published_event_id, 'e'.repeat(64));
+    assert.deepEqual(stamped.assertions, rec.assertions, 'publishing changes no analysis state');
+
+    // A later fold accrues onto a published record and deliberately
+    // LEAVES the stamp: the surface must be able to say both "published
+    // on the 5th" and "3 atoms found since".
+    const { record, changed } = mergeExtractionRecords(stamped, {
+        ...storedRecord(),
+        assertions: [{ key: 'a:900-950', quote: 'a later span', start: 900, end: 950,
+                       status: 'open', first_seen: { model: 'm', promptVersion: 'corpus-v7', at: 6000 } }],
+        updatedAt: 6000
+    });
+    assert.equal(changed, true);
+    assert.equal(record.published_at, 5000, 'accrual does not clear the publish stamp');
+    assert.ok(record.assertions.length > stamped.assertions.length);
+
+    // No event id (a publish that never got one back) is null, not absent.
+    assert.equal(markRecordPublished(rec, { now: 1 }).published_event_id, null);
 });

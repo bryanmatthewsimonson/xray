@@ -562,8 +562,9 @@ export function partitionAssertions(record) {
 /**
  * MA.6 — accept (or edit) an assertion's RATIONALE: the answer to "why
  * does this claim carry the article's argument". The model's `why` is
- * only a draft; `accepted_why` is the human-endorsed text and the ONLY
- * rationale that may ever publish (extraction-publish.js). Editing the
+ * only a draft; `accepted_why` is the human-endorsed text and the only
+ * rationale that ever publishes as the HUMAN's (the model's own rides
+ * quarantined as `model_note` — extraction-publish.js). Editing the
  * text flips provenance to 'user' — the same honest-record-keeping rule
  * the review modal uses for edited claim text.
  *
@@ -629,6 +630,22 @@ export function setAssertionTriage(record, key, status, { claimId = null, now = 
         };
     });
     return { ...record, assertions, updatedAt: now };
+}
+
+/**
+ * MA.6 — stamp a record as published (kind 30070 went out). The stamp is
+ * a LEDGER of an outward action, not analysis state: it never gates
+ * accrual, and a later fold that adds atoms deliberately leaves it in
+ * place, so the surface can say "published <date>" while also showing
+ * atoms found since. A republish overwrites the same replaceable event.
+ */
+export function markRecordPublished(record, { eventId = null, now = 0 } = {}) {
+    return {
+        ...record,
+        published_at: now,
+        published_event_id: eventId || null,
+        updatedAt: now
+    };
 }
 
 // ------------------------------------------------------------------

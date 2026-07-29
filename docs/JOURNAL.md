@@ -19,6 +19,70 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-07-29 — MA.6: kind 30070, and the disclosure posture that got reversed
+
+**Tags:** design
+
+The durable extraction layer became publishable. New addressable kind
+**30070 ExtractionAnalysis** (`src/shared/extraction-publish.js`,
+`docs/NIP_DRAFT.md §Kind 30070`), one replaceable event per (author,
+articleHash), behind `extractionAnalysisPublishing` (default off).
+
+**The decision was taken twice, and the reversal is the point.** The
+first rule was the obvious one: *nothing publishes that the user has
+not reviewed and accepted*. It disqualified three of four panel designs
+and shaped a whole implementation. The maintainer then reversed it: the
+WHOLE unit publishes — every atom in every review state, WITH the
+model's proposed text and rationale — because **a filter a reader
+cannot see cannot be audited**. Publishing only what survived review
+overstates the extractor's precision by hiding its denominator, which
+is exactly the coverage-disclosure duty (P12) applied to our own
+output rather than to someone else's article.
+
+The cost, stated once and designed around: **the marking is now the
+only safeguard.** So it is built to be hard to lose rather than merely
+present — every row carries a REQUIRED `status` from a closed set and
+an unknown value reads back as `unreviewed` (fail-safe, never
+fail-open); model prose lives only in `model_`-prefixed keys and is
+never `quote` and never the human's `why`; endorsement is only ever a
+coordinate to a separately signed 30040, mirrored as an
+`["a", …, "endorsed"]` tag, so this event cannot manufacture an
+endorsement by being edited; and human-attributable fields on a
+non-accepted row are **ignored on parse**, so a hostile event cannot
+smuggle endorsement onto an unreviewed atom. No `p`, no `L`/`l`, no
+`I`/`K`, no numeric slot anywhere — machine-guarded.
+
+Three second-guessable choices, recorded:
+
+- **No offsets on the wire, at all.** The local record has exact
+  spans; publishing them would invite a consumer to resolve a position
+  from another machine. There is nothing to trust if there is nothing
+  to publish — a consumer re-locates each quote in its own copy, the
+  same verify-don't-resolve rule §Selectors states for
+  `TextPositionSelector`. The NIP section says explicitly what `x`
+  does NOT pin: it hashes the *normalized* body, so it identifies the
+  text without guaranteeing any quote is a byte-exact substring.
+- **`articleCoord` is omitted by the publisher.** The builder accepts
+  one, but the archive row records THAT an article published, not by
+  which identity — so a coordinate built from the current signer would
+  be a guess, and a dangling `a` pointer is worse than no pointer. `x`
+  and `r`/`i` cannot be wrong.
+- **Deliberately NOT in `NETWORK_FEED_KINDS`,** pinned by a test so it
+  does not read as an oversight. That feed carries what a followee
+  *stands behind*; a 30070 is mostly unreviewed machine output by
+  design, and one prolific followee's map runs would swamp it. Folding
+  a foreign analysis safely also needs quote re-grounding on import,
+  which is a deferred slice — a feed surface for events we cannot yet
+  fold would invite importing unverified spans. It IS in the portal's
+  `CONTENT_KINDS`, which reads back the user's own events: a different
+  question.
+
+Publishing is human-initiated per article (case dashboard → Publish
+analysis…), with one batch button whose confirm names the exact N.
+Read-back: an **Extractions** library facet summarized BY REVIEW STATE
+(never "24 assertions" with the states hidden) and an inspector section
+where the state badge leads every row.
+
 ## 2026-07-27 — MA.4: the reader's Suggest pass joins the durable layer
 
 **Tags:** design
