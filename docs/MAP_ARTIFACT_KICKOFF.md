@@ -192,73 +192,111 @@ paid work.
   v4→v7 bump orphaned the fingerprint cache exactly as MA.1 priced
   in: knowledge (the records) survived; only exact-reuse re-pays.
 - **MA.6 — publish the layer** (IN FLIGHT 2026-07-29). New wire kind
-  **30070 `ExtractionAnalysis`**: the *reviewed* extraction analysis of
-  one article, published per (author, articleHash) as a replaceable
-  event. Decided by a four-way design panel (§MA.6 below) under one
-  binding maintainer rule.
+  **30070 `ExtractionAnalysis`**: the extraction analysis of one
+  article, published per (author, articleHash) as a replaceable event.
+  Behind `extractionAnalysisPublishing` (default off).
 
-  **The rule (maintainer, 2026-07-29):** *nothing publishes that the
-  user has not reviewed and accepted.* Three of the four panel designs
-  published the whole durable queue — open and dismissed atoms
-  included — and are disqualified by it, whatever their other merits.
+  **The disclosure posture (maintainer, 2026-07-29).** This decision
+  was taken twice. The first rule was *nothing publishes that the user
+  has not reviewed and accepted*, which disqualified three of the four
+  panel designs. The maintainer then **revised it**: the WHOLE
+  extraction unit publishes — every atom in every review state, WITH
+  the model's proposed paraphrase and rationale — because a filter the
+  reader cannot see cannot be audited, and the full queue with an
+  honest denominator is the better disclosure. The revision also
+  overrides the panel's unanimous never-ship-model-prose position.
+
+  **The consequence, stated plainly: the MARKING is the only
+  safeguard.** Four properties carry it, in descending order of how
+  much damage a regression does:
+
+  1. Every row carries a **required** `status` from a closed set
+     (`unreviewed` / `accepted` / `dismissed`), and an unknown or
+     absent status reads back as `unreviewed` — fail-safe, never
+     fail-open. Local `open` publishes as `unreviewed`.
+  2. Model prose lives ONLY in `model_`-prefixed keys
+     (`model_note`, `model_proposed_text`). It never appears as
+     `quote`, never as the human's `why`, never at the top level of
+     `content`. `quote` is always the article's OWN span
+     (`ground().exact`).
+  3. Endorsement is a **pointer**, not a payload: an accepted atom
+     whose claim is published carries that claim's `a`-coordinate, and
+     the coordinate is also indexed as a face-value
+     `["a", …, "endorsed"]` tag. Accepted-but-unpublished reads
+     `endorsement: 'local-only'`. Human-attributable fields (`why`,
+     `why_by`) are emitted only on accepted rows and **ignored on
+     parse** for any other row — a hostile event cannot smuggle
+     endorsement in.
+  4. No judgment surface: no `p` tag (so this never sits beside real
+     claims in a `#p` dossier query), no NIP-32 `L`/`l` label
+     aggregation path, no NIP-22 `I`/`K` root scope, and no numeric
+     slot anywhere — no score, confidence, stance, rating, or rank.
+     Machine-guarded in `tests/extraction-publish.test.mjs`.
 
   **Why a kind at all, given accepted atoms already publish as
   kind-30040 claims?** Because the analysis is not the atoms. A claim
-  carries text + quote + anchor + `about`; it has no slot for *why this
-  assertion carries the article's argument*, which outside sources the
-  article leans on, or what it leaves open. That reasoning structure is
-  what makes a corpus interrogable rather than a pile of quotes, and it
-  is currently discarded at accept time.
+  carries text + quote + anchor + `about`; it has no slot for the
+  reasoning structure around it — what the model proposed and why,
+  which outside sources the article leans on, what it leaves open, and
+  crucially **what was examined and not endorsed**. That structure is
+  what makes a corpus interrogable rather than a pile of quotes, and
+  it is discarded at accept time today.
 
-  **The move that removes the redundancy:** 30070 **references** claims
-  by `a`-coordinate and never restates their quotes. One copy of a
-  quote exists on the wire — in the claim — so an edited claim can
-  never leave two signed events disagreeing about the same span. 30070
-  is an analysis layer *over* published claims, not a second copy of
-  them.
+  **The move that removes the redundancy:** 30070 **references**
+  published claims by `a`-coordinate and never restates their text.
+  One copy of an endorsed claim's text exists on the wire — in the
+  claim — so an edited claim can never leave two signed events
+  disagreeing about it. 30070 is an analysis layer *over* published
+  claims, not a second copy of them. (Every row does carry the
+  article's own verbatim `quote`, which is what makes an unendorsed
+  row checkable at all; that quote is the article's text, not the
+  claim's.)
 
-  **What it takes to satisfy the rule:** the `why` is not inherently
-  unpublishable, it is merely un*reviewed* today — the accept path
-  mints a claim from text + quote and silently drops the rationale.
-  MA.6 therefore extends the review surface first: a rationale is
-  editable and accepted alongside its atom (the review modal's existing
-  pattern — a content edit flips provenance to `user`), and the
-  record-level `sources` / `open_questions` become individually
-  acceptable items rather than automatic ones. Accepting a rationale is
-  OPTIONAL: an atom accepted without one publishes as a bare claim
-  reference, which is the honest representation of "I endorsed the
-  claim, not a rationale for it".
+  **Scope guard — the rationale is article-intrinsic here.**
+  "Load-bearing" is load-bearing *for* something, and case-scoped
+  `load_bearing` with a `why` already publishes on the kind-30068
+  CaseBrief. 30070's rationale answers only *"why this claim carries
+  THIS ARTICLE's argument"* (corpus-v7 made extraction
+  article-intrinsic); anything case-relative belongs to the brief.
+  The `caseName`/`scopeQuestion` frame never publishes.
 
-  **Scope guard — `why` is article-intrinsic here.** "Load-bearing" is
-  load-bearing *for* something, and case-scoped `load_bearing` with a
-  `why` already publishes on the kind-30068 CaseBrief. 30070's
-  rationale answers only *"why this claim carries THIS ARTICLE's
-  argument"* (corpus-v7 made extraction article-intrinsic); anything
-  case-relative belongs to the brief.
-
-  **Grafted from the panel's losing designs** (their real
-  contributions, absorbed without their publishing posture):
-  cross-machine merge — a fetched foreign 30070 must fold through the
-  same span-dedup discipline as `mergeExtractionRecords`, which means
-  the wire must carry enough to re-locate a span in the reader's OWN
-  copy of the article rather than trusting foreign offsets (the
+  **Grafted from the panel's designs:** cross-machine merge — a
+  fetched foreign 30070 must fold through the same span-dedup
+  discipline as `mergeExtractionRecords`, which means a consumer
+  re-locates each `quote` in its OWN copy of the article rather than
+  trusting foreign offsets (the
   `TextPositionSelector`-is-verification-only rule in
   `docs/NIP_DRAFT.md` already states exactly this, and applies here).
+  This is why the record's own `start`/`end` are **not** published.
 
-  **Deliberately NOT published:** open atoms, dismissed atoms, model
-  rationales the human did not accept, `merged_keys`, and any
-  `caseName`/`scopeQuestion` frame. Coverage counts
-  (`dropped_ungrounded`, atoms-not-accepted) are a P6 question settled
-  in the slice: counts may publish because they disclose the shape of
-  what was examined, but never the examined text itself.
+  **Still NOT published, each omission declared in `withheld`:**
+  `positions` (unanchored model prose characterizing the article),
+  the `caseName`/`scopeQuestion` frame, `merged_keys` (local cache
+  fingerprints), `sources[].quote` (the model's copy of a span, never
+  re-grounded locally — `target_hint` only), and ungroundable
+  proposals (never stored, so no text exists to publish; only the
+  count discloses them). Coverage counts publish as face-value tags:
+  disclosing the shape of what was examined is a **P12** transparency
+  duty, and counts are not scores — P6 governs the knowability
+  ceiling on scores, of which this format has none.
+
+  **Publishing is human-initiated per article** and never automatic or
+  bulk-by-default; any batch takes an explicit N-count confirm.
 - **Adjacent (2026-07-25): backup merge-import.** `mergeBackup`
   (backup.js) accrues a backup file into the live corpus — content
   only, add-if-missing by id, nothing local deleted or overwritten —
   and this layer supplies its one deep merge:
-  `mergeExtractionRecords` unions assertion atoms by span (the hash
-  pins the text, so spans are exact across machines), adopts a
+  `mergeExtractionRecords` unions assertion atoms by span, adopts a
   foreign human triage onto atoms still open locally, and resolves
-  conflicting decisions to the local one.
+  conflicting decisions to the local one. Span arithmetic across
+  machines is trusted only for a 64-hex `articleHash`, and only up to
+  the hash's own equivalence class: `normalizeForHash` collapses
+  whitespace before hashing while offsets index the un-normalized
+  body, so two bodies differing ONLY in whitespace share a hash and
+  can disagree about offsets by the collapsed delta. The damage is
+  bounded (a near-duplicate atom, reviewable) — the real fix,
+  re-grounding incoming quotes against the local text at import, is a
+  deferred slice because `mergeBackup` has no body in hand.
 
 ## 5. Storage shape (MA.1)
 
@@ -268,17 +306,23 @@ article-extractions (xray-audits v7, keyPath articleHash)
   articleHash,                     // canonical content hash (or url:<sha16> fallback)
   url, title,                      // convenience, latest-seen
   assertions: [{
-    key,                           // 'a:' + sha16(articleHash|start|end) — span identity
+    key,                           // 'a:<start>-<end>' — span identity
     quote,                         // the article's OWN span (ground().exact)
     start, end,                    // span in the canonical text (stable: hash pins the text)
+    text,                          // model's proposed claim paraphrase (MA.4)
     why,                           // model rationale, first sighting kept
     status,                        // 'open' | 'accepted' | 'dismissed'
     accepted_claim_id,             // set on Accept (human action, durable)
+    accepted_why,                  // human-endorsed rationale (MA.6), else null
+    accepted_why_provenance,       // 'user' | 'llm' — who wrote the endorsed text
+    rationale_accepted_at,         // epoch seconds
     triaged_at,                    // epoch seconds, set on Accept/Dismiss
-    first_seen: { model, promptVersion, caseName, scopeQuestion, at }
+    first_seen: { model, promptVersion, producer, caseName, scopeQuestion, at }
   }],
-  sources: [{ key, quote, target_hint, first_seen }],        // deduped
-  open_questions: [{ key, text, first_seen }],               // deduped
+  sources: [{ key, quote, target_hint, status, accepted_note,
+              triaged_at, first_seen }],                     // deduped
+  open_questions: [{ key, text, status, accepted_note,
+                     triaged_at, first_seen }],              // deduped
   positions: [{ caseName, scopeQuestion, summary, side_label,
                 model, promptVersion, at }],                 // per frame, latest-wins
   merged_keys: [corpusExtractKey…],                          // idempotence ledger
