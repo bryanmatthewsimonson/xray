@@ -1257,6 +1257,13 @@ button.xr-badge--case { cursor: pointer; background: transparent; }
   min-width: 180px;
 }
 
+/* --- Map-artifact review (MA.2) — the durable per-article assertion
+   queue. Rows reuse the proposal styling; the claim-text input gets
+   room to breathe since the human authors the minted text there. */
+.xr-extr__row { align-items: flex-start; }
+.xr-extr__text { flex: 1 1 100%; min-width: 260px; }
+.xr-extr--settled > summary { color: var(--xr-text-dim); }
+
 /* --- Trace dependencies (26 CF.2) — the per-claim structural
    counterfactual expander. Plain lines; nothing here encodes a
    judgment. */

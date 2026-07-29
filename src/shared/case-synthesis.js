@@ -191,55 +191,52 @@ export function computeEntitySummary(data, memberByHash) {
 }
 
 /**
- * Cache key for ONE member's map-stage extract: a SHA-256 over the exact
- * inputs the map call consumes, so a cached extract is reused only when
- * re-running would produce the same output. Any change to the sent text,
- * the article's claim digest, the case framing, or the prompt version
- * yields a new key — which is precisely the invalidation we want (a
- * body edit changes `memberText`; a Suggest pass changes `claimsDigest`;
- * a prompt bump changes the version). Pure; mirrors the map request the
- * runner sends (member_id is derived from the text, so it is omitted).
+ * The EXACT map-stage request for one member unit — the ONE builder
+ * shared by the Analyze run, the Pre-analyze pass, the capture prepay,
+ * and the entity-page map, so an extract cached ahead of time carries
+ * precisely the cache key any later consumer computes (corpusExtractKey
+ * fingerprints this shape). A change here is a map-input change: bump
+ * MAP_PROMPT_VERSION.
+ *
+ * DELIBERATELY claims-free (corpus-v4) AND case-free (corpus-v7 /
+ * MA.5): the extract depends only on the article text + meta, so its
+ * cache key is stable from the moment of capture — extracting claims
+ * later never orphans it, and the SAME extract serves every case and
+ * entity page that ever includes this article (paid once, ever).
+ * Assertion→claim linking is local, at analyze time
+ * (linkAssertionsToClaims), against the CURRENT claim set; relating
+ * the article to a case's question is the reduce's job.
+ */
+export function corpusMapRequest(member) {
+    return {
+        member_id: member.article_hash,
+        memberText: member.text,
+        memberMeta: { title: member.title, url: member.url }
+    };
+}
+
+/**
+ * Cache key for ONE member's map-stage extract: a SHA-256 over the
+ * exact inputs the map call consumes, so a cached extract is reused
+ * only when re-running would produce the same output.
  *
  * Keyed on MAP_PROMPT_VERSION, NOT the overall corpus version: a
  * reduce-side change (prompt or digest selection) must not orphan the
  * expensive map cache. Only a change to the MAP prompt bumps this.
  *
- * @param {object} request  { memberText, claimsDigest, caseName, scopeQuestion, memberMeta:{title,url} }
+ * @param {object} request  { memberText, memberMeta:{title,url} }
  * @param {string} [promptVersion]
  * @returns {Promise<string>} 64-char hex
  */
-/**
- * The EXACT map-stage request for one member unit — the ONE builder
- * shared by the Analyze run and the Pre-analyze pass, so an extract
- * cached ahead of time carries precisely the cache key Analyze will
- * later compute (corpusExtractKey fingerprints this shape). A change
- * here is a map-input change: bump MAP_PROMPT_VERSION.
- *
- * DELIBERATELY claims-free (corpus-v4): the extract depends only on
- * the article text + case frame, so its cache key is stable from the
- * moment of capture — extracting claims later never orphans it.
- * Assertion→claim linking is local, at analyze time
- * (linkAssertionsToClaims), against the CURRENT claim set.
- */
-export function corpusMapRequest(member, { caseName = '', scopeQuestion = '' } = {}) {
-    return {
-        member_id: member.article_hash,
-        memberText: member.text,
-        memberMeta: { title: member.title, url: member.url },
-        caseName, scopeQuestion
-    };
-}
-
 export async function corpusExtractKey(request, promptVersion = MAP_PROMPT_VERSION) {
     const r = request || {};
     const mm = r.memberMeta || {};
-    // No claims field (corpus-v4) — claim changes must NOT move the
-    // key; that independence is the Pre-analyze economics.
+    // No claims field (corpus-v4) and no case frame (corpus-v7) —
+    // neither claim changes nor case re-framing may move the key;
+    // that independence is the pay-once economics.
     return Crypto.sha256(JSON.stringify({
         v: promptVersion,
         text: r.memberText || '',
-        caseName: r.caseName || '',
-        scope: r.scopeQuestion || '',
         title: mm.title || '',
         url: mm.url || ''
     }));

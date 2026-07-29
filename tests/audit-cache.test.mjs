@@ -14,7 +14,8 @@ const {
     saveResolution, getResolution, resolutionsByPredictionCoord,
     saveCaseBrief, getCaseBrief, deleteCaseBrief, listCaseBriefs,
     saveCorpusExtract, getCorpusExtract, deleteCorpusExtract, listCorpusExtracts, countCorpusExtracts,
-    savePendingSuggestions, getPendingSuggestions, deletePendingSuggestions, listPendingSuggestions
+    savePendingSuggestions, getPendingSuggestions, deletePendingSuggestions, listPendingSuggestions,
+    saveArticleExtraction, getArticleExtraction, deleteArticleExtraction, listArticleExtractions, countArticleExtractions
 } = await import('../src/shared/audit/audit-cache.js');
 
 const HASH_A = 'a'.repeat(64);
@@ -216,4 +217,38 @@ test('entity-pages: CRUD keyed by entityId, coexists with earlier stores (DB v6)
     await saveEntityPage(rec);
     await clear();
     assert.equal(await getEntityPage(rec.entityId), null);
+});
+
+// v7 store — the durable per-article extraction records (MA.1).
+test('article-extractions: CRUD keyed by articleHash, coexists with earlier stores (DB v7)', async () => {
+    await saveRun({ id: 'audit_v7', articleHash: HASH_A });   // v1 still works
+    const rec = {
+        articleHash: HASH_B, url: 'https://ex.com/a', title: 'A',
+        assertions: [{ key: 'a:0-10', quote: 'a span', start: 0, end: 10, status: 'open',
+                       accepted_claim_id: null, triaged_at: null,
+                       first_seen: { model: 'm', promptVersion: 'corpus-v4', at: 100 } }],
+        sources: [{ key: 's:x', quote: 'q', target_hint: 'Nature' }],
+        open_questions: [{ key: 'q:y', text: 'who?' }],
+        positions: [{ caseName: 'C', scopeQuestion: 'Q?', summary: 'p', side_label: null, at: 100 }],
+        merged_keys: ['k1'], dropped_ungrounded: 2, updatedAt: 100
+    };
+    await saveArticleExtraction(rec);
+    const got = await getArticleExtraction(HASH_B);
+    assert.equal(got.assertions.length, 1);
+    assert.equal(got.assertions[0].quote, 'a span');
+    assert.equal(got.dropped_ungrounded, 2);
+    assert.equal(await countArticleExtractions(), 1);
+    assert.equal((await getRun('audit_v7')).articleHash, HASH_A, 'v1 intact after v7 upgrade');
+    // Latest-wins per article (the accumulate-in-place posture): a
+    // re-fold saves the whole merged record back under the same hash.
+    await saveArticleExtraction({ ...rec, dropped_ungrounded: 3 });
+    assert.equal((await getArticleExtraction(HASH_B)).dropped_ungrounded, 3);
+    assert.equal((await listArticleExtractions()).length, 1);
+    await deleteArticleExtraction(HASH_B);
+    assert.equal(await getArticleExtraction(HASH_B), null);
+    // clear() drops it too — but only because it's listed there; the
+    // store is knowledge, never AUTO-dropped by any reconcile path.
+    await saveArticleExtraction(rec);
+    await clear();
+    assert.equal(await countArticleExtractions(), 0);
 });

@@ -41,6 +41,7 @@ import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { ForensicModel, ForensicBaseline } from '../shared/forensic-model.js';
 import { openFindingModal, openBaselineModal } from '../shared/forensic-modal.js';
 import { renderFindingsBar } from './findings-section.js';
+import { renderExtractionBar } from './extraction-bar.js';
 import { shouldOfferArchive, describeMetric } from './archive-banner.js';
 import { archivedDraftIsCanonical, archivedDraftSource } from '../shared/archive-draft.js';
 import { openLlmReview } from './llm-review.js';
@@ -56,7 +57,8 @@ import { importAuditJson } from '../shared/audit/import.js';
 import { AuditRunModel, PredictionModel, ResolutionModel, staleModules } from '../shared/audit/audit-model.js';
 import {
     listResolutions as listAuditResolutions,
-    getPendingSuggestions, deletePendingSuggestions
+    getPendingSuggestions, deletePendingSuggestions,
+    getArticleExtraction
 } from '../shared/audit/audit-cache.js';
 import { assembleAuditBatch } from '../shared/audit/publish-batch.js';
 import { CURRENT_MODULE_VERSIONS, MODULE_NAMES } from '../shared/audit/findings-schemas.js';
@@ -365,6 +367,9 @@ async function adoptArticle(article, stored) {
                 // the hash is known (init wired it before this resolved).
                 refreshAuditStatus().catch((err) =>
                     console.warn('[X-Ray Reader] audit status failed:', err));
+                // MA.2b — the extraction record keys on the same hash.
+                refreshExtractionBar().catch((err) =>
+                    console.warn('[X-Ray Reader] extraction bar failed:', err));
             } catch (err) {
                 console.warn('[X-Ray Reader] article hash failed:', err);
             }
@@ -453,6 +458,8 @@ async function adoptArticle(article, stored) {
         updateHashLine();
         refreshAuditStatus().catch((err) =>
             console.warn('[X-Ray Reader] audit status failed:', err));
+        refreshExtractionBar().catch((err) =>
+            console.warn('[X-Ray Reader] extraction bar failed:', err));
     }
 
     // Archive-reader affordance — if this capture looks paywalled OR
@@ -1229,7 +1236,12 @@ async function loadArchivedArticle(archived, provenance) {
     state.hashDirty = false;
     if (!state.articleHash) {
         canonicalArticleHash(EventBuilder.assembleArticleBody(hashableArticle(state.article)))
-            .then((h) => { state.articleHash = h; updateHashLine(); })
+            .then((h) => {
+                state.articleHash = h;
+                updateHashLine();
+                // The extraction record keys on this hash (MA.2b).
+                refreshExtractionBar().catch(() => { /* display refresh only */ });
+            })
             .catch((err) => console.warn('[X-Ray Reader] archive hash failed:', err));
     }
 
@@ -1863,6 +1875,7 @@ async function reconstructWithLlmFlow() {
         state.hashDirty = false;
         updateHashLine();
         refreshAuditStatus().catch(() => { /* display refresh only */ });
+        refreshExtractionBar().catch(() => { /* display refresh only */ });
     } catch (err) {
         console.warn('[X-Ray Reader] post-reconstruction hash failed:', err);
     }
@@ -2100,6 +2113,7 @@ function renderReader() {
     refreshClaimsBar().catch((err) => console.warn('[X-Ray Reader] claims-bar render failed:', err));
     refreshEntitiesBar().catch((err) => console.warn('[X-Ray Reader] entities-bar render failed:', err));
     refreshFindingsBar().catch((err) => console.warn('[X-Ray Reader] findings-bar render failed:', err));
+    refreshExtractionBar().catch((err) => console.warn('[X-Ray Reader] extraction bar failed:', err));
 
     // Re-fill the hash line — the template above recreates it hidden,
     // and the hash (computed async at load) may already be known.
@@ -2300,6 +2314,58 @@ function captureSelectionSeed() {
         const captured = captureFromRange(range, body);
         return { quote, selector: captured ? captured.selectors : null };
     } catch (_) { return { quote, selector: null }; }
+}
+
+/**
+ * Render the extracted-assertions bar (MA.2b): this capture's DURABLE
+ * map-artifact record, so a mapping run is verifiable from the article
+ * itself. Keyed by the canonical content hash (NOT the URL) — same key
+ * the record is stored under, so same-content captures share one record
+ * and an edited body never inherits the old text's assertions.
+ *
+ * Read-only: quotes are click-to-locate in the body (selection only, no
+ * DOM mutation — the body is contenteditable and syncs the draft), and
+ * triage stays in the portal case dashboard where the case context a
+ * minted claim needs is available.
+ */
+async function refreshExtractionBar() {
+    const host = $('#xr-extraction-host');
+    if (!host) return;
+    if (!state.articleHash) { host.innerHTML = ''; return; }
+
+    let record = null;
+    let priorRuns = 0;
+    try {
+        record = await getArticleExtraction(state.articleHash);
+        // Records anchored to a RETAINED PRIOR version of this URL's
+        // text: assertions are exact spans, so they never transfer
+        // across edits. Say so rather than render nothing (the audit
+        // panel's honesty convention).
+        const cached = state.article && state.article.url
+            ? await ArchiveCache.getArticle(state.article.url) : null;
+        for (const v of (cached && cached.priorVersions) || []) {
+            if (!v || !v.articleHash || v.articleHash === state.articleHash) continue;
+            const prior = await getArticleExtraction(v.articleHash);
+            if (prior && (prior.assertions || []).length) priorRuns += 1;
+        }
+    } catch (err) {
+        // Display-only surface: a read failure must never break the
+        // reader. Log and render nothing.
+        console.warn('[X-Ray Reader] extraction bar read failed:', err);
+        host.innerHTML = '';
+        return;
+    }
+
+    host.innerHTML = renderExtractionBar(record, { priorRuns });
+
+    for (const q of host.querySelectorAll('[data-action="locate"]')) {
+        q.addEventListener('click', () => {
+            const quote = q.getAttribute('data-quote') || '';
+            if (!locateQuoteInBody(quote)) {
+                toast('Could not locate that span in the current text', 'info', 2000);
+            }
+        });
+    }
 }
 
 /**
@@ -2536,6 +2602,11 @@ async function applyMediaResult(result) {
         state.auditableHash = slicedHash;
         updateHashLine();
         refreshAuditStatus().catch(() => {});
+        // Attaching a transcript CHANGES the canonical text, so the old
+        // text's extraction record no longer applies to this capture —
+        // re-resolve rather than leave a stale bar on screen (MA.2b's
+        // prior-version disclosure handles the old record).
+        refreshExtractionBar().catch(() => { /* display refresh only */ });
     } catch (err) {
         console.warn('[X-Ray Reader] attach hash failed:', err);
     }
@@ -4480,6 +4551,7 @@ async function publish() {
             state.articleHash = publishedXTag[1];
             state.hashDirty = false;
             updateHashLine();
+            refreshExtractionBar().catch(() => { /* display refresh only */ });
         }
 
         btn.textContent = totalEvents > 1 ? `Publishing (1/${totalEvents})…` : 'Publishing…';
@@ -6434,6 +6506,7 @@ async function init() {
         }
     });
     refreshAuditStatus().catch((err) => console.warn('[X-Ray Reader] audit status failed:', err));
+    refreshExtractionBar().catch((err) => console.warn('[X-Ray Reader] extraction bar failed:', err));
 
     // Kick off the platform-specific data fetch, if any.
     // Non-blocking — the reader is already interactive.

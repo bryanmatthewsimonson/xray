@@ -162,7 +162,12 @@ test('entityPageInputHash: order-insensitive; member/claim/version changes each 
     assert.equal(h1, h1rev, 'order-insensitive');
     assert.notEqual(h1, await EP.entityPageInputHash([members[0]], ['c1', 'c2']), 'membership change flips it');
     assert.notEqual(h1, await EP.entityPageInputHash(members, ['c1']), 'claim change flips it');
-    assert.notEqual(h1, await EP.entityPageInputHash(members, ['c1', 'c2'], 'entity-page-v2'), 'version bump flips it');
+    // Version-agnostic: pass a string that is never the live default, so
+    // the pin survives future bumps (the live version IS the default and
+    // was itself bumped to v2 for the corpus-v7 position semantics).
+    assert.notEqual(h1, await EP.entityPageInputHash(members, ['c1', 'c2'], 'entity-page-vNEXT'), 'version bump flips it');
+    assert.equal(h1, await EP.entityPageInputHash(members, ['c1', 'c2'], EP.ENTITY_PAGE_PROMPT_VERSION),
+        'the default is the live version');
 });
 
 // ---- ensureExtracts: cache-first + the one-request-builder rule -------------
@@ -175,12 +180,14 @@ test('ensureExtracts: valid cache hits cost nothing; misses call, validate, and 
     const mB = member(HASH_B, 'Body of article B.');
     const frame = { caseName: 'Egg case', scopeQuestion: 'Do eggs raise CVD risk?' };
 
-    // The Analyze-side keys, computed exactly as synthesis-block does.
-    const keyA = await corpusExtractKey(corpusMapRequest(mA, frame));
-    const keyB = await corpusExtractKey(corpusMapRequest(mB, frame));
+    // The Analyze-side keys, computed exactly as synthesis-block does —
+    // CASE-FREE (corpus-v7), so entity pages share the cases' cache.
+    const keyA = await corpusExtractKey(corpusMapRequest(mA));
+    const keyB = await corpusExtractKey(corpusMapRequest(mB));
 
     const saved = [];
     const sentRequests = [];
+    const folded = [];
     const out = await EP.ensureExtracts([mA, mB], frame, {
         sendMessage: async (msg) => {
             assert.equal(msg.type, 'xray:llm:corpus-map');
@@ -190,6 +197,7 @@ test('ensureExtracts: valid cache hits cost nothing; misses call, validate, and 
     }, {
         getExtract: async (key) => key === keyA ? { extract: VALID_EXTRACT, model: 'm-cached' } : null,
         saveExtract: async (rec) => { saved.push(rec); },
+        record: async (r) => { folded.push(r); return { status: 'saved' }; },
         now: () => 1234
     });
 
@@ -198,11 +206,16 @@ test('ensureExtracts: valid cache hits cost nothing; misses call, validate, and 
     assert.equal(out.extracts.length, 2);
     assert.equal(out.failures.length, 0);
     assert.equal(sentRequests.length, 1);
-    assert.equal(JSON.stringify(sentRequests[0]), JSON.stringify(corpusMapRequest(mB, frame)),
+    assert.equal(JSON.stringify(sentRequests[0]), JSON.stringify(corpusMapRequest(mB)),
         'the wire request is byte-identical to the Analyze path\'s — corpusMapRequest is the ONE builder');
     assert.equal(saved.length, 1);
     assert.equal(saved[0].key, keyB, 'persisted under exactly the key Analyze will look up');
     assert.equal(saved[0].cachedAt, 1234);
+    // MA.1 — BOTH members fold into their durable records: the cache
+    // hit (A) backfills, the fresh call (B) records for the first time.
+    assert.equal(folded.length, 2, 'the durable fold rides both the hit and the miss');
+    assert.deepEqual(folded.map((f) => f.member.article_hash).sort(), [HASH_A, HASH_B].sort());
+    assert.deepEqual(folded.map((f) => f.key).sort(), [keyA, keyB].sort());
 });
 
 test('ensureExtracts: an invalid cached extract re-runs; a failed member lands in failures, not extracts', async () => {
@@ -218,6 +231,7 @@ test('ensureExtracts: an invalid cached extract re-runs; a failed member lands i
     }, {
         getExtract: async () => ({ extract: { not: 'valid' }, model: 'm' }),   // invalid — never a hit
         saveExtract: async () => {},
+        record: async () => ({ status: 'saved' }),
         now: () => 1
     });
     assert.equal(out.hits, 0, 'invalid cache entries never count as hits');
