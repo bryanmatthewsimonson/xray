@@ -12,17 +12,24 @@
 // verdict on the claim's truth (§3.1). Renderers must label it so.
 
 import { createGroundingIndex } from '../quote-grounding.js';
-import { collectEvidenceQuotes } from './assemble.js';
+import { collectEvidenceFindings } from './assemble.js';
 
 /**
  * Join one run's module findings to one member's claims.
+ *
+ * R3 (JOURNAL 2026-08-02): rows carry the finding's CONTEXT, not just
+ * its location — `kind` (which findings array it came from, e.g.
+ * asymmetry_findings / contested_terms) and `severity` when the
+ * finding has one. Module 06's contested-term first_use_quote joins
+ * now too (its richest array was invisible to the flat quote index).
+ * Still LOCATION, never a verdict — richer labels, same firewall.
  *
  * @param {object} input
  * @param {Array}  input.moduleResults  run.moduleResults ({module, findings})
  * @param {string} input.memberText     the canonical member body
  * @param {Array}  input.claims         [{id, quote}] (quoteless claims can't join)
  * @param {object} [index]              reusable grounding index over memberText
- * @returns {Object<string, Array<{module: string, quote: string}>>} claim id →
+ * @returns {Object<string, Array<{module, quote, kind, severity}>>} claim id →
  *          findings at that passage (deduped per module+quote)
  */
 export function linkRunFindingsToClaims({ moduleResults = [], memberText = '', claims = [] }, index = null) {
@@ -40,7 +47,7 @@ export function linkRunFindingsToClaims({ moduleResults = [], memberText = '', c
     const seen = new Set();
     for (const mr of moduleResults) {
         if (!mr || !mr.module || !mr.findings) continue;
-        for (const { quote } of collectEvidenceQuotes(mr.findings)) {
+        for (const { quote, kind, severity } of collectEvidenceFindings(mr.findings)) {
             const g = idx.ground(quote);
             if (g.status === 'missing') continue;
             for (const s of spans) {
@@ -49,7 +56,7 @@ export function linkRunFindingsToClaims({ moduleResults = [], memberText = '', c
                 const key = `${s.id}|${mr.module}|${quote}`;
                 if (seen.has(key)) continue;
                 seen.add(key);
-                (byClaim[s.id] = byClaim[s.id] || []).push({ module: mr.module, quote });
+                (byClaim[s.id] = byClaim[s.id] || []).push({ module: mr.module, quote, kind, severity });
             }
         }
     }
