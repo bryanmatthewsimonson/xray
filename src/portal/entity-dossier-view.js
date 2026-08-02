@@ -21,6 +21,7 @@ import { buildProfileAbout, profileContentHash } from '../shared/entity-profile.
 import { mintDelegationTag, entityDelegationConditions } from '../shared/identity-builders.js';
 import { Crypto } from '../shared/crypto.js';
 import { mountEntityPageBlock } from './entity-page-block.js';
+import { gatePublish, relayPublishTransport } from '../shared/publish-gate.js';
 
 function hostOf(url) {
     try { return new URL(url).hostname.replace(/^www\./, ''); } catch (_) { return url || ''; }
@@ -123,7 +124,23 @@ async function mountRepublishButton(head, dossier, relays) {
                     }
                 } catch (err) { Utils.error('creator binding skipped', err); }
                 const signed = await LocalKeyManager.signEvent(unsigned, entity.keyName);
-                const resp = await chrome.runtime.sendMessage({ type: 'xray:relay:publish', event: signed, relays });
+                // 29.1: through the publish gate — never journaled
+                // before, so flag-off is exactly the old send. The
+                // ledger descriptor names the entity whose profile
+                // stamp (markProfilePublished) confirms this publish.
+                let resp;
+                try {
+                    const gated = await gatePublish({
+                        signedEvent: signed,
+                        relays,
+                        publish: relayPublishTransport(),
+                        ledger: { model: 'entity-profile', localId: entity.id, extra: null },
+                        legacyJournalOnSuccess: false
+                    });
+                    resp = { ok: true, results: gated.results };
+                } catch (err) {
+                    resp = { ok: false, error: (err && err.message) || null };
+                }
                 if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'publish failed');
                 const results = resp.results || {};
                 const confirmed = typeof results.confirmed === 'number'

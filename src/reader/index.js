@@ -72,6 +72,7 @@ import { CURRENT_MODULE_VERSIONS, MODULE_NAMES } from '../shared/audit/findings-
 import { assembleAudit, auditableSlice, MAX_AUDIT_INPUT_CHARS } from '../shared/audit/assemble.js';
 import { orchestrateModuleRuns } from '../shared/audit/run-orchestrator.js';
 import * as EventJournal from '../shared/event-journal.js';
+import { gatePublish, relayPublishTransport } from '../shared/publish-gate.js';
 import { auditBand, scoreChipHtml, prettyModule } from '../shared/audit/display.js';
 import { JurisdictionModel } from '../shared/jurisdiction-model.js';
 import { lensTypeForPropositionClass } from '../shared/lens-taxonomy.js';
@@ -5193,16 +5194,24 @@ const BATCH_PUBLISH_DELAY_MS = 200;
 const _publishUnconfirmed = { count: 0 };
 
 /**
- * The ONE gate every per-event publish site runs its response
- * through. Journals the signed event verbatim (the rebroadcast +
- * durability substrate — event-journal.js) whenever ANY relay took
- * it, then answers whether the local ledger may mark it published:
- * CONFIRMED (non-assumed) OKs only.
+ * The ONE response gate every per-event publish site runs through.
+ * Journals the signed event verbatim (the rebroadcast + durability
+ * substrate — event-journal.js) whenever ANY relay took it, then
+ * answers whether the local ledger may mark it published: CONFIRMED
+ * (non-assumed) OKs only.
+ *
+ * 29.1: with storeFirstPublish ON, the journaling already happened at
+ * SIGN time inside the publish gate (publish-gate.js — in the SW for
+ * the capture:publish families, in this page for the direct relay
+ * sends), so this gate skips its own recordPublished rather than
+ * double-upserting. The confirmed-only ledger answer and the
+ * unconfirmed honesty counter are unchanged either way.
  */
 async function publishOk(resp) {
     if (!resp || !resp.ok || !resp.results) return false;
     const results = resp.results;
-    if (results.successful > 0 && resp.signedEvent) {
+    await loadFlags();
+    if (!isEnabled('storeFirstPublish') && results.successful > 0 && resp.signedEvent) {
         try {
             await EventJournal.recordPublished(resp.signedEvent, results, {
                 articleUrl: (state.article && state.article.url) || null
@@ -5220,6 +5229,13 @@ async function publishOk(resp) {
         return false;
     }
     return confirmed > 0;
+}
+
+// 29.1: the article-url context journal rows carry — the same value
+// publishOk stamps on its legacy writes, now also sent alongside each
+// publish so the gate's sign-time rows record it in the SW context.
+function publishArticleUrl() {
+    return (state.article && state.article.url) || null;
 }
 
 async function publish() {
@@ -5415,7 +5431,11 @@ async function publish() {
         const articleResp = await browserApi.runtime.sendMessage({
             type: 'xray:capture:publish',
             id: state.id,
-            event: unsignedArticle
+            event: unsignedArticle,
+            articleUrl: publishArticleUrl(),
+            // The article's publish ledger is its archive row
+            // (ArchiveCache.saveArticle publishedToRelay), keyed by url.
+            ledger: { model: 'article', localId: state.article.url, extra: null }
         });
         if (!articleResp || !articleResp.ok) {
             throw new Error((articleResp && articleResp.error) || 'No response from background worker');
@@ -5523,7 +5543,10 @@ async function publish() {
                     const resp = await browserApi.runtime.sendMessage({
                         type: 'xray:capture:publish',
                         id: state.id,
-                        event: unsignedComment
+                        event: unsignedComment,
+                        articleUrl: publishArticleUrl()
+                        // Comments have no local publish ledger
+                        // (reconcile's 'no-ledger' kinds) — no descriptor.
                     });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
@@ -5577,17 +5600,28 @@ async function publish() {
                     await attachCreatorBinding(unsignedProfile, entity.keypair && entity.keypair.pubkey);
                     const signed = await LocalKeyManager.signEvent(unsignedProfile, entity.keyName);
 
-                    const resp = await browserApi.runtime.sendMessage({
-                        type:   'xray:relay:publish',
-                        event:  signed,
-                        relays
-                    });
+                    // Locally-signed → the gate runs HERE (29.1), with
+                    // the SW's relay pool injected as the transport.
+                    let resp;
+                    try {
+                        const gated = await gatePublish({
+                            signedEvent: signed,
+                            relays,
+                            publish: relayPublishTransport(),
+                            ledger: { model: 'entity', localId: entity.id, extra: null },
+                            articleUrl: publishArticleUrl(),
+                            legacyJournalOnSuccess: false   // flag-off journaling stays in publishOk
+                        });
+                        resp = { ok: true, results: gated.results };
+                    } catch (err) {
+                        resp = { ok: false, error: (err && err.message) || null };
+                    }
 
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
-                        // relay:publish responses carry no signedEvent —
-                        // attach the locally-signed one so the journal
-                        // gets its verbatim copy like every other site.
+                        // The relay transport carries no signedEvent —
+                        // attach the locally-signed one so publishOk's
+                        // legacy journal write gets its verbatim copy.
                         if (await publishOk({ ...resp, signedEvent: signed })) {
                             entityResults.ok++;
                             // Only mark as published if at least one relay
@@ -5657,7 +5691,9 @@ async function publish() {
                 const resp = await browserApi.runtime.sendMessage({
                     type:  'xray:capture:publish',
                     id:    state.id,
-                    event: unsigned
+                    event: unsigned,
+                    articleUrl: publishArticleUrl(),
+                    ledger: { model: 'claim', localId: claim.id, extra: null }
                 });
                 if (resp && resp.ok && resp.results) {
                     recordRelayResults(resp.results);
@@ -5709,7 +5745,9 @@ async function publish() {
                 const resp = await browserApi.runtime.sendMessage({
                     type:  'xray:capture:publish',
                     id:    state.id,
-                    event: unsigned
+                    event: unsigned,
+                    articleUrl: publishArticleUrl()
+                    // 32125 replaces in place — no local publish ledger.
                 });
                 if (resp && resp.ok && resp.results) {
                     recordRelayResults(resp.results);
@@ -5768,7 +5806,9 @@ async function publish() {
                     const resp = await browserApi.runtime.sendMessage({
                         type:  'xray:capture:publish',
                         id:    state.id,
-                        event: unsigned
+                        event: unsigned,
+                        articleUrl: publishArticleUrl()
+                        // 32126 replaces in place — no local publish ledger.
                     });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
@@ -5824,10 +5864,11 @@ async function publish() {
                   + (linkSel.length ? ` + ${linkSel.length} claim link${linkSel.length === 1 ? '' : 's'}` : '')
                   + '…', 'warning', 4000);
 
-            const sendJudgment = async (unsigned) => {
+            const sendJudgment = async (unsigned, ledger = null) => {
                 unsigned.pubkey = userPubkey;
                 return await browserApi.runtime.sendMessage({
-                    type: 'xray:capture:publish', id: state.id, event: unsigned
+                    type: 'xray:capture:publish', id: state.id, event: unsigned,
+                    articleUrl: publishArticleUrl(), ledger
                 });
             };
             const entitiesAll = await EntityModel.getAll();
@@ -5867,7 +5908,8 @@ async function publish() {
                         aboutPubkeys:  [...new Set(aboutPubkeys)],
                         suggestedBy:  sel.assessment.suggested_by || 'user'
                     });
-                    const resp = await sendJudgment(unsigned);
+                    const resp = await sendJudgment(unsigned,
+                        { model: 'assessment', localId: sel.assessment.id, extra: null });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
                         if (await publishOk(resp)) {
@@ -5912,7 +5954,8 @@ async function publish() {
                         labels:     sel.assessment.labels,
                         claimUrl:   sel.url
                     });
-                    const resp = await sendJudgment(unsigned);
+                    const resp = await sendJudgment(unsigned,
+                        { model: 'assessment-mirror', localId: sel.assessment.id, extra: null });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
                         if (await publishOk(resp)) {
@@ -5948,7 +5991,8 @@ async function publish() {
                         note:          sel.link.note,
                         suggestedBy:   sel.link.suggested_by || 'user'
                     });
-                    const resp = await sendJudgment(unsigned);
+                    const resp = await sendJudgment(unsigned,
+                        { model: 'link', localId: sel.link.id, extra: null });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
                         if (await publishOk(resp)) {
@@ -6078,7 +6122,17 @@ async function publish() {
                     try {
                         entry.event.pubkey = userPubkey;
                         const resp = await browserApi.runtime.sendMessage({
-                            type: 'xray:capture:publish', id: state.id, event: entry.event
+                            type: 'xray:capture:publish', id: state.id, event: entry.event,
+                            articleUrl: publishArticleUrl(),
+                            // entry.mark is the batch's own mark descriptor
+                            // ({type:'run-event',runId,eventKey} |
+                            //  {type:'prediction'|'resolution',id,...}) —
+                            // exactly what the flusher must replay.
+                            ledger: {
+                                model: 'audit',
+                                localId: entry.mark.runId || entry.mark.id || null,
+                                extra: entry.mark
+                            }
                         });
                         if (await publishOk(resp)) {
                             recordRelayResults(resp.results);
@@ -6152,10 +6206,11 @@ async function publish() {
                   + (revEdgeSel.length ? ` + ${revEdgeSel.length} revision edge${revEdgeSel.length === 1 ? '' : 's'}` : '')
                   + '…', 'warning', 4000);
 
-            const sendForensic = async (unsigned) => {
+            const sendForensic = async (unsigned, ledger = null) => {
                 unsigned.pubkey = userPubkey;
                 return await browserApi.runtime.sendMessage({
-                    type: 'xray:capture:publish', id: state.id, event: unsigned
+                    type: 'xray:capture:publish', id: state.id, event: unsigned,
+                    articleUrl: publishArticleUrl(), ledger
                 });
             };
 
@@ -6178,7 +6233,8 @@ async function publish() {
                         sourceUrl:     sel.sourceUrl,
                         suggestedBy:   sel.finding.suggested_by || 'user'
                     });
-                    const resp = await sendForensic(unsigned);
+                    const resp = await sendForensic(unsigned,
+                        { model: 'forensic', localId: sel.finding.id, extra: { dTag } });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
                         if (await publishOk(resp)) {
@@ -6219,7 +6275,8 @@ async function publish() {
                         maneuver:      sel.maneuver,
                         sourceUrl:     sel.sourceUrl
                     });
-                    const resp = await sendForensic(unsigned);
+                    const resp = await sendForensic(unsigned,
+                        { model: 'forensic-mirror', localId: sel.finding.id, extra: null });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
                         if (await publishOk(resp)) {
@@ -6254,7 +6311,8 @@ async function publish() {
                         note:          sel.link.note,
                         suggestedBy:   sel.link.suggested_by || 'user'
                     });
-                    const resp = await sendForensic(unsigned);
+                    const resp = await sendForensic(unsigned,
+                        { model: 'link', localId: sel.link.id, extra: null });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
                         if (await publishOk(resp)) {
@@ -6324,10 +6382,11 @@ async function publish() {
                   + (integritySel.length ? ` + ${integritySel.length} integrity finding${integritySel.length === 1 ? '' : 's'}` : '')
                   + '…', 'warning', 4000);
 
-            const sendTruth = async (unsigned) => {
+            const sendTruth = async (unsigned, ledger = null) => {
                 unsigned.pubkey = userPubkey;
                 return await browserApi.runtime.sendMessage({
-                    type: 'xray:capture:publish', id: state.id, event: unsigned
+                    type: 'xray:capture:publish', id: state.id, event: unsigned,
+                    articleUrl: publishArticleUrl(), ledger
                 });
             };
 
@@ -6366,7 +6425,8 @@ async function publish() {
                         sourceUrl:         sel.url,
                         suggestedBy:       sel.verdict.suggested_by || 'user'
                     });
-                    const resp = await sendTruth(unsigned);
+                    const resp = await sendTruth(unsigned,
+                        { model: 'verdict', localId: sel.verdict.id, extra: { dTag } });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
                         if (await publishOk(resp)) {
@@ -6408,7 +6468,8 @@ async function publish() {
                         verdict:    sel.verdict.verdict,
                         sourceUrl:  sel.url
                     });
-                    const resp = await sendTruth(unsigned);
+                    const resp = await sendTruth(unsigned,
+                        { model: 'verdict-mirror', localId: sel.verdict.id, extra: null });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
                         if (await publishOk(resp)) {
@@ -6458,7 +6519,8 @@ async function publish() {
                         sourceUrl:         sel.sourceUrl,
                         suggestedBy:       sel.finding.suggested_by || 'user'
                     });
-                    const resp = await sendTruth(unsigned);
+                    const resp = await sendTruth(unsigned,
+                        { model: 'integrity', localId: sel.finding.id, extra: { dTag } });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
                         if (await publishOk(resp)) {
@@ -6551,12 +6613,28 @@ async function publish() {
                     const unsigned = EventBuilder.buildProfileEvent(entity, canonicalNpub, sel.about, entity.external_ids || []);
                     await attachCreatorBinding(unsigned, entity.keypair && entity.keypair.pubkey);
                     const signed = await LocalKeyManager.signEvent(unsigned, entity.keyName);
-                    const resp = await browserApi.runtime.sendMessage({
-                        type: 'xray:relay:publish', event: signed, relays: await getConfiguredRelays()
-                    });
+                    // Locally-signed → the gate runs HERE (29.1).
+                    let resp;
+                    try {
+                        const gated = await gatePublish({
+                            signedEvent: signed,
+                            relays: await getConfiguredRelays(),
+                            publish: relayPublishTransport(),
+                            ledger: {
+                                model: 'entity-profile', localId: entity.id,
+                                extra: { profileHash: sel.aboutHash }
+                            },
+                            articleUrl: publishArticleUrl(),
+                            legacyJournalOnSuccess: false   // flag-off journaling stays in publishOk
+                        });
+                        resp = { ok: true, results: gated.results };
+                    } catch (err) {
+                        resp = { ok: false, error: (err && err.message) || null };
+                    }
                     if (resp && resp.ok && resp.results) recordRelayResults(resp.results);
-                    // signedEvent attached so publishOk journals it (the
-                    // entity-batch precedent).
+                    // signedEvent attached so publishOk's legacy journal
+                    // write gets its verbatim copy (the entity-batch
+                    // precedent).
                     if (resp && resp.ok && await publishOk({ ...resp, signedEvent: signed })) {
                         corpusResults.ok++;
                         try {
@@ -6639,9 +6717,21 @@ async function publish() {
                             });
                             await attachCreatorBinding(unsignedNote, t.entity.keypair.pubkey);
                             const signedNote = await LocalKeyManager.signEvent(unsignedNote, t.entity.keyName);
-                            const resp = await browserApi.runtime.sendMessage({
-                                type: 'xray:relay:publish', event: signedNote, relays: await getConfiguredRelays()
-                            });
+                            // Locally-signed → the gate runs HERE (29.1).
+                            let resp;
+                            try {
+                                const gated = await gatePublish({
+                                    signedEvent: signedNote,
+                                    relays: await getConfiguredRelays(),
+                                    publish: relayPublishTransport(),
+                                    ledger: { model: 'mention', localId: t.key, extra: null },
+                                    articleUrl: publishArticleUrl(),
+                                    legacyJournalOnSuccess: false   // flag-off journaling stays in publishOk
+                                });
+                                resp = { ok: true, results: gated.results };
+                            } catch (err) {
+                                resp = { ok: false, error: (err && err.message) || null };
+                            }
                             if (resp && resp.ok && resp.results) recordRelayResults(resp.results);
                             if (resp && resp.ok && await publishOk({ ...resp, signedEvent: signedNote })) {
                                 corpusResults.ok++;
@@ -6774,9 +6864,21 @@ async function publishOwnedKeysManifest() {
     const unsigned = { ...buildOwnedKeysManifest({ entities: owned }), pubkey: primary.pubkey };
     const signed = await Crypto.signEvent(unsigned, primary.privateKey);
     if (!signed || !signed.sig) return;
-    const resp = await browserApi.runtime.sendMessage({
-        type: 'xray:relay:publish', event: signed, relays: await getConfiguredRelays()
-    });
+    // Locally-signed → the gate runs HERE (29.1).
+    let resp;
+    try {
+        const gated = await gatePublish({
+            signedEvent: signed,
+            relays: await getConfiguredRelays(),
+            publish: relayPublishTransport(),
+            ledger: { model: 'owned-keys', localId: 'manifest', extra: { fingerprint } },
+            articleUrl: publishArticleUrl(),
+            legacyJournalOnSuccess: false   // flag-off journaling stays in publishOk
+        });
+        resp = { ok: true, results: gated.results };
+    } catch (err) {
+        resp = { ok: false, error: (err && err.message) || null };
+    }
     if (resp && resp.ok && await publishOk({ ...resp, signedEvent: signed })) {
         await Storage.set('owned_keys_manifest_hash', fingerprint);
     }
@@ -6917,9 +7019,10 @@ async function resolveRelationshipsToPublish(claims, articleUrl) {
 /**
  * Read the user's configured relays from preferences. Mirrors the
  * logic in `handleCapturePublish` on the SW side; we need it
- * reader-side too because entity kind-0 events go through the
- * signed-event publish path (`xray:relay:publish`) which takes a
- * relay list from the caller.
+ * reader-side too because locally-signed events (entity kind-0s,
+ * mention notes, the OwnedKeys manifest) publish through the gate's
+ * relay transport (publish-gate.js), which takes a relay list from
+ * the caller.
  */
 async function getConfiguredRelays() {
     return new Promise((resolve) => {
