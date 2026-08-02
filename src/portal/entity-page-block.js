@@ -31,6 +31,7 @@ import { Storage } from '../shared/storage.js';
 import { EntityModel } from '../shared/entity-model.js';
 import { ClaimModel } from '../shared/claim-model.js';
 import { FALLBACK_RELAYS } from './corpus.js';
+import { gatePublish, relayPublishTransport } from '../shared/publish-gate.js';
 
 function sendMessage(msg) {
     return new Promise((resolve) => {
@@ -359,7 +360,23 @@ export function mountEntityPageBlock(host, { entityId } = {}) {
             entityPubkey: subjectPk, keyClaims, userPubkey
         });
         const signed = await Signer.signEvent({ ...unsigned, pubkey: userPubkey });
-        const resp = await sendMessage({ type: 'xray:relay:publish', event: signed, relays });
+        // 29.1: through the publish gate — this site never journaled
+        // before, so flag-off is exactly the old send; flag-on gives
+        // the signed page sign-time durability. The ledger descriptor
+        // names the saveEntityPage record the flusher would stamp.
+        let resp;
+        try {
+            const gated = await gatePublish({
+                signedEvent: signed,
+                relays,
+                publish: relayPublishTransport(),
+                ledger: { model: 'entity-page', localId: entityId, extra: null },
+                legacyJournalOnSuccess: false
+            });
+            resp = { ok: true, results: gated.results };
+        } catch (err) {
+            resp = { ok: false, error: (err && err.message) || null };
+        }
         if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'no relays accepted');
         await saveEntityPage({ ...record, publishedAt: Math.floor(Date.now() / 1000), publishedEventId: signed.id });
         status.textContent = 'Published — readable in any NOSTR client.';

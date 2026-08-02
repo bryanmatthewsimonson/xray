@@ -33,6 +33,7 @@ import { listAll as journalListAll } from '../shared/event-journal.js';
 import { selectFollowsToPublish, mergeWithRemote } from '../shared/follow-publish.js';
 import { buildReaderGraph, followedByCounts, filterFeedByTrust } from '../shared/network-trust.js';
 import { publishConfirmed } from '../shared/confirmed-publish.js';
+import { gatePublish, relayPublishTransport, rebroadcastEvent } from '../shared/publish-gate.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { Signer } from '../shared/signer.js';
 
@@ -357,9 +358,11 @@ async function onRebroadcast() {
         if (!confirm(`Re-broadcast ${events.length} of your follows' events to ${relays.length} relay${relays.length === 1 ? '' : 's'}? They re-publish verbatim under their authors' signatures.`)) return;
         let ok = 0;
         for (const event of events) {
-            const resp = await new Promise((resolve) =>
-                chrome.runtime.sendMessage({ type: 'xray:relay:publish', event, relays }, resolve));
-            if (resp && resp.ok) ok++;
+            // Verbatim re-broadcast of FOREIGN signed events — never
+            // the gate: another author's work must not enter this
+            // install's journal (publish-gate.js rebroadcastEvent).
+            try { await rebroadcastEvent(relays, event); ok++; }
+            catch (_) { /* counted as not ok, as before */ }
         }
         setStatus(`Re-broadcast ${ok}/${events.length} events.`);
     } catch (err) {
@@ -736,14 +739,27 @@ async function onMirrorFollows() {
         const unsigned = EventBuilder.buildFollowListEvent(entries, userPubkey, { includeLabels });
         const signed = await Signer.signEvent(unsigned);
         // Kind 3 is an identity kind: require a relay CONFIRMATION
-        // (25.5), publishing through the SW's relay pool.
-        const publish = (rl, event) => new Promise((resolve, reject) => {
-            chrome.runtime.sendMessage({ type: 'xray:relay:publish', event, relays: rl }, (r) => {
-                if (r && r.ok) resolve(r.results);
-                else reject(new Error((r && r.error) || 'publish failed'));
-            });
+        // (25.5), publishing through the SW's relay pool. 29.1: the
+        // confirmed-retry composes as the gate's injected transport,
+        // so the retry loop runs inside the gate; this site never
+        // journaled before, so flag-off keeps that (a kind-3 mirror
+        // replaces in place — no local ledger to mark).
+        const swPool = relayPublishTransport();
+        const publish = async (rl, event) => {
+            try { return await swPool(rl, event); }
+            catch (err) { throw new Error((err && err.message) || 'publish failed'); }
+        };
+        let pc = null;
+        await gatePublish({
+            signedEvent: signed,
+            relays,
+            publish: async (rl, event) => {
+                pc = await publishConfirmed(rl, event, { publish });
+                return pc.result;
+            },
+            ledger: null,
+            legacyJournalOnSuccess: false
         });
-        const pc = await publishConfirmed(relays, signed, { publish });
         setStatus(pc.ok
             ? `Follow list mirrored — ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}, confirmed by ${pc.result.confirmed} relay${pc.result.confirmed === 1 ? '' : 's'}.`
             : `Published without confirmation (${pc.result.successful}/${pc.result.total} assumed) — retry later or check your relays.`);

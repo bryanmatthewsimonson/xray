@@ -177,6 +177,15 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // goes through the human-accept review modal; nothing auto-mints.
   transcriptClaimDrafts: false,
 
+  // Phase 29.1 (docs/EVENT_STORE_DESIGN.md §3.2, §9): gates STORE-FIRST
+  // publishing in publish-gate.js — journal the signed event as a
+  // 'pending' outbox row BEFORE the relay attempt, so a publish no
+  // relay accepts can never lose the signature. Off = today's behavior
+  // byte-for-byte (attempt first; journal only where a site journaled
+  // before). A publish-path change, so it ships default-off until the
+  // §12 smoke rows pass (Q2 2026-08-02: smoke is sufficient, no soak).
+  storeFirstPublish: false,
+
   // MA.6 (docs/MAP_ARTIFACT_KICKOFF.md §MA.6, docs/NIP_DRAFT.md
   // §Kind 30070): gates the PUBLISH path for kind 30070 — one
   // article's extraction analysis (its machine-proposed load-bearing

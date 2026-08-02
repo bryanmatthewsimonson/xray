@@ -20,6 +20,7 @@ import { ClaimModel } from '../shared/claim-model.js';
 import { buildMemberUnits } from '../shared/case-synthesis.js';
 import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { getArticleExtraction, saveArticleExtraction } from '../shared/audit/audit-cache.js';
+import { gatePublish, relayPublishTransport } from '../shared/publish-gate.js';
 import { FALLBACK_RELAYS } from './corpus.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import {
@@ -31,17 +32,6 @@ import {
 } from '../shared/extraction-publish.js';
 
 const now = () => Math.floor(Date.now() / 1000);
-
-function sendMessage(msg) {
-    return new Promise((resolve) => {
-        try {
-            chrome.runtime.sendMessage(msg, (resp) => {
-                if (chrome.runtime.lastError) { resolve(null); return; }
-                resolve(resp);
-            });
-        } catch (_) { resolve(null); }
-    });
-}
 
 async function resolveRelays() {
     try {
@@ -204,13 +194,27 @@ async function buildPublisher(withRecords, block) {
             // dangling `a` pointer is worse than none. The `x` content
             // hash and the `r`/`i` URL anchors cannot be wrong.
         });
-        // NB (Phase 29, docs/EVENT_STORE_DESIGN.md §1.3): this signs and
-        // publishes with NO journal row, like the portal's other sign
-        // sites. 29.1's publish gate must route this one too — and it is
-        // the only portal site with a BATCH path, so the gate wraps the
-        // loop body, not one call.
+        // 29.1: through the publish gate (this answers the MA.6 NB that
+        // sat here — the only portal site with a BATCH path, so the gate
+        // wraps this loop body, one call per record). Never journaled
+        // before, so flag-off is exactly the old send; flag-on gives the
+        // signed analysis sign-time durability. The ledger descriptor
+        // names the article-extractions record markRecordPublished
+        // stamps, keyed by articleHash (eventId comes from the row).
         const signed = await Signer.signEvent({ ...unsigned, pubkey: userPubkey });
-        const resp = await sendMessage({ type: 'xray:relay:publish', event: signed, relays });
+        let resp;
+        try {
+            const gated = await gatePublish({
+                signedEvent: signed,
+                relays,
+                publish: relayPublishTransport(),
+                ledger: { model: 'extraction-analysis', localId: fresh.articleHash, extra: null },
+                legacyJournalOnSuccess: false
+            });
+            resp = { ok: true, results: gated.results };
+        } catch (err) {
+            resp = { ok: false, error: (err && err.message) || null };
+        }
         if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'no relays accepted it');
         const stamped = markRecordPublished(fresh, { eventId: signed.id, now: now() });
         await saveArticleExtraction(stamped);

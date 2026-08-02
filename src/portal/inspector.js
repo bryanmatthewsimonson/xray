@@ -18,6 +18,7 @@ import { SOURCE_TYPE_LABELS, isPrimarySourceType, EVIDENCE_ROLE_LABELS, isValidE
 import { buildReviewRequestLabelEvent } from '../shared/metadata/builders.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { Signer } from '../shared/signer.js';
+import { gatePublish, relayPublishTransport } from '../shared/publish-gate.js';
 
 // Audit section (13.7): every run anchored to this article —
 // side-by-side, never averaged (PHILOSOPHY P8) — with module results
@@ -424,8 +425,23 @@ export function renderInspector(host, item, { status = 'no-ledger', onClose, aud
                         });
                     });
                     if (!relays.length) throw new Error('no relays configured');
-                    const resp = await new Promise((resolve) =>
-                        chrome.runtime.sendMessage({ type: 'xray:relay:publish', event: signed, relays }, resolve));
+                    // 29.1: through the publish gate — never journaled
+                    // before, so flag-off is exactly the old send; a
+                    // review-request label marks nothing locally
+                    // (ledger: null).
+                    let resp;
+                    try {
+                        const gated = await gatePublish({
+                            signedEvent: signed,
+                            relays,
+                            publish: relayPublishTransport(),
+                            ledger: null,
+                            legacyJournalOnSuccess: false
+                        });
+                        resp = { ok: true, results: gated.results };
+                    } catch (err) {
+                        resp = { ok: false, error: (err && err.message) || null };
+                    }
                     if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'publish failed');
                     req.textContent = 'Review requested ✓';
                 } catch (err) {
