@@ -291,11 +291,32 @@ export function isTextPinnedKey(articleHash) {
 
 /**
  * Merge an INCOMING extraction record (from a backup file) into the
- * LOCAL one for the same articleHash. Span-overlap dedup is exact
- * across machines and time ONLY because the 64-hex articleHash pins
- * the canonical text both sides' spans index; records under the
- * `url:` fallback key are refused (see isTextPinnedKey) rather than
- * merged on untrustworthy span arithmetic.
+ * LOCAL one for the same articleHash. Records under the `url:` fallback
+ * key are refused (see isTextPinnedKey) rather than merged on
+ * untrustworthy span arithmetic.
+ *
+ * KNOWN LIMIT — the hash pins the text only up to a normalization
+ * equivalence class (found by the MA.6 design panel, 2026-07-29; the
+ * previous wording here claimed span-overlap dedup was "exact across
+ * machines", which is FALSE). `articleHash` hashes
+ * `normalizeForHash(body)` — CRLF→LF, trailing spaces stripped, 3+
+ * newlines collapsed — while these spans index the UN-normalized
+ * `assembleArticleBody(...)`. Two machines whose bodies differ only
+ * inside that equivalence class therefore agree on the hash and
+ * DISAGREE on offsets, so a cross-machine merge can misalign spans by
+ * the whitespace delta: an incoming atom may dedup against the wrong
+ * local atom, or fail to dedup against its true twin.
+ *
+ * Bounded, not silent: misalignment is at most the accumulated
+ * whitespace difference before the span, the overlap threshold absorbs
+ * small deltas, and the worst case is a duplicate or mis-adopted
+ * triage row a human sees on the review surface — never a corrupted
+ * quote (quotes are stored verbatim, never reconstructed from offsets).
+ * The real fix is to re-ground incoming quotes against the LOCAL
+ * canonical text on import instead of trusting foreign offsets; that
+ * needs the body at merge time, which `mergeBackup` does not have, so
+ * it is deferred to its own slice. Do NOT restore the "exact across
+ * machines" claim.
  *
  * Accrual rules (docs/MAP_ARTIFACT_KICKOFF.md guard rails):
  *   - assertions: local atoms all survive untouched; incoming atoms
@@ -539,6 +560,60 @@ export function partitionAssertions(record) {
 }
 
 /**
+ * MA.6 — accept (or edit) an assertion's RATIONALE: the answer to "why
+ * does this claim carry the article's argument". The model's `why` is
+ * only a draft; `accepted_why` is the human-endorsed text and the only
+ * rationale that ever publishes as the HUMAN's (the model's own rides
+ * quarantined as `model_note` — extraction-publish.js). Editing the
+ * text flips provenance to 'user' — the same honest-record-keeping rule
+ * the review modal uses for edited claim text.
+ *
+ * Pass `why: null` to withdraw an accepted rationale (the atom stays
+ * accepted; it simply publishes as a bare claim reference again).
+ *
+ * Deliberately independent of triage status: a rationale can be drafted
+ * before acceptance, and a dismissed atom's rationale never publishes
+ * regardless because the publish projection requires BOTH.
+ */
+export function setAssertionRationale(record, key, why, { provenance = 'llm', now = 0 } = {}) {
+    const text = (typeof why === 'string' && why.trim()) ? why.trim() : null;
+    const assertions = ((record && record.assertions) || []).map((a) => {
+        if (a.key !== key) return a;
+        return {
+            ...a,
+            accepted_why: text,
+            accepted_why_provenance: text ? (provenance === 'user' ? 'user' : 'llm') : null,
+            rationale_accepted_at: text ? now : null
+        };
+    });
+    return { ...record, assertions, updatedAt: now };
+}
+
+/**
+ * MA.6 — triage one SOURCE or OPEN QUESTION row. These are model-
+ * authored text, so like assertions they publish only once a human has
+ * accepted them individually; `accepted_note` is an optional human
+ * annotation that rides with an accepted source.
+ *
+ * @param {'sources'|'open_questions'} listName
+ */
+export function setRowTriage(record, listName, key, status, { now = 0, note = null } = {}) {
+    if (listName !== 'sources' && listName !== 'open_questions') {
+        throw new Error(`setRowTriage: unknown list "${listName}"`);
+    }
+    const rows = ((record && record[listName]) || []).map((r) => {
+        if (r.key !== key) return r;
+        const next = { ...r, status, triaged_at: status === 'open' ? null : now };
+        if (listName === 'sources') {
+            const n = (typeof note === 'string' && note.trim()) ? note.trim() : null;
+            if (n !== null) next.accepted_note = n;
+        }
+        return next;
+    });
+    return { ...record, [listName]: rows, updatedAt: now };
+}
+
+/**
  * Apply a triage decision to one assertion — pure; returns the new
  * record (the caller persists). `status` 'accepted' carries the minted
  * claim id; 'dismissed' clears none of the atom's content (a dismissal
@@ -555,6 +630,22 @@ export function setAssertionTriage(record, key, status, { claimId = null, now = 
         };
     });
     return { ...record, assertions, updatedAt: now };
+}
+
+/**
+ * MA.6 — stamp a record as published (kind 30070 went out). The stamp is
+ * a LEDGER of an outward action, not analysis state: it never gates
+ * accrual, and a later fold that adds atoms deliberately leaves it in
+ * place, so the surface can say "published <date>" while also showing
+ * atoms found since. A republish overwrites the same replaceable event.
+ */
+export function markRecordPublished(record, { eventId = null, now = 0 } = {}) {
+    return {
+        ...record,
+        published_at: now,
+        published_event_id: eventId || null,
+        updatedAt: now
+    };
 }
 
 // ------------------------------------------------------------------

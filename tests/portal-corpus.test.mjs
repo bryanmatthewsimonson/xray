@@ -68,6 +68,8 @@ test('CONTENT_KINDS pins the full corpus kind list from the design note', () => 
         30068,
         // Phase 24.2: owned-keys manifests
         30069,
+        // MA.6: extraction analyses
+        30070,
         30078, 32125, 32126
     ]);
 });
