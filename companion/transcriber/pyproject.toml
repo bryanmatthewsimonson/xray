@@ -22,6 +22,16 @@ dependencies = [
     "torch>=2.13",
     "torchaudio>=2.8",
     "torchvision>=0.23",
+    # ctranslate2 (faster-whisper's engine) is a CUDA-12 BINARY: it
+    # loads cublas64_12 / cu12-built cudnn at runtime. Through torch
+    # 2.11+cu128 those DLLs rode in torch\lib for free; torch 2.13's
+    # cu130 wheels bundle only the CUDA-13 set, which broke local
+    # transcription on the first post-re-lock smoke (2026-08-02:
+    # "Library cublas64_12.dll is not found"). NVIDIA's own wheels
+    # supply the cu12 runtime; the worker child adds their bin dirs to
+    # the DLL search path before any heavy import (worker.py).
+    "nvidia-cublas-cu12>=12.4",
+    "nvidia-cudnn-cu12>=9.1",
 ]
 
 [project.scripts]

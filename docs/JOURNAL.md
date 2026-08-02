@@ -19,6 +19,34 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-02 — torch cu130 broke ctranslate2; one process, one cuDNN
+
+**Tags:** bug external
+
+The post-#286 re-lock smoke (the one the pyproject comment demands)
+failed: ctranslate2 — faster-whisper's engine, a CUDA-12 BINARY — could
+no longer load `cublas64_12.dll`. Through torch 2.11+cu128 that DLL
+rode along in `torch\lib` for free; cu130 wheels bundle only the
+CUDA-13 set. Fix: depend on NVIDIA's own `nvidia-cublas-cu12` +
+`nvidia-cudnn-cu12` wheels and register their bin dirs (both
+`os.add_dll_directory` AND a PATH prepend — ct2 resolves some
+libraries through the legacy search) in the worker child before any
+heavy import.
+
+The non-obvious half is cuDNN, whose DLL names carry NO CUDA-major
+suffix: torch hard-loads its cu13 build by FULL PATH at import, so
+one process gets exactly one cudnn and it must be torch's. Two failed
+shapes, both field-hit: registering the cu12 cudnn dir let the cu13
+CORE resolve sublibraries to cu12 copies
+(`CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH`); eagerly preloading the
+cu12 set instead broke torch's full-path load (WinError 127). The
+working shape: register everything EXCEPT cudnn — ct2 binds torch's
+already-loaded cu13 cudnn by name, cross-runtime but sharing the one
+CUDA primary context. Verified by a full local smoke (transcribe +
+align + diarize, correct output). Lesson: "smoke-test one real
+transcription after any re-lock" is load-bearing — resolution success
+proves nothing about runtime DLL topology.
+
 ## 2026-08-02 — Engine choice moved into the extension; keys became per-request
 
 **Tags:** design

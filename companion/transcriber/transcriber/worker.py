@@ -22,11 +22,57 @@ import sys
 import threading
 
 
+def _register_cuda12_dlls() -> None:
+    """Put the nvidia-*-cu12 wheels' DLL dirs on the loader path.
+
+    ctranslate2 (faster-whisper's engine) is a CUDA-12 binary; torch
+    2.13's cu130 wheels bundle only the CUDA-13 DLL set, so the cu12
+    cublas/cudnn now come from NVIDIA's own wheels (pyproject).  Must
+    run BEFORE any heavy import.  Windows-only; best-effort — when the
+    wheels are absent the original loader error surfaces unchanged.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import importlib.util
+
+        # Register every nvidia/*/bin dir EXCEPT cudnn (cublas/nvrtc —
+        # their DLL names are CUDA-major-suffixed, cublas64_12 vs _13,
+        # so they coexist with torch's cu13 set).  cuDNN is deliberately
+        # EXCLUDED: its DLL names carry no CUDA-major suffix, and one
+        # process gets exactly one cudnn — torch hard-loads its own
+        # CUDA-13 build by full path at import, so that build must own
+        # the name space.  Registering (or worse, PATH-prepending) the
+        # cu12 cudnn dir made the cu13 CORE resolve its sublibraries to
+        # cu12 copies -> CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH;
+        # preloading the cu12 set instead broke torch's full-path load
+        # with WinError 127 (both field-hit 2026-08-02).  ctranslate2
+        # (a cu12 binary) binds torch's already-loaded cu13 cudnn by
+        # name — cross-runtime, but sharing the one CUDA primary
+        # context, which the passing post-fix smoke exercises across
+        # transcribe (ct2), align (torch), and diarize (pyannote).
+        spec = importlib.util.find_spec("nvidia")
+        for loc in (spec.submodule_search_locations or []) if spec else []:
+            for entry in os.listdir(loc):
+                if entry == "cudnn":
+                    continue
+                bin_dir = os.path.join(loc, entry, "bin")
+                if os.path.isdir(bin_dir):
+                    os.add_dll_directory(bin_dir)
+                    # ctranslate2 resolves some libraries through the
+                    # LEGACY search (plain LoadLibrary), which consults
+                    # PATH but not add_dll_directory — cover both.
+                    os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+    except Exception:
+        pass
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         print(json.dumps({"error": "usage: python -m transcriber.worker <spec.json>"}), flush=True)
         sys.exit(2)
 
+    _register_cuda12_dlls()
     real_stdout = sys.stdout
     sys.stdout = sys.stderr  # keep library prints off the protocol channel
     emit_lock = threading.Lock()
