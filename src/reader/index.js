@@ -77,6 +77,7 @@ import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/len
 import { speakerFromParagraphText } from '../shared/transcript-parse.js';
 import { buildTranscriptSection, upsertTranscriptSection } from '../shared/transcript-article.js';
 import { openMediaModal } from './media-modal.js';
+import { scanPodcastSignals } from '../shared/podcast-identity.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { resolveActiveCaseRef, describeActiveContext } from '../shared/case-membership.js';
@@ -2562,6 +2563,30 @@ function setupMediaControl() {
         const result = await openMediaModal(state.article);
         if (result) await applyMediaResult(result);
     });
+    refreshMediaNudge();
+}
+
+// Post-transcription nudge (Phase 22 tail): a transcript-bearing
+// capture with strong podcast signals but NO declared identity gets a
+// subtle "identity found — confirm?" decoration on the Media button.
+// Pure local signal scan — no network — and never an auto-write: media
+// identity stays user-declared (the NIP_DRAFT rule); the user confirms
+// via 🔍 Find identity inside the modal.
+function refreshMediaNudge() {
+    const btn = $('#xr-media-btn');
+    if (!btn || btn.hidden) return;
+    const a = state.article;
+    const hasTranscript = !!(a && (a.transcript_meta || a.contentType === 'transcript'));
+    const wants = !!(a && hasTranscript && !a.podcast && scanPodcastSignals(a).strong);
+    let hint = btn.querySelector('.xr-reader__media-nudge');
+    if (!wants) { if (hint) hint.remove(); return; }
+    if (!hint) {
+        hint = document.createElement('span');
+        hint.className = 'xr-reader__media-nudge';
+        hint.textContent = 'identity found — confirm?';
+        btn.appendChild(hint);
+    }
+    btn.title = 'Podcast identity signals detected — open, pick “a podcast episode”, then 🔍 Find identity to confirm';
 }
 
 async function applyMediaResult(result) {
@@ -2594,6 +2619,7 @@ async function applyMediaResult(result) {
     if (!result.parse) {
         // Metadata-only: the hash is untouched — persist the row and stop.
         scheduleTagSave();
+        refreshMediaNudge();
         toast('Media metadata saved', 'success', 2000);
         return;
     }
@@ -2685,6 +2711,9 @@ async function applyMediaResult(result) {
     }
 
     renderReader();
+    // A fresh transcript may complete the nudge condition (transcript
+    // present + strong signals + no declared identity yet).
+    refreshMediaNudge();
     refreshClaimsBar().catch(() => {});
     toast(`Transcript attached — ${parse.turns.length} turn${parse.turns.length === 1 ? '' : 's'}`
         + `, ${parse.speakers.length} speaker${parse.speakers.length === 1 ? '' : 's'}`, 'success', 2500);

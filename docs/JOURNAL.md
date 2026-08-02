@@ -19,6 +19,46 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-02 — Find identity: discovery may automate, declaration may not
+
+**Tags:** design
+
+The Media modal's podcast identity block (Phase 21.3/22) was
+pure typing: five IDs the user had to hunt down by hand, so they
+mostly stayed empty and the cross-URL episode join never happened. The
+new 🔍 Find identity assist (`shared/podcast-identity.js`, SW handler
+`xray:media:lookup`) discovers a candidate and PREFILLS empty fields
+only — the NIP_DRAFT rule that media identity is user-declared holds
+because nothing writes until the user presses Save. Second-guessable
+choices, recorded:
+
+1. **Apple is contacted only when the capture doesn't already carry
+   the answer.** Escalation order: a `podcasts.apple.com/...id<n>`
+   link → the keyless Lookup API (only the numeric id leaves the
+   device); a feed-shaped outbound link → fetched directly, Apple
+   never contacted (a test pins this); only the no-link fallback sends
+   a show-name term to the iTunes Search API — which is exactly what
+   the modal hint discloses.
+2. **On a feed-GUID mismatch, the feed's declared `<podcast:guid>`
+   wins over the UUIDv5 computed from the feed URL** (namespace
+   `ead4c236-…`, verified against the podnews.net/rss spec vector).
+   Feeds change hosts; the declared GUID is precisely the identity
+   that survives the move. Both cases get a note in the result.
+3. **The feed reader is hand-rolled regex, not a parser** — the MV3 SW
+   has no DOMParser (transcript-parse.js precedent) and five fields
+   don't justify a dependency. An HTML page has a `<title>` too, so
+   the pipeline demands `<rss`/`<channel` structure before believing
+   anything it read.
+4. **The nudge is scan-only.** A transcript-bearing capture with
+   strong podcast signals but empty `article.podcast` decorates the
+   Media button ("identity found — confirm?") from the pure local
+   signal scan — zero network until the user clicks Find identity
+   inside the modal.
+5. **`matchEpisode` returns null below a floor** rather than its best
+   guess — a wrong episode-GUID prefill that a user rubber-stamps is
+   worse than an empty field. Confidence + reasons ride the note the
+   user confirms against.
+
 ## 2026-07-27 — MA.4: the reader's Suggest pass joins the durable layer
 
 **Tags:** design

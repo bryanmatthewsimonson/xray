@@ -21,6 +21,7 @@
 // + backdrop + Escape, self-injected <style> (xr-media-* only).
 
 import { parseTranscript, describeTranscriptParse } from '../shared/transcript-parse.js';
+import { scanPodcastSignals, describePodcastLookup } from '../shared/podcast-identity.js';
 import {
     SOURCE_TYPES, SOURCE_TYPE_LABELS, suggestSourceType,
     EVIDENCE_ROLES, EVIDENCE_ROLE_LABELS
@@ -140,6 +141,15 @@ function buildHtml(article) {
             ${field('Episode GUID', 'xr-media-epguid', pod.episode_guid, 'episode GUID (case-sensitive)')}
             ${field('Feed URL', 'xr-media-feedurl', pod.feed_url, 'RSS feed URL')}
             ${field('iTunes ID', 'xr-media-itunes', pod.itunes_id, 'Apple collection id (digits)')}
+            <div class="xr-media__row">
+              <button type="button" class="xr-media__btn" id="xr-media-find">🔍 Find identity</button>
+            </div>
+            <span class="xr-media__hint">Auto-discovers these IDs from the capture's
+              links and the show's public RSS feed, then prefills EMPTY fields for you
+              to confirm — nothing is saved until you press Save. If the capture has no
+              Apple or feed link, the show name is sent to Apple's iTunes Search API to
+              find the feed.</span>
+            <div class="xr-media__find-note" id="xr-media-find-note" hidden></div>
           </fieldset>
 
           <div class="xr-media__transcript">
@@ -229,6 +239,60 @@ export function openMediaModal(article) {
             if (!file) return;
             try { $('#xr-media-text').value = await file.text(); schedulePreview(); }
             catch (_) { showError('Could not read that file.'); }
+        });
+
+        // 🔍 Find identity — SW-side discovery (xray:media:lookup),
+        // prefilling EMPTY id fields only: a value the user already
+        // typed (or a stored one) is never overwritten, and nothing
+        // saves until the Save button — identity stays user-declared.
+        $('#xr-media-find').addEventListener('click', async () => {
+            const note = $('#xr-media-find-note');
+            const say = (text, isError) => {
+                note.hidden = !text;
+                note.textContent = text;
+                note.classList.toggle('xr-media__find-note--err', !!isError);
+            };
+            if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
+                say('Lookup unavailable outside the extension.', true);
+                return;
+            }
+            const btn = $('#xr-media-find');
+            btn.disabled = true;
+            const prevLabel = btn.textContent;
+            btn.textContent = 'Looking…';
+            say('');
+            try {
+                const signals = scanPodcastSignals(article || {});
+                const resp = await chrome.runtime.sendMessage({ type: 'xray:media:lookup', signals });
+                if (!resp || !resp.ok) {
+                    say(`Lookup failed: ${(resp && resp.error) || 'no response'}`, true);
+                    return;
+                }
+                const fill = (sel, value) => {
+                    const el = $(sel);
+                    if (!el || !value || el.value.trim()) return false;
+                    el.value = value;
+                    return true;
+                };
+                const c = resp.candidate || {};
+                const filled = [];
+                if (fill('#xr-media-show', c.show)) filled.push('show');
+                if (fill('#xr-media-feedguid', c.feed_guid)) filled.push('feed GUID');
+                if (fill('#xr-media-epguid', c.episode_guid)) filled.push('episode GUID');
+                if (fill('#xr-media-feedurl', c.feed_url)) filled.push('feed URL');
+                if (fill('#xr-media-itunes', c.itunes_id)) filled.push('iTunes ID');
+                const lines = [describePodcastLookup(resp)];
+                lines.push(filled.length
+                    ? `Prefilled: ${filled.join(', ')} — review, then Save.`
+                    : 'All discovered fields were already set — nothing overwritten.');
+                for (const n of (resp.notes || [])) lines.push(`· ${n}`);
+                say(lines.filter(Boolean).join('\n'));
+            } catch (err) {
+                say(`Lookup failed: ${(err && err.message) || err}`, true);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = prevLabel;
+            }
         });
 
         $('.xr-media__backdrop').addEventListener('click', () => close(null));
@@ -336,6 +400,8 @@ function ensureStyles() {
 .xr-media__detected { font-size: 12px; opacity: .85; }
 .xr-media__warn { font-size: 12px; color: var(--xr-warning, #fbbf24); }
 .xr-media__err { font-size: 13px; color: var(--xr-danger, #f87171); }
+.xr-media__find-note { font-size: 12px; opacity: .85; white-space: pre-line; }
+.xr-media__find-note--err { color: var(--xr-danger, #f87171); opacity: 1; }
 .xr-media__btn {
   background: transparent; color: inherit; border: 1px solid var(--xr-border, #444);
   border-radius: 6px; padding: 6px 12px; cursor: pointer; font: inherit;
