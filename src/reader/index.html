@@ -38,6 +38,28 @@
       <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-media-btn" title="Declare media type (podcast / video) and attach a transcript">
         🎙 Media…
       </button>
+      <!-- Local transcription: hidden unless the localTranscription flag
+           is on AND this is a YouTube capture. Runs the loopback
+           companion (yt-dlp → WhisperX → diarization); the diarized
+           transcript becomes the capture body. -->
+      <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-transcribe" hidden>
+        🎙 Transcribe
+      </button>
+      <!-- Speaker identification: visible on any capture with transcript
+           speakers. Binds each detected voice to a person entity (the
+           claim provenance for spoken words); same entity on two labels
+           = voice-split alias. Metadata-only, publishes as the existing
+           p/person entity tags. -->
+      <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-speakers" hidden
+              title="Identify each detected voice as a person entity">
+        🗣 Speakers…
+      </button>
+      <!-- LM Studio claim drafts: hidden unless transcriptClaimDrafts is
+           on AND a diarized transcript exists. Local model, loopback
+           only; opens the same review modal as Suggest. -->
+      <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-transcribe-claims" hidden>
+        ✨ Draft claims (local)
+      </button>
       <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-entities" title="Open entity browser in the side panel">
         👤 Entities
       </button>

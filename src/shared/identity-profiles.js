@@ -54,7 +54,11 @@ export const WORKSPACE_KEEP_KEYS = Object.freeze([
     'xray:flags',               // feature-flag overrides
     'xray:llm:key',             // Anthropic key (never exported)
     'xray:llm:model',
-    'xray:llm:suggest_kinds'    // llm-prompts.js LLM_SUGGEST_KINDS_STORAGE
+    'xray:llm:suggest_kinds',   // llm-prompts.js LLM_SUGGEST_KINDS_STORAGE
+    'xray:transcriber:port',    // transcriber-client.js — companion port
+    'xray:transcriber:token',   // optional companion shared secret
+    'xray:lmstudio:url',        // transcriber-client.js — loopback-pinned
+    'xray:lmstudio:model'
 ]);
 
 // IndexedDB lists — moved to workspace-keys.js (28.1), re-exported

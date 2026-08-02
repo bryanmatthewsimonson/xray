@@ -517,6 +517,54 @@
       </p>
 
       <hr />
+      <h3 class="xr-opt__subhead">Local transcription</h3>
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-local-transcription" />
+        <span>Enable "Transcribe locally" for YouTube captures</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Off by default. Requires the companion service from
+        <code>companion/transcriber/</code> in the X-Ray repo (yt-dlp +
+        WhisperX + speaker diarization, GPU recommended) running on this
+        machine. Adds a "Capture &amp; transcribe locally" right-click
+        item on YouTube videos and a Transcribe button in the reader.
+        Everything runs on 127.0.0.1 — nothing leaves this machine.
+      </p>
+      <label class="xr-opt__field">
+        <span>Companion service port</span>
+        <input type="number" id="pref-transcriber-port" min="1" max="65535"
+               placeholder="8756" />
+      </label>
+      <label class="xr-opt__field">
+        <span>Companion auth token (optional — only if the service sets TRANSCRIBER_TOKEN)</span>
+        <input type="text" id="pref-transcriber-token" placeholder="leave blank unless configured" />
+      </label>
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-transcript-claim-drafts" />
+        <span>Draft claim candidates from transcripts with a local model (LM Studio)</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Off by default. On any capture with a transcript (locally
+        transcribed, imported, or attached), a "Draft claims (local)"
+        button sends the transcript to an LM Studio server on this
+        machine (OpenAI-compatible API) and opens the same review
+        modal as Suggest — every candidate is quote-grounded and
+        nothing saves without Accept. Long transcripts run in windows
+        sized to the model's context. Loopback only; independent of
+        LLM assist and of the transcription companion; needs no API
+        key. While a transcription job is running the button waits —
+        the two share the GPU.
+      </p>
+      <label class="xr-opt__field">
+        <span>LM Studio base URL (loopback only)</span>
+        <input type="text" id="pref-lmstudio-url" placeholder="http://localhost:1234/v1" />
+      </label>
+      <label class="xr-opt__field">
+        <span>LM Studio model</span>
+        <input type="text" id="pref-lmstudio-model" placeholder="qwen/qwen3.6-27b" />
+      </label>
+
+      <hr />
       <h3 class="xr-opt__subhead">Case synthesis</h3>
       <label class="xr-opt__field xr-opt__field--inline">
         <input type="checkbox" id="pref-case-synthesis" />

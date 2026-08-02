@@ -96,9 +96,11 @@ through the **source tab** when NIP-07 is active, so the user's signer
 extension approves in-context.
 
 **Message bus:** everything is `chrome.runtime` messages typed `xray:*`
-(e.g. `xray:capture`, `xray:capture:publish`, `xray:relay:publish`,
-`xray:relay:query`, `xray:sign`, `xray:youtube:fetchTranscript`,
-`xray:screenshot:capture`, `xray:llm:suggest`, `xray:audit:run`). When adding a cross-context
+(e.g. `xray:capture`, `xray:capture:transcribe`, `xray:capture:publish`,
+`xray:relay:publish`, `xray:relay:query`, `xray:sign`,
+`xray:youtube:fetchTranscript`, `xray:screenshot:capture`,
+`xray:llm:suggest`, `xray:audit:run`, `xray:transcribe:{start,status,
+config,ping,claims}`). When adding a cross-context
 call, add an `xray:*` message rather than reaching across contexts directly.
 
 ### Shared layer (`src/shared/`)
@@ -186,7 +188,23 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   Integrity" never appear in lens exports, storage keys, or UI strings.
 - Also: `nostr-client.js` (relay pool, used from background),
   `archive-cache.js` (IndexedDB + paywall reconstruction),
-  `build-info.js` (the build stamp shown on the Options page).
+  `build-info.js` (the build stamp shown on the Options page),
+  `transcriber-client.js` + `diarized-transcript.js` (local
+  transcription: the loopback companion client — pinned to
+  127.0.0.1/localhost — and the segments→diarized-markdown/timeMap
+  composer; flag `localTranscription`, reader flow in
+  `reader/transcribe-flow.js`).
+
+## Companion service (`companion/transcriber/`)
+
+A **separate local Python service** (uv-managed, FastAPI; yt-dlp →
+WhisperX → pyannote diarization on 127.0.0.1:8756) behind the
+"Transcribe locally" YouTube capture path. It is NOT part of the
+extension build or zip (`package.json` `webExt.ignoreFiles` excludes
+it; CI's `node --check`/tests never touch it). Setup + API contract:
+`companion/transcriber/README.md`. The extension must behave exactly
+as before whenever the service is absent — that degradation is a
+tested contract, not an aspiration.
 
 ## Conventions
 
