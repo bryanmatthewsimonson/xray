@@ -2211,7 +2211,7 @@ async function setupTranscriptClaimDraftsControl() {
     if (!cfg.drafts || !cfg.drafts.enabled) { btn.hidden = true; return; }
     btn.hidden = false;
     btn.disabled = false;
-    btn.title = `Suggest claim candidates from the transcript with a local model (${cfg.drafts.model} via LM Studio) — same review modal as Suggest, nothing saves without Accept`;
+    btn.title = `Suggest claim + entity candidates from the transcript with a local model (${cfg.drafts.model} via LM Studio) — same review modal as Suggest, nothing saves without Accept`;
     // onclick (not addEventListener): re-invoked after every adoption —
     // a stacked handler would fire the pass twice per click.
     btn.onclick = runTranscriptClaimDrafts;

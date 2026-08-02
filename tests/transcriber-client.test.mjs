@@ -253,6 +253,48 @@ test('runDraftPass: 400 at the minimum window surfaces the raise-context hint; p
     assert.equal(partial.proposals.length, 1);
 });
 
+test('coerceDraftProposals: entity items parsed + validated; kind toggles honored', async () => {
+    const { coerceDraftProposals: coerce } = await import('../src/shared/transcriber-client.js');
+    const transcript = 'Ed Nachel said the budget doubled. The FBI investigated Dublin, Ohio.';
+    const reply = JSON.stringify([
+        { kind: 'claim', text: 'Budget doubled.', quote: 'the budget doubled' },
+        { kind: 'entity', name: 'Ed Nachel', entity_type: 'person', mention: 'Ed Nachel' },
+        { kind: 'entity', name: 'FBI', entity_type: 'organization', mention: 'The FBI' },
+        { kind: 'entity', name: 'Dublin, Ohio', entity_type: 'nonsense', mention: 'Dublin, Ohio' },
+        { kind: 'entity', name: 'Speaker 1', entity_type: 'person', mention: 'Speaker 1' },
+        { text: 'Kind-less legacy claim.', quote: 'The FBI investigated' }
+    ]);
+    const both = coerce(reply, transcript);
+    assert.deepEqual(both.map((p) => `${p.kind}:${p.ref}`), ['claim:C1', 'entity:E1', 'entity:E2', 'claim:C2'],
+        'valid claims + entities kept; bad type and diarization labels dropped; kind-less = claim');
+    assert.deepEqual(both[1], { kind: 'entity', ref: 'E1', name: 'Ed Nachel', entity_type: 'person', mention: 'Ed Nachel' });
+
+    assert.ok(coerce(reply, transcript, ['claims']).every((p) => p.kind === 'claim'), 'claims-only toggle');
+    assert.ok(coerce(reply, transcript, ['entities']).every((p) => p.kind === 'entity'), 'entities-only toggle');
+});
+
+test('runDraftPass: entities dedupe across windows by type+name; refs number per kind', async () => {
+    const { runDraftPass } = await import('../src/shared/transcriber-client.js');
+    let n = 0;
+    const out = await runDraftPass({
+        transcriptText: `${'a '.repeat(1200)}\n\n${'b '.repeat(1200)}`, title: 't', windowChars: 2500,
+        send: async () => {
+            n += 1;
+            return {
+                ok: true, model: 'm',
+                proposals: [
+                    { kind: 'entity', ref: 'E1', name: 'Ed  Nachel', entity_type: 'person', mention: 'Ed Nachel' },
+                    { kind: 'claim', ref: 'C1', text: `t${n}`, quote: `quote ${n}`, about: [], is_key: false }
+                ]
+            };
+        }
+    });
+    assert.equal(out.ok, true);
+    assert.equal(n, 2);
+    assert.deepEqual(out.proposals.map((p) => p.ref), ['E1', 'C1', 'C2'],
+        'one entity across both windows (name-normalized), claims renumbered per kind');
+});
+
 test('draftClaimCandidates: gated by the flag; unreachable degrades to a clear error', async () => {
     resetStore();
     const off = await draftClaimCandidates({ transcriptText: 'x', title: 't' }, { fetchFn: async () => okJson({}) });

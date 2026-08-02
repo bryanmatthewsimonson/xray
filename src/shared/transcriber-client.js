@@ -16,6 +16,7 @@
 // {ok: false, error}), never throws — the house LLM-client contract.
 
 import { loadFlags, isEnabled } from './metadata/feature-flags.js';
+import { SUGGESTABLE_ENTITY_TYPES, LLM_SUGGEST_KINDS_STORAGE, normalizeSuggestKinds } from './llm-prompts.js';
 
 export const TRANSCRIBER_DEFAULT_PORT = 8756;
 export const TRANSCRIBER_PORT_STORAGE = 'xray:transcriber:port';
@@ -185,16 +186,35 @@ export async function getTranscribeConfig() {
 // LM Studio claim-candidate drafts (optional post-pass)
 // ------------------------------------------------------------------
 
-const DRAFT_SYSTEM_PROMPT = [
-    'You extract checkable factual claims from a speaker-diarized video transcript.',
-    'Return ONLY a JSON array, no prose, no code fences. Each element:',
-    '{"text": "<the claim in one clear sentence>", "quote": "<ONE contiguous VERBATIM span',
-    'copied character-for-character from the transcript that grounds the claim>"}.',
-    'Rules: 5-20 claims; quotes MUST be exact substrings of the transcript (they are',
-    'machine-checked and a claim whose quote cannot be located is discarded); prefer',
-    'specific, falsifiable statements (numbers, events, attributions) over vibes;',
-    'never quote the timestamp links or speaker labels, only spoken words.'
-].join(' ');
+/** The system prompt, shaped by which suggestion kinds are enabled
+ *  (the SAME per-kind toggles the Anthropic Suggest pass honors).
+ *  Exported for tests. */
+export function buildDraftSystemPrompt(kinds = ['entities', 'claims']) {
+    const wantClaims = kinds.includes('claims');
+    const wantEntities = kinds.includes('entities');
+    const what = wantClaims && wantEntities
+        ? 'checkable factual claims AND named entities'
+        : wantClaims ? 'checkable factual claims' : 'named entities';
+    const shapes = [];
+    if (wantClaims) {
+        shapes.push('{"kind": "claim", "text": "<the claim in one clear sentence>", '
+            + '"quote": "<ONE contiguous VERBATIM span copied character-for-character from the transcript>"}');
+    }
+    if (wantEntities) {
+        shapes.push('{"kind": "entity", "name": "<canonical name>", '
+            + `"entity_type": "<one of: ${SUGGESTABLE_ENTITY_TYPES.join(' | ')}>", `
+            + '"mention": "<ONE VERBATIM span from the transcript where this entity is named>"}');
+    }
+    return [
+        `You extract ${what} from a speaker-diarized video transcript.`,
+        'Return ONLY a JSON array, no prose, no code fences. Elements:',
+        shapes.join(' or '),
+        '. Rules:',
+        wantClaims ? '5-20 claims; quotes MUST be exact substrings of the transcript (machine-checked; unlocatable quotes are discarded); prefer specific, falsifiable statements (numbers, events, attributions) over vibes;' : '',
+        wantEntities ? 'up to 15 entities — distinct people, organizations, places, things NAMED in the spoken words; NEVER the diarization labels ("Speaker 1") themselves; mentions must be verbatim spans;' : '',
+        'never quote timestamp links or speaker labels, only spoken words.'
+    ].filter(Boolean).join(' ');
+}
 
 const DRAFT_MAX_PROPOSALS = 60;
 const DRAFT_TIMEOUT_MS = 300000;
@@ -240,10 +260,12 @@ export function chunkTranscript(text, windowChars = DRAFT_WINDOW_CHARS) {
     return out;
 }
 
-/** Parse the model's reply into propose_capture-shaped claim proposals.
- *  Tolerates code fences and stray prose around the array. Exported
- *  for tests. */
-export function coerceDraftProposals(replyText, transcriptText) {
+/** Parse the model's reply into propose_capture-shaped proposals
+ *  (claims + entities — the Anthropic Suggest shapes, so the review
+ *  modal needs zero changes). Tolerates code fences and stray prose
+ *  around the array; a kind-less {text, quote} item is treated as a
+ *  claim (older prompt / sloppy model). Exported for tests. */
+export function coerceDraftProposals(replyText, transcriptText, kinds = ['entities', 'claims']) {
     const raw = String(replyText || '');
     const start = raw.indexOf('[');
     const end = raw.lastIndexOf(']');
@@ -253,15 +275,31 @@ export function coerceDraftProposals(replyText, transcriptText) {
     if (!Array.isArray(parsed)) return [];
     const body = String(transcriptText || '');
     const out = [];
+    let claims = 0;
+    let ents = 0;
     for (const item of parsed) {
         if (!item || typeof item !== 'object') continue;
-        const text = String(item.text || '').trim();
-        const quote = String(item.quote || '').trim();
-        if (!text || !quote) continue;
-        // Pre-filter obvious hallucinations; the review modal's
-        // grounding index remains the real firewall.
-        if (body && !body.includes(quote)) continue;
-        out.push({ kind: 'claim', ref: `C${out.length + 1}`, text, quote, about: [], is_key: false });
+        const kind = String(item.kind || (item.text && item.quote ? 'claim' : '')).trim();
+        if (kind === 'claim' && kinds.includes('claims')) {
+            const text = String(item.text || '').trim();
+            const quote = String(item.quote || '').trim();
+            if (!text || !quote) continue;
+            // Pre-filter obvious hallucinations; the review modal's
+            // grounding index remains the real firewall.
+            if (body && !body.includes(quote)) continue;
+            claims += 1;
+            out.push({ kind: 'claim', ref: `C${claims}`, text, quote, about: [], is_key: false });
+        } else if (kind === 'entity' && kinds.includes('entities')) {
+            const name = String(item.name || '').trim();
+            const type = String(item.entity_type || '').trim();
+            const mention = String(item.mention || '').trim();
+            if (!name || !mention || !SUGGESTABLE_ENTITY_TYPES.includes(type)) continue;
+            // Diarization labels are voices, not entities — the 🗣
+            // Speakers modal owns those.
+            if (/^speaker \d+$/i.test(name)) continue;
+            ents += 1;
+            out.push({ kind: 'entity', ref: `E${ents}`, name, entity_type: type, mention });
+        }
         if (out.length >= DRAFT_MAX_PROPOSALS) break;
     }
     return out;
@@ -275,13 +313,20 @@ export function coerceDraftProposals(replyText, transcriptText) {
 export async function draftClaimCandidates({ transcriptText, title }, { fetchFn = fetch } = {}) {
     await loadFlags();
     if (!isEnabled('transcriptClaimDrafts')) {
-        return { ok: false, error: 'Transcript claim drafts are off. Enable them in Options → Advanced → Local transcription.' };
+        return { ok: false, error: 'Suggest (local) is off. Enable it in Options → Advanced → Local transcription.' };
+    }
+    // Honor the SAME per-kind toggles as the Anthropic Suggest pass —
+    // one mental model for what "suggest" proposes.
+    const kindsRes = await storageGet([LLM_SUGGEST_KINDS_STORAGE]);
+    const kinds = normalizeSuggestKinds(kindsRes[LLM_SUGGEST_KINDS_STORAGE]);
+    if (kinds.length === 0) {
+        return { ok: false, error: 'All suggestion kinds are disabled in Options → Advanced → LLM assist.' };
     }
     const { url, model } = await getLmStudioConfig();
     const payload = {
         model,
         messages: [
-            { role: 'system', content: DRAFT_SYSTEM_PROMPT },
+            { role: 'system', content: buildDraftSystemPrompt(kinds) },
             { role: 'user', content: `Transcript of "${String(title || 'video')}" follows.\n\n${String(transcriptText || '')}` }
         ],
         temperature: 0.2,
@@ -329,7 +374,7 @@ export async function draftClaimCandidates({ transcriptText, title }, { fetchFn 
         ? data.choices[0].message.content : '';
     // An empty window is a RESULT, not a failure — the chunked pass
     // aggregates; a transcript segment can genuinely hold no claims.
-    return { ok: true, proposals: coerceDraftProposals(reply, transcriptText), model };
+    return { ok: true, proposals: coerceDraftProposals(reply, transcriptText, kinds), model };
 }
 
 /**
@@ -369,10 +414,16 @@ export async function runDraftPass({ transcriptText, title, send, onProgress = (
             if (resp && resp.ok) {
                 model = resp.model || model;
                 for (const p of resp.proposals || []) {
-                    const key = String(p.quote || '').replace(/\s+/g, ' ').trim().toLowerCase();
-                    if (!key || seen.has(key)) continue;
+                    // Per-kind identity: claims by quote, entities by
+                    // type+name — the same person named in three windows
+                    // is ONE proposal.
+                    const key = p.kind === 'entity'
+                        ? `e:${p.entity_type}:${String(p.name || '').replace(/\s+/g, ' ').trim().toLowerCase()}`
+                        : `c:${String(p.quote || '').replace(/\s+/g, ' ').trim().toLowerCase()}`;
+                    if (key.length < 3 || seen.has(key)) continue;
                     seen.add(key);
-                    all.push({ ...p, ref: `C${all.length + 1}` });
+                    const n = all.filter((x) => x.kind === p.kind).length + 1;
+                    all.push({ ...p, ref: `${p.kind === 'entity' ? 'E' : 'C'}${n}` });
                 }
             } else if (resp && resp.status === 400 && Math.floor(size / 2) >= DRAFT_MIN_WINDOW_CHARS) {
                 const half = Math.floor(size / 2);
@@ -394,7 +445,7 @@ export async function runDraftPass({ transcriptText, title, send, onProgress = (
     if (all.length === 0) {
         return failures > 0
             ? { ok: false, failures, error: lastError }
-            : { ok: false, error: 'The model found no claim candidates in this transcript.' };
+            : { ok: false, error: 'The model found no candidates in this transcript.' };
     }
     return { ok: true, proposals: all.slice(0, DRAFT_MAX_PROPOSALS), model, failures };
 }
