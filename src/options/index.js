@@ -85,8 +85,11 @@ function storageClearExtension() {
         // key is a secret, so "erase all" must clear it too.
         LLM_KEY_STORAGE, LLM_MODEL_STORAGE,
         // Cloud transcription keys are secrets under the same rule; the
-        // engine preference goes with them.
-        ASSEMBLYAI_KEY_STORAGE, DEEPGRAM_KEY_STORAGE, TRANSCRIBER_ENGINE_STORAGE
+        // engine preference goes with them — and so does the companion
+        // auth token (review finding: it was the one stored secret
+        // "erase all" left behind).
+        ASSEMBLYAI_KEY_STORAGE, DEEPGRAM_KEY_STORAGE, TRANSCRIBER_ENGINE_STORAGE,
+        TRANSCRIBER_TOKEN_STORAGE
     ];
     return new Promise((resolve) => {
         browserApi.storage.local.remove(keys, () => resolve());
@@ -1150,8 +1153,11 @@ async function loadAdvanced() {
     document.getElementById('pref-transcriber-token').value = await llmRawGet(TRANSCRIBER_TOKEN_STORAGE);
     // Engine preference + cloud key presence (never the key VALUES —
     // the LLM-key rule: the DOM only ever learns whether one is set).
+    // '' = never chosen: jobs carry no engine and the companion's own
+    // default rules (the visible bottom tier of the hierarchy).
+    const storedEngine = await llmRawGet(TRANSCRIBER_ENGINE_STORAGE);
     document.getElementById('pref-transcribe-engine').value =
-        normalizeEngine(await llmRawGet(TRANSCRIBER_ENGINE_STORAGE));
+        storedEngine ? normalizeEngine(storedEngine) : '';
     setKeyStatus('aai-key-status', (await llmRawGet(ASSEMBLYAI_KEY_STORAGE)).length > 0);
     setKeyStatus('dg-key-status', (await llmRawGet(DEEPGRAM_KEY_STORAGE)).length > 0);
     document.getElementById('pref-aai-key').value = '';
@@ -1302,10 +1308,12 @@ async function saveAdvanced() {
     if (tokenField) await llmRawSet(TRANSCRIBER_TOKEN_STORAGE, tokenField);
     else await llmRawRemove(TRANSCRIBER_TOKEN_STORAGE);
 
-    // Engine preference always; cloud keys only when the user typed one
-    // (blank leaves the saved key untouched — the LLM-key pattern).
-    await llmRawSet(TRANSCRIBER_ENGINE_STORAGE,
-        normalizeEngine(document.getElementById('pref-transcribe-engine').value));
+    // Engine preference: '' (companion default) REMOVES the key so jobs
+    // carry no engine at all; cloud keys save only when the user typed
+    // one (blank leaves the saved key untouched — the LLM-key pattern).
+    const chosenEngine = document.getElementById('pref-transcribe-engine').value;
+    if (chosenEngine) await llmRawSet(TRANSCRIBER_ENGINE_STORAGE, normalizeEngine(chosenEngine));
+    else await llmRawRemove(TRANSCRIBER_ENGINE_STORAGE);
     for (const [fieldId, statusId, storageKey] of [
         ['pref-aai-key', 'aai-key-status', ASSEMBLYAI_KEY_STORAGE],
         ['pref-dg-key', 'dg-key-status', DEEPGRAM_KEY_STORAGE]
@@ -1396,18 +1404,29 @@ function setupTranscriberCheck() {
             // Absent provider = an older companion build = local, the
             // only engine that existed.
             const provider = String(h.provider || 'local').toLowerCase();
-            const engine = provider === 'assemblyai' ? 'AssemblyAI (cloud — episode audio leaves this machine)'
-                : provider === 'deepgram' ? 'Deepgram (cloud — episode audio leaves this machine)'
-                : 'local (WhisperX + pyannote, on-device)';
-            const bits = [`Connected (v${h.version || '?'}${h.device ? `, ${h.device}` : ''})`, `engine: ${engine}`];
+            const name = (p) => p === 'assemblyai' ? 'AssemblyAI' : p === 'deepgram' ? 'Deepgram' : 'local';
+            const bits = [`Connected (v${h.version || '?'}${h.device ? `, ${h.device}` : ''})`];
+            // The WHOLE hierarchy, truthfully: what this extension will
+            // ask for, and what the service falls back to when it
+            // doesn't ask (review finding: showing only the companion
+            // default read as "what jobs will run", which the
+            // extension's own preference can override).
+            const pref = document.getElementById('pref-transcribe-engine').value;
+            if (pref === 'ask') bits.push("this extension's engine: asked per video in the reader");
+            else if (pref) bits.push(`this extension's engine: ${name(pref)}`);
+            else bits.push(`no engine preference here — the companion default applies: ${name(provider)}`);
+            if (pref) bits.push(`companion default (used only when no engine is sent): ${name(provider)}`);
+            if (pref && pref !== 'ask' && h.request_provider !== true) {
+                bits.push('⚠ this companion build IGNORES per-job engine choice — update it (git pull + restart) or it will run its own default');
+            }
             // Which engines the service COULD run (credential present) —
             // booleans from /health, never the credentials themselves.
             if (h.providers && typeof h.providers === 'object') {
                 const ready = [];
                 if ('local' in h.providers) ready.push(`local ${h.providers.local ? '✓' : '— no HF token'}`);
-                if ('assemblyai' in h.providers) ready.push(`AssemblyAI ${h.providers.assemblyai ? '✓ key set' : '— no key'}`);
-                if ('deepgram' in h.providers) ready.push(`Deepgram ${h.providers.deepgram ? '✓ key set' : '— no key'}`);
-                if (ready.length) bits.push(`engines available: ${ready.join(', ')}`);
+                if ('assemblyai' in h.providers) ready.push(`AssemblyAI ${h.providers.assemblyai ? '✓ env key' : '— no env key'}`);
+                if ('deepgram' in h.providers) ready.push(`Deepgram ${h.providers.deepgram ? '✓ env key' : '— no env key'}`);
+                if (ready.length) bits.push(`service-side env keys: ${ready.join(', ')} (keys saved above are separate and sent per job)`);
             }
             if (h.queue_depth > 0) bits.push(`${h.queue_depth} job(s) active`);
             status.textContent = bits.join(' — ');

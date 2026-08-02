@@ -53,6 +53,19 @@ settings field. The shape that replaced it:
    silently ignores them; a cloud env default without its env key
    downgraded from startup-fatal to a warning.
 
+An adversarial review round (17 verified findings) then tightened the
+shape: an UNSET extension preference now sends NO provider at all
+(the env default stays reachable — the back-compat contract the first
+cut accidentally broke), and the Options select shows that "Companion
+default" tier explicitly; an explicitly chosen engine is
+capability-gated against `request_provider` so an old companion can
+never silently run a cloud default when the user picked Local (the
+privacy inversion); the reader re-reads the engine/key snapshot at
+every decision point (a stale snapshot made "add a key in Settings" a
+dead loop); queue_position and the 429 cap count only the job's own
+pool; and "erase all" now clears TRANSCRIBER_TOKEN, the one stored
+secret it had always missed.
+
 ## 2026-08-02 — AssemblyAI hard-deprecated `speech_model` (found on first live smoke)
 
 **Tags:** external

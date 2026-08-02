@@ -109,6 +109,57 @@ class TranscribeEndpoint(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertIn("Deepgram", ctx.exception.detail)
 
+    def test_provider_is_normalized_and_local_never_keeps_a_key(self):
+        resp = server.transcribe(server.TranscribeRequest(
+            url="https://www.youtube.com/watch?v=NoRmALiZ001",
+            provider="  LOCAL  ",
+            api_key="accidental-paste",
+        ))
+        self.assertEqual(resp["provider"], "local")
+        job = server.store.get(resp["job_id"])
+        self.assertIsNone(job.api_key)  # a local job never holds a credential
+        server.store.remove(resp["job_id"])
+
+    def test_unknown_provider_is_a_400(self):
+        from fastapi import HTTPException
+
+        with self.assertRaises(HTTPException) as ctx:
+            server.transcribe(server.TranscribeRequest(
+                url="https://www.youtube.com/watch?v=UnKnOwN0001",
+                provider="whisper9000",
+            ))
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("unknown provider", ctx.exception.detail)
+
+
+class PoolFairness(unittest.TestCase):
+    """queue_position and the 429 cap count only the job's OWN pool."""
+
+    def _queued(self, store, provider, n, tag):
+        jobs = []
+        for i in range(n):
+            j = Job(job_id=f"6a3ce607-0000-4000-8000-{tag}{i:011d}"[:36],
+                    url="https://youtu.be/x", video_id=f"{tag}{i}", provider=provider)
+            store.add_or_get_active(j)
+            jobs.append(j)
+        return jobs
+
+    def test_queue_position_ignores_the_other_pool(self):
+        store = JobStore()
+        self._queued(store, "local", 3, "1")
+        cloud_job = self._queued(store, "assemblyai", 1, "2")[0]
+        # Three queued local jobs ahead in insertion order — but the
+        # cloud pool is empty, so this job is NEXT in its own pool.
+        self.assertEqual(store.snapshot(cloud_job)["queue_position"], 1)
+
+    def test_active_count_is_per_pool(self):
+        store = JobStore()
+        self._queued(store, "local", 5, "3")
+        self._queued(store, "deepgram", 2, "4")
+        self.assertEqual(store.active_count_in_pool(cloud=False), 5)
+        self.assertEqual(store.active_count_in_pool(cloud=True), 2)
+        self.assertEqual(store.active_count(), 7)  # /health stays global
+
 
 if __name__ == "__main__":
     unittest.main()

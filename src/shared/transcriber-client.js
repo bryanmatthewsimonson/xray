@@ -170,24 +170,53 @@ async function storedProviderKey(provider) {
  * reader's job to resolve; unresolved it degrades to 'local'.
  */
 export async function startTranscription(videoUrl, { port, fetchFn = fetch, provider } = {}) {
-    let engine = normalizeEngine(provider);
-    if (!provider) {
+    // Engine resolution (review round, 2026-08-02): an explicit per-run
+    // choice wins; else the STORED preference; and when the user never
+    // chose anything, NO provider is sent at all — the companion's env
+    // default keeps ruling, byte-identical to the pre-engine-choice
+    // contract. ('ask' reaching here unresolved defers the same way.)
+    let engine = null;
+    if (provider) {
+        engine = normalizeEngine(provider);
+    } else {
         const res = await storageGet([TRANSCRIBER_ENGINE_STORAGE]);
-        engine = normalizeEngine(res[TRANSCRIBER_ENGINE_STORAGE]);
+        const stored = res[TRANSCRIBER_ENGINE_STORAGE];
+        engine = (stored == null || stored === '') ? null : normalizeEngine(stored);
     }
-    if (engine === 'ask') engine = 'local';
-    const body = { url: String(videoUrl || ''), provider: engine };
-    if (engine !== 'local') {
-        const apiKey = await storedProviderKey(engine);
-        if (!apiKey) {
-            const label = engine === 'assemblyai' ? 'AssemblyAI' : 'Deepgram';
-            return {
-                ok: false,
-                missingKey: engine,
-                error: `No ${label} API key saved. Add one in Settings → Advanced → Transcription, or pick a different engine.`
-            };
+    if (engine === 'ask') engine = null;
+
+    const body = { url: String(videoUrl || '') };
+    if (engine) {
+        body.provider = engine;
+        if (engine !== 'local') {
+            const apiKey = await storedProviderKey(engine);
+            if (!apiKey) {
+                const label = engine === 'assemblyai' ? 'AssemblyAI' : 'Deepgram';
+                return {
+                    ok: false,
+                    missingKey: engine,
+                    error: `No ${label} API key saved. Add one in Settings → Advanced → Transcription, or pick a different engine.`
+                };
+            }
+            body.api_key = apiKey;
         }
-        body.api_key = apiKey;
+        // Capability gate (review finding — privacy inversion): an old
+        // companion IGNORES these fields and runs its env default, so an
+        // explicit "Local" pick could silently upload audio to a cloud
+        // env default. Refuse unless the build honors per-request
+        // engines OR its default already matches the choice. Unreachable
+        // falls through — the POST fails with the normal reachable error.
+        const ping = await companionFetch('/health', { port, fetchFn, timeoutMs: 3000 });
+        if (ping.ok) {
+            const h = ping.body || {};
+            const envDefault = String(h.provider || 'local').trim().toLowerCase();
+            if (!h.request_provider && envDefault !== engine) {
+                return {
+                    ok: false,
+                    error: `The companion service is too old to honor a per-job engine choice — it would run its own default (${envDefault}) instead of ${engine}. Update it: git pull in the X-Ray repo, then restart the service.`
+                };
+            }
+        }
     }
     const res = await companionFetch('/transcribe', {
         port,
@@ -202,11 +231,14 @@ export async function startTranscription(videoUrl, { port, fetchFn = fetch, prov
     const jobId = res.body && res.body.job_id;
     if (!jobId) return { ok: false, error: 'Transcriber returned no job id.' };
     // Prefer the SERVER'S answer for which engine runs the job: on a
-    // same-video dedupe the existing job's engine wins, and an older
-    // companion (no per-request support) runs its env default — its
-    // response carries no provider, so `requested` is our best guess.
+    // same-video dedupe the existing job's engine wins; its absence
+    // (older companion / env default) leaves the requested engine (or
+    // nothing) as the best available truth.
+    const out = { ok: true, jobId };
     const actual = (res.body && res.body.provider) || engine;
-    return { ok: true, jobId, provider: actual, requested: engine };
+    if (actual) out.provider = actual;
+    if (engine) out.requested = engine;
+    return out;
 }
 
 /** GET /jobs/<id> — the poll unit. */
@@ -235,12 +267,15 @@ export async function getTranscribeConfig() {
     const port = await getTranscriberPort();
     const lm = await getLmStudioConfig();
     const res = await storageGet([TRANSCRIBER_ENGINE_STORAGE, ASSEMBLYAI_KEY_STORAGE, DEEPGRAM_KEY_STORAGE]);
+    const storedEngine = res[TRANSCRIBER_ENGINE_STORAGE];
     return {
         enabled: isEnabled('localTranscription'),
         port,
         // Engine preference + key PRESENCE booleans (this snapshot goes
-        // to pages — key values never leave the SW).
-        engine: normalizeEngine(res[TRANSCRIBER_ENGINE_STORAGE]),
+        // to pages — key values never leave the SW). `engine: null` =
+        // never chosen: jobs carry no provider and the companion's own
+        // default rules (the pre-engine-choice contract).
+        engine: (storedEngine == null || storedEngine === '') ? null : normalizeEngine(storedEngine),
         keys: {
             assemblyai: String(res[ASSEMBLYAI_KEY_STORAGE] || '').trim().length > 0,
             deepgram: String(res[DEEPGRAM_KEY_STORAGE] || '').trim().length > 0

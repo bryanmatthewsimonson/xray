@@ -179,13 +179,19 @@ def transcribe(body: TranscribeRequest) -> dict:
         # user the truth instead of assuming its request was honored.
         return {"job_id": job.job_id, "provider": job.provider}
     # Cap ACTIVE jobs (this one included), so cancelling really frees
-    # capacity. Loopback single-user service: the tiny add-then-check
-    # window between concurrent POSTs is acceptable.
-    if store.active_count() > config.QUEUE_MAX:
+    # capacity — PER POOL: a full local backlog must not reject cloud
+    # jobs that idle cloud workers could run immediately. Loopback
+    # single-user service: the tiny add-then-check window between
+    # concurrent POSTs is acceptable.
+    pool_is_cloud = providers.is_cloud(provider)
+    if store.active_count_in_pool(pool_is_cloud) > config.QUEUE_MAX:
         store.remove(job.job_id)
         raise HTTPException(
             status_code=429,
-            detail=f"queue is full ({config.QUEUE_MAX} jobs); cancel one or try again later",
+            detail=(
+                f"the {'cloud' if pool_is_cloud else 'local'} queue is full "
+                f"({config.QUEUE_MAX} jobs); cancel one or try again later"
+            ),
         )
     _queue_for(provider).put(job.job_id)
     log.info("queued job %s for video %s (%s)", job.job_id, video_id, job.provider)

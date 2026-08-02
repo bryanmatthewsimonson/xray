@@ -120,7 +120,8 @@ Body: `{"url": "https://www.youtube.com/watch?v=...",
 - `400` — invalid/unsupported URL (https YouTube URLs only:
   `youtube.com`, `www.`/`m.`/`music.youtube.com`, `youtu.be`), unknown
   provider, or a cloud provider with no API key available
-- `429` — queue full (10 jobs)
+- `429` — that engine's queue is full (10 jobs per pool; the local and
+  cloud pools are capped independently)
 
 ### `GET /jobs/{job_id}`
 

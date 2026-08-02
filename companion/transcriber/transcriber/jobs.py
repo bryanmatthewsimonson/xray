@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from . import config
+from . import config, providers
 
 STAGES = ("downloading", "uploading", "transcribing", "aligning", "diarizing")
 TERMINAL_STATUSES = ("done", "failed", "cancelled")
@@ -95,6 +95,20 @@ class JobStore:
         with self.lock:
             return sum(
                 1 for j in self._jobs.values() if j.status in ("queued", "running")
+            )
+
+    def active_count_in_pool(self, cloud: bool) -> int:
+        """Active jobs in ONE pool (local vs cloud) — the 429 cap unit.
+
+        The pools drain independently, so a full local backlog must not
+        reject cloud submissions that idle cloud workers could run
+        immediately (and vice versa)."""
+        with self.lock:
+            return sum(
+                1
+                for j in self._jobs.values()
+                if j.status in ("queued", "running")
+                and providers.is_cloud(j.provider) == cloud
             )
 
     # --- update ----------------------------------------------------------
@@ -180,10 +194,14 @@ class JobStore:
             }
 
     def _queue_position_locked(self, job: Job) -> int:
-        """1-based position among queued jobs; 1 means next to run."""
+        """1-based position among queued jobs OF THE SAME POOL; 1 means
+        next to run.  Local and cloud queues drain independently, so a
+        queued cloud job must not count local jobs that never gate it
+        (and vice versa)."""
+        cloud = providers.is_cloud(job.provider)
         position = 1
         for other in self._jobs.values():
-            if other.status != "queued":
+            if other.status != "queued" or providers.is_cloud(other.provider) != cloud:
                 continue
             if other is job:
                 break
