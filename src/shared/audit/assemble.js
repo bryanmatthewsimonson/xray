@@ -22,9 +22,21 @@
 
 import { articleHash, normalizeForHash } from './article-hash.js';
 import {
-    MODULE_NAMES, CURRENT_MODULE_VERSIONS, SCOREABLE_MODULES
+    MODULE_NAMES, CURRENT_MODULE_VERSIONS, SCOREABLE_MODULES,
+    OPINION_RUN_MODULES
 } from './findings-schemas.js';
 import { suggestSourceType } from '../truth-taxonomy.js';
+
+/**
+ * Which module family audits this artifact (R5/OP.3): the declared
+ * source_type wins, else the capture-time suggestion; 'analysis' is
+ * the opinion bucket. Everything downstream — roster, weights,
+ * ceiling — dispatches on the returned family.
+ */
+export function auditFamilyFor(article) {
+    const kind = (article && article.source_type) || suggestSourceType(article || null);
+    return kind === 'analysis' ? 'opinion' : 'news';
+}
 
 // Quote fields the finding-level walk recognizes. first_use_quote is
 // module 06's contested-term smuggle-point — a located span the flat
@@ -169,7 +181,17 @@ export const MODULE_DIRECTIONS = Object.freeze({
     internal_coherence:      'bidirectional',
     definitional_precision:  'bidirectional',
     omission:                'bidirectional',
-    prediction_extraction:   'unscored'
+    prediction_extraction:   'unscored',
+    // Opinion family (R5/OP.3), same sourcing rules: premise accuracy
+    // and boundary clarity are floors (penalty-only); disclosure is
+    // the family's affirmative-good-practice dimension; the rest
+    // default bidirectional per §4.
+    premise_accuracy:               'penalty-only',
+    logical_validity:               'bidirectional',
+    steel_manning:                  'bidirectional',
+    fact_interpretation_separation: 'penalty-only',
+    disclosure_transparency:        'credit-bearing',
+    originality_synthesis:          'bidirectional'
 });
 
 // Bound the article text an audit covers, so a pathologically long
@@ -243,7 +265,38 @@ function clampConfidence(v) {
 // knowability ceiling is derived from source_quality's summary counts;
 // the weighted score uses only the scoreable modules; confidence stacks
 // (min × success fraction). The model contributes NONE of this.
-function buildAggregate({ hash, byModule, model, runAt }) {
+// Per-family rosters/weights/scoreables — the dispatch table the
+// aggregate and assembly iterate (R5/OP.3). Opinion's scoreable set is
+// its run roster minus the unscored ledger feeder.
+const FAMILIES = Object.freeze({
+    news: {
+        modules: MODULE_NAMES,
+        scoreable: SCOREABLE_MODULES,
+        weights: MODULE_WEIGHTS
+    },
+    opinion: {
+        modules: OPINION_RUN_MODULES,
+        scoreable: OPINION_RUN_MODULES.filter((m) => m !== 'prediction_extraction'),
+        weights: OPINION_MODULE_WEIGHTS
+    }
+});
+
+function buildAggregate({ hash, byModule, model, runAt, family = 'news' }) {
+    const fam = FAMILIES[family] || FAMILIES.news;
+
+    // Opinion ceiling: premise-verifiability (OQ.2, RQ2 posture).
+    if (family === 'opinion') {
+        const premise = byModule.premise_accuracy;
+        const { ceiling, notes } = opinionKnowabilityCeiling(
+            premise && !premise._error ? premise.findings : null);
+        return finishAggregate({
+            hash, byModule, model, runAt, fam,
+            knowabilityCeiling: ceiling,
+            knowabilityNotes: notes,
+            ceilingSource: OPINION_CEILING_SOURCE
+        });
+    }
+
     const sourceResult = byModule.source_quality;
     let knowabilityCeiling = 95;
     let knowabilityNotes = 'Default ceiling; source_quality findings unavailable.';
@@ -269,12 +322,25 @@ function buildAggregate({ hash, byModule, model, runAt }) {
             + `${Math.round(docsLinkedRatio * 100)}% of documents specifically identified.`;
     }
 
+    return finishAggregate({
+        hash, byModule, model, runAt, fam,
+        knowabilityCeiling, knowabilityNotes,
+        // The ceiling is derived from source_quality — name that provenance
+        // explicitly (importAuditJson would otherwise default it).
+        ceilingSource: 'heuristic:source-quality/1.0'
+    });
+}
+
+// The family-agnostic aggregation tail: weighted mean over the
+// family's scoreable roster, min-confidence × success-fraction, capped
+// at the family's ceiling. Weights are the family's public constants.
+function finishAggregate({ hash, byModule, model, runAt, fam, knowabilityCeiling, knowabilityNotes, ceilingSource }) {
     let weightedSum = 0;
     let totalWeightApplied = 0;
     const moduleContributions = [];
-    for (const m of SCOREABLE_MODULES) {
+    for (const m of fam.scoreable) {
         const r = byModule[m];
-        const weight = MODULE_WEIGHTS[m];
+        const weight = fam.weights[m];
         if (!r || r._error || typeof r.score !== 'number') {
             moduleContributions.push({ module: m, module_result_id: null, score: null, confidence: 0, weight: 0 });
             continue;
@@ -294,12 +360,12 @@ function buildAggregate({ hash, byModule, model, runAt }) {
 
     const successful = moduleContributions.filter((c) => c.score !== null);
     const minConfidence = successful.length ? Math.min(...successful.map((c) => c.confidence)) : 0;
-    const successFraction = successful.length / SCOREABLE_MODULES.length;
+    const successFraction = successful.length / fam.scoreable.length;
     const overallConfidence = clampConfidence(Number((minConfidence * successFraction).toFixed(2)));
 
     const topStrengths = [];
     const topConcerns = [];
-    for (const m of SCOREABLE_MODULES) {
+    for (const m of fam.scoreable) {
         const r = byModule[m];
         if (!r || r._error || typeof r.score !== 'number') continue;
         if (r.score >= 85) topStrengths.push(`${m}: ${r.score}`);
@@ -312,7 +378,7 @@ function buildAggregate({ hash, byModule, model, runAt }) {
             kind: 'pipeline',
             id: `xray-auditor-inext/anthropic/${model}`,
             display_name: 'X-Ray Epistemic Auditor (in-extension, single-shot)',
-            constituents: SCOREABLE_MODULES.map((m) => ({ kind: 'model', id: `anthropic/${model}` }))
+            constituents: fam.scoreable.map((m) => ({ kind: 'model', id: `anthropic/${model}` }))
         },
         run_at: runAt,
         module_contributions: moduleContributions,
@@ -321,9 +387,7 @@ function buildAggregate({ hash, byModule, model, runAt }) {
         raw_weighted_score: Number(rawWeighted.toFixed(1)),
         final_score: Number(finalScore.toFixed(1)),
         ceiling_binding: ceilingBinding,
-        // The ceiling is derived from source_quality — name that provenance
-        // explicitly (importAuditJson would otherwise default it).
-        ceiling_source: 'heuristic:source-quality/1.0',
+        ceiling_source: ceilingSource,
         overall_confidence: overallConfidence,
         top_strengths: topStrengths,
         top_concerns: topConcerns,
@@ -349,7 +413,8 @@ function buildAggregate({ hash, byModule, model, runAt }) {
  *   caveat; the per-module path passes the opinion caveat or null).
  * @returns {Promise<{article, module_results, predictions, aggregate}>}
  */
-export async function assembleAudit({ toolInput, model, markdown, metadata = {}, standingCaveat = null }) {
+export async function assembleAudit({ toolInput, model, markdown, metadata = {}, standingCaveat = null, family = 'news' }) {
+    const familyModules = (FAMILIES[family] || FAMILIES.news).modules;
     const modulesIn = (toolInput && typeof toolInput.modules === 'object' && toolInput.modules) || {};
     const standingList = standingCaveat ? [].concat(standingCaveat).filter(Boolean) : [];
     const normalized = normalizeForHash(markdown);
@@ -358,7 +423,7 @@ export async function assembleAudit({ toolInput, model, markdown, metadata = {},
     const auditorModel = { kind: 'model', id: `anthropic/${model}` };
 
     const moduleResults = [];
-    for (const name of MODULE_NAMES) {
+    for (const name of familyModules) {
         const version = CURRENT_MODULE_VERSIONS[name];
         const raw = modulesIn[name];
 
@@ -426,7 +491,7 @@ export async function assembleAudit({ toolInput, model, markdown, metadata = {},
     const predModule = modulesIn.prediction_extraction;
     const predictions = (predModule && Array.isArray(predModule.predictions)) ? predModule.predictions : [];
 
-    const aggregate = buildAggregate({ hash, byModule, model, runAt });
+    const aggregate = buildAggregate({ hash, byModule, model, runAt, family });
 
     const article = {
         hash,

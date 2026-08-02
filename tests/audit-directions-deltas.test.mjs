@@ -14,12 +14,14 @@ globalThis.chrome = globalThis.chrome || {
 };
 
 const { MODULE_DIRECTIONS } = await import('../src/shared/audit/assemble.js');
-const { MODULE_NAMES } = await import('../src/shared/audit/findings-schemas.js');
+const { MODULE_NAMES, OPINION_MODULE_NAMES } = await import('../src/shared/audit/findings-schemas.js');
 const { runScoreDeltas } = await import('../src/shared/audit/display.js');
 
 test('R10a: every module classified; §3.1 explicit rows pinned', () => {
-    assert.deepEqual(Object.keys(MODULE_DIRECTIONS).sort(), [...MODULE_NAMES].sort(),
-        'exactly the module set — no stragglers, no strangers');
+    // Both families exactly (extended when the opinion family joined,
+    // R5/OP.3) — no stragglers, no strangers.
+    assert.deepEqual(Object.keys(MODULE_DIRECTIONS).sort(),
+        [...MODULE_NAMES, ...OPINION_MODULE_NAMES].sort());
     const allowed = new Set(['penalty-only', 'credit-bearing', 'bidirectional', 'unscored']);
     for (const [m, d] of Object.entries(MODULE_DIRECTIONS)) {
         assert.ok(allowed.has(d), `${m}: ${d}`);

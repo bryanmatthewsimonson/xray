@@ -25,7 +25,11 @@
 // the resulting events is slice 13.8, behind `epistemicAuditing`.
 
 import { articleHash } from './article-hash.js';
-import { MODULE_NAMES, validateFindings } from './findings-schemas.js';
+import { MODULE_NAMES, OPINION_MODULE_NAMES, validateFindings } from './findings-schemas.js';
+
+// Both families are known at the firewall (R5/OP.3). The reused
+// news modules are already in MODULE_NAMES; the Set dedups.
+const KNOWN_MODULES = new Set([...MODULE_NAMES, ...OPINION_MODULE_NAMES]);
 import { AuditRunModel, PredictionModel } from './audit-model.js';
 import {
     AUDITOR_KINDS, isValidCeilingSource, isStrictRunAt,
@@ -144,7 +148,7 @@ export async function importAuditJson(json, { localArticleHash = null, source = 
             // Module must be a KNOWN name: the builder requires it,
             // and an attacker-shaped name ('__proto__', 'constructor')
             // would otherwise hit prototype-chain lookups downstream.
-            const ok = c && typeof c.module === 'string' && MODULE_NAMES.includes(c.module)
+            const ok = c && typeof c.module === 'string' && KNOWN_MODULES.has(c.module)
                 && (c.score === null || (typeof c.score === 'number' && Number.isFinite(c.score)))
                 && typeof c.confidence === 'number' && Number.isFinite(c.confidence) && c.confidence >= 0 && c.confidence <= 1
                 && typeof c.weight === 'number' && Number.isFinite(c.weight) && c.weight >= 0 && c.weight <= 1;
@@ -163,7 +167,7 @@ export async function importAuditJson(json, { localArticleHash = null, source = 
     const failedModules = [];
     for (const r of moduleResults) {
         const module = r && r.module;
-        if (!MODULE_NAMES.includes(module)) {
+        if (!KNOWN_MODULES.has(module)) {
             failedModules.push({ module: String(module), reason: 'unknown module' });
             continue;
         }
