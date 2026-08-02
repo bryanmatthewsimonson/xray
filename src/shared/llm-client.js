@@ -25,7 +25,7 @@ import {
 } from './llm-prompts.js';
 import { Storage } from './storage.js';
 import {
-    AUDIT_TOOL_NAME, STANDING_SINGLE_SHOT_CAVEAT, opinionStandingCaveat,
+    AUDIT_TOOL_NAME, STANDING_SINGLE_SHOT_CAVEAT, opinionStandingCaveat, STANDING_OPINION_CAVEAT,
     buildAuditTool, buildAuditSystemPrompt, buildAuditUserPrompt, assembleAudit,
     buildSingleModuleTool, buildModuleSystemPrompt, buildCorpusSourcesSection
 } from './audit/audit-prompt.js';
@@ -33,7 +33,7 @@ import {
     EXTRACT_TOOL_NAME, buildExtractTool, buildExtractSystemPrompt, buildExtractUserContent
 } from './llm-extract-prompts.js';
 import { MAX_AUDIT_INPUT_CHARS } from './audit/assemble.js';
-import { MODULE_NAMES } from './audit/findings-schemas.js';
+import { MODULE_NAMES, OPINION_MODULE_NAMES } from './audit/findings-schemas.js';
 import {
     LENS_PROMPT_VERSION, LENS_TOOL_NAME,
     buildLensTool, buildLensSystemPrompt, buildLensUserPrompt
@@ -576,11 +576,13 @@ export async function runAuditPass(req = {}) {
     const usedModel = (data && data.model) || model;
     let audit;
     try {
-        // The opinion caveat joins the single-shot one when the reader
-        // flagged the artifact as opinion/analysis (req.sourceType rides
-        // in from auditRequestMeta — declared source_type, else the
-        // capture-time suggestion).
-        const opinionCaveat = opinionStandingCaveat({ source_type: req.sourceType || null });
+        // The opinion caveat joins the single-shot one in two cases:
+        // the artifact reads as opinion/analysis, or the OQ.4 forced
+        // case — declared reporting overriding an opinion signal
+        // (req.suggestedType carries the capture-time suggestion).
+        const opinionCaveat = opinionStandingCaveat({ source_type: req.sourceType || null })
+            || (req.suggestedType === 'analysis' && req.sourceType !== 'analysis'
+                ? STANDING_OPINION_CAVEAT : null);
         audit = await assembleAudit({
             toolInput, model: usedModel, markdown, metadata: req.metadata || {},
             standingCaveat: opinionCaveat
@@ -625,7 +627,7 @@ export async function runAuditModulePass(req = {}) {
     }
 
     const name = String(req.module || '');
-    if (!MODULE_NAMES.includes(name)) {
+    if (!MODULE_NAMES.includes(name) && !OPINION_MODULE_NAMES.includes(name)) {
         return { ok: false, error: `Unknown audit module: ${name || '(none)'}` };
     }
     // Defensive no-op when the reader pre-sliced (the hash-gate contract).

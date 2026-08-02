@@ -66,12 +66,12 @@ import {
     getArticleExtraction
 } from '../shared/audit/audit-cache.js';
 import { assembleAuditBatch } from '../shared/audit/publish-batch.js';
-import { CURRENT_MODULE_VERSIONS, MODULE_NAMES } from '../shared/audit/findings-schemas.js';
+import { CURRENT_MODULE_VERSIONS, MODULE_NAMES, OPINION_RUN_MODULES } from '../shared/audit/findings-schemas.js';
 // The lean assembly half only — never audit-prompt.js, whose generated
 // module-prompts dependency must stay out of the reader bundle.
 import {
-    assembleAudit, auditableSlice, MAX_AUDIT_INPUT_CHARS, opinionStandingCaveat,
-    MODULE_DIRECTIONS
+    assembleAudit, auditableSlice, MAX_AUDIT_INPUT_CHARS,
+    MODULE_DIRECTIONS, auditFamilyFor, STANDING_OPINION_CAVEAT
 } from '../shared/audit/assemble.js';
 import { suggestSourceType } from '../shared/truth-taxonomy.js';
 import { orchestrateModuleRuns } from '../shared/audit/run-orchestrator.js';
@@ -3958,8 +3958,11 @@ function auditRequestMeta() {
         articleUrl: state.article.url || '',
         articleTitle: state.article.title || '',
         // Declared source_type wins; else the capture-time suggestion.
-        // 'analysis' triggers the standing opinion caveat (R5 interim).
+        // suggestedType rides separately so the SW can detect the OQ.4
+        // forced-news case (declared reporting over an opinion signal)
+        // and keep the standing caveat on it.
         sourceType: state.article.source_type || suggestSourceType(state.article) || '',
+        suggestedType: suggestSourceType(state.article) || '',
         metadata: {
             url: state.article.url || null,
             headline: state.article.title || null,
@@ -4034,13 +4037,16 @@ async function runQuickAudit({ markdown, localHash }) {
  * dead reader/SW/browser costs nothing already paid for. A draft for
  * the SAME text offers resume (only missing modules re-run).
  */
-async function runThoroughAudit({ markdown, localHash, active, corpusSources = [] }) {
+async function runThoroughAudit({ markdown, localHash, active, corpusSources = [], family = 'news', forcedOpinion = false }) {
+    // The family's roster drives everything: which modules run, what
+    // resumes, and the progress denominator (R5/OP.3).
+    const familyModules = family === 'opinion' ? OPINION_RUN_MODULES : MODULE_NAMES;
     let existing = {};
     let draftModel = null;
     const draft = await loadAuditDraft(localHash);
     if (draft && Object.keys(draft.modules || {}).length > 0) {
         const done = Object.keys(draft.modules).length;
-        if (confirm(`A previous thorough audit saved ${done}/${MODULE_NAMES.length} completed module(s) for this exact text. Resume, re-running only the missing ones? (Cancel discards the draft and starts fresh.)`)) {
+        if (confirm(`A previous thorough audit saved ${done}/${familyModules.length} completed module(s) for this exact text. Resume, re-running only the missing ones? (Cancel discards the draft and starts fresh.)`)) {
             existing = draft.modules;
             draftModel = draft.model || null;
         } else {
@@ -4048,11 +4054,11 @@ async function runThoroughAudit({ markdown, localHash, active, corpusSources = [
         }
     }
 
-    const missing = MODULE_NAMES.filter((n) => !existing[n]);
+    const missing = familyModules.filter((n) => !existing[n]);
     const meta = auditRequestMeta();
     const doneBase = Object.keys(existing).length;
     const paint = (okCount) => {
-        active.textContent = `⏳ Auditing ${doneBase + okCount}/${MODULE_NAMES.length}…`;
+        active.textContent = `⏳ Auditing ${doneBase + okCount}/${familyModules.length}…`;
     };
     paint(0);
 
@@ -4095,9 +4101,11 @@ async function runThoroughAudit({ markdown, localHash, active, corpusSources = [
             model: model || draftModel || 'unknown',
             markdown,
             metadata: meta.metadata,
-            // Thorough has no rigor apology; the opinion caveat still
-            // applies when the artifact is opinion/analysis (R5 interim).
-            standingCaveat: opinionStandingCaveat(state.article)
+            family,
+            // The R5-interim caveat is RETIRED on the opinion path —
+            // the opinion family IS the methodology now. It survives
+            // for exactly one case: the OQ.4 forced-news run.
+            standingCaveat: forcedOpinion ? STANDING_OPINION_CAVEAT : null
         });
     } catch (err) {
         console.error('[xray] thorough assembly failed', err);
@@ -4138,11 +4146,36 @@ async function runAuditFromReader(mode = 'single') {
     }
     const markdown = slice.text;
 
+    // R5/OP.3 — family dispatch. Opinion artifacts run the opinion
+    // roster; Quick (single-shot) is news-only in v1, so an opinion
+    // artifact's Quick click steers to Thorough. The OQ.4 case —
+    // declared reporting over an opinion signal — steers with an
+    // explicit confirm and keeps the standing caveat.
+    const family = auditFamilyFor(state.article);
+    const suggestedOpinion = suggestSourceType(state.article) === 'analysis';
+    if (mode === 'single' && family === 'opinion') {
+        if (!confirm('This is an opinion/analysis artifact. Quick (single-shot) runs the news '
+            + 'orchestrator and is news-only in v1 — the opinion family runs one call per '
+            + 'dimension. Run the Thorough opinion audit instead?')) {
+            return;
+        }
+        mode = 'per_module';
+    }
+    const forcedOpinion = family === 'news' && suggestedOpinion;
+    if (forcedOpinion
+        && !confirm('The capture signals opinion/analysis (schema.org), but its declared source '
+            + 'type routes it to the NEWS methodology. The audit will run the news modules and '
+            + 'carry a standing caveat. Continue? (Re-type it in the media modal to run the '
+            + 'opinion family instead.)')) {
+        return;
+    }
+
     // R2 — corpus-held cited sources for the source-quality call:
     // resolved from the active case (url/alias/DOI identity, never
-    // similarity), disclosed in the confirm BEFORE any spend.
+    // similarity), disclosed in the confirm BEFORE any spend. News
+    // family only — the opinion roster has no source_quality module.
     let corpusSources = [];
-    if (mode === 'per_module') {
+    if (mode === 'per_module' && family === 'news') {
         const gathered = await gatherCorpusSources({
             article: state.article,
             selfHash: state.articleHash || '',
@@ -4187,7 +4220,7 @@ async function runAuditFromReader(mode = 'single') {
     active.textContent = mode === 'per_module' ? '⏳ Auditing (thorough)…' : '⏳ Auditing…';
     try {
         if (mode === 'per_module') {
-            await runThoroughAudit({ markdown, localHash, active, corpusSources });
+            await runThoroughAudit({ markdown, localHash, active, corpusSources, family, forcedOpinion });
         } else {
             await runQuickAudit({ markdown, localHash });
         }
