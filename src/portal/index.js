@@ -41,6 +41,7 @@ import { renderInspector } from './inspector.js';
 import {
     buildAuditIndex, mergeLocalRuns, mergeLocalResolutions, auditsForArticle,
     latestAuditFor, dossierInputsForEntity, computeEntityDossier,
+    localAuditedPopulation,
     predictionsDue, resolverIdentity, DEFAULT_POPULATION_MEAN
 } from './audit-data.js';
 import { auditCardChipData } from '../shared/audit/display.js';
@@ -906,7 +907,7 @@ function render() {
             // reproducible from the same events by anyone (the 30060
             // snapshot is just a cache of this).
             dossier: state.auditIndex
-                ? computeEntityDossier(dossierInputsForEntity(state.items, state.auditIndex, state.view.pubkey, state.priorHashesByUrl))
+                ? computeEntityDossier(dossierInputsForEntity(state.items, state.auditIndex, state.view.pubkey, state.priorHashesByUrl), { localPopulation: localAuditedPopulation(state.items, state.auditIndex, state.priorHashesByUrl) })
                 : null,
             findings: findingsForEntity(state.items, state.view.pubkey),
             populationMean: DEFAULT_POPULATION_MEAN,
@@ -933,7 +934,7 @@ function render() {
             entityIndex: state.entityIndex,
             casePubkey: state.view.pubkey,
             dossier: state.auditIndex
-                ? computeEntityDossier(dossierInputsForEntity(state.items, state.auditIndex, state.view.pubkey, state.priorHashesByUrl))
+                ? computeEntityDossier(dossierInputsForEntity(state.items, state.auditIndex, state.view.pubkey, state.priorHashesByUrl), { localPopulation: localAuditedPopulation(state.items, state.auditIndex, state.priorHashesByUrl) })
                 : null,
             findings: findingsForEntity(state.items, state.view.pubkey),
             populationMean: DEFAULT_POPULATION_MEAN,

@@ -23,7 +23,10 @@ import {
     entityPageInputHash, ensureExtracts
 } from '../shared/entity-page.js';
 import { buildEntityPageArticle } from '../shared/entity-page-publish.js';
-import { getEntityPage, saveEntityPage, getCorpusExtract } from '../shared/audit/audit-cache.js';
+import { getEntityPage, saveEntityPage, getCorpusExtract, runsByArticleHash } from '../shared/audit/audit-cache.js';
+import { linkRunFindingsToClaims } from '../shared/audit/findings-claims.js';
+import { getArticle } from '../shared/archive-cache.js';
+import { EventBuilder } from '../shared/event-builder.js';
 import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { resolveActiveCaseRef } from '../shared/case-membership.js';
 import { Signer } from '../shared/signer.js';
@@ -225,6 +228,34 @@ export function mountEntityPageBlock(host, { entityId } = {}) {
         const keyIds = page.key_claim_ids || [];
         if (keyIds.length > 0) {
             const claimsById = await ClaimModel.getAll();
+            // R3 — audit observations AT each key claim's passage
+            // (enrichment only; any failure just means no chip). Same
+            // firewall label as the case dossier: location, never a
+            // verdict.
+            const auditByClaim = {};
+            try {
+                const byUrl = new Map();
+                for (const id of keyIds) {
+                    const c = claimsById[id];
+                    if (!c || !c.quote || !c.source_url) continue;
+                    if (!byUrl.has(c.source_url)) byUrl.set(c.source_url, []);
+                    byUrl.get(c.source_url).push({ id: c.id, quote: c.quote });
+                }
+                for (const [url, claims] of byUrl) {
+                    const rec = await getArticle(url).catch(() => null);
+                    if (!rec || !rec.article || !rec.articleHash) continue;
+                    const runs = await runsByArticleHash(rec.articleHash).catch(() => []);
+                    const run = runs.sort((a, b) => String(b.runAt || '').localeCompare(String(a.runAt || '')))[0];
+                    if (!run || !Array.isArray(run.moduleResults)) continue;
+                    Object.assign(auditByClaim, linkRunFindingsToClaims({
+                        moduleResults: run.moduleResults,
+                        memberText: EventBuilder.assembleArticleBody(rec.article) || '',
+                        claims
+                    }));
+                }
+            } catch (err) {
+                Utils.error('Entity page: key-fact audit join failed (enrichment only)', err);
+            }
             const box = el('div', 'xr-epage__facts');
             box.appendChild(el('h4', 'xr-epage__subhead', 'Key facts — each entry is a claim; the quote is its verification'));
             const selected = new Set(record.keySelection || keyIds);
@@ -243,6 +274,19 @@ export function mountEntityPageBlock(host, { entityId } = {}) {
                 const span = el('span', '', `${c.text}`);
                 if (c.quote) span.title = `“${c.quote}”`;
                 row.appendChild(span);
+                const af = auditByClaim[id];
+                if (af && af.length) {
+                    const modules = [...new Set(af.map((f) => f.module))];
+                    const chip = el('span', 'xr-badge xr-badge--muted',
+                        `audit: ${modules.slice(0, 3).join(', ')}${modules.length > 3 ? ` +${modules.length - 3}` : ''}`);
+                    chip.title = 'Article-process observations at this passage — location, never a verdict:\n'
+                        + af.slice(0, 4).map((f) => {
+                            const tag = [f.module, f.kind].filter(Boolean).join('/')
+                                + (f.severity ? ` · ${f.severity}` : '');
+                            return `[${tag}] “${f.quote.slice(0, 120)}”`;
+                        }).join('\n');
+                    row.appendChild(chip);
+                }
                 box.appendChild(row);
             }
             body.appendChild(box);

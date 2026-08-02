@@ -83,3 +83,29 @@ export function auditCardChipHtml(aggregate) {
     }
     return `<span class="xr-audit__chip xr-audit__chip--band-${escapeAuditHtml(data.bandKey)}" title="${escapeAuditHtml(data.title)}">${escapeAuditHtml(data.text)}</span>`;
 }
+
+/**
+ * Score deltas across a run history, newest-first — the P1 vintage
+ * trajectory made visible (R10b; JOURNAL 2026-08-02). Each entry's
+ * delta compares it to the run BEFORE it in time (the next entry);
+ * the oldest run and score-less runs carry delta null. Descriptive
+ * only: runs may differ in mode and methodology version, and a delta
+ * is never a re-score — display copy must say so.
+ *
+ * @param {Array} sortedRuns  runs sorted newest-first (the panel's own
+ *                            ordering); each may carry aggregate.final_score
+ * @returns {Array<{runAt: string, score: number|null, delta: number|null}>}
+ */
+export function runScoreDeltas(sortedRuns) {
+    const rows = (sortedRuns || []).map((r) => ({
+        runAt: (r && r.runAt) || '',
+        score: r && r.aggregate && typeof r.aggregate.final_score === 'number'
+            ? r.aggregate.final_score : null
+    }));
+    return rows.map((row, i) => {
+        const prev = rows[i + 1];
+        const delta = row.score !== null && prev && prev.score !== null
+            ? row.score - prev.score : null;
+        return { ...row, delta };
+    });
+}

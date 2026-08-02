@@ -19,6 +19,133 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-02 — torch cu130 broke ctranslate2; one process, one cuDNN
+
+**Tags:** bug external
+
+The post-#286 re-lock smoke (the one the pyproject comment demands)
+failed: ctranslate2 — faster-whisper's engine, a CUDA-12 BINARY — could
+no longer load `cublas64_12.dll`. Through torch 2.11+cu128 that DLL
+rode along in `torch\lib` for free; cu130 wheels bundle only the
+CUDA-13 set. Fix: depend on NVIDIA's own `nvidia-cublas-cu12` +
+`nvidia-cudnn-cu12` wheels and register their bin dirs (both
+`os.add_dll_directory` AND a PATH prepend — ct2 resolves some
+libraries through the legacy search) in the worker child before any
+heavy import.
+
+The non-obvious half is cuDNN, whose DLL names carry NO CUDA-major
+suffix: torch hard-loads its cu13 build by FULL PATH at import, so
+one process gets exactly one cudnn and it must be torch's. Two failed
+shapes, both field-hit: registering the cu12 cudnn dir let the cu13
+CORE resolve sublibraries to cu12 copies
+(`CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH`); eagerly preloading the
+cu12 set instead broke torch's full-path load (WinError 127). The
+working shape: register everything EXCEPT cudnn — ct2 binds torch's
+already-loaded cu13 cudnn by name, cross-runtime but sharing the one
+CUDA primary context. Verified by a full local smoke (transcribe +
+align + diarize, correct output). Lesson: "smoke-test one real
+transcription after any re-lock" is load-bearing — resolution success
+proves nothing about runtime DLL topology.
+
+## 2026-08-02 — Engine choice moved into the extension; keys became per-request
+
+**Tags:** design
+
+Same-day reversal of PR #285's "keys env-only" posture, by maintainer
+decision after first field use: setx + new terminal + service restart
+per engine switch is not a workable loop, and the extension already
+stores an equivalent secret (the Anthropic LLM key) with a proper
+settings field. The shape that replaced it:
+
+1. **Settings own the engine + keys.** Options → Advanced →
+   Transcription: engine preference (local / assemblyai / deepgram /
+   ask-each-time) + per-provider API key fields following the LLM-key
+   pattern exactly (paste-to-save, value never re-rendered, "erase
+   all" clears them). The reader's 🎙 button became a split control:
+   main click = preferred engine, ▾ = per-video picker with real
+   time/cost estimates from `durationSeconds` (a 10-minute clip is
+   fine on the GPU; a 2-hour episode wants cloud).
+2. **Keys ride each POST /transcribe** (`provider` + `api_key`),
+   loopback-only, and reach the worker child via its process
+   ENVIRONMENT — the one channel that touches neither disk nor logs
+   (spec.json stays credential-free; the Job field is repr-excluded
+   and absent from snapshots — pin-tested). Request key overrides env
+   key; env vars remain as server-side defaults, so the pre-reversal
+   setup keeps working unchanged.
+3. **Per-request engines forced per-job queue routing:** one server
+   now runs BOTH pools — local queue (1 daemon consumer, the VRAM
+   serialization) and cloud queue (TRANSCRIBER_CLOUD_CONCURRENCY
+   consumers) — routed by each job's own provider instead of a
+   server-wide mode. `/health` gained `request_provider: true` so the
+   extension can tell a build that honors the fields from one that
+   silently ignores them; a cloud env default without its env key
+   downgraded from startup-fatal to a warning.
+
+An adversarial review round (17 verified findings) then tightened the
+shape: an UNSET extension preference now sends NO provider at all
+(the env default stays reachable — the back-compat contract the first
+cut accidentally broke), and the Options select shows that "Companion
+default" tier explicitly; an explicitly chosen engine is
+capability-gated against `request_provider` so an old companion can
+never silently run a cloud default when the user picked Local (the
+privacy inversion); the reader re-reads the engine/key snapshot at
+every decision point (a stale snapshot made "add a key in Settings" a
+dead loop); queue_position and the 429 cap count only the job's own
+pool; and "erase all" now clears TRANSCRIBER_TOKEN, the one stored
+secret it had always missed.
+
+## 2026-08-02 — AssemblyAI hard-deprecated `speech_model` (found on first live smoke)
+
+**Tags:** external
+
+The very first live cloud job (PR #285, same day) died with HTTP 400
+from `POST /v2/transcript`: the singular `speech_model` parameter is
+rejected outright — their API now wants `speech_models`, a
+preference-ordered LIST, with new model names (`universal-3-5-pro`,
+`universal-2`; plain `universal` no longer documented). Fixed by
+sending the plural form (`TRANSCRIBER_ASSEMBLYAI_MODEL` is now a
+comma-separated preference list, default
+`universal-3-5-pro,universal-2`) and — the useful part — reading
+`model_info.asr_model` from the response's `speech_model_used` rather
+than echoing the request, so the published `extraction-method` names
+the model that actually ran even when their API falls back down the
+preference list. Payload shape is pin-tested
+(`test_create_payload_uses_plural_speech_models`). Lesson repeated:
+provider request shapes rot; the error body named the fix exactly, so
+surface provider error bodies verbatim (the reader banner did, and
+that made this a 5-minute diagnosis).
+
+## 2026-08-02 — torch 2.13 bump broke Windows: per-index platform coverage, and a lock-time guard
+
+**Tags:** bug, design
+
+5c95d3d floored torch at 2.13 and moved the transcriber's wheel index
+cu128 → cu129. It locked fine (authored on macOS), then failed on the
+primary Windows 10 / RTX 3090 deployment box: `uv sync` →
+"torch==2.13.0+cu129 … doesn't have a source distribution or wheel for
+the current platform". Root cause: the PyTorch indexes' platform
+coverage varies **per index** — cu129's win_amd64 torch wheels stop at
+2.9.0 (cu128's at 2.9.1), and the 2.13 triple ships win_amd64 +
+manylinux wheels only on **cu130** (verified against the live indexes
+2026-08-02). Two-part fix in `companion/transcriber/pyproject.toml`:
+
+1. **Index → cu130.** Same locked versions (torch 2.13.0 / torchaudio
+   2.11.0 / torchvision 0.28.0); only the CUDA variant changes. The
+   honest trade: cu130 builds need an NVIDIA R580+ (CUDA 13) driver —
+   a real floor bump that cu129's "any CUDA 12.x driver" story didn't
+   have. The primary box already runs 581.57 (CUDA 13.0).
+2. **`tool.uv.required-environments`** for win_amd64 and linux x86_64.
+   The torch indexes serve wheels only — no sdists — so a universal
+   lock can silently resolve for a platform subset and fail only at
+   sync time on the user's machine. With the guard, `uv lock` itself
+   fails: re-locking against cu129 with the guard reproduced the
+   Windows failure at lock time, on any authoring machine.
+
+So-what: any future torch index move must check win_amd64 coverage on
+the target index, not just manylinux — and the guard machine-checks
+that now. CI never touches `companion/`, so lock-time is the only
+automated gate there.
+
 ## 2026-08-02 — Cloud transcription providers: env-only keys, child-process reuse, honest labeling
 
 **Tags:** design

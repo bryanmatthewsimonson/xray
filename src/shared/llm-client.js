@@ -25,9 +25,9 @@ import {
 } from './llm-prompts.js';
 import { Storage } from './storage.js';
 import {
-    AUDIT_TOOL_NAME, STANDING_SINGLE_SHOT_CAVEAT,
+    AUDIT_TOOL_NAME, STANDING_SINGLE_SHOT_CAVEAT, opinionStandingCaveat,
     buildAuditTool, buildAuditSystemPrompt, buildAuditUserPrompt, assembleAudit,
-    buildSingleModuleTool, buildModuleSystemPrompt
+    buildSingleModuleTool, buildModuleSystemPrompt, buildCorpusSourcesSection
 } from './audit/audit-prompt.js';
 import {
     EXTRACT_TOOL_NAME, buildExtractTool, buildExtractSystemPrompt, buildExtractUserContent
@@ -576,9 +576,16 @@ export async function runAuditPass(req = {}) {
     const usedModel = (data && data.model) || model;
     let audit;
     try {
+        // The opinion caveat joins the single-shot one when the reader
+        // flagged the artifact as opinion/analysis (req.sourceType rides
+        // in from auditRequestMeta — declared source_type, else the
+        // capture-time suggestion).
+        const opinionCaveat = opinionStandingCaveat({ source_type: req.sourceType || null });
         audit = await assembleAudit({
             toolInput, model: usedModel, markdown, metadata: req.metadata || {},
-            standingCaveat: STANDING_SINGLE_SHOT_CAVEAT
+            standingCaveat: opinionCaveat
+                ? [STANDING_SINGLE_SHOT_CAVEAT, opinionCaveat]
+                : STANDING_SINGLE_SHOT_CAVEAT
         });
     } catch (err) {
         Utils.error('[X-Ray LLM] audit assembly failed:', err && err.message);
@@ -629,16 +636,24 @@ export async function runAuditModulePass(req = {}) {
 
     const model = await readModel();
     const tool = buildSingleModuleTool(name);
+    // Corpus-held cited sources ride ONLY on module 04 (methodology 1.1
+    // step 7); any other module ignores the field entirely.
+    const corpusSection = name === 'source_quality'
+        ? buildCorpusSourcesSection(req.corpusSources)
+        : '';
     const payload = {
         model,
         max_tokens: MAX_MODULE_OUTPUT_TOKENS,
         system: buildModuleSystemPrompt(name, { url: req.articleUrl || '', title: req.articleTitle || '' }),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
-        messages: [{ role: 'user', content: buildAuditUserPrompt({ articleText: markdown }) }]
+        messages: [{ role: 'user', content: buildAuditUserPrompt({ articleText: markdown }) + corpusSection }]
     };
 
-    Utils.log('[X-Ray LLM] audit module:', { module: name, model, chars: markdown.length });
+    Utils.log('[X-Ray LLM] audit module:', {
+        module: name, model, chars: markdown.length,
+        corpusSources: corpusSection ? (req.corpusSources || []).length : 0
+    });
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), MODULE_TIMEOUT_MS);

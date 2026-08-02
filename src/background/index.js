@@ -113,15 +113,20 @@ async function registerContextMenus() {
             // documentUrlPatterns is unreliable on the action context.
             // SPA navigation is fine: matching happens at menu-open time
             // against the frame's current URL.
+            // NEUTRAL title: the engine (local WhisperX vs a cloud
+            // provider) is companion-side config; the best-effort ping
+            // below names it when the service is up. Never say
+            // "locally" unless that's what will actually happen.
             chrome.contextMenus.create({
                 id: MENU_IDS.TRANSCRIBE_CAPTURE,
-                title: 'Capture & transcribe locally with X-Ray',
+                title: 'Capture & transcribe with X-Ray',
                 contexts: ['page'],
                 documentUrlPatterns: [
                     '*://*.youtube.com/watch*',
                     '*://*.youtube.com/shorts/*'
                 ]
             });
+            refreshTranscribeMenuTitle();
         }
         chrome.contextMenus.create({
             id: MENU_IDS.OPEN_ENTITIES,
@@ -161,6 +166,27 @@ async function registerContextMenus() {
             contexts: ['action']
         });
     });
+}
+
+/**
+ * Best-effort: name the actual transcription engine in the context-menu
+ * title once the companion answers /health. Fire-and-forget with a
+ * short timeout — the SW registration path must never wait on a
+ * socket, and an unreachable service just leaves the neutral title.
+ */
+function refreshTranscribeMenuTitle() {
+    (async () => {
+        const port = await getTranscriberPort();
+        const resp = await pingTranscriber({ port });
+        if (!resp || !resp.ok) return;
+        const provider = String((resp.health && resp.health.provider) || 'local').toLowerCase();
+        const title = provider === 'assemblyai' ? 'Capture & transcribe via AssemblyAI with X-Ray'
+            : provider === 'deepgram' ? 'Capture & transcribe via Deepgram with X-Ray'
+            : 'Capture & transcribe locally with X-Ray';
+        chrome.contextMenus.update(MENU_IDS.TRANSCRIBE_CAPTURE, { title }, () => {
+            void chrome.runtime.lastError; // menu may be gone (flag flipped) — fine
+        });
+    })().catch(() => { /* best-effort only */ });
 }
 
 /**
@@ -849,7 +875,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 return;
             }
             const port = await getTranscriberPort();
-            sendResponse(await startTranscription(message.url, { port }));
+            // Optional per-job engine override from the reader's picker;
+            // absent = the stored engine preference.
+            sendResponse(await startTranscription(message.url, { port, provider: message.provider }));
         })().catch((err) => sendResponse({ ok: false, error: (err && err.message) || 'transcribe start failed' }));
         return true; // async sendResponse
     }
