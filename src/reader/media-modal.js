@@ -147,8 +147,9 @@ function buildHtml(article) {
             <span class="xr-media__hint">Auto-discovers these IDs from the capture's
               links and the show's public RSS feed, then prefills EMPTY fields for you
               to confirm — nothing is saved until you press Save. If the capture has no
-              Apple or feed link, the show name is sent to Apple's iTunes Search API to
-              find the feed.</span>
+              Apple or feed link, a Spotify link is resolved through Spotify's public
+              oEmbed API (that link is sent to Spotify) and the show name or episode
+              title is sent to Apple's iTunes Search API to find the feed.</span>
             <div class="xr-media__find-note" id="xr-media-find-note" hidden></div>
           </fieldset>
 
