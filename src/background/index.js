@@ -875,7 +875,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 return;
             }
             const port = await getTranscriberPort();
-            sendResponse(await startTranscription(message.url, { port }));
+            // Optional per-job engine override from the reader's picker;
+            // absent = the stored engine preference.
+            sendResponse(await startTranscription(message.url, { port, provider: message.provider }));
         })().catch((err) => sendResponse({ ok: false, error: (err && err.message) || 'transcribe start failed' }));
         return true; // async sendResponse
     }

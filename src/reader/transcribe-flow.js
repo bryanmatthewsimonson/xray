@@ -81,9 +81,16 @@ export function describeProgress(job) {
  *   {action: 'resume', jobId}    — a live job exists; poll it
  *   {action: 'start'}            — no usable prior job; POST a new one
  * Pure — the whole resume policy in one testable place.
+ *
+ * `provider`: the engine EXPLICITLY chosen for this run (the picker).
+ * A prior job recorded under a DIFFERENT engine must not hijack an
+ * explicit choice — field-found 2026-08-02: picking Local silently
+ * adopted an earlier AssemblyAI job's record. Records without a
+ * provider stamp (pre-engine-choice builds) keep the old behavior.
  */
-export function decideResume(record, statusResp, now = Date.now()) {
+export function decideResume(record, statusResp, now = Date.now(), provider) {
     if (!record || isRecordStale(record, now) || !record.jobId) return { action: 'start' };
+    if (provider && record.provider && record.provider !== provider) return { action: 'start' };
     if (!statusResp || !statusResp.ok) {
         // Unknown job (server restarted past its disk retention) or the
         // service is down — the caller distinguishes: unreachable keeps
@@ -123,13 +130,16 @@ export async function reapStaleJobRecords(io, now = Date.now()) {
  *   now() → epoch ms
  *   onProgress(job|null) → void            (banner repaint)
  */
-export async function runTranscriptionJob({ videoUrl, videoId, io }) {
+export async function runTranscriptionJob({ videoUrl, videoId, provider, io }) {
     const key = jobRecordKey(videoId);
     const record = await io.storageGet(key);
 
-    // Resume decision: ask the server about a remembered job first.
+    // Resume decision: ask the server about a remembered job first —
+    // unless an explicit engine choice already disqualifies the record
+    // (different engine), in which case the status is irrelevant.
     let statusResp = null;
-    if (record && !isRecordStale(record, io.now()) && record.jobId) {
+    const mismatched = provider && record && record.provider && record.provider !== provider;
+    if (record && !mismatched && !isRecordStale(record, io.now()) && record.jobId) {
         statusResp = await io.sendMessage({ type: 'xray:transcribe:status', jobId: record.jobId });
         if (statusResp && !statusResp.ok && statusResp.unreachable) {
             return {
@@ -143,19 +153,28 @@ export async function runTranscriptionJob({ videoUrl, videoId, io }) {
     // can still refuse (edit conflict), and the record is the only
     // handle to the finished server-side result. The CALLER removes it
     // after a successful adoption; failed/cancelled/404 reap here.
-    const decision = decideResume(record, statusResp, io.now());
+    const decision = decideResume(record, statusResp, io.now(), provider);
     if (decision.action === 'adopt') {
         return { ok: true, result: decision.result };
     }
 
     let jobId = decision.action === 'resume' ? decision.jobId : null;
     if (!jobId) {
-        const started = await io.sendMessage({ type: 'xray:transcribe:start', url: videoUrl });
+        const started = await io.sendMessage({
+            type: 'xray:transcribe:start',
+            url: videoUrl,
+            // Engine for THIS job (picker choice / stored preference);
+            // undefined lets the SW fall back to the stored preference.
+            ...(provider ? { provider } : {})
+        });
         if (!started || !started.ok) {
-            return { ok: false, error: (started && started.error) || 'Could not start the transcription job.' };
+            return { ok: false, missingKey: started && started.missingKey, error: (started && started.error) || 'Could not start the transcription job.' };
         }
         jobId = started.jobId;
-        await io.storageSet(key, { jobId, url: videoUrl, videoId, startedAt: io.now() });
+        await io.storageSet(key, {
+            jobId, url: videoUrl, videoId, startedAt: io.now(),
+            ...(started.provider ? { provider: started.provider } : {})
+        });
     }
 
     // Poll until terminal. Each message doubles as the SW keepalive.

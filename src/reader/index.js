@@ -2122,12 +2122,19 @@ async function adoptDiarizedTranscript(result) {
 let _transcribeRunning = false;
 
 /** Start (or resume) the companion job and adopt the result. The whole
- *  loop is page-driven — each poll message resets the SW idle timer. */
-async function runTranscribeFlow() {
+ *  loop is page-driven — each poll message resets the SW idle timer.
+ *  `provider` is the engine for THIS run (picker choice); undefined
+ *  defers to the stored engine preference in the SW. */
+async function runTranscribeFlow(provider) {
+    if (typeof provider !== 'string') provider = undefined; // onclick passes an event
     const a = state.article;
     const videoId = a && a.youtube && a.youtube.videoId;
     if (!a || !videoId) { toast('Not a YouTube capture.', 'error'); return; }
-    if (_transcribeRunning) return;
+    if (_transcribeRunning) {
+        // Never swallow a click silently (the Suggest-local precedent).
+        toast('A transcription is already running for this capture — wait for it to finish.', 'error');
+        return;
+    }
 
     // Re-capture of an already-transcribed video: the diarized article
     // lives in the archive — offer to LOAD it instead of burning GPU
@@ -2169,9 +2176,14 @@ async function runTranscribeFlow() {
 
     _transcribeRunning = true;
     const btn = $('#xr-transcribe');
+    const caretBtn = $('#xr-transcribe-engine');
     const label = btn ? btn.textContent : '';
     const draftsBtn = $('#xr-suggest-local');
     if (btn) { btn.disabled = true; btn.textContent = '🎙 Transcribing…'; }
+    // The engine choice is fixed once the job starts — park the picker
+    // with the button (a mid-run pick could only be a silent no-op).
+    if (caretBtn) caretBtn.disabled = true;
+    closeEnginePicker();
     // Soft GPU guard: WhisperX holds ~6 GB while the job runs — drafting
     // concurrently is the one genuinely tight case, so park the button.
     if (draftsBtn) draftsBtn.disabled = true;
@@ -2182,9 +2194,12 @@ async function runTranscribeFlow() {
             // Honest wording: a cloud-provider job is not "locally".
             renderTranscribeBanner(`Transcribing ${providerPhrase(job && job.provider)} — ${describeProgress(job)}`);
         });
-        const out = await runTranscriptionJob({ videoUrl: a.url, videoId, io });
+        const out = await runTranscriptionJob({ videoUrl: a.url, videoId, provider, io });
         if (!out.ok) {
             renderTranscribeBanner(out.error, 'error', { docsHint: !!(out.error || '').includes('not reachable') });
+            // A cloud engine without its key: the picker is the fastest
+            // path to either the key field or another engine.
+            if (out.missingKey) openEnginePicker();
             return;
         }
         await adoptDiarizedTranscript(out.result);
@@ -2216,55 +2231,228 @@ async function runTranscribeFlow() {
     } finally {
         _transcribeRunning = false;
         if (btn) { btn.disabled = false; btn.textContent = label; }
+        if (caretBtn) caretBtn.disabled = false;
         if (draftsBtn) draftsBtn.disabled = false;
     }
 }
 
+// The last engine config snapshot — REFRESHED at every decision point
+// (button click, picker open), not just page load: the user saves keys
+// or changes the engine in Options with readers already open, and a
+// stale snapshot would loop the "add a key in Settings" path forever
+// (review finding, 2026-08-02). `engine: null` = no preference chosen:
+// jobs carry no provider and the companion default rules.
+let _transcribeCfg = { engine: null, keys: {} };
+
+async function refreshTranscribeCfg() {
+    try {
+        const cfg = await browserApi.runtime.sendMessage({ type: 'xray:transcribe:config' }) || {};
+        _transcribeCfg = { engine: cfg.engine || null, keys: cfg.keys || {} };
+    } catch (_) { /* keep the previous snapshot */ }
+    const btn = $('#xr-transcribe');
+    if (btn && !btn.hidden) btn.title = transcribeTooltip();
+    return _transcribeCfg;
+}
+
+const ENGINE_META = {
+    local: {
+        label: 'Local (WhisperX)',
+        badge: 'on this device — free',
+        detail: 'yt-dlp + WhisperX + speaker diarization on your GPU. Nothing leaves this machine.'
+    },
+    assemblyai: {
+        label: 'AssemblyAI',
+        badge: 'cloud — ≈$0.28/hr',
+        detail: 'Uploads the episode audio to AssemblyAI. Fast, no GPU use.',
+        rate: 0.28
+    },
+    deepgram: {
+        label: 'Deepgram',
+        badge: 'cloud — ≈$0.26/hr',
+        detail: 'Uploads the episode audio to Deepgram. Fast, no GPU use.',
+        rate: 0.26
+    }
+};
+
+/** Human tooltip for the main Transcribe button, from the preference. */
+function transcribeTooltip() {
+    const rerun = !!(state.article && state.article.transcription);
+    const head = rerun
+        ? 'Re-run the diarized transcription (replaces the current transcript section)'
+        : 'Transcribe this video';
+    const e = _transcribeCfg.engine;
+    if (e === 'ask') return `${head} — you'll choose the engine (▾ also opens the choices)`;
+    if (!e) return `${head} — with the companion service's default engine (local unless its env says otherwise; pick per video with ▾, or set a default in Settings)`;
+    const meta = ENGINE_META[e] || ENGINE_META.local;
+    return e === 'local'
+        ? `${head} — locally (${meta.detail})`
+        : `${head} — via ${meta.label} (cloud: the episode audio leaves this machine, ${meta.badge.replace('cloud — ', '')})`;
+}
+
+/** Per-engine time/cost line for the picker, from the video duration. */
+function engineEstimate(engine) {
+    const secs = Number(state.article && state.article.youtube
+        && state.article.youtube.durationSeconds) || 0;
+    const meta = ENGINE_META[engine];
+    if (engine === 'local') {
+        if (!secs) return 'Runs on your GPU; speed depends on the card.';
+        const mins = Math.max(1, Math.ceil(secs / 900 + secs / 3600 * 2));
+        return `~${mins} min on your GPU (transcribe + diarize) — free.`;
+    }
+    if (!secs) return 'Usually 2–5 minutes, metered per audio-hour.';
+    const cost = Math.max(0.01, (secs / 3600) * meta.rate);
+    return `~2–5 min — about $${cost.toFixed(2)} for this video.`;
+}
+
+function closeEnginePicker() {
+    const menu = document.getElementById('xr-engine-menu');
+    if (menu) menu.remove();
+    document.removeEventListener('click', _pickerDismiss, true);
+    document.removeEventListener('keydown', _pickerEscape, true);
+}
+function _pickerDismiss(ev) {
+    const menu = document.getElementById('xr-engine-menu');
+    if (menu && !menu.contains(ev.target)) closeEnginePicker();
+}
+function _pickerEscape(ev) { if (ev.key === 'Escape') closeEnginePicker(); }
+
 /**
- * The Transcribe button + capture-path auto-start. Gated like Suggest:
- * absent unless the localTranscription flag is on (the SW's config
- * snapshot is storage-only — reachability is probed on click, where a
- * clear error names the fix, never during setup).
+ * The runtime engine picker (field feedback 2026-08-02): choose per
+ * video — a 10-minute clip is fine on the GPU, a 2-hour episode wants
+ * cloud speed. Shows real time/cost estimates from the capture's
+ * duration and each engine's availability; a cloud engine without a
+ * saved key routes to Settings instead of failing later.
+ */
+async function openEnginePicker() {
+    // Toggle: a second chevron click closes instead of flickering
+    // closed-and-reopen (review finding).
+    if (document.getElementById('xr-engine-menu')) { closeEnginePicker(); return; }
+    closeEnginePicker();
+    // Fresh engine + key state EVERY open — the user may just have
+    // saved a key in Options (review finding: the stale snapshot made
+    // "add a key in Settings" a dead loop).
+    await refreshTranscribeCfg();
+    const anchor = $('#xr-transcribe');
+    if (!anchor) return;
+    const menu = document.createElement('div');
+    menu.id = 'xr-engine-menu';
+    menu.className = 'xr-engine-menu';
+
+    for (const engine of ['local', 'assemblyai', 'deepgram']) {
+        const meta = ENGINE_META[engine];
+        const keyed = engine === 'local' || !!(_transcribeCfg.keys && _transcribeCfg.keys[engine]);
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'xr-engine-menu__item';
+
+        const title = document.createElement('div');
+        title.className = 'xr-engine-menu__title';
+        title.textContent = meta.label;
+        const badge = document.createElement('span');
+        badge.className = 'xr-engine-menu__badge';
+        badge.textContent = meta.badge;
+        title.appendChild(badge);
+        if (_transcribeCfg.engine === engine) {
+            const mark = document.createElement('span');
+            mark.className = 'xr-engine-menu__badge xr-engine-menu__badge--default';
+            mark.textContent = '✓ default';
+            title.appendChild(mark);
+        }
+        item.appendChild(title);
+
+        const sub = document.createElement('div');
+        sub.className = 'xr-engine-menu__sub' + (keyed ? '' : ' xr-engine-menu__sub--warn');
+        sub.textContent = keyed
+            ? engineEstimate(engine)
+            : 'No API key saved — click to add one in Settings.';
+        item.appendChild(sub);
+
+        item.addEventListener('click', () => {
+            closeEnginePicker();
+            if (!keyed) {
+                try { browserApi.runtime.openOptionsPage(); } catch (_) { /* page-open denied */ }
+                return;
+            }
+            runTranscribeFlow(engine);
+        });
+        menu.appendChild(item);
+    }
+
+    const foot = document.createElement('div');
+    foot.className = 'xr-engine-menu__foot';
+    foot.appendChild(document.createTextNode('Default engine and API keys live in '));
+    const link = document.createElement('a');
+    link.textContent = 'Settings → Advanced → Transcription';
+    link.addEventListener('click', () => {
+        closeEnginePicker();
+        try { browserApi.runtime.openOptionsPage(); } catch (_) { /* page-open denied */ }
+    });
+    foot.appendChild(link);
+    foot.appendChild(document.createTextNode('.'));
+    menu.appendChild(foot);
+
+    document.body.appendChild(menu);
+    const r = anchor.getBoundingClientRect();
+    menu.style.top = `${Math.round(r.bottom + 6)}px`;
+    menu.style.left = `${Math.round(Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)))}px`;
+    // Deferred: the opening click must not immediately dismiss.
+    setTimeout(() => {
+        document.addEventListener('click', _pickerDismiss, true);
+        document.addEventListener('keydown', _pickerEscape, true);
+    }, 0);
+}
+
+/**
+ * The Transcribe split control + capture-path auto-start. Gated like
+ * Suggest: absent unless the localTranscription flag is on (the SW's
+ * config snapshot is storage-only — reachability is probed on click,
+ * where a clear error names the fix, never during setup). The engine
+ * preference + key presence arrive in the same snapshot, so the
+ * tooltip and picker are synchronous truth — no network involved.
  */
 async function setupTranscribeControl() {
     const btn = $('#xr-transcribe');
+    const caret = $('#xr-transcribe-engine');
     if (!btn) return;
     const isYouTube = !!(state.article && state.article.platform === 'youtube'
         && state.article.youtube && state.article.youtube.videoId);
-    if (!isYouTube || state.readOnlyOpen) { btn.hidden = true; return; }
+    if (!isYouTube || state.readOnlyOpen) {
+        btn.hidden = true;
+        if (caret) caret.hidden = true;
+        return;
+    }
     let cfg = {};
     try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:transcribe:config' }) || {}; }
     catch (_) { cfg = {}; }
-    if (!cfg.enabled) { btn.hidden = true; return; }   // flag off ⇒ absent
+    if (!cfg.enabled) {   // flag off ⇒ absent
+        btn.hidden = true;
+        if (caret) caret.hidden = true;
+        return;
+    }
+    _transcribeCfg = { engine: cfg.engine || null, keys: cfg.keys || {} };
     btn.hidden = false;
     btn.disabled = false;
-    // NEUTRAL wording first — the engine (local vs a cloud provider) is
-    // companion-side config the page can't know without asking. The
-    // ping below upgrades the tooltip when the service answers; setup
-    // itself still never blocks on the network (the design rule).
-    const rerun = !!state.article.transcription;
-    btn.title = rerun
-        ? 'Re-run the diarized transcription (replaces the current transcript section)'
-        : 'Transcribe this video via the companion transcription service';
-    browserApi.runtime.sendMessage({ type: 'xray:transcribe:ping' }).then((resp) => {
-        if (!resp || !resp.ok || btn.hidden) return;
-        const provider = (resp.health && resp.health.provider) || 'local';
-        const how = providerPhrase(provider) === 'locally'
-            ? 'locally (yt-dlp + WhisperX + speaker diarization)'
-            : `${providerPhrase(provider)} — cloud transcription, the episode audio leaves this machine`;
-        btn.title = rerun
-            ? `Re-run the diarized transcription ${providerPhrase(provider)} (replaces the current transcript section)`
-            : `Transcribe this video ${how}`;
-    }).catch(() => { /* service down — the neutral tooltip stands */ });
+    btn.title = transcribeTooltip();
+    if (caret) { caret.hidden = false; caret.disabled = false; }
     // onclick (not addEventListener): setup can re-run after adoption
-    // and must never stack duplicate handlers.
-    btn.onclick = runTranscribeFlow;
+    // and must never stack duplicate handlers. Every click re-reads the
+    // CURRENT preference (Options may have changed it since page load);
+    // a null preference passes no engine — the SW then omits the
+    // provider and the companion default rules.
+    btn.onclick = async () => {
+        await refreshTranscribeCfg();
+        if (_transcribeCfg.engine === 'ask') { openEnginePicker(); return; }
+        runTranscribeFlow(_transcribeCfg.engine || undefined);
+    };
+    if (caret) caret.onclick = openEnginePicker;
 
-    // The "Capture & transcribe locally" path: the session record said
-    // to start immediately.
+    // The "Capture & transcribe" path: the session record said to start
+    // immediately. An 'ask' preference opens the picker instead of
+    // silently picking an engine the user never chose.
     if (state.transcribeRequested && !state.article.transcription) {
         state.transcribeRequested = false;
-        runTranscribeFlow();
+        if (_transcribeCfg.engine === 'ask') openEnginePicker();
+        else runTranscribeFlow(_transcribeCfg.engine || undefined);
     }
 }
 
