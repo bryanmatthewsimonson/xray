@@ -319,6 +319,16 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   the audit family (`30056`–`30061`); Phase 15 truth verdicts operate
   under `TRUTH_ADJUDICATION_DESIGN.md`'s own form-of-judgment (§1/§5)
   — deliberately no 0–100 score or knowability ceiling there.
+- **`docs/TRUTH_INFRASTRUCTURE.md`** — **non-normative** expansion
+  map: the portable "truth infrastructure" framework (five
+  strategies, one refused) and five expansion domains (supply-chain
+  provenance, proof-of-personhood/reputation, truth markets,
+  democratic ledgers, adversarial collaboration), each mapped to
+  shipped features, parked designs (`docs/BONDING_NOTES.md`),
+  refusals, and the sibling projects (crux; Honor).
+  `docs/PHILOSOPHY.md` governs wherever it touches audit surfaces;
+  cites the in-flight Truth Systems annex (PR #263) in prose without
+  depending on it.
 - **`CONTRIBUTING.md`** — release process (git-tag-driven via
   `.github/workflows/release.yml`) and the Firefox-floor rationale.
 

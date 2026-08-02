@@ -19,6 +19,29 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-02 — Truth-infrastructure map ships standalone, not on the constitution chain
+
+**Tags:** design
+
+`docs/TRUTH_INFRASTRUCTURE.md` (distilled from a maintainer essay on
+truth-seeking systems) could have stacked as a fourth PR on the
+#261→#262→#263 constitution chain — its natural neighbors. Shipped
+standalone from `main` instead: the chain is unmerged and under
+review; the new doc is non-normative (nothing in it needs the
+constitution's authority); and stacking would couple an essay's merge
+to a constitutional ratification. Accepted consequence: no relative
+links to `TRUTH_SYSTEMS.md`/`CONSTITUTION.md` — the annex is cited in
+prose as "TS §n (PR #263)". If #263 lands, swap prose citations for
+relative links in a mechanical docs PR; if the chain is abandoned,
+the PR-number citations still resolve. Also recorded: the essay's
+fifth strategy ("decentralized consensus") is resolved against, in
+favor of the standing owner decision (no aggregation / consensus /
+reputation layer; red line 1) — salvaging only the
+measurement-not-authority shape of the annex's §3.3 bridging
+license.
+
+---
+
 ## 2026-07-27 — MA.4: the reader's Suggest pass joins the durable layer
 
 **Tags:** design
