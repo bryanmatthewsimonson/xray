@@ -107,6 +107,29 @@ export const MODULE_WEIGHTS = Object.freeze({
     omission:                0.20
 });
 
+// Dimension scoring directions — PHILOSOPHY §3.1/§4 encoded as the
+// published constant it always claimed to be (R10a, founding-transcript
+// integration; JOURNAL 2026-08-02). Sources, by section: module 1 is
+// explicitly "Penalty-only: a headline cannot be better than accurate"
+// (§3.1); module 4 is explicitly "Credit-bearing: linked primary
+// sources earn points" (§3.1); §4 names bidirectional as the third
+// class and nothing else is classified — those default to it; module 8
+// is unscored by construction. DESCRIPTIVE for now: the aggregation
+// math stays direction-agnostic (a direction-aware aggregate is a
+// full methodology wave across every module version, not something to
+// smuggle into a display slice). Publishing the classification is the
+// P12 half; the math is future work, said plainly.
+export const MODULE_DIRECTIONS = Object.freeze({
+    headline_body_fidelity: 'penalty-only',
+    asymmetric_language:     'bidirectional',
+    number_hygiene:          'bidirectional',
+    source_quality:          'credit-bearing',
+    internal_coherence:      'bidirectional',
+    definitional_precision:  'bidirectional',
+    omission:                'bidirectional',
+    prediction_extraction:   'unscored'
+});
+
 // Bound the article text an audit covers, so a pathologically long
 // capture can't balloon the request. ~120k chars ≈ well within context
 // for one pass. The reader slices with auditableSlice BEFORE hashing —
