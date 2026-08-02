@@ -34,7 +34,11 @@ class Job:
     job_id: str
     url: str
     video_id: str
-    provider: str = "local"  # which engine runs this job (config.PROVIDER at enqueue)
+    provider: str = "local"  # engine for THIS job (request override, else config.PROVIDER)
+    # Per-request cloud API key (extension-supplied). MEMORY ONLY:
+    # excluded from repr, never in snapshots, never in spec.json — it
+    # reaches the worker child through its process environment.
+    api_key: Optional[str] = field(default=None, repr=False)
     status: str = "queued"  # queued | running | done | failed | cancelled
     stage: Optional[str] = None  # one of STAGES, or None
     progress: float = 0.0

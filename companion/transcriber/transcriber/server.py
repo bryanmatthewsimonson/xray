@@ -18,6 +18,7 @@ Serves 127.0.0.1:<port> for the X-Ray browser extension:
 import argparse
 import json
 import logging
+import os
 import queue
 import re
 import shutil
@@ -42,19 +43,22 @@ log = logging.getLogger("xray-transcriber")
 app = FastAPI(title="X-Ray Transcriber", version=__version__)
 
 store = JobStore()
-# Job execution: N daemon consumer threads over one queue.  Local jobs
-# stay STRICTLY serialized (one worker — the VRAM discipline: one child
-# process at a time on the GPU); cloud jobs hold no GPU, so a few
-# consumers run concurrently.  DAEMON threads on purpose (a
-# ThreadPoolExecutor's non-daemon workers would make Ctrl+C block until
-# every queued job ran to completion): on shutdown, queued jobs die
-# and only an already-running child survives as an orphan — the
-# behavior the service has always had.  The queue is unbounded on
-# purpose: the 429 cap is enforced against the STORE's active
-# (queued+running) count, not queue slots — bounded slots would let
-# cancelled entries block new submissions.
-_JOB_WORKERS = max(1, config.CLOUD_CONCURRENCY) if providers.is_cloud(config.PROVIDER) else 1
-_queue: "queue.Queue[str]" = queue.Queue()
+# Job execution: daemon consumer threads over TWO queues, routed by the
+# job's OWN provider (per-request engines, 2026-08-02 — a single server
+# runs local and cloud jobs side by side).  Local jobs stay STRICTLY
+# serialized (one consumer — the VRAM discipline: one child process at
+# a time on the GPU); cloud jobs hold no GPU, so a few consumers run
+# concurrently.  DAEMON threads on purpose (a ThreadPoolExecutor's
+# non-daemon workers would make Ctrl+C block until every queued job ran
+# to completion): on shutdown, queued jobs die and only an
+# already-running child survives as an orphan — the behavior the
+# service has always had.  Queues are unbounded on purpose: the 429 cap
+# is enforced against the STORE's active (queued+running) count, not
+# queue slots — bounded slots would let cancelled entries block new
+# submissions.
+_CLOUD_WORKERS = max(1, config.CLOUD_CONCURRENCY)
+_local_queue: "queue.Queue[str]" = queue.Queue()
+_cloud_queue: "queue.Queue[str]" = queue.Queue()
 _device_state = {"device": "unknown"}  # resolved once, by a startup probe
 
 
@@ -138,6 +142,13 @@ def extract_video_id(url: str) -> str:
 
 class TranscribeRequest(BaseModel):
     url: str
+    # Optional per-request engine + credential (the extension's engine
+    # picker / settings).  Absent -> the TRANSCRIBER_PROVIDER env
+    # default, exactly the pre-2026-08-02 behavior.  The key is held in
+    # memory and handed to the worker child via its environment — never
+    # written to disk, never logged, never echoed in any response.
+    provider: "str | None" = None
+    api_key: "str | None" = None
 
 
 @app.post("/transcribe", status_code=202)
@@ -147,15 +158,23 @@ def transcribe(body: TranscribeRequest) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+    provider = (body.provider or config.PROVIDER).strip().lower()
+    api_key = (body.api_key or "").strip() or None
+    problem = providers.validate_job(provider, has_request_key=api_key is not None)
+    if problem is not None:
+        raise HTTPException(status_code=400, detail=problem)
+
     job = Job(
         job_id=str(uuid.uuid4()),
         url=body.url.strip(),
         video_id=video_id,
-        provider=config.PROVIDER,
+        provider=provider,
+        api_key=api_key if providers.is_cloud(provider) else None,
     )
     job, created = store.add_or_get_active(job)
     if not created:
-        # An active (queued/running) job for this video already exists.
+        # An active (queued/running) job for this video already exists —
+        # whatever engine it was started with wins (dedupe by video).
         return {"job_id": job.job_id}
     # Cap ACTIVE jobs (this one included), so cancelling really frees
     # capacity. Loopback single-user service: the tiny add-then-check
@@ -166,9 +185,14 @@ def transcribe(body: TranscribeRequest) -> dict:
             status_code=429,
             detail=f"queue is full ({config.QUEUE_MAX} jobs); cancel one or try again later",
         )
-    _queue.put(job.job_id)
+    _queue_for(provider).put(job.job_id)
     log.info("queued job %s for video %s (%s)", job.job_id, video_id, job.provider)
     return {"job_id": job.job_id}
+
+
+def _queue_for(provider: str) -> "queue.Queue[str]":
+    """Cloud jobs and local jobs run in separate pools (VRAM rule)."""
+    return _cloud_queue if providers.is_cloud(provider) else _local_queue
 
 
 @app.get("/jobs/{job_id}")
@@ -208,6 +232,9 @@ def health() -> dict:
         # older extensions ignore them.
         "provider": config.PROVIDER,
         "providers": {name: providers.key_ready(name) for name in providers.PROVIDERS},
+        # Capability flag: this build honors per-request provider/api_key
+        # on POST /transcribe (older builds silently ignore the fields).
+        "request_provider": True,
     }
 
 
@@ -242,10 +269,10 @@ def _probe_device() -> None:
 # --- job execution -------------------------------------------------------
 
 
-def _worker_loop() -> None:
+def _worker_loop(q: "queue.Queue[str]") -> None:
     """Daemon consumer: dequeue and run jobs, one at a time per thread."""
     while True:
-        _execute_job(_queue.get())
+        _execute_job(q.get())
 
 
 def _execute_job(job_id: str) -> None:
@@ -294,6 +321,7 @@ def _run_job(job: Job) -> None:
         text=True,
         encoding="utf-8",
         errors="replace",
+        env=_child_env(job),  # None = inherit unchanged
     )
     with store.lock:
         job.process = proc
@@ -362,6 +390,22 @@ def _run_job(job: Job) -> None:
         shutil.rmtree(job_tmp, ignore_errors=True)
 
 
+def _child_env(job: Job) -> "dict | None":
+    """The worker child's environment for ``job``.
+
+    A request-supplied cloud key rides the CHILD'S ENVIRONMENT — the
+    one channel that touches neither disk nor logs — and overrides any
+    env-configured key for the same provider (explicit user intent).
+    None = inherit the server's environment unchanged."""
+    if not job.api_key:
+        return None
+    env = dict(os.environ)
+    env_var = {"assemblyai": "ASSEMBLYAI_API_KEY", "deepgram": "DEEPGRAM_API_KEY"}.get(job.provider)
+    if env_var:
+        env[env_var] = job.api_key
+    return env
+
+
 def _read_result(job_id: str) -> "dict | None":
     path = config.JOBS_DIR / f"{job_id}.json"
     try:
@@ -400,28 +444,34 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # Provider misconfiguration fails HERE, not minutes into a job
-    # (unknown TRANSCRIBER_PROVIDER, or a cloud provider without its
-    # API key — the HF_TOKEN fail-fast precedent).
+    # An unknown TRANSCRIBER_PROVIDER still fails at startup; a cloud
+    # default without its env key is only a WARNING now — the extension
+    # can send the provider and key with each request (2026-08-02).
     provider_error = providers.validate_active()
     if provider_error is not None:
         print(f"xray-transcriber: {provider_error}", file=sys.stderr)
         sys.exit(1)
+    key_warning = providers.env_key_warning()
+    if key_warning:
+        log.warning("%s", key_warning)
 
     config.ensure_dirs()
     threading.Thread(target=_probe_device, name="device-probe", daemon=True).start()
-    for i in range(_JOB_WORKERS):
-        threading.Thread(target=_worker_loop, name=f"job-worker-{i}", daemon=True).start()
+    # Both worker pools always run: any request may carry any engine.
+    threading.Thread(
+        target=_worker_loop, args=(_local_queue,), name="job-local", daemon=True
+    ).start()
+    for i in range(_CLOUD_WORKERS):
+        threading.Thread(
+            target=_worker_loop, args=(_cloud_queue,), name=f"job-cloud-{i}", daemon=True
+        ).start()
 
-    if providers.is_cloud(config.PROVIDER):
-        log.info(
-            "provider: %s (cloud — episode audio is sent to the provider; "
-            "up to %d concurrent jobs)",
-            config.PROVIDER,
-            _JOB_WORKERS,
-        )
-    else:
-        log.info("provider: local (WhisperX + pyannote; jobs run one at a time)")
+    log.info(
+        "engines: local (serialized) + cloud up to %d concurrent; "
+        "default engine: %s (requests may override per job)",
+        _CLOUD_WORKERS,
+        config.PROVIDER,
+    )
     log.info("X-Ray transcriber %s listening on http://%s:%d", __version__, config.HOST, args.port)
     uvicorn.run(app, host=config.HOST, port=args.port, log_level="info")
 

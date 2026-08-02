@@ -123,7 +123,7 @@ export async function reapStaleJobRecords(io, now = Date.now()) {
  *   now() → epoch ms
  *   onProgress(job|null) → void            (banner repaint)
  */
-export async function runTranscriptionJob({ videoUrl, videoId, io }) {
+export async function runTranscriptionJob({ videoUrl, videoId, provider, io }) {
     const key = jobRecordKey(videoId);
     const record = await io.storageGet(key);
 
@@ -150,12 +150,21 @@ export async function runTranscriptionJob({ videoUrl, videoId, io }) {
 
     let jobId = decision.action === 'resume' ? decision.jobId : null;
     if (!jobId) {
-        const started = await io.sendMessage({ type: 'xray:transcribe:start', url: videoUrl });
+        const started = await io.sendMessage({
+            type: 'xray:transcribe:start',
+            url: videoUrl,
+            // Engine for THIS job (picker choice / stored preference);
+            // undefined lets the SW fall back to the stored preference.
+            ...(provider ? { provider } : {})
+        });
         if (!started || !started.ok) {
-            return { ok: false, error: (started && started.error) || 'Could not start the transcription job.' };
+            return { ok: false, missingKey: started && started.missingKey, error: (started && started.error) || 'Could not start the transcription job.' };
         }
         jobId = started.jobId;
-        await io.storageSet(key, { jobId, url: videoUrl, videoId, startedAt: io.now() });
+        await io.storageSet(key, {
+            jobId, url: videoUrl, videoId, startedAt: io.now(),
+            ...(started.provider ? { provider: started.provider } : {})
+        });
     }
 
     // Poll until terminal. Each message doubles as the SW keepalive.

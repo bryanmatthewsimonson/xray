@@ -27,6 +27,7 @@ function resetStore() { for (const k of Object.keys(_store)) delete _store[k]; }
 
 const {
     TRANSCRIBER_DEFAULT_PORT, TRANSCRIBER_PORT_STORAGE,
+    TRANSCRIBER_ENGINE_STORAGE, ASSEMBLYAI_KEY_STORAGE, DEEPGRAM_KEY_STORAGE, normalizeEngine,
     LMSTUDIO_URL_STORAGE, LMSTUDIO_MODEL_STORAGE, LMSTUDIO_DEFAULT_URL, LMSTUDIO_DEFAULT_MODEL,
     sanitizePort, transcriberBaseUrl, loopbackUrl, getLmStudioConfig, getTranscriberPort,
     startTranscription, getJobStatus, pingTranscriber, getTranscribeConfig,
@@ -76,14 +77,20 @@ test('getLmStudioConfig: loopback custom kept, non-loopback stored value → def
 });
 
 test('startTranscription: 202 → jobId; unreachable names the fix; HTTP error carries detail', async () => {
+    resetStore();
     const calls = [];
     const res = await startTranscription('https://www.youtube.com/watch?v=x', {
         port: 8756,
         fetchFn: async (url, init) => { calls.push({ url, init }); return okJson({ job_id: 'j-1' }, 202); }
     });
-    assert.deepEqual(res, { ok: true, jobId: 'j-1' });
+    assert.deepEqual(res, { ok: true, jobId: 'j-1', provider: 'local' });
     assert.equal(calls[0].url, 'http://127.0.0.1:8756/transcribe');
-    assert.equal(JSON.parse(calls[0].init.body).url, 'https://www.youtube.com/watch?v=x');
+    const body = JSON.parse(calls[0].init.body);
+    assert.equal(body.url, 'https://www.youtube.com/watch?v=x');
+    // No preference stored: the engine is explicitly 'local' (request
+    // beats the companion's env default) and never carries a key.
+    assert.equal(body.provider, 'local');
+    assert.ok(!('api_key' in body));
 
     const down = await startTranscription('https://y', { port: 8756, fetchFn: async () => { throw new Error('ECONNREFUSED'); } });
     assert.equal(down.ok, false);
@@ -95,6 +102,83 @@ test('startTranscription: 202 → jobId; unreachable names the fix; HTTP error c
     assert.equal(full.ok, false);
     assert.equal(full.status, 429);
     assert.match(full.error, /queue full/);
+});
+
+test('normalizeEngine: engines + ask pass, junk → local', () => {
+    assert.equal(normalizeEngine('assemblyai'), 'assemblyai');
+    assert.equal(normalizeEngine('DEEPGRAM'), 'deepgram');
+    assert.equal(normalizeEngine('ask'), 'ask');
+    assert.equal(normalizeEngine('local'), 'local');
+    for (const junk of ['', null, undefined, 'whisper', 'assembly ai']) {
+        assert.equal(normalizeEngine(junk), 'local', `junk: ${junk}`);
+    }
+});
+
+test('startTranscription: stored cloud engine sends provider + saved key', async () => {
+    resetStore();
+    _store[TRANSCRIBER_ENGINE_STORAGE] = 'assemblyai';
+    _store[ASSEMBLYAI_KEY_STORAGE] = 'aai-key-123';
+    let body = null;
+    const res = await startTranscription('https://www.youtube.com/watch?v=x', {
+        port: 8756,
+        fetchFn: async (_url, init) => { body = JSON.parse(init.body); return okJson({ job_id: 'j-2' }, 202); }
+    });
+    assert.deepEqual(res, { ok: true, jobId: 'j-2', provider: 'assemblyai' });
+    assert.equal(body.provider, 'assemblyai');
+    assert.equal(body.api_key, 'aai-key-123');
+});
+
+test('startTranscription: explicit provider overrides the stored preference', async () => {
+    resetStore();
+    _store[TRANSCRIBER_ENGINE_STORAGE] = 'assemblyai';
+    _store[ASSEMBLYAI_KEY_STORAGE] = 'aai-key';
+    _store[DEEPGRAM_KEY_STORAGE] = 'dg-key';
+    let body = null;
+    const res = await startTranscription('https://y', {
+        port: 8756,
+        provider: 'deepgram',
+        fetchFn: async (_url, init) => { body = JSON.parse(init.body); return okJson({ job_id: 'j-3' }, 202); }
+    });
+    assert.equal(res.provider, 'deepgram');
+    assert.equal(body.provider, 'deepgram');
+    assert.equal(body.api_key, 'dg-key');
+});
+
+test('startTranscription: cloud engine without a saved key fails BEFORE any network call', async () => {
+    resetStore();
+    _store[TRANSCRIBER_ENGINE_STORAGE] = 'deepgram';
+    let fetched = 0;
+    const res = await startTranscription('https://y', {
+        port: 8756,
+        fetchFn: async () => { fetched += 1; return okJson({ job_id: 'nope' }, 202); }
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.missingKey, 'deepgram');
+    assert.match(res.error, /Deepgram API key/);
+    assert.match(res.error, /Settings/);
+    assert.equal(fetched, 0, 'no request may be sent without the key');
+});
+
+test("startTranscription: an unresolved 'ask' preference degrades to local", async () => {
+    resetStore();
+    _store[TRANSCRIBER_ENGINE_STORAGE] = 'ask';
+    let body = null;
+    const res = await startTranscription('https://y', {
+        port: 8756,
+        fetchFn: async (_url, init) => { body = JSON.parse(init.body); return okJson({ job_id: 'j-4' }, 202); }
+    });
+    assert.equal(res.provider, 'local');
+    assert.equal(body.provider, 'local');
+});
+
+test('getTranscribeConfig: engine + key PRESENCE booleans, never values', async () => {
+    resetStore();
+    _store[TRANSCRIBER_ENGINE_STORAGE] = 'assemblyai';
+    _store[ASSEMBLYAI_KEY_STORAGE] = 'secret-value';
+    const cfg = await getTranscribeConfig();
+    assert.equal(cfg.engine, 'assemblyai');
+    assert.deepEqual(cfg.keys, { assemblyai: true, deepgram: false });
+    assert.ok(!JSON.stringify(cfg).includes('secret-value'), 'key VALUES never leave the SW snapshot');
 });
 
 test('getJobStatus: passthrough + 404 surfaced as status', async () => {

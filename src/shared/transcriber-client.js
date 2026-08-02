@@ -21,6 +21,24 @@ import { SUGGESTABLE_ENTITY_TYPES, LLM_SUGGEST_KINDS_STORAGE, normalizeSuggestKi
 export const TRANSCRIBER_DEFAULT_PORT = 8756;
 export const TRANSCRIBER_PORT_STORAGE = 'xray:transcriber:port';
 export const TRANSCRIBER_TOKEN_STORAGE = 'xray:transcriber:token';
+// Engine preference + cloud API keys (2026-08-02, maintainer decision
+// reversing the launch posture): keys live in chrome.storage.local —
+// the Anthropic LLM key precedent — and ride each POST /transcribe so
+// switching engines needs no service restart. The companion holds them
+// in memory only (child env, never disk). Options' "erase all" clears
+// them like every other secret.
+export const TRANSCRIBER_ENGINE_STORAGE = 'xray:transcriber:engine';
+export const ASSEMBLYAI_KEY_STORAGE = 'xray:transcriber:assemblyai:key';
+export const DEEPGRAM_KEY_STORAGE = 'xray:transcriber:deepgram:key';
+
+/** Engine preference values: a concrete engine, or 'ask' = the reader
+ *  offers the picker on every transcribe. */
+export const TRANSCRIBE_ENGINES = ['local', 'assemblyai', 'deepgram'];
+
+export function normalizeEngine(value) {
+    const v = String(value || '').trim().toLowerCase();
+    return (TRANSCRIBE_ENGINES.includes(v) || v === 'ask') ? v : 'local';
+}
 export const LMSTUDIO_URL_STORAGE = 'xray:lmstudio:url';
 export const LMSTUDIO_MODEL_STORAGE = 'xray:lmstudio:model';
 export const LMSTUDIO_DEFAULT_URL = 'http://localhost:1234/v1';
@@ -130,24 +148,60 @@ async function companionFetch(path, { port, init = {}, timeoutMs = 0, fetchFn = 
     return { ok: true, body };
 }
 
+/** The stored cloud key for a provider, or '' (local needs none). */
+async function storedProviderKey(provider) {
+    const keyStorage = provider === 'assemblyai' ? ASSEMBLYAI_KEY_STORAGE
+        : provider === 'deepgram' ? DEEPGRAM_KEY_STORAGE : null;
+    if (!keyStorage) return '';
+    const res = await storageGet([keyStorage]);
+    return String(res[keyStorage] || '').trim();
+}
+
 /**
  * POST /transcribe. The companion dedupes an active job for the same
  * video, so re-sending after an SW restart is safe.
+ *
+ * `provider` overrides the stored engine preference (the reader's
+ * runtime picker). The resolved engine is ALWAYS sent explicitly —
+ * request beats the companion's env default — and a cloud engine
+ * carries its saved API key in the same request (memory-only on the
+ * companion side). A cloud engine with no saved key fails here, before
+ * any network call, with the fix named. An 'ask' preference is the
+ * reader's job to resolve; unresolved it degrades to 'local'.
  */
-export async function startTranscription(videoUrl, { port, fetchFn = fetch } = {}) {
+export async function startTranscription(videoUrl, { port, fetchFn = fetch, provider } = {}) {
+    let engine = normalizeEngine(provider);
+    if (!provider) {
+        const res = await storageGet([TRANSCRIBER_ENGINE_STORAGE]);
+        engine = normalizeEngine(res[TRANSCRIBER_ENGINE_STORAGE]);
+    }
+    if (engine === 'ask') engine = 'local';
+    const body = { url: String(videoUrl || ''), provider: engine };
+    if (engine !== 'local') {
+        const apiKey = await storedProviderKey(engine);
+        if (!apiKey) {
+            const label = engine === 'assemblyai' ? 'AssemblyAI' : 'Deepgram';
+            return {
+                ok: false,
+                missingKey: engine,
+                error: `No ${label} API key saved. Add one in Settings → Advanced → Transcription, or pick a different engine.`
+            };
+        }
+        body.api_key = apiKey;
+    }
     const res = await companionFetch('/transcribe', {
         port,
         fetchFn,
         init: {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ url: String(videoUrl || '') })
+            body: JSON.stringify(body)
         }
     });
     if (!res.ok) return res;
     const jobId = res.body && res.body.job_id;
     if (!jobId) return { ok: false, error: 'Transcriber returned no job id.' };
-    return { ok: true, jobId };
+    return { ok: true, jobId, provider: engine };
 }
 
 /** GET /jobs/<id> — the poll unit. */
@@ -175,9 +229,17 @@ export async function getTranscribeConfig() {
     await loadFlags();
     const port = await getTranscriberPort();
     const lm = await getLmStudioConfig();
+    const res = await storageGet([TRANSCRIBER_ENGINE_STORAGE, ASSEMBLYAI_KEY_STORAGE, DEEPGRAM_KEY_STORAGE]);
     return {
         enabled: isEnabled('localTranscription'),
         port,
+        // Engine preference + key PRESENCE booleans (this snapshot goes
+        // to pages — key values never leave the SW).
+        engine: normalizeEngine(res[TRANSCRIBER_ENGINE_STORAGE]),
+        keys: {
+            assemblyai: String(res[ASSEMBLYAI_KEY_STORAGE] || '').trim().length > 0,
+            deepgram: String(res[DEEPGRAM_KEY_STORAGE] || '').trim().length > 0
+        },
         drafts: { enabled: isEnabled('transcriptClaimDrafts'), url: lm.url, model: lm.model }
     };
 }

@@ -102,13 +102,24 @@ All endpoints are JSON over `http://127.0.0.1:8756`.
 
 ### `POST /transcribe`
 
-Body: `{"url": "https://www.youtube.com/watch?v=..."}`
+Body: `{"url": "https://www.youtube.com/watch?v=...",
+"provider": "local" | "assemblyai" | "deepgram" (optional),
+"api_key": "..." (optional)}`
 
+- `provider` picks the engine **for this job** (the extension's engine
+  picker / settings). Absent → the `TRANSCRIBER_PROVIDER` env default.
+- `api_key` supplies the cloud credential with the request. It is held
+  in memory, handed to the worker child via its process environment,
+  and **never written to disk, logged, or echoed**. It overrides an
+  env-configured key for the same provider. A cloud job with no key
+  from either source is refused with `400` naming the fix.
 - `202` → `{"job_id": "<uuid4>"}`. If an **active** (queued or running)
   job already exists for the same video id, that job's id is returned
-  instead of enqueueing a duplicate.
-- `400` — invalid or unsupported URL (https YouTube URLs only:
-  `youtube.com`, `www.`/`m.`/`music.youtube.com`, `youtu.be`)
+  instead of enqueueing a duplicate — whatever engine it started with
+  wins.
+- `400` — invalid/unsupported URL (https YouTube URLs only:
+  `youtube.com`, `www.`/`m.`/`music.youtube.com`, `youtu.be`), unknown
+  provider, or a cloud provider with no API key available
 - `429` — queue full (10 jobs)
 
 ### `GET /jobs/{job_id}`
@@ -149,9 +160,11 @@ terminal status for a job that already finished.
 ### `GET /health`
 
 `{"status": "ok", "device": "cuda"|"cpu"|"unknown", "queue_depth": n,
-"version": "...", "ffmpeg": true|false, "hf_token": true|false}` —
-`queue_depth` counts queued + running jobs. `/health` never requires the
-auth token.
+"version": "...", "ffmpeg": true|false, "hf_token": true|false,
+"provider": "...", "providers": {...}, "request_provider": true}` —
+`queue_depth` counts queued + running jobs; `request_provider: true`
+marks a build that honors per-request `provider`/`api_key` on
+`POST /transcribe`. `/health` never requires the auth token.
 
 ### Result object
 
@@ -267,29 +280,36 @@ away for speed and zero GPU load:
   assemblyai-universal-3-5-pro` (or `deepgram-nova-3`) instead of the
   `whisperx-…` form — provenance stays honest.
 
-Setup (AssemblyAI shown; Deepgram is identical with its names):
+**Setup — the easy way (in the extension, 2026-08-02+):** open X-Ray's
+Settings → Advanced → Transcription, pick the engine (or "Ask each
+time", which turns the reader's 🎙 button into a per-video picker with
+time/cost estimates), and paste the provider's API key. Keys are stored
+by the browser on that device, sent to this loopback service with each
+job, kept in memory, and passed to the worker child via its
+environment — never written to disk and never logged. No service
+restart needed; local and cloud jobs run side by side (local strictly
+one at a time, cloud up to `TRANSCRIBER_CLOUD_CONCURRENCY`).
+
+**Setup — the env-var way (server-side defaults):**
 
 ```
 setx ASSEMBLYAI_API_KEY your_key_here
 setx TRANSCRIBER_PROVIDER assemblyai
 ```
 
-Open a **NEW terminal** and start the service; the startup log names
-the active provider, and `/health` shows `"provider": "assemblyai"`
-with per-provider key readiness. A cloud provider selected without its
-key refuses to start with instructions. Switching back is
-`setx TRANSCRIBER_PROVIDER local` (again: new terminal).
+Open a **NEW terminal** and start the service. The env default applies
+to requests that don't name an engine; a request-supplied key overrides
+the env key for that job. A cloud env default without its env key now
+starts with a warning (extension-supplied keys still work); an unknown
+`TRANSCRIBER_PROVIDER` still refuses to start.
 
 Notes:
 
 - **Update the extension build first** (rebuild `dist/`, reload it in
-  the browser, reopen reader tabs) before switching to a cloud
-  provider: an older extension build doesn't know the `provider`
-  field and would label a cloud transcript as local — in the
-  published heading and `extraction-method` tag, durably.
-- API keys live in **environment variables only** — the extension
-  never sees or stores them, and they are never written to disk by the
-  service (job spec files carry no credentials).
+  the browser, reopen reader tabs) before using cloud engines: an
+  older extension build doesn't know the `provider` field and would
+  label a cloud transcript as local — in the published heading and
+  `extraction-method` tag, durably.
 - Cancelling a cloud job stops the local side; a request already
   submitted to the provider finishes (and bills) on their side.
 - `TRANSCRIBER_MAX_DURATION_S` applies to cloud jobs too and doubles

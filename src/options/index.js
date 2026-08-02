@@ -8,7 +8,11 @@ import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
 import { loadFlags, isEnabled, setOverride, resetOverrides } from '../shared/metadata/feature-flags.js';
-import { TRANSCRIBER_PORT_STORAGE, TRANSCRIBER_TOKEN_STORAGE, LMSTUDIO_URL_STORAGE, LMSTUDIO_MODEL_STORAGE, sanitizePort, loopbackUrl } from '../shared/transcriber-client.js';
+import {
+    TRANSCRIBER_PORT_STORAGE, TRANSCRIBER_TOKEN_STORAGE, TRANSCRIBER_ENGINE_STORAGE,
+    ASSEMBLYAI_KEY_STORAGE, DEEPGRAM_KEY_STORAGE, normalizeEngine,
+    LMSTUDIO_URL_STORAGE, LMSTUDIO_MODEL_STORAGE, sanitizePort, loopbackUrl
+} from '../shared/transcriber-client.js';
 import { formatBuildInfo } from '../shared/build-info.js';
 import {
     LLM_MODELS, DEFAULT_LLM_MODEL, resolveModel, LLM_KEY_STORAGE, LLM_MODEL_STORAGE,
@@ -79,7 +83,10 @@ function storageClearExtension() {
         'local_primary_identity', 'xr_signing_state',
         // Phase 14.5: the LLM-assist secret key + model preference. The
         // key is a secret, so "erase all" must clear it too.
-        LLM_KEY_STORAGE, LLM_MODEL_STORAGE
+        LLM_KEY_STORAGE, LLM_MODEL_STORAGE,
+        // Cloud transcription keys are secrets under the same rule; the
+        // engine preference goes with them.
+        ASSEMBLYAI_KEY_STORAGE, DEEPGRAM_KEY_STORAGE, TRANSCRIBER_ENGINE_STORAGE
     ];
     return new Promise((resolve) => {
         browserApi.storage.local.remove(keys, () => resolve());
@@ -1141,6 +1148,14 @@ async function loadAdvanced() {
     });
     document.getElementById('pref-transcriber-port').value = rawPort != null ? String(rawPort) : '';
     document.getElementById('pref-transcriber-token').value = await llmRawGet(TRANSCRIBER_TOKEN_STORAGE);
+    // Engine preference + cloud key presence (never the key VALUES —
+    // the LLM-key rule: the DOM only ever learns whether one is set).
+    document.getElementById('pref-transcribe-engine').value =
+        normalizeEngine(await llmRawGet(TRANSCRIBER_ENGINE_STORAGE));
+    setKeyStatus('aai-key-status', (await llmRawGet(ASSEMBLYAI_KEY_STORAGE)).length > 0);
+    setKeyStatus('dg-key-status', (await llmRawGet(DEEPGRAM_KEY_STORAGE)).length > 0);
+    document.getElementById('pref-aai-key').value = '';
+    document.getElementById('pref-dg-key').value = '';
     setupTranscriberCheck();
     document.getElementById('pref-lmstudio-url').value = await llmRawGet(LMSTUDIO_URL_STORAGE);
     document.getElementById('pref-lmstudio-model').value = await llmRawGet(LMSTUDIO_MODEL_STORAGE);
@@ -1286,6 +1301,23 @@ async function saveAdvanced() {
     const tokenField = (document.getElementById('pref-transcriber-token').value || '').trim();
     if (tokenField) await llmRawSet(TRANSCRIBER_TOKEN_STORAGE, tokenField);
     else await llmRawRemove(TRANSCRIBER_TOKEN_STORAGE);
+
+    // Engine preference always; cloud keys only when the user typed one
+    // (blank leaves the saved key untouched — the LLM-key pattern).
+    await llmRawSet(TRANSCRIBER_ENGINE_STORAGE,
+        normalizeEngine(document.getElementById('pref-transcribe-engine').value));
+    for (const [fieldId, statusId, storageKey] of [
+        ['pref-aai-key', 'aai-key-status', ASSEMBLYAI_KEY_STORAGE],
+        ['pref-dg-key', 'dg-key-status', DEEPGRAM_KEY_STORAGE]
+    ]) {
+        const field = document.getElementById(fieldId);
+        const typed = (field.value || '').trim();
+        if (typed) {
+            await llmRawSet(storageKey, typed);
+            field.value = '';
+            setKeyStatus(statusId, true);
+        }
+    }
     const lmUrlField = (document.getElementById('pref-lmstudio-url').value || '').trim();
     if (lmUrlField === '') {
         await llmRawRemove(LMSTUDIO_URL_STORAGE);
@@ -1435,6 +1467,20 @@ async function clearLlmKey() {
     flash(document.getElementById('llm-status'), 'Key cleared.');
 }
 
+function setKeyStatus(statusId, saved) {
+    const el = document.getElementById(statusId);
+    if (el) el.textContent = saved ? 'A key is saved on this device.' : 'No key saved yet.';
+}
+
+function clearTranscriberKey(storageKey, fieldId, statusId) {
+    return async () => {
+        await llmRawRemove(storageKey);
+        document.getElementById(fieldId).value = '';
+        setKeyStatus(statusId, false);
+        flash(document.getElementById('advanced-status'), 'Key cleared.');
+    };
+}
+
 async function clearAll() {
     // The confirm must promise exactly what storageClearExtension
     // delivers. The old text claimed "entities, the keypair registry"
@@ -1553,6 +1599,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.getElementById('advanced-save').addEventListener('click', saveAdvanced);
     document.getElementById('llm-key-clear').addEventListener('click', clearLlmKey);
+    document.getElementById('aai-key-clear').addEventListener('click',
+        clearTranscriberKey(ASSEMBLYAI_KEY_STORAGE, 'pref-aai-key', 'aai-key-status'));
+    document.getElementById('dg-key-clear').addEventListener('click',
+        clearTranscriberKey(DEEPGRAM_KEY_STORAGE, 'pref-dg-key', 'dg-key-status'));
     document.getElementById('clear-all').addEventListener('click', clearAll);
 });
 // Re-export for tests / debugging.

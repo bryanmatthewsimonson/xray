@@ -85,6 +85,37 @@ test('providerPhrase: banner/toast wording', () => {
     assert.equal(providerPhrase(undefined), 'locally');
 });
 
+test('runTranscriptionJob: the picked engine rides the start message and the job record', async () => {
+    const { io, sent, store } = makeIo({
+        startResp: { ok: true, jobId: 'j-cloud', provider: 'assemblyai' },
+        statusScript: [{ ok: true, job: { status: 'done', result: { segments: [1] } } }]
+    });
+    const out = await runTranscriptionJob({ videoUrl: 'https://v', videoId: 'vid9', provider: 'assemblyai', io });
+    assert.equal(out.ok, true);
+    const start = sent.find((m) => m.type === 'xray:transcribe:start');
+    assert.equal(start.provider, 'assemblyai');
+    assert.equal(store[jobRecordKey('vid9')].provider, 'assemblyai');
+});
+
+test('runTranscriptionJob: no provider given → none sent (SW resolves the stored preference)', async () => {
+    const { io, sent } = makeIo({
+        statusScript: [{ ok: true, job: { status: 'done', result: { segments: [1] } } }]
+    });
+    await runTranscriptionJob({ videoUrl: 'https://v', videoId: 'vid10', io });
+    const start = sent.find((m) => m.type === 'xray:transcribe:start');
+    assert.ok(!('provider' in start), 'absent means the stored preference decides');
+});
+
+test('runTranscriptionJob: a missing cloud key surfaces missingKey for the picker', async () => {
+    const { io } = makeIo({
+        startResp: { ok: false, missingKey: 'deepgram', error: 'No Deepgram API key saved.' }
+    });
+    const out = await runTranscriptionJob({ videoUrl: 'https://v', videoId: 'vid11', provider: 'deepgram', io });
+    assert.equal(out.ok, false);
+    assert.equal(out.missingKey, 'deepgram');
+    assert.match(out.error, /Deepgram/);
+});
+
 test('decideResume: the whole policy table', () => {
     const rec = { jobId: 'j-1', startedAt: NOW - 1000 };
     assert.deepEqual(decideResume(null, null, NOW), { action: 'start' });

@@ -281,17 +281,36 @@ class ProviderRegistry(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             providers.get_runner("nope")
 
-    def test_validate_active_missing_key(self):
+    def test_validate_active_unknown_provider_only(self):
         from transcriber import config, providers
 
-        with mock.patch.object(config, "PROVIDER", "assemblyai"), \
-                mock.patch.object(config, "ASSEMBLYAI_API_KEY", ""):
-            self.assertIn("ASSEMBLYAI_API_KEY", providers.validate_active())
         with mock.patch.object(config, "PROVIDER", "unknown-thing"):
             self.assertIn("not a known provider", providers.validate_active())
+        # Missing env key is NOT fatal any more (per-request keys) —
+        # it downgrades to the startup warning.
+        with mock.patch.object(config, "PROVIDER", "assemblyai"), \
+                mock.patch.object(config, "ASSEMBLYAI_API_KEY", ""):
+            self.assertIsNone(providers.validate_active())
+            self.assertIn("ASSEMBLYAI_API_KEY", providers.env_key_warning())
         with mock.patch.object(config, "PROVIDER", "deepgram"), \
                 mock.patch.object(config, "DEEPGRAM_API_KEY", "k"):
             self.assertIsNone(providers.validate_active())
+            self.assertIsNone(providers.env_key_warning())
+
+    def test_validate_job_matrix(self):
+        from transcriber import config, providers
+
+        self.assertIn("unknown provider", providers.validate_job("nope", False))
+        self.assertIsNone(providers.validate_job("local", False))
+        with mock.patch.object(config, "ASSEMBLYAI_API_KEY", ""):
+            # Cloud + no key anywhere -> a 400-shaped message naming the fix.
+            err = providers.validate_job("assemblyai", has_request_key=False)
+            self.assertIn("AssemblyAI", err)
+            # A request key alone satisfies it.
+            self.assertIsNone(providers.validate_job("assemblyai", has_request_key=True))
+        with mock.patch.object(config, "DEEPGRAM_API_KEY", "envkey"):
+            # An env key alone satisfies it too.
+            self.assertIsNone(providers.validate_job("deepgram", has_request_key=False))
 
 
 if __name__ == "__main__":

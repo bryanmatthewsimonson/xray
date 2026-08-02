@@ -42,30 +42,51 @@ def key_ready(name: str) -> bool:
 
 
 def validate_active() -> "str | None":
-    """Startup check for config.PROVIDER; an error message, or None.
+    """Startup check: is config.PROVIDER a known name?  FATAL when not.
 
-    Missing cloud keys fail HERE, at server start, not minutes into a
-    job (the HF_TOKEN fail-fast precedent).  Local's HF_TOKEN check
-    stays at job time — the server has always been allowed to start
-    without it so /health can report the gap.
-    """
+    A missing env API key is deliberately NOT fatal any more
+    (2026-08-02): the extension can supply the provider and key
+    per-request, so the env default being un-keyed only matters for
+    requests that rely on it — env_key_warning() covers the log."""
     name = config.PROVIDER
     if name not in PROVIDERS:
         return (
             f"TRANSCRIBER_PROVIDER={name!r} is not a known provider; "
             f"expected one of: {', '.join(PROVIDERS)}"
         )
-    if name == "assemblyai" and not config.ASSEMBLYAI_API_KEY:
+    return None
+
+
+def env_key_warning() -> "str | None":
+    """A startup WARNING when the env default engine lacks its env key."""
+    name = config.PROVIDER
+    if name in CLOUD_PROVIDERS and not key_ready(name):
+        env_var = "ASSEMBLYAI_API_KEY" if name == "assemblyai" else "DEEPGRAM_API_KEY"
         return (
-            "TRANSCRIBER_PROVIDER=assemblyai but ASSEMBLYAI_API_KEY is not set. "
-            "Get a key at https://www.assemblyai.com/, `setx ASSEMBLYAI_API_KEY ...`, "
-            "and restart from a NEW terminal."
+            f"TRANSCRIBER_PROVIDER={name} but {env_var} is not set — jobs will "
+            "only run when the extension sends a key with the request "
+            "(Settings → Advanced → Transcription)."
         )
-    if name == "deepgram" and not config.DEEPGRAM_API_KEY:
+    return None
+
+
+def validate_job(provider: str, has_request_key: bool) -> "str | None":
+    """Per-request check at POST /transcribe; an error message, or None.
+
+    A cloud job needs a key from SOMEWHERE — the request (extension
+    storage) or this process's environment.  Checked before enqueue so
+    the failure is an immediate 400 naming the fix, not a dead job."""
+    if provider not in PROVIDERS:
         return (
-            "TRANSCRIBER_PROVIDER=deepgram but DEEPGRAM_API_KEY is not set. "
-            "Get a key at https://deepgram.com/, `setx DEEPGRAM_API_KEY ...`, "
-            "and restart from a NEW terminal."
+            f"unknown provider {provider!r}; expected one of: {', '.join(PROVIDERS)}"
+        )
+    if provider in CLOUD_PROVIDERS and not has_request_key and not key_ready(provider):
+        label = "AssemblyAI" if provider == "assemblyai" else "Deepgram"
+        return (
+            f"no {label} API key: save one in the extension "
+            f"(Settings → Advanced → Transcription) or set the service's "
+            f"{'ASSEMBLYAI_API_KEY' if provider == 'assemblyai' else 'DEEPGRAM_API_KEY'} "
+            "environment variable"
         )
     return None
 
