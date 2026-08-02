@@ -24,6 +24,33 @@ import { articleHash, normalizeForHash } from './article-hash.js';
 import {
     MODULE_NAMES, CURRENT_MODULE_VERSIONS, SCOREABLE_MODULES
 } from './findings-schemas.js';
+import { suggestSourceType } from '../truth-taxonomy.js';
+
+// The standing caveat stamped when the audited artifact is opinion/
+// analysis rather than reporting (founding-transcript integration R5
+// interim; JOURNAL 2026-08-02): the eight surface modules were designed
+// for news, and PHILOSOPHY §3.2's opinion dimensions are codified but
+// not yet implemented. Until they are, an opinion audit is honest only
+// with this on its face. Lives HERE (not audit-prompt.js) so the reader
+// imports it without the module-prompts bundle — the lean-reader
+// invariant. No methodology version bump: findings schemas unchanged
+// (the single-shot caveat precedent).
+export const STANDING_OPINION_CAVEAT =
+    'Opinion/analysis artifact: the eight surface modules were designed for news '
+    + 'reporting, and the opinion dimensions (premise accuracy, steel-manning, '
+    + 'disclosure, originality — PHILOSOPHY §3.2) are not yet implemented. '
+    + 'Findings describe craft under the news methodology only.';
+
+/**
+ * The opinion caveat for an article, or null. The user's declared
+ * source_type wins (media modal); otherwise the capture-time
+ * suggestion. 'analysis' is the opinion-shaped bucket — schema.org
+ * OpinionPiece and AnalysisNewsArticle both map there.
+ */
+export function opinionStandingCaveat(article) {
+    const kind = (article && article.source_type) || suggestSourceType(article || null);
+    return kind === 'analysis' ? STANDING_OPINION_CAVEAT : null;
+}
 
 // The documented dimension weights — the CLI scorer's MODULE_WEIGHTS,
 // verbatim. Public constants, not a model's choice (PHILOSOPHY §4).
@@ -208,13 +235,15 @@ function buildAggregate({ hash, byModule, model, runAt }) {
  *                                   text the reader hashes — the hash
  *                                   gate matches it against the capture)
  * @param {object} [params.metadata] headline / byline / url / etc.
- * @param {string|null} [params.standingCaveat] a caveat prepended to every
- *   module (the single-shot path passes its lower-rigor disclosure; the
- *   per-module path passes null — there is nothing to apologize for).
+ * @param {string|string[]|null} [params.standingCaveat] caveat(s)
+ *   prepended to every module, in the given order (the single-shot path
+ *   passes its lower-rigor disclosure, optionally joined by the opinion
+ *   caveat; the per-module path passes the opinion caveat or null).
  * @returns {Promise<{article, module_results, predictions, aggregate}>}
  */
 export async function assembleAudit({ toolInput, model, markdown, metadata = {}, standingCaveat = null }) {
     const modulesIn = (toolInput && typeof toolInput.modules === 'object' && toolInput.modules) || {};
+    const standingList = standingCaveat ? [].concat(standingCaveat).filter(Boolean) : [];
     const normalized = normalizeForHash(markdown);
     const hash = await articleHash(markdown);
     const runAt = new Date().toISOString();
@@ -228,9 +257,7 @@ export async function assembleAudit({ toolInput, model, markdown, metadata = {},
         // Absent module → a FAILED result so the run still imports and
         // the gap is visible (the scorer's per-module failure posture).
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-            const absentCaveats = standingCaveat
-                ? [standingCaveat, 'module absent from model output']
-                : ['module absent from model output'];
+            const absentCaveats = [...standingList, 'module absent from model output'];
             moduleResults.push({
                 article_hash: hash, module: name, module_version: version,
                 auditor: auditorModel, run_at: runAt, score: null, confidence: null,
@@ -252,7 +279,9 @@ export async function assembleAudit({ toolInput, model, markdown, metadata = {},
         }
 
         const caveats = Array.isArray(raw.auditor_caveats) ? raw.auditor_caveats.slice() : [];
-        if (standingCaveat && !caveats.includes(standingCaveat)) caveats.unshift(standingCaveat);
+        for (const s of [...standingList].reverse()) {
+            if (!caveats.includes(s)) caveats.unshift(s);
+        }
         findings.auditor_caveats = caveats;
 
         // Normalize score/confidence IN the findings object so the wrapper,

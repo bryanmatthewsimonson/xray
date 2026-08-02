@@ -34,7 +34,8 @@ import { MODULE_PROMPTS } from './module-prompts.js';
 // tests are unchanged.
 export {
     MODULE_WEIGHTS, collectEvidenceQuotes, assembleAudit,
-    MAX_AUDIT_INPUT_CHARS, auditableSlice
+    MAX_AUDIT_INPUT_CHARS, auditableSlice,
+    STANDING_OPINION_CAVEAT, opinionStandingCaveat
 } from './assemble.js';
 
 export const AUDIT_TOOL_NAME = 'emit_audit';

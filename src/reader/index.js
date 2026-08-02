@@ -69,7 +69,10 @@ import { assembleAuditBatch } from '../shared/audit/publish-batch.js';
 import { CURRENT_MODULE_VERSIONS, MODULE_NAMES } from '../shared/audit/findings-schemas.js';
 // The lean assembly half only — never audit-prompt.js, whose generated
 // module-prompts dependency must stay out of the reader bundle.
-import { assembleAudit, auditableSlice, MAX_AUDIT_INPUT_CHARS } from '../shared/audit/assemble.js';
+import {
+    assembleAudit, auditableSlice, MAX_AUDIT_INPUT_CHARS, opinionStandingCaveat
+} from '../shared/audit/assemble.js';
+import { suggestSourceType } from '../shared/truth-taxonomy.js';
 import { orchestrateModuleRuns } from '../shared/audit/run-orchestrator.js';
 import * as EventJournal from '../shared/event-journal.js';
 import { gatePublish, relayPublishTransport } from '../shared/publish-gate.js';
@@ -3752,6 +3755,9 @@ function auditRequestMeta() {
     return {
         articleUrl: state.article.url || '',
         articleTitle: state.article.title || '',
+        // Declared source_type wins; else the capture-time suggestion.
+        // 'analysis' triggers the standing opinion caveat (R5 interim).
+        sourceType: state.article.source_type || suggestSourceType(state.article) || '',
         metadata: {
             url: state.article.url || null,
             headline: state.article.title || null,
@@ -3881,7 +3887,9 @@ async function runThoroughAudit({ markdown, localHash, active }) {
             model: model || draftModel || 'unknown',
             markdown,
             metadata: meta.metadata,
-            standingCaveat: null
+            // Thorough has no rigor apology; the opinion caveat still
+            // applies when the artifact is opinion/analysis (R5 interim).
+            standingCaveat: opinionStandingCaveat(state.article)
         });
     } catch (err) {
         console.error('[xray] thorough assembly failed', err);
