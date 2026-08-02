@@ -28,6 +28,30 @@ export function renderDossierBlock(host, dossier, populationMean) {
             + 'a number the display rules refuse to show must not move a reputation either)'));
     }
 
+    // R6/R7 — optional views beside the canonical rollup, never
+    // replacing it (the maintainer's ruling: reach-weighting is an
+    // interesting view; the shrink target stays the published
+    // assumption).
+    const views = dossier.views || {};
+    if (views.reach) {
+        const r = views.reach;
+        const lv = (r.leastVisible || []).map((x) =>
+            `${x.label ? `“${String(x.label).slice(0, 40)}”` : 'untitled'} (score ${x.score}, reach ${x.reach})`).join(' · ');
+        block.appendChild(el('div', 'xr-view__dossier-line xr-view__dossier-line--dim',
+            `reach view (optional — never the canonical rollup): weighted mean ${r.weightedMean} `
+            + `over ${r.covered}/${r.total} judgment(s) with reach data (log₁₀ weights; social/YouTube `
+            + `captures only${r.noReachData ? `; ${r.noReachData} without reach data` : ''})`
+            + (lv ? ` · least visible: ${lv}` : '')));
+    }
+    if (views.localPopulation) {
+        const cohorts = (views.domainCohorts || [])
+            .map((d) => ` · ${d.domain}: ${d.mean} over ${d.n}`).join('');
+        block.appendChild(el('div', 'xr-view__dossier-line xr-view__dossier-line--dim',
+            `cohorts (display only — the shrink target stays the published assumption ${populationMean}): `
+            + `local audited population ${views.localPopulation.mean} over ${views.localPopulation.n} `
+            + `judgment(s) — your corpus, not the world${cohorts}`));
+    }
+
     const moduleEntries = Object.entries(dossier.perModuleMeans || {});
     if (moduleEntries.length) {
         const chips = el('div', 'xr-view__dossier-modules');

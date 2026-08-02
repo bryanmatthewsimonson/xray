@@ -19,6 +19,74 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-02 — Engine choice moved into the extension; keys became per-request
+
+**Tags:** design
+
+Same-day reversal of PR #285's "keys env-only" posture, by maintainer
+decision after first field use: setx + new terminal + service restart
+per engine switch is not a workable loop, and the extension already
+stores an equivalent secret (the Anthropic LLM key) with a proper
+settings field. The shape that replaced it:
+
+1. **Settings own the engine + keys.** Options → Advanced →
+   Transcription: engine preference (local / assemblyai / deepgram /
+   ask-each-time) + per-provider API key fields following the LLM-key
+   pattern exactly (paste-to-save, value never re-rendered, "erase
+   all" clears them). The reader's 🎙 button became a split control:
+   main click = preferred engine, ▾ = per-video picker with real
+   time/cost estimates from `durationSeconds` (a 10-minute clip is
+   fine on the GPU; a 2-hour episode wants cloud).
+2. **Keys ride each POST /transcribe** (`provider` + `api_key`),
+   loopback-only, and reach the worker child via its process
+   ENVIRONMENT — the one channel that touches neither disk nor logs
+   (spec.json stays credential-free; the Job field is repr-excluded
+   and absent from snapshots — pin-tested). Request key overrides env
+   key; env vars remain as server-side defaults, so the pre-reversal
+   setup keeps working unchanged.
+3. **Per-request engines forced per-job queue routing:** one server
+   now runs BOTH pools — local queue (1 daemon consumer, the VRAM
+   serialization) and cloud queue (TRANSCRIBER_CLOUD_CONCURRENCY
+   consumers) — routed by each job's own provider instead of a
+   server-wide mode. `/health` gained `request_provider: true` so the
+   extension can tell a build that honors the fields from one that
+   silently ignores them; a cloud env default without its env key
+   downgraded from startup-fatal to a warning.
+
+An adversarial review round (17 verified findings) then tightened the
+shape: an UNSET extension preference now sends NO provider at all
+(the env default stays reachable — the back-compat contract the first
+cut accidentally broke), and the Options select shows that "Companion
+default" tier explicitly; an explicitly chosen engine is
+capability-gated against `request_provider` so an old companion can
+never silently run a cloud default when the user picked Local (the
+privacy inversion); the reader re-reads the engine/key snapshot at
+every decision point (a stale snapshot made "add a key in Settings" a
+dead loop); queue_position and the 429 cap count only the job's own
+pool; and "erase all" now clears TRANSCRIBER_TOKEN, the one stored
+secret it had always missed.
+
+## 2026-08-02 — AssemblyAI hard-deprecated `speech_model` (found on first live smoke)
+
+**Tags:** external
+
+The very first live cloud job (PR #285, same day) died with HTTP 400
+from `POST /v2/transcript`: the singular `speech_model` parameter is
+rejected outright — their API now wants `speech_models`, a
+preference-ordered LIST, with new model names (`universal-3-5-pro`,
+`universal-2`; plain `universal` no longer documented). Fixed by
+sending the plural form (`TRANSCRIBER_ASSEMBLYAI_MODEL` is now a
+comma-separated preference list, default
+`universal-3-5-pro,universal-2`) and — the useful part — reading
+`model_info.asr_model` from the response's `speech_model_used` rather
+than echoing the request, so the published `extraction-method` names
+the model that actually ran even when their API falls back down the
+preference list. Payload shape is pin-tested
+(`test_create_payload_uses_plural_speech_models`). Lesson repeated:
+provider request shapes rot; the error body named the fix exactly, so
+surface provider error bodies verbatim (the reader banner did, and
+that made this a 5-minute diagnosis).
+
 ## 2026-08-02 — torch 2.13 bump broke Windows: per-index platform coverage, and a lock-time guard
 
 **Tags:** bug, design

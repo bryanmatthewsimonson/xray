@@ -34,7 +34,8 @@ import { MODULE_PROMPTS } from './module-prompts.js';
 // tests are unchanged.
 export {
     MODULE_WEIGHTS, collectEvidenceQuotes, assembleAudit,
-    MAX_AUDIT_INPUT_CHARS, auditableSlice
+    MAX_AUDIT_INPUT_CHARS, auditableSlice,
+    STANDING_OPINION_CAVEAT, opinionStandingCaveat
 } from './assemble.js';
 
 export const AUDIT_TOOL_NAME = 'emit_audit';
@@ -196,6 +197,32 @@ export function buildSingleModuleTool(name) {
             + 'Quote VERBATIM from the article in every evidence field.',
         input_schema: moduleToolSchema(name)
     };
+}
+
+/**
+ * The CORPUS-HELD CITED SOURCES section appended to module 04's user
+ * turn when the reference resolver matched cited documents to corpus
+ * members (R2, methodology 1.1). Pure over pre-built entries; the
+ * excerpts arrive already capped (corpus-sources.js). Returns '' when
+ * there is nothing to attach — the prompt's step 7 says an absent
+ * section means "emit an empty corpus_source_checks array".
+ */
+export function buildCorpusSourcesSection(entries) {
+    const list = (entries || []).filter((e) => e && e.excerpt);
+    if (list.length === 0) return '';
+    const blocks = list.map((e, i) => {
+        const head = `[SOURCE ${i + 1} — cited as "${e.cited_as}"; matched by ${e.match}; `
+            + `${e.member_title ? `"${e.member_title}" ` : ''}<${e.member_url}>`
+            + `${e.truncated ? '; excerpt TRUNCATED' : ''}]`;
+        return `${head}\n---\n${e.excerpt}\n---`;
+    });
+    return '\n\nCORPUS-HELD CITED SOURCES — the case corpus already holds these documents '
+        + 'the article cites (identity matched mechanically by url/alias/DOI, never by '
+        + 'similarity). Apply methodology step 7: judge whether the article characterizes '
+        + 'each accurately, quoting the article in evidence_quote and the source in '
+        + 'source_quote. Judge only against these excerpts; when an excerpt does not '
+        + 'cover the claim, say cannot_determine.\n\n'
+        + blocks.join('\n\n');
 }
 
 /**

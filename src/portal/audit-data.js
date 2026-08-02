@@ -13,7 +13,7 @@
 // test fixtures sometimes nest them. `extraOf` accepts both — the
 // production shape is the flat one.
 
-import { normalizeEventBeats, computeDossier, DEFAULT_SHRINKAGE_K } from '../shared/audit/dossier.js';
+import { normalizeEventBeats, computeDossier, computeReachView, DEFAULT_SHRINKAGE_K } from '../shared/audit/dossier.js';
 
 // The §4 population mean, a PUBLISHED assumption (the design's worked
 // examples use it; competent journalism's expected mean is 70–85).
@@ -205,6 +205,8 @@ export function dossierInputsForEntity(items, index, focusPubkey, priorHashesByU
     if (!articles.length) return null;
 
     const aggregates = [];
+    const reachRows = [];
+    const domains = new Set();
     const hashes = new Set();
     const auditedArticles = new Set();
     const unmappedBeats = new Set();
@@ -236,6 +238,15 @@ export function dossierInputsForEntity(items, index, focusPubkey, priorHashesByU
                 continue;
             }
             aggregates.push(a);
+            // R6 — the reach view's row: same judgment, plus the
+            // capture's reach signal (null on ordinary web articles)
+            // and a label for the least-visible list.
+            reachRows.push({
+                finalScore: a.finalScore,
+                reach: reachFromEventTags(art.event.tags),
+                label: art.title || art.domain || art.url || ''
+            });
+            if (art.domain) domains.add(art.domain);
             auditedArticles.add(a.articleHash || art.url || art.id);
         }
         const { unmapped } = normalizeEventBeats((art.event.tags || [])
@@ -266,8 +277,65 @@ export function dossierInputsForEntity(items, index, focusPubkey, priorHashesByU
         })),
         resolvedPredictions,
         totalPredictions,
-        unmappedBeats: [...unmappedBeats]
+        unmappedBeats: [...unmappedBeats],
+        reachRows,
+        domains: [...domains]
     };
+}
+
+/**
+ * Reach signal from a 30023's own tags (R6): YouTube's view_count when
+ * present (the only per-article view number that survives the relay),
+ * else the sum of the engagement_* tags when any exist, else null —
+ * ordinary web articles carry no reach data and are never guessed at.
+ */
+export function reachFromEventTags(tags) {
+    const t = tags || [];
+    const num = (name) => {
+        const e = t.find((x) => x[0] === name);
+        const n = e ? Number(e[1]) : NaN;
+        return Number.isFinite(n) ? n : null;
+    };
+    const views = num('view_count');
+    if (views !== null) return views;
+    const parts = ['engagement_likes', 'engagement_shares', 'engagement_comments']
+        .map(num).filter((n) => n !== null);
+    return parts.length ? parts.reduce((a, b) => a + b, 0) : null;
+}
+
+/**
+ * The LOCAL audited population — every hash-joined usable judgment in
+ * the library, plus per-domain cohorts at n ≥ 3 (R7). Display-only
+ * context beside the published assumption (77): "your corpus, not the
+ * world" is the caveat, and the canonical shrink target never moves.
+ */
+export function localAuditedPopulation(items, index, priorHashesByUrl) {
+    const scores = [];
+    const byDomain = new Map();
+    for (const art of (items || []).filter((i) => i.typeKey === 'article')) {
+        const { runs, joinedBy } = auditsForArticle(index, art, priorHashesByUrl);
+        if (!runs.length || joinedBy !== 'hash') continue;
+        const seen = new Set();
+        for (const a of runs) {
+            const key = a.auditor ? a.auditor.id : 'unknown';
+            if (seen.has(key)) continue;
+            seen.add(key);
+            if (typeof a.confidence !== 'number' || a.confidence < 0.6) continue;
+            if (typeof a.finalScore !== 'number') continue;
+            scores.push(a.finalScore);
+            if (art.domain) {
+                if (!byDomain.has(art.domain)) byDomain.set(art.domain, []);
+                byDomain.get(art.domain).push(a.finalScore);
+            }
+        }
+    }
+    if (!scores.length) return null;
+    const meanOf = (list) => Math.round((list.reduce((x, y) => x + y, 0) / list.length) * 10) / 10;
+    const domains = {};
+    for (const [d, list] of byDomain) {
+        if (list.length >= 3) domains[d] = { n: list.length, mean: meanOf(list) };
+    }
+    return { n: scores.length, mean: meanOf(scores), domains };
 }
 
 /**
@@ -277,7 +345,7 @@ export function dossierInputsForEntity(items, index, focusPubkey, priorHashesByU
  * computeDossier's n, which also drives the shrinkage; documented:
  * each auditor's current judgment is a sample).
  */
-export function computeEntityDossier(inputs, { k = DEFAULT_SHRINKAGE_K, populationMean = DEFAULT_POPULATION_MEAN } = {}) {
+export function computeEntityDossier(inputs, { k = DEFAULT_SHRINKAGE_K, populationMean = DEFAULT_POPULATION_MEAN, localPopulation = null } = {}) {
     if (!inputs) return null;
     const dossier = computeDossier({
         aggregates: inputs.aggregates,
@@ -286,12 +354,27 @@ export function computeEntityDossier(inputs, { k = DEFAULT_SHRINKAGE_K, populati
         k,
         populationMean
     });
+    // R6/R7 — optional VIEWS beside the canonical rollup: the reach
+    // view (per the maintainer's ruling: interesting, never canonical)
+    // and cohort context (local audited population + the subject's
+    // domains at n ≥ 3). The shrink target above never moves.
+    const views = {};
+    const reach = computeReachView(inputs.reachRows || []);
+    if (reach) views.reach = reach;
+    if (localPopulation) {
+        views.localPopulation = { n: localPopulation.n, mean: localPopulation.mean };
+        const cohorts = (inputs.domains || [])
+            .filter((d) => localPopulation.domains && localPopulation.domains[d])
+            .map((d) => ({ domain: d, ...localPopulation.domains[d] }));
+        if (cohorts.length) views.domainCohorts = cohorts;
+    }
     return {
         ...dossier,
         judgments: dossier.articleCount,
         auditedArticles: inputs.auditedArticles,
         excludedForReview: inputs.excludedForReview,
-        unmappedBeats: inputs.unmappedBeats
+        unmappedBeats: inputs.unmappedBeats,
+        views: Object.keys(views).length ? views : null
     };
 }
 

@@ -17,6 +17,7 @@
 import { EventBuilder } from '../event-builder.js';
 import { auditableSlice } from './assemble.js';
 import { articleHash } from './article-hash.js';
+import { suggestSourceType } from '../truth-taxonomy.js';
 
 // The reader's draft prefix, shared verbatim (pinned in tests against
 // the reader source so the two can never drift apart).
@@ -67,7 +68,10 @@ export async function planCorpusAudit({ records = [], runs = [] } = {}) {
             // The join alias for truncated captures (import.js stores it
             // only when it differs from the slice hash).
             captureHash: (rec.articleHash && rec.articleHash !== localHash) ? rec.articleHash : null,
-            metadata: memberAuditMetadata(rec)
+            metadata: memberAuditMetadata(rec),
+            // Declared source_type wins; else the capture-time suggestion.
+            // 'analysis' triggers the standing opinion caveat (R5 interim).
+            sourceType: rec.article.source_type || suggestSourceType(rec.article) || ''
         };
         const done = runHashes.has(localHash) || (rec.articleHash && runHashes.has(rec.articleHash));
         (done ? audited : pending).push(entry);

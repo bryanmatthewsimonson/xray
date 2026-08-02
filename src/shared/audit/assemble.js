@@ -24,6 +24,76 @@ import { articleHash, normalizeForHash } from './article-hash.js';
 import {
     MODULE_NAMES, CURRENT_MODULE_VERSIONS, SCOREABLE_MODULES
 } from './findings-schemas.js';
+import { suggestSourceType } from '../truth-taxonomy.js';
+
+// Quote fields the finding-level walk recognizes. first_use_quote is
+// module 06's contested-term smuggle-point — a located span the flat
+// evidence_quotes index never carried (R3; the wire index is
+// deliberately unchanged, this walk is read-side only).
+const FINDING_QUOTE_KEYS = ['evidence_quote', 'evidence_quote_a', 'evidence_quote_b', 'first_use_quote'];
+
+/**
+ * Walk a findings payload and emit one row PER QUOTE with its finding
+ * context preserved: which array it came from (`kind`) and the
+ * finding's severity when it carries one (severity_if_undefined is
+ * module 06's spelling). The flat collectEvidenceQuotes below stays
+ * untouched — it defines the 30056 wire body's evidence_quotes index;
+ * this is the enriched READ-side companion (R3, JOURNAL 2026-08-02).
+ *
+ * @returns {Array<{quote: string, kind: string|null, severity: string|null}>}
+ */
+export function collectEvidenceFindings(findings) {
+    const out = [];
+    const seen = new Set();
+    const walk = (node, kind) => {
+        if (Array.isArray(node)) {
+            for (const item of node) walk(item, kind);
+            return;
+        }
+        if (!node || typeof node !== 'object') return;
+        const severity = typeof node.severity === 'string' ? node.severity
+            : (typeof node.severity_if_undefined === 'string' ? node.severity_if_undefined : null);
+        for (const k of FINDING_QUOTE_KEYS) {
+            const q = node[k];
+            if (typeof q !== 'string' || !q) continue;
+            const key = `${q}|${kind || ''}|${severity || ''}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push({ quote: q, kind: kind || null, severity });
+        }
+        for (const [k, v] of Object.entries(node)) {
+            if (v && typeof v === 'object') walk(v, Array.isArray(v) ? k : kind);
+        }
+    };
+    walk(findings, null);
+    return out;
+}
+
+// The standing caveat stamped when the audited artifact is opinion/
+// analysis rather than reporting (founding-transcript integration R5
+// interim; JOURNAL 2026-08-02): the eight surface modules were designed
+// for news, and PHILOSOPHY §3.2's opinion dimensions are codified but
+// not yet implemented. Until they are, an opinion audit is honest only
+// with this on its face. Lives HERE (not audit-prompt.js) so the reader
+// imports it without the module-prompts bundle — the lean-reader
+// invariant. No methodology version bump: findings schemas unchanged
+// (the single-shot caveat precedent).
+export const STANDING_OPINION_CAVEAT =
+    'Opinion/analysis artifact: the eight surface modules were designed for news '
+    + 'reporting, and the opinion dimensions (premise accuracy, steel-manning, '
+    + 'disclosure, originality — PHILOSOPHY §3.2) are not yet implemented. '
+    + 'Findings describe craft under the news methodology only.';
+
+/**
+ * The opinion caveat for an article, or null. The user's declared
+ * source_type wins (media modal); otherwise the capture-time
+ * suggestion. 'analysis' is the opinion-shaped bucket — schema.org
+ * OpinionPiece and AnalysisNewsArticle both map there.
+ */
+export function opinionStandingCaveat(article) {
+    const kind = (article && article.source_type) || suggestSourceType(article || null);
+    return kind === 'analysis' ? STANDING_OPINION_CAVEAT : null;
+}
 
 // The documented dimension weights — the CLI scorer's MODULE_WEIGHTS,
 // verbatim. Public constants, not a model's choice (PHILOSOPHY §4).
@@ -35,6 +105,29 @@ export const MODULE_WEIGHTS = Object.freeze({
     internal_coherence:      0.10,
     definitional_precision:  0.10,
     omission:                0.20
+});
+
+// Dimension scoring directions — PHILOSOPHY §3.1/§4 encoded as the
+// published constant it always claimed to be (R10a, founding-transcript
+// integration; JOURNAL 2026-08-02). Sources, by section: module 1 is
+// explicitly "Penalty-only: a headline cannot be better than accurate"
+// (§3.1); module 4 is explicitly "Credit-bearing: linked primary
+// sources earn points" (§3.1); §4 names bidirectional as the third
+// class and nothing else is classified — those default to it; module 8
+// is unscored by construction. DESCRIPTIVE for now: the aggregation
+// math stays direction-agnostic (a direction-aware aggregate is a
+// full methodology wave across every module version, not something to
+// smuggle into a display slice). Publishing the classification is the
+// P12 half; the math is future work, said plainly.
+export const MODULE_DIRECTIONS = Object.freeze({
+    headline_body_fidelity: 'penalty-only',
+    asymmetric_language:     'bidirectional',
+    number_hygiene:          'bidirectional',
+    source_quality:          'credit-bearing',
+    internal_coherence:      'bidirectional',
+    definitional_precision:  'bidirectional',
+    omission:                'bidirectional',
+    prediction_extraction:   'unscored'
 });
 
 // Bound the article text an audit covers, so a pathologically long
@@ -208,13 +301,15 @@ function buildAggregate({ hash, byModule, model, runAt }) {
  *                                   text the reader hashes — the hash
  *                                   gate matches it against the capture)
  * @param {object} [params.metadata] headline / byline / url / etc.
- * @param {string|null} [params.standingCaveat] a caveat prepended to every
- *   module (the single-shot path passes its lower-rigor disclosure; the
- *   per-module path passes null — there is nothing to apologize for).
+ * @param {string|string[]|null} [params.standingCaveat] caveat(s)
+ *   prepended to every module, in the given order (the single-shot path
+ *   passes its lower-rigor disclosure, optionally joined by the opinion
+ *   caveat; the per-module path passes the opinion caveat or null).
  * @returns {Promise<{article, module_results, predictions, aggregate}>}
  */
 export async function assembleAudit({ toolInput, model, markdown, metadata = {}, standingCaveat = null }) {
     const modulesIn = (toolInput && typeof toolInput.modules === 'object' && toolInput.modules) || {};
+    const standingList = standingCaveat ? [].concat(standingCaveat).filter(Boolean) : [];
     const normalized = normalizeForHash(markdown);
     const hash = await articleHash(markdown);
     const runAt = new Date().toISOString();
@@ -228,9 +323,7 @@ export async function assembleAudit({ toolInput, model, markdown, metadata = {},
         // Absent module → a FAILED result so the run still imports and
         // the gap is visible (the scorer's per-module failure posture).
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-            const absentCaveats = standingCaveat
-                ? [standingCaveat, 'module absent from model output']
-                : ['module absent from model output'];
+            const absentCaveats = [...standingList, 'module absent from model output'];
             moduleResults.push({
                 article_hash: hash, module: name, module_version: version,
                 auditor: auditorModel, run_at: runAt, score: null, confidence: null,
@@ -252,7 +345,9 @@ export async function assembleAudit({ toolInput, model, markdown, metadata = {},
         }
 
         const caveats = Array.isArray(raw.auditor_caveats) ? raw.auditor_caveats.slice() : [];
-        if (standingCaveat && !caveats.includes(standingCaveat)) caveats.unshift(standingCaveat);
+        for (const s of [...standingList].reverse()) {
+            if (!caveats.includes(s)) caveats.unshift(s);
+        }
         findings.auditor_caveats = caveats;
 
         // Normalize score/confidence IN the findings object so the wrapper,

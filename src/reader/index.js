@@ -22,7 +22,7 @@ import { ClaimModel, exactFromAnchor } from '../shared/claim-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import { HypothesisEdgeModel } from '../shared/hypothesis-model.js';
 import * as ArchiveCache from '../shared/archive-cache.js';
-import { recordAlias, resolveAlias } from '../shared/url-aliases.js';
+import { recordAlias, resolveAlias, loadAliasMap, resolveWithMap } from '../shared/url-aliases.js';
 import { installEntityTagger, rehydrateEntityMarks, renderEntitiesBar, extractParagraphContext } from './entity-tagger.js';
 import { openClaimModal, openEvidenceLinkModal, openOthersClaimsModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
 import { openAssessModal } from '../shared/assess-modal.js';
@@ -69,11 +69,15 @@ import { assembleAuditBatch } from '../shared/audit/publish-batch.js';
 import { CURRENT_MODULE_VERSIONS, MODULE_NAMES } from '../shared/audit/findings-schemas.js';
 // The lean assembly half only — never audit-prompt.js, whose generated
 // module-prompts dependency must stay out of the reader bundle.
-import { assembleAudit, auditableSlice, MAX_AUDIT_INPUT_CHARS } from '../shared/audit/assemble.js';
+import {
+    assembleAudit, auditableSlice, MAX_AUDIT_INPUT_CHARS, opinionStandingCaveat,
+    MODULE_DIRECTIONS
+} from '../shared/audit/assemble.js';
+import { suggestSourceType } from '../shared/truth-taxonomy.js';
 import { orchestrateModuleRuns } from '../shared/audit/run-orchestrator.js';
 import * as EventJournal from '../shared/event-journal.js';
 import { gatePublish, relayPublishTransport } from '../shared/publish-gate.js';
-import { auditBand, scoreChipHtml, prettyModule } from '../shared/audit/display.js';
+import { auditBand, scoreChipHtml, prettyModule, runScoreDeltas } from '../shared/audit/display.js';
 import { JurisdictionModel } from '../shared/jurisdiction-model.js';
 import { lensTypeForPropositionClass } from '../shared/lens-taxonomy.js';
 import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/lens-engine.js';
@@ -87,7 +91,8 @@ import { openSpeakersModal, speakerEntityId, decorateSpeakerLabels } from './spe
 import { runDraftPass } from '../shared/transcriber-client.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
-import { resolveActiveCaseRef, describeActiveContext } from '../shared/case-membership.js';
+import { resolveActiveCaseRef, describeActiveContext, memberUrlSets } from '../shared/case-membership.js';
+import { gatherCorpusSources, corpusSourcesChars } from '../shared/audit/corpus-sources.js';
 import { autoPreAnalyzeCapture } from '../shared/auto-preanalyze.js';
 import { Utils } from '../shared/utils.js';
 import {
@@ -1480,7 +1485,7 @@ function renderModuleRow(r, staleSet) {
         : scoreChipHtml(r.score, r.confidence)}
         </summary>
         <div class="xr-audit__module-body">
-          <div class="xr-audit__provenance">auditor: ${escapeHtml(r.auditor ? `${r.auditor.kind} · ${r.auditor.id}` : 'unknown')} · run ${escapeHtml(r.run_at || '')}</div>
+          <div class="xr-audit__provenance">auditor: ${escapeHtml(r.auditor ? `${r.auditor.kind} · ${r.auditor.id}` : 'unknown')} · run ${escapeHtml(r.run_at || '')} · <span title="scoring direction, PHILOSOPHY §3.1/§4 (published classification; the aggregate math is direction-agnostic pending a methodology wave)">direction: ${escapeHtml(MODULE_DIRECTIONS[r.module] || 'unknown')}</span></div>
           ${caveats.length ? `<div class="xr-audit__caveats"><strong>Caveats</strong> — what this scan could not determine:<ul>${caveats.map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul></div>` : ''}
           ${quotes.length ? `<div class="xr-audit__quotes"><strong>Evidence quotes</strong> (click to locate):<ul>${quotes.map((q) => `<li><button type="button" class="xr-audit__quote" data-quote="${escapeHtml(q)}">“${escapeHtml(q.length > 120 ? q.slice(0, 120) + '…' : q)}”</button></li>`).join('')}</ul></div>` : ''}
         </div>
@@ -1592,6 +1597,11 @@ async function refreshAuditStatus() {
     const sorted = runs.slice().sort((a, b) => String(b.runAt).localeCompare(String(a.runAt)));
     const latest = sorted[0];
     const others = sorted.slice(1);
+    // R10b — the vintage trajectory (P1): per-run delta vs the run
+    // before it. Descriptive, never a re-score (runs may differ in
+    // mode and methodology version).
+    const deltaByRunAt = new Map(runScoreDeltas(sorted).map((d) => [d.runAt, d.delta]));
+    const fmtDelta = (d) => (d > 0 ? `+${d}` : String(d));
     const agg = latest.aggregate || {};
     const score = typeof agg.final_score === 'number' ? agg.final_score : null;
     const conf = typeof agg.overall_confidence === 'number' ? agg.overall_confidence : null;
@@ -1615,9 +1625,13 @@ async function refreshAuditStatus() {
         const ceilingLine = agg.ceiling_binding
             ? `<span class="xr-audit__badge-sub">capped by knowability ${escapeHtml(String(agg.knowability_ceiling))}${agg.knowability_notes ? ' — ' + escapeHtml(agg.knowability_notes) : ''}</span>`
             : '';
+        const latestDelta = deltaByRunAt.get(latest.runAt);
+        const deltaLine = (latestDelta !== null && latestDelta !== undefined && others.length)
+            ? `<span class="xr-audit__badge-sub" title="vs the previous run of this exact text — descriptive, not a re-score (runs may differ in mode and methodology version)">Δ ${escapeHtml(fmtDelta(latestDelta))} vs previous run</span>`
+            : '';
         badge = `<div class="xr-audit__badge xr-audit__badge--${band.key}" title="${escapeHtml(band.label)}">` +
             `${escapeHtml(String(score))}<span class="xr-audit__badge-conf">conf ${escapeHtml(String(conf))}</span>` +
-            `<span class="xr-audit__badge-band">${escapeHtml(band.label)}</span>${ceilingLine}</div>`;
+            `<span class="xr-audit__badge-band">${escapeHtml(band.label)}</span>${ceilingLine}${deltaLine}</div>`;
     }
 
     const provenance = `<div class="xr-audit__provenance">auditor: ${escapeHtml(latest.auditor ? `${latest.auditor.kind} · ${latest.auditor.id}` : 'unknown')} · run ${escapeHtml(latest.runAt)} · ceiling source: ${escapeHtml(agg.ceiling_source || 'unknown')} · imported via ${escapeHtml(latest.source)}</div>`;
@@ -1642,7 +1656,10 @@ async function refreshAuditStatus() {
             const a = r.aggregate || {};
             const s = typeof a.final_score === 'number' ? a.final_score : null;
             const c = typeof a.overall_confidence === 'number' ? a.overall_confidence : null;
-            return `<li>${scoreChipHtml(s, c)} — ${escapeHtml(r.auditor ? r.auditor.id : 'unknown')} · ${escapeHtml(r.runAt)}${r._truncatedKey ? ` · first ${MAX_AUDIT_INPUT_CHARS.toLocaleString()} chars only` : ''}</li>`;
+            const d = deltaByRunAt.get(r.runAt);
+            const deltaBit = (d !== null && d !== undefined)
+                ? ` · <span title="vs the run before it — descriptive, not a re-score">Δ ${escapeHtml(fmtDelta(d))}</span>` : '';
+            return `<li>${scoreChipHtml(s, c)} — ${escapeHtml(r.auditor ? r.auditor.id : 'unknown')} · ${escapeHtml(r.runAt)}${deltaBit}${r._truncatedKey ? ` · first ${MAX_AUDIT_INPUT_CHARS.toLocaleString()} chars only` : ''}</li>`;
         }).join('')}</ul></div>`
         : '';
 
@@ -2105,12 +2122,19 @@ async function adoptDiarizedTranscript(result) {
 let _transcribeRunning = false;
 
 /** Start (or resume) the companion job and adopt the result. The whole
- *  loop is page-driven — each poll message resets the SW idle timer. */
-async function runTranscribeFlow() {
+ *  loop is page-driven — each poll message resets the SW idle timer.
+ *  `provider` is the engine for THIS run (picker choice); undefined
+ *  defers to the stored engine preference in the SW. */
+async function runTranscribeFlow(provider) {
+    if (typeof provider !== 'string') provider = undefined; // onclick passes an event
     const a = state.article;
     const videoId = a && a.youtube && a.youtube.videoId;
     if (!a || !videoId) { toast('Not a YouTube capture.', 'error'); return; }
-    if (_transcribeRunning) return;
+    if (_transcribeRunning) {
+        // Never swallow a click silently (the Suggest-local precedent).
+        toast('A transcription is already running for this capture — wait for it to finish.', 'error');
+        return;
+    }
 
     // Re-capture of an already-transcribed video: the diarized article
     // lives in the archive — offer to LOAD it instead of burning GPU
@@ -2152,22 +2176,30 @@ async function runTranscribeFlow() {
 
     _transcribeRunning = true;
     const btn = $('#xr-transcribe');
+    const caretBtn = $('#xr-transcribe-engine');
     const label = btn ? btn.textContent : '';
     const draftsBtn = $('#xr-suggest-local');
     if (btn) { btn.disabled = true; btn.textContent = '🎙 Transcribing…'; }
+    // The engine choice is fixed once the job starts — park the picker
+    // with the button (a mid-run pick could only be a silent no-op).
+    if (caretBtn) caretBtn.disabled = true;
+    closeEnginePicker();
     // Soft GPU guard: WhisperX holds ~6 GB while the job runs — drafting
     // concurrently is the one genuinely tight case, so park the button.
     if (draftsBtn) draftsBtn.disabled = true;
     try {
         reapStaleJobRecords(transcribeChromeIo(browserApi, () => {})).catch(() => {});
-        renderTranscribeBanner('Contacting the local transcription service…');
+        renderTranscribeBanner('Contacting the transcription service…');
         const io = transcribeChromeIo(browserApi, (job) => {
             // Honest wording: a cloud-provider job is not "locally".
             renderTranscribeBanner(`Transcribing ${providerPhrase(job && job.provider)} — ${describeProgress(job)}`);
         });
-        const out = await runTranscriptionJob({ videoUrl: a.url, videoId, io });
+        const out = await runTranscriptionJob({ videoUrl: a.url, videoId, provider, io });
         if (!out.ok) {
             renderTranscribeBanner(out.error, 'error', { docsHint: !!(out.error || '').includes('not reachable') });
+            // A cloud engine without its key: the picker is the fastest
+            // path to either the key field or another engine.
+            if (out.missingKey) openEnginePicker();
             return;
         }
         await adoptDiarizedTranscript(out.result);
@@ -2199,40 +2231,228 @@ async function runTranscribeFlow() {
     } finally {
         _transcribeRunning = false;
         if (btn) { btn.disabled = false; btn.textContent = label; }
+        if (caretBtn) caretBtn.disabled = false;
         if (draftsBtn) draftsBtn.disabled = false;
     }
 }
 
+// The last engine config snapshot — REFRESHED at every decision point
+// (button click, picker open), not just page load: the user saves keys
+// or changes the engine in Options with readers already open, and a
+// stale snapshot would loop the "add a key in Settings" path forever
+// (review finding, 2026-08-02). `engine: null` = no preference chosen:
+// jobs carry no provider and the companion default rules.
+let _transcribeCfg = { engine: null, keys: {} };
+
+async function refreshTranscribeCfg() {
+    try {
+        const cfg = await browserApi.runtime.sendMessage({ type: 'xray:transcribe:config' }) || {};
+        _transcribeCfg = { engine: cfg.engine || null, keys: cfg.keys || {} };
+    } catch (_) { /* keep the previous snapshot */ }
+    const btn = $('#xr-transcribe');
+    if (btn && !btn.hidden) btn.title = transcribeTooltip();
+    return _transcribeCfg;
+}
+
+const ENGINE_META = {
+    local: {
+        label: 'Local (WhisperX)',
+        badge: 'on this device — free',
+        detail: 'yt-dlp + WhisperX + speaker diarization on your GPU. Nothing leaves this machine.'
+    },
+    assemblyai: {
+        label: 'AssemblyAI',
+        badge: 'cloud — ≈$0.28/hr',
+        detail: 'Uploads the episode audio to AssemblyAI. Fast, no GPU use.',
+        rate: 0.28
+    },
+    deepgram: {
+        label: 'Deepgram',
+        badge: 'cloud — ≈$0.26/hr',
+        detail: 'Uploads the episode audio to Deepgram. Fast, no GPU use.',
+        rate: 0.26
+    }
+};
+
+/** Human tooltip for the main Transcribe button, from the preference. */
+function transcribeTooltip() {
+    const rerun = !!(state.article && state.article.transcription);
+    const head = rerun
+        ? 'Re-run the diarized transcription (replaces the current transcript section)'
+        : 'Transcribe this video';
+    const e = _transcribeCfg.engine;
+    if (e === 'ask') return `${head} — you'll choose the engine (▾ also opens the choices)`;
+    if (!e) return `${head} — with the companion service's default engine (local unless its env says otherwise; pick per video with ▾, or set a default in Settings)`;
+    const meta = ENGINE_META[e] || ENGINE_META.local;
+    return e === 'local'
+        ? `${head} — locally (${meta.detail})`
+        : `${head} — via ${meta.label} (cloud: the episode audio leaves this machine, ${meta.badge.replace('cloud — ', '')})`;
+}
+
+/** Per-engine time/cost line for the picker, from the video duration. */
+function engineEstimate(engine) {
+    const secs = Number(state.article && state.article.youtube
+        && state.article.youtube.durationSeconds) || 0;
+    const meta = ENGINE_META[engine];
+    if (engine === 'local') {
+        if (!secs) return 'Runs on your GPU; speed depends on the card.';
+        const mins = Math.max(1, Math.ceil(secs / 900 + secs / 3600 * 2));
+        return `~${mins} min on your GPU (transcribe + diarize) — free.`;
+    }
+    if (!secs) return 'Usually 2–5 minutes, metered per audio-hour.';
+    const cost = Math.max(0.01, (secs / 3600) * meta.rate);
+    return `~2–5 min — about $${cost.toFixed(2)} for this video.`;
+}
+
+function closeEnginePicker() {
+    const menu = document.getElementById('xr-engine-menu');
+    if (menu) menu.remove();
+    document.removeEventListener('click', _pickerDismiss, true);
+    document.removeEventListener('keydown', _pickerEscape, true);
+}
+function _pickerDismiss(ev) {
+    const menu = document.getElementById('xr-engine-menu');
+    if (menu && !menu.contains(ev.target)) closeEnginePicker();
+}
+function _pickerEscape(ev) { if (ev.key === 'Escape') closeEnginePicker(); }
+
 /**
- * The Transcribe button + capture-path auto-start. Gated like Suggest:
- * absent unless the localTranscription flag is on (the SW's config
- * snapshot is storage-only — reachability is probed on click, where a
- * clear error names the fix, never during setup).
+ * The runtime engine picker (field feedback 2026-08-02): choose per
+ * video — a 10-minute clip is fine on the GPU, a 2-hour episode wants
+ * cloud speed. Shows real time/cost estimates from the capture's
+ * duration and each engine's availability; a cloud engine without a
+ * saved key routes to Settings instead of failing later.
+ */
+async function openEnginePicker() {
+    // Toggle: a second chevron click closes instead of flickering
+    // closed-and-reopen (review finding).
+    if (document.getElementById('xr-engine-menu')) { closeEnginePicker(); return; }
+    closeEnginePicker();
+    // Fresh engine + key state EVERY open — the user may just have
+    // saved a key in Options (review finding: the stale snapshot made
+    // "add a key in Settings" a dead loop).
+    await refreshTranscribeCfg();
+    const anchor = $('#xr-transcribe');
+    if (!anchor) return;
+    const menu = document.createElement('div');
+    menu.id = 'xr-engine-menu';
+    menu.className = 'xr-engine-menu';
+
+    for (const engine of ['local', 'assemblyai', 'deepgram']) {
+        const meta = ENGINE_META[engine];
+        const keyed = engine === 'local' || !!(_transcribeCfg.keys && _transcribeCfg.keys[engine]);
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'xr-engine-menu__item';
+
+        const title = document.createElement('div');
+        title.className = 'xr-engine-menu__title';
+        title.textContent = meta.label;
+        const badge = document.createElement('span');
+        badge.className = 'xr-engine-menu__badge';
+        badge.textContent = meta.badge;
+        title.appendChild(badge);
+        if (_transcribeCfg.engine === engine) {
+            const mark = document.createElement('span');
+            mark.className = 'xr-engine-menu__badge xr-engine-menu__badge--default';
+            mark.textContent = '✓ default';
+            title.appendChild(mark);
+        }
+        item.appendChild(title);
+
+        const sub = document.createElement('div');
+        sub.className = 'xr-engine-menu__sub' + (keyed ? '' : ' xr-engine-menu__sub--warn');
+        sub.textContent = keyed
+            ? engineEstimate(engine)
+            : 'No API key saved — click to add one in Settings.';
+        item.appendChild(sub);
+
+        item.addEventListener('click', () => {
+            closeEnginePicker();
+            if (!keyed) {
+                try { browserApi.runtime.openOptionsPage(); } catch (_) { /* page-open denied */ }
+                return;
+            }
+            runTranscribeFlow(engine);
+        });
+        menu.appendChild(item);
+    }
+
+    const foot = document.createElement('div');
+    foot.className = 'xr-engine-menu__foot';
+    foot.appendChild(document.createTextNode('Default engine and API keys live in '));
+    const link = document.createElement('a');
+    link.textContent = 'Settings → Advanced → Transcription';
+    link.addEventListener('click', () => {
+        closeEnginePicker();
+        try { browserApi.runtime.openOptionsPage(); } catch (_) { /* page-open denied */ }
+    });
+    foot.appendChild(link);
+    foot.appendChild(document.createTextNode('.'));
+    menu.appendChild(foot);
+
+    document.body.appendChild(menu);
+    const r = anchor.getBoundingClientRect();
+    menu.style.top = `${Math.round(r.bottom + 6)}px`;
+    menu.style.left = `${Math.round(Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)))}px`;
+    // Deferred: the opening click must not immediately dismiss.
+    setTimeout(() => {
+        document.addEventListener('click', _pickerDismiss, true);
+        document.addEventListener('keydown', _pickerEscape, true);
+    }, 0);
+}
+
+/**
+ * The Transcribe split control + capture-path auto-start. Gated like
+ * Suggest: absent unless the localTranscription flag is on (the SW's
+ * config snapshot is storage-only — reachability is probed on click,
+ * where a clear error names the fix, never during setup). The engine
+ * preference + key presence arrive in the same snapshot, so the
+ * tooltip and picker are synchronous truth — no network involved.
  */
 async function setupTranscribeControl() {
     const btn = $('#xr-transcribe');
+    const caret = $('#xr-transcribe-engine');
     if (!btn) return;
     const isYouTube = !!(state.article && state.article.platform === 'youtube'
         && state.article.youtube && state.article.youtube.videoId);
-    if (!isYouTube || state.readOnlyOpen) { btn.hidden = true; return; }
+    if (!isYouTube || state.readOnlyOpen) {
+        btn.hidden = true;
+        if (caret) caret.hidden = true;
+        return;
+    }
     let cfg = {};
     try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:transcribe:config' }) || {}; }
     catch (_) { cfg = {}; }
-    if (!cfg.enabled) { btn.hidden = true; return; }   // flag off ⇒ absent
+    if (!cfg.enabled) {   // flag off ⇒ absent
+        btn.hidden = true;
+        if (caret) caret.hidden = true;
+        return;
+    }
+    _transcribeCfg = { engine: cfg.engine || null, keys: cfg.keys || {} };
     btn.hidden = false;
     btn.disabled = false;
-    btn.title = state.article.transcription
-        ? 'Re-run the local diarized transcription (replaces the current transcript section)'
-        : 'Transcribe this video locally (yt-dlp + WhisperX + speaker diarization via the companion service)';
+    btn.title = transcribeTooltip();
+    if (caret) { caret.hidden = false; caret.disabled = false; }
     // onclick (not addEventListener): setup can re-run after adoption
-    // and must never stack duplicate handlers.
-    btn.onclick = runTranscribeFlow;
+    // and must never stack duplicate handlers. Every click re-reads the
+    // CURRENT preference (Options may have changed it since page load);
+    // a null preference passes no engine — the SW then omits the
+    // provider and the companion default rules.
+    btn.onclick = async () => {
+        await refreshTranscribeCfg();
+        if (_transcribeCfg.engine === 'ask') { openEnginePicker(); return; }
+        runTranscribeFlow(_transcribeCfg.engine || undefined);
+    };
+    if (caret) caret.onclick = openEnginePicker;
 
-    // The "Capture & transcribe locally" path: the session record said
-    // to start immediately.
+    // The "Capture & transcribe" path: the session record said to start
+    // immediately. An 'ask' preference opens the picker instead of
+    // silently picking an engine the user never chose.
     if (state.transcribeRequested && !state.article.transcription) {
         state.transcribeRequested = false;
-        runTranscribeFlow();
+        if (_transcribeCfg.engine === 'ask') openEnginePicker();
+        else runTranscribeFlow(_transcribeCfg.engine || undefined);
     }
 }
 
@@ -3737,6 +3957,9 @@ function auditRequestMeta() {
     return {
         articleUrl: state.article.url || '',
         articleTitle: state.article.title || '',
+        // Declared source_type wins; else the capture-time suggestion.
+        // 'analysis' triggers the standing opinion caveat (R5 interim).
+        sourceType: state.article.source_type || suggestSourceType(state.article) || '',
         metadata: {
             url: state.article.url || null,
             headline: state.article.title || null,
@@ -3811,7 +4034,7 @@ async function runQuickAudit({ markdown, localHash }) {
  * dead reader/SW/browser costs nothing already paid for. A draft for
  * the SAME text offers resume (only missing modules re-run).
  */
-async function runThoroughAudit({ markdown, localHash, active }) {
+async function runThoroughAudit({ markdown, localHash, active, corpusSources = [] }) {
     let existing = {};
     let draftModel = null;
     const draft = await loadAuditDraft(localHash);
@@ -3838,7 +4061,13 @@ async function runThoroughAudit({ markdown, localHash, active }) {
         send: async (name) => {
             const res = await browserApi.runtime.sendMessage({
                 type: 'xray:audit:module',
-                request: { module: name, markdown, articleUrl: meta.articleUrl, articleTitle: meta.articleTitle }
+                request: {
+                    module: name, markdown,
+                    articleUrl: meta.articleUrl, articleTitle: meta.articleTitle,
+                    // R2: corpus-held cited sources, module 04 only.
+                    ...(name === 'source_quality' && corpusSources.length
+                        ? { corpusSources } : {})
+                }
             });
             if (res && res.ok && res.findings) {
                 await appendAuditDraft(localHash, name, res.findings, res.model);
@@ -3866,7 +4095,9 @@ async function runThoroughAudit({ markdown, localHash, active }) {
             model: model || draftModel || 'unknown',
             markdown,
             metadata: meta.metadata,
-            standingCaveat: null
+            // Thorough has no rigor apology; the opinion caveat still
+            // applies when the artifact is opinion/analysis (R5 interim).
+            standingCaveat: opinionStandingCaveat(state.article)
         });
     } catch (err) {
         console.error('[xray] thorough assembly failed', err);
@@ -3907,9 +4138,36 @@ async function runAuditFromReader(mode = 'single') {
     }
     const markdown = slice.text;
 
+    // R2 — corpus-held cited sources for the source-quality call:
+    // resolved from the active case (url/alias/DOI identity, never
+    // similarity), disclosed in the confirm BEFORE any spend.
+    let corpusSources = [];
+    if (mode === 'per_module') {
+        const gathered = await gatherCorpusSources({
+            article: state.article,
+            selfHash: state.articleHash || '',
+            io: {
+                resolveActiveCaseRef,
+                memberUrlSets,
+                getArticle: ArchiveCache.getArticle,
+                getArticleExtraction,
+                loadAliasMap,
+                resolveWithMap,
+                normalizeUrl: (u) => Utils.normalizeUrl(u),
+                assembleBody: (a) => EventBuilder.assembleArticleBody(a)
+            }
+        });
+        corpusSources = gathered.entries;
+    }
+    const corpusNote = corpusSources.length
+        ? ` ${corpusSources.length} corpus-held cited source${corpusSources.length === 1 ? '' : 's'} `
+          + `(~${Math.round(corpusSourcesChars(corpusSources) / 1000)}k characters) will attach to the `
+          + 'source-quality call for characterization checks.'
+        : '';
+
     // Thorough mode spends ~8× — confirm before committing the user's key.
     if (mode === 'per_module'
-        && !confirm('Thorough audit runs one LLM call per dimension (about 8 API calls — higher cost) for more rigor. Progress is saved per module and resumable. Continue?')) {
+        && !confirm(`Thorough audit runs one LLM call per dimension (about 8 API calls — higher cost) for more rigor.${corpusNote} Progress is saved per module and resumable. Continue?`)) {
         return;
     }
 
@@ -3929,7 +4187,7 @@ async function runAuditFromReader(mode = 'single') {
     active.textContent = mode === 'per_module' ? '⏳ Auditing (thorough)…' : '⏳ Auditing…';
     try {
         if (mode === 'per_module') {
-            await runThoroughAudit({ markdown, localHash, active });
+            await runThoroughAudit({ markdown, localHash, active, corpusSources });
         } else {
             await runQuickAudit({ markdown, localHash });
         }
