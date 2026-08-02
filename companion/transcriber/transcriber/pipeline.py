@@ -1,7 +1,9 @@
-"""Download -> transcribe -> align -> diarize pipeline.
+"""The LOCAL provider: download -> transcribe -> align -> diarize.
 
 Imported ONLY by ``transcriber.worker`` inside the throwaway child process;
 never import this from server.py — it drags in torch/whisperx/yt-dlp.
+(The download stage lives in download.py; the cloud providers in
+providers/ share it without touching this module.)
 
 VRAM discipline: each model is loaded, used, deleted, and the CUDA cache
 emptied before the next one loads (ASR -> align -> diarize), which keeps
@@ -20,13 +22,13 @@ Progress bands emitted to the parent:
 import gc
 import logging
 import shutil
-import threading
-import time
 from importlib import metadata
 from pathlib import Path
 from typing import Callable
 
 from . import config
+from .download import download_audio
+from .progress import ProgressTicker
 
 log = logging.getLogger("xray-transcriber.pipeline")
 
@@ -58,77 +60,10 @@ def run(spec: dict, emit: Emit) -> dict:
     if not config.HF_TOKEN:
         raise RuntimeError(HF_TOKEN_MESSAGE)
     try:
-        info, audio_path = _download(spec["url"], tmp_dir, emit)
+        info, audio_path = download_audio(spec["url"], tmp_dir, emit)
         return _transcribe_align_diarize(info, audio_path, emit)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
-
-
-# --- stage 1: download ---------------------------------------------------
-
-
-def _download(url: str, tmp_dir: Path, emit: Emit) -> "tuple[dict, Path]":
-    """Probe metadata, enforce the duration cap, download bestaudio."""
-    import yt_dlp
-
-    emit({"stage": "downloading", "progress": 0.0})
-
-    base_opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
-    if config.COOKIES_FILE:
-        base_opts["cookiefile"] = config.COOKIES_FILE
-
-    with yt_dlp.YoutubeDL(dict(base_opts)) as ydl:
-        info = ydl.extract_info(url, download=False)
-
-    if info.get("is_live"):
-        raise RuntimeError("live streams are not supported")
-    duration = info.get("duration")
-    if not duration:
-        raise RuntimeError("could not determine video duration; refusing to download")
-    if duration > config.MAX_DURATION_S:
-        raise RuntimeError(
-            f"video is {int(duration)} s long, over the limit of "
-            f"{config.MAX_DURATION_S} s (raise TRANSCRIBER_MAX_DURATION_S to allow it)"
-        )
-
-    last_emitted = {"progress": -1.0}
-
-    def hook(d: dict) -> None:
-        if d.get("status") != "downloading":
-            return
-        total = d.get("total_bytes") or d.get("total_bytes_estimate")
-        downloaded = d.get("downloaded_bytes")
-        if not total or not downloaded:
-            return
-        progress = 0.15 * min(downloaded / total, 1.0)
-        if progress - last_emitted["progress"] >= 0.005:  # throttle event spam
-            last_emitted["progress"] = progress
-            emit({"stage": "downloading", "progress": round(progress, 4)})
-
-    dl_opts = dict(base_opts)
-    dl_opts.update(
-        {
-            # No postprocessor on purpose: whisperx's ffmpeg decode handles
-            # m4a/webm/opus directly, so we skip a lossy re-encode.
-            "format": "bestaudio[ext=m4a]/bestaudio/best",
-            "outtmpl": str(tmp_dir / "%(id)s.%(ext)s"),
-            "noprogress": True,
-            "progress_hooks": [hook],
-        }
-    )
-    with yt_dlp.YoutubeDL(dl_opts) as ydl:
-        dl_info = ydl.extract_info(url, download=True)
-        audio_path = Path(ydl.prepare_filename(dl_info))
-
-    if not audio_path.is_file():
-        candidates = [p for p in tmp_dir.iterdir() if p.is_file() and p.name != "spec.json"]
-        candidates.sort(key=lambda p: p.stat().st_size, reverse=True)
-        if not candidates:
-            raise RuntimeError("download produced no audio file")
-        audio_path = candidates[0]
-
-    emit({"stage": "downloading", "progress": 0.15})
-    return info, audio_path
 
 
 # --- stages 2-4: transcribe, align, diarize ------------------------------
@@ -158,7 +93,7 @@ def _transcribe_align_diarize(info: dict, audio_path: Path, emit: Emit) -> dict:
     emit({"stage": "transcribing", "progress": 0.15})
     audio = whisperx.load_audio(str(audio_path))
     model = whisperx.load_model(ASR_MODEL, device, compute_type=compute_type)
-    ticker = _ProgressTicker(
+    ticker = ProgressTicker(
         emit, "transcribing", 0.15, 0.70, estimate_s=max(duration / 18.0, 1.0)
     )
     ticker.start()
@@ -249,6 +184,7 @@ def _build_result(
         "language": language,
         "segments": segments,
         "model_info": {
+            "provider": "local",
             "asr_model": ASR_MODEL,
             "compute_type": compute_type,
             "batch_size": config.BATCH_SIZE,
@@ -266,45 +202,3 @@ def _dist_version(name: str) -> str:
         return metadata.version(name)
     except Exception:
         return "unknown"
-
-
-class _ProgressTicker:
-    """Emits wall-clock-estimated progress for a blocking stage.
-
-    ``model.transcribe`` offers no progress callback, so we estimate:
-    elapsed wall clock over an expected runtime (duration/18 for large-v3
-    at ~18x realtime), mapped into the [lo, hi] band and capped at hi.
-    """
-
-    def __init__(
-        self,
-        emit: Emit,
-        stage: str,
-        lo: float,
-        hi: float,
-        estimate_s: float,
-        interval_s: float = 2.0,
-    ) -> None:
-        self._emit = emit
-        self._stage = stage
-        self._lo = lo
-        self._hi = hi
-        self._estimate_s = max(estimate_s, 1.0)
-        self._interval_s = interval_s
-        self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._loop, daemon=True)
-        self._t0 = 0.0
-
-    def start(self) -> None:
-        self._t0 = time.monotonic()
-        self._thread.start()
-
-    def stop(self) -> None:
-        self._stop.set()
-        self._thread.join(timeout=5.0)
-
-    def _loop(self) -> None:
-        while not self._stop.wait(self._interval_s):
-            frac = min((time.monotonic() - self._t0) / self._estimate_s, 1.0)
-            progress = self._lo + (self._hi - self._lo) * frac
-            self._emit({"stage": self._stage, "progress": round(progress, 4)})

@@ -39,8 +39,24 @@ COOKIES_FILE: str = os.environ.get("TRANSCRIBER_COOKIES_FILE", "")
 TOKEN: str = os.environ.get("TRANSCRIBER_TOKEN", "")
 HF_TOKEN: str = os.environ.get("HF_TOKEN", "")
 
+# --- provider selection --------------------------------------------------
+# Which engine turns audio into a diarized transcript. "local" is the
+# existing WhisperX+pyannote path; "assemblyai" / "deepgram" send the
+# DOWNLOADED AUDIO to that provider's API (the episode audio leaves this
+# machine — see README "Cloud providers").  API keys live in env vars
+# ONLY, never in extension storage and never in spec.json on disk (the
+# HF_TOKEN precedent); the worker child inherits them from this process.
+PROVIDER: str = (os.environ.get("TRANSCRIBER_PROVIDER", "").strip().lower() or "local")
+ASSEMBLYAI_API_KEY: str = os.environ.get("ASSEMBLYAI_API_KEY", "")
+DEEPGRAM_API_KEY: str = os.environ.get("DEEPGRAM_API_KEY", "")
+ASSEMBLYAI_MODEL: str = os.environ.get("TRANSCRIBER_ASSEMBLYAI_MODEL", "universal")
+DEEPGRAM_MODEL: str = os.environ.get("TRANSCRIBER_DEEPGRAM_MODEL", "nova-3")
+
 # --- job handling --------------------------------------------------------
 QUEUE_MAX: int = 10  # queued jobs beyond this get HTTP 429
+# Cloud jobs hold no GPU, so a few may run at once; local jobs stay
+# strictly serialized regardless (the VRAM discipline).
+CLOUD_CONCURRENCY: int = _int_env("TRANSCRIBER_CLOUD_CONCURRENCY", 3)
 
 
 def _base_dir() -> Path:

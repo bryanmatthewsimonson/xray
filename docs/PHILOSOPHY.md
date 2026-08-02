@@ -1,8 +1,8 @@
 # Epistemic Auditing: Philosophy and Standards
 
-**Document version:** 1.0.0
+**Document version:** 1.1.0
 **Status:** Normative
-**Date:** 2026-06-11
+**Date:** 2026-06-11 (amended 2026-08-02, §13)
 
 This document is the constitution of the X-Ray Epistemic Auditor. It codifies the principles that every prompt, schema, scorer, rollup, dispute mechanism, and user-facing surface must implement. Code expresses this document; when code and this document conflict, this document governs until it is formally amended (§13).
 
@@ -72,7 +72,7 @@ Nothing is ever overwritten. Scores update by supersession: a new audit is creat
 
 ### P10 — The auditor obeys its own standards, applied harder
 
-The methodology is published before findings. The auditor's conflicts, priors, and exposures are disclosed. The auditor's corrections receive at least the prominence we score journalists on. The auditor keeps its own prediction ledger and publishes its own calibration. The auditor's outputs are themselves scoreable on the same dimensions, and others' scores of the auditor are published. Hypocrisy here is fatal: the system's entire claim to authority is unilateral, harder-than-thou self-application.
+The methodology is published before findings. The auditor's conflicts, priors, and exposures are disclosed. The auditor's corrections receive at least the prominence we score journalists on. Predictions or corrections the auditor authors enter the same ledgers under the same discipline applied to journalists (v1.1.0, §13). The auditor's outputs are themselves scoreable on the same dimensions, and others' scores of the auditor are published. Hypocrisy here is fatal: the system's entire claim to authority is unilateral, harder-than-thou self-application.
 
 ### P11 — Under-claim
 
@@ -152,7 +152,7 @@ These attach to authors and publications rather than single artifacts, and they 
 
 The score-at-publication is preserved forever (P9). The current score lives beside it, and the delta between them is a first-class published artifact — an article that published at 78 and now sits at 61 tells a story the system must not hide.
 
-Artifacts with resolvable claims are re-evaluated on a standing cadence — on the order of 30 days, 6 months, and 2 years after publication — and whenever a dispute, resolution, or methodology version-bump touches them.
+Artifacts are re-evaluated when something touches them — a dispute, a prediction resolution, a methodology version-bump, or a detected content change — and the prediction ledger drives its own re-visits through resolution horizons. There is no standing wall-clock re-audit cadence (v1.1.0, §13): published text rarely changes, and what changes around it arrives as events, not anniversaries.
 
 **The prediction ledger is the compounding asset.** Predictions are extracted at audit time and resolved later — months or years later, possibly by a different auditor than extracted them. Resolutions are evidence-bound (P3) and disputable like everything else. From resolved predictions, the system computes per-author and per-publication calibration by hedge level, which feeds P7's multiplier. Nothing else the system produces is as irrefutable as a multi-year ledger graded against reality, because it is the one dimension where the outsider holds exactly the same information as the insider: time.
 
@@ -255,6 +255,8 @@ When two of these conflict, document the tension, cite this section, and choose 
 Amendments to this document require: a version bump, a dated entry below, a written rationale, and — for any removal or weakening of a principle or red line — an explicit statement of what failure mode the change accepts. Silent edits to this document violate P9 and are void.
 
 **v1.0.0 — 2026-06-11.** Initial codification. Twelve principles, eight news dimensions, opinion rubric, scoring philosophy, time/truth mechanics, triage, dispute process, auditor-of-auditors, engineering derivations, red lines, decision heuristics.
+
+**v1.1.0 — 2026-08-02.** Two narrowings, ruled by the maintainer during the founding-transcript integration (see `docs/FOUNDING_TRANSCRIPT.md`, supersession log). Scope reminder: this document governs the epistemic-audit family only — apparatus for an ongoing experiment in modeling reality, not repo-wide law. (1) **§5 — standing re-evaluation cadence removed.** Re-evaluation is event-driven (disputes, resolutions, methodology bumps, detected content changes, prediction horizons), never wall-clock. Rationale: published artifacts rarely change; the 30-day/6-month/2-year cadence was newsroom-scoreboard machinery inherited from the source prose, and automatic re-runs spend the operator's money re-scoring unchanged text. Accepted failure mode: an artifact whose epistemic context shifts with no recorded trigger keeps its stale score until a human notices. (2) **P10 — the standing self-dossier clause narrowed.** "Keeps its own prediction ledger and publishes its own calibration" became: authored predictions and corrections enter the same ledgers under the same discipline; all auditor outputs remain supersession-tracked and scoreable by anyone via the published method. Rationale: the auditor here is a solo research-tool operator, not a publishing newsroom; symmetric accountability is preserved by reproducibility — anyone can audit the auditor with the same tool. Accepted failure mode: the auditor's calibration is derivable by others rather than proactively volunteered.
 
 ---
 

@@ -14,7 +14,8 @@ globalThis.chrome = globalThis.chrome || {
 
 const {
     speakerDisplayMap, turnsFromSegments, timeFragmentSelector, timeRangeOfSpan,
-    diarizedHeading, buildDiarizedBody, diarizedTrackEntry, extractionMethodFor
+    diarizedHeading, buildDiarizedBody, diarizedTrackEntry, extractionMethodFor,
+    providerDisplayName
 } = await import('../src/shared/diarized-transcript.js');
 const { timeRangeFromAnchor, pageFromAnchor } = await import('../src/shared/claim-model.js');
 const { buildTranscriptSection, upsertTranscriptSection } = await import('../src/shared/transcript-article.js');
@@ -205,4 +206,62 @@ test('extractionMethodFor: whisperx + shortened diarization model', () => {
         diarization_model: 'pyannote/speaker-diarization-community-1'
     }), 'whisperx-large-v3+pyannote-community-1');
     assert.equal(extractionMethodFor(null), 'whisperx-large-v3+pyannote');
+    // An explicit local provider stamp (newer companions) changes nothing.
+    assert.equal(extractionMethodFor({
+        provider: 'local', asr_model: 'large-v3',
+        diarization_model: 'pyannote/speaker-diarization-community-1'
+    }), 'whisperx-large-v3+pyannote-community-1');
+});
+
+test('extractionMethodFor: cloud providers publish one <provider>-<model> token', () => {
+    assert.equal(
+        extractionMethodFor({ provider: 'assemblyai', asr_model: 'universal' }),
+        'assemblyai-universal');
+    assert.equal(
+        extractionMethodFor({ provider: 'deepgram', asr_model: 'nova-3' }),
+        'deepgram-nova-3');
+    // Token charset is enforced on the published value.
+    assert.equal(
+        extractionMethodFor({ provider: 'deepgram', asr_model: 'Nova 3!' }),
+        'deepgram-nova-3');
+    assert.equal(extractionMethodFor({ provider: 'assemblyai' }), 'assemblyai-unknown');
+});
+
+test('providerDisplayName: cloud names, local/absent null, unknown names itself', () => {
+    assert.equal(providerDisplayName('assemblyai'), 'AssemblyAI');
+    assert.equal(providerDisplayName('deepgram'), 'Deepgram');
+    assert.equal(providerDisplayName('local'), null);
+    assert.equal(providerDisplayName('whisperx'), null);
+    assert.equal(providerDisplayName(''), null);
+    assert.equal(providerDisplayName(undefined), null);
+    assert.equal(providerDisplayName('otherco'), 'otherco');
+});
+
+test('diarizedHeading: cloud providers are named — the body is durable, "local" would lie', () => {
+    assert.equal(diarizedHeading('en', 'assemblyai'), 'Transcript — English (AssemblyAI, diarized)');
+    assert.equal(diarizedHeading('', 'deepgram'), 'Transcript — Deepgram (diarized)');
+    assert.equal(diarizedHeading('en', 'local'), 'Transcript — English (local, diarized)');
+});
+
+test('buildDiarizedBody: a cloud result names its provider in the heading', () => {
+    const { markdown, heading } = buildDiarizedBody({
+        capturedMarkdown: CAPTURED, watchUrl: WATCH,
+        result: {
+            language: 'en', segments: segs(),
+            model_info: { provider: 'assemblyai', asr_model: 'universal' }
+        }
+    });
+    assert.equal(heading, 'Transcript — English (AssemblyAI, diarized)');
+    assert.ok(markdown.includes('## Transcript — English (AssemblyAI, diarized)'));
+});
+
+test('diarizedTrackEntry: cloud runs name the engine, keep the replace-slot role', () => {
+    const entry = diarizedTrackEntry({
+        language: 'en', segments: segs(),
+        model_info: { provider: 'deepgram', asr_model: 'nova-3' }
+    });
+    assert.equal(entry.kind, 'deepgram');
+    assert.equal(entry.displayName, 'Deepgram (diarized, en)');
+    assert.equal(entry.role, 'local-diarized');
+    assert.equal(entry.events.length, 4);
 });
