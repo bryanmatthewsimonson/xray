@@ -27,7 +27,13 @@ export const UI = {
   // open the reader as a new tab. This is the single capture entry point;
   // every trigger (toolbar icon, keyboard shortcut, context menu) routes
   // here via the `xray:capture` message.
-  openReader: async () => {
+  //
+  // `transcribe: true` (the "Capture & transcribe locally" menu item,
+  // YouTube only) skips the native transcript strategies — the diarized
+  // companion transcript supersedes them — and rides the flag to the SW
+  // on the session record (NOT on the article, which persists into
+  // archive rows) so the reader knows to start the job.
+  openReader: async ({ transcribe = false } = {}) => {
     try {
       // 0. PDF viewer shells that DO host content scripts. The PDF
       //    routing design assumes browsers never inject content scripts
@@ -57,7 +63,11 @@ export const UI = {
       const detection = ContentDetector.detect();
       const platform = detection?.platform || detectPlatformFromDom();
 
-      let enriched = await captureForPlatform(platform);
+      const wantsTranscription = transcribe && platform === 'youtube';
+      let enriched = await captureForPlatform(
+        platform,
+        wantsTranscription ? { skipTranscripts: true } : undefined
+      );
 
       // 2. If no synthesizer handled the page, fall back to Readability
       //    + platform-specific enrichment (Substack's path).
@@ -76,7 +86,8 @@ export const UI = {
       const resp = await chrome.runtime.sendMessage({
         type: 'xray:reader:open',
         id,
-        article: enriched
+        article: enriched,
+        ...(wantsTranscription ? { transcribe: true } : {})
       });
       if (!resp || !resp.ok) {
         throw new Error(resp?.error || 'Service worker did not acknowledge');

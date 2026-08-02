@@ -246,6 +246,13 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
                     UI.openReader();
                     sendResponse({ ok: true });
                     break;
+                case 'xray:capture:transcribe':
+                    // "Capture & transcribe locally" (YouTube menu item).
+                    // Same fire-and-forget ack as xray:capture — the ack
+                    // means "content script alive", not "capture done".
+                    UI.openReader({ transcribe: true });
+                    sendResponse({ ok: true });
+                    break;
                 case 'xray:getPubkey':
                     Signer.getPublicKey()
                         .then((pubkey) => sendResponse({ ok: true, pubkey }))
