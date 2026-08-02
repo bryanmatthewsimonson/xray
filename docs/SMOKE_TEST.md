@@ -1483,6 +1483,23 @@ Best exercised on a capture with a photo, a figure with a caption, and
 
 ---
 
+## Phase 29 — Store-first publish (29.1)
+
+The flag-off leg needs no rows of its own — the default is off, so
+every other section already exercises it. These rows walk the
+flag-ON leg; set `storeFirstPublish` in the `xray:flags` storage key
+from the SW console (no Options toggle yet — the flusher and its
+surfaces arrive in 29.2).
+
+| # | Test | Pass criteria |
+|---|---|---|
+| SF.a | Flag on, publish a capture with working relays | ✅ publish succeeds exactly as before; every signed event has a journal row with a per-relay snapshot (confirmed relays listed) |
+| SF.b | Flag on, replace the relay list with one dead `wss://` URL, publish | ✅ the publish reports failure BUT the signed events survive as `pending` journal rows — no signature lost, no NIP-07 re-prompt needed to keep them |
+| SF.c | Restore real relays, re-publish the same capture | ✅ ledger marks land on CONFIRMED OKs only, same as flag-off (the 2026-07-10 rule is flag-independent) |
+| SF.d | Flag off, repeat SF.b | ✅ today's behavior byte-for-byte: the zero-success publish journals nothing (the known pre-29.1 window — proving the flag really gates the change) |
+
+---
+
 ## Reporting
 
 For each defect found:

@@ -37,6 +37,7 @@ import { articleAnswersTo } from '../shared/url-identity.js';
 import { Signer } from '../shared/signer.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { publishConfirmed, IDENTITY_KINDS } from '../shared/confirmed-publish.js';
+import { gatePublish } from '../shared/publish-gate.js';
 import { getTranscribeConfig, getTranscriberPort, pingTranscriber, startTranscription, getJobStatus, draftClaimCandidates } from '../shared/transcriber-client.js';
 
 // Pull the debug preference on SW startup. MV3 service workers sleep
@@ -547,15 +548,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Orchestrates:
     //   1. Look up the source tab id from the session-storage record.
     //   2. Ask that tab's content script to sign the event via NIP-07.
-    //   3. Publish the signed event through NostrClient.
+    //   3. Publish the signed event through the publish gate (29.1) —
+    //      the SW is the publishing context for this flow, so the gate
+    //      journals here; the reader's publishOk skips its own journal
+    //      write when storeFirstPublish is on.
     //   4. Respond to the reader with the aggregated per-relay results.
+    //
+    // `ledger` ({model, localId, extra}) and `articleUrl` are optional
+    // reader-supplied descriptors the gate journals alongside the
+    // signed event so the 29.2 flusher can run the local-model mark on
+    // a late confirmation.
     if (message.type === 'xray:capture:publish') {
         const { id, event } = message;
         if (!id || !event) {
             sendResponse({ ok: false, error: 'missing id or event' });
             return false;
         }
-        handleCapturePublish(id, event).then(
+        handleCapturePublish(id, event, {
+            ledger: message.ledger || null,
+            articleUrl: message.articleUrl || null
+        }).then(
             (result) => sendResponse(result),
             (err) => sendResponse({ ok: false, error: err && err.message })
         );
@@ -1619,7 +1631,7 @@ function tablessSignError(err) {
     return msg;
 }
 
-async function handleCapturePublish(id, unsignedEvent) {
+async function handleCapturePublish(id, unsignedEvent, { ledger = null, articleUrl = null } = {}) {
     // 1. Pull the source-tab id from the session-storage record the FAB
     //    click saved. That's where the content script + NIP-07 bridge live.
     const area = chrome.storage.session || chrome.storage.local;
@@ -1676,22 +1688,41 @@ async function handleCapturePublish(id, unsignedEvent) {
         ? prefs.default_relays
         : ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.nostr.band'];
 
-    // 4. Publish. Identity kinds (kind 0, relay lists, account/
+    // 4. Publish through the gate (29.1): with storeFirstPublish ON
+    //    the signed event journals as a 'pending' row BEFORE the relay
+    //    leg (so a total relay failure can't lose the signature); OFF
+    //    is the pre-29.1 attempt-only path (the reader's publishOk
+    //    still journals on success — legacyJournalOnSuccess stays
+    //    false here so flag-off journaling happens exactly where it
+    //    did before). Identity kinds (kind 0, relay lists, account/
     //    relationship/owned-keys events — the rendezvous machinery
     //    strangers join through) require a relay CONFIRMATION and
-    //    retry an assumed-only round once (KS.7, Phase 25.5); other
-    //    kinds keep the single-shot path — reconcile catches losses.
+    //    retry an assumed-only round once (KS.7, Phase 25.5), composed
+    //    as the injected transport so the confirmed-retry still runs
+    //    inside the gate; other kinds keep the single-shot path —
+    //    reconcile catches losses.
     let results;
+    let journaled;
     try {
-        if (IDENTITY_KINDS.includes(signed.event.kind)) {
-            const pc = await publishConfirmed(relays, signed.event);
-            results = pc.result;
-            if (!pc.ok) {
-                Utils.log(`identity-kind ${signed.event.kind} publish got no relay confirmation after ${pc.attempts} attempts`);
+        const transport = IDENTITY_KINDS.includes(signed.event.kind)
+            ? async (rl, ev) => {
+                const pc = await publishConfirmed(rl, ev);
+                if (!pc.ok) {
+                    Utils.log(`identity-kind ${ev.kind} publish got no relay confirmation after ${pc.attempts} attempts`);
+                }
+                return pc.result;
             }
-        } else {
-            results = await NostrClient.publishToRelays(relays, signed.event);
-        }
+            : NostrClient.publishToRelays;
+        const gated = await gatePublish({
+            signedEvent: signed.event,
+            relays,
+            publish: transport,
+            ledger,
+            articleUrl,
+            legacyJournalOnSuccess: false
+        });
+        results = gated.results;
+        journaled = gated.journaled;
     } catch (err) {
         return { ok: false, error: 'Relay publish failed: ' + (err && err.message) };
     }
@@ -1706,5 +1737,8 @@ async function handleCapturePublish(id, unsignedEvent) {
         });
     } catch (_) { /* notifications permission may be declined */ }
 
-    return { ok: true, signedEvent: signed.event, results };
+    // `journaled` is the gate's per-event truth (29.1) — the reader's
+    // publishOk trusts it over a fresh flag read, so a flag flip
+    // during the relay leg can't leave an in-flight event unjournaled.
+    return { ok: true, signedEvent: signed.event, results, journaled };
 }

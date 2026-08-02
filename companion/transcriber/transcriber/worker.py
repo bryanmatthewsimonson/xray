@@ -39,11 +39,14 @@ def main() -> None:
         with open(sys.argv[1], "r", encoding="utf-8") as fh:
             spec = json.load(fh)
 
-        # Heavy imports (torch / whisperx / yt-dlp) happen inside pipeline,
-        # here in the child only — the server process never pays for them.
-        from . import config, pipeline
+        # Heavy imports (torch / whisperx / yt-dlp) happen inside the
+        # provider runners, here in the child only — the server process
+        # never pays for them.  Cloud runners never import torch at
+        # all, so a cloud child starts fast and holds zero VRAM.
+        from . import config, providers
 
-        result = pipeline.run(spec, emit)
+        runner = providers.get_runner(spec.get("provider") or "local")
+        result = runner(spec, emit)
         _write_result(config, spec["job_id"], result)
         emit({"stage": "done", "progress": 1.0})
     except Exception as exc:  # the whole job funnels through here

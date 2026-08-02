@@ -43,8 +43,15 @@ import { EventBuilder } from './event-builder.js';
 import { NostrClient } from './nostr-client.js';
 import { EntityModel } from './entity-model.js';
 import { LocalKeyManager } from './local-key-manager.js';
-import { recordPublished } from './event-journal.js';
 import { publishConfirmed } from './confirmed-publish.js';
+import { gatePublish } from './publish-gate.js';
+
+// 29.1: every sign-and-publish in this module routes through the
+// publish gate. This module runs in the SIDEPANEL (an extension page
+// with WebSocket access), so the injected transport is NostrClient's
+// pool directly — no message hop. The journal writes the gate makes
+// land in the same origin-shared IndexedDB either way.
+const directTransport = (relays, event) => NostrClient.publishToRelays(relays, event);
 
 const SCHEMA_VERSION = 1;
 // NIP-32 L/l namespace for our sync events. Writes use the current label;
@@ -183,12 +190,20 @@ export async function pushEntities({ userPrivkey, relays }) {
             const ct      = await Crypto.nip44Encrypt(payload, convKey);
             const unsigned = EventBuilder.buildEntitySyncEvent(entity.id, ct, entity.type, userPubkey);
             const signed   = await Crypto.signEvent(unsigned, userPrivkey);
-            const result   = await NostrClient.publishToRelays(relays, signed);
+            // legacyJournalOnSuccess: this site journaled on success
+            // before 29.1 — flag-off keeps that exact behavior; the
+            // sync payload replaces in place on the relay, so there is
+            // no per-row local ledger to describe (ledger: null).
+            const { results: result } = await gatePublish({
+                signedEvent: signed,
+                relays,
+                publish: directTransport,
+                ledger: null,
+                legacyJournalOnSuccess: true
+            });
             if (result && result.successful > 0) {
                 out.pushed++;
                 out.perEntity.push({ id: entity.id, ok: true, relays: result.successful, total: result.total });
-                try { await recordPublished(signed, result, {}); }
-                catch (err) { Utils.error('event journal write failed for', entity.id, err); }
             } else {
                 out.failed++;
                 out.perEntity.push({ id: entity.id, ok: false, reason: 'no relays accepted' });
@@ -353,12 +368,17 @@ export async function pushRelayList({ userPrivkey, relays }) {
     const signed = await Crypto.signEvent(unsigned, userPrivkey);
     // Identity kind (KS.7 / Phase 25.5): the relay list is how other
     // clients discover where to reach this pubkey — require a relay
-    // CONFIRMATION and retry an assumed-only round once.
-    const { result } = await publishConfirmed(relays, signed);
-    if (result && result.successful > 0) {
-        try { await recordPublished(signed, result, {}); }
-        catch (err) { Utils.error('event journal write failed for relay list', err); }
-    }
+    // CONFIRMATION and retry an assumed-only round once. The
+    // confirmed-retry composes as the gate's injected transport
+    // (29.1), so the retry loop runs inside the gate; this site
+    // journaled on success before 29.1, so flag-off keeps that.
+    const { results: result } = await gatePublish({
+        signedEvent: signed,
+        relays,
+        publish: async (rl, ev) => (await publishConfirmed(rl, ev)).result,
+        ledger: null,
+        legacyJournalOnSuccess: true
+    });
     return { published: result.successful || 0, total: result.total || relays.length, confirmed: result.confirmed || 0 };
 }
 
@@ -468,7 +488,18 @@ export async function clearRemote({ userPrivkey, relays }) {
         };
         try {
             const signed = await Crypto.signEvent(unsigned, userPrivkey);
-            const result = await NostrClient.publishToRelays(relays, signed);
+            // Never journaled before 29.1 — legacyJournalOnSuccess
+            // stays false so flag-off is exactly the old behavior;
+            // with storeFirstPublish on, even these kind-5 deletes
+            // get sign-time durability (ledger: null — a delete
+            // request marks nothing locally).
+            const { results: result } = await gatePublish({
+                signedEvent: signed,
+                relays,
+                publish: directTransport,
+                ledger: null,
+                legacyJournalOnSuccess: false
+            });
             if (result && result.successful > 0) out.published++;
             else                                 out.failed++;
         } catch (err) {

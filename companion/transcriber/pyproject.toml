@@ -8,12 +8,18 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.30",          # plain, NOT uvicorn[standard]
     "yt-dlp>=2026.6.30",      # deliberately loose; users update this often
-    "whisperx>=3.8.6",        # pulls faster-whisper, ctranslate2>=4.5, pyannote-audio>=4.0, torch~=2.8
+    # 3.8.7rc1 is a two-change packaging release over 3.8.6 (no code
+    # changes): it relaxes huggingface-hub<1.0.0 to >=0.19.0, which is
+    # what unblocks transformers 5.x (see constraint-dependencies below).
+    "whisperx>=3.8.7rc1",     # pulls faster-whisper, ctranslate2>=4.5, pyannote-audio>=4.0, torch~=2.8 (overridden below)
     # torch/torchaudio/torchvision are pulled in transitively anyway, but
     # they MUST be declared here: uv only applies [tool.uv.sources] to
-    # declared dependencies, and without the cu128 source the lock pins
+    # declared dependencies, and without the cu129 source the lock pins
     # PyPI's CPU-only Windows wheels.
-    "torch>=2.8",
+    # torch floor raised 2026-08-02: < 2.13 carries three
+    # memory-corruption advisories (unpack_sequence < 2.9.1,
+    # lstm_cell < 2.10.0, jit.script <= 2.12.1).
+    "torch>=2.13",
     "torchaudio>=2.8",
     "torchvision>=0.23",
 ]
@@ -28,12 +34,38 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["transcriber"]
 
+[tool.uv]
+# Security floor, not a dependency (transformers is only pulled in
+# transitively by whisperx for its alignment models): GHSA advisories
+# fixed in transformers 5.0.0rc3 / 5.3.0 / 5.5.0 (RCE in Trainer, RCE,
+# arbitrary code execution in LightGlue loading). Keeping the floor here
+# makes a future re-lock fail loudly rather than silently regress below
+# the patched version if whisperx ever re-caps huggingface-hub.
+constraint-dependencies = ["transformers>=5.5"]
+# torch's own advisories (fixed in 2.9.1/2.10.0/2.13.0) needed two more
+# moves beyond the transformers floor (2026-08-02): whisperx pins
+# torch~=2.8.0 / torchaudio~=2.8.0 / torchvision~=0.23.0, but those are
+# CI-lockstep pins, not declared incompatibilities — pyannote-audio 4.x
+# is uncapped (torch>=2.8.0) and torchaudio 2.11 dropped its torch pin
+# entirely — so they are OVERRIDDEN to the security floors; and the
+# wheel index moves cu128 → cu129 below (cu128 stopped at torch 2.11).
+# Formally clean; functionally this runs whisperx ahead of its tested
+# matrix — smoke-test one real transcription after any re-lock.
+override-dependencies = [
+    "torch>=2.13",
+    "torchaudio>=2.11",
+    "torchvision>=0.23",
+]
+
+# cu128 stopped receiving wheels at torch 2.11; the 2.13 triple lives
+# on cu129+ (2026-08-02). CUDA 12.x minor-version compatibility means
+# any 12.x-capable driver runs cu129 builds — no user driver bump.
 [[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
+name = "pytorch-cu129"
+url = "https://download.pytorch.org/whl/cu129"
 explicit = true
 
 [tool.uv.sources]
-torch       = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
-torchaudio  = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
-torchvision = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+torch       = [{ index = "pytorch-cu129", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+torchaudio  = [{ index = "pytorch-cu129", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cu129", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]

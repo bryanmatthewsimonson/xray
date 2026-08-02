@@ -200,7 +200,9 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
 ## Companion service (`companion/transcriber/`)
 
 A **separate local Python service** (uv-managed, FastAPI; yt-dlp →
-WhisperX → pyannote diarization on 127.0.0.1:8756) behind the
+WhisperX → pyannote diarization on 127.0.0.1:8756; optional cloud
+engines — AssemblyAI/Deepgram via `TRANSCRIBER_PROVIDER`, API keys
+env-only, audio-leaves-machine disclosure in its README) behind the
 "Transcribe locally" YouTube capture path. It is NOT part of the
 extension build or zip (`package.json` `webExt.ignoreFiles` excludes
 it; CI's `node --check`/tests never touch it). Setup + API contract:
@@ -335,14 +337,37 @@ tested contract, not an aspiration.
   (FB/IG/TikTok are finicky).
 - **`docs/NIP_DRAFT.md`** — the crowdsourced-metadata wire format.
 - **`docs/PHILOSOPHY.md`** — the **normative** constitution of the
-  Phase-13 epistemic auditor (v1.0.0). Consult it before any
-  structural, scoring, schema, or methodology change to audit
-  surfaces; when code and it conflict, it governs until amended.
-  When two of its principles conflict, document the tension and cite
-  them by number (e.g. "P9 over convenience"). Scope note: it governs
-  the audit family (`30056`–`30061`); Phase 15 truth verdicts operate
-  under `TRUTH_ADJUDICATION_DESIGN.md`'s own form-of-judgment (§1/§5)
+  Phase-13 epistemic auditor (v1.1.0 — the 2026-08-02 amendments
+  removed the standing re-audit cadence and narrowed the P10
+  self-dossier clause). Consult it before any structural, scoring,
+  schema, or methodology change to audit surfaces; when code and it
+  conflict, it governs until amended — and amending it to fit reality
+  is normal, not sacrilege (the maintainer: this is an experiment in
+  modeling reality, not received wisdom). When two of its principles
+  conflict, document the tension and cite them by number (e.g. "P9
+  over convenience"). Scope note: it governs ONLY the audit family
+  (`30056`–`30061`) — never treat it as a repo-wide constitution;
+  Phase 15 truth verdicts operate under
+  `TRUTH_ADJUDICATION_DESIGN.md`'s own form-of-judgment (§1/§5)
   — deliberately no 0–100 score or knowability ceiling there.
+- **`docs/TRUTH_INFRASTRUCTURE.md`** — **non-normative** expansion
+  map: the portable "truth infrastructure" framework (five
+  strategies — the fifth kept as process, with only the computed
+  shortcut refused — plus the double/triple-entry bookkeeping lens)
+  and six expansion domains (supply-chain provenance,
+  proof-of-personhood/reputation, truth markets, democratic ledgers,
+  adversarial collaboration, cross-ledger reconciliation), each
+  mapped to shipped features, parked designs
+  (`docs/BONDING_NOTES.md`), refusals, and the sibling projects
+  (crux; Honor). `docs/PHILOSOPHY.md` governs wherever it touches
+  audit surfaces; cites the in-flight Truth Systems annex (PR #263)
+  in prose without depending on it.
+- **`docs/FOUNDING_TRANSCRIPT.md`** — the founding conversation's
+  verbatim source prose (non-normative; PHILOSOPHY.md and the RQ
+  decisions govern on conflict). Its supersession log records which
+  transcript mechanisms were ruled newsroom-only and dropped
+  (2026-08-02) — check it before "integrating" anything from the
+  transcript.
 - **`CONTRIBUTING.md`** — release process (git-tag-driven via
   `.github/workflows/release.yml`) and the Firefox-floor rationale.
 

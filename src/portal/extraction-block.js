@@ -20,6 +20,7 @@ import { ClaimModel } from '../shared/claim-model.js';
 import { buildMemberUnits } from '../shared/case-synthesis.js';
 import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { getArticleExtraction, saveArticleExtraction } from '../shared/audit/audit-cache.js';
+import { gatePublish, relayPublishTransport } from '../shared/publish-gate.js';
 import { FALLBACK_RELAYS } from './corpus.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import {
@@ -31,17 +32,6 @@ import {
 } from '../shared/extraction-publish.js';
 
 const now = () => Math.floor(Date.now() / 1000);
-
-function sendMessage(msg) {
-    return new Promise((resolve) => {
-        try {
-            chrome.runtime.sendMessage(msg, (resp) => {
-                if (chrome.runtime.lastError) { resolve(null); return; }
-                resolve(resp);
-            });
-        } catch (_) { resolve(null); }
-    });
-}
 
 async function resolveRelays() {
     try {
@@ -204,26 +194,42 @@ async function buildPublisher(withRecords, block) {
             // dangling `a` pointer is worse than none. The `x` content
             // hash and the `r`/`i` URL anchors cannot be wrong.
         });
-        // NB (Phase 29, docs/EVENT_STORE_DESIGN.md §1.3): this signs and
-        // publishes with NO journal row, like the portal's other sign
-        // sites. 29.1's publish gate must route this one too — and it is
-        // the only portal site with a BATCH path, so the gate wraps the
-        // loop body, not one call.
+        // 29.1: through the publish gate (this answers the MA.6 NB that
+        // sat here — the only portal site with a BATCH path, so the gate
+        // wraps this loop body, one call per record). Never journaled
+        // before, so flag-off is exactly the old send; flag-on gives the
+        // signed analysis sign-time durability. The ledger descriptor
+        // names the article-extractions record markRecordPublished
+        // stamps, keyed by articleHash (eventId comes from the row).
         const signed = await Signer.signEvent({ ...unsigned, pubkey: userPubkey });
-        const resp = await sendMessage({ type: 'xray:relay:publish', event: signed, relays });
-        if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'the publish attempt failed');
-        // `ok` means the ATTEMPT RAN, not that a relay took the event: the
-        // handler resolves `{ok: true, results}` even when every relay
-        // failed, so a caller that stops at `resp.ok` announces success
-        // into a void. Found by the MA.6 browser walk — an unreachable
-        // relay reported "published" and stamped the record.
-        const r = resp.results || {};
-        const confirmed = typeof r.confirmed === 'number' ? r.confirmed : 0;
-        if (confirmed === 0) {
-            // And an ASSUMED success (fulfilled with no relay OK — a
-            // timeout hope) must never reach a local publish ledger:
-            // JOURNAL 2026-07-10. `published_at` IS such a ledger, so an
-            // unconfirmed round stays unstamped and says so.
+        // 29.1 routes the transport; the LEDGER RULE stays here, as the
+        // gate's own docblock says it must ("the call sites keep
+        // performing their marks"). `gatePublish` resolving is not
+        // acceptance — it returns `confirmedOk`, the JOURNAL 2026-07-10
+        // computation, precisely so a site need not re-derive it. Reading
+        // only `ok` is how an unreachable relay came to report
+        // "published" and stamp the record (found by the MA.6 browser
+        // walk); `published_at` IS a local publish ledger, so an
+        // unconfirmed round stays UNSTAMPED and says so.
+        let gated;
+        try {
+            gated = await gatePublish({
+                signedEvent: signed,
+                relays,
+                publish: relayPublishTransport(),
+                ledger: { model: 'extraction-analysis', localId: fresh.articleHash, extra: null },
+                legacyJournalOnSuccess: false
+            });
+        } catch (err) {
+            throw new Error((err && err.message) || 'the publish attempt failed');
+        }
+        if (!gated.confirmedOk) {
+            const r = gated.results || {};
+            // An ASSUMED success (fulfilled with no relay OK — a timeout
+            // hope) is reported distinguishably from a total failure: with
+            // the store-first flag on, the signature is journaled and the
+            // 29.2 flusher will retry it, so the wording must not read as
+            // "lost".
             throw new Error(r.successful > 0
                 ? `sent to ${r.successful}/${r.total} relay(s) but none confirmed it — not recorded as published`
                 : `no relay accepted it (${r.failed || r.total || 0} unreachable or refused)`);

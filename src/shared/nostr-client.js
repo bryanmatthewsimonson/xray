@@ -1,7 +1,11 @@
-// WebSocket relay client. Ported verbatim from the userscript. These
-// WebSockets are short-lived (open, publish, close) and live in the
-// content script, so we don't need to worry about the MV3 service worker
-// lifecycle here.
+// WebSocket relay client. Ported from the userscript. The sockets live
+// in the SERVICE WORKER's pool (reached via the xray:relay:* messages)
+// and in extension pages that import NostrClient directly (sidepanel
+// entity-sync, network) — never the content script, whose page CSP can
+// block relay connections. Connections are short-lived (open, publish/
+// query, close); the SW pool re-opens on wake, so MV3 suspension costs
+// a reconnect, not correctness. (Header corrected in 29.1 per
+// EVENT_STORE_DESIGN §3.3's parenthetical.)
 
 import { Utils } from './utils.js';
 import { CONFIG } from './config.js';

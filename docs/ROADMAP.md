@@ -188,12 +188,13 @@ AI vis.  ████████████████████  COMPLETE 
                                 note is human-accepted per image and
                                 merges with inline model provenance
                                 (JOURNAL 2026-07-29)
-Phase 29 ░░░░░░░░░░░░░░░░░░░░  design agreed 2026-08-02 — store-first
-                                publish + the local event store:
-                                sign-time journaling + flush queue,
-                                the xray-relay derived store
+Phase 29 ███░░░░░░░░░░░░░░░░░  in progress — store-first publish +
+                                the local event store: sign-time
+                                journaling + flush queue, the
+                                xray-relay derived store
                                 (docs/EVENT_STORE_DESIGN.md);
-                                29.1–29.6 not started
+                                29.1 SHIPPED 2026-08-02 (PR #279),
+                                29.2–29.6 open
 ```
 
 Parity with the v4.2 userscript is long reached; the project now ships
@@ -2057,12 +2058,16 @@ new DERIVED `xray-relay` database becomes the queryable index
 adopt the local-only `held` tier — signed, journaled, exported,
 never flushed.
 
-- [ ] **29.1 — The publish gate.** `shared/publish-gate.js` (sign ⇒
+- ✅ **29.1 — The publish gate.** `shared/publish-gate.js` (sign ⇒
   journal `pending` ⇒ inline attempt ⇒ snapshot), journal DB v2 +
   the v1→v2 migration, EVERY sign site routed (reader families,
   entity-sync push + `clearRemote`, the network kind-3 mirror, the
-  portal's four sign sites), the transport-layer guard test. Closes
-  the signature-loss window by itself.
+  portal's four sign sites — plus MA.6's kind-30070 send, which
+  landed mid-flight and was caught by the guard), the
+  transport-layer guard test. Closes the signature-loss window by
+  itself. Shipped 2026-08-02, PR #279, incl. adversarial-review
+  hardening (backup v1-row normalization, the truthful `journaled`
+  bit threaded through the SW response).
 - [ ] **29.2 — The flusher.** `alarms` lifecycle + exponential
   backoff, OK-prefix classification, computed supersession,
   cross-workspace queue + deferred ledger marks, portal

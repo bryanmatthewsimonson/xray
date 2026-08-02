@@ -121,13 +121,32 @@ function languageLabel(code) {
     return c;
 }
 
+/**
+ * Human name for a companion CLOUD provider, or null for the local
+ * WhisperX path (absent/`local`/`whisperx` — older companions send no
+ * provider at all). An unknown provider names itself rather than
+ * masquerading as local — the honesty rule the transcript chips
+ * follow. (reader/transcribe-flow.js mirrors the two known names
+ * inline; it stays import-free so its tests need no chrome stub.)
+ */
+export function providerDisplayName(provider) {
+    const p = String(provider || '').trim().toLowerCase();
+    if (!p || p === 'local' || p === 'whisperx') return null;
+    return { assemblyai: 'AssemblyAI', deepgram: 'Deepgram' }[p] || p;
+}
+
 /** The suffixed section heading. Suffixed on purpose: the Phase 22
  *  attach upsert replaces only the BARE `## Transcript` heading, so a
  *  diarized section can never be clobbered by a later paste-attach —
  *  the same protection YouTube's own `## Transcript — <lang>`
- *  sections rely on. */
-export function diarizedHeading(language) {
+ *  sections rely on. Cloud results name their provider — the body is
+ *  canonical and published, so "local" would be a durable lie. */
+export function diarizedHeading(language, provider) {
     const label = languageLabel(language);
+    const via = providerDisplayName(provider);
+    if (via) {
+        return label ? `Transcript — ${label} (${via}, diarized)` : `Transcript — ${via} (diarized)`;
+    }
     return label ? `Transcript — ${label} (local, diarized)` : 'Transcript — local (diarized)';
 }
 
@@ -168,7 +187,7 @@ export function buildDiarizedBody({ capturedMarkdown = '', watchUrl = '', result
     // heading through the next same-level heading or EOF).
     base = base.replace(/^## Transcript — [^\n]*$[\s\S]*?(?=^## |$(?![\s\S]))/gm, '').replace(/\s+$/, '');
 
-    const heading = diarizedHeading(result.language);
+    const heading = diarizedHeading(result.language, result.model_info && result.model_info.provider);
     const linkFor = (secs) => `${watchUrl}&t=${secs}s`;
 
     // Assemble first WITHOUT offsets to learn where the section lands,
@@ -224,10 +243,18 @@ export function buildDiarizedBody({ capturedMarkdown = '', watchUrl = '', result
  */
 export function diarizedTrackEntry(result) {
     const segments = Array.isArray(result && result.segments) ? result.segments : [];
+    const provider = String((result && result.model_info && result.model_info.provider) || '').trim().toLowerCase();
+    const via = providerDisplayName(provider);
     return {
-        kind: 'whisperx',
+        // The chip's kind mark names the engine honestly (the "never
+        // masquerade as human captions" rule): whisperx locally, the
+        // provider name for cloud runs.
+        kind: via ? provider : 'whisperx',
         languageCode: (result && result.language) || '',
-        displayName: `Local (diarized${result && result.language ? `, ${result.language}` : ''})`,
+        displayName: `${via || 'Local'} (diarized${result && result.language ? `, ${result.language}` : ''})`,
+        // Deliberately 'local-diarized' for cloud runs too: this is the
+        // replace-slot key the reader filters on when a re-transcription
+        // adopts — one diarized track per capture, whatever the engine.
         role: 'local-diarized',
         events: segments
             .filter((s) => s && String(s.text || '').trim())
@@ -242,8 +269,19 @@ export function diarizedTrackEntry(result) {
 }
 
 /** The extraction-method value (existing tag; grammar documented in
- *  docs/NIP_DRAFT.md next to the pdfjs/llm forms). */
+ *  docs/NIP_DRAFT.md next to the pdfjs/llm forms). Local runs keep the
+ *  two-model `whisperx-<asr>+<diarization>` form; a cloud provider is
+ *  ONE integrated ASR+diarization model, so it publishes as a single
+ *  `<provider>-<model>` token (e.g. `assemblyai-universal`,
+ *  `deepgram-nova-3`). */
 export function extractionMethodFor(modelInfo) {
+    const provider = String((modelInfo && modelInfo.provider) || '').trim().toLowerCase();
+    if (providerDisplayName(provider)) {
+        const model = String((modelInfo && modelInfo.asr_model) || '').trim() || 'unknown';
+        // Published tag value: keep it to the documented token charset.
+        return `${provider}-${model}`.toLowerCase()
+            .replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+    }
     const asr = (modelInfo && modelInfo.asr_model) || 'large-v3';
     const diar = String((modelInfo && modelInfo.diarization_model) || 'pyannote')
         .replace(/^pyannote\/(speaker-diarization-)?/, 'pyannote-');

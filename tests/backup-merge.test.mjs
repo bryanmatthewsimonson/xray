@@ -40,6 +40,10 @@ const { BACKUP_FORMAT, mergeBackup, mergeStorageValue } = await import('../src/s
 const { openAuditDb, clear: clearAudits, getRun, listRuns, getArticleExtraction, saveArticleExtraction }
     = await import('../src/shared/audit/audit-cache.js');
 const { openArchiveDb } = await import('../src/shared/archive-cache.js');
+const {
+    recordSigned, recordPublished, getByEventId: journalGet, clear: clearJournal,
+    openEventJournalDb, MIGRATION_DEFER_S
+} = await import('../src/shared/event-journal.js');
 
 function idbPut(db, storeName, row) {
     return new Promise((resolve, reject) => {
@@ -373,6 +377,121 @@ test('mergeBackup: under a NON-default workspace, content merges into THAT works
         _stateStore.delete('ws:ws_mine:article_claims');
         _stateStore.delete('ws:ws_other:article_claims');
     }
+});
+
+test('mergeBackup: v2 journal rows — merged flush states resolve local-wins; foreign pending rows join the queue', async () => {
+    await seedLocal();
+    await clearJournal();
+    const P = 'p'.repeat(64);
+    const signed = (id, kind = 30040, tags = [['d', 'd-' + id.slice(0, 4)]]) => ({
+        id, sig: 's'.repeat(128), kind, pubkey: P, created_at: 1700000000, tags, content: 'x'
+    });
+
+    // Local: a PENDING row (signed here, no relay has it yet).
+    const sharedId = 'a9'.padEnd(64, '0');
+    await recordSigned(signed(sharedId), { ledger: { model: 'claim', localId: 'c1' } });
+    // Local: a flushed row that the incoming file also carries.
+    const flushedId = 'b9'.padEnd(64, '0');
+    await recordPublished(signed(flushedId), {
+        successful: 1, confirmed: 1, failed: 0, total: 1,
+        results: [{ url: 'wss://mine.example', success: true, assumed: false }]
+    }, {});
+
+    // Foreign: the SAME shared id but marked flushed on the other
+    // machine, plus a foreign-only PENDING row (Q7: it must arrive
+    // still pending, joining the local flush queue).
+    const foreignPendingId = 'c9'.padEnd(64, '0');
+    const b = foreignBackup();
+    b.databases['xray-events'] = {
+        published_events: [
+            {
+                eventId: sharedId, kind: 30040, pubkey: P,
+                address: `30040:${P}:d-${sharedId.slice(0, 4)}`,
+                createdAt: 1700000000, event: signed(sharedId), articleUrl: null,
+                signedAt: 1700000000, publishedAt: 1700000500,
+                relays: [{ url: 'wss://theirs.example', success: true, assumed: false }],
+                flush: { state: 'flushed', attempts: 1, nextAttemptAt: null },
+                ledger: null
+            },
+            {
+                eventId: foreignPendingId, kind: 30040, pubkey: P,
+                address: `30040:${P}:d-${foreignPendingId.slice(0, 4)}`,
+                createdAt: 1700000000, event: signed(foreignPendingId), articleUrl: null,
+                signedAt: 1700000100, publishedAt: null, relays: [],
+                flush: { state: 'pending', attempts: 0, nextAttemptAt: 1700000100 },
+                ledger: null
+            }
+        ]
+    };
+    const summary = await mergeBackup(b);
+
+    // Local wins on the shared id: our pending state stands (costing
+    // at most one redundant, idempotent re-flush later — §3.4).
+    const local = await journalGet(sharedId);
+    assert.equal(local.flush.state, 'pending', 'a local pending beats an incoming flushed (local wins)');
+    assert.deepEqual(local.ledger, { model: 'claim', localId: 'c1', extra: null, markedAt: null },
+        'the local ledger descriptor survives the merge');
+
+    // The foreign pending row arrived INTACT — still pending, so it
+    // joins the flush queue rather than stranding (Q7 2026-08-02).
+    const arrived = await journalGet(foreignPendingId);
+    assert.equal(arrived.flush.state, 'pending');
+    assert.equal(arrived.event.sig, 's'.repeat(128), 'the signature rides the merge verbatim');
+
+    assert.equal(summary.databases['xray-events'].published_events.added, 1);
+    assert.equal(summary.databases['xray-events'].published_events.kept, 1);
+    assert.equal((await journalGet(flushedId)).flush.state, 'flushed', 'untouched local rows survive');
+    await clearJournal();
+});
+
+test('mergeBackup: a V1-SHAPED journal row normalizes on the way in — pending, deferred, and index-visible', async () => {
+    // A pre-29.1 backup merged into a v2 install: the row must arrive
+    // v2-shaped (put verbatim it would drop out of the flushState
+    // index and strand from the 29.2 flusher — §3.4's silent-strand
+    // failure, on the exact Mac ↔ Windows path).
+    await seedLocal();
+    await clearJournal();
+    const P = 'p'.repeat(64);
+    const V1_ID = 'e9'.padEnd(64, '0');
+    const b = foreignBackup();
+    b.databases['xray-events'] = {
+        published_events: [{
+            // Byte-for-byte the pre-29.1 recordPublished shape,
+            // assumed-only, with a v1-rule null address (kind 0).
+            eventId: V1_ID, kind: 0, pubkey: P,
+            address: null, createdAt: 1700000000,
+            event: {
+                id: V1_ID, sig: 's'.repeat(128), kind: 0, pubkey: P,
+                created_at: 1700000000, tags: [], content: '{}'
+            },
+            publishedAt: 3000,
+            relays: [{ url: 'wss://theirs.example', success: true, assumed: true }],
+            articleUrl: null
+        }]
+    };
+    const now = Math.floor(Date.now() / 1000);
+    await mergeBackup(b);
+
+    const row = await journalGet(V1_ID);
+    assert.equal(row.flush.state, 'pending', 'assumed-only v1 import → pending (migration-equivalent)');
+    assert.equal(row.signedAt, 3000, 'signedAt backfilled from publishedAt');
+    assert.equal(row.address, `0:${P}`, 'address recomputed under replaceableKey');
+    assert.equal(row.ledger, null);
+    assert.ok(row.flush.nextAttemptAt > now + MIGRATION_DEFER_S - 120
+        && row.flush.nextAttemptAt <= now + MIGRATION_DEFER_S + 120,
+        'v1 imports take the migration defer; v2-shaped imports keep their own schedule (Q7)');
+
+    // The load-bearing part: visible to the 29.2 queue scan.
+    const db = await openEventJournalDb();
+    const pending = await new Promise((resolve, reject) => {
+        const req = db.transaction('published_events', 'readonly')
+            .objectStore('published_events').index('flushState').getAll('pending');
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+    });
+    assert.deepEqual(pending.map((r) => r.eventId), [V1_ID],
+        'the normalized import is in the flushState index — the flusher can see it');
+    await clearJournal();
 });
 
 test('mergeStorageValue: map-shape guard — non-maps and malformed JSON keep local', () => {
