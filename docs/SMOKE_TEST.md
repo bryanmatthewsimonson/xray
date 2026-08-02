@@ -1461,6 +1461,28 @@ cache, the corpus-level analyses, and the entity page.
 
 ---
 
+## AI vision — Describe images (2026-07-29)
+
+Gating walk mirrors 14.5.1–14.5.4 but for the **`aiVision`** flag —
+which is independent of LLM assist (16.8c's flag-independence rule).
+Best exercised on a capture with a photo, a figure with a caption, and
+(the headline case) a scanned page image.
+
+| # | Test | Pass criteria |
+|---|---|---|
+| AV.a | Fresh profile, flag off. Open a captured article | ✅ **no "🖼 Describe images…" button**; with DevTools Network open, no request to `api.anthropic.com` is possible |
+| AV.b | Options → Advanced → **AI vision**: check the toggle, leave the key blank | ✅ button present but **disabled**, tooltip points at the key field; still zero network |
+| AV.c | Save an API key with **LLM assist still OFF** | ✅ the Describe-images button is **live** — the vision consent is its own flag, not a rider on `llmAssist` |
+| AV.d | Open an archived capture read-only from the portal | ✅ the button is **hidden** (the merge mutates the body) |
+| AV.e | Click **🖼 Describe images…** | ✅ selection modal lists the body's images with thumbnails (archived figures render from the byte archive even on the Markdown tab); the disclosure names the model AND that the article title/URL + alt/caption go along; the send button carries the count ("Send N images to Anthropic"); Escape declines |
+| AV.f | Uncheck all but one image, send | ✅ exactly one API call; the row shows kind + caption (+ transcription with its own checkbox when the image has text); per-part checkboxes decide what merges |
+| AV.g | Accept a caption on a photo | ✅ the body gains `*Image description (AI — <model>): …*` directly under that image; the hash line updates (honest versioning); the toast counts the merge |
+| AV.h | On a scanned page image, accept the transcription | ✅ a `**Text in image (AI transcription — <model>):**` blockquote reconstructs the page text under the scan; a partial read is labeled "may be incomplete" |
+| AV.i | Re-run on the same image and accept a different caption | ✅ the note is **replaced, never stacked** — and an article blockquote right after the note (a pull quote / tweet embed) survives untouched |
+| AV.j | Publish, then view the event content | ✅ the notes ride the kind-30023 body as plain markdown with the model named inline — a consumer can tell exactly which text is model-authored |
+
+---
+
 ## Reporting
 
 For each defect found:

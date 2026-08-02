@@ -96,9 +96,11 @@ through the **source tab** when NIP-07 is active, so the user's signer
 extension approves in-context.
 
 **Message bus:** everything is `chrome.runtime` messages typed `xray:*`
-(e.g. `xray:capture`, `xray:capture:publish`, `xray:relay:publish`,
-`xray:relay:query`, `xray:sign`, `xray:youtube:fetchTranscript`,
-`xray:screenshot:capture`, `xray:llm:suggest`, `xray:audit:run`). When adding a cross-context
+(e.g. `xray:capture`, `xray:capture:transcribe`, `xray:capture:publish`,
+`xray:relay:publish`, `xray:relay:query`, `xray:sign`,
+`xray:youtube:fetchTranscript`, `xray:screenshot:capture`,
+`xray:llm:suggest`, `xray:audit:run`, `xray:transcribe:{start,status,
+config,ping,claims}`, `xray:vision:describe`). When adding a cross-context
 call, add an `xray:*` message rather than reaching across contexts directly.
 
 ### Shared layer (`src/shared/`)
@@ -140,8 +142,10 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   user-signed) in `corpus-publish.js`; the user-signed entity page (an
   ordinary replaceable `30023`) in `entity-page-publish.js`; the
   creator-binding OwnedKeys manifest `30069` (Phase 24) + NIP-26
-  delegation tags; and the opt-in NIP-02 follow-list mirror (kind `3`)
-  in `follow-publish.js`. The moral lens (Phase 16) and the case
+  delegation tags; the per-article ExtractionAnalysis `30070` (MA.6,
+  user-signed, whole-unit disclosure with a REQUIRED per-row review
+  state) in `extraction-publish.js`; and the opt-in NIP-02 follow-list
+  mirror (kind `3`) in `follow-publish.js`. The moral lens (Phase 16) and the case
   dossier / graph / hypothesis-map / counterfactual (Phases 20 + 26) are
   derived views with **no wire kind** (`30066` stays free, guard-tested).
   **Wire-format changes in any of these have compatibility
@@ -186,7 +190,23 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   Integrity" never appear in lens exports, storage keys, or UI strings.
 - Also: `nostr-client.js` (relay pool, used from background),
   `archive-cache.js` (IndexedDB + paywall reconstruction),
-  `build-info.js` (the build stamp shown on the Options page).
+  `build-info.js` (the build stamp shown on the Options page),
+  `transcriber-client.js` + `diarized-transcript.js` (local
+  transcription: the loopback companion client — pinned to
+  127.0.0.1/localhost — and the segments→diarized-markdown/timeMap
+  composer; flag `localTranscription`, reader flow in
+  `reader/transcribe-flow.js`).
+
+## Companion service (`companion/transcriber/`)
+
+A **separate local Python service** (uv-managed, FastAPI; yt-dlp →
+WhisperX → pyannote diarization on 127.0.0.1:8756) behind the
+"Transcribe locally" YouTube capture path. It is NOT part of the
+extension build or zip (`package.json` `webExt.ignoreFiles` excludes
+it; CI's `node --check`/tests never touch it). Setup + API contract:
+`companion/transcriber/README.md`. The extension must behave exactly
+as before whenever the service is absent — that degradation is a
+tested contract, not an aspiration.
 
 ## Conventions
 
@@ -293,9 +313,13 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   corpus-v4 claims-independent cache key is superseded), the reduce
   reads the accumulated layer, the reader's Suggest pass folds into the
   SAME layer (MA.4 — one span-dedup rule across both producers, a
-  `producer` stamp, claims-only scope), and backups gained
+  `producer` stamp, claims-only scope), backups gained
   **merge-import** (`mergeBackup` — accrual by id, local wins,
-  config/identities never merged). The FLF Epistack
+  config/identities never merged), and the layer became PUBLISHABLE
+  (MA.6 — the NEW kind `30070` ExtractionAnalysis behind
+  `extractionAnalysisPublishing`; the maintainer's 2026-07-29 posture
+  publishes the WHOLE unit, every review state plus the model's prose,
+  so the per-row `status` marking is the only safeguard). The FLF Epistack
   entry has been submitted (deadline was 2026-07-19); the tool continues
   to be tailored **maintainer-driven from real casework (COVID first)**.
   The 0.8.0 smoke walk passed (2026-07-20; Phases 11–15

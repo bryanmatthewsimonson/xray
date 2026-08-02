@@ -31,12 +31,43 @@
            batch import parked proposals for this URL. Opens the same
            review modal; the parked record is cleared when it closes. -->
       <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-pending-suggest" hidden></button>
+      <!-- AI vision: hidden unless the aiVision flag is on. Sends the
+           SELECTED article images to Anthropic and returns captions +
+           text-in-image transcriptions — merged into the body only on
+           per-image Accept, labeled with the model. Hidden on
+           read-only opens. -->
+      <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-vision" title="Describe images with AI (captions + text-in-image transcription)" hidden>
+        🖼 Describe images…
+      </button>
       <!-- Media & transcript (Phase 22): declare what this URL contains
            (podcast / video), set the universal podcast IDs, and attach a
            pasted/uploaded transcript to THIS capture. Hidden on
            read-only opens. -->
       <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-media-btn" title="Declare media type (podcast / video) and attach a transcript">
         🎙 Media…
+      </button>
+      <!-- Local transcription: hidden unless the localTranscription flag
+           is on AND this is a YouTube capture. Runs the loopback
+           companion (yt-dlp → WhisperX → diarization); the diarized
+           transcript becomes the capture body. -->
+      <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-transcribe" hidden>
+        🎙 Transcribe
+      </button>
+      <!-- Speaker identification: visible on any capture with transcript
+           speakers. Binds each detected voice to a person entity (the
+           claim provenance for spoken words); same entity on two labels
+           = voice-split alias. Metadata-only, publishes as the existing
+           p/person entity tags. -->
+      <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-speakers" hidden
+              title="Identify each detected voice as a person entity">
+        🗣 Speakers…
+      </button>
+      <!-- Suggest (local): the LM Studio sibling of ✨ Suggest — same
+           review modal, same firewalls, but a loopback local model and
+           transcript captures only. Hidden unless transcriptClaimDrafts
+           is on AND the capture carries a transcript. -->
+      <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-suggest-local" hidden>
+        💫 Suggest (local)…
       </button>
       <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-entities" title="Open entity browser in the side panel">
         👤 Entities

@@ -48,6 +48,8 @@ import {
 import { shouldOfferArchive, describeMetric } from './archive-banner.js';
 import { archivedDraftIsCanonical, archivedDraftSource } from '../shared/archive-draft.js';
 import { openLlmReview } from './llm-review.js';
+import { openVisionModal } from './vision-modal.js';
+import { collectArticleImages, upsertVisionNoteHtml, upsertVisionNoteMarkdown } from '../shared/vision-notes.js';
 import { capturePdfToArticle, completeScanCapture } from './pdf-capture.js';
 import { assembleExtraction, extractionMethod } from '../shared/llm-extract.js';
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prompts.js';
@@ -76,7 +78,12 @@ import { lensTypeForPropositionClass } from '../shared/lens-taxonomy.js';
 import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/lens-engine.js';
 import { speakerFromParagraphText } from '../shared/transcript-parse.js';
 import { buildTranscriptSection, upsertTranscriptSection } from '../shared/transcript-article.js';
+import { buildDiarizedBody, timeFragmentSelector, timeRangeOfSpan, diarizedTrackEntry, extractionMethodFor } from '../shared/diarized-transcript.js';
+import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, reapStaleJobRecords, jobRecordKey } from './transcribe-flow.js';
 import { openMediaModal } from './media-modal.js';
+import { scanPodcastSignals } from '../shared/podcast-identity.js';
+import { openSpeakersModal, speakerEntityId, decorateSpeakerLabels } from './speakers-modal.js';
+import { runDraftPass } from '../shared/transcriber-client.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { resolveActiveCaseRef, describeActiveContext } from '../shared/case-membership.js';
@@ -284,6 +291,11 @@ async function adoptArticle(article, stored) {
     // Remembered for later writes (save-on-tag): a read-only open (the
     // portal's relay reconstructions) must never touch the archive row.
     state.readOnlyOpen = !!(stored && stored.readOnly);
+    // The "Capture & transcribe locally" path: the trigger rides the
+    // SESSION RECORD (the readOnly pattern — never the article, which
+    // persists into archive rows and would re-fire on every open).
+    // setupTranscribeControl starts the companion job once wired.
+    state.transcribeRequested = !!(stored && stored.transcribe);
 
     // PDF captures: surface the layout engine's quality warnings
     // (missing text layers, failed paragraph merging) before anyone
@@ -989,6 +1001,25 @@ function pdfPageOfQuote(quote) {
     return pageOfOffset(map, g.start);
 }
 
+// Video-time provenance — the diarized-transcript analog of the page
+// lookup above: the timeMap indexes the canonical markdown, so the
+// quote grounds against that substrate and the covering paragraphs'
+// start/end seconds become the claim's Media-Fragments selector.
+// Same memoized index discipline; same invalidation rule (a different
+// markdown body drops the map before it can stamp wrong offsets).
+function timeRangeOfQuote(quote) {
+    const map = state.article && state.article.timeMap;
+    const md = state.article && state.article.markdown;
+    if (!Array.isArray(map) || map.length === 0 || !md || !quote) return null;
+    if (!_pdfMdIndex || _pdfMdIndexSource !== md) {
+        _pdfMdIndex = createGroundingIndex(md);
+        _pdfMdIndexSource = md;
+    }
+    const g = _pdfMdIndex.ground(String(quote));
+    if (g.status === 'missing') return null;
+    return timeRangeOfSpan(map, g.start, g.end);
+}
+
 // ------------------------------------------------------------------
 // Archive reader (Phase 7 C4+C5)
 // ------------------------------------------------------------------
@@ -1237,6 +1268,21 @@ async function loadArchivedArticle(archived, provenance) {
     // HTML round trip doesn't byte-match); cache archives recompute.
     state.articleHash = archived._articleHash || null;
     state.hashDirty = false;
+    // PERSIST the restore (writable opens only): adopting in memory
+    // alone left the archive ROW on whatever version it held — after a
+    // prior-version restore every other surface (portal opens, case
+    // view) kept serving the clobbered article, its transcript
+    // features hidden. The version this replaces snapshots into
+    // priorVersions — honest versioning, never loss.
+    const persistRestore = () => {
+        if (state.readOnlyOpen) return;
+        ArchiveCache.saveArticle({
+            article: state.articleHash
+                ? { ...state.article, _articleHash: state.articleHash }
+                : state.article,
+            source: 'capture'
+        }).catch((err) => console.warn('[X-Ray Reader] restore save failed:', err));
+    };
     if (!state.articleHash) {
         canonicalArticleHash(EventBuilder.assembleArticleBody(hashableArticle(state.article)))
             .then((h) => {
@@ -1244,8 +1290,11 @@ async function loadArchivedArticle(archived, provenance) {
                 updateHashLine();
                 // The extraction record keys on this hash (MA.2b).
                 refreshExtractionBar().catch(() => { /* display refresh only */ });
+                persistRestore();
             })
             .catch((err) => console.warn('[X-Ray Reader] archive hash failed:', err));
+    } else {
+        persistRestore();
     }
 
     // Re-render whatever view the user's currently in.
@@ -1260,6 +1309,15 @@ async function loadArchivedArticle(archived, provenance) {
     // an llm: capture with no disclosure at all.
     try { renderExtractionWarningsBanner(); }
     catch (err) { console.warn('[X-Ray Reader] extraction banner failed:', err); }
+    // The swapped-in article may carry transcript speakers the opening
+    // capture lacked (a diarized version restored over a fresh
+    // re-capture) — the 🗣 Speakers / 💫 Suggest (local) gates must
+    // re-run HERE, not just on the transcribe-reuse path, or a banner
+    // "Load archive" restore leaves both buttons hidden. Same for the
+    // media-identity nudge, whose condition rides the same fields.
+    setupSpeakersControl();
+    setupTranscriptClaimDraftsControl().catch(() => { /* gate refresh only */ });
+    try { refreshMediaNudge(); } catch (_) { /* cosmetic */ }
     toast(`Archive loaded (${provenance.source})`, 'success', 3000);
 }
 
@@ -1853,6 +1911,9 @@ async function reconstructWithLlmFlow() {
     } else {
         delete a.pageMap;
     }
+    // A time map (diarized transcripts) indexes the OLD body the same
+    // way the page map did — never pair it with reconstructed text.
+    delete a.timeMap;
     a.extraction = {
         ...extraction,
         method: extractionMethod(extraction.method, resp.model, 'structure'),
@@ -1905,6 +1966,348 @@ async function reconstructWithLlmFlow() {
         ? `Reconstructed with ${resp.model} — ${dropped} of ${assembled.total_spans} spans could not be verified and were discarded.${tableNote}`
         : `Reconstructed with ${resp.model} — ${assembled.total_spans} text spans matched to the document text.${tableNote}`,
     dropped > 0 ? 'warning' : 'success', 10000);
+}
+
+// ------------------------------------------------------------------
+// Local transcription (the "Transcribe locally" capture path)
+// ------------------------------------------------------------------
+
+/** The transcription progress/status banner (hash-banner chrome). */
+function renderTranscribeBanner(text, tone = 'info', { docsHint = false } = {}) {
+    let banner = $('#xr-transcribe-banner');
+    if (!banner) {
+        banner = document.createElement('aside');
+        banner.id = 'xr-transcribe-banner';
+        banner.className = 'xr-hash-banner';
+        const main = $('#xr-main');
+        if (!main || !main.parentElement) return;
+        main.parentElement.insertBefore(banner, main);
+    }
+    const icon = tone === 'error' ? '⚠️' : tone === 'success' ? '✅' : '🎙';
+    const hint = docsHint
+        ? '<div class="xr-hash-banner__metric">Setup guide: companion/transcriber/README.md in the X-Ray repo — install the companion, then <code>uv run xray-transcriber</code>.</div>'
+        : '';
+    banner.innerHTML = `
+      <div class="xr-hash-banner__body">
+        <div class="xr-hash-banner__label">${icon} ${escapeHtml(text)}</div>
+        ${hint}
+      </div>
+      <div class="xr-hash-banner__actions">
+        <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-transcribe-dismiss">Dismiss</button>
+      </div>
+    `;
+    $('#xr-transcribe-dismiss').addEventListener('click', () => banner.remove());
+}
+
+function removeTranscribeBanner() {
+    const b = $('#xr-transcribe-banner');
+    if (b) b.remove();
+}
+
+/**
+ * Adopt a finished companion transcription as the capture's canonical
+ * body. Mirrors reconstructWithLlmFlow's adoption tail: the diarized
+ * markdown becomes markdown-canonical, the hash moves honestly, the
+ * archive snapshots the prior version.
+ */
+async function adoptDiarizedTranscript(result) {
+    const a = state.article;
+    if (!a || !a.youtube) throw new Error('Not a YouTube capture.');
+
+    // The job ran for minutes on an editable page. Adopting over the
+    // user's edits would silently discard them — their state wins.
+    // BOTH edit channels: reader-pane edits set hashDirty; markdown-tab
+    // edits set only dirtySource='markdown' + a diverged draft (the
+    // reconstructWithLlmFlow guard's second clause, mirrored exactly —
+    // checking hashDirty alone silently discards markdown-tab edits).
+    if (state.hashDirty || (state.dirtySource === 'markdown'
+            && state.markdownDraft && state.markdownDraft !== (a.markdown || ''))) {
+        throw new Error('The capture changed while the transcription was running — keeping your version. '
+            + 'The finished transcript is remembered: publish (or reload) to settle your edits, '
+            + 'then press 🎙 Transcribe to adopt it without re-running the job.');
+    }
+
+    const { markdown, timeMap, transcriptMeta } = buildDiarizedBody({
+        capturedMarkdown: a.markdown || '',
+        watchUrl: a.url,
+        result
+    });
+
+    // contentType flips BEFORE hashing: 'transcript' joins the
+    // markdown-canonical set, so the hash covers the markdown substrate
+    // (the ordering trap — hashing first would cover the old turndown
+    // side). platform stays 'youtube' (header + tag block unaffected).
+    a.contentType = 'transcript';
+    // The Phase 22 whitelisted user-declared media tag: choosing
+    // "Transcribe locally" on a video IS the declaration, and it keeps
+    // these captures findable by consumers filtering on video-ness now
+    // that content_format reads 'transcript'.
+    a.media = 'video';
+    a.markdown = markdown;
+    a.content = ContentExtractor.markdownToHtml(markdown);
+    a.transcript_meta = transcriptMeta;
+    // Raw segments + model provenance, LOCAL-ONLY (the pageMap rule):
+    // rides the article blob into session storage + archive rows so a
+    // future re-render never needs a re-transcription. Never published.
+    a.transcription = {
+        segments: Array.isArray(result.segments) ? result.segments : [],
+        model_info: result.model_info || null,
+        language: result.language || null
+    };
+    a.timeMap = timeMap;
+    a.extraction = { ...(a.extraction || {}), method: extractionMethodFor(result.model_info) };
+    // The transcript_lang manifest + header chip both gate on non-empty
+    // events — the diarized track carries them (locally; never as tags).
+    a.youtube.transcripts = [
+        ...(Array.isArray(a.youtube.transcripts) ? a.youtube.transcripts : [])
+            .filter((t) => t && t.role !== 'local-diarized'),
+        diarizedTrackEntry(result)
+    ];
+
+    state.markdownDraft = a.markdown;
+    state.htmlDraft = a.content;
+    state.dirtySource = 'markdown';
+    state.draftProven = false;
+    state.provenDraft = null;
+
+    try {
+        const fullBody = EventBuilder.assembleArticleBody(hashableArticle(a));
+        const fullHash = await canonicalArticleHash(fullBody);
+        const slice = auditableSlice(fullBody);
+        state.articleHash = fullHash;
+        state.auditableTotalChars = slice.totalChars;
+        state.auditableHash = slice.truncated
+            ? await canonicalArticleHash(slice.text) : fullHash;
+        state.hashDirty = false;
+        updateHashLine();
+        refreshAuditStatus().catch(() => { /* display refresh only */ });
+        refreshExtractionBar().catch(() => { /* display refresh only */ });
+    } catch (err) {
+        console.warn('[X-Ray Reader] post-transcription hash failed:', err);
+    }
+    if (!state.readOnlyOpen) {
+        ArchiveCache.saveArticle({
+            article: state.articleHash ? { ...a, _articleHash: state.articleHash } : a,
+            source: 'capture'
+        }).catch((err) => console.warn('[X-Ray Reader] archive save failed:', err));
+    }
+    renderReader();
+    setupTranscriptClaimDraftsControl().catch(() => {});
+    // The adoption just gave this capture speakers — surface the
+    // identification control without waiting for a reload. The media
+    // nudge's condition (transcript present, no podcast identity)
+    // changed too.
+    setupSpeakersControl();
+    try { refreshMediaNudge(); } catch (_) { /* cosmetic */ }
+}
+
+let _transcribeRunning = false;
+
+/** Start (or resume) the companion job and adopt the result. The whole
+ *  loop is page-driven — each poll message resets the SW idle timer. */
+async function runTranscribeFlow() {
+    const a = state.article;
+    const videoId = a && a.youtube && a.youtube.videoId;
+    if (!a || !videoId) { toast('Not a YouTube capture.', 'error'); return; }
+    if (_transcribeRunning) return;
+
+    // Re-capture of an already-transcribed video: the diarized article
+    // lives in the archive — offer to LOAD it instead of burning GPU
+    // minutes on an identical job. Cancel still re-transcribes (the
+    // honest path when the video or models changed).
+    if (!a.transcription) {
+        try {
+            const row = await ArchiveCache.getArticle(a.url);
+            // The row itself, then the prior-version snapshots: a plain
+            // re-capture OVERWRITES the row with a transcript-less
+            // article (load-time save), and the diarized artifact
+            // survives only in priorVersions — a field-verified loss
+            // mode; the snapshots are the recovery path.
+            const candidates = [];
+            if (row && row.article) candidates.push({ article: row.article, prior: false });
+            for (const v of (row && row.priorVersions) || []) {
+                const va = v && (v.article || v);
+                if (va) candidates.push({ article: va, prior: true });
+            }
+            const hit = candidates.find(({ article: x }) => x && x.transcription
+                && Array.isArray(x.transcription.segments) && x.transcription.segments.length > 0);
+            if (hit) {
+                const arch = hit.article;
+                const segs = arch.transcription.segments.length;
+                if (confirm(
+                    `This video already has a local transcription in your archive (${segs} segments`
+                    + `${arch.transcript_meta ? `, ${arch.transcript_meta.speaker_count} speaker(s)` : ''}`
+                    + `${hit.prior ? ' — from a prior version; a later re-capture replaced it' : ''}).\n\n`
+                    + 'OK — load the archived transcript (instant).\n'
+                    + 'Cancel — re-transcribe from scratch.')) {
+                    // loadArchivedArticle re-runs the speaker/drafts
+                    // button gates itself.
+                    await loadArchivedArticle(arch, { source: 'cache', cachedAt: row.cachedAt });
+                    return;
+                }
+            }
+        } catch (_) { /* archive miss — proceed to transcribe */ }
+    }
+
+    _transcribeRunning = true;
+    const btn = $('#xr-transcribe');
+    const label = btn ? btn.textContent : '';
+    const draftsBtn = $('#xr-suggest-local');
+    if (btn) { btn.disabled = true; btn.textContent = '🎙 Transcribing…'; }
+    // Soft GPU guard: WhisperX holds ~6 GB while the job runs — drafting
+    // concurrently is the one genuinely tight case, so park the button.
+    if (draftsBtn) draftsBtn.disabled = true;
+    try {
+        reapStaleJobRecords(transcribeChromeIo(browserApi, () => {})).catch(() => {});
+        renderTranscribeBanner('Contacting the local transcription service…');
+        const io = transcribeChromeIo(browserApi, (job) => {
+            renderTranscribeBanner(`Transcribing locally — ${describeProgress(job)}`);
+        });
+        const out = await runTranscriptionJob({ videoUrl: a.url, videoId, io });
+        if (!out.ok) {
+            renderTranscribeBanner(out.error, 'error', { docsHint: !!(out.error || '').includes('not reachable') });
+            return;
+        }
+        await adoptDiarizedTranscript(out.result);
+        // Adoption succeeded — NOW the finished job's record can go
+        // (kept until here so an adoption refusal keeps a handle to the
+        // server-side result instead of re-running the whole job).
+        await io.storageRemove([jobRecordKey(videoId)]).catch(() => {});
+        // Reload safety: fold the adopted article + a cleared transcribe
+        // flag back into the session record. Without this, F5 (or a
+        // Memory-Saver tab restore) re-reads the ORIGINAL transcript-less
+        // article with transcribe:true and silently re-runs the whole
+        // GPU job. Best-effort — the archive row is the durable copy.
+        try {
+            const skey = 'xray:article:' + state.id;
+            const area = browserApi.storage.session || browserApi.storage.local;
+            const rec = await new Promise((r) => area.get([skey], (res) => r(res && res[skey])));
+            if (rec && typeof rec === 'object' && rec.article) {
+                await new Promise((r) => area.set(
+                    { [skey]: { ...rec, article: state.article, transcribe: false } }, () => r()));
+            }
+        } catch (_) { /* best-effort */ }
+        const meta = out.result.model_info || {};
+        const segs = Array.isArray(out.result.segments) ? out.result.segments.length : 0;
+        removeTranscribeBanner();
+        toast(`Transcribed locally — ${segs} segments, ${state.article.transcript_meta.speaker_count} speaker(s)`
+            + (meta.asr_model ? ` (${meta.asr_model})` : ''), 'success', 6000);
+    } catch (err) {
+        renderTranscribeBanner((err && err.message) || String(err), 'error');
+    } finally {
+        _transcribeRunning = false;
+        if (btn) { btn.disabled = false; btn.textContent = label; }
+        if (draftsBtn) draftsBtn.disabled = false;
+    }
+}
+
+/**
+ * The Transcribe button + capture-path auto-start. Gated like Suggest:
+ * absent unless the localTranscription flag is on (the SW's config
+ * snapshot is storage-only — reachability is probed on click, where a
+ * clear error names the fix, never during setup).
+ */
+async function setupTranscribeControl() {
+    const btn = $('#xr-transcribe');
+    if (!btn) return;
+    const isYouTube = !!(state.article && state.article.platform === 'youtube'
+        && state.article.youtube && state.article.youtube.videoId);
+    if (!isYouTube || state.readOnlyOpen) { btn.hidden = true; return; }
+    let cfg = {};
+    try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:transcribe:config' }) || {}; }
+    catch (_) { cfg = {}; }
+    if (!cfg.enabled) { btn.hidden = true; return; }   // flag off ⇒ absent
+    btn.hidden = false;
+    btn.disabled = false;
+    btn.title = state.article.transcription
+        ? 'Re-run the local diarized transcription (replaces the current transcript section)'
+        : 'Transcribe this video locally (yt-dlp + WhisperX + speaker diarization via the companion service)';
+    // onclick (not addEventListener): setup can re-run after adoption
+    // and must never stack duplicate handlers.
+    btn.onclick = runTranscribeFlow;
+
+    // The "Capture & transcribe locally" path: the session record said
+    // to start immediately.
+    if (state.transcribeRequested && !state.article.transcription) {
+        state.transcribeRequested = false;
+        runTranscribeFlow();
+    }
+}
+
+/**
+ * The LM Studio drafts pass (flag transcriptClaimDrafts): claim
+ * candidates over ANY transcript this capture carries — diarized,
+ * imported VTT/SRT, attached, or native — through the SAME review
+ * surfaces as the Anthropic Suggest pass (grounding firewall, speaker
+ * + time provenance, durable fold). DELIBERATELY independent of the
+ * transcription feature: it needs transcript TEXT, not the companion,
+ * so it works without localTranscription and never forces a
+ * re-transcription (the original coupling was the bad design — a
+ * reopened capture hid this button and pushed users into a redundant
+ * GPU run). The only remaining coupling is a soft in-flight guard:
+ * the button parks while a transcription job actually holds the GPU.
+ */
+async function setupTranscriptClaimDraftsControl() {
+    const btn = $('#xr-suggest-local');
+    if (!btn) return;
+    const a = state.article;
+    const hasTranscript = !!(a && (a.transcript_meta || a.contentType === 'transcript'));
+    if (!hasTranscript || state.readOnlyOpen) { btn.hidden = true; return; }
+    let cfg = {};
+    try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:transcribe:config' }) || {}; }
+    catch (_) { cfg = {}; }
+    if (!cfg.drafts || !cfg.drafts.enabled) { btn.hidden = true; return; }
+    btn.hidden = false;
+    btn.disabled = false;
+    btn.title = `Suggest claim + entity candidates from the transcript with a local model (${cfg.drafts.model} via LM Studio) — same review modal as Suggest, nothing saves without Accept`;
+    // onclick (not addEventListener): re-invoked after every adoption —
+    // a stacked handler would fire the pass twice per click.
+    btn.onclick = runTranscriptClaimDrafts;
+}
+
+async function runTranscriptClaimDrafts() {
+    const btn = $('#xr-suggest-local');
+    if (!btn || btn.disabled || !state.article) return;
+    if (_transcribeRunning) {
+        toast('A transcription job is holding the GPU — draft claims once it finishes.', 'warning', 5000);
+        return;
+    }
+    // The fold requires a settled hash (claimArticleHash() is null while
+    // hashDirty) — same guard as the Anthropic pass's accept path.
+    if (!claimArticleHash()) { toast('Publish or settle your edits first — the article hash is still moving.', 'error', 5000); return; }
+    const articleText = articleBodyText();
+    if (!articleText.trim()) { toast('Nothing to analyze yet.', 'error'); return; }
+
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '💫 Suggesting…';
+    let resp;
+    try {
+        // Chunked: long transcripts overflow LM Studio's context in one
+        // shot (HTTP 400 on hour-plus episodes). One SW message per
+        // window; a window that still 400s halves and retries.
+        resp = await runDraftPass({
+            transcriptText: articleText,
+            title: state.article.title || '',
+            send: (request) => browserApi.runtime.sendMessage({ type: 'xray:transcribe:claims', request }),
+            onProgress: ({ done, total }) => {
+                if (total > 1) btn.textContent = `💫 Suggesting… ${done}/${total}`;
+            }
+        });
+    } catch (err) {
+        resp = { ok: false, error: (err && err.message) || String(err) };
+    }
+    btn.textContent = original;
+    btn.disabled = false;
+
+    if (!resp || !resp.ok) {
+        toast('Suggest (local) failed: ' + ((resp && resp.error) || 'unknown error'), 'error', 8000);
+        return;
+    }
+    if (resp.failures) {
+        toast(`${resp.failures} transcript window(s) failed — reviewing the candidates that succeeded.`, 'warning', 6000);
+    }
+    await reviewSuggestions(resp.proposals, resp.model || 'local');
 }
 
 // Archive/mirror provenance note (url-identity.js). Two honest states:
@@ -2033,6 +2436,12 @@ function renderReader() {
             .catch((err) => console.warn('[X-Ray Reader] rehydrate failed:', err));
     }
 
+    // Identified speakers (🗣) render their entity names beside the
+    // automatic labels — display-layer only (attr + CSS ::after; the
+    // canonical text is untouched).
+    try { decorateSpeakerLabels(body, state.article); }
+    catch (err) { console.warn('[X-Ray Reader] speaker decoration failed:', err); }
+
     // Archived PDF figures (C4.2): swap content-addressed
     // xray-figure: srcs for live blob URLs from the byte archive.
     hydrateFigureImages(body)
@@ -2068,11 +2477,17 @@ function renderReader() {
             // PDF captures: page-level provenance rides as an additive
             // FragmentSelector (resolvers that don't know it skip it).
             const page = pdfPageOfQuote(text);
+            // Diarized video captures: the selection's start–end media
+            // offsets ride the SAME way (Media-Fragments t=start,end).
+            const trange = timeRangeOfQuote(text);
+            let anchorOut = anchor;
+            if (page) anchorOut = [...(anchorOut || []), pageFragmentSelector(page)];
+            if (trange) anchorOut = [...(anchorOut || []), timeFragmentSelector(trange.startSec, trange.endSec)];
             const saved = await openClaimModal({
                 sourceUrl:   state.article.url,
                 initialText: text,
                 context,
-                anchor: page ? [...(anchor || []), pageFragmentSelector(page)] : anchor,
+                anchor: anchorOut,
                 // Text provenance: the selection IS the verbatim quote.
                 quote:       text,
                 articleHash: claimArticleHash(),
@@ -2562,6 +2977,104 @@ function setupMediaControl() {
         const result = await openMediaModal(state.article);
         if (result) await applyMediaResult(result);
     });
+    refreshMediaNudge();
+}
+
+// Post-transcription nudge (Phase 22 tail): a transcript-bearing
+// capture with strong podcast signals but NO declared identity gets a
+// subtle "identity found — confirm?" decoration on the Media button.
+// The scan is pure and local — no network — and never an auto-write:
+// media identity stays user-declared (the NIP_DRAFT rule). Clicking
+// the hint itself opens the modal in autoFind mode (the discovery runs
+// on that click — the gesture is the consent); clicking the rest of
+// the button keeps opening the plain modal.
+function refreshMediaNudge() {
+    const btn = $('#xr-media-btn');
+    if (!btn || btn.hidden) return;
+    const a = state.article;
+    const hasTranscript = !!(a && (a.transcript_meta || a.contentType === 'transcript'));
+    const wants = !!(a && hasTranscript && !a.podcast && scanPodcastSignals(a).strong);
+    let hint = btn.querySelector('.xr-reader__media-nudge');
+    if (!wants) {
+        if (hint) hint.remove();
+        // Restore the button's own tooltip once the nudge clears —
+        // otherwise the nudge instructions outlive their condition.
+        if (btn.dataset.xrOrigTitle !== undefined) {
+            btn.title = btn.dataset.xrOrigTitle;
+            delete btn.dataset.xrOrigTitle;
+        }
+        return;
+    }
+    if (!hint) {
+        hint = document.createElement('span');
+        hint.className = 'xr-reader__media-nudge';
+        hint.textContent = 'identity found — confirm?';
+        hint.title = 'Find and confirm this episode’s podcast identity';
+        hint.addEventListener('click', async (ev) => {
+            ev.stopPropagation();
+            if (!state.article) return;
+            const result = await openMediaModal(state.article, { autoFind: true });
+            if (result) await applyMediaResult(result);
+        });
+        btn.appendChild(hint);
+    }
+    if (btn.dataset.xrOrigTitle === undefined) btn.dataset.xrOrigTitle = btn.title || '';
+    btn.title = 'Podcast identity signals detected — click the hint to find and confirm';
+}
+
+/**
+ * Speaker identification (🗣 Speakers…): visible on any writable
+ * capture that carries transcript speakers. The bindings are ordinary
+ * entity refs (context = the label), so save is metadata-only: refs +
+ * tag save, hash untouched, body untouched. Exposed as `onclick` (not
+ * addEventListener) because adoption re-runs setup — a diarized
+ * transcript ARRIVING adds speakers to a capture that had none.
+ */
+function setupSpeakersControl() {
+    const btn = $('#xr-speakers');
+    if (!btn) return;
+    const speakers = state.article && state.article.transcript_meta
+        && state.article.transcript_meta.speakers;
+    if (state.readOnlyOpen || !Array.isArray(speakers) || speakers.length === 0) {
+        btn.hidden = true;
+        return;
+    }
+    btn.hidden = false;
+    btn.onclick = async () => {
+        if (!state.article) return;
+        let registry = [];
+        try { registry = Object.values(await EntityModel.getAll() || {}); }
+        catch (_) { registry = []; }
+        const result = await openSpeakersModal({ article: state.article, registry });
+        if (!result) return;
+        const a = state.article;
+        if (!Array.isArray(a.entities)) a.entities = [];
+        // Removals first: labels the user unbound (or re-bound to a
+        // different person) drop their old label-context refs.
+        if (result.removed.length) {
+            const gone = new Set(result.removed);
+            a.entities = a.entities.filter((e) => {
+                if (!e || !gone.has(e.context)) return true;
+                return result.refs.some((r) => r.context === e.context && r.entity_id === e.entity_id);
+            });
+        }
+        // Upserts (the manual tagger's dedupe rule: entity_id+context).
+        for (const ref of result.refs) {
+            const dup = a.entities.find((e) => e && e.entity_id === ref.entity_id && e.context === ref.context);
+            if (!dup) a.entities.push({ entity_id: ref.entity_id, type: ref.type, name: ref.name, context: ref.context });
+        }
+        refreshEntitiesBar().catch(() => {});
+        scheduleTagSave();
+        // Re-decorate the rendered labels with the new bindings.
+        const body = $('.xr-article__body');
+        if (body) {
+            try { decorateSpeakerLabels(body, a); } catch (_) { /* cosmetic */ }
+        }
+        const bound = result.refs.length;
+        toast(bound
+            ? `Speakers saved — ${bound} voice${bound === 1 ? '' : 's'} identified`
+            : 'Speakers saved', 'success', 2500);
+    };
 }
 
 async function applyMediaResult(result) {
@@ -2594,6 +3107,7 @@ async function applyMediaResult(result) {
     if (!result.parse) {
         // Metadata-only: the hash is untouched — persist the row and stop.
         scheduleTagSave();
+        refreshMediaNudge();
         toast('Media metadata saved', 'success', 2000);
         return;
     }
@@ -2643,6 +3157,11 @@ async function applyMediaResult(result) {
         state.draftProven = false;
         state.dirtySource = 'reader';
     }
+    // The body just changed under both offset maps — stale offsets
+    // stamp confidently wrong pages/timestamps into published claim
+    // anchors (the same rule the reconstruct and publish seams apply).
+    delete a.pageMap;
+    delete a.timeMap;
 
     // The structure manifest + the LOCAL speaker list (the claim
     // prefill seam; relay round-trips carry counts only — names
@@ -2685,9 +3204,257 @@ async function applyMediaResult(result) {
     }
 
     renderReader();
+    // A fresh transcript may complete the nudge condition (transcript
+    // present + strong signals + no declared identity yet).
+    refreshMediaNudge();
     refreshClaimsBar().catch(() => {});
+    // The attach may have introduced (or changed) the speaker list —
+    // keep the identification + drafts controls in step (an attached
+    // transcript is a valid drafts substrate, no companion needed).
+    setupSpeakersControl();
+    setupTranscriptClaimDraftsControl().catch(() => {});
     toast(`Transcript attached — ${parse.turns.length} turn${parse.turns.length === 1 ? '' : 's'}`
         + `, ${parse.speakers.length} speaker${parse.speakers.length === 1 ? '' : 's'}`, 'success', 2500);
+}
+
+// ------------------------------------------------------------------
+// AI vision — "Describe images" (captions + text-in-image OCR)
+// ------------------------------------------------------------------
+
+// The modal collects Accepts; this owns the consequences — the same
+// division as media/transcript. Collection and merge run over the
+// CANONICAL body (clean capture content / markdown), never htmlDraft:
+// the live draft carries entity-mark spans that must not be folded
+// back (the applyMediaResult reasoning).
+
+/**
+ * Configure the Describe-images control from the SW's gating snapshot.
+ * Absent when the `aiVision` flag is off (or on read-only opens — the
+ * merge mutates the body); visible-but-disabled when on with no key —
+ * so either condition guarantees no network call is reachable here.
+ */
+async function setupVisionControl() {
+    const btn = $('#xr-vision');
+    if (!btn) return;
+    if (state.readOnlyOpen) { btn.hidden = true; return; }
+    let cfg = {};
+    try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:vision:config' }) || {}; }
+    catch (_) { cfg = {}; }
+
+    if (!cfg.enabled) { btn.hidden = true; return; }   // flag off ⇒ absent
+    btn.hidden = false;
+    if (!cfg.hasKey) {
+        btn.disabled = true;
+        btn.title = 'Set an Anthropic API key in Options → Advanced → LLM assist';
+        return;
+    }
+    btn.disabled = false;
+    btn.title = 'Describe images with AI (sends the images you pick to Anthropic)';
+    btn.addEventListener('click', async () => {
+        // Disabled for the flow's duration (the runSuggestPass idiom) —
+        // the still-focused button must not stack a second modal.
+        if (btn.disabled) return;
+        btn.disabled = true;
+        try { await runVisionFlow(); }
+        catch (err) { toast((err && err.message) || 'Vision pass failed', 'error'); }
+        finally { btn.disabled = false; }
+    });
+}
+
+/** The canonical body vision collects from and merges into. */
+function visionCanonicalBody() {
+    const a = state.article;
+    if (isMarkdownCanonical(a)) {
+        const baseMd = (state.dirtySource === 'markdown' && state.markdownDraft)
+            ? state.markdownDraft : (a.markdown || '');
+        return { body: baseMd, isHtml: false };
+    }
+    let html = a.content || '';
+    if (state.dirtySource === 'markdown' && state.markdownDraft) {
+        html = ContentExtractor.markdownToHtml(state.markdownDraft);
+    }
+    return { body: html, isHtml: true };
+}
+
+/**
+ * Modal thumbnails. Archived figures try the hydrated blob URL in the
+ * live reader body first (a fast path — absent on the Markdown/Preview
+ * tabs and before hydrateFigureImages lands), then fall back to
+ * minting a fresh blob URL from the byte archive; minted URLs are
+ * collected for the caller to revoke after the modal closes.
+ * Everything else shows its own src.
+ */
+async function visionThumbSrc(ref, minted) {
+    if (!ref.startsWith('xray-figure:')) return ref;
+    const hash = ref.slice('xray-figure:'.length);
+    const img = document.querySelector(`.xr-article__body img[data-xray-figure="${CSS.escape(hash)}"]`);
+    if (img && img.src && !img.src.startsWith('xray-figure:')) return img.src;
+    try {
+        const row = await ArchiveCache.getSourceDocument(hash);
+        if (row && row.bytes && row.bytes.byteLength) {
+            const url = URL.createObjectURL(new Blob([row.bytes], { type: row.mime || 'image/png' }));
+            minted.push(url);
+            return url;
+        }
+    } catch (_) { /* evicted bytes — a blank thumb, honestly */ }
+    return '';
+}
+
+async function runVisionFlow() {
+    const btn = $('#xr-vision');
+    if (!btn || !state.article) return;
+
+    const { body, isHtml } = visionCanonicalBody();
+    const images = collectArticleImages(body, { isHtml });
+    if (!images.length) { toast('No images found in this capture.', 'warning'); return; }
+
+    // Re-check the gate at click time (Options may have changed since
+    // setup) — before the modal, so nobody picks images for a pass
+    // that can't run.
+    let cfg = {};
+    try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:vision:config' }) || {}; }
+    catch (_) { cfg = {}; }
+    if (!cfg.enabled || !cfg.hasKey) {
+        toast('AI vision is not configured — see Options → Advanced → AI vision.', 'error');
+        return;
+    }
+
+    const article = state.article;
+    const minted = [];
+    let accepted;
+    try {
+        const withThumbs = await Promise.all(images.map(async (img) => (
+            { ...img, thumbSrc: await visionThumbSrc(img.ref, minted) }
+        )));
+        accepted = await openVisionModal({
+            images: withThumbs,
+            model: cfg.model || '',
+            keepalive: startSwKeepalive,
+            runOne: (img) => browserApi.runtime.sendMessage({
+                type: 'xray:vision:describe',
+                ref: img.ref, alt: img.alt, captionText: img.captionText,
+                articleTitle: article.title || '', articleUrl: article.url || ''
+            })
+        });
+    } finally {
+        for (const url of minted) { try { URL.revokeObjectURL(url); } catch (_) { /* done */ } }
+    }
+    if (!accepted || !accepted.length) return;
+    // Staleness guard: a background body swap (the Substack API stage
+    // can land mid-modal) or a navigation replaces state.article —
+    // merging accepted notes into a body they were not collected from
+    // must not pass silently.
+    if (state.article !== article) {
+        toast('The capture changed while the modal was open — nothing merged.', 'error');
+        return;
+    }
+    await applyVisionNotes(accepted);
+}
+
+/**
+ * Merge accepted per-image notes into the body — the transcript-attach
+ * template: canonical-side branch, draft sync, hash recompute, archive
+ * save, re-render. Inline provenance (the note text names the model)
+ * is the honesty mechanism here; extraction.method stays untouched —
+ * it describes how the CAPTURE was extracted, and a few accepted image
+ * notes don't make the whole body machine-derived.
+ */
+async function applyVisionNotes(accepted) {
+    const a = state.article;
+    if (!a || !accepted.length) return;
+
+    // Upserts no-op (return the body unchanged) when an image isn't in
+    // the body anymore — count those instead of reporting a blanket
+    // success over a merge that didn't happen.
+    let merged = 0;
+    let missed = 0;
+
+    if (isMarkdownCanonical(a)) {
+        // Markdown-canonical: the markdown IS the substrate. Fold the
+        // live markdown draft first — it may be ahead of article.markdown.
+        let md = (state.dirtySource === 'markdown' && state.markdownDraft)
+            ? state.markdownDraft : (a.markdown || '');
+        for (const note of accepted) {
+            const next = upsertVisionNoteMarkdown(md, note.ref, note);
+            if (next === md) missed += 1; else merged += 1;
+            md = next;
+        }
+        if (!merged) {
+            toast('No accepted note could be placed — the article body changed.', 'error');
+            return;
+        }
+        a.markdown = md;
+        state.markdownDraft = md;
+        a.content = ContentExtractor.markdownToHtml(md);
+        state.htmlDraft = a.content;
+        state.draftProven = false;
+        // The substrate stays markdown: without this, a prior reader
+        // edit leaves dirtySource='reader' and publish re-derives the
+        // body through the destructive turndown round trip
+        // isMarkdownCanonical exists to prevent (the
+        // reconstructWithLlmFlow precedent).
+        state.dirtySource = 'markdown';
+    } else {
+        // HTML-canonical: upsert into the clean capture content. A
+        // markdown-tab edit is mark-free and canonical by contract, so
+        // it folds in first rather than being clobbered.
+        if (state.dirtySource === 'markdown' && state.markdownDraft) {
+            a.content = ContentExtractor.markdownToHtml(state.markdownDraft);
+        }
+        let html = a.content || '';
+        for (const note of accepted) {
+            const next = upsertVisionNoteHtml(html, note.ref, note);
+            if (next === html) missed += 1; else merged += 1;
+            html = next;
+        }
+        if (!merged) {
+            toast('No accepted note could be placed — the article body changed.', 'error');
+            return;
+        }
+        a.content = html;
+        state.htmlDraft = a.content;
+        state.markdownDraft = '';       // stale — regenerated on tab entry
+        // The blanked draft must never ship (the applyMediaResult
+        // empty-body lesson) — clearing draftProven suppresses it.
+        state.draftProven = false;
+        state.dirtySource = 'reader';
+    }
+
+    // The body changed → the canonical hash changes. Honest versioning:
+    // the pre-note snapshot in the archive is correct, not a stealth edit.
+    try {
+        const fullBody = EventBuilder.assembleArticleBody(hashableArticle(a));
+        const fullHash = await canonicalArticleHash(fullBody);
+        const slice = auditableSlice(fullBody);
+        const slicedHash = slice.truncated
+            ? await canonicalArticleHash(slice.text) : fullHash;
+        state.articleHash = fullHash;
+        state.auditableTotalChars = slice.totalChars;
+        state.auditableHash = slicedHash;
+        updateHashLine();
+        refreshAuditStatus().catch(() => {});
+    } catch (err) {
+        console.warn('[X-Ray Reader] vision-note hash failed:', err);
+    }
+
+    if (!state.readOnlyOpen && a.url) {
+        ArchiveCache.saveArticle({
+            article: state.articleHash ? { ...a, _articleHash: state.articleHash } : a,
+            source: 'capture'
+        }).catch((err) => console.warn('[X-Ray Reader] vision-note save failed:', err));
+    }
+
+    // Re-render the pane the user is actually on — a bare
+    // renderReader() would desync the Markdown/Preview tab state.
+    switch (state.viewMode) {
+        case 'markdown': renderMarkdown(); break;
+        case 'preview': renderPreview(); break;
+        default: renderReader(); break;
+    }
+    toast(missed
+        ? `Merged AI notes for ${merged} image${merged === 1 ? '' : 's'} — ${missed} could not be placed (the body changed)`
+        : `Merged AI image notes for ${merged} image${merged === 1 ? '' : 's'}`,
+    missed ? 'warning' : 'success', 3000);
 }
 
 async function setupSuggestControl() {
@@ -2776,6 +3543,9 @@ async function reviewSuggestions(proposals, model) {
         articleHash: claimArticleHash() || '',
         // PDF page anchors for accepted claims (null for non-PDFs).
         pageForQuote: (q) => pdfPageOfQuote(q),
+        // Video-time anchors for accepted claims on diarized transcripts
+        // (null everywhere else) — same additive-selector contract.
+        timeRangeForQuote: (q) => timeRangeOfQuote(q),
         sourceRef:  { url: state.article.url || '', title: state.article.title || '' },
         // Accepted claims default their asserter to the article-author
         // ENTITY when one already exists — existing-only: bulk accept
@@ -3456,6 +4226,14 @@ async function resolveTranscriptSpeaker(context) {
     const known = (a.transcript_meta && a.transcript_meta.speakers) || null;
     const name = speakerFromParagraphText(context, known);
     if (!name) return null;
+    // A voice the user IDENTIFIED (🗣 Speakers…) beats registry
+    // name-matching: the binding is an entity ref whose mention context
+    // is the label itself, so "Speaker 3" resolves to the person even
+    // though no entity is named "Speaker 3" — and a label that
+    // coincidentally matches some entity's name resolves to the
+    // identified person, not the name-collision.
+    const bound = speakerEntityId(a.entities, name);
+    if (bound) return { entityId: bound };
     try {
         const entity = await findEntityByName(name);
         return entity ? { entityId: entity.id } : { suggestedName: name };
@@ -3594,7 +4372,12 @@ function renderYouTubeHeader(article) {
     if (Array.isArray(y.transcripts)) {
         for (const t of y.transcripts) {
             if (!t || !Array.isArray(t.events) || t.events.length === 0) continue;
-            const kindMark = t.kind === 'asr' ? 'auto' : 'human';
+            // Honesty rule: 'human' ONLY for human-authored tracks.
+            // ASR renders 'auto'; anything else (whisperx, scraped)
+            // names itself rather than masquerading as human captions.
+            const kindMark = t.kind === 'human' ? 'human'
+                : t.kind === 'asr' ? 'auto'
+                : (t.kind || 'unknown');
             const isOrigin = t.role && t.role.startsWith('origin');
             const label = `${t.displayName || t.languageCode || 'transcript'} · ${kindMark}`;
             const cls = isOrigin
@@ -4667,6 +5450,9 @@ async function publish() {
             delete archivedArticle._contentIsMarkdown;
             if (state.markdownDraft !== (state.article.markdown || '')) {
                 delete archivedArticle.pageMap;
+                // Same staleness rule for the transcript offset→time map:
+                // edited text + old offsets = confidently wrong timestamps.
+                delete archivedArticle.timeMap;
             }
             try {
                 await ArchiveCache.saveArticle({
@@ -6521,11 +7307,26 @@ async function init() {
     // attach a transcript to THIS capture. Hidden on read-only opens.
     setupMediaControl();
 
+    // Speaker identification — voice → entity bindings on transcripts.
+    setupSpeakersControl();
+
     // LLM-assist Suggest control (Phase 14.5). Absent unless the flag is
     // on; disabled (with a hint) when on but no key — so flag-off OR
     // no-key means zero network calls are possible from here.
     setupSuggestControl().catch((err) => console.warn('[X-Ray Reader] suggest setup failed:', err));
     setupPendingSuggestControl().catch((err) => console.warn('[X-Ray Reader] pending-suggest setup failed:', err));
+
+    // AI vision "Describe images" control. Its own flag (aiVision) —
+    // the consent it gates is the article's IMAGES leaving the device,
+    // independent of Suggest's text consent. Same absent/disabled rules.
+    setupVisionControl().catch((err) => console.warn('[X-Ray Reader] vision setup failed:', err));
+
+    // Local transcription (companion service): the Transcribe button on
+    // YouTube captures — also fires the capture-path auto-start when the
+    // session record carried `transcribe: true` — and the LM Studio
+    // claim-drafts button once a diarized transcript exists.
+    setupTranscribeControl().catch((err) => console.warn('[X-Ray Reader] transcribe setup failed:', err));
+    setupTranscriptClaimDraftsControl().catch((err) => console.warn('[X-Ray Reader] claim-drafts setup failed:', err));
 
     // In-extension epistemic auditor (the LLM execution path). Same
     // gating as Suggest; absent unless llmAssist is on. Publishing the

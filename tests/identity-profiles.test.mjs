@@ -63,7 +63,12 @@ test('WORKSPACE_KEEP_KEYS is pinned exactly', () => {
     assert.deepEqual([...WORKSPACE_KEEP_KEYS], [
         'preferences', 'local_primary_identity', 'identity_profiles',
         'xr_signing_state', 'xray:flags', 'xray:llm:key',
-        'xray:llm:model', 'xray:llm:suggest_kinds'
+        'xray:llm:model', 'xray:llm:suggest_kinds',
+        // Local transcription (transcriber-client.js) — config, not
+        // content: the companion port + optional shared secret + the
+        // loopback-pinned LM Studio pair.
+        'xray:transcriber:port', 'xray:transcriber:token',
+        'xray:lmstudio:url', 'xray:lmstudio:model'
     ]);
 });
 

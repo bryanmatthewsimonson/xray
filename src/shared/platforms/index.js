@@ -43,7 +43,7 @@ import { resolveUrlIdentity, rewriteArchivedLinks } from '../url-identity.js';
 import { recordAlias } from '../url-aliases.js';
 import { Utils } from '../utils.js';
 
-/** @typedef {{ synthesize?: () => Promise<object|null>, enrich?: (article: object) => Promise<object|null> | object|null }} PlatformHandler */
+/** @typedef {{ synthesize?: (opts?: object) => Promise<object|null>, enrich?: (article: object) => Promise<object|null> | object|null }} PlatformHandler */
 
 /** @type {Record<string, PlatformHandler>} */
 const HANDLERS = {
@@ -51,7 +51,7 @@ const HANDLERS = {
         enrich: (article) => substack.enrichArticle(article)
     },
     youtube: {
-        synthesize: () => youtube.synthesizeArticle()
+        synthesize: (opts) => youtube.synthesizeArticle(opts)
     },
     twitter: {
         synthesize: () => twitter.synthesizeArticle()
@@ -96,12 +96,12 @@ const HANDLERS = {
  * Returns null if there's no handler, no synthesize method, or the
  * method declined (e.g. not a recognized page shape on that platform).
  */
-export async function captureForPlatform(platform) {
+export async function captureForPlatform(platform, opts = undefined) {
     if (!platform) return null;
     const h = HANDLERS[platform];
     if (!h || typeof h.synthesize !== 'function') return null;
     try {
-        return (await h.synthesize()) || null;
+        return (await h.synthesize(opts)) || null;
     } catch (err) {
         console.warn('[X-Ray] Platform synthesize failed for', platform, err);
         return null;

@@ -8,6 +8,19 @@ import {
 } from './content-islands.js';
 import { normalize } from './metadata/url-normalizer.js';
 
+// Scheme + quote guard for markdownToHtml's emitted src/href values.
+// Returns the attribute-safe value, or '' when the target is rejected.
+// The scheme sniff runs over a control/whitespace-stripped copy so
+// "java\nscript:" can't dodge it; data: stays allowed for images only
+// (data:image/...), never as executable text.
+function sanitizeMdUrl(raw) {
+  const value = String(raw || '').trim();
+  const compact = value.replace(/[\s\u0000-\u001f]+/g, '').toLowerCase();
+  if (/^(javascript|vbscript):/.test(compact)) return '';
+  if (/^data:/.test(compact) && !/^data:image\//.test(compact)) return '';
+  return value.replace(/"/g, '&quot;');
+}
+
 export const ContentExtractor = {
   // Extract article using Readability (bundled via npm)
   extractArticle: () => {
@@ -963,14 +976,25 @@ export const ContentExtractor = {
     html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
     html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
 
-    // Images (must be before links)
+    // Images (must be before links). Attribute values are quote-escaped
+    // and the target scheme-checked: this markdown is not a trust
+    // boundary (relay round-trips, model-authored vision-note text),
+    // and these values land in attributes headed for innerHTML — an
+    // embedded quote in the target is an attribute breakout, and a
+    // javascript:/data:text target is script.
     html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g, (m, alt, src, title) => {
-      const titleAttr = title ? ` title="${title}"` : '';
-      return `<img src="${src}" alt="${alt}"${titleAttr}>`;
+      const safeSrc = sanitizeMdUrl(src);
+      if (!safeSrc) return '';
+      const titleAttr = title ? ` title="${title.replace(/"/g, '&quot;')}"` : '';
+      return `<img src="${safeSrc}" alt="${alt.replace(/"/g, '&quot;')}"${titleAttr}>`;
     });
 
-    // Links
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+    // Links — same guard; a rejected target degrades to its bare text.
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, text, href) => {
+      const safeHref = sanitizeMdUrl(href);
+      if (!safeHref) return text;
+      return `<a href="${safeHref}">${text}</a>`;
+    });
 
     // Bold and italic (bold first to handle ***)
     html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
