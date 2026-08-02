@@ -25,7 +25,7 @@ import {
 } from './llm-prompts.js';
 import { Storage } from './storage.js';
 import {
-    AUDIT_TOOL_NAME, STANDING_SINGLE_SHOT_CAVEAT,
+    AUDIT_TOOL_NAME, STANDING_SINGLE_SHOT_CAVEAT, opinionStandingCaveat,
     buildAuditTool, buildAuditSystemPrompt, buildAuditUserPrompt, assembleAudit,
     buildSingleModuleTool, buildModuleSystemPrompt
 } from './audit/audit-prompt.js';
@@ -576,9 +576,16 @@ export async function runAuditPass(req = {}) {
     const usedModel = (data && data.model) || model;
     let audit;
     try {
+        // The opinion caveat joins the single-shot one when the reader
+        // flagged the artifact as opinion/analysis (req.sourceType rides
+        // in from auditRequestMeta — declared source_type, else the
+        // capture-time suggestion).
+        const opinionCaveat = opinionStandingCaveat({ source_type: req.sourceType || null });
         audit = await assembleAudit({
             toolInput, model: usedModel, markdown, metadata: req.metadata || {},
-            standingCaveat: STANDING_SINGLE_SHOT_CAVEAT
+            standingCaveat: opinionCaveat
+                ? [STANDING_SINGLE_SHOT_CAVEAT, opinionCaveat]
+                : STANDING_SINGLE_SHOT_CAVEAT
         });
     } catch (err) {
         Utils.error('[X-Ray LLM] audit assembly failed:', err && err.message);

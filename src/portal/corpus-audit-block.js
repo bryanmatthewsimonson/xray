@@ -15,7 +15,7 @@ import { Utils } from '../shared/utils.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { MODULE_NAMES } from '../shared/audit/findings-schemas.js';
 import { orchestrateModuleRuns } from '../shared/audit/run-orchestrator.js';
-import { assembleAudit } from '../shared/audit/assemble.js';
+import { assembleAudit, opinionStandingCaveat } from '../shared/audit/assemble.js';
 import { importAuditJson } from '../shared/audit/import.js';
 import { listRuns } from '../shared/audit/audit-cache.js';
 import {
@@ -149,7 +149,9 @@ export function renderCorpusAuditBlock(host, { data, callbacks = {} }) {
                             model: model || (draft && draft.model) || 'unknown',
                             markdown: m.markdown,
                             metadata: m.metadata,
-                            standingCaveat: null
+                            // Per-member opinion caveat (R5 interim) —
+                            // thorough rigor needs no apology of its own.
+                            standingCaveat: opinionStandingCaveat({ source_type: m.sourceType || null })
                         });
                         await importAuditJson(audit, {
                             localArticleHash: m.localHash,
