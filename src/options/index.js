@@ -8,6 +8,7 @@ import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
 import { loadFlags, isEnabled, setOverride, resetOverrides } from '../shared/metadata/feature-flags.js';
+import { TRANSCRIBER_PORT_STORAGE, TRANSCRIBER_TOKEN_STORAGE, LMSTUDIO_URL_STORAGE, LMSTUDIO_MODEL_STORAGE, sanitizePort, loopbackUrl } from '../shared/transcriber-client.js';
 import { formatBuildInfo } from '../shared/build-info.js';
 import {
     LLM_MODELS, DEFAULT_LLM_MODEL, resolveModel, LLM_KEY_STORAGE, LLM_MODEL_STORAGE,
@@ -1129,6 +1130,20 @@ async function loadAdvanced() {
     document.getElementById('pref-auto-preanalyze').checked = isEnabled('autoPreAnalyze');
     document.getElementById('pref-capture-automation').checked = isEnabled('captureAutomation');
 
+    // Local transcription (companion service) + the LM Studio post-pass.
+    // Port / URL / model live under their own storage keys (the LLM-key
+    // pattern); blank fields mean "use the default".
+    document.getElementById('pref-local-transcription').checked = isEnabled('localTranscription');
+    document.getElementById('pref-transcript-claim-drafts').checked = isEnabled('transcriptClaimDrafts');
+    const rawPort = await new Promise((resolve) => {
+        browserApi.storage.local.get([TRANSCRIBER_PORT_STORAGE],
+            (res) => resolve(res ? res[TRANSCRIBER_PORT_STORAGE] : undefined));
+    });
+    document.getElementById('pref-transcriber-port').value = rawPort != null ? String(rawPort) : '';
+    document.getElementById('pref-transcriber-token').value = await llmRawGet(TRANSCRIBER_TOKEN_STORAGE);
+    document.getElementById('pref-lmstudio-url').value = await llmRawGet(LMSTUDIO_URL_STORAGE);
+    document.getElementById('pref-lmstudio-model').value = await llmRawGet(LMSTUDIO_MODEL_STORAGE);
+
     // LLM assist (Phase 14.5). The flag lives in feature-flags; the key
     // + model live under their own chrome.storage.local keys. We never
     // load the key VALUE back into the DOM — only whether one is set.
@@ -1250,6 +1265,40 @@ async function saveAdvanced() {
     // Capture automation (Phase 27 K.4).
     const captureAutoOn = document.getElementById('pref-capture-automation').checked;
     await setOverride('captureAutomation', captureAutoOn ? true : null);
+
+    // Local transcription + LM Studio claim drafts. The client pins both
+    // services to loopback; a non-loopback LM Studio URL is refused here
+    // with a visible message rather than silently ignored later.
+    const transcribeOn = document.getElementById('pref-local-transcription').checked;
+    await setOverride('localTranscription', transcribeOn ? true : null);
+    const draftsOn = document.getElementById('pref-transcript-claim-drafts').checked;
+    await setOverride('transcriptClaimDrafts', draftsOn ? true : null);
+    const portField = (document.getElementById('pref-transcriber-port').value || '').trim();
+    if (portField === '' || String(sanitizePort(portField)) === portField) {
+        if (portField === '') await llmRawRemove(TRANSCRIBER_PORT_STORAGE);
+        else await llmRawSet(TRANSCRIBER_PORT_STORAGE, portField);
+    } else {
+        document.getElementById('pref-transcriber-port').value = '';
+        await llmRawRemove(TRANSCRIBER_PORT_STORAGE);
+        flash(document.getElementById('advanced-status'), 'Invalid transcriber port — reset to the default (8756).');
+    }
+    const tokenField = (document.getElementById('pref-transcriber-token').value || '').trim();
+    if (tokenField) await llmRawSet(TRANSCRIBER_TOKEN_STORAGE, tokenField);
+    else await llmRawRemove(TRANSCRIBER_TOKEN_STORAGE);
+    const lmUrlField = (document.getElementById('pref-lmstudio-url').value || '').trim();
+    if (lmUrlField === '') {
+        await llmRawRemove(LMSTUDIO_URL_STORAGE);
+    } else if (loopbackUrl(lmUrlField)) {
+        await llmRawSet(LMSTUDIO_URL_STORAGE, lmUrlField);
+    } else {
+        document.getElementById('pref-lmstudio-url').value = '';
+        await llmRawRemove(LMSTUDIO_URL_STORAGE);
+        flash(document.getElementById('advanced-status'),
+            'LM Studio URL must be a loopback address (127.0.0.1 / localhost) — reset to the default.');
+    }
+    const lmModelField = (document.getElementById('pref-lmstudio-model').value || '').trim();
+    if (lmModelField) await llmRawSet(LMSTUDIO_MODEL_STORAGE, lmModelField);
+    else await llmRawRemove(LMSTUDIO_MODEL_STORAGE);
 
     // LLM assist: flag + model preference always; the key only when the
     // user typed a new one (blank leaves the saved key untouched).

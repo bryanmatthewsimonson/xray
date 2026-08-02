@@ -32,10 +32,12 @@ import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prom
 import { prepareImageForVision, decodeDataUrl, blockedImageUrl } from '../shared/vision-image.js';
 import { pdfDocumentUrl } from '../shared/pdf-detect.js';
 import { crossrefRequestFor, mapCrossrefWork } from '../shared/crossref.js';
+import { lookupPodcastIdentity } from '../shared/podcast-identity.js';
 import { articleAnswersTo } from '../shared/url-identity.js';
 import { Signer } from '../shared/signer.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { publishConfirmed, IDENTITY_KINDS } from '../shared/confirmed-publish.js';
+import { getTranscribeConfig, getTranscriberPort, pingTranscriber, startTranscription, getJobStatus, draftClaimCandidates } from '../shared/transcriber-client.js';
 
 // Pull the debug preference on SW startup. MV3 service workers sleep
 // and wake, so this runs each time the SW reloads. A chrome.storage
@@ -68,6 +70,7 @@ function safeParse(s) { try { return JSON.parse(s); } catch (_) { return null; }
 
 const MENU_IDS = {
     OPEN_CAPTURE: 'xray:open-capture',
+    TRANSCRIBE_CAPTURE: 'xray:transcribe-capture',
     OPEN_ENTITIES: 'xray:open-entities',
     OPEN_PORTAL: 'xray:open-portal',
     OPEN_NETWORK: 'xray:open-network',
@@ -92,13 +95,33 @@ async function registerContextMenus() {
     // every registration — the SW re-registers on install/startup, and
     // the storage listener below rebuilds when `xray:flags` changes.
     let networkOn = false;
-    try { await loadFlags(); networkOn = isEnabled('networkPage'); } catch (_) { /* default off */ }
+    let transcribeOn = false;
+    try {
+        await loadFlags();
+        networkOn = isEnabled('networkPage');
+        transcribeOn = isEnabled('localTranscription');
+    } catch (_) { /* default off */ }
     chrome.contextMenus.removeAll(() => {
         chrome.contextMenus.create({
             id: MENU_IDS.OPEN_CAPTURE,
             title: 'Capture this page with X-Ray',
             contexts: ['page', 'action']
         });
+        if (transcribeOn) {
+            // YouTube video pages only. `page` context, not `action` —
+            // documentUrlPatterns is unreliable on the action context.
+            // SPA navigation is fine: matching happens at menu-open time
+            // against the frame's current URL.
+            chrome.contextMenus.create({
+                id: MENU_IDS.TRANSCRIBE_CAPTURE,
+                title: 'Capture & transcribe locally with X-Ray',
+                contexts: ['page'],
+                documentUrlPatterns: [
+                    '*://*.youtube.com/watch*',
+                    '*://*.youtube.com/shorts/*'
+                ]
+            });
+        }
         chrome.contextMenus.create({
             id: MENU_IDS.OPEN_ENTITIES,
             title: 'Open Entity Browser',
@@ -325,7 +348,8 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (!tab || !tab.id) return;
 
     const messageForMenuId = {
-        [MENU_IDS.OPEN_CAPTURE]: { type: 'xray:capture' }
+        [MENU_IDS.OPEN_CAPTURE]: { type: 'xray:capture' },
+        [MENU_IDS.TRANSCRIBE_CAPTURE]: { type: 'xray:capture:transcribe' }
     };
 
     const message = messageForMenuId[info.menuItemId];
@@ -338,6 +362,16 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         console.warn('[X-Ray] Failed to deliver context-menu command:', err);
         if (message.type === 'xray:capture') {
             routeCaptureFallback(tab, err);
+        } else if (message.type === 'xray:capture:transcribe') {
+            // Menu only appears on YouTube pages, so a delivery failure
+            // means the content script isn't injected yet (tab predates
+            // the extension load). Say so instead of failing silently.
+            chrome.notifications?.create({
+                type: 'basic',
+                iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
+                title: 'X-Ray',
+                message: 'Could not reach this tab — reload the YouTube page and try again.'
+            });
         }
     });
 });
@@ -447,7 +481,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // readOnly (Phase 12.7): set by the portal's "Open in reader" —
         // the article is a relay reconstruction for VIEWING, and the
         // reader must not let it touch the local archive cache.
-        const record = { article, sourceTabId, createdAt: Date.now(), readOnly: !!message.readOnly };
+        // transcribe (local transcription): set by the "Capture &
+        // transcribe locally" path — the reader starts the companion job
+        // on load. Lives HERE beside the article (the readOnly pattern),
+        // never ON it, so it can't leak into archive rows and re-fire.
+        const record = {
+            article,
+            sourceTabId,
+            createdAt: Date.now(),
+            readOnly: !!message.readOnly,
+            transcribe: !!message.transcribe
+        };
         const area = chrome.storage.session || chrome.storage.local;
         area.set({ ['xray:article:' + id]: record }, () => {
             const url = chrome.runtime.getURL('src/reader/index.html') + '?id=' + encodeURIComponent(id);
@@ -761,6 +805,60 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // async sendResponse
     }
 
+    // ------------------------------------------------------------------
+    // Local transcription (companion service on 127.0.0.1) — the
+    // xray:transcribe:* family. The fetches live HERE (not the reader
+    // page) per the llm-client topology; the client module pins both
+    // base URLs to loopback literals. The reader drives the job loop —
+    // each poll message resets the MV3 idle timer, so no keepalive.
+    // Note: "transcribe" here means the local WhisperX companion; the
+    // PDF-scan LLM transcription is a different feature (xray:llm:extract
+    // mode 'transcription').
+    // ------------------------------------------------------------------
+    if (message.type === 'xray:transcribe:config') {
+        getTranscribeConfig().then(
+            (cfg) => sendResponse({ ok: true, ...cfg }),
+            () => sendResponse({ ok: false, enabled: false })
+        );
+        return true; // async sendResponse
+    }
+    if (message.type === 'xray:transcribe:ping') {
+        (async () => {
+            const port = await getTranscriberPort();
+            sendResponse(await pingTranscriber({ port }));
+        })().catch((err) => sendResponse({ ok: false, error: (err && err.message) || 'ping failed' }));
+        return true; // async sendResponse
+    }
+    if (message.type === 'xray:transcribe:start') {
+        (async () => {
+            await loadFlags();
+            if (!isEnabled('localTranscription')) {
+                sendResponse({ ok: false, error: 'Local transcription is off. Enable it in Options → Advanced → Local transcription.' });
+                return;
+            }
+            const port = await getTranscriberPort();
+            sendResponse(await startTranscription(message.url, { port }));
+        })().catch((err) => sendResponse({ ok: false, error: (err && err.message) || 'transcribe start failed' }));
+        return true; // async sendResponse
+    }
+    if (message.type === 'xray:transcribe:status') {
+        (async () => {
+            const port = await getTranscriberPort();
+            sendResponse(await getJobStatus(message.jobId, { port }));
+        })().catch((err) => sendResponse({ ok: false, error: (err && err.message) || 'transcribe status failed' }));
+        return true; // async sendResponse
+    }
+    if (message.type === 'xray:transcribe:claims') {
+        // The optional LM Studio post-pass. Deliberately NOT xray:llm:* —
+        // that namespace means "Anthropic via llm-client.js, gated by
+        // llmAssist + API key"; this one is loopback-only and free.
+        draftClaimCandidates(message.request || {}).then(
+            (result) => sendResponse(result),
+            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Claim draft call failed' })
+        );
+        return true; // async sendResponse
+    }
+
     // Content script → worker: fetch a YouTube transcript (timedtext API).
     //
     // The SW's fetch has two advantages over a content-script fetch:
@@ -976,6 +1074,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 sendResponse({ ok: false, error: err && err.message ? err.message : String(err) });
             }
         })();
+        return true; // async
+    }
+
+    // Reader → worker: podcast identity discovery for the Media modal's
+    // "Find identity" assist (Phase 22 tail). Fetches live here — house
+    // rule, all network in the SW — and every URL is either built by the
+    // module's hard-validated iTunes request builders or is a feed URL
+    // that came from the capture's own links / Apple's response, fetched
+    // credentials:'omit' and returned only as PARSED identity fields
+    // (never raw bytes), so the message can't serve as a fetch proxy.
+    // The result only ever PREFILLS the modal — media identity stays
+    // user-declared (the NIP_DRAFT rule); nothing here writes.
+    if (message.type === 'xray:media:lookup') {
+        lookupPodcastIdentity(message.signals || {})
+            .then((result) => sendResponse({ ok: true, ...result }))
+            .catch((err) => sendResponse({
+                ok: false,
+                error: err && err.message ? err.message : String(err),
+                // Diagnostics survive failure — including any egress
+                // disclosure ('show name was sent…') the user is owed.
+                notes: (err && Array.isArray(err.notes)) ? err.notes : []
+            }));
         return true; // async
     }
 

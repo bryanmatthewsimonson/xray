@@ -13,8 +13,15 @@ import { createHash } from 'node:crypto';
 
 import { normalizeForHash, articleHash, stripMetadataHeader } from '../src/shared/audit/article-hash.js';
 
-const scorerSource = await readFile(
-    new URL('../docs/auditor-prototype/scorer/scorer.js', import.meta.url), 'utf8');
+const scorerSource = (await readFile(
+    new URL('../docs/auditor-prototype/scorer/scorer.js', import.meta.url), 'utf8'))
+    // A Windows checkout with core.autocrlf=true smudges the file to
+    // CRLF; the committed blob is LF. Undo the smudge so extraction
+    // sees the repo's canonical bytes. This cannot hide a real drift:
+    // normalizeMarkdown has no template literals, so physical line
+    // endings never reach its behavior, and the corpus below carries
+    // its CRLF cases as escape sequences.
+    .replace(/\r\n/g, '\n');
 
 const match = scorerSource.match(/function normalizeMarkdown\(md\) \{\n([\s\S]*?)\n\}/);
 assert.ok(match, 'vendored scorer must contain normalizeMarkdown — if this fails, the vendored source moved');

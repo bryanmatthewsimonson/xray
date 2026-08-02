@@ -48,6 +48,7 @@ import {
 } from '../shared/llm-proposals.js';
 import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { pageFragmentSelector } from '../shared/pdf-layout.js';
+import { timeFragmentSelector } from '../shared/diarized-transcript.js';
 
 const KIND_TITLES = {
     entity: 'Entities', claim: 'Claims', assessment: 'Assessments',
@@ -139,8 +140,8 @@ function truncate(s, n) {
  */
 export async function openLlmReview(opts) {
     const { proposals, model, articleText = '', sourceUrl = '', articleHash = '', sourceRef = {},
-            onAccepted, onEntityTag, pageForQuote, defaultSourceEntityId = null,
-            sourceForQuote = null } = opts;
+            onAccepted, onEntityTag, pageForQuote, timeRangeForQuote = null,
+            defaultSourceEntityId = null, sourceForQuote = null } = opts;
     const suggestedByLlm = `llm:${model}`;
     const norm = normalizeProposals(proposals);
     // ONE grounding index for the whole panel — validation, badges, and
@@ -625,6 +626,14 @@ export async function openLlmReview(opts) {
                     if (typeof pageForQuote === 'function' && input.quote && Array.isArray(input.anchor)) {
                         const page = pageForQuote(input.quote);
                         if (page) input.anchor.push(pageFragmentSelector(page));
+                    }
+                    // Diarized video captures: start–end media offsets as
+                    // a Media-Fragments selector, the same additive way.
+                    // An ungrounded quote has anchor: null and gets
+                    // neither — correct for free.
+                    if (typeof timeRangeForQuote === 'function' && input.quote && Array.isArray(input.anchor)) {
+                        const tr = timeRangeForQuote(input.quote);
+                        if (tr) input.anchor.push(timeFragmentSelector(tr.startSec, tr.endSec));
                     }
                     // The asserter default (editable afterward like any
                     // claim field): on a transcript, the quote's TURN

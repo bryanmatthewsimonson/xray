@@ -159,7 +159,23 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // merges with the current remote kind 3 first (never blind-replace,
   // for users who also run another client on the same nsec). The
   // options checkbox shows a consent dialog on first enable.
-  followListPublishing: false
+  followListPublishing: false,
+
+  // Local transcription (docs/JOURNAL.md "YouTube DOM arms race" is
+  // the why): gates the "Capture & transcribe locally" context-menu
+  // item and the reader's Transcribe button, both of which talk to the
+  // loopback companion service (companion/transcriber/, yt-dlp →
+  // WhisperX → pyannote on 127.0.0.1). Nothing leaves the machine;
+  // the flag exists because the surface is useless without the
+  // companion installed. Ordinary YouTube captures are never gated.
+  localTranscription: false,
+
+  // The optional LM Studio post-pass over a finished local transcript:
+  // drafts claim candidates via a LOOPBACK OpenAI-compatible endpoint
+  // (localhost:1234). Distinct from llmAssist (Anthropic, paid, its
+  // own key) — this one is local-only and free. Every suggestion still
+  // goes through the human-accept review modal; nothing auto-mints.
+  transcriptClaimDrafts: false
 });
 
 /**
