@@ -15,13 +15,18 @@ import { Utils } from '../shared/utils.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { MODULE_NAMES } from '../shared/audit/findings-schemas.js';
 import { orchestrateModuleRuns } from '../shared/audit/run-orchestrator.js';
-import { assembleAudit } from '../shared/audit/assemble.js';
+import { assembleAudit, opinionStandingCaveat } from '../shared/audit/assemble.js';
 import { importAuditJson } from '../shared/audit/import.js';
-import { listRuns } from '../shared/audit/audit-cache.js';
+import { listRuns, getArticleExtraction } from '../shared/audit/audit-cache.js';
 import {
     planCorpusAudit,
     loadAuditDraft, appendAuditDraft, clearAuditDraft
 } from '../shared/audit/corpus-audit.js';
+import {
+    memberIndexFromRecords, corpusSourcesForRecord, corpusSourcesChars
+} from '../shared/audit/corpus-sources.js';
+import { loadAliasMap, resolveWithMap } from '../shared/url-aliases.js';
+import { EventBuilder } from '../shared/event-builder.js';
 
 function sendMessage(msg) {
     return new Promise((resolve) => {
@@ -102,12 +107,44 @@ export function renderCorpusAuditBlock(host, { data, callbacks = {} }) {
                         : 'No archive-backed members to audit.';
                     return;
                 }
+                // R2 — per-member corpus-held cited sources for the
+                // source-quality call, resolved against sibling members
+                // (url/alias/DOI identity only) and disclosed in the
+                // confirm before any spend. Enrichment: a gather failure
+                // for one member just means no section for it.
+                status.textContent = 'Resolving cited sources against the corpus…';
+                const { members: memberIndex, recByHash } = memberIndexFromRecords(
+                    data.articles || [], (u) => Utils.normalizeUrl(u));
+                const aliasMap = await loadAliasMap().catch(() => ({}));
+                const recByUrl = new Map((data.articles || []).map((r) => [r.url, r]));
+                const corpusByHash = new Map();
+                for (const m of plan.pending) {
+                    try {
+                        const rec = recByUrl.get(m.url);
+                        if (!rec) continue;
+                        const extraction = rec.articleHash
+                            ? await getArticleExtraction(rec.articleHash).catch(() => null)
+                            : null;
+                        const entries = corpusSourcesForRecord(rec, {
+                            members: memberIndex, recByHash, aliasMap,
+                            resolveWithMapFn: resolveWithMap, extraction,
+                            assembleBody: (a) => EventBuilder.assembleArticleBody(a),
+                            normalizeUrl: (u) => Utils.normalizeUrl(u)
+                        });
+                        if (entries.length) corpusByHash.set(m.localHash, entries);
+                    } catch (err) {
+                        Utils.error('Corpus audit: cited-source gather failed', m.url, err);
+                    }
+                }
+                const corpusChars = [...corpusByHash.values()].reduce((a, e) => a + corpusSourcesChars(e), 0);
+
                 const calls = plan.pending.length * MODULE_NAMES.length;
                 const chars = plan.pending.reduce((a, m) => a + m.chars, 0);
                 const truncatedCount = plan.pending.filter((m) => m.truncated).length;
                 if (!confirm(`Audit ${plan.pending.length} member${plan.pending.length === 1 ? '' : 's'} of this corpus?\n\n`
                     + (plan.audited.length ? `${plan.audited.length} already audited — reused for free.\n` : '')
                     + `This sends about ${calls} module calls (~${Math.round(chars / 1000)}k characters × 8 dimensions) to Anthropic.\n`
+                    + (corpusByHash.size ? `${corpusByHash.size} member${corpusByHash.size === 1 ? '' : 's'} attach corpus-held cited sources (~${Math.round(corpusChars / 1000)}k characters) to their source-quality call.\n` : '')
                     + (truncatedCount ? `${truncatedCount} over-limit member${truncatedCount === 1 ? ' is' : 's are'} audited on their first ~120k characters (keyed to that slice).\n` : '')
                     + 'Each member imports as it completes — a failure keeps everything already paid for.')) {
                     status.textContent = '';
@@ -126,9 +163,16 @@ export function renderCorpusAuditBlock(host, { data, callbacks = {} }) {
                     const { modules, failures, model } = await orchestrateModuleRuns({
                         moduleNames: missing,
                         send: async (name) => {
+                            const memberCorpus = corpusByHash.get(m.localHash) || [];
                             const res = await sendMessage({
                                 type: 'xray:audit:module',
-                                request: { module: name, markdown: m.markdown, articleUrl: m.url, articleTitle: m.title }
+                                request: {
+                                    module: name, markdown: m.markdown,
+                                    articleUrl: m.url, articleTitle: m.title,
+                                    // R2: corpus-held cited sources, module 04 only.
+                                    ...(name === 'source_quality' && memberCorpus.length
+                                        ? { corpusSources: memberCorpus } : {})
+                                }
                             });
                             if (res && res.ok && res.findings) {
                                 await appendAuditDraft(m.localHash, name, res.findings, res.model);
@@ -149,7 +193,9 @@ export function renderCorpusAuditBlock(host, { data, callbacks = {} }) {
                             model: model || (draft && draft.model) || 'unknown',
                             markdown: m.markdown,
                             metadata: m.metadata,
-                            standingCaveat: null
+                            // Per-member opinion caveat (R5 interim) —
+                            // thorough rigor needs no apology of its own.
+                            standingCaveat: opinionStandingCaveat({ source_type: m.sourceType || null })
                         });
                         await importAuditJson(audit, {
                             localArticleHash: m.localHash,

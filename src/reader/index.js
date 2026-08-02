@@ -22,7 +22,7 @@ import { ClaimModel, exactFromAnchor } from '../shared/claim-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import { HypothesisEdgeModel } from '../shared/hypothesis-model.js';
 import * as ArchiveCache from '../shared/archive-cache.js';
-import { recordAlias, resolveAlias } from '../shared/url-aliases.js';
+import { recordAlias, resolveAlias, loadAliasMap, resolveWithMap } from '../shared/url-aliases.js';
 import { installEntityTagger, rehydrateEntityMarks, renderEntitiesBar, extractParagraphContext } from './entity-tagger.js';
 import { openClaimModal, openEvidenceLinkModal, openOthersClaimsModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
 import { openAssessModal } from '../shared/assess-modal.js';
@@ -69,11 +69,15 @@ import { assembleAuditBatch } from '../shared/audit/publish-batch.js';
 import { CURRENT_MODULE_VERSIONS, MODULE_NAMES } from '../shared/audit/findings-schemas.js';
 // The lean assembly half only — never audit-prompt.js, whose generated
 // module-prompts dependency must stay out of the reader bundle.
-import { assembleAudit, auditableSlice, MAX_AUDIT_INPUT_CHARS } from '../shared/audit/assemble.js';
+import {
+    assembleAudit, auditableSlice, MAX_AUDIT_INPUT_CHARS, opinionStandingCaveat,
+    MODULE_DIRECTIONS
+} from '../shared/audit/assemble.js';
+import { suggestSourceType } from '../shared/truth-taxonomy.js';
 import { orchestrateModuleRuns } from '../shared/audit/run-orchestrator.js';
 import * as EventJournal from '../shared/event-journal.js';
 import { gatePublish, relayPublishTransport } from '../shared/publish-gate.js';
-import { auditBand, scoreChipHtml, prettyModule } from '../shared/audit/display.js';
+import { auditBand, scoreChipHtml, prettyModule, runScoreDeltas } from '../shared/audit/display.js';
 import { JurisdictionModel } from '../shared/jurisdiction-model.js';
 import { lensTypeForPropositionClass } from '../shared/lens-taxonomy.js';
 import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/lens-engine.js';
@@ -87,7 +91,8 @@ import { openSpeakersModal, speakerEntityId, decorateSpeakerLabels } from './spe
 import { runDraftPass } from '../shared/transcriber-client.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
-import { resolveActiveCaseRef, describeActiveContext } from '../shared/case-membership.js';
+import { resolveActiveCaseRef, describeActiveContext, memberUrlSets } from '../shared/case-membership.js';
+import { gatherCorpusSources, corpusSourcesChars } from '../shared/audit/corpus-sources.js';
 import { autoPreAnalyzeCapture } from '../shared/auto-preanalyze.js';
 import { Utils } from '../shared/utils.js';
 import {
@@ -1480,7 +1485,7 @@ function renderModuleRow(r, staleSet) {
         : scoreChipHtml(r.score, r.confidence)}
         </summary>
         <div class="xr-audit__module-body">
-          <div class="xr-audit__provenance">auditor: ${escapeHtml(r.auditor ? `${r.auditor.kind} · ${r.auditor.id}` : 'unknown')} · run ${escapeHtml(r.run_at || '')}</div>
+          <div class="xr-audit__provenance">auditor: ${escapeHtml(r.auditor ? `${r.auditor.kind} · ${r.auditor.id}` : 'unknown')} · run ${escapeHtml(r.run_at || '')} · <span title="scoring direction, PHILOSOPHY §3.1/§4 (published classification; the aggregate math is direction-agnostic pending a methodology wave)">direction: ${escapeHtml(MODULE_DIRECTIONS[r.module] || 'unknown')}</span></div>
           ${caveats.length ? `<div class="xr-audit__caveats"><strong>Caveats</strong> — what this scan could not determine:<ul>${caveats.map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul></div>` : ''}
           ${quotes.length ? `<div class="xr-audit__quotes"><strong>Evidence quotes</strong> (click to locate):<ul>${quotes.map((q) => `<li><button type="button" class="xr-audit__quote" data-quote="${escapeHtml(q)}">“${escapeHtml(q.length > 120 ? q.slice(0, 120) + '…' : q)}”</button></li>`).join('')}</ul></div>` : ''}
         </div>
@@ -1592,6 +1597,11 @@ async function refreshAuditStatus() {
     const sorted = runs.slice().sort((a, b) => String(b.runAt).localeCompare(String(a.runAt)));
     const latest = sorted[0];
     const others = sorted.slice(1);
+    // R10b — the vintage trajectory (P1): per-run delta vs the run
+    // before it. Descriptive, never a re-score (runs may differ in
+    // mode and methodology version).
+    const deltaByRunAt = new Map(runScoreDeltas(sorted).map((d) => [d.runAt, d.delta]));
+    const fmtDelta = (d) => (d > 0 ? `+${d}` : String(d));
     const agg = latest.aggregate || {};
     const score = typeof agg.final_score === 'number' ? agg.final_score : null;
     const conf = typeof agg.overall_confidence === 'number' ? agg.overall_confidence : null;
@@ -1615,9 +1625,13 @@ async function refreshAuditStatus() {
         const ceilingLine = agg.ceiling_binding
             ? `<span class="xr-audit__badge-sub">capped by knowability ${escapeHtml(String(agg.knowability_ceiling))}${agg.knowability_notes ? ' — ' + escapeHtml(agg.knowability_notes) : ''}</span>`
             : '';
+        const latestDelta = deltaByRunAt.get(latest.runAt);
+        const deltaLine = (latestDelta !== null && latestDelta !== undefined && others.length)
+            ? `<span class="xr-audit__badge-sub" title="vs the previous run of this exact text — descriptive, not a re-score (runs may differ in mode and methodology version)">Δ ${escapeHtml(fmtDelta(latestDelta))} vs previous run</span>`
+            : '';
         badge = `<div class="xr-audit__badge xr-audit__badge--${band.key}" title="${escapeHtml(band.label)}">` +
             `${escapeHtml(String(score))}<span class="xr-audit__badge-conf">conf ${escapeHtml(String(conf))}</span>` +
-            `<span class="xr-audit__badge-band">${escapeHtml(band.label)}</span>${ceilingLine}</div>`;
+            `<span class="xr-audit__badge-band">${escapeHtml(band.label)}</span>${ceilingLine}${deltaLine}</div>`;
     }
 
     const provenance = `<div class="xr-audit__provenance">auditor: ${escapeHtml(latest.auditor ? `${latest.auditor.kind} · ${latest.auditor.id}` : 'unknown')} · run ${escapeHtml(latest.runAt)} · ceiling source: ${escapeHtml(agg.ceiling_source || 'unknown')} · imported via ${escapeHtml(latest.source)}</div>`;
@@ -1642,7 +1656,10 @@ async function refreshAuditStatus() {
             const a = r.aggregate || {};
             const s = typeof a.final_score === 'number' ? a.final_score : null;
             const c = typeof a.overall_confidence === 'number' ? a.overall_confidence : null;
-            return `<li>${scoreChipHtml(s, c)} — ${escapeHtml(r.auditor ? r.auditor.id : 'unknown')} · ${escapeHtml(r.runAt)}${r._truncatedKey ? ` · first ${MAX_AUDIT_INPUT_CHARS.toLocaleString()} chars only` : ''}</li>`;
+            const d = deltaByRunAt.get(r.runAt);
+            const deltaBit = (d !== null && d !== undefined)
+                ? ` · <span title="vs the run before it — descriptive, not a re-score">Δ ${escapeHtml(fmtDelta(d))}</span>` : '';
+            return `<li>${scoreChipHtml(s, c)} — ${escapeHtml(r.auditor ? r.auditor.id : 'unknown')} · ${escapeHtml(r.runAt)}${deltaBit}${r._truncatedKey ? ` · first ${MAX_AUDIT_INPUT_CHARS.toLocaleString()} chars only` : ''}</li>`;
         }).join('')}</ul></div>`
         : '';
 
@@ -3940,6 +3957,9 @@ function auditRequestMeta() {
     return {
         articleUrl: state.article.url || '',
         articleTitle: state.article.title || '',
+        // Declared source_type wins; else the capture-time suggestion.
+        // 'analysis' triggers the standing opinion caveat (R5 interim).
+        sourceType: state.article.source_type || suggestSourceType(state.article) || '',
         metadata: {
             url: state.article.url || null,
             headline: state.article.title || null,
@@ -4014,7 +4034,7 @@ async function runQuickAudit({ markdown, localHash }) {
  * dead reader/SW/browser costs nothing already paid for. A draft for
  * the SAME text offers resume (only missing modules re-run).
  */
-async function runThoroughAudit({ markdown, localHash, active }) {
+async function runThoroughAudit({ markdown, localHash, active, corpusSources = [] }) {
     let existing = {};
     let draftModel = null;
     const draft = await loadAuditDraft(localHash);
@@ -4041,7 +4061,13 @@ async function runThoroughAudit({ markdown, localHash, active }) {
         send: async (name) => {
             const res = await browserApi.runtime.sendMessage({
                 type: 'xray:audit:module',
-                request: { module: name, markdown, articleUrl: meta.articleUrl, articleTitle: meta.articleTitle }
+                request: {
+                    module: name, markdown,
+                    articleUrl: meta.articleUrl, articleTitle: meta.articleTitle,
+                    // R2: corpus-held cited sources, module 04 only.
+                    ...(name === 'source_quality' && corpusSources.length
+                        ? { corpusSources } : {})
+                }
             });
             if (res && res.ok && res.findings) {
                 await appendAuditDraft(localHash, name, res.findings, res.model);
@@ -4069,7 +4095,9 @@ async function runThoroughAudit({ markdown, localHash, active }) {
             model: model || draftModel || 'unknown',
             markdown,
             metadata: meta.metadata,
-            standingCaveat: null
+            // Thorough has no rigor apology; the opinion caveat still
+            // applies when the artifact is opinion/analysis (R5 interim).
+            standingCaveat: opinionStandingCaveat(state.article)
         });
     } catch (err) {
         console.error('[xray] thorough assembly failed', err);
@@ -4110,9 +4138,36 @@ async function runAuditFromReader(mode = 'single') {
     }
     const markdown = slice.text;
 
+    // R2 — corpus-held cited sources for the source-quality call:
+    // resolved from the active case (url/alias/DOI identity, never
+    // similarity), disclosed in the confirm BEFORE any spend.
+    let corpusSources = [];
+    if (mode === 'per_module') {
+        const gathered = await gatherCorpusSources({
+            article: state.article,
+            selfHash: state.articleHash || '',
+            io: {
+                resolveActiveCaseRef,
+                memberUrlSets,
+                getArticle: ArchiveCache.getArticle,
+                getArticleExtraction,
+                loadAliasMap,
+                resolveWithMap,
+                normalizeUrl: (u) => Utils.normalizeUrl(u),
+                assembleBody: (a) => EventBuilder.assembleArticleBody(a)
+            }
+        });
+        corpusSources = gathered.entries;
+    }
+    const corpusNote = corpusSources.length
+        ? ` ${corpusSources.length} corpus-held cited source${corpusSources.length === 1 ? '' : 's'} `
+          + `(~${Math.round(corpusSourcesChars(corpusSources) / 1000)}k characters) will attach to the `
+          + 'source-quality call for characterization checks.'
+        : '';
+
     // Thorough mode spends ~8× — confirm before committing the user's key.
     if (mode === 'per_module'
-        && !confirm('Thorough audit runs one LLM call per dimension (about 8 API calls — higher cost) for more rigor. Progress is saved per module and resumable. Continue?')) {
+        && !confirm(`Thorough audit runs one LLM call per dimension (about 8 API calls — higher cost) for more rigor.${corpusNote} Progress is saved per module and resumable. Continue?`)) {
         return;
     }
 
@@ -4132,7 +4187,7 @@ async function runAuditFromReader(mode = 'single') {
     active.textContent = mode === 'per_module' ? '⏳ Auditing (thorough)…' : '⏳ Auditing…';
     try {
         if (mode === 'per_module') {
-            await runThoroughAudit({ markdown, localHash, active });
+            await runThoroughAudit({ markdown, localHash, active, corpusSources });
         } else {
             await runQuickAudit({ markdown, localHash });
         }
