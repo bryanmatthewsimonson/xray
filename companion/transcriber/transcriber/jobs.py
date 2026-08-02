@@ -19,7 +19,7 @@ from typing import Any, Optional
 
 from . import config
 
-STAGES = ("downloading", "transcribing", "aligning", "diarizing")
+STAGES = ("downloading", "uploading", "transcribing", "aligning", "diarizing")
 TERMINAL_STATUSES = ("done", "failed", "cancelled")
 
 
@@ -34,6 +34,7 @@ class Job:
     job_id: str
     url: str
     video_id: str
+    provider: str = "local"  # which engine runs this job (config.PROVIDER at enqueue)
     status: str = "queued"  # queued | running | done | failed | cancelled
     stage: Optional[str] = None  # one of STAGES, or None
     progress: float = 0.0
@@ -167,6 +168,9 @@ class JobStore:
                 "progress": round(job.progress, 4),
                 "queue_position": position,
                 "created_at": job.created_at.isoformat(),
+                # Additive: lets the extension label the banner honestly
+                # (local vs cloud); older extensions ignore it.
+                "provider": job.provider,
                 "error": job.error,
                 "result": job.result,
             }
@@ -204,6 +208,7 @@ class JobStore:
             created = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
         except (OSError, ValueError):
             return None
+        model_info = result.get("model_info") if isinstance(result, dict) else None
         return {
             "job_id": job_id,
             "status": "done",
@@ -211,6 +216,7 @@ class JobStore:
             "progress": 1.0,
             "queue_position": None,
             "created_at": created.isoformat(),
+            "provider": (model_info or {}).get("provider") or "local",
             "error": None,
             "result": result,
         }
