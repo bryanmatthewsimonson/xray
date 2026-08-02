@@ -116,6 +116,38 @@ test('runTranscriptionJob: a missing cloud key surfaces missingKey for the picke
     assert.match(out.error, /Deepgram/);
 });
 
+test('decideResume: an explicit engine choice beats a mismatched prior record', () => {
+    const rec = { jobId: 'j-aai', startedAt: NOW - 1000, provider: 'assemblyai' };
+    const doneResp = { ok: true, job: { status: 'done', result: { segments: [1] } } };
+    // Field-found 2026-08-02: picking Local must NOT adopt the old
+    // AssemblyAI job's result.
+    assert.deepEqual(decideResume(rec, doneResp, NOW, 'local'), { action: 'start' });
+    // Same engine chosen: adoption still applies (no wasted re-run).
+    assert.equal(decideResume(rec, doneResp, NOW, 'assemblyai').action, 'adopt');
+    // No explicit choice (plain button with a stored default resolved
+    // by the SW): the record stands, whatever engine it used.
+    assert.equal(decideResume(rec, doneResp, NOW, undefined).action, 'adopt');
+    // Pre-engine-choice record (no provider stamp): old behavior.
+    const legacy = { jobId: 'j-old', startedAt: NOW - 1000 };
+    assert.equal(decideResume(legacy, doneResp, NOW, 'local').action, 'adopt');
+});
+
+test('runTranscriptionJob: mismatched record skips the status probe and starts fresh', async () => {
+    const { io, sent, store } = makeIo({
+        startResp: { ok: true, jobId: 'j-new-local', provider: 'local' },
+        statusScript: [{ ok: true, job: { status: 'done', result: { segments: [1] } } }],
+        store: { [jobRecordKey('vidM')]: { jobId: 'j-aai', startedAt: NOW - 1000, provider: 'assemblyai' } }
+    });
+    const out = await runTranscriptionJob({ videoUrl: 'https://v', videoId: 'vidM', provider: 'local', io });
+    assert.equal(out.ok, true);
+    // The old AssemblyAI job was never even asked about…
+    const statusTargets = sent.filter((m) => m.type === 'xray:transcribe:status').map((m) => m.jobId);
+    assert.ok(!statusTargets.includes('j-aai'), 'mismatched job must not be probed/resumed');
+    // …and the fresh local job replaced the record.
+    assert.equal(store[jobRecordKey('vidM')].jobId, 'j-new-local');
+    assert.equal(store[jobRecordKey('vidM')].provider, 'local');
+});
+
 test('decideResume: the whole policy table', () => {
     const rec = { jobId: 'j-1', startedAt: NOW - 1000 };
     assert.deepEqual(decideResume(null, null, NOW), { action: 'start' });

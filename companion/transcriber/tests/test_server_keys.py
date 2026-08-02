@@ -76,5 +76,39 @@ class QueueRouting(unittest.TestCase):
         self.assertIs(server._queue_for("local"), server._local_queue)
 
 
+class TranscribeEndpoint(unittest.TestCase):
+    """POST /transcribe called as a plain function (no TestClient dep)."""
+
+    def test_response_names_the_engine_and_dedupe_tells_the_truth(self):
+        req = server.TranscribeRequest(
+            url="https://www.youtube.com/watch?v=dEdUpE00001",
+            provider="assemblyai",
+            api_key="k",
+        )
+        first = server.transcribe(req)
+        self.assertEqual(first["provider"], "assemblyai")
+        # Same video requested as LOCAL while the AssemblyAI job is
+        # active: the dedupe wins and the response says so.
+        again = server.transcribe(server.TranscribeRequest(
+            url="https://www.youtube.com/watch?v=dEdUpE00001",
+            provider="local",
+        ))
+        self.assertEqual(again["job_id"], first["job_id"])
+        self.assertEqual(again["provider"], "assemblyai")
+        server.store.remove(first["job_id"])  # keep the global store clean
+
+    def test_cloud_without_any_key_is_a_400(self):
+        from fastapi import HTTPException
+
+        with mock.patch.object(server.config, "DEEPGRAM_API_KEY", ""):
+            with self.assertRaises(HTTPException) as ctx:
+                server.transcribe(server.TranscribeRequest(
+                    url="https://www.youtube.com/watch?v=NoKeY000001",
+                    provider="deepgram",
+                ))
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("Deepgram", ctx.exception.detail)
+
+
 if __name__ == "__main__":
     unittest.main()

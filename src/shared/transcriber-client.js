@@ -201,7 +201,12 @@ export async function startTranscription(videoUrl, { port, fetchFn = fetch, prov
     if (!res.ok) return res;
     const jobId = res.body && res.body.job_id;
     if (!jobId) return { ok: false, error: 'Transcriber returned no job id.' };
-    return { ok: true, jobId, provider: engine };
+    // Prefer the SERVER'S answer for which engine runs the job: on a
+    // same-video dedupe the existing job's engine wins, and an older
+    // companion (no per-request support) runs its env default — its
+    // response carries no provider, so `requested` is our best guess.
+    const actual = (res.body && res.body.provider) || engine;
+    return { ok: true, jobId, provider: actual, requested: engine };
 }
 
 /** GET /jobs/<id> — the poll unit. */

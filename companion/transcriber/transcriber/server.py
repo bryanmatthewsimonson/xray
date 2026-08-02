@@ -175,7 +175,9 @@ def transcribe(body: TranscribeRequest) -> dict:
     if not created:
         # An active (queued/running) job for this video already exists —
         # whatever engine it was started with wins (dedupe by video).
-        return {"job_id": job.job_id}
+        # The response names that engine so the client can tell the
+        # user the truth instead of assuming its request was honored.
+        return {"job_id": job.job_id, "provider": job.provider}
     # Cap ACTIVE jobs (this one included), so cancelling really frees
     # capacity. Loopback single-user service: the tiny add-then-check
     # window between concurrent POSTs is acceptable.
@@ -187,7 +189,7 @@ def transcribe(body: TranscribeRequest) -> dict:
         )
     _queue_for(provider).put(job.job_id)
     log.info("queued job %s for video %s (%s)", job.job_id, video_id, job.provider)
-    return {"job_id": job.job_id}
+    return {"job_id": job.job_id, "provider": job.provider}
 
 
 def _queue_for(provider: str) -> "queue.Queue[str]":

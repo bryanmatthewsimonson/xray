@@ -83,7 +83,7 @@ test('startTranscription: 202 → jobId; unreachable names the fix; HTTP error c
         port: 8756,
         fetchFn: async (url, init) => { calls.push({ url, init }); return okJson({ job_id: 'j-1' }, 202); }
     });
-    assert.deepEqual(res, { ok: true, jobId: 'j-1', provider: 'local' });
+    assert.deepEqual(res, { ok: true, jobId: 'j-1', provider: 'local', requested: 'local' });
     assert.equal(calls[0].url, 'http://127.0.0.1:8756/transcribe');
     const body = JSON.parse(calls[0].init.body);
     assert.equal(body.url, 'https://www.youtube.com/watch?v=x');
@@ -121,11 +121,26 @@ test('startTranscription: stored cloud engine sends provider + saved key', async
     let body = null;
     const res = await startTranscription('https://www.youtube.com/watch?v=x', {
         port: 8756,
-        fetchFn: async (_url, init) => { body = JSON.parse(init.body); return okJson({ job_id: 'j-2' }, 202); }
+        fetchFn: async (_url, init) => { body = JSON.parse(init.body); return okJson({ job_id: 'j-2', provider: 'assemblyai' }, 202); }
     });
-    assert.deepEqual(res, { ok: true, jobId: 'j-2', provider: 'assemblyai' });
+    assert.equal(res.ok, true);
+    assert.equal(res.jobId, 'j-2');
+    assert.equal(res.provider, 'assemblyai');
     assert.equal(body.provider, 'assemblyai');
     assert.equal(body.api_key, 'aai-key-123');
+});
+
+test("startTranscription: the SERVER'S engine answer wins (same-video dedupe truth)", async () => {
+    resetStore();
+    // Requested local, but an active AssemblyAI job for the video won
+    // the dedupe — the result must say what will ACTUALLY run.
+    const res = await startTranscription('https://y', {
+        port: 8756,
+        provider: 'local',
+        fetchFn: async () => okJson({ job_id: 'j-active', provider: 'assemblyai' }, 202)
+    });
+    assert.equal(res.provider, 'assemblyai');
+    assert.equal(res.requested, 'local');
 });
 
 test('startTranscription: explicit provider overrides the stored preference', async () => {
