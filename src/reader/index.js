@@ -22,7 +22,7 @@ import { ClaimModel, exactFromAnchor } from '../shared/claim-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import { HypothesisEdgeModel } from '../shared/hypothesis-model.js';
 import * as ArchiveCache from '../shared/archive-cache.js';
-import { recordAlias, resolveAlias } from '../shared/url-aliases.js';
+import { recordAlias, resolveAlias, loadAliasMap, resolveWithMap } from '../shared/url-aliases.js';
 import { installEntityTagger, rehydrateEntityMarks, renderEntitiesBar, extractParagraphContext } from './entity-tagger.js';
 import { openClaimModal, openEvidenceLinkModal, openOthersClaimsModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
 import { openAssessModal } from '../shared/assess-modal.js';
@@ -90,7 +90,8 @@ import { openSpeakersModal, speakerEntityId, decorateSpeakerLabels } from './spe
 import { runDraftPass } from '../shared/transcriber-client.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
-import { resolveActiveCaseRef, describeActiveContext } from '../shared/case-membership.js';
+import { resolveActiveCaseRef, describeActiveContext, memberUrlSets } from '../shared/case-membership.js';
+import { gatherCorpusSources, corpusSourcesChars } from '../shared/audit/corpus-sources.js';
 import { autoPreAnalyzeCapture } from '../shared/auto-preanalyze.js';
 import { Utils } from '../shared/utils.js';
 import {
@@ -3832,7 +3833,7 @@ async function runQuickAudit({ markdown, localHash }) {
  * dead reader/SW/browser costs nothing already paid for. A draft for
  * the SAME text offers resume (only missing modules re-run).
  */
-async function runThoroughAudit({ markdown, localHash, active }) {
+async function runThoroughAudit({ markdown, localHash, active, corpusSources = [] }) {
     let existing = {};
     let draftModel = null;
     const draft = await loadAuditDraft(localHash);
@@ -3859,7 +3860,13 @@ async function runThoroughAudit({ markdown, localHash, active }) {
         send: async (name) => {
             const res = await browserApi.runtime.sendMessage({
                 type: 'xray:audit:module',
-                request: { module: name, markdown, articleUrl: meta.articleUrl, articleTitle: meta.articleTitle }
+                request: {
+                    module: name, markdown,
+                    articleUrl: meta.articleUrl, articleTitle: meta.articleTitle,
+                    // R2: corpus-held cited sources, module 04 only.
+                    ...(name === 'source_quality' && corpusSources.length
+                        ? { corpusSources } : {})
+                }
             });
             if (res && res.ok && res.findings) {
                 await appendAuditDraft(localHash, name, res.findings, res.model);
@@ -3930,9 +3937,36 @@ async function runAuditFromReader(mode = 'single') {
     }
     const markdown = slice.text;
 
+    // R2 — corpus-held cited sources for the source-quality call:
+    // resolved from the active case (url/alias/DOI identity, never
+    // similarity), disclosed in the confirm BEFORE any spend.
+    let corpusSources = [];
+    if (mode === 'per_module') {
+        const gathered = await gatherCorpusSources({
+            article: state.article,
+            selfHash: state.articleHash || '',
+            io: {
+                resolveActiveCaseRef,
+                memberUrlSets,
+                getArticle: ArchiveCache.getArticle,
+                getArticleExtraction,
+                loadAliasMap,
+                resolveWithMap,
+                normalizeUrl: (u) => Utils.normalizeUrl(u),
+                assembleBody: (a) => EventBuilder.assembleArticleBody(a)
+            }
+        });
+        corpusSources = gathered.entries;
+    }
+    const corpusNote = corpusSources.length
+        ? ` ${corpusSources.length} corpus-held cited source${corpusSources.length === 1 ? '' : 's'} `
+          + `(~${Math.round(corpusSourcesChars(corpusSources) / 1000)}k characters) will attach to the `
+          + 'source-quality call for characterization checks.'
+        : '';
+
     // Thorough mode spends ~8× — confirm before committing the user's key.
     if (mode === 'per_module'
-        && !confirm('Thorough audit runs one LLM call per dimension (about 8 API calls — higher cost) for more rigor. Progress is saved per module and resumable. Continue?')) {
+        && !confirm(`Thorough audit runs one LLM call per dimension (about 8 API calls — higher cost) for more rigor.${corpusNote} Progress is saved per module and resumable. Continue?`)) {
         return;
     }
 
@@ -3952,7 +3986,7 @@ async function runAuditFromReader(mode = 'single') {
     active.textContent = mode === 'per_module' ? '⏳ Auditing (thorough)…' : '⏳ Auditing…';
     try {
         if (mode === 'per_module') {
-            await runThoroughAudit({ markdown, localHash, active });
+            await runThoroughAudit({ markdown, localHash, active, corpusSources });
         } else {
             await runQuickAudit({ markdown, localHash });
         }

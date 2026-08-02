@@ -280,9 +280,9 @@ Return only this JSON:
     source_quality:
 `# Module 04 — Source Quality Audit
 
-**Purpose:** Count and classify every source the article uses; identify contested claims that rest on inadequate sourcing; check whether anonymous sourcing is justified and whether primary documents (when cited) are linked or quoted.
+**Purpose:** Count and classify every source the article uses; identify contested claims that rest on inadequate sourcing; check whether anonymous sourcing is justified and whether primary documents (when cited) are linked or quoted — and, when the corpus already holds a cited source, whether the article characterizes it accurately.
 
-**Input:** Article markdown.
+**Input:** Article markdown, optionally followed by a CORPUS-HELD CITED SOURCES section (excerpts of cited documents already captured in the case corpus).
 
 **Output:** A single JSON object, no preamble or fences.
 
@@ -323,7 +323,15 @@ You are an epistemic auditor performing a Source Quality audit on a news article
 
 6. **Evaluate primary source linking.** When the article cites documents, studies, or data, are they linked, quoted, or specifically identified such that a reader could retrieve them? Or are they characterized only by the article's framing?
 
-7. **Score 0–100:**
+7. **Check corpus-held cited sources (when provided).** A "CORPUS-HELD CITED SOURCES" section may follow the article: excerpts of documents the article cites that are already captured in the user's case corpus, identity-matched mechanically (url / alias / DOI — never by similarity). For each provided source, compare what the article says the source says against the source's own text:
+   - \`accurate\` — the characterization matches the excerpt
+   - \`partially_accurate\` — directionally right but overstated, narrowed, or stripped of stated qualifications
+   - \`mischaracterized\` — the excerpt contradicts the characterization
+   - \`cannot_determine\` — the excerpt does not cover the claim
+
+   Quote the article verbatim in \`evidence_quote\` and the source verbatim in \`source_quote\` (null when \`cannot_determine\`). Judge only against the provided excerpt — it may be truncated; when in doubt, \`cannot_determine\`. When no section is provided, emit an empty \`corpus_source_checks\` array; never guess at sources you were not given.
+
+8. **Score 0–100:**
    - **90–100:** Sources are predominantly named and primary; anonymous sourcing is sparse, justified, and described; documents are linked or quoted; contested claims are multi-sourced.
    - **75–89:** Mostly named sourcing; anonymous sources justified; some documents linked.
    - **60–74:** Mixed; reliance on \`expert_says_vague\` or unjustified anonymous sourcing in non-contested areas.
@@ -331,7 +339,9 @@ You are an epistemic auditor performing a Source Quality audit on a news article
    - **20–39:** Article essentially built on anonymous sourcing or single-sourced contested claims.
    - **0–19:** No identifiable sourcing for major claims, or sources presented in ways that prevent reader verification.
 
-8. **Confidence (0.0–1.0):** Lower confidence on stories where anonymous sourcing may be genuinely necessary (national security, internal corporate matters, personal safety) and where the underlying sourcing quality is unverifiable from the article alone.
+   A \`mischaracterized\` corpus-source check is a serious sourcing failure — weigh it like a single-sourced contested claim. \`accurate\` checks are affirmative good practice (credit, per the balance-sheet principle).
+
+9. **Confidence (0.0–1.0):** Lower confidence on stories where anonymous sourcing may be genuinely necessary (national security, internal corporate matters, personal safety) and where the underlying sourcing quality is unverifiable from the article alone.
 
 # Output
 
@@ -340,7 +350,7 @@ Return only this JSON:
 \`\`\`json
 {
   "module": "source_quality",
-  "version": "1.0",
+  "version": "1.1",
   "sources": [
     {
       "id": 0,
@@ -374,6 +384,16 @@ Return only this JSON:
       "linked_or_quoted": true | false,
       "specific_enough_to_retrieve": true | false,
       "evidence_quote": "<exact quote>"
+    }
+  ],
+  "corpus_source_checks": [
+    {
+      "cited_as": "<how the article cites it>",
+      "member_url": "<the provided source's url, verbatim>",
+      "characterization": "accurate" | "partially_accurate" | "mischaracterized" | "cannot_determine",
+      "note": "<one line: what matches or diverges>",
+      "evidence_quote": "<exact quote from the ARTICLE characterizing the source>",
+      "source_quote": "<exact quote from the provided source excerpt, or null>"
     }
   ],
   "summary": {
