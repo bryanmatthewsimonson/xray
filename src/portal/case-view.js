@@ -31,6 +31,7 @@ import { renderExtractionBlock } from './extraction-block.js';
 import { renderCorpusAuditBlock } from './corpus-audit-block.js';
 import { renderEpistemicsBlock } from './epistemics-block.js';
 import { renderCrossCoverageBlock } from './cross-coverage-block.js';
+import { renderKnownUnknownsBlock } from './known-unknowns-block.js';
 import { renderReferencesBlock } from './references-block.js';
 import { renderWireScanBlock } from './wire-scan-block.js';
 import { renderForensicCorpusBlock } from './forensic-corpus-block.js';
@@ -353,6 +354,11 @@ export function renderCaseView(host, params) {
             // definitional drift, derived from per-member audit findings.
             // No LLM call; absent until ≥2 audited members carry them.
             renderCrossCoverageBlock(analysisHost, { data });
+            // R9 (founding-transcript integration; JOURNAL 2026-08-02) —
+            // known unknowns: what the corpus could NOT verify, from
+            // module-04 atoms + caveats + the brief's coverage gaps.
+            // No LLM call; absent until unknowns exist.
+            renderKnownUnknownsBlock(analysisHost, { data });
             // R1 (founding-transcript integration; JOURNAL 2026-08-02) —
             // cited sources resolved against the corpus: already-held /
             // suggested / capturable (one-click ingest through the
