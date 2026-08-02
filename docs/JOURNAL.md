@@ -46,6 +46,29 @@ reconciliation (§8).
 
 ---
 
+## 2026-08-02 — Founding transcript vendored; PHILOSOPHY narrowed to fit the tool it governs
+
+**Tags:** design
+
+The founding conversation's first three exchanges — the prose
+`EPISTEMIC_AUDIT_DESIGN.md` calls "unrecovered" — surfaced and were
+audited against the implementation: a 19-item mining checklist, every
+verdict adversarially cross-checked against code. Vendored at
+[`docs/FOUNDING_TRANSCRIPT.md`](FOUNDING_TRANSCRIPT.md) (non-normative;
+its supersession log is maintained there). Two constitutional
+narrowings landed as PHILOSOPHY v1.1.0 (§13): the standing re-audit
+cadence became event-driven, and the auditor self-dossier clause became
+same-ledgers-same-discipline. The governing insight, the maintainer's:
+the editor-in-chief persona was a device for *deriving standards* —
+X-Ray is a solo research tool, and newsroom machinery (volatility
+metrics, red-team reviewers, wall-clock re-scoring) does not transfer.
+What does transfer became the integration map: reference→corpus
+resolution over the dormant `sources[]` / `article.references[]`
+substrates, corpus-internal source verification, dimension callouts on
+claims, the opinion module suite (codified in §3.2, never built — the
+audit still runs the news modules on opinion pieces unbranched), and
+wire-copy text-similarity as a suggester feeding human origin
+attestations.
 ## 2026-08-02 — Spotify links resolve through oEmbed, inside the fallback stage
 
 **Tags:** design
