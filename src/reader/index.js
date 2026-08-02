@@ -70,13 +70,14 @@ import { CURRENT_MODULE_VERSIONS, MODULE_NAMES } from '../shared/audit/findings-
 // The lean assembly half only — never audit-prompt.js, whose generated
 // module-prompts dependency must stay out of the reader bundle.
 import {
-    assembleAudit, auditableSlice, MAX_AUDIT_INPUT_CHARS, opinionStandingCaveat
+    assembleAudit, auditableSlice, MAX_AUDIT_INPUT_CHARS, opinionStandingCaveat,
+    MODULE_DIRECTIONS
 } from '../shared/audit/assemble.js';
 import { suggestSourceType } from '../shared/truth-taxonomy.js';
 import { orchestrateModuleRuns } from '../shared/audit/run-orchestrator.js';
 import * as EventJournal from '../shared/event-journal.js';
 import { gatePublish, relayPublishTransport } from '../shared/publish-gate.js';
-import { auditBand, scoreChipHtml, prettyModule } from '../shared/audit/display.js';
+import { auditBand, scoreChipHtml, prettyModule, runScoreDeltas } from '../shared/audit/display.js';
 import { JurisdictionModel } from '../shared/jurisdiction-model.js';
 import { lensTypeForPropositionClass } from '../shared/lens-taxonomy.js';
 import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/lens-engine.js';
@@ -1484,7 +1485,7 @@ function renderModuleRow(r, staleSet) {
         : scoreChipHtml(r.score, r.confidence)}
         </summary>
         <div class="xr-audit__module-body">
-          <div class="xr-audit__provenance">auditor: ${escapeHtml(r.auditor ? `${r.auditor.kind} · ${r.auditor.id}` : 'unknown')} · run ${escapeHtml(r.run_at || '')}</div>
+          <div class="xr-audit__provenance">auditor: ${escapeHtml(r.auditor ? `${r.auditor.kind} · ${r.auditor.id}` : 'unknown')} · run ${escapeHtml(r.run_at || '')} · <span title="scoring direction, PHILOSOPHY §3.1/§4 (published classification; the aggregate math is direction-agnostic pending a methodology wave)">direction: ${escapeHtml(MODULE_DIRECTIONS[r.module] || 'unknown')}</span></div>
           ${caveats.length ? `<div class="xr-audit__caveats"><strong>Caveats</strong> — what this scan could not determine:<ul>${caveats.map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul></div>` : ''}
           ${quotes.length ? `<div class="xr-audit__quotes"><strong>Evidence quotes</strong> (click to locate):<ul>${quotes.map((q) => `<li><button type="button" class="xr-audit__quote" data-quote="${escapeHtml(q)}">“${escapeHtml(q.length > 120 ? q.slice(0, 120) + '…' : q)}”</button></li>`).join('')}</ul></div>` : ''}
         </div>
@@ -1596,6 +1597,11 @@ async function refreshAuditStatus() {
     const sorted = runs.slice().sort((a, b) => String(b.runAt).localeCompare(String(a.runAt)));
     const latest = sorted[0];
     const others = sorted.slice(1);
+    // R10b — the vintage trajectory (P1): per-run delta vs the run
+    // before it. Descriptive, never a re-score (runs may differ in
+    // mode and methodology version).
+    const deltaByRunAt = new Map(runScoreDeltas(sorted).map((d) => [d.runAt, d.delta]));
+    const fmtDelta = (d) => (d > 0 ? `+${d}` : String(d));
     const agg = latest.aggregate || {};
     const score = typeof agg.final_score === 'number' ? agg.final_score : null;
     const conf = typeof agg.overall_confidence === 'number' ? agg.overall_confidence : null;
@@ -1619,9 +1625,13 @@ async function refreshAuditStatus() {
         const ceilingLine = agg.ceiling_binding
             ? `<span class="xr-audit__badge-sub">capped by knowability ${escapeHtml(String(agg.knowability_ceiling))}${agg.knowability_notes ? ' — ' + escapeHtml(agg.knowability_notes) : ''}</span>`
             : '';
+        const latestDelta = deltaByRunAt.get(latest.runAt);
+        const deltaLine = (latestDelta !== null && latestDelta !== undefined && others.length)
+            ? `<span class="xr-audit__badge-sub" title="vs the previous run of this exact text — descriptive, not a re-score (runs may differ in mode and methodology version)">Δ ${escapeHtml(fmtDelta(latestDelta))} vs previous run</span>`
+            : '';
         badge = `<div class="xr-audit__badge xr-audit__badge--${band.key}" title="${escapeHtml(band.label)}">` +
             `${escapeHtml(String(score))}<span class="xr-audit__badge-conf">conf ${escapeHtml(String(conf))}</span>` +
-            `<span class="xr-audit__badge-band">${escapeHtml(band.label)}</span>${ceilingLine}</div>`;
+            `<span class="xr-audit__badge-band">${escapeHtml(band.label)}</span>${ceilingLine}${deltaLine}</div>`;
     }
 
     const provenance = `<div class="xr-audit__provenance">auditor: ${escapeHtml(latest.auditor ? `${latest.auditor.kind} · ${latest.auditor.id}` : 'unknown')} · run ${escapeHtml(latest.runAt)} · ceiling source: ${escapeHtml(agg.ceiling_source || 'unknown')} · imported via ${escapeHtml(latest.source)}</div>`;
@@ -1646,7 +1656,10 @@ async function refreshAuditStatus() {
             const a = r.aggregate || {};
             const s = typeof a.final_score === 'number' ? a.final_score : null;
             const c = typeof a.overall_confidence === 'number' ? a.overall_confidence : null;
-            return `<li>${scoreChipHtml(s, c)} — ${escapeHtml(r.auditor ? r.auditor.id : 'unknown')} · ${escapeHtml(r.runAt)}${r._truncatedKey ? ` · first ${MAX_AUDIT_INPUT_CHARS.toLocaleString()} chars only` : ''}</li>`;
+            const d = deltaByRunAt.get(r.runAt);
+            const deltaBit = (d !== null && d !== undefined)
+                ? ` · <span title="vs the run before it — descriptive, not a re-score">Δ ${escapeHtml(fmtDelta(d))}</span>` : '';
+            return `<li>${scoreChipHtml(s, c)} — ${escapeHtml(r.auditor ? r.auditor.id : 'unknown')} · ${escapeHtml(r.runAt)}${deltaBit}${r._truncatedKey ? ` · first ${MAX_AUDIT_INPUT_CHARS.toLocaleString()} chars only` : ''}</li>`;
         }).join('')}</ul></div>`
         : '';
 
