@@ -76,9 +76,13 @@ export function confirmedCount(results) {
  *                                     before 29.1
  * @returns {Promise<{results: object, confirmedOk: boolean,
  *          journaled: boolean}>} the transport's results plus whether a
- *          CONFIRMED ok occurred. A transport failure rethrows after
- *          the sign-time journal write, so under the flag the pending
- *          row survives the error path too.
+ *          CONFIRMED ok occurred. `journaled` is the TRUTH about this
+ *          event's journal write — false when the sign-time write
+ *          failed, so callers with a legacy fallback (publishOk) can
+ *          still cover the event; both flag legs answer it honestly.
+ *          A transport failure rethrows after the sign-time journal
+ *          write, so under the flag the pending row survives the
+ *          error path too.
  */
 export async function gatePublish({
     signedEvent,
@@ -99,19 +103,27 @@ export async function gatePublish({
         // Store-first (§3.2): sign → journal ('pending') → inline
         // attempt → snapshot. The journal write is best-effort by
         // design: a busted IDB must not block the relay attempt, it
-        // just narrows durability back to today's.
+        // just narrows durability back to today's — and `journaled`
+        // reports the failure honestly so publishOk's legacy fallback
+        // can still cover the event.
+        let journaled = false;
         try {
             await recordSigned(signedEvent, { ledger, articleUrl });
+            journaled = true;
         } catch (err) {
             Utils.error('publish-gate: sign-time journal write failed', err);
         }
         const results = await publish(relays, signedEvent);
-        try {
-            await recordFlushAttempt(signedEvent.id, results);
-        } catch (err) {
-            Utils.error('publish-gate: flush-attempt snapshot failed', err);
+        if (journaled) {
+            // No sign-time row → nothing to snapshot against (and the
+            // same broken IDB would throw again anyway).
+            try {
+                await recordFlushAttempt(signedEvent.id, results);
+            } catch (err) {
+                Utils.error('publish-gate: flush-attempt snapshot failed', err);
+            }
         }
-        return { results, confirmedOk: confirmedCount(results) > 0, journaled: true };
+        return { results, confirmedOk: confirmedCount(results) > 0, journaled };
     }
 
     // Legacy (flag off): attempt first; a zero-success publish is

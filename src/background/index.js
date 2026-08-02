@@ -1702,6 +1702,7 @@ async function handleCapturePublish(id, unsignedEvent, { ledger = null, articleU
     //    inside the gate; other kinds keep the single-shot path —
     //    reconcile catches losses.
     let results;
+    let journaled;
     try {
         const transport = IDENTITY_KINDS.includes(signed.event.kind)
             ? async (rl, ev) => {
@@ -1721,6 +1722,7 @@ async function handleCapturePublish(id, unsignedEvent, { ledger = null, articleU
             legacyJournalOnSuccess: false
         });
         results = gated.results;
+        journaled = gated.journaled;
     } catch (err) {
         return { ok: false, error: 'Relay publish failed: ' + (err && err.message) };
     }
@@ -1735,5 +1737,8 @@ async function handleCapturePublish(id, unsignedEvent, { ledger = null, articleU
         });
     } catch (_) { /* notifications permission may be declined */ }
 
-    return { ok: true, signedEvent: signed.event, results };
+    // `journaled` is the gate's per-event truth (29.1) — the reader's
+    // publishOk trusts it over a fresh flag read, so a flag flip
+    // during the relay leg can't leave an in-flight event unjournaled.
+    return { ok: true, signedEvent: signed.event, results, journaled };
 }

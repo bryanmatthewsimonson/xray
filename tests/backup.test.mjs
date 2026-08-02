@@ -41,7 +41,10 @@ const {
 } = await import('../src/shared/backup.js');
 const { openArchiveDb, SOURCE_DOCS_STORE } = await import('../src/shared/archive-cache.js');
 const { openAuditDb } = await import('../src/shared/audit/audit-cache.js');
-const { recordPublished, countAll, clear: clearJournal } = await import('../src/shared/event-journal.js');
+const {
+    recordPublished, countAll, clear: clearJournal,
+    getByEventId: journalGet, openEventJournalDb, MIGRATION_DEFER_S
+} = await import('../src/shared/event-journal.js');
 
 // ------------------------------------------------------------------
 // Seeding helpers
@@ -192,6 +195,59 @@ test('applyBackup: replace-all restore; LLM key preserved from the live profile'
     assert.deepEqual(new Uint8Array(docs[0].bytes), PDF_BYTES, 'PDF bytes byte-identical');
 
     assert.equal(await countAll(), 1, 'journal restored');
+});
+
+test('applyBackup normalizes v1-shaped journal rows on restore — no strand from the flushState index', async () => {
+    // A PRE-29.1 backup file carries v1-shaped rows (no flush/
+    // signedAt/ledger). Restored verbatim into the v2 store they would
+    // never re-migrate and — lacking the 'flush.state' keyPath — would
+    // be invisible to the flushState index, silently stranded from the
+    // 29.2 flusher (EVENT_STORE_DESIGN §3.4's Mac ↔ Windows failure).
+    await seedWorkspace();
+    const P = 'p'.repeat(64);
+    const V1_ID = 'aa'.padEnd(64, '1');
+    const v1Backup = {
+        format: BACKUP_FORMAT,
+        storage: {},
+        databases: {
+            'xray-events': {
+                published_events: [{
+                    // Byte-for-byte the pre-29.1 recordPublished shape,
+                    // assumed-only (the retry-promise rows).
+                    eventId: V1_ID, kind: 30040, pubkey: P,
+                    address: `30040:${P}:claim_v1`, createdAt: 1700000000,
+                    event: {
+                        id: V1_ID, sig: 's'.repeat(128), kind: 30040, pubkey: P,
+                        created_at: 1700000000, tags: [['d', 'claim_v1']], content: 'x'
+                    },
+                    publishedAt: 2000,
+                    relays: [{ url: 'wss://a.example', success: true, assumed: true }],
+                    articleUrl: null
+                }]
+            }
+        }
+    };
+    const now = Math.floor(Date.now() / 1000);
+    await applyBackup(v1Backup);
+
+    const row = await journalGet(V1_ID);
+    assert.equal(row.flush.state, 'pending', 'assumed-only v1 import → pending (migration-equivalent)');
+    assert.equal(row.signedAt, 2000, 'signedAt backfilled from publishedAt');
+    assert.equal(row.ledger, null);
+    assert.ok(row.flush.nextAttemptAt > now + MIGRATION_DEFER_S - 120
+        && row.flush.nextAttemptAt <= now + MIGRATION_DEFER_S + 120,
+        'v1 imports take the migration defer — no first-wake flood');
+
+    // The load-bearing part: the row is VISIBLE to the queue scan.
+    const db = await openEventJournalDb();
+    const pending = await new Promise((resolve, reject) => {
+        const req = db.transaction('published_events', 'readonly')
+            .objectStore('published_events').index('flushState').getAll('pending');
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+    });
+    assert.deepEqual(pending.map((r) => r.eventId), [V1_ID],
+        'the normalized import is in the flushState index — the flusher can see it');
 });
 
 test('applyBackup refuses to smuggle an LLM key hidden in a backup file', async () => {

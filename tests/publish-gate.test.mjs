@@ -41,8 +41,10 @@ globalThis.chrome = {
     }
 };
 
-const { gatePublish, confirmedCount } = await import('../src/shared/publish-gate.js');
-const { countAll, getByEventId, listAll, clear } = await import('../src/shared/event-journal.js');
+const { gatePublish, confirmedCount, relayPublishTransport, rebroadcastEvent }
+    = await import('../src/shared/publish-gate.js');
+const { countAll, getByEventId, listAll, clear, _resetForTests }
+    = await import('../src/shared/event-journal.js');
 const { FLAGS_DEFAULTS } = await import('../src/shared/metadata/feature-flags.js');
 
 const setFlag = (on) => _store.set('xray:flags', JSON.stringify({ storeFirstPublish: on }));
@@ -225,4 +227,67 @@ test('flag ON: legacyJournalOnSuccess is irrelevant — no recordPublished doubl
     assert.equal(await countAll(), 1, 'one row, written by the store-first path');
     const rows = await listAll();
     assert.equal(rows[0].flush.attempts, 1, 'one attempt — recordPublished did not also run');
+});
+
+test('flag ON: a FAILED sign-time journal write answers journaled:false — and the transport still runs', async () => {
+    setFlag(true);
+    let calls = 0;
+    const fn = async () => { calls += 1; return ZERO_SUCCESS; };
+    const realIDB = globalThis.indexedDB;
+    _resetForTests();
+    globalThis.indexedDB = undefined;   // recordSigned throws — a busted-IDB world
+    let out;
+    try {
+        out = await gatePublish({ signedEvent: signedEvent(), relays: RELAYS, publish: fn });
+    } finally {
+        globalThis.indexedDB = realIDB;
+        _resetForTests();
+    }
+    assert.equal(calls, 1, 'the relay attempt is never blocked by a busted journal');
+    assert.equal(out.journaled, false,
+        'the field tells the TRUTH when IDB is broken — publishOk\'s legacy fallback can still cover the event');
+    assert.equal(out.confirmedOk, false);
+    assert.equal(await countAll(), 0, 'and indeed nothing landed');
+});
+
+test('relayPublishTransport: resolves the results; rejects with the SW error, or an EMPTY message for site fallbacks', async () => {
+    // Every portal/network fallback string ('no relays accepted',
+    // 'publish failed', 'unknown') depends on the empty-message
+    // contract: err.message must be FALSY when the SW gave no error.
+    const sent = [];
+    const respQueue = [];
+    globalThis.chrome.runtime = {
+        sendMessage: async (msg) => { sent.push(msg); return respQueue.shift(); }
+    };
+    try {
+        const transport = relayPublishTransport();
+        respQueue.push({ ok: true, results: CONFIRMED });
+        const ev = signedEvent();
+        assert.equal(await transport(RELAYS, ev), CONFIRMED);
+        assert.deepEqual(sent[0], { type: 'xray:relay:publish', event: ev, relays: RELAYS });
+
+        respQueue.push({ ok: false, error: 'relay pool down' });
+        await assert.rejects(() => transport(RELAYS, ev), { message: 'relay pool down' });
+
+        respQueue.push(undefined);        // SW gone / no response
+        await assert.rejects(() => transport(RELAYS, ev), { message: '' });
+
+        respQueue.push({ ok: false });    // refused with no error string
+        await assert.rejects(() => transport(RELAYS, ev), { message: '' });
+    } finally {
+        delete globalThis.chrome.runtime;
+    }
+});
+
+test('rebroadcastEvent never journals — foreign signed work stays out of the journal', async () => {
+    globalThis.chrome.runtime = { sendMessage: async () => ({ ok: true, results: CONFIRMED }) };
+    try {
+        const foreign = signedEvent({ id: 'f0'.padEnd(64, '0'), pubkey: 'q'.repeat(64) });
+        const results = await rebroadcastEvent(RELAYS, foreign);
+        assert.equal(results, CONFIRMED);
+        assert.equal(await countAll(), 0,
+            'no row — another author\'s work never enters this install\'s journal');
+    } finally {
+        delete globalThis.chrome.runtime;
+    }
 });

@@ -223,6 +223,14 @@ test('recordFlushAttempt: zero-confirmation attempts stay pending with backoff; 
     assert.equal(byUrl2['wss://b.example'].success, true, 'confirmed stays confirmed');
 });
 
+test('recordSigned: an EXISTING ledger descriptor always wins — a later call cannot overwrite it', async () => {
+    const ev = signedEvent();
+    await recordSigned(ev, { ledger: { model: 'claim', localId: 'first' } });
+    const again = await recordSigned(ev, { ledger: { model: 'claim', localId: 'second' } });
+    assert.deepEqual(again.ledger, { model: 'claim', localId: 'first', extra: null, markedAt: null },
+        'existing-always-wins: the caller\'s values only fill fields the row lacks');
+});
+
 test('recordFlushAttempt on a never-journaled id returns null (no phantom rows)', async () => {
     assert.equal(await recordFlushAttempt('9'.repeat(64), RESULTS), null);
     assert.equal(await countAll(), 0);

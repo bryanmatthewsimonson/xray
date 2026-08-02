@@ -5200,18 +5200,28 @@ const _publishUnconfirmed = { count: 0 };
  * answers whether the local ledger may mark it published: CONFIRMED
  * (non-assumed) OKs only.
  *
- * 29.1: with storeFirstPublish ON, the journaling already happened at
- * SIGN time inside the publish gate (publish-gate.js — in the SW for
- * the capture:publish families, in this page for the direct relay
- * sends), so this gate skips its own recordPublished rather than
- * double-upserting. The confirmed-only ledger answer and the
- * unconfirmed honesty counter are unchanged either way.
+ * 29.1: when the publish gate already journaled this event at SIGN
+ * time (publish-gate.js — in the SW for the capture:publish families,
+ * in this page for the direct relay sends), this gate skips its own
+ * recordPublished rather than double-upserting. The gate's per-event
+ * `journaled` answer is the authority — trusting a fresh flag read
+ * instead would let a flag flip during the relay leg strand an
+ * in-flight event unjournaled on both paths (and it also makes the
+ * skip honest when the gate's sign-time write FAILED: journaled:false
+ * → the legacy write below still covers the event). Responses without
+ * the field fall back to the flag read, defensively. The
+ * confirmed-only ledger answer and the unconfirmed honesty counter
+ * are unchanged either way.
  */
 async function publishOk(resp) {
     if (!resp || !resp.ok || !resp.results) return false;
     const results = resp.results;
-    await loadFlags();
-    if (!isEnabled('storeFirstPublish') && results.successful > 0 && resp.signedEvent) {
+    let journaledByGate = resp.journaled === true;
+    if (resp.journaled === undefined) {
+        await loadFlags();
+        journaledByGate = isEnabled('storeFirstPublish');
+    }
+    if (!journaledByGate && results.successful > 0 && resp.signedEvent) {
         try {
             await EventJournal.recordPublished(resp.signedEvent, results, {
                 articleUrl: (state.article && state.article.url) || null
@@ -5435,6 +5445,12 @@ async function publish() {
             articleUrl: publishArticleUrl(),
             // The article's publish ledger is its archive row
             // (ArchiveCache.saveArticle publishedToRelay), keyed by url.
+            // DECIDED for 29.2: that row is only written below when
+            // successful > 0, so a pending journal row can name an
+            // archive mark whose target row does not exist yet — the
+            // flusher must treat a missing target as a NO-OP (the mark
+            // stays unmarked, ledger.markedAt stays null) and must
+            // never fabricate the archive row from the journal.
             ledger: { model: 'article', localId: state.article.url, extra: null }
         });
         if (!articleResp || !articleResp.ok) {
@@ -5612,7 +5628,7 @@ async function publish() {
                             articleUrl: publishArticleUrl(),
                             legacyJournalOnSuccess: false   // flag-off journaling stays in publishOk
                         });
-                        resp = { ok: true, results: gated.results };
+                        resp = { ok: true, results: gated.results, journaled: gated.journaled };
                     } catch (err) {
                         resp = { ok: false, error: (err && err.message) || null };
                     }
@@ -6627,7 +6643,7 @@ async function publish() {
                             articleUrl: publishArticleUrl(),
                             legacyJournalOnSuccess: false   // flag-off journaling stays in publishOk
                         });
-                        resp = { ok: true, results: gated.results };
+                        resp = { ok: true, results: gated.results, journaled: gated.journaled };
                     } catch (err) {
                         resp = { ok: false, error: (err && err.message) || null };
                     }
@@ -6728,7 +6744,7 @@ async function publish() {
                                     articleUrl: publishArticleUrl(),
                                     legacyJournalOnSuccess: false   // flag-off journaling stays in publishOk
                                 });
-                                resp = { ok: true, results: gated.results };
+                                resp = { ok: true, results: gated.results, journaled: gated.journaled };
                             } catch (err) {
                                 resp = { ok: false, error: (err && err.message) || null };
                             }
@@ -6875,7 +6891,7 @@ async function publishOwnedKeysManifest() {
             articleUrl: publishArticleUrl(),
             legacyJournalOnSuccess: false   // flag-off journaling stays in publishOk
         });
-        resp = { ok: true, results: gated.results };
+        resp = { ok: true, results: gated.results, journaled: gated.journaled };
     } catch (err) {
         resp = { ok: false, error: (err && err.message) || null };
     }

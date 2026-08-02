@@ -85,8 +85,18 @@ await new Promise((resolve, reject) => {
 
 // NOW import the module — its first open runs the v1→v2 upgrade.
 const {
-    listAll, getByEventId, getByAddress, exportBundle, MIGRATION_DEFER_S
+    listAll, getByEventId, getByAddress, exportBundle, MIGRATION_DEFER_S,
+    openEventJournalDb
 } = await import('../src/shared/event-journal.js');
+
+function indexGetAll(db, indexName, key) {
+    return new Promise((resolve, reject) => {
+        const req = db.transaction('published_events', 'readonly')
+            .objectStore('published_events').index(indexName).getAll(key);
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+    });
+}
 
 test('migration: flush states derive from the stored relay snapshot', async () => {
     const confirmed = await getByEventId(ID_CONFIRMED);
@@ -137,4 +147,17 @@ test('migration: reads work over the migrated rows — address lookup and bundle
 
     const all = await listAll();
     assert.ok(all.every((r) => r.flush && typeof r.flush.state === 'string'), 'every row is v2-shaped');
+});
+
+test('migration: the flushState index actually resolves the queue — the 29.2 flusher scan', async () => {
+    // A typo in the index keyPath ('flush.state') would ship green
+    // without this: rows would exist but the queue scan would see
+    // nothing. Query the REAL index.
+    const db = await openEventJournalDb();
+    const pending = (await indexGetAll(db, 'flushState', 'pending')).map((r) => r.eventId).sort();
+    assert.deepEqual(pending, [ID_ASSUMED, ID_DLESS].sort(),
+        'index(flushState).getAll(pending) returns exactly the assumed-only rows');
+    const flushed = (await indexGetAll(db, 'flushState', 'flushed')).map((r) => r.eventId).sort();
+    assert.deepEqual(flushed, [ID_CONFIRMED, ID_KIND0, ID_EMPTYD].sort(),
+        'index(flushState).getAll(flushed) returns exactly the confirmed rows');
 });

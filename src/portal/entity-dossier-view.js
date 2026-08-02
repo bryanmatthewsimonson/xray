@@ -127,14 +127,20 @@ async function mountRepublishButton(head, dossier, relays) {
                 // 29.1: through the publish gate — never journaled
                 // before, so flag-off is exactly the old send. The
                 // ledger descriptor names the entity whose profile
-                // stamp (markProfilePublished) confirms this publish.
+                // stamp (markProfilePublished) confirms this publish;
+                // extra carries the profileHash that stamp needs, so
+                // the 29.2 flusher can replay the mark from the
+                // descriptor alone (eventId comes from the row).
                 let resp;
                 try {
                     const gated = await gatePublish({
                         signedEvent: signed,
                         relays,
                         publish: relayPublishTransport(),
-                        ledger: { model: 'entity-profile', localId: entity.id, extra: null },
+                        ledger: {
+                            model: 'entity-profile', localId: entity.id,
+                            extra: { profileHash: await profileContentHash(entity, about) }
+                        },
                         legacyJournalOnSuccess: false
                     });
                     resp = { ok: true, results: gated.results };

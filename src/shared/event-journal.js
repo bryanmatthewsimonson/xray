@@ -55,9 +55,12 @@ const EVENTS_STORE = 'published_events';
 // the schedule so the 29.2 flusher and the gate share one truth.
 export const FLUSH_BACKOFF_S = Object.freeze([300, 1800, 7200, 21600]);
 
-// Migrated (and merge-imported) pending rows defer to the ceiling:
-// no first-wake flood of the historical assumed-only backlog into a
-// rate-limited relay (design §3.1).
+// Pending rows the v1→v2 MIGRATION derives — and v1-shaped backup
+// imports normalized on the way in (normalizeImportedRow) — defer to
+// the ceiling: no first-wake flood of the historical assumed-only
+// backlog into a rate-limited relay (design §3.1). Already-v2 imports
+// are NOT deferred: merge-imported pending rows keep their own
+// schedule and join the queue as-is (§3.4, Q7 2026-08-02).
 export const MIGRATION_DEFER_S = 21600;
 
 function idb() {
@@ -176,6 +179,25 @@ function migrateRowToV2(row, deferUntil) {
 }
 
 /**
+ * Normalize a journal row of ANY vintage into the v2 shape — the
+ * backup import hook (backup.js applies it on both restore and
+ * merge). Pre-29.1 backup files carry v1-shaped rows; put verbatim
+ * into a v2 database they would never re-migrate (onupgradeneeded is
+ * done) and — lacking the 'flush.state' keyPath — would be INVISIBLE
+ * to the flushState index, stranding them from the 29.2 flusher: the
+ * silent-strand failure §3.4 exists to rule out. v1-shaped rows take
+ * the same treatment as the migration (they are migration-equivalent,
+ * including the ~6h defer); v2-shaped rows pass through VERBATIM —
+ * imported pending rows keep their own schedule and join the queue
+ * (Q7 2026-08-02).
+ */
+export function normalizeImportedRow(row) {
+    if (!row || typeof row !== 'object') return row;
+    if (row.flush && row.flush.state) return row;
+    return migrateRowToV2(row, nowSec() + MIGRATION_DEFER_S);
+}
+
+/**
  * LEGACY address: `kind:pubkey:d` for parameterized-replaceable kinds,
  * else null. Superseded by `replaceableKey` for the stored `address`
  * field (v2) — kept exported for callers comparing against the old
@@ -247,8 +269,9 @@ function backoffAfter(attempts) {
  * carrying the ledger descriptor the flusher needs for a late
  * confirmation mark. Re-recording an event id that is already
  * journaled merges instead of clobbering: flush state is never
- * downgraded, the original signedAt stands, and existing
- * articleUrl/ledger survive unless the caller supplies new ones.
+ * downgraded, the original signedAt stands, and an EXISTING
+ * articleUrl/ledger always wins — the caller's values only fill
+ * fields the stored row lacks.
  *
  * @param {object} signedEvent  the signed event, verbatim
  * @param {{ledger?: object|null, articleUrl?: string|null}} [opts]

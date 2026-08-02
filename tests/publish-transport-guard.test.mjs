@@ -11,6 +11,15 @@
 // guarded too.) A new sign-and-publish site must route through
 // gatePublish — when this test fails, that is the fix, not widening
 // the allow list.
+//
+// Matching notes, honestly: the message patterns require QUOTE
+// DELIMITERS (', ", or `) so plain prose can't false-positive — but
+// backtick-quoted doc mentions DO match, and the publishToRelays
+// pattern matches doc comments outright (publish-gate.js is listed
+// purely for its header's two mentions). That is why the allow list
+// pins EXACT per-file occurrence counts rather than mere membership:
+// a NEW raw call added inside an allow-listed file changes its count
+// and fails here, comment noise included in the ledger.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -30,62 +39,69 @@ async function* walkJs(dir) {
 
 const rel = (file) => 'src/' + relative(SRC_ROOT, file).split(sep).join('/');
 
-// The three guarded patterns, each with its EXPLICIT allow list.
-// Quote-delimited literals so prose in comments can't false-positive;
-// backticks included so template-literal sends can't slip through.
+// The three guarded patterns, each with its EXPLICIT allow list of
+// { file: expected occurrence count }. When adding a legitimate
+// occurrence (a comment mention included), bump the count HERE with a
+// justification in the same commit.
 const GUARDS = [
     {
         name: 'xray:capture:publish senders',
-        pattern: /['"`]xray:capture:publish['"`]/,
-        allowed: [
-            'src/background/index.js',   // the handler itself — where the gate runs for this flow
-            'src/reader/index.js'        // the capture families; every send lands in the gated handler
-        ]
+        pattern: /['"`]xray:capture:publish['"`]/g,
+        allowed: {
+            'src/background/index.js': 1,   // the handler's own type comparison — where the gate runs for this flow
+            'src/reader/index.js': 9        // the capture families; every send lands in the gated handler
+        }
     },
     {
         name: 'xray:relay:publish senders',
-        pattern: /['"`]xray:relay:publish['"`]/,
-        allowed: [
-            'src/background/index.js',       // the handler itself (the SW-side transport)
-            'src/shared/publish-gate.js'     // relayPublishTransport / rebroadcastEvent — the ONE page-side sender
-        ]
+        pattern: /['"`]xray:relay:publish['"`]/g,
+        allowed: {
+            'src/background/index.js': 1,     // the handler's own type comparison (the SW-side transport)
+            'src/shared/publish-gate.js': 3   // the ONE page-side send (relayPublishTransport) + 2 backticked doc mentions
+        }
     },
     {
         name: 'NostrClient.publishToRelays callers',
-        pattern: /NostrClient\s*\.\s*publishToRelays/,
-        allowed: [
-            'src/background/index.js',        // in-process transport injected into the gate + the relay:publish handler
-            'src/shared/confirmed-publish.js', // default transport of publishConfirmed (itself composed inside the gate)
-            'src/shared/entity-sync.js',       // in-process transport injected into the gate (sidepanel context)
-            'src/shared/publish-gate.js'       // doc references in the gate's own header
-        ]
+        pattern: /NostrClient\s*\.\s*publishToRelays/g,
+        allowed: {
+            'src/background/index.js': 2,         // relay:publish handler + the in-process transport injected into the gate
+            'src/shared/confirmed-publish.js': 2, // publishConfirmed's default transport + its JSDoc mention
+            'src/shared/entity-sync.js': 1,       // the in-process transport injected into the gate (sidepanel context)
+            'src/shared/publish-gate.js': 2       // header doc mentions only — no call
+        }
     }
 ];
 
 test('guard: no module reaches the relay transports around the publish gate (§3.2)', async () => {
-    const violations = [];
-    const seen = new Map(); // guard name → Set of allowed files that actually matched
-    for (const g of GUARDS) seen.set(g.name, new Set());
+    const problems = [];
+    const counts = new Map(); // guard name → Map(file → count)
+    for (const g of GUARDS) counts.set(g.name, new Map());
 
     for await (const file of walkJs(SRC_ROOT)) {
         const path = rel(file);
         const text = await readFile(file, 'utf8');
         for (const g of GUARDS) {
-            if (!g.pattern.test(text)) continue;
-            if (g.allowed.includes(path)) seen.get(g.name).add(path);
-            else violations.push(`${path} matches "${g.name}" — route it through gatePublish (src/shared/publish-gate.js)`);
+            const n = [...text.matchAll(g.pattern)].length;
+            if (n === 0) continue;
+            counts.get(g.name).set(path, n);
+            if (!(path in g.allowed)) {
+                problems.push(`${path} matches "${g.name}" ${n}x — route it through gatePublish (src/shared/publish-gate.js)`);
+            } else if (n !== g.allowed[path]) {
+                problems.push(`${path}: "${g.name}" count ${n} != pinned ${g.allowed[path]} — a new occurrence must go through gatePublish (or update the pin WITH justification)`);
+            }
         }
     }
 
-    assert.deepEqual(violations, [],
-        'a sign-and-publish site is bypassing the publish gate:\n' + violations.join('\n'));
-
-    // Rot check: every allow-listed file still contains its pattern,
-    // so a rename or refactor can't leave the list silently stale.
+    // Rot check: every allow-listed file still matches at all, so a
+    // rename or refactor can't leave the list silently stale.
     for (const g of GUARDS) {
-        for (const path of g.allowed) {
-            assert.ok(seen.get(g.name).has(path),
-                `${path} is allow-listed for "${g.name}" but no longer matches — prune the list`);
+        for (const path of Object.keys(g.allowed)) {
+            if (!counts.get(g.name).has(path)) {
+                problems.push(`${path} is allow-listed for "${g.name}" but no longer matches — prune the list`);
+            }
         }
     }
+
+    assert.deepEqual(problems, [],
+        'transport-guard violations:\n' + problems.join('\n'));
 });
