@@ -18,13 +18,13 @@ Serves 127.0.0.1:<port> for the X-Ray browser extension:
 import argparse
 import json
 import logging
+import queue
 import re
 import shutil
 import subprocess
 import sys
 import threading
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -42,14 +42,19 @@ log = logging.getLogger("xray-transcriber")
 app = FastAPI(title="X-Ray Transcriber", version=__version__)
 
 store = JobStore()
-# Job execution pool.  Local jobs stay STRICTLY serialized (one worker
-# — the VRAM discipline: one child process at a time on the GPU).
-# Cloud jobs hold no GPU, so a few may run concurrently.  The pool's
-# internal queue is unbounded on purpose: the 429 cap is enforced
-# against the STORE's active (queued+running) count, not queue slots —
-# bounded slots would let cancelled entries block new submissions.
+# Job execution: N daemon consumer threads over one queue.  Local jobs
+# stay STRICTLY serialized (one worker — the VRAM discipline: one child
+# process at a time on the GPU); cloud jobs hold no GPU, so a few
+# consumers run concurrently.  DAEMON threads on purpose (a
+# ThreadPoolExecutor's non-daemon workers would make Ctrl+C block until
+# every queued job ran to completion): on shutdown, queued jobs die
+# and only an already-running child survives as an orphan — the
+# behavior the service has always had.  The queue is unbounded on
+# purpose: the 429 cap is enforced against the STORE's active
+# (queued+running) count, not queue slots — bounded slots would let
+# cancelled entries block new submissions.
 _JOB_WORKERS = max(1, config.CLOUD_CONCURRENCY) if providers.is_cloud(config.PROVIDER) else 1
-_executor = ThreadPoolExecutor(max_workers=_JOB_WORKERS, thread_name_prefix="job")
+_queue: "queue.Queue[str]" = queue.Queue()
 _device_state = {"device": "unknown"}  # resolved once, by a startup probe
 
 
@@ -161,7 +166,7 @@ def transcribe(body: TranscribeRequest) -> dict:
             status_code=429,
             detail=f"queue is full ({config.QUEUE_MAX} jobs); cancel one or try again later",
         )
-    _executor.submit(_execute_job, job.job_id)
+    _queue.put(job.job_id)
     log.info("queued job %s for video %s (%s)", job.job_id, video_id, job.provider)
     return {"job_id": job.job_id}
 
@@ -237,11 +242,17 @@ def _probe_device() -> None:
 # --- job execution -------------------------------------------------------
 
 
+def _worker_loop() -> None:
+    """Daemon consumer: dequeue and run jobs, one at a time per thread."""
+    while True:
+        _execute_job(_queue.get())
+
+
 def _execute_job(job_id: str) -> None:
-    """Pool task: run one job in a child process; never raises."""
+    """Run one job in a child process; never raises."""
     job = store.get(job_id)
     if job is None or job.status != "queued":
-        return  # cancelled (or pruned) while waiting for a pool slot
+        return  # cancelled (or pruned) while waiting in the queue
     try:
         _run_job(job)
     except Exception as exc:
@@ -399,6 +410,8 @@ def main() -> None:
 
     config.ensure_dirs()
     threading.Thread(target=_probe_device, name="device-probe", daemon=True).start()
+    for i in range(_JOB_WORKERS):
+        threading.Thread(target=_worker_loop, name=f"job-worker-{i}", daemon=True).start()
 
     if providers.is_cloud(config.PROVIDER):
         log.info(

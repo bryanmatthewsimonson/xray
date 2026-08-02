@@ -99,6 +99,23 @@ class SplitWords(unittest.TestCase):
             [{"start": 0.123, "end": 0.988, "text": "hi."}],
         )
 
+    def test_untimed_leading_sentence_carries_into_next_timed_segment(self):
+        # A sentence whose words all lack timing must not vanish — its
+        # text rides into the next timed piece.
+        words = [
+            {"text": "Hello.", "start": None, "end": None},
+            {"text": "World.", "start": 5.0, "end": 6.0},
+        ]
+        self.assertEqual(
+            split_words_into_segments(words),
+            [{"start": 5.0, "end": 6.0, "text": "Hello. World."}],
+        )
+
+    def test_all_words_untimed_yields_no_pieces(self):
+        # The caller's utterance-level fallback covers this case.
+        words = [{"text": "Hello.", "start": None, "end": None}]
+        self.assertEqual(split_words_into_segments(words), [])
+
 
 class UtterancesToSegments(unittest.TestCase):
     def test_speakers_remapped_and_words_split(self):

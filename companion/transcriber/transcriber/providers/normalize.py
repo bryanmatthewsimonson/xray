@@ -73,7 +73,9 @@ def split_words_into_segments(words, max_s: float = MAX_SEGMENT_S) -> list:
     a sentence, or hard-breaks when the running segment exceeds
     ``max_s`` — so a five-minute monologue yields many tightly-timed
     segments instead of one.  Words with missing timing inherit the
-    running segment's bounds.
+    running segment's bounds; a sentence made ENTIRELY of untimed
+    words is never dropped — its text carries into the next timed
+    segment (transcript text loss would be silent and canonical).
     """
     segments = []
     cur_words: "list[str]" = []
@@ -82,14 +84,18 @@ def split_words_into_segments(words, max_s: float = MAX_SEGMENT_S) -> list:
     def flush() -> None:
         nonlocal cur_words, cur_start, cur_end
         text = " ".join(w for w in cur_words if w).strip()
-        if text and cur_start is not None:
-            segments.append(
-                {
-                    "start": round(float(cur_start), 3),
-                    "end": round(float(cur_end if cur_end is not None else cur_start), 3),
-                    "text": text,
-                }
-            )
+        if not text:
+            cur_words, cur_start, cur_end = [], None, None
+            return
+        if cur_start is None:
+            return  # no timing yet — keep accumulating into the next piece
+        segments.append(
+            {
+                "start": round(float(cur_start), 3),
+                "end": round(float(cur_end if cur_end is not None else cur_start), 3),
+                "text": text,
+            }
+        )
         cur_words, cur_start, cur_end = [], None, None
 
     for w in words or []:

@@ -279,6 +279,11 @@ key refuses to start with instructions. Switching back is
 
 Notes:
 
+- **Update the extension build first** (rebuild `dist/`, reload it in
+  the browser, reopen reader tabs) before switching to a cloud
+  provider: an older extension build doesn't know the `provider`
+  field and would label a cloud transcript as local — in the
+  published heading and `extraction-method` tag, durably.
 - API keys live in **environment variables only** — the extension
   never sees or stores them, and they are never written to disk by the
   service (job spec files carry no credentials).

@@ -10,6 +10,7 @@ Errors raise RuntimeError with a message fit for the job's `error`
 field (the reader banner shows it verbatim).
 """
 
+import http.client as _http_client
 import json
 import os
 import urllib.error
@@ -63,7 +64,8 @@ def request_json(
             raw = _read_bounded(resp)
     except urllib.error.HTTPError as exc:
         try:
-            body_text = exc.read().decode("utf-8", "replace")
+            # Snippet only — bounded like every other response read.
+            body_text = exc.read(65536).decode("utf-8", "replace")
         except Exception:
             body_text = ""
         raise HttpStatusError(exc.code, body_text, url) from None
@@ -71,6 +73,15 @@ def request_json(
         raise RuntimeError(f"could not reach {url} ({exc.reason})") from None
     except TimeoutError:
         raise RuntimeError(f"request to {url} timed out") from None
+    except (OSError, _http_client.HTTPException) as exc:
+        # urllib only wraps errors from sending the request; a reset or
+        # short read while RECEIVING (RemoteDisconnected, IncompleteRead,
+        # ConnectionResetError) escapes raw — map it too, or the module's
+        # "errors are RuntimeError" contract (and the AssemblyAI poll's
+        # transient-retry) misses exactly the blips it exists for.
+        raise RuntimeError(
+            f"request to {url} failed ({exc.__class__.__name__}: {exc})"
+        ) from None
     try:
         parsed = json.loads(raw.decode("utf-8"))
     except ValueError:
