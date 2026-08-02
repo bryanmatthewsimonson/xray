@@ -34,11 +34,15 @@ links to `TRUTH_SYSTEMS.md`/`CONSTITUTION.md` — the annex is cited in
 prose as "TS §n (PR #263)". If #263 lands, swap prose citations for
 relative links in a mechanical docs PR; if the chain is abandoned,
 the PR-number citations still resolve. Also recorded: the essay's
-fifth strategy ("decentralized consensus") is resolved against, in
-favor of the standing owner decision (no aggregation / consensus /
-reputation layer; red line 1) — salvaging only the
-measurement-not-authority shape of the annex's §3.3 bridging
-license.
+fifth strategy ("decentralized consensus") is read as
+process-not-ruling — the process of reaching justified agreement is
+the product this family is building; the standing owner decision (no
+aggregation / consensus / reputation layer; red line 1) refuses only
+the computed shortcut, with the measurement-not-authority shape of
+the annex's §3.3 bridging license as the licensed remainder. A
+follow-up exchange (2026-08-02) added the double/triple-entry
+bookkeeping lens (§2) and a sixth expansion domain, cross-ledger
+reconciliation (§8).
 
 ---
 
