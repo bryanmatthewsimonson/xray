@@ -154,6 +154,20 @@ export const PAYLOADS = {
             specific_enough_to_retrieve: bool(),
             evidence_quote: quote()
         }, ['document', 'linked_or_quoted', 'specific_enough_to_retrieve', 'evidence_quote'])),
+        // v1.1 (corpus-aware source quality, R2): the article's
+        // characterization of cited sources the corpus already holds,
+        // judged against the source's own excerpt. OPTIONAL — absent on
+        // every 1.0 result and on runs with no resolvable citations
+        // (the walker skips undeclared-absent properties by design).
+        corpus_source_checks: arr(obj({
+            cited_as: str(),
+            member_url: str(),
+            characterization: en(['accurate', 'partially_accurate',
+                                  'mischaracterized', 'cannot_determine']),
+            note: str(),
+            evidence_quote: quote(),
+            source_quote: nullableStr()
+        }, ['cited_as', 'member_url', 'characterization', 'evidence_quote'])),
         // Load-bearing for the knowability-ceiling heuristic: all seven
         // counts required, names pinned (scorer.js aggregate()).
         summary: obj({
@@ -288,8 +302,15 @@ export const MODULE_NAMES = Object.freeze(Object.keys(PAYLOADS));
 // older gets a "re-audit under vX.Y" offer (never auto-recompute;
 // old results stay valid under their recorded version, P9/§8). Bump
 // alongside the prompt when a methodology changes.
-export const CURRENT_MODULE_VERSIONS = Object.freeze(
-    Object.fromEntries(MODULE_NAMES.map((m) => [m, '1.0'])));
+export const CURRENT_MODULE_VERSIONS = Object.freeze({
+    ...Object.fromEntries(MODULE_NAMES.map((m) => [m, '1.0'])),
+    // 1.1 (2026-08-02, R2): corpus-aware source quality — the prompt
+    // gained methodology step 7 (corpus-held cited-source checks) and
+    // the optional corpus_source_checks[] payload. The knowability
+    // ceiling heuristic is UNCHANGED (same seven summary counts), so
+    // ceiling_source stays heuristic:source-quality/1.0.
+    source_quality: '1.1'
+});
 
 // prediction_extraction does not score (the ledger does, later).
 export const SCOREABLE_MODULES = Object.freeze(
