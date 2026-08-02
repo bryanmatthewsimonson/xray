@@ -19,6 +19,319 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-02 — Spotify links resolve through oEmbed, inside the fallback stage
+
+**Tags:** design
+
+Find identity now reads Spotify episode/show links (and the capture
+URL itself — a capture OF the Apple/Spotify page carries its identity
+in its own address). Spotify publishes no RSS mapping, so a Spotify
+link cannot shortcut to a feed the way an Apple id can; its only use
+is its display title via the keyless oEmbed API. Consequences, chosen
+deliberately:
+
+1. **Spotify lives in the FALLBACK stage, not before it.** The
+   hardening rule — a capture whose Apple/feed links failed stops
+   honestly, nothing sent to Apple — binds Spotify too: every Spotify
+   resolution ends in an Apple search, so exempting it would reopen
+   the silent-escalation hole. A dead feed link + a Spotify link
+   still stops (test-pinned).
+2. **The oEmbed-resolved show name outranks byline heuristics** as a
+   search term; a resolved EPISODE title can drive an
+   `entity=podcastEpisode` search whose result carries the feed AND
+   Apple's episode GUID — that is what makes the common
+   "listen on Spotify"-only capture discoverable at all.
+3. **Apple's episode GUID is treated as corroboration, not truth.**
+   Agreeing with the locally matched feed item → upgrade to strong
+   (two independent identifications). Found in the feed but matched
+   by nothing local → moderate, surfaced in the note, NOT prefilled
+   (the strong-only prefill rule stands).
+4. Disclosure notes name both egresses ("the link was sent to
+   Spotify", "…was sent to Apple's iTunes Search API"), and the modal
+   hint now mentions Spotify.
+
+---
+
+## 2026-08-02 — Store-first publish: the event-store design agreed
+
+**Tags:** design
+
+`docs/EVENT_STORE_DESIGN.md` (Phase 29) is agreed: the signed-event
+journal becomes the outbox (journal at SIGN time, flush with
+verbatim rebroadcast, never re-sign) and a new derived `xray-relay`
+store becomes the locally queryable event index. Drafted from a
+verified gap inventory — a zero-success publish currently DISCARDS
+the signed event (the reader gate's `successful > 0` condition), and
+five sign sites (four portal surfaces + entity-sync `clearRemote`)
+never journal at all. The second-guessable rulings, recorded:
+
+1. **`is_private` = the local `held` tier** — signed, journaled,
+   exported in the bundle, never flushed. A recorded divergence from
+   crux `PLAN.md`'s server-filtered model, parked on the crux intake
+   list (crux.immo is backburnered; X-Ray is the focus).
+2. **Merge-imported pending rows join the flush queue**, not `held`:
+   re-publish is idempotent, `duplicate:` OKs confirm rather than
+   duplicate (double-flush is self-healing across the Mac↔Windows
+   merge path), and `held` would strand signatures silently on the
+   less-checked machine.
+3. **Supersession is computed at flush time, never stored** — a
+   stored per-row state goes stale the moment a backup merge imports
+   a newer version at the same address.
+4. **The localhost relay dev tier is sanctioned** as future tooling
+   (loopback-pinned, the transcriber-companion precedent) — its own
+   later design; the 2026-07-08 self-hosted contingency stands
+   untriggered.
+5. **Flag flips gate on the smoke rows alone** — no soak period.
+
+Files: docs/EVENT_STORE_DESIGN.md, docs/ROADMAP.md (Phase 29).
+
+---
+
+## 2026-08-02 — Find identity: discovery may automate, declaration may not
+
+**Tags:** design
+
+The Media modal's podcast identity block (Phase 21.3/22) was
+pure typing: five IDs the user had to hunt down by hand, so they
+mostly stayed empty and the cross-URL episode join never happened. The
+new 🔍 Find identity assist (`shared/podcast-identity.js`, SW handler
+`xray:media:lookup`) discovers a candidate and PREFILLS empty fields
+only — the NIP_DRAFT rule that media identity is user-declared holds
+because nothing writes until the user presses Save. Second-guessable
+choices, recorded:
+
+1. **Apple is contacted only when the capture doesn't already carry
+   the answer.** Escalation order: a `podcasts.apple.com/...id<n>`
+   link → the keyless Lookup API (only the numeric id leaves the
+   device); a feed-shaped outbound link → fetched directly, Apple
+   never contacted (a test pins this); only the no-link fallback sends
+   a show-name term to the iTunes Search API — which is exactly what
+   the modal hint discloses.
+2. **On a feed-GUID mismatch, the feed's declared `<podcast:guid>`
+   wins over the UUIDv5 computed from the feed URL** (namespace
+   `ead4c236-…`, verified against the podnews.net/rss spec vector).
+   Feeds change hosts; the declared GUID is precisely the identity
+   that survives the move. Both cases get a note in the result.
+3. **The feed reader is hand-rolled regex, not a parser** — the MV3 SW
+   has no DOMParser (transcript-parse.js precedent) and five fields
+   don't justify a dependency. An HTML page has a `<title>` too, so
+   the pipeline demands `<rss`/`<channel` structure before believing
+   anything it read.
+4. **The nudge is scan-only.** A transcript-bearing capture with
+   strong podcast signals but empty `article.podcast` decorates the
+   Media button ("identity found — confirm?") from the pure local
+   signal scan — zero network until the user clicks Find identity
+   inside the modal.
+5. **`matchEpisode` returns null below a floor** rather than its best
+   guess — a wrong episode-GUID prefill that a user rubber-stamps is
+   worse than an empty field. Confidence + reasons ride the note the
+   user confirms against.
+
+## 2026-08-02 — CRLF checkouts killed the hash-parity test file
+
+**Tags:** bug
+
+**Files:** `tests/audit-article-hash.test.mjs`, `.gitattributes` (new).
+
+**Symptom:** On a Windows checkout with `core.autocrlf=true`, `node
+--test tests/audit-article-hash.test.mjs` failed the top-level
+"vendored scorer must contain normalizeMarkdown" assertion — killing
+all six tests in the file. CI (Ubuntu, LF) never saw it.
+
+**Root cause:** The test extracts the vendored `normalizeMarkdown`
+from `docs/auditor-prototype/scorer/scorer.js` with a regex anchored
+on `\{\n` … `\n\}` — the file's *physical* line-ending bytes. Git's
+autocrlf smudge rewrites those to CRLF at checkout, so the regex
+misses on Windows even though the committed blob is LF.
+
+**Fix, and why it keeps the byte-identity guarantee honest:** the
+test now does `\r\n → \n` on the read source before extracting —
+that exactly *reverses the smudge*, recovering the committed bytes,
+rather than masking a drift: `normalizeMarkdown` contains no
+template literals, so physical line endings cannot reach its
+behavior, and the parity corpus carries its CRLF cases as escape
+sequences (unaffected by checkout). A new `.gitattributes` also pins
+every shipped text type to `eol=lf` so fresh clones are
+byte-identical to the repo on every platform (all tracked blobs
+were already LF — zero renormalization churn). Both halves matter:
+the attribute file doesn't heal an *existing* smudged working tree,
+and the test tolerance alone leaves other byte-sensitive readers
+exposed.
+
+## 2026-08-01 — Speaker identification: a voice binding IS an entity ref
+
+**Tags:** design
+
+Diarized transcripts carry automatic labels ("Speaker 1"); provenance
+for spoken media means binding each voice to the PERSON. The obvious
+design was a new `speaker_map` structure + new wire tags. The shipped
+design is smaller: **a speaker binding is an ordinary entity ref whose
+mention context is the label itself** (`{entity_id, context:
+'Speaker 1'}`). Everything falls out of existing machinery:
+
+- Wire: `['p', <pk>, '', 'Speaker 1']` + `['person', <name>,
+  'Speaker 1']` on the 30023 — the established mention-context
+  semantics, zero new tags; `reconstructEntityRefsFromEvent` already
+  round-trips it.
+- Voice-split aliasing (diarization split one person into two labels):
+  bind both labels to the same entity — ref dedupe keys on the
+  entity_id+context PAIR, so this needed no code. Duplicate ENTITIES
+  keep using the existing canonical_id alias system, which already
+  co-tags the canonical pubkey.
+- Claims: `resolveTranscriptSpeaker` now consults label-context refs
+  BEFORE registry name-matching (`speakerEntityId`), so "Who said it"
+  prefills the identified person on both the manual and LLM-accept
+  paths, and the claim publishes the existing `['p', pk, '',
+  'source']`.
+- The transcript body keeps its automatic labels (metadata-only save,
+  hash untouched — the Phase 22 media-metadata rule).
+
+UI: `reader/speakers-modal.js` (🗣 Speakers…), one row per
+`transcript_meta.speakers` label with turn counts, a first-utterance
+snippet, and a `&t=Ns` listen link from the raw companion segments.
+
+## 2026-08-01 — Local transcription: diarized YouTube capture via a loopback companion
+
+**Tags:** design
+
+The YouTube DOM arms race (2026-04-19 pattern entry) argued for a
+capture path that doesn't depend on YouTube's DOM at all. This lands
+it: a Python companion (`companion/transcriber/` — yt-dlp → WhisperX
+large-v3 → pyannote diarization on 127.0.0.1:8756) produces speaker-
+labeled, timestamped segments, and the reader adopts them as the
+capture's canonical markdown (`contentType: 'transcript'`, platform
+stays `'youtube'`). Flag-gated `localTranscription`; with the
+companion absent every existing flow is untouched. Second-guessable
+choices, recorded:
+
+1. **`## Description` → `## Description — YouTube` in the adopted
+   body.** Not cosmetic: `reconstructArticleFromEvent` cuts any bare
+   `## Description` section and `assembleArticleBody` re-appends it
+   only for `contentType === 'video'` — on a `'transcript'` capture
+   the bytes vanish on relay round-trip and fork the x-hash (the
+   2026-05 markdown-canonical trap, third instance). The
+   `diarized-wire` test pins BOTH directions: the rename round-trips
+   byte-stable, and a counterfactual documents the bare heading
+   forking — if that counterfactual ever passes, reconstruct changed
+   and the rename can go.
+2. **Claim time provenance rides the anchor array, no new tags.** A
+   W3C Media-Fragments `FragmentSelector` (`t=<start>,<end>`) appends
+   to the claim anchor exactly like the PDF `page=N` selector; the
+   video URL is the claim's existing `r` tag. `article.timeMap`
+   (offset→seconds over the canonical markdown) mirrors `pageMap`,
+   including the drop-on-edit rule at both seams.
+3. **The reader drives the job; the SW only proxies fetches.** One
+   `xray:transcribe:status` poll every 3 s resets the MV3 idle timer
+   (the corpus-reduce teardown lesson, inverted: no keepalive needed
+   because polling IS the heartbeat). Job records persist in
+   `chrome.storage.local` keyed by videoId so a closed reader / SW
+   restart / re-capture RESUMES the server-side job instead of
+   double-submitting; the companion dedupes active jobs as a backstop.
+4. **Native transcript strategies are skipped on this path**
+   (`synthesizeArticle({skipTranscripts})`) — not because they always
+   fail (the fetch-hook still works) but because the DOM fallback
+   clicks "Show transcript" with an 8–16 s visible dance, and the
+   diarized result supersedes the unlabeled cues anyway. Native
+   `## Transcript — …` sections already in a body are dropped at
+   adoption; the archive's prior-version snapshot keeps them.
+5. **Loopback pinning is hardcoded, not configured.** The transcriber
+   client accepts only `127.0.0.1`/`localhost`/`[::1]` (port
+   configurable); validating a user-configurable base URL against
+   itself would be circular, and a tampered stored value must never
+   exfiltrate transcript text. Same rule for the optional LM Studio
+   claim-drafts pass (`transcriptClaimDrafts`, `xray:transcribe:claims`
+   — deliberately NOT `xray:llm:*`, which means Anthropic + key gate).
+6. **web-ext packaging:** `package.json` gained
+   `webExt.ignoreFiles: ["companion/**"]` — without it, lint/build at
+   the repo root would scan and zip the Python tree (a multi-GB
+   `.venv` once synced).
+7. **Transcribe and Draft-claims are INDEPENDENT features** (user
+   correction, same day): the drafts button originally gated on
+   `article.transcription` — same-session segments — as a GPU-
+   sequencing proxy. Wrong: a reopened capture hid the button and
+   pushed the user into a redundant GPU re-run, and the pass only
+   needs transcript TEXT (any transcript_meta capture qualifies —
+   imported/attached transcripts included, no companion required).
+   Now: drafts gate on transcript presence + their own flag only; a
+   soft guard parks the button while a transcription job actually
+   holds the GPU; and 🎙 Transcribe on a re-captured video offers to
+   LOAD the archived transcription (loadArchivedArticle) instead of
+   re-running the job — scanning `priorVersions` too, because a plain
+   re-capture's load-time save OVERWRITES the archive row with the
+   fresh transcript-less article and the diarized artifact survives
+   only in the snapshots (field-verified on the first real casework
+   episode, 2026-08-02: row = re-capture, both diarized saves intact
+   in priorVersions). The drafts pass also went per-WINDOW
+   (chunkTranscript + runDraftPass, adaptive halving on HTTP 400) —
+   hour-plus transcripts overflow any fixed LM Studio context in one
+   shot.
+
+Files: `companion/transcriber/**`, `shared/transcriber-client.js`,
+`shared/diarized-transcript.js`, `reader/transcribe-flow.js`, plus the
+seams in `background/index.js`, `content/ui.js`,
+`platforms/youtube.js`, `reader/index.js`, `reader/llm-review.js`,
+`claim-model.js`, `transcript-article.js`.
+
+## 2026-07-29 — AI vision: opt-in per-image captions + text-in-image OCR
+
+**Tags:** design
+
+**Why.** Two capture gaps had the same root: X-Ray read only text. A
+scanned paper archive (a magazine article archived as page images, no
+text layer) captured as an image-only body; and photographs in ordinary
+articles carried information no text pipeline preserves. The new
+"Describe images…" reader surface sends selected images to the
+Anthropic vision API — a caption always, a verbatim transcription when
+the image contains legible text — behind the new `aiVision` flag.
+
+**Decisions future-you might second-guess:**
+
+- **Own flag, not `llmAssist`.** Text-consent and image-consent are
+  different disclosures (the moralLens precedent). `aiVision` is
+  independent of `llmAssist` and shares the API key; the gate is
+  machine-checked pre-network in tests.
+- **One image per `xray:vision:describe` message.** The lens/audit-
+  module topology (JOURNAL 2026-07-09): each message resets the MV3
+  idle timer; a lost channel costs one retryable image.
+- **The SW acquires bytes by ref** (http fetch / `xray-figure:`
+  IndexedDB read / data-URL decode) rather than shipping bytes over
+  the bus — the `xray:llm:extract` reasoning — and normalizes via
+  OffscreenCanvas (the screenshot-crop precedent): anything
+  oversized or in a container the API rejects (AVIF/BMP) re-encodes
+  to JPEG at 1568px longest side.
+- **Provenance is inline in the body text**, not metadata: accepted
+  notes read "*Image description (AI — claude-…): …*" / "**Text in
+  image (AI transcription — claude-…):**" so the model attribution
+  survives publish inside the kind-30023 content and every consumer
+  sees exactly which text is model-authored. `extraction.method` is
+  deliberately untouched — it describes how the CAPTURE was
+  extracted, and a few accepted image notes don't make the whole body
+  machine-derived (the scanned-PDF transcription path, where the
+  model's text IS the capture, keeps stamping `llm:<model>`).
+- **First occurrence only, idempotent upsert.** A repeated image URL
+  gets one note, where the reader first meets it; re-running replaces
+  the note in place (`vision-notes.js`, string/regex over both
+  canonical body forms — the upsertTranscriptSection approach, so
+  Node tests cover the merge end to end).
+- **Merging is hash-bearing and human-gated.** Accepted notes run the
+  transcript-attach tail (canonical-side branch, draft sync, hash
+  recompute, archive save) — the pre-note snapshot in the archive is
+  honest versioning, not a stealth-edit false positive. Nothing
+  merges without a per-image, per-part (caption vs transcription)
+  Accept.
+
+**Two review catches worth remembering** (adversarial pass on the
+initial diff): (1) `markdownToHtml`'s img/link emitters interpolated
+src/href into attributes UNESCAPED — model-authored note text could
+form `![a](x"onerror=…)` and break out into an onerror attribute on a
+privileged extension page. The emitters now quote-escape and
+scheme-check (javascript:/vbscript:/data:non-image rejected); the fix
+is at the sink, so verbatim transcriptions stay verbatim. (2) The
+vision fetch ran with `<all_urls>` on any ref the article body named —
+an open probe of localhost/RFC-1918/link-local from a crafted page.
+`blockedImageUrl` (vision-image.js) now refuses non-public literals
+and the fetch omits credentials, per the scholar-fetch open-proxy
+rule.
 ## 2026-07-29 — MA.6: kind 30070, and the disclosure posture that got reversed
 
 **Tags:** design

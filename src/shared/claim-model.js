@@ -141,6 +141,24 @@ export function pageFromAnchor(anchor) {
     return fs ? Number(String(fs.value).slice(5)) : null;
 }
 
+/**
+ * The media time range from an anchor's Media-Fragments
+ * FragmentSelector (`t=<start>,<end>`, seconds — the video/audio
+ * analog of the PDF `page=N` selector above), or null. Strict-form:
+ * anything but the two-number comma shape is treated as unknown and
+ * skipped, per the additive-selector contract.
+ *
+ * @returns {{startSec: number, endSec: number}|null}
+ */
+export function timeRangeFromAnchor(anchor) {
+    if (!Array.isArray(anchor)) return null;
+    const fs = anchor.find((s) => s && s.type === 'FragmentSelector'
+        && /^t=\d+(\.\d+)?,\d+(\.\d+)?$/.test(String(s.value || '')));
+    if (!fs) return null;
+    const [startSec, endSec] = String(fs.value).slice(2).split(',').map(Number);
+    return { startSec, endSec };
+}
+
 // ------------------------------------------------------------------
 // Validation
 // ------------------------------------------------------------------

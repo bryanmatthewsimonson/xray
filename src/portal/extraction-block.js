@@ -204,6 +204,11 @@ async function buildPublisher(withRecords, block) {
             // dangling `a` pointer is worse than none. The `x` content
             // hash and the `r`/`i` URL anchors cannot be wrong.
         });
+        // NB (Phase 29, docs/EVENT_STORE_DESIGN.md §1.3): this signs and
+        // publishes with NO journal row, like the portal's other sign
+        // sites. 29.1's publish gate must route this one too — and it is
+        // the only portal site with a BATCH path, so the gate wraps the
+        // loop body, not one call.
         const signed = await Signer.signEvent({ ...unsigned, pubkey: userPubkey });
         const resp = await sendMessage({ type: 'xray:relay:publish', event: signed, relays });
         if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'no relays accepted it');

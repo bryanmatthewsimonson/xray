@@ -29,5 +29,11 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "webExt": {
+    "ignoreFiles": [
+      "companion",
+      "companion/**"
+    ]
   }
 }

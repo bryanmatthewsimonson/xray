@@ -119,6 +119,17 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // + the API key (the SW's corpusGate re-checks all three).
   autoPreAnalyze: false,
 
+  // AI vision (post-28): gates the reader's "Describe images" surface —
+  // per-image OCR transcription + captioning via the Anthropic vision
+  // API (`xray:vision:describe`). Independent of `llmAssist` (its
+  // consent covers the article TEXT leaving the device; this one covers
+  // the article's IMAGES), and additionally requires the shared
+  // user-supplied API key. Every run is an explicit per-click action
+  // with an image-count confirm, and every caption/transcription is a
+  // proposal the human accepts per image — accepted notes merge into
+  // the body WITH the model id inline, so provenance survives publish.
+  aiVision: false,
+
   // Phase 27 K.4: the `#xray:capture` URL marker — a driving agent's
   // capture trigger (the connector can neither reach extension pages
   // nor fire the command shortcut, so navigation is the only verb it
@@ -150,20 +161,39 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // options checkbox shows a consent dialog on first enable.
   followListPublishing: false,
 
+  // Local transcription (docs/JOURNAL.md "YouTube DOM arms race" is
+  // the why): gates the "Capture & transcribe locally" context-menu
+  // item and the reader's Transcribe button, both of which talk to the
+  // loopback companion service (companion/transcriber/, yt-dlp →
+  // WhisperX → pyannote on 127.0.0.1). Nothing leaves the machine;
+  // the flag exists because the surface is useless without the
+  // companion installed. Ordinary YouTube captures are never gated.
+  localTranscription: false,
+
+  // The optional LM Studio post-pass over a finished local transcript:
+  // drafts claim candidates via a LOOPBACK OpenAI-compatible endpoint
+  // (localhost:1234). Distinct from llmAssist (Anthropic, paid, its
+  // own key) — this one is local-only and free. Every suggestion still
+  // goes through the human-accept review modal; nothing auto-mints.
+  transcriptClaimDrafts: false,
+
   // MA.6 (docs/MAP_ARTIFACT_KICKOFF.md §MA.6, docs/NIP_DRAFT.md
-  // §ExtractionAnalysis): gates the PUBLISH path for kind 30070 — the
-  // reviewed extraction analysis of an article (which accepted claims
-  // carry its argument and WHY, which outside sources it leans on,
-  // what it leaves open). The local extraction layer, its review
-  // surfaces, and the backup merge-import are never gated — they're
-  // the product.
+  // §Kind 30070): gates the PUBLISH path for kind 30070 — one
+  // article's extraction analysis (its machine-proposed load-bearing
+  // spans with the publisher's review state on each, the outside
+  // sources it leans on, what it leaves open). The local extraction
+  // layer, its review surfaces, and the backup merge-import are never
+  // gated — they're the product.
   //
-  // Publishing here is narrow BY CONSTRUCTION, not merely by this
-  // flag: extraction-publish.js projects only human-ACCEPTED material
-  // and references claims by coordinate rather than restating their
-  // quotes, so neither unreviewed model output nor a duplicate copy of
-  // an already-published span can leave the machine even with the flag
-  // on.
+  // This flag is a REAL gate, not a formality: the maintainer's
+  // 2026-07-29 posture publishes the WHOLE extraction unit — every
+  // atom in every review state, WITH the model's prose — because a
+  // filter a reader cannot see cannot be audited. What keeps that
+  // honest is the MARKING (a required per-row `status`, model prose
+  // confined to `model_`-prefixed keys, endorsement expressible only
+  // as a coordinate to a separately signed claim), not a narrow
+  // projection. So the default stays off, and turning it on is a
+  // decision about disclosure rather than a convenience.
   extractionAnalysisPublishing: false
 });
 

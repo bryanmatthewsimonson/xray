@@ -1,0 +1,18 @@
+# Deterministic line endings on every platform.
+#
+# tests/audit-article-hash.test.mjs extracts the vendored scorer's
+# normalizeMarkdown from its source bytes; a core.autocrlf=true
+# checkout (Windows default) must not smudge what tests read. Pin
+# every text type we ship to LF so a checkout is byte-identical to
+# the repo. (The test also tolerates an already-smudged working
+# tree — this file keeps fresh clones clean.)
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.ts    text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.html  text eol=lf
+*.css   text eol=lf
+*.yml   text eol=lf
+*.svg   text eol=lf
+*.png   binary

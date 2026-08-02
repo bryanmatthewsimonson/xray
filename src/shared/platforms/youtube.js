@@ -633,9 +633,14 @@ function waitForSegments(timeoutMs) {
  * transcripts, compose an article object that the existing reader +
  * event-builder can consume.
  *
+ * `skipTranscripts` (the "Transcribe locally" path) bypasses every
+ * native transcript strategy — the signed-URL fetches AND the DOM
+ * scrape with its visible 8–16 s "Show transcript" click dance — since
+ * the diarized companion transcript will supersede them anyway.
+ *
  * Returns null on any page that isn't a YouTube watch page.
  */
-export async function synthesizeArticle() {
+export async function synthesizeArticle({ skipTranscripts = false } = {}) {
     if (!isYouTubeVideoPage()) return null;
 
     const player = parsePlayerResponse();
@@ -650,7 +655,7 @@ export async function synthesizeArticle() {
     const isShort = isYouTubeShortsPage();
     const originLang = detectOriginLanguage(tracks);
     const userLang   = detectUserLanguage();
-    const selected   = selectTracks(tracks, originLang, userLang);
+    const selected   = skipTranscripts ? [] : selectTracks(tracks, originLang, userLang);
 
     // Fetch each selected track's timestamped events. Parallel since
     // they're independent same-origin GETs.
