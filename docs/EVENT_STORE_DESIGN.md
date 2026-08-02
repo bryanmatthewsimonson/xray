@@ -64,10 +64,14 @@ API. Three publish-side defects share that root cause:
    30068 (`src/portal/synthesis-block.js:566-571`), review-request
    label (`src/portal/inspector.js:346-357`), kind-0 entity-profile
    republish — an IDENTITY kind —
-   (`src/portal/entity-dossier-view.js:125-140`), and entity-sync's
+   (`src/portal/entity-dossier-view.js:125-140`), entity-sync's
    own `clearRemote` kind-5 chunks
-   (`src/shared/entity-sync.js:462-473`). Nothing enforces the
-   invariant; coverage is whatever each surface remembered to do.
+   (`src/shared/entity-sync.js:462-473`), and — landing after this
+   inventory was taken — the kind-30070 extraction analysis
+   (`src/portal/extraction-block.js`, MA.6), which also carries a
+   BATCH path, so 29.1 must route a loop rather than a single call.
+   Nothing enforces the invariant; coverage is whatever each surface
+   remembered to do.
 
 The read side has the mirror problem: every relay read is a
 5-second-timeout round trip (`src/shared/nostr-client.js:214`), every

@@ -53,6 +53,18 @@ test('NETWORK_FEED_KINDS is pinned exactly', () => {
     assert.deepEqual([...NETWORK_FEED_KINDS], [30023, 30040, 30054, 30055, 30062, 30063, 30064, 30068, 32126, 1985]);
 });
 
+// MA.6: a deliberate omission, pinned so it cannot be "fixed" by
+// someone noticing 30070 is in the portal's CONTENT_KINDS. This feed
+// carries what a followee stands behind; a 30070 is mostly unreviewed
+// machine output, and folding a foreign one safely needs the deferred
+// re-grounding slice.
+test('NETWORK_FEED_KINDS deliberately EXCLUDES 30070 extraction analyses', () => {
+    assert.ok(!NETWORK_FEED_KINDS.includes(30070));
+    for (const f of buildAuthorFilters([FOLLOWED])) {
+        assert.ok(!f.kinds.includes(30070));
+    }
+});
+
 test('AUTHOR_ITEM_CAP is pinned', () => {
     assert.equal(AUTHOR_ITEM_CAP, 100);
 });

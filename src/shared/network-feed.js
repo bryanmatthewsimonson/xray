@@ -31,6 +31,22 @@ import { parseFeedEvent, collectCandidatePubkeys } from './entity-feed.js';
 // no 30041 comment bodies, no 30078 ciphertext, no dormant metadata
 // kinds. 30068 case briefs are the Phase-23 publishable synthesis — a
 // followee's brief is exactly what a truth-seeker follows them for.
+//
+// 30070 extraction analyses (MA.6) are DELIBERATELY EXCLUDED, for two
+// reasons worth stating because the omission looks like an oversight:
+//   1. This feed carries what a followee STANDS BEHIND. A 30070 is
+//      mostly unreviewed machine output by design (that is its whole
+//      disclosure argument), so feeding it here would put another
+//      machine's proposal queue beside a human's signed verdicts — and
+//      one prolific followee's map runs would swamp the feed with atoms
+//      nobody has ruled on.
+//   2. Folding a foreign analysis safely needs quote RE-GROUNDING
+//      against the local text (parseExtractionAnalysisEvent says so,
+//      and never trust foreign offsets), which is a deferred slice. A
+//      feed surface for events the client cannot yet fold would be an
+//      invitation to import unverified spans.
+// It IS in the portal's CONTENT_KINDS — that axis reads back the user's
+// OWN published events, which is a different question entirely.
 export const NETWORK_FEED_KINDS = [30023, 30040, 30054, 30055, 30062, 30063, 30064, 30068, 32126, 1985];
 
 // Per-author render cap (NETWORK_CLIENT_DESIGN §3): a flooding
