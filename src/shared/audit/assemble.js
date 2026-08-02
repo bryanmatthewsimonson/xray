@@ -26,6 +26,49 @@ import {
 } from './findings-schemas.js';
 import { suggestSourceType } from '../truth-taxonomy.js';
 
+// Quote fields the finding-level walk recognizes. first_use_quote is
+// module 06's contested-term smuggle-point — a located span the flat
+// evidence_quotes index never carried (R3; the wire index is
+// deliberately unchanged, this walk is read-side only).
+const FINDING_QUOTE_KEYS = ['evidence_quote', 'evidence_quote_a', 'evidence_quote_b', 'first_use_quote'];
+
+/**
+ * Walk a findings payload and emit one row PER QUOTE with its finding
+ * context preserved: which array it came from (`kind`) and the
+ * finding's severity when it carries one (severity_if_undefined is
+ * module 06's spelling). The flat collectEvidenceQuotes below stays
+ * untouched — it defines the 30056 wire body's evidence_quotes index;
+ * this is the enriched READ-side companion (R3, JOURNAL 2026-08-02).
+ *
+ * @returns {Array<{quote: string, kind: string|null, severity: string|null}>}
+ */
+export function collectEvidenceFindings(findings) {
+    const out = [];
+    const seen = new Set();
+    const walk = (node, kind) => {
+        if (Array.isArray(node)) {
+            for (const item of node) walk(item, kind);
+            return;
+        }
+        if (!node || typeof node !== 'object') return;
+        const severity = typeof node.severity === 'string' ? node.severity
+            : (typeof node.severity_if_undefined === 'string' ? node.severity_if_undefined : null);
+        for (const k of FINDING_QUOTE_KEYS) {
+            const q = node[k];
+            if (typeof q !== 'string' || !q) continue;
+            const key = `${q}|${kind || ''}|${severity || ''}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push({ quote: q, kind: kind || null, severity });
+        }
+        for (const [k, v] of Object.entries(node)) {
+            if (v && typeof v === 'object') walk(v, Array.isArray(v) ? k : kind);
+        }
+    };
+    walk(findings, null);
+    return out;
+}
+
 // The standing caveat stamped when the audited artifact is opinion/
 // analysis rather than reporting (founding-transcript integration R5
 // interim; JOURNAL 2026-08-02): the eight surface modules were designed
