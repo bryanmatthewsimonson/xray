@@ -7,6 +7,13 @@
 > slices at §11. The NIP-01 filter engine is deliberately **not**
 > designed here — see §4.3.
 >
+> **Amendment (2026-08-02, 29.1 shipped as PR #279):** §3.2's
+> "publishOk's ledger-marking rule … moves into the gate unchanged"
+> is amended to match what shipped: the CONFIRMED-only computation
+> lives in the gate (returned as `confirmedOk`), while the call
+> sites keep performing their marks until the 29.2 flusher takes
+> over — the rule itself is unchanged. The amendment governs.
+>
 > **Maintainer decisions (2026-08-02):** Phase 29, numbered, with a
 > described ROADMAP entry. Flag flips gate on the smoke rows alone.
 > `is_private` adopts the local-only `held` tier (a recorded
@@ -64,10 +71,14 @@ API. Three publish-side defects share that root cause:
    30068 (`src/portal/synthesis-block.js:566-571`), review-request
    label (`src/portal/inspector.js:346-357`), kind-0 entity-profile
    republish — an IDENTITY kind —
-   (`src/portal/entity-dossier-view.js:125-140`), and entity-sync's
+   (`src/portal/entity-dossier-view.js:125-140`), entity-sync's
    own `clearRemote` kind-5 chunks
-   (`src/shared/entity-sync.js:462-473`). Nothing enforces the
-   invariant; coverage is whatever each surface remembered to do.
+   (`src/shared/entity-sync.js:462-473`), and — landing after this
+   inventory was taken — the kind-30070 extraction analysis
+   (`src/portal/extraction-block.js`, MA.6), which also carries a
+   BATCH path, so 29.1 must route a loop rather than a single call.
+   Nothing enforces the invariant; coverage is whatever each surface
+   remembered to do.
 
 The read side has the mirror problem: every relay read is a
 5-second-timeout round trip (`src/shared/nostr-client.js:214`), every
@@ -503,7 +514,7 @@ designed); no portal reconcile changes; no BYO-relay UI.
 
 | Slice | Content | Anchor |
 |---|---|---|
-| 29.1 | `publish-gate.js`: sign ⇒ journal (`pending`) ⇒ inline attempt ⇒ snapshot; journal DB v2 (`flush`, `ledger`, `signedAt`, recomputed addresses) + the v1→v2 migration; EVERY sign site routed — reader families, entity-sync push + `clearRemote`, network kind-3 mirror, the portal's four sign sites; the transport guard test | §3.1–3.2 |
+| 29.1 | SHIPPED 2026-08-02 (PR #279). `publish-gate.js`: sign ⇒ journal (`pending`) ⇒ inline attempt ⇒ snapshot; journal DB v2 (`flush`, `ledger`, `signedAt`, recomputed addresses) + the v1→v2 migration; EVERY sign site routed — reader families, entity-sync push + `clearRemote`, network kind-3 mirror, the portal's four sign sites + MA.6's kind-30070 send; the transport guard test | §3.1–3.2 |
 | 29.2 | The flusher: `alarms` lifecycle + backoff, OK-prefix classification, computed supersession, cross-workspace queue + deferred ledger marks, portal pending-flush view, delete/reset warnings, summary honesty line, shared pacing constant, the capture Private toggle → `held` (Q3) | §3.3–3.4, §7 |
 | 29.3 | `xray-relay` store: dual-write on journal append (empty relay set until confirmed), ingest-on-read from `queryRelays`, foreign-row pruning bound + Clear-cache, narrow query helpers, `unlimitedStorage` | §4.1–4.2 |
 | 29.4 | Network feed reads from the store; `xray-network` retired | §4.2 |

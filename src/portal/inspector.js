@@ -18,6 +18,7 @@ import { SOURCE_TYPE_LABELS, isPrimarySourceType, EVIDENCE_ROLE_LABELS, isValidE
 import { buildReviewRequestLabelEvent } from '../shared/metadata/builders.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { Signer } from '../shared/signer.js';
+import { gatePublish, relayPublishTransport } from '../shared/publish-gate.js';
 
 // Audit section (13.7): every run anchored to this article —
 // side-by-side, never averaged (PHILOSOPHY P8) — with module results
@@ -111,6 +112,78 @@ function renderCaseBriefSection(host, brief) {
         `Grounded: ${brief.grounding.checked} quote${brief.grounding.checked === 1 ? '' : 's'} verified, ${brief.grounding.dropped} pruned. `
         + 'A readable article (kind 30023, same case) carries this as prose for any NOSTR client. No score — a map, not a ruling.'));
     host.appendChild(box);
+}
+
+// MA.6 read-back: the extraction analysis. The REVIEW STATE leads every
+// row and the model's prose is labelled as the model's — this is the one
+// surface where a human reads a foreign 30070, and the whole format rests
+// on the marking surviving the render (see extraction-publish.js).
+function renderExtractionSection(host, x) {
+    const section = el('div', 'xr-inspector__extraction');
+    section.appendChild(el('h3', 'xr-case__heading', 'Extraction analysis'));
+    const c = x.coverage || {};
+    section.appendChild(el('div', 'xr-inspector__mono',
+        `${c.unreviewed || 0} unreviewed · ${c.accepted || 0} endorsed · ${c.dismissed || 0} dismissed`
+        + (c.ungroundableDropped ? ` · ${c.ungroundableDropped} ungroundable dropped` : '')));
+    section.appendChild(el('div', 'xr-inspector__brief-note',
+        'Machine-proposed spans of the article, published with the publisher’s review state on every '
+        + 'row. An UNREVIEWED row is nobody’s assertion — the publisher has not ruled on it. '
+        + 'Endorsement is only ever a reference to a separately signed claim.'));
+
+    for (const a of x.assertions || []) {
+        const row = el('div', 'xr-inspector__extraction-row');
+        // State first, always — never a quote with its status trailing.
+        const state = a.status === 'accepted' ? 'endorsed' : a.status;
+        row.appendChild(el('span', `xr-badge xr-badge--${state}`, state));
+        row.appendChild(el('blockquote', 'xr-finding-row__quote', truncate(a.quote, 240)));
+        if (a.status === 'accepted' && a.claim) {
+            row.appendChild(el('div', 'xr-inspector__mono', `claim ${a.claim}`));
+        } else if (a.endorsement === 'local-only') {
+            row.appendChild(el('div', 'xr-inspector__mono',
+                'endorsed locally, claim not published — nothing to fetch'));
+        }
+        if (a.why) {
+            row.appendChild(el('div', null,
+                `Publisher’s rationale${a.whyBy === 'llm' ? ' (accepted as written by the model)' : ''}: ${a.why}`));
+        }
+        if (a.modelProposedText) {
+            row.appendChild(el('div', 'xr-inspector__brief-note',
+                `Model proposed: ${truncate(a.modelProposedText, 240)}`));
+        }
+        if (a.modelNote) {
+            row.appendChild(el('div', 'xr-inspector__brief-note',
+                `Model note: ${truncate(a.modelNote, 240)}`));
+        }
+        if (a.generator) {
+            row.appendChild(el('div', 'xr-inspector__mono',
+                [a.generator.producer, a.generator.model, a.generator.promptVersion].filter(Boolean).join(' · ')));
+        }
+        section.appendChild(row);
+    }
+
+    for (const [label, rows, textOf] of [
+        ['Cited sources', x.sources || [], (s) => s.targetHint],
+        ['Open questions', x.openQuestions || [], (q) => q.text]
+    ]) {
+        if (!rows.length) continue;
+        section.appendChild(el('h4', 'xr-inspector__sub', `${label} (${rows.length})`));
+        for (const r of rows) {
+            const li = el('div', 'xr-inspector__extraction-row');
+            const rState = r.status === 'accepted' ? 'endorsed' : r.status;
+            li.appendChild(el('span', `xr-badge xr-badge--${rState}`, rState));
+            li.appendChild(el('span', null, textOf(r)));
+            section.appendChild(li);
+        }
+    }
+
+    if ((x.withheld || []).length) {
+        section.appendChild(el('h4', 'xr-inspector__sub', 'Withheld by the publisher'));
+        for (const w of x.withheld) {
+            section.appendChild(el('div', 'xr-inspector__brief-note',
+                `${w.field}${w.count ? ` (${w.count})` : ''} — ${w.reason || 'no reason given'}`));
+        }
+    }
+    host.appendChild(section);
 }
 
 function renderFindingSection(host, finding) {
@@ -352,8 +425,23 @@ export function renderInspector(host, item, { status = 'no-ledger', onClose, aud
                         });
                     });
                     if (!relays.length) throw new Error('no relays configured');
-                    const resp = await new Promise((resolve) =>
-                        chrome.runtime.sendMessage({ type: 'xray:relay:publish', event: signed, relays }, resolve));
+                    // 29.1: through the publish gate — never journaled
+                    // before, so flag-off is exactly the old send; a
+                    // review-request label marks nothing locally
+                    // (ledger: null).
+                    let resp;
+                    try {
+                        const gated = await gatePublish({
+                            signedEvent: signed,
+                            relays,
+                            publish: relayPublishTransport(),
+                            ledger: null,
+                            legacyJournalOnSuccess: false
+                        });
+                        resp = { ok: true, results: gated.results };
+                    } catch (err) {
+                        resp = { ok: false, error: (err && err.message) || null };
+                    }
                     if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'publish failed');
                     req.textContent = 'Review requested ✓';
                 } catch (err) {
@@ -446,6 +534,11 @@ export function renderInspector(host, item, { status = 'no-ledger', onClose, aud
     // readable sibling article.
     if (item.kind === 30068 && item.parsedBrief) {
         renderCaseBriefSection(host, item.parsedBrief);
+    }
+
+    // MA.6 — the extraction analysis, review state leading every row.
+    if (item.kind === 30070 && item.parsedExtraction) {
+        renderExtractionSection(host, item.parsedExtraction);
     }
 
     const details = el('details', 'xr-inspector__raw');
