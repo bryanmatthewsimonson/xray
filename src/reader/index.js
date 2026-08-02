@@ -1288,6 +1288,13 @@ async function loadArchivedArticle(archived, provenance) {
     // an llm: capture with no disclosure at all.
     try { renderExtractionWarningsBanner(); }
     catch (err) { console.warn('[X-Ray Reader] extraction banner failed:', err); }
+    // The swapped-in article may carry transcript speakers the opening
+    // capture lacked (a diarized version restored over a fresh
+    // re-capture) — the 🗣 Speakers / 💫 Suggest (local) gates must
+    // re-run HERE, not just on the transcribe-reuse path, or a banner
+    // "Load archive" restore leaves both buttons hidden.
+    setupSpeakersControl();
+    setupTranscriptClaimDraftsControl().catch(() => { /* gate refresh only */ });
     toast(`Archive loaded (${provenance.source})`, 'success', 3000);
 }
 
@@ -2107,9 +2114,9 @@ async function runTranscribeFlow() {
                     + `${hit.prior ? ' — from a prior version; a later re-capture replaced it' : ''}).\n\n`
                     + 'OK — load the archived transcript (instant).\n'
                     + 'Cancel — re-transcribe from scratch.')) {
+                    // loadArchivedArticle re-runs the speaker/drafts
+                    // button gates itself.
                     await loadArchivedArticle(arch, { source: 'cache', cachedAt: row.cachedAt });
-                    setupSpeakersControl();
-                    setupTranscriptClaimDraftsControl().catch(() => {});
                     return;
                 }
             }
