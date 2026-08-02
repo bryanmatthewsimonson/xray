@@ -421,3 +421,40 @@ test('publishing is OPT-IN: the flag defaults off', async () => {
     assert.equal(FLAGS_DEFAULTS.extractionAnalysisPublishing, false,
         'a format whose safeguard is its marking does not publish by default');
 });
+
+// ---- 7. the publish SURFACE's success predicate ---------------------------
+
+// Regression guard for a defect the MA.6 browser walk caught: the
+// `xray:relay:publish` handler resolves `{ok: true, results}` when the
+// ATTEMPT ran, so a caller that stops at `resp.ok` announces success even
+// when every relay was unreachable — and here that also wrote a durable
+// `published_at` ledger stamp. JOURNAL 2026-07-10 already rules that a
+// local publish ledger keys on `confirmed`, never `successful`.
+// Guarded by literal because the surface is DOM-bound and the invariant
+// is exactly the kind each new publish site forgets.
+test('GUARD: the publish surface stamps only on a CONFIRMED relay OK', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    const src = await readFile(join(import.meta.dirname, '../src/portal/extraction-block.js'), 'utf8');
+
+    // Phase 29.1 moved the TRANSPORT into the publish gate, but the
+    // ledger rule stayed at the call site (EVENT_STORE_DESIGN §3.2 as
+    // amended). The gate resolving is NOT acceptance — it returns
+    // `confirmedOk` for exactly this check. Reading only `ok` is how an
+    // unreachable relay came to report "published" and stamp the record.
+    assert.match(src, /confirmedOk/,
+        'the surface must key on the gate’s CONFIRMED predicate, not on the call resolving');
+    assert.doesNotMatch(src, /xray:relay:publish/,
+        'the transport belongs to the gate — a direct send bypasses journaling too');
+    assert.match(src, /successful\s*>\s*0/,
+        'an assumed-only round (sent, none confirmed) must be reported distinguishably');
+
+    // The stamp must be UNREACHABLE without the confirmed check: the
+    // check has to sit between the publish call and markRecordPublished.
+    const publishCall = src.indexOf('gatePublish({');
+    const confirmedGate = src.indexOf('!gated.confirmedOk');
+    const stamp = src.indexOf('markRecordPublished(fresh');
+    assert.ok(publishCall > 0 && confirmedGate > 0 && stamp > 0, 'all three landmarks present');
+    assert.ok(publishCall < confirmedGate && confirmedGate < stamp,
+        'the confirmed gate must sit between the publish call and the ledger stamp');
+});

@@ -38,7 +38,10 @@ const WORKSPACE_CONTENT = new Set(WORKSPACE_CONTENT_KEYS);
 import { openArchiveDb } from './archive-cache.js';
 import { openAuditDb } from './audit/audit-cache.js';
 import { openEventJournalDb, normalizeImportedRow } from './event-journal.js';
-import { mergeExtractionRecords } from './map-artifacts.js';
+// MA.7: the extraction merge is reached through its PLANNER, never
+// directly — it needs the local article body, which lives in another
+// IndexedDB database and so must be resolved before any transaction.
+import { mergeExtractionRows } from './extraction-import.js';
 
 // Per-store row normalizers, applied to every INCOMING row on BOTH
 // restore (clearAndFill) and merge (mergeRows). A backup written by an
@@ -428,8 +431,22 @@ export async function applyBackup(backup, { warn = () => {} } = {}) {
 
 // Per-database deep merges: stores where an existing row can absorb an
 // incoming one instead of just winning. Must be synchronous and pure.
-const DEEP_MERGE_STORES = {
-    'xray-audits': { 'article-extractions': mergeExtractionRecords }
+//
+// `article-extractions` deliberately is NOT here (MA.7). Its merge needs
+// the LOCAL article body to re-locate every incoming quote, that body
+// lives in a DIFFERENT IndexedDB database, and no lookup — sync or async
+// — is possible from inside this one's transaction. It goes through
+// MERGE_PLANNERS below instead, and this table is left without an entry
+// on purpose: there is no code path that can reach the extraction merge
+// without text, so trusting a foreign offset is not a mistake a future
+// caller can make.
+const DEEP_MERGE_STORES = {};
+
+// Stores whose merge needs an ASYNC pre-resolution step before the
+// transaction opens. The planner is handed a `runChunk` callback and
+// drives the transactions itself, one chunk at a time.
+const MERGE_PLANNERS = {
+    'xray-audits': { 'article-extractions': mergeExtractionRows }
 };
 
 function decodeStorageValue(raw) {
@@ -554,10 +571,11 @@ function mergeRows(db, storeName, rows, deepMerge, normalize = null) {
     });
 }
 
-async function mergeIntoDatabase(name, dump, { warn = () => {} } = {}) {
+async function mergeIntoDatabase(name, dump, { warn = () => {}, onProgress = () => {} } = {}) {
     const db = await openCovered(name);
     const live = new Set(Array.from(db.objectStoreNames));
     const deep = DEEP_MERGE_STORES[name] || {};
+    const planners = MERGE_PLANNERS[name] || {};
     const normalizers = ROW_NORMALIZERS[name] || {};
     const out = {};
     for (const [storeName, rows] of Object.entries(dump || {})) {
@@ -568,6 +586,20 @@ async function mergeIntoDatabase(name, dump, { warn = () => {} } = {}) {
         if (rows === null) {
             // Bytes omitted at export — deliberate, nothing to add.
             out[storeName] = { added: 0, merged: 0, kept: 0, skipped: 0, omitted: true };
+            continue;
+        }
+        // A planned store resolves what it needs (MA.7: the local article
+        // bodies) BEFORE any transaction opens, then drives one
+        // transaction per chunk through `mergeRows`. The row normalizer
+        // is threaded through unchanged — a planned store gets the same
+        // treatment as an unplanned one.
+        const planner = planners[storeName];
+        if (planner) {
+            const plan = await planner(rows,
+                (chunkRows, deepMerge) => mergeRows(db, storeName, chunkRows, deepMerge,
+                    normalizers[storeName] || null),
+                { onProgress: (p) => onProgress({ store: storeName, ...p }) });
+            out[storeName] = { ...plan.stats, refusals: plan.refusals, unresolved: plan.unresolved };
             continue;
         }
         out[storeName] = await mergeRows(db, storeName, rows, deep[storeName] || null,

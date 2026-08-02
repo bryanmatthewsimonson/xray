@@ -139,8 +139,14 @@ const MISSING = Object.freeze({ status: 'missing', score: 0, start: -1, end: -1,
 export function createGroundingIndex(articleText) {
     const text = String(articleText || '');
     const { norm, rawStart, rawEnd } = normalizeWithMap(text);
-    const tokens = tokensOf(norm);
+    // Tokenized LAZILY: only the fuzzy tier reads them, and the two
+    // exact tiers are pure string search. Callers that never fuzz — the
+    // MA.7 import path refuses fuzzy by policy, and `locate()` below
+    // cannot reach it — skip the tokenizer over the whole body entirely.
+    let _tokens = null;
+    const tokensLazy = () => (_tokens || (_tokens = tokensOf(norm)));
     const memo = new Map();
+    const locateMemo = new Map();
 
     // Normalized-offset → raw span for a norm range [a, b).
     function rawSpanOf(a, b) {
@@ -158,22 +164,31 @@ export function createGroundingIndex(articleText) {
         return { status, score, start, end, exact: text.slice(start, end) };
     }
 
-    function groundUncached(quoteRaw) {
-        const quote = String(quoteRaw || '').trim();
-        if (!quote || !text) return MISSING;
-
+    // Tiers 1-2 only: verbatim, then typography-normalized. Returns
+    // `{hit, qn}` — `hit` null when neither exact tier matched, `qn` the
+    // normalized quote the fuzzy tier would need.
+    function exactTiers(quote) {
         // Tier 1 — the model really copied verbatim.
         const idx = text.indexOf(quote);
-        if (idx >= 0) return found('exact', 1, idx, idx + quote.length);
+        if (idx >= 0) return { hit: found('exact', 1, idx, idx + quote.length), qn: null };
 
         // Tier 2 — typographic drift; recover the raw span via the map.
         const qn = normalizeWithMap(quote).norm;
-        if (!qn || !norm) return MISSING;
+        if (!qn || !norm) return { hit: null, qn: null };
         const nIdx = norm.indexOf(qn);
         if (nIdx >= 0) {
             const { start, end } = rawSpanOf(nIdx, nIdx + qn.length);
-            if (end > start) return found('normalized', 1, start, end);
+            if (end > start) return { hit: found('normalized', 1, start, end), qn };
         }
+        return { hit: null, qn };
+    }
+
+    function groundUncached(quoteRaw) {
+        const quote = String(quoteRaw || '').trim();
+        if (!quote || !text) return MISSING;
+        const { hit, qn } = exactTiers(quote);
+        if (hit) return hit;
+        if (!qn) return MISSING;
 
         // Tier 3 — wording drift, guarded hard.
         return fuzzyGround(qn);
@@ -182,6 +197,7 @@ export function createGroundingIndex(articleText) {
     function fuzzyGround(qn) {
         const qTokens = tokensOf(qn).map((t) => t.t);
         const w = qTokens.length;
+        const tokens = tokensLazy();
         if (w < MIN_FUZZY_TOKENS || w > MAX_FUZZY_TOKENS || tokens.length === 0) return MISSING;
 
         // Prefilter: rolling bag-overlap of quote tokens over article
@@ -241,6 +257,30 @@ export function createGroundingIndex(articleText) {
             if (memo.has(key)) return memo.get(key);
             const result = groundUncached(key);
             memo.set(key, result);
+            return result;
+        },
+        /**
+         * VERIFY-ONLY grounding: the two exact tiers, never the fuzzy
+         * one. Same five-field result shape as `ground`, so callers are
+         * interchangeable; `status` is only ever 'exact' | 'normalized' |
+         * 'missing'.
+         *
+         * For callers that must not accept a wording guess (MA.7's
+         * cross-machine import: a fuzzy match there would attach an
+         * imported human ruling to a sentence the other machine did not
+         * mean). It is also much cheaper on a MISS — a refused quote
+         * would otherwise pay the tier-3 LCS pass for a result the
+         * caller discards, and it never forces the tokenizer to run.
+         *
+         * Its own memo: `ground` and `locate` can disagree for one quote
+         * (fuzzy vs missing), so they must never share a cache entry.
+         */
+        locate(quote) {
+            const key = String(quote || '');
+            if (locateMemo.has(key)) return locateMemo.get(key);
+            const q = key.trim();
+            const result = (!q || !text) ? MISSING : (exactTiers(q).hit || MISSING);
+            locateMemo.set(key, result);
             return result;
         }
     };
