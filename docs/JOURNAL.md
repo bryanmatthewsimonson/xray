@@ -214,6 +214,32 @@ reconciliation (§8).
 
 ---
 
+## 2026-08-02 — The opinion module family ships (R5, OP.2–OP.5)
+
+**Tags:** design
+
+PHILOSOPHY §3.2 was codified 2026-06-11 and unimplemented since — the
+founding-transcript comparison named it the largest unmined item. It
+is now built, end to end, in one ruled-then-sliced day
+(`docs/OPINION_MODULES_KICKOFF.md`, five OQ rulings in §8): six new
+vendored methodologies (premise accuracy, logical validity,
+steel-manning, fact/interpretation separation, disclosure,
+originality) + reused asymmetric-language and definitional-precision,
+family dispatch on `source_type`, the OQ.3 weights, and the OQ.2
+premise-verifiability ceiling (`heuristic:premise-accuracy/1.0`).
+Three decisions future-us might second-guess, recorded: (1) red line 2
+is enforced STRUCTURALLY — a guard test walks every opinion schema
+property and enum, so a stance-shaped field cannot exist; identifying
+the conclusion (argument mapping) stays legal, judging it is
+inexpressible. (2) Quick (single-shot) is news-only in v1 — the
+orchestrator prompt IS news methodology, and running it on opinion is
+the exact mismatch the family exists to end; an opinion Quick click
+steers to Thorough. (3) The R5-interim caveat retired everywhere
+except the OQ.4 forced-news path — a caveat that stands in for a
+methodology should die the day the methodology ships. The two
+families share the 0–100 axis but are never averaged together
+(NIP_DRAFT now says so as a MUST NOT).
+
 ## 2026-08-02 — Founding transcript vendored; PHILOSOPHY narrowed to fit the tool it governs
 
 **Tags:** design

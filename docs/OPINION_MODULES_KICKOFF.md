@@ -1,6 +1,6 @@
 # Opinion modules — kickoff (R5 of the founding-transcript integration)
 
-**Status: APPROVED — all five OQ rulings delivered 2026-08-02; dispositions threaded below. OP.2 in progress.**
+**Status: SHIPPED — OP.1 #296 · OP.2 #300 · OP.3 #301 · OP.4 #302 · OP.5 docs (2026-08-02). Rulings in §8.**
 **Drafted:** 2026-08-02, from `docs/FOUNDING_TRANSCRIPT.md` (Exchange 1's
 opinion rubric) and `docs/PHILOSOPHY.md` §3.2 (normative for this work).
 
