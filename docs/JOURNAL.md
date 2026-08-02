@@ -50,6 +50,43 @@ deliberately:
    Spotify", "…was sent to Apple's iTunes Search API"), and the modal
    hint now mentions Spotify.
 
+---
+
+## 2026-08-02 — Store-first publish: the event-store design agreed
+
+**Tags:** design
+
+`docs/EVENT_STORE_DESIGN.md` (Phase 29) is agreed: the signed-event
+journal becomes the outbox (journal at SIGN time, flush with
+verbatim rebroadcast, never re-sign) and a new derived `xray-relay`
+store becomes the locally queryable event index. Drafted from a
+verified gap inventory — a zero-success publish currently DISCARDS
+the signed event (the reader gate's `successful > 0` condition), and
+five sign sites (four portal surfaces + entity-sync `clearRemote`)
+never journal at all. The second-guessable rulings, recorded:
+
+1. **`is_private` = the local `held` tier** — signed, journaled,
+   exported in the bundle, never flushed. A recorded divergence from
+   crux `PLAN.md`'s server-filtered model, parked on the crux intake
+   list (crux.immo is backburnered; X-Ray is the focus).
+2. **Merge-imported pending rows join the flush queue**, not `held`:
+   re-publish is idempotent, `duplicate:` OKs confirm rather than
+   duplicate (double-flush is self-healing across the Mac↔Windows
+   merge path), and `held` would strand signatures silently on the
+   less-checked machine.
+3. **Supersession is computed at flush time, never stored** — a
+   stored per-row state goes stale the moment a backup merge imports
+   a newer version at the same address.
+4. **The localhost relay dev tier is sanctioned** as future tooling
+   (loopback-pinned, the transcriber-companion precedent) — its own
+   later design; the 2026-07-08 self-hosted contingency stands
+   untriggered.
+5. **Flag flips gate on the smoke rows alone** — no soak period.
+
+Files: docs/EVENT_STORE_DESIGN.md, docs/ROADMAP.md (Phase 29).
+
+---
+
 ## 2026-08-02 — Find identity: discovery may automate, declaration may not
 
 **Tags:** design

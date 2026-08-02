@@ -188,6 +188,12 @@ AI vis.  ████████████████████  COMPLETE 
                                 note is human-accepted per image and
                                 merges with inline model provenance
                                 (JOURNAL 2026-07-29)
+Phase 29 ░░░░░░░░░░░░░░░░░░░░  design agreed 2026-08-02 — store-first
+                                publish + the local event store:
+                                sign-time journaling + flush queue,
+                                the xray-relay derived store
+                                (docs/EVENT_STORE_DESIGN.md);
+                                29.1–29.6 not started
 ```
 
 Parity with the v4.2 userscript is long reached; the project now ships
@@ -2029,6 +2035,55 @@ the Phase-14.5 review discipline unchanged).
   triage (`xray-audits` v5) — argument structure built BEFORE the
   brief run, feeding the digest it consumes. Existing pairs rejected
   with a reason, never silently dropped.
+
+---
+
+## Phase 29 — Store-first publish + the local event store
+
+Design agreed 2026-08-02 (`docs/EVENT_STORE_DESIGN.md` — all seven
+review questions ruled in place). The gap: a publish that no relay
+accepts DISCARDS the signed event (the reader gate journals only on
+`successful > 0`); an assumed-only publish retries by re-signing
+instead of flushing the journaled copy; and "signed ⇒ journaled"
+holds only where a call site remembered it (five sign sites never
+journal). The inversion: journal at SIGN time, make publishing a
+flush, and give X-Ray one locally queryable event store so "which
+claims anchor to this URL?" is a ~1 ms IndexedDB lookup instead of a
+5-second relay round trip. Two layers with different preciousness:
+the PRECIOUS journal becomes the outbox (flush state machine,
+`chrome.alarms` flusher, verbatim rebroadcast — never re-sign); a
+new DERIVED `xray-relay` database becomes the queryable index
+(dual-write own events + ingest-on-read). `is_private` captures
+adopt the local-only `held` tier — signed, journaled, exported,
+never flushed.
+
+- [ ] **29.1 — The publish gate.** `shared/publish-gate.js` (sign ⇒
+  journal `pending` ⇒ inline attempt ⇒ snapshot), journal DB v2 +
+  the v1→v2 migration, EVERY sign site routed (reader families,
+  entity-sync push + `clearRemote`, the network kind-3 mirror, the
+  portal's four sign sites), the transport-layer guard test. Closes
+  the signature-loss window by itself.
+- [ ] **29.2 — The flusher.** `alarms` lifecycle + exponential
+  backoff, OK-prefix classification, computed supersession,
+  cross-workspace queue + deferred ledger marks, portal
+  pending-flush view, delete/reset pending warnings, the capture
+  Private toggle → `held`.
+- [ ] **29.3 — The `xray-relay` store.** Dual-write on journal
+  append, ingest-on-read from `queryRelays`, foreign-row pruning
+  bound + Clear-cache, narrow query helpers, `unlimitedStorage`.
+- [ ] **29.4 — Network repoint.** The Network feed reads from the
+  store; `xray-network` retired.
+- [ ] **29.5 — Portal repoint.** Acceptance: reconcile consumes only
+  ≥1-confirmed-relay rows; `xray-portal` retired.
+- [ ] **29.6 — The filter engine.** Its own design doc first
+  (EVENT_STORE_DESIGN §4.3 authorizes it), then slices.
+
+Non-goals (v1): no localhost/native relay process (sanctioned as
+future dev tooling, separately designed); no live subscriptions; no
+new wire kinds or tags; no negentropy; no `created_at` coarsening;
+no scheduled-publish UX; no BYO-relay UI. crux.immo coordination
+(NIP-42, the indexer late-arrival question, the `is_private`
+divergence) is backburnered on the crux intake list.
 
 ---
 
