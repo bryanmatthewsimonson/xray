@@ -113,6 +113,78 @@ function renderCaseBriefSection(host, brief) {
     host.appendChild(box);
 }
 
+// MA.6 read-back: the extraction analysis. The REVIEW STATE leads every
+// row and the model's prose is labelled as the model's — this is the one
+// surface where a human reads a foreign 30070, and the whole format rests
+// on the marking surviving the render (see extraction-publish.js).
+function renderExtractionSection(host, x) {
+    const section = el('div', 'xr-inspector__extraction');
+    section.appendChild(el('h3', 'xr-case__heading', 'Extraction analysis'));
+    const c = x.coverage || {};
+    section.appendChild(el('div', 'xr-inspector__mono',
+        `${c.unreviewed || 0} unreviewed · ${c.accepted || 0} endorsed · ${c.dismissed || 0} dismissed`
+        + (c.ungroundableDropped ? ` · ${c.ungroundableDropped} ungroundable dropped` : '')));
+    section.appendChild(el('div', 'xr-inspector__brief-note',
+        'Machine-proposed spans of the article, published with the publisher’s review state on every '
+        + 'row. An UNREVIEWED row is nobody’s assertion — the publisher has not ruled on it. '
+        + 'Endorsement is only ever a reference to a separately signed claim.'));
+
+    for (const a of x.assertions || []) {
+        const row = el('div', 'xr-inspector__extraction-row');
+        // State first, always — never a quote with its status trailing.
+        const state = a.status === 'accepted' ? 'endorsed' : a.status;
+        row.appendChild(el('span', `xr-badge xr-badge--${state}`, state));
+        row.appendChild(el('blockquote', 'xr-finding-row__quote', truncate(a.quote, 240)));
+        if (a.status === 'accepted' && a.claim) {
+            row.appendChild(el('div', 'xr-inspector__mono', `claim ${a.claim}`));
+        } else if (a.endorsement === 'local-only') {
+            row.appendChild(el('div', 'xr-inspector__mono',
+                'endorsed locally, claim not published — nothing to fetch'));
+        }
+        if (a.why) {
+            row.appendChild(el('div', null,
+                `Publisher’s rationale${a.whyBy === 'llm' ? ' (accepted as written by the model)' : ''}: ${a.why}`));
+        }
+        if (a.modelProposedText) {
+            row.appendChild(el('div', 'xr-inspector__brief-note',
+                `Model proposed: ${truncate(a.modelProposedText, 240)}`));
+        }
+        if (a.modelNote) {
+            row.appendChild(el('div', 'xr-inspector__brief-note',
+                `Model note: ${truncate(a.modelNote, 240)}`));
+        }
+        if (a.generator) {
+            row.appendChild(el('div', 'xr-inspector__mono',
+                [a.generator.producer, a.generator.model, a.generator.promptVersion].filter(Boolean).join(' · ')));
+        }
+        section.appendChild(row);
+    }
+
+    for (const [label, rows, textOf] of [
+        ['Cited sources', x.sources || [], (s) => s.targetHint],
+        ['Open questions', x.openQuestions || [], (q) => q.text]
+    ]) {
+        if (!rows.length) continue;
+        section.appendChild(el('h4', 'xr-inspector__sub', `${label} (${rows.length})`));
+        for (const r of rows) {
+            const li = el('div', 'xr-inspector__extraction-row');
+            const rState = r.status === 'accepted' ? 'endorsed' : r.status;
+            li.appendChild(el('span', `xr-badge xr-badge--${rState}`, rState));
+            li.appendChild(el('span', null, textOf(r)));
+            section.appendChild(li);
+        }
+    }
+
+    if ((x.withheld || []).length) {
+        section.appendChild(el('h4', 'xr-inspector__sub', 'Withheld by the publisher'));
+        for (const w of x.withheld) {
+            section.appendChild(el('div', 'xr-inspector__brief-note',
+                `${w.field}${w.count ? ` (${w.count})` : ''} — ${w.reason || 'no reason given'}`));
+        }
+    }
+    host.appendChild(section);
+}
+
 function renderFindingSection(host, finding) {
     const section = el('div', 'xr-inspector__finding');
     section.appendChild(el('h3', 'xr-case__heading', 'Behavioral finding'));
@@ -446,6 +518,11 @@ export function renderInspector(host, item, { status = 'no-ledger', onClose, aud
     // readable sibling article.
     if (item.kind === 30068 && item.parsedBrief) {
         renderCaseBriefSection(host, item.parsedBrief);
+    }
+
+    // MA.6 — the extraction analysis, review state leading every row.
+    if (item.kind === 30070 && item.parsedExtraction) {
+        renderExtractionSection(host, item.parsedExtraction);
     }
 
     const details = el('details', 'xr-inspector__raw');
