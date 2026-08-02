@@ -34,7 +34,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from . import __version__, config
+from . import __version__, config, providers
 from .jobs import STAGES, Job, JobStore
 
 log = logging.getLogger("xray-transcriber")
@@ -42,10 +42,18 @@ log = logging.getLogger("xray-transcriber")
 app = FastAPI(title="X-Ray Transcriber", version=__version__)
 
 store = JobStore()
-# Unbounded on purpose: the 429 cap is enforced against the STORE's
-# active (queued+running) count, not queue slots — a bounded Queue would
-# let cancelled entries hold slots until the running job finished, so
-# "cancel some jobs" would not actually unblock new submissions.
+# Job execution: N daemon consumer threads over one queue.  Local jobs
+# stay STRICTLY serialized (one worker — the VRAM discipline: one child
+# process at a time on the GPU); cloud jobs hold no GPU, so a few
+# consumers run concurrently.  DAEMON threads on purpose (a
+# ThreadPoolExecutor's non-daemon workers would make Ctrl+C block until
+# every queued job ran to completion): on shutdown, queued jobs die
+# and only an already-running child survives as an orphan — the
+# behavior the service has always had.  The queue is unbounded on
+# purpose: the 429 cap is enforced against the STORE's active
+# (queued+running) count, not queue slots — bounded slots would let
+# cancelled entries block new submissions.
+_JOB_WORKERS = max(1, config.CLOUD_CONCURRENCY) if providers.is_cloud(config.PROVIDER) else 1
 _queue: "queue.Queue[str]" = queue.Queue()
 _device_state = {"device": "unknown"}  # resolved once, by a startup probe
 
@@ -139,7 +147,12 @@ def transcribe(body: TranscribeRequest) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    job = Job(job_id=str(uuid.uuid4()), url=body.url.strip(), video_id=video_id)
+    job = Job(
+        job_id=str(uuid.uuid4()),
+        url=body.url.strip(),
+        video_id=video_id,
+        provider=config.PROVIDER,
+    )
     job, created = store.add_or_get_active(job)
     if not created:
         # An active (queued/running) job for this video already exists.
@@ -154,7 +167,7 @@ def transcribe(body: TranscribeRequest) -> dict:
             detail=f"queue is full ({config.QUEUE_MAX} jobs); cancel one or try again later",
         )
     _queue.put(job.job_id)
-    log.info("queued job %s for video %s", job.job_id, video_id)
+    log.info("queued job %s for video %s (%s)", job.job_id, video_id, job.provider)
     return {"job_id": job.job_id}
 
 
@@ -190,6 +203,11 @@ def health() -> dict:
         "version": __version__,
         "ffmpeg": shutil.which("ffmpeg") is not None,
         "hf_token": bool(config.HF_TOKEN),
+        # The active engine and which providers have their credential
+        # set (never the credentials themselves).  Additive fields —
+        # older extensions ignore them.
+        "provider": config.PROVIDER,
+        "providers": {name: providers.key_ready(name) for name in providers.PROVIDERS},
     }
 
 
@@ -221,30 +239,43 @@ def _probe_device() -> None:
         log.warning("device probe failed (%s); reporting unknown", exc)
 
 
-# --- worker thread -------------------------------------------------------
+# --- job execution -------------------------------------------------------
 
 
 def _worker_loop() -> None:
-    """Single daemon consumer: one job at a time, each in a child process."""
+    """Daemon consumer: dequeue and run jobs, one at a time per thread."""
     while True:
-        job_id = _queue.get()
-        job = store.get(job_id)
-        if job is None or job.status != "queued":
-            continue  # cancelled (or pruned) while waiting in the queue
-        try:
-            _run_job(job)
-        except Exception as exc:
-            log.exception("job %s crashed the worker thread", job.job_id)
-            if job.status in ("queued", "running"):
-                store.update(job, status="failed", stage=None, error=str(exc))
+        _execute_job(_queue.get())
+
+
+def _execute_job(job_id: str) -> None:
+    """Run one job in a child process; never raises."""
+    job = store.get(job_id)
+    if job is None or job.status != "queued":
+        return  # cancelled (or pruned) while waiting in the queue
+    try:
+        _run_job(job)
+    except Exception as exc:
+        log.exception("job %s crashed its worker thread", job.job_id)
+        if job.status in ("queued", "running"):
+            store.update(job, status="failed", stage=None, error=str(exc))
 
 
 def _run_job(job: Job) -> None:
     job_tmp = config.TMP_DIR / job.job_id
     job_tmp.mkdir(parents=True, exist_ok=True)
     spec_path = job_tmp / "spec.json"
+    # The spec deliberately carries NO credentials — it is written to
+    # disk; API keys reach the child via inherited environment only.
     spec_path.write_text(
-        json.dumps({"job_id": job.job_id, "url": job.url, "video_id": job.video_id}),
+        json.dumps(
+            {
+                "job_id": job.job_id,
+                "url": job.url,
+                "video_id": job.video_id,
+                "provider": job.provider,
+            }
+        ),
         encoding="utf-8",
     )
     # CAS queued -> running: a cancel that landed between dequeue and
@@ -369,10 +400,28 @@ def main() -> None:
         )
         sys.exit(1)
 
+    # Provider misconfiguration fails HERE, not minutes into a job
+    # (unknown TRANSCRIBER_PROVIDER, or a cloud provider without its
+    # API key — the HF_TOKEN fail-fast precedent).
+    provider_error = providers.validate_active()
+    if provider_error is not None:
+        print(f"xray-transcriber: {provider_error}", file=sys.stderr)
+        sys.exit(1)
+
     config.ensure_dirs()
     threading.Thread(target=_probe_device, name="device-probe", daemon=True).start()
-    threading.Thread(target=_worker_loop, name="job-worker", daemon=True).start()
+    for i in range(_JOB_WORKERS):
+        threading.Thread(target=_worker_loop, name=f"job-worker-{i}", daemon=True).start()
 
+    if providers.is_cloud(config.PROVIDER):
+        log.info(
+            "provider: %s (cloud — episode audio is sent to the provider; "
+            "up to %d concurrent jobs)",
+            config.PROVIDER,
+            _JOB_WORKERS,
+        )
+    else:
+        log.info("provider: local (WhisperX + pyannote; jobs run one at a time)")
     log.info("X-Ray transcriber %s listening on http://%s:%d", __version__, config.HOST, args.port)
     uvicorn.run(app, host=config.HOST, port=args.port, log_level="info")
 

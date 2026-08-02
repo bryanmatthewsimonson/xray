@@ -7,6 +7,12 @@ word-aligns it, and pyannote diarization labels the speakers. It listens
 on `127.0.0.1:8756` and serves the X-Ray extension's **"Transcribe
 locally"** capture — nothing ever leaves your computer.
 
+Optionally, the service can hand transcription to a **cloud provider**
+(AssemblyAI or Deepgram) instead of the local GPU — minutes per episode
+for a few tens of cents, but **the episode audio leaves your machine**.
+See [Cloud providers](#cloud-providers-optional) below; the default is
+and remains fully local.
+
 Expect about **15 minutes of hands-on time**; the ~7 GB of one-time
 downloads (≈3 GB of CUDA wheels at setup, ≈3.5 GB of models on the first
 job) run unattended and can take longer on slow links.
@@ -81,11 +87,14 @@ curl http://127.0.0.1:8756/health
 Expected shape:
 
 ```json
-{"status": "ok", "device": "cuda", "queue_depth": 0, "version": "0.1.0", "ffmpeg": true, "hf_token": true}
+{"status": "ok", "device": "cuda", "queue_depth": 0, "version": "0.1.0", "ffmpeg": true, "hf_token": true,
+ "provider": "local", "providers": {"local": true, "assemblyai": false, "deepgram": false}}
 ```
 
 `device` may read `"unknown"` for the first seconds after startup while
-the probe (a child process importing torch) finishes.
+the probe (a child process importing torch) finishes. `provider` is the
+active engine; `providers` reports which engines have their credential
+set (never the credentials themselves).
 
 ## API reference
 
@@ -108,17 +117,22 @@ Body: `{"url": "https://www.youtube.com/watch?v=..."}`
 {
   "job_id": "…",
   "status": "queued" | "running" | "done" | "failed" | "cancelled",
-  "stage": "downloading" | "transcribing" | "aligning" | "diarizing" | null,
+  "stage": "downloading" | "uploading" | "transcribing" | "aligning" | "diarizing" | null,
   "progress": 0.42,
   "queue_position": 1,
   "created_at": "2026-08-01T17:03:12+00:00",
+  "provider": "local" | "assemblyai" | "deepgram",
   "error": null,
   "result": null
 }
 ```
 
-- `progress` runs 0..1 across the whole job (download 0–0.15,
-  transcribe 0.15–0.70, align 0.70–0.85, diarize 0.85–0.99, done 1.0).
+- `progress` runs 0..1 across the whole job. Local: download 0–0.15,
+  transcribe 0.15–0.70, align 0.70–0.85, diarize 0.85–0.99, done 1.0.
+  Cloud: download 0–0.15, upload 0.15–0.30, transcribe 0.30–0.99 (the
+  provider diarizes inside its one job — no separate stages), done 1.0.
+- `uploading` and `provider` are additive fields (older extension
+  builds ignore them); `uploading` only ever appears on cloud jobs.
 - `queue_position` is 1-based among queued jobs (1 = next to run); null
   once the job is running or finished.
 - `result` is set when `status` is `"done"` (see below).
@@ -169,6 +183,25 @@ auth token.
 no speaker could be assigned. `aligned: false` means the language had no
 word-alignment model, so timestamps are at Whisper's segment granularity.
 
+Cloud jobs emit the same shape; `model_info` differs:
+
+```json
+{
+  "provider": "assemblyai",
+  "asr_model": "universal",
+  "diarization_model": "assemblyai-native",
+  "device": "cloud",
+  "aligned": true,
+  "yt_dlp_version": "…"
+}
+```
+
+Cloud speaker labels (`A`/`B`, `0`/`1`) are normalized to the same
+`SPEAKER_00` form, first-appearance ordered, and long speaker turns are
+split into sentence-level segments using the provider's word
+timestamps — so downstream treatment (speaker naming, claim time
+provenance) is identical to a local run.
+
 ### CORS and authentication
 
 The service reflects the request `Origin` **only** for
@@ -194,10 +227,70 @@ a **new** terminal):
 | `TRANSCRIBER_DIARIZE_MODEL` | `pyannote/speaker-diarization-community-1` | Diarization pipeline name |
 | `TRANSCRIBER_COOKIES_FILE` | *(unset)* | Path to a Netscape-format cookies.txt for yt-dlp (see Troubleshooting) |
 | `TRANSCRIBER_TOKEN` | *(unset)* | When set, require `X-Transcriber-Token` on all endpoints except `/health` |
-| `HF_TOKEN` | *(unset)* | Hugging Face read token; required for diarization |
+| `HF_TOKEN` | *(unset)* | Hugging Face read token; required for local diarization |
+| `TRANSCRIBER_PROVIDER` | `local` | Transcription engine: `local`, `assemblyai`, or `deepgram` (see Cloud providers) |
+| `ASSEMBLYAI_API_KEY` | *(unset)* | AssemblyAI API key; required when the provider is `assemblyai` |
+| `DEEPGRAM_API_KEY` | *(unset)* | Deepgram API key; required when the provider is `deepgram` |
+| `TRANSCRIBER_ASSEMBLYAI_MODEL` | `universal` | AssemblyAI `speech_model` |
+| `TRANSCRIBER_DEEPGRAM_MODEL` | `nova-3` | Deepgram `model` |
+| `TRANSCRIBER_CLOUD_CONCURRENCY` | `3` | Concurrent cloud jobs (local jobs always run one at a time) |
 
 Working files live in `%LOCALAPPDATA%\xray-transcriber\` (`tmp\` for
 per-job audio, always deleted after the job; `jobs\` for result JSON).
+
+## Cloud providers (optional)
+
+By default everything runs locally and **nothing leaves your machine**.
+Setting `TRANSCRIBER_PROVIDER` to `assemblyai` or `deepgram` trades that
+away for speed and zero GPU load:
+
+- **What leaves your machine**: the episode's downloaded AUDIO is
+  uploaded to the provider's API, which processes it under *their*
+  terms and retention policies. The YouTube download itself still
+  happens locally via yt-dlp (cloud APIs take audio files, not URLs) —
+  cookies, if configured, are never sent anywhere.
+- **What it costs**: both providers meter per audio-hour, in the
+  **~$0.15–0.40 / hour** range at 2026 list prices (AssemblyAI
+  `universal` and Deepgram `nova-3` both sit near the low end; check
+  current pricing). A 2-hour episode is therefore tens of cents.
+- **What you get**: a 2-hour episode in a couple of minutes with no
+  VRAM use (LM Studio can keep the GPU), including speaker labels —
+  both providers diarize inside the same job. Up to
+  `TRANSCRIBER_CLOUD_CONCURRENCY` jobs run at once.
+- **What the extension shows**: the reader banner reads "Transcribing
+  via AssemblyAI/Deepgram", the transcript section heading names the
+  provider (e.g. `Transcript — English (AssemblyAI, diarized)`), and a
+  published capture carries `extraction-method: assemblyai-universal`
+  (or `deepgram-nova-3`) instead of the `whisperx-…` form — provenance
+  stays honest.
+
+Setup (AssemblyAI shown; Deepgram is identical with its names):
+
+```
+setx ASSEMBLYAI_API_KEY your_key_here
+setx TRANSCRIBER_PROVIDER assemblyai
+```
+
+Open a **NEW terminal** and start the service; the startup log names
+the active provider, and `/health` shows `"provider": "assemblyai"`
+with per-provider key readiness. A cloud provider selected without its
+key refuses to start with instructions. Switching back is
+`setx TRANSCRIBER_PROVIDER local` (again: new terminal).
+
+Notes:
+
+- **Update the extension build first** (rebuild `dist/`, reload it in
+  the browser, reopen reader tabs) before switching to a cloud
+  provider: an older extension build doesn't know the `provider`
+  field and would label a cloud transcript as local — in the
+  published heading and `extraction-method` tag, durably.
+- API keys live in **environment variables only** — the extension
+  never sees or stores them, and they are never written to disk by the
+  service (job spec files carry no credentials).
+- Cancelling a cloud job stops the local side; a request already
+  submitted to the provider finishes (and bills) on their side.
+- `TRANSCRIBER_MAX_DURATION_S` applies to cloud jobs too and doubles
+  as a cost guard.
 
 ## Performance
 
@@ -215,6 +308,14 @@ loaded on the same card. One job runs at a time; further requests queue
 - Any local process can use the API; set `TRANSCRIBER_TOKEN` if that
   matters on your machine.
 - CORS never allows plain-web origins (see above).
+
+## Development
+
+Unit tests (normalization + provider plumbing; no network, no GPU):
+
+```
+uv run python -m unittest discover tests
+```
 
 ## Troubleshooting
 
