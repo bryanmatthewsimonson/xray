@@ -1265,6 +1265,21 @@ async function loadArchivedArticle(archived, provenance) {
     // HTML round trip doesn't byte-match); cache archives recompute.
     state.articleHash = archived._articleHash || null;
     state.hashDirty = false;
+    // PERSIST the restore (writable opens only): adopting in memory
+    // alone left the archive ROW on whatever version it held — after a
+    // prior-version restore every other surface (portal opens, case
+    // view) kept serving the clobbered article, its transcript
+    // features hidden. The version this replaces snapshots into
+    // priorVersions — honest versioning, never loss.
+    const persistRestore = () => {
+        if (state.readOnlyOpen) return;
+        ArchiveCache.saveArticle({
+            article: state.articleHash
+                ? { ...state.article, _articleHash: state.articleHash }
+                : state.article,
+            source: 'capture'
+        }).catch((err) => console.warn('[X-Ray Reader] restore save failed:', err));
+    };
     if (!state.articleHash) {
         canonicalArticleHash(EventBuilder.assembleArticleBody(hashableArticle(state.article)))
             .then((h) => {
@@ -1272,8 +1287,11 @@ async function loadArchivedArticle(archived, provenance) {
                 updateHashLine();
                 // The extraction record keys on this hash (MA.2b).
                 refreshExtractionBar().catch(() => { /* display refresh only */ });
+                persistRestore();
             })
             .catch((err) => console.warn('[X-Ray Reader] archive hash failed:', err));
+    } else {
+        persistRestore();
     }
 
     // Re-render whatever view the user's currently in.
