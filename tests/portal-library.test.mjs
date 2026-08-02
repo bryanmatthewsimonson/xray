@@ -177,6 +177,8 @@ test('EMPTY_FILTERS and TYPE_DEFS are pinned', () => {
             'verdict', 'integrity',
             // Phase 23.2 facet:
             'brief',
+            // MA.6 facet:
+            'extraction',
             'link', 'entity', 'case', 'account', 'other']);
     assert.equal(kindLabel(30040), 'Claim');
     assert.equal(kindLabel(30062), 'Behavioral finding');
@@ -291,4 +293,37 @@ test('buildItems: the readable 30023 brief (xray-case-brief marker) also lands i
 
 test('TYPE_DEFS includes a Briefs tab', () => {
     assert.ok(TYPE_DEFS.some((d) => d.key === 'brief' && d.label === 'Briefs'));
+});
+
+// ---- MA.6 extraction analysis read-back ------------------------------
+
+const { buildExtractionAnalysisEvent } = await import('../src/shared/extraction-publish.js');
+
+test('buildItems: a 30070 routes to Extractions, summarized BY REVIEW STATE', () => {
+    const a = (over) => ({
+        key: `a:${over.start}`, quote: over.quote, start: over.start, end: over.start + 5,
+        why: 'model note', text: 'model paraphrase', ...over
+    });
+    const ev = buildExtractionAnalysisEvent({
+        record: {
+            articleHash: 'a'.repeat(64), url: 'https://x.test/story', title: 'Story',
+            assertions: [
+                a({ start: 0, quote: 'first span', status: 'accepted', accepted_claim_id: 'c1' }),
+                a({ start: 10, quote: 'second span', status: 'open' }),
+                a({ start: 20, quote: 'third span', status: 'open' }),
+                a({ start: 30, quote: 'fourth span', status: 'dismissed' })
+            ],
+            sources: [], open_questions: [], dropped_ungrounded: 3
+        },
+        coordByClaimId: { c1: `30040:${USER_PK}:c1` },
+        createdAt: 1000
+    });
+    const item = buildItems([{ event: { ...ev, id: 'extr70', pubkey: USER_PK }, relays: [] }], { entityIndex: {} })[0];
+    assert.equal(item.typeKey, 'extraction');
+    assert.equal(kindLabel(30070), 'Extraction analysis');
+    // The denominator leads: never "4 assertions" with the states hidden.
+    assert.equal(item.sub, '2 unreviewed · 1 endorsed · 1 dismissed · 3 ungroundable dropped');
+    assert.ok(item.parsedExtraction && item.parsedExtraction.assertions.length === 4);
+    // Searchable by the article's own spans.
+    assert.ok(item.searchText.includes('second span'));
 });

@@ -175,7 +175,26 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // (localhost:1234). Distinct from llmAssist (Anthropic, paid, its
   // own key) — this one is local-only and free. Every suggestion still
   // goes through the human-accept review modal; nothing auto-mints.
-  transcriptClaimDrafts: false
+  transcriptClaimDrafts: false,
+
+  // MA.6 (docs/MAP_ARTIFACT_KICKOFF.md §MA.6, docs/NIP_DRAFT.md
+  // §Kind 30070): gates the PUBLISH path for kind 30070 — one
+  // article's extraction analysis (its machine-proposed load-bearing
+  // spans with the publisher's review state on each, the outside
+  // sources it leans on, what it leaves open). The local extraction
+  // layer, its review surfaces, and the backup merge-import are never
+  // gated — they're the product.
+  //
+  // This flag is a REAL gate, not a formality: the maintainer's
+  // 2026-07-29 posture publishes the WHOLE extraction unit — every
+  // atom in every review state, WITH the model's prose — because a
+  // filter a reader cannot see cannot be audited. What keeps that
+  // honest is the MARKING (a required per-row `status`, model prose
+  // confined to `model_`-prefixed keys, endorsement expressible only
+  // as a coordinate to a separately signed claim), not a narrow
+  // projection. So the default stays off, and turning it on is a
+  // decision about disclosure rather than a convenience.
+  extractionAnalysisPublishing: false
 });
 
 /**

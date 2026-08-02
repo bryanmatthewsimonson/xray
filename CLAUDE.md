@@ -142,8 +142,10 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   user-signed) in `corpus-publish.js`; the user-signed entity page (an
   ordinary replaceable `30023`) in `entity-page-publish.js`; the
   creator-binding OwnedKeys manifest `30069` (Phase 24) + NIP-26
-  delegation tags; and the opt-in NIP-02 follow-list mirror (kind `3`)
-  in `follow-publish.js`. The moral lens (Phase 16) and the case
+  delegation tags; the per-article ExtractionAnalysis `30070` (MA.6,
+  user-signed, whole-unit disclosure with a REQUIRED per-row review
+  state) in `extraction-publish.js`; and the opt-in NIP-02 follow-list
+  mirror (kind `3`) in `follow-publish.js`. The moral lens (Phase 16) and the case
   dossier / graph / hypothesis-map / counterfactual (Phases 20 + 26) are
   derived views with **no wire kind** (`30066` stays free, guard-tested).
   **Wire-format changes in any of these have compatibility
@@ -311,9 +313,13 @@ tested contract, not an aspiration.
   corpus-v4 claims-independent cache key is superseded), the reduce
   reads the accumulated layer, the reader's Suggest pass folds into the
   SAME layer (MA.4 — one span-dedup rule across both producers, a
-  `producer` stamp, claims-only scope), and backups gained
+  `producer` stamp, claims-only scope), backups gained
   **merge-import** (`mergeBackup` — accrual by id, local wins,
-  config/identities never merged). The FLF Epistack
+  config/identities never merged), and the layer became PUBLISHABLE
+  (MA.6 — the NEW kind `30070` ExtractionAnalysis behind
+  `extractionAnalysisPublishing`; the maintainer's 2026-07-29 posture
+  publishes the WHOLE unit, every review state plus the model's prose,
+  so the per-row `status` marking is the only safeguard). The FLF Epistack
   entry has been submitted (deadline was 2026-07-19); the tool continues
   to be tailored **maintainer-driven from real casework (COVID first)**.
   The 0.8.0 smoke walk passed (2026-07-20; Phases 11–15
