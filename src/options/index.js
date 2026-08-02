@@ -35,6 +35,7 @@ const ROTATION_WARNING =
     '• The OwnedKeys manifest and entity profiles should be republished under the new identity.\n\n' +
     'Continue?';
 import { collectBackup, applyBackup, mergeBackup, validateBackup, estimateBackupSize, collectWorkspaceSnapshot } from '../shared/backup.js';
+import { describeImportRefusals } from '../shared/extraction-import.js';
 import { exportBundle } from '../shared/event-journal.js';
 
 const browserApi = (typeof browser !== 'undefined' && browser.runtime) ? browser : chrome;
@@ -945,6 +946,10 @@ async function backupMergeFromFile(file) {
             'Nothing local is deleted or overwritten: items are deduplicated by id, ' +
             'per-article extraction records merge at the assertion level, and the ' +
             'file\'s settings/identities are ignored.\n\n' +
+            'Imported quotes are re-located in YOUR copy of each article — offsets from ' +
+            'another machine are never trusted — so analysis of an article you have not ' +
+            'captured is reported rather than merged. Review decisions in the file are ' +
+            'recorded as theirs, never applied as yours.\n\n' +
             'A safety backup of the CURRENT data downloads first.\n\nType MERGE to continue.');
         if (typed === null) return;
         if (String(typed).trim().toUpperCase() !== 'MERGE') {
@@ -955,7 +960,12 @@ async function backupMergeFromFile(file) {
         downloadJson(await collectBackup({ includeSourceBytes: true }),
             `xray-backup-safety-${new Date().toISOString().slice(0, 10)}.json`);
         flash(status, 'Merging…');
-        const summary = await mergeBackup(parsed, { warn: (m) => console.warn('[X-Ray Options]', m) });
+        const summary = await mergeBackup(parsed, {
+            warn: (m) => console.warn('[X-Ray Options]', m),
+            onProgress: (p) => {
+                if (p && p.total > 25) flash(status, `Merging… ${p.done}/${p.total} extraction records`);
+            }
+        });
         const s = summary.storage || {};
         let rowsAdded = 0;
         let rowsMerged = 0;
@@ -972,7 +982,18 @@ async function backupMergeFromFile(file) {
             `${s.idsAdded || 0} item(s) added across ${(s.keysMerged || 0) + (s.keysAdded || 0)} storage key(s)`,
             `${rowsAdded} database record(s) added, ${rowsMerged} merged in place`
         ];
-        if (rowsSkipped) parts.push(`${rowsSkipped} record(s) skipped (not safely mergeable — see console)`);
+        if (rowsSkipped) parts.push(`${rowsSkipped} record(s) skipped (not safely mergeable — see the report below)`);
+
+        // MA.7 — the extraction report. Refusals are actionable ("capture
+        // that article and re-import"), so they go in a PERSISTENT element
+        // rather than a status flash that self-clears after 3 seconds,
+        // and anything refused SUPPRESSES the auto-reload that would
+        // otherwise wipe both the report and the console.
+        const extr = ((summary.databases || {})['xray-audits'] || {})['article-extractions'] || {};
+        const reportLines = describeImportRefusals(extr.refusals, extr.unresolved);
+        const held = (extr.refusals && (extr.refusals.noLocalText || extr.refusals.unlocatedQuotes
+                                        || extr.refusals.unpinnedKey)) || 0;
+        renderMergeReport(reportLines, held > 0);
         // A partial merge is reported as partial, never as a failure or
         // a clean success: what landed is already durable, and
         // re-running the same file is idempotent.
@@ -984,9 +1005,42 @@ async function backupMergeFromFile(file) {
         } else {
             flash(status, `Merged — ${parts.join('; ')}. Reloading…`);
         }
-        setTimeout(() => location.reload(), 3000);
+        // Reload only when there is nothing for the user to read. A
+        // refusal names articles they may want to capture; wiping that
+        // three seconds later would make the merge look clean when it
+        // wasn't.
+        if (!held && !errs.length) setTimeout(() => location.reload(), 3000);
     } catch (e) {
         flash(status, 'Merge failed: ' + (e && e.message), false);
+    }
+}
+
+// The persistent half of the merge outcome (MA.7). Empty ⇒ hidden, so a
+// clean merge leaves no clutter behind.
+function renderMergeReport(lines, needsAction) {
+    const host = document.getElementById('backup-merge-report');
+    if (!host) return;
+    host.textContent = '';
+    if (!lines || !lines.length) { host.hidden = true; return; }
+    host.hidden = false;
+    const head = document.createElement('strong');
+    head.textContent = needsAction
+        ? 'Merge report — some analysis could NOT be verified against this machine’s text:'
+        : 'Merge report:';
+    host.appendChild(head);
+    const ul = document.createElement('ul');
+    for (const line of lines) {
+        const li = document.createElement('li');
+        li.textContent = line;
+        ul.appendChild(li);
+    }
+    host.appendChild(ul);
+    if (needsAction) {
+        const note = document.createElement('div');
+        note.className = 'xr-opt__hint';
+        note.textContent = 'Nothing was lost from this machine, and re-importing the same file '
+            + 'after capturing the missing articles is safe — the merge is idempotent.';
+        host.appendChild(note);
     }
 }
 

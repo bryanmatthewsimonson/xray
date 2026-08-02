@@ -309,6 +309,11 @@
       <input type="file" id="backup-file" accept="application/json,.json" style="display:none" />
       <input type="file" id="backup-merge-file" accept="application/json,.json" style="display:none" />
       <span class="xr-opt__status" id="backup-status"></span>
+      <!-- MA.7: the merge REPORT, distinct from the 3-second status
+           flash. A refusal ("I hold no copy of that article, so I could
+           not verify its quotes") is the one thing the user must act on,
+           and it must not evaporate or be destroyed by the auto-reload. -->
+      <div class="xr-opt__report" id="backup-merge-report" hidden></div>
 
       <hr />
       <h3 class="xr-opt__subhead">Experimental</h3>

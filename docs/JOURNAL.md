@@ -19,6 +19,96 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-02 — MA.7: the import verifies instead of trusting
+
+**Tags:** bug, design
+
+The deferred fix for the cross-machine span bug, decided by a
+three-design panel with three judging lenses (philosophy / data
+integrity / maintainer-in-real-casework). Unanimous, 3–0, for the
+strictest design — which is unusual enough to be worth recording.
+
+**The bug, finally measured.** A probe over two bodies inside ONE
+`articleHash` equivalence class — one with CRLF and trailing spaces, one
+without — put the same sentence at `[10, 59)` on the exporting machine
+and `[8, 53)` locally. `normalizeForHash` collapses whitespace before
+hashing while offsets index the un-normalized body, so the hash agrees
+and the offsets do not. Re-grounding the foreign quote in the local body
+recovers `[8, 53)` exactly. Costs, also measured: a grounding index over
+60k chars is ~22ms, and 60 quote lookups after that are ~0.1ms — so
+verification is affordable at import, which was never actually in doubt
+once someone checked.
+
+**The fix is structural, not a convention.**
+`mergeExtractionRecords(local, incoming, { localText })` requires the
+local body and refuses without it. The `DEEP_MERGE_STORES` entry that
+could reach it textless was DELETED rather than defaulted, so no future
+caller can take a path that trusts a foreign offset. That framing came
+from the panel and is the part I would not have arrived at alone: the
+old signature made the bug *available*, and a design that merely stops
+using it wrongly leaves the footgun loaded.
+
+**What the judges refused to let ship**, each verified against the code
+rather than asserted:
+
+- **A hash-verification precondition** before re-grounding
+  (`await articleHash(localText) === record.articleHash`). Two of three
+  designs wanted it. It fails for published rows — `content` becomes
+  `markdownToHtml(draft)` and turndown is not idempotent — and for
+  PDF/transcript/EPUB rows and relay reconstructions carrying a foreign
+  `_articleHash`. It would have made the whole fix a no-op for the
+  dominant row types while looking rigorous. Row identity plus a
+  per-atom `quote === localText.slice(start, end)` check is the correct
+  pair.
+- **Re-keying atoms to a content hash.** One design moved assertion
+  identity off the span onto a 64-bit FNV of the normalized quote. That
+  is an identity migration of the store holding every human triage
+  decision, and it makes a non-cryptographic hash the identity of a
+  human judgment — with a throw-on-collision defense that I confirmed is
+  invisible in the Dismiss path. Not an acceptable carrier for a
+  whitespace-offset fix, especially right before a large corpus capture.
+- **Filtering imported atoms out of the open review queue.** Parking a
+  colleague's work in a collapsed disclosure outside the queue you
+  actually work is silent discard wearing a disclosure badge.
+
+**Three bugs in already-merged import code**, all found by the panel:
+a foreign `merged_keys` fingerprint would have permanently suppressed
+this machine's own fold of its own PAID extract (the key hashes
+{promptVersion, text, title, url} and not the model, so it collides); a
+foreign `published_at` would have made the portal offer "Republish" for
+a kind-30070 this identity never signed; and a foreign `accepted_why`
+landed in the field that publishes as the SIGNER's own rationale with
+`why_by: 'user'` — another author's prose attributed to me in my own
+signed event.
+
+**Twin-finding moved to untruncated quote identity.** The mandatory
+graft, and the fix for the winning design's own fatal flaw: it had
+reused `normIdent`, which truncates at 160 chars. Assertion quotes run
+longer than that, and collapsing two long atoms into one identity would
+attach an imported ruling to the wrong sentence — the exact failure the
+slice exists to prevent.
+
+**No foreign ruling is adopted any more.** It rides attributed as
+`imported_ruling` and stays inert. Today's adoption also silently
+dropped the `accepted_why` that justified the accept, so the attributed
+form is strictly more informative than what it replaces. The open
+question I could not answer for the maintainer: whether a backup from
+your OWN other machine should auto-adopt onto still-open atoms. Shipped
+the safe default (never) plus the mechanism; the panel's suggestion is a
+provenance choice on the merge dialog, which puts the consent firewall
+between two PEOPLE (P8) rather than between two of your own installs.
+
+**Two grafts worth keeping for their own sake:** `locate()` on the
+grounding index (tiers 1–2 only, own memo — a refused quote used to pay
+the tier-3 LCS pass for a discarded result) and LAZY tokenization (only
+the fuzzy tier needs it, so every locate-only caller now skips
+tokenizing the whole body).
+
+Lesson: the panel's value here was not the winning design, which was
+close to my starting instinct. It was the *refutations* — three
+independent lenses each verified a plausible-sounding safety measure
+against the actual row types and found it would break the common case.
+
 ## 2026-08-02 — The MA.6 browser walk found a false "published" stamp
 
 **Tags:** bug, pattern

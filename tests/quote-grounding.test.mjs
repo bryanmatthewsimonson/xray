@@ -225,3 +225,55 @@ test('scale smoke: a long article grounds quickly and correctly', () => {
     const f = index.ground('the auditor’s report was never delivered to the council allegedly today');
     assert.notEqual(f.status, 'exact');
 });
+
+// ---- locate(): verify-only grounding (MA.7) --------------------------
+
+test('locate: the two exact tiers only — never a fuzzy guess', async () => {
+    const text = 'Intro.\n\nThe audit was never   \ndelivered to the council.\n\nEnd.';
+    const idx = createGroundingIndex(text);
+
+    // Tier 1 — verbatim.
+    const exact = idx.locate('delivered to the council');
+    assert.equal(exact.status, 'exact');
+    assert.equal(text.slice(exact.start, exact.end), exact.exact);
+
+    // Tier 2 — typography/whitespace drift still resolves, and the span
+    // is the ARTICLE's own (this is the cross-machine case: the other
+    // install stored the same sentence with different whitespace).
+    const norm = idx.locate('The audit was never delivered to the council.');
+    assert.equal(norm.status, 'normalized');
+    assert.equal(text.slice(norm.start, norm.end), norm.exact);
+
+    // Tier 3 is UNREACHABLE. A wording-drifted quote that `ground` would
+    // fuzzy-match must come back missing from `locate` — on the import
+    // path a fuzzy hit would attach a foreign human ruling to a sentence
+    // the other machine did not mean.
+    const drifted = 'The audit was never actually delivered to the city council';
+    const fuzzy = idx.ground(drifted);
+    const located = idx.locate(drifted);
+    assert.equal(located.status, 'missing', 'locate never guesses');
+    if (fuzzy.status === 'fuzzy') {
+        assert.notEqual(fuzzy.status, located.status, 'ground and locate legitimately disagree here');
+    }
+
+    // Same five-field shape, so callers are interchangeable.
+    for (const k of ['status', 'score', 'start', 'end', 'exact']) {
+        assert.ok(k in located, `locate result carries ${k}`);
+    }
+    // Separate memo: a shared cache would let one answer the other.
+    assert.equal(idx.locate(drifted).status, 'missing');
+    assert.equal(idx.ground(drifted).status, fuzzy.status);
+    // Junk in, missing out.
+    assert.equal(idx.locate('').status, 'missing');
+    assert.equal(idx.locate(null).status, 'missing');
+});
+
+test('lazy tokens: a locate-only index never tokenizes, and fuzzy still works after', () => {
+    const body = 'A sentence about the council. Another about the audit.';
+    const idx = createGroundingIndex(body);
+    // Exercise locate first (no tokens needed), then prove the fuzzy tier
+    // still functions — i.e. the lazy build actually happens on demand.
+    assert.equal(idx.locate('about the audit').status, 'exact');
+    const g = idx.ground('A sentence concerning the council');
+    assert.ok(['fuzzy', 'missing'].includes(g.status), 'fuzzy path still reachable after lazy init');
+});

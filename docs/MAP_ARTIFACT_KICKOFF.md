@@ -293,21 +293,112 @@ paid work.
   behind, and safely folding a foreign analysis needs the deferred
   re-grounding slice; the omission is pinned by a test so it does not
   read as an oversight.
+
+- **MA.7 — the import verifies instead of trusting** (SHIPPED
+  2026-08-02). The deferred fix for the cross-machine span bug, decided
+  by a three-design panel with three judging lenses (unanimous, 3–0).
+
+  **The bug, measured.** A probe over two bodies inside one hash
+  equivalence class — one with CRLF and trailing spaces, one without —
+  put the SAME sentence at `[10, 59)` on the exporting machine and
+  `[8, 53)` locally. Trusting the foreign offset could dedup an atom
+  against the wrong local atom, or adopt an imported accept/dismiss onto
+  the wrong sentence. Re-grounding the foreign quote in the local body
+  recovers `[8, 53)` exactly, and the local slice reproduces the quote.
+
+  **The shape of the fix is structural, not a convention.**
+  `mergeExtractionRecords(local, incoming, { localText })` now REQUIRES
+  the local body, and refuses with `skipped: 'no-local-text'` without
+  it. The `DEEP_MERGE_STORES` entry that used to reach it textless was
+  DELETED rather than defaulted, so there is no code path a future
+  caller can take to trust a foreign offset. Every incoming quote is
+  re-located locally; only `exact` and `normalized` hits are accepted
+  (never a fuzzy guess — that is exactly where a guess becomes a
+  mis-attributed human ruling); the stored span and quote are the LOCAL
+  ones; and the atom's key is recomputed from local coordinates.
+
+  **Twin-finding is by untruncated quote identity**, then by
+  locally-computed span overlap. Whitespace-folded exact equality is
+  what survives the hash equivalence class (P9-safe: no similarity
+  guess). The 160-char `normIdent` cap is deliberately NOT reused —
+  collapsing two long atoms into one identity would attach an imported
+  ruling to the wrong sentence.
+
+  **No foreign ruling is ever adopted.** It rides attributed as
+  `imported_ruling` (status, foreign claim id, time, and the rationale
+  today's adoption silently dropped) and is inert: `partitionAssertions`
+  still sees the atom as open, and the review surface labels it
+  "recorded from another machine, NOT applied". Adopting it would
+  resolve another person's disagreement by import (P8) and let a file
+  create a claim-registry endorsement. The wire path already mandates
+  exactly this for foreign kind-30070 events.
+
+  **Three bugs in the already-merged import path**, each found by the
+  panel and fixed here: a foreign `merged_keys` fingerprint would have
+  permanently suppressed this machine's own fold of its own paid extract
+  (the key hashes {promptVersion, text, title, url}, NOT the model, so
+  it collides); a foreign `published_at`/`published_event_id` would have
+  made the portal show "published <date>" and offer "Republish" for an
+  event this identity never signed; and a foreign `accepted_why` landed
+  in the field that publishes as the SIGNER's own rationale with
+  `why_by: 'user'`. None is imported now.
+
+  **Where the body comes from.** IndexedDB has no cross-database
+  transaction: bodies live in `xray-archive`, the merge transaction is
+  on `xray-audits`. So no lookup — sync or async — is possible from
+  inside it, and pre-resolution is the only available shape.
+  `extraction-import.js` resolves bodies in 25-record chunks before each
+  transaction (bounding peak memory: a grounding index over a 60k body
+  is ~1.9 MiB), yields between chunks, and reports progress.
+  `bodiesByArticleHash` (archive-cache.js) cursors the archive keeping
+  only the requested bodies, resolves retained PRIOR versions too, and
+  stops early. It is deliberately NOT gated on re-hashing the local text:
+  a published or PDF-derived row's body legitimately no longer re-hashes
+  to its own `articleHash` (htmlToMarkdown is not idempotent), so a hash
+  precondition would make the fix a no-op for the dominant row types.
+
+  **Two refusal reasons, kept apart** — "this machine holds no copy of
+  that text" is a gap in the archive; "I hold that text and your quote
+  is not in it" is a FINDING (the export analyzed a different version,
+  or a quote is corrupt). The second is recorded on the record as
+  `imported_unlocated` (bounded, `IMPORTED_UNLOCATED_MAX`) rather than
+  folded into `dropped_ungrounded`, which already carries one published
+  meaning. The Options merge report names the articles by URL in a
+  PERSISTENT element, and anything refused SUPPRESSES the auto-reload
+  that used to wipe the summary three seconds later.
+
+  **Also fail-closed:** `setAssertionTriage` / `setAssertionRationale`
+  now return `{ record, matched }`. They used to `.map()` over an
+  equality predicate and return regardless, so a key matching nothing
+  wrote a bumped `updatedAt` and lost a human decision while looking
+  like success. The portal throws on `matched === 0`, and the Dismiss
+  handler — which previously logged to the console and said nothing —
+  now reports on the row.
+
+  **Deferred from this slice, deliberately:** a `substrateAgreement`
+  diagnostic for the separate PURELY-LOCAL staleness case (a re-capture
+  inside the whitespace equivalence class replaces the body under a
+  record with no prior-version snapshot, since the hash did not change);
+  an `isOpenStatus` unification; and the provenance question below.
+
+  **OPEN, for the maintainer:** should a backup from your OWN other
+  machine auto-adopt triage onto still-open atoms, or always require an
+  Adopt click? This slice ships the SAFE default (never adopt; always
+  attributed) and the mechanism. The panel's suggestion is a provenance
+  choice on the typed-MERGE dialog — "my own export from another
+  machine" vs "from someone else" — which puts the consent firewall
+  between two PEOPLE (P8) rather than between two of your own installs,
+  and makes the trust assumption an explicit human statement.
 - **Adjacent (2026-07-25): backup merge-import.** `mergeBackup`
   (backup.js) accrues a backup file into the live corpus — content
   only, add-if-missing by id, nothing local deleted or overwritten —
   and this layer supplies its one deep merge:
-  `mergeExtractionRecords` unions assertion atoms by span, adopts a
-  foreign human triage onto atoms still open locally, and resolves
-  conflicting decisions to the local one. Span arithmetic across
-  machines is trusted only for a 64-hex `articleHash`, and only up to
-  the hash's own equivalence class: `normalizeForHash` collapses
-  whitespace before hashing while offsets index the un-normalized
-  body, so two bodies differing ONLY in whitespace share a hash and
-  can disagree about offsets by the collapsed delta. The damage is
-  bounded (a near-duplicate atom, reviewable) — the real fix,
-  re-grounding incoming quotes against the local text at import, is a
-  deferred slice because `mergeBackup` has no body in hand.
+  `mergeExtractionRecords` unions assertion atoms into the local
+  record. As first shipped it trusted the incoming offsets, which was
+  wrong up to the hash's own equivalence class: `normalizeForHash`
+  collapses whitespace before hashing while offsets index the
+  un-normalized body, so two bodies differing ONLY in whitespace share
+  a hash and disagree about offsets. **MA.7 fixes that** — see below.
 
 ## 5. Storage shape (MA.1)
 

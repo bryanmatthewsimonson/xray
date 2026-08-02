@@ -62,6 +62,11 @@ function idbGetAll(db, storeName) {
 // text-pinned key (isTextPinnedKey), so a non-hex id would be skipped.
 const HASH_X = 'e'.repeat(64);
 
+// The local canonical body. MA.7 re-locates every imported quote HERE,
+// so it must contain them — with different surrounding whitespace than
+// the offsets in the fixture records, which is the point.
+const LOCAL_BODY = 'Intro line.\n\nlocal span here.\n\nAnd then a foreign-only span here to find.\n';
+
 const extractionRecord = (over = {}) => ({
     articleHash: HASH_X, url: 'https://ex.com/x', title: 'X',
     assertions: [{ key: 'a:0-10', quote: 'local span', start: 0, end: 10, why: 'local why',
@@ -90,8 +95,33 @@ async function seedLocal() {
     await idbPut(audits, 'runs', { id: 'run_shared', articleHash: 'ah1', note: 'LOCAL run' });
     await saveArticleExtraction(extractionRecord());
 
-    // The archive DB must exist so its dump section merges cleanly.
-    await openArchiveDb();
+    // The archive DB must exist so its dump section merges cleanly — and
+    // MA.7 needs an actual BODY under this record's hash, or the merge
+    // (correctly) refuses to verify anything. The row's stored
+    // articleHash is what the resolver keys on; it is deliberately not
+    // re-derived (a published or PDF row's body no longer re-hashes to
+    // its own identity, so a hash precondition would break the common
+    // case).
+    const archive = await openArchiveDb();
+    await idbPut(archive, 'articles', {
+        urlHash: 'x'.repeat(16), url: 'https://ex.com/x',
+        article: { url: 'https://ex.com/x', title: 'X', content: LOCAL_BODY },
+        articleHash: HASH_X, priorVersions: [],
+        cachedAt: 1, lastAccessed: 1, source: 'capture',
+        publishedToRelay: false, publishedEventId: null
+    });
+}
+
+/** seedLocal, minus the archive body — the "I hold no copy" case. */
+async function seedLocalWithoutBody() {
+    await seedLocal();
+    const archive = await openArchiveDb();
+    await new Promise((resolve, reject) => {
+        const tx = archive.transaction('articles', 'readwrite');
+        tx.objectStore('articles').clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+    });
 }
 
 function foreignBackup() {
@@ -186,16 +216,72 @@ test('mergeBackup: config and identity in the file are NEVER applied', async () 
     assert.equal(_stateStore.get('xray:llm:key'), 'sk-ant-LOCAL', 'a smuggled API key is ignored');
 });
 
-test('mergeBackup: article-extractions deep-merge — atoms accrue, foreign triage lands on open atoms', async () => {
+test('MA.7 merge-import: atoms accrue at LOCAL offsets; no foreign ruling is adopted', async () => {
     await seedLocal();
-    await mergeBackup(foreignBackup());
+    const summary = await mergeBackup(foreignBackup());
     const rec = await getArticleExtraction(HASH_X);
     assert.equal(rec.assertions.length, 2, 'the foreign-only atom accrued');
-    const localAtom = rec.assertions.find((a) => a.key === 'a:0-10');
+
+    const localAtom = rec.assertions.find((a) => a.quote === 'local span');
     assert.equal(localAtom.why, 'local why', 'the local atom body is untouched');
-    assert.equal(localAtom.status, 'accepted', 'the foreign decision landed on the open local atom');
-    assert.equal(localAtom.accepted_claim_id, 'claim_foreign');
-    assert.ok(rec.merged_keys.includes('k-local') && rec.merged_keys.includes('k-foreign'));
+    assert.equal(localAtom.status, 'open', 'a file does NOT rule for the user');
+    assert.equal(localAtom.accepted_claim_id, null, 'no foreign claim id in a local field');
+    assert.equal(localAtom.imported_ruling.status, 'accepted', 'it rides attributed instead');
+    assert.equal(localAtom.imported_ruling.foreign_claim_id, 'claim_foreign');
+
+    // The accrued atom's span indexes the LOCAL body, not the file's.
+    const added = rec.assertions.find((a) => a.quote.includes('foreign-only span'));
+    assert.ok(added, 'the new atom landed');
+    assert.equal(LOCAL_BODY.slice(added.start, added.end), added.quote,
+        'the stored span indexes THIS machine’s text');
+    assert.notEqual(added.start, 20, 'the foreign offset was not adopted');
+    assert.equal(added.first_seen.imported, true);
+
+    // A foreign cache fingerprint must never land: corpusExtractKey omits
+    // the model, so it would collide with a local key and permanently
+    // suppress this machine's own fold of its own paid extract.
+    assert.deepEqual(rec.merged_keys, ['k-local']);
+
+    const st = summary.databases['xray-audits']['article-extractions'];
+    assert.equal(st.refusals.regroundedQuotes, 2, 'both quotes were re-located locally');
+    assert.equal(st.refusals.noLocalText, 0);
+    assert.equal(st.refusals.importedRulings, 1);
+});
+
+test('MA.7 merge-import: no local copy of the text ⇒ REFUSED and named, never trusted', async () => {
+    await seedLocalWithoutBody();
+    const before = JSON.stringify(await getArticleExtraction(HASH_X));
+    const summary = await mergeBackup(foreignBackup());
+    assert.equal(JSON.stringify(await getArticleExtraction(HASH_X)), before,
+        'nothing is written when nothing can be verified');
+    const st = summary.databases['xray-audits']['article-extractions'];
+    assert.equal(st.refusals.noLocalText, 1);
+    assert.equal(st.skipped, 1);
+    assert.equal(st.added, 0);
+    assert.equal(st.merged, 0);
+    // And the report names WHICH article, so the user can go capture it.
+    assert.equal(st.unresolved.length, 1);
+    assert.equal(st.unresolved[0].url, 'https://ex.com/x');
+});
+
+test('MA.7 merge-import: a quote absent from the local text is a FINDING, not a proposal', async () => {
+    await seedLocal();
+    const b = foreignBackup();
+    b.databases['xray-audits']['article-extractions'] = [extractionRecord({
+        assertions: [{ key: 'a:0-40', quote: 'THIS SENTENCE IS NOT IN THE LOCAL BODY',
+                       start: 0, end: 38, why: 'w', status: 'accepted',
+                       accepted_claim_id: 'claim_foreign', triaged_at: 500,
+                       first_seen: { model: 'm-foreign', promptVersion: 'corpus-v7', at: 400 } }],
+        merged_keys: ['k-foreign'], updatedAt: 400
+    })];
+    const summary = await mergeBackup(b);
+    const rec = await getArticleExtraction(HASH_X);
+    assert.ok(!rec.assertions.some((a) => a.quote.startsWith('THIS SENTENCE')),
+        'an unlocatable quote never becomes a proposal (P3/P4)');
+    assert.equal((rec.imported_unlocated || []).length, 1, 'but it is recorded as a finding');
+    const st = summary.databases['xray-audits']['article-extractions'];
+    assert.equal(st.refusals.unlocatedQuotes, 1);
+    assert.equal(st.refusals.noLocalText, 0, 'distinct from "I hold no copy" — a different diagnosis');
 });
 
 test('mergeBackup: running the SAME merge twice is idempotent', async () => {

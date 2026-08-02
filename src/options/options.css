@@ -365,3 +365,15 @@ hr {
   border-radius: 999px; padding: 1px 8px;
 }
 .xr-opt__wsactions { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; }
+
+/* MA.7 — the merge report. Persistent (unlike the status flash) because
+   a refusal names articles the user may want to capture and re-import. */
+.xr-opt__report {
+    margin: 10px 0;
+    padding: 10px 12px;
+    border-left: 3px solid var(--xr-warning, #d29922);
+    background: var(--xr-surface-2, rgba(255, 255, 255, 0.03));
+    font-size: 13px;
+}
+.xr-opt__report ul { margin: 6px 0 0; padding-left: 20px; }
+.xr-opt__report li { margin: 4px 0; }

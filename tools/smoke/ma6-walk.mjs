@@ -18,7 +18,7 @@
 // real relay — a kind 30070 is permanent once accepted.
 //
 // Env: XR_CHROME / XR_PW override the browser and Playwright paths.
-import { mkdtempSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,12 +37,19 @@ if (!existsSync(CHROME)) {
 }
 const { chromium } = await import(PW);
 
-// Bundle the seed harness so the page can use the real models.
+// Bundle the seed harness so the page can use the real models. It is
+// written into dist/ because only files inside the extension package are
+// loadable by an extension page — and REMOVED on the way out, because
+// `web-ext lint` scans dist/ and a leftover bundle inflates the warning
+// count for whoever lints next.
+const SEED_BUNDLE = join(REPO, 'dist', '_smoke-seed.bundle.js');
 createRequire(import.meta.url)('esbuild').buildSync({
     entryPoints: [join(HERE, 'seed-entry.js')],
-    outfile: join(REPO, 'dist', '_smoke-seed.bundle.js'),
+    outfile: SEED_BUNDLE,
     bundle: true, format: 'iife', platform: 'browser', target: 'chrome120'
 });
+const cleanup = () => { try { rmSync(SEED_BUNDLE, { force: true }); } catch (_) { /* best effort */ } };
+process.on('exit', cleanup);
 
 const profile = mkdtempSync(join(tmpdir(), 'xr-profile-'));
 

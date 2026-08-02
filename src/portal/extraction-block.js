@@ -284,7 +284,9 @@ function provChip(a) {
     // MA.4: which pass found this atom. Records written before MA.4
     // carry no producer — those are all corpus-map extracts.
     const producer = fs.producer === 'suggest' ? 'reader suggest' : 'corpus map';
-    const bits = [producer, fs.model, fs.promptVersion].filter(Boolean);
+    // MA.7: an atom that arrived by backup merge was not produced by a
+    // pass on this machine, and its quote was re-located here.
+    const bits = [fs.imported ? `${producer} (imported)` : producer, fs.model, fs.promptVersion].filter(Boolean);
     if (fs.at) bits.push(new Date(fs.at * 1000).toISOString().slice(0, 10));
     return el('span', 'xr-synth__prov-row', bits.join(' · '));
 }
@@ -339,6 +341,15 @@ function paintMember(body, { member, rec, caseId, noteAccepted, publisher = null
     const persistTriage = async (key, status, claimId = null) => {
         const fresh = await getArticleExtraction(member.article_hash).catch(() => null) || rec;
         const updated = setAssertionTriage(fresh, key, status, { claimId, now: now() });
+        // FAIL CLOSED. `matched === 0` means the atom this click targeted
+        // is not in the record any more (a re-capture re-grounded it, or
+        // the record was replaced) — so the write would persist a bumped
+        // timestamp and NOTHING else, losing a human decision while
+        // looking like success. Throwing puts it in front of the person
+        // who clicked; the callers below render it on the row.
+        if (updated.matched === 0) {
+            throw new Error('this assertion is no longer on the record — Refresh and try again');
+        }
         await saveArticleExtraction(updated);
         // Keep the painted snapshot's triage view in step (labels read
         // from `rec`); newly folded atoms appear on the next Refresh.
@@ -352,6 +363,19 @@ function paintMember(body, { member, rec, caseId, noteAccepted, publisher = null
         const main = el('div', 'xr-synth__prop-desc');
         main.appendChild(el('blockquote', 'xr-finding-row__quote', truncate(a.quote, 300)));
         if (a.why) main.appendChild(el('div', 'xr-synth__prop-note', a.why));
+        // MA.7 — an imported ruling from ANOTHER machine. Shown because
+        // it is evidence about the atom, labelled because it is NOT the
+        // user's decision: the merge never applies it, so if it stayed
+        // invisible the imported work would be silently inert.
+        if (a.imported_ruling) {
+            const r = a.imported_ruling;
+            const bits = [`imported ruling: ${r.status}`];
+            if (r.at) bits.push(new Date(r.at * 1000).toISOString().slice(0, 10));
+            const chip = el('div', 'xr-synth__prop-note xr-extr__imported',
+                `${bits.join(' · ')} — recorded from another machine, NOT applied. `
+                + (r.why ? `Their reason: ${truncate(r.why, 200)}` : 'No reason given.'));
+            main.appendChild(chip);
+        }
         main.appendChild(provChip(a));
         row.appendChild(main);
 
@@ -399,7 +423,15 @@ function paintMember(body, { member, rec, caseId, noteAccepted, publisher = null
                 try {
                     await persistTriage(a.key, 'dismissed');
                     row.remove();
-                } catch (err) { Utils.error('Assertion dismiss failed', err); }
+                } catch (err) {
+                    // On the ROW, not only in the console: a Dismiss that
+                    // failed silently is a decision the user believes they
+                    // made. (This handler used to log and say nothing.)
+                    Utils.error('Assertion dismiss failed', err);
+                    dismissBtn.disabled = true;
+                    row.appendChild(el('span', 'xr-synth__prop-note',
+                        `dismiss failed: ${(err && err.message) || err}`));
+                }
             });
             row.appendChild(dismissBtn);
         }
