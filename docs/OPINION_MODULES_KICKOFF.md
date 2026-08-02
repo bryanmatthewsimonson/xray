@@ -1,6 +1,6 @@
 # Opinion modules — kickoff (R5 of the founding-transcript integration)
 
-**Status: PROPOSED — awaiting maintainer rulings on OQ.1–OQ.5 below.**
+**Status: APPROVED — all five OQ rulings delivered 2026-08-02; dispositions threaded below. OP.2 in progress.**
 **Drafted:** 2026-08-02, from `docs/FOUNDING_TRANSCRIPT.md` (Exchange 1's
 opinion rubric) and `docs/PHILOSOPHY.md` §3.2 (normative for this work).
 
@@ -114,3 +114,28 @@ the import firewall (same `importAuditJson` path); the runs ledger
 
 Rulings land here (per the RQ pattern: answers threaded, dispositions
 recorded), then OP.2 begins.
+
+## §8. Rulings — 2026-08-02
+
+1. **OQ.1 — "No, keep them separate."** Six modules stand;
+   `fact_interpretation_separation` stays its own dimension.
+2. **OQ.2 — "Knowability ceiling from premise-verifiability."** The
+   deterministic heuristic binds (the RQ2 posture):
+   `ceiling = round(50 + 45 × load_bearing_verifiable / load_bearing)`,
+   clamped to [40, 95], tagged `heuristic:premise-accuracy/1.0`.
+3. **OQ.3 — "Proceed as recommended."** The recommended ratios stand,
+   renormalized to admit module 02 (per OQ.5) at 0.10 — *disposition
+   note: the approved ratios could not survive unchanged once an
+   eighth scored dimension joined; the renormalization preserves their
+   ordering and relative spacing.* Final published weights:
+   premise_accuracy 0.22 · logical_validity 0.18 · steel_manning 0.14 ·
+   disclosure_transparency 0.14 · asymmetric_language 0.10 ·
+   fact_interpretation_separation 0.09 · definitional_precision
+   (reused) 0.09 · originality_synthesis 0.04 (Σ = 1.00).
+4. **OQ.4 — "Try to avoid that mismatch."** Steer, don't block: the
+   buttons dispatch by family automatically; forcing the news family
+   onto an opinion-typed artifact requires an explicit confirm and
+   keeps the R5-interim caveat. No hard block.
+5. **OQ.5 — "Asymmetric language counts in opinion too."** Module 02
+   joins the opinion family unchanged (same methodology, same version),
+   weighted 0.10.

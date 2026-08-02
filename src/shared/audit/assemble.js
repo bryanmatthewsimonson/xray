@@ -107,6 +107,48 @@ export const MODULE_WEIGHTS = Object.freeze({
     omission:                0.20
 });
 
+// The OPINION family's weights (R5/OP.2) — the §8 OQ.3 ruling: the
+// recommended ratios, renormalized to admit asymmetric_language at
+// 0.10 (OQ.5). Public constants; Σ = 1.00. Opinion and news scores
+// share the §0 axis but are NEVER averaged together — dossiers report
+// the families as separate rows (§10.1 applied across families).
+export const OPINION_MODULE_WEIGHTS = Object.freeze({
+    premise_accuracy:               0.22,
+    logical_validity:               0.18,
+    steel_manning:                  0.14,
+    disclosure_transparency:        0.14,
+    asymmetric_language:            0.10,
+    fact_interpretation_separation: 0.09,
+    definitional_precision:         0.09,
+    originality_synthesis:          0.04
+});
+
+// The opinion knowability ceiling — the §8 OQ.2 ruling, RQ2 posture
+// (the deterministic heuristic binds; a third party recomputes it
+// exactly from module output). An argument built on unverifiable
+// premises cannot earn a 95 no matter how elegant (P6, opinion form).
+export const OPINION_CEILING_SOURCE = 'heuristic:premise-accuracy/1.0';
+
+/**
+ * @param {object|null} premiseFindings  the premise_accuracy findings
+ * @returns {{ceiling: number, notes: string}}
+ */
+export function opinionKnowabilityCeiling(premiseFindings) {
+    const s = premiseFindings && premiseFindings.summary;
+    if (!s || typeof s.load_bearing_count !== 'number' || s.load_bearing_count <= 0) {
+        return { ceiling: 90, notes: 'Default ceiling; premise_accuracy findings unavailable.' };
+    }
+    const verifiable = typeof s.load_bearing_verifiable_count === 'number'
+        ? s.load_bearing_verifiable_count : 0;
+    const fraction = Math.max(0, Math.min(1, verifiable / s.load_bearing_count));
+    const ceiling = Math.max(40, Math.min(95, Math.round(50 + 45 * fraction)));
+    return {
+        ceiling,
+        notes: `${Math.round(fraction * 100)}% of load-bearing premises verifiable in principle`
+            + ` (${verifiable}/${s.load_bearing_count}).`
+    };
+}
+
 // Dimension scoring directions — PHILOSOPHY §3.1/§4 encoded as the
 // published constant it always claimed to be (R10a, founding-transcript
 // integration; JOURNAL 2026-08-02). Sources, by section: module 1 is
