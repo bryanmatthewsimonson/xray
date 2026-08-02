@@ -2163,7 +2163,7 @@ async function runTranscribeFlow() {
     if (draftsBtn) draftsBtn.disabled = true;
     try {
         reapStaleJobRecords(transcribeChromeIo(browserApi, () => {})).catch(() => {});
-        renderTranscribeBanner('Contacting the local transcription service…');
+        renderTranscribeBanner('Contacting the transcription service…');
         const io = transcribeChromeIo(browserApi, (job) => {
             // Honest wording: a cloud-provider job is not "locally".
             renderTranscribeBanner(`Transcribing ${providerPhrase(job && job.provider)} — ${describeProgress(job)}`);
@@ -2224,9 +2224,24 @@ async function setupTranscribeControl() {
     if (!cfg.enabled) { btn.hidden = true; return; }   // flag off ⇒ absent
     btn.hidden = false;
     btn.disabled = false;
-    btn.title = state.article.transcription
-        ? 'Re-run the local diarized transcription (replaces the current transcript section)'
-        : 'Transcribe this video locally (yt-dlp + WhisperX + speaker diarization via the companion service)';
+    // NEUTRAL wording first — the engine (local vs a cloud provider) is
+    // companion-side config the page can't know without asking. The
+    // ping below upgrades the tooltip when the service answers; setup
+    // itself still never blocks on the network (the design rule).
+    const rerun = !!state.article.transcription;
+    btn.title = rerun
+        ? 'Re-run the diarized transcription (replaces the current transcript section)'
+        : 'Transcribe this video via the companion transcription service';
+    browserApi.runtime.sendMessage({ type: 'xray:transcribe:ping' }).then((resp) => {
+        if (!resp || !resp.ok || btn.hidden) return;
+        const provider = (resp.health && resp.health.provider) || 'local';
+        const how = providerPhrase(provider) === 'locally'
+            ? 'locally (yt-dlp + WhisperX + speaker diarization)'
+            : `${providerPhrase(provider)} — cloud transcription, the episode audio leaves this machine`;
+        btn.title = rerun
+            ? `Re-run the diarized transcription ${providerPhrase(provider)} (replaces the current transcript section)`
+            : `Transcribe this video ${how}`;
+    }).catch(() => { /* service down — the neutral tooltip stands */ });
     // onclick (not addEventListener): setup can re-run after adoption
     // and must never stack duplicate handlers.
     btn.onclick = runTranscribeFlow;

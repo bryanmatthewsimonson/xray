@@ -86,6 +86,12 @@ def _upload(audio_path, emit: Emit) -> str:
     return upload_url
 
 
+def _requested_models() -> list:
+    """TRANSCRIBER_ASSEMBLYAI_MODEL as their `speech_models` preference
+    list (comma-separated; the API tries entries in order)."""
+    return [m.strip() for m in config.ASSEMBLYAI_MODEL.split(",") if m.strip()]
+
+
 def _create_and_poll(upload_url: str, duration: float, emit: Emit) -> dict:
     created = http.request_json(
         "POST",
@@ -93,7 +99,9 @@ def _create_and_poll(upload_url: str, duration: float, emit: Emit) -> dict:
         headers=_headers(),
         json_body={
             "audio_url": upload_url,
-            "speech_model": config.ASSEMBLYAI_MODEL,
+            # Plural on purpose: the singular `speech_model` is
+            # hard-rejected (HTTP 400) since ~2026-08 — see JOURNAL.
+            "speech_models": _requested_models(),
             "speaker_labels": True,
             "language_detection": True,
         },
@@ -201,7 +209,11 @@ def _build_result(info: dict, data: dict, duration: float) -> dict:
         "segments": segments,
         "model_info": {
             "provider": "assemblyai",
-            "asr_model": config.ASSEMBLYAI_MODEL,
+            # The model their API actually ran (`speech_model_used`),
+            # not the requested preference list — honest provenance for
+            # the published extraction-method tag.
+            "asr_model": data.get("speech_model_used")
+            or (_requested_models() or ["unknown"])[0],
             "diarization_model": "assemblyai-native",
             "device": "cloud",
             "aligned": True,

@@ -49,7 +49,12 @@ HF_TOKEN: str = os.environ.get("HF_TOKEN", "")
 PROVIDER: str = (os.environ.get("TRANSCRIBER_PROVIDER", "").strip().lower() or "local")
 ASSEMBLYAI_API_KEY: str = os.environ.get("ASSEMBLYAI_API_KEY", "")
 DEEPGRAM_API_KEY: str = os.environ.get("DEEPGRAM_API_KEY", "")
-ASSEMBLYAI_MODEL: str = os.environ.get("TRANSCRIBER_ASSEMBLYAI_MODEL", "universal")
+# Comma-separated preference list for AssemblyAI's `speech_models`
+# (their API tries them in order).  The singular `speech_model` param
+# was hard-deprecated by AssemblyAI (HTTP 400) — field-found 2026-08-02.
+ASSEMBLYAI_MODEL: str = os.environ.get(
+    "TRANSCRIBER_ASSEMBLYAI_MODEL", "universal-3-5-pro,universal-2"
+)
 DEEPGRAM_MODEL: str = os.environ.get("TRANSCRIBER_DEEPGRAM_MODEL", "nova-3")
 
 # --- job handling --------------------------------------------------------
