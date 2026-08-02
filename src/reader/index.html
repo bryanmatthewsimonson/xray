@@ -54,11 +54,12 @@
               title="Identify each detected voice as a person entity">
         🗣 Speakers…
       </button>
-      <!-- LM Studio claim drafts: hidden unless transcriptClaimDrafts is
-           on AND a diarized transcript exists. Local model, loopback
-           only; opens the same review modal as Suggest. -->
-      <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-transcribe-claims" hidden>
-        ✨ Draft claims (local)
+      <!-- Suggest (local): the LM Studio sibling of ✨ Suggest — same
+           review modal, same firewalls, but a loopback local model and
+           transcript captures only. Hidden unless transcriptClaimDrafts
+           is on AND the capture carries a transcript. -->
+      <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-suggest-local" hidden>
+        💫 Suggest (local)…
       </button>
       <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-entities" title="Open entity browser in the side panel">
         👤 Entities

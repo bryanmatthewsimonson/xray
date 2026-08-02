@@ -2104,7 +2104,7 @@ async function runTranscribeFlow() {
     _transcribeRunning = true;
     const btn = $('#xr-transcribe');
     const label = btn ? btn.textContent : '';
-    const draftsBtn = $('#xr-transcribe-claims');
+    const draftsBtn = $('#xr-suggest-local');
     if (btn) { btn.disabled = true; btn.textContent = '🎙 Transcribing…'; }
     // Soft GPU guard: WhisperX holds ~6 GB while the job runs — drafting
     // concurrently is the one genuinely tight case, so park the button.
@@ -2200,7 +2200,7 @@ async function setupTranscribeControl() {
  * the button parks while a transcription job actually holds the GPU.
  */
 async function setupTranscriptClaimDraftsControl() {
-    const btn = $('#xr-transcribe-claims');
+    const btn = $('#xr-suggest-local');
     if (!btn) return;
     const a = state.article;
     const hasTranscript = !!(a && (a.transcript_meta || a.contentType === 'transcript'));
@@ -2211,14 +2211,14 @@ async function setupTranscriptClaimDraftsControl() {
     if (!cfg.drafts || !cfg.drafts.enabled) { btn.hidden = true; return; }
     btn.hidden = false;
     btn.disabled = false;
-    btn.title = `Draft claim candidates from the transcript with a local model (${cfg.drafts.model} via LM Studio) — nothing saves without Accept`;
+    btn.title = `Suggest claim candidates from the transcript with a local model (${cfg.drafts.model} via LM Studio) — same review modal as Suggest, nothing saves without Accept`;
     // onclick (not addEventListener): re-invoked after every adoption —
     // a stacked handler would fire the pass twice per click.
     btn.onclick = runTranscriptClaimDrafts;
 }
 
 async function runTranscriptClaimDrafts() {
-    const btn = $('#xr-transcribe-claims');
+    const btn = $('#xr-suggest-local');
     if (!btn || btn.disabled || !state.article) return;
     if (_transcribeRunning) {
         toast('A transcription job is holding the GPU — draft claims once it finishes.', 'warning', 5000);
@@ -2232,7 +2232,7 @@ async function runTranscriptClaimDrafts() {
 
     const original = btn.textContent;
     btn.disabled = true;
-    btn.textContent = '✨ Drafting…';
+    btn.textContent = '💫 Suggesting…';
     let resp;
     try {
         // Chunked: long transcripts overflow LM Studio's context in one
@@ -2243,7 +2243,7 @@ async function runTranscriptClaimDrafts() {
             title: state.article.title || '',
             send: (request) => browserApi.runtime.sendMessage({ type: 'xray:transcribe:claims', request }),
             onProgress: ({ done, total }) => {
-                if (total > 1) btn.textContent = `✨ Drafting… ${done}/${total}`;
+                if (total > 1) btn.textContent = `💫 Suggesting… ${done}/${total}`;
             }
         });
     } catch (err) {
@@ -2253,7 +2253,7 @@ async function runTranscriptClaimDrafts() {
     btn.disabled = false;
 
     if (!resp || !resp.ok) {
-        toast('Claim drafting failed: ' + ((resp && resp.error) || 'unknown error'), 'error', 8000);
+        toast('Suggest (local) failed: ' + ((resp && resp.error) || 'unknown error'), 'error', 8000);
         return;
     }
     if (resp.failures) {
