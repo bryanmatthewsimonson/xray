@@ -19,6 +19,47 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-02 — Cloud transcription providers: env-only keys, child-process reuse, honest labeling
+
+**Tags:** design
+
+The companion service gained optional AssemblyAI/Deepgram engines
+(`TRANSCRIBER_PROVIDER`, default `local`) — minutes instead of
+GPU-hours for a 2 h episode, at the explicit cost of the episode AUDIO
+leaving the machine. Decisions a future reader might second-guess:
+
+1. **Cloud jobs still run in the worker child process.** They hold no
+   VRAM, so an in-server thread would work — but the child keeps ONE
+   protocol (stdout JSON events, result file, terminate-on-cancel) for
+   all providers, and a cloud child never imports torch so it starts
+   fast anyway. Concurrency comes from sizing the job pool
+   (`ThreadPoolExecutor`): 1 worker for local (the VRAM serialization,
+   unchanged), `TRANSCRIBER_CLOUD_CONCURRENCY` for cloud.
+2. **API keys are env-only (the HF_TOKEN precedent)** and deliberately
+   NOT in the spec.json handed to the child — the spec is written to
+   disk; the child inherits keys through the environment instead.
+3. **Provider utterances are re-split into sentence-level segments**
+   using their word timestamps (`providers/normalize.py`): the
+   extension's mergeTurns never breaks inside one segment, so an
+   unsplit five-minute AssemblyAI speaker turn would collapse into one
+   giant paragraph with one coarse t=start,end claim-provenance range.
+   Splitting restores parity with WhisperX granularity; raw labels
+   normalize to the same SPEAKER_NN form.
+4. **Honest labeling end-to-end:** the transcript heading names the
+   provider (`Transcript — English (AssemblyAI, diarized)` — the body
+   is canonical and published, "local" would be a durable lie), the
+   track chip's kind is the provider, and `extraction-method`
+   publishes a single `<provider>-<model>` token (grammar in
+   NIP_DRAFT.md; one integrated model, so no `+` form). Absent
+   `model_info.provider` (older companion) everywhere means local —
+   the only engine that existed.
+
+Files: `companion/transcriber/transcriber/{providers/,download.py,
+progress.py,server.py,jobs.py}`, `src/shared/diarized-transcript.js`,
+`src/reader/transcribe-flow.js`. Companion unit tests:
+`companion/transcriber/tests/` (`uv run python -m unittest discover
+tests` — never part of extension CI).
+
 ## 2026-08-02 — Spotify links resolve through oEmbed, inside the fallback stage
 
 **Tags:** design

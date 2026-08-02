@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 
 import {
     JOB_RECORD_PREFIX, JOB_RECORD_TTL_MS, MAX_UNREACHABLE_POLLS,
-    jobRecordKey, isRecordStale, describeProgress, decideResume,
+    jobRecordKey, isRecordStale, describeProgress, providerPhrase, decideResume,
     reapStaleJobRecords, runTranscriptionJob
 } from '../src/reader/transcribe-flow.js';
 
@@ -56,6 +56,33 @@ test('describeProgress: queued position, stage labels, honest %', () => {
     assert.equal(describeProgress({ status: 'queued', queue_position: 2 }), 'Queued behind 2 jobs…');
     assert.equal(describeProgress({ status: 'running', stage: 'downloading', progress: 0.07 }), 'Downloading audio… 7%');
     assert.equal(describeProgress({ status: 'running', stage: 'diarizing', progress: 0.9 }), 'Identifying speakers… 90%');
+});
+
+test('describeProgress: cloud jobs — uploading stage, provider-named transcribing', () => {
+    assert.equal(
+        describeProgress({ status: 'running', stage: 'uploading', progress: 0.2, provider: 'assemblyai' }),
+        'Uploading audio… 20%');
+    assert.equal(
+        describeProgress({ status: 'running', stage: 'transcribing', progress: 0.5, provider: 'assemblyai' }),
+        'Transcribing (AssemblyAI)… 50%');
+    assert.equal(
+        describeProgress({ status: 'running', stage: 'transcribing', progress: 0.5, provider: 'deepgram' }),
+        'Transcribing (Deepgram)… 50%');
+    // No provider field (older companion) keeps the WhisperX label.
+    assert.equal(
+        describeProgress({ status: 'running', stage: 'transcribing', progress: 0.5 }),
+        'Transcribing (WhisperX)… 50%');
+    // Provider never changes the non-transcribing stage labels.
+    assert.equal(
+        describeProgress({ status: 'running', stage: 'downloading', progress: 0.1, provider: 'deepgram' }),
+        'Downloading audio… 10%');
+});
+
+test('providerPhrase: banner/toast wording', () => {
+    assert.equal(providerPhrase('assemblyai'), 'via AssemblyAI');
+    assert.equal(providerPhrase('deepgram'), 'via Deepgram');
+    assert.equal(providerPhrase('local'), 'locally');
+    assert.equal(providerPhrase(undefined), 'locally');
 });
 
 test('decideResume: the whole policy table', () => {

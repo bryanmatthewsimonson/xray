@@ -41,10 +41,24 @@ export function isRecordStale(record, now = Date.now()) {
 
 const STAGE_LABELS = {
     downloading: 'Downloading audio',
+    uploading: 'Uploading audio',
     transcribing: 'Transcribing (WhisperX)',
     aligning: 'Aligning timestamps',
     diarizing: 'Identifying speakers'
 };
+
+// Mirror of providerDisplayName in shared/diarized-transcript.js — kept
+// inline because this module deliberately imports nothing (its tests
+// run without a chrome stub).
+const PROVIDER_LABELS = { assemblyai: 'AssemblyAI', deepgram: 'Deepgram' };
+
+/** 'locally' / 'via AssemblyAI' — the banner + toast wording for a
+ *  job/model_info provider field. Absent provider = older companion =
+ *  local (the only engine that existed). */
+export function providerPhrase(provider) {
+    const label = PROVIDER_LABELS[String(provider || '').trim().toLowerCase()];
+    return label ? `via ${label}` : 'locally';
+}
 
 /** Human progress line for the banner: stage + honest %. */
 export function describeProgress(job) {
@@ -53,7 +67,9 @@ export function describeProgress(job) {
         const pos = Number(job.queue_position);
         return pos > 0 ? `Queued behind ${pos} job${pos === 1 ? '' : 's'}…` : 'Queued…';
     }
-    const label = STAGE_LABELS[job.stage] || 'Working';
+    let label = STAGE_LABELS[job.stage] || 'Working';
+    const via = PROVIDER_LABELS[String(job.provider || '').trim().toLowerCase()];
+    if (via && job.stage === 'transcribing') label = `Transcribing (${via})`;
     const pct = Math.round(Math.min(1, Math.max(0, Number(job.progress) || 0)) * 100);
     return `${label}… ${pct}%`;
 }

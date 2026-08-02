@@ -198,7 +198,9 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
 ## Companion service (`companion/transcriber/`)
 
 A **separate local Python service** (uv-managed, FastAPI; yt-dlp →
-WhisperX → pyannote diarization on 127.0.0.1:8756) behind the
+WhisperX → pyannote diarization on 127.0.0.1:8756; optional cloud
+engines — AssemblyAI/Deepgram via `TRANSCRIBER_PROVIDER`, API keys
+env-only, audio-leaves-machine disclosure in its README) behind the
 "Transcribe locally" YouTube capture path. It is NOT part of the
 extension build or zip (`package.json` `webExt.ignoreFiles` excludes
 it; CI's `node --check`/tests never touch it). Setup + API contract:

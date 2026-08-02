@@ -79,7 +79,7 @@ import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/len
 import { speakerFromParagraphText } from '../shared/transcript-parse.js';
 import { buildTranscriptSection, upsertTranscriptSection } from '../shared/transcript-article.js';
 import { buildDiarizedBody, timeFragmentSelector, timeRangeOfSpan, diarizedTrackEntry, extractionMethodFor } from '../shared/diarized-transcript.js';
-import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, reapStaleJobRecords, jobRecordKey } from './transcribe-flow.js';
+import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey } from './transcribe-flow.js';
 import { openMediaModal } from './media-modal.js';
 import { scanPodcastSignals } from '../shared/podcast-identity.js';
 import { openSpeakersModal, speakerEntityId, decorateSpeakerLabels } from './speakers-modal.js';
@@ -2161,7 +2161,8 @@ async function runTranscribeFlow() {
         reapStaleJobRecords(transcribeChromeIo(browserApi, () => {})).catch(() => {});
         renderTranscribeBanner('Contacting the local transcription service…');
         const io = transcribeChromeIo(browserApi, (job) => {
-            renderTranscribeBanner(`Transcribing locally — ${describeProgress(job)}`);
+            // Honest wording: a cloud-provider job is not "locally".
+            renderTranscribeBanner(`Transcribing ${providerPhrase(job && job.provider)} — ${describeProgress(job)}`);
         });
         const out = await runTranscriptionJob({ videoUrl: a.url, videoId, io });
         if (!out.ok) {
@@ -2190,7 +2191,7 @@ async function runTranscribeFlow() {
         const meta = out.result.model_info || {};
         const segs = Array.isArray(out.result.segments) ? out.result.segments.length : 0;
         removeTranscribeBanner();
-        toast(`Transcribed locally — ${segs} segments, ${state.article.transcript_meta.speaker_count} speaker(s)`
+        toast(`Transcribed ${providerPhrase(meta.provider)} — ${segs} segments, ${state.article.transcript_meta.speaker_count} speaker(s)`
             + (meta.asr_model ? ` (${meta.asr_model})` : ''), 'success', 6000);
     } catch (err) {
         renderTranscribeBanner((err && err.message) || String(err), 'error');
