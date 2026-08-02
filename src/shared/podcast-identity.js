@@ -17,7 +17,11 @@
 // only when the capture itself doesn't already carry the answer. A
 // podcasts.apple.com link yields a numeric lookup (the id, nothing
 // else); a feed link skips Apple entirely; ONLY the no-link fallback
-// sends a show-name search term to Apple's iTunes Search API.
+// sends a show-name search term to Apple's iTunes Search API. A
+// Spotify episode/show link joins that fallback: Spotify publishes no
+// RSS mapping, so the link is resolved through Spotify's keyless
+// oEmbed API (the Spotify URL leaves the device) and the resolved
+// show name / episode title is what goes to Apple's search.
 
 // ------------------------------------------------------------------
 // Signal scan — what the capture already tells us
@@ -46,6 +50,24 @@ function isHttpUrl(v) {
     catch (_) { return false; }
 }
 
+// Spotify ids are exactly 22 base62 chars, case-significant.
+const SPOTIFY_ID_RE = /^[0-9A-Za-z]{22}$/;
+
+/**
+ * open.spotify.com/(intl-xx/)?episode|show/<22-char base62 id> →
+ * {kind, id}, else null. Host checked by URL parsing, never substring
+ * — lookalike hosts (open.spotify.com.evil.example) must not count.
+ */
+export function spotifyRefFromUrl(url) {
+    let u;
+    try { u = new URL(String(url || '')); } catch (_) { return null; }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    if (u.hostname.toLowerCase() !== 'open.spotify.com') return null;
+    const m = /^\/(?:intl-[a-z]{2}(?:-[a-z]{2})?\/)?(episode|show)\/([0-9A-Za-z]{22})\/?$/i
+        .exec(u.pathname);
+    return m ? { kind: m[1].toLowerCase(), id: m[2] } : null;
+}
+
 /** An outbound link that plausibly IS an RSS feed. */
 export function looksLikeFeedUrl(url) {
     let u;
@@ -64,9 +86,10 @@ export function looksLikeFeedUrl(url) {
  * is also what the reader's Media-button nudge runs, so it must never
  * touch the network.
  *
- * @param {object} article  the capture (links / byline / siteName /
- *   title / publishedAt / youtube.durationSeconds are read)
+ * @param {object} article  the capture (url / links / byline /
+ *   siteName / title / publishedAt / youtube.durationSeconds are read)
  * @returns {{itunesId: string|null, feedUrls: string[],
+ *   spotifyEpisodeId: string|null, spotifyShowId: string|null,
  *   searchTerms: string[], episode: object, strong: boolean}}
  */
 export function scanPodcastSignals(article) {
@@ -74,13 +97,24 @@ export function scanPodcastSignals(article) {
     const links = Array.isArray(a.links) ? a.links : [];
 
     let itunesId = null;
+    let spotifyEpisodeId = null;
+    let spotifyShowId = null;
     const feedUrls = [];
-    for (const link of links) {
+    // The capture URL itself is a link signal too — a capture OF the
+    // Apple or Spotify page carries the identity in its own address.
+    const scanned = typeof a.url === 'string' ? [{ url: a.url }, ...links] : links;
+    for (const link of scanned) {
         const url = link && link.url;
         if (!url) continue;
         if (!itunesId) {
             const m = APPLE_PODCAST_ID_RE.exec(url);
             if (m) { itunesId = m[1]; continue; }
+        }
+        const sp = spotifyRefFromUrl(url);
+        if (sp) {
+            if (sp.kind === 'episode' && !spotifyEpisodeId) spotifyEpisodeId = sp.id;
+            if (sp.kind === 'show' && !spotifyShowId) spotifyShowId = sp.id;
+            continue;
         }
         if (looksLikeFeedUrl(url) && !feedUrls.includes(url)) feedUrls.push(url);
     }
@@ -118,12 +152,13 @@ export function scanPodcastSignals(article) {
             ? a.youtube.durationSeconds : null
     };
 
-    // "Strong" gates the nudge: an Apple/feed link is decisive; else
-    // the capture must at least SAY it's a podcast somewhere.
-    const strong = !!itunesId || feedUrls.length > 0
+    // "Strong" gates the nudge: an Apple/Spotify/feed link is decisive;
+    // else the capture must at least SAY it's a podcast somewhere.
+    const strong = !!itunesId || !!spotifyEpisodeId || !!spotifyShowId
+        || feedUrls.length > 0
         || /\bpodcast\b/i.test(`${a.byline || ''} ${a.siteName || ''} ${title}`);
 
-    return { itunesId, feedUrls, searchTerms, episode, strong };
+    return { itunesId, feedUrls, spotifyEpisodeId, spotifyShowId, searchTerms, episode, strong };
 }
 
 // ------------------------------------------------------------------
@@ -159,6 +194,54 @@ export function mapItunesResults(json) {
         });
     }
     return out;
+}
+
+/** entity=podcastEpisode search — episode-level results carry the
+ *  show's feedUrl AND the episode's own GUID from Apple's index. */
+export function itunesEpisodeSearchUrl(term) {
+    const t = String(term == null ? '' : term).replace(/\s+/g, ' ').trim();
+    if (!t || t.length > 200) return null;
+    return `https://itunes.apple.com/search?media=podcast&entity=podcastEpisode&limit=5&term=${encodeURIComponent(t)}`;
+}
+
+/** Episode results → [{collectionName, collectionId, episodeGuid, trackName, feedUrl}]. */
+export function mapItunesEpisodeResults(json) {
+    const results = json && Array.isArray(json.results) ? json.results : [];
+    const out = [];
+    for (const r of results) {
+        if (!r || typeof r !== 'object') continue;
+        const feedUrl = typeof r.feedUrl === 'string' && isHttpUrl(r.feedUrl) ? r.feedUrl : null;
+        if (!feedUrl) continue;
+        out.push({
+            collectionName: typeof r.collectionName === 'string' ? r.collectionName : null,
+            collectionId: r.collectionId != null ? String(r.collectionId) : null,
+            episodeGuid: (typeof r.episodeGuid === 'string' && r.episodeGuid) ? r.episodeGuid : null,
+            trackName: typeof r.trackName === 'string' ? r.trackName : null,
+            feedUrl
+        });
+    }
+    return out;
+}
+
+// ------------------------------------------------------------------
+// Spotify oEmbed (free, keyless) — Spotify publishes no RSS mapping,
+// so a Spotify link's ONLY use is resolving its display title, which
+// then drives the Apple search. Same builder discipline: the URL is
+// reconstructed from a hard-validated id, never from the raw link.
+// ------------------------------------------------------------------
+
+export function spotifyOembedUrl(kind, id) {
+    if (kind !== 'episode' && kind !== 'show') return null;
+    const v = String(id == null ? '' : id).trim();
+    if (!SPOTIFY_ID_RE.test(v)) return null;
+    return `https://open.spotify.com/oembed?url=${encodeURIComponent(`https://open.spotify.com/${kind}/${v}`)}`;
+}
+
+/** oEmbed response → the display title (show name / episode title), or null. */
+export function mapSpotifyOembed(json) {
+    const t = json && typeof json.title === 'string'
+        ? json.title.replace(/\s+/g, ' ').trim() : '';
+    return t && t.length <= 300 ? t : null;
 }
 
 // ------------------------------------------------------------------
@@ -353,7 +436,9 @@ export function titleSimilarity(a, b) {
  * confidence note the user confirms against is reproducible.
  *
  * @param {Array} items    readFeedXml items
- * @param {object} hints   scanPodcastSignals().episode
+ * @param {object} hints   scanPodcastSignals().episode, optionally
+ *   augmented with `altTitles` (platform-resolved titles, e.g. the
+ *   Spotify oEmbed episode title) that compete as similarity sources.
  * @returns {{item: object, confidence: 'strong'|'moderate'|'weak',
  *   score: number, reasons: string[]}|null}  null when nothing clears
  *   the floor — a wrong prefill is worse than an empty field.
@@ -361,13 +446,15 @@ export function titleSimilarity(a, b) {
 export function matchEpisode(items, hints) {
     const list = Array.isArray(items) ? items : [];
     const h = hints || {};
+    const altTitles = Array.isArray(h.altTitles) ? h.altTitles : [];
     let best = null;
 
     for (const item of list) {
         if (!item) continue;
         const sim = Math.max(
             titleSimilarity(h.cleanTitle || h.title, item.title),
-            titleSimilarity(h.title, item.title)
+            titleSimilarity(h.title, item.title),
+            ...altTitles.map((t) => titleSimilarity(t, item.title))
         );
 
         const itemNum = EPISODE_NUM_RE.exec(String(item.title || ''));
@@ -530,7 +617,12 @@ async function fetchJson(fetchFn, url) {
  *      id only leaves the device).
  *   2. Feed-shaped outbound links → fetched directly, Apple never
  *      contacted.
- *   3. Fallback: show-name search terms → iTunes Search API (the show
+ *   3. Fallback: a Spotify episode/show link resolves through
+ *      Spotify's oEmbed API (the Spotify URL leaves the device) — the
+ *      resolved show name leads the search terms, and the resolved
+ *      episode title can drive an entity=podcastEpisode search whose
+ *      result carries the feed AND Apple's episode GUID.
+ *   4. Fallback: show-name search terms → iTunes Search API (the show
  *      name leaves the device — the modal hint discloses exactly this).
  *
  * @param {object} signals  scanPodcastSignals() output (validated
@@ -607,15 +699,40 @@ export async function lookupPodcastIdentity(signals, { fetchFn, subtle } = {}) {
         catch (err) { notes.push(`feed ${cand.feedUrl} unusable (${err.message})`); }
     }
 
-    // Fallback: the search path — the ONLY step that sends a show name,
-    // and it runs ONLY for captures with no Apple/feed link at all (the
-    // exact promise the modal hint makes). Link-bearing captures whose
-    // links failed stop HERE, honestly.
+    // Fallback: the search path — the ONLY stage that sends names or
+    // Spotify URLs off-device, and it runs ONLY for captures with no
+    // Apple/feed link at all (the exact promise the modal hint makes).
+    // Link-bearing captures whose links failed stop HERE, honestly —
+    // Spotify links are part of the fallback, not an exemption from it.
     if (!won && hadLinkSignals) {
         throw fail('the capture’s Apple/feed link(s) could not be used — nothing was sent to Apple’s search; check the links or fill the fields manually');
     }
+
+    // Spotify resolution: no RSS mapping exists, so a Spotify link's
+    // only use is its display title via the keyless oEmbed API. The
+    // resolved show name outranks byline/title heuristics as a search
+    // term; the resolved episode title also sharpens episode matching.
+    let spotifyShowName = null;
+    let spotifyEpisodeTitle = null;
     if (!won) {
-        for (const term of (Array.isArray(s.searchTerms) ? s.searchTerms : []).slice(0, 2)) {
+        const showUrl = spotifyOembedUrl('show', s.spotifyShowId);
+        if (showUrl) {
+            notes.push('Spotify show link resolved via Spotify’s oEmbed API (the link was sent to Spotify)');
+            try { spotifyShowName = mapSpotifyOembed(await fetchJson(doFetch, showUrl)); }
+            catch (err) { notes.push(`Spotify show lookup failed (${err.message})`); }
+        }
+        const epUrl = spotifyOembedUrl('episode', s.spotifyEpisodeId);
+        if (epUrl) {
+            notes.push('Spotify episode link resolved via Spotify’s oEmbed API (the link was sent to Spotify)');
+            try { spotifyEpisodeTitle = mapSpotifyOembed(await fetchJson(doFetch, epUrl)); }
+            catch (err) { notes.push(`Spotify episode lookup failed (${err.message})`); }
+        }
+    }
+
+    if (!won) {
+        const terms = [spotifyShowName, ...(Array.isArray(s.searchTerms) ? s.searchTerms : [])]
+            .filter((t, i, arr) => t && arr.findIndex((o) => String(o).toLowerCase() === String(t).toLowerCase()) === i);
+        for (const term of terms.slice(0, 2)) {
             const url = itunesSearchUrl(term);
             if (!url) continue;
             notes.push(`show name “${term}” was sent to Apple's iTunes Search API`);
@@ -632,6 +749,33 @@ export async function lookupPodcastIdentity(signals, { fetchFn, subtle } = {}) {
                 break;
             } catch (err) {
                 notes.push(`search “${term}” failed (${err.message})`);
+            }
+        }
+    }
+
+    // Episode search: a capture whose ONLY signal is a Spotify episode
+    // link ("listen on Spotify") has no show name to search — but the
+    // resolved episode title can find the show through Apple's
+    // episode index, which returns the feed AND the episode's GUID.
+    let itunesEpisodeGuid = null;
+    if (!won && spotifyEpisodeTitle) {
+        const url = itunesEpisodeSearchUrl(spotifyEpisodeTitle);
+        if (url) {
+            notes.push(`episode title “${spotifyEpisodeTitle}” was sent to Apple's iTunes Search API`);
+            try {
+                const hit = mapItunesEpisodeResults(await fetchJson(doFetch, url))
+                    .find((r) => isPublicFeedUrl(r.feedUrl));
+                if (hit) {
+                    itunesEpisodeGuid = hit.episodeGuid;
+                    won = {
+                        cand: { feedUrl: hit.feedUrl, show: hit.collectionName, itunesId: hit.collectionId },
+                        parsed: await tryFeed({ feedUrl: hit.feedUrl })
+                    };
+                } else {
+                    notes.push('no usable Apple episode-search result');
+                }
+            } catch (err) {
+                notes.push(`episode search failed (${err.message})`);
             }
         }
     }
@@ -658,7 +802,32 @@ export async function lookupPodcastIdentity(signals, { fetchFn, subtle } = {}) {
         if (!feedGuid) notes.push(`feed GUID unavailable (${err.message})`);
     }
 
-    const match = matchEpisode(parsed.items, s.episode);
+    const episodeHints = spotifyEpisodeTitle
+        ? { ...(s.episode || {}), altTitles: [spotifyEpisodeTitle] }
+        : s.episode;
+    let match = matchEpisode(parsed.items, episodeHints);
+
+    // Apple's episode index is an independent identification: when its
+    // GUID agrees with the locally matched feed item, that is genuine
+    // cross-source corroboration — upgrade to strong. When local hints
+    // matched nothing but Apple's GUID exists in the feed, surface that
+    // item at moderate (identified, not corroborated — the strong-only
+    // prefill rule keeps it out of the fields).
+    if (itunesEpisodeGuid && parsed.items.length > 0) {
+        if (match && match.item.guid === itunesEpisodeGuid) {
+            if (match.confidence !== 'strong') match = { ...match, confidence: 'strong' };
+            match.reasons.push('Apple’s episode index corroborates the GUID');
+        } else if (!match) {
+            const hit = parsed.items.find((it) => it && it.guid === itunesEpisodeGuid);
+            if (hit) {
+                match = {
+                    item: hit, confidence: 'moderate', score: 0,
+                    reasons: ['identified by Apple’s episode search from the Spotify episode title']
+                };
+            }
+        }
+    }
+
     if (match && !match.item.guid) notes.push('the matched episode carries no GUID in the feed');
     if (!match && parsed.items.length > 0) notes.push('no confident episode match in the feed — episode GUID left empty');
     // Prefill the GUID on STRONG matches only — a moderate/weak match a

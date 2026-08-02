@@ -19,6 +19,37 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-02 — Spotify links resolve through oEmbed, inside the fallback stage
+
+**Tags:** design
+
+Find identity now reads Spotify episode/show links (and the capture
+URL itself — a capture OF the Apple/Spotify page carries its identity
+in its own address). Spotify publishes no RSS mapping, so a Spotify
+link cannot shortcut to a feed the way an Apple id can; its only use
+is its display title via the keyless oEmbed API. Consequences, chosen
+deliberately:
+
+1. **Spotify lives in the FALLBACK stage, not before it.** The
+   hardening rule — a capture whose Apple/feed links failed stops
+   honestly, nothing sent to Apple — binds Spotify too: every Spotify
+   resolution ends in an Apple search, so exempting it would reopen
+   the silent-escalation hole. A dead feed link + a Spotify link
+   still stops (test-pinned).
+2. **The oEmbed-resolved show name outranks byline heuristics** as a
+   search term; a resolved EPISODE title can drive an
+   `entity=podcastEpisode` search whose result carries the feed AND
+   Apple's episode GUID — that is what makes the common
+   "listen on Spotify"-only capture discoverable at all.
+3. **Apple's episode GUID is treated as corroboration, not truth.**
+   Agreeing with the locally matched feed item → upgrade to strong
+   (two independent identifications). Found in the feed but matched
+   by nothing local → moderate, surfaced in the note, NOT prefilled
+   (the strong-only prefill rule stands).
+4. Disclosure notes name both egresses ("the link was sent to
+   Spotify", "…was sent to Apple's iTunes Search API"), and the modal
+   hint now mentions Spotify.
+
 ## 2026-08-02 — Find identity: discovery may automate, declaration may not
 
 **Tags:** design

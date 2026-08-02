@@ -10,6 +10,8 @@ import assert from 'node:assert/strict';
 import {
     scanPodcastSignals, looksLikeFeedUrl, isPublicFeedUrl,
     itunesLookupUrl, itunesSearchUrl, mapItunesResults,
+    itunesEpisodeSearchUrl, mapItunesEpisodeResults,
+    spotifyRefFromUrl, spotifyOembedUrl, mapSpotifyOembed,
     readFeedXml, parseItunesDuration,
     PODCAST_GUID_NAMESPACE, normalizeFeedUrlForGuid, computePodcastGuid,
     titleSimilarity, matchEpisode,
@@ -562,4 +564,169 @@ test('describePodcastLookup: show + confidence + reasons in one line', () => {
     assert.ok(line.includes('strong'));
     assert.ok(line.includes('2117'));
     assert.equal(describePodcastLookup(null), '');
+});
+
+// ------------------------------------------------------------------
+// Spotify episode/show links (scan + oEmbed resolution + episode search)
+// ------------------------------------------------------------------
+
+const SP_EP_ID = 'aBcDeFgHiJkLmNoPqRsTu1';     // 22 base62 chars
+const SP_SHOW_ID = '1AbC2dEf3GhI4jKl5MnO6p';
+
+test('spotifyRefFromUrl / scan: episode and show links detected, lookalikes rejected', () => {
+    assert.deepEqual(spotifyRefFromUrl(`https://open.spotify.com/episode/${SP_EP_ID}`),
+        { kind: 'episode', id: SP_EP_ID });
+    assert.deepEqual(spotifyRefFromUrl(`https://open.spotify.com/intl-de/show/${SP_SHOW_ID}?si=xyz`),
+        { kind: 'show', id: SP_SHOW_ID });
+
+    // Host is parsed, never substring-matched; ids must be exactly 22.
+    assert.equal(spotifyRefFromUrl(`https://open.spotify.com.evil.example/episode/${SP_EP_ID}`), null);
+    assert.equal(spotifyRefFromUrl('https://open.spotify.com/episode/tooshort'), null);
+    assert.equal(spotifyRefFromUrl('https://open.spotify.com/playlist/aBcDeFgHiJkLmNoPqRsTu1'), null);
+    assert.equal(spotifyRefFromUrl(null), null);
+
+    const signals = scanPodcastSignals({
+        links: [
+            { url: `https://open.spotify.com/episode/${SP_EP_ID}` },
+            { url: `https://open.spotify.com/show/${SP_SHOW_ID}` }
+        ]
+    });
+    assert.equal(signals.spotifyEpisodeId, SP_EP_ID);
+    assert.equal(signals.spotifyShowId, SP_SHOW_ID);
+    assert.equal(signals.strong, true, 'a Spotify link is a decisive nudge signal');
+});
+
+test('scanPodcastSignals: the capture URL itself is a signal (Spotify episode, Apple page)', () => {
+    const spotify = scanPodcastSignals({ url: `https://open.spotify.com/episode/${SP_EP_ID}`, links: [] });
+    assert.equal(spotify.spotifyEpisodeId, SP_EP_ID);
+    assert.equal(spotify.strong, true);
+
+    const apple = scanPodcastSignals({
+        url: 'https://podcasts.apple.com/us/podcast/mormon-stories-podcast/id315106175'
+    });
+    assert.equal(apple.itunesId, '315106175');
+});
+
+test('spotifyOembedUrl: built only from valid kind + 22-char id', () => {
+    assert.equal(spotifyOembedUrl('episode', SP_EP_ID),
+        `https://open.spotify.com/oembed?url=${encodeURIComponent(`https://open.spotify.com/episode/${SP_EP_ID}`)}`);
+    for (const [kind, id] of [
+        ['playlist', SP_EP_ID], ['episode', 'short'], ['episode', null],
+        ['episode', SP_EP_ID + 'x'], [null, SP_EP_ID], ['episode', 'aBcDeFgHiJkLmNoPqRsT/1']
+    ]) {
+        assert.equal(spotifyOembedUrl(kind, id), null, `rejects ${kind}/${id}`);
+    }
+});
+
+test('mapSpotifyOembed / mapItunesEpisodeResults / itunesEpisodeSearchUrl: junk never throws', () => {
+    assert.equal(mapSpotifyOembed({ title: '  Mormon   Stories  ' }), 'Mormon Stories');
+    for (const junk of [null, {}, { title: 42 }, { title: '' }, { title: 'x'.repeat(301) }]) {
+        assert.equal(mapSpotifyOembed(junk), null);
+    }
+
+    assert.ok(itunesEpisodeSearchUrl('Ep. 2117').includes('entity=podcastEpisode'));
+    assert.equal(itunesEpisodeSearchUrl('  '), null);
+    assert.equal(itunesEpisodeSearchUrl('x'.repeat(201)), null);
+
+    assert.deepEqual(mapItunesEpisodeResults(null), []);
+    assert.deepEqual(mapItunesEpisodeResults({ results: [{ trackName: 'no feed' }] }), []);
+    const mapped = mapItunesEpisodeResults({
+        results: [{ collectionName: 'Mormon Stories', collectionId: 315106175,
+            trackName: 'Ep. 2117', episodeGuid: 'g-2117', feedUrl: 'https://feeds.example.com/ms' }]
+    });
+    assert.deepEqual(mapped, [{ collectionName: 'Mormon Stories', collectionId: '315106175',
+        episodeGuid: 'g-2117', trackName: 'Ep. 2117', feedUrl: 'https://feeds.example.com/ms' }]);
+});
+
+test('matchEpisode: altTitles rescue a mismatched capture title', () => {
+    const items = [
+        { guid: 'g-1', title: 'Ep. 2117: Dr. John Dehlin & Faith Crisis', pubDate: null, durationSeconds: null },
+        { guid: 'g-2', title: 'Ep. 2116: Another Guest', pubDate: null, durationSeconds: null }
+    ];
+    const without = matchEpisode(items, {
+        title: 'clip from the livestream', cleanTitle: 'clip from the livestream'
+    });
+    assert.equal(without, null, 'the noisy capture title matches nothing');
+
+    const withAlt = matchEpisode(items, {
+        title: 'clip from the livestream', cleanTitle: 'clip from the livestream',
+        altTitles: ['Ep. 2117: Dr. John Dehlin & Faith Crisis']
+    });
+    assert.ok(withAlt);
+    assert.equal(withAlt.item.guid, 'g-1');
+});
+
+test('lookupPodcastIdentity: Spotify show link — oEmbed name drives the Apple search', async () => {
+    const { calls, fetchFn } = stubFetch([
+        [SP_SHOW_ID, { title: 'Mormon Stories' }],           // oEmbed (id in encoded url)
+        ['itunes.apple.com/search', LOOKUP_RESPONSE],
+        ['feeds.example.com/ms', FEED_XML]
+    ]);
+    const result = await lookupPodcastIdentity({
+        itunesId: null, feedUrls: [], spotifyShowId: SP_SHOW_ID,
+        searchTerms: ['Wrong Byline'], episode: CAPTURE_SIGNALS.episode
+    }, { fetchFn });
+
+    assert.equal(result.candidate.show, 'Mormon Stories Podcast');
+    const search = calls.find((u) => u.includes('itunes.apple.com/search'));
+    assert.ok(search.includes('term=Mormon%20Stories'), 'the oEmbed-resolved name leads the search');
+    assert.ok(result.notes.some((n) => n.includes('sent to Spotify')), 'Spotify egress disclosed');
+    assert.ok(result.notes.some((n) => n.includes('sent to Apple')), 'Apple egress disclosed');
+});
+
+test('lookupPodcastIdentity: Spotify episode link only — episode search finds the feed, GUID corroborates', async () => {
+    const { calls, fetchFn } = stubFetch([
+        [SP_EP_ID, { title: 'Ep. 2117: Dr. John Dehlin & Faith Crisis' }],
+        ['entity=podcastEpisode', { results: [{
+            collectionName: 'Mormon Stories', collectionId: 315106175,
+            trackName: 'Ep. 2117: Dr. John Dehlin & Faith Crisis',
+            episodeGuid: 'Buzz-EP2117-CaseSENSITIVE',
+            feedUrl: 'https://feeds.example.com/ms' }] }],
+        ['feeds.example.com/ms', FEED_XML]
+    ]);
+    const result = await lookupPodcastIdentity({
+        itunesId: null, feedUrls: [], spotifyEpisodeId: SP_EP_ID,
+        searchTerms: [], episode: { title: 'unrelated clip title', cleanTitle: 'unrelated clip title' }
+    }, { fetchFn });
+
+    assert.equal(result.candidate.itunes_id, '315106175');
+    assert.equal(result.candidate.episode_guid, 'Buzz-EP2117-CaseSENSITIVE',
+        'corroborated match reaches strong and prefills');
+    assert.equal(result.match.confidence, 'strong');
+    assert.ok(result.match.reasons.some((r) => r.includes('corroborates')));
+    assert.ok(!calls.some((u) => u.includes('entity=podcast&')),
+        'no show-level search happened without a show name');
+});
+
+test('lookupPodcastIdentity: Spotify untouched when the capture carries an Apple id or feed link', async () => {
+    const appleId = stubFetch([
+        ['itunes.apple.com/lookup', LOOKUP_RESPONSE],
+        ['feeds.example.com/ms', FEED_XML]
+    ]);
+    await lookupPodcastIdentity({
+        ...CAPTURE_SIGNALS, spotifyEpisodeId: SP_EP_ID, spotifyShowId: SP_SHOW_ID
+    }, { fetchFn: appleId.fetchFn });
+    assert.ok(appleId.calls.every((u) => !u.includes('spotify')), 'Apple-id path: Spotify untouched');
+
+    const direct = stubFetch([['feeds.example.com/ms', FEED_XML]]);
+    await lookupPodcastIdentity({
+        ...CAPTURE_SIGNALS, itunesId: null, feedUrls: ['https://feeds.example.com/ms'],
+        spotifyEpisodeId: SP_EP_ID
+    }, { fetchFn: direct.fetchFn });
+    assert.ok(direct.calls.every((u) => !u.includes('spotify') && !u.includes('apple.com')),
+        'direct-feed path: neither Spotify nor Apple touched');
+});
+
+test('lookupPodcastIdentity: a dead feed link still stops honestly — Spotify is fallback, not an exemption', async () => {
+    const { calls, fetchFn } = stubFetch([]);   // every fetch 404s
+    await assert.rejects(
+        () => lookupPodcastIdentity({
+            itunesId: null, feedUrls: ['https://dead.example.com/rss'],
+            spotifyEpisodeId: SP_EP_ID, searchTerms: ['Mormon Stories Podcast'],
+            episode: CAPTURE_SIGNALS.episode
+        }, { fetchFn }),
+        /could not be used/
+    );
+    assert.ok(calls.every((u) => !u.includes('spotify') && !u.includes('apple.com')),
+        'no Spotify or Apple egress after the dead link');
 });
