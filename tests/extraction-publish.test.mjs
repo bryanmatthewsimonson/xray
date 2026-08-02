@@ -421,3 +421,38 @@ test('publishing is OPT-IN: the flag defaults off', async () => {
     assert.equal(FLAGS_DEFAULTS.extractionAnalysisPublishing, false,
         'a format whose safeguard is its marking does not publish by default');
 });
+
+// ---- 7. the publish SURFACE's success predicate ---------------------------
+
+// Regression guard for a defect the MA.6 browser walk caught: the
+// `xray:relay:publish` handler resolves `{ok: true, results}` when the
+// ATTEMPT ran, so a caller that stops at `resp.ok` announces success even
+// when every relay was unreachable — and here that also wrote a durable
+// `published_at` ledger stamp. JOURNAL 2026-07-10 already rules that a
+// local publish ledger keys on `confirmed`, never `successful`.
+// Guarded by literal because the surface is DOM-bound and the invariant
+// is exactly the kind each new publish site forgets.
+test('GUARD: the publish surface stamps only on a CONFIRMED relay OK', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    const src = await readFile(join(import.meta.dirname, '../src/portal/extraction-block.js'), 'utf8');
+
+    assert.match(src, /results\s*\|\|\s*\{\}/,
+        'the surface must read the per-relay results, not just `ok`');
+    assert.match(src, /confirmed\s*===\s*0/,
+        'an unconfirmed round must be refused explicitly');
+
+    // The stamp must be UNREACHABLE from a bare `resp.ok`: the throw for
+    // confirmed === 0 has to sit between the response check and the
+    // markRecordPublished call.
+    const okCheck = src.indexOf('the publish attempt failed');
+    const confirmedGate = src.indexOf('confirmed === 0');
+    const stamp = src.indexOf('markRecordPublished(fresh');
+    assert.ok(okCheck > 0 && confirmedGate > 0 && stamp > 0, 'all three landmarks present');
+    assert.ok(okCheck < confirmedGate && confirmedGate < stamp,
+        'the confirmed gate must sit between the ok check and the ledger stamp');
+
+    // And an assumed-only round must not be silently treated as success.
+    assert.match(src, /successful\s*>\s*0/,
+        'the assumed-only case (sent but unconfirmed) must be reported distinguishably');
+});

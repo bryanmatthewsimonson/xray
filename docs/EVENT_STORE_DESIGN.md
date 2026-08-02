@@ -73,6 +73,25 @@ API. Three publish-side defects share that root cause:
    Nothing enforces the invariant; coverage is whatever each surface
    remembered to do.
 
+   **The same disease has a second symptom, verified 2026-08-02 in a
+   browser walk: surfaces that mis-read the publish RESULT.**
+   `xray:relay:publish` resolves `{ok: true, results}` when the attempt
+   RAN — `results.confirmed` is the only field that means a relay
+   answered OK, and JOURNAL 2026-07-10 already rules that a local
+   publish ledger must key on `confirmed`, never on `successful` (an
+   assumed success is a timeout hope). Reader publishes and
+   `entity-dossier-view.js:126-131` read `confirmed` correctly. These do
+   NOT — they stop at `resp.ok`, so an unreachable relay reports success:
+   `entity-page-block.js:362` (and writes `publishedAt`/`publishedEventId`
+   — a durable ledger lie), `synthesis-block.js:568`,
+   `inspector.js:428`, `network/index.js:361`. MA.6's own site had the
+   same defect and was fixed at 29-design time; the remaining four are
+   left for the gate, because a single choke point that returns
+   "confirmed or not" is the fix that cannot be forgotten by the next
+   surface. 29.1 MUST therefore define the gate's success predicate as
+   `confirmed > 0` and return the unconfirmed case distinguishably —
+   not merely journal the attempt.
+
 The read side has the mirror problem: every relay read is a
 5-second-timeout round trip (`src/shared/nostr-client.js:214`), every
 surface keeps its own cache with its own API, and "which claims anchor

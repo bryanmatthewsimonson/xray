@@ -19,6 +19,68 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-02 — The MA.6 browser walk found a false "published" stamp
+
+**Tags:** bug, pattern
+
+Every MA.6 PR said the same thing: *"manual browser smoke is still
+outstanding — this environment is headless."* It turns out it isn't.
+Chromium in the container loads the unpacked extension
+(`--headless=new` + `--load-extension`), MV3 service worker and all, and
+Playwright can drive its pages. `tools/smoke/` now does exactly that:
+it seeds a case, two captures, and two folded extracts **through the
+extension's own modules** (bundled by esbuild so bare npm specifiers
+resolve the way they do in the real bundles — importing `src/` straight
+into a page fails on `@mozilla/readability`), then drives the case
+dashboard.
+
+**It immediately found a real bug in MA.6.** With a signing identity
+present and relays pointed at an unreachable `ws://127.0.0.1:1`, the
+publish button reported **"published 2026-08-02"** and wrote
+`published_at` / `published_event_id` onto the record. Nothing had been
+published to anything.
+
+Root cause: `xray:relay:publish` resolves `{ok: true, results}` when the
+attempt RAN — `ok` says nothing about acceptance. `results.confirmed` is
+the only field meaning a relay answered OK, and **JOURNAL 2026-07-10
+already ruled that a local publish ledger must key on `confirmed`, never
+`successful`** (an assumed success is a timeout hope). `published_at` is
+exactly such a ledger, and the surface keyed on `resp.ok`. Fixed: the
+confirmed gate now sits between the `ok` check and the stamp, an
+assumed-only round reports "sent to N but none confirmed" and stays
+unstamped, and a source-literal guard test pins the ordering of the
+three landmarks so the next edit cannot reorder them.
+
+**The finding generalizes, and that is the more useful part.** Auditing
+every `xray:relay:publish` caller: the reader and
+`entity-dossier-view.js` read `confirmed` correctly;
+`entity-page-block.js` (which also writes a durable `publishedAt`),
+`synthesis-block.js`, `inspector.js`, and `network/index.js:361` all
+stop at `resp.ok`. That is the same disease `docs/EVENT_STORE_DESIGN.md`
+§1.3 catalogues for journaling — "nothing enforces the invariant;
+coverage is whatever each surface remembered to do" — with a second
+symptom. Recorded there rather than patched here: a single choke point
+returning "confirmed or not" is the fix that cannot be forgotten by the
+next surface, so 29.1's gate must define success as `confirmed > 0` and
+surface the unconfirmed case distinguishably, not merely journal the
+attempt.
+
+Everything else in the walk passed on the first run: the block renders
+with correct counts, an ungroundable quote is dropped rather than
+stored, a claim-covered atom folds out of the open queue, Accept mints
+exactly one claim and records `accepted_claim_id`, Dismiss survives a
+reload, the confirm dialogs name the exact N and disclose that
+unreviewed rows publish, accepted-but-unpublished emits
+`endorsement: "local-only"` with no fabricated coordinate, a dismissed
+atom still publishes marked dismissed, and no offsets or case frame
+reach the wire. Zero page errors across the whole walk.
+
+Lesson worth keeping: **"headless, so it can't be smoked" was an
+assumption, not a fact** — and it had been repeated in four PR
+descriptions. The walk cost less than the wave's last doc edit and
+found a bug that unit tests structurally could not, because the defect
+lived in the seam between a message contract and its caller.
+
 ## 2026-08-02 — Spotify links resolve through oEmbed, inside the fallback stage
 
 **Tags:** design

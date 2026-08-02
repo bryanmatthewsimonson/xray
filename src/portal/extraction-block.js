@@ -211,7 +211,23 @@ async function buildPublisher(withRecords, block) {
         // loop body, not one call.
         const signed = await Signer.signEvent({ ...unsigned, pubkey: userPubkey });
         const resp = await sendMessage({ type: 'xray:relay:publish', event: signed, relays });
-        if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'no relays accepted it');
+        if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'the publish attempt failed');
+        // `ok` means the ATTEMPT RAN, not that a relay took the event: the
+        // handler resolves `{ok: true, results}` even when every relay
+        // failed, so a caller that stops at `resp.ok` announces success
+        // into a void. Found by the MA.6 browser walk — an unreachable
+        // relay reported "published" and stamped the record.
+        const r = resp.results || {};
+        const confirmed = typeof r.confirmed === 'number' ? r.confirmed : 0;
+        if (confirmed === 0) {
+            // And an ASSUMED success (fulfilled with no relay OK — a
+            // timeout hope) must never reach a local publish ledger:
+            // JOURNAL 2026-07-10. `published_at` IS such a ledger, so an
+            // unconfirmed round stays unstamped and says so.
+            throw new Error(r.successful > 0
+                ? `sent to ${r.successful}/${r.total} relay(s) but none confirmed it — not recorded as published`
+                : `no relay accepted it (${r.failed || r.total || 0} unreachable or refused)`);
+        }
         const stamped = markRecordPublished(fresh, { eventId: signed.id, now: now() });
         await saveArticleExtraction(stamped);
         rec.published_at = stamped.published_at;
