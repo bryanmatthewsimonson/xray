@@ -157,6 +157,17 @@ body {
   border-color: transparent;
 }
 
+/* Media-button nudge (Phase 22 tail): a transcript capture with strong
+   podcast signals but no declared identity — subtle, informational,
+   never an auto-write. */
+.xr-reader__media-nudge {
+  margin-left: 6px;
+  font-size: 10px;
+  font-style: italic;
+  color: var(--xr-primary);
+  opacity: .8;
+}
+
 /* ---------------- progress bar (batch publish) ---------------- */
 
 .xr-reader__progress {

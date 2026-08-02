@@ -31,6 +31,7 @@ import { getSourceDocument } from '../shared/archive-cache.js';
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prompts.js';
 import { pdfDocumentUrl } from '../shared/pdf-detect.js';
 import { crossrefRequestFor, mapCrossrefWork } from '../shared/crossref.js';
+import { lookupPodcastIdentity } from '../shared/podcast-identity.js';
 import { articleAnswersTo } from '../shared/url-identity.js';
 import { Signer } from '../shared/signer.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
@@ -1043,6 +1044,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 sendResponse({ ok: false, error: err && err.message ? err.message : String(err) });
             }
         })();
+        return true; // async
+    }
+
+    // Reader → worker: podcast identity discovery for the Media modal's
+    // "Find identity" assist (Phase 22 tail). Fetches live here — house
+    // rule, all network in the SW — and every URL is either built by the
+    // module's hard-validated iTunes request builders or is a feed URL
+    // that came from the capture's own links / Apple's response, fetched
+    // credentials:'omit' and returned only as PARSED identity fields
+    // (never raw bytes), so the message can't serve as a fetch proxy.
+    // The result only ever PREFILLS the modal — media identity stays
+    // user-declared (the NIP_DRAFT rule); nothing here writes.
+    if (message.type === 'xray:media:lookup') {
+        lookupPodcastIdentity(message.signals || {})
+            .then((result) => sendResponse({ ok: true, ...result }))
+            .catch((err) => sendResponse({
+                ok: false,
+                error: err && err.message ? err.message : String(err),
+                // Diagnostics survive failure — including any egress
+                // disclosure ('show name was sent…') the user is owed.
+                notes: (err && Array.isArray(err.notes)) ? err.notes : []
+            }));
         return true; // async
     }
 

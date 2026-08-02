@@ -79,6 +79,7 @@ import { buildTranscriptSection, upsertTranscriptSection } from '../shared/trans
 import { buildDiarizedBody, timeFragmentSelector, timeRangeOfSpan, diarizedTrackEntry, extractionMethodFor } from '../shared/diarized-transcript.js';
 import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, reapStaleJobRecords, jobRecordKey } from './transcribe-flow.js';
 import { openMediaModal } from './media-modal.js';
+import { scanPodcastSignals } from '../shared/podcast-identity.js';
 import { openSpeakersModal, speakerEntityId, decorateSpeakerLabels } from './speakers-modal.js';
 import { runDraftPass } from '../shared/transcriber-client.js';
 import { Storage } from '../shared/storage.js';
@@ -1310,9 +1311,11 @@ async function loadArchivedArticle(archived, provenance) {
     // capture lacked (a diarized version restored over a fresh
     // re-capture) — the 🗣 Speakers / 💫 Suggest (local) gates must
     // re-run HERE, not just on the transcribe-reuse path, or a banner
-    // "Load archive" restore leaves both buttons hidden.
+    // "Load archive" restore leaves both buttons hidden. Same for the
+    // media-identity nudge, whose condition rides the same fields.
     setupSpeakersControl();
     setupTranscriptClaimDraftsControl().catch(() => { /* gate refresh only */ });
+    try { refreshMediaNudge(); } catch (_) { /* cosmetic */ }
     toast(`Archive loaded (${provenance.source})`, 'success', 3000);
 }
 
@@ -2089,8 +2092,11 @@ async function adoptDiarizedTranscript(result) {
     renderReader();
     setupTranscriptClaimDraftsControl().catch(() => {});
     // The adoption just gave this capture speakers — surface the
-    // identification control without waiting for a reload.
+    // identification control without waiting for a reload. The media
+    // nudge's condition (transcript present, no podcast identity)
+    // changed too.
     setupSpeakersControl();
+    try { refreshMediaNudge(); } catch (_) { /* cosmetic */ }
 }
 
 let _transcribeRunning = false;
@@ -2969,6 +2975,40 @@ function setupMediaControl() {
         const result = await openMediaModal(state.article);
         if (result) await applyMediaResult(result);
     });
+    refreshMediaNudge();
+}
+
+// Post-transcription nudge (Phase 22 tail): a transcript-bearing
+// capture with strong podcast signals but NO declared identity gets a
+// subtle "identity found — confirm?" decoration on the Media button.
+// Pure local signal scan — no network — and never an auto-write: media
+// identity stays user-declared (the NIP_DRAFT rule); the user confirms
+// via 🔍 Find identity inside the modal.
+function refreshMediaNudge() {
+    const btn = $('#xr-media-btn');
+    if (!btn || btn.hidden) return;
+    const a = state.article;
+    const hasTranscript = !!(a && (a.transcript_meta || a.contentType === 'transcript'));
+    const wants = !!(a && hasTranscript && !a.podcast && scanPodcastSignals(a).strong);
+    let hint = btn.querySelector('.xr-reader__media-nudge');
+    if (!wants) {
+        if (hint) hint.remove();
+        // Restore the button's own tooltip once the nudge clears —
+        // otherwise the nudge instructions outlive their condition.
+        if (btn.dataset.xrOrigTitle !== undefined) {
+            btn.title = btn.dataset.xrOrigTitle;
+            delete btn.dataset.xrOrigTitle;
+        }
+        return;
+    }
+    if (!hint) {
+        hint = document.createElement('span');
+        hint.className = 'xr-reader__media-nudge';
+        hint.textContent = 'identity found — confirm?';
+        btn.appendChild(hint);
+    }
+    if (btn.dataset.xrOrigTitle === undefined) btn.dataset.xrOrigTitle = btn.title || '';
+    btn.title = 'Podcast identity signals detected — open, pick “a podcast episode”, then 🔍 Find identity to confirm';
 }
 
 /**
@@ -3056,6 +3096,7 @@ async function applyMediaResult(result) {
     if (!result.parse) {
         // Metadata-only: the hash is untouched — persist the row and stop.
         scheduleTagSave();
+        refreshMediaNudge();
         toast('Media metadata saved', 'success', 2000);
         return;
     }
@@ -3152,6 +3193,9 @@ async function applyMediaResult(result) {
     }
 
     renderReader();
+    // A fresh transcript may complete the nudge condition (transcript
+    // present + strong signals + no declared identity yet).
+    refreshMediaNudge();
     refreshClaimsBar().catch(() => {});
     // The attach may have introduced (or changed) the speaker list —
     // keep the identification + drafts controls in step (an attached
