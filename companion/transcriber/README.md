@@ -188,13 +188,16 @@ Cloud jobs emit the same shape; `model_info` differs:
 ```json
 {
   "provider": "assemblyai",
-  "asr_model": "universal",
+  "asr_model": "universal-3-5-pro",
   "diarization_model": "assemblyai-native",
   "device": "cloud",
   "aligned": true,
   "yt_dlp_version": "…"
 }
 ```
+
+(`asr_model` is the model the provider reports it actually used —
+AssemblyAI's `speech_model_used` — not the requested preference list.)
 
 Cloud speaker labels (`A`/`B`, `0`/`1`) are normalized to the same
 `SPEAKER_00` form, first-appearance ordered, and long speaker turns are
@@ -231,7 +234,7 @@ a **new** terminal):
 | `TRANSCRIBER_PROVIDER` | `local` | Transcription engine: `local`, `assemblyai`, or `deepgram` (see Cloud providers) |
 | `ASSEMBLYAI_API_KEY` | *(unset)* | AssemblyAI API key; required when the provider is `assemblyai` |
 | `DEEPGRAM_API_KEY` | *(unset)* | Deepgram API key; required when the provider is `deepgram` |
-| `TRANSCRIBER_ASSEMBLYAI_MODEL` | `universal` | AssemblyAI `speech_model` |
+| `TRANSCRIBER_ASSEMBLYAI_MODEL` | `universal-3-5-pro,universal-2` | AssemblyAI `speech_models` preference list (comma-separated; their API tries entries in order) |
 | `TRANSCRIBER_DEEPGRAM_MODEL` | `nova-3` | Deepgram `model` |
 | `TRANSCRIBER_CLOUD_CONCURRENCY` | `3` | Concurrent cloud jobs (local jobs always run one at a time) |
 
@@ -260,9 +263,9 @@ away for speed and zero GPU load:
 - **What the extension shows**: the reader banner reads "Transcribing
   via AssemblyAI/Deepgram", the transcript section heading names the
   provider (e.g. `Transcript — English (AssemblyAI, diarized)`), and a
-  published capture carries `extraction-method: assemblyai-universal`
-  (or `deepgram-nova-3`) instead of the `whisperx-…` form — provenance
-  stays honest.
+  published capture carries `extraction-method:
+  assemblyai-universal-3-5-pro` (or `deepgram-nova-3`) instead of the
+  `whisperx-…` form — provenance stays honest.
 
 Setup (AssemblyAI shown; Deepgram is identical with its names):
 

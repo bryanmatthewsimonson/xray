@@ -1141,6 +1141,7 @@ async function loadAdvanced() {
     });
     document.getElementById('pref-transcriber-port').value = rawPort != null ? String(rawPort) : '';
     document.getElementById('pref-transcriber-token').value = await llmRawGet(TRANSCRIBER_TOKEN_STORAGE);
+    setupTranscriberCheck();
     document.getElementById('pref-lmstudio-url').value = await llmRawGet(LMSTUDIO_URL_STORAGE);
     document.getElementById('pref-lmstudio-model').value = await llmRawGet(LMSTUDIO_MODEL_STORAGE);
 
@@ -1335,6 +1336,61 @@ function populateLlmModels() {
         opt.value = m.id;
         opt.textContent = m.label;
         sel.appendChild(opt);
+    }
+}
+
+// Transcriber engine status: ping the companion and show which engine
+// is active plus which providers have their API key set. The provider
+// and its keys are companion-side configuration (environment variables,
+// DELIBERATELY never extension storage — a compromised page must not be
+// able to read them) — this line is the extension's only window into
+// that config. Auto-runs when the Advanced tab loads (non-blocking);
+// the button re-probes on demand.
+function setupTranscriberCheck() {
+    const btn = document.getElementById('transcriber-check');
+    const status = document.getElementById('transcriber-check-status');
+    if (!btn || !status) return;
+
+    const check = async () => {
+        btn.disabled = true;
+        status.textContent = 'Checking…';
+        try {
+            const resp = await browserApi.runtime.sendMessage({ type: 'xray:transcribe:ping' });
+            if (!resp || !resp.ok) {
+                status.textContent = (resp && resp.error) || 'Companion service not reachable.';
+                return;
+            }
+            const h = resp.health || {};
+            // Absent provider = an older companion build = local, the
+            // only engine that existed.
+            const provider = String(h.provider || 'local').toLowerCase();
+            const engine = provider === 'assemblyai' ? 'AssemblyAI (cloud — episode audio leaves this machine)'
+                : provider === 'deepgram' ? 'Deepgram (cloud — episode audio leaves this machine)'
+                : 'local (WhisperX + pyannote, on-device)';
+            const bits = [`Connected (v${h.version || '?'}${h.device ? `, ${h.device}` : ''})`, `engine: ${engine}`];
+            // Which engines the service COULD run (credential present) —
+            // booleans from /health, never the credentials themselves.
+            if (h.providers && typeof h.providers === 'object') {
+                const ready = [];
+                if ('local' in h.providers) ready.push(`local ${h.providers.local ? '✓' : '— no HF token'}`);
+                if ('assemblyai' in h.providers) ready.push(`AssemblyAI ${h.providers.assemblyai ? '✓ key set' : '— no key'}`);
+                if ('deepgram' in h.providers) ready.push(`Deepgram ${h.providers.deepgram ? '✓ key set' : '— no key'}`);
+                if (ready.length) bits.push(`engines available: ${ready.join(', ')}`);
+            }
+            if (h.queue_depth > 0) bits.push(`${h.queue_depth} job(s) active`);
+            status.textContent = bits.join(' — ');
+        } finally {
+            btn.disabled = false;
+        }
+    };
+
+    if (!btn.dataset.wired) {
+        btn.dataset.wired = '1';
+        btn.addEventListener('click', check);
+        // Populate without a click — reachability info should not hide
+        // behind a button (field feedback, 2026-08-02). Best-effort:
+        // an unreachable service just shows its normal error line.
+        check().catch(() => {});
     }
 }
 

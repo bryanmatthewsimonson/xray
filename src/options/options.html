@@ -540,18 +540,29 @@
       </p>
 
       <hr />
-      <h3 class="xr-opt__subhead">Local transcription</h3>
+      <h3 class="xr-opt__subhead">Transcription (companion service)</h3>
       <label class="xr-opt__field xr-opt__field--inline">
         <input type="checkbox" id="pref-local-transcription" />
-        <span>Enable "Transcribe locally" for YouTube captures</span>
+        <span>Enable "Transcribe" for YouTube captures</span>
       </label>
       <p class="xr-opt__hint" style="margin-top:-8px">
         Off by default. Requires the companion service from
-        <code>companion/transcriber/</code> in the X-Ray repo (yt-dlp +
-        WhisperX + speaker diarization, GPU recommended) running on this
-        machine. Adds a "Capture &amp; transcribe locally" right-click
-        item on YouTube videos and a Transcribe button in the reader.
-        Everything runs on 127.0.0.1 — nothing leaves this machine.
+        <code>companion/transcriber/</code> in the X-Ray repo running on
+        this machine. Adds a "Capture &amp; transcribe" right-click item
+        on YouTube videos and a Transcribe button in the reader. The
+        <strong>engine</strong> is the companion's choice: by default
+        transcription runs <strong>locally</strong> (yt-dlp + WhisperX +
+        speaker diarization, GPU recommended — nothing leaves this
+        machine); optionally the companion hands the audio to a
+        <strong>cloud provider</strong> (AssemblyAI / Deepgram — the
+        episode <strong>audio leaves your machine</strong>). The engine
+        and its API keys are configured on the companion via environment
+        variables (<code>TRANSCRIBER_PROVIDER</code>,
+        <code>ASSEMBLYAI_API_KEY</code> / <code>DEEPGRAM_API_KEY</code>
+        — see <code>companion/transcriber/README.md</code>), deliberately
+        never stored in this extension. The status line below shows the
+        engine that is actually active; buttons and menu items name it
+        too once the service is reachable.
       </p>
       <label class="xr-opt__field">
         <span>Companion service port</span>
@@ -562,6 +573,11 @@
         <span>Companion auth token (optional — only if the service sets TRANSCRIBER_TOKEN)</span>
         <input type="text" id="pref-transcriber-token" placeholder="leave blank unless configured" />
       </label>
+      <p class="xr-opt__field xr-opt__field--inline">
+        <button class="xr-opt__btn" id="transcriber-check" type="button"
+                title="Ping the companion service and show its active engine">Check service</button>
+        <span class="xr-opt__hint" id="transcriber-check-status"></span>
+      </p>
       <label class="xr-opt__field xr-opt__field--inline">
         <input type="checkbox" id="pref-transcript-claim-drafts" />
         <span>Suggest (local): claim + entity candidates from transcripts via a local model (LM Studio)</span>

@@ -19,6 +19,27 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-02 — AssemblyAI hard-deprecated `speech_model` (found on first live smoke)
+
+**Tags:** external
+
+The very first live cloud job (PR #285, same day) died with HTTP 400
+from `POST /v2/transcript`: the singular `speech_model` parameter is
+rejected outright — their API now wants `speech_models`, a
+preference-ordered LIST, with new model names (`universal-3-5-pro`,
+`universal-2`; plain `universal` no longer documented). Fixed by
+sending the plural form (`TRANSCRIBER_ASSEMBLYAI_MODEL` is now a
+comma-separated preference list, default
+`universal-3-5-pro,universal-2`) and — the useful part — reading
+`model_info.asr_model` from the response's `speech_model_used` rather
+than echoing the request, so the published `extraction-method` names
+the model that actually ran even when their API falls back down the
+preference list. Payload shape is pin-tested
+(`test_create_payload_uses_plural_speech_models`). Lesson repeated:
+provider request shapes rot; the error body named the fix exactly, so
+surface provider error bodies verbatim (the reader banner did, and
+that made this a 5-minute diagnosis).
+
 ## 2026-08-02 — Cloud transcription providers: env-only keys, child-process reuse, honest labeling
 
 **Tags:** design

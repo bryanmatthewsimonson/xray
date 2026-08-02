@@ -17,6 +17,7 @@ class AssemblyAINormalization(unittest.TestCase):
         data = {
             "status": "completed",
             "language_code": "en_us",
+            "speech_model_used": "universal-3-5-pro",
             "utterances": [
                 {
                     "speaker": "A",
@@ -53,9 +54,46 @@ class AssemblyAINormalization(unittest.TestCase):
         )
         mi = result["model_info"]
         self.assertEqual(mi["provider"], "assemblyai")
-        self.assertEqual(mi["asr_model"], "universal")
+        # The model their API reports it USED, not the request list.
+        self.assertEqual(mi["asr_model"], "universal-3-5-pro")
         self.assertEqual(mi["device"], "cloud")
         self.assertTrue(mi["aligned"])
+
+    def test_asr_model_falls_back_to_first_requested(self):
+        data = {
+            "status": "completed",
+            "language_code": "en",
+            "text": "Words here.",
+            "words": [{"text": "Words", "start": 0, "end": 300},
+                      {"text": "here.", "start": 350, "end": 800}],
+        }
+        with mock.patch.object(
+                assemblyai.config, "ASSEMBLYAI_MODEL", "universal-3-5-pro,universal-2"):
+            result = assemblyai._build_result(INFO, data, 10.0)
+        self.assertEqual(result["model_info"]["asr_model"], "universal-3-5-pro")
+
+    def test_create_payload_uses_plural_speech_models(self):
+        # AssemblyAI hard-rejects the singular `speech_model` (HTTP 400,
+        # field-found 2026-08-02) — pin the plural preference-list form.
+        calls = []
+
+        def fake_request(method, url, **kw):
+            calls.append((method, url, kw))
+            if method == "POST":
+                return {"id": "t1", "status": "queued"}
+            return {"status": "completed", "utterances": [], "text": "x",
+                    "words": [], "speech_model_used": "universal-2"}
+
+        with mock.patch.object(assemblyai.http, "request_json", side_effect=fake_request), \
+                mock.patch.object(assemblyai.time, "sleep"), \
+                mock.patch.object(assemblyai.config, "ASSEMBLYAI_API_KEY", "k"), \
+                mock.patch.object(
+                    assemblyai.config, "ASSEMBLYAI_MODEL", "universal-3-5-pro, universal-2"):
+            assemblyai._create_and_poll("https://upload/x", 600.0, lambda e: None)
+        body = calls[0][2]["json_body"]
+        self.assertEqual(body["speech_models"], ["universal-3-5-pro", "universal-2"])
+        self.assertNotIn("speech_model", body)
+        self.assertIs(body["speaker_labels"], True)
 
     def test_no_utterances_falls_back_to_flat_words_unlabelled(self):
         data = {
