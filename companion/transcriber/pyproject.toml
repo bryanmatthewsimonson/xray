@@ -14,7 +14,7 @@ dependencies = [
     "whisperx>=3.8.7rc1",     # pulls faster-whisper, ctranslate2>=4.5, pyannote-audio>=4.0, torch~=2.8 (overridden below)
     # torch/torchaudio/torchvision are pulled in transitively anyway, but
     # they MUST be declared here: uv only applies [tool.uv.sources] to
-    # declared dependencies, and without the cu129 source the lock pins
+    # declared dependencies, and without the cu130 source the lock pins
     # PyPI's CPU-only Windows wheels.
     # torch floor raised 2026-08-02: < 2.13 carries three
     # memory-corruption advisories (unpack_sequence < 2.9.1,
@@ -35,6 +35,17 @@ build-backend = "hatchling.build"
 packages = ["transcriber"]
 
 [tool.uv]
+# Lock-time platform guard (added 2026-08-02 after the cu129 bump broke
+# Windows): the torch indexes ship wheels only — no sdists — and their
+# platform coverage varies per index (cu129 stops at torch 2.9.0 for
+# win_amd64). Without this, `uv lock` on any machine happily produces a
+# lock that then fails at `uv sync` on Windows — the primary deployment
+# platform. With it, the lock itself fails if either platform below
+# lacks wheels.
+required-environments = [
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
 # Security floor, not a dependency (transformers is only pulled in
 # transitively by whisperx for its alignment models): GHSA advisories
 # fixed in transformers 5.0.0rc3 / 5.3.0 / 5.5.0 (RCE in Trainer, RCE,
@@ -48,7 +59,8 @@ constraint-dependencies = ["transformers>=5.5"]
 # CI-lockstep pins, not declared incompatibilities — pyannote-audio 4.x
 # is uncapped (torch>=2.8.0) and torchaudio 2.11 dropped its torch pin
 # entirely — so they are OVERRIDDEN to the security floors; and the
-# wheel index moves cu128 → cu129 below (cu128 stopped at torch 2.11).
+# wheel index moves to cu130 below (the only index carrying the 2.13
+# triple for BOTH win_amd64 and manylinux).
 # Formally clean; functionally this runs whisperx ahead of its tested
 # matrix — smoke-test one real transcription after any re-lock.
 override-dependencies = [
@@ -57,15 +69,19 @@ override-dependencies = [
     "torchvision>=0.23",
 ]
 
-# cu128 stopped receiving wheels at torch 2.11; the 2.13 triple lives
-# on cu129+ (2026-08-02). CUDA 12.x minor-version compatibility means
-# any 12.x-capable driver runs cu129 builds — no user driver bump.
+# cu130 is the ONLY index with the 2.13 triple for Windows (verified
+# against the live indexes 2026-08-02: cu129's win_amd64 torch wheels
+# stop at 2.9.0, cu128's at 2.9.1 — the cu129 attempt in 5c95d3d
+# resolved for manylinux only and broke `uv sync` on Windows). cu130
+# builds need an NVIDIA R580+ (CUDA 13) driver — a real requirement
+# bump over cu12x, already satisfied on the primary Win10/RTX 3090
+# deployment box (driver 581.57, CUDA 13.0 per nvidia-smi).
 [[tool.uv.index]]
-name = "pytorch-cu129"
-url = "https://download.pytorch.org/whl/cu129"
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [tool.uv.sources]
-torch       = [{ index = "pytorch-cu129", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
-torchaudio  = [{ index = "pytorch-cu129", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
-torchvision = [{ index = "pytorch-cu129", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+torch       = [{ index = "pytorch-cu130", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+torchaudio  = [{ index = "pytorch-cu130", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cu130", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]

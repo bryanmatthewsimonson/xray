@@ -87,6 +87,37 @@ provider request shapes rot; the error body named the fix exactly, so
 surface provider error bodies verbatim (the reader banner did, and
 that made this a 5-minute diagnosis).
 
+## 2026-08-02 — torch 2.13 bump broke Windows: per-index platform coverage, and a lock-time guard
+
+**Tags:** bug, design
+
+5c95d3d floored torch at 2.13 and moved the transcriber's wheel index
+cu128 → cu129. It locked fine (authored on macOS), then failed on the
+primary Windows 10 / RTX 3090 deployment box: `uv sync` →
+"torch==2.13.0+cu129 … doesn't have a source distribution or wheel for
+the current platform". Root cause: the PyTorch indexes' platform
+coverage varies **per index** — cu129's win_amd64 torch wheels stop at
+2.9.0 (cu128's at 2.9.1), and the 2.13 triple ships win_amd64 +
+manylinux wheels only on **cu130** (verified against the live indexes
+2026-08-02). Two-part fix in `companion/transcriber/pyproject.toml`:
+
+1. **Index → cu130.** Same locked versions (torch 2.13.0 / torchaudio
+   2.11.0 / torchvision 0.28.0); only the CUDA variant changes. The
+   honest trade: cu130 builds need an NVIDIA R580+ (CUDA 13) driver —
+   a real floor bump that cu129's "any CUDA 12.x driver" story didn't
+   have. The primary box already runs 581.57 (CUDA 13.0).
+2. **`tool.uv.required-environments`** for win_amd64 and linux x86_64.
+   The torch indexes serve wheels only — no sdists — so a universal
+   lock can silently resolve for a platform subset and fail only at
+   sync time on the user's machine. With the guard, `uv lock` itself
+   fails: re-locking against cu129 with the guard reproduced the
+   Windows failure at lock time, on any authoring machine.
+
+So-what: any future torch index move must check win_amd64 coverage on
+the target index, not just manylinux — and the guard machine-checks
+that now. CI never touches `companion/`, so lock-time is the only
+automated gate there.
+
 ## 2026-08-02 — Cloud transcription providers: env-only keys, child-process reuse, honest labeling
 
 **Tags:** design
