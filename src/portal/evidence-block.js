@@ -181,7 +181,11 @@ export function renderEvidenceBlock(host, dossierOrId, opts = {}) {
                         `audit: ${modules.slice(0, 3).join(', ')}${modules.length > 3 ? ` +${modules.length - 3}` : ''}`);
                     chip.title = 'Article-process observations at this passage (the epistemic audit) — '
                         + 'location, never a verdict on the claim:\n'
-                        + af.slice(0, 4).map((f) => `[${f.module}] “${f.quote.slice(0, 120)}”`).join('\n');
+                        + af.slice(0, 4).map((f) => {
+                            const tag = [f.module, f.kind].filter(Boolean).join('/')
+                                + (f.severity ? ` · ${f.severity}` : '');
+                            return `[${tag}] “${f.quote.slice(0, 120)}”`;
+                        }).join('\n');
                     li.appendChild(chip);
                 }
                 // FA.2 — forensic maneuvers anchored at this passage.
