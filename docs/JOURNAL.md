@@ -117,7 +117,12 @@ choices, recorded:
    soft guard parks the button while a transcription job actually
    holds the GPU; and 🎙 Transcribe on a re-captured video offers to
    LOAD the archived transcription (loadArchivedArticle) instead of
-   re-running the job. The drafts pass also went per-WINDOW
+   re-running the job — scanning `priorVersions` too, because a plain
+   re-capture's load-time save OVERWRITES the archive row with the
+   fresh transcript-less article and the diarized artifact survives
+   only in the snapshots (field-verified on the first real casework
+   episode, 2026-08-02: row = re-capture, both diarized saves intact
+   in priorVersions). The drafts pass also went per-WINDOW
    (chunkTranscript + runDraftPass, adaptive halving on HTTP 400) —
    hour-plus transcripts overflow any fixed LM Studio context in one
    shot.

@@ -2085,18 +2085,33 @@ async function runTranscribeFlow() {
     if (!a.transcription) {
         try {
             const row = await ArchiveCache.getArticle(a.url);
-            const arch = row && row.article;
-            const segs = arch && arch.transcription && Array.isArray(arch.transcription.segments)
-                ? arch.transcription.segments.length : 0;
-            if (segs > 0 && confirm(
-                `This video already has a local transcription in your archive (${segs} segments`
-                + `${arch.transcript_meta ? `, ${arch.transcript_meta.speaker_count} speaker(s)` : ''}).\n\n`
-                + 'OK — load the archived transcript (instant).\n'
-                + 'Cancel — re-transcribe from scratch.')) {
-                await loadArchivedArticle(arch, { source: 'cache', cachedAt: row.cachedAt });
-                setupSpeakersControl();
-                setupTranscriptClaimDraftsControl().catch(() => {});
-                return;
+            // The row itself, then the prior-version snapshots: a plain
+            // re-capture OVERWRITES the row with a transcript-less
+            // article (load-time save), and the diarized artifact
+            // survives only in priorVersions — a field-verified loss
+            // mode; the snapshots are the recovery path.
+            const candidates = [];
+            if (row && row.article) candidates.push({ article: row.article, prior: false });
+            for (const v of (row && row.priorVersions) || []) {
+                const va = v && (v.article || v);
+                if (va) candidates.push({ article: va, prior: true });
+            }
+            const hit = candidates.find(({ article: x }) => x && x.transcription
+                && Array.isArray(x.transcription.segments) && x.transcription.segments.length > 0);
+            if (hit) {
+                const arch = hit.article;
+                const segs = arch.transcription.segments.length;
+                if (confirm(
+                    `This video already has a local transcription in your archive (${segs} segments`
+                    + `${arch.transcript_meta ? `, ${arch.transcript_meta.speaker_count} speaker(s)` : ''}`
+                    + `${hit.prior ? ' — from a prior version; a later re-capture replaced it' : ''}).\n\n`
+                    + 'OK — load the archived transcript (instant).\n'
+                    + 'Cancel — re-transcribe from scratch.')) {
+                    await loadArchivedArticle(arch, { source: 'cache', cachedAt: row.cachedAt });
+                    setupSpeakersControl();
+                    setupTranscriptClaimDraftsControl().catch(() => {});
+                    return;
+                }
             }
         } catch (_) { /* archive miss — proceed to transcribe */ }
     }
