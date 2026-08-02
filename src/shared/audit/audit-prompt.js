@@ -24,8 +24,15 @@
 // and methodology version stays 1.0 because the findings schemas are
 // unchanged.
 
-import { PAYLOADS, MODULE_NAMES } from './findings-schemas.js';
+import { PAYLOADS, OPINION_PAYLOADS, MODULE_NAMES } from './findings-schemas.js';
 import { MODULE_PROMPTS } from './module-prompts.js';
+
+// Both families resolve through one lookup (R5/OP.2): the tool schema
+// a module's LLM call is forced through comes from the same map the
+// validator enforces, whichever family the module belongs to.
+function payloadFor(name) {
+    return PAYLOADS[name] || OPINION_PAYLOADS[name] || null;
+}
 
 // The deterministic assembly half (weights, aggregate, assembleAudit,
 // the auditable-input bound) lives in ./assemble.js so the READER can
@@ -64,7 +71,20 @@ const MODULE_BLURBS = {
     omission:
         'Who is quoted, who is referenced but unheard, and who is conspicuously absent given the topic?',
     prediction_extraction:
-        'Extract testable predictions (explicit or implicit). NOT scored — this feeds the ledger.'
+        'Extract testable predictions (explicit or implicit). NOT scored — this feeds the ledger.',
+    // Opinion family (R5/OP.2) — argument, never conclusion.
+    premise_accuracy:
+        'Are the argument\'s load-bearing premises accurate and verifiable? You don\'t get to argue from false facts.',
+    logical_validity:
+        'Does the inferential structure hold — fallacies flagged, sound moves credited? Never judge the conclusion itself.',
+    steel_manning:
+        'Did the author engage the strongest form of the opposing position, or a strawman?',
+    fact_interpretation_separation:
+        'Are factual claims and interpretive moves clearly distinguished, or smuggled together?',
+    disclosure_transparency:
+        'Priors, conflicts, methodology, uncertainty — what does the text itself disclose?',
+    originality_synthesis:
+        'Novel synthesis, fresh angle, competent restatement, or circulating talking points?'
 };
 
 // ------------------------------------------------------------------
@@ -77,7 +97,7 @@ const MODULE_BLURBS = {
 // deterministic and injected at assembly, so the model can't dangle the
 // wire address with a wrong version.
 function moduleToolSchema(name) {
-    const payload = PAYLOADS[name];
+    const payload = payloadFor(name);
     const properties = { ...payload.properties };
     const required = [...payload.required];
 

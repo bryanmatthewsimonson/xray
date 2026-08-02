@@ -161,8 +161,14 @@ test('a promoted claim back-references its prediction (RQ6, additive 30040 wire 
 });
 
 test('CURRENT_MODULE_VERSIONS covers every module (the staleness reference)', async () => {
-    const { CURRENT_MODULE_VERSIONS, MODULE_NAMES } = await import('../src/shared/audit/findings-schemas.js');
-    assert.deepEqual(Object.keys(CURRENT_MODULE_VERSIONS).sort(), [...MODULE_NAMES].sort());
+    const { CURRENT_MODULE_VERSIONS, MODULE_NAMES, OPINION_MODULE_NAMES }
+        = await import('../src/shared/audit/findings-schemas.js');
+    // Both families, exactly (R5/OP.2): every module has a staleness
+    // reference, no strays. The invariant this always guarded, extended
+    // when the opinion family joined.
+    assert.deepEqual(
+        Object.keys(CURRENT_MODULE_VERSIONS).sort(),
+        [...MODULE_NAMES, ...OPINION_MODULE_NAMES].sort());
     for (const v of Object.values(CURRENT_MODULE_VERSIONS)) {
         assert.match(v, /^\d+\.\d+(\.\d+)?$/);
     }
