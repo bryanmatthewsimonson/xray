@@ -30,8 +30,14 @@ dependencies = [
     # "Library cublas64_12.dll is not found"). NVIDIA's own wheels
     # supply the cu12 runtime; the worker child adds their bin dirs to
     # the DLL search path before any heavy import (worker.py).
-    "nvidia-cublas-cu12>=12.4",
-    "nvidia-cudnn-cu12>=9.1",
+    # win32+linux ONLY: NVIDIA ships no darwin wheels (and macOS runs
+    # ctranslate2 on CPU — no cublas needed), so an unmarked dep would
+    # break `uv sync` on Mac. The required-environments guard below
+    # checks win/linux only and deliberately CANNOT catch this — the
+    # marker is the protection. Linux is included because ctranslate2's
+    # manylinux wheels resolve cu12 libs from these same packages.
+    "nvidia-cublas-cu12>=12.4; sys_platform == 'win32' or sys_platform == 'linux'",
+    "nvidia-cudnn-cu12>=9.1; sys_platform == 'win32' or sys_platform == 'linux'",
 ]
 
 [project.scripts]
