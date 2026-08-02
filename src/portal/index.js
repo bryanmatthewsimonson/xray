@@ -36,10 +36,12 @@ import { describeActiveContext } from '../shared/case-membership.js';
 import { findingsForEntity } from './forensic-data.js';
 import { loadLocalLedger, reconcile, countLocalOnly, listLocalArtifacts } from './reconcile.js';
 import { getByEventId as journalGetByEventId } from '../shared/event-journal.js';
+import { rebroadcastEvent } from '../shared/publish-gate.js';
 import { renderInspector } from './inspector.js';
 import {
     buildAuditIndex, mergeLocalRuns, mergeLocalResolutions, auditsForArticle,
     latestAuditFor, dossierInputsForEntity, computeEntityDossier,
+    localAuditedPopulation,
     predictionsDue, resolverIdentity, DEFAULT_POPULATION_MEAN
 } from './audit-data.js';
 import { auditCardChipData } from '../shared/audit/display.js';
@@ -633,12 +635,15 @@ async function rebroadcastMissing(entry, statusEl) {
             statusEl.textContent = 'not in the journal (pre-journal publish) — re-publish from the reader';
             return;
         }
-        const resp = await new Promise((resolve) => {
-            chrome.runtime.sendMessage(
-                { type: 'xray:relay:publish', event: row.event, relays: state.relays },
-                (r) => resolve(r)
-            );
-        });
+        // Verbatim re-broadcast of the JOURNALED event — deliberately
+        // not the gate: this row already has its journal history
+        // (publish-gate.js rebroadcastEvent).
+        let resp;
+        try {
+            resp = { ok: true, results: await rebroadcastEvent(state.relays, row.event) };
+        } catch (err) {
+            resp = { ok: false, error: (err && err.message) || null };
+        }
         if (resp && resp.ok && resp.results && resp.results.successful > 0) {
             const confirmed = typeof resp.results.confirmed === 'number' ? resp.results.confirmed : 0;
             statusEl.textContent = confirmed > 0
@@ -902,7 +907,7 @@ function render() {
             // reproducible from the same events by anyone (the 30060
             // snapshot is just a cache of this).
             dossier: state.auditIndex
-                ? computeEntityDossier(dossierInputsForEntity(state.items, state.auditIndex, state.view.pubkey, state.priorHashesByUrl))
+                ? computeEntityDossier(dossierInputsForEntity(state.items, state.auditIndex, state.view.pubkey, state.priorHashesByUrl), { localPopulation: localAuditedPopulation(state.items, state.auditIndex, state.priorHashesByUrl) })
                 : null,
             findings: findingsForEntity(state.items, state.view.pubkey),
             populationMean: DEFAULT_POPULATION_MEAN,
@@ -929,7 +934,7 @@ function render() {
             entityIndex: state.entityIndex,
             casePubkey: state.view.pubkey,
             dossier: state.auditIndex
-                ? computeEntityDossier(dossierInputsForEntity(state.items, state.auditIndex, state.view.pubkey, state.priorHashesByUrl))
+                ? computeEntityDossier(dossierInputsForEntity(state.items, state.auditIndex, state.view.pubkey, state.priorHashesByUrl), { localPopulation: localAuditedPopulation(state.items, state.auditIndex, state.priorHashesByUrl) })
                 : null,
             findings: findingsForEntity(state.items, state.view.pubkey),
             populationMean: DEFAULT_POPULATION_MEAN,

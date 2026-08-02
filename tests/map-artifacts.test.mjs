@@ -21,7 +21,8 @@ const {
     mergeExtractIntoRecord, assertionClaimCoverage, partitionAssertions,
     setAssertionTriage, recordArticleExtraction, ASSERTION_OVERLAP_MIN,
     unionExtractWithRecord, reduceExtractFromRecord, mergeExtractionRecords,
-    MAX_REDUCE_ASSERTIONS_PER_MEMBER, isTextPinnedKey
+    MAX_REDUCE_ASSERTIONS_PER_MEMBER, isTextPinnedKey, suggestExtractFromProposals,
+    setAssertionRationale, setRowTriage, markRecordPublished
 } = await import('../src/shared/map-artifacts.js');
 const { createGroundingIndex } = await import('../src/shared/quote-grounding.js');
 
@@ -233,6 +234,143 @@ test('recordArticleExtraction skips cleanly on missing member or extract', async
     assert.equal(out.status, 'skipped');
 });
 
+// ---- MA.4: both producers share ONE layer ----------------------------------
+
+test('suggestExtractFromProposals: only quote-bearing CLAIM proposals become atoms', () => {
+    const out = suggestExtractFromProposals([
+        { kind: 'claim', text: 'Funding went to Wuhan', quote: 'Gain-of-function research was funded at the Wuhan Institute' },
+        { kind: 'claim', text: 'no quote so not an atom' },              // dropped: nothing to ground
+        { kind: 'claim', text: 'blank quote', quote: '   ' },            // dropped
+        { kind: 'entity', name: 'WIV', entity_type: 'organization' },    // not claim-shaped
+        { kind: 'assessment', claim_ref: 'c1', stance: 1 },
+        { kind: 'finding', subject_ref: 'e1' },
+        null
+    ]);
+    assert.equal(out.key_assertions.length, 1, 'entities/assessments/findings are NOT this layer\'s business');
+    assert.equal(out.key_assertions[0].text, 'Funding went to Wuhan');
+    assert.equal(out.key_assertions[0].why_load_bearing, '');
+    assert.deepEqual(suggestExtractFromProposals(null).key_assertions, []);
+});
+
+test('MA.4: a suggest fold stamps producer + suggested text, and dedups against a MAP atom on the same span', () => {
+    // The map found this sentence first.
+    const mapped = mergeExtractIntoRecord(null, {
+        member: member(), extract: extract(), key: 'k-map', model: 'm-map', now: 10
+    }).record;
+    assert.equal(mapped.assertions[0].first_seen.producer, 'map');
+    assert.equal(mapped.assertions[0].text, null, 'a map atom carries no authored claim text');
+
+    // The reader's suggest pass proposes the SAME sentence plus a new one.
+    const sugg = suggestExtractFromProposals([
+        { kind: 'claim', text: 'Funding claim', quote: 'Gain-of-function research was funded at the Wuhan Institute' },
+        { kind: 'claim', text: 'Spillover is mainstream', quote: 'Zoonotic spillover is the mainstream scientific view' }
+    ]);
+    const out = mergeExtractIntoRecord(mapped, {
+        member: member(), extract: sugg, model: 'm-suggest', now: 20, producer: 'suggest'
+    });
+    assert.equal(out.changed, true);
+    assert.equal(out.added, 1, 'the overlapping sentence is ONE atom, not two rows');
+    assert.equal(out.record.assertions.length, 2);
+    const kept = out.record.assertions.find((a) => a.quote.startsWith('Gain-of-function'));
+    assert.equal(kept.first_seen.producer, 'map', 'first sighting wins — the map found it');
+    const fresh = out.record.assertions.find((a) => a.quote.startsWith('Zoonotic'));
+    assert.equal(fresh.first_seen.producer, 'suggest');
+    assert.equal(fresh.text, 'Spillover is mainstream', 'the suggest pass\'s authored claim text rides along');
+});
+
+test('MA.4: a KEYLESS fold that adds nothing reports changed:false (no pointless rewrite)', () => {
+    const rec = mergeExtractIntoRecord(null, {
+        member: member(), extract: extract(), key: 'k1', now: 10
+    }).record;
+    // Same sentence, no fingerprint — the suggest path's shape.
+    const again = mergeExtractIntoRecord(rec, {
+        member: member(),
+        extract: suggestExtractFromProposals([
+            { kind: 'claim', text: 't', quote: 'Gain-of-function research was funded at the Wuhan Institute' }
+        ]),
+        now: 99, producer: 'suggest'
+    });
+    assert.equal(again.changed, false, 'every Suggest run must not bump updatedAt for nothing');
+    assert.equal(again.added, 0);
+    assert.equal(again.record.updatedAt, 10, 'the stored record is returned untouched');
+    // A keyed fold still counts as changed even when atoms dedup (the
+    // merged_keys ledger is what makes the NEXT identical fold free).
+    const keyed = mergeExtractIntoRecord(rec, {
+        member: member(), extract: extract(), key: 'k2', now: 50
+    });
+    assert.equal(keyed.changed, true);
+});
+
+test('MA.4: an ungroundable suggest quote is dropped and counted, never stored', () => {
+    const out = mergeExtractIntoRecord(null, {
+        member: member(),
+        extract: suggestExtractFromProposals([
+            { kind: 'claim', text: 'nope', quote: 'this sentence is not in the article at all' }
+        ]),
+        now: 5, producer: 'suggest'
+    });
+    assert.equal(out.record.assertions.length, 0);
+    assert.equal(out.droppedUngrounded, 1);
+    assert.equal(out.changed, true, 'a first-ever record with a disclosed drop count is worth storing');
+});
+
+test('MA.4: an unknown producer value normalizes to map — never an arbitrary string', () => {
+    const out = mergeExtractIntoRecord(null, {
+        member: member(), extract: extract(), key: 'k', now: 1, producer: 'something-else'
+    });
+    assert.equal(out.record.assertions[0].first_seen.producer, 'map');
+});
+
+// ---- MA.6: the review fields the publish projection reads -------------------
+
+test('MA.6 setAssertionRationale: accept, edit-flips-provenance, and withdraw', () => {
+    const rec = mergeExtractIntoRecord(null, {
+        member: member(), extract: extract(), key: 'k1', model: 'm', now: 10
+    }).record;
+    const key = rec.assertions[0].key;
+
+    // Accepting the model's draft keeps it attributed to the model.
+    const a = setAssertionRationale(rec, key, '  carries the funding argument  ', { now: 20 });
+    assert.equal(a.assertions[0].accepted_why, 'carries the funding argument', 'trimmed');
+    assert.equal(a.assertions[0].accepted_why_provenance, 'llm');
+    assert.equal(a.assertions[0].rationale_accepted_at, 20);
+
+    // An edited rationale is the human's words.
+    const b = setAssertionRationale(a, key, 'my own wording', { provenance: 'user', now: 30 });
+    assert.equal(b.assertions[0].accepted_why_provenance, 'user');
+
+    // Withdrawing leaves the atom accepted but rationale-less.
+    const c = setAssertionRationale(b, key, null, { now: 40 });
+    assert.equal(c.assertions[0].accepted_why, null);
+    assert.equal(c.assertions[0].accepted_why_provenance, null);
+    // Blank/whitespace is a withdrawal, not an empty rationale.
+    assert.equal(setAssertionRationale(b, key, '   ', { now: 41 }).assertions[0].accepted_why, null);
+    // The model's own draft is never touched.
+    assert.equal(c.assertions[0].why, 'funding link');
+});
+
+test('MA.6 setRowTriage: sources and open questions are individually acceptable', () => {
+    const rec = mergeExtractIntoRecord(null, {
+        member: member(), extract: extract(), key: 'k1', now: 10
+    }).record;
+    const srcKey = rec.sources[0].key;
+    const qKey = rec.open_questions[0].key;
+
+    const withSrc = setRowTriage(rec, 'sources', srcKey, 'accepted', { now: 20, note: 'chased it' });
+    assert.equal(withSrc.sources[0].status, 'accepted');
+    assert.equal(withSrc.sources[0].triaged_at, 20);
+    assert.equal(withSrc.sources[0].accepted_note, 'chased it');
+
+    const withQ = setRowTriage(withSrc, 'open_questions', qKey, 'dismissed', { now: 21 });
+    assert.equal(withQ.open_questions[0].status, 'dismissed');
+
+    // Re-opening clears the triage stamp.
+    assert.equal(setRowTriage(withQ, 'open_questions', qKey, 'open', { now: 22 })
+        .open_questions[0].triaged_at, null);
+    // A bad list name is a programming error, not a silent no-op.
+    assert.throws(() => setRowTriage(rec, 'assertions', 'x', 'accepted'), /unknown list/);
+});
+
 // ---- MA.3: the durable layer feeds the reduce -------------------------------
 
 function storedRecord() {
@@ -299,83 +437,222 @@ test('reduceExtractFromRecord: recovery for a failed member — latest position 
 
 // ---- record ⊕ record: the backup merge-import path --------------------------
 
-test('mergeExtractionRecords: incoming-only atoms accrue; overlapping ones keep the local atom', () => {
+// ---- MA.7: the import re-grounds, and adopts nothing ------------------
+//
+// The old contract trusted the incoming record's start/end. It could
+// not: `articleHash` hashes normalizeForHash(body) while spans index the
+// UN-normalized body, so two machines inside one hash equivalence class
+// agree on the hash and disagree on offsets. These pin the new contract.
+
+// A LOCAL body that differs from the fixture TEXT only in whitespace —
+// same articleHash class, different offsets. This is the exact shape of
+// the bug, and every atom below must still land correctly.
+const TEXT_TWIN = TEXT.replace(/\n/g, '\r\n').replace(/ /g, '  ');
+
+test('MA.7: the merge REFUSES without local text — there is no degraded mode', () => {
     const local = storedRecord();
+    const out = mergeExtractionRecords(local, storedRecord());
+    assert.equal(out.skipped, 'no-local-text');
+    assert.equal(out.changed, false);
+    assert.equal(out.record, local, 'nothing is written when nothing can be verified');
+    // Empty string is not text either.
+    assert.equal(mergeExtractionRecords(local, storedRecord(), { localText: '' }).skipped, 'no-local-text');
+    // And the refusal precedes any span arithmetic: a wholesale add of a
+    // record this machine has no text for is refused too.
+    assert.equal(mergeExtractionRecords(null, storedRecord()).skipped, 'no-local-text');
+});
+
+test('MA.7: incoming atoms are re-located in the LOCAL text, foreign offsets ignored', () => {
+    // The incoming record's spans index a whitespace-divergent twin, so
+    // its offsets are WRONG here by construction. Prove they are unused.
     const incoming = mergeExtractIntoRecord(null, {
-        member: member(),
+        member: member({ text: TEXT_TWIN }),
         extract: extract({ key_assertions: [
-            { quote: 'Gain-of-function research was funded at the Wuhan Institute', why_load_bearing: 'foreign-why' },
-            { quote: 'Police confirmed nothing at all', why_load_bearing: 'unfindable' }   // won't ground
+            { quote: 'Gain-of-function research was funded at the Wuhan Institute', why_load_bearing: 'foreign-why' }
         ] }),
         key: 'k-foreign', model: 'm-foreign', now: 500
     }).record;
-    const { record, changed } = mergeExtractionRecords(local, incoming);
-    assert.equal(changed, true, 'merged_keys accrue even when atoms dedup');
-    const gof = record.assertions.find((a) => a.quote.startsWith('Gain-of-function'));
-    assert.equal(gof.why, 'w1', 'the local atom wins on overlap — foreign copy never replaces it');
-    assert.ok(record.merged_keys.includes('k-old') && record.merged_keys.includes('k-foreign'));
+    const foreignAtom = incoming.assertions.find((a) => a.quote.includes('Gain-of-function'));
+    assert.ok(TEXT.slice(foreignAtom.start, foreignAtom.end) !== foreignAtom.quote,
+        'precondition: the foreign span does NOT index the local text');
+
+    // Merged against a record with no such atom, so it must be ADDED.
+    const bare = { ...storedRecord(), assertions: [] };
+    const { record, counts } = mergeExtractionRecords(bare, incoming, { localText: TEXT, now: 1000 });
+    assert.equal(counts.unlocated, 0);
+    const added = record.assertions.find((a) => a.quote.includes('Gain-of-function'));
+    assert.ok(added, 'the atom landed');
+    assert.equal(TEXT.slice(added.start, added.end), added.quote,
+        'the STORED span indexes the LOCAL text — this is the whole fix');
+    assert.equal(added.key, `a:${added.start}-${added.end}`, 'the key is recomputed from local coordinates');
+    assert.equal(added.first_seen.imported, true, 'provenance on its face');
 });
 
-test('mergeExtractionRecords: a foreign human triage is adopted onto an OPEN local atom, never over a local decision', () => {
+test('MA.7: a whitespace-divergent twin dedups by QUOTE, not by span', () => {
+    // Same sentence, both machines — offsets differ, so span overlap
+    // alone could miss the twin. Untruncated quote identity finds it.
     const local = storedRecord();
-    // Foreign side accepted the zoonosis atom and dismissed the GOF one;
-    // locally the GOF atom is open and lab-leak is already dismissed.
+    const incoming = mergeExtractIntoRecord(null, {
+        member: member({ text: TEXT_TWIN }), extract: extract(),
+        key: 'k-foreign', model: 'm-foreign', now: 500
+    }).record;
+    const before = local.assertions.length;
+    const { record } = mergeExtractionRecords(local, incoming, { localText: TEXT, now: 1000 });
+    const gof = record.assertions.filter((a) => a.quote.includes('Gain-of-function'));
+    assert.equal(gof.length, 1, 'ONE atom, not a near-duplicate pair');
+    assert.equal(gof[0].why, 'w1', 'the local atom wins — the foreign copy never replaces it');
+    assert.equal(record.assertions.length, before, 'no atom was invented');
+});
+
+test('MA.7: an unlocatable incoming quote is REFUSED and disclosed, never stored', () => {
+    const local = { ...storedRecord(), assertions: [] };
+    const incoming = {
+        ...storedRecord(),
+        assertions: [{
+            key: 'a:0-10', quote: 'THIS SENTENCE IS NOWHERE IN THE LOCAL ARTICLE',
+            start: 0, end: 45, status: 'accepted', accepted_claim_id: 'claim_foreign',
+            first_seen: { model: 'm-foreign', promptVersion: 'corpus-v7', at: 5 }
+        }]
+    };
+    const { record, counts } = mergeExtractionRecords(local, incoming, { localText: TEXT, now: 1000 });
+    assert.equal(counts.unlocated, 1);
+    assert.equal(counts.regrounded, 0);
+    assert.equal(record.assertions.length, 0, 'a quote that cannot be located never becomes a proposal (P3/P4)');
+    // Disclosed as a finding, not swallowed into dropped_ungrounded.
+    assert.equal((record.imported_unlocated || []).length, 1);
+    assert.ok(record.imported_unlocated[0].quote.startsWith('THIS SENTENCE'));
+    assert.equal(record.dropped_ungrounded, local.dropped_ungrounded,
+        'the published ungroundable counter is NOT overloaded with import failures');
+});
+
+test('MA.7: a foreign ruling is ATTRIBUTED, never adopted as the local decision', () => {
+    const local = storedRecord();
     let incoming = storedRecord();
     const zooKey = incoming.assertions.find((a) => a.quote.startsWith('Zoonotic')).key;
-    const gofKey = incoming.assertions.find((a) => a.quote.startsWith('Gain-of-function')).key;
     const labKey = incoming.assertions.find((a) => a.quote.startsWith('The lab leak')).key;
     incoming = setAssertionTriage(incoming, zooKey, 'accepted', { claimId: 'claim_foreign', now: 900 });
-    incoming = setAssertionTriage(incoming, gofKey, 'dismissed', { now: 901 });
+    incoming = setAssertionRationale(incoming, zooKey, 'the foreign reason', { provenance: 'user', now: 900 });
     incoming = setAssertionTriage(incoming, labKey, 'accepted', { claimId: 'claim_conflict', now: 902 });
 
-    const { record } = mergeExtractionRecords(local, incoming);
+    const { record, counts } = mergeExtractionRecords(local, incoming, { localText: TEXT, now: 1000 });
     const zoo = record.assertions.find((a) => a.quote.startsWith('Zoonotic'));
-    const gof = record.assertions.find((a) => a.quote.startsWith('Gain-of-function'));
     const lab = record.assertions.find((a) => a.quote.startsWith('The lab leak'));
-    assert.equal(zoo.status, 'accepted', 'a decision made anywhere beats undecided');
-    assert.equal(zoo.accepted_claim_id, 'claim_foreign');
-    assert.equal(gof.status, 'dismissed', 'foreign dismissal adopted onto an open atom');
-    assert.equal(lab.status, 'dismissed', 'CONFLICTING decisions resolve to the LOCAL one');
+
+    // The local atom's OWN triage is untouched — a file cannot rule.
+    assert.equal(zoo.status, 'open', 'an imported accept does NOT become the local decision');
+    assert.equal(zoo.accepted_claim_id, null, 'no foreign claim id lands in a local field');
+    assert.ok(!zoo.accepted_why, "the signer's own rationale field stays empty");
+    // It rides attributed and inert instead.
+    assert.equal(zoo.imported_ruling.status, 'accepted');
+    assert.equal(zoo.imported_ruling.foreign_claim_id, 'claim_foreign');
+    assert.equal(zoo.imported_ruling.why, 'the foreign reason',
+        'the rationale survives — the old adoption silently dropped it');
+    assert.equal(counts.importedRulings >= 1, true);
+    // partitionAssertions must still see it as open: attribution is not triage.
+    assert.ok(partitionAssertions(record).open.some((a) => a.quote.startsWith('Zoonotic')));
+
+    // A local atom that ALREADY has a ruling gets no imported_ruling at all.
+    assert.equal(lab.status, 'dismissed', 'the local decision stands');
+    assert.equal(lab.imported_ruling, undefined, 'no attribution over an existing local ruling');
 });
 
-test('mergeExtractionRecords: an UNPINNED (url:) key is refused — spans across machines are meaningless there', () => {
+test('MA.7: foreign merged_keys and publish stamps are never imported', () => {
+    const local = { ...storedRecord(), merged_keys: ['k-local'] };
+    const incoming = {
+        ...storedRecord(),
+        merged_keys: ['k-foreign'],
+        published_at: 12345,
+        published_event_id: 'e'.repeat(64)
+    };
+    const { record } = mergeExtractionRecords(local, incoming, { localText: TEXT, now: 1000 });
+    assert.deepEqual(record.merged_keys, ['k-local'],
+        'a foreign fingerprint would suppress this machine’s own fold of its own paid extract');
+    assert.equal(record.published_at, undefined, 'a publish ledger is a claim about what THIS identity signed');
+    assert.equal(record.published_event_id, undefined);
+
+    // Same on the wholesale-add path — the old code adopted the object.
+    const fresh = mergeExtractionRecords(null, incoming, { localText: TEXT, now: 1000 });
+    assert.deepEqual(fresh.record.merged_keys, []);
+    assert.equal(fresh.record.published_at, undefined);
+    assert.equal(fresh.record.published_event_id, undefined);
+});
+
+test('mergeExtractionRecords: an UNPINNED (url:) key is refused before anything else', () => {
     // buildMemberUnits keys a member `url:<sha16>` when the archive row
     // has no canonical hash. That key names a URL, not a text, so two
-    // installs can hold same-key records over DIFFERENT bodies: span
-    // arithmetic would adopt a foreign dismissal onto an unrelated
-    // sentence and insert quotes absent from the local article.
+    // installs can hold same-key records over DIFFERENT bodies.
     const local = { ...storedRecord(), articleHash: 'url:abc123' };
     const incoming = { ...storedRecord(), articleHash: 'url:abc123' };
-    const out = mergeExtractionRecords(local, incoming);
-    assert.equal(out.skipped, 'unpinned-key');
+    const out = mergeExtractionRecords(local, incoming, { localText: TEXT });
+    assert.equal(out.skipped, 'unpinned-key', 'refused even WITH text — the key names no text to be the right one');
     assert.equal(out.changed, false);
     assert.equal(out.record, local, 'the local record is returned untouched');
-    // The wholesale ADD is refused too: an incoming url:-keyed record's
-    // quotes may appear nowhere in the local article, and the merge has
-    // no text to re-ground them against (guard rail 3).
-    const add = mergeExtractionRecords(null, incoming);
+    const add = mergeExtractionRecords(null, incoming, { localText: TEXT });
     assert.equal(add.skipped, 'unpinned-key');
     assert.equal(add.changed, false);
-    // A real 64-hex content hash still merges.
     assert.equal(isTextPinnedKey('a'.repeat(64)), true);
     assert.equal(isTextPinnedKey('url:abc123'), false);
     assert.equal(isTextPinnedKey(''), false);
     assert.equal(isTextPinnedKey('A'.repeat(64)), false, 'uppercase is not the canonical form');
-    assert.equal(mergeExtractionRecords(storedRecord(), storedRecord()).skipped, undefined);
+    assert.equal(mergeExtractionRecords(storedRecord(), storedRecord(), { localText: TEXT }).skipped, undefined);
 });
 
 test('mergeExtractionRecords: null sides, positions latest-wins per frame, counts take max', () => {
     const local = storedRecord();
     assert.deepEqual(mergeExtractionRecords(local, null), { record: local, changed: false });
-    assert.deepEqual(mergeExtractionRecords(null, local), { record: local, changed: true });
     const incoming = {
         ...storedRecord(),
         positions: [{ caseName: '', scopeQuestion: '', summary: 'newer intrinsic', side_label: null, at: 9999 }],
         dropped_ungrounded: 7,
         updatedAt: 9999
     };
-    const { record } = mergeExtractionRecords(local, incoming);
+    const { record } = mergeExtractionRecords(local, incoming, { localText: TEXT, now: 1000 });
     assert.equal(record.positions.find((p) => !p.caseName).summary, 'newer intrinsic', 'same frame → newer at wins');
     assert.equal(record.dropped_ungrounded, 7, 'counts take max, never a double-counting sum');
     assert.equal(record.updatedAt, 9999);
+});
+
+test('MA.7: re-importing the same file twice is a no-op', () => {
+    const incoming = storedRecord();
+    const first = mergeExtractionRecords(null, incoming, { localText: TEXT, now: 1000 });
+    assert.equal(first.changed, true);
+    const second = mergeExtractionRecords(first.record, incoming, { localText: TEXT, now: 2000 });
+    assert.equal(second.changed, false, 'idempotent without a merged_keys ledger — quote identity carries it');
+    assert.equal(second.record.assertions.length, first.record.assertions.length);
+});
+
+test('markRecordPublished: a LEDGER stamp — it never gates accrual', () => {
+    const rec = storedRecord();
+    const stamped = markRecordPublished(rec, { eventId: 'e'.repeat(64), now: 5000 });
+    assert.equal(stamped.published_at, 5000);
+    assert.equal(stamped.published_event_id, 'e'.repeat(64));
+    assert.deepEqual(stamped.assertions, rec.assertions, 'publishing changes no analysis state');
+
+    // A later fold accrues onto a published record and deliberately
+    // LEAVES the stamp: the surface must be able to say both "published
+    // on the 5th" and "3 atoms found since".
+    // Stamp a record holding ONE atom, then accrue a DIFFERENT sentence
+    // of the same text. (A quote overlapping an existing atom would
+    // correctly dedup, and one absent from TEXT would correctly refuse —
+    // neither would exercise accrual.)
+    const oneAtom = markRecordPublished(mergeExtractIntoRecord(null, {
+        member: member(),
+        extract: extract({ key_assertions: [
+            { quote: 'The lab leak hypothesis remains unproven', why_load_bearing: 'w' }] }),
+        key: 'k-one', model: 'm', now: 100
+    }).record, { eventId: 'e'.repeat(64), now: 5000 });
+    const { record, changed } = mergeExtractionRecords(oneAtom, {
+        ...oneAtom,
+        assertions: [{ key: 'a:900-950', quote: 'Zoonotic spillover is the mainstream scientific view',
+                       start: 900, end: 950, status: 'open',
+                       first_seen: { model: 'm', promptVersion: 'corpus-v7', at: 6000 } }],
+        updatedAt: 6000
+    }, { localText: TEXT, now: 6000 });
+    assert.equal(changed, true);
+    assert.equal(record.published_at, 5000, 'accrual does not clear the publish stamp');
+    assert.ok(record.assertions.length > oneAtom.assertions.length,
+        'the new sentence accrued onto a published record');
+
+    // No event id (a publish that never got one back) is null, not absent.
+    assert.equal(markRecordPublished(rec, { now: 1 }).published_event_id, null);
 });

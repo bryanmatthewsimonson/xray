@@ -35,6 +35,7 @@ import { Signer } from '../shared/signer.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { FALLBACK_RELAYS } from './corpus.js';
+import { gatePublish, relayPublishTransport } from '../shared/publish-gate.js';
 import {
     buildCaseBriefArticle, buildCaseBriefEvent, renderCaseBriefMarkdown,
     citedMemberOrder, outletFor, matchCoverageGapsToPositions
@@ -565,7 +566,23 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                 let ok = 0;
                 for (const unsigned of [article, structured]) {
                     const signed = await Signer.signEvent({ ...unsigned, pubkey: userPubkey });
-                    const resp = await sendMessage({ type: 'xray:relay:publish', event: signed, relays });
+                    // 29.1: through the publish gate — never journaled
+                    // before, so flag-off is exactly the old send. The
+                    // stored brief carries no per-publish stamp, so
+                    // there is no ledger descriptor to record.
+                    let resp;
+                    try {
+                        const gated = await gatePublish({
+                            signedEvent: signed,
+                            relays,
+                            publish: relayPublishTransport(),
+                            ledger: null,
+                            legacyJournalOnSuccess: false
+                        });
+                        resp = { ok: true, results: gated.results };
+                    } catch (err) {
+                        resp = { ok: false, error: (err && err.message) || null };
+                    }
                     if (resp && resp.ok) ok += 1;
                     else Utils.error('brief publish failed', resp && resp.error);
                 }

@@ -47,7 +47,7 @@ The recommended selector types, in order of robustness preference:
 2. `TextPositionSelector` — `{ start, end }`: UTF-16 code-unit offsets into the rendered text content of the capture-time article body (the same text stream the sibling `TextQuoteSelector` was cut from). Emitted alongside a `TextQuoteSelector` by machine-grounded anchors (X-Ray's LLM-suggest path). Consumers MUST treat it as verification-only: resolve it only when the text at `[start, end)` reproduces the sibling `TextQuoteSelector`'s `exact` (allowing for that selector's >500-char `head … tail` truncation); on mismatch, skip it rather than guess — the offsets are meaningless against edited text.
 3. `RangeSelector` — `{ startContainer, startOffset, endContainer, endOffset }` with XPath. Faster on long documents but brittle to DOM restructuring.
 4. `CssSelector` — useful when the page has stable element ids/classes (e.g., paragraph ids on Substack).
-5. `FragmentSelector` — media fragments (`xywh=...` for images, `t=Ns` for time offsets in audio/video) and, for captures extracted from PDF documents, RFC 3778 page fragments (`{ "conformsTo": "http://tools.ietf.org/rfc/rfc3778", "value": "page=N" }`) alongside the text selectors — page-level provenance for consumers that can cite it; skipped by resolvers that can't.
+5. `FragmentSelector` — media fragments (`xywh=...` for images; `t=Ns` or the range form `t=<start>,<end>` in seconds for time offsets in audio/video, `{ "conformsTo": "http://www.w3.org/TR/media-frags/", "value": "t=4.5,9.25" }` — emitted by X-Ray's locally-transcribed video captures on kind-30040 claim anchors) and, for captures extracted from PDF documents, RFC 3778 page fragments (`{ "conformsTo": "http://tools.ietf.org/rfc/rfc3778", "value": "page=N" }`) alongside the text selectors — page/time-level provenance for consumers that can cite it; skipped by resolvers that can't.
 
 Authors SHOULD include multiple selectors. Consumers SHOULD try them in order and treat the first match with confidence ≥ 0.7 as the resolution. Annotations whose selectors do not resolve on the current page are NOT discarded; they are surfaced as page-level annotations with a "could not be located" indicator.
 
@@ -57,7 +57,7 @@ X-Ray articles publish as standard NIP-23 kind-30023 events. When the capture wa
 
 | tag | value | meaning |
 |---|---|---|
-| `extraction-method` | `pdfjs-<ver>` \| `llm:<model>` \| `pdfjs-<ver>+llm:<model>` | How the body text was produced: the deterministic pdf.js text layer; a model transcription of a scanned document (no text layer existed); or a model structure pass whose every span was re-grounded verbatim against the deterministic text (model-authored spans that failed grounding were discarded, never published). |
+| `extraction-method` | `pdfjs-<ver>` \| `llm:<model>` \| `pdfjs-<ver>+llm:<model>` \| `whisperx-<asr_model>+<diarization_model>` \| `<asr-provider>-<model>` | How the body text was produced: the deterministic pdf.js text layer; a model transcription of a scanned document (no text layer existed); a model structure pass whose every span was re-grounded verbatim against the deterministic text (model-authored spans that failed grounding were discarded, never published); a local ASR + speaker-diarization run over the source media (e.g. `whisperx-large-v3+pyannote-community-1` — the bare `+` here joins the two local models and is NOT the `+llm:` composition form); or a cloud transcription service's single integrated ASR+diarization model over the source media (`assemblyai-universal-3-5-pro`, `deepgram-nova-3` — one `[a-z0-9._-]` token, no `+`, because transcription and speaker labels come from one provider model; the model segment is the one the provider REPORTS having used, when its API says). |
 | `source-hash` | sha256 (64 hex) of the ORIGINAL document bytes | Pins the capture to the exact source document. The capturer archives the bytes locally under this hash; anyone holding the same document can verify the binding. |
 
 Both tags are additive: no existing tag moves, and consumers that do not know them skip them (the established pattern). A consumer that DOES know them SHOULD surface `llm:` methods as machine-transcribed — that text was not produced by a deterministic extractor and should be verified against the source document before being quoted as the document's text. The local `unverified_spans` count (model spans dropped by re-grounding) deliberately does NOT publish: it describes the reconstruction session, not the published text.
@@ -425,7 +425,24 @@ Addressable. One surface-scan module's structured findings for one article text,
 - **`x` is the canonical article hash**: SHA-256 (lowercase hex) of the normalized article markdown — CRLF→LF, trailing spaces/tabs stripped per line, runs of 3+ newlines collapsed to 2, trailing whitespace stripped at end of input; defined over exactly **one** normalization pass, computed over the article body excluding any client metadata header. `x` is single-letter and relay-indexed (NIP-94 precedent: the SHA-256 of the thing); `{"kinds":[30056,30057],"#x":["<hash>"]}` is the one-filter "everything auditing this exact text" query. `r`/`i` are convenience joins that MAY go stale as URLs drift; the hash is the identity.
 - The `d` MUST be recomputable from the event's own tags: `mod:` + the first 16 hex of SHA-256 over `<x> | <t module name> | <module-version> | <run-at>` (`|`-joined, verbatim tag values).
 - **Time-series constraint (normative for every audit kind):** relays keep only the latest event per `(pubkey, kind, d)`, so audit-bearing `d`s MUST carry methodology version and/or run identity — a re-run or a version bump derives a NEW `d` (this scheme does so via `module-version` + `run-at`), prior-methodology audits persist as distinct addressable events, and supersession is expressed exclusively through explicit reference tags on the newer event, never through relay replacement. Republishing the same `d` is permitted only as an idempotent re-emit of the same run.
-- `t` carries the module name (one of the eight; relay-indexed). Additional `t` values MAY mirror the article's topic/beat tags; beat *semantics* for audit kinds derive from matching `t` values against the publisher's published beat vocabulary — collisions with generic hashtags are expected and harmless.
+- `t` carries the module name (relay-indexed). The module vocabulary is
+  two families under one wire shape (additive, 2026-08-02): the NEWS
+  family — `headline_body_fidelity`, `asymmetric_language`,
+  `number_hygiene`, `source_quality`, `internal_coherence`,
+  `definitional_precision`, `omission`, `prediction_extraction` — and
+  the OPINION family — `premise_accuracy`, `logical_validity`,
+  `steel_manning`, `fact_interpretation_separation`,
+  `disclosure_transparency`, `originality_synthesis`, plus the reused
+  `asymmetric_language` / `definitional_precision` /
+  `prediction_extraction`. Opinion aggregates carry
+  `ceiling-source: heuristic:premise-accuracy/1.0`. The two families'
+  aggregate scores share the 0–100 axis but are DIFFERENT
+  methodologies; consumers MUST NOT average a news aggregate with an
+  opinion aggregate for the same subject. Additional `t` values MAY
+  mirror the article's topic/beat tags; beat *semantics* for audit
+  kinds derive from matching `t` values against the publisher's
+  published beat vocabulary — collisions with generic hashtags are
+  expected and harmless.
 - `score`/`confidence` mirror the content payload. `prediction_extraction` events carry **neither** — that module extracts a prediction ledger and is not scored.
 - `content` is the module's findings JSON: a shared envelope (`module`, `version`, `score` + `confidence` except on prediction_extraction, mandatory `auditor_caveats[]` — what this scan could not determine) plus per-module finding arrays in which **every finding carries a verbatim `evidence_quote`** from the audited text. A finding that cannot quote the words it is about does not exist. A deduplicated top-level `evidence_quotes[]` index rides beside the findings.
 - **Auditor identity tags**: `["auditor", "<model|human|pipeline|consensus>", "<id>"]`, plus repeatable `["auditor-constituent", "<kind>", "<id>"]` for pipeline/consensus auditors and an optional `["auditor-manifest", "<sha256>"]` (hash of the orchestration config: prompt set, weights, versions). Human auditors additionally carry an indexed `["p", "<pubkey>", "", "auditor"]`. The auditor tags record what *produced* the result; the signing pubkey records who *published* it. Human and machine auditors use identical wire shapes.
@@ -832,6 +849,76 @@ Addressable. A creator's signed list of the entity pubkeys their archive operate
 - **Rotation-survivable**: a new primary republishes the manifest under its own key (dual-listing old + new entity pubkeys during a migration window).
 - Rows are sorted by pubkey (deterministic republish comparison). Consumers MUST take the newest manifest per creator.
 
+## Kind 30070 — ExtractionAnalysis
+
+Addressable. One publisher's **extraction analysis of one article**: the machine-proposed load-bearing spans of a specific text, each carrying the publisher's review state, plus the sources the article leans on and the questions it leaves open. One replaceable event per (author, article hash). Signed by the **user's primary identity** — it is the publisher's analysis session, not an entity's statement.
+
+```jsonc
+{
+  "kind": 30070,
+  "tags": [
+    ["d", "xray-extraction:<article hash>"],       // one replaceable analysis per article, per author
+    ["title", "Extraction analysis — <article title>"],
+    ["t", "xray-extraction-analysis"],             // recognizer
+    ["x", "<article hash>"],                       // the text this analyzed — the #x join
+    ["unreviewed", "18"],                          // review-state counts, on the event's FACE
+    ["endorsed", "4"],
+    ["dismissed", "2"],
+    ["ungrounded-dropped", "3"],
+    ["published_at", "<unix seconds>"],
+    ["r", "<url>"], ["i", "<url>"], ["k", "web"],  // URL anchoring (see §Anchoring)
+    ["a", "30023:<pk>:<d>", "", "article"],        // the article itself, when its coordinate is known
+    ["a", "30040:<pk>:<claim d>", "", "endorsed"], // ONE PER ENDORSED ATOM — the endorsement index
+    ["client", "xray"]
+  ],
+  "content": "{ \"article_hash\", \"article_url\", \"assertions\": [ { \"quote\", \"status\", \"claim\"?, \"endorsement\"?, \"why\"?, \"why_by\"?, \"model_note\"?, \"model_proposed_text\"?, \"generator\": { \"model\", \"prompt_version\", \"producer\" } } ], \"sources\": [ { \"target_hint\", \"status\", \"note\"? } ], \"open_questions\": [ { \"text\", \"status\" } ], \"coverage\": { \"unreviewed\", \"accepted\", \"dismissed\", \"ungroundable_dropped\", \"accepted_local_only\"? }, \"withheld\": [ { \"field\", \"count\"?, \"reason\" } ] }"
+}
+```
+
+### Why a kind at all — and why not two additive tags on the kind-30023?
+
+The obvious cheaper design is the one this NIP already uses twice (`extraction-method` / `source-hash`, `responds-to`): hang additive tags on the article event. It does not work here, for four reasons, and a consumer should be able to see all four from the format itself:
+
+1. **The article event belongs to the capturer; the analysis belongs to whoever ran it.** Two researchers analyzing the same text produce two analyses and neither may edit the other's article event. Additive tags can only be written by the article's signer, so the tag design silently makes analysis a property of the capture — and a second opinion unrepresentable. As a separate kind, N publishers' analyses of one text coexist and are joined by `#x`.
+2. **It is a list of dozens of rows, not a value.** Each atom carries a verbatim quote, a review state, an optional claim coordinate, two distinct provenance strings, and possibly two pieces of model prose. That is a JSON body, and a kind-30023's `content` is already the article's Markdown.
+3. **Replaceability has to be per-analysis.** Re-reviewing atoms must replace the analysis without republishing the article; hanging it on the article means every triage click rewrites (and re-timestamps) the article event.
+4. **A reader must be able to decline it.** Most of the payload is unreviewed machine output; a consumer who wants the article and not the machine's proposals has to be able to simply not fetch this kind. Tags on the article give no such choice.
+
+### Review state is REQUIRED on every row
+
+This event publishes the **whole** extraction unit — every atom the run proposed, in every review state, including the ones the publisher threw away. That is deliberate: publishing only what survived review would overstate the extractor's precision by hiding its denominator, and a filter a reader cannot see cannot be audited. The cost is that **the marking is the only safeguard**, so:
+
+- `status` is REQUIRED on every assertion, source, and open question, and takes exactly one of `unreviewed` / `accepted` / `dismissed`. Consumers MUST treat any unrecognized or absent value as `unreviewed` — unknown must never read as endorsed.
+- An `unreviewed` row is **nobody's assertion**. It is a machine proposal the publisher has not ruled on, and a consumer MUST NOT render it as the publisher's claim, count it as agreement, or aggregate it as a judgment.
+- Model prose is confined to `model_`-prefixed fields — `model_note` (the extractor's rationale) and `model_proposed_text` (its proposed claim wording). It is NEVER `quote`, never `content`, and never the human's `why`. Consumers rendering these fields MUST attribute them to `generator.model`.
+- `why` / `why_by` are the **human's** rationale and appear only on an `accepted` row. Consumers MUST ignore them on any other row.
+
+### Endorsement is a pointer, never a payload
+
+An endorsed atom carries `claim`: the coordinate of a **separately signed kind-30040** the publisher minted from it, mirrored in the tags as `["a", …, "", "endorsed"]` so "what does this publisher actually stand behind" is answerable from tags alone, without parsing `content` and without touching an unreviewed row. This event therefore cannot manufacture an endorsement — editing it cannot create the claim it points at. An atom the publisher accepted locally but whose claim is unpublished carries `claim: null` and `endorsement: "local-only"`: honest that a human ruled, honestly unusable as authority since there is nothing to fetch.
+
+### No judgment surface
+
+The event carries **no `p` tag** (so it can never enter an entity's `#p` dossier query beside real claims), **no `L`/`l`** NIP-32 labels (so no label consumer aggregates it), **no `I`/`K`** NIP-22 root scope (so it never appears as the publisher's commentary in a comment thread), and **no numeric field of any kind** — no score, confidence, stance, rating, or rank, anywhere, including inside `content`. The review-state counts are counts, not a score. Machine-checked by a guard test in the reference implementation.
+
+Atoms appear in **document order** by their position in the article. That ordering is not a ranking; the format has no way to express one.
+
+### Verifying a quote — and what `x` does and does not pin
+
+Each `quote` is verbatim text from the analyzed article body. The `x` tag is the sha256 of the **normalized** article body (see §`x` tag extension), which identifies *which text* was analyzed but is NOT a byte-for-byte substring guarantee for any quote: normalization collapses whitespace, so two bodies that differ only in whitespace share a hash.
+
+Consumers MUST therefore **re-locate every quote in their own copy** of the article, exactly as §Selectors requires for `TextPositionSelector` — verify, never resolve on trust. This event deliberately publishes **no offsets at all** so that there is nothing to trust: an offset from another machine cannot be checked, and a wrong one silently mislocates a quote. A quote that does not locate is surfaced as unresolvable, not discarded and not repositioned.
+
+### Do not adopt a foreign review state as your own
+
+A publisher's `status` is *their* attributed judgment. A consumer folding an analysis into its own store MUST land the atoms **unreviewed locally**, keeping the foreign ruling beside them as attribution. Adopting it would resolve disagreement by import and cross the consent boundary between two people's review queues — the same reason two analyses of one text are expected to coexist rather than merge.
+
+### What is deliberately withheld
+
+`withheld` is a machine-readable log of the local fields that exist and did NOT publish, so a consumer sees the shape of the omission instead of inferring it: `positions` (unanchored model prose characterizing the article), `case_frame` (the researcher's private casework framing), `merged_keys` (local cache fingerprints), `sources.quote` (the extractor's copy of a span, never re-grounded — `target_hint` only), and `assertions.ungroundable` (proposals whose quote could not be located in the text; never stored, so no text exists to publish — only the count discloses them).
+
+An analysis whose article hash is not a content hash MUST NOT be published: the reference implementation refuses records keyed by a URL fallback rather than mint an `x` tag that pins nothing.
+
 ## Kind 0 — creator binding on entity-signed events (extension)
 
 Entity-signed events (the kind-0 profile; historically also the retired kind-30067 fact sheet) additionally carry:
@@ -1158,6 +1245,7 @@ Other standard queries:
 { "kinds": [30067], "authors": ["<entity-pubkey>"], "limit": 10 }       // an entity's fact sheet(s), one per archive
 { "kinds": [30040, 30067], "#x": ["<article-hash>"], "limit": 100 }     // claims + fact sheets citing this exact text
 { "kinds": [30023, 30040, 32126, 30054, 30062, 30064, 1985], "#p": ["<equivalence-pubkeys…>"], "limit": 300 } // entity feed, hop 1 (a reader's equivalence set)
+{ "kinds": [30070], "#x": ["<article-hash>"], "limit": 50 }              // every publisher's extraction analysis of this exact text
 ```
 
 A client wishing to display helpfulness aggregates for a set of metadata events SHOULD then issue a follow-up `#a` query against kind 9803 keyed by the addressable coordinates of those events.
@@ -1179,5 +1267,5 @@ This NIP does not specify a ranking algorithm. Recommended approaches:
 
 ## Reference implementations
 
-- [x-ray browser extension](https://github.com/bryanmatthewsimonson/xray) — shipping kinds 30040 + 30050 + the `responds-to` and `x` extensions; 30054/30055 builders with publishing flag-gated (Phase 11); 30056–30059 fully implemented — builders, parsers, a flag-gated ordered publish path, and portal read surfaces (Phase 13); 30060/30061 builders + parsers implemented, publish paths deferred (the dossier stays derived; disputes are wire-format-only in v1); 30062 behavioral-finding builder + parser + the kind-1985 mirror and the `revision/*` 30055 values, publishing flag-gated (Phase 14); 30063/30064 adjudicated-verdict + integrity-finding builders + parsers and the 30063 kind-1985 mirror, publish paths behind `truthAdjudicationPublishing` (Phase 15; 30065 reserved; the adjudicate/integrity reader modals, the flag-gated publish path, and portal verdict render all ship); 32125 entity↔article relationships (builder + parser + portal read); 32126 platform-account records with the derived-pubkey rendezvous and the `linked-entity` pubkey tag, publishing behind `platformAccountPublishing`, plus verify-on-ingest enforced on every relay read (Knowledge Sharing KS.1–KS.4). The case-dossier surfaces (`docs/CASE_DOSSIER_DESIGN.md`, CD.1–CD.3) are derived / computed-on-read over these kinds — no new kind of their own.
+- [x-ray browser extension](https://github.com/bryanmatthewsimonson/xray) — shipping kinds 30040 + 30050 + the `responds-to` and `x` extensions; 30054/30055 builders with publishing flag-gated (Phase 11); 30056–30059 fully implemented — builders, parsers, a flag-gated ordered publish path, and portal read surfaces (Phase 13); 30060/30061 builders + parsers implemented, publish paths deferred (the dossier stays derived; disputes are wire-format-only in v1); 30062 behavioral-finding builder + parser + the kind-1985 mirror and the `revision/*` 30055 values, publishing flag-gated (Phase 14); 30063/30064 adjudicated-verdict + integrity-finding builders + parsers and the 30063 kind-1985 mirror, publish paths behind `truthAdjudicationPublishing` (Phase 15; 30065 reserved; the adjudicate/integrity reader modals, the flag-gated publish path, and portal verdict render all ship); 32125 entity↔article relationships (builder + parser + portal read); 32126 platform-account records with the derived-pubkey rendezvous and the `linked-entity` pubkey tag, publishing behind `platformAccountPublishing`, plus verify-on-ingest enforced on every relay read (Knowledge Sharing KS.1–KS.4). 30070 extraction analyses fully implemented — builder, parser, a per-article human-initiated publish path behind `extractionAnalysisPublishing`, and portal library/inspector read surfaces where the per-row review state leads (MA.6, `docs/MAP_ARTIFACT_KICKOFF.md`). The case-dossier surfaces (`docs/CASE_DOSSIER_DESIGN.md`, CD.1–CD.3) are derived / computed-on-read over these kinds — no new kind of their own.
 - *(a second interoperating client is the natural next reference implementation.)*

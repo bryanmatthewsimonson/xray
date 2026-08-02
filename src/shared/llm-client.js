@@ -25,15 +25,15 @@ import {
 } from './llm-prompts.js';
 import { Storage } from './storage.js';
 import {
-    AUDIT_TOOL_NAME, STANDING_SINGLE_SHOT_CAVEAT,
+    AUDIT_TOOL_NAME, STANDING_SINGLE_SHOT_CAVEAT, opinionStandingCaveat, STANDING_OPINION_CAVEAT,
     buildAuditTool, buildAuditSystemPrompt, buildAuditUserPrompt, assembleAudit,
-    buildSingleModuleTool, buildModuleSystemPrompt
+    buildSingleModuleTool, buildModuleSystemPrompt, buildCorpusSourcesSection
 } from './audit/audit-prompt.js';
 import {
     EXTRACT_TOOL_NAME, buildExtractTool, buildExtractSystemPrompt, buildExtractUserContent
 } from './llm-extract-prompts.js';
 import { MAX_AUDIT_INPUT_CHARS } from './audit/assemble.js';
-import { MODULE_NAMES } from './audit/findings-schemas.js';
+import { MODULE_NAMES, OPINION_MODULE_NAMES } from './audit/findings-schemas.js';
 import {
     LENS_PROMPT_VERSION, LENS_TOOL_NAME,
     buildLensTool, buildLensSystemPrompt, buildLensUserPrompt
@@ -63,6 +63,10 @@ import {
     MAX_ENTITY_PAGE_OUTPUT_TOKENS,
     buildEntityPageTool, buildEntityPageSystemPrompt, buildEntityPageUserPrompt
 } from './entity-page.js';
+import {
+    VISION_TOOL_NAME, VISION_MEDIA_TYPES, VISION_PROMPT_VERSION,
+    buildVisionTool, buildVisionSystemPrompt, buildVisionUserContent
+} from './vision-prompts.js';
 
 // Re-exported for callers that wrote against the client (the keys are
 // defined in the pure prompts module so the Options page can share them).
@@ -572,9 +576,18 @@ export async function runAuditPass(req = {}) {
     const usedModel = (data && data.model) || model;
     let audit;
     try {
+        // The opinion caveat joins the single-shot one in two cases:
+        // the artifact reads as opinion/analysis, or the OQ.4 forced
+        // case — declared reporting overriding an opinion signal
+        // (req.suggestedType carries the capture-time suggestion).
+        const opinionCaveat = opinionStandingCaveat({ source_type: req.sourceType || null })
+            || (req.suggestedType === 'analysis' && req.sourceType !== 'analysis'
+                ? STANDING_OPINION_CAVEAT : null);
         audit = await assembleAudit({
             toolInput, model: usedModel, markdown, metadata: req.metadata || {},
-            standingCaveat: STANDING_SINGLE_SHOT_CAVEAT
+            standingCaveat: opinionCaveat
+                ? [STANDING_SINGLE_SHOT_CAVEAT, opinionCaveat]
+                : STANDING_SINGLE_SHOT_CAVEAT
         });
     } catch (err) {
         Utils.error('[X-Ray LLM] audit assembly failed:', err && err.message);
@@ -614,7 +627,7 @@ export async function runAuditModulePass(req = {}) {
     }
 
     const name = String(req.module || '');
-    if (!MODULE_NAMES.includes(name)) {
+    if (!MODULE_NAMES.includes(name) && !OPINION_MODULE_NAMES.includes(name)) {
         return { ok: false, error: `Unknown audit module: ${name || '(none)'}` };
     }
     // Defensive no-op when the reader pre-sliced (the hash-gate contract).
@@ -625,16 +638,24 @@ export async function runAuditModulePass(req = {}) {
 
     const model = await readModel();
     const tool = buildSingleModuleTool(name);
+    // Corpus-held cited sources ride ONLY on module 04 (methodology 1.1
+    // step 7); any other module ignores the field entirely.
+    const corpusSection = name === 'source_quality'
+        ? buildCorpusSourcesSection(req.corpusSources)
+        : '';
     const payload = {
         model,
         max_tokens: MAX_MODULE_OUTPUT_TOKENS,
         system: buildModuleSystemPrompt(name, { url: req.articleUrl || '', title: req.articleTitle || '' }),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
-        messages: [{ role: 'user', content: buildAuditUserPrompt({ articleText: markdown }) }]
+        messages: [{ role: 'user', content: buildAuditUserPrompt({ articleText: markdown }) + corpusSection }]
     };
 
-    Utils.log('[X-Ray LLM] audit module:', { module: name, model, chars: markdown.length });
+    Utils.log('[X-Ray LLM] audit module:', {
+        module: name, model, chars: markdown.length,
+        corpusSources: corpusSection ? (req.corpusSources || []).length : 0
+    });
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), MODULE_TIMEOUT_MS);
@@ -935,6 +956,120 @@ export async function runClaimLinksPass(req = {}) {
     const linksInput = extractToolInput(data, tool.name);
     if (linksInput === null) return { ok: false, error: 'The model did not return structured link proposals.' };
     return { ok: true, linksInput, model: (data && data.model) || model, usage: data && data.usage };
+}
+
+// ------------------------------------------------------------------
+// AI vision pass — the "Describe images" surface
+// ------------------------------------------------------------------
+
+// One image, one caption, at most one page of transcription — the
+// per-module window fits with room; a dense scanned magazine page runs
+// ~3k output tokens.
+const VISION_TIMEOUT_MS = 120000;
+const MAX_VISION_OUTPUT_TOKENS = 8192;
+
+/**
+ * Non-secret gating snapshot for the reader's "Describe images"
+ * control. NOT `getLlmConfig` — its `enabled` bit means `llmAssist`,
+ * a different consent (the article TEXT leaving the device); this one
+ * is `aiVision` (the article's IMAGES leaving the device). Same key.
+ */
+export async function getVisionConfig() {
+    await loadFlags();
+    const [key, model] = await Promise.all([readApiKey(), readModel()]);
+    return { enabled: isEnabled('aiVision'), hasKey: key.length > 0, model };
+}
+
+/**
+ * Describe ONE image: a factual caption always, a verbatim
+ * transcription when the image carries legible text (the scanned-page
+ * case). One image per call — the lens/audit-module topology: each
+ * runtime message resets the MV3 idle timer, and a lost channel costs
+ * one retryable image, never the run.
+ *
+ * Returns the RAW validated-shape result — the reader renders it for
+ * per-image human Accept and owns the body merge (vision-notes.js);
+ * nothing is saved or published here.
+ *
+ * @param {object} req
+ * @param {string} req.imageBase64   API-ready bytes (vision-image.js)
+ * @param {string} req.mediaType     one of VISION_MEDIA_TYPES
+ * @param {string} [req.alt]
+ * @param {string} [req.captionText]
+ * @param {string} [req.articleTitle]
+ * @param {string} [req.articleUrl]
+ * @returns {Promise<{ok:true, model:string, result:object, usage?:object}
+ *                  | {ok:false, error:string, status?:number, timeout?:boolean}>}
+ */
+export async function runVisionPass(req = {}) {
+    await loadFlags();
+    if (!isEnabled('aiVision')) {
+        return { ok: false, error: 'AI vision is off. Enable it in Options → Advanced → AI vision.' };
+    }
+    const apiKey = await readApiKey();
+    if (!apiKey) {
+        return { ok: false, error: 'No Anthropic API key set. Add one in Options → Advanced → LLM assist.' };
+    }
+
+    const imageBase64 = typeof req.imageBase64 === 'string' ? req.imageBase64 : '';
+    if (!imageBase64) {
+        return { ok: false, error: 'No image bytes to describe.' };
+    }
+    if (!VISION_MEDIA_TYPES.includes(req.mediaType)) {
+        return { ok: false, error: `Unsupported image type: ${req.mediaType || '(none)'}.` };
+    }
+
+    const model = await readModel();
+    const tool = buildVisionTool();
+    const payload = {
+        model,
+        max_tokens: MAX_VISION_OUTPUT_TOKENS,
+        system: buildVisionSystemPrompt(),
+        tools: [tool],
+        tool_choice: { type: 'tool', name: tool.name },
+        messages: [{ role: 'user', content: buildVisionUserContent({
+            imageBase64, mediaType: req.mediaType,
+            alt: req.alt || '', captionText: req.captionText || '',
+            articleTitle: req.articleTitle || '', articleUrl: req.articleUrl || ''
+        }) }]
+    };
+
+    // Size only — never the payload (it embeds the image).
+    Utils.log('[X-Ray LLM] vision pass:', { model, mediaType: req.mediaType, b64chars: imageBase64.length });
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), VISION_TIMEOUT_MS);
+    let res;
+    try {
+        res = await postMessages(payload, apiKey, { signal: controller.signal });
+    } finally {
+        clearTimeout(timer);
+    }
+    if (!res.ok) return res;
+    const data = res.data;
+
+    { const r = refusalResult(data, 'a description of this image'); if (r) return r; }
+    if (data && data.stop_reason === 'max_tokens') {
+        return { ok: false, error: 'The model hit its output limit before finishing this image.' };
+    }
+    const input = extractToolInput(data, VISION_TOOL_NAME);
+    if (input === null || typeof input.caption !== 'string' || !input.caption.trim()) {
+        return { ok: false, error: 'The model did not return a structured image description. Try again.' };
+    }
+
+    const usedModel = (data && data.model) || model;
+    return {
+        ok: true,
+        model: usedModel,
+        prompt_version: VISION_PROMPT_VERSION,
+        result: {
+            content_kind: typeof input.content_kind === 'string' ? input.content_kind : 'other',
+            caption: input.caption.trim(),
+            transcription: typeof input.transcription === 'string' ? input.transcription.trim() : '',
+            transcription_complete: input.transcription_complete !== false
+        },
+        usage: data && data.usage ? data.usage : undefined
+    };
 }
 
 // ------------------------------------------------------------------

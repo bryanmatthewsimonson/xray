@@ -19,6 +19,836 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-02 — torch cu130 broke ctranslate2; one process, one cuDNN
+
+**Tags:** bug external
+
+The post-#286 re-lock smoke (the one the pyproject comment demands)
+failed: ctranslate2 — faster-whisper's engine, a CUDA-12 BINARY — could
+no longer load `cublas64_12.dll`. Through torch 2.11+cu128 that DLL
+rode along in `torch\lib` for free; cu130 wheels bundle only the
+CUDA-13 set. Fix: depend on NVIDIA's own `nvidia-cublas-cu12` +
+`nvidia-cudnn-cu12` wheels and register their bin dirs (both
+`os.add_dll_directory` AND a PATH prepend — ct2 resolves some
+libraries through the legacy search) in the worker child before any
+heavy import.
+
+The non-obvious half is cuDNN, whose DLL names carry NO CUDA-major
+suffix: torch hard-loads its cu13 build by FULL PATH at import, so
+one process gets exactly one cudnn and it must be torch's. Two failed
+shapes, both field-hit: registering the cu12 cudnn dir let the cu13
+CORE resolve sublibraries to cu12 copies
+(`CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH`); eagerly preloading the
+cu12 set instead broke torch's full-path load (WinError 127). The
+working shape: register everything EXCEPT cudnn — ct2 binds torch's
+already-loaded cu13 cudnn by name, cross-runtime but sharing the one
+CUDA primary context. Verified by a full local smoke (transcribe +
+align + diarize, correct output). Lesson: "smoke-test one real
+transcription after any re-lock" is load-bearing — resolution success
+proves nothing about runtime DLL topology.
+
+## 2026-08-02 — Engine choice moved into the extension; keys became per-request
+
+**Tags:** design
+
+Same-day reversal of PR #285's "keys env-only" posture, by maintainer
+decision after first field use: setx + new terminal + service restart
+per engine switch is not a workable loop, and the extension already
+stores an equivalent secret (the Anthropic LLM key) with a proper
+settings field. The shape that replaced it:
+
+1. **Settings own the engine + keys.** Options → Advanced →
+   Transcription: engine preference (local / assemblyai / deepgram /
+   ask-each-time) + per-provider API key fields following the LLM-key
+   pattern exactly (paste-to-save, value never re-rendered, "erase
+   all" clears them). The reader's 🎙 button became a split control:
+   main click = preferred engine, ▾ = per-video picker with real
+   time/cost estimates from `durationSeconds` (a 10-minute clip is
+   fine on the GPU; a 2-hour episode wants cloud).
+2. **Keys ride each POST /transcribe** (`provider` + `api_key`),
+   loopback-only, and reach the worker child via its process
+   ENVIRONMENT — the one channel that touches neither disk nor logs
+   (spec.json stays credential-free; the Job field is repr-excluded
+   and absent from snapshots — pin-tested). Request key overrides env
+   key; env vars remain as server-side defaults, so the pre-reversal
+   setup keeps working unchanged.
+3. **Per-request engines forced per-job queue routing:** one server
+   now runs BOTH pools — local queue (1 daemon consumer, the VRAM
+   serialization) and cloud queue (TRANSCRIBER_CLOUD_CONCURRENCY
+   consumers) — routed by each job's own provider instead of a
+   server-wide mode. `/health` gained `request_provider: true` so the
+   extension can tell a build that honors the fields from one that
+   silently ignores them; a cloud env default without its env key
+   downgraded from startup-fatal to a warning.
+
+An adversarial review round (17 verified findings) then tightened the
+shape: an UNSET extension preference now sends NO provider at all
+(the env default stays reachable — the back-compat contract the first
+cut accidentally broke), and the Options select shows that "Companion
+default" tier explicitly; an explicitly chosen engine is
+capability-gated against `request_provider` so an old companion can
+never silently run a cloud default when the user picked Local (the
+privacy inversion); the reader re-reads the engine/key snapshot at
+every decision point (a stale snapshot made "add a key in Settings" a
+dead loop); queue_position and the 429 cap count only the job's own
+pool; and "erase all" now clears TRANSCRIBER_TOKEN, the one stored
+secret it had always missed.
+
+## 2026-08-02 — AssemblyAI hard-deprecated `speech_model` (found on first live smoke)
+
+**Tags:** external
+
+The very first live cloud job (PR #285, same day) died with HTTP 400
+from `POST /v2/transcript`: the singular `speech_model` parameter is
+rejected outright — their API now wants `speech_models`, a
+preference-ordered LIST, with new model names (`universal-3-5-pro`,
+`universal-2`; plain `universal` no longer documented). Fixed by
+sending the plural form (`TRANSCRIBER_ASSEMBLYAI_MODEL` is now a
+comma-separated preference list, default
+`universal-3-5-pro,universal-2`) and — the useful part — reading
+`model_info.asr_model` from the response's `speech_model_used` rather
+than echoing the request, so the published `extraction-method` names
+the model that actually ran even when their API falls back down the
+preference list. Payload shape is pin-tested
+(`test_create_payload_uses_plural_speech_models`). Lesson repeated:
+provider request shapes rot; the error body named the fix exactly, so
+surface provider error bodies verbatim (the reader banner did, and
+that made this a 5-minute diagnosis).
+
+## 2026-08-02 — torch 2.13 bump broke Windows: per-index platform coverage, and a lock-time guard
+
+**Tags:** bug, design
+
+5c95d3d floored torch at 2.13 and moved the transcriber's wheel index
+cu128 → cu129. It locked fine (authored on macOS), then failed on the
+primary Windows 10 / RTX 3090 deployment box: `uv sync` →
+"torch==2.13.0+cu129 … doesn't have a source distribution or wheel for
+the current platform". Root cause: the PyTorch indexes' platform
+coverage varies **per index** — cu129's win_amd64 torch wheels stop at
+2.9.0 (cu128's at 2.9.1), and the 2.13 triple ships win_amd64 +
+manylinux wheels only on **cu130** (verified against the live indexes
+2026-08-02). Two-part fix in `companion/transcriber/pyproject.toml`:
+
+1. **Index → cu130.** Same locked versions (torch 2.13.0 / torchaudio
+   2.11.0 / torchvision 0.28.0); only the CUDA variant changes. The
+   honest trade: cu130 builds need an NVIDIA R580+ (CUDA 13) driver —
+   a real floor bump that cu129's "any CUDA 12.x driver" story didn't
+   have. The primary box already runs 581.57 (CUDA 13.0).
+2. **`tool.uv.required-environments`** for win_amd64 and linux x86_64.
+   The torch indexes serve wheels only — no sdists — so a universal
+   lock can silently resolve for a platform subset and fail only at
+   sync time on the user's machine. With the guard, `uv lock` itself
+   fails: re-locking against cu129 with the guard reproduced the
+   Windows failure at lock time, on any authoring machine.
+
+So-what: any future torch index move must check win_amd64 coverage on
+the target index, not just manylinux — and the guard machine-checks
+that now. CI never touches `companion/`, so lock-time is the only
+automated gate there.
+
+## 2026-08-02 — Cloud transcription providers: env-only keys, child-process reuse, honest labeling
+
+**Tags:** design
+
+The companion service gained optional AssemblyAI/Deepgram engines
+(`TRANSCRIBER_PROVIDER`, default `local`) — minutes instead of
+GPU-hours for a 2 h episode, at the explicit cost of the episode AUDIO
+leaving the machine. Decisions a future reader might second-guess:
+
+1. **Cloud jobs still run in the worker child process.** They hold no
+   VRAM, so an in-server thread would work — but the child keeps ONE
+   protocol (stdout JSON events, result file, terminate-on-cancel) for
+   all providers, and a cloud child never imports torch so it starts
+   fast anyway. Concurrency comes from sizing the job pool
+   (`ThreadPoolExecutor`): 1 worker for local (the VRAM serialization,
+   unchanged), `TRANSCRIBER_CLOUD_CONCURRENCY` for cloud.
+2. **API keys are env-only (the HF_TOKEN precedent)** and deliberately
+   NOT in the spec.json handed to the child — the spec is written to
+   disk; the child inherits keys through the environment instead.
+3. **Provider utterances are re-split into sentence-level segments**
+   using their word timestamps (`providers/normalize.py`): the
+   extension's mergeTurns never breaks inside one segment, so an
+   unsplit five-minute AssemblyAI speaker turn would collapse into one
+   giant paragraph with one coarse t=start,end claim-provenance range.
+   Splitting restores parity with WhisperX granularity; raw labels
+   normalize to the same SPEAKER_NN form.
+4. **Honest labeling end-to-end:** the transcript heading names the
+   provider (`Transcript — English (AssemblyAI, diarized)` — the body
+   is canonical and published, "local" would be a durable lie), the
+   track chip's kind is the provider, and `extraction-method`
+   publishes a single `<provider>-<model>` token (grammar in
+   NIP_DRAFT.md; one integrated model, so no `+` form). Absent
+   `model_info.provider` (older companion) everywhere means local —
+   the only engine that existed.
+
+Files: `companion/transcriber/transcriber/{providers/,download.py,
+progress.py,server.py,jobs.py}`, `src/shared/diarized-transcript.js`,
+`src/reader/transcribe-flow.js`. Companion unit tests:
+`companion/transcriber/tests/` (`uv run python -m unittest discover
+tests` — never part of extension CI).
+
+## 2026-08-02 — Truth-infrastructure map ships standalone, not on the constitution chain
+
+**Tags:** design
+
+`docs/TRUTH_INFRASTRUCTURE.md` (distilled from a maintainer essay on
+truth-seeking systems) could have stacked as a fourth PR on the
+#261→#262→#263 constitution chain — its natural neighbors. Shipped
+standalone from `main` instead: the chain is unmerged and under
+review; the new doc is non-normative (nothing in it needs the
+constitution's authority); and stacking would couple an essay's merge
+to a constitutional ratification. Accepted consequence: no relative
+links to `TRUTH_SYSTEMS.md`/`CONSTITUTION.md` — the annex is cited in
+prose as "TS §n (PR #263)". If #263 lands, swap prose citations for
+relative links in a mechanical docs PR; if the chain is abandoned,
+the PR-number citations still resolve. Also recorded: the essay's
+fifth strategy ("decentralized consensus") is read as
+process-not-ruling — the process of reaching justified agreement is
+the product this family is building; the standing owner decision (no
+aggregation / consensus / reputation layer; red line 1) refuses only
+the computed shortcut, with the measurement-not-authority shape of
+the annex's §3.3 bridging license as the licensed remainder. A
+follow-up exchange (2026-08-02) added the double/triple-entry
+bookkeeping lens (§2) and a sixth expansion domain, cross-ledger
+reconciliation (§8).
+
+---
+
+## 2026-08-02 — The opinion module family ships (R5, OP.2–OP.5)
+
+**Tags:** design
+
+PHILOSOPHY §3.2 was codified 2026-06-11 and unimplemented since — the
+founding-transcript comparison named it the largest unmined item. It
+is now built, end to end, in one ruled-then-sliced day
+(`docs/OPINION_MODULES_KICKOFF.md`, five OQ rulings in §8): six new
+vendored methodologies (premise accuracy, logical validity,
+steel-manning, fact/interpretation separation, disclosure,
+originality) + reused asymmetric-language and definitional-precision,
+family dispatch on `source_type`, the OQ.3 weights, and the OQ.2
+premise-verifiability ceiling (`heuristic:premise-accuracy/1.0`).
+Three decisions future-us might second-guess, recorded: (1) red line 2
+is enforced STRUCTURALLY — a guard test walks every opinion schema
+property and enum, so a stance-shaped field cannot exist; identifying
+the conclusion (argument mapping) stays legal, judging it is
+inexpressible. (2) Quick (single-shot) is news-only in v1 — the
+orchestrator prompt IS news methodology, and running it on opinion is
+the exact mismatch the family exists to end; an opinion Quick click
+steers to Thorough. (3) The R5-interim caveat retired everywhere
+except the OQ.4 forced-news path — a caveat that stands in for a
+methodology should die the day the methodology ships. The two
+families share the 0–100 axis but are never averaged together
+(NIP_DRAFT now says so as a MUST NOT).
+
+## 2026-08-02 — Founding transcript vendored; PHILOSOPHY narrowed to fit the tool it governs
+
+**Tags:** design
+
+The founding conversation's first three exchanges — the prose
+`EPISTEMIC_AUDIT_DESIGN.md` calls "unrecovered" — surfaced and were
+audited against the implementation: a 19-item mining checklist, every
+verdict adversarially cross-checked against code. Vendored at
+[`docs/FOUNDING_TRANSCRIPT.md`](FOUNDING_TRANSCRIPT.md) (non-normative;
+its supersession log is maintained there). Two constitutional
+narrowings landed as PHILOSOPHY v1.1.0 (§13): the standing re-audit
+cadence became event-driven, and the auditor self-dossier clause became
+same-ledgers-same-discipline. The governing insight, the maintainer's:
+the editor-in-chief persona was a device for *deriving standards* —
+X-Ray is a solo research tool, and newsroom machinery (volatility
+metrics, red-team reviewers, wall-clock re-scoring) does not transfer.
+What does transfer became the integration map: reference→corpus
+resolution over the dormant `sources[]` / `article.references[]`
+substrates, corpus-internal source verification, dimension callouts on
+claims, the opinion module suite (codified in §3.2, never built — the
+audit still runs the news modules on opinion pieces unbranched), and
+wire-copy text-similarity as a suggester feeding human origin
+attestations.
+## 2026-08-02 — MA.7: the import verifies instead of trusting
+
+**Tags:** bug, design
+
+The deferred fix for the cross-machine span bug, decided by a
+three-design panel with three judging lenses (philosophy / data
+integrity / maintainer-in-real-casework). Unanimous, 3–0, for the
+strictest design — which is unusual enough to be worth recording.
+
+**The bug, finally measured.** A probe over two bodies inside ONE
+`articleHash` equivalence class — one with CRLF and trailing spaces, one
+without — put the same sentence at `[10, 59)` on the exporting machine
+and `[8, 53)` locally. `normalizeForHash` collapses whitespace before
+hashing while offsets index the un-normalized body, so the hash agrees
+and the offsets do not. Re-grounding the foreign quote in the local body
+recovers `[8, 53)` exactly. Costs, also measured: a grounding index over
+60k chars is ~22ms, and 60 quote lookups after that are ~0.1ms — so
+verification is affordable at import, which was never actually in doubt
+once someone checked.
+
+**The fix is structural, not a convention.**
+`mergeExtractionRecords(local, incoming, { localText })` requires the
+local body and refuses without it. The `DEEP_MERGE_STORES` entry that
+could reach it textless was DELETED rather than defaulted, so no future
+caller can take a path that trusts a foreign offset. That framing came
+from the panel and is the part I would not have arrived at alone: the
+old signature made the bug *available*, and a design that merely stops
+using it wrongly leaves the footgun loaded.
+
+**What the judges refused to let ship**, each verified against the code
+rather than asserted:
+
+- **A hash-verification precondition** before re-grounding
+  (`await articleHash(localText) === record.articleHash`). Two of three
+  designs wanted it. It fails for published rows — `content` becomes
+  `markdownToHtml(draft)` and turndown is not idempotent — and for
+  PDF/transcript/EPUB rows and relay reconstructions carrying a foreign
+  `_articleHash`. It would have made the whole fix a no-op for the
+  dominant row types while looking rigorous. Row identity plus a
+  per-atom `quote === localText.slice(start, end)` check is the correct
+  pair.
+- **Re-keying atoms to a content hash.** One design moved assertion
+  identity off the span onto a 64-bit FNV of the normalized quote. That
+  is an identity migration of the store holding every human triage
+  decision, and it makes a non-cryptographic hash the identity of a
+  human judgment — with a throw-on-collision defense that I confirmed is
+  invisible in the Dismiss path. Not an acceptable carrier for a
+  whitespace-offset fix, especially right before a large corpus capture.
+- **Filtering imported atoms out of the open review queue.** Parking a
+  colleague's work in a collapsed disclosure outside the queue you
+  actually work is silent discard wearing a disclosure badge.
+
+**Three bugs in already-merged import code**, all found by the panel:
+a foreign `merged_keys` fingerprint would have permanently suppressed
+this machine's own fold of its own PAID extract (the key hashes
+{promptVersion, text, title, url} and not the model, so it collides); a
+foreign `published_at` would have made the portal offer "Republish" for
+a kind-30070 this identity never signed; and a foreign `accepted_why`
+landed in the field that publishes as the SIGNER's own rationale with
+`why_by: 'user'` — another author's prose attributed to me in my own
+signed event.
+
+**Twin-finding moved to untruncated quote identity.** The mandatory
+graft, and the fix for the winning design's own fatal flaw: it had
+reused `normIdent`, which truncates at 160 chars. Assertion quotes run
+longer than that, and collapsing two long atoms into one identity would
+attach an imported ruling to the wrong sentence — the exact failure the
+slice exists to prevent.
+
+**No foreign ruling is adopted any more.** It rides attributed as
+`imported_ruling` and stays inert. Today's adoption also silently
+dropped the `accepted_why` that justified the accept, so the attributed
+form is strictly more informative than what it replaces. The open
+question I could not answer for the maintainer: whether a backup from
+your OWN other machine should auto-adopt onto still-open atoms. Shipped
+the safe default (never) plus the mechanism; the panel's suggestion is a
+provenance choice on the merge dialog, which puts the consent firewall
+between two PEOPLE (P8) rather than between two of your own installs.
+
+**Two grafts worth keeping for their own sake:** `locate()` on the
+grounding index (tiers 1–2 only, own memo — a refused quote used to pay
+the tier-3 LCS pass for a discarded result) and LAZY tokenization (only
+the fuzzy tier needs it, so every locate-only caller now skips
+tokenizing the whole body).
+
+Lesson: the panel's value here was not the winning design, which was
+close to my starting instinct. It was the *refutations* — three
+independent lenses each verified a plausible-sounding safety measure
+against the actual row types and found it would break the common case.
+
+## 2026-08-02 — The MA.6 browser walk found a false "published" stamp
+
+**Tags:** bug, pattern
+
+Every MA.6 PR said the same thing: *"manual browser smoke is still
+outstanding — this environment is headless."* It turns out it isn't.
+Chromium in the container loads the unpacked extension
+(`--headless=new` + `--load-extension`), MV3 service worker and all, and
+Playwright can drive its pages. `tools/smoke/` now does exactly that:
+it seeds a case, two captures, and two folded extracts **through the
+extension's own modules** (bundled by esbuild so bare npm specifiers
+resolve the way they do in the real bundles — importing `src/` straight
+into a page fails on `@mozilla/readability`), then drives the case
+dashboard.
+
+**It immediately found a real bug in MA.6.** With a signing identity
+present and relays pointed at an unreachable `ws://127.0.0.1:1`, the
+publish button reported **"published 2026-08-02"** and wrote
+`published_at` / `published_event_id` onto the record. Nothing had been
+published to anything.
+
+Root cause: `xray:relay:publish` resolves `{ok: true, results}` when the
+attempt RAN — `ok` says nothing about acceptance. `results.confirmed` is
+the only field meaning a relay answered OK, and **JOURNAL 2026-07-10
+already ruled that a local publish ledger must key on `confirmed`, never
+`successful`** (an assumed success is a timeout hope). `published_at` is
+exactly such a ledger, and the surface keyed on `resp.ok`. Fixed: the
+confirmed gate now sits between the `ok` check and the stamp, an
+assumed-only round reports "sent to N but none confirmed" and stays
+unstamped, and a source-literal guard test pins the ordering of the
+three landmarks so the next edit cannot reorder them.
+
+**The finding generalizes, and that is the more useful part.** Auditing
+every `xray:relay:publish` caller: the reader and
+`entity-dossier-view.js` read `confirmed` correctly;
+`entity-page-block.js` (which also writes a durable `publishedAt`),
+`synthesis-block.js`, `inspector.js`, and `network/index.js:361` all
+stop at `resp.ok`. That is the same disease `docs/EVENT_STORE_DESIGN.md`
+§1.3 catalogues for journaling — "nothing enforces the invariant;
+coverage is whatever each surface remembered to do" — with a second
+symptom. Recorded there rather than patched here: a single choke point
+returning "confirmed or not" is the fix that cannot be forgotten by the
+next surface, so 29.1's gate must define success as `confirmed > 0` and
+surface the unconfirmed case distinguishably, not merely journal the
+attempt.
+
+Everything else in the walk passed on the first run: the block renders
+with correct counts, an ungroundable quote is dropped rather than
+stored, a claim-covered atom folds out of the open queue, Accept mints
+exactly one claim and records `accepted_claim_id`, Dismiss survives a
+reload, the confirm dialogs name the exact N and disclose that
+unreviewed rows publish, accepted-but-unpublished emits
+`endorsement: "local-only"` with no fabricated coordinate, a dismissed
+atom still publishes marked dismissed, and no offsets or case frame
+reach the wire. Zero page errors across the whole walk.
+
+Lesson worth keeping: **"headless, so it can't be smoked" was an
+assumption, not a fact** — and it had been repeated in four PR
+descriptions. The walk cost less than the wave's last doc edit and
+found a bug that unit tests structurally could not, because the defect
+lived in the seam between a message contract and its caller.
+
+## 2026-08-02 — Spotify links resolve through oEmbed, inside the fallback stage
+
+**Tags:** design
+
+Find identity now reads Spotify episode/show links (and the capture
+URL itself — a capture OF the Apple/Spotify page carries its identity
+in its own address). Spotify publishes no RSS mapping, so a Spotify
+link cannot shortcut to a feed the way an Apple id can; its only use
+is its display title via the keyless oEmbed API. Consequences, chosen
+deliberately:
+
+1. **Spotify lives in the FALLBACK stage, not before it.** The
+   hardening rule — a capture whose Apple/feed links failed stops
+   honestly, nothing sent to Apple — binds Spotify too: every Spotify
+   resolution ends in an Apple search, so exempting it would reopen
+   the silent-escalation hole. A dead feed link + a Spotify link
+   still stops (test-pinned).
+2. **The oEmbed-resolved show name outranks byline heuristics** as a
+   search term; a resolved EPISODE title can drive an
+   `entity=podcastEpisode` search whose result carries the feed AND
+   Apple's episode GUID — that is what makes the common
+   "listen on Spotify"-only capture discoverable at all.
+3. **Apple's episode GUID is treated as corroboration, not truth.**
+   Agreeing with the locally matched feed item → upgrade to strong
+   (two independent identifications). Found in the feed but matched
+   by nothing local → moderate, surfaced in the note, NOT prefilled
+   (the strong-only prefill rule stands).
+4. Disclosure notes name both egresses ("the link was sent to
+   Spotify", "…was sent to Apple's iTunes Search API"), and the modal
+   hint now mentions Spotify.
+
+---
+
+## 2026-08-02 — Store-first publish: the event-store design agreed
+
+**Tags:** design
+
+`docs/EVENT_STORE_DESIGN.md` (Phase 29) is agreed: the signed-event
+journal becomes the outbox (journal at SIGN time, flush with
+verbatim rebroadcast, never re-sign) and a new derived `xray-relay`
+store becomes the locally queryable event index. Drafted from a
+verified gap inventory — a zero-success publish currently DISCARDS
+the signed event (the reader gate's `successful > 0` condition), and
+five sign sites (four portal surfaces + entity-sync `clearRemote`)
+never journal at all. The second-guessable rulings, recorded:
+
+1. **`is_private` = the local `held` tier** — signed, journaled,
+   exported in the bundle, never flushed. A recorded divergence from
+   crux `PLAN.md`'s server-filtered model, parked on the crux intake
+   list (crux.immo is backburnered; X-Ray is the focus).
+2. **Merge-imported pending rows join the flush queue**, not `held`:
+   re-publish is idempotent, `duplicate:` OKs confirm rather than
+   duplicate (double-flush is self-healing across the Mac↔Windows
+   merge path), and `held` would strand signatures silently on the
+   less-checked machine.
+3. **Supersession is computed at flush time, never stored** — a
+   stored per-row state goes stale the moment a backup merge imports
+   a newer version at the same address.
+4. **The localhost relay dev tier is sanctioned** as future tooling
+   (loopback-pinned, the transcriber-companion precedent) — its own
+   later design; the 2026-07-08 self-hosted contingency stands
+   untriggered.
+5. **Flag flips gate on the smoke rows alone** — no soak period.
+
+Files: docs/EVENT_STORE_DESIGN.md, docs/ROADMAP.md (Phase 29).
+
+---
+
+## 2026-08-02 — Find identity: discovery may automate, declaration may not
+
+**Tags:** design
+
+The Media modal's podcast identity block (Phase 21.3/22) was
+pure typing: five IDs the user had to hunt down by hand, so they
+mostly stayed empty and the cross-URL episode join never happened. The
+new 🔍 Find identity assist (`shared/podcast-identity.js`, SW handler
+`xray:media:lookup`) discovers a candidate and PREFILLS empty fields
+only — the NIP_DRAFT rule that media identity is user-declared holds
+because nothing writes until the user presses Save. Second-guessable
+choices, recorded:
+
+1. **Apple is contacted only when the capture doesn't already carry
+   the answer.** Escalation order: a `podcasts.apple.com/...id<n>`
+   link → the keyless Lookup API (only the numeric id leaves the
+   device); a feed-shaped outbound link → fetched directly, Apple
+   never contacted (a test pins this); only the no-link fallback sends
+   a show-name term to the iTunes Search API — which is exactly what
+   the modal hint discloses.
+2. **On a feed-GUID mismatch, the feed's declared `<podcast:guid>`
+   wins over the UUIDv5 computed from the feed URL** (namespace
+   `ead4c236-…`, verified against the podnews.net/rss spec vector).
+   Feeds change hosts; the declared GUID is precisely the identity
+   that survives the move. Both cases get a note in the result.
+3. **The feed reader is hand-rolled regex, not a parser** — the MV3 SW
+   has no DOMParser (transcript-parse.js precedent) and five fields
+   don't justify a dependency. An HTML page has a `<title>` too, so
+   the pipeline demands `<rss`/`<channel` structure before believing
+   anything it read.
+4. **The nudge is scan-only.** A transcript-bearing capture with
+   strong podcast signals but empty `article.podcast` decorates the
+   Media button ("identity found — confirm?") from the pure local
+   signal scan — zero network until the user clicks Find identity
+   inside the modal.
+5. **`matchEpisode` returns null below a floor** rather than its best
+   guess — a wrong episode-GUID prefill that a user rubber-stamps is
+   worse than an empty field. Confidence + reasons ride the note the
+   user confirms against.
+
+## 2026-08-02 — CRLF checkouts killed the hash-parity test file
+
+**Tags:** bug
+
+**Files:** `tests/audit-article-hash.test.mjs`, `.gitattributes` (new).
+
+**Symptom:** On a Windows checkout with `core.autocrlf=true`, `node
+--test tests/audit-article-hash.test.mjs` failed the top-level
+"vendored scorer must contain normalizeMarkdown" assertion — killing
+all six tests in the file. CI (Ubuntu, LF) never saw it.
+
+**Root cause:** The test extracts the vendored `normalizeMarkdown`
+from `docs/auditor-prototype/scorer/scorer.js` with a regex anchored
+on `\{\n` … `\n\}` — the file's *physical* line-ending bytes. Git's
+autocrlf smudge rewrites those to CRLF at checkout, so the regex
+misses on Windows even though the committed blob is LF.
+
+**Fix, and why it keeps the byte-identity guarantee honest:** the
+test now does `\r\n → \n` on the read source before extracting —
+that exactly *reverses the smudge*, recovering the committed bytes,
+rather than masking a drift: `normalizeMarkdown` contains no
+template literals, so physical line endings cannot reach its
+behavior, and the parity corpus carries its CRLF cases as escape
+sequences (unaffected by checkout). A new `.gitattributes` also pins
+every shipped text type to `eol=lf` so fresh clones are
+byte-identical to the repo on every platform (all tracked blobs
+were already LF — zero renormalization churn). Both halves matter:
+the attribute file doesn't heal an *existing* smudged working tree,
+and the test tolerance alone leaves other byte-sensitive readers
+exposed.
+
+## 2026-08-01 — Speaker identification: a voice binding IS an entity ref
+
+**Tags:** design
+
+Diarized transcripts carry automatic labels ("Speaker 1"); provenance
+for spoken media means binding each voice to the PERSON. The obvious
+design was a new `speaker_map` structure + new wire tags. The shipped
+design is smaller: **a speaker binding is an ordinary entity ref whose
+mention context is the label itself** (`{entity_id, context:
+'Speaker 1'}`). Everything falls out of existing machinery:
+
+- Wire: `['p', <pk>, '', 'Speaker 1']` + `['person', <name>,
+  'Speaker 1']` on the 30023 — the established mention-context
+  semantics, zero new tags; `reconstructEntityRefsFromEvent` already
+  round-trips it.
+- Voice-split aliasing (diarization split one person into two labels):
+  bind both labels to the same entity — ref dedupe keys on the
+  entity_id+context PAIR, so this needed no code. Duplicate ENTITIES
+  keep using the existing canonical_id alias system, which already
+  co-tags the canonical pubkey.
+- Claims: `resolveTranscriptSpeaker` now consults label-context refs
+  BEFORE registry name-matching (`speakerEntityId`), so "Who said it"
+  prefills the identified person on both the manual and LLM-accept
+  paths, and the claim publishes the existing `['p', pk, '',
+  'source']`.
+- The transcript body keeps its automatic labels (metadata-only save,
+  hash untouched — the Phase 22 media-metadata rule).
+
+UI: `reader/speakers-modal.js` (🗣 Speakers…), one row per
+`transcript_meta.speakers` label with turn counts, a first-utterance
+snippet, and a `&t=Ns` listen link from the raw companion segments.
+
+## 2026-08-01 — Local transcription: diarized YouTube capture via a loopback companion
+
+**Tags:** design
+
+The YouTube DOM arms race (2026-04-19 pattern entry) argued for a
+capture path that doesn't depend on YouTube's DOM at all. This lands
+it: a Python companion (`companion/transcriber/` — yt-dlp → WhisperX
+large-v3 → pyannote diarization on 127.0.0.1:8756) produces speaker-
+labeled, timestamped segments, and the reader adopts them as the
+capture's canonical markdown (`contentType: 'transcript'`, platform
+stays `'youtube'`). Flag-gated `localTranscription`; with the
+companion absent every existing flow is untouched. Second-guessable
+choices, recorded:
+
+1. **`## Description` → `## Description — YouTube` in the adopted
+   body.** Not cosmetic: `reconstructArticleFromEvent` cuts any bare
+   `## Description` section and `assembleArticleBody` re-appends it
+   only for `contentType === 'video'` — on a `'transcript'` capture
+   the bytes vanish on relay round-trip and fork the x-hash (the
+   2026-05 markdown-canonical trap, third instance). The
+   `diarized-wire` test pins BOTH directions: the rename round-trips
+   byte-stable, and a counterfactual documents the bare heading
+   forking — if that counterfactual ever passes, reconstruct changed
+   and the rename can go.
+2. **Claim time provenance rides the anchor array, no new tags.** A
+   W3C Media-Fragments `FragmentSelector` (`t=<start>,<end>`) appends
+   to the claim anchor exactly like the PDF `page=N` selector; the
+   video URL is the claim's existing `r` tag. `article.timeMap`
+   (offset→seconds over the canonical markdown) mirrors `pageMap`,
+   including the drop-on-edit rule at both seams.
+3. **The reader drives the job; the SW only proxies fetches.** One
+   `xray:transcribe:status` poll every 3 s resets the MV3 idle timer
+   (the corpus-reduce teardown lesson, inverted: no keepalive needed
+   because polling IS the heartbeat). Job records persist in
+   `chrome.storage.local` keyed by videoId so a closed reader / SW
+   restart / re-capture RESUMES the server-side job instead of
+   double-submitting; the companion dedupes active jobs as a backstop.
+4. **Native transcript strategies are skipped on this path**
+   (`synthesizeArticle({skipTranscripts})`) — not because they always
+   fail (the fetch-hook still works) but because the DOM fallback
+   clicks "Show transcript" with an 8–16 s visible dance, and the
+   diarized result supersedes the unlabeled cues anyway. Native
+   `## Transcript — …` sections already in a body are dropped at
+   adoption; the archive's prior-version snapshot keeps them.
+5. **Loopback pinning is hardcoded, not configured.** The transcriber
+   client accepts only `127.0.0.1`/`localhost`/`[::1]` (port
+   configurable); validating a user-configurable base URL against
+   itself would be circular, and a tampered stored value must never
+   exfiltrate transcript text. Same rule for the optional LM Studio
+   claim-drafts pass (`transcriptClaimDrafts`, `xray:transcribe:claims`
+   — deliberately NOT `xray:llm:*`, which means Anthropic + key gate).
+6. **web-ext packaging:** `package.json` gained
+   `webExt.ignoreFiles: ["companion/**"]` — without it, lint/build at
+   the repo root would scan and zip the Python tree (a multi-GB
+   `.venv` once synced).
+7. **Transcribe and Draft-claims are INDEPENDENT features** (user
+   correction, same day): the drafts button originally gated on
+   `article.transcription` — same-session segments — as a GPU-
+   sequencing proxy. Wrong: a reopened capture hid the button and
+   pushed the user into a redundant GPU re-run, and the pass only
+   needs transcript TEXT (any transcript_meta capture qualifies —
+   imported/attached transcripts included, no companion required).
+   Now: drafts gate on transcript presence + their own flag only; a
+   soft guard parks the button while a transcription job actually
+   holds the GPU; and 🎙 Transcribe on a re-captured video offers to
+   LOAD the archived transcription (loadArchivedArticle) instead of
+   re-running the job — scanning `priorVersions` too, because a plain
+   re-capture's load-time save OVERWRITES the archive row with the
+   fresh transcript-less article and the diarized artifact survives
+   only in the snapshots (field-verified on the first real casework
+   episode, 2026-08-02: row = re-capture, both diarized saves intact
+   in priorVersions). The drafts pass also went per-WINDOW
+   (chunkTranscript + runDraftPass, adaptive halving on HTTP 400) —
+   hour-plus transcripts overflow any fixed LM Studio context in one
+   shot.
+
+Files: `companion/transcriber/**`, `shared/transcriber-client.js`,
+`shared/diarized-transcript.js`, `reader/transcribe-flow.js`, plus the
+seams in `background/index.js`, `content/ui.js`,
+`platforms/youtube.js`, `reader/index.js`, `reader/llm-review.js`,
+`claim-model.js`, `transcript-article.js`.
+
+## 2026-07-29 — AI vision: opt-in per-image captions + text-in-image OCR
+
+**Tags:** design
+
+**Why.** Two capture gaps had the same root: X-Ray read only text. A
+scanned paper archive (a magazine article archived as page images, no
+text layer) captured as an image-only body; and photographs in ordinary
+articles carried information no text pipeline preserves. The new
+"Describe images…" reader surface sends selected images to the
+Anthropic vision API — a caption always, a verbatim transcription when
+the image contains legible text — behind the new `aiVision` flag.
+
+**Decisions future-you might second-guess:**
+
+- **Own flag, not `llmAssist`.** Text-consent and image-consent are
+  different disclosures (the moralLens precedent). `aiVision` is
+  independent of `llmAssist` and shares the API key; the gate is
+  machine-checked pre-network in tests.
+- **One image per `xray:vision:describe` message.** The lens/audit-
+  module topology (JOURNAL 2026-07-09): each message resets the MV3
+  idle timer; a lost channel costs one retryable image.
+- **The SW acquires bytes by ref** (http fetch / `xray-figure:`
+  IndexedDB read / data-URL decode) rather than shipping bytes over
+  the bus — the `xray:llm:extract` reasoning — and normalizes via
+  OffscreenCanvas (the screenshot-crop precedent): anything
+  oversized or in a container the API rejects (AVIF/BMP) re-encodes
+  to JPEG at 1568px longest side.
+- **Provenance is inline in the body text**, not metadata: accepted
+  notes read "*Image description (AI — claude-…): …*" / "**Text in
+  image (AI transcription — claude-…):**" so the model attribution
+  survives publish inside the kind-30023 content and every consumer
+  sees exactly which text is model-authored. `extraction.method` is
+  deliberately untouched — it describes how the CAPTURE was
+  extracted, and a few accepted image notes don't make the whole body
+  machine-derived (the scanned-PDF transcription path, where the
+  model's text IS the capture, keeps stamping `llm:<model>`).
+- **First occurrence only, idempotent upsert.** A repeated image URL
+  gets one note, where the reader first meets it; re-running replaces
+  the note in place (`vision-notes.js`, string/regex over both
+  canonical body forms — the upsertTranscriptSection approach, so
+  Node tests cover the merge end to end).
+- **Merging is hash-bearing and human-gated.** Accepted notes run the
+  transcript-attach tail (canonical-side branch, draft sync, hash
+  recompute, archive save) — the pre-note snapshot in the archive is
+  honest versioning, not a stealth-edit false positive. Nothing
+  merges without a per-image, per-part (caption vs transcription)
+  Accept.
+
+**Two review catches worth remembering** (adversarial pass on the
+initial diff): (1) `markdownToHtml`'s img/link emitters interpolated
+src/href into attributes UNESCAPED — model-authored note text could
+form `![a](x"onerror=…)` and break out into an onerror attribute on a
+privileged extension page. The emitters now quote-escape and
+scheme-check (javascript:/vbscript:/data:non-image rejected); the fix
+is at the sink, so verbatim transcriptions stay verbatim. (2) The
+vision fetch ran with `<all_urls>` on any ref the article body named —
+an open probe of localhost/RFC-1918/link-local from a crafted page.
+`blockedImageUrl` (vision-image.js) now refuses non-public literals
+and the fetch omits credentials, per the scholar-fetch open-proxy
+rule.
+## 2026-07-29 — MA.6: kind 30070, and the disclosure posture that got reversed
+
+**Tags:** design
+
+The durable extraction layer became publishable. New addressable kind
+**30070 ExtractionAnalysis** (`src/shared/extraction-publish.js`,
+`docs/NIP_DRAFT.md §Kind 30070`), one replaceable event per (author,
+articleHash), behind `extractionAnalysisPublishing` (default off).
+
+**The decision was taken twice, and the reversal is the point.** The
+first rule was the obvious one: *nothing publishes that the user has
+not reviewed and accepted*. It disqualified three of four panel designs
+and shaped a whole implementation. The maintainer then reversed it: the
+WHOLE unit publishes — every atom in every review state, WITH the
+model's proposed text and rationale — because **a filter a reader
+cannot see cannot be audited**. Publishing only what survived review
+overstates the extractor's precision by hiding its denominator, which
+is exactly the coverage-disclosure duty (P12) applied to our own
+output rather than to someone else's article.
+
+The cost, stated once and designed around: **the marking is now the
+only safeguard.** So it is built to be hard to lose rather than merely
+present — every row carries a REQUIRED `status` from a closed set and
+an unknown value reads back as `unreviewed` (fail-safe, never
+fail-open); model prose lives only in `model_`-prefixed keys and is
+never `quote` and never the human's `why`; endorsement is only ever a
+coordinate to a separately signed 30040, mirrored as an
+`["a", …, "endorsed"]` tag, so this event cannot manufacture an
+endorsement by being edited; and human-attributable fields on a
+non-accepted row are **ignored on parse**, so a hostile event cannot
+smuggle endorsement onto an unreviewed atom. No `p`, no `L`/`l`, no
+`I`/`K`, no numeric slot anywhere — machine-guarded.
+
+Three second-guessable choices, recorded:
+
+- **No offsets on the wire, at all.** The local record has exact
+  spans; publishing them would invite a consumer to resolve a position
+  from another machine. There is nothing to trust if there is nothing
+  to publish — a consumer re-locates each quote in its own copy, the
+  same verify-don't-resolve rule §Selectors states for
+  `TextPositionSelector`. The NIP section says explicitly what `x`
+  does NOT pin: it hashes the *normalized* body, so it identifies the
+  text without guaranteeing any quote is a byte-exact substring.
+- **`articleCoord` is omitted by the publisher.** The builder accepts
+  one, but the archive row records THAT an article published, not by
+  which identity — so a coordinate built from the current signer would
+  be a guess, and a dangling `a` pointer is worse than no pointer. `x`
+  and `r`/`i` cannot be wrong.
+- **Deliberately NOT in `NETWORK_FEED_KINDS`,** pinned by a test so it
+  does not read as an oversight. That feed carries what a followee
+  *stands behind*; a 30070 is mostly unreviewed machine output by
+  design, and one prolific followee's map runs would swamp it. Folding
+  a foreign analysis safely also needs quote re-grounding on import,
+  which is a deferred slice — a feed surface for events we cannot yet
+  fold would invite importing unverified spans. It IS in the portal's
+  `CONTENT_KINDS`, which reads back the user's own events: a different
+  question.
+
+Publishing is human-initiated per article (case dashboard → Publish
+analysis…), with one batch button whose confirm names the exact N.
+Read-back: an **Extractions** library facet summarized BY REVIEW STATE
+(never "24 assertions" with the states hidden) and an inspector section
+where the state badge leads every row.
+
+---
+
+## 2026-07-27 — MA.4: the reader's Suggest pass joins the durable layer
+
+**Tags:** design
+
+X-Ray had **two producers of claim-shaped output** and only one of them
+kept anything. The corpus map stage folds into `article-extractions`
+(MA.1); the reader's Suggest EXTRACTION pass rendered proposals in the
+14.5.3 modal and discarded everything unaccepted when the modal closed
+— "close = the session is over, re-run to see them again." The 28.2
+parked-suggestions store softened that for import-time passes only, and
+deleted its record on close too. So the same sentence could be found by
+both passes, cost two LLM calls, and survive as zero atoms.
+
+MA.4 routes both through ONE merge: `suggestExtractFromProposals`
+converts claim proposals into the map-extract shape and
+`reviewSuggestions` folds them via `mergeExtractIntoRecord` before the
+modal opens. One span-dedup rule, so a sentence both passes find is one
+atom with the FIRST sighting's provenance kept. Second-guessable
+choices, recorded:
+
+1. **Ground against the canonical text, never the rendered body.** The
+   modal grounds against `articleBodyText()` (DOM text); the record's
+   spans index `assembleArticleBody(hashableArticle(…))` — the text the
+   articleHash covers and the map stage sent. These can differ. Folding
+   reader-side offsets would store spans indexing nothing, so the fold
+   re-grounds every quote in canonical space and drops what it cannot
+   locate. This is deliberately the same discipline the 2026-07-25
+   review had to retrofit onto the backup merge: an invariant about
+   which text a span indexes must be ENFORCED, not commented.
+2. **Skip when the hash is dirty.** The record is keyed by
+   `articleHash`; an edited body dirties it (`claimArticleHash()` →
+   null). Folding then would file this text's atoms under a different
+   text's identity, so the fold declines.
+3. **Claims only.** Entities / assessments / relationships / findings /
+   baselines have their own models and stay modal-only. This record
+   holds claim-shaped atoms; widening it would invent a contract.
+4. **Keyless folds must be able to report "nothing changed."** The
+   suggest path has no input fingerprint to put in `merged_keys`, so
+   `mergeExtractIntoRecord`'s unconditional `changed: true` would have
+   rewritten the record and bumped `updatedAt` on every Suggest run.
+   `changed` is now `key || added || dropped || positionChanged ||
+   first-ever-record`.
+5. **Coverage beats status on the reader bar.** Accepting a claim in
+   the modal never touches the record, so those atoms stay
+   `status: 'open'`. The case dashboard always computed claim coverage
+   on read; the reader bar now does too, and a covered atom folds out
+   of the open list. Without this the two surfaces disagreed about the
+   same record.
+
+The 28.2 parked-suggestions store keeps its delete-on-close semantics
+— it is now a staging queue, not the only copy, because the fold has
+already made the atoms durable.
+
+---
+
 ## 2026-07-25 — Adversarial review of the map-artifact wave: two real defects, one refuted
 
 **Tags:** bug, pattern

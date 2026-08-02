@@ -154,6 +154,20 @@ export const PAYLOADS = {
             specific_enough_to_retrieve: bool(),
             evidence_quote: quote()
         }, ['document', 'linked_or_quoted', 'specific_enough_to_retrieve', 'evidence_quote'])),
+        // v1.1 (corpus-aware source quality, R2): the article's
+        // characterization of cited sources the corpus already holds,
+        // judged against the source's own excerpt. OPTIONAL — absent on
+        // every 1.0 result and on runs with no resolvable citations
+        // (the walker skips undeclared-absent properties by design).
+        corpus_source_checks: arr(obj({
+            cited_as: str(),
+            member_url: str(),
+            characterization: en(['accurate', 'partially_accurate',
+                                  'mischaracterized', 'cannot_determine']),
+            note: str(),
+            evidence_quote: quote(),
+            source_quote: nullableStr()
+        }, ['cited_as', 'member_url', 'characterization', 'evidence_quote'])),
         // Load-bearing for the knowability-ceiling heuristic: all seven
         // counts required, names pinned (scorer.js aggregate()).
         summary: obj({
@@ -288,8 +302,142 @@ export const MODULE_NAMES = Object.freeze(Object.keys(PAYLOADS));
 // older gets a "re-audit under vX.Y" offer (never auto-recompute;
 // old results stay valid under their recorded version, P9/§8). Bump
 // alongside the prompt when a methodology changes.
-export const CURRENT_MODULE_VERSIONS = Object.freeze(
-    Object.fromEntries(MODULE_NAMES.map((m) => [m, '1.0'])));
+// --- the OPINION module family (R5/OP.2; docs/OPINION_MODULES_KICKOFF.md) ---
+//
+// Opinion is graded on ARGUMENT, never conclusion (PHILOSOPHY §3.2,
+// red line 2). Additive: OPINION_PAYLOADS is a second family beside
+// PAYLOADS — MODULE_NAMES and every news consumer are untouched (the
+// corpus-v7 lesson). Two news modules are REUSED unchanged on opinion
+// artifacts per the §8 rulings: asymmetric_language (OQ.5) and
+// definitional_precision; prediction_extraction runs too (unscored).
+//
+// RED LINE 2, structural: no field in these schemas may express a
+// stance on the author's conclusion. tests/opinion-schemas.test.mjs
+// walks every property name and enum value and fails on anything
+// stance-shaped — the wrong field is inexpressible, not just absent.
+
+export const OPINION_PAYLOADS = {
+    premise_accuracy: obj({
+        premises: arr(obj({
+            id: int(),
+            premise: str(),
+            role: en(['load_bearing', 'supporting', 'incidental']),
+            kind: en(['factual', 'interpretive', 'predictive', 'normative']),
+            verifiable_in_principle: bool(),
+            accuracy: en(['supported', 'unsupported', 'contradicted', 'not_checkable']),
+            evidence_quote: quote(),
+            notes: str()
+        }, ['premise', 'role', 'kind', 'verifiable_in_principle', 'accuracy', 'evidence_quote'])),
+        // Load-bearing for the opinion knowability ceiling
+        // (heuristic:premise-accuracy/1.0) — names pinned.
+        summary: obj({
+            total_premises: int({ minimum: 0 }),
+            load_bearing_count: int({ minimum: 0 }),
+            load_bearing_verifiable_count: int({ minimum: 0 }),
+            unsupported_load_bearing: int({ minimum: 0 }),
+            contradicted_load_bearing: int({ minimum: 0 })
+        }, ['total_premises', 'load_bearing_count', 'load_bearing_verifiable_count',
+            'unsupported_load_bearing', 'contradicted_load_bearing'])
+    }, ['premises', 'summary']),
+
+    logical_validity: obj({
+        argument_map: obj({
+            conclusion: str(),
+            premises_summary: str()
+        }, ['conclusion']),
+        fallacies: arr(obj({
+            type: en(['ad_hominem', 'false_dilemma', 'circular', 'slippery_slope',
+                      'appeal_to_authority', 'appeal_to_consequences', 'whataboutism',
+                      'non_sequitur', 'hasty_generalization', 'motte_and_bailey', 'other']),
+            description: str(),
+            evidence_quote: quote(),
+            severity: en(SEVERITY)
+        }, ['type', 'description', 'evidence_quote', 'severity'])),
+        valid_moves: arr(obj({
+            description: str(),
+            evidence_quote: quote()
+        }, ['description', 'evidence_quote']))
+    }, ['argument_map', 'fallacies', 'valid_moves']),
+
+    steel_manning: obj({
+        opposition_positions: arr(obj({
+            position: str(),
+            engaged: bool(),
+            strongest_form_engaged: en(['steel', 'representative', 'weakened', 'strawman', 'absent']),
+            evidence_quote: nullableQuote(),
+            notes: str()
+        }, ['position', 'engaged', 'strongest_form_engaged'])),
+        summary: obj({
+            positions_identified: int({ minimum: 0 }),
+            steel_manned: int({ minimum: 0 }),
+            strawmanned: int({ minimum: 0 })
+        }, ['positions_identified', 'steel_manned', 'strawmanned'])
+    }, ['opposition_positions', 'summary']),
+
+    fact_interpretation_separation: obj({
+        boundary_findings: arr(obj({
+            type: en(['clear_signal', 'smuggled_interpretation',
+                      'interpretation_stated_as_fact', 'fact_hedged_as_opinion']),
+            evidence_quote: quote(),
+            severity: en(SEVERITY),
+            notes: str()
+        }, ['type', 'evidence_quote', 'severity'])),
+        summary: obj({
+            clear_count: int({ minimum: 0 }),
+            smuggled_count: int({ minimum: 0 })
+        }, ['clear_count', 'smuggled_count'])
+    }, ['boundary_findings', 'summary']),
+
+    disclosure_transparency: obj({
+        disclosures: arr(obj({
+            kind: en(['prior_position', 'conflict_financial', 'conflict_relational',
+                      'methodology', 'uncertainty']),
+            disclosed: bool(),
+            evidence_quote: nullableQuote(),
+            notes: str()
+        }, ['kind', 'disclosed'])),
+        // The outsider can only assess what the TEXT discloses (§2) —
+        // suspicion of undisclosed conflicts from outside knowledge
+        // belongs in caveats, never in findings.
+        summary: obj({
+            disclosed_count: int({ minimum: 0 }),
+            disclosure_present: bool()
+        }, ['disclosed_count', 'disclosure_present'])
+    }, ['disclosures', 'summary']),
+
+    originality_synthesis: obj({
+        assessment: obj({
+            classification: en(['novel_synthesis', 'fresh_angle',
+                                'competent_restatement', 'talking_points']),
+            rationale: str()
+        }, ['classification', 'rationale']),
+        examples: arr(obj({
+            point: str(),
+            evidence_quote: quote()
+        }, ['point', 'evidence_quote']))
+    }, ['assessment', 'examples'])
+};
+
+export const OPINION_MODULE_NAMES = Object.freeze(Object.keys(OPINION_PAYLOADS));
+
+// The full opinion RUN roster: six new + two reused (§8 OQ.5) + the
+// unscored ledger feeder. Order is display order.
+export const OPINION_RUN_MODULES = Object.freeze([
+    ...OPINION_MODULE_NAMES,
+    'asymmetric_language', 'definitional_precision', 'prediction_extraction'
+]);
+
+export const CURRENT_MODULE_VERSIONS = Object.freeze({
+    ...Object.fromEntries(MODULE_NAMES.map((m) => [m, '1.0'])),
+    // 1.1 (2026-08-02, R2): corpus-aware source quality — the prompt
+    // gained methodology step 7 (corpus-held cited-source checks) and
+    // the optional corpus_source_checks[] payload. The knowability
+    // ceiling heuristic is UNCHANGED (same seven summary counts), so
+    // ceiling_source stays heuristic:source-quality/1.0.
+    source_quality: '1.1',
+    // Opinion family (R5/OP.2) — all launch at 1.0.
+    ...Object.fromEntries(OPINION_MODULE_NAMES.map((m) => [m, '1.0']))
+});
 
 // prediction_extraction does not score (the ledger does, later).
 export const SCOREABLE_MODULES = Object.freeze(
@@ -315,7 +463,9 @@ const SEMVER_PATTERN = /^\d+\.\d+(\.\d+)?$/;
  */
 export function validateFindings(moduleName, payload) {
     const errors = [];
-    const schema = PAYLOADS[moduleName];
+    // One validator, both families (R5/OP.2): the opinion payloads ride
+    // the same walker, envelope, and evidence discipline.
+    const schema = PAYLOADS[moduleName] || OPINION_PAYLOADS[moduleName];
     if (!schema) {
         return { valid: false, errors: [{ path: '$', message: `unknown module "${moduleName}"` }] };
     }

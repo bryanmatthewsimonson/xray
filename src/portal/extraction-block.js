@@ -14,15 +14,43 @@
 
 import { el, truncate } from './dom.js';
 import { Utils } from '../shared/utils.js';
+import { Storage } from '../shared/storage.js';
+import { Signer } from '../shared/signer.js';
 import { ClaimModel } from '../shared/claim-model.js';
 import { buildMemberUnits } from '../shared/case-synthesis.js';
 import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { getArticleExtraction, saveArticleExtraction } from '../shared/audit/audit-cache.js';
+import { gatePublish, relayPublishTransport } from '../shared/publish-gate.js';
+import { FALLBACK_RELAYS } from './corpus.js';
+import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import {
-    assertionClaimCoverage, partitionAssertions, setAssertionTriage
+    assertionClaimCoverage, isTextPinnedKey, markRecordPublished,
+    partitionAssertions, setAssertionTriage
 } from '../shared/map-artifacts.js';
+import {
+    buildExtractionAnalysisEvent, claimCoordIndex, hasPublishableAnalysis
+} from '../shared/extraction-publish.js';
 
 const now = () => Math.floor(Date.now() / 1000);
+
+async function resolveRelays() {
+    try {
+        const prefs = await Storage.preferences.get() || {};
+        if (Array.isArray(prefs.default_relays) && prefs.default_relays.length) return prefs.default_relays;
+    } catch (_) { /* fall through */ }
+    return FALLBACK_RELAYS;
+}
+
+// What a 30070 discloses, in the words the confirm dialog uses. Kept
+// here (not inlined at two call sites) so the per-article and the batch
+// path can never describe the same act differently.
+const DISCLOSURE_NOTE =
+    'Each event publishes the WHOLE extraction unit for ONE article: every grounded quote '
+    + 'with its review state (unreviewed / accepted / dismissed), plus what the model '
+    + "proposed and why — marked as the model's, never as yours. Accepted atoms reference "
+    + 'your published claims by coordinate; nothing restates a claim.\n\n'
+    + 'Never published: the article positions, your case name and scope question, and cache '
+    + 'fingerprints.';
 
 /**
  * @param {HTMLElement} host
@@ -101,8 +129,17 @@ export function renderExtractionBlock(host, { data, callbacks = {} }) {
                 + 'Refresh (top right) to fold them into the case view.';
         };
 
+        // MA.6 — publishing the layer. Flag-gated, and HUMAN-INITIATED
+        // per article: no automatic publish anywhere, and the batch path
+        // states its exact N before it sends anything.
+        let publisher = null;
+        try { await loadFlags(); } catch (_) { /* defaults */ }
+        if (isEnabled('extractionAnalysisPublishing')) {
+            publisher = await buildPublisher(withRecords, block);
+        }
+
         for (const entry of withRecords) {
-            block.appendChild(memberSection(entry, { caseId, noteAccepted }));
+            block.appendChild(memberSection(entry, { caseId, noteAccepted, publisher }));
         }
     })().catch((err) => {
         Utils.error('Extraction block render failed', err);
@@ -110,14 +147,157 @@ export function renderExtractionBlock(host, { data, callbacks = {} }) {
     });
 }
 
+/**
+ * MA.6 — the publish path, built once per block so the claim-coordinate
+ * index (every published claim) is resolved a single time and shared by
+ * the per-article buttons and the batch.
+ *
+ * @returns {Promise<{publish: Function, canPublish: Function}|null>}
+ */
+async function buildPublisher(withRecords, block) {
+    let coordByClaimId = {};
+    try {
+        coordByClaimId = claimCoordIndex(Object.values(await ClaimModel.getAll() || {}));
+    } catch (err) {
+        // A missing index is not a reason to refuse: an accepted atom
+        // whose claim cannot be resolved publishes as `local-only`,
+        // which is the honest reading of "a human ruled, but there is
+        // nothing to fetch".
+        Utils.error('claim coordinate index failed', err);
+    }
+
+    // A `url:<sha16>` record names a URL, not a text — the builder
+    // refuses it (its `x` would be a fabricated content hash). Decide
+    // that here too, so the surface never offers a button that throws.
+    const publishable = withRecords.filter(({ rec }) =>
+        isTextPinnedKey(rec.articleHash) && hasPublishableAnalysis(rec, coordByClaimId));
+    const refused = withRecords.length - publishable.length;
+
+    const publish = async ({ member, rec }) => {
+        const relays = await resolveRelays();
+        if (!relays.length) throw new Error('no relays configured — add one in Options');
+        const userPubkey = await Signer.getPublicKey();
+        if (!userPubkey) throw new Error('no signing identity — set one in Options');
+        // Publish the record as it stands in the STORE, never the
+        // snapshot this view painted from: a fold may have added atoms
+        // since, and the event must not understate what is now known.
+        const fresh = await getArticleExtraction(rec.articleHash).catch(() => null) || rec;
+        const unsigned = buildExtractionAnalysisEvent({
+            record: fresh,
+            coordByClaimId,
+            articleTitle: member.title || '',
+            articleUrl: member.url || ''
+            // articleCoord is deliberately omitted: the archive row
+            // records THAT an article published but not by which
+            // identity (reconcile.js §article ledger), so a coordinate
+            // built from the current signer would be a guess — and a
+            // dangling `a` pointer is worse than none. The `x` content
+            // hash and the `r`/`i` URL anchors cannot be wrong.
+        });
+        // 29.1: through the publish gate (this answers the MA.6 NB that
+        // sat here — the only portal site with a BATCH path, so the gate
+        // wraps this loop body, one call per record). Never journaled
+        // before, so flag-off is exactly the old send; flag-on gives the
+        // signed analysis sign-time durability. The ledger descriptor
+        // names the article-extractions record markRecordPublished
+        // stamps, keyed by articleHash (eventId comes from the row).
+        const signed = await Signer.signEvent({ ...unsigned, pubkey: userPubkey });
+        // 29.1 routes the transport; the LEDGER RULE stays here, as the
+        // gate's own docblock says it must ("the call sites keep
+        // performing their marks"). `gatePublish` resolving is not
+        // acceptance — it returns `confirmedOk`, the JOURNAL 2026-07-10
+        // computation, precisely so a site need not re-derive it. Reading
+        // only `ok` is how an unreachable relay came to report
+        // "published" and stamp the record (found by the MA.6 browser
+        // walk); `published_at` IS a local publish ledger, so an
+        // unconfirmed round stays UNSTAMPED and says so.
+        let gated;
+        try {
+            gated = await gatePublish({
+                signedEvent: signed,
+                relays,
+                publish: relayPublishTransport(),
+                ledger: { model: 'extraction-analysis', localId: fresh.articleHash, extra: null },
+                legacyJournalOnSuccess: false
+            });
+        } catch (err) {
+            throw new Error((err && err.message) || 'the publish attempt failed');
+        }
+        if (!gated.confirmedOk) {
+            const r = gated.results || {};
+            // An ASSUMED success (fulfilled with no relay OK — a timeout
+            // hope) is reported distinguishably from a total failure: with
+            // the store-first flag on, the signature is journaled and the
+            // 29.2 flusher will retry it, so the wording must not read as
+            // "lost".
+            throw new Error(r.successful > 0
+                ? `sent to ${r.successful}/${r.total} relay(s) but none confirmed it — not recorded as published`
+                : `no relay accepted it (${r.failed || r.total || 0} unreachable or refused)`);
+        }
+        const stamped = markRecordPublished(fresh, { eventId: signed.id, now: now() });
+        await saveArticleExtraction(stamped);
+        rec.published_at = stamped.published_at;
+        rec.published_event_id = stamped.published_event_id;
+        return signed;
+    };
+
+    const canPublish = (rec) =>
+        isTextPinnedKey(rec.articleHash) && hasPublishableAnalysis(rec, coordByClaimId);
+
+    // The batch. Never the default path — one button, an explicit
+    // N-count confirm naming what leaves the machine, and a running
+    // count so a partial send is visible rather than assumed complete.
+    if (publishable.length > 1) {
+        const row = el('div', 'xr-synth__publish');
+        const btn = el('button', 'xr-portal__btn xr-portal__btn--ghost',
+            `Publish all ${publishable.length} analyses…`);
+        btn.type = 'button';
+        btn.title = 'Publish the extraction analysis of every article below to your relays (kind 30070)';
+        const status = el('span', 'xr-synth__status');
+        btn.addEventListener('click', async () => {
+            const warn = refused
+                ? `\n\n${refused} record${refused === 1 ? '' : 's'} cannot publish (no content hash pins their text, `
+                  + 'or they hold nothing publishable) and are skipped.'
+                : '';
+            if (!confirm(`Publish extraction analyses for ${publishable.length} articles to your relays?`
+                + `\n\n${DISCLOSURE_NOTE}${warn}`)) return;
+            btn.disabled = true;
+            let ok = 0;
+            const failures = [];
+            for (const entry of publishable) {
+                status.textContent = `Publishing ${ok + failures.length + 1}/${publishable.length}…`;
+                try { await publish(entry); ok += 1; }
+                catch (err) {
+                    failures.push(`${truncate(entry.member.title || entry.member.url, 60)}: ${(err && err.message) || 'failed'}`);
+                    Utils.error('extraction analysis publish failed', err);
+                }
+            }
+            status.textContent = failures.length
+                ? `Published ${ok}/${publishable.length} — ${failures.length} failed (see console).`
+                : `Published ${ok} analys${ok === 1 ? 'is' : 'es'}.`;
+            btn.disabled = false;
+        });
+        row.appendChild(btn);
+        row.appendChild(status);
+        block.appendChild(row);
+    }
+
+    return { publish, canPublish };
+}
+
 function provChip(a) {
     const fs = a.first_seen || {};
-    const bits = [fs.model, fs.promptVersion].filter(Boolean);
+    // MA.4: which pass found this atom. Records written before MA.4
+    // carry no producer — those are all corpus-map extracts.
+    const producer = fs.producer === 'suggest' ? 'reader suggest' : 'corpus map';
+    // MA.7: an atom that arrived by backup merge was not produced by a
+    // pass on this machine, and its quote was re-located here.
+    const bits = [fs.imported ? `${producer} (imported)` : producer, fs.model, fs.promptVersion].filter(Boolean);
     if (fs.at) bits.push(new Date(fs.at * 1000).toISOString().slice(0, 10));
     return el('span', 'xr-synth__prov-row', bits.join(' · '));
 }
 
-function memberSection({ member, rec }, { caseId, noteAccepted }) {
+function memberSection({ member, rec }, { caseId, noteAccepted, publisher = null }) {
     const sec = el('details', 'xr-synth__sec');
     const parts = partitionAssertions(rec);
     const label = () => {
@@ -141,13 +321,13 @@ function memberSection({ member, rec }, { caseId, noteAccepted }) {
     sec.addEventListener('toggle', () => {
         if (!sec.open || painted) return;
         painted = true;
-        paintMember(body, { member, rec, caseId, noteAccepted, relabel: () => { summary.textContent = label(); } });
+        paintMember(body, { member, rec, caseId, noteAccepted, publisher, relabel: () => { summary.textContent = label(); } });
     });
     if (parts.open.length === 0) sec.classList.add('xr-extr--settled');
     return sec;
 }
 
-function paintMember(body, { member, rec, caseId, noteAccepted, relabel }) {
+function paintMember(body, { member, rec, caseId, noteAccepted, publisher = null, relabel }) {
     const index = createGroundingIndex(member.text);
     const coverage = assertionClaimCoverage(rec, member, index);
     const claimText = {};
@@ -167,6 +347,15 @@ function paintMember(body, { member, rec, caseId, noteAccepted, relabel }) {
     const persistTriage = async (key, status, claimId = null) => {
         const fresh = await getArticleExtraction(member.article_hash).catch(() => null) || rec;
         const updated = setAssertionTriage(fresh, key, status, { claimId, now: now() });
+        // FAIL CLOSED. `matched === 0` means the atom this click targeted
+        // is not in the record any more (a re-capture re-grounded it, or
+        // the record was replaced) — so the write would persist a bumped
+        // timestamp and NOTHING else, losing a human decision while
+        // looking like success. Throwing puts it in front of the person
+        // who clicked; the callers below render it on the row.
+        if (updated.matched === 0) {
+            throw new Error('this assertion is no longer on the record — Refresh and try again');
+        }
         await saveArticleExtraction(updated);
         // Keep the painted snapshot's triage view in step (labels read
         // from `rec`); newly folded atoms appear on the next Refresh.
@@ -180,16 +369,33 @@ function paintMember(body, { member, rec, caseId, noteAccepted, relabel }) {
         const main = el('div', 'xr-synth__prop-desc');
         main.appendChild(el('blockquote', 'xr-finding-row__quote', truncate(a.quote, 300)));
         if (a.why) main.appendChild(el('div', 'xr-synth__prop-note', a.why));
+        // MA.7 — an imported ruling from ANOTHER machine. Shown because
+        // it is evidence about the atom, labelled because it is NOT the
+        // user's decision: the merge never applies it, so if it stayed
+        // invisible the imported work would be silently inert.
+        if (a.imported_ruling) {
+            const r = a.imported_ruling;
+            const bits = [`imported ruling: ${r.status}`];
+            if (r.at) bits.push(new Date(r.at * 1000).toISOString().slice(0, 10));
+            const chip = el('div', 'xr-synth__prop-note xr-extr__imported',
+                `${bits.join(' · ')} — recorded from another machine, NOT applied. `
+                + (r.why ? `Their reason: ${truncate(r.why, 200)}` : 'No reason given.'));
+            main.appendChild(chip);
+        }
         main.appendChild(provChip(a));
         row.appendChild(main);
 
         // The claim text is the human's to author — prefilled with the
-        // article's own span, editable before Accept (the quote is kept
-        // verbatim as the evidence anchor regardless).
+        // suggest pass's authored claim text when there is one (MA.4:
+        // that paraphrase is what the suggest pass adds over the map),
+        // else the article's own span. Editable before Accept; the
+        // quote is kept verbatim as the evidence anchor regardless.
         const input = el('input', 'xr-hyp__input xr-extr__text');
         input.type = 'text';
-        input.value = a.quote;
-        input.title = 'The claim text to mint — edit freely; the verbatim quote stays attached as evidence';
+        input.value = a.text || a.quote;
+        input.title = a.text
+            ? 'The claim text to mint — suggested by the extraction pass; edit freely. The verbatim quote stays attached as evidence.'
+            : 'The claim text to mint — edit freely; the verbatim quote stays attached as evidence';
         row.appendChild(input);
 
         const acceptBtn = el('button', 'xr-portal__btn', 'Accept as claim');
@@ -223,7 +429,15 @@ function paintMember(body, { member, rec, caseId, noteAccepted, relabel }) {
                 try {
                     await persistTriage(a.key, 'dismissed');
                     row.remove();
-                } catch (err) { Utils.error('Assertion dismiss failed', err); }
+                } catch (err) {
+                    // On the ROW, not only in the console: a Dismiss that
+                    // failed silently is a decision the user believes they
+                    // made. (This handler used to log and say nothing.)
+                    Utils.error('Assertion dismiss failed', err);
+                    dismissBtn.disabled = true;
+                    row.appendChild(el('span', 'xr-synth__prop-note',
+                        `dismiss failed: ${(err && err.message) || err}`));
+                }
             });
             row.appendChild(dismissBtn);
         }
@@ -282,5 +496,40 @@ function paintMember(body, { member, rec, caseId, noteAccepted, relabel }) {
         for (const q of rec.open_questions) ul.appendChild(el('li', 'xr-synth__text', q.text));
         oq.appendChild(ul);
         body.appendChild(oq);
+    }
+
+    // MA.6 — publish THIS article's analysis. Last in the section: the
+    // queue is what you review, publishing is what you decide to do
+    // about it. Absent entirely unless the flag is on and this record
+    // can actually publish.
+    if (publisher && publisher.canPublish(rec)) {
+        const row = el('div', 'xr-synth__publish');
+        const btn = el('button', 'xr-portal__btn xr-portal__btn--ghost',
+            rec.published_at ? 'Republish analysis…' : 'Publish analysis…');
+        btn.type = 'button';
+        btn.title = 'Publish this article’s extraction analysis to your relays (kind 30070, replaceable)';
+        const status = el('span', 'xr-synth__status');
+        if (rec.published_at) {
+            status.textContent = `published ${new Date(rec.published_at * 1000).toISOString().slice(0, 10)}`;
+        }
+        btn.addEventListener('click', async () => {
+            if (!confirm(`Publish the extraction analysis of “${truncate(member.title || member.url, 70)}”?`
+                + `\n\n${DISCLOSURE_NOTE}`)) return;
+            btn.disabled = true;
+            status.textContent = 'Publishing…';
+            try {
+                await publisher.publish({ member, rec });
+                status.textContent = `published ${new Date(rec.published_at * 1000).toISOString().slice(0, 10)}`;
+                btn.textContent = 'Republish analysis…';
+            } catch (err) {
+                Utils.error('extraction analysis publish failed', err);
+                status.textContent = `Publish failed: ${(err && err.message) || 'unknown error'}`;
+            } finally {
+                btn.disabled = false;
+            }
+        });
+        row.appendChild(btn);
+        row.appendChild(status);
+        body.appendChild(row);
     }
 }

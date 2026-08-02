@@ -145,3 +145,39 @@ export function computeDossier({
         }
     };
 }
+
+/**
+ * The reach VIEW — R6 of the founding-transcript integration
+ * (JOURNAL 2026-08-02), per the maintainer's ruling: reach weighting
+ * is an optional, interesting view and NEVER the canonical rollup;
+ * equally interesting is what the least-visible members scored. Reach
+ * exists only where a capture carried it (social engagement counts,
+ * YouTube view_count) — coverage is on the face, log10 damping keeps
+ * a viral outlier from owning the mean.
+ *
+ * @param {Array<{finalScore:number, reach:number|null, label:string}>} rows
+ * @returns {{weightedMean, covered, total, noReachData, leastVisible}|null}
+ */
+export function computeReachView(rows, { bottom = 3 } = {}) {
+    const scored = (rows || []).filter((r) => r && typeof r.finalScore === 'number');
+    const covered = scored.filter((r) => typeof r.reach === 'number' && r.reach >= 0);
+    if (covered.length === 0) return null;
+    let wSum = 0;
+    let wsSum = 0;
+    for (const r of covered) {
+        const w = Math.log10(10 + r.reach);
+        wSum += w;
+        wsSum += w * r.finalScore;
+    }
+    const leastVisible = covered.slice()
+        .sort((a, b) => a.reach - b.reach)
+        .slice(0, bottom)
+        .map((r) => ({ label: r.label || '', reach: r.reach, score: r.finalScore }));
+    return {
+        weightedMean: Math.round((wsSum / wSum) * 10) / 10,
+        covered: covered.length,
+        total: scored.length,
+        noReachData: scored.length - covered.length,
+        leastVisible
+    };
+}

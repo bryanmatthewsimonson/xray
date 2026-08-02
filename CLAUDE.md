@@ -96,9 +96,11 @@ through the **source tab** when NIP-07 is active, so the user's signer
 extension approves in-context.
 
 **Message bus:** everything is `chrome.runtime` messages typed `xray:*`
-(e.g. `xray:capture`, `xray:capture:publish`, `xray:relay:publish`,
-`xray:relay:query`, `xray:sign`, `xray:youtube:fetchTranscript`,
-`xray:screenshot:capture`, `xray:llm:suggest`, `xray:audit:run`). When adding a cross-context
+(e.g. `xray:capture`, `xray:capture:transcribe`, `xray:capture:publish`,
+`xray:relay:publish`, `xray:relay:query`, `xray:sign`,
+`xray:youtube:fetchTranscript`, `xray:screenshot:capture`,
+`xray:llm:suggest`, `xray:audit:run`, `xray:transcribe:{start,status,
+config,ping,claims}`, `xray:vision:describe`). When adding a cross-context
 call, add an `xray:*` message rather than reaching across contexts directly.
 
 ### Shared layer (`src/shared/`)
@@ -140,8 +142,10 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   user-signed) in `corpus-publish.js`; the user-signed entity page (an
   ordinary replaceable `30023`) in `entity-page-publish.js`; the
   creator-binding OwnedKeys manifest `30069` (Phase 24) + NIP-26
-  delegation tags; and the opt-in NIP-02 follow-list mirror (kind `3`)
-  in `follow-publish.js`. The moral lens (Phase 16) and the case
+  delegation tags; the per-article ExtractionAnalysis `30070` (MA.6,
+  user-signed, whole-unit disclosure with a REQUIRED per-row review
+  state) in `extraction-publish.js`; and the opt-in NIP-02 follow-list
+  mirror (kind `3`) in `follow-publish.js`. The moral lens (Phase 16) and the case
   dossier / graph / hypothesis-map / counterfactual (Phases 20 + 26) are
   derived views with **no wire kind** (`30066` stays free, guard-tested).
   **Wire-format changes in any of these have compatibility
@@ -186,7 +190,27 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   Integrity" never appear in lens exports, storage keys, or UI strings.
 - Also: `nostr-client.js` (relay pool, used from background),
   `archive-cache.js` (IndexedDB + paywall reconstruction),
-  `build-info.js` (the build stamp shown on the Options page).
+  `build-info.js` (the build stamp shown on the Options page),
+  `transcriber-client.js` + `diarized-transcript.js` (local
+  transcription: the loopback companion client — pinned to
+  127.0.0.1/localhost — and the segments→diarized-markdown/timeMap
+  composer; flag `localTranscription`, reader flow in
+  `reader/transcribe-flow.js`).
+
+## Companion service (`companion/transcriber/`)
+
+A **separate local Python service** (uv-managed, FastAPI; yt-dlp →
+WhisperX → pyannote diarization on 127.0.0.1:8756; optional cloud
+engines — AssemblyAI/Deepgram, chosen per job from the extension's
+Settings/engine picker with keys in extension storage riding each
+request memory-only, or via `TRANSCRIBER_PROVIDER`/env keys as
+server-side defaults; audio-leaves-machine disclosure in its README)
+behind the "Transcribe" YouTube capture path. It is NOT part of the
+extension build or zip (`package.json` `webExt.ignoreFiles` excludes
+it; CI's `node --check`/tests never touch it). Setup + API contract:
+`companion/transcriber/README.md`. The extension must behave exactly
+as before whenever the service is absent — that degradation is a
+tested contract, not an aspiration.
 
 ## Conventions
 
@@ -291,9 +315,15 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   dashboard + reader, the map went CASE-FREE (corpus-v7 — one extract
   per article ever, shared across cases/entity pages; the old
   corpus-v4 claims-independent cache key is superseded), the reduce
-  reads the accumulated layer, and backups gained **merge-import**
-  (`mergeBackup` — accrual by id, local wins, config/identities never
-  merged). The FLF Epistack
+  reads the accumulated layer, the reader's Suggest pass folds into the
+  SAME layer (MA.4 — one span-dedup rule across both producers, a
+  `producer` stamp, claims-only scope), backups gained
+  **merge-import** (`mergeBackup` — accrual by id, local wins,
+  config/identities never merged), and the layer became PUBLISHABLE
+  (MA.6 — the NEW kind `30070` ExtractionAnalysis behind
+  `extractionAnalysisPublishing`; the maintainer's 2026-07-29 posture
+  publishes the WHOLE unit, every review state plus the model's prose,
+  so the per-row `status` marking is the only safeguard). The FLF Epistack
   entry has been submitted (deadline was 2026-07-19); the tool continues
   to be tailored **maintainer-driven from real casework (COVID first)**.
   The 0.8.0 smoke walk passed (2026-07-20; Phases 11–15
@@ -309,14 +339,37 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   (FB/IG/TikTok are finicky).
 - **`docs/NIP_DRAFT.md`** — the crowdsourced-metadata wire format.
 - **`docs/PHILOSOPHY.md`** — the **normative** constitution of the
-  Phase-13 epistemic auditor (v1.0.0). Consult it before any
-  structural, scoring, schema, or methodology change to audit
-  surfaces; when code and it conflict, it governs until amended.
-  When two of its principles conflict, document the tension and cite
-  them by number (e.g. "P9 over convenience"). Scope note: it governs
-  the audit family (`30056`–`30061`); Phase 15 truth verdicts operate
-  under `TRUTH_ADJUDICATION_DESIGN.md`'s own form-of-judgment (§1/§5)
+  Phase-13 epistemic auditor (v1.1.0 — the 2026-08-02 amendments
+  removed the standing re-audit cadence and narrowed the P10
+  self-dossier clause). Consult it before any structural, scoring,
+  schema, or methodology change to audit surfaces; when code and it
+  conflict, it governs until amended — and amending it to fit reality
+  is normal, not sacrilege (the maintainer: this is an experiment in
+  modeling reality, not received wisdom). When two of its principles
+  conflict, document the tension and cite them by number (e.g. "P9
+  over convenience"). Scope note: it governs ONLY the audit family
+  (`30056`–`30061`) — never treat it as a repo-wide constitution;
+  Phase 15 truth verdicts operate under
+  `TRUTH_ADJUDICATION_DESIGN.md`'s own form-of-judgment (§1/§5)
   — deliberately no 0–100 score or knowability ceiling there.
+- **`docs/TRUTH_INFRASTRUCTURE.md`** — **non-normative** expansion
+  map: the portable "truth infrastructure" framework (five
+  strategies — the fifth kept as process, with only the computed
+  shortcut refused — plus the double/triple-entry bookkeeping lens)
+  and six expansion domains (supply-chain provenance,
+  proof-of-personhood/reputation, truth markets, democratic ledgers,
+  adversarial collaboration, cross-ledger reconciliation), each
+  mapped to shipped features, parked designs
+  (`docs/BONDING_NOTES.md`), refusals, and the sibling projects
+  (crux; Honor). `docs/PHILOSOPHY.md` governs wherever it touches
+  audit surfaces; cites the in-flight Truth Systems annex (PR #263)
+  in prose without depending on it.
+- **`docs/FOUNDING_TRANSCRIPT.md`** — the founding conversation's
+  verbatim source prose (non-normative; PHILOSOPHY.md and the RQ
+  decisions govern on conflict). Its supersession log records which
+  transcript mechanisms were ruled newsroom-only and dropped
+  (2026-08-02) — check it before "integrating" anything from the
+  transcript.
 - **`CONTRIBUTING.md`** — release process (git-tag-driven via
   `.github/workflows/release.yml`) and the Firefox-floor rationale.
 

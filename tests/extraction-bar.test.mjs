@@ -69,14 +69,14 @@ test('triage state renders: accepted and dismissed fold into a collapsed section
     assert.match(html, /1 open/);
     assert.match(html, /1 accepted as claims/);
     assert.match(html, /1 dismissed/);
-    assert.match(html, /Already triaged \(2\)/);
+    assert.match(html, /Already triaged or covered \(2\)/);
     assert.match(html, /✓ accepted as a claim/);
 });
 
 test('an unknown status counts as OPEN — never silently hidden', () => {
     const html = renderExtractionBar(record({ assertions: [assertion({ status: 'weird' })] }));
     assert.match(html, /1 open/);
-    assert.ok(!/Already triaged/.test(html));
+    assert.ok(!/Already triaged or covered/.test(html));
 });
 
 test('dropped ungroundable quotes are disclosed (P6)', () => {
@@ -116,6 +116,63 @@ test('an ALL-ungroundable record still speaks: a paid pass that retained nothing
     assert.equal(renderExtractionBar(record({
         assertions: [], sources: [], open_questions: [], dropped_ungrounded: 0
     })), '');
+});
+
+// ---- MA.4: one review surface ----------------------------------------------
+
+test('MA.4: a claim-COVERED atom is not outstanding work — it folds out of the open list', () => {
+    // The claim may have been minted through the review modal, which
+    // never touches this record, so status stays 'open'. Coverage is
+    // computed on read by the caller and must win over the status.
+    const rec = record({
+        assertions: [
+            assertion({ key: 'a:1', quote: 'covered span' }),
+            assertion({ key: 'a:2', quote: 'still open span' })
+        ]
+    });
+    const html = renderExtractionBar(rec, { coverage: { 'a:1': 'claim_x' } });
+    assert.match(html, /1 open/, 'only the uncovered atom counts as open');
+    assert.match(html, /1 already covered by a claim/);
+    assert.match(html, /Already triaged or covered \(1\)/);
+    assert.match(html, /already covered by a captured claim/);
+    // Without coverage both read as open (back-compat with pre-MA.4 callers).
+    assert.match(renderExtractionBar(rec), /2 open/);
+});
+
+test('MA.4: the bar names WHICH pass found the atoms, and both at once', () => {
+    const mapOnly = renderExtractionBar(record());
+    assert.match(mapOnly, /corpus map/);
+    assert.ok(!/reader suggest/.test(mapOnly));
+
+    const suggestOnly = renderExtractionBar(record({
+        assertions: [assertion({ first_seen: { model: 'm', promptVersion: 'corpus-v7', at: 1000000, producer: 'suggest' } })]
+    }));
+    assert.match(suggestOnly, /reader suggest/);
+    assert.ok(!/corpus map/.test(suggestOnly));
+
+    const both = renderExtractionBar(record({
+        assertions: [
+            assertion({ key: 'a:1', first_seen: { model: 'm', producer: 'map', at: 1000000 } }),
+            assertion({ key: 'a:2', quote: 'second span', first_seen: { model: 'm', producer: 'suggest', at: 1000000 } })
+        ]
+    }));
+    assert.match(both, /corpus map \+ reader suggest/);
+});
+
+test('MA.4: an atom with no producer stamp reads as corpus map (pre-MA.4 records)', () => {
+    const html = renderExtractionBar(record({
+        assertions: [assertion({ first_seen: { model: 'm', promptVersion: 'corpus-v4', at: 1000000 } })]
+    }));
+    assert.match(html, /corpus map/);
+});
+
+test('MA.4: a suggest atom\'s authored claim text renders beside the quote', () => {
+    const html = renderExtractionBar(record({
+        assertions: [assertion({ text: 'Funding went to the institute', why: '' })]
+    }));
+    assert.match(html, /suggested claim: Funding went to the institute/);
+    // A map atom (text null) shows no suggested-claim line.
+    assert.ok(!/suggested claim:/.test(renderExtractionBar(record())));
 });
 
 // ---- honesty about prior versions ------------------------------------------

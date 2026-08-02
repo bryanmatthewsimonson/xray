@@ -37,3 +37,8 @@ scratch/
 # tools/relay-probe.mjs output (paste results into the runbook, don't commit)
 relay-probe-results.md
 relay-probe-state.json
+
+# Companion transcription service (Python via uv) — uv.lock IS committed
+companion/transcriber/.venv/
+__pycache__/
+*.pyc

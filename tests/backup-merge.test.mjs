@@ -40,6 +40,10 @@ const { BACKUP_FORMAT, mergeBackup, mergeStorageValue } = await import('../src/s
 const { openAuditDb, clear: clearAudits, getRun, listRuns, getArticleExtraction, saveArticleExtraction }
     = await import('../src/shared/audit/audit-cache.js');
 const { openArchiveDb } = await import('../src/shared/archive-cache.js');
+const {
+    recordSigned, recordPublished, getByEventId: journalGet, clear: clearJournal,
+    openEventJournalDb, MIGRATION_DEFER_S
+} = await import('../src/shared/event-journal.js');
 
 function idbPut(db, storeName, row) {
     return new Promise((resolve, reject) => {
@@ -61,6 +65,11 @@ function idbGetAll(db, storeName) {
 // A real 64-hex content hash — the merge only trusts spans under a
 // text-pinned key (isTextPinnedKey), so a non-hex id would be skipped.
 const HASH_X = 'e'.repeat(64);
+
+// The local canonical body. MA.7 re-locates every imported quote HERE,
+// so it must contain them — with different surrounding whitespace than
+// the offsets in the fixture records, which is the point.
+const LOCAL_BODY = 'Intro line.\n\nlocal span here.\n\nAnd then a foreign-only span here to find.\n';
 
 const extractionRecord = (over = {}) => ({
     articleHash: HASH_X, url: 'https://ex.com/x', title: 'X',
@@ -90,8 +99,33 @@ async function seedLocal() {
     await idbPut(audits, 'runs', { id: 'run_shared', articleHash: 'ah1', note: 'LOCAL run' });
     await saveArticleExtraction(extractionRecord());
 
-    // The archive DB must exist so its dump section merges cleanly.
-    await openArchiveDb();
+    // The archive DB must exist so its dump section merges cleanly — and
+    // MA.7 needs an actual BODY under this record's hash, or the merge
+    // (correctly) refuses to verify anything. The row's stored
+    // articleHash is what the resolver keys on; it is deliberately not
+    // re-derived (a published or PDF row's body no longer re-hashes to
+    // its own identity, so a hash precondition would break the common
+    // case).
+    const archive = await openArchiveDb();
+    await idbPut(archive, 'articles', {
+        urlHash: 'x'.repeat(16), url: 'https://ex.com/x',
+        article: { url: 'https://ex.com/x', title: 'X', content: LOCAL_BODY },
+        articleHash: HASH_X, priorVersions: [],
+        cachedAt: 1, lastAccessed: 1, source: 'capture',
+        publishedToRelay: false, publishedEventId: null
+    });
+}
+
+/** seedLocal, minus the archive body — the "I hold no copy" case. */
+async function seedLocalWithoutBody() {
+    await seedLocal();
+    const archive = await openArchiveDb();
+    await new Promise((resolve, reject) => {
+        const tx = archive.transaction('articles', 'readwrite');
+        tx.objectStore('articles').clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+    });
 }
 
 function foreignBackup() {
@@ -186,16 +220,72 @@ test('mergeBackup: config and identity in the file are NEVER applied', async () 
     assert.equal(_stateStore.get('xray:llm:key'), 'sk-ant-LOCAL', 'a smuggled API key is ignored');
 });
 
-test('mergeBackup: article-extractions deep-merge — atoms accrue, foreign triage lands on open atoms', async () => {
+test('MA.7 merge-import: atoms accrue at LOCAL offsets; no foreign ruling is adopted', async () => {
     await seedLocal();
-    await mergeBackup(foreignBackup());
+    const summary = await mergeBackup(foreignBackup());
     const rec = await getArticleExtraction(HASH_X);
     assert.equal(rec.assertions.length, 2, 'the foreign-only atom accrued');
-    const localAtom = rec.assertions.find((a) => a.key === 'a:0-10');
+
+    const localAtom = rec.assertions.find((a) => a.quote === 'local span');
     assert.equal(localAtom.why, 'local why', 'the local atom body is untouched');
-    assert.equal(localAtom.status, 'accepted', 'the foreign decision landed on the open local atom');
-    assert.equal(localAtom.accepted_claim_id, 'claim_foreign');
-    assert.ok(rec.merged_keys.includes('k-local') && rec.merged_keys.includes('k-foreign'));
+    assert.equal(localAtom.status, 'open', 'a file does NOT rule for the user');
+    assert.equal(localAtom.accepted_claim_id, null, 'no foreign claim id in a local field');
+    assert.equal(localAtom.imported_ruling.status, 'accepted', 'it rides attributed instead');
+    assert.equal(localAtom.imported_ruling.foreign_claim_id, 'claim_foreign');
+
+    // The accrued atom's span indexes the LOCAL body, not the file's.
+    const added = rec.assertions.find((a) => a.quote.includes('foreign-only span'));
+    assert.ok(added, 'the new atom landed');
+    assert.equal(LOCAL_BODY.slice(added.start, added.end), added.quote,
+        'the stored span indexes THIS machine’s text');
+    assert.notEqual(added.start, 20, 'the foreign offset was not adopted');
+    assert.equal(added.first_seen.imported, true);
+
+    // A foreign cache fingerprint must never land: corpusExtractKey omits
+    // the model, so it would collide with a local key and permanently
+    // suppress this machine's own fold of its own paid extract.
+    assert.deepEqual(rec.merged_keys, ['k-local']);
+
+    const st = summary.databases['xray-audits']['article-extractions'];
+    assert.equal(st.refusals.regroundedQuotes, 2, 'both quotes were re-located locally');
+    assert.equal(st.refusals.noLocalText, 0);
+    assert.equal(st.refusals.importedRulings, 1);
+});
+
+test('MA.7 merge-import: no local copy of the text ⇒ REFUSED and named, never trusted', async () => {
+    await seedLocalWithoutBody();
+    const before = JSON.stringify(await getArticleExtraction(HASH_X));
+    const summary = await mergeBackup(foreignBackup());
+    assert.equal(JSON.stringify(await getArticleExtraction(HASH_X)), before,
+        'nothing is written when nothing can be verified');
+    const st = summary.databases['xray-audits']['article-extractions'];
+    assert.equal(st.refusals.noLocalText, 1);
+    assert.equal(st.skipped, 1);
+    assert.equal(st.added, 0);
+    assert.equal(st.merged, 0);
+    // And the report names WHICH article, so the user can go capture it.
+    assert.equal(st.unresolved.length, 1);
+    assert.equal(st.unresolved[0].url, 'https://ex.com/x');
+});
+
+test('MA.7 merge-import: a quote absent from the local text is a FINDING, not a proposal', async () => {
+    await seedLocal();
+    const b = foreignBackup();
+    b.databases['xray-audits']['article-extractions'] = [extractionRecord({
+        assertions: [{ key: 'a:0-40', quote: 'THIS SENTENCE IS NOT IN THE LOCAL BODY',
+                       start: 0, end: 38, why: 'w', status: 'accepted',
+                       accepted_claim_id: 'claim_foreign', triaged_at: 500,
+                       first_seen: { model: 'm-foreign', promptVersion: 'corpus-v7', at: 400 } }],
+        merged_keys: ['k-foreign'], updatedAt: 400
+    })];
+    const summary = await mergeBackup(b);
+    const rec = await getArticleExtraction(HASH_X);
+    assert.ok(!rec.assertions.some((a) => a.quote.startsWith('THIS SENTENCE')),
+        'an unlocatable quote never becomes a proposal (P3/P4)');
+    assert.equal((rec.imported_unlocated || []).length, 1, 'but it is recorded as a finding');
+    const st = summary.databases['xray-audits']['article-extractions'];
+    assert.equal(st.refusals.unlocatedQuotes, 1);
+    assert.equal(st.refusals.noLocalText, 0, 'distinct from "I hold no copy" — a different diagnosis');
 });
 
 test('mergeBackup: running the SAME merge twice is idempotent', async () => {
@@ -287,6 +377,121 @@ test('mergeBackup: under a NON-default workspace, content merges into THAT works
         _stateStore.delete('ws:ws_mine:article_claims');
         _stateStore.delete('ws:ws_other:article_claims');
     }
+});
+
+test('mergeBackup: v2 journal rows — merged flush states resolve local-wins; foreign pending rows join the queue', async () => {
+    await seedLocal();
+    await clearJournal();
+    const P = 'p'.repeat(64);
+    const signed = (id, kind = 30040, tags = [['d', 'd-' + id.slice(0, 4)]]) => ({
+        id, sig: 's'.repeat(128), kind, pubkey: P, created_at: 1700000000, tags, content: 'x'
+    });
+
+    // Local: a PENDING row (signed here, no relay has it yet).
+    const sharedId = 'a9'.padEnd(64, '0');
+    await recordSigned(signed(sharedId), { ledger: { model: 'claim', localId: 'c1' } });
+    // Local: a flushed row that the incoming file also carries.
+    const flushedId = 'b9'.padEnd(64, '0');
+    await recordPublished(signed(flushedId), {
+        successful: 1, confirmed: 1, failed: 0, total: 1,
+        results: [{ url: 'wss://mine.example', success: true, assumed: false }]
+    }, {});
+
+    // Foreign: the SAME shared id but marked flushed on the other
+    // machine, plus a foreign-only PENDING row (Q7: it must arrive
+    // still pending, joining the local flush queue).
+    const foreignPendingId = 'c9'.padEnd(64, '0');
+    const b = foreignBackup();
+    b.databases['xray-events'] = {
+        published_events: [
+            {
+                eventId: sharedId, kind: 30040, pubkey: P,
+                address: `30040:${P}:d-${sharedId.slice(0, 4)}`,
+                createdAt: 1700000000, event: signed(sharedId), articleUrl: null,
+                signedAt: 1700000000, publishedAt: 1700000500,
+                relays: [{ url: 'wss://theirs.example', success: true, assumed: false }],
+                flush: { state: 'flushed', attempts: 1, nextAttemptAt: null },
+                ledger: null
+            },
+            {
+                eventId: foreignPendingId, kind: 30040, pubkey: P,
+                address: `30040:${P}:d-${foreignPendingId.slice(0, 4)}`,
+                createdAt: 1700000000, event: signed(foreignPendingId), articleUrl: null,
+                signedAt: 1700000100, publishedAt: null, relays: [],
+                flush: { state: 'pending', attempts: 0, nextAttemptAt: 1700000100 },
+                ledger: null
+            }
+        ]
+    };
+    const summary = await mergeBackup(b);
+
+    // Local wins on the shared id: our pending state stands (costing
+    // at most one redundant, idempotent re-flush later — §3.4).
+    const local = await journalGet(sharedId);
+    assert.equal(local.flush.state, 'pending', 'a local pending beats an incoming flushed (local wins)');
+    assert.deepEqual(local.ledger, { model: 'claim', localId: 'c1', extra: null, markedAt: null },
+        'the local ledger descriptor survives the merge');
+
+    // The foreign pending row arrived INTACT — still pending, so it
+    // joins the flush queue rather than stranding (Q7 2026-08-02).
+    const arrived = await journalGet(foreignPendingId);
+    assert.equal(arrived.flush.state, 'pending');
+    assert.equal(arrived.event.sig, 's'.repeat(128), 'the signature rides the merge verbatim');
+
+    assert.equal(summary.databases['xray-events'].published_events.added, 1);
+    assert.equal(summary.databases['xray-events'].published_events.kept, 1);
+    assert.equal((await journalGet(flushedId)).flush.state, 'flushed', 'untouched local rows survive');
+    await clearJournal();
+});
+
+test('mergeBackup: a V1-SHAPED journal row normalizes on the way in — pending, deferred, and index-visible', async () => {
+    // A pre-29.1 backup merged into a v2 install: the row must arrive
+    // v2-shaped (put verbatim it would drop out of the flushState
+    // index and strand from the 29.2 flusher — §3.4's silent-strand
+    // failure, on the exact Mac ↔ Windows path).
+    await seedLocal();
+    await clearJournal();
+    const P = 'p'.repeat(64);
+    const V1_ID = 'e9'.padEnd(64, '0');
+    const b = foreignBackup();
+    b.databases['xray-events'] = {
+        published_events: [{
+            // Byte-for-byte the pre-29.1 recordPublished shape,
+            // assumed-only, with a v1-rule null address (kind 0).
+            eventId: V1_ID, kind: 0, pubkey: P,
+            address: null, createdAt: 1700000000,
+            event: {
+                id: V1_ID, sig: 's'.repeat(128), kind: 0, pubkey: P,
+                created_at: 1700000000, tags: [], content: '{}'
+            },
+            publishedAt: 3000,
+            relays: [{ url: 'wss://theirs.example', success: true, assumed: true }],
+            articleUrl: null
+        }]
+    };
+    const now = Math.floor(Date.now() / 1000);
+    await mergeBackup(b);
+
+    const row = await journalGet(V1_ID);
+    assert.equal(row.flush.state, 'pending', 'assumed-only v1 import → pending (migration-equivalent)');
+    assert.equal(row.signedAt, 3000, 'signedAt backfilled from publishedAt');
+    assert.equal(row.address, `0:${P}`, 'address recomputed under replaceableKey');
+    assert.equal(row.ledger, null);
+    assert.ok(row.flush.nextAttemptAt > now + MIGRATION_DEFER_S - 120
+        && row.flush.nextAttemptAt <= now + MIGRATION_DEFER_S + 120,
+        'v1 imports take the migration defer; v2-shaped imports keep their own schedule (Q7)');
+
+    // The load-bearing part: visible to the 29.2 queue scan.
+    const db = await openEventJournalDb();
+    const pending = await new Promise((resolve, reject) => {
+        const req = db.transaction('published_events', 'readonly')
+            .objectStore('published_events').index('flushState').getAll('pending');
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+    });
+    assert.deepEqual(pending.map((r) => r.eventId), [V1_ID],
+        'the normalized import is in the flushState index — the flusher can see it');
+    await clearJournal();
 });
 
 test('mergeStorageValue: map-shape guard — non-maps and malformed JSON keep local', () => {

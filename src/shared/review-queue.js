@@ -29,7 +29,10 @@ function aCoords(event) {
 /**
  * @param {{items: Array}} feed        assembleNetworkFeed output
  * @param {{myCoords?: Iterable<string>}} opts  coordinates you authored
- *        (event-journal addresses; `<kind>:<pubkey>:<d>`)
+ *        (event-journal v2 addresses — replaceableKey forms:
+ *        `<kind>:<pubkey>` for replaceable kinds, `<kind>:<pubkey>:<d>`
+ *        for addressables, with the event id standing in for a
+ *        missing/empty `d`)
  * @returns {{inbound: Array, openRequests: Array<{targetCoord: string,
  *   requestedBy: string, requestedAt: number, url: string|null}>}}
  */

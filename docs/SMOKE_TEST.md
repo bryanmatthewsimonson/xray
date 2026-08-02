@@ -1461,6 +1461,64 @@ cache, the corpus-level analyses, and the entity page.
 
 ---
 
+## AI vision — Describe images (2026-07-29)
+
+Gating walk mirrors 14.5.1–14.5.4 but for the **`aiVision`** flag —
+which is independent of LLM assist (16.8c's flag-independence rule).
+Best exercised on a capture with a photo, a figure with a caption, and
+(the headline case) a scanned page image.
+
+| # | Test | Pass criteria |
+|---|---|---|
+| AV.a | Fresh profile, flag off. Open a captured article | ✅ **no "🖼 Describe images…" button**; with DevTools Network open, no request to `api.anthropic.com` is possible |
+| AV.b | Options → Advanced → **AI vision**: check the toggle, leave the key blank | ✅ button present but **disabled**, tooltip points at the key field; still zero network |
+| AV.c | Save an API key with **LLM assist still OFF** | ✅ the Describe-images button is **live** — the vision consent is its own flag, not a rider on `llmAssist` |
+| AV.d | Open an archived capture read-only from the portal | ✅ the button is **hidden** (the merge mutates the body) |
+| AV.e | Click **🖼 Describe images…** | ✅ selection modal lists the body's images with thumbnails (archived figures render from the byte archive even on the Markdown tab); the disclosure names the model AND that the article title/URL + alt/caption go along; the send button carries the count ("Send N images to Anthropic"); Escape declines |
+| AV.f | Uncheck all but one image, send | ✅ exactly one API call; the row shows kind + caption (+ transcription with its own checkbox when the image has text); per-part checkboxes decide what merges |
+| AV.g | Accept a caption on a photo | ✅ the body gains `*Image description (AI — <model>): …*` directly under that image; the hash line updates (honest versioning); the toast counts the merge |
+| AV.h | On a scanned page image, accept the transcription | ✅ a `**Text in image (AI transcription — <model>):**` blockquote reconstructs the page text under the scan; a partial read is labeled "may be incomplete" |
+| AV.i | Re-run on the same image and accept a different caption | ✅ the note is **replaced, never stacked** — and an article blockquote right after the note (a pull quote / tweet embed) survives untouched |
+| AV.j | Publish, then view the event content | ✅ the notes ride the kind-30023 body as plain markdown with the model named inline — a consumer can tell exactly which text is model-authored |
+
+---
+
+## Phase 29 — Store-first publish (29.1)
+
+The flag-off leg needs no rows of its own — the default is off, so
+every other section already exercises it. These rows walk the
+flag-ON leg; set `storeFirstPublish` in the `xray:flags` storage key
+from the SW console (no Options toggle yet — the flusher and its
+surfaces arrive in 29.2).
+
+| # | Test | Pass criteria |
+|---|---|---|
+| SF.a | Flag on, publish a capture with working relays | ✅ publish succeeds exactly as before; every signed event has a journal row with a per-relay snapshot (confirmed relays listed) |
+| SF.b | Flag on, replace the relay list with one dead `wss://` URL, publish | ✅ the publish reports failure BUT the signed events survive as `pending` journal rows — no signature lost, no NIP-07 re-prompt needed to keep them |
+| SF.c | Restore real relays, re-publish the same capture | ✅ ledger marks land on CONFIRMED OKs only, same as flag-off (the 2026-07-10 rule is flag-independent) |
+| SF.d | Flag off, repeat SF.b | ✅ today's behavior byte-for-byte: the zero-success publish journals nothing (the known pre-29.1 window — proving the flag really gates the change) |
+
+---
+
+## R5 — Opinion module family (docs/OPINION_MODULES_KICKOFF.md)
+
+Needs `llmAssist` + an API key (audit execution's own consent gates).
+Use one obvious op-ed (or any capture re-typed as analysis in the
+media modal) and one ordinary news article.
+
+| # | Test | Pass criteria |
+|---|---|---|
+| OP.a | Capture an op-ed; open the media modal | ✅ source type suggests `analysis` (schema.org OpinionPiece) or can be set to it |
+| OP.b | Click **Quick audit** on the opinion artifact | ✅ steer confirm ("news-only in v1 — run the Thorough opinion audit instead?"); OK runs Thorough, Cancel runs nothing |
+| OP.c | Run **Thorough audit** on it | ✅ progress counts /9; the panel renders the opinion modules (premise accuracy, logical validity, steel-manning, fact/interpretation, disclosure, originality + asymmetric language, definitional precision, prediction extraction); NO source_quality row |
+| OP.d | Inspect the aggregate badge | ✅ ceiling context reads from premise-verifiability when it binds; provenance line shows `ceiling source: heuristic:premise-accuracy/1.0`; no standing opinion caveat anywhere in the module caveats |
+| OP.e | Re-type the artifact to `reporting` in the media modal; run Thorough | ✅ the OQ.4 confirm appears (opinion signal, news methodology); the run uses the eight news modules and every module carries the standing opinion caveat |
+| OP.f | Run Thorough on the ordinary news article | ✅ unchanged from Phase 13/14.5 behavior: eight modules, sourcing-pattern ceiling, no opinion caveat, no steer |
+| OP.g | Case dashboard → Audit corpus… over a mixed corpus | ✅ the spend confirm counts calls per family and names how many members run the opinion family; completed opinion members import and appear in the epistemics distributions beside news members (never averaged with them) |
+| OP.h | Check a published opinion 30056/30057 raw JSON | ✅ `t` carries the opinion module name; the 30057 carries `ceiling-source: heuristic:premise-accuracy/1.0`; the §3.1 firewall tags rule (no `stance`/`rating-value`/`L`/`l`) holds — red line 2 on the wire |
+
+---
+
 ## Reporting
 
 For each defect found:

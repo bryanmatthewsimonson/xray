@@ -29,5 +29,15 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "overrides": {
+    "adm-zip": "^0.6.0",
+    "shell-quote": "^1.9.0"
+  },
+  "webExt": {
+    "ignoreFiles": [
+      "companion",
+      "companion/**"
+    ]
   }
 }

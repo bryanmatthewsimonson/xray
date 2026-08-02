@@ -157,6 +157,23 @@ body {
   border-color: transparent;
 }
 
+/* Media-button nudge (Phase 22 tail): a transcript capture with strong
+   podcast signals but no declared identity — subtle, informational,
+   never an auto-write. The hint is itself clickable: it opens the
+   modal with the discovery already running. */
+.xr-reader__media-nudge {
+  margin-left: 6px;
+  font-size: 10px;
+  font-style: italic;
+  color: var(--xr-primary);
+  opacity: .8;
+  cursor: pointer;
+}
+.xr-reader__media-nudge:hover {
+  text-decoration: underline;
+  opacity: 1;
+}
+
 /* ---------------- progress bar (batch publish) ---------------- */
 
 .xr-reader__progress {
@@ -319,6 +336,21 @@ body {
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
+}
+
+/* Accepted AI image notes (vision-notes.js) — visually set off from the
+   captured text so the model-authored blocks read as annotations. */
+.xr-article__body .xr-vision-note {
+  font-size: 0.92em;
+  color: var(--xr-text-dim);
+  border-left: 3px solid var(--xr-primary);
+  padding-left: 0.8em;
+  margin: 0.8em 0 1.2em;
+}
+
+.xr-article__body .xr-vision-note blockquote {
+  margin: 0.4em 0 0;
+  font-style: normal;
 }
 
 .xr-article__body blockquote {
@@ -851,6 +883,20 @@ body {
 
 .xr-article__body a[href*="youtube.com/watch"][href*="&t="]:hover {
   background: color-mix(in srgb, var(--xr-accent) 18%, transparent);
+}
+
+/* Identified speakers (🗣 Speakers…) — the rendered name beside the
+   automatic label. CSS-only (attr + ::after) ON PURPOSE: the name is
+   never part of the DOM text, so turndown/innerText can't capture it
+   and the canonical body keeps its automatic labels. */
+.xr-article__body .xr-speaker-id {
+  cursor: help;
+}
+.xr-article__body .xr-speaker-id::after {
+  content: " · " attr(data-xr-speaker-entity);
+  color: var(--xr-accent);
+  font-weight: 600;
+  font-size: 0.92em;
 }
 
 /* ---------------- entity tagger (Phase 4 C2) ----------------
@@ -2696,3 +2742,52 @@ body {
 .xr-lensread__divergences code,
 .xr-lensread__flag code { font-size: 11px; }
 .xr-lensread__provenance { margin: 10px 0 0; font-size: 11px; color: var(--xr-text-dim); }
+
+/* --- Transcription engine picker (split-button menu) ----------------- */
+.xr-engine-caret { padding-left: 6px; padding-right: 6px; margin-left: -6px; }
+.xr-engine-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 300px;
+  background: var(--xr-surface);
+  border: 1px solid var(--xr-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  padding: 6px;
+  font-family: var(--xr-reader-sans);
+}
+.xr-engine-menu__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: var(--xr-text);
+  font-size: 13px;
+}
+.xr-engine-menu__item:hover { background: var(--xr-bg); }
+.xr-engine-menu__title { font-weight: 600; }
+.xr-engine-menu__badge {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--xr-text-dim);
+  margin-left: 6px;
+}
+.xr-engine-menu__badge--default { color: var(--xr-success); }
+.xr-engine-menu__sub {
+  font-size: 12px;
+  color: var(--xr-text-dim);
+  margin-top: 2px;
+}
+.xr-engine-menu__sub--warn { color: var(--xr-warning); }
+.xr-engine-menu__foot {
+  border-top: 1px solid var(--xr-border);
+  margin-top: 6px;
+  padding: 6px 10px 2px;
+  font-size: 11px;
+  color: var(--xr-text-dim);
+}
+.xr-engine-menu__foot a { color: var(--xr-accent); cursor: pointer; }

@@ -22,7 +22,7 @@ import { ClaimModel, exactFromAnchor } from '../shared/claim-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import { HypothesisEdgeModel } from '../shared/hypothesis-model.js';
 import * as ArchiveCache from '../shared/archive-cache.js';
-import { recordAlias, resolveAlias } from '../shared/url-aliases.js';
+import { recordAlias, resolveAlias, loadAliasMap, resolveWithMap } from '../shared/url-aliases.js';
 import { installEntityTagger, rehydrateEntityMarks, renderEntitiesBar, extractParagraphContext } from './entity-tagger.js';
 import { openClaimModal, openEvidenceLinkModal, openOthersClaimsModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
 import { openAssessModal } from '../shared/assess-modal.js';
@@ -42,9 +42,14 @@ import { ForensicModel, ForensicBaseline } from '../shared/forensic-model.js';
 import { openFindingModal, openBaselineModal } from '../shared/forensic-modal.js';
 import { renderFindingsBar } from './findings-section.js';
 import { renderExtractionBar } from './extraction-bar.js';
+import {
+    recordArticleExtraction, suggestExtractFromProposals, assertionClaimCoverage
+} from '../shared/map-artifacts.js';
 import { shouldOfferArchive, describeMetric } from './archive-banner.js';
 import { archivedDraftIsCanonical, archivedDraftSource } from '../shared/archive-draft.js';
 import { openLlmReview } from './llm-review.js';
+import { openVisionModal } from './vision-modal.js';
+import { collectArticleImages, upsertVisionNoteHtml, upsertVisionNoteMarkdown } from '../shared/vision-notes.js';
 import { capturePdfToArticle, completeScanCapture } from './pdf-capture.js';
 import { assembleExtraction, extractionMethod } from '../shared/llm-extract.js';
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prompts.js';
@@ -61,22 +66,33 @@ import {
     getArticleExtraction
 } from '../shared/audit/audit-cache.js';
 import { assembleAuditBatch } from '../shared/audit/publish-batch.js';
-import { CURRENT_MODULE_VERSIONS, MODULE_NAMES } from '../shared/audit/findings-schemas.js';
+import { CURRENT_MODULE_VERSIONS, MODULE_NAMES, OPINION_RUN_MODULES } from '../shared/audit/findings-schemas.js';
 // The lean assembly half only — never audit-prompt.js, whose generated
 // module-prompts dependency must stay out of the reader bundle.
-import { assembleAudit, auditableSlice, MAX_AUDIT_INPUT_CHARS } from '../shared/audit/assemble.js';
+import {
+    assembleAudit, auditableSlice, MAX_AUDIT_INPUT_CHARS,
+    MODULE_DIRECTIONS, auditFamilyFor, STANDING_OPINION_CAVEAT
+} from '../shared/audit/assemble.js';
+import { suggestSourceType } from '../shared/truth-taxonomy.js';
 import { orchestrateModuleRuns } from '../shared/audit/run-orchestrator.js';
 import * as EventJournal from '../shared/event-journal.js';
-import { auditBand, scoreChipHtml, prettyModule } from '../shared/audit/display.js';
+import { gatePublish, relayPublishTransport } from '../shared/publish-gate.js';
+import { auditBand, scoreChipHtml, prettyModule, runScoreDeltas } from '../shared/audit/display.js';
 import { JurisdictionModel } from '../shared/jurisdiction-model.js';
 import { lensTypeForPropositionClass } from '../shared/lens-taxonomy.js';
 import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/lens-engine.js';
 import { speakerFromParagraphText } from '../shared/transcript-parse.js';
 import { buildTranscriptSection, upsertTranscriptSection } from '../shared/transcript-article.js';
+import { buildDiarizedBody, timeFragmentSelector, timeRangeOfSpan, diarizedTrackEntry, extractionMethodFor } from '../shared/diarized-transcript.js';
+import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey } from './transcribe-flow.js';
 import { openMediaModal } from './media-modal.js';
+import { scanPodcastSignals } from '../shared/podcast-identity.js';
+import { openSpeakersModal, speakerEntityId, decorateSpeakerLabels } from './speakers-modal.js';
+import { runDraftPass } from '../shared/transcriber-client.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
-import { resolveActiveCaseRef, describeActiveContext } from '../shared/case-membership.js';
+import { resolveActiveCaseRef, describeActiveContext, memberUrlSets } from '../shared/case-membership.js';
+import { gatherCorpusSources, corpusSourcesChars } from '../shared/audit/corpus-sources.js';
 import { autoPreAnalyzeCapture } from '../shared/auto-preanalyze.js';
 import { Utils } from '../shared/utils.js';
 import {
@@ -281,6 +297,11 @@ async function adoptArticle(article, stored) {
     // Remembered for later writes (save-on-tag): a read-only open (the
     // portal's relay reconstructions) must never touch the archive row.
     state.readOnlyOpen = !!(stored && stored.readOnly);
+    // The "Capture & transcribe locally" path: the trigger rides the
+    // SESSION RECORD (the readOnly pattern — never the article, which
+    // persists into archive rows and would re-fire on every open).
+    // setupTranscribeControl starts the companion job once wired.
+    state.transcribeRequested = !!(stored && stored.transcribe);
 
     // PDF captures: surface the layout engine's quality warnings
     // (missing text layers, failed paragraph merging) before anyone
@@ -986,6 +1007,25 @@ function pdfPageOfQuote(quote) {
     return pageOfOffset(map, g.start);
 }
 
+// Video-time provenance — the diarized-transcript analog of the page
+// lookup above: the timeMap indexes the canonical markdown, so the
+// quote grounds against that substrate and the covering paragraphs'
+// start/end seconds become the claim's Media-Fragments selector.
+// Same memoized index discipline; same invalidation rule (a different
+// markdown body drops the map before it can stamp wrong offsets).
+function timeRangeOfQuote(quote) {
+    const map = state.article && state.article.timeMap;
+    const md = state.article && state.article.markdown;
+    if (!Array.isArray(map) || map.length === 0 || !md || !quote) return null;
+    if (!_pdfMdIndex || _pdfMdIndexSource !== md) {
+        _pdfMdIndex = createGroundingIndex(md);
+        _pdfMdIndexSource = md;
+    }
+    const g = _pdfMdIndex.ground(String(quote));
+    if (g.status === 'missing') return null;
+    return timeRangeOfSpan(map, g.start, g.end);
+}
+
 // ------------------------------------------------------------------
 // Archive reader (Phase 7 C4+C5)
 // ------------------------------------------------------------------
@@ -1234,6 +1274,21 @@ async function loadArchivedArticle(archived, provenance) {
     // HTML round trip doesn't byte-match); cache archives recompute.
     state.articleHash = archived._articleHash || null;
     state.hashDirty = false;
+    // PERSIST the restore (writable opens only): adopting in memory
+    // alone left the archive ROW on whatever version it held — after a
+    // prior-version restore every other surface (portal opens, case
+    // view) kept serving the clobbered article, its transcript
+    // features hidden. The version this replaces snapshots into
+    // priorVersions — honest versioning, never loss.
+    const persistRestore = () => {
+        if (state.readOnlyOpen) return;
+        ArchiveCache.saveArticle({
+            article: state.articleHash
+                ? { ...state.article, _articleHash: state.articleHash }
+                : state.article,
+            source: 'capture'
+        }).catch((err) => console.warn('[X-Ray Reader] restore save failed:', err));
+    };
     if (!state.articleHash) {
         canonicalArticleHash(EventBuilder.assembleArticleBody(hashableArticle(state.article)))
             .then((h) => {
@@ -1241,8 +1296,11 @@ async function loadArchivedArticle(archived, provenance) {
                 updateHashLine();
                 // The extraction record keys on this hash (MA.2b).
                 refreshExtractionBar().catch(() => { /* display refresh only */ });
+                persistRestore();
             })
             .catch((err) => console.warn('[X-Ray Reader] archive hash failed:', err));
+    } else {
+        persistRestore();
     }
 
     // Re-render whatever view the user's currently in.
@@ -1257,6 +1315,15 @@ async function loadArchivedArticle(archived, provenance) {
     // an llm: capture with no disclosure at all.
     try { renderExtractionWarningsBanner(); }
     catch (err) { console.warn('[X-Ray Reader] extraction banner failed:', err); }
+    // The swapped-in article may carry transcript speakers the opening
+    // capture lacked (a diarized version restored over a fresh
+    // re-capture) — the 🗣 Speakers / 💫 Suggest (local) gates must
+    // re-run HERE, not just on the transcribe-reuse path, or a banner
+    // "Load archive" restore leaves both buttons hidden. Same for the
+    // media-identity nudge, whose condition rides the same fields.
+    setupSpeakersControl();
+    setupTranscriptClaimDraftsControl().catch(() => { /* gate refresh only */ });
+    try { refreshMediaNudge(); } catch (_) { /* cosmetic */ }
     toast(`Archive loaded (${provenance.source})`, 'success', 3000);
 }
 
@@ -1418,7 +1485,7 @@ function renderModuleRow(r, staleSet) {
         : scoreChipHtml(r.score, r.confidence)}
         </summary>
         <div class="xr-audit__module-body">
-          <div class="xr-audit__provenance">auditor: ${escapeHtml(r.auditor ? `${r.auditor.kind} · ${r.auditor.id}` : 'unknown')} · run ${escapeHtml(r.run_at || '')}</div>
+          <div class="xr-audit__provenance">auditor: ${escapeHtml(r.auditor ? `${r.auditor.kind} · ${r.auditor.id}` : 'unknown')} · run ${escapeHtml(r.run_at || '')} · <span title="scoring direction, PHILOSOPHY §3.1/§4 (published classification; the aggregate math is direction-agnostic pending a methodology wave)">direction: ${escapeHtml(MODULE_DIRECTIONS[r.module] || 'unknown')}</span></div>
           ${caveats.length ? `<div class="xr-audit__caveats"><strong>Caveats</strong> — what this scan could not determine:<ul>${caveats.map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul></div>` : ''}
           ${quotes.length ? `<div class="xr-audit__quotes"><strong>Evidence quotes</strong> (click to locate):<ul>${quotes.map((q) => `<li><button type="button" class="xr-audit__quote" data-quote="${escapeHtml(q)}">“${escapeHtml(q.length > 120 ? q.slice(0, 120) + '…' : q)}”</button></li>`).join('')}</ul></div>` : ''}
         </div>
@@ -1530,6 +1597,11 @@ async function refreshAuditStatus() {
     const sorted = runs.slice().sort((a, b) => String(b.runAt).localeCompare(String(a.runAt)));
     const latest = sorted[0];
     const others = sorted.slice(1);
+    // R10b — the vintage trajectory (P1): per-run delta vs the run
+    // before it. Descriptive, never a re-score (runs may differ in
+    // mode and methodology version).
+    const deltaByRunAt = new Map(runScoreDeltas(sorted).map((d) => [d.runAt, d.delta]));
+    const fmtDelta = (d) => (d > 0 ? `+${d}` : String(d));
     const agg = latest.aggregate || {};
     const score = typeof agg.final_score === 'number' ? agg.final_score : null;
     const conf = typeof agg.overall_confidence === 'number' ? agg.overall_confidence : null;
@@ -1553,9 +1625,13 @@ async function refreshAuditStatus() {
         const ceilingLine = agg.ceiling_binding
             ? `<span class="xr-audit__badge-sub">capped by knowability ${escapeHtml(String(agg.knowability_ceiling))}${agg.knowability_notes ? ' — ' + escapeHtml(agg.knowability_notes) : ''}</span>`
             : '';
+        const latestDelta = deltaByRunAt.get(latest.runAt);
+        const deltaLine = (latestDelta !== null && latestDelta !== undefined && others.length)
+            ? `<span class="xr-audit__badge-sub" title="vs the previous run of this exact text — descriptive, not a re-score (runs may differ in mode and methodology version)">Δ ${escapeHtml(fmtDelta(latestDelta))} vs previous run</span>`
+            : '';
         badge = `<div class="xr-audit__badge xr-audit__badge--${band.key}" title="${escapeHtml(band.label)}">` +
             `${escapeHtml(String(score))}<span class="xr-audit__badge-conf">conf ${escapeHtml(String(conf))}</span>` +
-            `<span class="xr-audit__badge-band">${escapeHtml(band.label)}</span>${ceilingLine}</div>`;
+            `<span class="xr-audit__badge-band">${escapeHtml(band.label)}</span>${ceilingLine}${deltaLine}</div>`;
     }
 
     const provenance = `<div class="xr-audit__provenance">auditor: ${escapeHtml(latest.auditor ? `${latest.auditor.kind} · ${latest.auditor.id}` : 'unknown')} · run ${escapeHtml(latest.runAt)} · ceiling source: ${escapeHtml(agg.ceiling_source || 'unknown')} · imported via ${escapeHtml(latest.source)}</div>`;
@@ -1580,7 +1656,10 @@ async function refreshAuditStatus() {
             const a = r.aggregate || {};
             const s = typeof a.final_score === 'number' ? a.final_score : null;
             const c = typeof a.overall_confidence === 'number' ? a.overall_confidence : null;
-            return `<li>${scoreChipHtml(s, c)} — ${escapeHtml(r.auditor ? r.auditor.id : 'unknown')} · ${escapeHtml(r.runAt)}${r._truncatedKey ? ` · first ${MAX_AUDIT_INPUT_CHARS.toLocaleString()} chars only` : ''}</li>`;
+            const d = deltaByRunAt.get(r.runAt);
+            const deltaBit = (d !== null && d !== undefined)
+                ? ` · <span title="vs the run before it — descriptive, not a re-score">Δ ${escapeHtml(fmtDelta(d))}</span>` : '';
+            return `<li>${scoreChipHtml(s, c)} — ${escapeHtml(r.auditor ? r.auditor.id : 'unknown')} · ${escapeHtml(r.runAt)}${deltaBit}${r._truncatedKey ? ` · first ${MAX_AUDIT_INPUT_CHARS.toLocaleString()} chars only` : ''}</li>`;
         }).join('')}</ul></div>`
         : '';
 
@@ -1850,6 +1929,9 @@ async function reconstructWithLlmFlow() {
     } else {
         delete a.pageMap;
     }
+    // A time map (diarized transcripts) indexes the OLD body the same
+    // way the page map did — never pair it with reconstructed text.
+    delete a.timeMap;
     a.extraction = {
         ...extraction,
         method: extractionMethod(extraction.method, resp.model, 'structure'),
@@ -1902,6 +1984,552 @@ async function reconstructWithLlmFlow() {
         ? `Reconstructed with ${resp.model} — ${dropped} of ${assembled.total_spans} spans could not be verified and were discarded.${tableNote}`
         : `Reconstructed with ${resp.model} — ${assembled.total_spans} text spans matched to the document text.${tableNote}`,
     dropped > 0 ? 'warning' : 'success', 10000);
+}
+
+// ------------------------------------------------------------------
+// Local transcription (the "Transcribe locally" capture path)
+// ------------------------------------------------------------------
+
+/** The transcription progress/status banner (hash-banner chrome). */
+function renderTranscribeBanner(text, tone = 'info', { docsHint = false } = {}) {
+    let banner = $('#xr-transcribe-banner');
+    if (!banner) {
+        banner = document.createElement('aside');
+        banner.id = 'xr-transcribe-banner';
+        banner.className = 'xr-hash-banner';
+        const main = $('#xr-main');
+        if (!main || !main.parentElement) return;
+        main.parentElement.insertBefore(banner, main);
+    }
+    const icon = tone === 'error' ? '⚠️' : tone === 'success' ? '✅' : '🎙';
+    const hint = docsHint
+        ? '<div class="xr-hash-banner__metric">Setup guide: companion/transcriber/README.md in the X-Ray repo — install the companion, then <code>uv run xray-transcriber</code>.</div>'
+        : '';
+    banner.innerHTML = `
+      <div class="xr-hash-banner__body">
+        <div class="xr-hash-banner__label">${icon} ${escapeHtml(text)}</div>
+        ${hint}
+      </div>
+      <div class="xr-hash-banner__actions">
+        <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-transcribe-dismiss">Dismiss</button>
+      </div>
+    `;
+    $('#xr-transcribe-dismiss').addEventListener('click', () => banner.remove());
+}
+
+function removeTranscribeBanner() {
+    const b = $('#xr-transcribe-banner');
+    if (b) b.remove();
+}
+
+/**
+ * Adopt a finished companion transcription as the capture's canonical
+ * body. Mirrors reconstructWithLlmFlow's adoption tail: the diarized
+ * markdown becomes markdown-canonical, the hash moves honestly, the
+ * archive snapshots the prior version.
+ */
+async function adoptDiarizedTranscript(result) {
+    const a = state.article;
+    if (!a || !a.youtube) throw new Error('Not a YouTube capture.');
+
+    // The job ran for minutes on an editable page. Adopting over the
+    // user's edits would silently discard them — their state wins.
+    // BOTH edit channels: reader-pane edits set hashDirty; markdown-tab
+    // edits set only dirtySource='markdown' + a diverged draft (the
+    // reconstructWithLlmFlow guard's second clause, mirrored exactly —
+    // checking hashDirty alone silently discards markdown-tab edits).
+    if (state.hashDirty || (state.dirtySource === 'markdown'
+            && state.markdownDraft && state.markdownDraft !== (a.markdown || ''))) {
+        throw new Error('The capture changed while the transcription was running — keeping your version. '
+            + 'The finished transcript is remembered: publish (or reload) to settle your edits, '
+            + 'then press 🎙 Transcribe to adopt it without re-running the job.');
+    }
+
+    const { markdown, timeMap, transcriptMeta } = buildDiarizedBody({
+        capturedMarkdown: a.markdown || '',
+        watchUrl: a.url,
+        result
+    });
+
+    // contentType flips BEFORE hashing: 'transcript' joins the
+    // markdown-canonical set, so the hash covers the markdown substrate
+    // (the ordering trap — hashing first would cover the old turndown
+    // side). platform stays 'youtube' (header + tag block unaffected).
+    a.contentType = 'transcript';
+    // The Phase 22 whitelisted user-declared media tag: choosing
+    // "Transcribe locally" on a video IS the declaration, and it keeps
+    // these captures findable by consumers filtering on video-ness now
+    // that content_format reads 'transcript'.
+    a.media = 'video';
+    a.markdown = markdown;
+    a.content = ContentExtractor.markdownToHtml(markdown);
+    a.transcript_meta = transcriptMeta;
+    // Raw segments + model provenance, LOCAL-ONLY (the pageMap rule):
+    // rides the article blob into session storage + archive rows so a
+    // future re-render never needs a re-transcription. Never published.
+    a.transcription = {
+        segments: Array.isArray(result.segments) ? result.segments : [],
+        model_info: result.model_info || null,
+        language: result.language || null
+    };
+    a.timeMap = timeMap;
+    a.extraction = { ...(a.extraction || {}), method: extractionMethodFor(result.model_info) };
+    // The transcript_lang manifest + header chip both gate on non-empty
+    // events — the diarized track carries them (locally; never as tags).
+    a.youtube.transcripts = [
+        ...(Array.isArray(a.youtube.transcripts) ? a.youtube.transcripts : [])
+            .filter((t) => t && t.role !== 'local-diarized'),
+        diarizedTrackEntry(result)
+    ];
+
+    state.markdownDraft = a.markdown;
+    state.htmlDraft = a.content;
+    state.dirtySource = 'markdown';
+    state.draftProven = false;
+    state.provenDraft = null;
+
+    try {
+        const fullBody = EventBuilder.assembleArticleBody(hashableArticle(a));
+        const fullHash = await canonicalArticleHash(fullBody);
+        const slice = auditableSlice(fullBody);
+        state.articleHash = fullHash;
+        state.auditableTotalChars = slice.totalChars;
+        state.auditableHash = slice.truncated
+            ? await canonicalArticleHash(slice.text) : fullHash;
+        state.hashDirty = false;
+        updateHashLine();
+        refreshAuditStatus().catch(() => { /* display refresh only */ });
+        refreshExtractionBar().catch(() => { /* display refresh only */ });
+    } catch (err) {
+        console.warn('[X-Ray Reader] post-transcription hash failed:', err);
+    }
+    if (!state.readOnlyOpen) {
+        ArchiveCache.saveArticle({
+            article: state.articleHash ? { ...a, _articleHash: state.articleHash } : a,
+            source: 'capture'
+        }).catch((err) => console.warn('[X-Ray Reader] archive save failed:', err));
+    }
+    renderReader();
+    setupTranscriptClaimDraftsControl().catch(() => {});
+    // The adoption just gave this capture speakers — surface the
+    // identification control without waiting for a reload. The media
+    // nudge's condition (transcript present, no podcast identity)
+    // changed too.
+    setupSpeakersControl();
+    try { refreshMediaNudge(); } catch (_) { /* cosmetic */ }
+}
+
+let _transcribeRunning = false;
+
+/** Start (or resume) the companion job and adopt the result. The whole
+ *  loop is page-driven — each poll message resets the SW idle timer.
+ *  `provider` is the engine for THIS run (picker choice); undefined
+ *  defers to the stored engine preference in the SW. */
+async function runTranscribeFlow(provider) {
+    if (typeof provider !== 'string') provider = undefined; // onclick passes an event
+    const a = state.article;
+    const videoId = a && a.youtube && a.youtube.videoId;
+    if (!a || !videoId) { toast('Not a YouTube capture.', 'error'); return; }
+    if (_transcribeRunning) {
+        // Never swallow a click silently (the Suggest-local precedent).
+        toast('A transcription is already running for this capture — wait for it to finish.', 'error');
+        return;
+    }
+
+    // Re-capture of an already-transcribed video: the diarized article
+    // lives in the archive — offer to LOAD it instead of burning GPU
+    // minutes on an identical job. Cancel still re-transcribes (the
+    // honest path when the video or models changed).
+    if (!a.transcription) {
+        try {
+            const row = await ArchiveCache.getArticle(a.url);
+            // The row itself, then the prior-version snapshots: a plain
+            // re-capture OVERWRITES the row with a transcript-less
+            // article (load-time save), and the diarized artifact
+            // survives only in priorVersions — a field-verified loss
+            // mode; the snapshots are the recovery path.
+            const candidates = [];
+            if (row && row.article) candidates.push({ article: row.article, prior: false });
+            for (const v of (row && row.priorVersions) || []) {
+                const va = v && (v.article || v);
+                if (va) candidates.push({ article: va, prior: true });
+            }
+            const hit = candidates.find(({ article: x }) => x && x.transcription
+                && Array.isArray(x.transcription.segments) && x.transcription.segments.length > 0);
+            if (hit) {
+                const arch = hit.article;
+                const segs = arch.transcription.segments.length;
+                if (confirm(
+                    `This video already has a local transcription in your archive (${segs} segments`
+                    + `${arch.transcript_meta ? `, ${arch.transcript_meta.speaker_count} speaker(s)` : ''}`
+                    + `${hit.prior ? ' — from a prior version; a later re-capture replaced it' : ''}).\n\n`
+                    + 'OK — load the archived transcript (instant).\n'
+                    + 'Cancel — re-transcribe from scratch.')) {
+                    // loadArchivedArticle re-runs the speaker/drafts
+                    // button gates itself.
+                    await loadArchivedArticle(arch, { source: 'cache', cachedAt: row.cachedAt });
+                    return;
+                }
+            }
+        } catch (_) { /* archive miss — proceed to transcribe */ }
+    }
+
+    _transcribeRunning = true;
+    const btn = $('#xr-transcribe');
+    const caretBtn = $('#xr-transcribe-engine');
+    const label = btn ? btn.textContent : '';
+    const draftsBtn = $('#xr-suggest-local');
+    if (btn) { btn.disabled = true; btn.textContent = '🎙 Transcribing…'; }
+    // The engine choice is fixed once the job starts — park the picker
+    // with the button (a mid-run pick could only be a silent no-op).
+    if (caretBtn) caretBtn.disabled = true;
+    closeEnginePicker();
+    // Soft GPU guard: WhisperX holds ~6 GB while the job runs — drafting
+    // concurrently is the one genuinely tight case, so park the button.
+    if (draftsBtn) draftsBtn.disabled = true;
+    try {
+        reapStaleJobRecords(transcribeChromeIo(browserApi, () => {})).catch(() => {});
+        renderTranscribeBanner('Contacting the transcription service…');
+        const io = transcribeChromeIo(browserApi, (job) => {
+            // Honest wording: a cloud-provider job is not "locally".
+            renderTranscribeBanner(`Transcribing ${providerPhrase(job && job.provider)} — ${describeProgress(job)}`);
+        });
+        const out = await runTranscriptionJob({ videoUrl: a.url, videoId, provider, io });
+        if (!out.ok) {
+            renderTranscribeBanner(out.error, 'error', { docsHint: !!(out.error || '').includes('not reachable') });
+            // A cloud engine without its key: the picker is the fastest
+            // path to either the key field or another engine.
+            if (out.missingKey) openEnginePicker();
+            return;
+        }
+        await adoptDiarizedTranscript(out.result);
+        // Adoption succeeded — NOW the finished job's record can go
+        // (kept until here so an adoption refusal keeps a handle to the
+        // server-side result instead of re-running the whole job).
+        await io.storageRemove([jobRecordKey(videoId)]).catch(() => {});
+        // Reload safety: fold the adopted article + a cleared transcribe
+        // flag back into the session record. Without this, F5 (or a
+        // Memory-Saver tab restore) re-reads the ORIGINAL transcript-less
+        // article with transcribe:true and silently re-runs the whole
+        // GPU job. Best-effort — the archive row is the durable copy.
+        try {
+            const skey = 'xray:article:' + state.id;
+            const area = browserApi.storage.session || browserApi.storage.local;
+            const rec = await new Promise((r) => area.get([skey], (res) => r(res && res[skey])));
+            if (rec && typeof rec === 'object' && rec.article) {
+                await new Promise((r) => area.set(
+                    { [skey]: { ...rec, article: state.article, transcribe: false } }, () => r()));
+            }
+        } catch (_) { /* best-effort */ }
+        const meta = out.result.model_info || {};
+        const segs = Array.isArray(out.result.segments) ? out.result.segments.length : 0;
+        removeTranscribeBanner();
+        toast(`Transcribed ${providerPhrase(meta.provider)} — ${segs} segments, ${state.article.transcript_meta.speaker_count} speaker(s)`
+            + (meta.asr_model ? ` (${meta.asr_model})` : ''), 'success', 6000);
+    } catch (err) {
+        renderTranscribeBanner((err && err.message) || String(err), 'error');
+    } finally {
+        _transcribeRunning = false;
+        if (btn) { btn.disabled = false; btn.textContent = label; }
+        if (caretBtn) caretBtn.disabled = false;
+        if (draftsBtn) draftsBtn.disabled = false;
+    }
+}
+
+// The last engine config snapshot — REFRESHED at every decision point
+// (button click, picker open), not just page load: the user saves keys
+// or changes the engine in Options with readers already open, and a
+// stale snapshot would loop the "add a key in Settings" path forever
+// (review finding, 2026-08-02). `engine: null` = no preference chosen:
+// jobs carry no provider and the companion default rules.
+let _transcribeCfg = { engine: null, keys: {} };
+
+async function refreshTranscribeCfg() {
+    try {
+        const cfg = await browserApi.runtime.sendMessage({ type: 'xray:transcribe:config' }) || {};
+        _transcribeCfg = { engine: cfg.engine || null, keys: cfg.keys || {} };
+    } catch (_) { /* keep the previous snapshot */ }
+    const btn = $('#xr-transcribe');
+    if (btn && !btn.hidden) btn.title = transcribeTooltip();
+    return _transcribeCfg;
+}
+
+const ENGINE_META = {
+    local: {
+        label: 'Local (WhisperX)',
+        badge: 'on this device — free',
+        detail: 'yt-dlp + WhisperX + speaker diarization on your GPU. Nothing leaves this machine.'
+    },
+    assemblyai: {
+        label: 'AssemblyAI',
+        badge: 'cloud — ≈$0.28/hr',
+        detail: 'Uploads the episode audio to AssemblyAI. Fast, no GPU use.',
+        rate: 0.28
+    },
+    deepgram: {
+        label: 'Deepgram',
+        badge: 'cloud — ≈$0.26/hr',
+        detail: 'Uploads the episode audio to Deepgram. Fast, no GPU use.',
+        rate: 0.26
+    }
+};
+
+/** Human tooltip for the main Transcribe button, from the preference. */
+function transcribeTooltip() {
+    const rerun = !!(state.article && state.article.transcription);
+    const head = rerun
+        ? 'Re-run the diarized transcription (replaces the current transcript section)'
+        : 'Transcribe this video';
+    const e = _transcribeCfg.engine;
+    if (e === 'ask') return `${head} — you'll choose the engine (▾ also opens the choices)`;
+    if (!e) return `${head} — with the companion service's default engine (local unless its env says otherwise; pick per video with ▾, or set a default in Settings)`;
+    const meta = ENGINE_META[e] || ENGINE_META.local;
+    return e === 'local'
+        ? `${head} — locally (${meta.detail})`
+        : `${head} — via ${meta.label} (cloud: the episode audio leaves this machine, ${meta.badge.replace('cloud — ', '')})`;
+}
+
+/** Per-engine time/cost line for the picker, from the video duration. */
+function engineEstimate(engine) {
+    const secs = Number(state.article && state.article.youtube
+        && state.article.youtube.durationSeconds) || 0;
+    const meta = ENGINE_META[engine];
+    if (engine === 'local') {
+        if (!secs) return 'Runs on your GPU; speed depends on the card.';
+        const mins = Math.max(1, Math.ceil(secs / 900 + secs / 3600 * 2));
+        return `~${mins} min on your GPU (transcribe + diarize) — free.`;
+    }
+    if (!secs) return 'Usually 2–5 minutes, metered per audio-hour.';
+    const cost = Math.max(0.01, (secs / 3600) * meta.rate);
+    return `~2–5 min — about $${cost.toFixed(2)} for this video.`;
+}
+
+function closeEnginePicker() {
+    const menu = document.getElementById('xr-engine-menu');
+    if (menu) menu.remove();
+    document.removeEventListener('click', _pickerDismiss, true);
+    document.removeEventListener('keydown', _pickerEscape, true);
+}
+function _pickerDismiss(ev) {
+    const menu = document.getElementById('xr-engine-menu');
+    if (menu && !menu.contains(ev.target)) closeEnginePicker();
+}
+function _pickerEscape(ev) { if (ev.key === 'Escape') closeEnginePicker(); }
+
+/**
+ * The runtime engine picker (field feedback 2026-08-02): choose per
+ * video — a 10-minute clip is fine on the GPU, a 2-hour episode wants
+ * cloud speed. Shows real time/cost estimates from the capture's
+ * duration and each engine's availability; a cloud engine without a
+ * saved key routes to Settings instead of failing later.
+ */
+async function openEnginePicker() {
+    // Toggle: a second chevron click closes instead of flickering
+    // closed-and-reopen (review finding).
+    if (document.getElementById('xr-engine-menu')) { closeEnginePicker(); return; }
+    closeEnginePicker();
+    // Fresh engine + key state EVERY open — the user may just have
+    // saved a key in Options (review finding: the stale snapshot made
+    // "add a key in Settings" a dead loop).
+    await refreshTranscribeCfg();
+    const anchor = $('#xr-transcribe');
+    if (!anchor) return;
+    const menu = document.createElement('div');
+    menu.id = 'xr-engine-menu';
+    menu.className = 'xr-engine-menu';
+
+    for (const engine of ['local', 'assemblyai', 'deepgram']) {
+        const meta = ENGINE_META[engine];
+        const keyed = engine === 'local' || !!(_transcribeCfg.keys && _transcribeCfg.keys[engine]);
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'xr-engine-menu__item';
+
+        const title = document.createElement('div');
+        title.className = 'xr-engine-menu__title';
+        title.textContent = meta.label;
+        const badge = document.createElement('span');
+        badge.className = 'xr-engine-menu__badge';
+        badge.textContent = meta.badge;
+        title.appendChild(badge);
+        if (_transcribeCfg.engine === engine) {
+            const mark = document.createElement('span');
+            mark.className = 'xr-engine-menu__badge xr-engine-menu__badge--default';
+            mark.textContent = '✓ default';
+            title.appendChild(mark);
+        }
+        item.appendChild(title);
+
+        const sub = document.createElement('div');
+        sub.className = 'xr-engine-menu__sub' + (keyed ? '' : ' xr-engine-menu__sub--warn');
+        sub.textContent = keyed
+            ? engineEstimate(engine)
+            : 'No API key saved — click to add one in Settings.';
+        item.appendChild(sub);
+
+        item.addEventListener('click', () => {
+            closeEnginePicker();
+            if (!keyed) {
+                try { browserApi.runtime.openOptionsPage(); } catch (_) { /* page-open denied */ }
+                return;
+            }
+            runTranscribeFlow(engine);
+        });
+        menu.appendChild(item);
+    }
+
+    const foot = document.createElement('div');
+    foot.className = 'xr-engine-menu__foot';
+    foot.appendChild(document.createTextNode('Default engine and API keys live in '));
+    const link = document.createElement('a');
+    link.textContent = 'Settings → Advanced → Transcription';
+    link.addEventListener('click', () => {
+        closeEnginePicker();
+        try { browserApi.runtime.openOptionsPage(); } catch (_) { /* page-open denied */ }
+    });
+    foot.appendChild(link);
+    foot.appendChild(document.createTextNode('.'));
+    menu.appendChild(foot);
+
+    document.body.appendChild(menu);
+    const r = anchor.getBoundingClientRect();
+    menu.style.top = `${Math.round(r.bottom + 6)}px`;
+    menu.style.left = `${Math.round(Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)))}px`;
+    // Deferred: the opening click must not immediately dismiss.
+    setTimeout(() => {
+        document.addEventListener('click', _pickerDismiss, true);
+        document.addEventListener('keydown', _pickerEscape, true);
+    }, 0);
+}
+
+/**
+ * The Transcribe split control + capture-path auto-start. Gated like
+ * Suggest: absent unless the localTranscription flag is on (the SW's
+ * config snapshot is storage-only — reachability is probed on click,
+ * where a clear error names the fix, never during setup). The engine
+ * preference + key presence arrive in the same snapshot, so the
+ * tooltip and picker are synchronous truth — no network involved.
+ */
+async function setupTranscribeControl() {
+    const btn = $('#xr-transcribe');
+    const caret = $('#xr-transcribe-engine');
+    if (!btn) return;
+    const isYouTube = !!(state.article && state.article.platform === 'youtube'
+        && state.article.youtube && state.article.youtube.videoId);
+    if (!isYouTube || state.readOnlyOpen) {
+        btn.hidden = true;
+        if (caret) caret.hidden = true;
+        return;
+    }
+    let cfg = {};
+    try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:transcribe:config' }) || {}; }
+    catch (_) { cfg = {}; }
+    if (!cfg.enabled) {   // flag off ⇒ absent
+        btn.hidden = true;
+        if (caret) caret.hidden = true;
+        return;
+    }
+    _transcribeCfg = { engine: cfg.engine || null, keys: cfg.keys || {} };
+    btn.hidden = false;
+    btn.disabled = false;
+    btn.title = transcribeTooltip();
+    if (caret) { caret.hidden = false; caret.disabled = false; }
+    // onclick (not addEventListener): setup can re-run after adoption
+    // and must never stack duplicate handlers. Every click re-reads the
+    // CURRENT preference (Options may have changed it since page load);
+    // a null preference passes no engine — the SW then omits the
+    // provider and the companion default rules.
+    btn.onclick = async () => {
+        await refreshTranscribeCfg();
+        if (_transcribeCfg.engine === 'ask') { openEnginePicker(); return; }
+        runTranscribeFlow(_transcribeCfg.engine || undefined);
+    };
+    if (caret) caret.onclick = openEnginePicker;
+
+    // The "Capture & transcribe" path: the session record said to start
+    // immediately. An 'ask' preference opens the picker instead of
+    // silently picking an engine the user never chose.
+    if (state.transcribeRequested && !state.article.transcription) {
+        state.transcribeRequested = false;
+        if (_transcribeCfg.engine === 'ask') openEnginePicker();
+        else runTranscribeFlow(_transcribeCfg.engine || undefined);
+    }
+}
+
+/**
+ * The LM Studio drafts pass (flag transcriptClaimDrafts): claim
+ * candidates over ANY transcript this capture carries — diarized,
+ * imported VTT/SRT, attached, or native — through the SAME review
+ * surfaces as the Anthropic Suggest pass (grounding firewall, speaker
+ * + time provenance, durable fold). DELIBERATELY independent of the
+ * transcription feature: it needs transcript TEXT, not the companion,
+ * so it works without localTranscription and never forces a
+ * re-transcription (the original coupling was the bad design — a
+ * reopened capture hid this button and pushed users into a redundant
+ * GPU run). The only remaining coupling is a soft in-flight guard:
+ * the button parks while a transcription job actually holds the GPU.
+ */
+async function setupTranscriptClaimDraftsControl() {
+    const btn = $('#xr-suggest-local');
+    if (!btn) return;
+    const a = state.article;
+    const hasTranscript = !!(a && (a.transcript_meta || a.contentType === 'transcript'));
+    if (!hasTranscript || state.readOnlyOpen) { btn.hidden = true; return; }
+    let cfg = {};
+    try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:transcribe:config' }) || {}; }
+    catch (_) { cfg = {}; }
+    if (!cfg.drafts || !cfg.drafts.enabled) { btn.hidden = true; return; }
+    btn.hidden = false;
+    btn.disabled = false;
+    btn.title = `Suggest claim + entity candidates from the transcript with a local model (${cfg.drafts.model} via LM Studio) — same review modal as Suggest, nothing saves without Accept`;
+    // onclick (not addEventListener): re-invoked after every adoption —
+    // a stacked handler would fire the pass twice per click.
+    btn.onclick = runTranscriptClaimDrafts;
+}
+
+async function runTranscriptClaimDrafts() {
+    const btn = $('#xr-suggest-local');
+    if (!btn || btn.disabled || !state.article) return;
+    if (_transcribeRunning) {
+        toast('A transcription job is holding the GPU — draft claims once it finishes.', 'warning', 5000);
+        return;
+    }
+    // The fold requires a settled hash (claimArticleHash() is null while
+    // hashDirty) — same guard as the Anthropic pass's accept path.
+    if (!claimArticleHash()) { toast('Publish or settle your edits first — the article hash is still moving.', 'error', 5000); return; }
+    const articleText = articleBodyText();
+    if (!articleText.trim()) { toast('Nothing to analyze yet.', 'error'); return; }
+
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '💫 Suggesting…';
+    let resp;
+    try {
+        // Chunked: long transcripts overflow LM Studio's context in one
+        // shot (HTTP 400 on hour-plus episodes). One SW message per
+        // window; a window that still 400s halves and retries.
+        resp = await runDraftPass({
+            transcriptText: articleText,
+            title: state.article.title || '',
+            send: (request) => browserApi.runtime.sendMessage({ type: 'xray:transcribe:claims', request }),
+            onProgress: ({ done, total }) => {
+                if (total > 1) btn.textContent = `💫 Suggesting… ${done}/${total}`;
+            }
+        });
+    } catch (err) {
+        resp = { ok: false, error: (err && err.message) || String(err) };
+    }
+    btn.textContent = original;
+    btn.disabled = false;
+
+    if (!resp || !resp.ok) {
+        toast('Suggest (local) failed: ' + ((resp && resp.error) || 'unknown error'), 'error', 8000);
+        return;
+    }
+    if (resp.failures) {
+        toast(`${resp.failures} transcript window(s) failed — reviewing the candidates that succeeded.`, 'warning', 6000);
+    }
+    await reviewSuggestions(resp.proposals, resp.model || 'local');
 }
 
 // Archive/mirror provenance note (url-identity.js). Two honest states:
@@ -2030,6 +2658,12 @@ function renderReader() {
             .catch((err) => console.warn('[X-Ray Reader] rehydrate failed:', err));
     }
 
+    // Identified speakers (🗣) render their entity names beside the
+    // automatic labels — display-layer only (attr + CSS ::after; the
+    // canonical text is untouched).
+    try { decorateSpeakerLabels(body, state.article); }
+    catch (err) { console.warn('[X-Ray Reader] speaker decoration failed:', err); }
+
     // Archived PDF figures (C4.2): swap content-addressed
     // xray-figure: srcs for live blob URLs from the byte archive.
     hydrateFigureImages(body)
@@ -2065,11 +2699,17 @@ function renderReader() {
             // PDF captures: page-level provenance rides as an additive
             // FragmentSelector (resolvers that don't know it skip it).
             const page = pdfPageOfQuote(text);
+            // Diarized video captures: the selection's start–end media
+            // offsets ride the SAME way (Media-Fragments t=start,end).
+            const trange = timeRangeOfQuote(text);
+            let anchorOut = anchor;
+            if (page) anchorOut = [...(anchorOut || []), pageFragmentSelector(page)];
+            if (trange) anchorOut = [...(anchorOut || []), timeFragmentSelector(trange.startSec, trange.endSec)];
             const saved = await openClaimModal({
                 sourceUrl:   state.article.url,
                 initialText: text,
                 context,
-                anchor: page ? [...(anchor || []), pageFragmentSelector(page)] : anchor,
+                anchor: anchorOut,
                 // Text provenance: the selection IS the verbatim quote.
                 quote:       text,
                 articleHash: claimArticleHash(),
@@ -2317,6 +2957,51 @@ function captureSelectionSeed() {
 }
 
 /**
+ * MA.4 — fold the suggest pass's claim proposals into this article's
+ * durable extraction record, so both producers of claim-shaped atoms
+ * (the corpus map stage and this reader pass) accumulate in ONE layer.
+ *
+ * Two invariants this must respect, both learned the hard way:
+ *
+ *  1. GROUND AGAINST THE CANONICAL TEXT, not the rendered body. The
+ *     record's spans index `assembleArticleBody(hashableArticle(...))`
+ *     — the same text the articleHash covers and the map stage sent.
+ *     The review modal grounds against the rendered DOM text, which
+ *     can differ. Folding reader-side offsets would store spans that
+ *     index nothing, so the merge re-grounds every quote here; one
+ *     that cannot be located in the canonical text is dropped and
+ *     counted, never stored ungrounded (guard rail 3).
+ *  2. ONLY WHEN THE HASH DESCRIBES THE BODY. An edited body dirties
+ *     the hash (`claimArticleHash()` returns null), and the record is
+ *     keyed BY that hash — folding then would attach this text's
+ *     assertions to a different text's identity. Skip instead.
+ *
+ * Never throws; a fold failure must not disturb the review flow.
+ */
+async function foldSuggestionsIntoRecord(proposals, model) {
+    const hash = claimArticleHash();
+    if (!hash) return { status: 'skipped-unhashed' };
+    const extract = suggestExtractFromProposals(proposals);
+    if (extract.key_assertions.length === 0) return { status: 'skipped-empty' };
+    const canonicalText = EventBuilder.assembleArticleBody(hashableArticle(state.article)) || '';
+    if (!canonicalText) return { status: 'skipped-no-text' };
+    return recordArticleExtraction({
+        member: {
+            article_hash: hash,
+            url: state.article.url || null,
+            title: state.article.title || null,
+            text: canonicalText
+        },
+        extract,
+        model: model || '',
+        producer: 'suggest'
+        // No `key`: the suggest pass has no input fingerprint to dedup
+        // on, so the merge's span-dedup is what makes a re-run a no-op
+        // (and a keyless fold reports changed:false when nothing is new).
+    });
+}
+
+/**
  * Render the extracted-assertions bar (MA.2b): this capture's DURABLE
  * map-artifact record, so a mapping run is verifiable from the article
  * itself. Keyed by the canonical content hash (NOT the URL) — same key
@@ -2356,7 +3041,25 @@ async function refreshExtractionBar() {
         return;
     }
 
-    host.innerHTML = renderExtractionBar(record, { priorRuns });
+    // MA.4 — which atoms are already covered by a captured claim,
+    // computed on read against the CURRENT claim set (never stored).
+    // Without this, a claim accepted in the review modal would keep
+    // reading as an open proposal here while the case dashboard
+    // (which has always computed coverage) showed it as covered.
+    let coverage = {};
+    try {
+        // getBySourceUrl returns an ARRAY of claims (url-normalized +
+        // alias-resolved join), not a map.
+        const claims = (state.article && state.article.url)
+            ? await ClaimModel.getBySourceUrl(state.article.url) : [];
+        const canonicalText = EventBuilder.assembleArticleBody(hashableArticle(state.article)) || '';
+        coverage = assertionClaimCoverage(record, {
+            text: canonicalText,
+            claims: claims.map((c) => ({ id: c.id, quote: c.quote || null }))
+        });
+    } catch (_) { coverage = {}; }
+
+    host.innerHTML = renderExtractionBar(record, { priorRuns, coverage });
 
     for (const q of host.querySelectorAll('[data-action="locate"]')) {
         q.addEventListener('click', () => {
@@ -2496,6 +3199,104 @@ function setupMediaControl() {
         const result = await openMediaModal(state.article);
         if (result) await applyMediaResult(result);
     });
+    refreshMediaNudge();
+}
+
+// Post-transcription nudge (Phase 22 tail): a transcript-bearing
+// capture with strong podcast signals but NO declared identity gets a
+// subtle "identity found — confirm?" decoration on the Media button.
+// The scan is pure and local — no network — and never an auto-write:
+// media identity stays user-declared (the NIP_DRAFT rule). Clicking
+// the hint itself opens the modal in autoFind mode (the discovery runs
+// on that click — the gesture is the consent); clicking the rest of
+// the button keeps opening the plain modal.
+function refreshMediaNudge() {
+    const btn = $('#xr-media-btn');
+    if (!btn || btn.hidden) return;
+    const a = state.article;
+    const hasTranscript = !!(a && (a.transcript_meta || a.contentType === 'transcript'));
+    const wants = !!(a && hasTranscript && !a.podcast && scanPodcastSignals(a).strong);
+    let hint = btn.querySelector('.xr-reader__media-nudge');
+    if (!wants) {
+        if (hint) hint.remove();
+        // Restore the button's own tooltip once the nudge clears —
+        // otherwise the nudge instructions outlive their condition.
+        if (btn.dataset.xrOrigTitle !== undefined) {
+            btn.title = btn.dataset.xrOrigTitle;
+            delete btn.dataset.xrOrigTitle;
+        }
+        return;
+    }
+    if (!hint) {
+        hint = document.createElement('span');
+        hint.className = 'xr-reader__media-nudge';
+        hint.textContent = 'identity found — confirm?';
+        hint.title = 'Find and confirm this episode’s podcast identity';
+        hint.addEventListener('click', async (ev) => {
+            ev.stopPropagation();
+            if (!state.article) return;
+            const result = await openMediaModal(state.article, { autoFind: true });
+            if (result) await applyMediaResult(result);
+        });
+        btn.appendChild(hint);
+    }
+    if (btn.dataset.xrOrigTitle === undefined) btn.dataset.xrOrigTitle = btn.title || '';
+    btn.title = 'Podcast identity signals detected — click the hint to find and confirm';
+}
+
+/**
+ * Speaker identification (🗣 Speakers…): visible on any writable
+ * capture that carries transcript speakers. The bindings are ordinary
+ * entity refs (context = the label), so save is metadata-only: refs +
+ * tag save, hash untouched, body untouched. Exposed as `onclick` (not
+ * addEventListener) because adoption re-runs setup — a diarized
+ * transcript ARRIVING adds speakers to a capture that had none.
+ */
+function setupSpeakersControl() {
+    const btn = $('#xr-speakers');
+    if (!btn) return;
+    const speakers = state.article && state.article.transcript_meta
+        && state.article.transcript_meta.speakers;
+    if (state.readOnlyOpen || !Array.isArray(speakers) || speakers.length === 0) {
+        btn.hidden = true;
+        return;
+    }
+    btn.hidden = false;
+    btn.onclick = async () => {
+        if (!state.article) return;
+        let registry = [];
+        try { registry = Object.values(await EntityModel.getAll() || {}); }
+        catch (_) { registry = []; }
+        const result = await openSpeakersModal({ article: state.article, registry });
+        if (!result) return;
+        const a = state.article;
+        if (!Array.isArray(a.entities)) a.entities = [];
+        // Removals first: labels the user unbound (or re-bound to a
+        // different person) drop their old label-context refs.
+        if (result.removed.length) {
+            const gone = new Set(result.removed);
+            a.entities = a.entities.filter((e) => {
+                if (!e || !gone.has(e.context)) return true;
+                return result.refs.some((r) => r.context === e.context && r.entity_id === e.entity_id);
+            });
+        }
+        // Upserts (the manual tagger's dedupe rule: entity_id+context).
+        for (const ref of result.refs) {
+            const dup = a.entities.find((e) => e && e.entity_id === ref.entity_id && e.context === ref.context);
+            if (!dup) a.entities.push({ entity_id: ref.entity_id, type: ref.type, name: ref.name, context: ref.context });
+        }
+        refreshEntitiesBar().catch(() => {});
+        scheduleTagSave();
+        // Re-decorate the rendered labels with the new bindings.
+        const body = $('.xr-article__body');
+        if (body) {
+            try { decorateSpeakerLabels(body, a); } catch (_) { /* cosmetic */ }
+        }
+        const bound = result.refs.length;
+        toast(bound
+            ? `Speakers saved — ${bound} voice${bound === 1 ? '' : 's'} identified`
+            : 'Speakers saved', 'success', 2500);
+    };
 }
 
 async function applyMediaResult(result) {
@@ -2528,6 +3329,7 @@ async function applyMediaResult(result) {
     if (!result.parse) {
         // Metadata-only: the hash is untouched — persist the row and stop.
         scheduleTagSave();
+        refreshMediaNudge();
         toast('Media metadata saved', 'success', 2000);
         return;
     }
@@ -2577,6 +3379,11 @@ async function applyMediaResult(result) {
         state.draftProven = false;
         state.dirtySource = 'reader';
     }
+    // The body just changed under both offset maps — stale offsets
+    // stamp confidently wrong pages/timestamps into published claim
+    // anchors (the same rule the reconstruct and publish seams apply).
+    delete a.pageMap;
+    delete a.timeMap;
 
     // The structure manifest + the LOCAL speaker list (the claim
     // prefill seam; relay round-trips carry counts only — names
@@ -2619,9 +3426,257 @@ async function applyMediaResult(result) {
     }
 
     renderReader();
+    // A fresh transcript may complete the nudge condition (transcript
+    // present + strong signals + no declared identity yet).
+    refreshMediaNudge();
     refreshClaimsBar().catch(() => {});
+    // The attach may have introduced (or changed) the speaker list —
+    // keep the identification + drafts controls in step (an attached
+    // transcript is a valid drafts substrate, no companion needed).
+    setupSpeakersControl();
+    setupTranscriptClaimDraftsControl().catch(() => {});
     toast(`Transcript attached — ${parse.turns.length} turn${parse.turns.length === 1 ? '' : 's'}`
         + `, ${parse.speakers.length} speaker${parse.speakers.length === 1 ? '' : 's'}`, 'success', 2500);
+}
+
+// ------------------------------------------------------------------
+// AI vision — "Describe images" (captions + text-in-image OCR)
+// ------------------------------------------------------------------
+
+// The modal collects Accepts; this owns the consequences — the same
+// division as media/transcript. Collection and merge run over the
+// CANONICAL body (clean capture content / markdown), never htmlDraft:
+// the live draft carries entity-mark spans that must not be folded
+// back (the applyMediaResult reasoning).
+
+/**
+ * Configure the Describe-images control from the SW's gating snapshot.
+ * Absent when the `aiVision` flag is off (or on read-only opens — the
+ * merge mutates the body); visible-but-disabled when on with no key —
+ * so either condition guarantees no network call is reachable here.
+ */
+async function setupVisionControl() {
+    const btn = $('#xr-vision');
+    if (!btn) return;
+    if (state.readOnlyOpen) { btn.hidden = true; return; }
+    let cfg = {};
+    try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:vision:config' }) || {}; }
+    catch (_) { cfg = {}; }
+
+    if (!cfg.enabled) { btn.hidden = true; return; }   // flag off ⇒ absent
+    btn.hidden = false;
+    if (!cfg.hasKey) {
+        btn.disabled = true;
+        btn.title = 'Set an Anthropic API key in Options → Advanced → LLM assist';
+        return;
+    }
+    btn.disabled = false;
+    btn.title = 'Describe images with AI (sends the images you pick to Anthropic)';
+    btn.addEventListener('click', async () => {
+        // Disabled for the flow's duration (the runSuggestPass idiom) —
+        // the still-focused button must not stack a second modal.
+        if (btn.disabled) return;
+        btn.disabled = true;
+        try { await runVisionFlow(); }
+        catch (err) { toast((err && err.message) || 'Vision pass failed', 'error'); }
+        finally { btn.disabled = false; }
+    });
+}
+
+/** The canonical body vision collects from and merges into. */
+function visionCanonicalBody() {
+    const a = state.article;
+    if (isMarkdownCanonical(a)) {
+        const baseMd = (state.dirtySource === 'markdown' && state.markdownDraft)
+            ? state.markdownDraft : (a.markdown || '');
+        return { body: baseMd, isHtml: false };
+    }
+    let html = a.content || '';
+    if (state.dirtySource === 'markdown' && state.markdownDraft) {
+        html = ContentExtractor.markdownToHtml(state.markdownDraft);
+    }
+    return { body: html, isHtml: true };
+}
+
+/**
+ * Modal thumbnails. Archived figures try the hydrated blob URL in the
+ * live reader body first (a fast path — absent on the Markdown/Preview
+ * tabs and before hydrateFigureImages lands), then fall back to
+ * minting a fresh blob URL from the byte archive; minted URLs are
+ * collected for the caller to revoke after the modal closes.
+ * Everything else shows its own src.
+ */
+async function visionThumbSrc(ref, minted) {
+    if (!ref.startsWith('xray-figure:')) return ref;
+    const hash = ref.slice('xray-figure:'.length);
+    const img = document.querySelector(`.xr-article__body img[data-xray-figure="${CSS.escape(hash)}"]`);
+    if (img && img.src && !img.src.startsWith('xray-figure:')) return img.src;
+    try {
+        const row = await ArchiveCache.getSourceDocument(hash);
+        if (row && row.bytes && row.bytes.byteLength) {
+            const url = URL.createObjectURL(new Blob([row.bytes], { type: row.mime || 'image/png' }));
+            minted.push(url);
+            return url;
+        }
+    } catch (_) { /* evicted bytes — a blank thumb, honestly */ }
+    return '';
+}
+
+async function runVisionFlow() {
+    const btn = $('#xr-vision');
+    if (!btn || !state.article) return;
+
+    const { body, isHtml } = visionCanonicalBody();
+    const images = collectArticleImages(body, { isHtml });
+    if (!images.length) { toast('No images found in this capture.', 'warning'); return; }
+
+    // Re-check the gate at click time (Options may have changed since
+    // setup) — before the modal, so nobody picks images for a pass
+    // that can't run.
+    let cfg = {};
+    try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:vision:config' }) || {}; }
+    catch (_) { cfg = {}; }
+    if (!cfg.enabled || !cfg.hasKey) {
+        toast('AI vision is not configured — see Options → Advanced → AI vision.', 'error');
+        return;
+    }
+
+    const article = state.article;
+    const minted = [];
+    let accepted;
+    try {
+        const withThumbs = await Promise.all(images.map(async (img) => (
+            { ...img, thumbSrc: await visionThumbSrc(img.ref, minted) }
+        )));
+        accepted = await openVisionModal({
+            images: withThumbs,
+            model: cfg.model || '',
+            keepalive: startSwKeepalive,
+            runOne: (img) => browserApi.runtime.sendMessage({
+                type: 'xray:vision:describe',
+                ref: img.ref, alt: img.alt, captionText: img.captionText,
+                articleTitle: article.title || '', articleUrl: article.url || ''
+            })
+        });
+    } finally {
+        for (const url of minted) { try { URL.revokeObjectURL(url); } catch (_) { /* done */ } }
+    }
+    if (!accepted || !accepted.length) return;
+    // Staleness guard: a background body swap (the Substack API stage
+    // can land mid-modal) or a navigation replaces state.article —
+    // merging accepted notes into a body they were not collected from
+    // must not pass silently.
+    if (state.article !== article) {
+        toast('The capture changed while the modal was open — nothing merged.', 'error');
+        return;
+    }
+    await applyVisionNotes(accepted);
+}
+
+/**
+ * Merge accepted per-image notes into the body — the transcript-attach
+ * template: canonical-side branch, draft sync, hash recompute, archive
+ * save, re-render. Inline provenance (the note text names the model)
+ * is the honesty mechanism here; extraction.method stays untouched —
+ * it describes how the CAPTURE was extracted, and a few accepted image
+ * notes don't make the whole body machine-derived.
+ */
+async function applyVisionNotes(accepted) {
+    const a = state.article;
+    if (!a || !accepted.length) return;
+
+    // Upserts no-op (return the body unchanged) when an image isn't in
+    // the body anymore — count those instead of reporting a blanket
+    // success over a merge that didn't happen.
+    let merged = 0;
+    let missed = 0;
+
+    if (isMarkdownCanonical(a)) {
+        // Markdown-canonical: the markdown IS the substrate. Fold the
+        // live markdown draft first — it may be ahead of article.markdown.
+        let md = (state.dirtySource === 'markdown' && state.markdownDraft)
+            ? state.markdownDraft : (a.markdown || '');
+        for (const note of accepted) {
+            const next = upsertVisionNoteMarkdown(md, note.ref, note);
+            if (next === md) missed += 1; else merged += 1;
+            md = next;
+        }
+        if (!merged) {
+            toast('No accepted note could be placed — the article body changed.', 'error');
+            return;
+        }
+        a.markdown = md;
+        state.markdownDraft = md;
+        a.content = ContentExtractor.markdownToHtml(md);
+        state.htmlDraft = a.content;
+        state.draftProven = false;
+        // The substrate stays markdown: without this, a prior reader
+        // edit leaves dirtySource='reader' and publish re-derives the
+        // body through the destructive turndown round trip
+        // isMarkdownCanonical exists to prevent (the
+        // reconstructWithLlmFlow precedent).
+        state.dirtySource = 'markdown';
+    } else {
+        // HTML-canonical: upsert into the clean capture content. A
+        // markdown-tab edit is mark-free and canonical by contract, so
+        // it folds in first rather than being clobbered.
+        if (state.dirtySource === 'markdown' && state.markdownDraft) {
+            a.content = ContentExtractor.markdownToHtml(state.markdownDraft);
+        }
+        let html = a.content || '';
+        for (const note of accepted) {
+            const next = upsertVisionNoteHtml(html, note.ref, note);
+            if (next === html) missed += 1; else merged += 1;
+            html = next;
+        }
+        if (!merged) {
+            toast('No accepted note could be placed — the article body changed.', 'error');
+            return;
+        }
+        a.content = html;
+        state.htmlDraft = a.content;
+        state.markdownDraft = '';       // stale — regenerated on tab entry
+        // The blanked draft must never ship (the applyMediaResult
+        // empty-body lesson) — clearing draftProven suppresses it.
+        state.draftProven = false;
+        state.dirtySource = 'reader';
+    }
+
+    // The body changed → the canonical hash changes. Honest versioning:
+    // the pre-note snapshot in the archive is correct, not a stealth edit.
+    try {
+        const fullBody = EventBuilder.assembleArticleBody(hashableArticle(a));
+        const fullHash = await canonicalArticleHash(fullBody);
+        const slice = auditableSlice(fullBody);
+        const slicedHash = slice.truncated
+            ? await canonicalArticleHash(slice.text) : fullHash;
+        state.articleHash = fullHash;
+        state.auditableTotalChars = slice.totalChars;
+        state.auditableHash = slicedHash;
+        updateHashLine();
+        refreshAuditStatus().catch(() => {});
+    } catch (err) {
+        console.warn('[X-Ray Reader] vision-note hash failed:', err);
+    }
+
+    if (!state.readOnlyOpen && a.url) {
+        ArchiveCache.saveArticle({
+            article: state.articleHash ? { ...a, _articleHash: state.articleHash } : a,
+            source: 'capture'
+        }).catch((err) => console.warn('[X-Ray Reader] vision-note save failed:', err));
+    }
+
+    // Re-render the pane the user is actually on — a bare
+    // renderReader() would desync the Markdown/Preview tab state.
+    switch (state.viewMode) {
+        case 'markdown': renderMarkdown(); break;
+        case 'preview': renderPreview(); break;
+        default: renderReader(); break;
+    }
+    toast(missed
+        ? `Merged AI notes for ${merged} image${merged === 1 ? '' : 's'} — ${missed} could not be placed (the body changed)`
+        : `Merged AI image notes for ${merged} image${merged === 1 ? '' : 's'}`,
+    missed ? 'warning' : 'success', 3000);
 }
 
 async function setupSuggestControl() {
@@ -2694,6 +3749,14 @@ async function runSuggestPass() {
  */
 async function reviewSuggestions(proposals, model) {
     const articleText = articleBodyText();
+    // MA.4 — the suggest pass's claim proposals become DURABLE atoms in
+    // this article's extraction record BEFORE the modal opens, so
+    // closing the review no longer discards paid analysis: whatever is
+    // not accepted now stays reviewable in the case dashboard and the
+    // reader's extraction bar, deduped against whatever the corpus map
+    // stage found for the same spans.
+    foldSuggestionsIntoRecord(proposals, model)
+        .catch((err) => console.warn('[X-Ray Reader] suggestion fold failed:', err));
     return openLlmReview({
         proposals,
         model,
@@ -2702,6 +3765,9 @@ async function reviewSuggestions(proposals, model) {
         articleHash: claimArticleHash() || '',
         // PDF page anchors for accepted claims (null for non-PDFs).
         pageForQuote: (q) => pdfPageOfQuote(q),
+        // Video-time anchors for accepted claims on diarized transcripts
+        // (null everywhere else) — same additive-selector contract.
+        timeRangeForQuote: (q) => timeRangeOfQuote(q),
         sourceRef:  { url: state.article.url || '', title: state.article.title || '' },
         // Accepted claims default their asserter to the article-author
         // ENTITY when one already exists — existing-only: bulk accept
@@ -2891,6 +3957,12 @@ function auditRequestMeta() {
     return {
         articleUrl: state.article.url || '',
         articleTitle: state.article.title || '',
+        // Declared source_type wins; else the capture-time suggestion.
+        // suggestedType rides separately so the SW can detect the OQ.4
+        // forced-news case (declared reporting over an opinion signal)
+        // and keep the standing caveat on it.
+        sourceType: state.article.source_type || suggestSourceType(state.article) || '',
+        suggestedType: suggestSourceType(state.article) || '',
         metadata: {
             url: state.article.url || null,
             headline: state.article.title || null,
@@ -2965,13 +4037,16 @@ async function runQuickAudit({ markdown, localHash }) {
  * dead reader/SW/browser costs nothing already paid for. A draft for
  * the SAME text offers resume (only missing modules re-run).
  */
-async function runThoroughAudit({ markdown, localHash, active }) {
+async function runThoroughAudit({ markdown, localHash, active, corpusSources = [], family = 'news', forcedOpinion = false }) {
+    // The family's roster drives everything: which modules run, what
+    // resumes, and the progress denominator (R5/OP.3).
+    const familyModules = family === 'opinion' ? OPINION_RUN_MODULES : MODULE_NAMES;
     let existing = {};
     let draftModel = null;
     const draft = await loadAuditDraft(localHash);
     if (draft && Object.keys(draft.modules || {}).length > 0) {
         const done = Object.keys(draft.modules).length;
-        if (confirm(`A previous thorough audit saved ${done}/${MODULE_NAMES.length} completed module(s) for this exact text. Resume, re-running only the missing ones? (Cancel discards the draft and starts fresh.)`)) {
+        if (confirm(`A previous thorough audit saved ${done}/${familyModules.length} completed module(s) for this exact text. Resume, re-running only the missing ones? (Cancel discards the draft and starts fresh.)`)) {
             existing = draft.modules;
             draftModel = draft.model || null;
         } else {
@@ -2979,11 +4054,11 @@ async function runThoroughAudit({ markdown, localHash, active }) {
         }
     }
 
-    const missing = MODULE_NAMES.filter((n) => !existing[n]);
+    const missing = familyModules.filter((n) => !existing[n]);
     const meta = auditRequestMeta();
     const doneBase = Object.keys(existing).length;
     const paint = (okCount) => {
-        active.textContent = `⏳ Auditing ${doneBase + okCount}/${MODULE_NAMES.length}…`;
+        active.textContent = `⏳ Auditing ${doneBase + okCount}/${familyModules.length}…`;
     };
     paint(0);
 
@@ -2992,7 +4067,13 @@ async function runThoroughAudit({ markdown, localHash, active }) {
         send: async (name) => {
             const res = await browserApi.runtime.sendMessage({
                 type: 'xray:audit:module',
-                request: { module: name, markdown, articleUrl: meta.articleUrl, articleTitle: meta.articleTitle }
+                request: {
+                    module: name, markdown,
+                    articleUrl: meta.articleUrl, articleTitle: meta.articleTitle,
+                    // R2: corpus-held cited sources, module 04 only.
+                    ...(name === 'source_quality' && corpusSources.length
+                        ? { corpusSources } : {})
+                }
             });
             if (res && res.ok && res.findings) {
                 await appendAuditDraft(localHash, name, res.findings, res.model);
@@ -3020,7 +4101,11 @@ async function runThoroughAudit({ markdown, localHash, active }) {
             model: model || draftModel || 'unknown',
             markdown,
             metadata: meta.metadata,
-            standingCaveat: null
+            family,
+            // The R5-interim caveat is RETIRED on the opinion path —
+            // the opinion family IS the methodology now. It survives
+            // for exactly one case: the OQ.4 forced-news run.
+            standingCaveat: forcedOpinion ? STANDING_OPINION_CAVEAT : null
         });
     } catch (err) {
         console.error('[xray] thorough assembly failed', err);
@@ -3061,9 +4146,61 @@ async function runAuditFromReader(mode = 'single') {
     }
     const markdown = slice.text;
 
+    // R5/OP.3 — family dispatch. Opinion artifacts run the opinion
+    // roster; Quick (single-shot) is news-only in v1, so an opinion
+    // artifact's Quick click steers to Thorough. The OQ.4 case —
+    // declared reporting over an opinion signal — steers with an
+    // explicit confirm and keeps the standing caveat.
+    const family = auditFamilyFor(state.article);
+    const suggestedOpinion = suggestSourceType(state.article) === 'analysis';
+    if (mode === 'single' && family === 'opinion') {
+        if (!confirm('This is an opinion/analysis artifact. Quick (single-shot) runs the news '
+            + 'orchestrator and is news-only in v1 — the opinion family runs one call per '
+            + 'dimension. Run the Thorough opinion audit instead?')) {
+            return;
+        }
+        mode = 'per_module';
+    }
+    const forcedOpinion = family === 'news' && suggestedOpinion;
+    if (forcedOpinion
+        && !confirm('The capture signals opinion/analysis (schema.org), but its declared source '
+            + 'type routes it to the NEWS methodology. The audit will run the news modules and '
+            + 'carry a standing caveat. Continue? (Re-type it in the media modal to run the '
+            + 'opinion family instead.)')) {
+        return;
+    }
+
+    // R2 — corpus-held cited sources for the source-quality call:
+    // resolved from the active case (url/alias/DOI identity, never
+    // similarity), disclosed in the confirm BEFORE any spend. News
+    // family only — the opinion roster has no source_quality module.
+    let corpusSources = [];
+    if (mode === 'per_module' && family === 'news') {
+        const gathered = await gatherCorpusSources({
+            article: state.article,
+            selfHash: state.articleHash || '',
+            io: {
+                resolveActiveCaseRef,
+                memberUrlSets,
+                getArticle: ArchiveCache.getArticle,
+                getArticleExtraction,
+                loadAliasMap,
+                resolveWithMap,
+                normalizeUrl: (u) => Utils.normalizeUrl(u),
+                assembleBody: (a) => EventBuilder.assembleArticleBody(a)
+            }
+        });
+        corpusSources = gathered.entries;
+    }
+    const corpusNote = corpusSources.length
+        ? ` ${corpusSources.length} corpus-held cited source${corpusSources.length === 1 ? '' : 's'} `
+          + `(~${Math.round(corpusSourcesChars(corpusSources) / 1000)}k characters) will attach to the `
+          + 'source-quality call for characterization checks.'
+        : '';
+
     // Thorough mode spends ~8× — confirm before committing the user's key.
     if (mode === 'per_module'
-        && !confirm('Thorough audit runs one LLM call per dimension (about 8 API calls — higher cost) for more rigor. Progress is saved per module and resumable. Continue?')) {
+        && !confirm(`Thorough audit runs one LLM call per dimension (about 8 API calls — higher cost) for more rigor.${corpusNote} Progress is saved per module and resumable. Continue?`)) {
         return;
     }
 
@@ -3083,7 +4220,7 @@ async function runAuditFromReader(mode = 'single') {
     active.textContent = mode === 'per_module' ? '⏳ Auditing (thorough)…' : '⏳ Auditing…';
     try {
         if (mode === 'per_module') {
-            await runThoroughAudit({ markdown, localHash, active });
+            await runThoroughAudit({ markdown, localHash, active, corpusSources, family, forcedOpinion });
         } else {
             await runQuickAudit({ markdown, localHash });
         }
@@ -3382,6 +4519,14 @@ async function resolveTranscriptSpeaker(context) {
     const known = (a.transcript_meta && a.transcript_meta.speakers) || null;
     const name = speakerFromParagraphText(context, known);
     if (!name) return null;
+    // A voice the user IDENTIFIED (🗣 Speakers…) beats registry
+    // name-matching: the binding is an entity ref whose mention context
+    // is the label itself, so "Speaker 3" resolves to the person even
+    // though no entity is named "Speaker 3" — and a label that
+    // coincidentally matches some entity's name resolves to the
+    // identified person, not the name-collision.
+    const bound = speakerEntityId(a.entities, name);
+    if (bound) return { entityId: bound };
     try {
         const entity = await findEntityByName(name);
         return entity ? { entityId: entity.id } : { suggestedName: name };
@@ -3520,7 +4665,12 @@ function renderYouTubeHeader(article) {
     if (Array.isArray(y.transcripts)) {
         for (const t of y.transcripts) {
             if (!t || !Array.isArray(t.events) || t.events.length === 0) continue;
-            const kindMark = t.kind === 'asr' ? 'auto' : 'human';
+            // Honesty rule: 'human' ONLY for human-authored tracks.
+            // ASR renders 'auto'; anything else (whisperx, scraped)
+            // names itself rather than masquerading as human captions.
+            const kindMark = t.kind === 'human' ? 'human'
+                : t.kind === 'asr' ? 'auto'
+                : (t.kind || 'unknown');
             const isOrigin = t.role && t.role.startsWith('origin');
             const label = `${t.displayName || t.languageCode || 'transcript'} · ${kindMark}`;
             const cls = isOrigin
@@ -4336,16 +5486,34 @@ const BATCH_PUBLISH_DELAY_MS = 200;
 const _publishUnconfirmed = { count: 0 };
 
 /**
- * The ONE gate every per-event publish site runs its response
- * through. Journals the signed event verbatim (the rebroadcast +
- * durability substrate — event-journal.js) whenever ANY relay took
- * it, then answers whether the local ledger may mark it published:
- * CONFIRMED (non-assumed) OKs only.
+ * The ONE response gate every per-event publish site runs through.
+ * Journals the signed event verbatim (the rebroadcast + durability
+ * substrate — event-journal.js) whenever ANY relay took it, then
+ * answers whether the local ledger may mark it published: CONFIRMED
+ * (non-assumed) OKs only.
+ *
+ * 29.1: when the publish gate already journaled this event at SIGN
+ * time (publish-gate.js — in the SW for the capture:publish families,
+ * in this page for the direct relay sends), this gate skips its own
+ * recordPublished rather than double-upserting. The gate's per-event
+ * `journaled` answer is the authority — trusting a fresh flag read
+ * instead would let a flag flip during the relay leg strand an
+ * in-flight event unjournaled on both paths (and it also makes the
+ * skip honest when the gate's sign-time write FAILED: journaled:false
+ * → the legacy write below still covers the event). Responses without
+ * the field fall back to the flag read, defensively. The
+ * confirmed-only ledger answer and the unconfirmed honesty counter
+ * are unchanged either way.
  */
 async function publishOk(resp) {
     if (!resp || !resp.ok || !resp.results) return false;
     const results = resp.results;
-    if (results.successful > 0 && resp.signedEvent) {
+    let journaledByGate = resp.journaled === true;
+    if (resp.journaled === undefined) {
+        await loadFlags();
+        journaledByGate = isEnabled('storeFirstPublish');
+    }
+    if (!journaledByGate && results.successful > 0 && resp.signedEvent) {
         try {
             await EventJournal.recordPublished(resp.signedEvent, results, {
                 articleUrl: (state.article && state.article.url) || null
@@ -4363,6 +5531,13 @@ async function publishOk(resp) {
         return false;
     }
     return confirmed > 0;
+}
+
+// 29.1: the article-url context journal rows carry — the same value
+// publishOk stamps on its legacy writes, now also sent alongside each
+// publish so the gate's sign-time rows record it in the SW context.
+function publishArticleUrl() {
+    return (state.article && state.article.url) || null;
 }
 
 async function publish() {
@@ -4558,7 +5733,17 @@ async function publish() {
         const articleResp = await browserApi.runtime.sendMessage({
             type: 'xray:capture:publish',
             id: state.id,
-            event: unsignedArticle
+            event: unsignedArticle,
+            articleUrl: publishArticleUrl(),
+            // The article's publish ledger is its archive row
+            // (ArchiveCache.saveArticle publishedToRelay), keyed by url.
+            // DECIDED for 29.2: that row is only written below when
+            // successful > 0, so a pending journal row can name an
+            // archive mark whose target row does not exist yet — the
+            // flusher must treat a missing target as a NO-OP (the mark
+            // stays unmarked, ledger.markedAt stays null) and must
+            // never fabricate the archive row from the journal.
+            ledger: { model: 'article', localId: state.article.url, extra: null }
         });
         if (!articleResp || !articleResp.ok) {
             throw new Error((articleResp && articleResp.error) || 'No response from background worker');
@@ -4593,6 +5778,9 @@ async function publish() {
             delete archivedArticle._contentIsMarkdown;
             if (state.markdownDraft !== (state.article.markdown || '')) {
                 delete archivedArticle.pageMap;
+                // Same staleness rule for the transcript offset→time map:
+                // edited text + old offsets = confidently wrong timestamps.
+                delete archivedArticle.timeMap;
             }
             try {
                 await ArchiveCache.saveArticle({
@@ -4663,7 +5851,10 @@ async function publish() {
                     const resp = await browserApi.runtime.sendMessage({
                         type: 'xray:capture:publish',
                         id: state.id,
-                        event: unsignedComment
+                        event: unsignedComment,
+                        articleUrl: publishArticleUrl()
+                        // Comments have no local publish ledger
+                        // (reconcile's 'no-ledger' kinds) — no descriptor.
                     });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
@@ -4717,17 +5908,28 @@ async function publish() {
                     await attachCreatorBinding(unsignedProfile, entity.keypair && entity.keypair.pubkey);
                     const signed = await LocalKeyManager.signEvent(unsignedProfile, entity.keyName);
 
-                    const resp = await browserApi.runtime.sendMessage({
-                        type:   'xray:relay:publish',
-                        event:  signed,
-                        relays
-                    });
+                    // Locally-signed → the gate runs HERE (29.1), with
+                    // the SW's relay pool injected as the transport.
+                    let resp;
+                    try {
+                        const gated = await gatePublish({
+                            signedEvent: signed,
+                            relays,
+                            publish: relayPublishTransport(),
+                            ledger: { model: 'entity', localId: entity.id, extra: null },
+                            articleUrl: publishArticleUrl(),
+                            legacyJournalOnSuccess: false   // flag-off journaling stays in publishOk
+                        });
+                        resp = { ok: true, results: gated.results, journaled: gated.journaled };
+                    } catch (err) {
+                        resp = { ok: false, error: (err && err.message) || null };
+                    }
 
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
-                        // relay:publish responses carry no signedEvent —
-                        // attach the locally-signed one so the journal
-                        // gets its verbatim copy like every other site.
+                        // The relay transport carries no signedEvent —
+                        // attach the locally-signed one so publishOk's
+                        // legacy journal write gets its verbatim copy.
                         if (await publishOk({ ...resp, signedEvent: signed })) {
                             entityResults.ok++;
                             // Only mark as published if at least one relay
@@ -4797,7 +5999,9 @@ async function publish() {
                 const resp = await browserApi.runtime.sendMessage({
                     type:  'xray:capture:publish',
                     id:    state.id,
-                    event: unsigned
+                    event: unsigned,
+                    articleUrl: publishArticleUrl(),
+                    ledger: { model: 'claim', localId: claim.id, extra: null }
                 });
                 if (resp && resp.ok && resp.results) {
                     recordRelayResults(resp.results);
@@ -4849,7 +6053,9 @@ async function publish() {
                 const resp = await browserApi.runtime.sendMessage({
                     type:  'xray:capture:publish',
                     id:    state.id,
-                    event: unsigned
+                    event: unsigned,
+                    articleUrl: publishArticleUrl()
+                    // 32125 replaces in place — no local publish ledger.
                 });
                 if (resp && resp.ok && resp.results) {
                     recordRelayResults(resp.results);
@@ -4908,7 +6114,9 @@ async function publish() {
                     const resp = await browserApi.runtime.sendMessage({
                         type:  'xray:capture:publish',
                         id:    state.id,
-                        event: unsigned
+                        event: unsigned,
+                        articleUrl: publishArticleUrl()
+                        // 32126 replaces in place — no local publish ledger.
                     });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
@@ -4964,10 +6172,11 @@ async function publish() {
                   + (linkSel.length ? ` + ${linkSel.length} claim link${linkSel.length === 1 ? '' : 's'}` : '')
                   + '…', 'warning', 4000);
 
-            const sendJudgment = async (unsigned) => {
+            const sendJudgment = async (unsigned, ledger = null) => {
                 unsigned.pubkey = userPubkey;
                 return await browserApi.runtime.sendMessage({
-                    type: 'xray:capture:publish', id: state.id, event: unsigned
+                    type: 'xray:capture:publish', id: state.id, event: unsigned,
+                    articleUrl: publishArticleUrl(), ledger
                 });
             };
             const entitiesAll = await EntityModel.getAll();
@@ -5007,7 +6216,8 @@ async function publish() {
                         aboutPubkeys:  [...new Set(aboutPubkeys)],
                         suggestedBy:  sel.assessment.suggested_by || 'user'
                     });
-                    const resp = await sendJudgment(unsigned);
+                    const resp = await sendJudgment(unsigned,
+                        { model: 'assessment', localId: sel.assessment.id, extra: null });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
                         if (await publishOk(resp)) {
@@ -5052,7 +6262,8 @@ async function publish() {
                         labels:     sel.assessment.labels,
                         claimUrl:   sel.url
                     });
-                    const resp = await sendJudgment(unsigned);
+                    const resp = await sendJudgment(unsigned,
+                        { model: 'assessment-mirror', localId: sel.assessment.id, extra: null });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
                         if (await publishOk(resp)) {
@@ -5088,7 +6299,8 @@ async function publish() {
                         note:          sel.link.note,
                         suggestedBy:   sel.link.suggested_by || 'user'
                     });
-                    const resp = await sendJudgment(unsigned);
+                    const resp = await sendJudgment(unsigned,
+                        { model: 'link', localId: sel.link.id, extra: null });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
                         if (await publishOk(resp)) {
@@ -5218,7 +6430,17 @@ async function publish() {
                     try {
                         entry.event.pubkey = userPubkey;
                         const resp = await browserApi.runtime.sendMessage({
-                            type: 'xray:capture:publish', id: state.id, event: entry.event
+                            type: 'xray:capture:publish', id: state.id, event: entry.event,
+                            articleUrl: publishArticleUrl(),
+                            // entry.mark is the batch's own mark descriptor
+                            // ({type:'run-event',runId,eventKey} |
+                            //  {type:'prediction'|'resolution',id,...}) —
+                            // exactly what the flusher must replay.
+                            ledger: {
+                                model: 'audit',
+                                localId: entry.mark.runId || entry.mark.id || null,
+                                extra: entry.mark
+                            }
                         });
                         if (await publishOk(resp)) {
                             recordRelayResults(resp.results);
@@ -5292,10 +6514,11 @@ async function publish() {
                   + (revEdgeSel.length ? ` + ${revEdgeSel.length} revision edge${revEdgeSel.length === 1 ? '' : 's'}` : '')
                   + '…', 'warning', 4000);
 
-            const sendForensic = async (unsigned) => {
+            const sendForensic = async (unsigned, ledger = null) => {
                 unsigned.pubkey = userPubkey;
                 return await browserApi.runtime.sendMessage({
-                    type: 'xray:capture:publish', id: state.id, event: unsigned
+                    type: 'xray:capture:publish', id: state.id, event: unsigned,
+                    articleUrl: publishArticleUrl(), ledger
                 });
             };
 
@@ -5318,7 +6541,8 @@ async function publish() {
                         sourceUrl:     sel.sourceUrl,
                         suggestedBy:   sel.finding.suggested_by || 'user'
                     });
-                    const resp = await sendForensic(unsigned);
+                    const resp = await sendForensic(unsigned,
+                        { model: 'forensic', localId: sel.finding.id, extra: { dTag } });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
                         if (await publishOk(resp)) {
@@ -5359,7 +6583,8 @@ async function publish() {
                         maneuver:      sel.maneuver,
                         sourceUrl:     sel.sourceUrl
                     });
-                    const resp = await sendForensic(unsigned);
+                    const resp = await sendForensic(unsigned,
+                        { model: 'forensic-mirror', localId: sel.finding.id, extra: null });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
                         if (await publishOk(resp)) {
@@ -5394,7 +6619,8 @@ async function publish() {
                         note:          sel.link.note,
                         suggestedBy:   sel.link.suggested_by || 'user'
                     });
-                    const resp = await sendForensic(unsigned);
+                    const resp = await sendForensic(unsigned,
+                        { model: 'link', localId: sel.link.id, extra: null });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
                         if (await publishOk(resp)) {
@@ -5464,10 +6690,11 @@ async function publish() {
                   + (integritySel.length ? ` + ${integritySel.length} integrity finding${integritySel.length === 1 ? '' : 's'}` : '')
                   + '…', 'warning', 4000);
 
-            const sendTruth = async (unsigned) => {
+            const sendTruth = async (unsigned, ledger = null) => {
                 unsigned.pubkey = userPubkey;
                 return await browserApi.runtime.sendMessage({
-                    type: 'xray:capture:publish', id: state.id, event: unsigned
+                    type: 'xray:capture:publish', id: state.id, event: unsigned,
+                    articleUrl: publishArticleUrl(), ledger
                 });
             };
 
@@ -5506,7 +6733,8 @@ async function publish() {
                         sourceUrl:         sel.url,
                         suggestedBy:       sel.verdict.suggested_by || 'user'
                     });
-                    const resp = await sendTruth(unsigned);
+                    const resp = await sendTruth(unsigned,
+                        { model: 'verdict', localId: sel.verdict.id, extra: { dTag } });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
                         if (await publishOk(resp)) {
@@ -5548,7 +6776,8 @@ async function publish() {
                         verdict:    sel.verdict.verdict,
                         sourceUrl:  sel.url
                     });
-                    const resp = await sendTruth(unsigned);
+                    const resp = await sendTruth(unsigned,
+                        { model: 'verdict-mirror', localId: sel.verdict.id, extra: null });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
                         if (await publishOk(resp)) {
@@ -5598,7 +6827,8 @@ async function publish() {
                         sourceUrl:         sel.sourceUrl,
                         suggestedBy:       sel.finding.suggested_by || 'user'
                     });
-                    const resp = await sendTruth(unsigned);
+                    const resp = await sendTruth(unsigned,
+                        { model: 'integrity', localId: sel.finding.id, extra: { dTag } });
                     if (resp && resp.ok && resp.results) {
                         recordRelayResults(resp.results);
                         if (await publishOk(resp)) {
@@ -5691,12 +6921,28 @@ async function publish() {
                     const unsigned = EventBuilder.buildProfileEvent(entity, canonicalNpub, sel.about, entity.external_ids || []);
                     await attachCreatorBinding(unsigned, entity.keypair && entity.keypair.pubkey);
                     const signed = await LocalKeyManager.signEvent(unsigned, entity.keyName);
-                    const resp = await browserApi.runtime.sendMessage({
-                        type: 'xray:relay:publish', event: signed, relays: await getConfiguredRelays()
-                    });
+                    // Locally-signed → the gate runs HERE (29.1).
+                    let resp;
+                    try {
+                        const gated = await gatePublish({
+                            signedEvent: signed,
+                            relays: await getConfiguredRelays(),
+                            publish: relayPublishTransport(),
+                            ledger: {
+                                model: 'entity-profile', localId: entity.id,
+                                extra: { profileHash: sel.aboutHash }
+                            },
+                            articleUrl: publishArticleUrl(),
+                            legacyJournalOnSuccess: false   // flag-off journaling stays in publishOk
+                        });
+                        resp = { ok: true, results: gated.results, journaled: gated.journaled };
+                    } catch (err) {
+                        resp = { ok: false, error: (err && err.message) || null };
+                    }
                     if (resp && resp.ok && resp.results) recordRelayResults(resp.results);
-                    // signedEvent attached so publishOk journals it (the
-                    // entity-batch precedent).
+                    // signedEvent attached so publishOk's legacy journal
+                    // write gets its verbatim copy (the entity-batch
+                    // precedent).
                     if (resp && resp.ok && await publishOk({ ...resp, signedEvent: signed })) {
                         corpusResults.ok++;
                         try {
@@ -5779,9 +7025,21 @@ async function publish() {
                             });
                             await attachCreatorBinding(unsignedNote, t.entity.keypair.pubkey);
                             const signedNote = await LocalKeyManager.signEvent(unsignedNote, t.entity.keyName);
-                            const resp = await browserApi.runtime.sendMessage({
-                                type: 'xray:relay:publish', event: signedNote, relays: await getConfiguredRelays()
-                            });
+                            // Locally-signed → the gate runs HERE (29.1).
+                            let resp;
+                            try {
+                                const gated = await gatePublish({
+                                    signedEvent: signedNote,
+                                    relays: await getConfiguredRelays(),
+                                    publish: relayPublishTransport(),
+                                    ledger: { model: 'mention', localId: t.key, extra: null },
+                                    articleUrl: publishArticleUrl(),
+                                    legacyJournalOnSuccess: false   // flag-off journaling stays in publishOk
+                                });
+                                resp = { ok: true, results: gated.results, journaled: gated.journaled };
+                            } catch (err) {
+                                resp = { ok: false, error: (err && err.message) || null };
+                            }
                             if (resp && resp.ok && resp.results) recordRelayResults(resp.results);
                             if (resp && resp.ok && await publishOk({ ...resp, signedEvent: signedNote })) {
                                 corpusResults.ok++;
@@ -5914,9 +7172,21 @@ async function publishOwnedKeysManifest() {
     const unsigned = { ...buildOwnedKeysManifest({ entities: owned }), pubkey: primary.pubkey };
     const signed = await Crypto.signEvent(unsigned, primary.privateKey);
     if (!signed || !signed.sig) return;
-    const resp = await browserApi.runtime.sendMessage({
-        type: 'xray:relay:publish', event: signed, relays: await getConfiguredRelays()
-    });
+    // Locally-signed → the gate runs HERE (29.1).
+    let resp;
+    try {
+        const gated = await gatePublish({
+            signedEvent: signed,
+            relays: await getConfiguredRelays(),
+            publish: relayPublishTransport(),
+            ledger: { model: 'owned-keys', localId: 'manifest', extra: { fingerprint } },
+            articleUrl: publishArticleUrl(),
+            legacyJournalOnSuccess: false   // flag-off journaling stays in publishOk
+        });
+        resp = { ok: true, results: gated.results, journaled: gated.journaled };
+    } catch (err) {
+        resp = { ok: false, error: (err && err.message) || null };
+    }
     if (resp && resp.ok && await publishOk({ ...resp, signedEvent: signed })) {
         await Storage.set('owned_keys_manifest_hash', fingerprint);
     }
@@ -6057,9 +7327,10 @@ async function resolveRelationshipsToPublish(claims, articleUrl) {
 /**
  * Read the user's configured relays from preferences. Mirrors the
  * logic in `handleCapturePublish` on the SW side; we need it
- * reader-side too because entity kind-0 events go through the
- * signed-event publish path (`xray:relay:publish`) which takes a
- * relay list from the caller.
+ * reader-side too because locally-signed events (entity kind-0s,
+ * mention notes, the OwnedKeys manifest) publish through the gate's
+ * relay transport (publish-gate.js), which takes a relay list from
+ * the caller.
  */
 async function getConfiguredRelays() {
     return new Promise((resolve) => {
@@ -6447,11 +7718,26 @@ async function init() {
     // attach a transcript to THIS capture. Hidden on read-only opens.
     setupMediaControl();
 
+    // Speaker identification — voice → entity bindings on transcripts.
+    setupSpeakersControl();
+
     // LLM-assist Suggest control (Phase 14.5). Absent unless the flag is
     // on; disabled (with a hint) when on but no key — so flag-off OR
     // no-key means zero network calls are possible from here.
     setupSuggestControl().catch((err) => console.warn('[X-Ray Reader] suggest setup failed:', err));
     setupPendingSuggestControl().catch((err) => console.warn('[X-Ray Reader] pending-suggest setup failed:', err));
+
+    // AI vision "Describe images" control. Its own flag (aiVision) —
+    // the consent it gates is the article's IMAGES leaving the device,
+    // independent of Suggest's text consent. Same absent/disabled rules.
+    setupVisionControl().catch((err) => console.warn('[X-Ray Reader] vision setup failed:', err));
+
+    // Local transcription (companion service): the Transcribe button on
+    // YouTube captures — also fires the capture-path auto-start when the
+    // session record carried `transcribe: true` — and the LM Studio
+    // claim-drafts button once a diarized transcript exists.
+    setupTranscribeControl().catch((err) => console.warn('[X-Ray Reader] transcribe setup failed:', err));
+    setupTranscriptClaimDraftsControl().catch((err) => console.warn('[X-Ray Reader] claim-drafts setup failed:', err));
 
     // In-extension epistemic auditor (the LLM execution path). Same
     // gating as Suggest; absent unless llmAssist is on. Publishing the

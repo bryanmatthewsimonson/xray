@@ -309,6 +309,11 @@
       <input type="file" id="backup-file" accept="application/json,.json" style="display:none" />
       <input type="file" id="backup-merge-file" accept="application/json,.json" style="display:none" />
       <span class="xr-opt__status" id="backup-status"></span>
+      <!-- MA.7: the merge REPORT, distinct from the 3-second status
+           flash. A refusal ("I hold no copy of that article, so I could
+           not verify its quotes") is the one thing the user must act on,
+           and it must not evaporate or be destroyed by the auto-reload. -->
+      <div class="xr-opt__report" id="backup-merge-report" hidden></div>
 
       <hr />
       <h3 class="xr-opt__subhead">Experimental</h3>
@@ -500,6 +505,29 @@
       </p>
 
       <hr />
+      <h3 class="xr-opt__subhead">AI vision</h3>
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-ai-vision" />
+        <span>Enable "Describe images" in the reader (AI captions + text-in-image transcription)</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Off by default, and independent of LLM assist above. When on
+        <strong>and</strong> an Anthropic API key is set (same key field as
+        LLM assist), the reader gains a <strong>Describe images…</strong>
+        control: pick which of the capture's images to send, and the model
+        returns a factual caption for each — plus a verbatim transcription
+        when an image contains legible text (a scanned page, a chart, a
+        document photo). <strong>The selected images are sent to
+        Anthropic — along with the article's title and URL and each
+        image's alt text and caption</strong> (context that improves the
+        naming rules) when you run a pass — one API call per image,
+        never automatically. Every caption and transcription is a
+        <strong>draft you accept per image</strong>; accepted notes merge
+        into the article body labeled with the model that wrote them, so
+        the AI provenance stays visible in the published text.
+      </p>
+
+      <hr />
       <h3 class="xr-opt__subhead">Capture automation</h3>
       <label class="xr-opt__field xr-opt__field--inline">
         <input type="checkbox" id="pref-capture-automation" />
@@ -515,6 +543,98 @@
         accepting, no publishing. Leave off unless an agent session is
         driving.
       </p>
+
+      <hr />
+      <h3 class="xr-opt__subhead">Transcription (companion service)</h3>
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-local-transcription" />
+        <span>Enable "Transcribe" for YouTube captures</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Off by default. Requires the companion service from
+        <code>companion/transcriber/</code> in the X-Ray repo running on
+        this machine. Adds a "Capture &amp; transcribe" right-click item
+        on YouTube videos and a Transcribe button in the reader (the ▾
+        next to it picks an engine per video, with time and cost
+        estimates).
+      </p>
+      <label class="xr-opt__field">
+        <span>Transcription engine</span>
+        <select id="pref-transcribe-engine">
+          <option value="">Companion default — whatever the service's own configuration says (local unless set)</option>
+          <option value="local">Local — on this device, free (WhisperX + diarization, GPU recommended)</option>
+          <option value="assemblyai">AssemblyAI — cloud, ≈$0.28/hr (audio leaves your machine)</option>
+          <option value="deepgram">Deepgram — cloud, ≈$0.26/hr (audio leaves your machine)</option>
+          <option value="ask">Ask each time in the reader</option>
+        </select>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        <strong>Local</strong> keeps everything on this machine.
+        <strong>Cloud engines upload the episode audio</strong> to that
+        provider and transcribe a 2-hour episode in minutes for tens of
+        cents — paste the provider's API key below. Keys are stored on
+        this device only (like the LLM assist key), sent per job to your
+        loopback companion service, and never written to its disk. The
+        companion's own <code>TRANSCRIBER_PROVIDER</code> /
+        <code>*_API_KEY</code> environment variables still work as
+        server-side defaults when nothing is chosen here.
+      </p>
+      <label class="xr-opt__field">
+        <span>AssemblyAI API key (<a href="https://www.assemblyai.com/" target="_blank" rel="noreferrer">get one</a>)</span>
+        <input type="password" id="pref-aai-key" autocomplete="off"
+               placeholder="paste to save; leave blank to keep the current key" />
+      </label>
+      <p class="xr-opt__field xr-opt__field--inline">
+        <span class="xr-opt__hint" id="aai-key-status"></span>
+        <button class="xr-opt__btn" id="aai-key-clear" type="button">Clear key</button>
+      </p>
+      <label class="xr-opt__field">
+        <span>Deepgram API key (<a href="https://deepgram.com/" target="_blank" rel="noreferrer">get one</a>)</span>
+        <input type="password" id="pref-dg-key" autocomplete="off"
+               placeholder="paste to save; leave blank to keep the current key" />
+      </label>
+      <p class="xr-opt__field xr-opt__field--inline">
+        <span class="xr-opt__hint" id="dg-key-status"></span>
+        <button class="xr-opt__btn" id="dg-key-clear" type="button">Clear key</button>
+      </p>
+      <label class="xr-opt__field">
+        <span>Companion service port</span>
+        <input type="number" id="pref-transcriber-port" min="1" max="65535"
+               placeholder="8756" />
+      </label>
+      <label class="xr-opt__field">
+        <span>Companion auth token (optional — only if the service sets TRANSCRIBER_TOKEN)</span>
+        <input type="text" id="pref-transcriber-token" placeholder="leave blank unless configured" />
+      </label>
+      <p class="xr-opt__field xr-opt__field--inline">
+        <button class="xr-opt__btn" id="transcriber-check" type="button"
+                title="Ping the companion service and show its active engine">Check service</button>
+        <span class="xr-opt__hint" id="transcriber-check-status"></span>
+      </p>
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-transcript-claim-drafts" />
+        <span>Suggest (local): claim + entity candidates from transcripts via a local model (LM Studio)</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Off by default. On any capture with a transcript (locally
+        transcribed, imported, or attached), a "💫 Suggest (local)"
+        button sends the transcript to an LM Studio server on this
+        machine (OpenAI-compatible API) and opens the same review
+        modal as ✨ Suggest — every candidate is quote-grounded and
+        nothing saves without Accept. Long transcripts run in windows
+        sized to the model's context. Loopback only; independent of
+        LLM assist and of the transcription companion; needs no API
+        key. While a transcription job is running the button waits —
+        the two share the GPU.
+      </p>
+      <label class="xr-opt__field">
+        <span>LM Studio base URL (loopback only)</span>
+        <input type="text" id="pref-lmstudio-url" placeholder="http://localhost:1234/v1" />
+      </label>
+      <label class="xr-opt__field">
+        <span>LM Studio model</span>
+        <input type="text" id="pref-lmstudio-model" placeholder="qwen/qwen3.6-27b" />
+      </label>
 
       <hr />
       <h3 class="xr-opt__subhead">Case synthesis</h3>

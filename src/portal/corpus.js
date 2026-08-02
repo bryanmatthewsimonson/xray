@@ -43,6 +43,7 @@ export const CONTENT_KINDS = [
     30063, 30064, // Phase 15 adjudicated verdicts + integrity findings (docs/TRUTH_ADJUDICATION_DESIGN.md)
     30068, // Phase 23.2 case briefs (docs/NIP_DRAFT.md §CaseBrief)
     30069, // Phase 24.2 owned-keys manifests (docs/ENTITY_IDENTITY_DESIGN.md)
+    30070, // MA.6 extraction analyses (docs/NIP_DRAFT.md §ExtractionAnalysis)
     3      // Phase 25.6 follow-list mirror (NIP-02, opt-in)
 ];
 

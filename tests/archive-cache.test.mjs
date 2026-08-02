@@ -23,7 +23,8 @@ globalThis.chrome = globalThis.chrome || {
 const {
     openArchiveDb, urlHash,
     saveArticle, getArticle, hasArticle, deleteArticle,
-    listArticles, count, clear, evictIfNeeded, _resetForTests
+    listArticles, count, clear, evictIfNeeded, _resetForTests,
+    bodiesByArticleHash
 } = await import('../src/shared/archive-cache.js');
 
 async function resetStore() {
@@ -327,4 +328,69 @@ test('archive: deleting an absent row is a harmless no-op (S4)', async () => {
     await deleteArticle('https://example.com/s4b?utm_source=x');
     assert.equal(await hasArticle('https://example.com/s4b'), false,
         'delete joins through the same normalizer as save');
+});
+
+// ---- bodiesByArticleHash (the re-grounding resolver) -----------------
+
+test('bodiesByArticleHash: resolves current AND retained prior bodies by hash', async () => {
+    await resetStore();
+    await saveArticle({ article: {
+        url: 'https://reground.test/a', title: 'A', content: 'The first body says alpha.\n' } });
+    await saveArticle({ article: {
+        url: 'https://reground.test/b', title: 'B', content: 'The second body says beta.\n' } });
+    const rows = await listArticles();
+    const byUrl = {};
+    for (const r of rows) byUrl[r.url] = r;
+    const hashA = byUrl['https://reground.test/a'].articleHash;
+    const hashB = byUrl['https://reground.test/b'].articleHash;
+    assert.match(hashA, /^[0-9a-f]{64}$/);
+
+    const got = await bodiesByArticleHash([hashA, hashB]);
+    assert.equal(got.size, 2);
+    assert.ok(got.get(hashA).text.includes('alpha'));
+    assert.equal(got.get(hashA).vintage, 'current');
+    assert.equal(got.get(hashA).title, 'A');
+
+    // Re-capture A with edited text: the displaced version is retained,
+    // so its OLD hash must still resolve — an extraction record anchored
+    // to it is grounded against text we still hold, not discarded.
+    await saveArticle({ article: {
+        url: 'https://reground.test/a', title: 'A', content: 'The first body says ALPHA PRIME.\n' } });
+    const after = await listArticles();
+    const newHash = after.find((r) => r.url === 'https://reground.test/a').articleHash;
+    assert.notEqual(newHash, hashA, 'an edit changes the content hash');
+
+    const both = await bodiesByArticleHash([hashA, newHash]);
+    assert.equal(both.size, 2, 'the prior version is still resolvable');
+    assert.equal(both.get(hashA).vintage, 'prior');
+    assert.ok(both.get(hashA).text.includes('alpha'), 'the PRIOR text, not the current one');
+    assert.equal(both.get(newHash).vintage, 'current');
+    assert.ok(both.get(newHash).text.includes('ALPHA PRIME'));
+});
+
+test('bodiesByArticleHash: a row whose body assembles EMPTY is never returned', async () => {
+    await resetStore();
+    // assembleArticleBody reads `content`; a row with none assembles to
+    // '' and therefore carries sha256('') — a degenerate identity every
+    // such row shares. Returning it would let one empty row answer for
+    // another's hash, so an empty body is treated as no body.
+    await saveArticle({ article: { url: 'https://reground.test/empty', title: 'no body' } });
+    const rows = await listArticles();
+    const empty = rows.find((r) => r.url === 'https://reground.test/empty');
+    assert.equal(empty.articleHash,
+        'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        'sha256 of the empty string — the tell that a fixture set no content');
+    assert.equal((await bodiesByArticleHash([empty.articleHash])).size, 0);
+});
+
+test('bodiesByArticleHash: an unknown hash is ABSENT, not an error', async () => {
+    await resetStore();
+    await saveArticle({ article: { url: 'https://reground.test/only', content: 'body\n' } });
+    const got = await bodiesByArticleHash(['f'.repeat(64)]);
+    assert.equal(got.size, 0, 'a hash this machine holds no text for is simply absent');
+    // Junk input is tolerated rather than thrown on — the caller feeds it
+    // whatever an imported file happened to contain.
+    assert.equal((await bodiesByArticleHash([])).size, 0);
+    assert.equal((await bodiesByArticleHash(null)).size, 0);
+    assert.equal((await bodiesByArticleHash([null, '', 42])).size, 0);
 });

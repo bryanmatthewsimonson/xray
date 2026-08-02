@@ -21,6 +21,7 @@
 // + backdrop + Escape, self-injected <style> (xr-media-* only).
 
 import { parseTranscript, describeTranscriptParse } from '../shared/transcript-parse.js';
+import { scanPodcastSignals, describePodcastLookup } from '../shared/podcast-identity.js';
 import {
     SOURCE_TYPES, SOURCE_TYPE_LABELS, suggestSourceType,
     EVIDENCE_ROLES, EVIDENCE_ROLE_LABELS
@@ -140,6 +141,16 @@ function buildHtml(article) {
             ${field('Episode GUID', 'xr-media-epguid', pod.episode_guid, 'episode GUID (case-sensitive)')}
             ${field('Feed URL', 'xr-media-feedurl', pod.feed_url, 'RSS feed URL')}
             ${field('iTunes ID', 'xr-media-itunes', pod.itunes_id, 'Apple collection id (digits)')}
+            <div class="xr-media__row">
+              <button type="button" class="xr-media__btn" id="xr-media-find">🔍 Find identity</button>
+            </div>
+            <span class="xr-media__hint">Auto-discovers these IDs from the capture's
+              links and the show's public RSS feed, then prefills EMPTY fields for you
+              to confirm — nothing is saved until you press Save. If the capture has no
+              Apple or feed link, a Spotify link is resolved through Spotify's public
+              oEmbed API (that link is sent to Spotify) and the show name or episode
+              title is sent to Apple's iTunes Search API to find the feed.</span>
+            <div class="xr-media__find-note" id="xr-media-find-note" hidden></div>
           </fieldset>
 
           <div class="xr-media__transcript">
@@ -168,11 +179,15 @@ function buildHtml(article) {
 
 /**
  * @param {object} article  the open article (prefills; never mutated here)
+ * @param {object} [opts]   { autoFind } — reveal the podcast identity
+ *   block and run 🔍 Find identity immediately. Only the Media-button
+ *   nudge passes it: the user clicked "identity found — confirm?", and
+ *   that click IS the consent gesture for the lookup.
  * @returns {Promise<{media: string|null, sourceType: string|null, linkRoles: object, podcast: object|null, parse: object|null}|null>}
  *   null on cancel. `parse` is a parseTranscript result (turns present)
  *   when the user pasted a transcript, else null.
  */
-export function openMediaModal(article) {
+export function openMediaModal(article, opts = {}) {
     ensureStyles();
 
     return new Promise((resolve) => {
@@ -196,6 +211,9 @@ export function openMediaModal(article) {
 
         let lastParse = null;
         let previewTimer = null;
+        // sel → machine-prefilled value (🔍 Find identity); consulted by
+        // Save when the identity fieldset is hidden.
+        const machinePrefilled = new Map();
         const schedulePreview = () => {
             if (previewTimer) clearTimeout(previewTimer);
             previewTimer = setTimeout(() => {
@@ -231,6 +249,82 @@ export function openMediaModal(article) {
             catch (_) { showError('Could not read that file.'); }
         });
 
+        // 🔍 Find identity — SW-side discovery (xray:media:lookup),
+        // prefilling EMPTY id fields only: a value the user already
+        // typed (or a stored one) is never overwritten, and nothing
+        // saves until the Save button — identity stays user-declared.
+        const runFind = async () => {
+            const note = $('#xr-media-find-note');
+            const say = (text, isError) => {
+                note.hidden = !text;
+                note.textContent = text;
+                note.classList.toggle('xr-media__find-note--err', !!isError);
+            };
+            if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
+                say('Lookup unavailable outside the extension.', true);
+                return;
+            }
+            const btn = $('#xr-media-find');
+            btn.disabled = true;
+            const prevLabel = btn.textContent;
+            btn.textContent = 'Looking…';
+            say('');
+            try {
+                const signals = scanPodcastSignals(article || {});
+                const resp = await chrome.runtime.sendMessage({ type: 'xray:media:lookup', signals });
+                if (!resp || !resp.ok) {
+                    // Failure diagnostics matter: the notes may disclose
+                    // egress that already happened and name the real
+                    // cause (dead feed vs missing signals).
+                    const lines = [`Lookup failed: ${(resp && resp.error) || 'no response'}`];
+                    for (const n of (resp && resp.notes) || []) lines.push(`· ${n}`);
+                    say(lines.join('\n'), true);
+                    return;
+                }
+                const fill = (sel, value) => {
+                    const el = $(sel);
+                    if (!el || !value || el.value.trim()) return false;
+                    el.value = value;
+                    // Remember machine-prefills: a value the user never
+                    // affirmatively confirmed must not survive a Save
+                    // made while the fieldset is hidden.
+                    machinePrefilled.set(sel, String(value));
+                    return true;
+                };
+                const c = resp.candidate || {};
+                const filled = [];
+                if (fill('#xr-media-show', c.show)) filled.push('show');
+                if (fill('#xr-media-feedguid', c.feed_guid)) filled.push('feed GUID');
+                if (fill('#xr-media-epguid', c.episode_guid)) filled.push('episode GUID');
+                if (fill('#xr-media-feedurl', c.feed_url)) filled.push('feed URL');
+                if (fill('#xr-media-itunes', c.itunes_id)) filled.push('iTunes ID');
+                const lines = [describePodcastLookup(resp)];
+                lines.push(filled.length
+                    ? `Prefilled: ${filled.join(', ')} — review, then Save.`
+                    : 'All discovered fields were already set — nothing overwritten.');
+                for (const n of (resp.notes || [])) lines.push(`· ${n}`);
+                say(lines.filter(Boolean).join('\n'));
+            } catch (err) {
+                say(`Lookup failed: ${(err && err.message) || err}`, true);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = prevLabel;
+            }
+        };
+        $('#xr-media-find').addEventListener('click', runFind);
+
+        // The nudge handoff: reveal the identity block and run the
+        // discovery at once, so the click that promised "confirm?"
+        // visibly delivers. An undeclared media type is preselected to
+        // "a podcast episode" as a SUGGESTION — like every prefill it
+        // only becomes a declaration when the user presses Save.
+        if (opts && opts.autoFind) {
+            const typeSel = $('#xr-media-type');
+            if (!typeSel.value) typeSel.value = 'podcast';
+            $('#xr-media-ids').hidden = false;
+            runFind();
+        }
+
         $('.xr-media__backdrop').addEventListener('click', () => close(null));
         $('[data-action="cancel"]').addEventListener('click', () => close(null));
         document.addEventListener('keydown', onKey);
@@ -239,6 +333,18 @@ export function openMediaModal(article) {
             $('.xr-media__err').hidden = true;
 
             const media = $('#xr-media-type').value || null;
+            // The confirm gate: machine-discovered values are only a
+            // declaration when saved VISIBLY. If the user switched the
+            // media type away from podcast after 🔍 Find prefilled the
+            // (now hidden) fieldset, drop every prefill the user never
+            // edited — user-typed values still save, matching the
+            // pre-assist behavior of hidden fields.
+            if (media !== 'podcast') {
+                for (const [sel, prefilled] of machinePrefilled) {
+                    const el = $(sel);
+                    if (el && el.value.trim() === prefilled) el.value = '';
+                }
+            }
             const val = (id) => $(id).value.trim();
             const feedUrl = val('#xr-media-feedurl');
             const itunes = val('#xr-media-itunes');
@@ -323,6 +429,10 @@ function ensureStyles() {
 }
 .xr-media__ids { border: 1px solid var(--xr-border, #333); border-radius: 8px;
   padding: 8px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+/* The class's display:flex outranks the UA [hidden] rule — without
+   this, the fieldset shows for every media type (Phase-22 latent bug,
+   surfaced by the Find-identity walk). */
+.xr-media__ids[hidden] { display: none; }
 .xr-media__ids legend { font-size: 12px; opacity: .75; padding: 0 4px; }
 .xr-media__links { border: 1px solid var(--xr-border, #333); border-radius: 8px; padding: 6px 10px; }
 .xr-media__links summary { cursor: pointer; font-weight: 600; font-size: 13px; }
@@ -336,6 +446,8 @@ function ensureStyles() {
 .xr-media__detected { font-size: 12px; opacity: .85; }
 .xr-media__warn { font-size: 12px; color: var(--xr-warning, #fbbf24); }
 .xr-media__err { font-size: 13px; color: var(--xr-danger, #f87171); }
+.xr-media__find-note { font-size: 12px; opacity: .85; white-space: pre-line; }
+.xr-media__find-note--err { color: var(--xr-danger, #f87171); opacity: 1; }
 .xr-media__btn {
   background: transparent; color: inherit; border: 1px solid var(--xr-border, #444);
   border-radius: 6px; padding: 6px 12px; cursor: pointer; font: inherit;

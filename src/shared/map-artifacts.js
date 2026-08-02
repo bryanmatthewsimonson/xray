@@ -41,6 +41,13 @@ export const ASSERTION_OVERLAP_MIN = 0.6;
 // no-op — so the cap only bounds growth, it never loses assertions.
 export const MERGED_KEYS_MAX = 64;
 
+// MA.7 — how many unlocatable imported quotes one record remembers.
+// Bounded like merged_keys: the list is a disclosure of a finding ("your
+// export analyzed a text I don't hold"), not an archive, and a corrupt
+// import must not grow a record without limit. Every surface that shows
+// the count must label it as a capped list, never as a total.
+export const IMPORTED_UNLOCATED_MAX = 50;
+
 // ------------------------------------------------------------------
 // Identity helpers
 // ------------------------------------------------------------------
@@ -56,6 +63,26 @@ function assertionKey(start, end) {
  * never data loss (the full text is stored on the row). */
 function normIdent(s) {
     return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 160);
+}
+
+/**
+ * Content identity for an ASSERTION quote — deliberately UNTRUNCATED,
+ * unlike normIdent.
+ *
+ * MA.7: this is what makes a cross-machine import find an atom's true
+ * twin. Two bodies inside one `articleHash` equivalence class differ
+ * only in whitespace, so the SAME sentence stored on two machines
+ * yields quotes that differ only in whitespace — and therefore one
+ * identical `quoteIdent`. Matching on it is exact string equality after
+ * case/whitespace folding, not a similarity guess (P9).
+ *
+ * The 160-char cap must NOT be reused here: assertion quotes routinely
+ * run longer, and collapsing two distinct long atoms into one identity
+ * would attach an imported human ruling to the wrong sentence — silent
+ * mis-attribution, the one failure this slice exists to prevent.
+ */
+function quoteIdent(s) {
+    return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 function overlapFraction(a, b) {
@@ -99,7 +126,7 @@ function emptyRecord(articleHash) {
  * @param {object} [input.index]  reusable createGroundingIndex(member.text)
  * @returns {{record: object, changed: boolean, added: number, droppedUngrounded: number}}
  */
-export function mergeExtractIntoRecord(existing, { member, extract, frame = {}, key, model = '', promptVersion = MAP_PROMPT_VERSION, now = 0, index = null }) {
+export function mergeExtractIntoRecord(existing, { member, extract, frame = {}, key, model = '', promptVersion = MAP_PROMPT_VERSION, now = 0, index = null, producer = 'map' }) {
     const base = existing || emptyRecord(member.article_hash);
     // Idempotence short-circuit BEFORE any grounding work: a fold of an
     // already-folded fingerprint is free.
@@ -125,6 +152,13 @@ export function mergeExtractIntoRecord(existing, { member, extract, frame = {}, 
         promptVersion,
         caseName: (frame && frame.caseName) || '',
         scopeQuestion: (frame && frame.scopeQuestion) || '',
+        // MA.4 — WHICH pass found this atom: 'map' (the corpus map
+        // stage) or 'suggest' (the reader's extraction pass). Both are
+        // claim-shaped output grounded in the same canonical text, so
+        // they share this layer and its span-dedup; the stamp keeps the
+        // provenance honest on the review surfaces. Absent on records
+        // written before MA.4 — readers treat that as 'map'.
+        producer: producer === 'suggest' ? 'suggest' : 'map',
         at: now
     };
 
@@ -149,6 +183,12 @@ export function mergeExtractIntoRecord(existing, { member, extract, frame = {}, 
             start: g.start,
             end: g.end,
             why: (a && a.why_load_bearing) || '',
+            // MA.4: the suggest pass authors a CLAIM TEXT beside the
+            // quote (a paraphrase of the assertion). Keep it — the
+            // review surface prefills the mint box with it instead of
+            // the raw span, which is the whole value the suggest pass
+            // adds over the map. Map assertions have none (null).
+            text: (a && typeof a.text === 'string' && a.text.trim()) ? a.text.trim() : null,
             status: 'open',
             accepted_claim_id: null,
             triaged_at: null,
@@ -179,8 +219,10 @@ export function mergeExtractIntoRecord(existing, { member, extract, frame = {}, 
 
     // Position — per case frame, latest-wins (a re-analyze under the
     // same frame refreshes it; a different frame appends beside it).
+    let positionChanged = false;
     const pos = extract && extract.position;
     if (pos && (pos.summary || pos.side_label)) {
+        positionChanged = true;
         const same = (p) => p.caseName === firstSeen.caseName && p.scopeQuestion === firstSeen.scopeQuestion;
         const entry = {
             caseName: firstSeen.caseName,
@@ -205,7 +247,53 @@ export function mergeExtractIntoRecord(existing, { member, extract, frame = {}, 
     record.dropped_ungrounded = (base.dropped_ungrounded || 0) + droppedUngrounded;
     record.updatedAt = now;
 
-    return { record, changed: true, added, droppedUngrounded };
+    // `changed` reports whether this fold actually altered anything.
+    // A keyed fold always counts (merged_keys grew, which is what makes
+    // the next identical fold free). A KEYLESS fold — the MA.4 suggest
+    // path, which has no fingerprint to dedup on — must report false
+    // when every atom deduped, or every Suggest run would rewrite the
+    // record and bump updatedAt for nothing.
+    const changed = !!key || added > 0 || droppedUngrounded > 0 || positionChanged
+        || (!existing);
+    if (!changed) return { record: base, changed: false, added: 0, droppedUngrounded: 0 };
+    return { record, changed, added, droppedUngrounded };
+}
+
+/**
+ * MA.4 — convert the reader Suggest pass's CLAIM proposals into the
+ * map-extract shape, so both producers of claim-shaped atoms flow
+ * through ONE merge path (`mergeExtractIntoRecord`) and therefore share
+ * one span-dedup rule, one triage model, and one review surface. The
+ * same sentence found by both passes is ONE atom, not two rows.
+ *
+ * Only `kind: 'claim'` proposals convert: they are the claim-shaped
+ * atoms this layer holds. Entities / assessments / relationships /
+ * findings / baselines are different artifacts with their own models
+ * and stay the review modal's business — folding them here would
+ * invent a storage contract this record does not have.
+ *
+ * Pure. `quote` becomes the grounded span (the merge re-grounds it
+ * against the canonical text and drops it if absent); `text` rides as
+ * the suggested claim text.
+ *
+ * @param {Array} proposals  raw suggest-pass proposals
+ * @returns {{key_assertions: Array<{quote,text,why_load_bearing}>}}
+ */
+export function suggestExtractFromProposals(proposals) {
+    const key_assertions = [];
+    for (const p of Array.isArray(proposals) ? proposals : []) {
+        if (!p || p.kind !== 'claim') continue;
+        const quote = typeof p.quote === 'string' ? p.quote.trim() : '';
+        if (!quote) continue;   // no quote ⇒ nothing to ground ⇒ not an atom here
+        key_assertions.push({
+            quote,
+            text: typeof p.text === 'string' ? p.text.trim() : '',
+            // The suggest pass states the claim rather than arguing its
+            // weight, so there is no load-bearing rationale to carry.
+            why_load_bearing: ''
+        });
+    }
+    return { key_assertions };
 }
 
 // ------------------------------------------------------------------
@@ -230,30 +318,73 @@ export function isTextPinnedKey(articleHash) {
 
 /**
  * Merge an INCOMING extraction record (from a backup file) into the
- * LOCAL one for the same articleHash. Span-overlap dedup is exact
- * across machines and time ONLY because the 64-hex articleHash pins
- * the canonical text both sides' spans index; records under the
- * `url:` fallback key are refused (see isTextPinnedKey) rather than
- * merged on untrustworthy span arithmetic.
+ * LOCAL one for the same articleHash.
+ *
+ * MA.7 — VERIFY, NEVER RESOLVE. `localText` is REQUIRED: this function
+ * cannot be called without the text the spans must index, because the
+ * bug it used to have was structural rather than accidental.
+ * `articleHash` hashes `normalizeForHash(body)` — CRLF→LF, trailing
+ * spaces stripped, 3+ newlines collapsed — while spans index the
+ * UN-normalized `assembleArticleBody(...)`. Two machines whose bodies
+ * differ only inside that equivalence class agree on the hash and
+ * DISAGREE on offsets (measured: the same sentence at [10,59) on one
+ * and [8,53) on the other), so trusting a foreign offset could dedup an
+ * atom against the wrong local atom, or adopt an imported ruling onto
+ * the wrong sentence.
+ *
+ * So no foreign offset is ever trusted. Every incoming atom is
+ * RE-LOCATED by its verbatim quote in the local text, and the LOCAL
+ * offsets are what get stored — the same verify-don't-resolve rule
+ * `docs/NIP_DRAFT.md` §Selectors states for TextPositionSelector, and
+ * the rule `parseExtractionAnalysisEvent` documents for foreign
+ * kind-30070 events. An atom whose quote cannot be located exactly (or
+ * up to typography) is REFUSED, not stored with a guess: a quote that
+ * cannot be located must never become an acceptable proposal (P3/P4).
+ * Do NOT reintroduce a fuzzy tier here, and do NOT restore the "exact
+ * across machines" claim this docblock used to carry.
+ *
+ * Deliberately NOT gated on re-hashing the local text: a published or
+ * PDF/transcript-derived row's stored body legitimately no longer
+ * re-hashes to its own `articleHash` (htmlToMarkdown is not
+ * idempotent), so a hash precondition would make this a no-op for the
+ * dominant row types. Row identity plus the per-atom quote match is the
+ * correct pair.
  *
  * Accrual rules (docs/MAP_ARTIFACT_KICKOFF.md guard rails):
- *   - assertions: local atoms all survive untouched; incoming atoms
- *     with no substantial local overlap are ADDED. On overlap, the
- *     local atom wins — EXCEPT that an incoming human triage
- *     ('accepted'/'dismissed') is adopted onto a local atom that is
- *     still 'open': a decision made anywhere beats undecided, and two
- *     conflicting decisions resolve to the LOCAL one (never silently
- *     overridden by a file).
+ *   - assertions: local atoms all survive untouched, spans included —
+ *     this never rewrites a local atom's identity. Incoming atoms are
+ *     matched to a local twin FIRST by untruncated quote identity
+ *     (whitespace-folded exact equality, which survives the hash
+ *     equivalence class) and only then by locally-computed span
+ *     overlap. Unmatched atoms are ADDED with local spans.
+ *   - an incoming human ruling is NEVER adopted as the local user's.
+ *     It rides attributed, as `imported_ruling`, and stays inert until
+ *     a human accepts it. Adopting it would resolve another person's
+ *     disagreement by import (P8) and let a file create a claim-registry
+ *     endorsement.
  *   - sources / open_questions: union by content key.
  *   - positions: union by frame; on the same frame the newer `at` wins.
- *   - merged_keys: union (bounded); dropped_ungrounded: max (counts
- *     from two histories can't be summed without double-counting).
+ *   - dropped_ungrounded: max (counts from two histories can't be
+ *     summed without double-counting).
  *   - url/title: local wins, incoming fills gaps.
+ *   - NEVER imported: `merged_keys` (a foreign cache fingerprint
+ *     collides with this machine's own — `corpusExtractKey` hashes only
+ *     {promptVersion, text, title, url}, not the model — so importing
+ *     one would permanently suppress a local fold of a locally paid
+ *     extract) and `published_at`/`published_event_id` (a publish
+ *     ledger is a claim about what THIS identity signed).
  *
- * Pure; returns { record, changed } — plus `skipped: 'unpinned-key'`
- * when the key does not pin a text (nothing is written in that case).
+ * Pure; returns `{ record, changed, counts }` where `counts` reports
+ * `{ regrounded, unlocated, importedRulings }`, plus `skipped` —
+ * `'unpinned-key'` when the key names a URL rather than a text, or
+ * `'no-local-text'` when this machine holds no copy of the text. In
+ * both skip cases nothing is written and the caller discloses it.
+ *
+ * @param {object|null} local
+ * @param {object|null} incoming
+ * @param {{localText?: string, now?: number}} [opts]  `localText` REQUIRED to merge
  */
-export function mergeExtractionRecords(local, incoming) {
+export function mergeExtractionRecords(local, incoming, { localText = null, now = 0 } = {}) {
     if (!incoming) return { record: local, changed: false };
     // Refuse BOTH the merge and the wholesale add for an unpinned key:
     // an incoming url:-keyed record's spans and quotes belong to the
@@ -263,28 +394,85 @@ export function mergeExtractionRecords(local, incoming) {
     if (!isTextPinnedKey((local && local.articleHash) || (incoming && incoming.articleHash))) {
         return { record: local, changed: false, skipped: 'unpinned-key' };
     }
-    if (!local) return { record: incoming, changed: true };
+    // The structural half of the fix: with no local text there is
+    // nothing to verify against, so there is no merge — not a degraded
+    // one. A caller that cannot supply the text gets a refusal it must
+    // report, never a silent trust of foreign offsets.
+    if (typeof localText !== 'string' || !localText) {
+        return { record: local, changed: false, skipped: 'no-local-text' };
+    }
+    // A brand-new record is built by the SAME path rather than adopting
+    // the incoming object wholesale. The old wholesale add was the other
+    // half of the bug: it took foreign spans, a foreign `merged_keys`
+    // ledger, and any `published_at` stamp verbatim — so an import could
+    // make this machine claim it had published an event it never signed.
+    const hadLocal = !!local;
+    if (!local) local = emptyRecord(incoming.articleHash);
+
+    const index = createGroundingIndex(localText);
+    const counts = { regrounded: 0, unlocated: 0, importedRulings: 0 };
+    // Re-locate one incoming atom in the LOCAL text. Returns the local
+    // span + the article's OWN span text, or null when it cannot be
+    // located to the exactness this layer requires.
+    const relocate = (quote) => {
+        const g = index.locate ? index.locate(quote) : index.ground(quote);
+        // 'exact' and 'normalized' only. A fuzzy match is a guess about
+        // which sentence a foreign machine meant, and this is precisely
+        // where a guess becomes a mis-attributed human ruling.
+        if (!g || (g.status !== 'exact' && g.status !== 'normalized')) return null;
+        if (typeof g.start !== 'number' || typeof g.end !== 'number' || g.end <= g.start) return null;
+        // The article's own span must reproduce from the offsets we are
+        // about to store — the cheap invariant that catches an index bug
+        // or a substrate that moved under us.
+        if (localText.slice(g.start, g.end) !== g.exact) return null;
+        return { start: g.start, end: g.end, quote: g.exact };
+    };
 
     let changed = false;
     const assertions = (local.assertions || []).map((a) => ({ ...a }));
     const spans = assertions.map((a) => ({ start: a.start, end: a.end }));
+    const identOf = assertions.map((a) => quoteIdent(a.quote));
+    const unlocated = [];
     for (const inc of incoming.assertions || []) {
         if (!inc || !inc.quote) continue;
-        const span = { start: inc.start, end: inc.end };
-        const at = spans.findIndex((s) => overlapFraction(s, span) >= ASSERTION_OVERLAP_MIN);
+        const loc = relocate(inc.quote);
+        if (!loc) {
+            counts.unlocated += 1;
+            unlocated.push({
+                quote: String(inc.quote).slice(0, 300),
+                status: inc.status || 'open',
+                model: (inc.first_seen && inc.first_seen.model) || null
+            });
+            continue;
+        }
+        counts.regrounded += 1;
+        // Twin by CONTENT first — the identity that survives the hash
+        // equivalence class — then by locally-computed span overlap.
+        const ident = quoteIdent(loc.quote);
+        let at = identOf.indexOf(ident);
+        if (at === -1) at = spans.findIndex((s) => overlapFraction(s, loc) >= ASSERTION_OVERLAP_MIN);
         if (at === -1) {
-            assertions.push({ ...inc });
-            spans.push(span);
+            // A new atom, stored under LOCAL coordinates and the local
+            // span's own text. Foreign ledger/idempotence fields are
+            // stripped rather than inherited (see the docblock).
+            const fresh = sanitizeImportedAssertion(inc, loc, now);
+            if (fresh.imported_ruling) counts.importedRulings += 1;
+            assertions.push(fresh);
+            spans.push({ start: loc.start, end: loc.end });
+            identOf.push(ident);
             changed = true;
-        } else if (assertions[at].status === 'open'
-                && (inc.status === 'accepted' || inc.status === 'dismissed')) {
-            assertions[at] = {
-                ...assertions[at],
-                status: inc.status,
-                accepted_claim_id: inc.status === 'accepted' ? (inc.accepted_claim_id || null) : assertions[at].accepted_claim_id,
-                triaged_at: inc.triaged_at || null
-            };
-            changed = true;
+        } else if (importedRulingOf(inc)) {
+            // The twin exists locally. Its span and its own triage are
+            // untouched; the foreign ruling lands beside it, attributed
+            // and inert, only when the local atom has no ruling of its
+            // own and none is already recorded from a prior import.
+            const localAtom = assertions[at];
+            const localRuled = localAtom.status === 'accepted' || localAtom.status === 'dismissed';
+            if (!localRuled && !localAtom.imported_ruling) {
+                assertions[at] = { ...localAtom, imported_ruling: importedRulingOf(inc) };
+                counts.importedRulings += 1;
+                changed = true;
+            }
         }
     }
 
@@ -311,15 +499,6 @@ export function mergeExtractionRecords(local, incoming) {
         else if ((p.at || 0) > (positions[at].at || 0)) { positions[at] = p; changed = true; }
     }
 
-    const mergedKeySet = new Set(local.merged_keys || []);
-    const merged_keys = [...(local.merged_keys || [])];
-    for (const k of incoming.merged_keys || []) {
-        if (mergedKeySet.has(k)) continue;
-        mergedKeySet.add(k);
-        merged_keys.push(k);
-        changed = true;
-    }
-
     const record = {
         ...local,
         url: local.url || incoming.url || null,
@@ -328,14 +507,113 @@ export function mergeExtractionRecords(local, incoming) {
         sources,
         open_questions,
         positions,
-        merged_keys: merged_keys.slice(-MERGED_KEYS_MAX),
+        // merged_keys are NEVER imported — see the docblock. A foreign
+        // fingerprint collides with this machine's own (the key hashes
+        // {promptVersion, text, title, url}, not the model), so adopting
+        // one would make a local fold of a locally PAID extract a
+        // permanent no-op. Local keys ride through untouched.
+        merged_keys: (local.merged_keys || []).slice(-MERGED_KEYS_MAX),
         dropped_ungrounded: Math.max(local.dropped_ungrounded || 0, incoming.dropped_ungrounded || 0),
         updatedAt: Math.max(local.updatedAt || 0, incoming.updatedAt || 0)
     };
+    // Quotes an import could not locate in this machine's text: kept as
+    // a bounded, disclosed list rather than a bare counter, because the
+    // distinction "you analyzed a different version" vs "that quote is
+    // corrupt" is a FINDING a human should be able to read. Deliberately
+    // not folded into `dropped_ungrounded`, which already carries one
+    // published meaning (coverage.ungroundable_dropped).
+    if (unlocated.length) {
+        record.imported_unlocated = [
+            ...(local.imported_unlocated || []), ...unlocated
+        ].slice(-IMPORTED_UNLOCATED_MAX);
+        changed = true;
+    }
     if ((record.dropped_ungrounded !== (local.dropped_ungrounded || 0))
         || record.updatedAt !== (local.updatedAt || 0)
         || (!local.url && record.url) || (!local.title && record.title)) changed = true;
-    return { record, changed };
+    // A record this machine did not have is a change even when every
+    // incoming atom failed to locate — the row itself is new. But an
+    // EMPTY new record is not worth writing: if nothing survived
+    // verification and nothing else came across, there is no knowledge
+    // to store, only an assertion that we looked.
+    if (!hadLocal && (record.assertions.length || record.sources.length
+                      || record.open_questions.length || record.positions.length
+                      || (record.imported_unlocated || []).length)) {
+        changed = true;
+    }
+    return { record, changed, counts };
+}
+
+/**
+ * The attributed form of an incoming human ruling — ANOTHER machine's
+ * decision, never this user's. Inert: nothing reads it as triage, and
+ * `partitionAssertions` still sees the atom as open. Carries the
+ * rationale too, which today's adoption silently dropped.
+ *
+ * Returns null when the incoming atom carries no ruling to attribute.
+ */
+function importedRulingOf(inc) {
+    const status = inc && inc.status;
+    if (status !== 'accepted' && status !== 'dismissed') return null;
+    return {
+        status,
+        // The foreign claim id is recorded for provenance only. It names
+        // a row in ANOTHER machine's claim registry, so nothing local may
+        // resolve it — that is why it is not `accepted_claim_id`.
+        foreign_claim_id: (status === 'accepted' && inc.accepted_claim_id) || null,
+        at: inc.triaged_at || null,
+        why: (typeof inc.accepted_why === 'string' && inc.accepted_why) ? inc.accepted_why : null,
+        why_provenance: inc.accepted_why_provenance === 'user' ? 'user'
+            : (inc.accepted_why_provenance === 'llm' ? 'llm' : null)
+    };
+}
+
+/**
+ * An incoming atom, rebuilt under LOCAL coordinates. Every field that
+ * asserts something about THIS machine is dropped rather than inherited:
+ *
+ *   - start/end/quote come from the local re-location, never the file;
+ *   - status resets to 'open' and the foreign ruling moves to
+ *     `imported_ruling` (a file must not rule for the user);
+ *   - accepted_claim_id is dropped — it names a claim in another
+ *     machine's registry, and a dangling local id would read as an
+ *     endorsement the user never made;
+ *   - accepted_why/_provenance are dropped from the fields that publish
+ *     as the SIGNER's own rationale (`why_by: 'user'` on kind 30070) —
+ *     attributing another author's prose to the signer is exactly what
+ *     the 30070 marking rules forbid. The text survives, attributed,
+ *     inside `imported_ruling`.
+ */
+function sanitizeImportedAssertion(inc, loc, now) {
+    const fs = (inc && inc.first_seen) || {};
+    const ruling = importedRulingOf(inc);
+    const out = {
+        key: `a:${loc.start}-${loc.end}`,
+        quote: loc.quote,
+        start: loc.start,
+        end: loc.end,
+        text: (typeof inc.text === 'string' && inc.text.trim()) ? inc.text.trim() : null,
+        why: (typeof inc.why === 'string' && inc.why.trim()) ? inc.why.trim() : null,
+        status: 'open',
+        accepted_claim_id: null,
+        accepted_why: null,
+        accepted_why_provenance: null,
+        rationale_accepted_at: null,
+        triaged_at: null,
+        first_seen: {
+            model: fs.model || null,
+            promptVersion: fs.promptVersion || null,
+            producer: fs.producer === 'suggest' ? 'suggest' : 'map',
+            caseName: fs.caseName || '',
+            scopeQuestion: fs.scopeQuestion || '',
+            at: fs.at || now,
+            // Provenance on its face: this atom arrived by import, it was
+            // not produced by a pass on this machine.
+            imported: true
+        }
+    };
+    if (ruling) out.imported_ruling = ruling;
+    return out;
 }
 
 // ------------------------------------------------------------------
@@ -478,14 +756,75 @@ export function partitionAssertions(record) {
 }
 
 /**
+ * MA.6 — accept (or edit) an assertion's RATIONALE: the answer to "why
+ * does this claim carry the article's argument". The model's `why` is
+ * only a draft; `accepted_why` is the human-endorsed text and the only
+ * rationale that ever publishes as the HUMAN's (the model's own rides
+ * quarantined as `model_note` — extraction-publish.js). Editing the
+ * text flips provenance to 'user' — the same honest-record-keeping rule
+ * the review modal uses for edited claim text.
+ *
+ * Pass `why: null` to withdraw an accepted rationale (the atom stays
+ * accepted; it simply publishes as a bare claim reference again).
+ *
+ * Deliberately independent of triage status: a rationale can be drafted
+ * before acceptance, and a dismissed atom's rationale never publishes
+ * regardless because the publish projection requires BOTH.
+ */
+export function setAssertionRationale(record, key, why, { provenance = 'llm', now = 0 } = {}) {
+    const text = (typeof why === 'string' && why.trim()) ? why.trim() : null;
+    let matched = 0;
+    const assertions = ((record && record.assertions) || []).map((a) => {
+        if (a.key !== key) return a;
+        matched += 1;
+        return {
+            ...a,
+            accepted_why: text,
+            accepted_why_provenance: text ? (provenance === 'user' ? 'user' : 'llm') : null,
+            rationale_accepted_at: text ? now : null
+        };
+    });
+    // `matched` is not decoration: a miss means a human decision was
+    // dropped on the floor. The writer cannot fix that, but it must not
+    // hide it — see setAssertionTriage.
+    return { ...record, assertions, updatedAt: now, matched };
+}
+
+/**
+ * MA.6 — triage one SOURCE or OPEN QUESTION row. These are model-
+ * authored text, so like assertions they publish only once a human has
+ * accepted them individually; `accepted_note` is an optional human
+ * annotation that rides with an accepted source.
+ *
+ * @param {'sources'|'open_questions'} listName
+ */
+export function setRowTriage(record, listName, key, status, { now = 0, note = null } = {}) {
+    if (listName !== 'sources' && listName !== 'open_questions') {
+        throw new Error(`setRowTriage: unknown list "${listName}"`);
+    }
+    const rows = ((record && record[listName]) || []).map((r) => {
+        if (r.key !== key) return r;
+        const next = { ...r, status, triaged_at: status === 'open' ? null : now };
+        if (listName === 'sources') {
+            const n = (typeof note === 'string' && note.trim()) ? note.trim() : null;
+            if (n !== null) next.accepted_note = n;
+        }
+        return next;
+    });
+    return { ...record, [listName]: rows, updatedAt: now };
+}
+
+/**
  * Apply a triage decision to one assertion — pure; returns the new
  * record (the caller persists). `status` 'accepted' carries the minted
  * claim id; 'dismissed' clears none of the atom's content (a dismissal
  * is remembered, not a deletion); 'open' re-opens.
  */
 export function setAssertionTriage(record, key, status, { claimId = null, now = 0 } = {}) {
+    let matched = 0;
     const assertions = ((record && record.assertions) || []).map((a) => {
         if (a.key !== key) return a;
+        matched += 1;
         return {
             ...a,
             status,
@@ -493,7 +832,29 @@ export function setAssertionTriage(record, key, status, { claimId = null, now = 
             triaged_at: status === 'open' ? null : now
         };
     });
-    return { ...record, assertions, updatedAt: now };
+    // FAIL-CLOSED reporting. These writers used to `.map()` over an
+    // equality predicate and return regardless, so a key that matched
+    // NOTHING wrote an unchanged record with a bumped `updatedAt` — a
+    // human's Accept or Dismiss silently lost, indistinguishable from
+    // success. `matched` lets the caller say so in the row itself; a
+    // console-only failure is invisible to the person who clicked.
+    return { ...record, assertions, updatedAt: now, matched };
+}
+
+/**
+ * MA.6 — stamp a record as published (kind 30070 went out). The stamp is
+ * a LEDGER of an outward action, not analysis state: it never gates
+ * accrual, and a later fold that adds atoms deliberately leaves it in
+ * place, so the surface can say "published <date>" while also showing
+ * atoms found since. A republish overwrites the same replaceable event.
+ */
+export function markRecordPublished(record, { eventId = null, now = 0 } = {}) {
+    return {
+        ...record,
+        published_at: now,
+        published_event_id: eventId || null,
+        updatedAt: now
+    };
 }
 
 // ------------------------------------------------------------------

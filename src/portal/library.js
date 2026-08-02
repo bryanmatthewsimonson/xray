@@ -26,6 +26,7 @@ import { parseBehavioralFindingEvent } from '../shared/forensic-model.js';
 import { parseAdjudicatedVerdictEvent, parseIntegrityFindingEvent } from '../shared/truth-builders.js';
 import { parseCaseBriefEvent } from '../shared/corpus-publish.js';
 import { parseOwnedKeysManifest } from '../shared/identity-builders.js';
+import { parseExtractionAnalysisEvent } from '../shared/extraction-publish.js';
 
 // Tags written by this extension (current + userscript-era value).
 export const OUR_CLIENT_TAGS = new Set(['xray', 'nostr-article-capture']);
@@ -45,6 +46,7 @@ export const TYPE_DEFS = [
     { key: 'verdict',    label: 'Verdicts' },
     { key: 'integrity',  label: 'Integrity' },
     { key: 'brief',      label: 'Briefs' },
+    { key: 'extraction', label: 'Extractions' },
     { key: 'link',       label: 'Links' },
     { key: 'entity',     label: 'Entities' },
     { key: 'case',       label: 'Cases' },
@@ -80,6 +82,7 @@ const KIND_LABELS = {
     30064: 'Integrity finding',
     30068: 'Case brief',
     30069: 'Owned keys',
+    30070: 'Extraction analysis',
     3:     'Follows'
 };
 
@@ -399,6 +402,24 @@ function buildItem(record, entityIndex) {
                 sub = parts.join(' · ') || 'structured corpus brief';
                 extra.parsedBrief = b;
                 haystack.push(title, b.caseName, b.brief.summary, b.scopeQuestion);
+            }
+            break;
+        }
+        // ---- MA.6 extraction analysis (read-back) ------------------
+        case 30070: {
+            const x = parseExtractionAnalysisEvent(event);
+            if (x) {
+                typeKey = 'extraction';
+                title = x.title || `Extraction analysis — ${x.articleUrl || (x.articleHash || '').slice(0, 12)}`;
+                // The review-state breakdown IS the summary: an analysis
+                // that reads as "24 assertions" would hide that most of
+                // them are unreviewed, which is the one thing a reader
+                // must see first (P12).
+                const c = x.coverage;
+                sub = `${c.unreviewed} unreviewed · ${c.accepted} endorsed · ${c.dismissed} dismissed`
+                    + (c.ungroundableDropped ? ` · ${c.ungroundableDropped} ungroundable dropped` : '');
+                extra.parsedExtraction = x;
+                haystack.push(title, x.articleUrl, ...x.assertions.map((a) => a.quote));
             }
             break;
         }

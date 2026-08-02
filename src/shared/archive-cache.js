@@ -395,6 +395,70 @@ export async function listArticles() {
 }
 
 /**
+ * Canonical body text for a SET of content hashes — the text an
+ * `articleHash` labels, which is what a quote must be re-grounded
+ * against rather than trusting an offset from another machine.
+ *
+ * `articleHash` is deliberately NOT indexed (adding one would mean a
+ * v3→v4 migration over every archived body for a rare, user-initiated
+ * lookup), so this walks a cursor and keeps ONLY the bodies asked for.
+ * Cursor, not getAll: article rows carry full bodies, and a large
+ * corpus would otherwise be materialized whole to answer for two of
+ * them — the same reason pruneSourceDocs cursors.
+ *
+ * Retained PRIOR versions are resolved too (13.4 stealth-edit
+ * retention): an extraction record can legitimately anchor to a
+ * displaced version whose text is still archived, and refusing to
+ * ground against it would discard evidence we still hold.
+ *
+ * @param {Iterable<string>} hashes  64-hex content hashes
+ * @returns {Promise<Map<string, {text: string, url: string|null,
+ *                                title: string|null, vintage: 'current'|'prior'}>>}
+ *          Only hashes actually found are present — an absent key means
+ *          "this machine holds no text under that identity", which is a
+ *          fact the caller must handle, not an error.
+ */
+export async function bodiesByArticleHash(hashes) {
+    const want = new Set([...(hashes || [])].filter((h) => typeof h === 'string' && h));
+    const out = new Map();
+    if (want.size === 0) return out;
+
+    const db = await openArchiveDb();
+    const readTx = db.transaction(ARTICLES_STORE, 'readonly');
+    const store = readTx.objectStore(ARTICLES_STORE);
+    const take = (hash, article, url, vintage) => {
+        if (!hash || !want.has(hash) || out.has(hash)) return;
+        let text = '';
+        try { text = EventBuilder.assembleArticleBody(article) || ''; }
+        catch (err) { Utils.error('bodiesByArticleHash: body assembly failed', err); return; }
+        if (!text) return;
+        out.set(hash, {
+            text,
+            url: url || null,
+            title: (article && article.title) || null,
+            vintage
+        });
+    };
+    await new Promise((resolve, reject) => {
+        const cur = store.openCursor();
+        cur.onsuccess = () => {
+            const cursor = cur.result;
+            // Stop early once every requested hash is answered — a
+            // two-member import must not pay for a 147-member archive.
+            if (!cursor || out.size === want.size) return resolve();
+            const row = cursor.value || {};
+            take(row.articleHash, row.article, row.url, 'current');
+            for (const pv of (Array.isArray(row.priorVersions) ? row.priorVersions : [])) {
+                take(pv && pv.articleHash, pv && pv.article, row.url, 'prior');
+            }
+            cursor.continue();
+        };
+        cur.onerror = () => reject(cur.error || new Error('bodiesByArticleHash cursor failed'));
+    });
+    return out;
+}
+
+/**
  * Clear every entry. Used by the settings "reset" flow and by tests.
  */
 export async function clear() {

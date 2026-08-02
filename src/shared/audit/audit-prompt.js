@@ -24,8 +24,15 @@
 // and methodology version stays 1.0 because the findings schemas are
 // unchanged.
 
-import { PAYLOADS, MODULE_NAMES } from './findings-schemas.js';
+import { PAYLOADS, OPINION_PAYLOADS, MODULE_NAMES } from './findings-schemas.js';
 import { MODULE_PROMPTS } from './module-prompts.js';
+
+// Both families resolve through one lookup (R5/OP.2): the tool schema
+// a module's LLM call is forced through comes from the same map the
+// validator enforces, whichever family the module belongs to.
+function payloadFor(name) {
+    return PAYLOADS[name] || OPINION_PAYLOADS[name] || null;
+}
 
 // The deterministic assembly half (weights, aggregate, assembleAudit,
 // the auditable-input bound) lives in ./assemble.js so the READER can
@@ -34,7 +41,8 @@ import { MODULE_PROMPTS } from './module-prompts.js';
 // tests are unchanged.
 export {
     MODULE_WEIGHTS, collectEvidenceQuotes, assembleAudit,
-    MAX_AUDIT_INPUT_CHARS, auditableSlice
+    MAX_AUDIT_INPUT_CHARS, auditableSlice,
+    STANDING_OPINION_CAVEAT, opinionStandingCaveat
 } from './assemble.js';
 
 export const AUDIT_TOOL_NAME = 'emit_audit';
@@ -63,7 +71,20 @@ const MODULE_BLURBS = {
     omission:
         'Who is quoted, who is referenced but unheard, and who is conspicuously absent given the topic?',
     prediction_extraction:
-        'Extract testable predictions (explicit or implicit). NOT scored — this feeds the ledger.'
+        'Extract testable predictions (explicit or implicit). NOT scored — this feeds the ledger.',
+    // Opinion family (R5/OP.2) — argument, never conclusion.
+    premise_accuracy:
+        'Are the argument\'s load-bearing premises accurate and verifiable? You don\'t get to argue from false facts.',
+    logical_validity:
+        'Does the inferential structure hold — fallacies flagged, sound moves credited? Never judge the conclusion itself.',
+    steel_manning:
+        'Did the author engage the strongest form of the opposing position, or a strawman?',
+    fact_interpretation_separation:
+        'Are factual claims and interpretive moves clearly distinguished, or smuggled together?',
+    disclosure_transparency:
+        'Priors, conflicts, methodology, uncertainty — what does the text itself disclose?',
+    originality_synthesis:
+        'Novel synthesis, fresh angle, competent restatement, or circulating talking points?'
 };
 
 // ------------------------------------------------------------------
@@ -76,7 +97,7 @@ const MODULE_BLURBS = {
 // deterministic and injected at assembly, so the model can't dangle the
 // wire address with a wrong version.
 function moduleToolSchema(name) {
-    const payload = PAYLOADS[name];
+    const payload = payloadFor(name);
     const properties = { ...payload.properties };
     const required = [...payload.required];
 
@@ -196,6 +217,32 @@ export function buildSingleModuleTool(name) {
             + 'Quote VERBATIM from the article in every evidence field.',
         input_schema: moduleToolSchema(name)
     };
+}
+
+/**
+ * The CORPUS-HELD CITED SOURCES section appended to module 04's user
+ * turn when the reference resolver matched cited documents to corpus
+ * members (R2, methodology 1.1). Pure over pre-built entries; the
+ * excerpts arrive already capped (corpus-sources.js). Returns '' when
+ * there is nothing to attach — the prompt's step 7 says an absent
+ * section means "emit an empty corpus_source_checks array".
+ */
+export function buildCorpusSourcesSection(entries) {
+    const list = (entries || []).filter((e) => e && e.excerpt);
+    if (list.length === 0) return '';
+    const blocks = list.map((e, i) => {
+        const head = `[SOURCE ${i + 1} — cited as "${e.cited_as}"; matched by ${e.match}; `
+            + `${e.member_title ? `"${e.member_title}" ` : ''}<${e.member_url}>`
+            + `${e.truncated ? '; excerpt TRUNCATED' : ''}]`;
+        return `${head}\n---\n${e.excerpt}\n---`;
+    });
+    return '\n\nCORPUS-HELD CITED SOURCES — the case corpus already holds these documents '
+        + 'the article cites (identity matched mechanically by url/alias/DOI, never by '
+        + 'similarity). Apply methodology step 7: judge whether the article characterizes '
+        + 'each accurately, quoting the article in evidence_quote and the source in '
+        + 'source_quote. Judge only against these excerpts; when an excerpt does not '
+        + 'cover the claim, say cannot_determine.\n\n'
+        + blocks.join('\n\n');
 }
 
 /**

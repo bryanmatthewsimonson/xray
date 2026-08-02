@@ -30,6 +30,10 @@ import { renderSynthesisBlock } from './synthesis-block.js';
 import { renderExtractionBlock } from './extraction-block.js';
 import { renderCorpusAuditBlock } from './corpus-audit-block.js';
 import { renderEpistemicsBlock } from './epistemics-block.js';
+import { renderCrossCoverageBlock } from './cross-coverage-block.js';
+import { renderKnownUnknownsBlock } from './known-unknowns-block.js';
+import { renderReferencesBlock } from './references-block.js';
+import { renderWireScanBlock } from './wire-scan-block.js';
 import { renderForensicCorpusBlock } from './forensic-corpus-block.js';
 import { renderLinksBlock } from './links-block.js';
 import { renderHypothesesBlock } from './hypothesis-block.js';
@@ -345,6 +349,28 @@ export function renderCaseView(host, params) {
             // CA.3 — the corpus epistemics distributions (absent until
             // something is audited; no corpus score exists anywhere).
             renderEpistemicsBlock(analysisHost, { data });
+            // R4a (founding-transcript integration; JOURNAL 2026-08-02) —
+            // cross-coverage language: asymmetric framing by party +
+            // definitional drift, derived from per-member audit findings.
+            // No LLM call; absent until ≥2 audited members carry them.
+            renderCrossCoverageBlock(analysisHost, { data });
+            // R9 (founding-transcript integration; JOURNAL 2026-08-02) —
+            // known unknowns: what the corpus could NOT verify, from
+            // module-04 atoms + caveats + the brief's coverage gaps.
+            // No LLM call; absent until unknowns exist.
+            renderKnownUnknownsBlock(analysisHost, { data });
+            // R1 (founding-transcript integration; JOURNAL 2026-08-02) —
+            // cited sources resolved against the corpus: already-held /
+            // suggested / capturable (one-click ingest through the
+            // url-import pipeline) / unresolved mentions. No LLM call;
+            // absent until members cite anything.
+            renderReferencesBlock(analysisHost, {
+                data, callbacks: { onReloadCase: callbacks.onReloadCase }
+            });
+            // R8 (founding-transcript integration; JOURNAL 2026-08-02) —
+            // click-triggered shared-text scan: wire-copy suggestions a
+            // human can turn into attested origins. No LLM, no storage.
+            renderWireScanBlock(analysisHost, { data });
             // FA.1 — the per-subject forensic corpus pass (counter-read
             // first; findings local until the forensicPublishing batch).
             renderForensicCorpusBlock(analysisHost, {

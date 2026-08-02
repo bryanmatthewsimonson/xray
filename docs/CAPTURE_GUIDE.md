@@ -194,6 +194,20 @@ These "just work" without special handling:
 - **YouTube** (`youtube.com/watch?v=<id>`) — transcript included when
   available, language selection for origin + user language, per-cue
   clickable timestamps that link back into the video.
+  - **Transcribe locally** (optional, flag `localTranscription` +
+    the `companion/transcriber/` service): right-click → "Capture &
+    transcribe locally with X-Ray" (or the reader's 🎙 Transcribe
+    button on any YouTube capture) runs yt-dlp + WhisperX + speaker
+    diarization on your own machine and makes the speaker-labeled,
+    timestamped transcript the capture body. Claims marked on it carry
+    the video URL plus start–end offsets (`t=start,end` on the anchor).
+    Long videos take minutes — the reader shows progress, survives tab
+    closes/restarts, and resumes the same job. Setup:
+    `companion/transcriber/README.md`. After transcription, **🗣
+    Speakers…** binds each detected voice to a person entity (pick the
+    same person for two labels when diarization split one voice) — that
+    binding is the claim provenance for everything they said, and it
+    publishes with the capture.
   - **To capture comments, scroll down to the comments first.** YouTube
     loads comments lazily — they don't exist on the page until you
     scroll them into view. X-Ray captures whatever has loaded at the
