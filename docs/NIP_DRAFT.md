@@ -425,7 +425,24 @@ Addressable. One surface-scan module's structured findings for one article text,
 - **`x` is the canonical article hash**: SHA-256 (lowercase hex) of the normalized article markdown — CRLF→LF, trailing spaces/tabs stripped per line, runs of 3+ newlines collapsed to 2, trailing whitespace stripped at end of input; defined over exactly **one** normalization pass, computed over the article body excluding any client metadata header. `x` is single-letter and relay-indexed (NIP-94 precedent: the SHA-256 of the thing); `{"kinds":[30056,30057],"#x":["<hash>"]}` is the one-filter "everything auditing this exact text" query. `r`/`i` are convenience joins that MAY go stale as URLs drift; the hash is the identity.
 - The `d` MUST be recomputable from the event's own tags: `mod:` + the first 16 hex of SHA-256 over `<x> | <t module name> | <module-version> | <run-at>` (`|`-joined, verbatim tag values).
 - **Time-series constraint (normative for every audit kind):** relays keep only the latest event per `(pubkey, kind, d)`, so audit-bearing `d`s MUST carry methodology version and/or run identity — a re-run or a version bump derives a NEW `d` (this scheme does so via `module-version` + `run-at`), prior-methodology audits persist as distinct addressable events, and supersession is expressed exclusively through explicit reference tags on the newer event, never through relay replacement. Republishing the same `d` is permitted only as an idempotent re-emit of the same run.
-- `t` carries the module name (one of the eight; relay-indexed). Additional `t` values MAY mirror the article's topic/beat tags; beat *semantics* for audit kinds derive from matching `t` values against the publisher's published beat vocabulary — collisions with generic hashtags are expected and harmless.
+- `t` carries the module name (relay-indexed). The module vocabulary is
+  two families under one wire shape (additive, 2026-08-02): the NEWS
+  family — `headline_body_fidelity`, `asymmetric_language`,
+  `number_hygiene`, `source_quality`, `internal_coherence`,
+  `definitional_precision`, `omission`, `prediction_extraction` — and
+  the OPINION family — `premise_accuracy`, `logical_validity`,
+  `steel_manning`, `fact_interpretation_separation`,
+  `disclosure_transparency`, `originality_synthesis`, plus the reused
+  `asymmetric_language` / `definitional_precision` /
+  `prediction_extraction`. Opinion aggregates carry
+  `ceiling-source: heuristic:premise-accuracy/1.0`. The two families'
+  aggregate scores share the 0–100 axis but are DIFFERENT
+  methodologies; consumers MUST NOT average a news aggregate with an
+  opinion aggregate for the same subject. Additional `t` values MAY
+  mirror the article's topic/beat tags; beat *semantics* for audit
+  kinds derive from matching `t` values against the publisher's
+  published beat vocabulary — collisions with generic hashtags are
+  expected and harmless.
 - `score`/`confidence` mirror the content payload. `prediction_extraction` events carry **neither** — that module extracts a prediction ledger and is not scored.
 - `content` is the module's findings JSON: a shared envelope (`module`, `version`, `score` + `confidence` except on prediction_extraction, mandatory `auditor_caveats[]` — what this scan could not determine) plus per-module finding arrays in which **every finding carries a verbatim `evidence_quote`** from the audited text. A finding that cannot quote the words it is about does not exist. A deduplicated top-level `evidence_quotes[]` index rides beside the findings.
 - **Auditor identity tags**: `["auditor", "<model|human|pipeline|consensus>", "<id>"]`, plus repeatable `["auditor-constituent", "<kind>", "<id>"]` for pipeline/consensus auditors and an optional `["auditor-manifest", "<sha256>"]` (hash of the orchestration config: prompt set, weights, versions). Human auditors additionally carry an indexed `["p", "<pubkey>", "", "auditor"]`. The auditor tags record what *produced* the result; the signing pubkey records who *published* it. Human and machine auditors use identical wire shapes.

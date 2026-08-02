@@ -1500,6 +1500,25 @@ surfaces arrive in 29.2).
 
 ---
 
+## R5 — Opinion module family (docs/OPINION_MODULES_KICKOFF.md)
+
+Needs `llmAssist` + an API key (audit execution's own consent gates).
+Use one obvious op-ed (or any capture re-typed as analysis in the
+media modal) and one ordinary news article.
+
+| # | Test | Pass criteria |
+|---|---|---|
+| OP.a | Capture an op-ed; open the media modal | ✅ source type suggests `analysis` (schema.org OpinionPiece) or can be set to it |
+| OP.b | Click **Quick audit** on the opinion artifact | ✅ steer confirm ("news-only in v1 — run the Thorough opinion audit instead?"); OK runs Thorough, Cancel runs nothing |
+| OP.c | Run **Thorough audit** on it | ✅ progress counts /9; the panel renders the opinion modules (premise accuracy, logical validity, steel-manning, fact/interpretation, disclosure, originality + asymmetric language, definitional precision, prediction extraction); NO source_quality row |
+| OP.d | Inspect the aggregate badge | ✅ ceiling context reads from premise-verifiability when it binds; provenance line shows `ceiling source: heuristic:premise-accuracy/1.0`; no standing opinion caveat anywhere in the module caveats |
+| OP.e | Re-type the artifact to `reporting` in the media modal; run Thorough | ✅ the OQ.4 confirm appears (opinion signal, news methodology); the run uses the eight news modules and every module carries the standing opinion caveat |
+| OP.f | Run Thorough on the ordinary news article | ✅ unchanged from Phase 13/14.5 behavior: eight modules, sourcing-pattern ceiling, no opinion caveat, no steer |
+| OP.g | Case dashboard → Audit corpus… over a mixed corpus | ✅ the spend confirm counts calls per family and names how many members run the opinion family; completed opinion members import and appear in the epistemics distributions beside news members (never averaged with them) |
+| OP.h | Check a published opinion 30056/30057 raw JSON | ✅ `t` carries the opinion module name; the 30057 carries `ceiling-source: heuristic:premise-accuracy/1.0`; the §3.1 firewall tags rule (no `stance`/`rating-value`/`L`/`l`) holds — red line 2 on the wire |
+
+---
+
 ## Reporting
 
 For each defect found:
