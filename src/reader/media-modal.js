@@ -178,11 +178,15 @@ function buildHtml(article) {
 
 /**
  * @param {object} article  the open article (prefills; never mutated here)
+ * @param {object} [opts]   { autoFind } — reveal the podcast identity
+ *   block and run 🔍 Find identity immediately. Only the Media-button
+ *   nudge passes it: the user clicked "identity found — confirm?", and
+ *   that click IS the consent gesture for the lookup.
  * @returns {Promise<{media: string|null, sourceType: string|null, linkRoles: object, podcast: object|null, parse: object|null}|null>}
  *   null on cancel. `parse` is a parseTranscript result (turns present)
  *   when the user pasted a transcript, else null.
  */
-export function openMediaModal(article) {
+export function openMediaModal(article, opts = {}) {
     ensureStyles();
 
     return new Promise((resolve) => {
@@ -248,7 +252,7 @@ export function openMediaModal(article) {
         // prefilling EMPTY id fields only: a value the user already
         // typed (or a stored one) is never overwritten, and nothing
         // saves until the Save button — identity stays user-declared.
-        $('#xr-media-find').addEventListener('click', async () => {
+        const runFind = async () => {
             const note = $('#xr-media-find-note');
             const say = (text, isError) => {
                 note.hidden = !text;
@@ -305,7 +309,20 @@ export function openMediaModal(article) {
                 btn.disabled = false;
                 btn.textContent = prevLabel;
             }
-        });
+        };
+        $('#xr-media-find').addEventListener('click', runFind);
+
+        // The nudge handoff: reveal the identity block and run the
+        // discovery at once, so the click that promised "confirm?"
+        // visibly delivers. An undeclared media type is preselected to
+        // "a podcast episode" as a SUGGESTION — like every prefill it
+        // only becomes a declaration when the user presses Save.
+        if (opts && opts.autoFind) {
+            const typeSel = $('#xr-media-type');
+            if (!typeSel.value) typeSel.value = 'podcast';
+            $('#xr-media-ids').hidden = false;
+            runFind();
+        }
 
         $('.xr-media__backdrop').addEventListener('click', () => close(null));
         $('[data-action="cancel"]').addEventListener('click', () => close(null));
@@ -411,6 +428,10 @@ function ensureStyles() {
 }
 .xr-media__ids { border: 1px solid var(--xr-border, #333); border-radius: 8px;
   padding: 8px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+/* The class's display:flex outranks the UA [hidden] rule — without
+   this, the fieldset shows for every media type (Phase-22 latent bug,
+   surfaced by the Find-identity walk). */
+.xr-media__ids[hidden] { display: none; }
 .xr-media__ids legend { font-size: 12px; opacity: .75; padding: 0 4px; }
 .xr-media__links { border: 1px solid var(--xr-border, #333); border-radius: 8px; padding: 6px 10px; }
 .xr-media__links summary { cursor: pointer; font-weight: 600; font-size: 13px; }

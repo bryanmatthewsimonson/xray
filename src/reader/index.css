@@ -159,13 +159,19 @@ body {
 
 /* Media-button nudge (Phase 22 tail): a transcript capture with strong
    podcast signals but no declared identity — subtle, informational,
-   never an auto-write. */
+   never an auto-write. The hint is itself clickable: it opens the
+   modal with the discovery already running. */
 .xr-reader__media-nudge {
   margin-left: 6px;
   font-size: 10px;
   font-style: italic;
   color: var(--xr-primary);
   opacity: .8;
+  cursor: pointer;
+}
+.xr-reader__media-nudge:hover {
+  text-decoration: underline;
+  opacity: 1;
 }
 
 /* ---------------- progress bar (batch publish) ---------------- */

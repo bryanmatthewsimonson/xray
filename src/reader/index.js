@@ -2981,9 +2981,11 @@ function setupMediaControl() {
 // Post-transcription nudge (Phase 22 tail): a transcript-bearing
 // capture with strong podcast signals but NO declared identity gets a
 // subtle "identity found — confirm?" decoration on the Media button.
-// Pure local signal scan — no network — and never an auto-write: media
-// identity stays user-declared (the NIP_DRAFT rule); the user confirms
-// via 🔍 Find identity inside the modal.
+// The scan is pure and local — no network — and never an auto-write:
+// media identity stays user-declared (the NIP_DRAFT rule). Clicking
+// the hint itself opens the modal in autoFind mode (the discovery runs
+// on that click — the gesture is the consent); clicking the rest of
+// the button keeps opening the plain modal.
 function refreshMediaNudge() {
     const btn = $('#xr-media-btn');
     if (!btn || btn.hidden) return;
@@ -3005,10 +3007,17 @@ function refreshMediaNudge() {
         hint = document.createElement('span');
         hint.className = 'xr-reader__media-nudge';
         hint.textContent = 'identity found — confirm?';
+        hint.title = 'Find and confirm this episode’s podcast identity';
+        hint.addEventListener('click', async (ev) => {
+            ev.stopPropagation();
+            if (!state.article) return;
+            const result = await openMediaModal(state.article, { autoFind: true });
+            if (result) await applyMediaResult(result);
+        });
         btn.appendChild(hint);
     }
     if (btn.dataset.xrOrigTitle === undefined) btn.dataset.xrOrigTitle = btn.title || '';
-    btn.title = 'Podcast identity signals detected — open, pick “a podcast episode”, then 🔍 Find identity to confirm';
+    btn.title = 'Podcast identity signals detected — click the hint to find and confirm';
 }
 
 /**
