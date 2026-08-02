@@ -19,6 +19,37 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-02 — CRLF checkouts killed the hash-parity test file
+
+**Tags:** bug
+
+**Files:** `tests/audit-article-hash.test.mjs`, `.gitattributes` (new).
+
+**Symptom:** On a Windows checkout with `core.autocrlf=true`, `node
+--test tests/audit-article-hash.test.mjs` failed the top-level
+"vendored scorer must contain normalizeMarkdown" assertion — killing
+all six tests in the file. CI (Ubuntu, LF) never saw it.
+
+**Root cause:** The test extracts the vendored `normalizeMarkdown`
+from `docs/auditor-prototype/scorer/scorer.js` with a regex anchored
+on `\{\n` … `\n\}` — the file's *physical* line-ending bytes. Git's
+autocrlf smudge rewrites those to CRLF at checkout, so the regex
+misses on Windows even though the committed blob is LF.
+
+**Fix, and why it keeps the byte-identity guarantee honest:** the
+test now does `\r\n → \n` on the read source before extracting —
+that exactly *reverses the smudge*, recovering the committed bytes,
+rather than masking a drift: `normalizeMarkdown` contains no
+template literals, so physical line endings cannot reach its
+behavior, and the parity corpus carries its CRLF cases as escape
+sequences (unaffected by checkout). A new `.gitattributes` also pins
+every shipped text type to `eol=lf` so fresh clones are
+byte-identical to the repo on every platform (all tracked blobs
+were already LF — zero renormalization churn). Both halves matter:
+the attribute file doesn't heal an *existing* smudged working tree,
+and the test tolerance alone leaves other byte-sensitive readers
+exposed.
+
 ## 2026-08-01 — Speaker identification: a voice binding IS an entity ref
 
 **Tags:** design
