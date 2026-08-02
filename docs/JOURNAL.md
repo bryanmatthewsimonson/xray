@@ -19,6 +19,33 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-02 — Truth-infrastructure map ships standalone, not on the constitution chain
+
+**Tags:** design
+
+`docs/TRUTH_INFRASTRUCTURE.md` (distilled from a maintainer essay on
+truth-seeking systems) could have stacked as a fourth PR on the
+#261→#262→#263 constitution chain — its natural neighbors. Shipped
+standalone from `main` instead: the chain is unmerged and under
+review; the new doc is non-normative (nothing in it needs the
+constitution's authority); and stacking would couple an essay's merge
+to a constitutional ratification. Accepted consequence: no relative
+links to `TRUTH_SYSTEMS.md`/`CONSTITUTION.md` — the annex is cited in
+prose as "TS §n (PR #263)". If #263 lands, swap prose citations for
+relative links in a mechanical docs PR; if the chain is abandoned,
+the PR-number citations still resolve. Also recorded: the essay's
+fifth strategy ("decentralized consensus") is read as
+process-not-ruling — the process of reaching justified agreement is
+the product this family is building; the standing owner decision (no
+aggregation / consensus / reputation layer; red line 1) refuses only
+the computed shortcut, with the measurement-not-authority shape of
+the annex's §3.3 bridging license as the licensed remainder. A
+follow-up exchange (2026-08-02) added the double/triple-entry
+bookkeeping lens (§2) and a sixth expansion domain, cross-ledger
+reconciliation (§8).
+
+---
+
 ## 2026-08-02 — Spotify links resolve through oEmbed, inside the fallback stage
 
 **Tags:** design
@@ -395,6 +422,8 @@ analysis…), with one batch button whose confirm names the exact N.
 Read-back: an **Extractions** library facet summarized BY REVIEW STATE
 (never "24 assertions" with the states hidden) and an inspector section
 where the state badge leads every row.
+
+---
 
 ## 2026-07-27 — MA.4: the reader's Suggest pass joins the durable layer
 
