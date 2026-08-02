@@ -50,7 +50,119 @@ the attribute file doesn't heal an *existing* smudged working tree,
 and the test tolerance alone leaves other byte-sensitive readers
 exposed.
 
----
+## 2026-08-01 — Speaker identification: a voice binding IS an entity ref
+
+**Tags:** design
+
+Diarized transcripts carry automatic labels ("Speaker 1"); provenance
+for spoken media means binding each voice to the PERSON. The obvious
+design was a new `speaker_map` structure + new wire tags. The shipped
+design is smaller: **a speaker binding is an ordinary entity ref whose
+mention context is the label itself** (`{entity_id, context:
+'Speaker 1'}`). Everything falls out of existing machinery:
+
+- Wire: `['p', <pk>, '', 'Speaker 1']` + `['person', <name>,
+  'Speaker 1']` on the 30023 — the established mention-context
+  semantics, zero new tags; `reconstructEntityRefsFromEvent` already
+  round-trips it.
+- Voice-split aliasing (diarization split one person into two labels):
+  bind both labels to the same entity — ref dedupe keys on the
+  entity_id+context PAIR, so this needed no code. Duplicate ENTITIES
+  keep using the existing canonical_id alias system, which already
+  co-tags the canonical pubkey.
+- Claims: `resolveTranscriptSpeaker` now consults label-context refs
+  BEFORE registry name-matching (`speakerEntityId`), so "Who said it"
+  prefills the identified person on both the manual and LLM-accept
+  paths, and the claim publishes the existing `['p', pk, '',
+  'source']`.
+- The transcript body keeps its automatic labels (metadata-only save,
+  hash untouched — the Phase 22 media-metadata rule).
+
+UI: `reader/speakers-modal.js` (🗣 Speakers…), one row per
+`transcript_meta.speakers` label with turn counts, a first-utterance
+snippet, and a `&t=Ns` listen link from the raw companion segments.
+
+## 2026-08-01 — Local transcription: diarized YouTube capture via a loopback companion
+
+**Tags:** design
+
+The YouTube DOM arms race (2026-04-19 pattern entry) argued for a
+capture path that doesn't depend on YouTube's DOM at all. This lands
+it: a Python companion (`companion/transcriber/` — yt-dlp → WhisperX
+large-v3 → pyannote diarization on 127.0.0.1:8756) produces speaker-
+labeled, timestamped segments, and the reader adopts them as the
+capture's canonical markdown (`contentType: 'transcript'`, platform
+stays `'youtube'`). Flag-gated `localTranscription`; with the
+companion absent every existing flow is untouched. Second-guessable
+choices, recorded:
+
+1. **`## Description` → `## Description — YouTube` in the adopted
+   body.** Not cosmetic: `reconstructArticleFromEvent` cuts any bare
+   `## Description` section and `assembleArticleBody` re-appends it
+   only for `contentType === 'video'` — on a `'transcript'` capture
+   the bytes vanish on relay round-trip and fork the x-hash (the
+   2026-05 markdown-canonical trap, third instance). The
+   `diarized-wire` test pins BOTH directions: the rename round-trips
+   byte-stable, and a counterfactual documents the bare heading
+   forking — if that counterfactual ever passes, reconstruct changed
+   and the rename can go.
+2. **Claim time provenance rides the anchor array, no new tags.** A
+   W3C Media-Fragments `FragmentSelector` (`t=<start>,<end>`) appends
+   to the claim anchor exactly like the PDF `page=N` selector; the
+   video URL is the claim's existing `r` tag. `article.timeMap`
+   (offset→seconds over the canonical markdown) mirrors `pageMap`,
+   including the drop-on-edit rule at both seams.
+3. **The reader drives the job; the SW only proxies fetches.** One
+   `xray:transcribe:status` poll every 3 s resets the MV3 idle timer
+   (the corpus-reduce teardown lesson, inverted: no keepalive needed
+   because polling IS the heartbeat). Job records persist in
+   `chrome.storage.local` keyed by videoId so a closed reader / SW
+   restart / re-capture RESUMES the server-side job instead of
+   double-submitting; the companion dedupes active jobs as a backstop.
+4. **Native transcript strategies are skipped on this path**
+   (`synthesizeArticle({skipTranscripts})`) — not because they always
+   fail (the fetch-hook still works) but because the DOM fallback
+   clicks "Show transcript" with an 8–16 s visible dance, and the
+   diarized result supersedes the unlabeled cues anyway. Native
+   `## Transcript — …` sections already in a body are dropped at
+   adoption; the archive's prior-version snapshot keeps them.
+5. **Loopback pinning is hardcoded, not configured.** The transcriber
+   client accepts only `127.0.0.1`/`localhost`/`[::1]` (port
+   configurable); validating a user-configurable base URL against
+   itself would be circular, and a tampered stored value must never
+   exfiltrate transcript text. Same rule for the optional LM Studio
+   claim-drafts pass (`transcriptClaimDrafts`, `xray:transcribe:claims`
+   — deliberately NOT `xray:llm:*`, which means Anthropic + key gate).
+6. **web-ext packaging:** `package.json` gained
+   `webExt.ignoreFiles: ["companion/**"]` — without it, lint/build at
+   the repo root would scan and zip the Python tree (a multi-GB
+   `.venv` once synced).
+7. **Transcribe and Draft-claims are INDEPENDENT features** (user
+   correction, same day): the drafts button originally gated on
+   `article.transcription` — same-session segments — as a GPU-
+   sequencing proxy. Wrong: a reopened capture hid the button and
+   pushed the user into a redundant GPU re-run, and the pass only
+   needs transcript TEXT (any transcript_meta capture qualifies —
+   imported/attached transcripts included, no companion required).
+   Now: drafts gate on transcript presence + their own flag only; a
+   soft guard parks the button while a transcription job actually
+   holds the GPU; and 🎙 Transcribe on a re-captured video offers to
+   LOAD the archived transcription (loadArchivedArticle) instead of
+   re-running the job — scanning `priorVersions` too, because a plain
+   re-capture's load-time save OVERWRITES the archive row with the
+   fresh transcript-less article and the diarized artifact survives
+   only in the snapshots (field-verified on the first real casework
+   episode, 2026-08-02: row = re-capture, both diarized saves intact
+   in priorVersions). The drafts pass also went per-WINDOW
+   (chunkTranscript + runDraftPass, adaptive halving on HTTP 400) —
+   hour-plus transcripts overflow any fixed LM Studio context in one
+   shot.
+
+Files: `companion/transcriber/**`, `shared/transcriber-client.js`,
+`shared/diarized-transcript.js`, `reader/transcribe-flow.js`, plus the
+seams in `background/index.js`, `content/ui.js`,
+`platforms/youtube.js`, `reader/index.js`, `reader/llm-review.js`,
+`claim-model.js`, `transcript-article.js`.
 
 ## 2026-07-27 — MA.4: the reader's Suggest pass joins the durable layer
 

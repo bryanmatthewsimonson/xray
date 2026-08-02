@@ -41,8 +41,11 @@ function cleanSpeakerName(name) {
 
 // Merge consecutive same-speaker turns into paragraphs within the
 // budget. ALWAYS flush on a speaker change; a merged paragraph keeps
-// the FIRST contributing turn's startMs.
-function mergeTurns(turns) {
+// the FIRST contributing turn's startMs and (when turns carry one —
+// the diarized companion path) the LAST contributing turn's endMs.
+// Exported for the diarized-transcript composer, which needs the same
+// paragraphing but a different heading + link form.
+export function mergeTurns(turns) {
     const paras = [];
     let cur = null;
     const flush = () => { if (cur && cur.text.trim()) paras.push(cur); cur = null; };
@@ -54,9 +57,10 @@ function mergeTurns(turns) {
         if (!cur || !sameSpeaker || cur.text.length >= MAX_PARA_CHARS
             || (cur.text.length >= MIN_PARA_CHARS && SENTENCE_END_RE.test(cur.text))) {
             flush();
-            cur = { speaker: t.speaker || null, startMs: t.startMs ?? null, text };
+            cur = { speaker: t.speaker || null, startMs: t.startMs ?? null, endMs: t.endMs ?? null, text };
         } else {
             cur.text = `${cur.text} ${text}`;
+            if (t.endMs != null) cur.endMs = t.endMs;
         }
     }
     flush();
@@ -76,10 +80,23 @@ function headerField(value) {
  * plus a paragraph startMs yields a linked Media-Fragment stamp;
  * otherwise a bare code stamp.
  *
- * @param {{turns: Array, meta: object}} p
+ * Options (all default to the Phase 22 behavior — the golden fixture
+ * is byte-identical when they're omitted):
+ * - `heading`  the text after `## ` (default 'Transcript'). The
+ *   diarized path passes a suffixed heading so the bare-heading upsert
+ *   below can never clobber it.
+ * - `linkFor(seconds)` a URL builder for the stamp link (default the
+ *   generic Media-Fragments `<url>#t=<s>`; YouTube passes `&t=<s>s`).
+ * - `onParagraph(para, renderedText)` observer invoked per emitted
+ *   paragraph — the diarized path uses it to build the offset→time map
+ *   without re-parsing its own output.
+ *
+ * @param {{turns: Array, meta: object, heading?: string,
+ *          linkFor?: (seconds: number) => string,
+ *          onParagraph?: (para: object, rendered: string) => void}} p
  * @returns {string}
  */
-export function buildTranscriptSection({ turns = [], meta = {} } = {}) {
+export function buildTranscriptSection({ turns = [], meta = {}, heading = 'Transcript', linkFor = null, onParagraph = null } = {}) {
     const isHttp = /^https?:\/\//i.test(meta.url || '');
     const paras = mergeTurns(turns);
 
@@ -87,11 +104,14 @@ export function buildTranscriptSection({ turns = [], meta = {} } = {}) {
         const bits = [];
         if (p.startMs !== null && p.startMs !== undefined) {
             const stamp = formatStamp(p.startMs);
-            if (isHttp) {
+            const secs = Math.floor(p.startMs / 1000);
+            if (typeof linkFor === 'function') {
+                bits.push(`[\`${stamp}\`](${linkFor(secs)})`);
+            } else if (isHttp) {
                 // Media Fragments URI (#t=<seconds>) — the generic-web
                 // analog of YouTube's &t=Ns deep link. Body-only; the
                 // r-tag identity URL is never fragmented.
-                bits.push(`[\`${stamp}\`](${meta.url}#t=${Math.floor(p.startMs / 1000)})`);
+                bits.push(`[\`${stamp}\`](${meta.url}#t=${secs})`);
             } else {
                 bits.push(`\`${stamp}\``);
             }
@@ -99,10 +119,12 @@ export function buildTranscriptSection({ turns = [], meta = {} } = {}) {
         const name = cleanSpeakerName(p.speaker);
         if (name) bits.push(`**${name}:**`);
         bits.push(p.text);
-        return bits.join(' ');
+        const rendered = bits.join(' ');
+        if (typeof onParagraph === 'function') onParagraph(p, rendered);
+        return rendered;
     }).join('\n\n');
 
-    return `## Transcript\n\n${body}\n`;
+    return `## ${heading}\n\n${body}\n`;
 }
 
 /**
