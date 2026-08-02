@@ -1311,9 +1311,11 @@ async function loadArchivedArticle(archived, provenance) {
     // capture lacked (a diarized version restored over a fresh
     // re-capture) — the 🗣 Speakers / 💫 Suggest (local) gates must
     // re-run HERE, not just on the transcribe-reuse path, or a banner
-    // "Load archive" restore leaves both buttons hidden.
+    // "Load archive" restore leaves both buttons hidden. Same for the
+    // media-identity nudge, whose condition rides the same fields.
     setupSpeakersControl();
     setupTranscriptClaimDraftsControl().catch(() => { /* gate refresh only */ });
+    try { refreshMediaNudge(); } catch (_) { /* cosmetic */ }
     toast(`Archive loaded (${provenance.source})`, 'success', 3000);
 }
 
@@ -2090,8 +2092,11 @@ async function adoptDiarizedTranscript(result) {
     renderReader();
     setupTranscriptClaimDraftsControl().catch(() => {});
     // The adoption just gave this capture speakers — surface the
-    // identification control without waiting for a reload.
+    // identification control without waiting for a reload. The media
+    // nudge's condition (transcript present, no podcast identity)
+    // changed too.
     setupSpeakersControl();
+    try { refreshMediaNudge(); } catch (_) { /* cosmetic */ }
 }
 
 let _transcribeRunning = false;
@@ -2986,13 +2991,23 @@ function refreshMediaNudge() {
     const hasTranscript = !!(a && (a.transcript_meta || a.contentType === 'transcript'));
     const wants = !!(a && hasTranscript && !a.podcast && scanPodcastSignals(a).strong);
     let hint = btn.querySelector('.xr-reader__media-nudge');
-    if (!wants) { if (hint) hint.remove(); return; }
+    if (!wants) {
+        if (hint) hint.remove();
+        // Restore the button's own tooltip once the nudge clears —
+        // otherwise the nudge instructions outlive their condition.
+        if (btn.dataset.xrOrigTitle !== undefined) {
+            btn.title = btn.dataset.xrOrigTitle;
+            delete btn.dataset.xrOrigTitle;
+        }
+        return;
+    }
     if (!hint) {
         hint = document.createElement('span');
         hint.className = 'xr-reader__media-nudge';
         hint.textContent = 'identity found — confirm?';
         btn.appendChild(hint);
     }
+    if (btn.dataset.xrOrigTitle === undefined) btn.dataset.xrOrigTitle = btn.title || '';
     btn.title = 'Podcast identity signals detected — open, pick “a podcast episode”, then 🔍 Find identity to confirm';
 }
 

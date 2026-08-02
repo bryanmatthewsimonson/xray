@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-    scanPodcastSignals, looksLikeFeedUrl,
+    scanPodcastSignals, looksLikeFeedUrl, isPublicFeedUrl,
     itunesLookupUrl, itunesSearchUrl, mapItunesResults,
     readFeedXml, parseItunesDuration,
     PODCAST_GUID_NAMESPACE, normalizeFeedUrlForGuid, computePodcastGuid,
@@ -314,10 +314,42 @@ test('matchEpisode: nothing clears the floor -> null (no wrong prefill)', () => 
     assert.equal(matchEpisode(null, null), null);
 });
 
-test('titleSimilarity: containment over word tokens', () => {
-    assert.equal(titleSimilarity('Faith Crisis', 'Ep. 2117: Dr. John Dehlin Faith Crisis'), 1);
+test('titleSimilarity: Jaccard, not containment — short generic titles cannot score 1.0', () => {
+    // The adversarial-review bug: min-denominator containment made a
+    // sparse recurring item title ('Faith Crisis', 'Trailer') a perfect
+    // match against any capture title containing it.
+    const contained = titleSimilarity('Faith Crisis', 'Ep. 2117: Dr. John Dehlin Faith Crisis');
+    assert.ok(contained < 0.6, `contained short title must stay below moderate, got ${contained}`);
     assert.equal(titleSimilarity('', 'anything'), 0);
-    assert.ok(titleSimilarity('Faith Crisis Explained', 'Faith Crisis') > 0.6);
+    assert.ok(titleSimilarity('Faith Crisis Explained', 'Faith Crisis Explained') >= 0.99, 'identical titles ≈ 1');
+    assert.ok(titleSimilarity('Wade Christofferson Abuse Coverup', 'Wade Christofferson abuse coverup — full story')
+        > titleSimilarity('Trailer', 'Wade Christofferson Abuse Coverup Trailer'),
+    'substantial overlap beats one generic shared token');
+});
+
+test('isPublicFeedUrl: the SSRF pin', () => {
+    assert.ok(isPublicFeedUrl('https://feeds.example.com/rss'));
+    assert.ok(isPublicFeedUrl('https://mormonstories.org/feed'));
+    for (const bad of [
+        'http://feeds.example.com/rss',            // https only
+        'https://localhost/feed',
+        'https://sub.localhost/feed',
+        'https://127.0.0.1:8756/feed',
+        'https://10.0.0.5/feed',
+        'https://172.16.0.1/feed',
+        'https://192.168.1.10/feed',
+        'https://169.254.1.1/feed',
+        'https://100.64.0.1/feed',                 // CGNAT
+        'https://0.0.0.0/feed',
+        'https://224.0.0.1/feed',
+        'https://nas.local/feed',
+        'https://fileserver/feed',                 // single-label intranet
+        'https://[::1]/feed',
+        'https://user:pw@feeds.example.com/rss',   // userinfo smuggling
+        'not a url'
+    ]) {
+        assert.equal(isPublicFeedUrl(bad), false, `must reject: ${bad}`);
+    }
 });
 
 // ------------------------------------------------------------------
@@ -429,16 +461,75 @@ test('lookupPodcastIdentity: no <podcast:guid> -> computed UUIDv5 fallback', asy
     assert.ok(result.notes.some((n) => n.includes('computed as UUIDv5')));
 });
 
-test('lookupPodcastIdentity: HTML masquerading as a feed is rejected', async () => {
-    const { fetchFn } = stubFetch([
+test('lookupPodcastIdentity: HTML masquerading as a feed fails HONESTLY — and never escalates to Apple search', async () => {
+    // The adversarial-review majors, pinned together: (a) a
+    // link-bearing capture whose feed fails must NOT fall through to
+    // the show-name search the modal hint promised would not happen;
+    // (b) the failure carries the notes (real cause disclosed).
+    const { calls, fetchFn } = stubFetch([
         ['blog.example.com/feed', '<html><head><title>My Blog</title></head><body></body></html>']
     ]);
-    await assert.rejects(
-        () => lookupPodcastIdentity({
-            itunesId: null, feedUrls: ['https://blog.example.com/feed'], searchTerms: [], episode: {}
-        }, { fetchFn }),
-        /no podcast feed found/
-    );
+    let thrown = null;
+    try {
+        await lookupPodcastIdentity({
+            itunesId: null, feedUrls: ['https://blog.example.com/feed'],
+            searchTerms: ['Mormon Stories Podcast'], episode: {}
+        }, { fetchFn });
+    } catch (err) { thrown = err; }
+    assert.ok(thrown, 'must reject');
+    assert.match(thrown.message, /nothing was sent to Apple/i);
+    assert.ok(calls.every((u) => !u.includes('itunes.apple.com/search')),
+        'the show name must NOT reach the iTunes Search API when the capture carried links');
+    assert.ok(Array.isArray(thrown.notes) && thrown.notes.some((n) => n.includes('not an RSS feed')),
+        'failure carries the diagnostic notes');
+});
+
+test('lookupPodcastIdentity: capture-supplied non-public feed URLs are never fetched', async () => {
+    const { calls, fetchFn } = stubFetch([]);
+    let thrown = null;
+    try {
+        await lookupPodcastIdentity({
+            itunesId: null,
+            feedUrls: ['https://127.0.0.1:8756/feed', 'http://localhost:1234/feed', 'https://nas.local/rss'],
+            searchTerms: [], episode: {}
+        }, { fetchFn });
+    } catch (err) { thrown = err; }
+    assert.ok(thrown, 'must reject');
+    assert.equal(calls.length, 0, 'the SW fetch must never touch loopback/private hosts');
+    assert.ok(thrown.notes.some((n) => n.includes('skipped')), 'the skip is disclosed');
+});
+
+test('lookupPodcastIdentity: moderate episode matches are noted but NOT prefilled', async () => {
+    // Same title everywhere, no episode number, close-but-not-exact
+    // date → moderate at best; the GUID field must stay empty.
+    const feed = `<?xml version="1.0"?><rss><channel><title>Show</title>
+        <item><guid>ep-guid-1</guid><title>Completely Different Topic Entirely</title>
+        <pubDate>Tue, 24 Feb 2026 12:00:00 GMT</pubDate></item></channel></rss>`;
+    const { fetchFn } = stubFetch([['feeds.example.com/rss', feed]]);
+    const result = await lookupPodcastIdentity({
+        itunesId: null, feedUrls: ['https://feeds.example.com/rss'], searchTerms: [],
+        episode: { title: 'Unrelated Capture Name', cleanTitle: 'Unrelated Capture Name',
+                   episodeNumber: null, publishedAt: Date.parse('2026-02-25') / 1000, durationSeconds: null }
+    }, { fetchFn });
+    assert.equal(result.candidate.episode_guid, undefined, 'weak/moderate match must not prefill the GUID');
+    if (result.match) {
+        assert.notEqual(result.match.confidence, 'strong');
+        assert.ok(result.notes.some((n) => n.includes('not prefilled')), 'the near-miss is disclosed for a manual pick');
+    }
+});
+
+test('readFeedXml: hostile entities and CDATA cannot break the reader', () => {
+    // Out-of-range refs must not throw (the never-throws contract) and
+    // '&#38;lt;' is the literal text '&lt;', not '<' (single-pass decode).
+    const feed = `<rss><channel><title>A &#x110000; B &#38;lt; C</title>
+        <item><guid>g1</guid><title><![CDATA[Notes with an unpaired <!-- marker]]></title></item>
+        <item><guid>g2</guid><title>Second Item Survives</title></item>
+        </channel></rss>`;
+    const parsed = readFeedXml(feed);
+    assert.equal(parsed.title, 'A � B &lt; C');
+    assert.equal(parsed.items.length, 2, 'an unpaired comment-open inside CDATA must not swallow later items');
+    assert.equal(parsed.items[0].title, 'Notes with an unpaired <!-- marker');
+    assert.equal(parsed.items[1].title, 'Second Item Survives');
 });
 
 test('lookupPodcastIdentity: no usable signals -> rejects with the house message', async () => {

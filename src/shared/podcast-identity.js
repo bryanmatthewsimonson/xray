@@ -165,26 +165,32 @@ export function mapItunesResults(json) {
 // RSS feed reader — hand-rolled, DOMParser-free
 // ------------------------------------------------------------------
 
+const NAMED_ENTITIES = { lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' };
+
 function decodeXmlText(raw) {
     let s = String(raw == null ? '' : raw);
     const cdata = /^\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*$/.exec(s);
     if (cdata) s = cdata[1];
     else s = s.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1');
-    return s
-        .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
-        .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-        .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
-        .replace(/&amp;/g, '&')
-        .trim();
+    // ONE pass over the original string: sequential passes double-decode
+    // ('&#38;lt;' must yield the literal text '&lt;', not '<'), and an
+    // unguarded fromCodePoint throws RangeError on out-of-range refs
+    // (&#x110000;) — a feed must never be able to throw us out of the
+    // documented never-throws tolerance. Bad refs become U+FFFD.
+    return s.replace(/&(?:#(\d+)|#x([0-9a-fA-F]+)|(lt|gt|quot|apos|amp));/g, (_, dec, hex, named) => {
+        if (named) return NAMED_ENTITIES[named];
+        const cp = parseInt(dec != null ? dec : hex, dec != null ? 10 : 16);
+        if (!Number.isFinite(cp) || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return '�';
+        return String.fromCodePoint(cp);
+    }).trim();
 }
 
-// First <name>…</name> in `block`; `name` may carry an optional
-// namespace prefix pattern (regex source, e.g. '(?:[a-z0-9_-]+:)?duration').
-function tagText(block, name) {
+// First <name>…</name> in `block`, RAW (undecoded) inner text; `name`
+// may carry an optional namespace prefix pattern (regex source).
+function tagRaw(block, name) {
     const re = new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`, 'i');
     const m = re.exec(block);
-    return m ? decodeXmlText(m[1]) : null;
+    return m ? m[1] : null;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -214,20 +220,39 @@ const MAX_FEED_ITEMS = 5000;
  *     pubDate: number|null, durationSeconds: number|null}>}}
  */
 export function readFeedXml(xml) {
-    const text = String(xml == null ? '' : xml).replace(/<!--[\s\S]*?-->/g, '');
+    // CDATA payloads are LITERAL text and must be invisible to every
+    // structural scan: an unpaired '<!--' inside show notes must not
+    // swallow later items, and markup-shaped payload text must not
+    // match tagRaw / the <item> walk. Extract to placeholder tokens
+    // FIRST, restore into field values at the end.
+    const cdataStore = [];
+    const tokenized = String(xml == null ? '' : xml)
+        .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, (_, payload) => {
+            cdataStore.push(payload);
+            return `\x00CD${cdataStore.length - 1}\x00`;
+        })
+        .replace(/<!--[\s\S]*?-->/g, '');
+    const finish = (raw) => {
+        if (raw == null) return null;
+        const decoded = decodeXmlText(raw);
+        const restored = decoded
+            .replace(/\x00CD(\d+)\x00/g, (_, i) => cdataStore[Number(i)] ?? '')
+            .trim();
+        return restored || null;
+    };
 
-    const firstItem = text.search(/<item[\s>]/i);
-    const channelPart = firstItem === -1 ? text : text.slice(0, firstItem);
+    const firstItem = tokenized.search(/<item[\s>]/i);
+    const channelPart = firstItem === -1 ? tokenized : tokenized.slice(0, firstItem);
 
-    const title = tagText(channelPart, 'title');
+    const title = finish(tagRaw(channelPart, 'title'));
 
     // <podcast:guid> by its conventional prefix; fallback to any
     // prefixed *:guid in the CHANNEL whose value is UUID-shaped (the
     // prefix is technically free, the value shape is not). A bare
     // <guid> is an item-level tag and never a feed GUID.
-    let podcastGuid = tagText(channelPart, 'podcast:guid');
+    let podcastGuid = finish(tagRaw(channelPart, 'podcast:guid'));
     if (!podcastGuid) {
-        const alt = tagText(channelPart, '[a-z0-9_-]+:guid');
+        const alt = finish(tagRaw(channelPart, '[a-z0-9_-]+:guid'));
         if (alt && UUID_RE.test(alt)) podcastGuid = alt;
     }
     if (podcastGuid && !UUID_RE.test(podcastGuid)) podcastGuid = null;
@@ -236,15 +261,15 @@ export function readFeedXml(xml) {
     const items = [];
     const itemRe = /<item(?:\s[^>]*)?>([\s\S]*?)<\/item>/gi;
     let m;
-    while ((m = itemRe.exec(text)) !== null && items.length < MAX_FEED_ITEMS) {
+    while ((m = itemRe.exec(tokenized)) !== null && items.length < MAX_FEED_ITEMS) {
         const block = m[1];
-        const pubRaw = tagText(block, 'pubDate');
+        const pubRaw = finish(tagRaw(block, 'pubDate'));
         const pubMs = pubRaw ? Date.parse(pubRaw) : NaN;
         items.push({
-            guid: tagText(block, 'guid'),
-            title: tagText(block, 'title'),
+            guid: finish(tagRaw(block, 'guid')),
+            title: finish(tagRaw(block, 'title')),
             pubDate: Number.isFinite(pubMs) ? Math.floor(pubMs / 1000) : null,
-            durationSeconds: parseItunesDuration(tagText(block, '(?:[a-z0-9_-]+:)?duration'))
+            durationSeconds: parseItunesDuration(finish(tagRaw(block, '(?:[a-z0-9_-]+:)?duration')))
         });
     }
 
@@ -308,14 +333,18 @@ function titleTokens(s) {
         .filter((t) => t && !TITLE_STOPWORDS.has(t));
 }
 
-/** Containment coefficient over word tokens, 0..1. */
+/** Jaccard similarity over word tokens, 0..1. Jaccard, not
+ *  containment: a short generic item title ('Trailer', 'Faith
+ *  Crisis') fully contained in a long capture title must NOT score
+ *  1.0 — min-denominator containment made sparse recurring titles
+ *  instant matches. */
 export function titleSimilarity(a, b) {
-    const ta = titleTokens(a);
+    const ta = new Set(titleTokens(a));
     const tb = new Set(titleTokens(b));
-    if (ta.length === 0 || tb.size === 0) return 0;
+    if (ta.size === 0 || tb.size === 0) return 0;
     let hit = 0;
-    for (const t of new Set(ta)) if (tb.has(t)) hit++;
-    return hit / Math.min(new Set(ta).size, tb.size);
+    for (const t of ta) if (tb.has(t)) hit++;
+    return hit / (ta.size + tb.size - hit);
 }
 
 /**
@@ -392,15 +421,101 @@ export function matchEpisode(items, hints) {
 
 const FEED_ACCEPT = 'application/rss+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.1';
 const MAX_FEED_BYTES = 10 * 1024 * 1024;
+const FETCH_TIMEOUT_MS = 20000;
 
-async function fetchText(fetchFn, url, accept) {
-    const resp = await fetchFn(url, { credentials: 'omit', headers: { Accept: accept } });
+// Private/special IPv4 ranges the SW must never be steered into: the
+// extension's host permissions cover loopback (the companion, LM
+// Studio) and match patterns ignore ports, so a page-controlled URL
+// reaching this fetch would be a CORS-free SSRF primitive.
+function isPrivateIpv4(host) {
+    const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+    if (!m) return false;
+    const [a, b] = [Number(m[1]), Number(m[2])];
+    return a === 0 || a === 10 || a === 127
+        || (a === 100 && b >= 64 && b <= 127)   // CGNAT
+        || (a === 169 && b === 254)             // link-local
+        || (a === 172 && b >= 16 && b <= 31)
+        || (a === 192 && b === 168)
+        || a >= 224;                            // multicast/reserved/broadcast
+}
+
+/**
+ * The SSRF pin: a URL this module is willing to FETCH. https only
+ * (feeds are; the risk asymmetry buries the stragglers), a real
+ * public-looking hostname (dotted, non-.local), and never a loopback /
+ * private / link-local / ULA literal. Applied to capture-derived feed
+ * URLs, to Apple-returned feed URLs, AND to the post-redirect landing
+ * URL — redirect laundering must not bypass it. Exported for tests.
+ */
+export function isPublicFeedUrl(url) {
+    let u;
+    try { u = new URL(String(url || '')); } catch (_) { return false; }
+    if (u.protocol !== 'https:') return false;
+    if (u.username || u.password) return false;
+    const host = u.hostname.toLowerCase();
+    if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return false;
+    if (host.startsWith('[')) return false;                    // IPv6 literals: not for podcast feeds
+    if (isPrivateIpv4(host)) return false;
+    if (!host.includes('.')) return false;                     // single-label intranet names
+    return true;
+}
+
+function timeoutSignal() {
+    return (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
+        ? AbortSignal.timeout(FETCH_TIMEOUT_MS) : undefined;
+}
+
+// Bounded body read: stream up to `cap` bytes then CANCEL — a
+// post-hoc slice after resp.text() bounds neither memory nor time
+// against an attacker-influenceable URL. Falls back to text() for
+// stream-less responses (test stubs).
+async function readBodyCapped(resp, cap) {
+    if (!resp.body || typeof resp.body.getReader !== 'function') {
+        const text = await resp.text();
+        return { text: text.slice(0, cap), truncated: text.length > cap };
+    }
+    const reader = resp.body.getReader();
+    const chunks = [];
+    let total = 0;
+    let truncated = false;
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        chunks.push(value);
+        if (total >= cap) { truncated = true; try { await reader.cancel(); } catch (_) { /* closed */ } break; }
+    }
+    const joined = new Uint8Array(Math.min(total, cap));
+    let off = 0;
+    for (const c of chunks) {
+        const room = joined.length - off;
+        if (room <= 0) break;
+        joined.set(room >= c.byteLength ? c : c.subarray(0, room), off);
+        off += Math.min(room, c.byteLength);
+    }
+    return { text: new TextDecoder().decode(joined), truncated };
+}
+
+async function fetchFeedText(fetchFn, url) {
+    if (!isPublicFeedUrl(url)) throw new Error('blocked non-public URL');
+    const resp = await fetchFn(url, {
+        credentials: 'omit',
+        headers: { Accept: FEED_ACCEPT },
+        signal: timeoutSignal()
+    });
     if (!resp || !resp.ok) throw new Error(`HTTP ${resp ? resp.status : 'no response'}`);
-    return resp.text();
+    // Redirects were followed — re-pin the LANDING URL (resp.url is ''
+    // in some test stubs; only validate when the runtime reports one).
+    if (resp.url && !isPublicFeedUrl(resp.url)) throw new Error('redirected to a non-public URL');
+    return readBodyCapped(resp, MAX_FEED_BYTES);
 }
 
 async function fetchJson(fetchFn, url) {
-    const resp = await fetchFn(url, { credentials: 'omit', headers: { Accept: 'application/json' } });
+    const resp = await fetchFn(url, {
+        credentials: 'omit',
+        headers: { Accept: 'application/json' },
+        signal: timeoutSignal()
+    });
     if (!resp || !resp.ok) throw new Error(`HTTP ${resp ? resp.status : 'no response'}`);
     return resp.json();
 }
@@ -429,34 +544,57 @@ export async function lookupPodcastIdentity(signals, { fetchFn, subtle } = {}) {
     const s = signals || {};
     const doFetch = fetchFn || ((...args) => globalThis.fetch(...args));
     const notes = [];
+    const fail = (message) => {
+        // Carry the diagnostics INTO the failure: the notes may include
+        // egress disclosures ('show name was sent…') and the real
+        // reasons ('feed … unusable (HTTP 404)') — a bare generic error
+        // would misattribute network failures to missing signals and
+        // hide egress that already happened.
+        const err = new Error(message);
+        err.notes = notes.slice();
+        return err;
+    };
 
     // Feed candidates, best-source first: [{feedUrl, show, itunesId}].
+    // Signals crossed a message boundary — re-validate EVERYTHING here:
+    // shape (looksLikeFeedUrl) and the SSRF pin (isPublicFeedUrl), so a
+    // tampered message can't turn the SW into a fetch proxy.
     const candidates = [];
     const lookupUrl = itunesLookupUrl(s.itunesId);
     if (lookupUrl) {
         try {
             const hit = mapItunesResults(await fetchJson(doFetch, lookupUrl))[0];
-            if (hit) {
+            if (hit && isPublicFeedUrl(hit.feedUrl)) {
                 candidates.push({ feedUrl: hit.feedUrl, show: hit.collectionName, itunesId: hit.collectionId });
             } else {
-                notes.push('Apple lookup returned no feed for the linked id');
+                notes.push(hit
+                    ? 'Apple lookup returned a non-public feed URL — ignored'
+                    : 'Apple lookup returned no feed for the linked id');
             }
         } catch (err) {
             notes.push(`Apple lookup failed (${err.message})`);
         }
     }
+    let skippedNonPublic = 0;
     for (const url of (Array.isArray(s.feedUrls) ? s.feedUrls : []).slice(0, 3)) {
-        if (isHttpUrl(url) && !candidates.some((c) => c.feedUrl === url)) {
+        if (!looksLikeFeedUrl(url)) continue;
+        if (!isPublicFeedUrl(url)) { skippedNonPublic += 1; continue; }
+        if (!candidates.some((c) => c.feedUrl === url)) {
             candidates.push({ feedUrl: url, show: null, itunesId: null });
         }
     }
+    if (skippedNonPublic) {
+        notes.push(`${skippedNonPublic} feed link(s) skipped (non-https or non-public host)`);
+    }
+    // The disclosure gate is decided by what the capture CARRIED, not
+    // by what could be read: a dead feed link must never silently
+    // escalate to the Apple search the hint said would not happen.
+    const hadLinkSignals = !!lookupUrl
+        || (Array.isArray(s.feedUrls) && s.feedUrls.some((u) => looksLikeFeedUrl(u)));
 
     const tryFeed = async (cand) => {
-        let text = await fetchText(doFetch, cand.feedUrl, FEED_ACCEPT);
-        if (text.length > MAX_FEED_BYTES) {
-            text = text.slice(0, MAX_FEED_BYTES);
-            notes.push('feed truncated at 10 MB — oldest episodes may be missing');
-        }
+        const { text, truncated } = await fetchFeedText(doFetch, cand.feedUrl);
+        if (truncated) notes.push('feed truncated at 10 MB — oldest episodes may be missing');
         // An HTML page has a <title> too — demand RSS structure before
         // trusting anything readFeedXml pulled out of the document.
         if (!/<rss[\s>]|<channel[\s>]/i.test(text.slice(0, 4096))) throw new Error('not an RSS feed');
@@ -469,15 +607,24 @@ export async function lookupPodcastIdentity(signals, { fetchFn, subtle } = {}) {
         catch (err) { notes.push(`feed ${cand.feedUrl} unusable (${err.message})`); }
     }
 
-    // Fallback: the search path — the only step that sends a show name.
+    // Fallback: the search path — the ONLY step that sends a show name,
+    // and it runs ONLY for captures with no Apple/feed link at all (the
+    // exact promise the modal hint makes). Link-bearing captures whose
+    // links failed stop HERE, honestly.
+    if (!won && hadLinkSignals) {
+        throw fail('the capture’s Apple/feed link(s) could not be used — nothing was sent to Apple’s search; check the links or fill the fields manually');
+    }
     if (!won) {
         for (const term of (Array.isArray(s.searchTerms) ? s.searchTerms : []).slice(0, 2)) {
             const url = itunesSearchUrl(term);
             if (!url) continue;
+            notes.push(`show name “${term}” was sent to Apple's iTunes Search API`);
             try {
                 const hit = mapItunesResults(await fetchJson(doFetch, url))[0];
-                if (!hit) { notes.push(`no Apple search result for “${term}”`); continue; }
-                notes.push(`show name “${term}” was sent to Apple's iTunes Search API`);
+                if (!hit || !isPublicFeedUrl(hit.feedUrl)) {
+                    notes.push(`no usable Apple search result for “${term}”`);
+                    continue;
+                }
                 won = {
                     cand: { feedUrl: hit.feedUrl, show: hit.collectionName, itunesId: hit.collectionId },
                     parsed: await tryFeed({ feedUrl: hit.feedUrl })
@@ -489,7 +636,7 @@ export async function lookupPodcastIdentity(signals, { fetchFn, subtle } = {}) {
         }
     }
 
-    if (!won) throw new Error('no podcast feed found from this capture’s signals');
+    if (!won) throw fail('no podcast feed found from this capture’s signals');
     const { cand, parsed } = won;
 
     // Feed GUID: the feed's own declaration wins over the computed
@@ -514,12 +661,18 @@ export async function lookupPodcastIdentity(signals, { fetchFn, subtle } = {}) {
     const match = matchEpisode(parsed.items, s.episode);
     if (match && !match.item.guid) notes.push('the matched episode carries no GUID in the feed');
     if (!match && parsed.items.length > 0) notes.push('no confident episode match in the feed — episode GUID left empty');
+    // Prefill the GUID on STRONG matches only — a moderate/weak match a
+    // user rubber-stamps is worse than an empty field (the module's own
+    // rule); weaker matches still surface in the note for a manual pick.
+    if (match && match.confidence !== 'strong' && match.item.guid) {
+        notes.push(`possible episode (${match.confidence} confidence) — GUID not prefilled: “${match.item.title || 'untitled'}”`);
+    }
 
     const candidate = {};
     const show = parsed.title || cand.show;
     if (show) candidate.show = show;
     if (feedGuid) candidate.feed_guid = feedGuid;
-    if (match && match.item.guid) candidate.episode_guid = match.item.guid;
+    if (match && match.confidence === 'strong' && match.item.guid) candidate.episode_guid = match.item.guid;
     candidate.feed_url = cand.feedUrl;
     if (cand.itunesId) candidate.itunes_id = String(cand.itunesId);
 

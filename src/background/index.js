@@ -1059,7 +1059,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'xray:media:lookup') {
         lookupPodcastIdentity(message.signals || {})
             .then((result) => sendResponse({ ok: true, ...result }))
-            .catch((err) => sendResponse({ ok: false, error: err && err.message ? err.message : String(err) }));
+            .catch((err) => sendResponse({
+                ok: false,
+                error: err && err.message ? err.message : String(err),
+                // Diagnostics survive failure — including any egress
+                // disclosure ('show name was sent…') the user is owed.
+                notes: (err && Array.isArray(err.notes)) ? err.notes : []
+            }));
         return true; // async
     }
 

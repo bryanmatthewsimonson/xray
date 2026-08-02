@@ -206,6 +206,9 @@ export function openMediaModal(article) {
 
         let lastParse = null;
         let previewTimer = null;
+        // sel → machine-prefilled value (🔍 Find identity); consulted by
+        // Save when the identity fieldset is hidden.
+        const machinePrefilled = new Map();
         const schedulePreview = () => {
             if (previewTimer) clearTimeout(previewTimer);
             previewTimer = setTimeout(() => {
@@ -265,13 +268,22 @@ export function openMediaModal(article) {
                 const signals = scanPodcastSignals(article || {});
                 const resp = await chrome.runtime.sendMessage({ type: 'xray:media:lookup', signals });
                 if (!resp || !resp.ok) {
-                    say(`Lookup failed: ${(resp && resp.error) || 'no response'}`, true);
+                    // Failure diagnostics matter: the notes may disclose
+                    // egress that already happened and name the real
+                    // cause (dead feed vs missing signals).
+                    const lines = [`Lookup failed: ${(resp && resp.error) || 'no response'}`];
+                    for (const n of (resp && resp.notes) || []) lines.push(`· ${n}`);
+                    say(lines.join('\n'), true);
                     return;
                 }
                 const fill = (sel, value) => {
                     const el = $(sel);
                     if (!el || !value || el.value.trim()) return false;
                     el.value = value;
+                    // Remember machine-prefills: a value the user never
+                    // affirmatively confirmed must not survive a Save
+                    // made while the fieldset is hidden.
+                    machinePrefilled.set(sel, String(value));
                     return true;
                 };
                 const c = resp.candidate || {};
@@ -303,6 +315,18 @@ export function openMediaModal(article) {
             $('.xr-media__err').hidden = true;
 
             const media = $('#xr-media-type').value || null;
+            // The confirm gate: machine-discovered values are only a
+            // declaration when saved VISIBLY. If the user switched the
+            // media type away from podcast after 🔍 Find prefilled the
+            // (now hidden) fieldset, drop every prefill the user never
+            // edited — user-typed values still save, matching the
+            // pre-assist behavior of hidden fields.
+            if (media !== 'podcast') {
+                for (const [sel, prefilled] of machinePrefilled) {
+                    const el = $(sel);
+                    if (el && el.value.trim() === prefilled) el.value = '';
+                }
+            }
             const val = (id) => $(id).value.trim();
             const feedUrl = val('#xr-media-feedurl');
             const itunes = val('#xr-media-itunes');
