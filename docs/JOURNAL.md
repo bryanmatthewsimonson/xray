@@ -235,7 +235,66 @@ seams in `background/index.js`, `content/ui.js`,
 `platforms/youtube.js`, `reader/index.js`, `reader/llm-review.js`,
 `claim-model.js`, `transcript-article.js`.
 
+## 2026-07-29 — AI vision: opt-in per-image captions + text-in-image OCR
 
+**Tags:** design
+
+**Why.** Two capture gaps had the same root: X-Ray read only text. A
+scanned paper archive (a magazine article archived as page images, no
+text layer) captured as an image-only body; and photographs in ordinary
+articles carried information no text pipeline preserves. The new
+"Describe images…" reader surface sends selected images to the
+Anthropic vision API — a caption always, a verbatim transcription when
+the image contains legible text — behind the new `aiVision` flag.
+
+**Decisions future-you might second-guess:**
+
+- **Own flag, not `llmAssist`.** Text-consent and image-consent are
+  different disclosures (the moralLens precedent). `aiVision` is
+  independent of `llmAssist` and shares the API key; the gate is
+  machine-checked pre-network in tests.
+- **One image per `xray:vision:describe` message.** The lens/audit-
+  module topology (JOURNAL 2026-07-09): each message resets the MV3
+  idle timer; a lost channel costs one retryable image.
+- **The SW acquires bytes by ref** (http fetch / `xray-figure:`
+  IndexedDB read / data-URL decode) rather than shipping bytes over
+  the bus — the `xray:llm:extract` reasoning — and normalizes via
+  OffscreenCanvas (the screenshot-crop precedent): anything
+  oversized or in a container the API rejects (AVIF/BMP) re-encodes
+  to JPEG at 1568px longest side.
+- **Provenance is inline in the body text**, not metadata: accepted
+  notes read "*Image description (AI — claude-…): …*" / "**Text in
+  image (AI transcription — claude-…):**" so the model attribution
+  survives publish inside the kind-30023 content and every consumer
+  sees exactly which text is model-authored. `extraction.method` is
+  deliberately untouched — it describes how the CAPTURE was
+  extracted, and a few accepted image notes don't make the whole body
+  machine-derived (the scanned-PDF transcription path, where the
+  model's text IS the capture, keeps stamping `llm:<model>`).
+- **First occurrence only, idempotent upsert.** A repeated image URL
+  gets one note, where the reader first meets it; re-running replaces
+  the note in place (`vision-notes.js`, string/regex over both
+  canonical body forms — the upsertTranscriptSection approach, so
+  Node tests cover the merge end to end).
+- **Merging is hash-bearing and human-gated.** Accepted notes run the
+  transcript-attach tail (canonical-side branch, draft sync, hash
+  recompute, archive save) — the pre-note snapshot in the archive is
+  honest versioning, not a stealth-edit false positive. Nothing
+  merges without a per-image, per-part (caption vs transcription)
+  Accept.
+
+**Two review catches worth remembering** (adversarial pass on the
+initial diff): (1) `markdownToHtml`'s img/link emitters interpolated
+src/href into attributes UNESCAPED — model-authored note text could
+form `![a](x"onerror=…)` and break out into an onerror attribute on a
+privileged extension page. The emitters now quote-escape and
+scheme-check (javascript:/vbscript:/data:non-image rejected); the fix
+is at the sink, so verbatim transcriptions stay verbatim. (2) The
+vision fetch ran with `<all_urls>` on any ref the article body named —
+an open probe of localhost/RFC-1918/link-local from a crafted page.
+`blockedImageUrl` (vision-image.js) now refuses non-public literals
+and the fetch omits credentials, per the scholar-fetch open-proxy
+rule.
 ## 2026-07-27 — MA.4: the reader's Suggest pass joins the durable layer
 
 **Tags:** design

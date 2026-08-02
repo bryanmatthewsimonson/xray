@@ -177,6 +177,17 @@ Post-28  ████████████████████  COMPLETE 
                                 (docs/ENTITY_PAGE_KICKOFF.md — the
                                 claims-first knowledge artifacts,
                                 EP.1–EP.5)
+AI vis.  ████████████████████  COMPLETE (2026-07-29) — opt-in AI
+                                vision: the reader's "Describe
+                                images…" surface (new `aiVision` flag,
+                                one xray:vision:describe call per
+                                image) returns a factual caption per
+                                image + a verbatim transcription when
+                                it carries legible text (the
+                                scanned-paper-archive case); every
+                                note is human-accepted per image and
+                                merges with inline model provenance
+                                (JOURNAL 2026-07-29)
 ```
 
 Parity with the v4.2 userscript is long reached; the project now ships

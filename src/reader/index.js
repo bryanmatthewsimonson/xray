@@ -48,6 +48,8 @@ import {
 import { shouldOfferArchive, describeMetric } from './archive-banner.js';
 import { archivedDraftIsCanonical, archivedDraftSource } from '../shared/archive-draft.js';
 import { openLlmReview } from './llm-review.js';
+import { openVisionModal } from './vision-modal.js';
+import { collectArticleImages, upsertVisionNoteHtml, upsertVisionNoteMarkdown } from '../shared/vision-notes.js';
 import { capturePdfToArticle, completeScanCapture } from './pdf-capture.js';
 import { assembleExtraction, extractionMethod } from '../shared/llm-extract.js';
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prompts.js';
@@ -3213,6 +3215,246 @@ async function applyMediaResult(result) {
     setupTranscriptClaimDraftsControl().catch(() => {});
     toast(`Transcript attached — ${parse.turns.length} turn${parse.turns.length === 1 ? '' : 's'}`
         + `, ${parse.speakers.length} speaker${parse.speakers.length === 1 ? '' : 's'}`, 'success', 2500);
+}
+
+// ------------------------------------------------------------------
+// AI vision — "Describe images" (captions + text-in-image OCR)
+// ------------------------------------------------------------------
+
+// The modal collects Accepts; this owns the consequences — the same
+// division as media/transcript. Collection and merge run over the
+// CANONICAL body (clean capture content / markdown), never htmlDraft:
+// the live draft carries entity-mark spans that must not be folded
+// back (the applyMediaResult reasoning).
+
+/**
+ * Configure the Describe-images control from the SW's gating snapshot.
+ * Absent when the `aiVision` flag is off (or on read-only opens — the
+ * merge mutates the body); visible-but-disabled when on with no key —
+ * so either condition guarantees no network call is reachable here.
+ */
+async function setupVisionControl() {
+    const btn = $('#xr-vision');
+    if (!btn) return;
+    if (state.readOnlyOpen) { btn.hidden = true; return; }
+    let cfg = {};
+    try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:vision:config' }) || {}; }
+    catch (_) { cfg = {}; }
+
+    if (!cfg.enabled) { btn.hidden = true; return; }   // flag off ⇒ absent
+    btn.hidden = false;
+    if (!cfg.hasKey) {
+        btn.disabled = true;
+        btn.title = 'Set an Anthropic API key in Options → Advanced → LLM assist';
+        return;
+    }
+    btn.disabled = false;
+    btn.title = 'Describe images with AI (sends the images you pick to Anthropic)';
+    btn.addEventListener('click', async () => {
+        // Disabled for the flow's duration (the runSuggestPass idiom) —
+        // the still-focused button must not stack a second modal.
+        if (btn.disabled) return;
+        btn.disabled = true;
+        try { await runVisionFlow(); }
+        catch (err) { toast((err && err.message) || 'Vision pass failed', 'error'); }
+        finally { btn.disabled = false; }
+    });
+}
+
+/** The canonical body vision collects from and merges into. */
+function visionCanonicalBody() {
+    const a = state.article;
+    if (isMarkdownCanonical(a)) {
+        const baseMd = (state.dirtySource === 'markdown' && state.markdownDraft)
+            ? state.markdownDraft : (a.markdown || '');
+        return { body: baseMd, isHtml: false };
+    }
+    let html = a.content || '';
+    if (state.dirtySource === 'markdown' && state.markdownDraft) {
+        html = ContentExtractor.markdownToHtml(state.markdownDraft);
+    }
+    return { body: html, isHtml: true };
+}
+
+/**
+ * Modal thumbnails. Archived figures try the hydrated blob URL in the
+ * live reader body first (a fast path — absent on the Markdown/Preview
+ * tabs and before hydrateFigureImages lands), then fall back to
+ * minting a fresh blob URL from the byte archive; minted URLs are
+ * collected for the caller to revoke after the modal closes.
+ * Everything else shows its own src.
+ */
+async function visionThumbSrc(ref, minted) {
+    if (!ref.startsWith('xray-figure:')) return ref;
+    const hash = ref.slice('xray-figure:'.length);
+    const img = document.querySelector(`.xr-article__body img[data-xray-figure="${CSS.escape(hash)}"]`);
+    if (img && img.src && !img.src.startsWith('xray-figure:')) return img.src;
+    try {
+        const row = await ArchiveCache.getSourceDocument(hash);
+        if (row && row.bytes && row.bytes.byteLength) {
+            const url = URL.createObjectURL(new Blob([row.bytes], { type: row.mime || 'image/png' }));
+            minted.push(url);
+            return url;
+        }
+    } catch (_) { /* evicted bytes — a blank thumb, honestly */ }
+    return '';
+}
+
+async function runVisionFlow() {
+    const btn = $('#xr-vision');
+    if (!btn || !state.article) return;
+
+    const { body, isHtml } = visionCanonicalBody();
+    const images = collectArticleImages(body, { isHtml });
+    if (!images.length) { toast('No images found in this capture.', 'warning'); return; }
+
+    // Re-check the gate at click time (Options may have changed since
+    // setup) — before the modal, so nobody picks images for a pass
+    // that can't run.
+    let cfg = {};
+    try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:vision:config' }) || {}; }
+    catch (_) { cfg = {}; }
+    if (!cfg.enabled || !cfg.hasKey) {
+        toast('AI vision is not configured — see Options → Advanced → AI vision.', 'error');
+        return;
+    }
+
+    const article = state.article;
+    const minted = [];
+    let accepted;
+    try {
+        const withThumbs = await Promise.all(images.map(async (img) => (
+            { ...img, thumbSrc: await visionThumbSrc(img.ref, minted) }
+        )));
+        accepted = await openVisionModal({
+            images: withThumbs,
+            model: cfg.model || '',
+            keepalive: startSwKeepalive,
+            runOne: (img) => browserApi.runtime.sendMessage({
+                type: 'xray:vision:describe',
+                ref: img.ref, alt: img.alt, captionText: img.captionText,
+                articleTitle: article.title || '', articleUrl: article.url || ''
+            })
+        });
+    } finally {
+        for (const url of minted) { try { URL.revokeObjectURL(url); } catch (_) { /* done */ } }
+    }
+    if (!accepted || !accepted.length) return;
+    // Staleness guard: a background body swap (the Substack API stage
+    // can land mid-modal) or a navigation replaces state.article —
+    // merging accepted notes into a body they were not collected from
+    // must not pass silently.
+    if (state.article !== article) {
+        toast('The capture changed while the modal was open — nothing merged.', 'error');
+        return;
+    }
+    await applyVisionNotes(accepted);
+}
+
+/**
+ * Merge accepted per-image notes into the body — the transcript-attach
+ * template: canonical-side branch, draft sync, hash recompute, archive
+ * save, re-render. Inline provenance (the note text names the model)
+ * is the honesty mechanism here; extraction.method stays untouched —
+ * it describes how the CAPTURE was extracted, and a few accepted image
+ * notes don't make the whole body machine-derived.
+ */
+async function applyVisionNotes(accepted) {
+    const a = state.article;
+    if (!a || !accepted.length) return;
+
+    // Upserts no-op (return the body unchanged) when an image isn't in
+    // the body anymore — count those instead of reporting a blanket
+    // success over a merge that didn't happen.
+    let merged = 0;
+    let missed = 0;
+
+    if (isMarkdownCanonical(a)) {
+        // Markdown-canonical: the markdown IS the substrate. Fold the
+        // live markdown draft first — it may be ahead of article.markdown.
+        let md = (state.dirtySource === 'markdown' && state.markdownDraft)
+            ? state.markdownDraft : (a.markdown || '');
+        for (const note of accepted) {
+            const next = upsertVisionNoteMarkdown(md, note.ref, note);
+            if (next === md) missed += 1; else merged += 1;
+            md = next;
+        }
+        if (!merged) {
+            toast('No accepted note could be placed — the article body changed.', 'error');
+            return;
+        }
+        a.markdown = md;
+        state.markdownDraft = md;
+        a.content = ContentExtractor.markdownToHtml(md);
+        state.htmlDraft = a.content;
+        state.draftProven = false;
+        // The substrate stays markdown: without this, a prior reader
+        // edit leaves dirtySource='reader' and publish re-derives the
+        // body through the destructive turndown round trip
+        // isMarkdownCanonical exists to prevent (the
+        // reconstructWithLlmFlow precedent).
+        state.dirtySource = 'markdown';
+    } else {
+        // HTML-canonical: upsert into the clean capture content. A
+        // markdown-tab edit is mark-free and canonical by contract, so
+        // it folds in first rather than being clobbered.
+        if (state.dirtySource === 'markdown' && state.markdownDraft) {
+            a.content = ContentExtractor.markdownToHtml(state.markdownDraft);
+        }
+        let html = a.content || '';
+        for (const note of accepted) {
+            const next = upsertVisionNoteHtml(html, note.ref, note);
+            if (next === html) missed += 1; else merged += 1;
+            html = next;
+        }
+        if (!merged) {
+            toast('No accepted note could be placed — the article body changed.', 'error');
+            return;
+        }
+        a.content = html;
+        state.htmlDraft = a.content;
+        state.markdownDraft = '';       // stale — regenerated on tab entry
+        // The blanked draft must never ship (the applyMediaResult
+        // empty-body lesson) — clearing draftProven suppresses it.
+        state.draftProven = false;
+        state.dirtySource = 'reader';
+    }
+
+    // The body changed → the canonical hash changes. Honest versioning:
+    // the pre-note snapshot in the archive is correct, not a stealth edit.
+    try {
+        const fullBody = EventBuilder.assembleArticleBody(hashableArticle(a));
+        const fullHash = await canonicalArticleHash(fullBody);
+        const slice = auditableSlice(fullBody);
+        const slicedHash = slice.truncated
+            ? await canonicalArticleHash(slice.text) : fullHash;
+        state.articleHash = fullHash;
+        state.auditableTotalChars = slice.totalChars;
+        state.auditableHash = slicedHash;
+        updateHashLine();
+        refreshAuditStatus().catch(() => {});
+    } catch (err) {
+        console.warn('[X-Ray Reader] vision-note hash failed:', err);
+    }
+
+    if (!state.readOnlyOpen && a.url) {
+        ArchiveCache.saveArticle({
+            article: state.articleHash ? { ...a, _articleHash: state.articleHash } : a,
+            source: 'capture'
+        }).catch((err) => console.warn('[X-Ray Reader] vision-note save failed:', err));
+    }
+
+    // Re-render the pane the user is actually on — a bare
+    // renderReader() would desync the Markdown/Preview tab state.
+    switch (state.viewMode) {
+        case 'markdown': renderMarkdown(); break;
+        case 'preview': renderPreview(); break;
+        default: renderReader(); break;
+    }
+    toast(missed
+        ? `Merged AI notes for ${merged} image${merged === 1 ? '' : 's'} — ${missed} could not be placed (the body changed)`
+        : `Merged AI image notes for ${merged} image${merged === 1 ? '' : 's'}`,
+    missed ? 'warning' : 'success', 3000);
 }
 
 async function setupSuggestControl() {
@@ -7073,6 +7315,11 @@ async function init() {
     // no-key means zero network calls are possible from here.
     setupSuggestControl().catch((err) => console.warn('[X-Ray Reader] suggest setup failed:', err));
     setupPendingSuggestControl().catch((err) => console.warn('[X-Ray Reader] pending-suggest setup failed:', err));
+
+    // AI vision "Describe images" control. Its own flag (aiVision) —
+    // the consent it gates is the article's IMAGES leaving the device,
+    // independent of Suggest's text consent. Same absent/disabled rules.
+    setupVisionControl().catch((err) => console.warn('[X-Ray Reader] vision setup failed:', err));
 
     // Local transcription (companion service): the Transcribe button on
     // YouTube captures — also fires the capture-path auto-start when the

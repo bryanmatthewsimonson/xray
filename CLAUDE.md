@@ -100,7 +100,7 @@ extension approves in-context.
 `xray:relay:publish`, `xray:relay:query`, `xray:sign`,
 `xray:youtube:fetchTranscript`, `xray:screenshot:capture`,
 `xray:llm:suggest`, `xray:audit:run`, `xray:transcribe:{start,status,
-config,ping,claims}`). When adding a cross-context
+config,ping,claims}`, `xray:vision:describe`). When adding a cross-context
 call, add an `xray:*` message rather than reaching across contexts directly.
 
 ### Shared layer (`src/shared/`)
