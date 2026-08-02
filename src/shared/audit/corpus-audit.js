@@ -15,7 +15,7 @@
 // never fork.
 
 import { EventBuilder } from '../event-builder.js';
-import { auditableSlice } from './assemble.js';
+import { auditableSlice, auditFamilyFor } from './assemble.js';
 import { articleHash } from './article-hash.js';
 import { suggestSourceType } from '../truth-taxonomy.js';
 
@@ -70,8 +70,13 @@ export async function planCorpusAudit({ records = [], runs = [] } = {}) {
             captureHash: (rec.articleHash && rec.articleHash !== localHash) ? rec.articleHash : null,
             metadata: memberAuditMetadata(rec),
             // Declared source_type wins; else the capture-time suggestion.
-            // 'analysis' triggers the standing opinion caveat (R5 interim).
-            sourceType: rec.article.source_type || suggestSourceType(rec.article) || ''
+            sourceType: rec.article.source_type || suggestSourceType(rec.article) || '',
+            // R5/OP.4 — each member audits under its OWN family; the
+            // OQ.4 forced case (declared reporting over an opinion
+            // signal) keeps the standing caveat, exactly as the reader.
+            family: auditFamilyFor(rec.article),
+            forcedOpinion: auditFamilyFor(rec.article) === 'news'
+                && suggestSourceType(rec.article) === 'analysis'
         };
         const done = runHashes.has(localHash) || (rec.articleHash && runHashes.has(rec.articleHash));
         (done ? audited : pending).push(entry);
