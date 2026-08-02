@@ -30,6 +30,7 @@ import { renderSynthesisBlock } from './synthesis-block.js';
 import { renderExtractionBlock } from './extraction-block.js';
 import { renderCorpusAuditBlock } from './corpus-audit-block.js';
 import { renderEpistemicsBlock } from './epistemics-block.js';
+import { renderCrossCoverageBlock } from './cross-coverage-block.js';
 import { renderReferencesBlock } from './references-block.js';
 import { renderWireScanBlock } from './wire-scan-block.js';
 import { renderForensicCorpusBlock } from './forensic-corpus-block.js';
@@ -347,6 +348,11 @@ export function renderCaseView(host, params) {
             // CA.3 — the corpus epistemics distributions (absent until
             // something is audited; no corpus score exists anywhere).
             renderEpistemicsBlock(analysisHost, { data });
+            // R4a (founding-transcript integration; JOURNAL 2026-08-02) —
+            // cross-coverage language: asymmetric framing by party +
+            // definitional drift, derived from per-member audit findings.
+            // No LLM call; absent until ≥2 audited members carry them.
+            renderCrossCoverageBlock(analysisHost, { data });
             // R1 (founding-transcript integration; JOURNAL 2026-08-02) —
             // cited sources resolved against the corpus: already-held /
             // suggested / capturable (one-click ingest through the
