@@ -111,11 +111,13 @@ Guards, matching the `CASE_SYNTHESIS §5` discipline:
 
 If the maintainer later wants the **probabilistic** version (a real
 Monte Carlo over analyst-supplied priors, Rootclaim-style), that is a
-**separate feature and a separate, constitution-amending decision** —
-it would require editing `PHILOSOPHY.md` / `TRUTH_ADJUDICATION §1`
-first, and by their own framing (23 orders of magnitude from six honest
-Bayesian analyses) the project's answer to date is a deliberate *no*.
-This doc flags that fork; it does not take it.
+**separate feature decision that must pass CONSTITUTION Art. 5**
+(2026-07-22: licensed only as a labeled, method-disclosed, spread-shown
+instrument rendered beside — never above — the deterministic record,
+and never as a case's headline or verdict). By the source material's
+own framing (23 orders of magnitude from six honest Bayesian analyses)
+the project's answer to a fused case-probability *conclusion* remains a
+deliberate *no*. This doc flags that fork; it does not take it.
 
 ## §5. Non-goals (v1)
 
@@ -133,7 +135,7 @@ verdict layer and the reader.
 | CF.1 | Pure `traceClaimDependencies` over the dossier graph (remove + negate) + derivation-carrying output + tests (incl. the no-numeric-estimate grep guard) |
 | CF.2 | "Trace dependencies" affordance on a claim in the case view; plain structural-delta render |
 | CF.3 (optional) | A short narrative restatement of the counts (no LLM required; if LLM, it only re-words the counts and is triple-gated) |
-| — (refused) | A probabilistic Monte Carlo — separate feature, requires amending the constitution; not planned |
+| — (refused) | A probabilistic Monte Carlo — separate feature, must pass CONSTITUTION Art. 5; not planned |
 
 ## §7. Open questions — RESOLVED (maintainer decisions, 2026-07-16)
 
@@ -143,5 +145,5 @@ verdict layer and the reader.
 - **Negate variant:** **build both** — CF.1 ships `remove` and
   `negate` as the §6 ladder already specifies.
 - **Probabilistic version:** the hard refusal is **confirmed**. A
-  Rootclaim-style Monte Carlo remains a separate design requiring a
-  constitution amendment; it is not planned.
+  Rootclaim-style Monte Carlo remains a separate design that must pass
+  CONSTITUTION Art. 5 (2026-07-22); it is not planned.

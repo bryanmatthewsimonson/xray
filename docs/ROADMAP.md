@@ -1985,8 +1985,10 @@ computed-on-read with **no new wire kind**, one PR per slice:
 - ✅ **Structural counterfactual** (slices CF.1–CF.2 shipped) —
   "what depends on this claim": the maintainer's "Monte Carlo" ask
   reframed to counts-with-derivation over the case graph, never
-  probabilities (the constitution's answer to Rootclaim-style scoring
-  is a deliberate no); inline per-claim expander, remove + negate modes
+  probabilities (the answer to Rootclaim-style scoring stays no *as a
+  conclusion*; CONSTITUTION Art. 5 (2026-07-22) licenses labeled
+  instruments as a separate feature decision, beside — never above —
+  the deterministic record); inline per-claim expander, remove + negate modes
   ([`COUNTERFACTUAL_DESIGN.md`](COUNTERFACTUAL_DESIGN.md)).
 
 Both landed via the Phases 26+27 consolidation (PR #183): H.1–H.4 and
@@ -2089,6 +2091,33 @@ new wire kinds or tags; no negentropy; no `created_at` coarsening;
 no scheduled-publish UX; no BYO-relay UI. crux.immo coordination
 (NIP-42, the indexer late-arrival question, the `is_private`
 divergence) is backburnered on the crux intake list.
+
+---
+
+## Constitution ratification (drafted 2026-07-22, ratified 2026-08-02 — docs + guards, not a numbered phase)
+
+The project-wide constitution, prompted by the maintainer's mandate
+statement (2026-07-22): `docs/CONSTITUTION.md` v1.0.0 (supreme; 14
+articles), with `docs/PHILOSOPHY.md` amended to v1.2.0 as the audit
+family's organic statute (the §13 concord — composing with, not
+displacing, the same-day v1.1.0 narrowings) and
+`TRUTH_ADJUDICATION_DESIGN.md` §1/§5 as
+the truth family's — siblings under it. Enacts **licensed estimation**
+(Art. 5): the aggregation direction's blanket kill (2026-07-03) is
+narrowed under the 2026-07-08 kill-and-revisit precedent — crude
+estimates and cross-author distributions are lawful as labeled,
+method-disclosed, spread-shown *instruments*, never as verdict content.
+Machine-checked by `tests/constitution-guards.test.mjs`. Art. 8 is
+gateless operator accountability (revised pre-ratification 2026-07-22:
+no publication gates; the moral lens applied to one's own corpus is
+the designated self-examination instrument, later). Annexes land in
+their own PRs and enter the Concord Schedule on adoption:
+`docs/DISCIPLINES.md` (per-discipline standards derived from first
+principles — the PHILOSOPHY.md method generalized; includes the
+advisory operator-safeguard seed `respectGate`) and
+`docs/TRUTH_SYSTEMS.md` (the comparative synthesis: invariants
+I-1–I-18, subversion modes S-1–S-9, honest limits H-1–H-7).
+`docs/VISION.md` (non-normative) is a follow-up.
 
 ---
 

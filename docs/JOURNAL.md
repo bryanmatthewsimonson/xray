@@ -19,6 +19,81 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-02 — The constitution is ratified; the aggregation kill is narrowed
+
+**Tags:** design
+
+`docs/CONSTITUTION.md` v1.0.0 lands as the supreme normative document,
+prompted by the maintainer's full mandate statement (abolish lies by
+exposure never deletion; bind the operator first). What it writes down
+already existed: since Phase 15 every judgment design has cited an
+unwritten bundle (`PHILOSOPHY.md` + `TRUTH_ADJUDICATION §1/§5` +
+`CASE_DOSSIER §2.2`) as "the epistemic constitution" — two spines,
+never federated. The constitution federates them by supremacy, not by
+picking a winner: PHILOSOPHY.md becomes the audit family's organic
+statute (v1.2.0 — the §13 concord, composing with the same-day
+v1.1.0 narrowings; P1–P12 text untouched, all src P-citations still
+valid), TRUTH_ADJUDICATION §1/§5 the truth family's,
+and Art. 5 elevates §1's estimation-license test project-wide.
+
+**The second-guessable call: Art. 5 narrows the 2026-07-03 consensus
+kill.** That kill's breadth ("aggregation/web-of-trust/bridging … not
+being pursued") had hardened into a doctrine the maintainer never
+intended — "no aggregation, ever" — when the audit's own 0–100 was
+always a licensed crude estimate. Under the 2026-07-08 precedent
+(killed plans are re-arguable on merits), estimates and cross-author
+aggregates are now lawful as **instruments** passing five conditions
+(declared / derived-in-the-open / spread-shown / stakes-bounded /
+firewall-respecting) and remain forbidden as **verdicts**. Computed
+*authority* stays dead; computed *measurement of the disagreement
+structure* (bridging-style, roster-scoped) re-enters the design space
+as proposals only. The kill entry stands, visible; this entry narrows
+it, per Art. 11.
+
+Register decision (maintainer, 2026-07-22): universal operative text,
+roots credited by name — Art. 8 names Matthew 7:1–5 as its derivation;
+obligations bind identically under any worldview.
+
+Revised pre-ratification on maintainer review (2026-07-22): the first
+draft's Art. 8 ("the plank protocol") gated publication on
+self-audit obligations — impractical as a gate for auditing truth; an
+obstacle that heavy would stop meaningful truth pursuit. Art. 8 is now
+gateless operator *accountability* (disclosure attaches to publishes,
+corrections at operator grade, same instruments on the operator's
+published record, ties resolve against the operator), and the
+designated self-examination instrument is the moral lens applied to
+one's own corpus (Phase 16 lineage), later. Likewise Art. 9 was
+redrawn from "the college of personas" to **discipline standards
+derived from first principles** — the persona question ("the best
+editor of all time — how did you do it?") is elicitation scaffolding,
+the way PHILOSOPHY.md was actually derived; the deliverable is the
+standards, not the college.
+
+Reconciled 2026-08-02, pre-ratification, against the main that had
+moved since the 2026-07-23 draft (the founding-transcript vendoring,
+the PHILOSOPHY v1.1.0 narrowings, the opinion module family, MA.6's
+kind 30070): the concord renumbered v1.1.0 → v1.2.0 (main took
+v1.1.0 first); Art. 10's kind table gains the 30070 row; Art. 5.3's
+audit-score precedent restated two-family (news knowability ceiling /
+opinion premise-verifiability ceiling, shared axis, never averaged);
+Art. 2 names the non-normative tier (`FOUNDING_TRANSCRIPT.md` with
+its supersession log, `TRUTH_INFRASTRUCTURE.md`, `VISION.md` when it
+exists); Art. 13 Tier 2 recognizes §13-style logged amendments as the
+statutes' own organs. No article's operative content changed in
+reconciliation.
+
+Files: `docs/CONSTITUTION.md` (new), `docs/PHILOSOPHY.md` (v1.2.0
+concord), `docs/TRUTH_ADJUDICATION_DESIGN.md` (concord status line),
+`docs/CASE_SYNTHESIS_DESIGN.md` (P5→P8 citation drift fixed),
+`docs/COUNTERFACTUAL_DESIGN.md` (amend-the-constitution → must-pass-
+Art.-5), `docs/SMOKE_TEST.md`, `CLAUDE.md`, `CONTRIBUTING.md`
+(Governance section — merge authority written down for the first
+time), `docs/ROADMAP.md`, `tests/constitution-guards.test.mjs` (new).
+So-what: consult the constitution before any normative change; a red
+constitution guard is a bug or an unratified amendment, never a test
+to "fix". Annexes (`DISCIPLINES.md`, `TRUTH_SYSTEMS.md`) follow in
+their own PRs and enter the Concord Schedule on adoption.
+
 ## 2026-08-02 — torch cu130 broke ctranslate2; one process, one cuDNN
 
 **Tags:** bug external
