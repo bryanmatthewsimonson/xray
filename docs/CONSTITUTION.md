@@ -2,7 +2,7 @@
 
 **Document version:** 1.0.0
 **Status:** Normative — supreme
-**Date:** 2026-07-22
+**Date:** 2026-07-22 (reconciled 2026-08-02, pre-ratification)
 
 This document is the constitution of the X-Ray project and of the
 decentralized human-consensus protocol it serves. Every other document in
@@ -113,7 +113,7 @@ validators are load-bearing law, not style.
 The organic statutes, each supreme within its family and subordinate to
 this document:
 
-- **`docs/PHILOSOPHY.md`** (v1.1.0+) — the organic statute of the
+- **`docs/PHILOSOPHY.md`** (v1.2.0+) — the organic statute of the
   epistemic-audit family (kinds 30056–30061). Its twelve principles
   P1–P12 retain their numbering and their text; this document adopts
   the universal ones as project-wide law (Art. 4) and leaves the
@@ -126,9 +126,17 @@ this document:
 
 Subordinate documents' internal amendment idiom (`Amended <date> — the
 amendment governs`) remains valid within its tier (Art. 13).
-`docs/VISION.md`, when it exists, is aspirational and non-normative: it
-can inspire proposals, never license features. A capability exists when
-a design document under this constitution specifies it, and not before.
+
+Below the design documents sits the **non-normative tier**, which can
+inspire proposals but never license features or settle conflicts:
+`docs/FOUNDING_TRANSCRIPT.md` (the founding conversation's verbatim
+source prose — its maintained supersession log records which of its
+mechanisms were ruled newsroom-only and dropped, 2026-08-02; the
+statutes and the recorded decisions govern wherever it disagrees),
+`docs/TRUTH_INFRASTRUCTURE.md` (the expansion map), and
+`docs/VISION.md` when it exists (aspirational). A capability exists
+when a design document under this constitution specifies it, and not
+before.
 
 ## Article 3 — The two missions and their mutual constraint
 
@@ -245,8 +253,11 @@ labeled, method-shown estimates are how finite minds steer, and
 refusing them wholesale was itself a form of false precision.
 
 **5.3 Schedule of precedents.** The epistemic audit's 0–100 score with
-knowability ceiling is a licensed estimation (limited scope, heuristic
-purpose — the original §1 holding). The moral lens's high/medium/low
+its family ceiling — knowability for the news modules,
+premise-verifiability for the opinion modules (OQ.2, 2026-08-02) — is
+a licensed estimation (limited scope, heuristic purpose — the original
+§1 holding); the two module families share the axis and are never
+averaged together (`docs/NIP_DRAFT.md`, MUST NOT). The moral lens's high/medium/low
 confidence is a licensed estimation (MORAL_LENS_JURISDICTION_DESIGN
 §5.1, the first application of this test). Hypothesis-map edge counts
 and counterfactual dependency counts are measurements, untouched by
@@ -412,6 +423,7 @@ The project's obligations to strangers consuming its events:
 | 30067 | retired | fact sheets — never reuse |
 | 30043 | retired | evidence — never reuse |
 | 30068, 30069 | active | CaseBrief, OwnedKeys |
+| 30070 | active | ExtractionAnalysis (MA.6 — user-signed, whole-unit disclosure) |
 | 30078, 32125, 32126 | active | entity-sync, entity↔article, platform accounts |
 
 The table covers the kinds this project defines, reserves, or has
@@ -491,9 +503,11 @@ Three tiers:
   of a norm), a JOURNAL entry, and a maintainer merge. Silent edits are
   void (Art. 4.5).
 - **Tier 2 — prescriptive.** Normative sections of organic statutes
-  and design documents. The established inline idiom applies
-  (`Amended <date> … the amendment governs`), with the failure-mode
-  statement required when weakening a norm.
+  and design documents. Amended through each document's own
+  established organ — `PHILOSOPHY.md`'s §13 logged amendments; the
+  inline idiom (`Amended <date> … the amendment governs`) in design
+  documents — with the failure-mode statement required when weakening
+  a norm.
 - **Tier 3 — implementation.** Deterministic implementation details:
   ordinary PR under doc-governs-code. No ceremony.
 
@@ -514,17 +528,19 @@ the guards:
 | Art. 5.3 | MORAL_LENS_JURISDICTION_DESIGN.md §5.1 | heading pinned |
 | Art. 6 | EPISTEMIC_AUDIT_DESIGN.md firewall; MORAL_LENS §5.2 reserved words | lens-guards |
 | Art. 12 | PHILOSOPHY.md §10 (enforcement formula, quoted verbatim) | two-sided quote pin |
-| Organic statute | PHILOSOPHY.md v1.1.0 (audit family) | version + concord sentence pinned |
+| Organic statute | PHILOSOPHY.md v1.2.0 (audit family) | version + concord sentence pinned |
 | Organic statute | TRUTH_ADJUDICATION_DESIGN.md §1/§5 (truth family) | §-headings pinned |
 | On adoption | docs/DISCIPLINES.md (Art. 9) | enters schedule when merged |
 | On adoption | docs/TRUTH_SYSTEMS.md (Preamble, Art. 5.5) | enters schedule when merged |
 
 Concord points enacted with this document's ratification:
 
-1. `docs/PHILOSOPHY.md` is amended (its own §13, to v1.1.0) from "the
-   constitution of the X-Ray Epistemic Auditor" to the organic statute
-   of the audit family under this document. No principle or red line
-   is altered; P-numbering is canonical project-wide.
+1. `docs/PHILOSOPHY.md` is amended (its own §13, to v1.2.0 — the
+   concord composes with its 2026-08-02 v1.1.0 narrowings, which
+   stand) from "the constitution of the X-Ray Epistemic Auditor" to
+   the organic statute of the audit family under this document. No
+   principle or red line is altered; P-numbering is canonical
+   project-wide.
 2. The breadth of the 2026-07-03 aggregation kill is superseded per
    Art. 5, under the kill-and-revisit rule (Art. 11); the kill's entry
    remains visible, and its two operative same-day decisions stand as
@@ -561,7 +577,18 @@ principles and the two-sided guard pins); Art. 8 accepts that a
 gateless standard depends on the record catching the operator after
 the fact rather than stopping them before it (mitigated by obligations
 2 and 5 — corrections at operator grade, same instruments on the
-record).
+record). Reconciled 2026-08-02, pre-ratification and still v1.0.0,
+against the main that had moved since drafting (the
+founding-transcript vendoring, the PHILOSOPHY v1.1.0 narrowings, the
+opinion module family, MA.6's kind 30070): the PHILOSOPHY concord
+renumbered to v1.2.0 (its v1.1.0 was taken by the same-day
+narrowings, which stand); Art. 10 gains the kind-30070 row; Art. 5.3
+restates the audit-score precedent two-family (knowability /
+premise-verifiability ceilings, shared axis, never averaged); Art. 2
+names the non-normative tier (`FOUNDING_TRANSCRIPT.md` and its
+supersession log, `TRUTH_INFRASTRUCTURE.md`); Art. 13 Tier 2 names
+the statutes' own amendment organs. No article's operative content
+changed in reconciliation. Ratified by maintainer merge (Art. 14).
 
 ---
 
