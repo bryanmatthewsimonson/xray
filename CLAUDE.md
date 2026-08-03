@@ -389,8 +389,8 @@ tested contract, not an aspiration.
   mapped to shipped features, parked designs
   (`docs/BONDING_NOTES.md`), refusals, and the sibling projects
   (crux; Honor). `docs/PHILOSOPHY.md` governs wherever it touches
-  audit surfaces; cites the in-flight Truth Systems annex (PR #263)
-  in prose without depending on it.
+  audit surfaces; cites the Truth Systems annex
+  (`docs/TRUTH_SYSTEMS.md`) as "TS §n", by relative link.
 - **`docs/FOUNDING_TRANSCRIPT.md`** — the founding conversation's
   verbatim source prose (non-normative; PHILOSOPHY.md and the RQ
   decisions govern on conflict). Its supersession log records which
