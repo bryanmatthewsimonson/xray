@@ -1,3 +1,4 @@
+// Standards: archival — docs/DISCIPLINES.md §12.
 // LLM-assist prompts + tool schema — Phase 14.5
 // (docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md).
 //

@@ -266,6 +266,18 @@ tested contract, not an aspiration.
   first principles), Art. 13 (three-tier
   amendment). Machine-checked by `tests/constitution-guards.test.mjs`
   — a red guard is a bug or an unratified amendment; keep it green.
+- **`docs/DISCIPLINES.md`** — **Discipline Standards** (organic statute
+  under CONSTITUTION Art. 9): fifteen disciplines, each with standards
+  **derived from first principles** (§0 documents the method that
+  produced PHILOSOPHY.md — the idealized-practitioner question is
+  elicitation scaffolding, never the deliverable), its failure mode
+  and countervailing standard, and its codification status. Forensic
+  accounting is the one named gap; the advisory operator seed is
+  `respectGate`. **Before adding or editing any LLM prompt, read the
+  governing discipline's section and name it in the file header**
+  (`// Standards: <id> — docs/DISCIPLINES.md §n.`) —
+  `tests/disciplines.test.mjs` fails any "You are" prompt file without
+  one.
 - **`docs/TRUTH_SYSTEMS.md`** — the constitution's evidentiary annex:
   16 truth-adjudication systems surveyed, invariants I-1–I-18 (the gap
   list is the constitutional roadmap-seed registry), subversion modes

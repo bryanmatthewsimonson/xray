@@ -1,3 +1,4 @@
+// Standards: translation — docs/DISCIPLINES.md §14.
 // Lens-reading prompt + tool — Phase 16.2
 // (docs/MORAL_LENS_JURISDICTION_DESIGN.md §6, §7, §10, Appendix A).
 //
