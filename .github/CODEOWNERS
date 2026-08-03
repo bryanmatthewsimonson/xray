@@ -1,0 +1,24 @@
+# Code owners for X-Ray.
+#
+# This file exists so review requests route automatically and so that any
+# future contributor can see who owns what. It is deliberately NOT wired
+# to a "require code owner review" branch rule — on a solo-maintained
+# repository that rule would block the only person able to satisfy it.
+
+* @bryanmatthewsimonson
+
+# Security-sensitive surfaces, called out explicitly so a future
+# co-maintainer arrangement has to opt into them deliberately rather than
+# inheriting them from the catch-all above.
+
+/.github/workflows/   @bryanmatthewsimonson
+/.github/dependabot.yml @bryanmatthewsimonson
+/SECURITY.md          @bryanmatthewsimonson
+/manifest.json        @bryanmatthewsimonson
+/esbuild.config.mjs   @bryanmatthewsimonson
+/rules/               @bryanmatthewsimonson
+/src/shared/crypto.js @bryanmatthewsimonson
+/src/shared/signer.js @bryanmatthewsimonson
+/src/shared/storage.js @bryanmatthewsimonson
+/src/shared/backup.js @bryanmatthewsimonson
+/src/page/            @bryanmatthewsimonson

@@ -153,26 +153,42 @@ Steps:
    tag once the breakages are fixed or explicitly accepted as
    release-blockers triaged out.
 
-4. **Commit, tag, push.**
+4. **Commit, tag, push.** `main` is protected: land the version bump
+   through a PR first, then tag the merged commit.
 
    ```sh
-   git add package.json manifest.json CHANGELOG.md
-   git commit -m "release: v0.3.0"
    git tag v0.3.0
-   git push && git push --tags
+   git push --tags
    ```
 
-5. CI runs `release.yml`. When green, the GitHub Release exists with
-   the `.zip` attached. From there:
+5. **Approve the deployment.** The release job runs in the `release`
+   environment, which has a required reviewer. The run pauses at
+   *Actions → the run → Review deployments → Approve and deploy*. This
+   is deliberate: a `v*` tag alone must not be able to mint a release
+   artifact, because that artifact is what goes to the stores.
+
+6. When green, the GitHub Release exists with the `.zip` attached.
+   From there:
    - **Chrome Web Store**: upload the `.zip` via the developer dashboard.
    - **Firefox AMO**: `web-ext sign --channel=listed` against the
      same source tree, OR upload the same `.zip` to AMO and let
      review run.
 
-If a release run fails partway, fix the underlying issue, delete the
-tag (`git tag -d v0.3.0 && git push --delete origin v0.3.0`), and
-re-tag — or use the workflow's manual dispatch with the existing
-tag if the source tree doesn't need to change.
+### When a release run fails partway
+
+`v*` tags are protected against **deletion and force-update**, so the old
+"delete the tag and re-tag" recovery no longer works — a released version
+number is immutable on purpose, so a given tag always means one artifact.
+Two paths instead:
+
+- **The source tree is fine** (transient CI failure, a botched approval):
+  re-run via the workflow's `workflow_dispatch`, passing the existing tag.
+- **The source tree needs a fix**: land the fix and cut the next patch
+  version. Burn the bad number.
+
+If you genuinely must remove a tag, the tag ruleset has to be relaxed
+first — that's an admin action on `Settings → Rules`, and it should be
+put back afterwards.
 
 ## Pull requests
 

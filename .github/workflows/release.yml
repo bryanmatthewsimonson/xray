@@ -22,18 +22,23 @@ jobs:
   release:
     name: build + package + release
     runs-on: ubuntu-latest
+    # The `release` environment carries a required reviewer, so a `v*` tag
+    # push cannot mint a release artifact unattended — the .zip this job
+    # produces is what gets uploaded to the extension stores.
+    environment: release
     timeout-minutes: 10
 
     steps:
+      # Pinned to full commit SHAs — see the note in ci.yml.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # workflow_dispatch needs to check out the tag explicitly;
           # tag-push is already at the right ref.
           ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "20"
           cache: "npm"
@@ -45,9 +50,15 @@ jobs:
         # Both files carry the version. They MUST match the tag, and
         # match each other — otherwise the published .zip's manifest
         # version will lie about which release it is.
+        #
+        # The tag arrives via `env:`, never interpolated into the script
+        # body: a `${{ }}` expansion inside `run:` is textual, so a tag
+        # name containing shell metacharacters would execute.
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           set -e
-          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          tag="$TAG"
           tag_version="${tag#v}"
           pkg_version=$(node -p "require('./package.json').version")
           mf_version=$(node -p "require('./manifest.json').version")
@@ -59,9 +70,6 @@ jobs:
             exit 1
           fi
 
-      - name: Install web-ext
-        run: npm install --global web-ext@latest
-
       - name: Build bundles
         run: npm run build
 
@@ -69,19 +77,22 @@ jobs:
         run: npm test
 
       - name: web-ext lint
-        run: web-ext lint --source-dir . --self-hosted
+        # web-ext comes from the lockfile via `npm ci`; see the note in ci.yml.
+        run: npx --no-install web-ext lint --source-dir . --self-hosted
 
       - name: web-ext build
-        run: web-ext build --source-dir . --artifacts-dir web-ext-artifacts --overwrite-dest
+        run: npx --no-install web-ext build --source-dir . --artifacts-dir web-ext-artifacts --overwrite-dest
 
       - name: Extract changelog section for this version
         # Pull the section between this version's heading and the next
         # `## ` heading. Falls back to a blank body if the section
         # isn't found, so the release still publishes.
         id: changelog
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           set -e
-          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          tag="$TAG"
           version="${tag#v}"
           notes=$(awk -v v="$version" '
             $0 ~ "^## \\["v"\\]" { capture=1; next }
@@ -95,7 +106,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           name: ${{ github.event.inputs.tag || github.ref_name }}
