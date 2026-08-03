@@ -93,8 +93,12 @@ forecasting standards (§9: the auditor's own confidences get
 calibration-scored).
 
 **Status.** Codified: `docs/PHILOSOPHY.md`; implemented in
-`src/shared/audit/` (orchestrator + eight module prompts, the
-aggregate computed in code, never by the model).
+`src/shared/audit/` — the two-family module set (2026-08-02, R5:
+eight news + six opinion methodologies, family dispatch on
+`source_type`; the OQ.2 premise-verifiability ceiling prices opinion
+scores the way the knowability ceiling prices news scores, both
+licensed under CONSTITUTION Art. 5.3, the two families never averaged
+together), the aggregate computed in code, never by the model.
 
 ## §3. Science (`science`)
 
@@ -617,4 +621,10 @@ specified; seeds ranked. Reworked pre-adoption on maintainer review
 from a "college of personas" draft: the idealized-practitioner
 question is elicitation scaffolding (the §0 method — how PHILOSOPHY.md
 was actually derived), never the deliverable. The deliverable is the
-standards.
+standards. Reconciled 2026-08-02, pre-adoption and still v1.0.0,
+against the post-opinion-family main: §2's status covers the
+two-family module set, and the `journalism-audit` Standards header is
+emitted by `tools/gen-module-prompts.mjs` itself — `module-prompts.js`
+is generated, and a header the generator does not emit dies at the
+next regen. Adopted into the Concord Schedule by maintainer merge
+(CONSTITUTION Art. 9, Art. 14).
