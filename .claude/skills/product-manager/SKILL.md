@@ -96,22 +96,25 @@ discarded now that they exist.
    later slices make visible — the fact layer inverted this
    (precision bands and a wire kind before anyone fed a fact) and
    the entity-page rework corrected it. No phase deepens a surface
-   whose current version the casework has not exercised: pending
-   walks (Phases 16 and 19 in docs/ROADMAP.md) are validation debt,
-   burned down or explicitly waived in JOURNAL before that surface
-   grows again.
+   whose current version the casework has not exercised: an
+   unwalked surface is validation debt, burned down or explicitly
+   waived in JOURNAL before that surface grows again. Read the debt
+   from verification-engineer's ledger, never from a ROADMAP status
+   line — ROADMAP advertised the Phase 16 and 19 walks as pending
+   for weeks after they were run (corrected 2026-08-02), so a stale
+   marker is as likely as real debt.
 6. **Outcome recorded, not just output.** ROADMAP records what
    shipped; JOURNAL must additionally record, at the check date,
    whether the success criterion was met — "used in the COVID case
    for X", "not pulled, parked", or "killed, rationale". Silence at
    a passed check date is itself a finding. The check-date sweep is
    advisory, never merge-blocking (the Art. 8.6 posture): it lists
-   kickoffs whose dates passed without a JOURNAL outcome entry and
-   ROADMAP walk-pending markers older than one release tag. At tag
-   time the sweep reads the pending-walk ledger at the top of
+   kickoffs whose dates passed without a JOURNAL outcome entry. At
+   tag time the sweep reads the walk ledger at the top of
    docs/SMOKE_TEST.md — owned by verification-engineer — and
    cross-checks ROADMAP markers against it; it maintains no second
-   ledger.
+   ledger. Where a ROADMAP marker and the ledger disagree, the
+   ledger wins and the marker is a defect to file, not evidence.
 7. **Flag lifecycle: promote, hold with rationale, or kill.** A
    default-off flag in FLAGS_DEFAULTS
    (src/shared/metadata/feature-flags.js) is an experiment, not a
@@ -217,11 +220,12 @@ kill criterion for the skill.
 5. Scope check (Standards 4–5): slice 1 reaches live casework;
    non-goals present with rationales; cost stated in
    maintainer-minutes; touched surfaces cross-referenced against
-   ROADMAP walk-pending markers.
+   verification-engineer's walk ledger.
 6. Wire and flag checks (Standards 7, 9) in modes (d)/(e); debt
    sweep (Standards 6, 10) in modes (c)/(e): passed check dates
-   without JOURNAL outcomes, pending walks, stale flags, sprawling
-   deferrals — with a promote/park/kill recommendation per item.
+   without JOURNAL outcomes, unwalked surfaces per the ledger, stale
+   flags, sprawling deferrals — with a promote/park/kill
+   recommendation per item.
 7. Emit the review report. Required sections: **Mode**; **Problem
    statement** (the one-sentence restatement, or the open questions);
    **Checks** (pass/fail/missing per standard, with drafted text for

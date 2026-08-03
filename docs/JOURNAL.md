@@ -19,6 +19,38 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-02 — The Phase 16/19 walks were done; only the docs said otherwise
+
+**Tags:** pattern
+
+`docs/ROADMAP.md` and `CLAUDE.md` both advertised the Phase 16 and 19
+section walks as "pending — manual, needing a human with a browser."
+The maintainer had run them well before; nobody recorded it. Corrected
+in both files; no section walk is outstanding. The same sweep found
+the ROADMAP phase table contradicting its own summary paragraph —
+rows for Phases 11, 12, and 15 still read "smoke-run pending" while
+the paragraph twenty lines below recorded those walks as completed
+with the 0.8.0 walk on 2026-07-20. Rows corrected to match.
+
+The cost was not the wrong line — it was propagation. Between the
+2026-07-20 walk and this correction, the stale claim was read as
+current by every consumer that trusted it, and it seeded three of the
+new dev-process skills as their motivating example of validation debt
+(`verification-engineer` S8, `automator` S7, `product-manager` S5),
+plus a release-readiness summary. All corrected in the same PR as the
+skills themselves.
+
+**The pattern worth keeping: a completed manual step that goes
+unrecorded is indistinguishable from one never performed**, and the
+failure is silent in the safe-looking direction — the docs overstate
+debt, so the correction only arrives when someone is annoyed enough to
+push back. This is the derivation for `verification-engineer`'s walk
+ledger, which was accordingly rewritten to record walks *performed*
+with dates rather than walks owed: an empty ledger now means nothing
+was walked, never that nothing is outstanding. `product-manager`'s
+sweep reads that ledger, and where a ROADMAP marker disagrees with it
+the ledger wins and the marker is a defect to file, not evidence.
+
 ## 2026-08-02 — Dev-process discipline skills (`.claude/skills/`)
 
 **Tags:** design

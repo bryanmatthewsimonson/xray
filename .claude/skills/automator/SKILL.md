@@ -146,10 +146,10 @@ standards are the deliverable.
    are otherwise equal, the one an agent can execute and verify
    wins: machine-checkable success signals, non-interactive
    commands, stable output formats. docs/SMOKE_TEST.md is 1,500+
-   lines and section walks pile up unexecuted (Phases 16 and 19
-   still pending; §7's archive-integrity row is verifiable by hand
-   only) — so growing its agent-runnable subset counts as automation
-   progress. Smoke-step classification is verification-engineer's
+   lines of mostly hand-run steps (§7's archive-integrity row is
+   verifiable by hand only), and every hand-run row is a row whose
+   execution depends on someone remembering to record it — so
+   growing its agent-runnable subset counts as automation progress. Smoke-step classification is verification-engineer's
    vocabulary and check — every step is either agent-verifiable or
    needs-human-eyes — cite their standard rather than restating it;
    this skill's concern is moving steps into the agent-verifiable

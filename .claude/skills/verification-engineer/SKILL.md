@@ -137,14 +137,19 @@ observe, and hunting the gap.
    verification-debt ledger is the top of docs/SMOKE_TEST.md, owned
    by this skill; **product-manager**'s tag-time sweep reads it and
    maintains no second ledger. The ledger does not exist yet: this
-   skill creates it on its first tag-time run, seeded from today's
-   known debt — the Phase 16 and 19 section walks, pending per
-   docs/ROADMAP.md and currently undated. Once created, it lists
-   each pending walk with a date. Tagging a release while debt is
+   skill creates it on its first tag-time run. **A completed walk
+   that goes unrecorded is indistinguishable from one never run** —
+   the Phase 16 and 19 section walks were complete for weeks while
+   docs/ROADMAP.md and CLAUDE.md both advertised them as pending,
+   and the stale claim propagated into three of these skills before
+   the maintainer corrected it (2026-08-02). So the ledger records
+   walks *performed*, dated, not merely walks owed: completion is
+   the entry, and an empty ledger means nothing was walked, never
+   that nothing is outstanding. Tagging a release while debt is
    pending requires an explicit acceptance line in the CHANGELOG.md
    entry or a JOURNAL entry naming the accepted risk. Checkable:
-   after the first run, the ledger exists and every tag-time
-   acceptance is on record.
+   after the first run, the ledger exists, every walk carries a
+   date, and every tag-time acceptance is on record.
 
 ## Failure mode
 

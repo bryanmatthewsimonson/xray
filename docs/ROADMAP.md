@@ -57,11 +57,11 @@ Phase 10 ████████████████████  complete 
 Phase 11 ████████████████████  complete — assessments & contradictions
                                 (docs/ASSESSMENTS_DESIGN.md). 11.1–11.6 +
                                 publishing (11.7) + collaboration (11.8)
-                                shipped; case smoke-runs pending
+                                shipped; §Phase 11 smoke-run complete
 Phase 12 ████████████████████  complete — "My Archive" personal data
                                 portal (docs/PORTAL_DESIGN.md). 12.1–12.7
                                 shipped incl. adversarial-review fixes;
-                                §Phase 12 smoke-run pending
+                                §Phase 12 smoke-run complete
 Phase 13 ████████████████████  complete — epistemic audits
                                 (docs/EPISTEMIC_AUDIT_DESIGN.md; normative
                                 constitution docs/PHILOSOPHY.md). Kinds
@@ -81,7 +81,7 @@ Phase 15 ████████████████████  complete 
                                 (docs/TRUTH_ADJUDICATION_DESIGN.md). Kinds
                                 30063/30064 (30065 reserved). 15.1–15.10
                                 merged to main as PR #89; §Phase 15
-                                smoke-run pending; the precedent/bridging
+                                smoke-run complete; the precedent/bridging
                                 tail is deferred by design
 Phase 16 ████████████████████  complete — moral lens: per-jurisdiction
                                 lens-readings of normative/evaluative/
@@ -91,7 +91,7 @@ Phase 16 ████████████████████  complete 
                                 No wire kind — 30066 left free,
                                 guard-tested; derived view only, behind
                                 the moralLens flag. 16.1–16.4 in one PR;
-                                §Phase 16 smoke-run pending
+                                §Phase 16 smoke-run complete
 Phase 17 ████████████████████  COMPLETE — entity corpus & smart entity
                                 management: E1 health panel + E3 canonical
                                 sweep (2026-07-13), then the tail (PRs
@@ -214,8 +214,10 @@ through the deliberate read-only graph. The **FLF Epistack entry has
 been submitted** (deadline was 2026-07-19; docs/EPISTACK_ENTRY.md); the
 tool continues to be tailored maintainer-driven from real casework. The 0.8.0 release smoke walk
 passed 2026-07-20, and the Phase 11–15 section walks were completed with
-it; the Phase 16 and 19 section walks remain pending — manual, needing a
-human with a browser.
+it. **The Phase 16 and 19 section walks are also complete** (maintainer,
+2026-08-02 correction — the walks were run well before this date but
+never recorded, so this file carried "pending" long after the fact). No
+section walk is outstanding.
 
 ---
 
