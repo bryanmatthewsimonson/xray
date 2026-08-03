@@ -250,6 +250,22 @@ tested contract, not an aspiration.
 
 ## Project docs (read these for non-trivial work)
 
+- **`docs/CONSTITUTION.md`** — the **supreme normative document**
+  (v1.0.0, drafted 2026-07-22; ratified by maintainer merge, Art. 14).
+  Consult it before any structural,
+  normative, scoring, schema, or wire-format change anywhere in the
+  project. Citation convention (binding): bare `P<n>` refers only to
+  PHILOSOPHY.md; constitution articles are cited `CONSTITUTION
+  Art. <n>`; every other doc's principle is cited `<DOC> §<n>`. Key
+  articles: Art. 3 (exposure never deletion), Art. 5 (licensed
+  estimation — the five-condition test any estimate/aggregate must
+  pass), Art. 6 (never-merge firewall), Art. 7 (criticism targets
+  behaviors/claims/artifacts, never identities), Art. 8 (operator
+  accountability — strictest degree, on the published record, never a
+  gate on truth pursuit), Art. 9 (discipline standards derived from
+  first principles), Art. 13 (three-tier
+  amendment). Machine-checked by `tests/constitution-guards.test.mjs`
+  — a red guard is a bug or an unratified amendment; keep it green.
 - **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 28
   (v0.7.0 tagged 2026-07-16 — the first GitHub Release since v0.5.1; see
   CONTRIBUTING for the tag-driven release process). Complete and merged:
@@ -338,20 +354,24 @@ tested contract, not an aspiration.
 - **`docs/CAPTURE_GUIDE.md`** — per-platform URL-shape/timing requirements
   (FB/IG/TikTok are finicky).
 - **`docs/NIP_DRAFT.md`** — the crowdsourced-metadata wire format.
-- **`docs/PHILOSOPHY.md`** — the **normative** constitution of the
-  Phase-13 epistemic auditor (v1.1.0 — the 2026-08-02 amendments
-  removed the standing re-audit cadence and narrowed the P10
-  self-dossier clause). Consult it before any structural, scoring,
+- **`docs/PHILOSOPHY.md`** — the **organic statute of the audit
+  family** (v1.2.0, under `docs/CONSTITUTION.md`; the 2026-08-02
+  amendments removed the standing re-audit cadence, narrowed the P10
+  self-dossier clause, and — the §13 concord — seated the family
+  under the constitution). Consult it before any structural, scoring,
   schema, or methodology change to audit surfaces; when code and it
   conflict, it governs until amended — and amending it to fit reality
   is normal, not sacrilege (the maintainer: this is an experiment in
   modeling reality, not received wisdom). When two of its principles
   conflict, document the tension and cite them by number (e.g. "P9
   over convenience"). Scope note: it governs ONLY the audit family
-  (`30056`–`30061`) — never treat it as a repo-wide constitution;
-  Phase 15 truth verdicts operate under
-  `TRUTH_ADJUDICATION_DESIGN.md`'s own form-of-judgment (§1/§5)
-  — deliberately no 0–100 score or knowability ceiling there.
+  (`30056`–`30061`) — it is not the repo-wide constitution, and never
+  was; project-wide law (universal principles, licensed estimation,
+  the never-merge firewall, operator accountability) lives in
+  `docs/CONSTITUTION.md`. Phase 15 truth verdicts operate under
+  `TRUTH_ADJUDICATION_DESIGN.md`'s own form-of-judgment (§1/§5, its
+  sibling statute) — deliberately no 0–100 score or knowability
+  ceiling there.
 - **`docs/TRUTH_INFRASTRUCTURE.md`** — **non-normative** expansion
   map: the portable "truth infrastructure" framework (five
   strategies — the fifth kept as process, with only the computed
