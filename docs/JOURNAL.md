@@ -19,6 +19,52 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-02 — Discipline standards, derived from first principles
+
+**Tags:** design
+
+`docs/DISCIPLINES.md` v1.0.0 — the second constitutional document
+(CONSTITUTION Art. 9's organic statute). Fifteen disciplines, each
+with the §0 method applied: the idealized-practitioner question
+("pretend you are the editor of the most prestigious news
+organization of all time — how did you do it?") used as elicitation
+scaffolding, the first principles extracted, the standards codified,
+the failure mode named beside its countervailing standard. For
+disciplines already codified (PHILOSOPHY, TRUTH_ADJUDICATION,
+CRIMINOLOGY, HYPOTHESIS_MAP, MORAL_LENS), the section records the
+derivation and points at the statute; for the rest, the standards
+bind from this document.
+
+This entry supersedes an earlier draft of the same PR that chartered
+a "College of Personas" — eighteen anthropomorphized offices with a
+check-graph. Maintainer review (2026-07-22): the college reified the
+scaffolding; the deliverable was always the standards, the way
+PHILOSOPHY.md was actually derived. Kept from that draft, because
+they were standards all along: the failure-mode-plus-counter
+discipline (no discipline exempts itself), the never-merge ownership
+mapping, and the prompt-file self-registration (now `// Standards:`
+headers, 8 files, enforced by `tests/disciplines.test.mjs`). Also
+kept: forensic accounting specified before it is built — the
+inflation mandate is prosecuted UNDER the money standards
+(unit/baseline/counterparty, base rates before accusations), never
+assumed by them, so the mandate's own confirmation-bias risk has a
+named counter before any code exists. The advisory operator seed
+(`respectGate`) stays; the plank-check seed was dropped with the
+Art. 8 de-gating (see the constitution entry below).
+
+Reconciled 2026-08-02 against the post-opinion-family main (drafted
+2026-07-23 on the constitution chain): the Standards header is now
+EMITTED by `tools/gen-module-prompts.mjs` — module-prompts.js is
+generated, and a hand-placed line would die at the next regen — and
+§2's standards/status paragraphs cover the two-family module set
+(eight news + six opinion methodologies, family dispatch on
+`source_type`, the OQ.2 premise-verifiability ceiling as a licensed
+estimation beside the news knowability ceiling). The eight registered
+prompt files are unchanged — no new "You are" site appeared between
+draft and landing. Files: `docs/DISCIPLINES.md`,
+`tests/disciplines.test.mjs`, Standards headers in the eight prompt
+files, `tools/gen-module-prompts.mjs`, `CLAUDE.md`.
+
 ## 2026-08-02 — The truth-systems annex lands (the comparative foundation)
 
 **Tags:** design
