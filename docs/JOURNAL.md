@@ -19,6 +19,40 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-02 — The truth-systems annex lands (the comparative foundation)
+
+**Tags:** design
+
+`docs/TRUTH_SYSTEMS.md` v1.0.0 — the answer to the maintainer's
+question, "what do all of the systems in the world for attempting to
+adjudicate truth have in common?" Sixteen systems (courts through the
+NTSB), distilled into eighteen invariants each mapped to X-Ray's
+implementation status; the gap list is now the constitutional
+roadmap-seed registry (right-of-reply + notice-disclosure ranked the
+largest ethical gap; adversarial collaboration and the symmetry
+self-test corpus the most novel builds). Nine subversion modes with
+residual risks stated honestly — including the ones we cannot fix
+(readers fuse counts in their heads; tier-1 forgery is survivable,
+not detectable; a single-LLM-provider dependency shapes proposals).
+
+The load-bearing piece is §3.3, which CONSTITUTION Art. 5.5 adopts:
+the seven-constraint bridging license. The 2026-07-03 kill rejected
+computed *authority*; §3.3 draws the bright line that computed
+*measurement of the disagreement structure* (Community-Notes-shaped,
+roster-scoped, distribution-not-number, dormant below a disclosed
+data threshold) is the two-witness independence rule computed at
+scale — admissible as future proposals, never as auto-verdicts. Also
+adopted: the H-1–H-7 honest-limits clauses, including H-7's
+persuasion line ("making honesty louder, never making loudness a
+method"). Drafted 2026-07-22 on the constitution chain; landed
+2026-08-02, entering the Concord Schedule on this merge (Art. 14).
+The same PR fulfills the standalone-ship entry's promise below:
+`TRUTH_INFRASTRUCTURE.md`'s prose citations ("TS §n (PR #263)") swap
+to relative links now that the annex is in-tree. Files:
+`docs/TRUTH_SYSTEMS.md`, `tests/constitution-guards.test.mjs` (annex
+cross-reference guard), `docs/TRUTH_INFRASTRUCTURE.md` (citation
+swap), `CLAUDE.md`.
+
 ## 2026-08-02 — The constitution is ratified; the aggregation kill is narrowed
 
 **Tags:** design

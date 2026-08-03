@@ -9,11 +9,12 @@
 > double- and triple-entry bookkeeping. The comparative foundation —
 > what courts, science, journalism, and Bitcoin share, and the
 > evidence base for the strategies below — is **borrowed with
-> attribution** from the in-flight Truth Systems annex (PR #263,
-> branch `claude/truth-systems-annex`), cited throughout as "TS §n
-> (PR #263)" and deliberately not restated. This document is
-> standalone and does not depend on that chain merging (decision
-> recorded in `docs/JOURNAL.md`, 2026-08-02).
+> attribution** from the Truth Systems annex
+> ([`TRUTH_SYSTEMS.md`](TRUTH_SYSTEMS.md), landed from PR #263),
+> cited throughout as "TS §n" and deliberately not restated. This
+> document shipped standalone, ahead of the annex (decision recorded
+> in `docs/JOURNAL.md`, 2026-08-02); the prose citations became
+> relative links when the annex landed.
 
 ---
 
@@ -35,9 +36,9 @@ sixteen institutions, their invariants, and their characteristic
 failures — is the Truth Systems annex (the survey and invariants,
 TS §§0–2; its anti-subversion machinery and honest-limits clauses,
 TS §§3–4, cited below by their I-n / S-n / H-n clause IDs; all
-PR #263), and one sentence of overlap acknowledgment is all this
-document owes it: what the annex establishes is cited here, never
-restated.
+[`TRUTH_SYSTEMS.md`](TRUTH_SYSTEMS.md)), and one sentence of overlap
+acknowledgment is all this document owes it: what the annex
+establishes is cited here, never restated.
 
 This document's business is what the annex does not cover. Two
 things. First, the framework **as an export**: the five strategies
@@ -93,7 +94,7 @@ per-hedge resolution record are live, and P7's calibration
 multiplier — confident-wrong costs more than hedged-wrong — is
 specified and logged but deliberately not yet applied to any score
 until the ledger has volume ([`PHILOSOPHY.md`](PHILOSOPHY.md) P7;
-TS §1.8, PR #263). A multi-year resolved ledger is the credential
+TS §1.8). A multi-year resolved ledger is the credential
 hardest to fake (§4 adds the Sybil caveat that bounds even that).
 The financial version — Lightning bonds staked on one's own claims —
 is parked in [`BONDING_NOTES.md`](BONDING_NOTES.md), and stays
@@ -115,11 +116,11 @@ boundary ([`PHILOSOPHY.md`](PHILOSOPHY.md) P3, §9); a model-proposed
 quote is a search key that must re-anchor in the article's own bytes
 or it is discarded. The annex says it exactly: inside these forms,
 "a lie must expose its evidence, tier, standard, and caveats to be
-well-formed at all; outside them, it is visibly formless" (TS §3.1,
-PR #263). One boundary sentence, because the strategy is abusable:
-friction here means the procedural cost of *asserting*, never ranking,
-or belief-optimization — the persuasion line is TS H-7 (PR #263),
-and the network feed stays newest-first, never ranked.
+well-formed at all; outside them, it is visibly formless" (TS §3.1).
+One boundary sentence, because the strategy is abusable: friction
+here means the procedural cost of *asserting*, never ranking, or
+belief-optimization — the persuasion line is TS H-7, and the network
+feed stays newest-first, never ranked.
 
 ### §1.4 Immutability and append-only records
 
@@ -163,7 +164,7 @@ averaged into a consensus number
 an open network is Sybil-capturable, dissent-averaging, and a
 central scoreboard wearing decentralized clothes. "Consensus of
 adjudicators is a fact about adjudicators, never a property of
-reality" (TS H-1, PR #263). The refusal protects the process: a
+reality" (TS H-1). The refusal protects the process: a
 system that computes the ruling has ended the process.
 
 **The technical correction, briefly.** Bitcoin does not vote on
@@ -174,9 +175,9 @@ make an invalid transaction valid. (Slashing, which the essay
 attaches to Bitcoin, belongs to proof-of-stake systems — a different
 design.) What any of these protocols establishes is truth about the
 record — who signed what, when, unchanged since — never truth about
-the world (TS §1.12, PR #263).
+the world (TS §1.12).
 
-**The licensed remainder.** Exactly the shape TS §3.3 (PR #263)
+**The licensed remainder.** Exactly the shape TS §3.3
 licenses: computed **measurement** of the disagreement structure —
 "who ruled what, the spread, cross-prior convergence counts," with
 the derivation shown — as distinct from computed **authority**, a
@@ -211,7 +212,7 @@ its correction — supersession, discovered by clerks
 **The residual, and the third entry.** Double entry's weakness is
 that both entries live with one party — internally consistent fraud
 balances perfectly, which is why audit exists (independence as
-structure; TS §1.5, PR #263). Triple-entry accounting names the
+structure; TS §1.5). Triple-entry accounting names the
 stronger fix — in Ian Grigg's phrase, "the signed receipt is the
 transaction": a cryptographically signed record of the deal, held
 where neither counterparty can alter it. Bitcoin is that idea
@@ -256,9 +257,9 @@ not reach.
 chain verifies custody of *records about* a thing, never the thing:
 if the fraud happens before the first hash — the wrong fish in the
 right box — the chain preserves it forever, cryptographically
-immutable garbage (TS §1.12, PR #263). Upstream forgery enters as
+immutable garbage (TS §1.12). Upstream forgery enters as
 well-formed evidence; the protocol can only survive it by
-supersession and the forger's permanent record (TS S-7, PR #263).
+supersession and the forger's permanent record (TS S-7).
 
 **The portable rule.** Push the trust boundary as close to the world
 as the system can reach, then **disclose exactly where it stands**.
@@ -286,10 +287,10 @@ starts costing what it should.
 **What actually transfers.** The true core is P7's: a multi-year
 ledger of *resolved* predictions, graded against reality, is the
 credential hardest to fake — time is an input no forger can rush
-([`PHILOSOPHY.md`](PHILOSOPHY.md) P7, §5; TS §1.8, PR #263). Signed
+([`PHILOSOPHY.md`](PHILOSOPHY.md) P7, §5; TS §1.8). Signed
 history under a stable key is exactly X-Ray's substrate, and the
 record survives key rotation only if transitions are attested — the
-key-transition gap the annex names (TS §1.12, PR #263): reputation
+key-transition gap the annex names (TS §1.12): reputation
 systems that cannot survive rotation punish the honest and reward
 fresh-key laundering.
 
@@ -305,7 +306,7 @@ flesh. X-Ray's stance is
 **abstinence**: it counts nothing over open sets, computes no
 platform reputation score, and leaves trust per-reader
 ([`KNOWLEDGE_SHARING_DESIGN.md`](KNOWLEDGE_SHARING_DESIGN.md);
-TS S-2, PR #263). The refusal is the feature: a computed reputation
+TS S-2). The refusal is the feature: a computed reputation
 number over an open network is a Sybil market waiting to clear.
 
 **Sibling seat.** The family's strongest implementation is Honor's
@@ -411,7 +412,7 @@ comes from arguing both sides well — and let AI referee, flagging
 fallacies in real time as a "digital judge."
 
 **What actually transfers.** The adversarial voice as structure, not
-hope (TS I-4, PR #263). Steel-manning is constitutional law: opinion
+hope (TS I-4). Steel-manning is constitutional law: opinion
 is graded on whether it engaged the strongest opposing case, never
 on its conclusion ([`PHILOSOPHY.md`](PHILOSOPHY.md) §3.2 — mandated
 there; the shipped scorer covers the eight news modules today).
@@ -422,13 +423,13 @@ periodically uncomfortable for every camp, the calibration is
 broken. The annex's seed in this domain — two disagreeing parties
 co-signing resolution criteria before evidence collection — is "the
 single highest-leverage social feature the truth layer lacks: it
-converts enemies into co-registrants" (TS §1.3, PR #263).
+converts enemies into co-registrants" (TS §1.3).
 
 **The failure mode the pitch omits.** The "digital judge" is
 computed authority in a robe. A model ruling on fallacies in real
 time is an unaccountable adjudicator with unstated priors — exactly
 what the machine-proposes/human-judges line exists to prevent
-(TS H-4, PR #263): every model suggestion is human-accepted, every
+(TS H-4): every model suggestion is human-accepted, every
 judgment is a signed, attributed, disputable act.
 
 **The salvage.** Fallacy-naming as a *labeled finding*, not a gate:
@@ -436,7 +437,7 @@ an identified auditor asserts `fallacy/strawman` with a verbatim
 quote, signs it, and eats the dispute if it is wrong — the
 assessment vocabulary already carries the labels. And the forensic
 taxonomy as **inoculation**: naming the maneuvers teaches readers to
-see them (TS H-7, PR #263) — the debate-platform dream delivered as
+see them (TS H-7) — the debate-platform dream delivered as
 teaching material, never as a referee with a mute button.
 
 ---
@@ -467,7 +468,7 @@ and comparison class every load-bearing number owes the reader
 **The failure modes the pitch omits.** Two. Shared-source collapse:
 two ledgers fed by one liar reconcile perfectly — reconciliation
 inherits the rule that corroboration must be independent, not merely
-numerous (TS I-5, PR #263), and a reconciliation against a captive
+numerous (TS I-5), and a reconciliation against a captive
 counterparty is theater. And the privacy inversion: cross-linking
 ledgers is also the deanonymization attack, so §6's rule returns
 with force — cross-foot institutions, never individuals.
@@ -509,8 +510,7 @@ Two refusals are family law, not local taste. No computed authority
 over open sets — X-Ray's red line 1 and Honor's
 never-police-or-attribute-fault constitution are the same clause in
 two dialects. And no belief optimization: truth made legible,
-translated, and taught, never A/B-tested into acceptance (TS H-7,
-PR #263) — Honor's no-engagement-farming vow is the same clause
+translated, and taught, never A/B-tested into acceptance (TS H-7) — Honor's no-engagement-farming vow is the same clause
 again. The expansion domains above are not six products; they are
 this one thesis, offered six more seats.
 
@@ -519,7 +519,7 @@ this one thesis, offered six more seats.
 ## §10. What this map adds — seeds, not commitments
 
 Nearly everything the six domains suggest is already an annex seed
-(TS §2, PR #263) or a parked question
+(TS §2) or a parked question
 ([`BONDING_NOTES.md`](BONDING_NOTES.md)) — cited there, not
 duplicated here. Net-new from this map, each one line, none of them
 roadmap:
