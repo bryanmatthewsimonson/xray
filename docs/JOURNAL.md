@@ -19,6 +19,67 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-04 — The discipline doc is generated, and drift-guarded
+
+**Tags:** design
+
+`docs/discipline-standards.html` renders all eight dev-process
+disciplines on one page — every standard, the seam map, the
+release-preflight ordering — from `tools/gen-discipline-docs.mjs`
+(`npm run docs:disciplines`). It is committed, following the
+`tools/gen-module-prompts.mjs` precedent for generated-and-committed
+artifacts, and carries the same loud GENERATED header.
+
+The reason it is generated rather than written: the skills had just
+been corrected for carrying a stale claim three documents repeated for
+weeks (entry below). A hand-maintained companion document describing
+eight files that change independently is that same defect with a
+longer fuse. So `tests/discipline-docs.test.mjs` asserts the committed
+file equals a fresh render — a skill edit without a regen fails the
+suite with the exact command to fix it. Verified by probe, not by
+assumption: editing a SKILL.md made the guard fail, and reverting made
+it pass. This is `automator`'s positive-sanity rule (a check must prove
+it still sees its target) applied to the check on its first day.
+
+The byte-exact comparison is safe only because `.gitattributes`
+already pins `*.html text eol=lf`. Without it a `core.autocrlf=true`
+checkout — the setting on the maintainer's box — would smudge the
+committed file to CRLF while the renderer emits LF, and the guard
+would fail on Windows while passing in CI. That rule was added for the
+audit-article-hash test; it silently protects this too, and the test
+comment records the coupling so a future relaxation does not reopen it.
+
+Also: `CLAUDE.md` gained a `.claude/skills/` entry, since agents boot
+from it and a discipline nobody discovers is not a discipline.
+
+## 2026-08-04 — Merge authority waived for PRs #306 and #307, on the record
+
+**Tags:** design
+
+CONSTITUTION Art. 11 and `CONTRIBUTING.md` both state that the
+maintainer alone merges and that agents never do. The maintainer
+instead reviewed PR #306 and instructed the agent to merge it, which
+the agent did (`6c498e6`), then did the same for PR #307 — the PR
+carrying this entry.
+
+Recorded rather than resolved silently, per Art. 11's own
+decision-recording clause. The reading applied: Art. 11's substance is
+that normative change requires human ratification, and an explicit
+post-review instruction from the maintainer IS that ratification — the
+button press is mechanical execution of a decision already made. The
+letter of the article ("agents never merge") was nonetheless waived,
+which is worth knowing because the merged PR is the one encoding that
+same never-merge rule into eight skill files.
+
+Scope: each waiver is per-PR and does not generalize — but note that
+there are now two, on consecutive PRs, which is how a per-PR
+exception becomes a de facto practice without anyone deciding to
+change the rule. If agent-merging is meant to be the norm, Art. 11
+and `CONTRIBUTING.md` should be amended to say so (Tier 1) rather
+than accumulating exceptions against them. Until then the default
+stands — agents author, the maintainer merges — and nothing in the
+skills was changed to reflect either waiver.
+
 ## 2026-08-02 — The Phase 16/19 walks were done; only the docs said otherwise
 
 **Tags:** pattern

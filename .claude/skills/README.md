@@ -27,6 +27,16 @@ of its standards graduates to a guard test or CI check by the
 explicit clause in that standard. Advisory-not-gating is the Art. 8.6
 posture applied to process.
 
+**Reading them together.** `docs/discipline-standards.html` renders all
+eight on one browsable page — every standard, the seam map, and the
+preflight ordering — generated from these files by
+`npm run docs:disciplines`. It is committed but GENERATED: edit the
+SKILL.md, then regenerate. `tests/discipline-docs.test.mjs` fails when
+a source changes without a regen, so the page cannot silently diverge
+from these files. It cannot vouch for the files themselves — a stale
+fact written into a SKILL.md regenerates faithfully and ships green,
+which is exactly how `ROADMAP.md` went stale. That one is a human read.
+
 ## The roster
 
 | Skill | Mandate |
@@ -77,7 +87,7 @@ against the threat model), `architect` (whole-tree structural pass),
 `verification-engineer` (verification-fact currency and the debt
 ledger).
 
-**C. `product-manager` validation-debt sweep.** Runs *after*
+**C. `product-manager` validation-debt sweep.** Runs **after**
 `verification-engineer`, because it reads that skill's ledger rather
 than keeping its own.
 
@@ -121,7 +131,7 @@ that restates a neighbor's rule instead of citing it is a defect.
   (test counts, bundle lists, smoke currency);
   `continuous-improvement` owns commands, flags, and roadmap claims.
 - **Smoke-step classification.** `verification-engineer` owns the
-  vocabulary — every step is *agent-verifiable* or *needs-human-eyes*
+  vocabulary — every step is **agent-verifiable** or **needs-human-eyes**
   — and the check; `automator` moves steps into the agent-verifiable
   column.
 
