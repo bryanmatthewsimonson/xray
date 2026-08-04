@@ -91,7 +91,7 @@ observe, and hunting the gap.
    reality before any `v*` tag; **continuous-improvement** owns the
    command/flag/roadmap-claim half, and both reports feed the
    release preflight. Today docs/SMOKE_TEST.md says "1277/1277
-   should pass" and "7 bundles" against ~2100 tests and ten esbuild
+   should pass" and "7 bundles" against ~2500 tests and ten esbuild
    entry points — exactly the drift this standard bans (same class
    as the doc-drift sweep of JOURNAL 2026-07-03). New shipped
    surfaces add their smoke section in the same wave that ships
@@ -153,7 +153,7 @@ observe, and hunting the gap.
 
 ## Failure mode
 
-Green-suite complacency: 2100 passing node tests mistaken for
+Green-suite complacency: ~2500 passing node tests mistaken for
 verified software, while every defect class that has actually bitten
 this project — SW lifecycle teardown, live DOM drift, third-party API
 deprecation (AssemblyAI's `speech_model`, found only on first live
