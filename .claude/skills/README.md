@@ -27,6 +27,13 @@ of its standards graduates to a guard test or CI check by the
 explicit clause in that standard. Advisory-not-gating is the Art. 8.6
 posture applied to process.
 
+**Reading them together.** `docs/discipline-standards.html` renders all
+eight on one browsable page — every standard, the seam map, and the
+preflight ordering — generated from these files by
+`npm run docs:disciplines`. It is committed but GENERATED: edit the
+SKILL.md, then regenerate. `tests/discipline-docs.test.mjs` fails on
+drift, so the page cannot go stale the way `ROADMAP.md` did.
+
 ## The roster
 
 | Skill | Mandate |
