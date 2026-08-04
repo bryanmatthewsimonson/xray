@@ -18,7 +18,7 @@ modules still carry userscript-era idioms (see Conventions).
 npm install            # required first — a fresh clone has no node_modules
 npm run build          # esbuild → dist/*.bundle.js (+ .map). No transpile step.
 npm run watch          # incremental rebuild
-npm test               # node --test tests/*.test.mjs  (2100 tests, must be green)
+npm test               # node --test tests/*.test.mjs  (~2500 tests, must be green)
 npm run lint           # web-ext lint --self-hosted (what CI gates on)
 npm run version:set X  # bump package.json + manifest.json in lockstep
 npm run clean          # rm -rf dist
@@ -362,8 +362,8 @@ tested contract, not an aspiration.
   entry has been submitted (deadline was 2026-07-19); the tool continues
   to be tailored **maintainer-driven from real casework (COVID first)**.
   The 0.8.0 smoke walk passed (2026-07-20; Phases 11–15
-  section walks completed then too); Phases 16 and 19 section walks
-  remain pending — manual, need a human with a browser.
+  section walks completed then too), and the Phases 16 and 19 section
+  walks are complete as well — no section walk is outstanding.
 - **`docs/JOURNAL.md`** — chronological log of bugs, design decisions, and
   external-platform changes. **Add a tight entry** when fixing a non-obvious
   bug, making a second-guessable design choice, or working around a

@@ -19,6 +19,92 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-02 — The Phase 16/19 walks were done; only the docs said otherwise
+
+**Tags:** pattern
+
+`docs/ROADMAP.md` and `CLAUDE.md` both advertised the Phase 16 and 19
+section walks as "pending — manual, needing a human with a browser."
+The maintainer had run them well before; nobody recorded it. Corrected
+in both files; no section walk is outstanding. The same sweep found
+the ROADMAP phase table contradicting its own summary paragraph —
+rows for Phases 11, 12, and 15 still read "smoke-run pending" while
+the paragraph twenty lines below recorded those walks as completed
+with the 0.8.0 walk on 2026-07-20. Rows corrected to match.
+
+The cost was not the wrong line — it was propagation. Between the
+2026-07-20 walk and this correction, the stale claim was read as
+current by every consumer that trusted it, and it seeded three of the
+new dev-process skills as their motivating example of validation debt
+(`verification-engineer` S8, `automator` S7, `product-manager` S5),
+plus a release-readiness summary. All corrected in the same PR as the
+skills themselves.
+
+**The pattern worth keeping: a completed manual step that goes
+unrecorded is indistinguishable from one never performed**, and the
+failure is silent in the safe-looking direction — the docs overstate
+debt, so the correction only arrives when someone is annoyed enough to
+push back. This is the derivation for `verification-engineer`'s walk
+ledger, which was accordingly rewritten to record walks *performed*
+with dates rather than walks owed: an empty ledger now means nothing
+was walked, never that nothing is outstanding. `product-manager`'s
+sweep reads that ledger, and where a ROADMAP marker disagrees with it
+the ledger wins and the marker is a defect to file, not evidence.
+
+## 2026-08-02 — Dev-process discipline skills (`.claude/skills/`)
+
+**Tags:** design
+
+Eight review disciplines for **how the software gets built**, written
+in the `docs/DISCIPLINES.md` §0 method and installed as Claude Code
+skills: `product-manager`, `architect`, `continuous-improvement`,
+`automator`, `ecosystem-pm` (the five the maintainer named), plus
+three the gap analysis argued for on repo evidence —
+`verification-engineer`, `security-threat-modeler`,
+`schema-evolution`. `.claude/skills/README.md` carries the roster, the
+trigger routing table, the shared release-preflight ordering, and the
+seam map.
+
+**Why these three.** Verification: the dangerous defect classes live
+outside the unit suite's reach — MV3 teardown (2026-07-09, 2026-07-18),
+a false "published" stamp only a browser walk saw (2026-08-02), the
+AssemblyAI hard-deprecation found on first live smoke (2026-08-02),
+quarterly platform DOM rot (2026-04-19) — and verification is the
+binding constraint when agents author faster than one human verifies.
+Security: keys in `chrome.storage`, MAIN-world injection on
+`<all_urls>`, CSP stripping, and now audio + API keys to cloud
+providers, with no threat-model document; the bundle-import
+`keyName` bug (2026-06-10) was exfiltration-class. Schema evolution:
+`xray-audits` is at v7 with real migration incidents recorded
+(2026-07-10, 2026-07-19, 2026-07-20) and casework corpora that cannot
+be re-created.
+
+**Not the College of Personas.** That draft was killed 2026-07-22 for
+reifying the scaffolding — eighteen anthropomorphized offices with a
+check-graph standing in for standards. Here the standards are the
+deliverable, the role name is only the invocation handle, and there
+is no check-graph, quorum, or office with authority. Every skill
+outputs a review report; the maintainer decides and merges (Art. 11).
+These are Tier-3 process tooling, not normative product law: they
+govern the engineering process, while `docs/DISCIPLINES.md` governs
+the disciplines the product draws on. Advisory by default — nothing
+blocks a merge until a standard graduates to a guard test by its own
+explicit clause (the Art. 8.6 posture applied to process).
+
+**Cross-skill seams were the real work.** A consistency review found
+the drafts triplicating wire-format review, running two contradictory
+automation ladders, and keeping two verification-debt ledgers.
+Resolved by ownership rulings recorded in the README: `ecosystem-pm`
+declares the one canonical `Wire format:` PR callout literal;
+`automator` owns the ladder and thresholds; `verification-engineer`
+owns the debt ledger and the smoke-step vocabulary; the reserved and
+retired kind numbers are cited from CONSTITUTION Art. 10 and never
+restated, because restated subsets drift.
+
+Derived from research the maintainer did not have to supervise, so
+the standards are only as good as their first casework contact —
+they bind from this commit and get amended when reality disagrees.
+
 ## 2026-08-02 — Discipline standards, derived from first principles
 
 **Tags:** design
