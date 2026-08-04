@@ -278,13 +278,16 @@ tested contract, not an aspiration.
   (`// Standards: <id> — docs/DISCIPLINES.md §n.`) —
   `tests/disciplines.test.mjs` fails any "You are" prompt file without
   one.
-- **`.claude/skills/`** — the **dev-process** disciplines (distinct from
-  DISCIPLINES.md, which governs the disciplines the *product* draws on):
-  eight review skills — `product-manager`, `architect`,
+- **`.claude/skills/`** — eight of the nine skills here are the
+  **dev-process** disciplines (distinct from DISCIPLINES.md, which
+  governs the disciplines the *product* draws on); the ninth,
+  `xray-capture`, is an operational skill that drives the loaded
+  extension through the claude-in-chrome connector to capture URLs.
+  The disciplines — `product-manager`, `architect`,
   `continuous-improvement`, `automator`, `ecosystem-pm`,
   `verification-engineer`, `security-threat-modeler`,
-  `schema-evolution` — written in the same §0 method. Each produces a
-  review report; the maintainer decides and merges (Art. 11), and
+  `schema-evolution` — are written in the same §0 method. Each produces
+  a review report; the maintainer decides and merges (Art. 11), and
   nothing is merge-blocking until a standard graduates to a guard test
   by its own clause. `.claude/skills/README.md` carries the trigger
   routing, the shared release-preflight ordering, and the seam map

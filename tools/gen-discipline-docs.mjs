@@ -9,14 +9,20 @@
 //   npm run docs:disciplines
 //
 // tests/discipline-docs.test.mjs asserts the committed file matches a
-// fresh render, so a skill edit that skips the regen fails the suite
-// rather than silently going stale (the doc-drift class the
-// verification-engineer skill exists to catch).
+// fresh render, so a skill edit that skips the regen fails the suite.
+//
+// STRICT BY DESIGN. A drift guard compares a fresh render against the
+// committed one, so anything this file drops SILENTLY is dropped on
+// both sides and the guard stays green while the page lies. Every
+// degradation path is therefore a throw: unknown or duplicated
+// sections, an undiscovered skill, a missing README heading, an
+// unsupported markdown construct. A red regen is the design; a quiet
+// omission is the bug.
 //
 // Deliberately timestamp-free: any generated-at stamp would make the
 // drift guard fail on every run.
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
@@ -24,34 +30,71 @@ const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const SKILLS = join(ROOT, '.claude', 'skills');
 const OUT = join(ROOT, 'docs', 'discipline-standards.html');
 
-// Render order is the roster order, not alphabetical: the five the
-// maintainer specified, then the three argued from repo evidence.
-const IDS = [
+// Fixes ORDER only — the five disciplines the maintainer specified,
+// then the three argued from repo evidence. Membership is discovered
+// from disk and cross-checked below.
+export const IDS = [
     'product-manager', 'architect', 'continuous-improvement', 'automator',
     'ecosystem-pm', 'verification-engineer', 'security-threat-modeler', 'schema-evolution'
 ];
 
-const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// Exactly the sections a discipline SKILL.md may carry, all of them
+// rendered. An added, renamed, or duplicated heading is a hard error.
+const SECTIONS = [
+    'The question', 'First principles', 'Standards',
+    'Failure mode', 'When to invoke', 'Protocol', 'Boundaries'
+];
 
-const inline = s => esc(s)
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+// A skills subdirectory is a DISCIPLINE iff its SKILL.md carries a
+// "## Standards" section. That is a content test, not a denylist, so
+// operational skills (xray-capture) are excluded by what they are.
+const DISCIPLINE_MARKER = /^## Standards\s*$/m;
+
+const NUL = '\u0000';
+const RESTORE = new RegExp(NUL + '(\\d+)' + NUL, 'g');
+
+const esc = s => s
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 
 /**
- * Minimal block renderer for the markdown subset these files use:
- * paragraphs, ordered and unordered lists with indented continuations,
- * and pipe tables. Not a general markdown parser — it only has to
- * handle what SKILL.md and the skills README actually contain, and it
- * throws nothing, so a malformed file degrades to plain paragraphs.
+ * Inline markup. Code spans are tokenized out FIRST and restored last,
+ * so their contents can never pair with emphasis markers outside them:
+ * `src/**` followed by `**​/*.mjs` would otherwise open a <strong>
+ * inside one <code> and close it inside another, producing overlapping
+ * tags. NUL delimits the placeholders because the sources are prose and
+ * cannot contain one; a bare digit sentinel would collide with ordinary
+ * text ("of 46 confirmed findings").
  */
-function md(body, { olClass = '' } = {}) {
+function inline(s) {
+    const spans = [];
+    let t = esc(s).replace(/`([^`]+)`/g, (_, c) => `${NUL}${spans.push(c) - 1}${NUL}`);
+    t = t
+        .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2">$1</a>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    // Single-asterisk emphasis is deliberately UNSUPPORTED: this repo's
+    // prose is full of unbackticked glob syntax (docs/*KICKOFF*.md,
+    // tests/*-guards*, any *builders*.js, xray:llm:*), which no regex can
+    // tell apart from emphasis. Supporting it rendered those as
+    // docs/<em>KICKOFF</em>.md. Use **bold** in the sources instead.
+    return t.replace(RESTORE, (_, i) => `<code>${spans[i]}</code>`);
+}
+
+/**
+ * Block renderer for the markdown subset these files use: paragraphs,
+ * ordered and unordered lists with indented continuations, and pipe
+ * tables. Unsupported constructs throw rather than degrading — see the
+ * STRICT BY DESIGN note above.
+ */
+export function md(body, { olClass = '', where = '' } = {}) {
     const lines = body.split('\n');
     const out = [];
     let mode = null;
     let items = [];
     let para = [];
     let rows = [];
+
+    const bail = msg => { throw new Error(`${where || 'markdown'}: ${msg}`); };
 
     const flush = () => {
         if (mode === 'ol' || mode === 'ul') {
@@ -80,13 +123,23 @@ function md(body, { olClass = '' } = {}) {
             flush();
             continue;
         }
+
+        const trimmed = line.trim();
+        if (trimmed.startsWith('```')) bail('code fences are not supported');
+        if (trimmed.startsWith('> ')) bail('blockquotes are not supported');
+        if (/^-{3,}$/.test(trimmed)) bail('thematic breaks are not supported');
+
+        const indented = /^\s{2,}\S/.test(raw);
+        if (indented && /^(?:\d+\.|[-*])\s/.test(trimmed)) {
+            bail('nested lists are not supported — they would flatten into the parent item');
+        }
+
         const mOl = line.match(/^(\d+)\.\s+(.*)$/);
         const mUl = line.match(/^-\s+(.*)$/);
-        const indented = /^\s{2,}\S/.test(raw);
 
-        if (line.trim().startsWith('|')) {
+        if (trimmed.startsWith('|')) {
             if (mode !== 'table') { flush(); mode = 'table'; }
-            rows.push(line.trim());
+            rows.push(trimmed);
         } else if (mOl) {
             if (mode !== 'ol') { flush(); mode = 'ol'; }
             items.push([mOl[2]]);
@@ -94,57 +147,109 @@ function md(body, { olClass = '' } = {}) {
             if (mode !== 'ul') { flush(); mode = 'ul'; }
             items.push([mUl[1]]);
         } else if (indented && (mode === 'ol' || mode === 'ul') && items.length) {
-            items[items.length - 1].push(line.trim());
+            items[items.length - 1].push(trimmed);
         } else {
             if (mode !== 'p') { flush(); mode = 'p'; }
-            para.push(line.trim());
+            para.push(trimmed);
         }
     }
     flush();
     return out.join('\n');
 }
 
+/** Split a markdown body into an exact heading -> body map, rejecting duplicates. */
+export function sectionMap(text, where) {
+    const secs = {};
+    for (const p of text.split(/^## /m).slice(1)) {
+        const nl = p.indexOf('\n');
+        const name = (nl < 0 ? p : p.slice(0, nl)).trim();
+        if (name in secs) throw new Error(`${where}: duplicate section "${name}"`);
+        secs[name] = nl < 0 ? '' : p.slice(nl + 1).trim();
+    }
+    return secs;
+}
+
 function parseSkill(id) {
+    const where = `.claude/skills/${id}/SKILL.md`;
     const txt = readFileSync(join(SKILLS, id, 'SKILL.md'), 'utf8');
     const fmEnd = txt.indexOf('\n---', 4);
-    if (fmEnd < 0) throw new Error(`${id}: no frontmatter terminator`);
+    if (fmEnd < 0) throw new Error(`${where}: no frontmatter terminator`);
     const rest = txt.slice(fmEnd + 4);
-    const titleLine = (rest.match(/^#\s+(.+)$/m) || [, id])[1];
-    const [title, tagline] = titleLine.split(/\s+—\s+/);
 
-    const secs = {};
-    const parts = rest.split(/^##\s+/m);
-    const lead = parts[0].replace(/^#\s+.+$/m, '').trim();
-    for (const p of parts.slice(1)) {
-        const nl = p.indexOf('\n');
-        secs[p.slice(0, nl).trim()] = p.slice(nl + 1).trim();
+    const titleLine = (rest.match(/^#\s+(.+)$/m) || [])[1];
+    if (!titleLine) throw new Error(`${where}: no title heading`);
+    // Split on the FIRST em dash only, so a title containing a second
+    // one keeps the rest of its tagline instead of dropping it.
+    const tm = titleLine.match(/^(.*?)\s+—\s+([\s\S]*)$/);
+    const title = tm ? tm[1] : titleLine;
+    const tagline = tm ? tm[2] : '';
+
+    const secs = sectionMap(rest, where);
+    const got = Object.keys(secs).sort().join('|');
+    const want = [...SECTIONS].sort().join('|');
+    if (got !== want) {
+        const missing = SECTIONS.filter(s => !(s in secs));
+        const extra = Object.keys(secs).filter(s => !SECTIONS.includes(s));
+        throw new Error(`${where}: section set mismatch` +
+            (missing.length ? `; missing: ${missing.join(', ')}` : '') +
+            (extra.length ? `; unexpected: ${extra.join(', ')}` : '') +
+            ' — the renderer emits exactly the known sections, so an unlisted one would vanish silently');
     }
-    if (!secs['Standards']) throw new Error(`${id}: no Standards section`);
-    return { id, title, tagline: tagline || '', lead, secs };
+
+    const lead = rest.replace(/^#\s+.+$/m, '').split(/^## /m)[0].trim();
+    if (lead.includes('\n\n')) {
+        throw new Error(`${where}: lead has more than one paragraph — only the first would render`);
+    }
+    return { id, title, tagline, lead, secs };
+}
+
+/** Discover discipline directories and cross-check against the declared order. */
+function discoverIds() {
+    const found = readdirSync(SKILLS, { withFileTypes: true })
+        .filter(e => e.isDirectory())
+        .map(e => e.name)
+        .filter(name => {
+            const f = join(SKILLS, name, 'SKILL.md');
+            return existsSync(f) && DISCIPLINE_MARKER.test(readFileSync(f, 'utf8'));
+        });
+    const missing = found.filter(id => !IDS.includes(id));
+    const stale = IDS.filter(id => !found.includes(id));
+    if (missing.length || stale.length) {
+        throw new Error('.claude/skills: discipline set mismatch' +
+            (missing.length ? `; on disk but not in IDS: ${missing.join(', ')}` : '') +
+            (stale.length ? `; in IDS but not on disk: ${stale.join(', ')}` : '') +
+            ' — add it to IDS (which fixes render order) so it cannot be omitted silently');
+    }
+    return IDS;
 }
 
 export function renderDisciplineDocs() {
-    const skills = IDS.map(parseSkill);
+    const skills = discoverIds().map(parseSkill);
 
+    const readmePath = '.claude/skills/README.md';
     const readme = readFileSync(join(SKILLS, 'README.md'), 'utf8');
-    const slice = (from, to) => {
-        const a = readme.split(from);
-        if (a.length < 2) throw new Error(`skills README: missing section ${from}`);
-        return a[1].split(to)[0].trim();
+    const rsecs = sectionMap(readme, readmePath);
+    const need = name => {
+        if (!(name in rsecs)) throw new Error(`${readmePath}: missing section "${name}"`);
+        return rsecs[name];
     };
-    const preflight = slice('## Release preflight — the shared ordering', '## Seams');
-    const seams = slice('## Seams — who owns a contested call', '## Invoking');
+    const preflight = need('Release preflight — the shared ordering');
+    const seams = need('Seams — who owns a contested call');
 
     const mandates = {};
-    for (const m of readme.matchAll(/\|\s*\[`([a-z-]+)`\][^|]*\|\s*([^|]+?)\s*\|/g)) mandates[m[1]] = m[2];
+    for (const m of need('The roster').matchAll(/\|\s*\[`([^`]+)`\][^|]*\|\s*(.+?)\s*\|\s*$/gm)) {
+        mandates[m[1]] = m[2];
+    }
+    for (const s of skills) {
+        if (!mandates[s.id]) throw new Error(`${readmePath}: no roster mandate for "${s.id}"`);
+    }
 
     const OPEN = ['First principles', 'Standards', 'Failure mode'];
     const OPS = ['When to invoke', 'Protocol', 'Boundaries'];
 
     const renderSec = (s, name) => {
-        const body = s.secs[name];
-        if (!body) return '';
-        const inner = md(body, { olClass: name === 'Standards' ? 'statute' : '' });
+        const where = `${s.id}/SKILL.md §${name}`;
+        const inner = md(s.secs[name], { olClass: name === 'Standards' ? 'statute' : '', where });
         const mod = name === 'Failure mode' ? ' block--failure' : '';
         return `<section class="block${mod}"><h4 class="block__h">${esc(name)}</h4>${inner}</section>`;
     };
@@ -153,13 +258,13 @@ export function renderDisciplineDocs() {
         const n = String(i + 1).padStart(2, '0');
         return `<article class="disc" id="${s.id}">
       <header class="disc__head">
-        <p class="eyebrow"><span class="num">${n}</span><code>${s.id}</code></p>
+        <p class="eyebrow"><span class="num">${n}</span><code>${esc(s.id)}</code></p>
         <h3 class="disc__title">${esc(s.title)}</h3>
         ${s.tagline ? `<p class="disc__tag">${esc(s.tagline)}</p>` : ''}
-        <p class="disc__mandate">${inline(s.lead.split('\n\n')[0].replace(/\s+/g, ' '))}</p>
+        <p class="disc__mandate">${inline(s.lead.replace(/\s+/g, ' '))}</p>
       </header>
       <details class="q"><summary>The elicitation question <span class="q__note">(scaffolding — discarded)</span></summary>
-        ${md(s.secs['The question'] || '')}
+        ${md(s.secs['The question'], { where: `${s.id}/SKILL.md §The question` })}
       </details>
       ${OPEN.map(name => renderSec(s, name)).join('')}
       <details class="ops"><summary>Operational detail — when to invoke, protocol, boundaries</summary>
@@ -169,17 +274,22 @@ export function renderDisciplineDocs() {
     }).join('\n');
 
     const roster = skills.map((s, i) => `<li class="roster__item">
-    <a href="#${s.id}"><span class="roster__n">${String(i + 1).padStart(2, '0')}</span><code>${s.id}</code></a>
-    <p>${inline(mandates[s.id] || '')}</p>
+    <a href="#${s.id}"><span class="roster__n">${String(i + 1).padStart(2, '0')}</span><code>${esc(s.id)}</code></a>
+    <p>${inline(mandates[s.id])}</p>
   </li>`).join('');
 
     const nav = skills.map((s, i) =>
-        `<li><a href="#${s.id}"><span>${String(i + 1).padStart(2, '0')}</span>${s.id}</a></li>`).join('');
+        `<li><a href="#${s.id}"><span>${String(i + 1).padStart(2, '0')}</span>${esc(s.id)}</a></li>`).join('');
 
-    return `<!-- GENERATED by tools/gen-discipline-docs.mjs from
+    return `<!doctype html>
+<!-- GENERATED by tools/gen-discipline-docs.mjs from
      .claude/skills/<id>/SKILL.md and .claude/skills/README.md.
      Do not hand-edit: run \`npm run docs:disciplines\` after changing a
      SKILL.md. tests/discipline-docs.test.mjs fails on drift. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dev-process discipline standards — X-Ray</title>
 <style>
 :root{
@@ -304,7 +414,8 @@ footer code{font-size:12px}
 }
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
-
+</head>
+<body>
 <div class="wrap">
 <header class="mast">
   <p class="mast__eyebrow">X-Ray · dev-process disciplines</p>
@@ -360,7 +471,7 @@ footer code{font-size:12px}
 
 <section class="sec" id="preflight">
   <h2>Release preflight — the shared ordering</h2>
-  ${md(preflight)}
+  ${md(preflight, { where: `${readmePath} §Release preflight` })}
 </section>
 
 <section class="sec" id="seams">
@@ -368,7 +479,7 @@ footer code{font-size:12px}
   <p>Where two skills touch, one owns the ruling and the other cites it. These were set by a cross-skill
   consistency review that found the drafts triplicating wire-format review, running two contradictory
   automation ladders, and keeping two verification-debt ledgers.</p>
-  ${md(seams)}
+  ${md(seams, { where: `${readmePath} §Seams` })}
 </section>
 
 <section class="sec">
@@ -387,6 +498,8 @@ ${discs}
 </main>
 </div>
 </div>
+</body>
+</html>
 `;
 }
 

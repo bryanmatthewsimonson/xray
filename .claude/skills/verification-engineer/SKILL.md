@@ -143,7 +143,7 @@ observe, and hunting the gap.
    docs/ROADMAP.md and CLAUDE.md both advertised them as pending,
    and the stale claim propagated into three of these skills before
    the maintainer corrected it (2026-08-02). So the ledger records
-   walks *performed*, dated, not merely walks owed: completion is
+   walks **performed**, dated, not merely walks owed: completion is
    the entry, and an empty ledger means nothing was walked, never
    that nothing is outstanding. Tagging a release while debt is
    pending requires an explicit acceptance line in the CHANGELOG.md
