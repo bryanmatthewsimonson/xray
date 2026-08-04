@@ -18,7 +18,7 @@ modules still carry userscript-era idioms (see Conventions).
 npm install            # required first — a fresh clone has no node_modules
 npm run build          # esbuild → dist/*.bundle.js (+ .map). No transpile step.
 npm run watch          # incremental rebuild
-npm test               # node --test tests/*.test.mjs  (2100 tests, must be green)
+npm test               # node --test tests/*.test.mjs  (~2500 tests, must be green)
 npm run lint           # web-ext lint --self-hosted (what CI gates on)
 npm run version:set X  # bump package.json + manifest.json in lockstep
 npm run clean          # rm -rf dist
@@ -250,6 +250,60 @@ tested contract, not an aspiration.
 
 ## Project docs (read these for non-trivial work)
 
+- **`docs/CONSTITUTION.md`** — the **supreme normative document**
+  (v1.0.0, drafted 2026-07-22; ratified by maintainer merge, Art. 14).
+  Consult it before any structural,
+  normative, scoring, schema, or wire-format change anywhere in the
+  project. Citation convention (binding): bare `P<n>` refers only to
+  PHILOSOPHY.md; constitution articles are cited `CONSTITUTION
+  Art. <n>`; every other doc's principle is cited `<DOC> §<n>`. Key
+  articles: Art. 3 (exposure never deletion), Art. 5 (licensed
+  estimation — the five-condition test any estimate/aggregate must
+  pass), Art. 6 (never-merge firewall), Art. 7 (criticism targets
+  behaviors/claims/artifacts, never identities), Art. 8 (operator
+  accountability — strictest degree, on the published record, never a
+  gate on truth pursuit), Art. 9 (discipline standards derived from
+  first principles), Art. 13 (three-tier
+  amendment). Machine-checked by `tests/constitution-guards.test.mjs`
+  — a red guard is a bug or an unratified amendment; keep it green.
+- **`docs/DISCIPLINES.md`** — **Discipline Standards** (organic statute
+  under CONSTITUTION Art. 9): fifteen disciplines, each with standards
+  **derived from first principles** (§0 documents the method that
+  produced PHILOSOPHY.md — the idealized-practitioner question is
+  elicitation scaffolding, never the deliverable), its failure mode
+  and countervailing standard, and its codification status. Forensic
+  accounting is the one named gap; the advisory operator seed is
+  `respectGate`. **Before adding or editing any LLM prompt, read the
+  governing discipline's section and name it in the file header**
+  (`// Standards: <id> — docs/DISCIPLINES.md §n.`) —
+  `tests/disciplines.test.mjs` fails any "You are" prompt file without
+  one.
+- **`.claude/skills/`** — eight of the nine skills here are the
+  **dev-process** disciplines (distinct from DISCIPLINES.md, which
+  governs the disciplines the *product* draws on); the ninth,
+  `xray-capture`, is an operational skill that drives the loaded
+  extension through the claude-in-chrome connector to capture URLs.
+  The disciplines — `product-manager`, `architect`,
+  `continuous-improvement`, `automator`, `ecosystem-pm`,
+  `verification-engineer`, `security-threat-modeler`,
+  `schema-evolution` — are written in the same §0 method. Each produces
+  a review report; the maintainer decides and merges (Art. 11), and
+  nothing is merge-blocking until a standard graduates to a guard test
+  by its own clause. `.claude/skills/README.md` carries the trigger
+  routing, the shared release-preflight ordering, and the seam map
+  (who owns a contested call — e.g. `ecosystem-pm` declares the
+  canonical `Wire format:` PR callout). Read the governing skill before
+  a wire change, a schema change, a new surface, or a release tag.
+  `docs/discipline-standards.html` renders all eight on one page
+  (GENERATED — `npm run docs:disciplines`, drift-guarded by
+  `tests/discipline-docs.test.mjs`).
+- **`docs/TRUTH_SYSTEMS.md`** — the constitution's evidentiary annex:
+  16 truth-adjudication systems surveyed, invariants I-1–I-18 (the gap
+  list is the constitutional roadmap-seed registry), subversion modes
+  S-1–S-9 with residual risks stated honestly, the seven-constraint
+  §3.3 bridging license (what CONSTITUTION Art. 5.5 adopts), and the
+  honest-limits clauses H-1–H-7 (including H-7, the persuasion line:
+  make honesty louder, never make loudness a method).
 - **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 28
   (v0.7.0 tagged 2026-07-16 — the first GitHub Release since v0.5.1; see
   CONTRIBUTING for the tag-driven release process). Complete and merged:
@@ -327,8 +381,8 @@ tested contract, not an aspiration.
   entry has been submitted (deadline was 2026-07-19); the tool continues
   to be tailored **maintainer-driven from real casework (COVID first)**.
   The 0.8.0 smoke walk passed (2026-07-20; Phases 11–15
-  section walks completed then too); Phases 16 and 19 section walks
-  remain pending — manual, need a human with a browser.
+  section walks completed then too), and the Phases 16 and 19 section
+  walks are complete as well — no section walk is outstanding.
 - **`docs/JOURNAL.md`** — chronological log of bugs, design decisions, and
   external-platform changes. **Add a tight entry** when fixing a non-obvious
   bug, making a second-guessable design choice, or working around a
@@ -338,20 +392,24 @@ tested contract, not an aspiration.
 - **`docs/CAPTURE_GUIDE.md`** — per-platform URL-shape/timing requirements
   (FB/IG/TikTok are finicky).
 - **`docs/NIP_DRAFT.md`** — the crowdsourced-metadata wire format.
-- **`docs/PHILOSOPHY.md`** — the **normative** constitution of the
-  Phase-13 epistemic auditor (v1.1.0 — the 2026-08-02 amendments
-  removed the standing re-audit cadence and narrowed the P10
-  self-dossier clause). Consult it before any structural, scoring,
+- **`docs/PHILOSOPHY.md`** — the **organic statute of the audit
+  family** (v1.2.0, under `docs/CONSTITUTION.md`; the 2026-08-02
+  amendments removed the standing re-audit cadence, narrowed the P10
+  self-dossier clause, and — the §13 concord — seated the family
+  under the constitution). Consult it before any structural, scoring,
   schema, or methodology change to audit surfaces; when code and it
   conflict, it governs until amended — and amending it to fit reality
   is normal, not sacrilege (the maintainer: this is an experiment in
   modeling reality, not received wisdom). When two of its principles
   conflict, document the tension and cite them by number (e.g. "P9
   over convenience"). Scope note: it governs ONLY the audit family
-  (`30056`–`30061`) — never treat it as a repo-wide constitution;
-  Phase 15 truth verdicts operate under
-  `TRUTH_ADJUDICATION_DESIGN.md`'s own form-of-judgment (§1/§5)
-  — deliberately no 0–100 score or knowability ceiling there.
+  (`30056`–`30061`) — it is not the repo-wide constitution, and never
+  was; project-wide law (universal principles, licensed estimation,
+  the never-merge firewall, operator accountability) lives in
+  `docs/CONSTITUTION.md`. Phase 15 truth verdicts operate under
+  `TRUTH_ADJUDICATION_DESIGN.md`'s own form-of-judgment (§1/§5, its
+  sibling statute) — deliberately no 0–100 score or knowability
+  ceiling there.
 - **`docs/TRUTH_INFRASTRUCTURE.md`** — **non-normative** expansion
   map: the portable "truth infrastructure" framework (five
   strategies — the fifth kept as process, with only the computed
@@ -362,8 +420,8 @@ tested contract, not an aspiration.
   mapped to shipped features, parked designs
   (`docs/BONDING_NOTES.md`), refusals, and the sibling projects
   (crux; Honor). `docs/PHILOSOPHY.md` governs wherever it touches
-  audit surfaces; cites the in-flight Truth Systems annex (PR #263)
-  in prose without depending on it.
+  audit surfaces; cites the Truth Systems annex
+  (`docs/TRUTH_SYSTEMS.md`) as "TS §n", by relative link.
 - **`docs/FOUNDING_TRANSCRIPT.md`** — the founding conversation's
   verbatim source prose (non-normative; PHILOSOPHY.md and the RQ
   decisions govern on conflict). Its supersession log records which

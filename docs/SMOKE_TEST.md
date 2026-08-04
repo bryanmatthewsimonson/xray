@@ -535,8 +535,9 @@ deletes, or writes the local publish ledger.
 
 ## Phase 13 — Epistemic audits
 
-The audit pipeline (docs/EPISTEMIC_AUDIT_DESIGN.md, normative
-constitution docs/PHILOSOPHY.md). Needs one captured article and the
+The audit pipeline (docs/EPISTEMIC_AUDIT_DESIGN.md; organic statute
+docs/PHILOSOPHY.md, under docs/CONSTITUTION.md). Needs one captured
+article and the
 companion scorer CLI (`docs/auditor-prototype/scorer/` — an Anthropic
 API key and a few cents per run). Publishing is **off by default**;
 everything before 13.13 below must work with the flag off.

@@ -36,7 +36,8 @@ for (const [file, mod] of Object.entries(MAP)) {
     body += `    ${mod}:\n${toTemplate(instructions)},\n\n`;
 }
 
-const header = `// X-Ray — vendored per-module audit methodology prompts.
+const header = `// Standards: journalism-audit — docs/DISCIPLINES.md §2.
+// X-Ray — vendored per-module audit methodology prompts.
 //
 // GENERATED, verbatim, from docs/auditor-prototype/prompts/01-08 and
 // prompts/opinion/op1-op6 (the

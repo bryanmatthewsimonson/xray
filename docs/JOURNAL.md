@@ -19,6 +19,308 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-04 — The discipline doc is generated, and drift-guarded
+
+**Tags:** design
+
+`docs/discipline-standards.html` renders all eight dev-process
+disciplines on one page — every standard, the seam map, the
+release-preflight ordering — from `tools/gen-discipline-docs.mjs`
+(`npm run docs:disciplines`). It is committed, following the
+`tools/gen-module-prompts.mjs` precedent for generated-and-committed
+artifacts, and carries the same loud GENERATED header.
+
+The reason it is generated rather than written: the skills had just
+been corrected for carrying a stale claim three documents repeated for
+weeks (entry below). A hand-maintained companion document describing
+eight files that change independently is that same defect with a
+longer fuse. So `tests/discipline-docs.test.mjs` asserts the committed
+file equals a fresh render — a skill edit without a regen fails the
+suite with the exact command to fix it. Verified by probe, not by
+assumption: editing a SKILL.md made the guard fail, and reverting made
+it pass. This is `automator`'s positive-sanity rule (a check must prove
+it still sees its target) applied to the check on its first day.
+
+The byte-exact comparison is safe only because `.gitattributes`
+already pins `*.html text eol=lf`. Without it a `core.autocrlf=true`
+checkout — the setting on the maintainer's box — would smudge the
+committed file to CRLF while the renderer emits LF, and the guard
+would fail on Windows while passing in CI. That rule was added for the
+audit-article-hash test; it silently protects this too, and the test
+comment records the coupling so a future relaxation does not reopen it.
+
+Also: `CLAUDE.md` gained a `.claude/skills/` entry, since agents boot
+from it and a discipline nobody discovers is not a discipline.
+
+## 2026-08-04 — Merge authority waived for PRs #306 and #307, on the record
+
+**Tags:** design
+
+CONSTITUTION Art. 11 and `CONTRIBUTING.md` both state that the
+maintainer alone merges and that agents never do. The maintainer
+instead reviewed PR #306 and instructed the agent to merge it, which
+the agent did (`6c498e6`), then did the same for PR #307 — the PR
+carrying this entry.
+
+Recorded rather than resolved silently, per Art. 11's own
+decision-recording clause. The reading applied: Art. 11's substance is
+that normative change requires human ratification, and an explicit
+post-review instruction from the maintainer IS that ratification — the
+button press is mechanical execution of a decision already made. The
+letter of the article ("agents never merge") was nonetheless waived,
+which is worth knowing because the merged PR is the one encoding that
+same never-merge rule into eight skill files.
+
+Scope: each waiver is per-PR and does not generalize — but note that
+there are now two, on consecutive PRs, which is how a per-PR
+exception becomes a de facto practice without anyone deciding to
+change the rule. If agent-merging is meant to be the norm, Art. 11
+and `CONTRIBUTING.md` should be amended to say so (Tier 1) rather
+than accumulating exceptions against them. Until then the default
+stands — agents author, the maintainer merges — and nothing in the
+skills was changed to reflect either waiver.
+
+## 2026-08-02 — The Phase 16/19 walks were done; only the docs said otherwise
+
+**Tags:** pattern
+
+`docs/ROADMAP.md` and `CLAUDE.md` both advertised the Phase 16 and 19
+section walks as "pending — manual, needing a human with a browser."
+The maintainer had run them well before; nobody recorded it. Corrected
+in both files; no section walk is outstanding. The same sweep found
+the ROADMAP phase table contradicting its own summary paragraph —
+rows for Phases 11, 12, and 15 still read "smoke-run pending" while
+the paragraph twenty lines below recorded those walks as completed
+with the 0.8.0 walk on 2026-07-20. Rows corrected to match.
+
+The cost was not the wrong line — it was propagation. Between the
+2026-07-20 walk and this correction, the stale claim was read as
+current by every consumer that trusted it, and it seeded three of the
+new dev-process skills as their motivating example of validation debt
+(`verification-engineer` S8, `automator` S7, `product-manager` S5),
+plus a release-readiness summary. All corrected in the same PR as the
+skills themselves.
+
+**The pattern worth keeping: a completed manual step that goes
+unrecorded is indistinguishable from one never performed**, and the
+failure is silent in the safe-looking direction — the docs overstate
+debt, so the correction only arrives when someone is annoyed enough to
+push back. This is the derivation for `verification-engineer`'s walk
+ledger, which was accordingly rewritten to record walks *performed*
+with dates rather than walks owed: an empty ledger now means nothing
+was walked, never that nothing is outstanding. `product-manager`'s
+sweep reads that ledger, and where a ROADMAP marker disagrees with it
+the ledger wins and the marker is a defect to file, not evidence.
+
+## 2026-08-02 — Dev-process discipline skills (`.claude/skills/`)
+
+**Tags:** design
+
+Eight review disciplines for **how the software gets built**, written
+in the `docs/DISCIPLINES.md` §0 method and installed as Claude Code
+skills: `product-manager`, `architect`, `continuous-improvement`,
+`automator`, `ecosystem-pm` (the five the maintainer named), plus
+three the gap analysis argued for on repo evidence —
+`verification-engineer`, `security-threat-modeler`,
+`schema-evolution`. `.claude/skills/README.md` carries the roster, the
+trigger routing table, the shared release-preflight ordering, and the
+seam map.
+
+**Why these three.** Verification: the dangerous defect classes live
+outside the unit suite's reach — MV3 teardown (2026-07-09, 2026-07-18),
+a false "published" stamp only a browser walk saw (2026-08-02), the
+AssemblyAI hard-deprecation found on first live smoke (2026-08-02),
+quarterly platform DOM rot (2026-04-19) — and verification is the
+binding constraint when agents author faster than one human verifies.
+Security: keys in `chrome.storage`, MAIN-world injection on
+`<all_urls>`, CSP stripping, and now audio + API keys to cloud
+providers, with no threat-model document; the bundle-import
+`keyName` bug (2026-06-10) was exfiltration-class. Schema evolution:
+`xray-audits` is at v7 with real migration incidents recorded
+(2026-07-10, 2026-07-19, 2026-07-20) and casework corpora that cannot
+be re-created.
+
+**Not the College of Personas.** That draft was killed 2026-07-22 for
+reifying the scaffolding — eighteen anthropomorphized offices with a
+check-graph standing in for standards. Here the standards are the
+deliverable, the role name is only the invocation handle, and there
+is no check-graph, quorum, or office with authority. Every skill
+outputs a review report; the maintainer decides and merges (Art. 11).
+These are Tier-3 process tooling, not normative product law: they
+govern the engineering process, while `docs/DISCIPLINES.md` governs
+the disciplines the product draws on. Advisory by default — nothing
+blocks a merge until a standard graduates to a guard test by its own
+explicit clause (the Art. 8.6 posture applied to process).
+
+**Cross-skill seams were the real work.** A consistency review found
+the drafts triplicating wire-format review, running two contradictory
+automation ladders, and keeping two verification-debt ledgers.
+Resolved by ownership rulings recorded in the README: `ecosystem-pm`
+declares the one canonical `Wire format:` PR callout literal;
+`automator` owns the ladder and thresholds; `verification-engineer`
+owns the debt ledger and the smoke-step vocabulary; the reserved and
+retired kind numbers are cited from CONSTITUTION Art. 10 and never
+restated, because restated subsets drift.
+
+Derived from research the maintainer did not have to supervise, so
+the standards are only as good as their first casework contact —
+they bind from this commit and get amended when reality disagrees.
+
+## 2026-08-02 — Discipline standards, derived from first principles
+
+**Tags:** design
+
+`docs/DISCIPLINES.md` v1.0.0 — the second constitutional document
+(CONSTITUTION Art. 9's organic statute). Fifteen disciplines, each
+with the §0 method applied: the idealized-practitioner question
+("pretend you are the editor of the most prestigious news
+organization of all time — how did you do it?") used as elicitation
+scaffolding, the first principles extracted, the standards codified,
+the failure mode named beside its countervailing standard. For
+disciplines already codified (PHILOSOPHY, TRUTH_ADJUDICATION,
+CRIMINOLOGY, HYPOTHESIS_MAP, MORAL_LENS), the section records the
+derivation and points at the statute; for the rest, the standards
+bind from this document.
+
+This entry supersedes an earlier draft of the same PR that chartered
+a "College of Personas" — eighteen anthropomorphized offices with a
+check-graph. Maintainer review (2026-07-22): the college reified the
+scaffolding; the deliverable was always the standards, the way
+PHILOSOPHY.md was actually derived. Kept from that draft, because
+they were standards all along: the failure-mode-plus-counter
+discipline (no discipline exempts itself), the never-merge ownership
+mapping, and the prompt-file self-registration (now `// Standards:`
+headers, 8 files, enforced by `tests/disciplines.test.mjs`). Also
+kept: forensic accounting specified before it is built — the
+inflation mandate is prosecuted UNDER the money standards
+(unit/baseline/counterparty, base rates before accusations), never
+assumed by them, so the mandate's own confirmation-bias risk has a
+named counter before any code exists. The advisory operator seed
+(`respectGate`) stays; the plank-check seed was dropped with the
+Art. 8 de-gating (see the constitution entry below).
+
+Reconciled 2026-08-02 against the post-opinion-family main (drafted
+2026-07-23 on the constitution chain): the Standards header is now
+EMITTED by `tools/gen-module-prompts.mjs` — module-prompts.js is
+generated, and a hand-placed line would die at the next regen — and
+§2's standards/status paragraphs cover the two-family module set
+(eight news + six opinion methodologies, family dispatch on
+`source_type`, the OQ.2 premise-verifiability ceiling as a licensed
+estimation beside the news knowability ceiling). The eight registered
+prompt files are unchanged — no new "You are" site appeared between
+draft and landing. Files: `docs/DISCIPLINES.md`,
+`tests/disciplines.test.mjs`, Standards headers in the eight prompt
+files, `tools/gen-module-prompts.mjs`, `CLAUDE.md`.
+
+## 2026-08-02 — The truth-systems annex lands (the comparative foundation)
+
+**Tags:** design
+
+`docs/TRUTH_SYSTEMS.md` v1.0.0 — the answer to the maintainer's
+question, "what do all of the systems in the world for attempting to
+adjudicate truth have in common?" Sixteen systems (courts through the
+NTSB), distilled into eighteen invariants each mapped to X-Ray's
+implementation status; the gap list is now the constitutional
+roadmap-seed registry (right-of-reply + notice-disclosure ranked the
+largest ethical gap; adversarial collaboration and the symmetry
+self-test corpus the most novel builds). Nine subversion modes with
+residual risks stated honestly — including the ones we cannot fix
+(readers fuse counts in their heads; tier-1 forgery is survivable,
+not detectable; a single-LLM-provider dependency shapes proposals).
+
+The load-bearing piece is §3.3, which CONSTITUTION Art. 5.5 adopts:
+the seven-constraint bridging license. The 2026-07-03 kill rejected
+computed *authority*; §3.3 draws the bright line that computed
+*measurement of the disagreement structure* (Community-Notes-shaped,
+roster-scoped, distribution-not-number, dormant below a disclosed
+data threshold) is the two-witness independence rule computed at
+scale — admissible as future proposals, never as auto-verdicts. Also
+adopted: the H-1–H-7 honest-limits clauses, including H-7's
+persuasion line ("making honesty louder, never making loudness a
+method"). Drafted 2026-07-22 on the constitution chain; landed
+2026-08-02, entering the Concord Schedule on this merge (Art. 14).
+The same PR fulfills the standalone-ship entry's promise below:
+`TRUTH_INFRASTRUCTURE.md`'s prose citations ("TS §n (PR #263)") swap
+to relative links now that the annex is in-tree. Files:
+`docs/TRUTH_SYSTEMS.md`, `tests/constitution-guards.test.mjs` (annex
+cross-reference guard), `docs/TRUTH_INFRASTRUCTURE.md` (citation
+swap), `CLAUDE.md`.
+
+## 2026-08-02 — The constitution is ratified; the aggregation kill is narrowed
+
+**Tags:** design
+
+`docs/CONSTITUTION.md` v1.0.0 lands as the supreme normative document,
+prompted by the maintainer's full mandate statement (abolish lies by
+exposure never deletion; bind the operator first). What it writes down
+already existed: since Phase 15 every judgment design has cited an
+unwritten bundle (`PHILOSOPHY.md` + `TRUTH_ADJUDICATION §1/§5` +
+`CASE_DOSSIER §2.2`) as "the epistemic constitution" — two spines,
+never federated. The constitution federates them by supremacy, not by
+picking a winner: PHILOSOPHY.md becomes the audit family's organic
+statute (v1.2.0 — the §13 concord, composing with the same-day
+v1.1.0 narrowings; P1–P12 text untouched, all src P-citations still
+valid), TRUTH_ADJUDICATION §1/§5 the truth family's,
+and Art. 5 elevates §1's estimation-license test project-wide.
+
+**The second-guessable call: Art. 5 narrows the 2026-07-03 consensus
+kill.** That kill's breadth ("aggregation/web-of-trust/bridging … not
+being pursued") had hardened into a doctrine the maintainer never
+intended — "no aggregation, ever" — when the audit's own 0–100 was
+always a licensed crude estimate. Under the 2026-07-08 precedent
+(killed plans are re-arguable on merits), estimates and cross-author
+aggregates are now lawful as **instruments** passing five conditions
+(declared / derived-in-the-open / spread-shown / stakes-bounded /
+firewall-respecting) and remain forbidden as **verdicts**. Computed
+*authority* stays dead; computed *measurement of the disagreement
+structure* (bridging-style, roster-scoped) re-enters the design space
+as proposals only. The kill entry stands, visible; this entry narrows
+it, per Art. 11.
+
+Register decision (maintainer, 2026-07-22): universal operative text,
+roots credited by name — Art. 8 names Matthew 7:1–5 as its derivation;
+obligations bind identically under any worldview.
+
+Revised pre-ratification on maintainer review (2026-07-22): the first
+draft's Art. 8 ("the plank protocol") gated publication on
+self-audit obligations — impractical as a gate for auditing truth; an
+obstacle that heavy would stop meaningful truth pursuit. Art. 8 is now
+gateless operator *accountability* (disclosure attaches to publishes,
+corrections at operator grade, same instruments on the operator's
+published record, ties resolve against the operator), and the
+designated self-examination instrument is the moral lens applied to
+one's own corpus (Phase 16 lineage), later. Likewise Art. 9 was
+redrawn from "the college of personas" to **discipline standards
+derived from first principles** — the persona question ("the best
+editor of all time — how did you do it?") is elicitation scaffolding,
+the way PHILOSOPHY.md was actually derived; the deliverable is the
+standards, not the college.
+
+Reconciled 2026-08-02, pre-ratification, against the main that had
+moved since the 2026-07-23 draft (the founding-transcript vendoring,
+the PHILOSOPHY v1.1.0 narrowings, the opinion module family, MA.6's
+kind 30070): the concord renumbered v1.1.0 → v1.2.0 (main took
+v1.1.0 first); Art. 10's kind table gains the 30070 row; Art. 5.3's
+audit-score precedent restated two-family (news knowability ceiling /
+opinion premise-verifiability ceiling, shared axis, never averaged);
+Art. 2 names the non-normative tier (`FOUNDING_TRANSCRIPT.md` with
+its supersession log, `TRUTH_INFRASTRUCTURE.md`, `VISION.md` when it
+exists); Art. 13 Tier 2 recognizes §13-style logged amendments as the
+statutes' own organs. No article's operative content changed in
+reconciliation.
+
+Files: `docs/CONSTITUTION.md` (new), `docs/PHILOSOPHY.md` (v1.2.0
+concord), `docs/TRUTH_ADJUDICATION_DESIGN.md` (concord status line),
+`docs/CASE_SYNTHESIS_DESIGN.md` (P5→P8 citation drift fixed),
+`docs/COUNTERFACTUAL_DESIGN.md` (amend-the-constitution → must-pass-
+Art.-5), `docs/SMOKE_TEST.md`, `CLAUDE.md`, `CONTRIBUTING.md`
+(Governance section — merge authority written down for the first
+time), `docs/ROADMAP.md`, `tests/constitution-guards.test.mjs` (new).
+So-what: consult the constitution before any normative change; a red
+constitution guard is a bug or an unratified amendment, never a test
+to "fix". Annexes (`DISCIPLINES.md`, `TRUTH_SYSTEMS.md`) follow in
+their own PRs and enter the Concord Schedule on adoption.
+
 ## 2026-08-02 — torch cu130 broke ctranslate2; one process, one cuDNN
 
 **Tags:** bug external
