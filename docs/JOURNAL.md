@@ -52,14 +52,15 @@ comment records the coupling so a future relaxation does not reopen it.
 Also: `CLAUDE.md` gained a `.claude/skills/` entry, since agents boot
 from it and a discipline nobody discovers is not a discipline.
 
-## 2026-08-04 — Merge authority waived for PR #306, on the record
+## 2026-08-04 — Merge authority waived for PRs #306 and #307, on the record
 
 **Tags:** design
 
 CONSTITUTION Art. 11 and `CONTRIBUTING.md` both state that the
 maintainer alone merges and that agents never do. The maintainer
 instead reviewed PR #306 and instructed the agent to merge it, which
-the agent did (`6c498e6`).
+the agent did (`6c498e6`), then did the same for PR #307 — the PR
+carrying this entry.
 
 Recorded rather than resolved silently, per Art. 11's own
 decision-recording clause. The reading applied: Art. 11's substance is
@@ -70,9 +71,14 @@ letter of the article ("agents never merge") was nonetheless waived,
 which is worth knowing because the merged PR is the one encoding that
 same never-merge rule into eight skill files.
 
-Scope: this waiver is per-PR and does not generalize. The default
+Scope: each waiver is per-PR and does not generalize — but note that
+there are now two, on consecutive PRs, which is how a per-PR
+exception becomes a de facto practice without anyone deciding to
+change the rule. If agent-merging is meant to be the norm, Art. 11
+and `CONTRIBUTING.md` should be amended to say so (Tier 1) rather
+than accumulating exceptions against them. Until then the default
 stands — agents author, the maintainer merges — and nothing in the
-skills was changed to reflect the waiver.
+skills was changed to reflect either waiver.
 
 ## 2026-08-02 — The Phase 16/19 walks were done; only the docs said otherwise
 
