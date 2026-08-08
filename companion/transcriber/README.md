@@ -91,6 +91,27 @@ engine you use.
    additionally downloads ~3.5 GB of models (Whisper large-v3, the align
    model, the diarization pipeline); they are cached forever after that.
 
+## Stopping it
+
+It runs in the foreground, so **`Ctrl+C` in its window** stops it —
+closing the window does the same. There is deliberately no shutdown
+endpoint: nothing that can reach loopback should be able to kill the
+service.
+
+If it is running detached and you have no window for it, stop whatever
+holds the port:
+
+```
+powershell -Command "Get-NetTCPConnection -LocalPort 8756 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }"
+```
+
+Stopping mid-job abandons that job — cancel it in the reader first, or
+expect to re-run it. Finished results survive a restart; they live in
+`%LOCALAPPDATA%\xray-transcriber\jobs\`.
+
+The extension notices within a few seconds either way: Options →
+Advanced → Transcription turns red on its own, with the restart command.
+
 ## Verify
 
 ```

@@ -269,7 +269,9 @@ command set; macOS gets CPU-only PyTorch and no NVIDIA wheels.
 5. **Start it** — `uv run xray-transcriber`, or double-click
    `start-transcriber.bat`. Leave the window open; it runs in the
    foreground. The extension **cannot start it for you** — browser
-   extensions can't launch programs.
+   extensions can't launch programs. **To stop it, press `Ctrl+C` in
+   that window** (or close the window); there is no stop button in the
+   extension, for the same reason.
 6. **Turn the feature on** — Settings → Advanced → Transcription, check
    *Enable "Transcribe" for YouTube captures*. It's off by default, so
    nothing appears in the reader until you do.

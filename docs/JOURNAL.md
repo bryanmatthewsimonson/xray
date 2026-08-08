@@ -19,6 +19,46 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-08 — The companion panel's first real use, and what it exposed
+
+**Tags:** pattern
+
+Walked against a live service the same day it merged: green with the
+engine line while running; on `taskkill` the panel went red **on its
+own within ~5s, with no page reload or click**, showing the numbered
+steps and the copyable command; green again on restart. That
+transition is the whole point — going stale is exactly what the old
+one-shot check did — so it now has repeatable rows in
+docs/SMOKE_TEST.md (§Companion status panel, C.1–C.7) rather than
+living only in a session transcript. The service log shows the poll as
+a steady run of `GET /health 200` from rotating ephemeral ports, which
+is the liveness evidence unit tests structurally cannot produce.
+
+**Two doc defects surfaced within minutes of first use, both from the
+maintainer acting as a first-time user of his own feature.**
+
+1. *"How do I stop the transcriber service? That does not seem to be in
+   the readme."* It wasn't — the companion README documented start and
+   never stop, and there is deliberately no shutdown endpoint (nothing
+   that can reach loopback should be able to kill the service). Now
+   documented in both the README and USER_GUIDE §2.7, including the
+   detached case and the abandoned-job caveat.
+2. The **Companion auth token** field had been filled with a Hugging
+   Face token. The old label — "optional — only if the service sets
+   TRANSCRIBER_TOKEN" — reads as *a token field*, and the page has two
+   other token fields directly above it. It happened to be harmless
+   (no `TRANSCRIBER_TOKEN` was set, so the header was ignored) but it
+   sent an HF token to a service that had no use for it. Relabelled to
+   lead with "leave blank", with a hint naming what it is *not*.
+
+The pattern worth keeping: **a feature built to make setup legible was
+itself the thing that made two setup defects legible** — and both were
+found by using it, not by reviewing it. Neither would have been caught
+by any test in this repo. That is the argument for the
+verification-engineer standard that a walk is a layer, not a
+formality; the counter-argument to it is that these were found in
+minutes, which is exactly how cheap the layer is.
+
 ## 2026-08-08 — Live companion status, and the /health lie it has to avoid
 
 **Tags:** design

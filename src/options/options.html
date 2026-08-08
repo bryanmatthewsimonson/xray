@@ -620,8 +620,14 @@
                placeholder="8756" />
       </label>
       <label class="xr-opt__field">
-        <span>Companion auth token (optional — only if the service sets TRANSCRIBER_TOKEN)</span>
-        <input type="text" id="pref-transcriber-token" placeholder="leave blank unless configured" />
+        <span>Companion auth token — leave blank unless you set TRANSCRIBER_TOKEN on the service</span>
+        <input type="text" id="pref-transcriber-token" placeholder="almost always blank" />
+        <span class="xr-opt__hint">
+          Not your Hugging Face or provider key. This is only the shared
+          secret the companion's own <code>TRANSCRIBER_TOKEN</code> sets,
+          if you set one — <code>HF_TOKEN</code> is an environment
+          variable on the service, and cloud keys go in the fields above.
+        </span>
       </label>
       <p class="xr-opt__field xr-opt__field--inline">
         <button class="xr-opt__btn" id="transcriber-check" type="button"
