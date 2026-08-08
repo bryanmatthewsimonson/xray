@@ -863,7 +863,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'xray:transcribe:ping') {
         (async () => {
             const port = await getTranscriberPort();
-            sendResponse(await pingTranscriber({ port }));
+            // probeAuth is opt-in: the Options panel asks for it when
+            // reachability CHANGES, not on every poll tick, so the
+            // extra request stays rare.
+            sendResponse(await pingTranscriber({ port, probeAuth: message.probeAuth === true }));
         })().catch((err) => sendResponse({ ok: false, error: (err && err.message) || 'ping failed' }));
         return true; // async sendResponse
     }

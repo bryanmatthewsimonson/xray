@@ -13,6 +13,7 @@ import {
     ASSEMBLYAI_KEY_STORAGE, DEEPGRAM_KEY_STORAGE, normalizeEngine,
     LMSTUDIO_URL_STORAGE, LMSTUDIO_MODEL_STORAGE, sanitizePort, loopbackUrl
 } from '../shared/transcriber-client.js';
+import { deriveCompanionState } from '../shared/companion-status.js';
 import { formatBuildInfo } from '../shared/build-info.js';
 import {
     LLM_MODELS, DEFAULT_LLM_MODEL, resolveModel, LLM_KEY_STORAGE, LLM_MODEL_STORAGE,
@@ -1216,7 +1217,7 @@ async function loadAdvanced() {
     setKeyStatus('dg-key-status', (await llmRawGet(DEEPGRAM_KEY_STORAGE)).length > 0);
     document.getElementById('pref-aai-key').value = '';
     document.getElementById('pref-dg-key').value = '';
-    setupTranscriberCheck();
+    setupCompanionStatus();
     document.getElementById('pref-lmstudio-url').value = await llmRawGet(LMSTUDIO_URL_STORAGE);
     document.getElementById('pref-lmstudio-model').value = await llmRawGet(LMSTUDIO_MODEL_STORAGE);
 
@@ -1433,70 +1434,160 @@ function populateLlmModels() {
     }
 }
 
-// Transcriber engine status: ping the companion and show which engine
-// is active plus which providers have their API key set. The provider
-// and its keys are companion-side configuration (environment variables,
-// DELIBERATELY never extension storage — a compromised page must not be
-// able to read them) — this line is the extension's only window into
-// that config. Auto-runs when the Advanced tab loads (non-blocking);
-// the button re-probes on demand.
-function setupTranscriberCheck() {
-    const btn = document.getElementById('transcriber-check');
-    const status = document.getElementById('transcriber-check-status');
-    if (!btn || !status) return;
+// Companion service status — the live panel above the transcription
+// settings. Replaces the old one-shot "Check service" line, which
+// probed once at page load and then went stale: start the service and
+// the page kept insisting it was unreachable until you clicked.
+//
+// Shape: a persistent container repainted in place (never re-created,
+// or the aria-live announcement is lost — the #signing-active
+// precedent), driven by a sequential poll that runs only while the
+// Advanced tab is showing and the page is visible.
+//
+// The engine and its keys ARE extension storage now (the 2026-08-02
+// posture, docs/JOURNAL.md); /health tells us what the SERVICE would do
+// on its own, and deriveCompanionState reconciles the two so the panel
+// says which engine will actually run.
+const COMPANION_POLL_MS = 5000;   // > the 3000ms ping timeout, so probes cannot stack
 
-    const check = async () => {
-        btn.disabled = true;
-        status.textContent = 'Checking…';
-        try {
-            const resp = await browserApi.runtime.sendMessage({ type: 'xray:transcribe:ping' });
-            if (!resp || !resp.ok) {
-                status.textContent = (resp && resp.error) || 'Companion service not reachable.';
-                return;
-            }
-            const h = resp.health || {};
-            // Absent provider = an older companion build = local, the
-            // only engine that existed.
-            const provider = String(h.provider || 'local').toLowerCase();
-            const name = (p) => p === 'assemblyai' ? 'AssemblyAI' : p === 'deepgram' ? 'Deepgram' : 'local';
-            const bits = [`Connected (v${h.version || '?'}${h.device ? `, ${h.device}` : ''})`];
-            // The WHOLE hierarchy, truthfully: what this extension will
-            // ask for, and what the service falls back to when it
-            // doesn't ask (review finding: showing only the companion
-            // default read as "what jobs will run", which the
-            // extension's own preference can override).
-            const pref = document.getElementById('pref-transcribe-engine').value;
-            if (pref === 'ask') bits.push("this extension's engine: asked per video in the reader");
-            else if (pref) bits.push(`this extension's engine: ${name(pref)}`);
-            else bits.push(`no engine preference here — the companion default applies: ${name(provider)}`);
-            if (pref) bits.push(`companion default (used only when no engine is sent): ${name(provider)}`);
-            if (pref && pref !== 'ask' && h.request_provider !== true) {
-                bits.push('⚠ this companion build IGNORES per-job engine choice — update it (git pull + restart) or it will run its own default');
-            }
-            // Which engines the service COULD run (credential present) —
-            // booleans from /health, never the credentials themselves.
-            if (h.providers && typeof h.providers === 'object') {
-                const ready = [];
-                if ('local' in h.providers) ready.push(`local ${h.providers.local ? '✓' : '— no HF token'}`);
-                if ('assemblyai' in h.providers) ready.push(`AssemblyAI ${h.providers.assemblyai ? '✓ env key' : '— no env key'}`);
-                if ('deepgram' in h.providers) ready.push(`Deepgram ${h.providers.deepgram ? '✓ env key' : '— no env key'}`);
-                if (ready.length) bits.push(`service-side env keys: ${ready.join(', ')} (keys saved above are separate and sent per job)`);
-            }
-            if (h.queue_depth > 0) bits.push(`${h.queue_depth} job(s) active`);
-            status.textContent = bits.join(' — ');
-        } finally {
-            btn.disabled = false;
+let companionPoll = null;         // { stop() } — the only interval on this page
+
+function renderCompanionStatus(state) {
+    const host = document.getElementById('companion-status');
+    const dotWrap = document.getElementById('companion-state');
+    const detail = document.getElementById('companion-detail');
+    const recovery = document.getElementById('companion-recovery');
+    if (!host || !dotWrap || !detail || !recovery) return;
+
+    host.classList.remove('xr-opt__companion--ok', 'xr-opt__companion--warn', 'xr-opt__companion--err');
+    if (state.level !== 'checking') host.classList.add(`xr-opt__companion--${state.level}`);
+
+    // Only touch the live region when the WORD changes — a polite region
+    // repainted every 5s would nag a screen reader for no new information.
+    if (dotWrap.textContent !== state.state) dotWrap.textContent = state.state;
+    detail.textContent = state.detail || '';
+
+    recovery.textContent = '';
+    const hasRecovery = (state.steps && state.steps.length) || state.command;
+    recovery.hidden = !hasRecovery;
+    if (!hasRecovery) return;
+
+    if (state.steps && state.steps.length) {
+        const ol = document.createElement('ol');
+        for (const step of state.steps) {
+            const li = document.createElement('li');
+            li.textContent = step;
+            ol.appendChild(li);
         }
+        recovery.appendChild(ol);
+    }
+    if (state.command) {
+        const pre = document.createElement('code');
+        pre.className = 'xr-opt__cmd';
+        pre.textContent = state.command;
+        recovery.appendChild(pre);
+
+        const copy = document.createElement('button');
+        copy.type = 'button';
+        copy.className = 'xr-opt__btn xr-opt__btn--small';
+        copy.style.marginTop = '8px';
+        copy.textContent = 'Copy command';
+        copy.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(state.command);
+                copy.textContent = 'Copied';
+                setTimeout(() => { copy.textContent = 'Copy command'; }, 2000);
+            } catch (_) {
+                copy.textContent = 'Copy failed';
+            }
+        });
+        recovery.appendChild(copy);
+    }
+}
+
+function setupCompanionStatus() {
+    const btn = document.getElementById('transcriber-check');
+    const host = document.getElementById('companion-status');
+    if (!host) return;
+
+    // Reachability transitions are when the auth probe is worth its
+    // extra request — not every tick.
+    let lastReachable = null;
+
+    const probe = async () => {
+        let resp = null;
+        try {
+            const wantAuth = lastReachable !== true;
+            resp = await browserApi.runtime.sendMessage({
+                type: 'xray:transcribe:ping',
+                probeAuth: wantAuth
+            });
+        } catch (_) {
+            resp = { ok: false, error: 'Options page could not reach the extension worker.' };
+        }
+        lastReachable = !!(resp && resp.ok);
+        const enginePrefEl = document.getElementById('pref-transcribe-engine');
+        const port = Number(document.getElementById('pref-transcriber-port')?.value) || undefined;
+        renderCompanionStatus(deriveCompanionState({
+            resp,
+            enginePref: enginePrefEl ? enginePrefEl.value : '',
+            port: port || 8756
+        }));
     };
 
-    if (!btn.dataset.wired) {
-        btn.dataset.wired = '1';
-        btn.addEventListener('click', check);
-        // Populate without a click — reachability info should not hide
-        // behind a button (field feedback, 2026-08-02). Best-effort:
-        // an unreachable service just shows its normal error line.
-        check().catch(() => {});
+    // Sequential, self-limiting: a slow ping delays the next tick rather
+    // than stacking on top of it (the reader's transcribe-flow shape).
+    const startPolling = () => {
+        if (companionPoll) return;
+        let stopped = false;
+        let timer = null;
+        const loop = async () => {
+            if (stopped) return;
+            if (!document.hidden && isAdvancedVisible()) await probe();
+            if (stopped) return;
+            timer = setTimeout(loop, COMPANION_POLL_MS);
+        };
+        loop();
+        companionPoll = {
+            stop() {
+                stopped = true;
+                if (timer) clearTimeout(timer);
+                timer = null;
+            }
+        };
+    };
+
+    const stopPolling = () => {
+        if (!companionPoll) return;
+        companionPoll.stop();
+        companionPoll = null;
+    };
+
+    // Idempotent: loadAdvanced() re-runs on the Clear-all path, which
+    // would otherwise stack a second heartbeat.
+    stopPolling();
+    startPolling();
+
+    if (!host.dataset.wired) {
+        host.dataset.wired = '1';
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) stopPolling();
+            else if (isAdvancedVisible()) startPolling();
+        });
+        if (btn) {
+            btn.addEventListener('click', async () => {
+                btn.disabled = true;
+                lastReachable = null;   // force the auth probe on a manual recheck
+                try { await probe(); } finally { btn.disabled = false; }
+            });
+        }
     }
+}
+
+/** True while the Advanced tab is the one on screen. */
+function isAdvancedVisible() {
+    const sec = document.querySelector('.xr-opt__section[data-section="advanced"]');
+    return !!(sec && sec.classList.contains('xr-opt__section--active'));
 }
 
 // Render the per-kind suggestion checkboxes from the single source of
