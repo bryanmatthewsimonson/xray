@@ -43,9 +43,13 @@ HF_TOKEN: str = os.environ.get("HF_TOKEN", "")
 # Which engine turns audio into a diarized transcript. "local" is the
 # existing WhisperX+pyannote path; "assemblyai" / "deepgram" send the
 # DOWNLOADED AUDIO to that provider's API (the episode audio leaves this
-# machine — see README "Cloud providers").  API keys live in env vars
-# ONLY, never in extension storage and never in spec.json on disk (the
-# HF_TOKEN precedent); the worker child inherits them from this process.
+# machine — see README "Cloud providers").  The keys below are the
+# SERVER-SIDE DEFAULTS, used only for requests that carry no key of
+# their own; the worker child inherits them from this process.  Since
+# 2026-08-02 the preferred path is the extension holding the key and
+# sending it per job (server.py TranscribeRequest.api_key -> _child_env),
+# which overrides these.  Either way a key is never written to
+# spec.json on disk and never logged.
 PROVIDER: str = (os.environ.get("TRANSCRIBER_PROVIDER", "").strip().lower() or "local")
 ASSEMBLYAI_API_KEY: str = os.environ.get("ASSEMBLYAI_API_KEY", "")
 DEEPGRAM_API_KEY: str = os.environ.get("DEEPGRAM_API_KEY", "")

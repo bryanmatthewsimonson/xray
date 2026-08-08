@@ -203,27 +203,57 @@ manual checklist that exercises every shipped surface.
 - **Real NOSTR crypto** — secp256k1 / BIP-340 / bech32 / NIP-44 v2,
   unit-tested against the BIP-340 vectors.
 
-## Install (Chrome / Chromium / Brave / Edge)
+## Install
 
-1. Clone the repo and open `chrome://extensions`.
-2. Enable **Developer mode** (top-right).
-3. Click **Load unpacked** and select the cloned directory (it contains
-   `manifest.json` at the root).
-4. The X-Ray icon appears in the toolbar. Pin it if you want.
+**The manifest loads `dist/*.bundle.js`, and `dist/` is not in the
+repo** — it is a build output. A fresh clone will not load until you
+build it. Pick whichever path fits you.
 
-To pick up source changes: click the reload icon on the X-Ray card in
-`chrome://extensions`. Reload any open tabs you're testing in — content
-scripts don't re-inject on extension reload.
+### Option A — the packaged `.zip` (no toolchain)
 
-## Install (Firefox)
+1. Download `xray-<version>.zip` from the
+   [latest release](https://github.com/bryanmatthewsimonson/xray/releases)
+   and unzip it. The zip is built by CI and already contains `dist/`.
+2. Chrome / Chromium / Brave / Edge: open `chrome://extensions`, enable
+   **Developer mode**, click **Load unpacked**, select the unzipped
+   folder (the one holding `manifest.json`).
+3. Firefox: open `about:debugging#/runtime/this-firefox` → **Load
+   Temporary Add-on…** → pick `manifest.json`. Firefox 128+ only, and
+   it unloads temporary add-ons on restart.
 
-1. Open `about:debugging#/runtime/this-firefox`.
-2. Click **Load Temporary Add-on…**.
-3. Select `manifest.json` at the root of the cloned repo.
-4. Firefox unloads temporary add-ons on restart — reload as needed.
+### Option B — from source (needed to develop, or to run the transcriber)
 
-For a persistent install, package and sign via
+Requires [Node.js](https://nodejs.org/) 20 or newer.
+
+```sh
+git clone https://github.com/bryanmatthewsimonson/xray.git
+cd xray
+npm install
+npm run build
+```
+
+Then load the clone exactly as in Option A step 2 or 3 — select the
+repo root, which holds `manifest.json`.
+
+To pick up source changes: `npm run build` (or `npm run watch`), click
+the reload icon on the X-Ray card, **and** reload any tab you're testing
+in — content scripts don't re-inject on extension reload.
+
+For a persistent Firefox install, package and sign via
 [`web-ext sign`](https://extensionworkshop.com/documentation/develop/web-ext-command-reference/).
+
+### Optional: the transcription companion
+
+The **Transcribe** button for YouTube (and podcast audio) needs a small
+local Python service that ships in this repo at
+[`companion/transcriber/`](companion/transcriber/README.md). It is
+optional — everything else works without it — but note that it is
+required for **both** the local and the cloud (AssemblyAI / Deepgram)
+engines, because the audio download runs on your machine either way.
+Setup is in
+[`companion/transcriber/README.md`](companion/transcriber/README.md);
+the extension's **Settings → Advanced → Transcription** panel shows
+whether it is running and what to do when it isn't.
 
 ## First-run setup
 

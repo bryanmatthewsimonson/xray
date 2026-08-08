@@ -74,14 +74,32 @@ publishing** — publishing is opt-in per feature.
 
 ### 2.1 Install and load
 
+X-Ray is loaded as an unpacked extension. **A fresh `git clone` will not
+load on its own** — the manifest points at `dist/*.bundle.js`, which is
+a build output and is not committed. Two ways to get a loadable folder:
+
+- **Easiest — the packaged `.zip`.** Download `xray-<version>.zip` from
+  the [releases page](https://github.com/bryanmatthewsimonson/xray/releases)
+  and unzip it. CI builds it, so `dist/` is already inside. No Node
+  required.
+- **From source.** Needs Node.js 20+. `git clone` the repo, then
+  `npm install && npm run build`.
+
+Then load the folder that contains `manifest.json`:
+
 - **Chrome / Chromium / Brave / Edge:** `chrome://extensions` → enable
-  **Developer mode** → **Load unpacked** → select the repo root.
+  **Developer mode** → **Load unpacked** → select that folder.
 - **Firefox:** `about:debugging` → **This Firefox** → **Load Temporary
-  Add-on** → pick `manifest.json`. (Firefox needs version 128 or newer.)
+  Add-on** → pick `manifest.json`. (Firefox needs version 128 or newer,
+  and unloads temporary add-ons when it restarts.)
 
 After any rebuild, click **reload** on the extension card **and** reload
 the tab you're testing — content scripts don't re-inject on their own.
 `[SCREENSHOT-01]`
+
+Everything in this guide works with the extension alone, with one
+exception: transcribing audio needs a companion service you run
+yourself — see [2.7](#27-the-transcription-companion-optional).
 
 ### 2.2 Signing identity
 
@@ -210,6 +228,65 @@ tools, all under **Settings → Advanced**:
 
 Make a full backup before anything risky (reset, browser profile
 changes) and after any big capture or publish session.
+
+### 2.7 The transcription companion (optional)
+
+Transcribing audio — the **Transcribe** button on a YouTube capture, and
+podcast audio — is the one X-Ray feature the extension cannot do alone.
+It needs a small Python service that you run on your own machine, from
+[`companion/transcriber/`](../companion/transcriber/README.md) in this
+repo. Skip this whole section if you don't need transcripts.
+
+**The thing people get wrong:** choosing a cloud engine does *not* let
+you skip the companion. The audio download (yt-dlp) always runs locally,
+and the companion is what uploads to AssemblyAI or Deepgram. Cloud
+engines let you skip the *GPU*, not the service.
+
+| What you want | Companion | GPU + driver | Hugging Face token | Cloud API key |
+|---|---|---|---|---|
+| No transcription | not needed | — | — | — |
+| Local transcription | **required** | **required** (NVIDIA, R580+ / CUDA 13) | **required** | — |
+| AssemblyAI / Deepgram | **required** | not needed | not needed | **required** |
+
+Everything below runs from `companion/transcriber/` inside the repo, on
+Windows. Linux x86-64 is supported by the lockfile but has no documented
+command set; macOS gets CPU-only PyTorch and no NVIDIA wheels.
+
+1. **Install [uv](https://docs.astral.sh/uv/)** — the Python manager the
+   service uses. It provisions its own Python, so you don't need one.
+   `winget install --id astral-sh.uv -e`
+2. **Install ffmpeg** — `winget install Gyan.FFmpeg`. **Required for
+   every engine, cloud included:** the service refuses to start without
+   it.
+3. *(Local engine only)* **Get a Hugging Face read token**, accept the
+   terms for
+   [`pyannote/speaker-diarization-community-1`](https://huggingface.co/pyannote/speaker-diarization-community-1),
+   then `setx HF_TOKEN hf_your_token_here`. Without it a local job
+   **fails outright** — you don't get a transcript missing its speaker
+   labels, you get no transcript.
+4. **Install dependencies** — `uv sync`. This pulls the CUDA wheel set
+   (several GB), and does so even if you only ever use cloud engines.
+5. **Start it** — `uv run xray-transcriber`, or double-click
+   `start-transcriber.bat`. Leave the window open; it runs in the
+   foreground. The extension **cannot start it for you** — browser
+   extensions can't launch programs.
+6. **Turn the feature on** — Settings → Advanced → Transcription, check
+   *Enable "Transcribe" for YouTube captures*. It's off by default, so
+   nothing appears in the reader until you do.
+
+After any `setx`, open a **new** terminal before starting the service —
+`setx` never updates shells that are already open, which is the usual
+reason a token "isn't picked up".
+
+Settings → Advanced → Transcription shows a live indicator for all of
+this: whether the service is reachable, which engine will actually run,
+and what to do when it isn't running.
+
+**What leaves your machine.** On the local engine, nothing — audio and
+transcript stay on your computer. On AssemblyAI or Deepgram, **the audio
+is uploaded to that provider**. Your API key is stored in the extension,
+sent with each job, held in memory by the companion, and never written
+to its disk or logs.
 
 ---
 
