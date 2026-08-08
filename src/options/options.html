@@ -546,17 +546,34 @@
 
       <hr />
       <h3 class="xr-opt__subhead">Transcription (companion service)</h3>
+
+      <!-- Live service state. One stable container, repainted in place
+           (never re-created) so the aria-live announcement survives —
+           the #signing-active precedent. -->
+      <div class="xr-opt__companion" id="companion-status">
+        <div class="xr-opt__companion-line" role="status">
+          <span class="xr-opt__dot" id="companion-dot" aria-hidden="true"></span>
+          <strong id="companion-state">Checking…</strong>
+        </div>
+        <p class="xr-opt__hint" id="companion-detail"></p>
+        <div id="companion-recovery" hidden></div>
+      </div>
+
       <label class="xr-opt__field xr-opt__field--inline">
         <input type="checkbox" id="pref-local-transcription" />
         <span>Enable "Transcribe" for YouTube captures</span>
       </label>
       <p class="xr-opt__hint" style="margin-top:-8px">
-        Off by default. Requires the companion service from
+        Off by default. Transcribing needs the companion service from
         <code>companion/transcriber/</code> in the X-Ray repo running on
-        this machine. Adds a "Capture &amp; transcribe" right-click item
-        on YouTube videos and a Transcribe button in the reader (the ▾
-        next to it picks an engine per video, with time and cost
-        estimates).
+        this machine — <strong>including for the AssemblyAI and Deepgram
+        engines</strong>, which skip the GPU but still download the audio
+        locally through it. Adds a "Capture &amp; transcribe" right-click
+        item on YouTube videos and a Transcribe button in the reader (the
+        ▾ next to it picks an engine per video, with time and cost
+        estimates). Full setup:
+        <a href="https://github.com/bryanmatthewsimonson/xray/blob/main/companion/transcriber/README.md"
+           target="_blank" rel="noreferrer">companion/transcriber/README.md</a>.
       </p>
       <label class="xr-opt__field">
         <span>Transcription engine</span>
@@ -608,8 +625,10 @@
       </label>
       <p class="xr-opt__field xr-opt__field--inline">
         <button class="xr-opt__btn" id="transcriber-check" type="button"
-                title="Ping the companion service and show its active engine">Check service</button>
-        <span class="xr-opt__hint" id="transcriber-check-status"></span>
+                title="Re-check the companion service now">Recheck now</button>
+        <span class="xr-opt__hint">
+          The panel above re-checks on its own while this tab is open.
+        </span>
       </p>
       <label class="xr-opt__field xr-opt__field--inline">
         <input type="checkbox" id="pref-transcript-claim-drafts" />

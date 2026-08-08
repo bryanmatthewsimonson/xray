@@ -249,11 +249,29 @@ export async function getJobStatus(jobId, { port, fetchFn = fetch } = {}) {
     return { ok: true, job: res.body };
 }
 
-/** GET /health with a short timeout — the reachability probe. */
-export async function pingTranscriber({ port, fetchFn = fetch, timeoutMs = 3000 } = {}) {
+/**
+ * GET /health with a short timeout — the reachability probe.
+ *
+ * With `probeAuth`, follows a healthy answer with one authenticated
+ * call. This matters because the server EXEMPTS /health from its token
+ * middleware (server.py `_require_token`): when TRANSCRIBER_TOKEN is
+ * set on the service but not pasted into the extension, /health answers
+ * 200 while every real call 401s. Without this probe a status light
+ * would read "running" for a completely unusable configuration.
+ * `authOk: false` means reachable-but-rejected; absent means unchecked.
+ */
+export async function pingTranscriber({ port, fetchFn = fetch, timeoutMs = 3000, probeAuth = false } = {}) {
     const res = await companionFetch('/health', { port, fetchFn, timeoutMs });
     if (!res.ok) return res;
-    return { ok: true, health: res.body };
+    const out = { ok: true, health: res.body };
+    if (probeAuth) {
+        // Any token-guarded path works; an unknown job id is the
+        // cheapest — it never mutates. 401 = token mismatch; 404 (or
+        // anything else) = the token was accepted.
+        const probe = await companionFetch('/jobs/xray-auth-probe', { port, fetchFn, timeoutMs });
+        out.authOk = !(probe.status === 401);
+    }
+    return out;
 }
 
 /**

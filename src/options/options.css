@@ -212,6 +212,70 @@ textarea { min-height: 80px; resize: vertical; }
 .xr-opt__status--ok { color: #34d399; }
 .xr-opt__status--err { color: #f87171; }
 
+/* Companion service state. Persistent (unlike the status flash) — this
+   panel is repainted in place by a poll while the Advanced tab is open.
+   Hues match the --ok/--err literals above; this page has no light
+   theme, so they are literals here too rather than invented tokens. */
+.xr-opt__companion {
+  background: var(--xr-surface);
+  border: 1px solid var(--xr-border);
+  border-left: 3px solid var(--xr-border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.xr-opt__companion--ok      { border-left-color: #34d399; }
+.xr-opt__companion--warn    { border-left-color: #fbbf24; }
+.xr-opt__companion--err     { border-left-color: #f87171; }
+
+.xr-opt__companion-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+/* Never the only carrier of state — a word sits beside it, and the
+   border keeps it legible where a background fill is flattened. */
+.xr-opt__dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+  border: 1px solid currentColor;
+  color: var(--xr-text-dim);
+}
+
+.xr-opt__companion--ok   .xr-opt__dot { color: #34d399; }
+.xr-opt__companion--warn .xr-opt__dot { color: #fbbf24; }
+.xr-opt__companion--err  .xr-opt__dot { color: #f87171; }
+
+.xr-opt__companion .xr-opt__hint { margin: 6px 0 0; }
+
+.xr-opt__companion ol {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  font-size: 13px;
+  color: var(--xr-text-dim);
+  line-height: 1.5;
+}
+
+.xr-opt__companion li { margin-bottom: 4px; }
+
+.xr-opt__cmd {
+  display: block;
+  background: var(--xr-surface-2);
+  border: 1px solid var(--xr-border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin-top: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 .xr-opt__pre {
   background: var(--xr-surface);
   border: 1px solid var(--xr-border);

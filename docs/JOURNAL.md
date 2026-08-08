@@ -19,6 +19,45 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-08 — Live companion status, and the /health lie it has to avoid
+
+**Tags:** design
+
+Options → Advanced now carries a live companion panel: a state word
+with a colour, what will actually run, and — when it is down — the
+numbered fix and a copyable start command. It polls only while the
+Advanced tab is showing and the page is visible, sequentially (a slow
+ping delays the next tick rather than stacking, the reader's
+transcribe-flow shape), on the first interval this page has ever had.
+
+The design constraint worth recording: **`/health` is exempt from the
+companion's token middleware** (`server.py _require_token` — the
+exemption exists precisely so the reachability probe works without a
+token). So when `TRANSCRIBER_TOKEN` is set service-side but not pasted
+into the extension, `/health` answers 200 while every `/transcribe`
+and `/jobs` call 401s. A status light built on `/health` alone would
+have shown a confident green for a completely unusable configuration —
+the worst possible outcome for a feature whose entire purpose is
+telling a newcomer the truth about their setup. `pingTranscriber` now
+takes `probeAuth`, which follows a healthy answer with one
+token-guarded request (`GET /jobs/xray-auth-probe`, unknown id, never
+mutates) and reports `authOk`. The Options panel asks for it only when
+reachability CHANGES, so the extra request stays rare.
+
+Three more states earn their own branch because a user cannot diagnose
+them unaided: an outdated build without `request_provider` silently
+runs its own default instead of the picked engine; a missing
+`HF_TOKEN` makes local jobs fail outright (no transcript — not a
+transcript missing speaker labels); missing ffmpeg breaks every engine.
+The derivation lives in `src/shared/companion-status.js` as a pure
+function so all of it is unit-testable without a DOM, including a
+guard asserting no branch can leak a key or token shape into the panel.
+
+Kill criterion, recorded now rather than after the fact: if the polling
+ever produces two false "not reachable" readings in a real session,
+drop it back to the button plus a re-probe on tab entry. A status light
+that lies is worse than a button that is honestly stale.
+
 ## 2026-08-04 — The discipline doc is generated, and drift-guarded
 
 **Tags:** design
