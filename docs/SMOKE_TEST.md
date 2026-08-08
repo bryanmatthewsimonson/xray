@@ -1275,6 +1275,25 @@ Rootclaim debate transcript with `Speaker:` lines is ideal.
 
 ---
 
+## Companion status panel (Options → Advanced → Transcription)
+
+Needs the companion service (`companion/transcriber/`). Walked
+2026-08-08 — all rows passed. Rows C.1–C.4 are the live-transition
+check the panel exists for; C.5 is the misconfiguration that a
+`/health`-only check would report as healthy.
+
+| # | Test | Pass criteria |
+|---|---|---|
+| C.1 | Service running → open Options → Advanced → Transcription | ✅ green dot, **Running**, and a detail line naming version, device, and the engine that will actually run (matching the picker below) |
+| C.2 | Stop the service (`Ctrl+C`, or kill the process on 8756) and **watch the panel without touching the page** | ✅ within ~5s it turns red, **Not running**, with numbered steps and a copyable start command — **no page reload, no button click**. This is the regression the old one-shot check shipped |
+| C.3 | Start the service again, still without reloading | ✅ returns to green on its own |
+| C.4 | Switch to another Options tab while the service is down, then back | ✅ no stacked pollers — the panel repaints once and stays correct (poll stops on tab/visibility change) |
+| C.5 | Set `TRANSCRIBER_TOKEN=whatever` on the service, leave the extension's auth-token field blank, restart the service | ✅ **Running, but rejecting this extension** — *not* a green "Running". `/health` is exempt from the token middleware, so a naive probe would report healthy while every transcribe call 401s |
+| C.6 | Paste the matching token into **Companion auth token** → **Recheck now** | ✅ returns to green |
+| C.7 | With the local engine selected and `HF_TOKEN` unset, restart the service | ✅ amber, **Running, but local jobs will fail**, stating no transcript is produced at all (not "no speaker labels"), and offering the cloud engines as the way out |
+
+---
+
 ## Book import (EPUB — Model B)
 
 Import an `.epub` from the portal Library header (**Import book…**). Any
