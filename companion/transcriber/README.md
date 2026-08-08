@@ -20,10 +20,20 @@ job) run unattended and can take longer on slow links.
 ## Requirements
 
 - Windows 10/11
-- An NVIDIA GPU with a **driver of version 570 or newer** — no CUDA
-  toolkit or cuDNN install needed; the cu128 wheels bundle everything
-- ~7 GB of one-time downloads (wheels + models), cached forever
+- **ffmpeg** — required for *every* engine, cloud included; the service
+  exits at startup without it
+- **For the local engine only:** an NVIDIA GPU with a **driver of
+  version R580 or newer** (CUDA 13 class) — no CUDA toolkit or cuDNN
+  install needed; the cu130 wheels bundle everything. Check with
+  `nvidia-smi`.
+- Several GB of one-time downloads (wheels + models), cached forever
 - No Python install needed — `uv` provisions its own
+
+**Cloud engines still need this service.** AssemblyAI and Deepgram let
+you skip the GPU, the Hugging Face token, and the model downloads — but
+not the companion: yt-dlp runs locally, and this service is what uploads
+the audio. `uv sync` installs the CUDA wheel set regardless of which
+engine you use.
 
 ## Setup
 
@@ -44,7 +54,10 @@ job) run unattended and can take longer on slow links.
    Again, open a **NEW terminal** afterwards — winget edits PATH, and
    already-open terminals never see the change.
 
-3. **Hugging Face token** (needed for speaker diarization):
+3. **Hugging Face token** — **required for the local engine.** Without
+   it a local job fails immediately, before the download: you get *no
+   transcript*, not a transcript missing its speaker labels. Cloud
+   engines don't use it.
 
    - Create a **read** token at <https://hf.co/settings/tokens>
    - Accept the model terms on
@@ -88,7 +101,8 @@ Expected shape:
 
 ```json
 {"status": "ok", "device": "cuda", "queue_depth": 0, "version": "0.1.0", "ffmpeg": true, "hf_token": true,
- "provider": "local", "providers": {"local": true, "assemblyai": false, "deepgram": false}}
+ "provider": "local", "providers": {"local": true, "assemblyai": false, "deepgram": false},
+ "request_provider": true}
 ```
 
 `device` may read `"unknown"` for the first seconds after startup while
