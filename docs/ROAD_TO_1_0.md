@@ -1067,13 +1067,37 @@ tree and one produced by *executing* against it. Every blocked entry
 below states what is actually true. The worst, K14, would have shipped
 a production `TypeError` that no test in the suite could catch.
 
+**A 1.0 re-vet (2026-08-09) then re-verified everything already merged
+AND re-scoped the remaining kills.** Its conclusions govern where they
+refine an entry below:
+
+- **Main is safe.** All four merged waves (T1–T3 + ready group) are
+  safe-by-reading, load-bearing claims re-verified at file:line, no
+  live user path regressed. Full record: `docs/JOURNAL.md` 1.0 re-vet
+  entry.
+- **Execute-now-with-a-named-guard:** K13's case-kickoff banner (a
+  SHIPPED/NORMATIVE banner, never "superseded"), K14a (delete only
+  `articleCache` + `entities.save` + the bridge save shim; KEEP
+  `entities.get`/`getAll`), K9 (filter the three create surfaces only;
+  NEVER touch `ENTITY_TYPES`), K5 (delete `verifyEvents` only if the
+  id-cache-poisoning test is re-pointed at `firstValidEvent` in the
+  same PR).
+- **Do NOT execute as framed:** K4 (the rename does not fix the broken
+  button — product decision), K14b (keep the four legacy keys), K15
+  (fold into the SPOKES view, not the dossier — needs a portal walk),
+  K12 + EPISTACK banner (ride T4's SMOKE_TEST split).
+- **Live walks required before a 1.0 tag** — because the merged changes
+  are safe by *reading*, not by *test*: the NIP-07 real-signer publish
+  (highest priority), the K9 create surfaces, the K15 portal fold, and
+  the "Capture Page" button. Exact steps in the JOURNAL re-vet entry.
+
 **Before executing any remaining entry, read its status note.** The
 original text is preserved beneath it unchanged (Art. 3) and is wrong
 in the places the note says it is.
 
 ### K1. The entire Phase-9a crowdsourced-metadata publish layer: builders for kinds 30050 Annotation / 30051 FactCheck / 30052 Rating / 30053 TopicTrust / 9803 HelpfulnessVote, plus metadata/ranker.js and metadata/topic-trust-builder.js, plus the four unused IndexedDB stores (annotations, factchecks, ratings, helpfulness) created at archive-cache DB v2
 
-> **DONE** — PR #317 (`bd0396d`), 2026-08-09. Kinds reclassified RESERVED (never emitted), not retired. A FIFTH store, `trust_graph`, shares the same v2 rung and was NOT on this list — left alone, needs its own ratification. `DB_VERSION` stays 3 and nothing calls `deleteObjectStore`: the stores simply stop being created.
+> **DONE (builders/flags/wire), STORES DELIBERATELY LEFT** — PR #317 (`bd0396d`), 2026-08-09; store claim corrected by the 1.0 re-vet, same day. The builders, `ranker.js`, `topic-trust-builder.js`, the eight flags, the portal read-side, and the wire reclassification (30050–30053, 9803 → RESERVED, never emitted) are all done. **The four IndexedDB stores were NOT removed** — the earlier note here and the commit message said they "stop being created," but `archive-cache.js:172-201` still creates `annotations`/`factchecks`/`ratings`/`helpfulness` (and a FIFTH, `trust_graph`, never on this list) empty on every fresh profile. This is harmless — nothing opens a transaction on them — and leaving the migration ladder untouched is the lower-risk state, so the decision stands: **the empty stores stay**; removing them from the ladder is deferred to an optional schema-cleanup change with its own fresh-profile walk. `DB_VERSION` stays 3; nothing calls `deleteObjectStore`.
 
 Five lenses converged independently. No caller exists anywhere in src/ —
 every reference outside the builders is a test, a portal type label, or
@@ -1260,7 +1284,7 @@ historical. Banner, never delete (Art. 3).
 
 ### K14. The v4-compat façades in storage.js — Storage.entities (:354-360) and Storage.articleCache (:408-412) — and the four inert legacy userscript keys (publications, people, organizations, keypair_registry)
 
-> **BLOCKED — the most dangerous entry in the set.** `Storage.entities` is NOT a dead stub: it is a null-object DEFAULT that three surfaces overwrite at runtime and that `event-builder.js:318` and `:331` read in production. All three bridge installs swallow their exceptions, so deleting it converts a soft failure into a `TypeError` mid-publish — and NO test would catch it, because every `buildArticleEvent` call in the suite but two passes an empty entity list. Only `entities.save` is genuinely dead; `articleCache` is dead as claimed. Separately, removing the four legacy keys from `options/index.js:83` would ORPHAN userscript-era data forever (that array is the only purge path) and contradicts a recorded decision at `JOURNAL.md:5318-5320`.
+> **BLOCKED — the most dangerous entry in the set.** `Storage.entities` is NOT a dead stub: it is a null-object DEFAULT that three surfaces overwrite at runtime and that `event-builder.js:318` and `:331` read in production. All three bridge installs swallow their exceptions, so deleting it converts a soft failure into a `TypeError` mid-publish — and NO test would catch it, because every `buildArticleEvent` call in the suite but two passes an empty entity list. Only `entities.save` is genuinely dead; `articleCache` is dead as claimed. Separately, removing the four legacy keys from `options/index.js:83` would ORPHAN userscript-era data forever (that array is the only purge path) and contradicts the recorded decision in the JOURNAL "Keypair Registry tab removal" entry (2026-07-01), which deliberately KEEPS them in `storageClearExtension` so "erase all data" still purges userscript-era data. (An earlier draft of this note cited a wrong line number — corrected by the 1.0 re-vet to cite the entry by name, since line numbers drift.)
 
 The façades are dead stubs: entities.get returns null, entities.save
 throws an error citing an internal phase number and a GitHub issue id at
