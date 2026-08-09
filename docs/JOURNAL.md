@@ -19,6 +19,63 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-09 — T1: three ways the tool was destroying or misreporting data
+
+**Tags:** bug, design
+
+Found by the 1.0 readiness audit (`docs/ROAD_TO_1_0.md`, B1–B4) and
+each verified in the tree before being touched. All three had shipped;
+none was observable by any existing test.
+
+**The archive was deleting the corpus.** `archive-cache.js` ran
+`evictIfNeeded()` fire-and-forget on every `saveArticle`, LRU-dropping
+the oldest row past `MAX_ENTRIES = 500` — preferring *published* rows
+on the theory that the relay is the backup. The header justified the
+sloppiness with "IndexedDB's `unlimitedStorage` permission means we
+have headroom", and `manifest.json` never requested that permission.
+So at article 501 a researcher's oldest capture was deleted with no
+notice and no export, orphaning its `article-extractions` record
+(whose own header says nothing may auto-drop it), claim quotes and
+offsets, and case-brief sources. The permission is now actually
+requested, and eviction is off the write path entirely: capturing an
+article must never destroy an earlier one. `evictIfNeeded()` remains,
+uncalled, for a future explicit user action — with the condition
+written down that it must refuse to evict any row a claim or
+extraction references.
+
+**Three publish surfaces claimed success no relay gave.**
+`gatePublish` returns `confirmedOk` precisely so call sites need not
+re-derive acceptance; `entity-page-block.js`, `synthesis-block.js` and
+`inspector.js` each discarded it, hardcoding `ok: true` from a merely
+*resolved* promise. The first then wrote a durable `publishedAt` and
+printed "Published — readable in any NOSTR client" with zero
+confirmations. This is exactly the defect the MA.6 walk found on
+2026-08-02, whose entry said it "cannot be forgotten by the next
+surface" — `extraction-block.js` was fixed and carries the comment;
+its three siblings were never swept. The second occurrence of a named
+defect is what `continuous-improvement` S2 says licenses machinery, so
+the fix ships with a guard over all four surfaces rather than a fourth
+careful comment.
+
+**Merge-import installed other people's private keys.** `local_keys`
+holds per-entity keys plus the `xray:user` sync key, and it sits in
+`WORKSPACE_CONTENT_KEYS`, so `mergeBackup` accrued it — while the
+Options dialog told the user "settings/identities in the file are
+ignored". Importing a colleague's bundle silently gave you their
+signing keys. It is now in a new `MERGE_EXCLUDED_KEYS`: still content
+for backup and restore (your own keys must come back), never for
+accrual. Their entity *records* still merge; you simply cannot sign as
+them, which was always the intent. This matters most for exactly the
+group workflow 1.0 is for.
+
+Also: the companion auth-token field is `type="password"`. It is
+populated from storage on every load, so `type="text"` rendered the
+stored secret on screen — which is how a Hugging Face token ended up
+visible in a screenshot on 2026-08-08.
+
+Guards added for all four, and probed: reverting the `confirmedOk`
+read and removing the merge exclusion each turn the suite red.
+
 ## 2026-08-08 — The companion panel's first real use, and what it exposed
 
 **Tags:** pattern

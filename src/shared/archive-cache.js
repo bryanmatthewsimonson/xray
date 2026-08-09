@@ -30,11 +30,25 @@
 //     publishedEventId?:  <hex event id if source='capture' and we published it>
 //   }
 //
-// Eviction: LRU by `lastAccessed`, `publishedToRelay:true` entries
-// evicted before unpublished ones (relay is the backup). MVP uses a
-// simple entry-count budget (default 500). Byte-budget eviction lands
-// later if actual usage warrants it — IndexedDB's unlimitedStorage
-// permission means we have headroom to be sloppy about this for now.
+// Eviction: NOT automatic. `evictIfNeeded()` still exists and still
+// implements the LRU (published-before-unpublished, `lastAccessed`
+// within tier), but NOTHING calls it on the write path — capturing an
+// article must never destroy an earlier one.
+//
+// It used to run fire-and-forget on every saveArticle, above a
+// 500-entry cap, justified here by "IndexedDB's unlimitedStorage
+// permission means we have headroom to be sloppy" — a permission
+// manifest.json did not actually request. So the justification was
+// false and the cap was real: at article 501 a researcher's oldest
+// capture was deleted with no notice, no export, and no user action,
+// orphaning the article-extractions record, claim quotes and offsets,
+// and case-brief sources keyed to it. The corpus IS the deliverable.
+//
+// The permission is now requested (manifest.json), so the headroom the
+// comment always claimed exists. If a budget is ever reintroduced it
+// must refuse to evict any row a stored claim or extraction record
+// references, and must be an explicit user action — not a side effect
+// of a capture.
 
 import { Utils } from './utils.js';
 import { EventBuilder } from './event-builder.js';
@@ -320,14 +334,15 @@ export async function saveArticle({ article, source = 'capture', publishedToRela
     store.put(record);
     await tx(transaction);
 
-    // Eviction runs on a fresh transaction so a slow LRU pass doesn't
-    // stretch the primary write's duration. The source-document pruner
-    // rides along (nothing else ever deletes from that store) but
-    // THROTTLED: a prune pass materializes every source row's bytes
-    // (up to 50MB each) plus the whole articles store — paying that on
+    // NO eviction here. Saving one article must never delete another —
+    // see the eviction note in this file's header. The source-document
+    // pruner still rides along, but it only reclaims rows NO surviving
+    // article references (after a 30-minute grace), so with articles no
+    // longer evicted it cannot orphan a live capture. It stays
+    // THROTTLED: a prune pass materializes every source row's bytes (up
+    // to 50MB each) plus the whole articles store, and paying that on
     // every reader open and publish is main-thread jank for a job whose
     // grace window is 30 minutes anyway.
-    evictIfNeeded().catch((err) => Utils.error('archive-cache: eviction failed', err));
     maybePruneSourceOrphans().catch((err) => Utils.error('archive-cache: source prune failed', err));
 
     return record;
