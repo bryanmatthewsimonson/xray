@@ -4,6 +4,7 @@
 // into the MAIN world via the manifest) through tagged window.postMessage.
 
 import { Utils } from '../shared/utils.js';
+import { Crypto } from '../shared/crypto.js';
 
 export const NIP07Client = (() => {
   const TAG = 'XRAY_NIP07';
@@ -26,8 +27,28 @@ export const NIP07Client = (() => {
     }
   });
 
+  // Request ids must be UNGUESSABLE. The bridge and the client talk over
+  // window.postMessage, which every script on the captured page can both
+  // read and write — so a sequential counter let a hostile page predict
+  // the next id, post its own `res` envelope, and win the race against
+  // the real signer. Captured pages are adversarial by design here.
+  const newId = () => {
+    try {
+      if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+        return globalThis.crypto.randomUUID();
+      }
+      const b = new Uint8Array(16);
+      globalThis.crypto.getRandomValues(b);
+      return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+    } catch (_) {
+      // Never fall back to a predictable id — failing closed is correct.
+      throw new Error('NIP-07 bridge: no secure randomness available');
+    }
+  };
+
   const call = (method, ...args) => new Promise((resolve, reject) => {
-    const id = ++reqSeq;
+    reqSeq += 1;                      // retained for logging/diagnostics only
+    const id = newId();
     const timeout = setTimeout(() => {
       window.removeEventListener('message', onMessage);
       reject(new Error('NIP-07 bridge timeout for method: ' + method));
@@ -101,6 +122,30 @@ export const NIP07Client = (() => {
         };
         Utils.log('Requesting NIP-07 signature for event:', unsignedEvent);
         const signedEvent = await call('signEvent', unsignedEvent);
+        // What comes back crossed the page's MAIN world, so it is
+        // attacker-controlled until proven otherwise — an unguessable id
+        // raises the cost of forging a reply but is not the control.
+        // Verify what we actually care about: that this is OUR event,
+        // signed by the key we asked to sign it.
+        if (!signedEvent || typeof signedEvent !== 'object') {
+          throw new Error('the signer returned no event');
+        }
+        if (signedEvent.pubkey !== unsignedEvent.pubkey) {
+          throw new Error('the returned event is signed by a different key than the one requested');
+        }
+        for (const field of ['kind', 'created_at', 'content']) {
+          if (JSON.stringify(signedEvent[field]) !== JSON.stringify(unsignedEvent[field])) {
+            throw new Error(`the signer altered the event's ${field}`);
+          }
+        }
+        if (JSON.stringify(signedEvent.tags) !== JSON.stringify(unsignedEvent.tags)) {
+          throw new Error("the signer altered the event's tags");
+        }
+        // Recomputes the id from the content and checks BIP-340, so a
+        // forged reply cannot pass without the private key.
+        if (!(await Crypto.verifySignature(signedEvent))) {
+          throw new Error('the returned signature did not verify');
+        }
         Utils.log('Got signed event from NIP-07:', signedEvent);
         return signedEvent;
       } catch (e) {

@@ -203,10 +203,11 @@
         }
     });
 
-    // Test hook — only used by the bundled module's own unit test
-    // when running in a browser-shaped JSDOM. Strips out in
-    // production via dead-code elim is desirable but not critical
-    // since it's just a function reference.
-    window.__xrApiHookSetPatterns = (patterns) => { activePatterns = patterns || []; };
-    window.__xrApiHookMatch = matchesAnyPattern;
+    // The `__xrApiHookSetPatterns` / `__xrApiHookMatch` globals that used
+    // to sit here were removed (2026-08-09, T2). Their comment claimed a
+    // unit test needed them; no test in the repo referenced either. They
+    // ran in the MAIN world on Facebook, Instagram and YouTube, so any
+    // script on those pages could rewrite the capture patterns or probe
+    // them — a page-writable control surface on the capture pipeline,
+    // and a third installation fingerprint, for no shipped capability.
 })();

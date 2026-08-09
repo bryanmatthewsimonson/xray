@@ -19,6 +19,55 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-09 — T2: the page could forge a signature reply
+
+**Tags:** bug, design
+
+`docs/THREAT_MODEL.md` now exists — the document eight of the eleven
+readiness lenses independently asked for. Writing it forced the
+question it exists to answer: for each boundary, what validates on the
+RECEIVING side? One answer was "nothing".
+
+**The NIP-07 return path trusted the page.** The bridge and the client
+talk over `window.postMessage`, which every script on a captured page
+can both read and write. Request ids were `++reqSeq` — 1, 2, 3 — so a
+hostile page could predict the next id, post its own `res` envelope,
+and win the race against the real signer. And `signEvent` returned
+whatever came back with **no** verification: no id recompute, no
+pubkey assertion, no signature check. A captured page could therefore
+substitute an event the operator would then publish. Captured pages
+are adversarial by construction here — that is the tool's whole
+premise — so this was the sharpest thing in the tree.
+
+Fixed: ids come from a CSPRNG (failing closed if none is available —
+never a predictable fallback), and the returned event must match the
+requested pubkey, kind, tags, content and `created_at`, then pass
+`Crypto.verifySignature`, which recomputes the id from the content and
+checks BIP-340. The unguessable id raises the cost of forging a reply;
+the verification is the actual control. `verifySignature` already
+existed and simply was not used on this path.
+
+Two dead surfaces removed while there. `nip04Encrypt`/`nip04Decrypt`
+were unreachable through `NIP07Client` (entity sync calls
+`Crypto.nip04Decrypt` directly) but remained callable by `postMessage`
+from any page on `<all_urls>` — an encrypt/decrypt oracle against the
+user's signer for no shipped capability. And the
+`web_accessible_resources` entry for `nip07-bridge.js` had no `getURL`
+call site anywhere: the file is injected declaratively, so the entry
+bought nothing while letting any site probe for the extension's stable
+ID — which, for a tool pointed at adversaries, means the target's own
+site can detect its visitor runs X-Ray.
+
+Also dropped `__xrApiHookSetPatterns` / `__xrApiHookMatch` from the
+MAIN world. Their comment said a unit test needed them; no test in the
+repo referenced either. They let any script on Facebook, Instagram or
+YouTube rewrite or probe the capture patterns.
+
+The threat model records what is NOT covered as well — seven gaps
+including the still-global CSP strip, the unauthenticated
+`xr:apihook:event` channel, and the cleartext `nsec` in full backups.
+A threat model listing only solved problems is marketing.
+
 ## 2026-08-09 — T1: three ways the tool was destroying or misreporting data
 
 **Tags:** bug, design
