@@ -37,7 +37,9 @@ export const CONTENT_KINDS = [
     32126, // platform accounts
     10002, // NIP-65 relay list (signed by the xray:user sync key)
     30078, // entity-sync blobs (ciphertext; listed, never decrypted)
-    30050, 30051, 30052, 30053, 9803, // dormant metadata kinds (flag-gated writers)
+    // 30050-30053 + 9803 removed 2026-08-09 (T3): X-Ray never emitted
+    // them and this query filters on `authors: myPubkeys`, so the rows
+    // could only ever be zero. Their numbers are RESERVED, not retired.
     30056, 30057, 30058, 30059, 30060, 30061, // Phase 13 audit kinds (publish lands in 13.8; read always)
     30062, // Phase 14 behavioral findings (docs/CRIMINOLOGY_DESIGN.md)
     30063, 30064, // Phase 15 adjudicated verdicts + integrity findings (docs/TRUTH_ADJUDICATION_DESIGN.md)

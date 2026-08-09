@@ -220,6 +220,18 @@ test('guard: the Art. 10 kind schedule matches the code — retired and free kin
     // 30065 is reserved: pinned as a constant, never at an emission site.
     assert.ok(constants.has(30065), 'sanity: KIND_PRECEDENT_RESERVED still pins 30065');
     assert.equal(emitted.has(30065), false, '30065 stays RESERVED — no builder emits it');
+
+    // The Phase-9a scaffold, retired 2026-08-09 (T3, ratified). These
+    // differ from 30043/30067: those were RETIRED after events existed
+    // in the wild, so a consumer must still handle them. These were
+    // never emitted by anything, so they are RESERVED — scaffolded,
+    // never emitted, never reuse. A future re-use would put a new
+    // meaning on a number a stranger may already have scaffolded
+    // against, which the wire covenant forbids either way.
+    for (const k of [30050, 30051, 30052, 30053, 9803]) {
+        assert.equal(emitted.has(k), false,
+            `${k} stays RESERVED — scaffolded in Phase 9a, never emitted, never reuse`);
+    }
 });
 
 // ------------------------------------------------------------------
