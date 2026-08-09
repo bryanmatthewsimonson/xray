@@ -383,6 +383,14 @@ tested contract, not an aspiration.
   The 0.8.0 smoke walk passed (2026-07-20; Phases 11–15
   section walks completed then too), and the Phases 16 and 19 section
   walks are complete as well — no section walk is outstanding.
+- **`docs/ROAD_TO_1_0.md`** — the **1.0 readiness punch list** (2026-08-09):
+  19 blockers, 8 sequenced tracks, 15 kill candidates awaiting
+  ratification, and an explicit "what 1.0 ships without" list. Produced
+  by a whole-tree audit in which each `.claude/skills/` discipline ran
+  its own Protocol, plus newcomer-UX / group-research / consolidation
+  lenses. **Consult it before starting 1.0 work** — it carries the
+  `file:line` evidence and says which track a change belongs to. Kills
+  need maintainer ratification (Art. 11) before anything is removed.
 - **`docs/JOURNAL.md`** — chronological log of bugs, design decisions, and
   external-platform changes. **Add a tight entry** when fixing a non-obvious
   bug, making a second-guessable design choice, or working around a
