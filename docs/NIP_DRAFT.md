@@ -142,6 +142,13 @@ The `p` tags carry the queryable signal: `{ "kinds": [30040], "#p": ["<entity-pu
 
 ## Kind 30050 — Annotation
 
+> **RESERVED — never emitted.** Scaffolded in Phase 9a; X-Ray never
+> published an event of this kind, and its builder was retired unused
+> on 2026-08-09. The number is reserved and will not be reused. A
+> client implementing this NIP needs **no read path** for it — nothing
+> exists in the wild. Kept here as the record of what was specified
+> (CONSTITUTION Art. 3, Art. 10).
+
 Addressable. An anchored note with optional structured body and motivation.
 
 ```jsonc
@@ -196,6 +203,13 @@ If `motivation` is `correcting`, the event SHOULD include a `correction-type` ta
 If the annotation is itself a published article (e.g., a kind 30023 reaction post) being referenced as the "body" of the annotation, an `a` tag SHOULD reference the article event.
 
 ## Kind 30051 — FactCheck
+
+> **RESERVED — never emitted.** Scaffolded in Phase 9a; X-Ray never
+> published an event of this kind, and its builder was retired unused
+> on 2026-08-09. The number is reserved and will not be reused. A
+> client implementing this NIP needs **no read path** for it — nothing
+> exists in the wild. Kept here as the record of what was specified
+> (CONSTITUTION Art. 3, Art. 10).
 
 Addressable. A `ClaimReview`-shaped event: a specific claim is reviewed against a specific scale.
 
@@ -254,6 +268,13 @@ The `evidence` tag MAY appear multiple times. Each value SHOULD be a URL or a `n
 
 ## Kind 30052 — Rating
 
+> **RESERVED — never emitted.** Scaffolded in Phase 9a; X-Ray never
+> published an event of this kind, and its builder was retired unused
+> on 2026-08-09. The number is reserved and will not be reused. A
+> client implementing this NIP needs **no read path** for it — nothing
+> exists in the wild. Kept here as the record of what was specified
+> (CONSTITUTION Art. 3, Art. 10).
+
 Addressable. An overall ordinal review of a URL, lighter than a fact-check.
 
 ```jsonc
@@ -275,6 +296,13 @@ Addressable. An overall ordinal review of a URL, lighter than a fact-check.
 A given (author, URL) pair has at most one rating, since the `d` tag includes the author's pubkey and is therefore unique per (author, URL).
 
 ## Kind 9803 — HelpfulnessVote
+
+> **RESERVED — never emitted.** Scaffolded in Phase 9a; X-Ray never
+> published an event of this kind, and its builder was retired unused
+> on 2026-08-09. The number is reserved and will not be reused. A
+> client implementing this NIP needs **no read path** for it — nothing
+> exists in the wild. Kept here as the record of what was specified
+> (CONSTITUTION Art. 3, Art. 10).
 
 Regular event. The atomic input to bridging-based ranking algorithms (à la Community Notes / Birdwatch). One vote per (voter, target) pair; clients deduplicate by `created_at`, tie-breaking on event id.
 
@@ -302,6 +330,13 @@ Helpfulness votes are typically applied to kind 30050 / 30051 / 30052 events, bu
 A user revoking a vote SHOULD do so via [NIP-09](09.md) deletion request rather than by publishing a new vote with a different value. Clients SHOULD honor NIP-09 deletions of helpfulness votes.
 
 ## Kind 30053 — TopicTrust
+
+> **RESERVED — never emitted.** Scaffolded in Phase 9a; X-Ray never
+> published an event of this kind, and its builder was retired unused
+> on 2026-08-09. The number is reserved and will not be reused. A
+> client implementing this NIP needs **no read path** for it — nothing
+> exists in the wild. Kept here as the record of what was specified
+> (CONSTITUTION Art. 3, Art. 10).
 
 Addressable. Topic-scoped trust assertion: "I trust pubkey X on topic Y."
 
@@ -1267,5 +1302,5 @@ This NIP does not specify a ranking algorithm. Recommended approaches:
 
 ## Reference implementations
 
-- [x-ray browser extension](https://github.com/bryanmatthewsimonson/xray) — shipping kinds 30040 + 30050 + the `responds-to` and `x` extensions; 30054/30055 builders with publishing flag-gated (Phase 11); 30056–30059 fully implemented — builders, parsers, a flag-gated ordered publish path, and portal read surfaces (Phase 13); 30060/30061 builders + parsers implemented, publish paths deferred (the dossier stays derived; disputes are wire-format-only in v1); 30062 behavioral-finding builder + parser + the kind-1985 mirror and the `revision/*` 30055 values, publishing flag-gated (Phase 14); 30063/30064 adjudicated-verdict + integrity-finding builders + parsers and the 30063 kind-1985 mirror, publish paths behind `truthAdjudicationPublishing` (Phase 15; 30065 reserved; the adjudicate/integrity reader modals, the flag-gated publish path, and portal verdict render all ship); 32125 entity↔article relationships (builder + parser + portal read); 32126 platform-account records with the derived-pubkey rendezvous and the `linked-entity` pubkey tag, publishing behind `platformAccountPublishing`, plus verify-on-ingest enforced on every relay read (Knowledge Sharing KS.1–KS.4). 30070 extraction analyses fully implemented — builder, parser, a per-article human-initiated publish path behind `extractionAnalysisPublishing`, and portal library/inspector read surfaces where the per-row review state leads (MA.6, `docs/MAP_ARTIFACT_KICKOFF.md`). The case-dossier surfaces (`docs/CASE_DOSSIER_DESIGN.md`, CD.1–CD.3) are derived / computed-on-read over these kinds — no new kind of their own.
+- [x-ray browser extension](https://github.com/bryanmatthewsimonson/xray) — shipping kinds 30040 + the `responds-to` and `x` extensions (**30050–30053 and 9803 are RESERVED, not shipping** — scaffolded in Phase 9a and never emitted; their builders were retired unused on 2026-08-09, and this line previously over-claimed 30050 as shipped); 30054/30055 builders with publishing flag-gated (Phase 11); 30056–30059 fully implemented — builders, parsers, a flag-gated ordered publish path, and portal read surfaces (Phase 13); 30060/30061 builders + parsers implemented, publish paths deferred (the dossier stays derived; disputes are wire-format-only in v1); 30062 behavioral-finding builder + parser + the kind-1985 mirror and the `revision/*` 30055 values, publishing flag-gated (Phase 14); 30063/30064 adjudicated-verdict + integrity-finding builders + parsers and the 30063 kind-1985 mirror, publish paths behind `truthAdjudicationPublishing` (Phase 15; 30065 reserved; the adjudicate/integrity reader modals, the flag-gated publish path, and portal verdict render all ship); 32125 entity↔article relationships (builder + parser + portal read); 32126 platform-account records with the derived-pubkey rendezvous and the `linked-entity` pubkey tag, publishing behind `platformAccountPublishing`, plus verify-on-ingest enforced on every relay read (Knowledge Sharing KS.1–KS.4). 30070 extraction analyses fully implemented — builder, parser, a per-article human-initiated publish path behind `extractionAnalysisPublishing`, and portal library/inspector read surfaces where the per-row review state leads (MA.6, `docs/MAP_ARTIFACT_KICKOFF.md`). The case-dossier surfaces (`docs/CASE_DOSSIER_DESIGN.md`, CD.1–CD.3) are derived / computed-on-read over these kinds — no new kind of their own.
 - *(a second interoperating client is the natural next reference implementation.)*

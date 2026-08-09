@@ -173,13 +173,7 @@ gate your **publish** paths and some panel tabs, not what you can read.
 
 | Flag | Default | What it gates |
 |---|---|---|
-| `annotations` | on | Publishing crowdsourced URL annotations (kind 30050) |
-| `respondsTo` | on | The "responds-to" relationship tag on articles |
-| `topicTrust` | on | Topic-trust metadata (kind 30053) |
 | `trustGraphFilter` | on | The Network feed's "trusted provenance only" narrow toggle (the "followed by N of your follows" chips always show) |
-| `factchecks` | off | Publishing fact-check events (kind 30051) |
-| `ratings` | off | Publishing rating events (kind 30052) |
-| `helpfulnessVoting` | off | Publishing helpfulness votes (kind 9803; incoming always accepted) |
 | `assessmentPublishing` | off | Publishing assessments (30054), claim relationships (30055), and the 1985 label mirror |
 | `epistemicAuditing` | off | Publishing the audit family (30056–30061). *Running* an audit needs the API key too |
 | `forensicPublishing` | off | Publishing behavioral findings (30062) + their `revision/*` story-change edges |
@@ -194,7 +188,6 @@ gate your **publish** paths and some panel tabs, not what you can read.
 | `reviewCoordination` | off | The portal "Request review" label + the Network "re-broadcast follows" button |
 | `followListPublishing` | off | Publishing a NIP-02 kind-3 mirror of who you follow (global scope only; consent dialog on first enable) |
 | `captureAutomation` | off | The `#xray:capture` URL marker a driving agent can navigate to (capture only) |
-| `bridgingRanking`, `transitiveTrust` | off | Experimental ranking/trust (not yet shipped) |
 
 The rule of thumb: **local analysis is never gated** (capturing,
 tagging, claims, verdicts, audits you import, the dossier) — flags gate

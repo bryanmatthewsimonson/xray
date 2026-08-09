@@ -56,8 +56,11 @@ test('CONTENT_KINDS pins the full corpus kind list from the design note', () => 
     assert.deepEqual([...CONTENT_KINDS].sort((a, b) => a - b), [
         // Phase 25.6: the opt-in NIP-02 follow-list mirror
         3,
-        1985, 9803, 10002, 30023, 30040, 30041, 30050, 30051, 30052,
-        30053, 30054, 30055,
+        // 9803 + 30050-30053 removed 2026-08-09 (T3, ratified): X-Ray
+        // never emitted them, and this query filters on the user's own
+        // pubkeys, so those rows could only ever be zero. The numbers
+        // are RESERVED — scaffolded, never emitted, never reuse.
+        1985, 10002, 30023, 30040, 30041, 30054, 30055,
         // Phase 13.7: the audit family (docs/EPISTEMIC_AUDIT_DESIGN.md)
         30056, 30057, 30058, 30059, 30060, 30061,
         // Phase 14.4: behavioral findings (docs/CRIMINOLOGY_DESIGN.md)

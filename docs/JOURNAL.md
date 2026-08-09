@@ -19,6 +19,66 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-09 — T3: the Phase-9a scaffold retired, and the map that saved it
+
+**Tags:** design, pattern
+
+The maintainer ratified all fifteen kill candidates (Art. 11 — the
+ratifying act). This entry records the first two executed: the
+Phase-9a crowdsourced-metadata layer and the eight dead feature flags.
+
+**What went.** Five builders (`buildAnnotationEvent` 30050,
+`buildFactCheckEvent` 30051, `buildRatingEvent` 30052,
+`buildHelpfulnessEvent` 9803, `buildTopicTrustEvent` 30053), the two
+files that held the last two (`ranker.js`, `topic-trust-builder.js`),
+`urlAnchorTags()` which only they used, the four object stores their
+data would have gone in, the eight never-read flags, and 51 tests.
+
+**Reserved, not retired — the distinction is the point.** 30043 and
+30067 are *retired*: events exist in the wild, so consumers must still
+read them. These five were never emitted by anything, so there is
+nothing in the wild and a second client needs no read path at all.
+Art. 10 gains that distinction explicitly, because the table
+previously said `active` for a family nothing had ever published, and
+`NIP_DRAFT.md:1270` claimed 30050 as *shipping*. The public interop
+document was over-claiming a kind with no emitter. Never-reuse applies
+to both states.
+
+**The IndexedDB answer, recorded because the tempting option is
+wrong.** `DB_VERSION` stays 3 and nothing calls `deleteObjectStore`.
+The four stores simply stop being created: existing profiles are
+already at v3 so `onupgradeneeded` never fires again and their rows
+stay on disk untouched; fresh profiles never make them. Bumping to v4
+with a delete would have destroyed rows on existing installs with no
+export and no user action — the same shape as the eviction bug T1 just
+fixed. This works only because nothing ever opened a transaction on
+those stores, which was verified rather than assumed.
+
+**The map earned its cost.** Five read-only surveys ran before any
+deletion, and they found six errors in the punch list that would have
+broken the tree if executed literally. The worst: `Storage.entities`
+is described as a dead stub, but it is a null-object *default* that
+three surfaces overwrite at runtime and that `event-builder.js:318`
+reads in production — and because all three installs swallow their
+exceptions, deleting it converts a soft failure (an article publishes
+without entity p-tags) into a `TypeError` mid-publish. No test would
+have caught it: every `buildArticleEvent` call in the suite but two
+passes an empty entity list, so that path is never exercised. A green
+suite would have proved nothing.
+
+Also caught: a **fifth** unratified store (`trust_graph`) in the same
+rung, left alone; `trustGraphFilter` sitting *inside* the dead flag
+block while being live at `network/index.js:811`; and `respondsTo`,
+where the flag was dead but the **tag is emitted on every kind-30023**
+— a grep-and-delete would have silently changed the wire.
+
+The pattern: **an audit produced by reading is not the same as an
+audit produced by executing.** The punch list was written by agents
+reading the tree and was right about every kill's *substance*; it was
+wrong about six specifics, each of which only surfaces when you go to
+make the edit. Mapping before deleting cost one workflow and saved at
+least one production defect that tests could not see.
+
 ## 2026-08-09 — T2: the page could forge a signature reply
 
 **Tags:** bug, design

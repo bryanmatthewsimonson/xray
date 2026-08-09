@@ -33,7 +33,7 @@ export const OUR_CLIENT_TAGS = new Set(['xray', 'nostr-article-capture']);
 
 // Tab order for the Library. 'other' catches 1985 label mirrors,
 // 10002 relay lists, 30078 sync blobs, 32125 entity↔article links,
-// and the dormant metadata kinds — listed, lightly summarized,
+// and anything else a relay returns — listed, lightly summarized,
 // never dropped.
 export const TYPE_DEFS = [
     { key: 'article',    label: 'Articles' },
@@ -66,11 +66,6 @@ const KIND_LABELS = {
     32126: 'Account',
     10002: 'Relay list',
     30078: 'Entity sync',
-    30050: 'Annotation',
-    30051: 'Fact-check',
-    30052: 'Rating',
-    30053: 'Topic trust',
-    9803:  'Vote',
     30056: 'Module result',
     30057: 'Aggregate audit',
     30058: 'Prediction',

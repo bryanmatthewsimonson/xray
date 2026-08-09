@@ -413,7 +413,7 @@ The project's obligations to strangers consuming its events:
 | 0, 10002, 3 (opt-in), 1985 | active | profiles, relay lists, follow mirror, label mirrors |
 | 30023 | active | articles, case briefs, entity pages |
 | 30040, 30041 | active | claims, comments |
-| 30050–30053 | active | crowdsourced URL metadata (`docs/NIP_DRAFT.md`) |
+| 30050–30053, 9803 | reserved | crowdsourced URL metadata — **scaffolded in Phase 9a, never emitted, never reuse** (see below) |
 | 30054, 30055 | active | assessments, cross-claim relationships |
 | 30056–30061 | active | epistemic-audit family |
 | 30062 | active | forensic findings |
@@ -429,6 +429,20 @@ The project's obligations to strangers consuming its events:
 The table covers the kinds this project defines, reserves, or has
 retired; standard NOSTR kinds it merely consumes or mirrors are used
 per their own specifications.
+
+**Reserved vs retired.** The distinction is load-bearing for anyone
+implementing against this wire. *Retired* (30043, 30067) means events
+of that kind exist in the wild and a consumer must still be able to
+read them; X-Ray keeps its parsers. *Reserved* means the number was
+defined but **no event was ever emitted** — there is nothing in the
+wild, so a second client needs no read path at all. Kinds 30050–30053
+and 9803 were scaffolded in Phase 9a and their builders were retired
+unused on 2026-08-09 (ratified; `docs/JOURNAL.md`). They moved from
+`active` to `reserved` rather than `retired` because the table
+previously over-claimed them: `docs/NIP_DRAFT.md` described a shipping
+family that nothing had ever published. Never-reuse applies to both
+states — a number that strangers may have scaffolded against does not
+come back with a new meaning.
 
 - Supersession semantics hold on every addressable kind (Art. 4.5).
 - Durability is multi-relay redundancy plus the bundled signed-event

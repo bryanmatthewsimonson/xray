@@ -2,36 +2,33 @@
 //
 // Spec: Implementation Plan §14.
 //
-// Single source of truth for which Phase 9 features are user-visible.
-// Day-1 motivations:
-//   - Scaffold the deferred kinds (30051 / 30052 / 9803) in Phase 9a
-//     so the data pipes are tested and the schemas are correct.
-//     Flipping `factchecks: true` in 9b becomes a UI-surface change,
-//     not a data-model change. Same for ratings / helpfulnessVoting.
-//   - Reader-side: the SW always accepts incoming events of every
-//     kind. Only PUBLISH paths and panel TABS are gated. So a user
-//     who flips the flag manually starts contributing to the bridging
-//     dataset before the v3 ranker ships.
+// Single source of truth for which features are user-visible.
+//
+// Reader-side: the SW always accepts incoming events of every kind.
+// Only PUBLISH paths and panel TABS are gated.
 //
 // Override mechanism:
 //   chrome.storage.local key `xray:flags`, plain object of
-//   `{ flagName: boolean }`. The Advanced settings tab will expose a
-//   "show experimental flags" disclosure in Week 2; for now flags
-//   can be flipped via DevTools.
+//   `{ flagName: boolean }`. Flags without an Options control are
+//   flipped via DevTools — see docs/ROAD_TO_1_0.md B10.
+//
+// RETIRED 2026-08-09 (T3, ratified): eight keys that no isEnabled()
+// call ever read — annotations, respondsTo, topicTrust, factchecks,
+// ratings, helpfulnessVoting, bridgingRanking, transitiveTrust. Three
+// defaulted TRUE, so they read as live guarantees while guaranteeing
+// nothing, and a third of the registry being noise is what made the
+// real promote-or-kill questions invisible. Names kept here in the
+// record (Art. 3); a stale `xray:flags` override for one of them is
+// ignored by sanitize() and needs no migration.
+//
+// `respondsTo` is the trap in that list: the FLAG was dead, but the
+// responds-to TAG is emitted on every kind-30023
+// (event-builder.js:262-273) and is untouched.
 
 export const FLAGS_DEFAULTS = Object.freeze({
-  // Live in 9a:
-  annotations: true,
-  respondsTo: true,
-  topicTrust: true,
+  // Phase 9a survivor — read at src/network/index.js:811 (the feed's
+  // trusted-provenance narrow toggle).
   trustGraphFilter: true,
-
-  // Scaffolded but UI-gated in 9a; flip in 9b/9c:
-  factchecks: false,
-  ratings: false,
-  helpfulnessVoting: false, // UI gate; SW always accepts incoming votes
-  bridgingRanking: false,   // v3
-  transitiveTrust: false,   // v2
 
   // Phase 11 (docs/ASSESSMENTS_DESIGN.md): gates the PUBLISH paths for
   // kind 30054 assessments, kind 30055 claim relationships, and the
