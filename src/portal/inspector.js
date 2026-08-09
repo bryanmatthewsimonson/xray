@@ -438,11 +438,13 @@ export function renderInspector(host, item, { status = 'no-ledger', onClose, aud
                             ledger: null,
                             legacyJournalOnSuccess: false
                         });
-                        resp = { ok: true, results: gated.results };
+                        // Resolving is not acceptance: read `confirmedOk`,
+                        // never bare `ok` (JOURNAL 2026-07-10 / 2026-08-02).
+                        resp = { ok: gated.confirmedOk, results: gated.results };
                     } catch (err) {
                         resp = { ok: false, error: (err && err.message) || null };
                     }
-                    if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'publish failed');
+                    if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'no relay confirmed the request');
                     req.textContent = 'Review requested ✓';
                 } catch (err) {
                     Utils.error('Request review failed', err);

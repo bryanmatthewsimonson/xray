@@ -29,12 +29,28 @@
 //     no name-based identity merging, ever). The one deep merge is
 //     `article-extractions` (span-level union via map-artifacts.js).
 //     Install config and the primary identity are NEVER touched by a
-//     merge — only WORKSPACE_CONTENT_KEYS accrue.
+//     merge — only WORKSPACE_CONTENT_KEYS accrue, minus
+//     MERGE_EXCLUDED_KEYS: `local_keys` (per-entity private keys and
+//     the xray:user sync key) is content for backup and restore, but
+//     merging it would install a colleague's signing keys.
 
 import { WORKSPACE_DATABASES } from './identity-profiles.js';
 import { WORKSPACE_CONTENT_KEYS, activeWorkspaceId, workspaceDbName } from './workspace-keys.js';
 
 const WORKSPACE_CONTENT = new Set(WORKSPACE_CONTENT_KEYS);
+
+// Keys that are workspace CONTENT for backup/restore/clear purposes but
+// must never ACCRUE from someone else's file.
+//
+// `local_keys` holds per-entity private keys plus the `xray:user` sync
+// key. It is legitimately workspace content — a restore of your own
+// backup must bring your entity keys back — but merging a colleague's
+// bundle would silently install THEIR signing keys into your registry,
+// letting you sign as their entities and decrypt their entity sync.
+// The Options dialog has always told users "settings/identities in the
+// file are ignored"; this is what makes that true. Their entity RECORDS
+// still merge — you just cannot sign as them, which is the point.
+const MERGE_EXCLUDED_KEYS = new Set(['local_keys']);
 import { openArchiveDb } from './archive-cache.js';
 import { openAuditDb } from './audit/audit-cache.js';
 import { openEventJournalDb, normalizeImportedRow } from './event-journal.js';
@@ -492,8 +508,8 @@ async function mergeStorage(entries) {
     const stats = { keysAdded: 0, keysMerged: 0, idsAdded: 0, keysUnchanged: 0, keysSkippedNonContent: 0 };
     const writes = {};
     for (const [k, v] of Object.entries(entries || {})) {
-        if (EXCLUDED_STORAGE_KEYS.includes(k) || !WORKSPACE_CONTENT.has(k)) {
-            stats.keysSkippedNonContent += 1;   // config/identity never merges
+        if (EXCLUDED_STORAGE_KEYS.includes(k) || MERGE_EXCLUDED_KEYS.has(k) || !WORKSPACE_CONTENT.has(k)) {
+            stats.keysSkippedNonContent += 1;   // config/identity/key material never merges
             continue;
         }
         const liveKey = mapK(k);

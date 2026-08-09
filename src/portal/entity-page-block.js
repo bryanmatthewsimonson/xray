@@ -417,11 +417,18 @@ export function mountEntityPageBlock(host, { entityId } = {}) {
                 ledger: { model: 'entity-page', localId: entityId, extra: null },
                 legacyJournalOnSuccess: false
             });
-            resp = { ok: true, results: gated.results };
+            // `gatePublish` RESOLVING is not acceptance — it returns
+            // `confirmedOk` (the JOURNAL 2026-07-10 computation) exactly
+            // so a call site need not re-derive it. Reading only `ok` is
+            // how an unreachable relay came to report "published" and
+            // write a durable stamp (the MA.6 walk, JOURNAL 2026-08-02).
+            // `publishedAt` IS a publish ledger, so an unconfirmed round
+            // stays UNSTAMPED and says so.
+            resp = { ok: gated.confirmedOk, results: gated.results };
         } catch (err) {
             resp = { ok: false, error: (err && err.message) || null };
         }
-        if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'no relays accepted');
+        if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'no relay confirmed the event — nothing was stamped');
         await saveEntityPage({ ...record, publishedAt: Math.floor(Date.now() / 1000), publishedEventId: signed.id });
         status.textContent = 'Published — readable in any NOSTR client.';
         btn.disabled = false;

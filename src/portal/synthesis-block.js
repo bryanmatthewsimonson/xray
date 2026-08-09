@@ -579,7 +579,9 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                             ledger: null,
                             legacyJournalOnSuccess: false
                         });
-                        resp = { ok: true, results: gated.results };
+                        // Resolving is not acceptance: read `confirmedOk`,
+                        // never bare `ok` (JOURNAL 2026-07-10 / 2026-08-02).
+                        resp = { ok: gated.confirmedOk, results: gated.results };
                     } catch (err) {
                         resp = { ok: false, error: (err && err.message) || null };
                     }
