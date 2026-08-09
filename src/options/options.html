@@ -316,7 +316,13 @@
       <div class="xr-opt__report" id="backup-merge-report" hidden></div>
 
       <hr />
-      <h3 class="xr-opt__subhead">Experimental</h3>
+      <!-- Was "Experimental" until 2026-08-09 (T3, ratified). That
+           heading scoped one checkbox out of eleven default-off publish
+           toggles carrying identical disclosure language, so a careful
+           reader took it as a boundary and concluded the other ten were
+           stable — it misinformed rather than merely being vestigial.
+           Named for what it actually gates instead. -->
+      <h3 class="xr-opt__subhead">Assessments &amp; claim links</h3>
 
       <label class="xr-opt__field xr-opt__field--inline">
         <input type="checkbox" id="pref-assessment-publishing" />
@@ -348,12 +354,15 @@
         record. Local import and rendering never need this switch.
       </p>
       <p class="xr-opt__hint">
-        Run the companion scorer CLI (<code>docs/auditor-prototype/scorer/</code>)
-        against a captured article, then import its JSON here. Imports
-        are re-hashed and schema-validated, and must match a local
-        capture — the audit has to be about text you actually captured.
-        Importing stores results locally only; publishing audit events
-        is a separate, experimental-flagged step.
+        Audits normally run inside X-Ray — open a capture in the reader
+        and use <strong>Quick</strong> or <strong>Thorough</strong>; the
+        result is stored for you and needs nothing here. Import is for
+        an audit produced elsewhere, such as by the
+        <code>docs/auditor-prototype/scorer/</code> research CLI.
+        Imports are re-hashed and schema-validated and must match a
+        local capture — the audit has to be about text you actually
+        captured. Importing stores results locally only; publishing
+        audit events is a separate, flag-gated step.
       </p>
       <div class="xr-opt__actions">
         <button class="xr-opt__btn" id="audit-import">Import audit JSON…</button>
@@ -483,26 +492,21 @@
         <span class="xr-opt__status" id="llm-status"></span>
       </div>
 
-      <hr />
-      <h3 class="xr-opt__subhead">Moral lens</h3>
-      <label class="xr-opt__field xr-opt__field--inline">
-        <input type="checkbox" id="pref-moral-lens" />
-        <span>Enable lens readings in the reader (per-jurisdiction perspectival readings)</span>
-      </label>
-      <p class="xr-opt__hint" style="margin-top:-8px">
-        Off by default, and independent of LLM assist above. When on
-        <strong>and</strong> an Anthropic API key is set (same key field as
-        LLM assist), the reader gains a <strong>Lens readings</strong> bar
-        that reads selected claims under jurisdictions you author yourself —
-        none ship built-in. <strong>A lens pass sends the article text
-        <em>plus the jurisdiction definitions and captured authority
-        excerpts</em> to Anthropic</strong> — one API call per empaneled
-        jurisdiction. Readings are perspectival reconstructions grounded in
-        each jurisdiction's own loaded corpus; they never say whether
-        anything is true (that stays with the truth layer). Nothing is
-        durably saved and nothing is published — results live only for the
-        browser session.
-      </p>
+      <!-- PARKED 2026-08-09 (T3, ratified) — the Moral lens control was
+           removed from this page, not the feature. Every lens module and
+           test survives, the `moralLens` flag stays in FLAGS_DEFAULTS,
+           the reader section markup stays, and kind 30066 stays free and
+           guard-tested. Only this checkbox went: it invited a user into a
+           feature that ships zero jurisdictions and has no authoring UI,
+           so the honest next step was the browser console.
+
+           TO BRING IT BACK: restore this block (git show the T3 commit),
+           re-add the `pref-moral-lens` read at src/options/index.js and
+           the write in saveAdvanced(), and re-add the two assertions in
+           tests/lens-guards.test.mjs. Nothing else was touched — the
+           modules keep their tests, so the code cannot rot while parked.
+           Revival condition (maintainer, 2026-08-09): once lenses have
+           been tested on real casework. See docs/JOURNAL.md. -->
 
       <hr />
       <h3 class="xr-opt__subhead">AI vision</h3>

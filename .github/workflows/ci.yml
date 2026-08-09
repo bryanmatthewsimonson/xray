@@ -54,15 +54,13 @@ jobs:
         run: npm run build
 
       - name: Run unit tests
-        # The compgen guard predates the test suite (Phase 1 hadn't
-        # landed tests/ yet); harmless now, keeps hypothetical
-        # test-less branches green.
-        run: |
-          if compgen -G "tests/*.test.*" > /dev/null; then
-            npm test
-          else
-            echo "No tests yet; skipping."
-          fi
+        # Was wrapped in `if compgen -G "tests/*.test.*"` until
+        # 2026-08-09 (T3, ratified). That guard predated the suite and
+        # kept a hypothetical test-less branch green — but ~2500 tests
+        # now hang on that glob matching, so a directory rename would
+        # have turned the project's primary safety net into
+        # "No tests yet; skipping." under a green checkmark.
+        run: npm test
 
       - name: web-ext lint
         # Default: warnings non-fatal, errors fail the job.

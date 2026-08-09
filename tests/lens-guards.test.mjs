@@ -65,12 +65,22 @@ test('guard: Phase 16 storage keys carry no reserved word and stay workspace-cov
         'the registry key is in WORKSPACE_CLEAR_KEYS');
 });
 
-test('guard: the options + reader lens HTML blocks carry no reserved word (§5.2 user-visible strings)', async () => {
+// The Options control is PARKED (T3, 2026-08-09): the checkbox was
+// removed because it invited a user into a feature with zero
+// jurisdictions and no authoring UI. The FEATURE is not killed — the
+// modules, the flag, kind 30066 and this whole guard file survive, so
+// the code stays exercised and revival is re-adding an entry point
+// rather than repairing rot. The options half of the old assertion is
+// therefore gone; the reader half stays, because that markup stays.
+test('guard: the parked Options control is absent, and stays absent by intent', async () => {
     const optionsHtml = await readFile(new URL('../src/options/options.html', import.meta.url), 'utf8');
-    const lensBlock = optionsHtml.split('<h3 class="xr-opt__subhead">Moral lens</h3>')[1];
-    assert.ok(lensBlock, 'the Moral lens block exists in options.html');
-    assert.doesNotMatch(lensBlock.split('<h3')[0], RESERVED, 'options.html Moral lens block');
+    assert.doesNotMatch(optionsHtml, /id="pref-moral-lens"/,
+        'the lens checkbox is parked — re-adding it is a deliberate revival, see the note in options.html');
+    assert.match(optionsHtml, /PARKED 2026-08-09/,
+        'the revival instructions stay with the code they revive');
+});
 
+test('guard: the reader lens section carries no reserved word (§5.2 user-visible strings)', async () => {
     const readerHtml = await readFile(new URL('../src/reader/index.html', import.meta.url), 'utf8');
     const sectionStart = readerHtml.indexOf('id="xr-lensread"');
     assert.ok(sectionStart > -1, 'the lens section exists in reader index.html');

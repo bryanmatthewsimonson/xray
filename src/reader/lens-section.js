@@ -48,9 +48,12 @@ function truncate(s, n) {
  */
 export function renderLensSetup({ jurisdictions = [], claims = [] } = {}) {
     if (jurisdictions.length === 0) {
-        return `<div class="xr-lensread__empty">No jurisdictions in the registry yet. Author one in the console
-          (see <code>docs/SMOKE_TEST.md</code> §Phase 16) — zero ship built-in, deliberately: which lenses exist
-          is your judgment call, disclosed with every panel.</div>`;
+        // No console-pointing copy: a user-facing empty state must not
+        // instruct someone to leave the product. Authoring is parked
+        // (T3, 2026-08-09) until a jurisdiction editor exists.
+        return `<div class="xr-lensread__empty">Lens readings need at least one jurisdiction, and none ship
+          built-in — deliberately: which lenses exist is your judgment call, disclosed with every panel.
+          Authoring jurisdictions in the interface is not built yet, so this stays empty for now.</div>`;
     }
     if (claims.length === 0) {
         return `<div class="xr-lensread__empty">No claims captured on this article yet. Select a span and capture

@@ -134,7 +134,13 @@ test('lens-section: setup form renders pickers + the selection-basis input; empt
     assert.match(html, /data-role="lens-basis"/);
     assert.match(html, /a one-sided panel is flagged/);
 
-    assert.match(renderLensSetup({ jurisdictions: [], claims: [] }), /No jurisdictions in the registry/);
+    // The empty state must explain without sending the user out of the
+    // product — the console-pointing copy went with the T3 parking
+    // (2026-08-09). It still has to say WHY it is empty.
+    const noJurisdictions = renderLensSetup({ jurisdictions: [], claims: [] });
+    assert.match(noJurisdictions, /none ship\s+built-in/);
+    assert.doesNotMatch(noJurisdictions, /console/i,
+        'a user-facing empty state never tells someone to open a developer console');
     assert.match(renderLensSetup({ jurisdictions: [{ id: 'j', display_name: 'J', jurisdiction_type: 'codified', corpus: [] }], claims: [] }),
         /No claims captured/);
 });

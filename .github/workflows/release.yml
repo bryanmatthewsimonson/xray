@@ -85,8 +85,14 @@ jobs:
 
       - name: Extract changelog section for this version
         # Pull the section between this version's heading and the next
-        # `## ` heading. Falls back to a blank body if the section
-        # isn't found, so the release still publishes.
+        # `## ` heading.
+        #
+        # Until 2026-08-09 (T3, ratified) a missing section silently
+        # produced an EMPTY release body and published anyway. That is
+        # the failure, not a degraded success — and it lands at the one
+        # moment recovery is most expensive, since `v*` tags are
+        # protected against deletion and force-update, so a bad release
+        # burns a version number. Fail loudly instead.
         id: changelog
         env:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
@@ -99,6 +105,11 @@ jobs:
             capture && /^## \[/ { exit }
             capture { print }
           ' CHANGELOG.md)
+          if [ -z "$(printf '%s' "$notes" | tr -d '[:space:]')" ]; then
+            echo "::error::CHANGELOG.md has no non-empty [## [$version]] section." \
+                 "Add the release notes and re-run this workflow with the same tag."
+            exit 1
+          fi
           {
             echo "notes<<XRAYRELEASEEOF"
             echo "$notes"

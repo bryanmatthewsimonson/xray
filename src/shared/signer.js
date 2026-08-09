@@ -6,14 +6,13 @@
 //
 // NIP07Client lives in the content-script bundle (it talks to a MAIN-world
 // page bridge over postMessage), so contexts that need NIP-07 must inject
-// it via `Signer.configure({ nip07Client })`. Other contexts (popup,
-// options, background) can use the façade for Local and NSecBunker, and
+// it via `Signer.configure({ nip07Client })`. Other contexts (options,
+// background, the extension pages) use the façade for Local and NSecBunker, and
 // route NIP-07 sign requests through an active tab via the existing
 // `xray:sign` message — see [content/index.js].
 
 import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
-import { Utils } from './utils.js';
 import { NSecBunkerClient } from './nsecbunker-client.js';
 
 let _nip07Client = null;
@@ -168,24 +167,13 @@ export const Signer = {
       return !!(prefs && prefs.nsecbunker_url);
     }
     return false;
-  },
-
-  /**
-   * Persist the resolved signing state for the popup badge. Mirrors what
-   * content/index.js used to do directly; called after init / setup.
-   */
-  recordSigningState: async () => {
-    const method = await Signer.getMethod();
-    let pubkey = null;
-    try { pubkey = await Signer.getPublicKey(); } catch (_) { /* not ready */ }
-    try {
-      const payload = JSON.stringify({ method, pubkey, detectedAt: Date.now() });
-      const area = (typeof browser !== 'undefined' && browser.storage)
-        ? browser.storage.local
-        : chrome.storage.local;
-      area.set({ xr_signing_state: payload });
-    } catch (err) {
-      Utils.log('Failed to persist signing state:', err && err.message);
-    }
   }
+
+  // RETIRED 2026-08-09 (T3, ratified): `recordSigningState` had zero
+  // callers. It wrote `xr_signing_state` for a popup badge removed in
+  // 2026-06, and content/index.js:218-231 has its own private writer
+  // that is the live one (8 call sites). Two documented writers for one
+  // key, one of them dead. The key itself is untouched — still written
+  // by the content script, still read by options/index.js, still in
+  // WORKSPACE_KEEP_KEYS.
 };
