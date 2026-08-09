@@ -96,16 +96,6 @@
       ]
     }
   ],
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "src/page/nip07-bridge.js"
-      ],
-      "matches": [
-        "<all_urls>"
-      ]
-    }
-  ],
   "declarative_net_request": {
     "rule_resources": [
       {

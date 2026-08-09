@@ -21,12 +21,13 @@
         return await window.nostr.signEvent(args[0]);
       case 'getRelays':
         return typeof window.nostr.getRelays === 'function' ? await window.nostr.getRelays() : {};
-      case 'nip04Encrypt':
-        if (!window.nostr.nip04 || !window.nostr.nip04.encrypt) throw new Error('nip04 not supported');
-        return await window.nostr.nip04.encrypt(args[0], args[1]);
-      case 'nip04Decrypt':
-        if (!window.nostr.nip04 || !window.nostr.nip04.decrypt) throw new Error('nip04 not supported');
-        return await window.nostr.nip04.decrypt(args[0], args[1]);
+      // nip04Encrypt / nip04Decrypt were removed (2026-08-09, T2). The
+      // content-side NIP07Client never exposed them — entity sync calls
+      // Crypto.nip04Decrypt directly — so they were unreachable through
+      // the extension while remaining callable by postMessage from ANY
+      // page on <all_urls>: an encrypt/decrypt oracle against the user's
+      // signer, for no shipped capability. A permission with no call
+      // site is removed.
       case 'probe':
         return { available: available() };
       default:
