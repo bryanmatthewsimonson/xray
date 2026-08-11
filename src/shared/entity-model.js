@@ -296,27 +296,36 @@ export const EntityModel = {
         // signEvent path later. Key name is derived from the entity id
         // so it's stable under `get`-merge.
         //
-        // Phase 24.1: when a primary identity exists, the key is
-        // DERIVED from it (same primary + same entity id ⇒ the same
-        // pubkey, forever — a lost keystore is recoverable via
-        // restoreDerivedKeys; docs/ENTITY_IDENTITY_DESIGN.md). Without
-        // a primary, the legacy random path still applies.
+        // Phase 24.1: the key is DERIVED from the local primary
+        // identity (same primary + same entity id ⇒ the same pubkey,
+        // forever — a lost keystore is recoverable via
+        // restoreDerivedKeys; docs/ENTITY_IDENTITY_DESIGN.md).
+        //
+        // Option C (NIP07_IDENTITY_KICKOFF, ratified 2026-08-11): a
+        // local primary is REQUIRED. The legacy else-branch minted a
+        // random key here — silently unrecoverable, unbound, and
+        // unportable — which voided the Phase-24 promise for every
+        // entity a NIP-07 (or not-yet-configured) user created.
+        // Refusing with a pointer is the fix; existing random-keyed
+        // entities keep working untouched (get/sign never re-key).
         const keyName = `entity:${id}`;
         const keyMeta = { entityId: id, entityName: name, entityType: type };
         const primary = await Storage.primaryIdentity.get();
+        if (!primary || !primary.privateKey) {
+            throw new Error(
+                'Entity identities need a local primary identity to derive from — '
+                + 'create or import one under Settings → Signing. (It can sit '
+                + 'alongside NIP-07 signing: the local primary is the entity ROOT; '
+                + 'your publishes keep using the signer you chose.)');
+        }
         // CW.4: record WHICH primary the key derives from (its pubkey)
         // on the entity record — the record survives keystore loss, so
         // restoreDerivedKeys can refuse to re-derive under a different
-        // profile instead of silently minting a wrong pubkey. Legacy
-        // random keys record null (they are not recoverable anyway).
-        let derivedFrom = null;
-        if (primary && primary.privateKey) {
-            const child = await Crypto.deriveChildKey(primary.privateKey, ENTITY_KEY_DOMAIN, id);
-            await LocalKeyManager.installDerivedKey(keyName, child, keyMeta);
-            derivedFrom = primary.pubkey || Crypto.getPublicKey(primary.privateKey);
-        } else {
-            await LocalKeyManager.createKey(keyName, keyMeta);
-        }
+        // profile instead of silently minting a wrong pubkey. (Legacy
+        // pre-Option-C random keys carry null — not recoverable.)
+        const child = await Crypto.deriveChildKey(primary.privateKey, ENTITY_KEY_DOMAIN, id);
+        await LocalKeyManager.installDerivedKey(keyName, child, keyMeta);
+        const derivedFrom = primary.pubkey || Crypto.getPublicKey(primary.privateKey);
 
         const now = Math.floor(Date.now() / 1000);
         const record = {

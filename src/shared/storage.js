@@ -227,7 +227,14 @@ export const Storage = (() => {
       }
     },
 
-    // The user's primary signing identity when signing_method === 'local'.
+    // The user's LOCAL primary identity. Read unconditionally — by
+    // design, not oversight (Option C, NIP07_IDENTITY_KICKOFF ratified
+    // 2026-08-11): this key is the ENTITY ROOT — entity-key derivation,
+    // the kind-30069 OwnedKeys manifest, and the creator/NIP-26
+    // delegation binding all hang off it — independent of which signer
+    // (`signing_method`) publishes the operator's own events. Under
+    // NIP-07 the two identities legitimately differ; the delegation
+    // tag is the protocol-native way to connect them.
     // Shape: { privateKey, pubkey, npub, nsec, created } | null.
     primaryIdentity: {
       get: async () => await Store.get('local_primary_identity', null),

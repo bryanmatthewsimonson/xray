@@ -1467,7 +1467,15 @@ async function handleImport(file) {
                         canonical_id: row.canonical_id || null
                     });
                     added++;
-                } catch (_) { /* id collision → skip */ }
+                } catch (err) {
+                    // Option C: create refuses without a local primary.
+                    // Every remaining keyed row would fail identically —
+                    // swallowing it here ended in a SUCCESS toast over a
+                    // zero-row import. Rethrow to the error toast; rows
+                    // already imported stay (re-import is idempotent).
+                    if (/local primary identity/.test((err && err.message) || '')) throw err;
+                    /* id collision → skip */
+                }
             }
         }
         await refreshEntities();

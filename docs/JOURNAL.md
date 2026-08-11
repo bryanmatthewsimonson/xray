@@ -19,6 +19,71 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-11 — Option C ratified: the local primary is the entity root
+
+**Tags:** design
+
+The maintainer ratified Option C ("Merge both PRs and go with Option
+C" — Art. 11) the day after the §3 trace closed. The doctrine, now in
+`ENTITY_IDENTITY_DESIGN.md`'s amendment banner: **the local primary
+identity is the entity ROOT** — derivation, the 30069 OwnedKeys
+manifest, and the creator/NIP-26 binding all key off it,
+unconditionally and by design — while `signing_method` governs only
+who signs the operator's own publishes. The §3.6 "identity split" is
+thereby resolved as intended behavior: under NIP-07 the creator
+binding names the local root, and the NIP-26 delegation tag is the
+protocol-native connector between the two identities.
+
+Implementation, same day: `EntityModel.create` refuses without a
+local primary (the random-key else branch is gone — it silently
+voided the Phase-24 recoverability promise; B's refusal was folded
+into C as its core mechanism). Existing random-keyed entities keep
+working untouched; nothing is half-created on refusal (the guard runs
+before any key install or record write). The five extension-page
+NIP-07 throws in `signer.js` now say what works ("publish from the
+reader after a capture, or switch to Local") — one message, five
+surfaces — and the background's tabless-error mapping still matches.
+The Options NIP-07 panel discloses the full posture. Test fixtures
+across 14 suites gained a seeded primary (`tests/seed-primary.mjs`)
+because the refusal is now load-bearing; the legacy "falls back to a
+random key" test flipped to assert the refusal.
+
+**The adversarial review round then found the refusal leaking through
+five doors the first draft missed** — all fixed in the same PR:
+
+- The claim modal's "New as" buttons swallowed the refusal
+  console-only (the exact dead-button class the same diff fixed in the
+  tagger, one surface over) — now rendered in the picker.
+- The sidepanel's entities-JSON import wrapped create in a
+  skip-on-collision catch, so a no-primary user's 50-entity import
+  silently dropped every row and then toasted SUCCESS — the refusal
+  now aborts the loop and surfaces (already-imported rows stay;
+  re-import is idempotent).
+- `createCase`'s "No identity binding" branch — the option labeled for
+  NIP-07 users — hit the refusal AFTER creating and ACTIVATING the new
+  workspace, stranding the user switched into an empty namespace. The
+  primary check now runs pre-flight, before any side effect.
+- Accept-all in the LLM review continued past refused entity rows into
+  claims, whose unresolved entity refs were silently filtered to
+  `about: []` — and claim creation is idempotent, so the links could
+  never be regained by re-accepting. The refusal now aborts the batch.
+- The case-bundle fresh-install test became vacuous under the shared
+  seeded primary (deterministic derivation reproduces the exporter's
+  pubkeys without the bundle); Device B now gets its own primary so
+  key TRANSPORT is what the test proves.
+
+One flake fixed in passing: the `queryRelays` EOSE test's 500ms/400ms
+timing pair failed under full-suite CPU load (heavier now with
+per-fixture key derivations in sibling processes); widened to
+5000/4000 — EOSE still resolves ~immediately, so the assertion still
+discriminates.
+
+Wire format: none — who signs what is unchanged; the creator-binding
+semantics are now documented rather than accidental. Still owed
+before the next tag (§5's last clause): the live walk — entity
+creation under both signing methods, and one entity-tagged publish
+under NIP-07.
+
 ## 2026-08-10 — NIP-07 §3 answered: no authorship bug on the wire; the split found instead
 
 **Tags:** design, pattern

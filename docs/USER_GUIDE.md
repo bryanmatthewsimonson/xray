@@ -117,7 +117,14 @@ never generates a key behind your back — the first time you open
   (nos2x, Alby). Install it first, then pick this option; each publish
   prompts the signer in-context. When NIP-07 is active, X-Ray routes
   the signing request back through the *source tab* so your signer sees
-  the right origin.
+  the right origin. Two boundaries to know: NIP-07 signs only from a
+  captured web page (publishing from X-Ray's own pages — Archive,
+  Network — and tabless captures like PDFs need Local), and **entities
+  still need a local primary identity** as their root — entity keys
+  derive from it, which is what makes a lost keystore recoverable, so
+  creating an entity without one is refused with a pointer here. The
+  local primary sits alongside NIP-07: it roots your entities, your
+  provider signs your publishes.
 - **NSecBunker.** Remote signing over a bunker URL. Enter the URL and
   click **Test connection**.
 
