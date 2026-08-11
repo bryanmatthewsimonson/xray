@@ -2,6 +2,17 @@
 
 **Status:** working plan, hand-maintained. **Date:** 2026-08-09.
 
+> **OPEN BLOCKER added 2026-08-11, not in the original audit:**
+> **NIP-07 silently breaks case-bound entity identity.** Entity key
+> derivation needs the primary *private* key, which NIP-07 never
+> exposes, so `entity-model.js:313` silently falls back to a random,
+> unrecoverable key — voiding the Phase-24 recoverability promise with
+> no warning. OwnedKeys binding and entity sync are also dead under
+> NIP-07. One load-bearing question is still unverified (whether entity
+> events are signed by the wrong key on the wire), and three options are
+> laid out for decision in **`docs/NIP07_IDENTITY_KICKOFF.md`**. Read
+> that before touching NIP-07 or the entity layer.
+
 Produced by a whole-tree readiness audit: the eight dev-process
 disciplines in `.claude/skills/` each ran their own Protocol as a
 full-tree pass, plus three lenses that have no skill yet — newcomer

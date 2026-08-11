@@ -49,12 +49,22 @@ test('B5: the capture pipeline exposes no page-writable control surface', () => 
         'and probe them — also an installation fingerprint');
 });
 
-test('B5: no web_accessible_resource without a getURL call site', () => {
+// REVERSED 2026-08-11. T2 removed this entry on the reasoning that no
+// `getURL` call site referenced it — but that is the wrong test for a
+// web_accessible_resource, and CLAUDE.md documented the entry as
+// deliberate. It was removed, NIP-07 provider detection stopped working
+// in the field, and it is restored. The fingerprinting surface it costs
+// (a site can probe for the extension's stable ID) is a real but minor
+// tradeoff, accepted here because the bridge is the whole NIP-07 path.
+//
+// The lesson kept: "no caller greps for it" does not establish that a
+// manifest declaration is inert. Do not re-remove this without loading
+// the extension and confirming NIP-07 detection still works.
+test('B5: the NIP-07 bridge stays web-accessible (restored after a field break)', () => {
     const manifest = JSON.parse(read('manifest.json'));
-    const wars = manifest.web_accessible_resources || [];
-    const resources = wars.flatMap(w => w.resources || []);
-    assert.ok(!resources.includes('src/page/nip07-bridge.js'),
-        'the bridge is injected declaratively; exposing it let any site fingerprint the extension by its stable ID');
+    const resources = (manifest.web_accessible_resources || []).flatMap(w => w.resources || []);
+    assert.ok(resources.includes('src/page/nip07-bridge.js'),
+        'the MAIN-world bridge must stay declared — removing it broke NIP-07 detection in the field');
 });
 
 test('B18: the threat model exists and covers every asset class', () => {
