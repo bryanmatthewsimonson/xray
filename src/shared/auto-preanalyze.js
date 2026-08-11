@@ -1,15 +1,19 @@
-// Auto pre-analyze on capture — Phase 28 (flag `autoPreAnalyze`,
-// default OFF).
+// Auto pre-analyze riding the Suggest click — Phase 28, retriggered
+// 2026-08-11 (flag `autoPreAnalyze`, default OFF).
 //
-// When a capture saves into a workspace bound to a case, run the
-// synthesis MAP stage for that ONE member immediately, so the case's
-// next Analyze run finds the extract already cached (corpus-v4 made
-// the extract claims-independent precisely so a capture-time prepay
-// stays valid however much claim extraction follows). Spend consent:
-// turning the flag on in Options is the STANDING authorization — one
-// Anthropic call per capture, cost disclosed there — which is why the
-// default is off and the per-click Analyze/Pre-analyze confirms remain
-// the normal path.
+// When the reader's Suggest pass runs on an article in a workspace
+// bound to a case, also run the synthesis MAP stage for that ONE
+// member, so the case's next Analyze run finds the extract already
+// cached (corpus-v4 made the extract claims-independent precisely so
+// an ahead-of-time prepay stays valid however much claim extraction
+// follows). Spend consent: the Suggest CLICK is the per-article
+// authorization — turning the flag on in Options adds one Anthropic
+// map call to a click that already spends one suggest call, cost
+// disclosed there. This used to fire on capture (from the reader's
+// archive-save tail) — which in practice ran on every writable reader
+// open, a per-open spend nobody authorized (JOURNAL 2026-08-11) — so
+// the trigger moved to the click and the per-click Analyze/Pre-analyze
+// confirms remain the normal path.
 //
 // THE ONE-REQUEST-BUILDER RULE (corpus-v4, tightened by corpus-v7):
 // the request here is built by `corpusMapRequest` over a
@@ -23,7 +27,7 @@
 //
 // Quiet by design: every outcome is returned as a status for the
 // caller to log (and optionally toast on an actual spend); a failure
-// must never disturb the capture flow — the Analyze run simply pays
+// must never disturb the suggest flow — the Analyze run simply pays
 // for this member later.
 
 import { collectCaseDossierData, caseScopeQuestion } from './case-dossier.js';
@@ -36,22 +40,23 @@ import { loadFlags, isEnabled } from './metadata/feature-flags.js';
 import { Utils } from './utils.js';
 
 /**
- * Run the map prepay for one just-captured member.
+ * Run the map prepay for one article of a bound case.
  *
  * @param {object} opts
  * @param {string} opts.caseEntityId  the bound case (resolveActiveCaseRef().caseId)
- * @param {string} opts.url           the captured article's URL
+ * @param {string} opts.url           the article's URL
  * @param {function} opts.sendMessage message-bus sender ({type,request} → Promise)
  * @param {object} [io]               injectable IO for tests: loadFlags,
  *                                    isEnabled, collectData, getExtract,
  *                                    saveExtract, now
  * @returns {Promise<{status:string, key?:string, model?:string, error?:string}>}
  *   status: 'off' (flag), 'gated' (synthesis/assist off), 'no-case',
- *   'no-member' (save raced membership — Analyze covers it), 'cached'
- *   (valid extract already present, no call), 'ran' (one call, saved),
- *   'failed' (call or validation failed; logged, never thrown).
+ *   'no-member' (the article is not a member of the bound case —
+ *   Analyze covers it once it is), 'cached' (valid extract already
+ *   present, no call), 'ran' (one call, saved), 'failed' (call or
+ *   validation failed; logged, never thrown).
  */
-export async function autoPreAnalyzeCapture({ caseEntityId, url, sendMessage }, io = {}) {
+export async function autoPreAnalyzeArticle({ caseEntityId, url, sendMessage }, io = {}) {
     const d = {
         loadFlags, isEnabled,
         collectData: (id) => collectCaseDossierData(id),

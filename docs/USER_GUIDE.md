@@ -158,7 +158,7 @@ Cost note: a **quick** audit is **one** API call; a **thorough** audit is
 **eight** (one per dimension). A lens reading is one call per
 jurisdiction. A corpus synthesis is roughly one call per member article
 plus a reduce — and the per-article analyses are **cached**, so
-Pre-analyze / the opt-in per-capture prepay (`autoPreAnalyze`) make later
+Pre-analyze / the opt-in Suggest-time prepay (`autoPreAnalyze`) make later
 corpus runs and entity pages nearly reduce-only. You pay your own
 Anthropic bill; X-Ray never proxies.
 
@@ -183,7 +183,7 @@ gate your **publish** paths and some panel tabs, not what you can read.
 | `llmAssist` | off | The reader "Suggest…" pass + audit / synthesis / hypothesis / cross-article-link LLM *execution* (needs the API key) |
 | `moralLens` | off | The reader's lens-reading surface (needs the API key; independent of `llmAssist`) |
 | `caseSynthesis` | off | The corpus-level LLM passes: "Analyze corpus…", "Pre-analyze", "Suggest links", hypothesis-edge suggestions, and entity-page generation (needs `llmAssist` + the API key) |
-| `autoPreAnalyze` | off | Auto pre-analyze each capture into its bound case — a STANDING per-capture spend authorization (one analysis call per capture; cache-first) |
+| `autoPreAnalyze` | off | Auto pre-analyze into the bound case with each reader **Suggest** click — adds one map call to a click that already spends one (cache-first; roughly doubles that click's cost) |
 | `networkPage` | off | The whole Network client surface (Feed / Queue / Follows page + its menu item and links) |
 | `reviewCoordination` | off | The portal "Request review" label + the Network "re-broadcast follows" button |
 | `followListPublishing` | off | Publishing a NIP-02 kind-3 mirror of who you follow (global scope only; consent dialog on first enable) |
@@ -1015,10 +1015,12 @@ offers two LLM passes:
 **Pre-analyze** runs just the per-article half of Analyze (the map
 stage) ahead of time, so the eventual Analyze — and any entity page —
 starts from a warm cache; the per-article analyses are keyed to the
-article text + case frame, so extracting claims later never invalidates
-them. The opt-in `autoPreAnalyze` flag does this automatically after
-every capture into a bound case (a standing per-capture spend — the
-Options disclosure says so). The Suggest pass also carries your case's
+article text alone (no case frame, no claims), so extracting claims
+later never invalidates them and one analysis serves every case. The
+opt-in `autoPreAnalyze` flag does this automatically whenever you click
+**Suggest** on an article in a case-bound workspace — the Suggest click
+is the spend consent, and with the flag on it covers the map call too
+(roughly doubling that click's cost; the Options disclosure says so). The Suggest pass also carries your case's
 existing entity names into the prompt as **naming vocabulary**, so a
 re-mentioned entity is proposed under its established name instead of
 minting a near-duplicate.

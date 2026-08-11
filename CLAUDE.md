@@ -359,7 +359,8 @@ tested contract, not an aspiration.
   passes FA.1–FA.3 (`docs/CORPUS_AUDIT_KICKOFF.md`), Suggest narrowed to
   the EXTRACTION pass (entities+claims; judgment kinds live at corpus
   level) + case-dashboard workflow declutter, known-entity vocabulary
-  injection, the opt-in `autoPreAnalyze` capture prepay, the fact-layer
+  injection, the opt-in `autoPreAnalyze` map prepay (originally
+  capture-time; since 2026-08-11 it rides the Suggest click), the fact-layer
   retirement, and **Entity Pages** (`docs/ENTITY_PAGE_KICKOFF.md` —
   EP.1–EP.5, the claims-first knowledge artifacts). A **map-artifact
   wave** (2026-07-24/25, `docs/MAP_ARTIFACT_KICKOFF.md`) then made the

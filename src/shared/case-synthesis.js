@@ -192,8 +192,8 @@ export function computeEntitySummary(data, memberByHash) {
 
 /**
  * The EXACT map-stage request for one member unit — the ONE builder
- * shared by the Analyze run, the Pre-analyze pass, the capture prepay,
- * and the entity-page map, so an extract cached ahead of time carries
+ * shared by the Analyze run, the Pre-analyze pass, the Suggest-time
+ * prepay, and the entity-page map, so an extract cached ahead of time carries
  * precisely the cache key any later consumer computes (corpusExtractKey
  * fingerprints this shape). A change here is a map-input change: bump
  * MAP_PROMPT_VERSION.
