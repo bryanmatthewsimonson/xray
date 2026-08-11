@@ -19,6 +19,61 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-09 — 1.0 re-vet: is main safe, and did the process break anything?
+
+**Tags:** design, pattern
+
+The maintainer pushed back after K14: the first audit had been wrong six
+times, some of it was executed on its word, and "if the tool doesn't
+survive in a better, safer, easier, more reliable state, then this
+process is failing." So before executing any more kills, twelve
+independent hunts re-verified every change ALREADY MERGED (T1–T3 + the
+ready group) against live user paths, on one standard: *does any test
+actually observe this path?* — because the through-line of every error
+so far is that the dangerous paths are the ones the suite cannot see.
+
+**Verdict: main is safe.** All four merged waves are safe-by-reading,
+with the load-bearing claims re-verified at file:line — the archive
+eviction deleter has zero production callers; the `confirmedOk` publish
+gate fails in the honest direction (false-failure on a replaceable
+30023, self-correcting on re-publish) and only `entity-page-block`
+writes a durable stamp, correctly gated; `mergeBackup` excludes
+`local_keys` on MERGE only while replace-all RESTORE still recovers
+your own keys; and the NIP-07 verification is sound for the
+nostr-tools ecosystem (nos2x/Alby/nsec.app serialize identically to
+`getEventHash`). No live user path regressed.
+
+**One genuinely broken control on main — pre-existing, not ours.** The
+Settings → "Capture Page" button (`options.html:15`) is a silent
+no-op: it forwards to the active tab, which for an options-in-its-own-
+tab page is the options page itself, which has no content script. It
+predates all four merges and is redundant with the toolbar, hotkey, and
+right-click capture paths, so impact is low — but it is why K4's
+proposed rename does NOT fix anything (`captureActiveTab` uses the same
+query), and it is a maintainer product decision, not a mechanical kill.
+
+**The verification is the coverage gap.** Every merged change is safe
+*by reading*, not *by test*: the NIP-07 signing path, the three portal
+publish surfaces, and the K9/K15 UI all have zero jsdom coverage, so a
+green suite proves nothing about them. The single most important action
+before a 1.0 tag is the **NIP-07 real-signer live walk** — T2 tightened
+a security-relevant path (strict `created_at`/tags equality + signature
+verify) that no test executes; it is provably safe for mainstream
+signers but wants one real publish through nos2x/Alby plus one NIP-46
+bunker (the only realistic provider that might restamp `created_at`,
+the sole case the strict check would reject). The full required-walk
+list lives in `docs/ROAD_TO_1_0.md`.
+
+The pattern, stated plainly: **the process is working *because* it
+turned on its own output.** It caught K14 before it shipped, it caught
+the false store-creation claim in the entry above after it shipped
+(harmless, corrected), and it converted "the audit says so" into "the
+code says so, at these lines." What failed earlier was executing before
+mapping; the correction is that nothing merges now without a live-path
+verification, and the merged work got that verification retroactively.
+
+---
+
 ## 2026-08-09 — T3 ready group: the moral lens is PARKED, not killed
 
 **Tags:** design
@@ -101,15 +156,31 @@ previously said `active` for a family nothing had ever published, and
 document was over-claiming a kind with no emitter. Never-reuse applies
 to both states.
 
-**The IndexedDB answer, recorded because the tempting option is
-wrong.** `DB_VERSION` stays 3 and nothing calls `deleteObjectStore`.
-The four stores simply stop being created: existing profiles are
-already at v3 so `onupgradeneeded` never fires again and their rows
-stay on disk untouched; fresh profiles never make them. Bumping to v4
-with a delete would have destroyed rows on existing installs with no
-export and no user action — the same shape as the eviction bug T1 just
-fixed. This works only because nothing ever opened a transaction on
-those stores, which was verified rather than assumed.
+**The IndexedDB answer — and a correction to what this entry first
+claimed (2026-08-09, from the 1.0 re-vet).** `DB_VERSION` stays 3 and
+nothing calls `deleteObjectStore`. This entry originally said "the four
+stores simply stop being created… fresh profiles never make them" —
+**that was false.** The blast-radius map recommended deleting the five
+`createObjectStore` blocks from the `oldVersion < 2` rung, but that
+edit was never made: `archive-cache.js:172-201` still creates
+`annotations` / `factchecks` / `ratings` / `helpfulness` /
+`trust_graph` on every fresh profile, empty. The commit message and
+the first draft of this entry described an intent as if it were done —
+exactly the doc-drift-from-reality failure this whole effort exists to
+catch, committed here by me.
+
+The consequence is nil at runtime: nothing ever opens a transaction on
+those five stores (verified), so an empty unused store costs a few
+bytes of schema and nothing else. Leaving the migration ladder
+untouched is in fact the *lower-risk* state — bumping to v4 with a
+delete would have destroyed rows on existing installs with no export,
+the same shape as the T1 eviction bug. So the decision now, made on
+purpose rather than by accident: **the five empty stores stay.**
+Removing them from the ladder is deferred to an optional schema-cleanup
+change with its own fresh-profile walk, not done reactively to make a
+commit message true. The wire-kind reclassification (30050–30053, 9803
+→ reserved) is unaffected and correct; that was always the substance of
+the kill, and the empty local stores were only ever a cosmetic rider.
 
 **The map earned its cost.** Five read-only surveys ran before any
 deletion, and they found six errors in the punch list that would have

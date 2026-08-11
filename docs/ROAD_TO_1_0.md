@@ -742,17 +742,17 @@ verifiable diffs with no design debate and no dependency on any decision
 made later. Doing them first means the two-person walk in T5 exercises a
 tool that does not eat its own evidence.
 
-- [ ] Archive eviction: remove the unconditional delete pass from
+- [x] Archive eviction: remove the unconditional delete pass from
       saveArticle, add unlimitedStorage or drop the cap, refuse to evict
       rows referenced by extraction records or claims, correct the false
       permission comment
-- [ ] gatePublish confirmedOk at entity-page-block.js,
+- [x] gatePublish confirmedOk at entity-page-block.js,
       synthesis-block.js, inspector.js; entity-dossier-view.js reads it
       instead of re-deriving; guard pins the ordering
-- [ ] mergeBackup: exclude local_keys (or route through
+- [x] mergeBackup: exclude local_keys (or route through
       LocalKeyManager.importKey with xray:user reserved), correct the
       dialog text at options/index.js:961, add the round-trip guard
-- [ ] Credential hygiene in one PR: token field to type=password with
+- [x] Credential hygiene in one PR: token field to type=password with
       presence-only status; AssemblyAI/Deepgram/companion-token
       constants added to EXCLUDED_STORAGE_KEYS; class-level guard
       replaces the single-key assertion
@@ -781,13 +781,13 @@ the track is deliberate; every earlier item in it becomes a row.
 - [ ] Re-derive rules/csp-strip.json rule 1 empirically; scope to
       youtube.com or retire it; correct README:333, README:393 and
       CLAUDE.md:240 in the same PR; add the CSP-scope guard
-- [ ] NIP-07 return path: unguessable request id, recompute the event
+- [x] NIP-07 return path: unguessable request id, recompute the event
       hash, assert the pubkey, verify the signature — reject rather than
       fall back
-- [ ] Remove the web_accessible_resources entry for nip07-bridge.js (no
+- [x] Remove the web_accessible_resources entry for nip07-bridge.js (no
       getURL call site anywhere) and the unused
       nip04Encrypt/nip04Decrypt bridge methods
-- [ ] Drop __xrApiHookSetPatterns / __xrApiHookMatch from the production
+- [x] Drop __xrApiHookSetPatterns / __xrApiHookMatch from the production
       bundle; gate the three MAIN-world console.log calls; return early
       before the xrayCaptured dataset stamp when captureAutomation is
       off
@@ -798,7 +798,7 @@ the track is deliberate; every earlier item in it becomes a row.
       payloads in background/index.js
 - [ ] Add referrerpolicy="no-referrer" to every reader img emission and
       an offline-reading preference
-- [ ] Write docs/THREAT_MODEL.md from the re-derived posture; reference
+- [x] Write docs/THREAT_MODEL.md from the re-derived posture; reference
       it from CLAUDE.md; add the PR row-update rule
 
 ### T3 — Take inventory and ratify the kills
@@ -815,7 +815,7 @@ reconciliation has a hard deadline that nothing else does. This track is
 high review-density and low risk — mostly reading and ratifying — which
 makes it good work to interleave with T5's waiting periods.
 
-- [ ] Retire the eight never-read flags in place with rationale; guard:
+- [x] Retire the eight never-read flags in place with rationale; guard:
       every FLAGS_DEFAULTS key is read by isEnabled or listed in
       RETIRED_FLAGS
 - [ ] Surface reviewCoordination and extractionAnalysisPublishing in
@@ -875,7 +875,7 @@ the walk.
 - [ ] Build scripts/release-preflight.mjs to the ordering already
       declared in .claude/skills/README.md; cross-reference it from
       CONTRIBUTING step 3
-- [ ] Delete the compgen guard around npm test; fix or delete npm run
+- [x] Delete the compgen guard around npm test; fix or delete npm run
       clean; add a Disciplines-invoked and Verification-layer section
       plus the canonical "Wire format:" heading to the PR template
 - [ ] MA-section rows for the map-artifact wave, a merge-import row, and
@@ -1041,13 +1041,63 @@ once on the decision rather than twice on the decision and the diff.
 
 ---
 
-## Kill list (15) — needs ratification
+## Kill list (15) — RATIFIED 2026-08-09
 
-Consolidation means deletion. Each of these is a proposal, not a
-decision. Art. 3 governs: the record and the rationale survive, the
-code is git-recoverable, and killed plans may be re-argued on merits.
+Consolidation means deletion. Art. 3 governs: the record and the
+rationale survive, the code is git-recoverable, and killed plans may be
+re-argued on merits.
+
+**The maintainer ratified all fifteen on 2026-08-09** ("kill them all"
+— Art. 11; the instruction is the ratifying act). Execution status is
+recorded per entry below, and this is the authoritative list — the
+`JOURNAL` carries the narrative, this carries the state.
+
+| Status | Count | Entries |
+|---|---|---|
+| **DONE** | 6 | K1, K2, K6, K7, K10, K11 |
+| **PARKED** (deliberately narrower) | 1 | K3 — moral lens |
+| **HALF DONE** | 3 | K5, K8, K15 |
+| **BLOCKED — entry is wrong or unsafe** | 4 | K4, K9, K13, K14 |
+| **NOT STARTED** | 1 | K12 (belongs with T4) |
+
+**Four entries were found to be wrong when a blast-radius map was run
+before executing them** (2026-08-09). That is not a criticism of the
+audit — it is the difference between an audit produced by *reading* the
+tree and one produced by *executing* against it. Every blocked entry
+below states what is actually true. The worst, K14, would have shipped
+a production `TypeError` that no test in the suite could catch.
+
+**A 1.0 re-vet (2026-08-09) then re-verified everything already merged
+AND re-scoped the remaining kills.** Its conclusions govern where they
+refine an entry below:
+
+- **Main is safe.** All four merged waves (T1–T3 + ready group) are
+  safe-by-reading, load-bearing claims re-verified at file:line, no
+  live user path regressed. Full record: `docs/JOURNAL.md` 1.0 re-vet
+  entry.
+- **Execute-now-with-a-named-guard:** K13's case-kickoff banner (a
+  SHIPPED/NORMATIVE banner, never "superseded"), K14a (delete only
+  `articleCache` + `entities.save` + the bridge save shim; KEEP
+  `entities.get`/`getAll`), K9 (filter the three create surfaces only;
+  NEVER touch `ENTITY_TYPES`), K5 (delete `verifyEvents` only if the
+  id-cache-poisoning test is re-pointed at `firstValidEvent` in the
+  same PR).
+- **Do NOT execute as framed:** K4 (the rename does not fix the broken
+  button — product decision), K14b (keep the four legacy keys), K15
+  (fold into the SPOKES view, not the dossier — needs a portal walk),
+  K12 + EPISTACK banner (ride T4's SMOKE_TEST split).
+- **Live walks required before a 1.0 tag** — because the merged changes
+  are safe by *reading*, not by *test*: the NIP-07 real-signer publish
+  (highest priority), the K9 create surfaces, the K15 portal fold, and
+  the "Capture Page" button. Exact steps in the JOURNAL re-vet entry.
+
+**Before executing any remaining entry, read its status note.** The
+original text is preserved beneath it unchanged (Art. 3) and is wrong
+in the places the note says it is.
 
 ### K1. The entire Phase-9a crowdsourced-metadata publish layer: builders for kinds 30050 Annotation / 30051 FactCheck / 30052 Rating / 30053 TopicTrust / 9803 HelpfulnessVote, plus metadata/ranker.js and metadata/topic-trust-builder.js, plus the four unused IndexedDB stores (annotations, factchecks, ratings, helpfulness) created at archive-cache DB v2
+
+> **DONE (builders/flags/wire), STORES DELIBERATELY LEFT** — PR #317 (`bd0396d`), 2026-08-09; store claim corrected by the 1.0 re-vet, same day. The builders, `ranker.js`, `topic-trust-builder.js`, the eight flags, the portal read-side, and the wire reclassification (30050–30053, 9803 → RESERVED, never emitted) are all done. **The four IndexedDB stores were NOT removed** — the earlier note here and the commit message said they "stop being created," but `archive-cache.js:172-201` still creates `annotations`/`factchecks`/`ratings`/`helpfulness` (and a FIFTH, `trust_graph`, never on this list) empty on every fresh profile. This is harmless — nothing opens a transaction on them — and leaving the migration ladder untouched is the lower-risk state, so the decision stands: **the empty stores stay**; removing them from the ladder is deferred to an optional schema-cleanup change with its own fresh-profile walk. `DB_VERSION` stays 3; nothing calls `deleteObjectStore`.
 
 Five lenses converged independently. No caller exists anywhere in src/ —
 every reference outside the builders is a test, a portal type label, or
@@ -1068,6 +1118,8 @@ promise.
 
 ### K2. The eight never-read feature flags: annotations, respondsTo, topicTrust, factchecks, ratings, helpfulnessVoting, bridgingRanking, transitiveTrust
 
+> **DONE** — PR #317. Registry now 20 declared / 20 read / 0 dead. `trustGraphFilter` sits inside the same block and is LIVE (`network/index.js:811`) — kept. The `respondsTo` TAG is emitted on every kind-30023 and survives; only the flag was dead.
+
 Verified directly: exactly 20 flags are read by an isEnabled() call in
 src/ and these eight are not among them. Three default to TRUE, so they
 read as live guarantees a user could turn off; they guarantee nothing.
@@ -1079,6 +1131,8 @@ and numbers stay in the record); a third of the flag registry being
 noise is what makes the real promote-or-kill questions invisible.
 
 ### K3. The moral lens SURFACES — the Options section (options.html:487-505), the reader bar (reader/index.html:143-150) and lens-section.js's console-pointing empty state — keeping every module, every test, and kind 30066 free and guard-tested
+
+> **PARKED, not killed** — PR #318, 2026-08-09, on maintainer instruction ("I will want to bring back moral lenses… make sure it will be easy"). Only the Options checkbox and the console-pointing empty state went. Every module, every test, the flag, the reader markup and kind 30066 survive — the modules keep their tests, so the code stays exercised and cannot rot while parked. Revival condition: once lenses have been tested on real casework. Instructions are in a comment at the removal site in `options.html`.
 
 The only shipped feature whose honest empty state instructs the user to
 leave the product and open a developer console, in a release whose
@@ -1094,6 +1148,8 @@ the tag — is legitimate but is an L against no pulling evidence.
 
 ### K4. The xray:forward:* wildcard message branch (background/index.js:446-459)
 
+> **BLOCKED — needs a decision.** The blast-radius map found the single caller cannot work today (`options_ui.open_in_tab:true` means the active tab IS the options page, so `tabs.query({active,currentWindow})` targets a page with no content script), and `captureActiveTab()` uses the identical query — so the proposed typed replacement inherits the same defect. Needs the O.5 walk before any rename is called behaviour-preserving. Fixing the affordance is a different change from renaming the message.
+
 An untyped passthrough that forwards any message type to the active tab,
 serving a popup surface removed in JOURNAL 2026-06-09, with exactly one
 caller (options/index.js:1690) for one action. It is the single hole
@@ -1104,6 +1160,8 @@ xray:capture:active handled by captureActiveTab().
 
 ### K5. Signer.recordSigningState (signer.js:177-190) and the verifyEvents export (nostr-events.js:122-131)
 
+> **HALF DONE** — `Signer.recordSigningState` retired in PR #318 (and with it the `Utils` import it alone used). `verifyEvents` is **BLOCKED**: it carries 10 of the 11 tests in `tests/nostr-verify.test.mjs`, the only coverage of `verifyOne`, which the LIVE `firstValidEvent` path runs on every relay read — including the id-cache-poisoning guard. Deleting it removes the verify-on-ingest regression net. Rewrite those tests against `firstValidEvent` in the same PR, or keep it as an explicitly-marked test seam.
+
 Both are dead exports with zero callers. recordSigningState writes
 xr_signing_state, which content/index.js:218-231 re-implements privately
 and calls nine times — two documented writers for one key, one of them
@@ -1113,6 +1171,8 @@ presence makes the coverage picture ambiguous rather than clearer. Also
 fix signer.js:9 and :174, which still reference the removed popup.
 
 ### K6. nip04Encrypt / nip04Decrypt in src/page/nip07-bridge.js:24-29, and the web_accessible_resources entry for that file (manifest.json:98-107)
+
+> **DONE** — PR #316 (T2), 2026-08-09.
 
 NIP07Client exposes only probe, getPublicKey, signEvent and getRelays —
 nothing calls the nip04 methods, and entity-sync uses
@@ -1127,6 +1187,8 @@ detect its visitor runs X-Ray.
 
 ### K7. window.__xrApiHookSetPatterns and window.__xrApiHookMatch (api-interceptor.js:210-211)
 
+> **DONE** — PR #316 (T2). The comment claimed a unit test needed them; no test in the repo referenced either.
+
 The comment above them admits they exist only for a JSDOM unit test and
 that stripping them "is desirable but not critical." They are
 page-callable functions on facebook, instagram and youtube that let any
@@ -1136,6 +1198,8 @@ installation fingerprint, purely for test convenience a build flag or a
 direct module test could serve.
 
 ### K8. The auditor-prototype CLI instruction in the Options UI (options.html:351-356), and the reader's always-visible "Import audit JSON…" control (reader/index.html:126)
+
+> **DONE (Options half)** — PR #318: the CLI paragraph now leads with the in-extension Quick/Thorough path and frames import as the exception. The reader control was left: `importAuditJson` is shared with the live in-extension auditor (`reader/index.js:3982`), so removing the control is not the same as removing the handler.
 
 Three lenses converged. The in-extension Quick/Thorough auditor
 superseded the CLI path in Phase 14.5, yet Settings still tells a
@@ -1149,6 +1213,8 @@ generated or explicitly frozen.
 
 ### K9. `case` as a selectable type in the side panel's ＋ New entity dialog (sidepanel/index.html:31)
 
+> **BLOCKED — the entry is wrong.** `sidepanel/index.html:31` is the list-view type FILTER chip, not a create control; the New-entity dialog has no markup there at all (built in JS at `sidepanel/index.js:1289-1352`). Executing as written would delete a filter and leave the create path intact. Also `case` is hand-creatable from THREE surfaces, not one (`reader/claim-extractor.js:238-240`, `reader/entity-tagger.js:150-151`). And removing `case` from `ENTITY_TYPES` would break the tree — `assertValidType` would reject the type `createCase()` itself creates.
+
 src/shared/case-create.js:20-23 states plainly that the case entity is
 "an implementation detail the user never assembles by hand" — and this
 control is exactly that hand-assembly, producing an object named like a
@@ -1160,6 +1226,8 @@ more discoverable surface, then finding captures do not join it and the
 portal has no dashboard for it — unrecoverable without reading source.
 
 ### K10. The compgen -G "tests/*.test.*" conditional wrapped around npm test in ci.yml, and the blank-body fallback in release.yml's changelog extraction
+
+> **DONE** — PR #318. Note the entry was wrong about the release half: there is no blank-body fallback construct to delete; the awk simply propagates an empty string. The fix was to ADD a guard that fails loudly.
 
 Two lenses each. The compgen guard's own comment concedes it predates
 the test suite and exists to keep a hypothetical test-less branch green;
@@ -1174,6 +1242,8 @@ costs a version number.
 
 ### K11. npm run clean, or its rm -rf implementation
 
+> **DONE** — PR #318. Now a `node rmSync` one-liner, exercised on Windows.
+
 package.json:12 is `rm -rf dist`, documented in CLAUDE.md as a project
 command, and it errors under npm's default shell on Windows — the
 maintainer's own platform, and the platform a newcomer following
@@ -1182,6 +1252,8 @@ one-liner or delete the alias; a documented command that does not run is
 the small lie that costs someone twenty minutes.
 
 ### K12. The SMOKE_TEST per-phase agent-coverage table (:149-163), the "Suggested agent-driven loop" pseudocode (:164-187), and every hardcoded test/bundle count in the document
+
+> **NOT STARTED** — belongs with T4 (the release gate), since the replacement text depends on how SMOKE_TEST is split. Note the count list is incomplete: it misses `SMOKE_TEST.md:208` (row 1.1), whose documented command does not filter at all.
 
 Two lenses converged. Both blocks describe the 2026-04-21 MCP tab-group
 proof of concept, cover Phases 2-7 only, and contain a step-numbering
@@ -1195,6 +1267,8 @@ structurally unable to fail. Retire on the record and replace with the
 Standard-5 classification plus a pointer to tools/smoke.
 
 ### K13. The six EPISTACK_* documents plus docs/epistack/ (~1,600 lines), and the superseded kickoff briefs kept alongside their design docs (PHASE_15_KICKOFF, PORTAL_KICKOFF, EPISTEMIC_AUDIT_KICKOFF, CASE_WORKSPACE_KICKOFF, CASE_BOUND_WORKSPACES_KICKOFF)
+
+> **BLOCKED — the entry is wrong about two of the five.** `CASE_WORKSPACE_KICKOFF.md` and `CASE_BOUND_WORKSPACES_KICKOFF.md` have NO design doc — they ARE the durable spec, cited as normative by nine `src/` files and three tests. Bannering them "superseded — see the design doc" would strand those files. They need a SHIPPED/NORMATIVE banner instead. Also: lift `EPISTACK_RUNBOOK` §5 (:197-232, not :197-228 — the short range drops the restore step) and §7 into the gate BEFORE bannering.
 
 Two lenses. The EPISTACK cluster is an expired competition entry
 (deadline 2026-07-19, recorded submitted) carrying live-sounding dates
@@ -1210,6 +1284,8 @@ historical. Banner, never delete (Art. 3).
 
 ### K14. The v4-compat façades in storage.js — Storage.entities (:354-360) and Storage.articleCache (:408-412) — and the four inert legacy userscript keys (publications, people, organizations, keypair_registry)
 
+> **BLOCKED — the most dangerous entry in the set.** `Storage.entities` is NOT a dead stub: it is a null-object DEFAULT that three surfaces overwrite at runtime and that `event-builder.js:318` and `:331` read in production. All three bridge installs swallow their exceptions, so deleting it converts a soft failure into a `TypeError` mid-publish — and NO test would catch it, because every `buildArticleEvent` call in the suite but two passes an empty entity list. Only `entities.save` is genuinely dead; `articleCache` is dead as claimed. Separately, removing the four legacy keys from `options/index.js:83` would ORPHAN userscript-era data forever (that array is the only purge path) and contradicts the recorded decision in the JOURNAL "Keypair Registry tab removal" entry (2026-07-01), which deliberately KEEPS them in `storageClearExtension` so "erase all data" still purges userscript-era data. (An earlier draft of this note cited a wrong line number — corrected by the 1.0 re-vet to cite the entry by name, since line numbers drift.)
+
 The façades are dead stubs: entities.get returns null, entities.save
 throws an error citing an internal phase number and a GitHub issue id at
 a 1.0 user, and articleCache.save is a silent no-op — a data-loss shape
@@ -1222,6 +1298,8 @@ one-time export path in Options, or an explicit JOURNAL entry stating
 the keys are inert and preserved.
 
 ### K15. The entity-corpus portal destination as a separate button (portal/entity-view.js:78), and the vestigial "Experimental" heading in Options → Advanced (options.html:319)
+
+> **HALF DONE** — the "Experimental" heading renamed in PR #318 (it labels a live checkbox, so it needed a replacement heading, not a deletion). The entity-corpus fold is **NOT STARTED** and needs care: the corpus view is PUBKEY-addressed and works for strangers, while the dossier is local-entityId-addressed — folding it into the dossier would silently drop every foreign pubkey, which is the exact case it exists to serve. Fold into the entity (spokes) view.
 
 Two lenses on the first. entity-corpus is the third destination for one
 person, distinguished from "Open dossier" only by data provenance — a
