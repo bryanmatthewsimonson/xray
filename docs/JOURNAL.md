@@ -72,6 +72,65 @@ code says so, at these lines." What failed earlier was executing before
 mapping; the correction is that nothing merges now without a live-path
 verification, and the merged work got that verification retroactively.
 
+---
+
+## 2026-08-09 — T3 ready group: the moral lens is PARKED, not killed
+
+**Tags:** design
+
+Six more of the fifteen ratified kills executed. One of them was
+executed **narrower than ratified**, on the maintainer's instruction,
+and that is the entry worth reading.
+
+**The moral lens is parked.** The maintainer ratified the kill and then
+said: *"I will want to bring back moral lenses, but the fact that I
+haven't had a chance to test them yet is the operating reason why I
+ratified the kill. Make sure it will be easy to bring back."* Checking
+before executing changed the answer. The `moralLens` flag already
+defaults false and the reader's bar is `<section … hidden>`, so a fresh
+install never showed any of it — the entire user-facing exposure was
+**one checkbox** in Options that invited someone into a feature with
+zero jurisdictions and no authoring UI. Deleting the surfaces would
+have bought almost nothing and cost the return trip.
+
+So only the checkbox went, plus the empty state that told the user to
+open a developer console. Every module, every test, the flag, the
+reader markup and kind 30066 survive. **That is what makes revival
+cheap: the modules keep their tests, so the code stays exercised while
+parked and cannot rot against the tree around it.** Bringing it back is
+re-adding an entry point, not repairing months of drift. The revival
+instructions and the maintainer's own revival condition — *once lenses
+have been tested on real casework* — sit in a comment at the removal
+site, next to the thing they revive.
+
+Recorded as a general rule: **a parked feature keeps its tests. A
+killed feature does not.** The difference is not the deletion, it is
+whether anything still proves the code works.
+
+**Also in this group.** The auditor-prototype copy in Options told a
+non-technical user their route to an audit was a Node CLI; it now
+leads with the in-extension Quick/Thorough path and frames import as
+the exception. The "Experimental" heading scoped one checkbox out of
+eleven identical default-off publish toggles, so a careful reader took
+it as a boundary and concluded the other ten were stable — renamed for
+what it gates. `Signer.recordSigningState` went (zero callers, a popup
+badge removed in 2026-06), and with it the `Utils` import it alone
+used — exactly the silent orphan the blast-radius map predicted, which
+neither esbuild nor lint would have flagged.
+
+**Two CI defects, opposite shapes.** `npm run clean` was `rm -rf dist`,
+which cannot run under npm's default shell on Windows — the
+maintainer's own platform, documented in CLAUDE.md as a project
+command. It now works. And the release workflow published an **empty
+release body** when a CHANGELOG section was missing: the comment called
+that a fallback, but publishing nothing is the failure, and it lands
+where recovery is most expensive, since `v*` tags are protected against
+deletion so a bad release burns a version number. It fails loudly now.
+The punch list said to *delete* a fallback construct; there was none to
+delete — the fix was to *add* a guard. A reviewer searching for the
+line to remove would have found nothing and concluded the kill was
+already done.
+
 ## 2026-08-09 — T3: the Phase-9a scaffold retired, and the map that saved it
 
 **Tags:** design, pattern

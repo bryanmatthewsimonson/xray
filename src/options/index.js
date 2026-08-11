@@ -1183,8 +1183,9 @@ async function loadAdvanced() {
     document.getElementById('qa-open-network').hidden = !isEnabled('networkPage');
     document.getElementById('pref-follow-publish').checked = isEnabled('followListPublishing');
 
-    // Moral lens (Phase 16) — independent of llmAssist; shares the key.
-    document.getElementById('pref-moral-lens').checked = isEnabled('moralLens');
+    // Moral lens (Phase 16): its control is PARKED (T3, 2026-08-09) —
+    // the flag and every module survive, but there is no checkbox on
+    // this page to read into. See the note in options.html.
 
     // AI vision — independent of llmAssist; shares the key.
     document.getElementById('pref-ai-vision').checked = isEnabled('aiVision');
@@ -1321,10 +1322,10 @@ async function saveAdvanced() {
     }
     await setOverride('followListPublishing', followPubOn ? true : null);
 
-    // Moral lens (Phase 16): checked → explicit override on; unchecked →
-    // clear the override back to the default (off).
-    const lensOn = document.getElementById('pref-moral-lens').checked;
-    await setOverride('moralLens', lensOn ? true : null);
+    // Moral lens (Phase 16): control PARKED (T3, 2026-08-09). Nothing
+    // is written here — any existing `moralLens` override in storage is
+    // left exactly as the user set it, so parking cannot silently flip
+    // the flag for someone who had turned it on.
 
     // AI vision: same override shape.
     const visionOn = document.getElementById('pref-ai-vision').checked;
