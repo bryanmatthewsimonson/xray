@@ -273,14 +273,23 @@
       <span class="xr-opt__status" id="workspace-status"></span>
 
       <hr />
-      <h3 class="xr-opt__subhead">Full backup</h3>
+      <h3 class="xr-opt__subhead">Backups &amp; sharing</h3>
       <p class="xr-opt__hint">
-        Everything the extension stores locally in one file: the workspace
-        above <em>plus</em> settings, saved identities, the captured
-        article archive, original source documents, audit records, and the
-        signed-event journal. Restoring it on a fresh install brings the
-        whole extension back. It contains private keys — treat the file
-        like an nsec. Your LLM API key is <strong>never</strong> included.
+        The <strong>full backup</strong> is for RECOVERY on your own
+        machines: everything the extension stores locally in one file —
+        the workspace above <em>plus</em> settings, saved identities, the
+        captured article archive, original source documents, audit
+        records, and the signed-event journal. Restoring it on a fresh
+        install brings the whole extension back. It contains private
+        keys — treat the file like an nsec and never send it to anyone.
+        The <strong>shareable copy</strong> is the file to give a
+        colleague: the same content with every private key left out —
+        they bring it in with Import &amp; merge. (Their X-Ray must be
+        from 2026-08-10 or later — older versions don't know this file
+        kind and their Restore button would treat it as a full backup.)
+        API credentials (the LLM key, cloud transcription keys, and the
+        companion token) are <strong>never</strong> included in either
+        file.
       </p>
       <label class="xr-opt__field xr-opt__field--inline">
         <input type="checkbox" id="backup-include-bytes" checked />
@@ -288,7 +297,10 @@
           <span id="backup-size-estimate"></span></span>
       </label>
       <div class="xr-opt__actions">
-        <button class="xr-opt__btn" id="backup-download">Download full backup</button>
+        <button class="xr-opt__btn" id="backup-download"
+                title="Recovery only — contains private keys">Download full backup (recovery)</button>
+        <button class="xr-opt__btn" id="backup-download-shareable"
+                title="No private keys inside — the file to hand a colleague">Download shareable copy (no keys)</button>
         <button class="xr-opt__btn xr-opt__btn--danger" id="backup-restore">Restore from backup…</button>
         <button class="xr-opt__btn" id="backup-merge">Import &amp; merge…</button>
         <button class="xr-opt__btn" id="backup-events-bundle">Export signed-events bundle</button>
@@ -296,6 +308,8 @@
       <p class="xr-opt__hint">
         Restore <strong>replaces</strong> everything with the backup's
         contents — a safety backup of the current data downloads first.
+        (A shareable copy cannot be restored — it carries no identities —
+        only merged.)
         Import &amp; merge instead <strong>accrues</strong> a backup's
         content into the current corpus: articles, claims, entities,
         analysis records, and audits it has and you don't are added
@@ -625,7 +639,8 @@
       </label>
       <label class="xr-opt__field">
         <span>Companion auth token — leave blank unless you set TRANSCRIBER_TOKEN on the service</span>
-        <input type="password" id="pref-transcriber-token" placeholder="almost always blank" />
+        <input type="password" id="pref-transcriber-token" autocomplete="off"
+               placeholder="paste to save; leave blank to keep the current token" />
         <span class="xr-opt__hint">
           Not your Hugging Face or provider key. This is only the shared
           secret the companion's own <code>TRANSCRIBER_TOKEN</code> sets,
@@ -633,6 +648,10 @@
           variable on the service, and cloud keys go in the fields above.
         </span>
       </label>
+      <p class="xr-opt__field xr-opt__field--inline">
+        <span class="xr-opt__hint" id="transcriber-token-status"></span>
+        <button class="xr-opt__btn" id="transcriber-token-clear" type="button">Clear token</button>
+      </p>
       <p class="xr-opt__field xr-opt__field--inline">
         <button class="xr-opt__btn" id="transcriber-check" type="button"
                 title="Re-check the companion service now">Recheck now</button>
