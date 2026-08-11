@@ -19,6 +19,49 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-11 — NIP-07 silently voids the Phase-24 recoverability promise
+
+**Tags:** bug, design
+
+Raised by the maintainer immediately after the NIP-07 walk passed:
+*"We can't use NIP-07 with case-bound identities."* He is right, and
+the failure is silent.
+
+Entity key derivation needs the primary **private** key —
+`crypto.js:184` `deriveChildKey(parentPrivHex, …)` throws without 64
+hex chars. NIP-07 never exposes it (nos2x gives `getPublicKey` and
+`signEvent` only). So `entity-model.js:313` takes its `else` branch and
+mints a **random** entity key with `derivedFrom: null`. Creation
+succeeds, the UI looks identical, and the result is a key that is
+unrecoverable (only *derived* keys can be re-derived), unportable
+(merge-import excludes `local_keys`), and unbound (the kind-30069
+OwnedKeys manifest is signed with `primary.privateKey` at
+`reader/index.js:7173`, so it is never published). Entity sync dies the
+same way — `entity-sync.js` needs `userPrivkey` for its NIP-44
+self-conversation key.
+
+Phase 24's promise is that a lost keystore is recoverable by
+re-derivation. Under NIP-07 that promise is void for every entity the
+user creates, and nothing says so.
+
+**Not wrong:** NIP-07 signing itself (walked and passing), and
+entity-key *signing*, which is local regardless of method
+(`local-key-manager.js:147`, never routed through `Signer`). The defect
+is key creation and custody, not signing dispatch.
+
+**Unverified and load-bearing:** whether the reader's publish flow
+under NIP-07 signs entity-authored events with the entity key or with
+the operator's personal nos2x key. If the latter, that is a
+truth-of-authorship bug on the wire — published, permanent — and it
+outranks the recoverability issue. Traced no further; the session ended
+here deliberately rather than guessing.
+
+Three options (remove NIP-07 / disclose honestly / require a local
+primary for the entity layer) are written up with their implications in
+`docs/NIP07_IDENTITY_KICKOFF.md`, which also carries the exact trace
+instructions for the open question. Decision is the maintainer's;
+nothing is implemented.
+
 ## 2026-08-11 — I broke NIP-07 in the field, and the walk that proved T2 safe
 
 **Tags:** bug, pattern
