@@ -8,10 +8,17 @@
 > exposes, so `entity-model.js:313` silently falls back to a random,
 > unrecoverable key — voiding the Phase-24 recoverability promise with
 > no warning. OwnedKeys binding and entity sync are also dead under
-> NIP-07. One load-bearing question is still unverified (whether entity
-> events are signed by the wrong key on the wire), and three options are
-> laid out for decision in **`docs/NIP07_IDENTITY_KICKOFF.md`**. Read
-> that before touching NIP-07 or the entity layer.
+> NIP-07. **Update 2026-08-10: the load-bearing question is ANSWERED —
+> traced and adversarially verified, there is NO truth-of-authorship
+> bug on the wire** (entity events always sign with the entity key;
+> everything reaching nos2x claims the operator's own pubkey; the
+> PR #316 gate rejects any cross-key result). The remaining problem is
+> recoverability + dead features, plus a newly found identity-split
+> anomaly when a leftover local primary coexists with NIP-07. The
+> three options now carry full traced implications and an advisory
+> recommendation (Option C) in **`docs/NIP07_IDENTITY_KICKOFF.md`** —
+> decision-ready for the maintainer (Art. 11). Read it before touching
+> NIP-07 or the entity layer.
 
 Produced by a whole-tree readiness audit: the eight dev-process
 disciplines in `.claude/skills/` each ran their own Protocol as a

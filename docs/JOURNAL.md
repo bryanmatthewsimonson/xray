@@ -19,6 +19,42 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-10 — NIP-07 §3 answered: no authorship bug on the wire; the split found instead
+
+**Tags:** design, pattern
+
+The load-bearing question `NIP07_IDENTITY_KICKOFF.md` §3 left open is
+closed: **under NIP-07, no event that claims an entity as author is
+ever signed by the operator's personal key.** Four independent code
+traces (reader batch, portal/sidepanel/network surfaces, signer
+dispatch, a completeness sweep over every `.signEvent(` in the tree),
+then three adversarial refutation passes. Two refuters found nothing;
+one caught an enumeration gap only (the portal reconcile-rebroadcast,
+which re-sends already-signed journal events verbatim and cannot
+misattribute). Defense in depth: entity events sign exclusively via
+`LocalKeyManager.signEvent` (zero `signing_method` references — same
+custody in every mode); everything that reaches nos2x stamps the
+operator's own pubkey fetched from nos2x itself; and the PR #316 gate
+re-verifies pubkey equality + BIP-340 on every reply, so a misrouted
+event throws instead of shipping. Full citations in the kickoff §3.
+
+What the trace found INSTEAD: (a) the complete dead-path census —
+silent (entity key derivation → random unrecoverable keys, OwnedKeys
+30069, creator binding + NIP-26 delegation) versus loud (all five
+extension-page `Signer` call sites throw "client not available"
+because nothing in the tree ever installs a `signRequestForwarder`;
+tabless captures refuse) — meaning NIP-07 mode is ALREADY
+capture-and-judge only, and Option C mostly formalizes the status quo;
+(b) **the identity split**: `Storage.primaryIdentity.get()` reads
+`local_primary_identity` unconditionally (`storage.js:233`), so a user
+who migrated Local → NIP-07 publishes articles under the nos2x pubkey
+while the 30069 manifest and creator/delegation tags re-arm and name
+the leftover local primary — truthfully self-signed, but the creator
+binding points at an identity that is not the operator's wire
+identity. The kickoff now carries traced implications for all three
+options and an advisory recommendation (C, with B's refusal folded
+in). Decision is the maintainer's; nothing implemented.
+
 ## 2026-08-11 — NIP-07 silently voids the Phase-24 recoverability promise
 
 **Tags:** bug, design
