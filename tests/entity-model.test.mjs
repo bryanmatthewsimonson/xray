@@ -41,12 +41,16 @@ const { EntityModel, ENTITY_TYPES, ENTITY_ICONS,
     await import('../src/shared/entity-model.js');
 const { LocalKeyManager } = await import('../src/shared/local-key-manager.js');
 const { EventBuilder } = await import('../src/shared/event-builder.js');
+const { seedPrimary } = await import('./seed-primary.mjs');
 
 // Fresh state between groups of tests — tests that create entities
-// should be independent.
+// should be independent. Option C (NIP07_IDENTITY_KICKOFF, ratified
+// 2026-08-11) makes EntityModel.create refuse without a local primary
+// identity to derive entity keys from, so every reset seeds one.
 function resetState() {
     _stateStore.clear();
     LocalKeyManager.keys.clear();
+    seedPrimary(_stateStore);
 }
 
 // ---------------------------------------------------------------------

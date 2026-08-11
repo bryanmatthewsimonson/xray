@@ -202,7 +202,14 @@ function openPopover({ x, y, initialText }) {
                 const entity = await EntityModel.create({ name, type });
                 applyTag(entity);
             } catch (err) {
-                console.warn('[X-Ray Tagger] create failed:', err);
+                // Surface the failure IN the popover — Option C made
+                // creation refuse without a local primary, and a
+                // console-only error would read as a dead button.
+                results.textContent = '';
+                const line = document.createElement('div');
+                line.className = 'xr-tagger-popover__error';
+                line.textContent = 'Create failed: ' + ((err && err.message) || err);
+                results.appendChild(line);
             }
         });
     });

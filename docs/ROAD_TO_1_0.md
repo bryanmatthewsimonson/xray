@@ -12,13 +12,15 @@
 > traced and adversarially verified, there is NO truth-of-authorship
 > bug on the wire** (entity events always sign with the entity key;
 > everything reaching nos2x claims the operator's own pubkey; the
-> PR #316 gate rejects any cross-key result). The remaining problem is
-> recoverability + dead features, plus a newly found identity-split
-> anomaly when a leftover local primary coexists with NIP-07. The
-> three options now carry full traced implications and an advisory
-> recommendation (Option C) in **`docs/NIP07_IDENTITY_KICKOFF.md`** —
-> decision-ready for the maintainer (Art. 11). Read it before touching
-> NIP-07 or the entity layer.
+> PR #316 gate rejects any cross-key result).
+> **RESOLVED 2026-08-11: the maintainer ratified Option C** (Art. 11)
+> — the local primary is the ENTITY ROOT, entity creation REFUSES
+> without one (no more silent random keys), extension-page NIP-07
+> errors say what works instead, and the Options NIP-07 panel
+> discloses the posture. Decision record + implementation:
+> **`docs/NIP07_IDENTITY_KICKOFF.md`** §6; entity-root doctrine:
+> `docs/ENTITY_IDENTITY_DESIGN.md` amendment banner. Still owed
+> before the next tag: the live walk (§6).
 
 Produced by a whole-tree readiness audit: the eight dev-process
 disciplines in `.claude/skills/` each ran their own Protocol as a

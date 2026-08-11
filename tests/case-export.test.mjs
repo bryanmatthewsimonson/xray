@@ -7,6 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { seedPrimary } from './seed-primary.mjs';
 
 const _stateStore = new Map();
 globalThis.chrome = {
@@ -42,6 +43,7 @@ const { buildClaimCoord } = await import('../src/shared/claim-ref.js');
 
 function resetState() {
     _stateStore.clear();
+    seedPrimary(_stateStore);
     LocalKeyManager.keys.clear();
 }
 

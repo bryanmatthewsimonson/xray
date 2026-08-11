@@ -7,6 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { seedPrimary } from './seed-primary.mjs';
 
 const _store = new Map();
 globalThis.chrome = {
@@ -24,7 +25,7 @@ const { recordAccount, linkAccountToEntity } = await import('../src/shared/ident
 const { EntityModel } = await import('../src/shared/entity-model.js');
 const { LocalKeyManager } = await import('../src/shared/local-key-manager.js');
 
-function reset() { _store.clear(); LocalKeyManager.keys.clear(); }
+function reset() { _store.clear(); LocalKeyManager.keys.clear(); seedPrimary(_store); }
 
 test('selects a touched account; unlinked → null pubkey', async () => {
     reset();

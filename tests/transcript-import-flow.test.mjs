@@ -19,6 +19,7 @@ globalThis.chrome = {
     }
 };
 
+const { seedPrimary } = await import('./seed-primary.mjs');
 const { EntityModel } = await import('../src/shared/entity-model.js');
 const { LocalKeyManager } = await import('../src/shared/local-key-manager.js');
 const { saveArticle, getArticle, clear: clearArchive } = await import('../src/shared/archive-cache.js');
@@ -30,6 +31,7 @@ const { buildTranscriptArticle, computeTranscriptArticleHash } = await import('.
 
 async function reset() {
     _store.clear();
+    seedPrimary(_store);
     LocalKeyManager.keys.clear();
     try { await clearArchive(); } catch (_) { /* db may not exist yet */ }
 }

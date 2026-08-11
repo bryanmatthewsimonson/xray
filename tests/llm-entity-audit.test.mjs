@@ -8,6 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { seedPrimary } from './seed-primary.mjs';
 
 const _store = new Map();
 globalThis.chrome = {
@@ -152,6 +153,7 @@ test('E2: firewall — rename/retype/split/external_id rules + dedup', () => {
 
 test('E2 §7 Q1 pin: rename and retype NEVER rederive the entity id; external_ids round-trip', async () => {
     _store.clear();
+    seedPrimary(_store);
     LocalKeyManager.keys.clear();
     const created = await EntityModel.create({ name: 'Elena Vargas', type: 'person' });
     const renamed = await EntityModel.update(created.id, { name: 'Mayor Elena Vargas' });

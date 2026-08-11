@@ -556,7 +556,9 @@ export async function openLlmReview(opts) {
          */
         async function acceptAllOf(kinds) {
             const wanted = PROPOSAL_ORDER.filter((k) => kinds.includes(k));
+            let aborted = false;
             for (const kind of wanted) {
+                if (aborted) break;
                 for (const row of rows.filter((r) => r.kind === kind && r.status === 'pending')) {
                     if (!validityOf(row).ok) continue;
                     if (blockedReason(row)) continue;
@@ -569,6 +571,18 @@ export async function openLlmReview(opts) {
                         acceptedCount += 1;
                     } catch (err) {
                         row.message = (err && err.message) || String(err);
+                        // Option C: entity creation refuses without a
+                        // local primary. Every later row of every kind
+                        // hits the same wall — worse, claims would be
+                        // created with their unresolved entity refs
+                        // silently filtered to about:[], and re-running
+                        // later can never restore those links (claim
+                        // create is idempotent). Stop the batch instead
+                        // of accepting hollow dependents.
+                        if (/local primary identity/.test(row.message)) {
+                            aborted = true;
+                            break;
+                        }
                     }
                 }
             }

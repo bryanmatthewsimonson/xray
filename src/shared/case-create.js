@@ -28,6 +28,7 @@
 
 import { Workspaces, IdentityProfiles } from './identity-profiles.js';
 import { EntityModel } from './entity-model.js';
+import { Storage } from './storage.js';
 
 /**
  * @param {object} opts
@@ -59,6 +60,25 @@ export async function createCase({ caseName, scopeQuestion = '', profilePubkey =
     } else if (newProfileLabel) {
         const p = await IdentityProfiles.create(newProfileLabel, { activate: false });
         identityPubkey = p.pubkey;
+    }
+
+    // Option C pre-flight (NIP07_IDENTITY_KICKOFF, ratified
+    // 2026-08-11): step 4's case entity needs a local primary to
+    // derive from, and by then the new workspace is already ACTIVE —
+    // refusing there would strand the user switched into an empty,
+    // case-less namespace (the review's concrete NIP-07 scenario, via
+    // the "No identity binding" option). When no identity is being
+    // bound and none is live, refuse BEFORE any side effect.
+    if (!identityPubkey) {
+        const primary = await Storage.primaryIdentity.get();
+        if (!primary || !primary.privateKey) {
+            throw new Error(
+                'Creating a case mints its case entity, which needs a local '
+                + 'primary identity to derive from — and none is active. Pick '
+                + '"New identity for this case" (or bind a saved profile) in '
+                + 'this dialog, or create an identity under Settings → Signing '
+                + 'first.');
+        }
     }
 
     const workspace = await Workspaces.create({ label: name, identityPubkey });

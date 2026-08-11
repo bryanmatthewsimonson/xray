@@ -1,14 +1,11 @@
-# NIP-07 vs. case-bound entity identity — open decision
+# NIP-07 vs. case-bound entity identity — DECIDED: Option C
 
-**Status:** DECISION-READY. The §3 load-bearing question is ANSWERED
-(2026-08-10, four-way independent code trace + three adversarial
-verification passes — evidence inline below): **there is no
-truth-of-authorship bug on the wire.** What remains is the
-recoverability/dead-feature problem (§1), a newly found identity-split
-anomaly (§3.6), and the choice among the three options (§4, now with
-implications). Raised by the maintainer 2026-08-11, traced 2026-08-11,
-question closed 2026-08-10 (sic — the banner date 2026-08-11 was
-written ahead of the calendar; the trace ran the following session).
+**Status:** **DECIDED — Option C ratified by the maintainer 2026-08-11**
+("Merge both PRs and go with Option C" — Art. 11; the instruction is
+the ratifying act). Implemented the same day (§6). The §3 load-bearing
+question was ANSWERED first (2026-08-10, four-way independent code
+trace + three adversarial verification passes — evidence inline
+below): **there is no truth-of-authorship bug on the wire.**
 **Owner of the decision:** the maintainer (Art. 11).
 **Governing skills:** `.claude/skills/architect` (one-way doors,
 context placement), `.claude/skills/security-threat-modeler` (key
@@ -322,8 +319,9 @@ the confusion — that is a product judgment, not a code one.
 
 - ~~The §3 question answered, with evidence.~~ **Done 2026-08-10 —
   §3 above; no truth-of-authorship bug.**
-- The maintainer chooses (Art. 11); this document records the choice
-  and its rationale in `docs/JOURNAL.md`.
+- ~~The maintainer chooses (Art. 11); this document records the choice
+  and its rationale in `docs/JOURNAL.md`.~~ **Done 2026-08-11 —
+  Option C; see §6 and the JOURNAL entry.**
 - If any option changes wire behavior (who signs what), it is an
   `ecosystem-pm` review and a `Wire format:` PR callout — published
   events are permanent.
@@ -334,3 +332,51 @@ the confusion — that is a product judgment, not a code one.
 - A live walk, not just a green suite. Entity creation and publish
   under both signing methods are exactly the kind of path the ~2500
   unit tests structurally cannot observe — the lesson of 2026-08-11.
+
+---
+
+## 6. Decision record — Option C, implemented
+
+**Ratified 2026-08-11** (Art. 11). Option C with Option B's refusal
+folded in, and §3.6 resolved by declaring the local primary the
+**entity root** (see the amendment banner in
+`docs/ENTITY_IDENTITY_DESIGN.md`, which is now the normative home of
+that doctrine).
+
+What shipped, same day:
+
+- `EntityModel.create` (`entity-model.js`) **refuses** when no local
+  primary exists, with a pointer to Settings → Signing — the random-key
+  else branch is gone. Nothing is half-created on refusal. Existing
+  random-keyed entities (`derived_from: null`) keep working untouched;
+  no migration, no re-keying.
+- The refusal is SURFACED at every creation door (the adversarial
+  review found five leaks in the first draft — see the JOURNAL entry):
+  the claim modal's picker and the entity tagger render it inline, the
+  sidepanel import aborts-and-reports instead of success-toasting a
+  zero-row import, `createCase` pre-flights the check before creating
+  or activating the workspace, and the LLM review's accept-all stops
+  before minting entity-less claims whose links could never be
+  regained.
+- The Signer facade's extension-page NIP-07 throws (`signer.js`) now
+  say what works — "publish from the reader after a capture, or switch
+  to Local" — instead of "client not available in this context". The
+  background's tabless mapping still matches them.
+- `storage.js` `primaryIdentity` documents the unconditional read as
+  the entity-root design; the §3.6 split between the local root and a
+  NIP-07 wire identity is INTENDED, and the creator binding names the
+  root (NIP-26 delegation being the protocol-native connector).
+- Options → Signing's NIP-07 panel discloses the whole posture: what
+  NIP-07 covers, what needs Local, and why entities need a local
+  primary alongside it.
+
+**Wire format:** none — no builder or parser changed; who signs what
+is unchanged. The 30069/creator-binding semantics ("creator = local
+root, publish signer may differ") are now documented rather than
+accidental.
+
+**Still owed (§5's last clause):** the live walk — entity creation
+under Local and under NIP-07 (expect the refusal without a local
+primary, derived creation with one), and one entity-tagged publish
+under NIP-07 — before the next release tag. The suite covers the
+logic; only a walk observes the surfaces.

@@ -984,6 +984,15 @@ body {
   overflow-y: auto;
 }
 
+/* Inline failure line (e.g. entity creation refused without a local
+   primary) — the popover must say why, not silently do nothing. */
+.xr-tagger-popover__error {
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--xr-danger, #c0504d);
+}
+
 .xr-tagger-popover__result {
   width: 100%;
   display: flex;
@@ -1372,6 +1381,15 @@ body {
   border: 1px solid var(--xr-border);
   border-radius: 6px;
   background: var(--xr-surface);
+}
+
+/* Inline create-failure line (e.g. entity creation refused without a
+   local primary) — the picker must say why, not read as a dead button. */
+.xr-claim-modal__picker-error {
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--xr-danger, #c0504d);
 }
 
 .xr-claim-modal__picker-match {

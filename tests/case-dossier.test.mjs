@@ -47,10 +47,14 @@ const { IntegrityModel } = await import('../src/shared/integrity-model.js');
 const { ForensicModel } = await import('../src/shared/forensic-model.js');
 const { LocalKeyManager } = await import('../src/shared/local-key-manager.js');
 const { buildClaimCoord } = await import('../src/shared/claim-ref.js');
+const { seedPrimary } = await import('./seed-primary.mjs');
 
 function resetState() {
     _stateStore.clear();
     LocalKeyManager.keys.clear();
+    // Option C: EntityModel.create refuses without a local primary
+    // identity to derive entity keys from — seed one on every reset.
+    seedPrimary(_stateStore);
 }
 
 const PUBKEY_F = 'f'.repeat(64);

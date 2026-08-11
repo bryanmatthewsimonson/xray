@@ -100,12 +100,19 @@ test('EntityModel.create derives the key from the primary; keystore loss is reco
     assert.equal(LocalKeyManager.getKey(e.keyName).pubkey, originalPubkey);
 });
 
-test('EntityModel.create falls back to a random key without a primary identity', async () => {
+test('EntityModel.create REFUSES without a primary identity (Option C — no more random keys)', async () => {
     await reset();
-    const e = await EntityModel.create({ name: 'Keyless Era', type: 'person' });
-    const key = LocalKeyManager.getKey(e.keyName);
-    assert.ok(key, 'key still created');
-    assert.ok(!key.metadata.derived, 'legacy random path — not stamped derived');
+    // The legacy behavior minted a random, unrecoverable key here —
+    // the silent Phase-24 promise-void NIP07_IDENTITY_KICKOFF traced.
+    // Ratified 2026-08-11: refuse with a pointer instead.
+    await assert.rejects(
+        () => EntityModel.create({ name: 'Keyless Era', type: 'person' }),
+        /local primary identity[\s\S]*Settings/,
+        'creation without a primary must refuse, naming the fix');
+    // Nothing half-created: no key installed, no record persisted.
+    const all = await EntityModel.getAll();
+    assert.equal(Object.keys(all).length, 0, 'no entity record was persisted by the refused create');
+    assert.equal(LocalKeyManager.keys.size, 0, 'no key was installed by the refused create');
 });
 
 test('restoreDerivedKeys never clobbers a present key and requires a primary', async () => {

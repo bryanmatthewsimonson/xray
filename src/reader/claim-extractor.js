@@ -391,7 +391,16 @@ function wirePicker(pickerEl, state, prefix, isSingle, onChange = null) {
                     const entity = await EntityModel.create({ name, type: btn.dataset.type });
                     await selectEntity(entity.id);
                 } catch (err) {
-                    console.warn('[X-Ray Claim] entity create failed:', err);
+                    // Surface the failure IN the picker (Option C made
+                    // creation refuse without a local primary) — a
+                    // console-only error reads as a dead button. The
+                    // next search re-render clears it.
+                    results.textContent = '';
+                    results.hidden = false;
+                    const line = document.createElement('div');
+                    line.className = 'xr-claim-modal__picker-error';
+                    line.textContent = 'Create failed: ' + ((err && err.message) || err);
+                    results.appendChild(line);
                 }
             });
         });
