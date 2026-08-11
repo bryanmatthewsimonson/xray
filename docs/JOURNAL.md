@@ -19,6 +19,57 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-11 — I broke NIP-07 in the field, and the walk that proved T2 safe
+
+**Tags:** bug, pattern
+
+Two things happened in one session: a real break I shipped, and the
+highest-priority pre-1.0 verification passing.
+
+**The break.** T2 removed the `web_accessible_resources` entry for
+`src/page/nip07-bridge.js`. The justification was the audit's: no
+`getURL` call site references it, so it is inert. **That is the wrong
+test for a web-accessible resource** — WAR governs what a page origin
+may access, not only what code fetches by URL — and `CLAUDE.md`
+explicitly documented the entry as deliberate. It was removed anyway on
+a grep result. In the field, NIP-07 provider detection stopped working.
+Restored, and `tests/t2-security-surfaces.test.mjs` now asserts it
+**stays**, with a note not to re-remove it without loading the
+extension and confirming detection still works. The fingerprinting
+surface it costs is real but minor; the bridge is the whole NIP-07 path.
+
+**A second failure, same root, found first.** Before that, Settings
+appeared totally broken — every control dead, signing method
+unselectable. Cause: the ready group removed the moral-lens checkbox
+from `options.html`, but `dist/` is gitignored, so pulling `main`
+updated the HTML while leaving a **stale bundle** that still ran
+`getElementById('pref-moral-lens').checked`. Null-deref, thrown during
+init, and one exception in options init takes down the entire page.
+`npm run build` fixed it. Worth knowing for anyone pulling this repo:
+**an HTML/bundle skew presents as "everything is broken," not as one
+missing feature.**
+
+Both failures were invisible to 2480 passing tests, and both trace to
+the same root: *a static check about something that only reveals
+itself at runtime.* The re-vet had already flagged that Settings has no
+automated coverage — the gap was named and the change merged anyway.
+
+**The walk.** Same session, the maintainer switched to NIP-07 with
+nos2x and published. It worked. That is the NIP-07 real-signer walk the
+re-vet named as the single most important pre-1.0 action, and it
+**passes**: the T2 verification gate — pubkey/kind/tags/content/
+`created_at` equality plus BIP-340 — did not reject a real signer.
+T2 moves from argued-safe to **observed-safe** on the one
+security-relevant change no test executes. Recorded in the new
+`docs/SMOKE_TEST.md` walk ledger, which this walk seeded. Still
+unobserved: a NIP-46 bunker, the only realistic signer that might
+restamp `created_at`.
+
+The standing correction: **a manifest declaration is not proven inert
+by a grep.** Anything whose behavior lives in the browser gets loaded
+and walked before its removal is called safe — the same rule that
+already applied to publish paths now explicitly covers manifest keys.
+
 ## 2026-08-09 — 1.0 re-vet: is main safe, and did the process break anything?
 
 **Tags:** design, pattern

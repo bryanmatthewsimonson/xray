@@ -8,6 +8,25 @@ when adding a contributor.
 
 This doc replaces the v1-era checklist that lived on issue #1.
 
+## Walk ledger
+
+Walks **performed**, dated — not walks owed. An empty row means nothing
+was walked, never that nothing is outstanding
+(`.claude/skills/verification-engineer` Standard 8). A completed walk
+that goes unrecorded is indistinguishable from one never run, which is
+how `ROADMAP.md` came to advertise finished walks as pending for weeks.
+
+| Date | Walk | Result |
+|---|---|---|
+| 2026-08-11 | **NIP-07 publish, real signer (nos2x, Chromium)** — Settings → Signing → NIP-07, provider detected, capture + publish from the reader | **PASS.** The T2 verification gate (`nip07-client.js` — pubkey/kind/tags/content/`created_at` equality + BIP-340 `verifySignature`) did NOT reject a real signer. Converts T2 from argued-safe to observed-safe; no test in the suite executes this path. |
+| 2026-08-11 | Options → Signing load + method switch, after the `web_accessible_resources` restore | **PASS** (same session). Settings renders, tabs work, method selectable and saveable. |
+
+**Not yet walked** (each blocks nothing on its own, but is unobserved):
+a NIP-46 bunker signer — the only realistic provider that might restamp
+`created_at`, the sole case the T2 equality check would reject; the K9
+entity-create surfaces; the K15 portal fold; the Settings "Capture
+Page" button (known broken, pre-existing).
+
 > **Capture model (no FAB).** There is no in-page floating button or
 > capture panel. Trigger capture by **clicking the toolbar icon**,
 > pressing **`Ctrl/Cmd+Shift+X`**, or **right-click → "Capture this page
