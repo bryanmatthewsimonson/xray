@@ -774,14 +774,35 @@ tool that does not eat its own evidence.
       presence-only status; AssemblyAI/Deepgram/companion-token
       constants added to EXCLUDED_STORAGE_KEYS; class-level guard
       replaces the single-key assertion
-- [ ] Add the key-free "Shareable copy" export and relabel the full
-      backup recovery-only
-- [ ] Restore/merge warn channel routed into the persistent report
+      *(Correction 2026-08-10: the original T1 PR shipped only the
+      type=password flip — the value was still loaded into the DOM,
+      and the backup exclusions + class guard did not exist. The rest
+      landed 2026-08-10: presence-only status with an explicit Clear
+      button (blank now means keep, not clear), CREDENTIAL_STORAGE_KEYS
+      imported from the owning modules, and functional class-level
+      guards in tests/backup-hygiene.test.mjs.)*
+- [x] Add the key-free "Shareable copy" export and relabel the full
+      backup recovery-only *(2026-08-10 — `collectBackup({shareable})`
+      omits IDENTITY_STORAGE_KEYS, stamps the file, and Restore
+      REFUSES a shareable copy so a key-free file can never erase the
+      local identities; merge is its path in)*
+- [x] Restore/merge warn channel routed into the persistent report
       element instead of console.warn, with no auto-reload when anything
-      was dropped
-- [ ] Stamp backups with producing version and per-database DB_VERSION;
+      was dropped *(2026-08-10 — with one deliberate deviation, found
+      by the adversarial review: for RESTORE, holding the page open is
+      worse than reloading — the forms carry pre-restore state and one
+      Save press clobbers the restored settings — so restore always
+      reloads and the report SURVIVES the reload via a sessionStorage
+      stash; merge keeps reload-suppression as designed. Also fixed in
+      passing: mergeBackup silently dropped its onProgress option, and
+      the partial-merge message claimed "Reloading…" on branches that
+      suppress the reload)*
+- [x] Stamp backups with producing version and per-database DB_VERSION;
       refuse newer-than-understood with a named message (the
-      case-bundle.js:156 pattern)
+      case-bundle.js:156 pattern) *(2026-08-10 — `xrayVersion` +
+      `dbVersions` stamps, additive to `xray-backup/1`; refusal runs
+      BEFORE any write on both restore and merge; pre-stamp files still
+      restore)*
 
 ### T2 — Close the security surfaces, then draw the map
 

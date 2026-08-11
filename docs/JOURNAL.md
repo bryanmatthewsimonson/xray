@@ -54,6 +54,92 @@ binding points at an identity that is not the operator's wire
 identity. The kickoff now carries traced implications for all three
 options and an advisory recommendation (C, with B's refusal folded
 in). Decision is the maintainer's; nothing implemented.
+## 2026-08-10 — T1 closed out: the backup layer stops leaking, lying, and guessing
+
+**Tags:** bug, design
+
+Track T1's last three checkboxes, plus a correction: the "credential
+hygiene" item was marked done but only the `type="password"` flip had
+shipped — `options/index.js` still loaded the companion token VALUE
+into the DOM on every Settings open, and `EXCLUDED_STORAGE_KEYS` still
+excluded only the LLM key while options.html's "your LLM API key is
+never included" read as an assurance about the class. A checked box is
+a truth claim; this one was checked on a quarter of the work.
+
+What landed (`tests/backup-hygiene.test.mjs` guards all of it):
+
+- **Credential class.** `CREDENTIAL_STORAGE_KEYS` — the LLM key, both
+  cloud transcription keys, the companion token — is built by IMPORTING
+  the constants from their owning modules, so a renamed key cannot
+  silently fall out of the exclusion. No export contains any of them;
+  restore preserves all of them. The token field is presence-only with
+  an explicit Clear button. **Behavior change:** blanking the token
+  field used to clear the token; blank now means keep (the field is
+  never populated, so blank is the resting state). The Clear button is
+  the deliberate act.
+- **Shareable copy.** The sharing artifact is no longer the full
+  backup. `collectBackup({shareable: true})` writes the same file
+  minus `local_primary_identity` / `identity_profiles` / `local_keys`,
+  stamped `shareable: true` — and `applyBackup` REFUSES the stamp,
+  because a replace-all restore from a key-free file would erase the
+  local identities. Import & merge is its path in. This records the
+  decision change against JOURNAL 2026-07-25 ("merge-import is the
+  asynchronous-collaboration path"): the path stands, but the file you
+  hand a colleague is now the shareable copy, never the full backup,
+  which is relabeled recovery-only.
+- **Version stamps.** Backups now carry `xrayVersion` + per-database
+  `dbVersions` (additive to `xray-backup/1`; old files still restore).
+  Restore AND merge refuse a file whose database is newer than the
+  live opener understands, with the case-bundle named-message pattern,
+  BEFORE any write — a newer schema's rows can carry keyPaths/indexes
+  this code cannot see, and both clearAndFill and mergeRows would
+  plant them as silently-stranded data.
+- **The warn channel is user-visible.** Restore/merge drops ("store
+  not in current schema — skipped") went to `console.warn`, then
+  restore unconditionally reloaded 1.2s later — for the 1.0 audience
+  that is indistinguishable from "nothing was dropped". Both flows now
+  route warns into the persistent report element and suppress the
+  auto-reload whenever anything was dropped. Two adjacent lies fixed
+  in passing: `mergeBackup` accepted an `onProgress` option it never
+  threaded (the >25-record progress flash could never fire), and the
+  partial-merge message said "See console. Reloading…" on exactly the
+  branch where the reload is suppressed and the console had nothing.
+
+**The adversarial review round then caught the first draft repeating
+the pattern it was fixing** — nine confirmed findings, the notable
+ones:
+
+- *The shareable refusal covered one of the two key-free files.* The
+  delete-workspace snapshot carries no `local_primary_identity`
+  either, is advertised "restorable into any workspace", and a
+  replace-all restore of one erased the primary nsec, every saved
+  profile, preferences, and flags. The fix is structural instead of
+  another stamp: `applyStorage` now narrows to WORKSPACE CONTENT scope
+  whenever the incoming file carries no signing identity — content is
+  replaced, identities/config are untouched, and the narrowing itself
+  is reported through the warn channel. This also blunts the
+  stripped-stamp attack on shareable copies (identities survive;
+  entity keys re-derive via Phase 24).
+- *"No auto-reload on drops" was the wrong fix for restore.* Holding
+  the page open leaves every form carrying pre-restore state, and one
+  Save press writes it back over the restored settings. Restore now
+  ALWAYS reloads, and the report survives it — stashed in
+  sessionStorage, re-rendered by init. (Merge keeps its suppression:
+  a merge never touches prefs/flags, so its stale page is harmless.)
+- *The new refusals lived only in a 3-second flash*, and a stale flash
+  timer from the slow safety-backup step could wipe them sub-second.
+  Both catch paths now render the persistent report, and `flash()`
+  cancels its prior timer per element.
+- *Old backups carrying pre-B4 credentials now silently dropped them
+  on restore* — reads as "restored" when it means "not restored". The
+  drop is named in the report, per credential.
+- The recipient-version trade-off on shareable copies is RECORDED
+  rather than silent: the stamp is additive under `xray-backup/1`, so
+  a pre-2026-08-10 X-Ray treats a shareable copy as a normal backup
+  and its Restore erases identities (recoverable from the safety
+  backup). Options + USER_GUIDE now say "recipient must be current";
+  a distinct format id was rejected because it would also make every
+  future importer refuse the file.
 
 ## 2026-08-11 — NIP-07 silently voids the Phase-24 recoverability promise
 

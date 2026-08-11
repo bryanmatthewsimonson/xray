@@ -2,9 +2,10 @@
 //
 // Covers everything the extension persists locally:
 //   - chrome.storage.local  — all keys (content + config + identities,
-//     including the primary nsec and per-entity keys) MINUS `xray:llm:key`,
-//     which is a third-party API credential and must never leave the
-//     machine inside a backup (its module forbids export).
+//     including the primary nsec and per-entity keys) MINUS the
+//     CREDENTIAL class (`xray:llm:key`, the cloud transcription keys,
+//     the companion token) — third-party API credentials and shared
+//     secrets must never leave the machine inside ANY backup.
 //   - IndexedDB             — xray-archive (articles, metadata stores,
 //     prior versions, source documents), xray-audits, and the xray-events
 //     signed-event journal. Dumped generically: every object store, every
@@ -13,14 +14,26 @@
 // Format `xray-backup/1` is a single JSON document. Binary payloads
 // (ArrayBuffer / TypedArray, i.e. source-document bytes) are encoded as
 // {__xrayBytes: <base64>} markers so the file survives JSON round-trips;
-// restore decodes them back to ArrayBuffers.
+// restore decodes them back to ArrayBuffers. Additive stamps (T1,
+// 2026-08-10; absent in older files, which stay restorable):
+//   - `xrayVersion`  — the extension version that wrote the file.
+//   - `dbVersions`   — each covered database's IndexedDB version at
+//     export. Restore/merge REFUSE a file whose database is newer than
+//     this install understands (the case-bundle version-gate pattern):
+//     newer schemas can carry rows whose keyPaths/indexes this code
+//     cannot see, and planting them silently strands data.
+//   - `shareable`    — true on a "shareable copy": the SAME format
+//     minus every private key. Restore refuses shareable files (a
+//     replace-all from a key-free file would erase the local
+//     identities); Import & merge is their path in.
 //
 // TWO ways in (2026-07-25):
-//   - applyBackup — REPLACE-ALL: storage.local is cleared (except
-//     `xray:llm:key`, preserved from the running profile) and rewritten
-//     from the backup; each covered database has every store cleared
-//     and re-filled. Callers take a safety backup first — the Options
-//     UI does.
+//   - applyBackup — REPLACE-ALL: storage.local is cleared (except the
+//     credential class, preserved from the running profile) and
+//     rewritten from the backup; each covered database has every store
+//     cleared and re-filled. Callers take a safety backup first — the
+//     Options UI does. Refuses shareable copies (no keys inside — a
+//     replace-all would erase the local identities).
 //   - mergeBackup — ACCRUAL: the file's CONTENT folds into the live
 //     workspace, deduplicated, and local data is never deleted or
 //     overwritten. Content maps and stores add what's missing by id
@@ -36,6 +49,10 @@
 
 import { WORKSPACE_DATABASES } from './identity-profiles.js';
 import { WORKSPACE_CONTENT_KEYS, activeWorkspaceId, workspaceDbName } from './workspace-keys.js';
+import { LLM_KEY_STORAGE } from './llm-prompts.js';
+import {
+    TRANSCRIBER_TOKEN_STORAGE, ASSEMBLYAI_KEY_STORAGE, DEEPGRAM_KEY_STORAGE
+} from './transcriber-client.js';
 
 const WORKSPACE_CONTENT = new Set(WORKSPACE_CONTENT_KEYS);
 
@@ -74,13 +91,34 @@ const ROW_NORMALIZERS = {
 
 export const BACKUP_FORMAT = 'xray-backup/1';
 
-// The one storage key a backup must never contain.
-// 28.1: 'workspaces' + 'active_workspace' are install-level plumbing —
-// a backup is a portable snapshot of ONE workspace (the active one)
-// plus install config, restorable into whatever workspace is active at
-// apply time. Carrying the registry/pointer would let one workspace's
-// file stomp every other workspace on restore.
-const EXCLUDED_STORAGE_KEYS = ['xray:llm:key', 'workspaces', 'active_workspace'];
+// Third-party API credentials and shared secrets: never inside ANY
+// export (B4b, 2026-08-10 — the old single-entry list excluded only
+// the LLM key while options.html read as an assurance about the
+// class). The names are IMPORTED from their owning modules, never
+// restated as strings, so a renamed constant cannot silently fall out
+// of the exclusion; the guard test asserts the class stays covered.
+export const CREDENTIAL_STORAGE_KEYS = Object.freeze([
+    LLM_KEY_STORAGE,             // Anthropic API key (its module forbids export)
+    TRANSCRIBER_TOKEN_STORAGE,   // companion shared secret
+    ASSEMBLYAI_KEY_STORAGE,      // cloud transcription keys
+    DEEPGRAM_KEY_STORAGE
+]);
+
+// Storage keys a backup must never contain: the credential class, plus
+// install-level plumbing (28.1: 'workspaces' + 'active_workspace' — a
+// backup is a portable snapshot of ONE workspace plus install config,
+// restorable into whatever workspace is active at apply time; carrying
+// the registry/pointer would let one workspace's file stomp every
+// other workspace on restore).
+const EXCLUDED_STORAGE_KEYS = [...CREDENTIAL_STORAGE_KEYS, 'workspaces', 'active_workspace'];
+
+// Keys holding PRIVATE KEY material, dropped from a shareable copy.
+// `local_primary_identity` and `identity_profiles` carry the primary
+// nsec(s); `local_keys` carries per-entity keys + the `xray:user` sync
+// key. Everything else in a backup is content or plain config.
+export const IDENTITY_STORAGE_KEYS = Object.freeze([
+    'local_primary_identity', 'identity_profiles', 'local_keys'
+]);
 
 // Stores whose rows carry raw bytes; skipped when includeSourceBytes=false.
 const BYTE_STORES = { 'xray-archive': ['source_documents'] };
@@ -286,28 +324,57 @@ async function collectStorage() {
     return out;
 }
 
-async function applyStorage(entries) {
+async function applyStorage(entries, warn = () => {}) {
     const ws = await activeWorkspaceId();
     const prefix = `ws:${ws}:`;
     const area = storageArea();
     const current = await areaGetAll(area);
     const mapK = (k) => (ws !== 'default' && WORKSPACE_CONTENT.has(k)) ? prefix + k : k;
+    // Scope guard (T1 review, 2026-08-10): a file that carries no
+    // signing identity — the delete-workspace snapshot, or a key-free
+    // copy with its stamp stripped — must never take the identities
+    // and install config DOWN with a replace-all it cannot re-fill.
+    // When `local_primary_identity` is absent from the file, the
+    // restore narrows to WORKSPACE CONTENT: content is replaced,
+    // identity/config keys stay exactly as they are. The delete-flow
+    // snapshot's "restorable into any workspace" promise depends on
+    // this — restoring a snapshot used to erase the primary nsec,
+    // every saved profile, preferences, and flags (the 2026-07-20
+    // incident class, via a door the shareable refusal did not cover).
+    const contentOnly = !Object.prototype.hasOwnProperty.call(entries || {}, 'local_primary_identity');
+    if (contentOnly) {
+        warn('the file carries no signing identity (a workspace snapshot or key-free copy) — '
+            + 'workspace content was replaced; the identities, settings, and flags on this '
+            + 'machine were left untouched');
+    }
+    const inScope = (bare) => !contentOnly || WORKSPACE_CONTENT.has(bare);
     // Replace-all WITHIN this workspace's logical scope: its own content
-    // keys plus install config. Other workspaces are untouchable.
+    // keys plus (identity-carrying files only) install config. Other
+    // workspaces are untouchable.
     const toRemove = Object.keys(current).filter((k) => {
         if (EXCLUDED_STORAGE_KEYS.includes(k)) return false;
         if (k.startsWith('ws:')) {
             return ws !== 'default' && k.startsWith(prefix)
-                && !EXCLUDED_STORAGE_KEYS.includes(k.slice(prefix.length));
+                && !EXCLUDED_STORAGE_KEYS.includes(k.slice(prefix.length))
+                && inScope(k.slice(prefix.length));
         }
         if (ws !== 'default' && WORKSPACE_CONTENT.has(k)) return false;   // default ws's content
-        return true;
+        return inScope(k);
     });
     if (toRemove.length) await areaRemove(area, toRemove);
     // Never write the excluded keys even if a hand-edited file smuggles them in.
     const clean = {};
     for (const [k, v] of Object.entries(entries || {})) {
-        if (EXCLUDED_STORAGE_KEYS.includes(k)) continue;
+        if (EXCLUDED_STORAGE_KEYS.includes(k)) {
+            // Old backups (pre-B4) legitimately carry saved credentials.
+            // Dropping one silently would read as "restored" — name it.
+            if (CREDENTIAL_STORAGE_KEYS.includes(k)) {
+                warn(`the file contains a saved credential (${k}); credentials never `
+                    + 'restore — re-enter it under Settings ▸ Advanced');
+            }
+            continue;
+        }
+        if (!inScope(k)) continue;
         clean[mapK(k)] = v;
     }
     if (Object.keys(clean).length) await areaSet(area, clean);
@@ -316,23 +383,60 @@ async function applyStorage(entries) {
 // ---------------------------------------------------------------------------
 // Public API
 
+// The extension version writing this file — informational (the
+// refusal gate below keys on database versions, which are mechanical).
+// Null outside an extension context (Node tests).
+function extensionVersion() {
+    try {
+        const api = (typeof browser !== 'undefined' && browser.runtime) ? browser
+            : (typeof chrome !== 'undefined' && chrome.runtime ? chrome : null);
+        const manifest = api && api.runtime.getManifest && api.runtime.getManifest();
+        return (manifest && manifest.version) || null;
+    } catch (_) { return null; }
+}
+
+// Each covered database's live IndexedDB version, via the owning
+// module's opener (the DB_OPENERS principle — the opener IS the
+// current schema version).
+async function collectDbVersions() {
+    const out = {};
+    for (const name of WORKSPACE_DATABASES) {
+        const db = await openCovered(name);
+        out[name] = db.version;
+    }
+    return out;
+}
+
 /**
  * Build the full backup object.
  * @param {object} opts
  * @param {boolean} [opts.includeSourceBytes=true] include raw source-document
  *   bytes (PDF payloads etc.). Off → those stores are recorded as omitted.
+ * @param {boolean} [opts.shareable=false] build a "shareable copy": the
+ *   same file minus every private key (IDENTITY_STORAGE_KEYS) — the
+ *   export the sharing/merge docs point at. Credentials are excluded
+ *   from every export regardless. The file is stamped `shareable` and
+ *   restore refuses it (merge is its path in).
  */
-export async function collectBackup({ includeSourceBytes = true } = {}) {
+export async function collectBackup({ includeSourceBytes = true, shareable = false } = {}) {
     const databases = {};
     for (const name of WORKSPACE_DATABASES) {
         const skipStores = includeSourceBytes ? [] : (BYTE_STORES[name] || []);
         databases[name] = await dumpDatabase(name, { skipStores });
     }
+    let storage = await collectStorage();
+    if (shareable) {
+        storage = Object.fromEntries(Object.entries(storage)
+            .filter(([k]) => !IDENTITY_STORAGE_KEYS.includes(k)));
+    }
     return {
         format: BACKUP_FORMAT,
         exportedAt: new Date().toISOString(),
+        xrayVersion: extensionVersion(),
+        dbVersions: await collectDbVersions(),
         includesSourceBytes: !!includeSourceBytes,
-        storage: await collectStorage(),
+        ...(shareable ? { shareable: true } : {}),
+        storage,
         databases
     };
 }
@@ -378,9 +482,11 @@ export async function collectWorkspaceSnapshot(wsId) {
         }
     }
     const databases = {};
+    const dbVersions = {};
     for (const base of WORKSPACE_DATABASES) {
         const db = await openRaw(workspaceDbName(base, ws)).catch(() => null);
         if (!db) { databases[base] = {}; continue; }
+        dbVersions[base] = db.version;
         const out = {};
         for (const store of Array.from(db.objectStoreNames)) {
             out[store] = toSerializable(await getAllRows(db, store));
@@ -391,6 +497,8 @@ export async function collectWorkspaceSnapshot(wsId) {
     return {
         format: BACKUP_FORMAT,
         exportedAt: new Date().toISOString(),
+        xrayVersion: extensionVersion(),
+        dbVersions,
         includesSourceBytes: true,
         workspaceId: ws,
         storage,
@@ -410,6 +518,28 @@ export function validateBackup(backup) {
     return problems;
 }
 
+// Version pre-flight for restore AND merge, run BEFORE any write (the
+// case-bundle.js importCaseBundle pattern, applied per database): a
+// file written by a newer schema can hold rows this code's keyPaths/
+// indexes cannot see, and both clearAndFill and mergeRows would plant
+// them as silently-stranded data. Files without stamps (pre-T1) pass —
+// they cannot be newer than the schema that has existed all along.
+async function assertBackupNotNewer(backup) {
+    const declared = backup && backup.dbVersions;
+    if (!declared || typeof declared !== 'object') return;
+    for (const name of WORKSPACE_DATABASES) {
+        const theirs = Number(declared[name]);
+        if (!Number.isFinite(theirs)) continue;
+        const db = await openCovered(name);
+        if (theirs > db.version) {
+            const by = backup.xrayVersion ? `, written by X-Ray ${backup.xrayVersion}` : '';
+            throw new Error(
+                `Backup database "${name}" is v${theirs}${by} — newer than this `
+                + `X-Ray understands (v${db.version}). Update X-Ray, then retry.`);
+        }
+    }
+}
+
 /**
  * Replace-all restore from a validated backup object.
  * Storage first (cheap, atomic-ish), then each database.
@@ -417,7 +547,14 @@ export function validateBackup(backup) {
 export async function applyBackup(backup, { warn = () => {} } = {}) {
     const problems = validateBackup(backup);
     if (problems.length) throw new Error(`invalid backup: ${problems.join('; ')}`);
-    await applyStorage(backup.storage);
+    if (backup.shareable) {
+        throw new Error(
+            'This file is a shareable copy — it holds no private keys, so a '
+            + 'replace-all restore would ERASE the identities on this machine. '
+            + 'Use "Import & merge" to bring its content in.');
+    }
+    await assertBackupNotNewer(backup);
+    await applyStorage(backup.storage, warn);
     for (const [name, dump] of Object.entries(backup.databases || {})) {
         if (!WORKSPACE_DATABASES.includes(name)) {
             warn(`backup restore: database ${name} not covered — skipped`);
@@ -632,9 +769,10 @@ async function mergeIntoDatabase(name, dump, { warn = () => {}, onProgress = () 
  *               keysSkippedNonContent},
  *     databases: { <db>: { <store>: {added, merged, kept, skipped} } } }
  */
-export async function mergeBackup(backup, { warn = () => {} } = {}) {
+export async function mergeBackup(backup, { warn = () => {}, onProgress = () => {} } = {}) {
     const problems = validateBackup(backup);
     if (problems.length) throw new Error(`invalid backup: ${problems.join('; ')}`);
+    await assertBackupNotNewer(backup);
     const storage = await mergeStorage(backup.storage);
     const databases = {};
     // A merge has NO cross-stage rollback: storage commits before the
@@ -651,7 +789,7 @@ export async function mergeBackup(backup, { warn = () => {} } = {}) {
             continue;
         }
         try {
-            databases[name] = await mergeIntoDatabase(name, dump, { warn });
+            databases[name] = await mergeIntoDatabase(name, dump, { warn, onProgress });
         } catch (err) {
             const message = (err && err.message) || String(err);
             errors.push({ database: name, error: message });
