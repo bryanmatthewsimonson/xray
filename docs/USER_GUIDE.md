@@ -199,17 +199,31 @@ Everything X-Ray holds lives in your browser profile — a profile wipe,
 a reinstall, or a machine change loses it unless you export. Three
 tools, all under **Settings → Advanced**:
 
-- **Full backup** ("Full backup" block → **Download full backup**) is
-  the complete copy: settings, relays, feature flags, saved identities
-  **including private keys**, entities, claims, judgments, the captured
-  article archive, original source documents (PDFs — a checkbox, on by
-  default, with a size estimate), audit records, and the signed-event
-  journal. One JSON file that brings a fresh install back to exactly
-  this state via **Restore from backup…** (restore *replaces*
-  everything after a typed confirmation, and downloads a safety backup
-  of the current state first). Treat the file like an `nsec`, because
-  it contains yours. The one thing never included is your LLM API key —
-  set that again by hand on a new machine.
+- **Full backup** ("Backups & sharing" block → **Download full backup
+  (recovery)**) is the complete copy: settings, relays, feature flags,
+  saved identities **including private keys**, entities, claims,
+  judgments, the captured article archive, original source documents
+  (PDFs — a checkbox, on by default, with a size estimate), audit
+  records, and the signed-event journal. One JSON file that brings a
+  fresh install back to exactly this state via **Restore from
+  backup…** (restore *replaces* everything after a typed confirmation,
+  and downloads a safety backup of the current state first). Treat the
+  file like an `nsec`, because it contains yours — it is for
+  **recovery on your own machines**, never for sending to anyone.
+  API credentials (the LLM key, cloud transcription keys, the
+  companion token) are never included in any export — set those again
+  by hand on a new machine.
+- **Shareable copy** (**Download shareable copy (no keys)**) is the
+  file to give a colleague: the same content with every private key
+  left out. They bring it in with **Import & merge…** — current X-Ray
+  *refuses* to Restore a shareable copy, because a replace-all from a
+  key-free file would erase the recipient's own identities. That
+  refusal only exists in X-Ray from 2026-08-10 onward, so make sure
+  the recipient is up to date before sending one (on an older version
+  the file looks like a normal backup, and restoring it would wipe
+  their identity keys — recoverable only from the safety backup the
+  restore downloads first). This is the export to use whenever a file
+  leaves your machine.
 - **Workspace backup** ("Workspace" block) is the smaller,
   content-only snapshot the fresh-workspace flow offers — it does not
   cover the article archive or audit records.

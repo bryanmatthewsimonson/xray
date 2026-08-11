@@ -149,15 +149,22 @@ function activateTab(name) {
         s.classList.toggle('xr-opt__section--active', s.dataset.section === name));
 }
 
+// Per-element clear timers — a fresh flash cancels the previous one,
+// so a slow operation's stale timer can never wipe the message that
+// reports its outcome (T1 review: the safety-backup flash's timer was
+// erasing a refusal message sub-second later).
+const _flashTimers = new WeakMap();
 function flash(el, msg, ok = true) {
     if (!el) return;
+    const prior = _flashTimers.get(el);
+    if (prior) clearTimeout(prior);
     el.textContent = msg;
     el.classList.toggle('xr-opt__status--ok', ok);
     el.classList.toggle('xr-opt__status--err', !ok);
-    setTimeout(() => {
+    _flashTimers.set(el, setTimeout(() => {
         el.textContent = '';
         el.classList.remove('xr-opt__status--ok', 'xr-opt__status--err');
-    }, 3000);
+    }, 3000));
 }
 
 // ------------------------------------------------------------------
@@ -900,14 +907,36 @@ async function backupDownloadFull() {
     try {
         const backup = await collectBackup({ includeSourceBytes });
         downloadJson(backup, `xray-backup-${new Date().toISOString().slice(0, 10)}.json`);
-        flash(status, 'Backup downloaded. It contains private keys — store it like an nsec.');
+        flash(status, 'Backup downloaded. It contains private keys — store it like an nsec, never send it to anyone.');
     } catch (e) {
         flash(status, 'Backup failed: ' + (e && e.message), false);
     }
 }
 
+// The key-free export the sharing docs point at (B4c): same corpus,
+// no identity material, stamped so Restore refuses it (merge is its
+// path in). This is the file a colleague should ever receive.
+async function backupDownloadShareable() {
+    const status = document.getElementById('backup-status');
+    const includeSourceBytes = document.getElementById('backup-include-bytes').checked;
+    flash(status, 'Building shareable copy…');
+    try {
+        const backup = await collectBackup({ includeSourceBytes, shareable: true });
+        downloadJson(backup, `xray-shareable-${new Date().toISOString().slice(0, 10)}.json`);
+        flash(status, 'Shareable copy downloaded — no private keys or API credentials inside. '
+            + 'A colleague brings it in with Import & merge.');
+    } catch (e) {
+        flash(status, 'Shareable copy failed: ' + (e && e.message), false);
+    }
+}
+
 async function backupRestoreFromFile(file) {
     const status = document.getElementById('backup-status');
+    // Hoisted so the catch can report what was already dropped before a
+    // mid-restore failure (review: the buffered warns were silently
+    // discarded on the failure path — a regression vs the old console,
+    // which at least kept them in DevTools).
+    const warns = [];
     try {
         const parsed = JSON.parse(await file.text());
         const problems = validateBackup(parsed);
@@ -918,23 +947,59 @@ async function backupRestoreFromFile(file) {
             'Restore from backup?\n\n' +
             `REPLACES the current workspace, settings, identities, archive, and ` +
             `journal with the backup's contents (${storageKeys} storage keys; ` +
-            `databases: ${dbNames}; exported ${parsed.exportedAt || 'unknown'}).\n\n` +
-            'A safety backup of the CURRENT data downloads first. Your LLM API ' +
-            'key is untouched.\n\nType RESTORE to continue.');
+            `databases: ${dbNames}; exported ${parsed.exportedAt || 'unknown'}` +
+            `${parsed.xrayVersion ? `; written by X-Ray ${parsed.xrayVersion}` : ''}).\n\n` +
+            'A safety backup of the CURRENT data downloads first. Your API ' +
+            'credentials (LLM key, cloud transcription keys, companion token) ' +
+            'are untouched.\n\nType RESTORE to continue.');
         if (typed === null) return;
         if (String(typed).trim().toUpperCase() !== 'RESTORE') {
             flash(status, 'Not restored — confirmation text did not match.', false);
             return;
         }
+        // A fresh attempt owns the report surface — a stale report from
+        // an earlier merge must not be misread as this restore's.
+        renderBackupReport([]);
         flash(status, 'Downloading safety backup…');
         downloadJson(await collectBackup({ includeSourceBytes: true }),
             `xray-backup-safety-${new Date().toISOString().slice(0, 10)}.json`);
         flash(status, 'Restoring…');
-        await applyBackup(parsed, { warn: (m) => console.warn('[X-Ray Options]', m) });
-        flash(status, 'Restored — reloading…');
+        await applyBackup(parsed, { warn: (m) => warns.push(m) });
+        // Anything the restore DROPS (a store or database the current
+        // schema doesn't know, a credential the file smuggled, a scope
+        // narrowing) goes in the persistent report — these used to go
+        // to the DevTools console, which no non-technical user has
+        // open. The reload is NOT optional after a restore: every form
+        // on this page still holds pre-restore state, and one Save
+        // press would write it back over the restored settings. So the
+        // report is stashed and re-rendered after the reload instead
+        // of holding the stale page open to read it.
+        if (warns.length) {
+            stashBackupReport({
+                lines: warns,
+                headline: 'Restore report — parts of the file were NOT applied:',
+                note: 'The rest of the backup is restored.'
+            });
+            flash(status, `Restored, with ${warns.length} part(s) skipped — reloading; `
+                + 'the report stays on screen.');
+        } else {
+            flash(status, 'Restored — reloading…');
+        }
         setTimeout(() => location.reload(), 1200);
     } catch (e) {
-        flash(status, 'Restore failed: ' + (e && e.message), false);
+        const msg = 'Restore failed: ' + (e && e.message);
+        // The refusals (shareable copy, newer-than-understood file)
+        // carry multi-sentence guidance — a 3-second flash is not a
+        // surface for that. They land in the persistent report, above
+        // anything already dropped before a mid-restore failure.
+        renderBackupReport([...warns, msg], {
+            headline: 'Restore did not complete:',
+            note: warns.length
+                ? 'The skipped parts above were dropped before the failure; the safety '
+                    + 'backup downloaded first holds the pre-restore state.'
+                : null
+        });
+        flash(status, msg, false);
     }
 }
 
@@ -944,6 +1009,7 @@ async function backupRestoreFromFile(file) {
 // deleted or overwritten, config/identities in the file ignored.
 async function backupMergeFromFile(file) {
     const status = document.getElementById('backup-status');
+    const warns = [];   // hoisted — the catch reports what already landed
     try {
         const parsed = JSON.parse(await file.text());
         const problems = validateBackup(parsed);
@@ -967,12 +1033,17 @@ async function backupMergeFromFile(file) {
             flash(status, 'Not merged — confirmation text did not match.', false);
             return;
         }
+        // A fresh attempt owns the report surface.
+        renderBackupReport([]);
         flash(status, 'Downloading safety backup…');
         downloadJson(await collectBackup({ includeSourceBytes: true }),
             `xray-backup-safety-${new Date().toISOString().slice(0, 10)}.json`);
         flash(status, 'Merging…');
+        // Warn-channel drops (a store/database the current schema
+        // doesn't know) join the persistent report below and suppress
+        // the auto-reload, same rule as the extraction refusals.
         const summary = await mergeBackup(parsed, {
-            warn: (m) => console.warn('[X-Ray Options]', m),
+            warn: (m) => warns.push(m),
             onProgress: (p) => {
                 if (p && p.total > 25) flash(status, `Merging… ${p.done}/${p.total} extraction records`);
             }
@@ -1001,10 +1072,23 @@ async function backupMergeFromFile(file) {
         // and anything refused SUPPRESSES the auto-reload that would
         // otherwise wipe both the report and the console.
         const extr = ((summary.databases || {})['xray-audits'] || {})['article-extractions'] || {};
-        const reportLines = describeImportRefusals(extr.refusals, extr.unresolved);
+        const reportLines = [
+            ...errs.map((e) => `Database ${e.database} FAILED mid-merge: ${e.error} — `
+                + 'what landed is saved; re-importing the same file is safe.'),
+            ...warns,
+            ...describeImportRefusals(extr.refusals, extr.unresolved)
+        ];
         const held = (extr.refusals && (extr.refusals.noLocalText || extr.refusals.unlocatedQuotes
                                         || extr.refusals.unpinnedKey)) || 0;
-        renderMergeReport(reportLines, held > 0);
+        renderBackupReport(reportLines, {
+            headline: held > 0
+                ? 'Merge report — some analysis could NOT be verified against this machine’s text:'
+                : 'Merge report:',
+            note: held > 0
+                ? 'Nothing was lost from this machine, and re-importing the same file '
+                    + 'after capturing the missing articles is safe — the merge is idempotent.'
+                : null
+        });
         // A partial merge is reported as partial, never as a failure or
         // a clean success: what landed is already durable, and
         // re-running the same file is idempotent.
@@ -1012,32 +1096,68 @@ async function backupMergeFromFile(file) {
             flash(status,
                 `Partly merged — ${parts.join('; ')}. ${errs.length} database stage(s) FAILED ` +
                 `(${errs.map((e) => e.database).join(', ')}); what landed is saved and re-importing ` +
-                'the same file is safe. See console. Reloading…', false);
+                'the same file is safe. See the report below.', false);
+        } else if (warns.length) {
+            flash(status, `Merged — ${parts.join('; ')}, with ${warns.length} part(s) skipped — `
+                + 'see the report below.', false);
+        } else if (held) {
+            // Same suppressed-reload branch as errs/warns — the message
+            // must not promise a reload the gate below never fires
+            // (review: the "Reloading…" lie survived here after being
+            // fixed on its two sibling branches).
+            flash(status, `Merged — ${parts.join('; ')}. Some analysis needs action — `
+                + 'see the report below.');
         } else {
             flash(status, `Merged — ${parts.join('; ')}. Reloading…`);
         }
         // Reload only when there is nothing for the user to read. A
-        // refusal names articles they may want to capture; wiping that
-        // three seconds later would make the merge look clean when it
-        // wasn't.
-        if (!held && !errs.length) setTimeout(() => location.reload(), 3000);
+        // refusal names articles they may want to capture, a warn names
+        // data the merge dropped; wiping either three seconds later
+        // would make the merge look clean when it wasn't.
+        if (!held && !errs.length && !warns.length) setTimeout(() => location.reload(), 3000);
     } catch (e) {
-        flash(status, 'Merge failed: ' + (e && e.message), false);
+        const msg = 'Merge failed: ' + (e && e.message);
+        renderBackupReport([...warns, msg], {
+            headline: 'Merge did not complete:',
+            note: warns.length
+                ? 'The parts above were skipped before the failure; what landed is saved, '
+                    + 'and re-importing the same file is safe.'
+                : null
+        });
+        flash(status, msg, false);
     }
 }
 
-// The persistent half of the merge outcome (MA.7). Empty ⇒ hidden, so a
-// clean merge leaves no clutter behind.
-function renderMergeReport(lines, needsAction) {
+// A restore's report must survive the post-restore reload (the reload
+// itself is mandatory — the page's forms hold pre-restore state, and a
+// Save press would clobber the restored settings). Stashed in
+// sessionStorage across the reload, re-rendered once by init, then
+// cleared.
+const BACKUP_REPORT_STASH = 'xray:options:backup-report';
+function stashBackupReport(payload) {
+    try { sessionStorage.setItem(BACKUP_REPORT_STASH, JSON.stringify(payload)); } catch (_) { /* best-effort */ }
+}
+function renderStashedBackupReport() {
+    try {
+        const raw = sessionStorage.getItem(BACKUP_REPORT_STASH);
+        if (!raw) return;
+        sessionStorage.removeItem(BACKUP_REPORT_STASH);
+        const p = JSON.parse(raw);
+        renderBackupReport(p.lines || [], { headline: p.headline, note: p.note });
+    } catch (_) { /* best-effort */ }
+}
+
+// The persistent half of a restore/merge outcome (MA.7, generalized in
+// T1 to carry the warn channel too). Empty ⇒ hidden, so a clean run
+// leaves no clutter behind.
+function renderBackupReport(lines, { headline, note = null } = {}) {
     const host = document.getElementById('backup-merge-report');
     if (!host) return;
     host.textContent = '';
     if (!lines || !lines.length) { host.hidden = true; return; }
     host.hidden = false;
     const head = document.createElement('strong');
-    head.textContent = needsAction
-        ? 'Merge report — some analysis could NOT be verified against this machine’s text:'
-        : 'Merge report:';
+    head.textContent = headline || 'Report:';
     host.appendChild(head);
     const ul = document.createElement('ul');
     for (const line of lines) {
@@ -1046,12 +1166,11 @@ function renderMergeReport(lines, needsAction) {
         ul.appendChild(li);
     }
     host.appendChild(ul);
-    if (needsAction) {
-        const note = document.createElement('div');
-        note.className = 'xr-opt__hint';
-        note.textContent = 'Nothing was lost from this machine, and re-importing the same file '
-            + 'after capturing the missing articles is safe — the merge is idempotent.';
-        host.appendChild(note);
+    if (note) {
+        const el = document.createElement('div');
+        el.className = 'xr-opt__hint';
+        el.textContent = note;
+        host.appendChild(el);
     }
 }
 
@@ -1206,7 +1325,12 @@ async function loadAdvanced() {
             (res) => resolve(res ? res[TRANSCRIBER_PORT_STORAGE] : undefined));
     });
     document.getElementById('pref-transcriber-port').value = rawPort != null ? String(rawPort) : '';
-    document.getElementById('pref-transcriber-token').value = await llmRawGet(TRANSCRIBER_TOKEN_STORAGE);
+    // Companion token: presence-only, like every credential below (B4a,
+    // 2026-08-10 — this field used to load the stored VALUE into the
+    // DOM, and JOURNAL 2026-08-08 records a real Hugging Face token
+    // pasted here; the relabel that followed left the echo in place).
+    setKeyStatus('transcriber-token-status', (await llmRawGet(TRANSCRIBER_TOKEN_STORAGE)).length > 0, 'token');
+    document.getElementById('pref-transcriber-token').value = '';
     // Engine preference + cloud key presence (never the key VALUES —
     // the LLM-key rule: the DOM only ever learns whether one is set).
     // '' = never chosen: jobs carry no engine and the companion's own
@@ -1361,9 +1485,17 @@ async function saveAdvanced() {
         await llmRawRemove(TRANSCRIBER_PORT_STORAGE);
         flash(document.getElementById('advanced-status'), 'Invalid transcriber port — reset to the default (8756).');
     }
+    // Token saves only when typed — blank keeps the stored one (the
+    // cloud-key pattern below; clearing is the explicit button). The
+    // pre-B4 behavior where a blank field REMOVED the token is gone:
+    // the field is no longer populated, so blank almost always means
+    // "untouched", not "cleared".
     const tokenField = (document.getElementById('pref-transcriber-token').value || '').trim();
-    if (tokenField) await llmRawSet(TRANSCRIBER_TOKEN_STORAGE, tokenField);
-    else await llmRawRemove(TRANSCRIBER_TOKEN_STORAGE);
+    if (tokenField) {
+        await llmRawSet(TRANSCRIBER_TOKEN_STORAGE, tokenField);
+        document.getElementById('pref-transcriber-token').value = '';
+        setKeyStatus('transcriber-token-status', true, 'token');
+    }
 
     // Engine preference: '' (companion default) REMOVES the key so jobs
     // carry no engine at all; cloud keys save only when the user typed
@@ -1633,17 +1765,18 @@ async function clearLlmKey() {
     flash(document.getElementById('llm-status'), 'Key cleared.');
 }
 
-function setKeyStatus(statusId, saved) {
+function setKeyStatus(statusId, saved, noun = 'key') {
     const el = document.getElementById(statusId);
-    if (el) el.textContent = saved ? 'A key is saved on this device.' : 'No key saved yet.';
+    if (el) el.textContent = saved ? `A ${noun} is saved on this device.` : `No ${noun} saved yet.`;
 }
 
-function clearTranscriberKey(storageKey, fieldId, statusId) {
+function clearTranscriberKey(storageKey, fieldId, statusId, noun = 'key') {
     return async () => {
         await llmRawRemove(storageKey);
         document.getElementById(fieldId).value = '';
-        setKeyStatus(statusId, false);
-        flash(document.getElementById('advanced-status'), 'Key cleared.');
+        setKeyStatus(statusId, false, noun);
+        flash(document.getElementById('advanced-status'),
+            `${noun.charAt(0).toUpperCase()}${noun.slice(1)} cleared.`);
     };
 }
 
@@ -1677,6 +1810,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (buildEl) buildEl.textContent = formatBuildInfo();
 
     wireTabs();
+    // A restore that skipped parts of the file stashed its report
+    // before reloading — surface it now, on the freshly-loaded page.
+    renderStashedBackupReport();
     await Promise.all([
         loadRelays(),
         loadSigning(),
@@ -1725,6 +1861,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('ws-create').addEventListener('click', createCaseFlow);
     renderWorkspaces();
     document.getElementById('backup-download').addEventListener('click', backupDownloadFull);
+    document.getElementById('backup-download-shareable').addEventListener('click', backupDownloadShareable);
     document.getElementById('backup-restore').addEventListener('click', () => {
         document.getElementById('backup-file').click();
     });
@@ -1769,6 +1906,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         clearTranscriberKey(ASSEMBLYAI_KEY_STORAGE, 'pref-aai-key', 'aai-key-status'));
     document.getElementById('dg-key-clear').addEventListener('click',
         clearTranscriberKey(DEEPGRAM_KEY_STORAGE, 'pref-dg-key', 'dg-key-status'));
+    document.getElementById('transcriber-token-clear').addEventListener('click',
+        clearTranscriberKey(TRANSCRIBER_TOKEN_STORAGE, 'pref-transcriber-token',
+            'transcriber-token-status', 'token'));
     document.getElementById('clear-all').addEventListener('click', clearAll);
 });
 // Re-export for tests / debugging.
