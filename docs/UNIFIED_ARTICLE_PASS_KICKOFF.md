@@ -1,17 +1,20 @@
 # One Article Pass — unify Suggest and the corpus map (kickoff)
 
-**Status: APPROVED 2026-08-12** — maintainer ("Approve the kickoff
-and start UA.1"): build the slices, riskiest first. Drafted the same
-day at the maintainer's request after the 2026-08-12 reconciliation
-review of corpus pre-analysis vs. article-level Suggest
-(CONSTITUTION Art. 11). UA.1 merged 2026-08-12 (PR #326), UA.2
-merged 2026-08-12 (PR #327), UA.3 in progress — all three built the
-same day the kickoff was approved; the §5 acceptance walks (UA.1
-parity + the owed corpus revalidation, UA.2 fragment counts) are
-still owed and the §6 kill criteria stay armed until they run.
-NOTE: UA.3 removes the UA.1 slim-mode kill-revert surface BEFORE the
-UA.2 walk has run — a UA.2 kill after UA.3 is a two-slice git
-revert, accepted by the maintainer in ordering the slice.
+**Status: CODE-COMPLETE 2026-08-12 — acceptance walks outstanding.**
+Approved by the maintainer ("Approve the kickoff and start UA.1")
+and delivered the same day: UA.1 merged as PR #326, UA.2 as PR #327,
+UA.3 as PR #328 (each through an adversarial multi-lens review with
+skeptic-verified findings fixed pre-merge). Drafted at the
+maintainer's request after the 2026-08-12 reconciliation review of
+corpus pre-analysis vs. article-level Suggest (CONSTITUTION
+Art. 11). WHAT REMAINS is the maintainer's: the §5 acceptance walks
+— UA.1 claim-proposal parity on a reference set (doubling as the
+owed corpus-v3→v7 revalidation) and UA.2's re-mention/fragment
+counts vs the vocabulary era — with the §6 kill criteria armed until
+they run (SMOKE_TEST 14.5 / P28 script the expectations). NOTE: UA.3
+removed the UA.1 slim-mode kill-revert surface before the UA.2 walk
+— a UA.2 kill is now a two-slice git revert (UA.3 then UA.2),
+accepted by the maintainer in ordering the slice.
 
 Related: `docs/CASE_SYNTHESIS_DESIGN.md` (the map/reduce this
 extends), `docs/MAP_ARTIFACT_KICKOFF.md` (the durable layer both
