@@ -4,8 +4,14 @@
 and start UA.1"): build the slices, riskiest first. Drafted the same
 day at the maintainer's request after the 2026-08-12 reconciliation
 review of corpus pre-analysis vs. article-level Suggest
-(CONSTITUTION Art. 11). UA.1 merged 2026-08-12 (PR #326; its
-acceptance walk — §5 — is still owed). UA.2 in progress.
+(CONSTITUTION Art. 11). UA.1 merged 2026-08-12 (PR #326), UA.2
+merged 2026-08-12 (PR #327), UA.3 in progress — all three built the
+same day the kickoff was approved; the §5 acceptance walks (UA.1
+parity + the owed corpus revalidation, UA.2 fragment counts) are
+still owed and the §6 kill criteria stay armed until they run.
+NOTE: UA.3 removes the UA.1 slim-mode kill-revert surface BEFORE the
+UA.2 walk has run — a UA.2 kill after UA.3 is a two-slice git
+revert, accepted by the maintainer in ordering the slice.
 
 Related: `docs/CASE_SYNTHESIS_DESIGN.md` (the map/reduce this
 extends), `docs/MAP_ARTIFACT_KICKOFF.md` (the durable layer both
@@ -245,3 +251,9 @@ Options copy, and CLAUDE.md updated. Review-only slice.
    posture). Revisit only if the UA.2 walk's fragment counts say so.
 4. Whether the portal's "Pre-analyze" button copy changes once
    Suggest is the same pass (naming sweep belongs to UA.3).
+   **SETTLED at UA.3 review: the copy KEEPS "Pre-analyze".** The
+   button is the case dashboard's bulk ahead-of-time map over ALL
+   members — a different affordance from the per-article Suggest,
+   accurately named for what it still does. What retired was the
+   AUTO variant (`autoPreAnalyze`), which the unified pass made
+   meaningless: every Suggest click is the map call now.

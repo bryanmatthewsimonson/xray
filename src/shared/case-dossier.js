@@ -1013,7 +1013,7 @@ export function buildEntitiesInvolved(data) {
  * The author's scope question (27 S.2), read from the case entity's
  * authored fields in a collected `data` snapshot. Extracted as THE one
  * reader shared by buildCaseDossier and the capture-time auto
- * pre-analyze pass (auto-preanalyze.js) — the corpus cache key
+ * pre-analyze pass (retired auto-preanalyze; now article-pass.js) — the corpus cache key
  * fingerprints this string, so the two paths must trim and default it
  * identically or a prepaid extract would never be found by Analyze.
  */

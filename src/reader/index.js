@@ -93,7 +93,6 @@ import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { resolveActiveCaseRef, describeActiveContext, memberUrlSets } from '../shared/case-membership.js';
 import { gatherCorpusSources, corpusSourcesChars } from '../shared/audit/corpus-sources.js';
-import { autoPreAnalyzeArticle } from '../shared/auto-preanalyze.js';
 import {
     ensureArticleExtract, articleSourceForExtract, claimProposalsFromExtract,
     entityProposalsFromExtract
@@ -489,35 +488,13 @@ async function adoptArticle(article, stored) {
         console.warn('[X-Ray Reader] archive check failed:', err)), 100);
 }
 
-// Phase 28 — opt-in map prepay riding the Suggest click (flag
-// `autoPreAnalyze`, default off). The Suggest button is the spend
-// consent: the click that authorizes the suggest pass also authorizes
-// the ONE synthesis map call for this member, so the case's next
-// Analyze finds its extract cached. This used to fire from the
-// archive-save tail instead, which runs on EVERY writable reader open
-// (the portal's case-view opens land in the same pipeline) — a
-// per-open spend nobody authorized (JOURNAL 2026-08-11); do not move
-// it back there. Quiet by design — skips and failures are log-only
-// and never disturb the suggest flow; an actual SPEND gets a small
-// toast so the added cost stays visible.
-async function maybeAutoPreAnalyze() {
-    if (state.readOnlyOpen || !state.article || !state.article.url) return;
-    try {
-        const binding = await resolveActiveCaseRef();
-        if (!binding) return;
-        const out = await autoPreAnalyzeArticle({
-            caseEntityId: binding.caseId,
-            url: state.article.url,
-            sendMessage: (msg) => browserApi.runtime.sendMessage(msg)
-        });
-        if (out && out.status === 'ran') {
-            toast(`Pre-analyzed into “${binding.caseName || 'case'}”`, 'success', 2500);
-        }
-        Utils.log('[X-Ray Reader] auto pre-analyze:', out && out.status, (out && out.error) || '');
-    } catch (err) {
-        Utils.log('[X-Ray Reader] auto pre-analyze failed:', (err && err.message) || err);
-    }
-}
+// (The Phase-28 `autoPreAnalyze` prepay — maybeAutoPreAnalyze — was
+// RETIRED in UA.3: since the One Article Pass, EVERY Suggest click
+// runs the one cache-first map call, so the prepay had nothing left
+// to prepay. Its hard-won trigger-site rule survives as history: the
+// per-article spend fires from the Suggest CLICK, never from the
+// archive-save tail, which runs on every writable reader open —
+// JOURNAL 2026-08-11.)
 
 // Persist the current article (with its tagged entities) to the archive
 // row shortly after a tag lands, so tag-without-publish survives a
@@ -3798,13 +3775,6 @@ async function runSuggestPass() {
         btn.textContent = original;
         btn.disabled = false;
     }
-
-    // The opt-in map prepay (flag `autoPreAnalyze`) predates the
-    // unified pass; with the extract now running on EVERY Suggest
-    // click this is unreachable, and the flag retires in UA.3. Kept
-    // for the interim so a future kinds-gating change cannot silently
-    // drop the prepay behavior.
-    if (!usedExtract) maybeAutoPreAnalyze();
 
     if (proposals.length === 0) {
         toast('The model returned no suggestions for this article.', 'success', 4000);

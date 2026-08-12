@@ -19,6 +19,54 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-12 — UA.3: the retirements — autoPreAnalyze, the standalone suggest pass, one vocabulary
+
+**Tags:** design
+
+**What retired (Art. 3 — recorded, git-recoverable, re-arguable):**
+
+- **`autoPreAnalyze`** (flag, `auto-preanalyze.js`, the reader's
+  `maybeAutoPreAnalyze`, the Options row): the unified pass made it
+  meaningless — every Suggest click IS the one cache-first map call,
+  so there was nothing left to prepay. Its hard-won trigger-site rule
+  (per-article spend fires from the CLICK, never the reader-open
+  pipeline — JOURNAL 2026-08-11) is preserved as history in the
+  reader comment; `isEnabled` fail-closes on the unknown flag so a
+  stale stored override is inert. Its byte-identical-key test lives
+  on in `tests/article-pass.test.mjs`; the `caseScopeQuestion` unit
+  test migrated to `tests/case-dossier.test.mjs`.
+- **The standalone `xray:llm:suggest` pass**: `runSuggestionPass`,
+  `buildSuggestTool` (and with it the tool-schema `is_key` field),
+  the suggest system/user prompt builders, the SW handler, and the
+  UA.1 slim-mode bridge (`claimIndexForSuggest`,
+  `mergeSuggestProposals`, the supplied-claim-index machinery). The
+  batch import migrated to the article pass: analyze-after-import
+  runs `ensureArticleExtract` per page (cached, shared with every
+  other surface) instead of parking proposals — the
+  pending-suggestions STORE stays (no DB migration; the reader still
+  offers any previously parked batch), it just gains no new records.
+  The map pass in `corpus-prompts.js` is now the ONLY extraction
+  prompt surface (the disciplines scan floor drops 8→7).
+- **The two-vocabulary split**: every human-facing "assertion"
+  surface now says **claim proposal** (extraction bar, case-dashboard
+  block, import rows, USER_GUIDE); "assertion" survives only as the
+  layer's storage term (`article-extractions.assertions`,
+  `key_assertions` — renaming stores wasn't worth a migration, per
+  the kickoff's own carve-out) and in the kind-30070 wire vocabulary,
+  which never renames.
+
+**Kill-surface note, on the record:** UA.3 removes the UA.1
+slim-mode kill-revert surface before the UA.2 fragment-count walk has
+run. If that walk fails, the revert is now a two-slice `git revert`
+(UA.3 then UA.2) instead of one — the maintainer accepted this by
+ordering the slice ("Start UA.3").
+
+**OQ4 settled:** the case dashboard's "Pre-analyze" button keeps its
+name — it is the bulk ahead-of-time map over all members, accurately
+named; only the AUTO variant retired.
+
+---
+
 ## 2026-08-12 — UA.2: one call (corpus-v9) — entities join the extract, the vocabulary retires, the ladder ships
 
 **Tags:** design

@@ -104,24 +104,13 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // ordinary 30040/30055 through the normal publish paths.
   caseSynthesis: false,
 
-  // Phase 28, retriggered 2026-08-11 — opt-in map prepay riding the
-  // reader's Suggest click (auto-preanalyze.js): when Suggest runs on
-  // an article in a case-bound workspace, also run the synthesis MAP
-  // stage for that one article, so the later "Analyze corpus" run
-  // finds its extract cached (corpus-v7 keys are text-only, so the
-  // prepaid extract stays valid however much claim extraction
-  // follows). Originally fired on capture, from the reader's
-  // archive-save tail — which runs on EVERY writable reader open (the
-  // portal's case-view opens land in the same pipeline), turning the
-  // per-capture authorization into a per-open one nobody granted. The
-  // Suggest click already carries a per-article spend consent, so the
-  // prepay now rides it (roughly doubling that click's cost, disclosed
-  // in Options). Default OFF; effective only with caseSynthesis +
-  // llmAssist + the API key (this module's early return checks
-  // caseSynthesis; the SW's map pass re-checks llmAssist + key —
-  // since UA.1 the map gates on assistGate, not corpusGate, because
-  // it also serves the Suggest claim half for non-synthesis users).
-  autoPreAnalyze: false,
+  // (`autoPreAnalyze` — the Phase-28 opt-in map prepay riding the
+  // Suggest click — RETIRED in UA.3, 2026-08-12: since the One
+  // Article Pass, EVERY Suggest click runs the one cache-first map
+  // call, so "also prepay the map" became the click's ordinary
+  // meaning and the flag gated nothing. Art. 3: recorded in JOURNAL,
+  // git-recoverable, re-arguable. loadFlags drops unknown stored
+  // overrides silently, so stale `xray:flags` entries are inert.)
 
   // AI vision (post-28): gates the reader's "Describe images" surface —
   // per-image OCR transcription + captioning via the Anthropic vision

@@ -2,9 +2,11 @@
 //
 // The ONLY module that talks to the Anthropic Messages API. It runs in
 // the background service worker (page CSP can't open this; the relay
-// pool lives here for the same reason), reached via the
-// `xray:llm:suggest` message. Everything downstream consumes the
-// validated PROPOSALS this returns — it never saves or publishes.
+// pool lives here for the same reason), reached via the xray:llm:* /
+// xray:audit:* / xray:vision:* messages. Everything downstream consumes
+// the validated RAW OUTPUT this returns — it never saves or publishes.
+// (The original `xray:llm:suggest` standalone pass retired in UA.3;
+// every Suggest surface rides the ONE article pass, runCorpusMapPass.)
 //
 // Consent gates (both must pass before any network call):
 //   1. the `llmAssist` feature flag is on, AND
@@ -19,9 +21,7 @@ import { Utils } from './utils.js';
 import { loadFlags, isEnabled } from './metadata/feature-flags.js';
 import {
     ANTHROPIC_API_URL, ANTHROPIC_VERSION, resolveModel,
-    LLM_KEY_STORAGE, LLM_MODEL_STORAGE, LLM_SUGGEST_KINDS_STORAGE,
-    buildSuggestTool, buildSystemPrompt, buildUserPrompt,
-    normalizeSuggestKinds, categoryOfProposalKind
+    LLM_KEY_STORAGE, LLM_MODEL_STORAGE
 } from './llm-prompts.js';
 import {
     AUDIT_TOOL_NAME, STANDING_SINGLE_SHOT_CAVEAT, opinionStandingCaveat, STANDING_OPINION_CAVEAT,
@@ -77,16 +77,6 @@ export { LLM_KEY_STORAGE, LLM_MODEL_STORAGE };
 // SW-side slice is a defensive no-op on the audit path (the hash gate
 // covers exactly the text that was scored).
 const MAX_ARTICLE_CHARS = MAX_AUDIT_INPUT_CHARS;
-// Output cap for the structured tool call. A dense, long capture — a book
-// chapter is the pathological case — yields a big proposal set (entities +
-// claims + optional relationships/assessments), and 8192 truncated it
-// ("hit its output limit before finishing"). 32768 matches the extraction
-// cap, fits a rich proposal set with headroom, and stays well under every
-// current model's per-request output limit; the suggest call carries no
-// client-side timeout, so a longer completion is not aborted. If the model
-// still hits it we surface a clear error rather than feeding truncated JSON
-// to the validators.
-const MAX_OUTPUT_TOKENS = 32768;
 // A full eight-module audit is much larger than a proposal set (eight
 // nested findings payloads in one tool call), so it gets its own cap.
 const MAX_AUDIT_OUTPUT_TOKENS = 16384;
@@ -272,123 +262,13 @@ export function extractToolInput(data, toolName) {
 }
 
 // ------------------------------------------------------------------
-// Public entry point
+// (runSuggestionPass — the standalone suggestion pass — RETIRED in
+// UA.3 with its xray:llm:suggest message: every Suggest surface now
+// rides the ONE article pass (runCorpusMapPass via
+// shared/article-pass.js). The reader modal, its validators, and the
+// kinds preference all survive — they gate what DERIVES from the
+// extract, not what is read.)
 // ------------------------------------------------------------------
-
-/**
- * Run one user-invoked suggestion pass.
- *
- * @param {object} req
- * @param {string} [req.task='all']     one of SUGGEST_TASKS
- * @param {string} req.articleText      the captured article body text
- * @param {string} [req.articleUrl]
- * @param {string} [req.articleTitle]
- * @param {string} [req.context]        optional extra context
- * @returns {Promise<{ok:true, model:string, proposals:Array, usage?:object}
- *                  | {ok:false, error:string, status?:number}>}
- */
-export async function runSuggestionPass(req = {}) {
-    await loadFlags();
-    if (!isEnabled('llmAssist')) {
-        return { ok: false, error: 'LLM assist is off. Enable it in Options → Advanced → LLM assist.' };
-    }
-
-    const apiKey = await readApiKey();
-    if (!apiKey) {
-        return { ok: false, error: 'No Anthropic API key set. Add one in Options → Advanced → LLM assist.' };
-    }
-
-    const articleText = String(req.articleText || '').slice(0, MAX_ARTICLE_CHARS);
-    if (!articleText.trim()) {
-        return { ok: false, error: 'No article text to analyze.' };
-    }
-
-    // Which artifact categories to propose. Default ON = entities +
-    // claims (extraction); relationships / assessments / findings are
-    // opt-in via Options. We both SCOPE the prompt to the enabled kinds
-    // (fewer off-target proposals, smaller prompt) and FILTER the result
-    // (defense in depth — the model can't smuggle a disabled kind past it).
-    const enabledKinds = normalizeSuggestKinds(
-        (await storageGetRaw([LLM_SUGGEST_KINDS_STORAGE]))[LLM_SUGGEST_KINDS_STORAGE]);
-    if (enabledKinds.length === 0) {
-        return { ok: false, error: 'No suggestion types are enabled. Turn some on in Options → Advanced → LLM assist.' };
-    }
-
-    // UA.1 — the unified pass: when the reader already served the claim
-    // half from the article extract, its claim index rides the request
-    // and this call slims to entities + claim→entity links. The claims
-    // category leaves the effective set (and the result filter below),
-    // so a claim the model volunteers anyway is discarded. Gated on
-    // PRESENCE, not length: an EMPTY supplied index means "the article
-    // pass ran and found no claims" — it must not silently re-arm a
-    // second full claims read.
-    const suppliedClaims = Array.isArray(req.claimIndex);
-    const claimIndex = suppliedClaims
-        ? req.claimIndex.filter((c) => c && c.ref && typeof c.text === 'string' && c.text.trim())
-        : null;
-    const effectiveKinds = suppliedClaims
-        ? enabledKinds.filter((k) => k !== 'claims') : enabledKinds;
-    if (effectiveKinds.length === 0) {
-        // Claims-only config + a supplied index: the extract already IS
-        // the whole pass — nothing left to ask the model for.
-        return { ok: true, model: null, proposals: [] };
-    }
-
-    // (The Phase-28 vocabulary injection retired in UA.2 — naming
-    // consistency lives in the accept-time resolution ladder now,
-    // shared/entity-resolution.js, so the registry never rides THIS
-    // prompt. The E2 entity-audit pass still sends the registry
-    // digest — that is its purpose.)
-    const model = await readModel();
-    const system = buildSystemPrompt({
-        tasks: effectiveKinds, url: req.articleUrl || '', title: req.articleTitle || '',
-        // 28.3 — the reader resolves the active workspace's case frame
-        // and sends it along; absent → the prompt stays frame-free.
-        caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '',
-        suppliedClaims
-    });
-    const userContent = buildUserPrompt({ articleText, context: req.context || '', claimIndex });
-    const tool = buildSuggestTool();
-
-    const payload = {
-        model,
-        max_tokens: MAX_OUTPUT_TOKENS,
-        system,
-        tools: [tool],
-        // Force the structured tool so we always get parseable JSON.
-        tool_choice: { type: 'tool', name: tool.name },
-        messages: [{ role: 'user', content: userContent }]
-    };
-
-    Utils.log('[X-Ray LLM] suggestion pass:', { kinds: effectiveKinds, model, chars: articleText.length, suppliedClaims: suppliedClaims ? claimIndex.length : null });
-
-    const res = await postMessages(payload, apiKey);
-    if (!res.ok) return res;
-    const data = res.data;
-
-    { const r = refusalResult(data, 'capture suggestions for this article'); if (r) return r; }
-    if (data && data.stop_reason === 'max_tokens') {
-        return { ok: false, error: 'The model hit its output limit before finishing. This can happen on a very long or dense capture — try narrowing the suggestion types in Options → Advanced → LLM assist, or run Suggest on a shorter section.' };
-    }
-
-    const proposals = extractProposals(data);
-    if (proposals === null) {
-        return { ok: false, error: 'The model did not return a structured proposal set. Try again.' };
-    }
-
-    // Drop anything outside the enabled categories (the model occasionally
-    // volunteers an off-target kind even when unasked). Under a supplied
-    // claim index this also discards any claim the model re-extracts.
-    const filtered = proposals.filter((p) => effectiveKinds.includes(categoryOfProposalKind(p && p.kind)));
-
-    Utils.log('[X-Ray LLM] proposals:', filtered.length, 'of', proposals.length);
-    return {
-        ok: true,
-        model: (data && data.model) || model,
-        proposals: filtered,
-        usage: data && data.usage ? data.usage : undefined
-    };
-}
 
 /**
  * Run one user-invoked ENTITY AUDIT pass (Phase 17 E2 —
@@ -486,22 +366,6 @@ export async function runForensicCorpusPass(req = {}) {
     return { ok: true, model: (data && data.model) || model, findings: input.findings, usage: data && data.usage };
 }
 
-/**
- * Pull the `propose_capture` tool_use input out of a Messages response.
- * Returns the proposals array, or null if no usable tool call was found.
- * Exported for unit tests (no network involved).
- */
-export function extractProposals(data) {
-    const blocks = (data && Array.isArray(data.content)) ? data.content : [];
-    for (const block of blocks) {
-        if (block && block.type === 'tool_use' && block.name === 'propose_capture') {
-            const input = block.input || {};
-            if (Array.isArray(input.proposals)) return input.proposals;
-            return [];
-        }
-    }
-    return null;
-}
 
 /**
  * Run one user-invoked epistemic-audit pass: a single forced tool call

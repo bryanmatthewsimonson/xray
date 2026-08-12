@@ -6,15 +6,16 @@
 // actual work lives in shared/url-import.js; this file is rows +
 // buttons.
 //
-// No LLM here (28.2 adds the optional suggest-after-import). Failures
-// render per-row and never stop the batch; the panel stays open so a
-// partial run can be retried by re-clicking Import (already-archived
-// rows are idempotent).
+// The only LLM here is the optional analyze-after-import (28.2,
+// reworked in UA.3 to the ONE article pass — cache-first, no parked
+// proposals). Failures render per-row and never stop the batch; the
+// panel stays open so a partial run can be retried by re-clicking
+// Import (already-archived rows are idempotent).
 
 import { el } from './dom.js';
 import { Utils } from '../shared/utils.js';
 import { parseUrlList, importUrlList } from '../shared/url-import.js';
-import { savePendingSuggestions } from '../shared/audit/audit-cache.js';
+import { ensureArticleExtract, articleSourceForExtract } from '../shared/article-pass.js';
 
 const STATUS_LABEL = {
     'imported':         '✓ imported',
@@ -54,17 +55,19 @@ export function mountUrlImport(host, { caseEntityId = null, onDone } = {}) {
 
     const preview = el('div', 'xr-import__preview');
 
-    // 28.2 — optional suggest-after-import. Auto-RUN, never auto-accept:
-    // suggestions land as pending records reviewed in the reader (the
-    // 14.5.3 modal remains the only path to a saved artifact). Shown
-    // only when llmAssist is on; disabled without a key.
+    // 28.2, reworked in UA.3 — optional analyze-after-import: one
+    // article-pass map call per imported page, cached under the
+    // content-only key, so the reader's Suggest, a case Analyze, and
+    // entity pages all find it prepaid. Auto-RUN, never auto-accept —
+    // the reader's review modal remains the only path to a saved
+    // artifact. Shown only when llmAssist is on; disabled without a key.
     const suggestWrap = el('label', 'xr-import__suggest');
     suggestWrap.hidden = true;
     const suggestCheck = el('input');
     suggestCheck.type = 'checkbox';
     suggestWrap.appendChild(suggestCheck);
     suggestWrap.appendChild(el('span', 'xr-import__hint',
-        ' Suggest entities & claims for each imported page (LLM) — suggestions wait in the reader for your review; nothing is saved without an Accept.'));
+        ' Analyze each imported page (LLM, one reading per page) — claim and entity proposals wait behind the reader’s Suggest button for your review; nothing is saved without an Accept.'));
     (async () => {
         const cfg = await sendMessage({ type: 'xray:llm:config' });
         if (!cfg || !cfg.enabled) return;   // flag off ⇒ absent
@@ -115,9 +118,9 @@ export function mountUrlImport(host, { caseEntityId = null, onDone } = {}) {
         if (running || urls.length === 0) return;
         const suggest = !suggestWrap.hidden && suggestCheck.checked && !suggestCheck.disabled;
         // Spend confirmation (the corpus-synthesis discipline): the
-        // suggest option sends each imported page's text to Anthropic.
-        if (suggest && !confirm(`Import ${urls.length} URL${urls.length === 1 ? '' : 's'} and suggest artifacts for each?\n\n`
-            + `This sends each successfully imported page's extracted text to Anthropic — up to ${urls.length} calls.`)) return;
+        // analyze option sends each imported page's text to Anthropic.
+        if (suggest && !confirm(`Import ${urls.length} URL${urls.length === 1 ? '' : 's'} and analyze each?\n\n`
+            + `This sends each successfully imported page's extracted text to Anthropic — up to ${urls.length} calls (already-analyzed pages are free).`)) return;
         running = true;
         importBtn.disabled = true;
         rowsHost.replaceChildren();
@@ -140,29 +143,31 @@ export function mountUrlImport(host, { caseEntityId = null, onDone } = {}) {
         try {
             const rows = await importUrlList(urls, {
                 caseEntityId,
-                // 28.2 — run the reader's suggest pass per imported page
-                // and PARK the proposals for in-reader review. The SW
-                // gates on llmAssist + key; a failure marks the row and
-                // never un-imports the article.
-                onImported: !suggest ? null : async ({ row, article, text }) => {
-                    if (!text || !text.trim()) return;
-                    const resp = await sendMessage({ type: 'xray:llm:suggest', request: {
-                        articleText: text,
-                        articleUrl: article.url || '',
-                        articleTitle: article.title || ''
-                    } });
-                    if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'suggest failed');
-                    if (!Array.isArray(resp.proposals) || resp.proposals.length === 0) return;
-                    await savePendingSuggestions({
-                        url: article.url,
-                        articleHash: article._articleHash || null,
-                        title: article.title || '',
-                        proposals: resp.proposals,
-                        model: resp.model || null,
-                        source: 'url-import',
-                        createdAt: Math.floor(Date.now() / 1000)
+                // UA.3 — run the ONE article pass per imported page: the
+                // extract caches under the content-only key (the same
+                // key the reader's Suggest, a case Analyze, and entity
+                // pages compute), so this page never pays again. No
+                // parking: the reader's Suggest button serves the cached
+                // extract instantly. The SW gates on llmAssist + key; a
+                // failure marks the row and never un-imports the article.
+                onImported: !suggest ? null : async ({ row, article }) => {
+                    const src = await articleSourceForExtract({
+                        url: article.url || '',
+                        fallbackArticle: article,
+                        fallbackHash: article._articleHash || null,
+                        fallbackTitle: article.title || ''
                     });
-                    row.suggestions = resp.proposals.length;
+                    const out = await ensureArticleExtract({
+                        article: src.article,
+                        articleHash: src.articleHash,
+                        url: article.url || '',
+                        title: src.title,
+                        sendMessage
+                    });
+                    if (out.status !== 'cached' && out.status !== 'ran') {
+                        throw new Error(out.error || 'analysis failed');
+                    }
+                    row.analyzed = out.status;
                     parked += 1;
                 },
                 onProgress: (p) => {
@@ -184,9 +189,11 @@ export function mountUrlImport(host, { caseEntityId = null, onDone } = {}) {
                     }
                     if (r.error && r.status !== 'pdf') row.appendChild(el('span', 'xr-import__row-err', r.error));
                     if (r.status === 'pdf') row.appendChild(el('span', 'xr-import__row-err', r.error || ''));
-                    if (r.suggestions) {
+                    if (r.analyzed) {
                         row.appendChild(el('span', 'xr-import__row-sugg',
-                            `✨ ${r.suggestions} suggestion${r.suggestions === 1 ? '' : 's'} — review in the reader`));
+                            r.analyzed === 'cached'
+                                ? '✨ already analyzed — Suggest in the reader is instant'
+                                : '✨ analyzed — Suggest in the reader is instant'));
                     }
                     if (r.post) row.appendChild(el('span', 'xr-import__row-err', `suggest: ${r.post}`));
                 }
@@ -201,7 +208,7 @@ export function mountUrlImport(host, { caseEntityId = null, onDone } = {}) {
                 + (pdf ? `, ${pdf} PDF skipped` : '')
                 + (failed ? `, ${failed} failed` : '')
                 + (caseEntityId ? ' · added to case' : '')
-                + (parked ? ` · suggestions parked for ${parked} page${parked === 1 ? '' : 's'} — open each in the reader to review` : '')
+                + (parked ? ` · ${parked} page${parked === 1 ? '' : 's'} analyzed — Suggest in the reader is instant` : '')
                 + '.';
             if (typeof onDone === 'function') onDone();
         } catch (err) {

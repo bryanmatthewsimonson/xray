@@ -40,7 +40,7 @@ export function renderExtractionBar(record, { priorRuns = 0, coverage = {} } = {
             return `
               <section class="xr-extract">
                 <div class="xr-extract__head">
-                  <h3 class="xr-extract__title">Extracted assertions</h3>
+                  <h3 class="xr-extract__title">Claim proposals</h3>
                   <span class="xr-extract__gap"></span>
                   <span class="xr-extract__counts">none retained</span>
                 </div>
@@ -54,7 +54,7 @@ export function renderExtractionBar(record, { priorRuns = 0, coverage = {} } = {
             return `
               <section class="xr-extract">
                 <div class="xr-extract__head">
-                  <h3 class="xr-extract__title">Extracted assertions</h3>
+                  <h3 class="xr-extract__title">Claim proposals</h3>
                 </div>
                 <div class="xr-extract__note">⚠️ ${priorRuns} extraction record${priorRuns === 1 ? '' : 's'} anchor to a <em>previous version</em> of this text. Assertions are grounded in exact spans, so they never transfer across edits — re-run the corpus analysis to extract against the current capture.</div>
               </section>`;
@@ -72,7 +72,7 @@ export function renderExtractionBar(record, { priorRuns = 0, coverage = {} } = {
     const dismissed = assertions.filter((a) => a.status === 'dismissed');
     const covered = assertions.filter((a) => !triaged(a) && isCovered(a));
 
-    const counts = [`${assertions.length} assertion${assertions.length === 1 ? '' : 's'}`];
+    const counts = [`${assertions.length} claim proposal${assertions.length === 1 ? '' : 's'}`];
     if (open.length) counts.push(`${open.length} open`);
     if (accepted.length) counts.push(`${accepted.length} accepted as claims`);
     if (covered.length) counts.push(`${covered.length} already covered by a claim`);
@@ -107,7 +107,7 @@ export function renderExtractionBar(record, { priorRuns = 0, coverage = {} } = {
 
     const openBlock = open.length ? `
       <div class="xr-extract__list">${rows(open)}</div>
-      <div class="xr-extract__hint">Accept these as claims (or dismiss them) in the portal's case dashboard — "Extracted assertions" there mints a claim with the case attached.</div>` : '';
+      <div class="xr-extract__hint">Accept these as claims (or dismiss them) in the portal's case dashboard — "Claim proposals" there mints a claim with the case attached.</div>` : '';
 
     const settled = accepted.concat(dismissed).concat(covered);
     const settledBlock = settled.length ? `
@@ -134,7 +134,7 @@ export function renderExtractionBar(record, { priorRuns = 0, coverage = {} } = {
     return `
       <section class="xr-extract">
         <div class="xr-extract__head">
-          <h3 class="xr-extract__title">Extracted assertions</h3>
+          <h3 class="xr-extract__title">Claim proposals</h3>
           <span class="xr-extract__durable" title="Saved per article in the audit database, export-included — a re-analysis adds to this record instead of replacing it">durable</span>
           <span class="xr-extract__gap"></span>
           <span class="xr-extract__counts">${escapeHtml(counts.join(' · '))}</span>

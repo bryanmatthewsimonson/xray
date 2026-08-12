@@ -1,29 +1,16 @@
 // Standards: archival — docs/DISCIPLINES.md §12.
-// LLM-assist prompts + tool schema — Phase 14.5
-// (docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md).
+// LLM-assist configuration — Phase 14.5, slimmed by UA.3
+// (docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md,
+// docs/UNIFIED_ARTICLE_PASS_KICKOFF.md).
 //
-// PURE module: no network, no chrome, no DOM. It defines (1) the model
-// roster the Options picker offers, (2) the single `propose_capture`
-// tool whose JSON-Schema maps onto the existing model `create()` inputs,
-// and (3) the system prompt — built from the SAME taxonomy modules the
-// validators read, so the embedded vocabulary can never drift from what
-// the firewall accepts.
-//
-// The suggestion engine returns VERBATIM quotes (so the reader can
-// resolve them to anchors) and stamps nothing itself: provenance
-// (`suggested_by: 'llm:<model>'`) is applied at accept-time by the
-// reader, against the model id actually used. Quotes are machine-
-// checked against the article (shared/quote-grounding.js): a claim or
-// finding whose quote cannot be located cannot be accepted, so the
-// prompt is blunt with the model about what a quote must be.
+// PURE module: no network, no chrome, no DOM. What remains after the
+// UA.3 retirement of the standalone suggest pass: the model roster the
+// Options picker offers, the LLM storage keys, the Anthropic API
+// surface constants, the suggestable entity-type subset, and the
+// per-kind Suggest preference (which now gates what the reader DERIVES
+// from the article extract, not a prompt). The extraction prompt
+// surface lives in corpus-prompts.js (the one article pass).
 
-import {
-    ASSESSMENT_LABEL_GROUPS, STANCE_LABELS, STANCE_VALUES,
-    CLAIM_RELATIONSHIPS, REVISION_RELATIONSHIPS
-} from './assessment-taxonomy.js';
-import {
-    FORENSIC_MANEUVER_GROUPS, MANEUVER_GUIDE, ROLES, BASIS_VALUES
-} from './forensic-taxonomy.js';
 import { ENTITY_TYPES } from './entity-model.js';
 
 // The entity types the MODEL may propose. A `case` is the RESEARCHER's
@@ -99,10 +86,11 @@ export const SUGGEST_TASKS = Object.freeze([
 export const RETIRED_SUGGEST_KINDS = Object.freeze(['assessments', 'relationships', 'findings', 'facts']);
 
 // The selectable suggestion categories (SUGGEST_TASKS without the 'all'
-// convenience). Each maps to a rules block in buildSystemPrompt and a
-// checkbox in Options. All three are EXTRACTION kinds — a
-// false-positive extraction is a one-click reject; judgment never
-// rides this pass.
+// convenience). Each maps to an Options checkbox and gates which
+// proposals the reader DERIVES from the article extract (UA.3 — the
+// extract always carries both; the preference is consumer-side). Both
+// are EXTRACTION kinds — a false-positive extraction is a one-click
+// reject; judgment never rides this pass.
 export const SUGGEST_KINDS = Object.freeze(SUGGEST_TASKS.filter((t) => t !== 'all'));
 export const SUGGEST_DEFAULT_KINDS = Object.freeze(['entities', 'claims']);
 export const LLM_SUGGEST_KINDS_STORAGE = 'xray:llm:suggest_kinds';
@@ -114,18 +102,6 @@ export const SUGGEST_KIND_LABELS = Object.freeze([
     { kind: 'claims', label: 'Claims',
         hint: 'atomized assertions the article makes, each anchored to a verbatim quote' },
 ]);
-
-// Proposal kind → selectable category. Retired kinds map to null
-// DELIBERATELY: a model that volunteers one anyway is filtered out by
-// the category gate, never rendered.
-const PROPOSAL_KIND_TO_CATEGORY = Object.freeze({
-    entity: 'entities', claim: 'claims'
-});
-
-/** The selectable category a raw proposal kind belongs to (or null). */
-export function categoryOfProposalKind(kind) {
-    return PROPOSAL_KIND_TO_CATEGORY[kind] || null;
-}
 
 /**
  * Coerce a stored value into a valid enabled-kinds array. An ABSENT
@@ -145,391 +121,11 @@ export function normalizeSuggestKinds(value) {
 // consistency now lives in the accept-time resolution ladder,
 // shared/entity-resolution.js. Git-recoverable if UA.2 is killed.)
 
-// ------------------------------------------------------------------
-// Tool schema — one discriminated-union tool keyed by `kind`. We do NOT
-// use strict mode: the real firewall is each model's create() at accept
-// time, so the schema stays permissive and human-readable. Every field
-// is optional; `kind` selects which ones matter.
-// ------------------------------------------------------------------
-
-const PROPOSAL_KINDS = Object.freeze(['entity', 'claim']);
-
-export function buildSuggestTool() {
-    return {
-        name: 'propose_capture',
-        description:
-            'Propose capture artifacts extracted from the article for HUMAN REVIEW. '
-            + 'Every item is a draft a person will confirm, edit, or reject — you never '
-            + 'save or publish anything. Use local string refs (e.g. "E1", "C1") to link '
-            + 'claims to their about-entities and relationships/findings to their claims.',
-        input_schema: {
-            type: 'object',
-            properties: {
-                proposals: {
-                    type: 'array',
-                    description: 'The proposed artifacts, in any order.',
-                    items: {
-                        type: 'object',
-                        properties: {
-                            kind: {
-                                type: 'string',
-                                enum: PROPOSAL_KINDS,
-                                description: 'Which artifact this is.'
-                            },
-                            ref: {
-                                type: 'string',
-                                description: 'A short local id you assign to an entity ("E1") '
-                                    + 'or claim ("C1"), so other proposals can reference it.'
-                            },
-                            // entity
-                            name: {
-                                type: 'string',
-                                description: 'Entity display name (kind=entity). May add disambiguation '
-                                    + 'beyond the article’s wording ("Elena Vargas", not "the mayor").'
-                            },
-                            entity_type: {
-                                type: 'string', enum: SUGGESTABLE_ENTITY_TYPES,
-                                description: 'Entity type (kind=entity) — always set it. Papers, lawsuits, '
-                                    + 'books, products, reports, and named studies/cohorts are "thing" — '
-                                    + 'never propose a case. If unsure, use "thing".'
-                            },
-                            mention: {
-                                type: 'string',
-                                description: 'REQUIRED for kind=entity: ONE contiguous VERBATIM span where '
-                                    + 'the article names this entity, copied character for character. It is '
-                                    + 'machine-checked against the article text; an entity whose mention '
-                                    + 'cannot be located there is rejected. name may differ from mention — '
-                                    + 'mention may not differ from the article.'
-                            },
-                            // claim
-                            text: {
-                                type: 'string',
-                                description: 'The atomized assertion, in your own words (kind=claim).'
-                            },
-                            quote: {
-                                type: 'string',
-                                description: 'REQUIRED for kind=claim: ONE contiguous VERBATIM span from '
-                                    + 'the article the claim is drawn from, copied character for character '
-                                    + '(keep punctuation, capitalization, typos). It is machine-checked '
-                                    + 'against the article text; a claim whose quote cannot be located '
-                                    + 'there is rejected.'
-                            },
-                            about: {
-                                type: 'array', items: { type: 'string' },
-                                description: 'Entity refs ("E1") this claim concerns (kind=claim).'
-                            },
-                            is_key: {
-                                type: 'boolean',
-                                description: 'True if this is a central/load-bearing claim (kind=claim).'
-                            },
-                            // UA.1 — the unified pass: when a SUPPLIED
-                            // CLAIM INDEX rides the user turn, entities
-                            // link to those claims from the entity side
-                            // (the inverse of `about`; the reader
-                            // inverts it back before the modal).
-                            claim_refs: {
-                                type: 'array', items: { type: 'string' },
-                                description: 'kind=entity, ONLY when the user turn carries a '
-                                    + 'SUPPLIED CLAIM INDEX: the refs ("C1") of supplied claims '
-                                    + 'this entity concerns — the same judgment as a claim\'s '
-                                    + 'about list, made from the entity side. Refs from the '
-                                    + 'supplied index only.'
-                            },
-                            // (The Phase 19.6 fact fields — subject_ref/field/value/
-                            // value_entity_ref/valid_from/valid_to/observed_at — were
-                            // retired 2026-07-20 with the fact layer.)
-                            // assessment
-                            claim_ref: {
-                                type: 'string',
-                                description: 'The claim ref ("C1") this assessment is about (kind=assessment).'
-                            },
-                            stance: {
-                                type: ['integer', 'null'], enum: [...STANCE_VALUES, null],
-                                description: 'Your graded agree↔disagree on the claim, -2..2, or null '
-                                    + 'for a label-only assessment (kind=assessment). A PERSONAL judgment, '
-                                    + 'not a fact verdict.'
-                            },
-                            labels: {
-                                type: 'array',
-                                description: 'Issue labels on the claim (kind=assessment).',
-                                items: {
-                                    type: 'object',
-                                    properties: {
-                                        label: { type: 'string', description: 'A taxonomy label or custom token.' },
-                                        quote: { type: 'string', description: 'Verbatim span the label points at.' }
-                                    },
-                                    required: ['label']
-                                }
-                            },
-                            rationale: { type: 'string', description: 'Free-text reasoning (kind=assessment).' },
-                            // relationship + revision (both ride kind-30055)
-                            source_claim_ref: {
-                                type: 'string',
-                                description: 'Source claim ref (kind=relationship/revision). For revisions, '
-                                    + 'this is the EARLIER statement.'
-                            },
-                            target_claim_ref: {
-                                type: 'string',
-                                description: 'Target claim ref (kind=relationship/revision). For revisions, '
-                                    + 'the LATER statement.'
-                            },
-                            relationship: {
-                                type: 'string',
-                                enum: [...CLAIM_RELATIONSHIPS, ...REVISION_RELATIONSHIPS],
-                                description: 'The typed link (kind=relationship uses contradicts/supports/'
-                                    + 'updates/duplicates; kind=revision uses narrative-patch/recharacterizes/walks-back).'
-                            },
-                            note: {
-                                type: 'string',
-                                description: 'A short note (relationship/revision/finding/baseline).'
-                            },
-                            // finding + baseline (subject_ref is shared with kind=fact above)
-                            subject_label: {
-                                type: 'string',
-                                description: 'Subject display name, when not one of the proposed entities '
-                                    + '(kind=finding/baseline).'
-                            },
-                            role: {
-                                type: 'string', enum: ROLES,
-                                description: 'The subject’s role in this exchange (kind=finding).'
-                            },
-                            maneuver: {
-                                type: 'string',
-                                description: 'The named maneuver, lowercase, one optional "family/" prefix '
-                                    + '(kind=finding). Prefer a standard maneuver from the guide.'
-                            },
-                            basis: {
-                                type: 'string', enum: BASIS_VALUES,
-                                description: 'HOW you know — "quoted" only when the evidence is a verbatim '
-                                    + 'span; otherwise "paraphrased" / "behavioral-cue" / "structural-inference" '
-                                    + '(kind=finding).'
-                            },
-                            counter_note: {
-                                type: 'string',
-                                description: 'REQUIRED for a finding: the exonerating / alternative reading — '
-                                    + 'what would make this NOT the maneuver. A finding with no counter-read '
-                                    + 'is rejected.'
-                            },
-                            anchors: {
-                                type: 'array',
-                                description: 'The ordered evidence chain (kind=finding) — at least one, each '
-                                    + 'with a VERBATIM quote. Every quote is machine-checked against the '
-                                    + 'article text; a finding with an unlocatable quote is rejected.',
-                                items: {
-                                    type: 'object',
-                                    properties: {
-                                        quote: { type: 'string', description: 'ONE contiguous verbatim span copied exactly from the article.' },
-                                        note:  { type: 'string', description: 'Optional note on this step.' }
-                                    },
-                                    required: ['quote']
-                                }
-                            }
-                        },
-                        required: ['kind']
-                    }
-                }
-            },
-            required: ['proposals']
-        }
-    };
-}
-
-// ------------------------------------------------------------------
-// System prompt — assembled from the live taxonomy so the embedded
-// vocabulary always matches the validators.
-// ------------------------------------------------------------------
-
-function labelMenu() {
-    return Object.entries(ASSESSMENT_LABEL_GROUPS)
-        .map(([group, labels]) => `  - ${group}: ${labels.join(', ')}`)
-        .join('\n');
-}
-
-function maneuverGuideText() {
-    const lines = [];
-    for (const [family, maneuvers] of Object.entries(FORENSIC_MANEUVER_GROUPS)) {
-        lines.push(`  ${family}:`);
-        for (const m of maneuvers) {
-            const g = MANEUVER_GUIDE[m] || {};
-            const def = g.definition || '';
-            const ind = (g.indicators || []).join('; ');
-            const counter = (g.counterIndicators || []).join('; ');
-            lines.push(`    - ${m} — ${def}`);
-            if (ind) lines.push(`        indicators: ${ind}`);
-            if (counter) lines.push(`        counter-indicators (what would make it NOT this): ${counter}`);
-        }
-    }
-    return lines.join('\n');
-}
-
-function stanceMenu() {
-    return STANCE_VALUES.map((v) => `${v} = ${STANCE_LABELS[String(v)]}`).join(', ');
-}
-
-const RULES_ALL = `
-GROUND RULES (non-negotiable):
-- You PROPOSE; a human confirms every item. Nothing you return is saved or published automatically.
-- Quote VERBATIM. Every quote must be ONE contiguous span copied exactly from the article text, character for character — keep the article's punctuation, capitalization, and typos. Never paraphrase inside a quote, never merge separate sentences, never add ellipses you didn't see, never fix what the article got wrong.
-- Quotes are machine-checked. Each quote is located in the article text before an item can be accepted: a claim or finding whose quote cannot be found is rejected outright, and an assessment label whose quote cannot be found is saved without its anchor. Your conclusion may be your own words — the quote may not.
-- Be conservative. Prefer a few high-quality, well-anchored proposals over many weak ones. If the article does not support an artifact, omit it.
-- Use the propose_capture tool and nothing else.`;
-
-const RULES_ENTITIES = `
-ENTITIES (people / organizations / places / things named in the text):
-- name is the DISPLAY name — disambiguate when helpful ("Elena Vargas", not "the mayor"), and reuse the same name for the same real-world entity across proposals.
-- mention is REQUIRED: the single verbatim span where the text names this entity. An entity whose mention cannot be located in the article is rejected.
-- Give each a short local ref ("E1", "E2", …) so claims and findings can point at it.
-- type must be one of: ${SUGGESTABLE_ENTITY_TYPES.join(', ')}. The definitions matter — misclassification is the most common entity error, so read them carefully:
-  - person: a named human being.
-  - organization: a named institution, company, agency, court, lab, publication, or movement.
-  - place: a named geographic or physical location.
-  - thing: anything else with a name — a scientific paper, a lawsuit or court case, a book, a study or named cohort, a product, a report, a policy, a dataset, an event. When in doubt, it is a thing.
-- A SCIENTIFIC PAPER is a thing, never anything else. A LAWSUIT or COURT CASE is a thing. In X-Ray, "case" names the researcher's own investigation workspace — it is never named inside an article, it is not in your type list, and you must never propose one.`;
-
-function rulesClaims() {
-    return `
-CLAIMS (atomized assertions the article makes or reports):
-- text is the assertion in clear, standalone form. quote is REQUIRED: the single contiguous VERBATIM span it is drawn from — a claim without a locatable quote is rejected.
-- If a conclusion rests on several passages, do not stitch them into one quote: anchor the claim to the single most load-bearing span, and propose the other passages as their own claims (atomize; you can link them with relationships).
-- about lists the entity refs the claim concerns (link to your entity proposals).
-- Give each claim a ref ("C1", "C2", …) so assessments and relationships can point at it.`;
-}
-
-// UA.1 — the unified pass: the article's claims were already extracted
-// by the One Article Pass (the corpus map), so this call is entities +
-// claim→entity links only. The supplied index is the SAME about-link
-// judgment the pass has always made — expressed from the entity side,
-// never a new judgment kind (archival §12: extraction proposes, never
-// judges).
-function rulesSuppliedClaims() {
-    return `
-CLAIMS ARE ALREADY EXTRACTED — a SUPPLIED CLAIM INDEX rides the user turn:
-- Do NOT propose kind=claim items. The claims are done; every claim proposal you emit is discarded.
-- Instead, for each entity you propose, set claim_refs: the refs ("C1", "C2", …) of the supplied claims that concern that entity. Only use refs from the supplied index; an entity no supplied claim concerns simply has no claim_refs.`;
-}
-
-function rulesAssessments() {
-    return `
-ASSESSMENTS (your judgment on a claim — a PERSONAL stance, never a fact verdict):
-- claim_ref points at the claim. stance is your graded agree↔disagree: ${stanceMenu()}, or null for label-only.
-- labels flag issues with the claim. Prefer these standard labels (custom lowercase tokens allowed):
-${labelMenu()}
-  Attach a verbatim quote to each label where you can.
-- Provide at least one of stance or labels. A stance is an opinion to be debated, not a truth ruling.`;
-}
-
-function rulesRelationships() {
-    return `
-RELATIONSHIPS (typed links between two of your proposed claims):
-- relationship is one of: ${CLAIM_RELATIONSHIPS.join(', ')}.
-- source_claim_ref and target_claim_ref both reference claims you proposed above.`;
-}
-
-function rulesFindings() {
-    return `
-FINDINGS (the criminology layer — name a structural MANEUVER a subject performs around the truth):
-- A finding describes a MOVE, never a verdict. There is NO field for intent, honesty, lying, or a score, by design — do not assert any.
-- subject_ref (or subject_label) identifies who. role is one of: ${ROLES.join(', ')}.
-- ATTRIBUTION — the most common error, so read carefully: the subject is the party who
-  PERFORMED the move — the speaker of the quoted words or the actor of the described
-  behavior. An author who describes, quotes, or criticizes SOMEONE ELSE's maneuver is
-  NOT performing it. When an article reports "X said the criticism was politically
-  motivated", the deflection is X's move, not the reporter's — even though the only
-  verbatim span available is the reporter's sentence. Anchor to that span, attribute
-  to X, and set basis "paraphrased" (the anchor evidences the move second-hand).
-  If you cannot determine WHO performed a move, OMIT the finding entirely.
-- maneuver names the move. Prefer a standard maneuver from the guide below; a lowercase custom
-  token is allowed, and the fallacy/<token> namespace is valid for classical argumentation
-  fallacies the guide doesn't list.
-- anchors is the evidence chain: at least ONE anchor, each with a VERBATIM quote. A finding with no quoted evidence is rejected.
-- counter_note is REQUIRED: the strongest alternative / exonerating reading — what would make this NOT the maneuver. A finding with no counter-read is rejected.
-- basis records how you know: use "quoted" ONLY when the evidence is the subject's own verbatim words; otherwise "paraphrased", "behavioral-cue", or "structural-inference".
-- Run this symmetrically — apply the same scrutiny to every SPEAKER whose own moves the
-  text carries. Symmetric scrutiny means no party's moves are exempt; it does NOT mean
-  attributing the covered parties' moves to the journalist reporting them.
-
-MANEUVER GUIDE (definition / indicators / counter-indicators):
-${maneuverGuideText()}`;
-}
-
-function rulesRevisionsBaselines() {
-    return `
-REVISIONS (a subject's self-serving story-change between two of your claims — secondary):
-- relationship is one of: ${REVISION_RELATIONSHIPS.join(', ')}. source is the EARLIER statement, target the LATER.
-
-BASELINES (a subject's established register — secondary, descriptive prose, no score):
-- subject_ref/subject_label + a descriptive note. Never a rating.`;
-}
-
-/**
- * Build the system prompt for a pass. `tasks` (an array of categories)
- * selects which artifact rules to embed; the heavy maneuver guide is only
- * included when findings are in scope, to bound tokens. `task` (a single
- * string, 'all' by default) is kept for back-compat and is used only when
- * `tasks` is not supplied.
- *
- * @param {object} [opts]
- * @param {string[]} [opts.tasks]   enabled categories (preferred)
- * @param {string} [opts.task='all'] single category, or 'all' (fallback)
- * @param {string} [opts.url]
- * @param {string} [opts.title]
- * @param {boolean} [opts.suppliedClaims]  UA.1 — the unified pass: the
- *        claim half was already extracted (the index rides the user
- *        turn), so the claims rules are replaced by the supplied-claims
- *        block and the pass links entities to the supplied refs
- */
-export function buildSystemPrompt({ tasks = null, task = 'all', url = '', title = '', caseName = '', scopeQuestion = '', suppliedClaims = false } = {}) {
-    const effective = Array.isArray(tasks)
-        ? tasks.filter((t) => SUGGEST_KINDS.includes(t))
-        : (task === 'all' ? SUGGEST_KINDS.slice()
-            : (SUGGEST_KINDS.includes(task) ? [task] : SUGGEST_KINDS.slice()));
-    const wants = (kind) => effective.includes(kind);
-
-    const head = `You are X-Ray's capture assistant. You read an article a person has captured and EXTRACT structured capture artifacts — entities and claims — for that person to review and confirm. Extraction only: you record WHAT this text says, verbatim-anchored; you never judge, link, or assess (those happen at corpus level, with the human).`;
-
-    const meta = (title || url)
-        ? `\nArticle: ${title ? `"${title}"` : ''}${url ? ` <${url}>` : ''}`
-        : '';
-
-    // 28.3 — the researcher's active case frames the extraction: prefer
-    // what is relevant to it, but faithfulness rules everything above
-    // preference — and CW.1's no-minting rule gets restated where the
-    // frame might otherwise tempt the model.
-    const caseFrame = caseName
-        ? `\nThe researcher's ACTIVE CASE: "${caseName}".${scopeQuestion ? ` Its scope question: "${scopeQuestion}".` : ''}`
-            + ' Prefer artifacts relevant to this case when the article offers a choice, but extract FAITHFULLY:'
-            + ' never invent relevance, and never propose the case itself as an entity.'
-        : '';
-
-    const parts = [head + meta + caseFrame, RULES_ALL];
-    if (wants('entities')) parts.push(RULES_ENTITIES);
-    if (suppliedClaims)    parts.push(rulesSuppliedClaims());
-    else if (wants('claims')) parts.push(rulesClaims());
-    return parts.join('\n');
-}
-
-// The supplied-claim-index cap (UA.1): a comprehensive extract can run
-// long; the index is refs + capped text only, and past this bound the
-// tail claims simply go unlinked (a human can link them post-accept).
-export const SUGGEST_CLAIM_INDEX_MAX = 200;
-
-/**
- * The user-turn content: the article text the model extracts from.
- * `claimIndex` (UA.1) — [{ref, text}] from the article pass — renders
- * as the SUPPLIED CLAIM INDEX block the supplied-claims rules refer
- * to. An ARRAY renders the block even when empty ("the article pass
- * found no claims" is information, and the supplied-claims rules refer
- * to the block); null/undefined means no unified pass ran.
- */
-export function buildUserPrompt({ articleText = '', context = '', claimIndex = null } = {}) {
-    const ctx = context ? `\n\nAdditional context:\n${context}` : '';
-    const idx = Array.isArray(claimIndex)
-        ? '\n\nSUPPLIED CLAIM INDEX (ref — claim text; link your entities to these via claim_refs):\n'
-            + (claimIndex.length
-                ? claimIndex.slice(0, SUGGEST_CLAIM_INDEX_MAX)
-                    .map((c) => `${c.ref} — ${String(c.text || '').replace(/\s+/g, ' ').slice(0, 200)}`)
-                    .join('\n')
-                : '(none — the article pass found no claims; propose no claim_refs)')
-        : '';
-    return `Here is the captured article text. Propose capture artifacts via propose_capture.\n\n---\n${articleText}\n---${idx}${ctx}`;
-}
+// (Everything below this point — the propose_capture tool schema with
+// its is_key field, the suggest system/user prompt builders, the
+// taxonomy rule blocks, and the UA.1 supplied-claim-index machinery —
+// was RETIRED in UA.3 with the standalone xray:llm:suggest pass. The
+// ONE article pass (corpus-prompts.js buildMapTool) is the extraction
+// prompt surface now; the review modal, its validators
+// (llm-proposals.js), and the kinds preference above all survive.
+// Git-recoverable; Art. 3.)

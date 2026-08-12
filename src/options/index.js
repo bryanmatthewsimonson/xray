@@ -1311,8 +1311,8 @@ async function loadAdvanced() {
 
     // Case synthesis (Phase 20.4) — requires llmAssist + the key on top.
     document.getElementById('pref-case-synthesis').checked = isEnabled('caseSynthesis');
-    // Phase 28 — map prepay riding the Suggest click (2026-08-11).
-    document.getElementById('pref-auto-preanalyze').checked = isEnabled('autoPreAnalyze');
+    // (autoPreAnalyze retired in UA.3 — every Suggest click IS the one
+    // cache-first map call now, so there is nothing left to prepay.)
     document.getElementById('pref-capture-automation').checked = isEnabled('captureAutomation');
 
     // Local transcription (companion service) + the LM Studio post-pass.
@@ -1458,12 +1458,6 @@ async function saveAdvanced() {
     // Case synthesis (Phase 20.4).
     const synthOn = document.getElementById('pref-case-synthesis').checked;
     await setOverride('caseSynthesis', synthOn ? true : null);
-
-    // Auto pre-analyze with Suggest (Phase 28, retriggered 2026-08-11)
-    // — rides the Suggest click's spend consent; the checkbox hint
-    // carries the added-cost disclosure.
-    const autoPreOn = document.getElementById('pref-auto-preanalyze').checked;
-    await setOverride('autoPreAnalyze', autoPreOn ? true : null);
 
     // Capture automation (Phase 27 K.4).
     const captureAutoOn = document.getElementById('pref-capture-automation').checked;
