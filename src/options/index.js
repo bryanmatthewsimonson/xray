@@ -1005,7 +1005,7 @@ async function backupRestoreFromFile(file) {
 
 // Merge-import — accrual, not replacement. A colleague's (or an older)
 // backup folds INTO the current corpus: missing items added by id,
-// extraction records merged at the assertion level, local data never
+// extraction records merged at the claim-proposal (atom) level, local data never
 // deleted or overwritten, config/identities in the file ignored.
 async function backupMergeFromFile(file) {
     const status = document.getElementById('backup-status');
@@ -1021,7 +1021,7 @@ async function backupMergeFromFile(file) {
             `ADDS the file's content to what you already have (${storageKeys} storage keys; ` +
             `databases: ${dbNames}; exported ${parsed.exportedAt || 'unknown'}).\n\n` +
             'Nothing local is deleted or overwritten: items are deduplicated by id, ' +
-            'per-article extraction records merge at the assertion level, and the ' +
+            'per-article extraction records merge at the claim-proposal level, and the ' +
             'file\'s settings/identities are ignored.\n\n' +
             'Imported quotes are re-located in YOUR copy of each article — offsets from ' +
             'another machine are never trusted — so analysis of an article you have not ' +

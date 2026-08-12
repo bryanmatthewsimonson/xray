@@ -1,8 +1,10 @@
 // LLM-assist review panel — Phase 14.5.3
 // (docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md).
 //
-// The human-in-the-loop surface. It takes the raw proposals from a
-// `xray:llm:suggest` pass, groups + validates them (llm-proposals), and
+// The human-in-the-loop surface. It takes raw proposals — since UA.3
+// derived from the article extract (shared/article-pass.js), plus the
+// legacy parked-import and local-drafts producers — groups + validates
+// them (llm-proposals), and
 // renders a modal grouped by artifact type. For each proposal the user
 // can Accept / Edit / Reject:
 //

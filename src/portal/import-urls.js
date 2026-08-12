@@ -120,7 +120,8 @@ export function mountUrlImport(host, { caseEntityId = null, onDone } = {}) {
         // Spend confirmation (the corpus-synthesis discipline): the
         // analyze option sends each imported page's text to Anthropic.
         if (suggest && !confirm(`Import ${urls.length} URL${urls.length === 1 ? '' : 's'} and analyze each?\n\n`
-            + `This sends each successfully imported page's extracted text to Anthropic — up to ${urls.length} calls (already-analyzed pages are free).`)) return;
+            + `This sends each NEWLY imported page's extracted text to Anthropic — up to ${urls.length} calls; a page whose analysis is already cached costs nothing. `
+            + `Already-archived rows are skipped — use the case dashboard's Pre-analyze to analyze those.`)) return;
         running = true;
         importBtn.disabled = true;
         rowsHost.replaceChildren();
@@ -164,6 +165,10 @@ export function mountUrlImport(host, { caseEntityId = null, onDone } = {}) {
                         title: src.title,
                         sendMessage
                     });
+                    // A body-less page is a quiet skip (the pre-UA.3
+                    // semantics): there is nothing to analyze, which is
+                    // not a failure worth an error chip.
+                    if (out.status === 'no-text') return;
                     if (out.status !== 'cached' && out.status !== 'ran') {
                         throw new Error(out.error || 'analysis failed');
                     }
@@ -195,7 +200,7 @@ export function mountUrlImport(host, { caseEntityId = null, onDone } = {}) {
                                 ? '✨ already analyzed — Suggest in the reader is instant'
                                 : '✨ analyzed — Suggest in the reader is instant'));
                     }
-                    if (r.post) row.appendChild(el('span', 'xr-import__row-err', `suggest: ${r.post}`));
+                    if (r.post) row.appendChild(el('span', 'xr-import__row-err', `analyze: ${r.post}`));
                 }
             });
 

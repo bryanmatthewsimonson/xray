@@ -56,7 +56,7 @@ export function renderExtractionBar(record, { priorRuns = 0, coverage = {} } = {
                 <div class="xr-extract__head">
                   <h3 class="xr-extract__title">Claim proposals</h3>
                 </div>
-                <div class="xr-extract__note">⚠️ ${priorRuns} extraction record${priorRuns === 1 ? '' : 's'} anchor to a <em>previous version</em> of this text. Assertions are grounded in exact spans, so they never transfer across edits — re-run the corpus analysis to extract against the current capture.</div>
+                <div class="xr-extract__note">⚠️ ${priorRuns} extraction record${priorRuns === 1 ? '' : 's'} anchor to a <em>previous version</em> of this text. Claim proposals are grounded in exact spans, so they never transfer across edits — re-run the corpus analysis to extract against the current capture.</div>
               </section>`;
         }
         return '';

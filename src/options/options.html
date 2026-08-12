@@ -314,7 +314,7 @@
         content into the current corpus: articles, claims, entities,
         analysis records, and audits it has and you don't are added
         (deduplicated by id; per-article extraction records merge at the
-        assertion level), nothing local is deleted or overwritten, and
+        claim-proposal level), nothing local is deleted or overwritten, and
         settings/identities in the file are ignored.
         The signed-events bundle is the raw signed JSON of every event you
         have published (no keys inside) — anyone can rebroadcast it to any
@@ -497,9 +497,11 @@
       </div>
       <p class="xr-opt__hint" style="margin-top:-8px">
         Default: <strong>Entities</strong> + <strong>Claims</strong> — extraction
-        the model does reliably (high signal, low noise). Relationships,
-        assessments, and forensic findings are opt-in <em>judgments</em>:
-        higher false-positive rate, and X-Ray never renders them automatically.
+        the model does reliably (high signal, low noise). These gate what
+        the reader derives from the one article reading. The judgment
+        kinds (relationships, assessments, forensic findings) are RETIRED
+        from Suggest — each lives at corpus level, where its evidence is
+        (cross-article links, the assess modal, the forensic pass).
       </p>
       <div class="xr-opt__actions">
         <button class="xr-opt__btn" id="llm-key-clear">Clear key</button>

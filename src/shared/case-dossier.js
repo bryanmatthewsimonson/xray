@@ -1011,11 +1011,12 @@ export function buildEntitiesInvolved(data) {
  */
 /**
  * The author's scope question (27 S.2), read from the case entity's
- * authored fields in a collected `data` snapshot. Extracted as THE one
- * reader shared by buildCaseDossier and the capture-time auto
- * pre-analyze pass (retired auto-preanalyze; now article-pass.js) — the corpus cache key
- * fingerprints this string, so the two paths must trim and default it
- * identically or a prepaid extract would never be found by Analyze.
+ * authored fields in a collected `data` snapshot. THE one reader every
+ * consumer shares (buildCaseDossier, the article pass's fold frame).
+ * Historical note: the corpus cache key ONCE fingerprinted this string
+ * (pre-corpus-v7); since the case-free map it rides only the durable
+ * fold's provenance — but one shared reader remains the rule so no two
+ * surfaces ever disagree about what the scope question says.
  */
 export function caseScopeQuestion(data) {
     const caseEntity = (data.entitiesById || {})[data.case && data.case.id] || null;

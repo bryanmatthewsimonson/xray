@@ -3710,7 +3710,6 @@ async function runSuggestPass() {
     const original = btn.textContent;
     btn.disabled = true;
     let proposals = [];
-    let usedExtract = false;
     let extractModel = '';
     let canonicalText = '';
     try {
@@ -3747,7 +3746,6 @@ async function runSuggestPass() {
             toast('Suggest failed: ' + (out.error || 'could not analyze the article'), 'error', 6000);
             return;
         }
-        usedExtract = true;
         extractModel = out.model || '';
         // The substrate the extract READ — the review modal grounds
         // against THIS text, so quotes and mentions (canonical

@@ -354,5 +354,36 @@ test('GUARD (UA.2, source pin): the live Suggest path is ONE call — no xray:ll
         'UA.2: the separate entities call must never return to the live path');
     assert.equal((fn.match(/ensureArticleExtract\(/g) || []).length, 1,
         'exactly one extract fetch-or-run — the whole spend of a Suggest click');
-    assert.ok(fn.includes('entityProposalsFromExtract('), 'entities derive from the one reading');
+    assert.ok(fn.includes("kinds.includes('entities') ? entityProposalsFromExtract"),
+        'the entities kind gates what DERIVES from the reading (UA.3 — the preference is consumer-side)');
+    assert.ok(fn.includes("kinds.includes('claims') ? claimProposalsFromExtract"),
+        'the claims kind gates its half the same way');
+});
+
+// ---- UA.3 review round: the fold pins the retired suite carried ------------
+
+test('a FRESH run folds the extract into the durable record (MA.1) with the fingerprint key', async () => {
+    let folded = null;
+    const out = await ensureArticleExtract(
+        { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
+          frame: { caseName: 'Egg case', scopeQuestion: 'Q?' },
+          sendMessage: async () => ({ ok: true, extract: V8_EXTRACT, model: 'test-model' }) },
+        io({ record: async (opts) => { folded = opts; return { status: 'saved' }; } }));
+    assert.equal(out.status, 'ran');
+    assert.ok(folded, 'the fold ran');
+    assert.equal(folded.member.article_hash, 'a'.repeat(64));
+    assert.deepEqual(folded.extract, V8_EXTRACT);
+    assert.equal(folded.key, out.key, 'the fold carries the cache fingerprint for idempotence');
+    assert.equal(folded.model, 'test-model');
+    assert.equal(folded.frame.caseName, 'Egg case');
+});
+
+test('fold and cache-save failures never disturb the paid run', async () => {
+    const out = await ensureArticleExtract(
+        { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
+          sendMessage: async () => ({ ok: true, extract: V8_EXTRACT, model: 'm' }) },
+        io({ record: async () => { throw new Error('idb closed'); },
+             saveExtract: async () => { throw new Error('quota'); } }));
+    assert.equal(out.status, 'ran', 'the extract still reaches the caller');
+    assert.deepEqual(out.extract, V8_EXTRACT);
 });
