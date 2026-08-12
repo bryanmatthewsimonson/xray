@@ -19,6 +19,48 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-11 — The capture prepay was really a per-open spend; it now rides the Suggest click
+
+**Tags:** bug, design
+
+**The report.** The maintainer: pre-analysis runs every time a reader
+tab is opened, and the intent was for it to be bundled with LLM
+Suggest, whose button click is the opt-in.
+
+**The bug half.** The Phase-28 `autoPreAnalyze` prepay was wired into
+the reader's archive-save tail (`reader/index.js`, the hash/save
+pipeline) — but that pipeline runs on EVERY writable reader open, not
+just fresh captures: the portal's case view and transcript/book import
+open archive rows through `xray:reader:open` with `readOnly: false`,
+and they land in the same `adoptArticle` path a capture does. So the
+flag's documented "one Anthropic call per capture" standing
+authorization was in practice "one call per writable open of any
+not-yet-analyzed case member" — re-opening an old member from the case
+dashboard could spend without any click. Cache hits masked it for
+already-analyzed articles (status `cached`, no toast), which is why it
+read as noise rather than a leak.
+
+**The consent half.** Rather than narrowing the trigger to genuine
+fresh captures (still a standing authorization, just a smaller one),
+the trigger moved to the reader's **Suggest** click: the click already
+authorizes a per-article Anthropic spend, and with the flag on it now
+covers the one map call too (cache-first, `no-member`/`gated` skips
+unchanged, spend toast kept). This matches the actual workflow the
+prepay exists for — capture → Suggest-tag claims/entities → eventually
+Analyze corpus — so every article that gets Suggest attention is
+prepaid, and the eventual Analyze is nearly reduce-only. Options copy
+now discloses "roughly doubles the click's cost"; the per-click
+Analyze/Pre-analyze confirms remain the no-flag path. Nothing changes
+for Analyze corpus itself: the prepay still goes through
+`autoPreAnalyzeArticle` → `corpusMapRequest` (the one-request-builder
+rule), so cache keys stay byte-identical.
+
+**Pinned.** `tests/auto-preanalyze.test.mjs` gained a trigger-site
+guard: exactly one `maybeAutoPreAnalyze` call site, inside
+`runSuggestPass`, and never in the archive-save tail.
+
+---
+
 ## 2026-08-10 — NIP-07 §3 answered: no authorship bug on the wire; the split found instead
 
 **Tags:** design, pattern
@@ -140,6 +182,8 @@ ones:
   backup). Options + USER_GUIDE now say "recipient must be current";
   a distinct format id was rejected because it would also make every
   future importer refuse the file.
+
+---
 
 ## 2026-08-11 — NIP-07 silently voids the Phase-24 recoverability promise
 

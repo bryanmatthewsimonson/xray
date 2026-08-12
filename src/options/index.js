@@ -1311,7 +1311,7 @@ async function loadAdvanced() {
 
     // Case synthesis (Phase 20.4) — requires llmAssist + the key on top.
     document.getElementById('pref-case-synthesis').checked = isEnabled('caseSynthesis');
-    // Phase 28 — per-capture map prepay (a standing spend authorization).
+    // Phase 28 — map prepay riding the Suggest click (2026-08-11).
     document.getElementById('pref-auto-preanalyze').checked = isEnabled('autoPreAnalyze');
     document.getElementById('pref-capture-automation').checked = isEnabled('captureAutomation');
 
@@ -1459,8 +1459,9 @@ async function saveAdvanced() {
     const synthOn = document.getElementById('pref-case-synthesis').checked;
     await setOverride('caseSynthesis', synthOn ? true : null);
 
-    // Auto pre-analyze on capture (Phase 28) — a standing per-capture
-    // spend authorization; the checkbox hint carries the disclosure.
+    // Auto pre-analyze with Suggest (Phase 28, retriggered 2026-08-11)
+    // — rides the Suggest click's spend consent; the checkbox hint
+    // carries the added-cost disclosure.
     const autoPreOn = document.getElementById('pref-auto-preanalyze').checked;
     await setOverride('autoPreAnalyze', autoPreOn ? true : null);
 

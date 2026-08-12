@@ -104,16 +104,20 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // ordinary 30040/30055 through the normal publish paths.
   caseSynthesis: false,
 
-  // Phase 28 — opt-in per-capture map prepay (auto-preanalyze.js): when
-  // a capture saves into a workspace bound to a case, run the synthesis
-  // MAP stage for that one article immediately, so the later "Analyze
-  // corpus" run finds its extract cached (corpus-v4 keys are
-  // claims-independent, so the prepaid extract stays valid however much
-  // claim extraction follows). Default OFF deliberately: turning it on
-  // converts the per-click spend confirm into a STANDING authorization
-  // — one Anthropic call per capture — so the Options disclosure states
-  // the per-capture cost. Effective only with caseSynthesis + llmAssist
-  // + the API key (the SW's corpusGate re-checks all three).
+  // Phase 28, retriggered 2026-08-11 — opt-in map prepay riding the
+  // reader's Suggest click (auto-preanalyze.js): when Suggest runs on
+  // an article in a case-bound workspace, also run the synthesis MAP
+  // stage for that one article, so the later "Analyze corpus" run
+  // finds its extract cached (corpus-v7 keys are text-only, so the
+  // prepaid extract stays valid however much claim extraction
+  // follows). Originally fired on capture, from the reader's
+  // archive-save tail — which runs on EVERY writable reader open (the
+  // portal's case-view opens land in the same pipeline), turning the
+  // per-capture authorization into a per-open one nobody granted. The
+  // Suggest click already carries a per-article spend consent, so the
+  // prepay now rides it (roughly doubling that click's cost, disclosed
+  // in Options). Default OFF; effective only with caseSynthesis +
+  // llmAssist + the API key (the SW's corpusGate re-checks all three).
   autoPreAnalyze: false,
 
   // AI vision (post-28): gates the reader's "Describe images" surface —

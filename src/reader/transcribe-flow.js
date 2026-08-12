@@ -10,7 +10,7 @@
 // restart, or a re-capture RESUME polling instead of double-submitting
 // (the companion also dedupes active jobs by video as a backstop).
 //
-// Pure decision logic + injectable IO (the autoPreAnalyzeCapture test
+// Pure decision logic + injectable IO (the autoPreAnalyzeArticle test
 // seam): everything chrome-flavored arrives via `io`, so node tests
 // drive the whole state machine with stubs.
 

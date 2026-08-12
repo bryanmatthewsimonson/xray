@@ -1,5 +1,5 @@
 // Local transcription — the reader-side job orchestration. Pure logic
-// with injectable IO (the autoPreAnalyzeCapture seam): the resume
+// with injectable IO (the autoPreAnalyzeArticle seam): the resume
 // decision table, the poll state machine, unreachable tolerance (the
 // record survives so a later click resumes the same job), and the
 // stale-record reaper. No chrome stub needed — everything arrives via io.
