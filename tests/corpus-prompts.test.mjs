@@ -12,11 +12,13 @@ test('corpus-prompts: tool names + versions pinned (map/overall split)', () => {
     // cache key — bumping it orphans every cached extract, so it moves only
     // on a real MAP input change. corpus-v4 was one (the claims digest left
     // the map input); corpus-v7 was one too (the CASE FRAME left — the
-    // case-free, pay-once extract, MA.5). A reduce-only change bumps
-    // CORPUS_PROMPT_VERSION (staleness) but NOT this. The two versions
-    // re-converged at v7 (both sides changed); they may diverge again.
-    assert.equal(CP.MAP_PROMPT_VERSION, 'corpus-v7');
-    assert.equal(CP.CORPUS_PROMPT_VERSION, 'corpus-v7');
+    // case-free, pay-once extract, MA.5); corpus-v8 was one too (UA.1 —
+    // the assertion list went comprehensive with text + load_bearing per
+    // atom; a map OUTPUT-contract change, so the whole map re-pays once).
+    // A reduce-only change bumps CORPUS_PROMPT_VERSION (staleness) but NOT
+    // this. The two versions re-converged at v8; they may diverge again.
+    assert.equal(CP.MAP_PROMPT_VERSION, 'corpus-v8');
+    assert.equal(CP.CORPUS_PROMPT_VERSION, 'corpus-v8');
 });
 
 test('corpus-prompts: the reduce prompt asks for FULL holders + all major cruxes (breadth)', () => {
@@ -67,8 +69,22 @@ test('corpus-prompts: map tool requires position + quote-bearing assertions', ()
     const schema = CP.buildMapTool().input_schema;
     assert.deepEqual(schema.required, ['position']);
     const ka = schema.properties.key_assertions.items;
-    assert.deepEqual(ka.required, ['quote']);
+    // corpus-v8 (UA.1): every atom carries a verbatim quote, an authored
+    // paraphrase, and an explicit load-bearing flag — the tool demands
+    // all three (the validator stays lenient so one omission can't
+    // invalidate a whole paid extract).
+    assert.deepEqual(ka.required, ['quote', 'text', 'load_bearing']);
     assert.equal(ka.properties.quote.description.includes('VERBATIM'), true);
+    assert.equal(ka.properties.load_bearing.type, 'boolean');
+});
+
+test('corpus-prompts: the v8 map prompt demands comprehensive atomization with selective flags (UA.1)', () => {
+    const sys = CP.buildMapSystemPrompt();
+    assert.match(sys, /ATOMIZE COMPREHENSIVELY/);
+    assert.match(sys, /every discrete assertion/);
+    // Guard rail 5's prompt half: selectivity must stay meaningful.
+    assert.match(sys, /true ONLY where the article's position\s+rests/);
+    assert.match(sys, /Do NOT adjudicate/);
 });
 
 test('corpus-prompts: reduce system prompt points at the claims index + forbids invented ids (20.6)', () => {

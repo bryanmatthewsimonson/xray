@@ -378,7 +378,18 @@ tested contract, not an aspiration.
   (MA.6 — the NEW kind `30070` ExtractionAnalysis behind
   `extractionAnalysisPublishing`; the maintainer's 2026-07-29 posture
   publishes the WHOLE unit, every review state plus the model's prose,
-  so the per-row `status` marking is the only safeguard). The FLF Epistack
+  so the per-row `status` marking is the only safeguard). The **One
+  Article Pass** (`docs/UNIFIED_ARTICLE_PASS_KICKOFF.md`, approved
+  2026-08-12) then began unifying Suggest with the corpus map — UA.1
+  (corpus-v8) made the map COMPREHENSIVE (every atom: verbatim quote +
+  authored `text` paraphrase + `load_bearing` flag), the reader's
+  Suggest serves its claim half from that cached-or-fresh extract
+  (`shared/article-pass.js` — same unit builder, byte-identical cache
+  keys) with the remaining LLM call slimmed to entities +
+  claim→entity links, the reduce/entity page read only the
+  load-bearing subset, and the article pass NEVER writes
+  `claim.is_key` (keyness is case-scoped; the reduce promotion and the
+  corpus-level human checkbox are the only writers). The FLF Epistack
   entry has been submitted (deadline was 2026-07-19); the tool continues
   to be tailored **maintainer-driven from real casework (COVID first)**.
   The 0.8.0 smoke walk passed (2026-07-20; Phases 11–15

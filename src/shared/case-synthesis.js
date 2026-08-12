@@ -15,7 +15,7 @@ import { Utils } from './utils.js';
 import { EventBuilder } from './event-builder.js';
 import { createGroundingIndex } from './quote-grounding.js';
 import { CLAIM_RELATIONSHIPS } from './assessment-taxonomy.js';
-import { walk, obj, str, nullableStr, arr, en } from './schema-walker.js';
+import { walk, obj, str, nullableStr, arr, en, bool } from './schema-walker.js';
 import { deriveArticleRows } from './case-dossier.js';
 import { canonicalIdOf } from './entity-model.js';
 import { MAX_MEMBER_INPUT_CHARS, MAP_PROMPT_VERSION, CORPUS_PROMPT_VERSION } from './corpus-prompts.js';
@@ -25,6 +25,35 @@ import { MAX_MEMBER_INPUT_CHARS, MAP_PROMPT_VERSION, CORPUS_PROMPT_VERSION } fro
 // ------------------------------------------------------------------
 
 async function sha16(s) { return (await Crypto.sha256(String(s || ''))).slice(0, 16); }
+
+/**
+ * The ONE unit-shape builder (UA.1). Every producer of a map-stage
+ * unit — buildMemberUnits below, and the reader's article pass
+ * (shared/article-pass.js), which runs OUTSIDE any case — assembles
+ * text/title/url through THIS function, so the cache key
+ * (corpusExtractKey over corpusMapRequest) is byte-identical wherever
+ * the extract is first paid for. Never hand-build a lookalike unit: a
+ * one-character drift in text, title, or url silently orphans every
+ * extract keyed by the other path.
+ *
+ * `article` is the canonical article object (an archive row's
+ * `rec.article`, or the reader's `hashableArticle(state.article)` —
+ * the same object the archive stores, so the two assemble the same
+ * body). `claims` start empty; buildMemberUnits attaches the member's
+ * claim set afterwards (claims never ride the map request or its key).
+ */
+export function articleMemberUnit({ article, articleHash = null, url = null, title = null }) {
+    const full = EventBuilder.assembleArticleBody(article) || '';
+    return {
+        article_hash: articleHash,
+        url,
+        title: title || null,
+        text: full.slice(0, MAX_MEMBER_INPUT_CHARS),
+        truncated: full.length > MAX_MEMBER_INPUT_CHARS,
+        total_chars: full.length,
+        claims: []
+    };
+}
 
 /**
  * Build the map-stage units: one per `deriveArticleRows` row that has
@@ -63,8 +92,6 @@ export async function buildMemberUnits(data, { assessmentsByClaim = {} } = {}) {
     for (const row of rows) {
         const rec = recByUrl.get(row.url) || null;
         if (!rec || !rec.article) continue;   // only archive-backed members feed the corpus
-        const full = EventBuilder.assembleArticleBody(rec.article) || '';
-        const text = full.slice(0, MAX_MEMBER_INPUT_CHARS);
         const id = rec.articleHash || (`url:${await sha16(row.url)}`);
         // Key-first then oldest-first then id (the case-export order),
         // so a truncating consumer keeps the key claims and the set is
@@ -73,18 +100,14 @@ export async function buildMemberUnits(data, { assessmentsByClaim = {} } = {}) {
             (b.is_key ? 1 : 0) - (a.is_key ? 1 : 0)
             || (a.created || 0) - (b.created || 0)
             || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-        units.push({
-            article_hash: id,
-            url: row.url,
-            title: row.title || null,
-            text,
-            truncated: full.length > MAX_MEMBER_INPUT_CHARS,
-            total_chars: full.length,
-            claims: rowClaims.map((c) => ({
-                id: c.id, text: c.text, quote: c.quote || null, is_key: !!c.is_key,
-                stance: (c.id in assessmentsByClaim) ? assessmentsByClaim[c.id] : null
-            }))
+        const unit = articleMemberUnit({
+            article: rec.article, articleHash: id, url: row.url, title: row.title
         });
+        unit.claims = rowClaims.map((c) => ({
+            id: c.id, text: c.text, quote: c.quote || null, is_key: !!c.is_key,
+            stance: (c.id in assessmentsByClaim) ? assessmentsByClaim[c.id] : null
+        }));
+        units.push(unit);
     }
     return units;
 }
@@ -240,6 +263,27 @@ export async function corpusExtractKey(request, promptVersion = MAP_PROMPT_VERSI
         title: mm.title || '',
         url: mm.url || ''
     }));
+}
+
+/**
+ * The LOAD-BEARING SUBSET of a corpus-v8 extract — what the reduce and
+ * the entity page consume (UA.1 guard rail 5: the reduce input stays
+ * bounded; parity with the pre-v8 selective key_assertions list, while
+ * comprehensiveness lives in the full extract for the Suggest modal
+ * and the durable layer).
+ *
+ * STRICT `load_bearing === true`: every extract reaching a reduce path
+ * is v8-shaped (fetched or freshly run under the v8 cache key), so an
+ * unflagged atom is simply not load-bearing — never a compat case. The
+ * record-derived rows (unionExtractWithRecord / reduceExtractFromRecord)
+ * deliberately do NOT pass through this filter: their own cap has
+ * always bounded them, and pre-v8 record atoms carry no flag.
+ */
+export function loadBearingSubset(extract) {
+    const atoms = (extract && extract.key_assertions) || [];
+    const kept = atoms.filter((a) => a && a.load_bearing === true);
+    if (kept.length === atoms.length) return extract;
+    return { ...extract, key_assertions: kept };
 }
 
 /**
@@ -426,9 +470,18 @@ export function digestDossier(dossier, { claims = [], auditRollup = null } = {})
 // Validators (schema-walker)
 // ------------------------------------------------------------------
 
+// corpus-v8: atoms carry `text` (authored paraphrase) and
+// `load_bearing` (+ why when flagged). Both stay OPTIONAL here —
+// the tool schema requires them, but a model that omits one on one
+// atom must not invalidate the whole paid extract; consumers default
+// (text falls back to the quote in the review surface, an unflagged
+// atom is simply not load-bearing).
 const MAP_SCHEMA = obj({
     position: obj({ summary: str(), side_label: nullableStr() }),
-    key_assertions: arr(obj({ quote: str({ minLength: 1 }), claim_ref: nullableStr(), why_load_bearing: str() }, ['quote'])),
+    key_assertions: arr(obj({
+        quote: str({ minLength: 1 }), text: str(), load_bearing: bool(),
+        claim_ref: nullableStr(), why_load_bearing: str()
+    }, ['quote'])),
     source_references: arr(obj({ quote: str({ minLength: 1 }), target_hint: str() }, ['quote'])),
     open_questions: arr(str())
 }, ['position']);

@@ -315,6 +315,22 @@ export async function runSuggestionPass(req = {}) {
         return { ok: false, error: 'No suggestion types are enabled. Turn some on in Options → Advanced → LLM assist.' };
     }
 
+    // UA.1 — the unified pass: when the reader already served the claim
+    // half from the article extract, its claim index rides the request
+    // and this call slims to entities + claim→entity links. The claims
+    // category leaves the effective set (and the result filter below),
+    // so a claim the model volunteers anyway is discarded.
+    const claimIndex = Array.isArray(req.claimIndex)
+        ? req.claimIndex.filter((c) => c && c.ref && typeof c.text === 'string' && c.text.trim())
+        : [];
+    const effectiveKinds = claimIndex.length
+        ? enabledKinds.filter((k) => k !== 'claims') : enabledKinds;
+    if (effectiveKinds.length === 0) {
+        // Claims-only config + a supplied index: the extract already IS
+        // the whole pass — nothing left to ask the model for.
+        return { ok: true, model: null, proposals: [] };
+    }
+
     // Vocabulary injection (Phase 28): the active workspace's entity
     // registry rides the prompt as naming vocabulary, so re-mentioned
     // entities are proposed under their established names and merge on
@@ -330,13 +346,14 @@ export async function runSuggestionPass(req = {}) {
 
     const model = await readModel();
     const system = buildSystemPrompt({
-        tasks: enabledKinds, url: req.articleUrl || '', title: req.articleTitle || '',
+        tasks: effectiveKinds, url: req.articleUrl || '', title: req.articleTitle || '',
         // 28.3 — the reader resolves the active workspace's case frame
         // and sends it along; absent → the prompt stays frame-free.
         caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '',
-        entityVocabulary
+        entityVocabulary,
+        suppliedClaims: claimIndex.length > 0
     });
-    const userContent = buildUserPrompt({ articleText, context: req.context || '' });
+    const userContent = buildUserPrompt({ articleText, context: req.context || '', claimIndex });
     const tool = buildSuggestTool();
 
     const payload = {
@@ -349,7 +366,7 @@ export async function runSuggestionPass(req = {}) {
         messages: [{ role: 'user', content: userContent }]
     };
 
-    Utils.log('[X-Ray LLM] suggestion pass:', { kinds: enabledKinds, model, chars: articleText.length, vocab: entityVocabulary.length });
+    Utils.log('[X-Ray LLM] suggestion pass:', { kinds: effectiveKinds, model, chars: articleText.length, vocab: entityVocabulary.length, suppliedClaims: claimIndex.length });
 
     const res = await postMessages(payload, apiKey);
     if (!res.ok) return res;
@@ -366,8 +383,9 @@ export async function runSuggestionPass(req = {}) {
     }
 
     // Drop anything outside the enabled categories (the model occasionally
-    // volunteers an off-target kind even when unasked).
-    const filtered = proposals.filter((p) => enabledKinds.includes(categoryOfProposalKind(p && p.kind)));
+    // volunteers an off-target kind even when unasked). Under a supplied
+    // claim index this also discards any claim the model re-extracts.
+    const filtered = proposals.filter((p) => effectiveKinds.includes(categoryOfProposalKind(p && p.kind)));
 
     Utils.log('[X-Ray LLM] proposals:', filtered.length, 'of', proposals.length);
     return {
@@ -717,6 +735,18 @@ async function corpusGate() {
     if (!isEnabled('caseSynthesis')) {
         return { error: 'Case synthesis is off. Enable it in Options → Advanced → Case synthesis.' };
     }
+    return assistGate();
+}
+
+// UA.1 — the MAP pass alone gates on llmAssist + key, WITHOUT
+// caseSynthesis: since the One Article Pass, the reader's Suggest
+// serves its claim half from the article extract, so the map call is
+// part of the same llmAssist surface as the suggest call it replaces —
+// same article text, same destination, same click consent. The reduce
+// and every other corpus pass keep the full corpusGate (they are the
+// synthesis feature).
+async function assistGate() {
+    await loadFlags();
     if (!isEnabled('llmAssist')) {
         return { error: 'LLM assist is off. Enable it in Options → Advanced → LLM assist.' };
     }
@@ -736,7 +766,7 @@ async function corpusGate() {
  * @param {object} req { member_id, memberText, memberMeta? }
  */
 export async function runCorpusMapPass(req = {}) {
-    const gate = await corpusGate();
+    const gate = await assistGate();   // UA.1 — see assistGate: the map rides the Suggest surface
     if (gate.error) return { ok: false, member_id: req.member_id, error: gate.error };
 
     const memberText = String(req.memberText || '').slice(0, MAX_MEMBER_INPUT_CHARS);

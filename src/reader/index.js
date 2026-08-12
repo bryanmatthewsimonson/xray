@@ -94,6 +94,10 @@ import { Crypto } from '../shared/crypto.js';
 import { resolveActiveCaseRef, describeActiveContext, memberUrlSets } from '../shared/case-membership.js';
 import { gatherCorpusSources, corpusSourcesChars } from '../shared/audit/corpus-sources.js';
 import { autoPreAnalyzeArticle } from '../shared/auto-preanalyze.js';
+import {
+    ensureArticleExtract, claimProposalsFromExtract, claimIndexForSuggest, mergeSuggestProposals
+} from '../shared/article-pass.js';
+import { normalizeSuggestKinds, LLM_SUGGEST_KINDS_STORAGE } from '../shared/llm-prompts.js';
 import { Utils } from '../shared/utils.js';
 import {
     buildMentionNoteEvent, selectMentionQuote, mentionKey,
@@ -2980,7 +2984,16 @@ function captureSelectionSeed() {
 async function foldSuggestionsIntoRecord(proposals, model) {
     const hash = claimArticleHash();
     if (!hash) return { status: 'skipped-unhashed' };
-    const extract = suggestExtractFromProposals(proposals);
+    // UA.1 — extract-derived claim rows already folded through the map
+    // record path (ensureArticleExtract → recordArticleExtraction, with
+    // a fingerprint key); re-folding them here would only re-walk the
+    // span dedup. Only rows the MODEL authored in this pass fold as
+    // producer 'suggest' — post-UA.1 that is none on the live path, and
+    // the parked import-time batches keep working unchanged.
+    const suggested = (Array.isArray(proposals) ? proposals : [])
+        .filter((p) => !(p && p.from_extract));
+    if (suggested.length === 0) return { status: 'skipped-from-extract' };
+    const extract = suggestExtractFromProposals(suggested);
     if (extract.key_assertions.length === 0) return { status: 'skipped-empty' };
     const canonicalText = EventBuilder.assembleArticleBody(hashableArticle(state.article)) || '';
     if (!canonicalText) return { status: 'skipped-no-text' };
@@ -3703,47 +3716,104 @@ async function runSuggestPass() {
     const articleText = articleBodyText();
     if (!articleText.trim()) { toast('Nothing to analyze yet.', 'error'); return; }
 
+    // Which artifact kinds to suggest is configured in Options (default:
+    // entities + claims); the SW re-reads it for its own gating, but the
+    // reader needs it here to route the UA.1 unified pass.
+    let kinds;
+    try {
+        kinds = normalizeSuggestKinds(
+            (await browserApi.storage.local.get(LLM_SUGGEST_KINDS_STORAGE))[LLM_SUGGEST_KINDS_STORAGE]);
+    } catch (_) { kinds = normalizeSuggestKinds(undefined); }
+    if (kinds.length === 0) {
+        toast('No suggestion types are enabled. Turn some on in Options → Advanced → LLM assist.', 'error', 6000);
+        return;
+    }
+
     const original = btn.textContent;
     btn.disabled = true;
-    btn.textContent = '✨ Thinking…';
-    let resp;
+    let resp = null;
+    let claimProposals = [];
+    let usedExtract = false;
+    let extractModel = '';
     try {
         // 28.3 — the active workspace's case frames the extraction.
         const binding = await resolveActiveCaseRef().catch(() => null);
-        resp = await browserApi.runtime.sendMessage({
-            type: 'xray:llm:suggest',
-            request: {
-                // Which artifact kinds to suggest is configured in Options
-                // (default: entities + claims); the SW reads it.
-                articleText,
-                articleUrl: state.article.url || '',
-                articleTitle: state.article.title || '',
-                caseName: binding ? binding.caseName : '',
-                scopeQuestion: binding ? binding.scopeQuestion : ''
-            }
-        });
-    } catch (err) {
-        resp = { ok: false, error: (err && err.message) || String(err) };
-    }
-    btn.textContent = original;
-    btn.disabled = false;
 
-    if (!resp || !resp.ok) {
-        toast('Suggest failed: ' + ((resp && resp.error) || 'unknown error'), 'error', 6000);
-        return;
+        // UA.1 — the One Article Pass: the CLAIM half comes from THE
+        // article extract (cache-first fetch-or-run of the corpus map —
+        // one reading per article, ever), never from a second LLM
+        // reading. On an already-analyzed article this half is free.
+        if (kinds.includes('claims')) {
+            btn.textContent = '✨ Reading…';
+            const out = await ensureArticleExtract({
+                article: hashableArticle(state.article),
+                articleHash: claimArticleHash(),
+                url: state.article.url || '',
+                title: state.article.title || '',
+                frame: binding
+                    ? { caseName: binding.caseName || '', scopeQuestion: binding.scopeQuestion || '' }
+                    : {},
+                sendMessage: (msg) => browserApi.runtime.sendMessage(msg)
+            });
+            if (out.status !== 'cached' && out.status !== 'ran') {
+                toast('Suggest failed: ' + (out.error || 'could not analyze the article'), 'error', 6000);
+                return;
+            }
+            usedExtract = true;
+            extractModel = out.model || '';
+            claimProposals = claimProposalsFromExtract(out.extract);
+            // Honest coverage: the article pass reads the map's 60k-char
+            // bound (the old suggest pass read 120k) — on a very long
+            // capture the claim half covers the head only. Disclosed,
+            // never silent.
+            if (out.truncated) {
+                toast('Long capture: claim suggestions read the first 60k characters.', 'info', 4000);
+            }
+        }
+
+        // The remaining LLM call: entities + claim→entity links (the
+        // extract's claim index rides the request), or — with claims
+        // disabled — exactly the pre-UA.1 pass.
+        if (kinds.includes('entities')) {
+            btn.textContent = '✨ Thinking…';
+            try {
+                resp = await browserApi.runtime.sendMessage({
+                    type: 'xray:llm:suggest',
+                    request: {
+                        articleText,
+                        articleUrl: state.article.url || '',
+                        articleTitle: state.article.title || '',
+                        caseName: binding ? binding.caseName : '',
+                        scopeQuestion: binding ? binding.scopeQuestion : '',
+                        ...(usedExtract ? { claimIndex: claimIndexForSuggest(claimProposals) } : {})
+                    }
+                });
+            } catch (err) {
+                resp = { ok: false, error: (err && err.message) || String(err) };
+            }
+            if (!resp || !resp.ok) {
+                toast('Suggest failed: ' + ((resp && resp.error) || 'unknown error'), 'error', 6000);
+                return;
+            }
+        }
+    } finally {
+        btn.textContent = original;
+        btn.disabled = false;
     }
-    // The opt-in map prepay rides THIS click (every gate — flag,
-    // synthesis, case binding, cache — is handled inside). Fires even
-    // when the pass returned zero proposals: the suggest spend
-    // happened, and the prepaid extract is what makes the case's next
-    // Analyze reduce-only. Fire-and-forget — the review modal must
-    // never wait on it.
-    maybeAutoPreAnalyze();
-    if (!Array.isArray(resp.proposals) || resp.proposals.length === 0) {
+
+    // The opt-in map prepay (flag `autoPreAnalyze`) still rides the
+    // click for configs whose unified path did NOT run the extract
+    // (claims disabled). When it did, the extract above IS the prepay —
+    // rerunning would only re-walk the cache. Fire-and-forget — the
+    // review modal must never wait on it.
+    if (!usedExtract) maybeAutoPreAnalyze();
+
+    const proposals = mergeSuggestProposals((resp && resp.proposals) || [], claimProposals);
+    if (proposals.length === 0) {
         toast('The model returned no suggestions for this article.', 'success', 4000);
         return;
     }
-    await reviewSuggestions(resp.proposals, resp.model);
+    await reviewSuggestions(proposals, (resp && resp.model) || extractModel || 'unknown');
 }
 
 /**

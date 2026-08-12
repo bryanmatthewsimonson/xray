@@ -19,6 +19,80 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-12 — UA.1: one reading per article (corpus-v8), and is_key loses its article-pass writer
+
+**Tags:** design
+
+**What shipped.** The One Article Pass slice UA.1
+(`docs/UNIFIED_ARTICLE_PASS_KICKOFF.md`, approved 2026-08-12): the
+corpus map went comprehensive (corpus-v8 — every atom now carries the
+verbatim quote, an authored `text` paraphrase, and a `load_bearing`
+flag with `why_load_bearing` beside the flagged ones), the reader's
+Suggest serves its CLAIM half from that cached-or-fresh extract
+(`shared/article-pass.js`, unit-built by the same `articleMemberUnit`
+the Analyze path uses, so cache keys are byte-identical — pinned), and
+the remaining suggest call slims to entities + claim→entity links (the
+extract's claim index rides the request; `claim_refs` on entity
+proposals inverts to the claims' `about` lists). The reduce and the
+entity page read only the load-bearing subset (`loadBearingSubset`,
+applied to the LIVE extract before the record union — order pinned).
+
+**The second-guessable calls, on the record:**
+
+- **`is_key` lost its article-pass writer** (kickoff guard rail 6 —
+  the §1 scope collision fix). `buildClaimInput` now always mints
+  `is_key: false`, the modal's claim editor dropped its "Key claim"
+  checkbox, and the ⭐ is display-only (`load_bearing`, or the legacy
+  star on parked import batches — which also no longer write). The
+  only remaining writers are case-scoped: the reduce's promotion
+  proposal and the corpus-level human checkbox. If a parked batch's
+  stars silently mattering turns out to be missed, this is the entry
+  to argue with.
+- **Extend `key_assertions` in place** (kickoff open question 1):
+  no rename to `claims[]`. Old cached extracts are unreachable under
+  v8 keys anyway, so a compatibility read had nothing to read; a
+  rename would have touched every consumer and fixture for cosmetics.
+  UA.3 owns vocabulary.
+- **The layer's atom contract is unchanged** (guard rail 4):
+  `load_bearing` lives on the extract only, never stored on
+  `article-extractions` atoms (the fold naturally drops it), so kind
+  30070 publishes the same shape. Record-derived reduce extras keep
+  their own cap semantics, unfiltered — pre-v8 records contribute
+  exactly as before.
+- **Producer stamp stays `'map'`** (open question 2): extract-derived
+  claim rows skip the MA.4 suggest fold (`from_extract` marker) —
+  they already folded through the keyed map-record path. Visible
+  consequence: atoms a user meets via Suggest now show the corpus-map
+  provenance chip, which is accurate under the unified model.
+- **The claim half reads the map's 60k bound**, not the old suggest
+  120k. Kept deliberately (a bound change is corpus economics, not
+  UA.1's mandate) and disclosed with a toast on truncated captures.
+  If the parity walk finds long-capture claim coverage lacking, bump
+  `MAX_MEMBER_INPUT_CHARS` in a v9, don't fork the bound per caller.
+- **The map pass gate relaxed to llmAssist + key** (`assistGate`):
+  since the map IS the Suggest claim half now, gating it on
+  `caseSynthesis` would have broken Suggest for non-synthesis users.
+  Same text, same destination, same click consent as the suggest call
+  it replaces; the reduce and every other corpus pass keep the full
+  gate.
+
+**Known seam to watch at the parity walk:** extract quotes ground
+against the canonical assembled body while the modal grounds against
+the rendered DOM text (the MA.4 divergence, now flowing the other
+way). The grounding tiers absorb typography, but a modal full of
+"not found in article" chips on some capture type would be this seam
+— and the kill criterion's first suspect.
+
+**One-time cost:** every corpus-v7 cached extract is orphaned (the
+version bump); durable records survive per MA.1, so re-analysis
+re-pays exact-reuse only. The suite pins: `tests/article-pass.test.mjs`
+(identity, guard rails 4/6), `tests/case-synthesis.test.mjs` (the rail-1
+preimage pin, `loadBearingSubset`, the filter-before-union order),
+`tests/corpus-prompts.test.mjs` (v8 pins), `tests/llm-proposals.test.mjs`
+(the is_key flip).
+
+---
+
 ## 2026-08-11 — The capture prepay was really a per-open spend; it now rides the Suggest click
 
 **Tags:** bug, design
