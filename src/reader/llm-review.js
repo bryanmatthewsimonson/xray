@@ -73,9 +73,10 @@ const EDIT_FIELDS = {
     claim: [
         { key: 'text', label: 'Claim text', type: 'textarea' },
         { key: 'quote', label: 'Verbatim quote (checked against the article)', type: 'textarea' }
-        // No is_key editor (UA.1 guard rail 6): the article pass never
-        // writes claim.is_key — keyness is decided at corpus level (the
-        // reduce's promotion, the dashboard checkbox). The ⭐ here only
+        // No is_key editor (UA.1 guard rail 6): the article PASS never
+        // writes claim.is_key — the remaining writers are the reduce's
+        // case-level promotion and the human's own checkbox in the
+        // MANUAL claim modal (claim-extractor.js). The ⭐ here only
         // DISPLAYS the extract's article-relative load_bearing flag.
     ],
     assessment: [

@@ -28,6 +28,40 @@ import {
 } from './case-synthesis.js';
 import { getCorpusExtract, saveCorpusExtract } from './audit/audit-cache.js';
 import { recordArticleExtraction } from './map-artifacts.js';
+import { getArticle as getArchivedArticle } from './archive-cache.js';
+
+/**
+ * Resolve WHICH article object feeds the unit — the ARCHIVE ROW when
+ * one exists, the reader's live object only as a fallback.
+ *
+ * This is load-bearing for the pay-once economics, not a convenience:
+ * the corpus paths (buildMemberUnits) always assemble from the archive
+ * row's `rec.article`, and for markdown-canonical captures
+ * (PDF/EPUB/transcript, and published-then-archived articles) the
+ * reader's `hashableArticle(state.article)` assembles a DIFFERENT body
+ * — the row stores `markdownToHtml(markdown)` with no
+ * `_contentIsMarkdown` marker, and `htmlToMarkdown` is not idempotent
+ * (escape backslashes multiply per round trip) — so keying the extract
+ * off the reader object forks the cache and the same article is paid
+ * twice, silently. Reading the row keeps the two paths byte-identical
+ * by construction. The fallback covers genuinely unarchived captures,
+ * where no corpus path can exist yet either.
+ *
+ * @returns {Promise<{article:object, articleHash:string|null, title:string, source:'archive'|'reader'}>}
+ */
+export async function articleSourceForExtract({ url = '', fallbackArticle = null, fallbackHash = null, fallbackTitle = '' }, io = {}) {
+    const d = { getArchived: getArchivedArticle, ...io };
+    const rec = url ? await Promise.resolve(d.getArchived(url)).catch(() => null) : null;
+    if (rec && rec.article) {
+        return {
+            article: rec.article,
+            articleHash: rec.articleHash || null,
+            title: rec.article.title || '',
+            source: 'archive'
+        };
+    }
+    return { article: fallbackArticle, articleHash: fallbackHash, title: fallbackTitle, source: 'reader' };
+}
 
 /**
  * Ensure THE extract exists for one article: cache hit → free; miss →
@@ -81,10 +115,16 @@ export async function ensureArticleExtract({ article, articleHash = null, url = 
     const hit = await Promise.resolve(d.getExtract(key)).catch(() => null);
     if (hit && hit.extract && validateCorpusExtract(hit.extract).ok) {
         await fold(hit.extract, hit.model);
-        return { status: 'cached', key, extract: hit.extract, model: hit.model || '', truncated: unit.truncated };
+        return { status: 'cached', key, extract: hit.extract, model: hit.model || '', truncated: unit.truncated, text: unit.text };
     }
 
-    const res = await sendMessage({ type: 'xray:llm:corpus-map', request });
+    // The wire call can REJECT, not just return {ok:false} — an MV3
+    // service-worker teardown mid-call surfaces as "the message port
+    // closed". A rejection here must become a reportable failure, never
+    // an unhandled rejection past the caller's toast.
+    let res;
+    try { res = await sendMessage({ type: 'xray:llm:corpus-map', request }); }
+    catch (err) { res = { ok: false, error: (err && err.message) || String(err) }; }
     if (!res || !res.ok) return { status: 'failed', key, error: (res && res.error) || 'no response' };
     const v = validateCorpusExtract(res.extract);
     if (!v.ok) return { status: 'failed', key, error: 'invalid extract' };
@@ -98,8 +138,11 @@ export async function ensureArticleExtract({ article, articleHash = null, url = 
     // `truncated` disclosed: the map bound (MAX_MEMBER_INPUT_CHARS, 60k)
     // is tighter than the old suggest bound (120k), so on a very long
     // capture the claim half reads the head only — the caller says so
-    // rather than letting coverage shrink silently.
-    return { status: 'ran', key, extract: res.extract, model: res.model || '', truncated: unit.truncated };
+    // rather than letting coverage shrink silently. `text` is the unit
+    // text the extract READ: the caller reuses it as the slim call's
+    // input and the modal's grounding substrate, so quotes anchor in
+    // the text they were copied from.
+    return { status: 'ran', key, extract: res.extract, model: res.model || '', truncated: unit.truncated, text: unit.text };
 }
 
 /**

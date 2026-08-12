@@ -319,11 +319,15 @@ export async function runSuggestionPass(req = {}) {
     // half from the article extract, its claim index rides the request
     // and this call slims to entities + claim→entity links. The claims
     // category leaves the effective set (and the result filter below),
-    // so a claim the model volunteers anyway is discarded.
-    const claimIndex = Array.isArray(req.claimIndex)
+    // so a claim the model volunteers anyway is discarded. Gated on
+    // PRESENCE, not length: an EMPTY supplied index means "the article
+    // pass ran and found no claims" — it must not silently re-arm a
+    // second full claims read.
+    const suppliedClaims = Array.isArray(req.claimIndex);
+    const claimIndex = suppliedClaims
         ? req.claimIndex.filter((c) => c && c.ref && typeof c.text === 'string' && c.text.trim())
-        : [];
-    const effectiveKinds = claimIndex.length
+        : null;
+    const effectiveKinds = suppliedClaims
         ? enabledKinds.filter((k) => k !== 'claims') : enabledKinds;
     if (effectiveKinds.length === 0) {
         // Claims-only config + a supplied index: the extract already IS
@@ -351,7 +355,7 @@ export async function runSuggestionPass(req = {}) {
         // and sends it along; absent → the prompt stays frame-free.
         caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '',
         entityVocabulary,
-        suppliedClaims: claimIndex.length > 0
+        suppliedClaims
     });
     const userContent = buildUserPrompt({ articleText, context: req.context || '', claimIndex });
     const tool = buildSuggestTool();
@@ -366,7 +370,7 @@ export async function runSuggestionPass(req = {}) {
         messages: [{ role: 'user', content: userContent }]
     };
 
-    Utils.log('[X-Ray LLM] suggestion pass:', { kinds: effectiveKinds, model, chars: articleText.length, vocab: entityVocabulary.length, suppliedClaims: claimIndex.length });
+    Utils.log('[X-Ray LLM] suggestion pass:', { kinds: effectiveKinds, model, chars: articleText.length, vocab: entityVocabulary.length, suppliedClaims: suppliedClaims ? claimIndex.length : null });
 
     const res = await postMessages(payload, apiKey);
     if (!res.ok) return res;

@@ -24,7 +24,8 @@ globalThis.chrome = globalThis.chrome || {
 };
 
 const {
-    ensureArticleExtract, claimProposalsFromExtract, claimIndexForSuggest, mergeSuggestProposals
+    ensureArticleExtract, articleSourceForExtract, claimProposalsFromExtract,
+    claimIndexForSuggest, mergeSuggestProposals
 } = await import('../src/shared/article-pass.js');
 const { buildMemberUnits, corpusMapRequest, corpusExtractKey, articleMemberUnit } =
     await import('../src/shared/case-synthesis.js');
@@ -239,4 +240,80 @@ test('GUARD (UA.1 rail 4): a v8 fold stores text + why on atoms but NO load_bear
             'the article-extractions atom contract gains no field — load_bearing stays on the extract');
         assert.ok(!('is_key' in a));
     }
+});
+
+// ---- the archive-row preference (the markdown-canonical fork fix) ----------
+
+test('articleSourceForExtract prefers the ARCHIVE row — reader-object drift cannot fork the cache key', async () => {
+    // A markdown-canonical capture (PDF/EPUB/transcript, or published-
+    // then-archived): the reader's hashableArticle carries the markdown
+    // verbatim, while the archive row stores the HTML rendering with no
+    // marker — assembleArticleBody produces DIFFERENT text from the two
+    // (htmlToMarkdown is not idempotent), so whichever object feeds the
+    // unit decides the cache key. The row must win whenever it exists.
+    const readerObject = { title: 'P', content: '- item', _contentIsMarkdown: true };
+    const archivedObject = { title: 'P', content: '<ul><li>item</li></ul>', entities: [{ entity_id: CASE }] };
+    const rec = { url: URL_A, articleHash: 'b'.repeat(64), article: archivedObject };
+
+    const src = await articleSourceForExtract(
+        { url: URL_A, fallbackArticle: readerObject, fallbackHash: null, fallbackTitle: 'P' },
+        { getArchived: async () => rec });
+    assert.equal(src.source, 'archive');
+    assert.equal(src.article, archivedObject);
+    assert.equal(src.articleHash, 'b'.repeat(64));
+
+    // The key computed from the preferred source equals the key the
+    // Analyze path computes for the same row.
+    const readerUnit = articleMemberUnit({ article: src.article, articleHash: src.articleHash, url: URL_A, title: src.title });
+    const data = fixtureData();
+    data.articles = [rec];
+    const units = await buildMemberUnits(data);
+    assert.ok(units.length === 1);
+    assert.equal(await corpusExtractKey(corpusMapRequest(readerUnit)),
+        await corpusExtractKey(corpusMapRequest(units[0])),
+        'archive-sourced reader unit and Analyze unit share one key');
+
+    // No archive row → the reader object is the honest fallback.
+    const fb = await articleSourceForExtract(
+        { url: URL_A, fallbackArticle: readerObject, fallbackHash: 'c'.repeat(64), fallbackTitle: 'P' },
+        { getArchived: async () => null });
+    assert.equal(fb.source, 'reader');
+    assert.equal(fb.article, readerObject);
+    // And a throwing archive read degrades to the fallback, never up.
+    const thrown = await articleSourceForExtract(
+        { url: URL_A, fallbackArticle: readerObject, fallbackHash: null, fallbackTitle: 'P' },
+        { getArchived: async () => { throw new Error('idb closed'); } });
+    assert.equal(thrown.source, 'reader');
+});
+
+// ---- one substrate end to end ----------------------------------------------
+
+test('ensureArticleExtract returns the unit text — the slim call and modal ground in what the extract read', async () => {
+    const out = await ensureArticleExtract(
+        { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
+          sendMessage: async () => ({ ok: true, extract: V8_EXTRACT, model: 'm' }) },
+        io());
+    assert.equal(out.status, 'ran');
+    const unit = articleMemberUnit({ article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title' });
+    assert.equal(out.text, unit.text, 'the returned substrate IS the unit text');
+});
+
+test('a rejecting sendMessage becomes status "failed", never an unhandled rejection', async () => {
+    const out = await ensureArticleExtract(
+        { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
+          sendMessage: async () => { throw new Error('The message port closed'); } },
+        io());
+    assert.equal(out.status, 'failed');
+    assert.match(out.error, /message port closed/);
+});
+
+test('GUARD (source pin): the reader routes the unified pass through the archive source and canonical substrate', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const src = await readFile(new URL('../src/reader/index.js', import.meta.url), 'utf8');
+    const fn = src.slice(src.indexOf('async function runSuggestPass'), src.indexOf('function reviewSuggestions'));
+    assert.ok(fn.includes('articleSourceForExtract('),
+        'the unit article comes from the archive-preferred source, never state.article directly');
+    assert.ok(fn.includes('groundingText: canonicalText'),
+        'the modal grounds the unified pass against the canonical text the extract read');
+    assert.ok(!/is_key/.test(fn), 'the article pass flow never touches is_key (guard rail 6)');
 });

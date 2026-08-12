@@ -16,12 +16,35 @@ const { orchestrateModuleRuns } = await import('../src/shared/audit/run-orchestr
 
 test('case-synthesis: validateCorpusExtract accepts a good extract, rejects a bad one', () => {
     const good = { position: { summary: 'argues X', side_label: 'X' },
-        key_assertions: [{ quote: 'a verbatim span', claim_ref: null, why_load_bearing: 'core' }] };
+        key_assertions: [{ quote: 'a verbatim span', text: 'a claim', load_bearing: true, claim_ref: null, why_load_bearing: 'core' }] };
     assert.equal(CS.validateCorpusExtract(good).ok, true);
     const bad = { position: { summary: 5 } };  // summary must be string
     assert.equal(CS.validateCorpusExtract(bad).ok, false);
     const noPos = { key_assertions: [] };      // position required
     assert.equal(CS.validateCorpusExtract(noPos).ok, false);
+});
+
+test('case-synthesis: an extract whose atoms ALL omit load_bearing is malformed v8 output (never cached)', () => {
+    // One omitted flag is tolerated (absent = not load-bearing) …
+    const oneMissing = { position: { summary: 's' }, key_assertions: [
+        { quote: 'q1', load_bearing: true }, { quote: 'q2' }
+    ] };
+    assert.equal(CS.validateCorpusExtract(oneMissing).ok, true);
+    // … an all-false extract is a real model judgment and stays valid …
+    const allFalse = { position: { summary: 's' }, key_assertions: [
+        { quote: 'q1', load_bearing: false }, { quote: 'q2', load_bearing: false }
+    ] };
+    assert.equal(CS.validateCorpusExtract(allFalse).ok, true);
+    // … but NO atom carrying the key at all would cache an article as
+    // permanently position-only for every reduce — refuse so it re-runs.
+    const noneCarry = { position: { summary: 's' }, key_assertions: [
+        { quote: 'q1' }, { quote: 'q2', text: 't' }
+    ] };
+    const v = CS.validateCorpusExtract(noneCarry);
+    assert.equal(v.ok, false);
+    assert.match(v.errors.join(' '), /load_bearing/);
+    // An empty assertion list stays valid (a stub capture has no claims).
+    assert.equal(CS.validateCorpusExtract({ position: { summary: 's' }, key_assertions: [] }).ok, true);
 });
 
 test('case-synthesis: validateCaseBrief enforces shape + proposal enum', () => {

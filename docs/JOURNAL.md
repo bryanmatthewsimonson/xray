@@ -39,13 +39,17 @@ applied to the LIVE extract before the record union — order pinned).
 
 **The second-guessable calls, on the record:**
 
-- **`is_key` lost its article-pass writer** (kickoff guard rail 6 —
+- **`is_key` lost its article-PASS writer** (kickoff guard rail 6 —
   the §1 scope collision fix). `buildClaimInput` now always mints
-  `is_key: false`, the modal's claim editor dropped its "Key claim"
-  checkbox, and the ⭐ is display-only (`load_bearing`, or the legacy
-  star on parked import batches — which also no longer write). The
-  only remaining writers are case-scoped: the reduce's promotion
-  proposal and the corpus-level human checkbox. If a parked batch's
+  `is_key: false`, the LLM review modal's claim editor dropped its
+  "Key claim" checkbox, and the ⭐ is display-only (`load_bearing`, or
+  the legacy star on parked import batches — which also no longer
+  write). The remaining writers, precisely: the reduce's promotion
+  proposal (case-scoped) and the HUMAN's own checkbox in the reader's
+  MANUAL claim modal + claim edit surfaces (`claim-extractor.js` —
+  article-surface but a deliberate human decision, retained per the
+  kickoff's "the human checkbox remains"; its "central to the piece"
+  label is UA.3 vocabulary-sweep material). If a parked batch's
   stars silently mattering turns out to be missed, this is the entry
   to argue with.
 - **Extend `key_assertions` in place** (kickoff open question 1):
@@ -76,12 +80,30 @@ applied to the LIVE extract before the record union — order pinned).
   it replaces; the reduce and every other corpus pass keep the full
   gate.
 
-**Known seam to watch at the parity walk:** extract quotes ground
-against the canonical assembled body while the modal grounds against
-the rendered DOM text (the MA.4 divergence, now flowing the other
-way). The grounding tiers absorb typography, but a modal full of
-"not found in article" chips on some capture type would be this seam
-— and the kill criterion's first suspect.
+**Two seams the adversarial review caught before ship, closed in the
+same PR:**
+
+- **The unit article comes from the ARCHIVE ROW, not the reader
+  object** (`articleSourceForExtract`). For markdown-canonical
+  captures (PDF/EPUB/transcript, published-then-archived) the
+  reader's `hashableArticle` and the archive row assemble DIFFERENT
+  bodies (`htmlToMarkdown` is not idempotent), so keying off the
+  reader object forked the cache from the Analyze path's and paid the
+  same article twice, silently. The row wins whenever it exists;
+  the reader object is the fallback for unarchived captures only.
+- **One substrate end to end.** The unified pass's slim entities call
+  reads the SAME canonical unit text the extract read, and the review
+  modal grounds against it too (`reviewSuggestions`'
+  `groundingText`) — extract quotes carrying markdown syntax (inline
+  links, emphasis) would otherwise fail exact grounding against the
+  rendered DOM and reject perfectly good rows. The pending-import and
+  legacy paths keep the rendered body, as ever.
+
+Also review-driven: an EMPTY supplied claim index still slims the
+suggest call (presence-gated — "no claims found" must not re-arm a
+second full claims read), and a v8 extract whose atoms ALL omit
+`load_bearing` is refused as malformed rather than cached forever as
+position-only (`validateCorpusExtract`).
 
 **One-time cost:** every corpus-v7 cached extract is orphaned (the
 version bump); durable records survive per MA.1, so re-analysis

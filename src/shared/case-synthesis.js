@@ -507,6 +507,18 @@ const BRIEF_SCHEMA = obj({
 export function validateCorpusExtract(input) {
     const errors = [];
     walk(input, MAP_SCHEMA, '$', errors);
+    // corpus-v8: per-atom leniency must not become whole-extract
+    // blindness. One atom missing `load_bearing` is tolerated (absent
+    // means not load-bearing); a NON-EMPTY assertion list where NO atom
+    // carries the key at all is malformed v8 output — caching it would
+    // make the article permanently position-only for the reduce and the
+    // entity page (loadBearingSubset strips everything), with the cache
+    // hit forever masking the loss. Refuse so the pass re-runs. An
+    // all-`false` extract (a real model judgment) stays valid.
+    const atoms = (input && Array.isArray(input.key_assertions)) ? input.key_assertions : [];
+    if (atoms.length > 0 && atoms.every((a) => !a || !('load_bearing' in a))) {
+        errors.push('$.key_assertions: no atom carries load_bearing — malformed corpus-v8 output');
+    }
     return { ok: errors.length === 0, errors };
 }
 

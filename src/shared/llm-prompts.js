@@ -573,15 +573,20 @@ export const SUGGEST_CLAIM_INDEX_MAX = 200;
 /**
  * The user-turn content: the article text the model extracts from.
  * `claimIndex` (UA.1) — [{ref, text}] from the article pass — renders
- * as the SUPPLIED CLAIM INDEX block the supplied-claims rules refer to.
+ * as the SUPPLIED CLAIM INDEX block the supplied-claims rules refer
+ * to. An ARRAY renders the block even when empty ("the article pass
+ * found no claims" is information, and the supplied-claims rules refer
+ * to the block); null/undefined means no unified pass ran.
  */
 export function buildUserPrompt({ articleText = '', context = '', claimIndex = null } = {}) {
     const ctx = context ? `\n\nAdditional context:\n${context}` : '';
-    const idx = Array.isArray(claimIndex) && claimIndex.length
+    const idx = Array.isArray(claimIndex)
         ? '\n\nSUPPLIED CLAIM INDEX (ref — claim text; link your entities to these via claim_refs):\n'
-            + claimIndex.slice(0, SUGGEST_CLAIM_INDEX_MAX)
-                .map((c) => `${c.ref} — ${String(c.text || '').replace(/\s+/g, ' ').slice(0, 200)}`)
-                .join('\n')
+            + (claimIndex.length
+                ? claimIndex.slice(0, SUGGEST_CLAIM_INDEX_MAX)
+                    .map((c) => `${c.ref} — ${String(c.text || '').replace(/\s+/g, ' ').slice(0, 200)}`)
+                    .join('\n')
+                : '(none — the article pass found no claims; propose no claim_refs)')
         : '';
     return `Here is the captured article text. Propose capture artifacts via propose_capture.\n\n---\n${articleText}\n---${idx}${ctx}`;
 }

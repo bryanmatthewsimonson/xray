@@ -95,7 +95,8 @@ import { resolveActiveCaseRef, describeActiveContext, memberUrlSets } from '../s
 import { gatherCorpusSources, corpusSourcesChars } from '../shared/audit/corpus-sources.js';
 import { autoPreAnalyzeArticle } from '../shared/auto-preanalyze.js';
 import {
-    ensureArticleExtract, claimProposalsFromExtract, claimIndexForSuggest, mergeSuggestProposals
+    ensureArticleExtract, articleSourceForExtract, claimProposalsFromExtract,
+    claimIndexForSuggest, mergeSuggestProposals
 } from '../shared/article-pass.js';
 import { normalizeSuggestKinds, LLM_SUGGEST_KINDS_STORAGE } from '../shared/llm-prompts.js';
 import { Utils } from '../shared/utils.js';
@@ -3735,6 +3736,7 @@ async function runSuggestPass() {
     let claimProposals = [];
     let usedExtract = false;
     let extractModel = '';
+    let canonicalText = '';
     try {
         // 28.3 — the active workspace's case frames the extraction.
         const binding = await resolveActiveCaseRef().catch(() => null);
@@ -3745,11 +3747,21 @@ async function runSuggestPass() {
         // reading. On an already-analyzed article this half is free.
         if (kinds.includes('claims')) {
             btn.textContent = '✨ Reading…';
-            const out = await ensureArticleExtract({
-                article: hashableArticle(state.article),
-                articleHash: claimArticleHash(),
+            // The ARCHIVE ROW's article feeds the unit whenever one
+            // exists — the same object buildMemberUnits assembles from —
+            // so the cache key cannot fork from the Analyze path's on
+            // markdown-canonical captures (see articleSourceForExtract).
+            const src = await articleSourceForExtract({
                 url: state.article.url || '',
-                title: state.article.title || '',
+                fallbackArticle: hashableArticle(state.article),
+                fallbackHash: claimArticleHash(),
+                fallbackTitle: state.article.title || ''
+            });
+            const out = await ensureArticleExtract({
+                article: src.article,
+                articleHash: src.articleHash,
+                url: state.article.url || '',
+                title: src.title,
                 frame: binding
                     ? { caseName: binding.caseName || '', scopeQuestion: binding.scopeQuestion || '' }
                     : {},
@@ -3761,6 +3773,12 @@ async function runSuggestPass() {
             }
             usedExtract = true;
             extractModel = out.model || '';
+            // The substrate the extract READ — the slim call and the
+            // review modal both ground against THIS text, so extract
+            // quotes (canonical markdown, links/emphasis included)
+            // anchor in the text they were copied from instead of
+            // failing against the rendered DOM.
+            canonicalText = out.text || '';
             claimProposals = claimProposalsFromExtract(out.extract);
             // Honest coverage: the article pass reads the map's 60k-char
             // bound (the old suggest pass read 120k) — on a very long
@@ -3773,14 +3791,17 @@ async function runSuggestPass() {
 
         // The remaining LLM call: entities + claim→entity links (the
         // extract's claim index rides the request), or — with claims
-        // disabled — exactly the pre-UA.1 pass.
+        // disabled — exactly the pre-UA.1 pass. In unified mode the
+        // call reads the SAME canonical text the extract read (one
+        // substrate end to end); the legacy path keeps the rendered
+        // body it always sent.
         if (kinds.includes('entities')) {
             btn.textContent = '✨ Thinking…';
             try {
                 resp = await browserApi.runtime.sendMessage({
                     type: 'xray:llm:suggest',
                     request: {
-                        articleText,
+                        articleText: usedExtract && canonicalText ? canonicalText : articleText,
                         articleUrl: state.article.url || '',
                         articleTitle: state.article.title || '',
                         caseName: binding ? binding.caseName : '',
@@ -3796,6 +3817,12 @@ async function runSuggestPass() {
                 return;
             }
         }
+    } catch (err) {
+        // Belt over the per-call braces: NOTHING in this flow may
+        // escape as an unhandled rejection with the button silently
+        // restored (the Suggest-local precedent: never swallow a click).
+        toast('Suggest failed: ' + ((err && err.message) || String(err)), 'error', 6000);
+        return;
     } finally {
         btn.textContent = original;
         btn.disabled = false;
@@ -3813,18 +3840,24 @@ async function runSuggestPass() {
         toast('The model returned no suggestions for this article.', 'success', 4000);
         return;
     }
-    await reviewSuggestions(proposals, (resp && resp.model) || extractModel || 'unknown');
+    await reviewSuggestions(proposals, (resp && resp.model) || extractModel || 'unknown',
+        usedExtract && canonicalText ? { groundingText: canonicalText } : {});
 }
 
 /**
  * Open the 14.5.3 review modal over a set of suggest-pass proposals —
  * shared by the live Suggest button and the 28.2 pending (import-time)
  * path, so both review flows are ONE code path: same grounding
- * substrate (the rendered body text), same accept firewalls, same
- * provenance stamping.
+ * substrate, same accept firewalls, same provenance stamping.
+ *
+ * `opts.groundingText` (UA.1) — the unified pass grounds against the
+ * CANONICAL assembled text its extract and slim call actually read, so
+ * quotes containing markdown syntax (links, emphasis) anchor instead
+ * of failing against the rendered DOM. Absent (the pending-import and
+ * legacy paths), the rendered body text stays the substrate, as ever.
  */
-async function reviewSuggestions(proposals, model) {
-    const articleText = articleBodyText();
+async function reviewSuggestions(proposals, model, opts = {}) {
+    const articleText = (opts && opts.groundingText) || articleBodyText();
     // MA.4 — the suggest pass's claim proposals become DURABLE atoms in
     // this article's extraction record BEFORE the modal opens, so
     // closing the review no longer discards paid analysis: whatever is

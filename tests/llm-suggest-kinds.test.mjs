@@ -209,7 +209,11 @@ test('supplied claims: the user turn carries the capped ref—text index (UA.1)'
     const capped = buildUserPrompt({ articleText: 'B', claimIndex: big });
     assert.ok(capped.includes(`C${SUGGEST_CLAIM_INDEX_MAX} — `));
     assert.ok(!capped.includes(`C${SUGGEST_CLAIM_INDEX_MAX + 1} — `));
-    // No index → the pre-UA.1 user turn, byte-for-byte.
-    assert.equal(buildUserPrompt({ articleText: 'BODY' }),
-        buildUserPrompt({ articleText: 'BODY', claimIndex: [] }));
+    // PRESENCE semantics: null/undefined → the pre-UA.1 user turn; an
+    // EMPTY array is a supplied-but-claimless pass and still renders
+    // the block (so slim mode never silently re-arms claim extraction).
+    assert.ok(!buildUserPrompt({ articleText: 'BODY' }).includes('SUPPLIED CLAIM INDEX'));
+    const empty = buildUserPrompt({ articleText: 'BODY', claimIndex: [] });
+    assert.match(empty, /SUPPLIED CLAIM INDEX/);
+    assert.match(empty, /found no claims/);
 });

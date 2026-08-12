@@ -117,7 +117,10 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // Suggest click already carries a per-article spend consent, so the
   // prepay now rides it (roughly doubling that click's cost, disclosed
   // in Options). Default OFF; effective only with caseSynthesis +
-  // llmAssist + the API key (the SW's corpusGate re-checks all three).
+  // llmAssist + the API key (this module's early return checks
+  // caseSynthesis; the SW's map pass re-checks llmAssist + key —
+  // since UA.1 the map gates on assistGate, not corpusGate, because
+  // it also serves the Suggest claim half for non-synthesis users).
   autoPreAnalyze: false,
 
   // AI vision (post-28): gates the reader's "Describe images" surface —
