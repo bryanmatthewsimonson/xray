@@ -16,12 +16,35 @@ const { orchestrateModuleRuns } = await import('../src/shared/audit/run-orchestr
 
 test('case-synthesis: validateCorpusExtract accepts a good extract, rejects a bad one', () => {
     const good = { position: { summary: 'argues X', side_label: 'X' },
-        key_assertions: [{ quote: 'a verbatim span', claim_ref: null, why_load_bearing: 'core' }] };
+        key_assertions: [{ quote: 'a verbatim span', text: 'a claim', load_bearing: true, claim_ref: null, why_load_bearing: 'core' }] };
     assert.equal(CS.validateCorpusExtract(good).ok, true);
     const bad = { position: { summary: 5 } };  // summary must be string
     assert.equal(CS.validateCorpusExtract(bad).ok, false);
     const noPos = { key_assertions: [] };      // position required
     assert.equal(CS.validateCorpusExtract(noPos).ok, false);
+});
+
+test('case-synthesis: an extract whose atoms ALL omit load_bearing is malformed v8 output (never cached)', () => {
+    // One omitted flag is tolerated (absent = not load-bearing) …
+    const oneMissing = { position: { summary: 's' }, key_assertions: [
+        { quote: 'q1', load_bearing: true }, { quote: 'q2' }
+    ] };
+    assert.equal(CS.validateCorpusExtract(oneMissing).ok, true);
+    // … an all-false extract is a real model judgment and stays valid …
+    const allFalse = { position: { summary: 's' }, key_assertions: [
+        { quote: 'q1', load_bearing: false }, { quote: 'q2', load_bearing: false }
+    ] };
+    assert.equal(CS.validateCorpusExtract(allFalse).ok, true);
+    // … but NO atom carrying the key at all would cache an article as
+    // permanently position-only for every reduce — refuse so it re-runs.
+    const noneCarry = { position: { summary: 's' }, key_assertions: [
+        { quote: 'q1' }, { quote: 'q2', text: 't' }
+    ] };
+    const v = CS.validateCorpusExtract(noneCarry);
+    assert.equal(v.ok, false);
+    assert.match(v.errors.join(' '), /load_bearing/);
+    // An empty assertion list stays valid (a stub capture has no claims).
+    assert.equal(CS.validateCorpusExtract({ position: { summary: 's' }, key_assertions: [] }).ok, true);
 });
 
 test('case-synthesis: validateCaseBrief enforces shape + proposal enum', () => {
@@ -330,8 +353,72 @@ test('case-synthesis: corpusExtractKey is stable on identical inputs, changes on
         'scope question never invalidates the map cache');
     // Each real input flips the key — these are the invalidation triggers.
     assert.notEqual(await CS.corpusExtractKey({ ...base, memberText: 'Edited body.' }), k, 'body edit');
-    assert.notEqual(await CS.corpusExtractKey(base, 'corpus-v9'), k, 'prompt-version bump');
+    assert.notEqual(await CS.corpusExtractKey(base, 'corpus-vNEXT'), k, 'prompt-version bump');
     assert.notEqual(await CS.corpusExtractKey({ ...base, memberMeta: { title: 'T2', url: 'https://x/a' } }), k, 'title change');
+});
+
+// ---- UA.1 guard rail 1: the cache-key PREIMAGE is pinned -------------------
+
+test('GUARD (UA.1 rail 1): corpusExtractKey hashes EXACTLY {v, text, title, url} — nothing may ride back in', async () => {
+    const { Crypto } = await import('../src/shared/crypto.js');
+    const request = { member_id: 'm1', memberText: 'The body.',
+        memberMeta: { title: 'A title', url: 'https://x/y' } };
+    // The preimage, built independently: if the implementation ever adds
+    // a field (vocabulary, claims, frame, model — anything), removes
+    // one, or reorders the JSON, this known answer stops matching and
+    // the pay-once economics regression is caught here, not in a wallet.
+    const preimage = JSON.stringify({
+        v: 'corpus-vTEST', text: 'The body.', title: 'A title', url: 'https://x/y'
+    });
+    assert.equal(await CS.corpusExtractKey(request, 'corpus-vTEST'),
+        await Crypto.sha256(preimage),
+        'the hashed field set is {v, text, title, url}, in that order');
+    // And the request builder feeds it exactly those fields.
+    const unit = { article_hash: 'h', url: 'https://x/y', title: 'A title',
+        text: 'The body.', truncated: false, total_chars: 9, claims: [{ id: 'c1' }] };
+    const req = CS.corpusMapRequest(unit);
+    assert.deepEqual(Object.keys(req).sort(), ['memberMeta', 'memberText', 'member_id']);
+    assert.deepEqual(Object.keys(req.memberMeta).sort(), ['title', 'url'],
+        'claims, flags, and counts never reach the request');
+});
+
+// ---- UA.1 guard rail 5: the reduce reads the load-bearing subset -----------
+
+test('loadBearingSubset: strict === true filter; pass-through when nothing filters', () => {
+    const extract = {
+        position: { summary: 's' },
+        key_assertions: [
+            { quote: 'q1', text: 't1', load_bearing: true, why_load_bearing: 'w' },
+            { quote: 'q2', text: 't2', load_bearing: false },
+            { quote: 'q3', text: 't3' },                    // unflagged ⇒ not load-bearing
+            { quote: 'q4', text: 't4', load_bearing: 'yes' } // truthy-but-not-true ⇒ dropped
+        ],
+        open_questions: ['oq']
+    };
+    const out = CS.loadBearingSubset(extract);
+    assert.deepEqual(out.key_assertions.map((a) => a.quote), ['q1']);
+    assert.deepEqual(out.open_questions, ['oq'], 'non-assertion fields ride untouched');
+    // All-flagged input returns the SAME object (no pointless copy).
+    const allLb = { key_assertions: [{ quote: 'q', load_bearing: true }] };
+    assert.equal(CS.loadBearingSubset(allLb), allLb);
+    assert.deepEqual(CS.loadBearingSubset(null), null);
+});
+
+test('GUARD (UA.1 rail 5): the live extract is subset-filtered BEFORE the record union in the Analyze runner', async () => {
+    // Order matters twice over: filtering AFTER unionExtractWithRecord
+    // would drop the record's recovered atoms (they carry no flag), and
+    // forgetting the filter fails OPEN (a comprehensive v8 extract flows
+    // whole into the reduce). Source-literal pin, the trigger-site-guard
+    // idiom (tests/auto-preanalyze.test.mjs).
+    const { readFile } = await import('node:fs/promises');
+    const src = await readFile(new URL('../src/portal/synthesis-block.js', import.meta.url), 'utf8');
+    assert.match(src, /loadBearingSubset\(modules\[hash\]\)/,
+        'the Analyze runner filters the LIVE extract through loadBearingSubset');
+    assert.ok(src.indexOf('loadBearingSubset(modules[hash])') < src.indexOf('unionExtractWithRecord('),
+        'the filter applies to the live extract BEFORE the record union — after would drop record extras');
+    const pageSrc = await readFile(new URL('../src/portal/entity-page-block.js', import.meta.url), 'utf8');
+    assert.match(pageSrc, /loadBearingSubset\(e\.extract\)/,
+        'the entity-page runner filters its reduce extracts too');
 });
 
 test('case-synthesis: corpusInputHash is order-insensitive but sensitive to membership + prompt', async () => {

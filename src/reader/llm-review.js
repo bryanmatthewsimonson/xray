@@ -72,8 +72,12 @@ const EDIT_FIELDS = {
     ],
     claim: [
         { key: 'text', label: 'Claim text', type: 'textarea' },
-        { key: 'quote', label: 'Verbatim quote (checked against the article)', type: 'textarea' },
-        { key: 'is_key', label: 'Key claim', type: 'checkbox' }
+        { key: 'quote', label: 'Verbatim quote (checked against the article)', type: 'textarea' }
+        // No is_key editor (UA.1 guard rail 6): the article PASS never
+        // writes claim.is_key — the remaining writers are the reduce's
+        // case-level promotion and the human's own checkbox in the
+        // MANUAL claim modal (claim-extractor.js). The ⭐ here only
+        // DISPLAYS the extract's article-relative load_bearing flag.
     ],
     assessment: [
         { key: 'stance', label: 'Stance', type: 'stance' },
@@ -265,7 +269,13 @@ export async function openLlmReview(opts) {
                 }
                 case 'claim': {
                     const about = (p.about || []).map((r) => norm.entityLabelByRef[r]).filter(Boolean);
-                    const star = p.is_key ? '⭐ ' : '';
+                    // ⭐ is display-only: `load_bearing` from the article
+                    // extract (UA.1) — with its why as the tooltip — or
+                    // the legacy is_key on parked pre-UA.1 batches.
+                    // Neither writes claim.is_key at accept (guard rail 6).
+                    const why = p.load_bearing && p.why_load_bearing
+                        ? ` title="Load-bearing: ${escapeHtml(truncate(p.why_load_bearing, 200))}"` : '';
+                    const star = (p.load_bearing || p.is_key) ? `<span${why}>⭐ </span>` : '';
                     const ab = about.length ? ` <span class="xr-llm__dim">about ${escapeHtml(about.join(', '))}</span>` : '';
                     return `${star}${escapeHtml(truncate(p.text, 160))}${ab}${quoteHtml(p.quote)}`;
                 }

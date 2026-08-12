@@ -1,4 +1,8 @@
 // Standards: analysis — docs/DISCIPLINES.md §6.
+// The MAP pass also serves the reader's Suggest since UA.1
+// (comprehensive claim atomization), so its prompt additionally
+// answers to archival — docs/DISCIPLINES.md §12: capture is
+// judgment-free, verbatim-anchored, and only ever proposes.
 // Case-corpus synthesis prompts — Phase 20.4
 // (docs/CASE_SYNTHESIS_DESIGN.md). The pure prompt-and-tool layer for
 // the two-stage map/reduce over a case's member articles:
@@ -65,8 +69,23 @@ import { CLAIM_RELATIONSHIPS } from './assessment-taxonomy.js';
 // cost: every corpus-v4 cached extract is orphaned — but since MA.1
 // the knowledge (the durable article-extractions records) survives
 // every bump; only exact-reuse is re-paid.
-export const MAP_PROMPT_VERSION = 'corpus-v7';
-export const CORPUS_PROMPT_VERSION = 'corpus-v7';
+// corpus-v8 (UA.1, the One Article Pass —
+// docs/UNIFIED_ARTICLE_PASS_KICKOFF.md): the assertion list becomes
+// COMPREHENSIVE claim atomization — every discrete claim the article
+// makes, not just the load-bearing few — and each atom gains `text`
+// (an authored standalone paraphrase, the same field the suggest pass
+// authored since MA.4) and `load_bearing` (true only where the
+// position rests on it, `why_load_bearing` beside it). One reading now
+// serves BOTH consumers: the reader's Suggest renders its claim
+// proposals from this extract, and the reduce / entity page read only
+// the load-bearing subset (loadBearingSubset — parity with the old
+// selective list, so the reduce input stays bounded). The map input
+// (text + title/url) and the cache-key shape are UNCHANGED — the
+// guard test pins them — so pay-once economics hold; the version bump
+// is the output-contract change. One-time cost: every corpus-v7
+// cached extract is orphaned (knowledge survives via MA.1, as ever).
+export const MAP_PROMPT_VERSION = 'corpus-v8';
+export const CORPUS_PROMPT_VERSION = 'corpus-v8';
 export const MAP_TOOL_NAME = 'emit_corpus_extract';
 export const REDUCE_TOOL_NAME = 'emit_case_brief';
 export const HYPOTHESIS_EDGE_PROMPT_VERSION = 'hyp-edges-v1';
@@ -96,9 +115,10 @@ export const MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS = 8192;
 export function buildMapTool() {
     return {
         name: MAP_TOOL_NAME,
-        description: 'Report what THIS ONE article argues — its own position, its '
-            + 'load-bearing assertions (each grounded in a verbatim quote), and the outside '
-            + 'sources it points at. Do NOT adjudicate; report what the article claims.',
+        description: 'Report what THIS ONE article argues — its own position, EVERY discrete '
+            + 'claim it makes (each grounded in a verbatim quote, the load-bearing ones '
+            + 'flagged), and the outside sources it points at. Do NOT adjudicate; report '
+            + 'what the article claims.',
         input_schema: {
             type: 'object',
             properties: {
@@ -112,14 +132,19 @@ export function buildMapTool() {
                 },
                 key_assertions: {
                     type: 'array',
-                    description: 'The load-bearing claims this article makes — the ones its position rests on.',
+                    description: 'COMPREHENSIVE claim atomization: every discrete assertion this '
+                        + 'article makes or reports, one atom per claim. Flag load_bearing ONLY on '
+                        + 'the ones the position rests on — flagging everything makes the flag '
+                        + 'useless.',
                     items: {
                         type: 'object',
                         properties: {
                             quote: { type: 'string', description: 'ONE contiguous VERBATIM span copied from THIS article, character for character. Machine-checked — an unlocatable quote is dropped.' },
-                            why_load_bearing: { type: 'string', description: 'Why this assertion carries weight for the position.' }
+                            text: { type: 'string', description: 'The atomized assertion in clear, standalone words — your paraphrase, not a copy of the quote.' },
+                            load_bearing: { type: 'boolean', description: 'True ONLY if the article\'s position rests on this assertion. Set it on every atom (false for the rest).' },
+                            why_load_bearing: { type: 'string', description: 'Only when load_bearing: why this assertion carries weight for the position.' }
                         },
-                        required: ['quote']
+                        required: ['quote', 'text', 'load_bearing']
                     }
                 },
                 source_references: {
@@ -155,9 +180,18 @@ export function buildMapSystemPrompt() {
     return [
         'You are analyzing ONE article from an evidence corpus.',
         'Report only what THIS article argues — the position it takes on its own central',
-        'question, the load-bearing assertions that position rests on, and the outside',
-        'sources it cites.',
+        'question, EVERY discrete claim it makes (with the load-bearing ones flagged), and',
+        'the outside sources it cites.',
         'RULES:',
+        '- ATOMIZE COMPREHENSIVELY (corpus-v8): key_assertions is every discrete assertion the',
+        '  article makes or reports, one atom per claim — a person reviews each as a claim',
+        '  proposal. If a conclusion rests on several passages, anchor each passage as its own',
+        '  atom rather than stitching quotes together.',
+        '- Each atom carries `text`: the assertion restated in clear, standalone words (your',
+        '  paraphrase — the quote stays verbatim, the text may not just repeat it).',
+        '- Set `load_bearing` on EVERY atom, and set it true ONLY where the article\'s position',
+        '  rests on that assertion — give those a short why_load_bearing. Flagging everything',
+        '  (or nothing that matters) makes the flag useless downstream.',
         '- Every quote must be ONE contiguous span copied VERBATIM from this article, character',
         '  for character (keep punctuation, capitalization, typos). It is machine-checked; a quote',
         '  that cannot be located in the article is dropped.',

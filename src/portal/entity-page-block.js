@@ -16,7 +16,7 @@ import { el, clear } from './dom.js';
 import { Utils } from '../shared/utils.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { collectEntityDossierData, buildEntityDossier } from '../shared/entity-dossier.js';
-import { buildMemberUnits, corpusMapRequest, corpusExtractKey, validateCorpusExtract } from '../shared/case-synthesis.js';
+import { buildMemberUnits, corpusMapRequest, corpusExtractKey, loadBearingSubset, validateCorpusExtract } from '../shared/case-synthesis.js';
 import {
     ENTITY_PAGE_PROMPT_VERSION,
     digestEntityDossier, validateEntityPage, filterKeyClaimIds, groundEntityPage,
@@ -158,13 +158,19 @@ export function mountEntityPageBlock(host, { entityId } = {}) {
                 return;
             }
 
+            // UA.1 (corpus-v8): live extracts are comprehensive; the
+            // page reduce reads only the load-bearing subset (guard
+            // rail 5). The full extracts already folded into the
+            // durable records inside ensureExtracts.
+            const reduceExtracts = extracts.map((e) => ({ ...e, extract: loadBearingSubset(e.extract) }));
+
             status.textContent = 'Writing the page…';
             const claims = data.orbit.claims || [];
             const entityDigest = digestEntityDossier(dossier, {
                 claims, namesById: data.entityNamesById || {}
             });
             const res = await sendMessage({ type: 'xray:llm:entity-page', request: {
-                entityDigest, extracts,
+                entityDigest, extracts: reduceExtracts,
                 entityName: dossier.subject.name, entityType: dossier.subject.type,
                 caseName: frame.caseName, scopeQuestion: frame.scopeQuestion
             } });

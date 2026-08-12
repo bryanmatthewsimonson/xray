@@ -617,7 +617,11 @@ test('end-to-end: a canned pass creates every artifact tagged llm:<model>', asyn
     assert.equal(c1.suggested_by, SUGGESTED_BY);
     assert.deepEqual(c1.about.sort(), [entityIdByRef.E1, entityIdByRef.E2].sort());
     assert.ok(Array.isArray(c1.anchor) && c1.anchor.some((s) => s.type === 'TextQuoteSelector'));
-    assert.equal(c1.is_key, true);
+    // UA.1 guard rail 6: the ARTICLE pass never writes claim.is_key —
+    // the mock proposal's is_key:true (deliberately kept in the fixture)
+    // must NOT persist. Keyness is case-scoped: the reduce's promotion
+    // and the corpus-level human checkbox are the only writers.
+    assert.equal(c1.is_key, false);
     assert.equal(c1.quote, '"I care about the truth, not what the church says," he insisted.');
     assert.equal(c1.article_hash, 'e'.repeat(64));
 

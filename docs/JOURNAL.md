@@ -19,6 +19,102 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-12 — UA.1: one reading per article (corpus-v8), and is_key loses its article-pass writer
+
+**Tags:** design
+
+**What shipped.** The One Article Pass slice UA.1
+(`docs/UNIFIED_ARTICLE_PASS_KICKOFF.md`, approved 2026-08-12): the
+corpus map went comprehensive (corpus-v8 — every atom now carries the
+verbatim quote, an authored `text` paraphrase, and a `load_bearing`
+flag with `why_load_bearing` beside the flagged ones), the reader's
+Suggest serves its CLAIM half from that cached-or-fresh extract
+(`shared/article-pass.js`, unit-built by the same `articleMemberUnit`
+the Analyze path uses, so cache keys are byte-identical — pinned), and
+the remaining suggest call slims to entities + claim→entity links (the
+extract's claim index rides the request; `claim_refs` on entity
+proposals inverts to the claims' `about` lists). The reduce and the
+entity page read only the load-bearing subset (`loadBearingSubset`,
+applied to the LIVE extract before the record union — order pinned).
+
+**The second-guessable calls, on the record:**
+
+- **`is_key` lost its article-PASS writer** (kickoff guard rail 6 —
+  the §1 scope collision fix). `buildClaimInput` now always mints
+  `is_key: false`, the LLM review modal's claim editor dropped its
+  "Key claim" checkbox, and the ⭐ is display-only (`load_bearing`, or
+  the legacy star on parked import batches — which also no longer
+  write). The remaining writers, precisely: the reduce's promotion
+  proposal (case-scoped) and the HUMAN's own checkbox in the reader's
+  MANUAL claim modal + claim edit surfaces (`claim-extractor.js` —
+  article-surface but a deliberate human decision, retained per the
+  kickoff's "the human checkbox remains"; its "central to the piece"
+  label is UA.3 vocabulary-sweep material). If a parked batch's
+  stars silently mattering turns out to be missed, this is the entry
+  to argue with.
+- **Extend `key_assertions` in place** (kickoff open question 1):
+  no rename to `claims[]`. Old cached extracts are unreachable under
+  v8 keys anyway, so a compatibility read had nothing to read; a
+  rename would have touched every consumer and fixture for cosmetics.
+  UA.3 owns vocabulary.
+- **The layer's atom contract is unchanged** (guard rail 4):
+  `load_bearing` lives on the extract only, never stored on
+  `article-extractions` atoms (the fold naturally drops it), so kind
+  30070 publishes the same shape. Record-derived reduce extras keep
+  their own cap semantics, unfiltered — pre-v8 records contribute
+  exactly as before.
+- **Producer stamp stays `'map'`** (open question 2): extract-derived
+  claim rows skip the MA.4 suggest fold (`from_extract` marker) —
+  they already folded through the keyed map-record path. Visible
+  consequence: atoms a user meets via Suggest now show the corpus-map
+  provenance chip, which is accurate under the unified model.
+- **The claim half reads the map's 60k bound**, not the old suggest
+  120k. Kept deliberately (a bound change is corpus economics, not
+  UA.1's mandate) and disclosed with a toast on truncated captures.
+  If the parity walk finds long-capture claim coverage lacking, bump
+  `MAX_MEMBER_INPUT_CHARS` in a v9, don't fork the bound per caller.
+- **The map pass gate relaxed to llmAssist + key** (`assistGate`):
+  since the map IS the Suggest claim half now, gating it on
+  `caseSynthesis` would have broken Suggest for non-synthesis users.
+  Same text, same destination, same click consent as the suggest call
+  it replaces; the reduce and every other corpus pass keep the full
+  gate.
+
+**Two seams the adversarial review caught before ship, closed in the
+same PR:**
+
+- **The unit article comes from the ARCHIVE ROW, not the reader
+  object** (`articleSourceForExtract`). For markdown-canonical
+  captures (PDF/EPUB/transcript, published-then-archived) the
+  reader's `hashableArticle` and the archive row assemble DIFFERENT
+  bodies (`htmlToMarkdown` is not idempotent), so keying off the
+  reader object forked the cache from the Analyze path's and paid the
+  same article twice, silently. The row wins whenever it exists;
+  the reader object is the fallback for unarchived captures only.
+- **One substrate end to end.** The unified pass's slim entities call
+  reads the SAME canonical unit text the extract read, and the review
+  modal grounds against it too (`reviewSuggestions`'
+  `groundingText`) — extract quotes carrying markdown syntax (inline
+  links, emphasis) would otherwise fail exact grounding against the
+  rendered DOM and reject perfectly good rows. The pending-import and
+  legacy paths keep the rendered body, as ever.
+
+Also review-driven: an EMPTY supplied claim index still slims the
+suggest call (presence-gated — "no claims found" must not re-arm a
+second full claims read), and a v8 extract whose atoms ALL omit
+`load_bearing` is refused as malformed rather than cached forever as
+position-only (`validateCorpusExtract`).
+
+**One-time cost:** every corpus-v7 cached extract is orphaned (the
+version bump); durable records survive per MA.1, so re-analysis
+re-pays exact-reuse only. The suite pins: `tests/article-pass.test.mjs`
+(identity, guard rails 4/6), `tests/case-synthesis.test.mjs` (the rail-1
+preimage pin, `loadBearingSubset`, the filter-before-union order),
+`tests/corpus-prompts.test.mjs` (v8 pins), `tests/llm-proposals.test.mjs`
+(the is_key flip).
+
+---
+
 ## 2026-08-11 — The capture prepay was really a per-open spend; it now rides the Suggest click
 
 **Tags:** bug, design

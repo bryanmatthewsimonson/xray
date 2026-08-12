@@ -24,8 +24,8 @@ import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { CORPUS_PROMPT_VERSION } from '../shared/corpus-prompts.js';
 import {
     buildMemberUnits, corpusInputHash, corpusExtractKey, corpusMapRequest, digestDossier,
-    linkAssertionsToClaims, validateCorpusExtract, validateCaseBrief, groundCaseBrief,
-    filterProposals, computeEntitySummary, foldMemberAliases
+    linkAssertionsToClaims, loadBearingSubset, validateCorpusExtract, validateCaseBrief,
+    groundCaseBrief, filterProposals, computeEntitySummary, foldMemberAliases
 } from '../shared/case-synthesis.js';
 import { renderProposals } from './synthesis-review.js';
 import {
@@ -842,7 +842,14 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                     const hash = m.article_hash;
                     if (seenExtract.has(hash)) continue;
                     seenExtract.add(hash);
-                    const live = modules[hash] || null;
+                    // UA.1 (corpus-v8): the live extract is now
+                    // COMPREHENSIVE claim atomization; the reduce reads
+                    // only its load-bearing subset (guard rail 5 — parity
+                    // with the old selective list). The FULL extract
+                    // already folded into the durable record inside the
+                    // map stage; record-derived extras below keep their
+                    // own cap semantics, untouched.
+                    const live = modules[hash] ? loadBearingSubset(modules[hash]) : null;
                     const rec = await getArticleExtraction(hash).catch(() => null);
                     let extract = live;
                     if (live && rec) {

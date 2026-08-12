@@ -1,9 +1,10 @@
 # One Article Pass — unify Suggest and the corpus map (kickoff)
 
-**Status: DRAFT 2026-08-12** — written at the maintainer's request
-("Draft the kickoff doc") after the 2026-08-12 reconciliation review
-of corpus pre-analysis vs. article-level Suggest. Not approved,
-nothing scheduled; the maintainer decides (CONSTITUTION Art. 11).
+**Status: APPROVED 2026-08-12** — maintainer ("Approve the kickoff
+and start UA.1"): build the slices, riskiest first. Drafted the same
+day at the maintainer's request after the 2026-08-12 reconciliation
+review of corpus pre-analysis vs. article-level Suggest
+(CONSTITUTION Art. 11). UA.1 in progress.
 
 Related: `docs/CASE_SYNTHESIS_DESIGN.md` (the map/reduce this
 extends), `docs/MAP_ARTIFACT_KICKOFF.md` (the durable layer both
@@ -226,8 +227,15 @@ Options copy, and CLAUDE.md updated. Review-only slice.
 
 1. Extract field naming — extend `key_assertions` in place vs. a new
    `claims[]` with a compatibility read; schema-evolution's call.
+   **SETTLED at UA.1 review: extend in place.** v8 keys make old
+   extracts unreachable, so a compatibility read had nothing to read;
+   the rename would touch every consumer and fixture for cosmetics.
+   UA.3 owns the human-facing vocabulary (JOURNAL 2026-08-12).
 2. The producer stamp for unified-pass atoms — keep `'map'` for
    continuity vs. a new value; readers currently treat absent as map.
+   **SETTLED at UA.1 review: `'map'` stays.** Extract-derived rows
+   skip the suggest fold entirely (`from_extract`); the provenance
+   chip on Suggest-found atoms now honestly reads as the map's.
 3. Nickname table: ship the small curated list in UA.2 or skip it and
    lean on dedupe-review.
 4. Whether the portal's "Pre-analyze" button copy changes once

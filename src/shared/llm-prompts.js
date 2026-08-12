@@ -258,6 +258,19 @@ export function buildSuggestTool() {
                                 type: 'boolean',
                                 description: 'True if this is a central/load-bearing claim (kind=claim).'
                             },
+                            // UA.1 — the unified pass: when a SUPPLIED
+                            // CLAIM INDEX rides the user turn, entities
+                            // link to those claims from the entity side
+                            // (the inverse of `about`; the reader
+                            // inverts it back before the modal).
+                            claim_refs: {
+                                type: 'array', items: { type: 'string' },
+                                description: 'kind=entity, ONLY when the user turn carries a '
+                                    + 'SUPPLIED CLAIM INDEX: the refs ("C1") of supplied claims '
+                                    + 'this entity concerns — the same judgment as a claim\'s '
+                                    + 'about list, made from the entity side. Refs from the '
+                                    + 'supplied index only.'
+                            },
                             // (The Phase 19.6 fact fields — subject_ref/field/value/
                             // value_entity_ref/valid_from/valid_to/observed_at — were
                             // retired 2026-07-20 with the fact layer.)
@@ -418,6 +431,19 @@ CLAIMS (atomized assertions the article makes or reports):
 - Give each claim a ref ("C1", "C2", …) so assessments and relationships can point at it.`;
 }
 
+// UA.1 — the unified pass: the article's claims were already extracted
+// by the One Article Pass (the corpus map), so this call is entities +
+// claim→entity links only. The supplied index is the SAME about-link
+// judgment the pass has always made — expressed from the entity side,
+// never a new judgment kind (archival §12: extraction proposes, never
+// judges).
+function rulesSuppliedClaims() {
+    return `
+CLAIMS ARE ALREADY EXTRACTED — a SUPPLIED CLAIM INDEX rides the user turn:
+- Do NOT propose kind=claim items. The claims are done; every claim proposal you emit is discarded.
+- Instead, for each entity you propose, set claim_refs: the refs ("C1", "C2", …) of the supplied claims that concern that entity. Only use refs from the supplied index; an entity no supplied claim concerns simply has no claim_refs.`;
+}
+
 function rulesAssessments() {
     return `
 ASSESSMENTS (your judgment on a claim — a PERSONAL stance, never a fact verdict):
@@ -485,8 +511,12 @@ BASELINES (a subject's established register — secondary, descriptive prose, no
  * @param {string} [opts.title]
  * @param {Array<{name:string,type:string}>} [opts.entityVocabulary]
  *        known-entity naming vocabulary (vocabularyFromRegistry)
+ * @param {boolean} [opts.suppliedClaims]  UA.1 — the unified pass: the
+ *        claim half was already extracted (the index rides the user
+ *        turn), so the claims rules are replaced by the supplied-claims
+ *        block and the pass links entities to the supplied refs
  */
-export function buildSystemPrompt({ tasks = null, task = 'all', url = '', title = '', caseName = '', scopeQuestion = '', entityVocabulary = null } = {}) {
+export function buildSystemPrompt({ tasks = null, task = 'all', url = '', title = '', caseName = '', scopeQuestion = '', entityVocabulary = null, suppliedClaims = false } = {}) {
     const effective = Array.isArray(tasks)
         ? tasks.filter((t) => SUGGEST_KINDS.includes(t))
         : (task === 'all' ? SUGGEST_KINDS.slice()
@@ -530,12 +560,33 @@ export function buildSystemPrompt({ tasks = null, task = 'all', url = '', title 
 
     const parts = [head + meta + caseFrame + vocabBlock, RULES_ALL];
     if (wants('entities')) parts.push(RULES_ENTITIES);
-    if (wants('claims'))   parts.push(rulesClaims());
+    if (suppliedClaims)    parts.push(rulesSuppliedClaims());
+    else if (wants('claims')) parts.push(rulesClaims());
     return parts.join('\n');
 }
 
-/** The user-turn content: the article text the model extracts from. */
-export function buildUserPrompt({ articleText = '', context = '' } = {}) {
+// The supplied-claim-index cap (UA.1): a comprehensive extract can run
+// long; the index is refs + capped text only, and past this bound the
+// tail claims simply go unlinked (a human can link them post-accept).
+export const SUGGEST_CLAIM_INDEX_MAX = 200;
+
+/**
+ * The user-turn content: the article text the model extracts from.
+ * `claimIndex` (UA.1) — [{ref, text}] from the article pass — renders
+ * as the SUPPLIED CLAIM INDEX block the supplied-claims rules refer
+ * to. An ARRAY renders the block even when empty ("the article pass
+ * found no claims" is information, and the supplied-claims rules refer
+ * to the block); null/undefined means no unified pass ran.
+ */
+export function buildUserPrompt({ articleText = '', context = '', claimIndex = null } = {}) {
     const ctx = context ? `\n\nAdditional context:\n${context}` : '';
-    return `Here is the captured article text. Propose capture artifacts via propose_capture.\n\n---\n${articleText}\n---${ctx}`;
+    const idx = Array.isArray(claimIndex)
+        ? '\n\nSUPPLIED CLAIM INDEX (ref — claim text; link your entities to these via claim_refs):\n'
+            + (claimIndex.length
+                ? claimIndex.slice(0, SUGGEST_CLAIM_INDEX_MAX)
+                    .map((c) => `${c.ref} — ${String(c.text || '').replace(/\s+/g, ' ').slice(0, 200)}`)
+                    .join('\n')
+                : '(none — the article pass found no claims; propose no claim_refs)')
+        : '';
+    return `Here is the captured article text. Propose capture artifacts via propose_capture.\n\n---\n${articleText}\n---${idx}${ctx}`;
 }
