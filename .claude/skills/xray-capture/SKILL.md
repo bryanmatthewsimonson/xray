@@ -18,7 +18,7 @@ or not at all.
   forces an `https://` prefix) and **cannot attach the debugger to
   extension pages** ("Cannot attach debugger to chrome-extension://
   pages"). Everything that needed extension-page JS — IDB reads,
-  `chrome.tabs.sendMessage`, `xray:llm:suggest` — is unreachable.
+  `chrome.tabs.sendMessage`, `xray:llm:corpus-map` — is unreachable.
 - Synthetic keys do not fire extension command shortcuts, and OS-level
   keystrokes into browsers are blocked by the computer-use tier.
 - Therefore the ONLY verb you have against the extension is

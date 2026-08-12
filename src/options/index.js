@@ -1005,7 +1005,7 @@ async function backupRestoreFromFile(file) {
 
 // Merge-import — accrual, not replacement. A colleague's (or an older)
 // backup folds INTO the current corpus: missing items added by id,
-// extraction records merged at the assertion level, local data never
+// extraction records merged at the claim-proposal (atom) level, local data never
 // deleted or overwritten, config/identities in the file ignored.
 async function backupMergeFromFile(file) {
     const status = document.getElementById('backup-status');
@@ -1021,7 +1021,7 @@ async function backupMergeFromFile(file) {
             `ADDS the file's content to what you already have (${storageKeys} storage keys; ` +
             `databases: ${dbNames}; exported ${parsed.exportedAt || 'unknown'}).\n\n` +
             'Nothing local is deleted or overwritten: items are deduplicated by id, ' +
-            'per-article extraction records merge at the assertion level, and the ' +
+            'per-article extraction records merge at the claim-proposal level, and the ' +
             'file\'s settings/identities are ignored.\n\n' +
             'Imported quotes are re-located in YOUR copy of each article — offsets from ' +
             'another machine are never trusted — so analysis of an article you have not ' +
@@ -1311,8 +1311,8 @@ async function loadAdvanced() {
 
     // Case synthesis (Phase 20.4) — requires llmAssist + the key on top.
     document.getElementById('pref-case-synthesis').checked = isEnabled('caseSynthesis');
-    // Phase 28 — map prepay riding the Suggest click (2026-08-11).
-    document.getElementById('pref-auto-preanalyze').checked = isEnabled('autoPreAnalyze');
+    // (autoPreAnalyze retired in UA.3 — every Suggest click IS the one
+    // cache-first map call now, so there is nothing left to prepay.)
     document.getElementById('pref-capture-automation').checked = isEnabled('captureAutomation');
 
     // Local transcription (companion service) + the LM Studio post-pass.
@@ -1458,12 +1458,6 @@ async function saveAdvanced() {
     // Case synthesis (Phase 20.4).
     const synthOn = document.getElementById('pref-case-synthesis').checked;
     await setOverride('caseSynthesis', synthOn ? true : null);
-
-    // Auto pre-analyze with Suggest (Phase 28, retriggered 2026-08-11)
-    // — rides the Suggest click's spend consent; the checkbox hint
-    // carries the added-cost disclosure.
-    const autoPreOn = document.getElementById('pref-auto-preanalyze').checked;
-    await setOverride('autoPreAnalyze', autoPreOn ? true : null);
 
     // Capture automation (Phase 27 K.4).
     const captureAutoOn = document.getElementById('pref-capture-automation').checked;

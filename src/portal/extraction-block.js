@@ -102,9 +102,9 @@ export function renderExtractionBlock(host, { data, callbacks = {} }) {
         }
 
         block.appendChild(el('h3', 'xr-case__heading',
-            'Extracted assertions — the durable map artifacts'));
+            'Claim proposals — the durable map artifacts'));
         block.appendChild(el('p', 'xr-case__explainer',
-            'Every corpus analysis pass atomizes each article into grounded assertions and '
+            'Every analysis pass atomizes each article into grounded claim proposals and '
             + 'saves them here, per article, permanently — re-runs only add what is new. '
             + 'Accept mints a claim (editable text, verbatim quote kept as evidence); '
             + 'Dismiss is remembered. Nothing is applied automatically.'));
@@ -354,7 +354,7 @@ function paintMember(body, { member, rec, caseId, noteAccepted, publisher = null
         // looking like success. Throwing puts it in front of the person
         // who clicked; the callers below render it on the row.
         if (updated.matched === 0) {
-            throw new Error('this assertion is no longer on the record — Refresh and try again');
+            throw new Error('this claim proposal is no longer on the record — Refresh and try again');
         }
         await saveArticleExtraction(updated);
         // Keep the painted snapshot's triage view in step (labels read

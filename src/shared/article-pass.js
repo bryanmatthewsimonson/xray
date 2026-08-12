@@ -1,11 +1,11 @@
-// The One Article Pass — UA.1 (docs/UNIFIED_ARTICLE_PASS_KICKOFF.md).
+// The One Article Pass — UA.1–UA.3 (docs/UNIFIED_ARTICLE_PASS_KICKOFF.md).
 //
 // Cache-first fetch-or-run of THE article extract for one article, and
-// the pure converters that let the reader's Suggest flow consume it:
-// the extract's comprehensive claim list becomes the modal's claim
-// proposals, and the slimmed entities call's claim→entity links merge
-// back onto them. Per article, ONE reading (the corpus map pass); per
-// corpus, connect and judge — this module is the "one reading" seam.
+// the pure converters that let every Suggest surface consume it: the
+// extract's comprehensive claim list and its entities (with native
+// about-links, corpus-v9) become the review modal's proposals. Per
+// article, ONE reading (the corpus map pass); per corpus, connect and
+// judge — this module is the "one reading" seam.
 //
 // THE ONE-REQUEST-BUILDER RULE (corpus-v4, tightened by corpus-v7):
 // the unit here is built by `articleMemberUnit` — the SAME shape
@@ -19,8 +19,8 @@
 // (display-only in the modal); case-scoped keyness stays with the
 // reduce's promotion and the human checkbox at corpus level.
 //
-// Storage IO is injectable (the auto-preanalyze idiom) so the whole
-// flow is testable without chrome.
+// Storage IO is injectable (the idiom the retired auto-preanalyze
+// module established) so the whole flow is testable without chrome.
 
 import { Utils } from './utils.js';
 import {
@@ -212,40 +212,7 @@ export function entityProposalsFromExtract(extract) {
     return proposals;
 }
 
-/**
- * The compact claim index that rides the slimmed entities call, so the
- * model links entities to the SUPPLIED claims (model-quality links, no
- * string matching) instead of re-extracting them. Refs + capped text
- * only — the model already holds the full article text.
- */
-export function claimIndexForSuggest(claimProposals) {
-    return (claimProposals || [])
-        .filter((c) => c && c.ref && typeof c.text === 'string' && c.text.trim())
-        .map((c) => ({ ref: c.ref, text: c.text.trim().slice(0, 200) }));
-}
-
-/**
- * Merge the slim pass's entity proposals with the extract-derived
- * claim proposals into ONE modal-ready list: each entity's
- * `claim_refs` (its side of the link) is inverted onto the referenced
- * claim's `about` list — the direction the modal and the accept-time
- * builders already speak. Non-entity proposals pass through untouched;
- * unknown refs are ignored (the firewall never guesses).
- */
-export function mergeSuggestProposals(entityProposals, claimProposals) {
-    const claims = (claimProposals || []).map((c) => ({
-        ...c, about: Array.isArray(c.about) ? [...c.about] : []
-    }));
-    const byRef = new Map(claims.map((c) => [c.ref, c]));
-    const rest = [];
-    for (const p of entityProposals || []) {
-        if (!p) continue;
-        rest.push(p);
-        if (p.kind !== 'entity' || !p.ref || !Array.isArray(p.claim_refs)) continue;
-        for (const cr of p.claim_refs) {
-            const c = byRef.get(String(cr));
-            if (c && !c.about.includes(p.ref)) c.about.push(p.ref);
-        }
-    }
-    return [...rest, ...claims];
-}
+// (claimIndexForSuggest and mergeSuggestProposals — the UA.1
+// slim-mode bridge, where a separate entities call linked to supplied
+// claims — RETIRED in UA.3 with the standalone suggest pass. Entities
+// and their about-links ride the extract natively since corpus-v9.)

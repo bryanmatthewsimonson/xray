@@ -314,7 +314,7 @@
         content into the current corpus: articles, claims, entities,
         analysis records, and audits it has and you don't are added
         (deduplicated by id; per-article extraction records merge at the
-        assertion level), nothing local is deleted or overwritten, and
+        claim-proposal level), nothing local is deleted or overwritten, and
         settings/identities in the file are ignored.
         The signed-events bundle is the raw signed JSON of every event you
         have published (no keys inside) — anyone can rebroadcast it to any
@@ -497,9 +497,11 @@
       </div>
       <p class="xr-opt__hint" style="margin-top:-8px">
         Default: <strong>Entities</strong> + <strong>Claims</strong> — extraction
-        the model does reliably (high signal, low noise). Relationships,
-        assessments, and forensic findings are opt-in <em>judgments</em>:
-        higher false-positive rate, and X-Ray never renders them automatically.
+        the model does reliably (high signal, low noise). These gate what
+        the reader derives from the one article reading. The judgment
+        kinds (relationships, assessments, forensic findings) are RETIRED
+        from Suggest — each lives at corpus level, where its evidence is
+        (cross-article links, the assess modal, the forensic pass).
       </p>
       <div class="xr-opt__actions">
         <button class="xr-opt__btn" id="llm-key-clear">Clear key</button>
@@ -701,25 +703,6 @@
         proportionally more than a single-article pass. The brief is stored
         locally and exportable; it carries no verdict or score. Proposals only
         materialize as ordinary claims/links after you Accept them.
-      </p>
-
-      <label class="xr-opt__field xr-opt__field--inline">
-        <input type="checkbox" id="pref-auto-preanalyze" />
-        <span>Pre-analyze into the bound case with each Suggest pass</span>
-      </label>
-      <p class="xr-opt__hint" style="margin-top:-8px">
-        Off by default. Requires case synthesis (above) plus LLM assist and
-        the API key. When on, clicking <strong>Suggest</strong> on an article
-        in a case-bound workspace also runs the synthesis <em>map</em> stage
-        for that one article, so a later <strong>Analyze corpus</strong>
-        starts from a warm cache instead of re-reading the whole corpus.
-        <strong>The Suggest click is the spend consent: with this on, that
-        one click sends the article&rsquo;s text to Anthropic twice — the
-        suggest pass plus one map call, roughly doubling the click&rsquo;s
-        cost</strong> — with it off, the same work happens only when you
-        click Analyze or Pre-analyze and confirm. Already-analyzed articles
-        are skipped (cache first, no extra call), and a failure never
-        affects the Suggest pass itself.
       </p>
 
       <hr />

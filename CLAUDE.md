@@ -99,7 +99,7 @@ extension approves in-context.
 (e.g. `xray:capture`, `xray:capture:transcribe`, `xray:capture:publish`,
 `xray:relay:publish`, `xray:relay:query`, `xray:sign`,
 `xray:youtube:fetchTranscript`, `xray:screenshot:capture`,
-`xray:llm:suggest`, `xray:audit:run`, `xray:transcribe:{start,status,
+`xray:llm:corpus-map`, `xray:audit:run`, `xray:transcribe:{start,status,
 config,ping,claims}`, `xray:vision:describe`). When adding a cross-context
 call, add an `xray:*` message rather than reaching across contexts directly.
 
@@ -359,8 +359,9 @@ tested contract, not an aspiration.
   passes FA.1–FA.3 (`docs/CORPUS_AUDIT_KICKOFF.md`), Suggest narrowed to
   the EXTRACTION pass (entities+claims; judgment kinds live at corpus
   level) + case-dashboard workflow declutter, known-entity vocabulary
-  injection, the opt-in `autoPreAnalyze` map prepay (originally
-  capture-time; since 2026-08-11 it rides the Suggest click), the fact-layer
+  injection, the opt-in `autoPreAnalyze` map prepay (both later retired
+  — vocabulary in UA.2, the prepay in UA.3, once the unified pass made
+  them redundant), the fact-layer
   retirement, and **Entity Pages** (`docs/ENTITY_PAGE_KICKOFF.md` —
   EP.1–EP.5, the claims-first knowledge artifacts). A **map-artifact
   wave** (2026-07-24/25, `docs/MAP_ARTIFACT_KICKOFF.md`) then made the
@@ -395,7 +396,12 @@ tested contract, not an aspiration.
   vocabulary retired (it would poison the content-only cache key), and
   naming consistency moved to the accept-time resolution ladder
   (`shared/entity-resolution.js` — identity rungs pre-select, near-name
-  rungs only rank; no scores, never-merge per Art. 6). The FLF Epistack
+  rungs only rank; no scores, never-merge per Art. 6) — and UA.3 swept
+  the residue: `autoPreAnalyze` retired, the standalone
+  `xray:llm:suggest` pass + tool schema (and its `is_key` field)
+  retired, analyze-after-import runs the article pass per page instead
+  of parking proposals, and every human surface says "claim proposal"
+  ("assertion" survives only as the layer's storage and wire term). The FLF Epistack
   entry has been submitted (deadline was 2026-07-19); the tool continues
   to be tailored **maintainer-driven from real casework (COVID first)**.
   The 0.8.0 smoke walk passed (2026-07-20; Phases 11–15

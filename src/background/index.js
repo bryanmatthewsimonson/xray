@@ -26,7 +26,7 @@ import { NostrClient } from '../shared/nostr-client.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
-import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, runHypothesisEdgePass, runClaimLinksPass, getCorpusConfig, runExtractPass, runEntityAuditPass, runForensicCorpusPass, runEntityPagePass, runVisionPass, getVisionConfig } from '../shared/llm-client.js';
+import { runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, runHypothesisEdgePass, runClaimLinksPass, getCorpusConfig, runExtractPass, runEntityAuditPass, runForensicCorpusPass, runEntityPagePass, runVisionPass, getVisionConfig } from '../shared/llm-client.js';
 import { getSourceDocument } from '../shared/archive-cache.js';
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prompts.js';
 import { prepareImageForVision, decodeDataUrl, blockedImageUrl } from '../shared/vision-image.js';
@@ -600,19 +600,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // async sendResponse
     }
 
-    // Reader page → worker: run an LLM-assist suggestion pass against
-    // the open article. The Anthropic call lives here (not the reader
-    // page) because the SW is outside page CSP, and the key never leaves
-    // the SW. Gated by the `llmAssist` flag + a user-supplied key inside
-    // runSuggestionPass; returns validated-shape proposals only — nothing
-    // is saved or published here.
-    if (message.type === 'xray:llm:suggest') {
-        runSuggestionPass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'LLM pass failed' })
-        );
-        return true; // async sendResponse
-    }
+    // (`xray:llm:suggest` — the standalone suggestion pass — RETIRED
+    // in UA.3: every Suggest surface now rides the ONE article pass
+    // (`xray:llm:corpus-map` via shared/article-pass.js), so this
+    // message type no longer exists. A stale sender gets the default
+    // unhandled-message behavior, never a silent LLM spend.)
 
     // Reader → worker: LLM extraction assist over an ARCHIVED PDF
     // (Phase 18 C5). The reader sends the source-document HASH, never

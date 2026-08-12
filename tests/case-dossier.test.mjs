@@ -37,7 +37,7 @@ globalThis.chrome = {
 };
 
 const {
-    collectCaseDossierData, buildCaseDossier, assembleCaseDossier
+    collectCaseDossierData, buildCaseDossier, assembleCaseDossier, caseScopeQuestion
 } = await import('../src/shared/case-dossier.js');
 const { EntityModel } = await import('../src/shared/entity-model.js');
 const { ClaimModel } = await import('../src/shared/claim-model.js');
@@ -710,4 +710,19 @@ test('evidence table finds truncated-key audit runs via the captureArticleHash a
         'the sliced-hash run joins through the full-capture alias');
     assert.equal(row.audit_runs[0].run_id, 'run_trunc');
     assert.equal(ev.coverage.articles_with_audit, 1);
+});
+
+// Migrated from tests/auto-preanalyze.test.mjs when the prepay retired
+// (UA.3) — the shared scope reader outlived its first consumer.
+test('caseScopeQuestion: trims the authored field and defaults to ""', () => {
+    const data = {
+        case: { id: 'entity_case' },
+        entitiesById: { entity_case: { id: 'entity_case', name: 'Egg case', type: 'case',
+            authored_fields: { scope_question: { value: '  Do eggs raise CVD risk?  ' } } } }
+    };
+    assert.equal(caseScopeQuestion(data), 'Do eggs raise CVD risk?');
+    const noField = JSON.parse(JSON.stringify(data));
+    delete noField.entitiesById.entity_case.authored_fields;
+    assert.equal(caseScopeQuestion(noField), '');
+    assert.equal(caseScopeQuestion({ case: { id: 'missing' }, entitiesById: {} }), '');
 });

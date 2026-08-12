@@ -25,7 +25,7 @@ globalThis.chrome = globalThis.chrome || {
 
 const {
     ensureArticleExtract, articleSourceForExtract, claimProposalsFromExtract,
-    entityProposalsFromExtract, claimIndexForSuggest, mergeSuggestProposals
+    entityProposalsFromExtract
 } = await import('../src/shared/article-pass.js');
 const { buildMemberUnits, corpusMapRequest, corpusExtractKey, articleMemberUnit } =
     await import('../src/shared/case-synthesis.js');
@@ -194,34 +194,9 @@ test('claimProposalsFromExtract: text falls back to the quote; empty quotes drop
     assert.deepEqual(rows.map((r) => r.ref), ['C1', 'C2'], 'refs number the kept rows');
 });
 
-// ---- the slim call's index + the merge -------------------------------------
+// (The slim-call tests — claimIndexForSuggest / mergeSuggestProposals —
+// retired in UA.3 with the machinery they pinned.)
 
-test('claimIndexForSuggest: ref + capped text only', () => {
-    const idx = claimIndexForSuggest([
-        { ref: 'C1', text: 'x'.repeat(500) },
-        { ref: 'C2', text: '  ' },           // empty text → excluded
-        { ref: '', text: 'no ref' }          // no ref → excluded
-    ]);
-    assert.equal(idx.length, 1);
-    assert.equal(idx[0].ref, 'C1');
-    assert.equal(idx[0].text.length, 200);
-    assert.deepEqual(Object.keys(idx[0]).sort(), ['ref', 'text'], 'no quotes, no flags ride the index');
-});
-
-test('mergeSuggestProposals: entity claim_refs invert onto claim about lists', () => {
-    const claims = claimProposalsFromExtract(V8_EXTRACT);
-    const merged = mergeSuggestProposals([
-        { kind: 'entity', ref: 'E1', name: 'Alice', entity_type: 'person', claim_refs: ['C1', 'C9'] },
-        { kind: 'entity', ref: 'E2', name: 'Bob', entity_type: 'person', claim_refs: ['C1', 'C2'] },
-        { kind: 'entity', name: 'RefFree', entity_type: 'thing' }
-    ], claims);
-    assert.equal(merged.length, 5);
-    const c1 = merged.find((p) => p.ref === 'C1');
-    const c2 = merged.find((p) => p.ref === 'C2');
-    assert.deepEqual(c1.about, ['E1', 'E2'], 'both entities concern C1; the unknown C9 is ignored');
-    assert.deepEqual(c2.about, ['E2']);
-    assert.deepEqual(claims[0].about ?? [], [], 'the input claim rows are not mutated');
-});
 
 // ---- guard rail 4: the layer's atom contract is unchanged ------------------
 
@@ -379,5 +354,36 @@ test('GUARD (UA.2, source pin): the live Suggest path is ONE call — no xray:ll
         'UA.2: the separate entities call must never return to the live path');
     assert.equal((fn.match(/ensureArticleExtract\(/g) || []).length, 1,
         'exactly one extract fetch-or-run — the whole spend of a Suggest click');
-    assert.ok(fn.includes('entityProposalsFromExtract('), 'entities derive from the one reading');
+    assert.ok(fn.includes("kinds.includes('entities') ? entityProposalsFromExtract"),
+        'the entities kind gates what DERIVES from the reading (UA.3 — the preference is consumer-side)');
+    assert.ok(fn.includes("kinds.includes('claims') ? claimProposalsFromExtract"),
+        'the claims kind gates its half the same way');
+});
+
+// ---- UA.3 review round: the fold pins the retired suite carried ------------
+
+test('a FRESH run folds the extract into the durable record (MA.1) with the fingerprint key', async () => {
+    let folded = null;
+    const out = await ensureArticleExtract(
+        { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
+          frame: { caseName: 'Egg case', scopeQuestion: 'Q?' },
+          sendMessage: async () => ({ ok: true, extract: V8_EXTRACT, model: 'test-model' }) },
+        io({ record: async (opts) => { folded = opts; return { status: 'saved' }; } }));
+    assert.equal(out.status, 'ran');
+    assert.ok(folded, 'the fold ran');
+    assert.equal(folded.member.article_hash, 'a'.repeat(64));
+    assert.deepEqual(folded.extract, V8_EXTRACT);
+    assert.equal(folded.key, out.key, 'the fold carries the cache fingerprint for idempotence');
+    assert.equal(folded.model, 'test-model');
+    assert.equal(folded.frame.caseName, 'Egg case');
+});
+
+test('fold and cache-save failures never disturb the paid run', async () => {
+    const out = await ensureArticleExtract(
+        { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
+          sendMessage: async () => ({ ok: true, extract: V8_EXTRACT, model: 'm' }) },
+        io({ record: async () => { throw new Error('idb closed'); },
+             saveExtract: async () => { throw new Error('quota'); } }));
+    assert.equal(out.status, 'ran', 'the extract still reaches the caller');
+    assert.deepEqual(out.extract, V8_EXTRACT);
 });
