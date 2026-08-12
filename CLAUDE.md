@@ -389,7 +389,13 @@ tested contract, not an aspiration.
   claim→entity links, the reduce/entity page read only the
   load-bearing subset, and the article pass NEVER writes
   `claim.is_key` (keyness is case-scoped; the reduce promotion and the
-  corpus-level human checkbox are the only writers). The FLF Epistack
+  human checkbox are the only writers) — then UA.2 (corpus-v9) made it
+  literally ONE call: entities + native about-refs joined the extract,
+  the separate entities call left the live path, the Phase-28 prompt
+  vocabulary retired (it would poison the content-only cache key), and
+  naming consistency moved to the accept-time resolution ladder
+  (`shared/entity-resolution.js` — identity rungs pre-select, near-name
+  rungs only rank; no scores, never-merge per Art. 6). The FLF Epistack
   entry has been submitted (deadline was 2026-07-19); the tool continues
   to be tailored **maintainer-driven from real casework (COVID first)**.
   The 0.8.0 smoke walk passed (2026-07-20; Phases 11–15

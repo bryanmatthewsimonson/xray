@@ -19,6 +19,59 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-12 — UA.2: one call (corpus-v9) — entities join the extract, the vocabulary retires, the ladder ships
+
+**Tags:** design
+
+**What shipped.** The One Article Pass slice UA.2: the map extract
+gains `entities` (ref + display name + type + verbatim mention) and
+native per-atom `about` refs (corpus-v9 — an output-contract bump;
+every v8 cached extract orphans, records survive per MA.1). The
+reader's Suggest is now literally ONE call — `ensureArticleExtract`,
+zero on a cache hit — with the separate `xray:llm:suggest` entities
+call gone from the live path (it still serves the import-time batch
+until UA.3). The Phase-28 prompt vocabulary (`SUGGEST_VOCAB_MAX` /
+`vocabularyFromRegistry`) is RETIRED: prompt-time vocabulary would
+poison the content-only cache key, so naming consistency moved to the
+accept-time **resolution ladder** (`shared/entity-resolution.js`).
+
+**The ladder, per never-merge (Art. 6 / kickoff rail 3):** identity
+rungs — `exact` (the deterministic id hash the registry would merge
+with anyway) and `alias` (a recorded alias, offered as its canonical
+root) — pre-select "use existing"; near-name rungs — `token-subset`
+and `surname-initial` (persons, "J. Smith" ↔ "John Smith") — only
+ever rank candidates, pre-selecting solely when the candidate is
+single (the pre-UA.2 behavior, unchanged). No numeric score exists
+anywhere on a candidate (guard-tested); rungs are labels.
+
+**Second-guessable calls, on the record:**
+
+- **Nickname table skipped** (kickoff open question 3): a miss costs
+  one human click and dedupe-review backstops. Revisit only if the
+  UA.2 walk's fragment counts demand it.
+- **Entities-only configs now read the canonical 60k unit** (they
+  used to send the rendered 120k body to the suggest pass) — the
+  same bound-disclosure toast covers them.
+- **The modal's multi-candidate default stays "create new"**: the
+  kickoff's "pre-selected link-to-existing default" is implemented
+  for identity rungs and single candidates; a default guess among
+  MULTIPLE plausible roots is exactly where silent mis-linking would
+  creep in, so the human picks from the ranked list.
+- **`MAP_ENTITY_TYPES` is inlined in corpus-prompts.js** rather than
+  imported: entity-model pulls the chrome.storage bridge at module
+  load and corpus-prompts' "no chrome" purity is load-bearing. A
+  drift guard pins the inline enum to `ENTITY_TYPES` minus `case`.
+- **The UA.1 slim-mode machinery stays** (claimIndex / claim_refs /
+  supplied-claims rules): it is the kill-revert surface if UA.2's
+  fragment measurement fails, and UA.3 sweeps it if UA.2 survives.
+
+**Measured at the walk (§5/§6):** re-mention resolution counts and
+new-fragment counts vs the vocabulary era; if meaningfully worse,
+revert to the vocabulary-aware entities call and stop at UA.1
+permanently.
+
+---
+
 ## 2026-08-12 — UA.1: one reading per article (corpus-v8), and is_key loses its article-pass writer
 
 **Tags:** design

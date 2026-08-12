@@ -476,12 +476,18 @@ export function digestDossier(dossier, { claims = [], auditRollup = null } = {})
 // atom must not invalidate the whole paid extract; consumers default
 // (text falls back to the quote in the review surface, an unflagged
 // atom is simply not load-bearing).
+// corpus-v9: `entities` (+ per-atom `about` refs) join, equally
+// lenient — an extract with no entities is a valid extract whose
+// Suggest surface simply proposes none.
 const MAP_SCHEMA = obj({
     position: obj({ summary: str(), side_label: nullableStr() }),
     key_assertions: arr(obj({
         quote: str({ minLength: 1 }), text: str(), load_bearing: bool(),
-        claim_ref: nullableStr(), why_load_bearing: str()
+        claim_ref: nullableStr(), why_load_bearing: str(), about: arr(str())
     }, ['quote'])),
+    entities: arr(obj({
+        ref: str(), name: str({ minLength: 1 }), type: str(), mention: str()
+    }, ['name'])),
     source_references: arr(obj({ quote: str({ minLength: 1 }), target_hint: str() }, ['quote'])),
     open_questions: arr(str())
 }, ['position']);

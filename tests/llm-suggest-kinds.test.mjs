@@ -16,9 +16,9 @@ globalThis.chrome = globalThis.chrome || {
 
 const {
     SUGGEST_KINDS, SUGGEST_DEFAULT_KINDS, SUGGEST_KIND_LABELS,
-    RETIRED_SUGGEST_KINDS, SUGGEST_VOCAB_MAX, SUGGEST_CLAIM_INDEX_MAX,
+    RETIRED_SUGGEST_KINDS, SUGGEST_CLAIM_INDEX_MAX,
     normalizeSuggestKinds, categoryOfProposalKind, buildSystemPrompt,
-    buildUserPrompt, vocabularyFromRegistry
+    buildUserPrompt
 } = await import('../src/shared/llm-prompts.js');
 
 test('Suggest is extraction-only: entities/claims selectable, everything else RETIRED', () => {
@@ -123,60 +123,26 @@ test('case frame: the active case names the extraction context without licensing
     assert.ok(/ACTIVE CASE: "X"/.test(noScope) && !/scope question/.test(noScope), 'scope line only when a scope exists');
 });
 
-// --- Vocabulary injection (Phase 28) ----------------------------------------
+// --- Vocabulary injection: RETIRED (UA.2) -----------------------------------
 
-test('vocabulary: known entities ride the prompt as naming vocabulary with the no-minting guard', () => {
-    const p = buildSystemPrompt({ tasks: ['entities'], entityVocabulary: [
-        { name: 'Bob Smith', type: 'person' }, { name: 'WHO', type: 'organization' }
-    ] });
-    assert.match(p, /KNOWN ENTITIES/);
-    assert.match(p, /Bob Smith \(person\)/);
-    assert.match(p, /WHO \(organization\)/);
-    assert.match(p, /reuse the EXACT name/, 'the merge instruction rides');
-    assert.match(p, /vocabulary, NOT a quota/, 'the list is never a quota');
-    assert.match(p, /never propose a listed\s+entity that this text does not itself mention/,
-        'CW.1-style no-minting restated for the vocabulary');
-    assert.match(p, /proposing a NEW entity/, 'the list must not suppress new entities');
-    // Absent / empty → no block.
-    assert.ok(!/KNOWN ENTITIES/.test(buildSystemPrompt({ tasks: ['entities'] })));
-    assert.ok(!/KNOWN ENTITIES/.test(buildSystemPrompt({ tasks: ['entities'], entityVocabulary: [] })));
+test('vocabulary retirement (UA.2): the registry never rides a prompt again', async () => {
+    // Prompt-time vocabulary would poison the article pass's
+    // content-only cache key; naming consistency lives in the
+    // accept-time resolution ladder (shared/entity-resolution.js).
+    const mod = await import('../src/shared/llm-prompts.js');
+    assert.equal(mod.vocabularyFromRegistry, undefined, 'the assembler is gone');
+    assert.equal(mod.SUGGEST_VOCAB_MAX, undefined, 'the cap constant is gone');
+    assert.ok(!/KNOWN ENTITIES/.test(buildSystemPrompt({ tasks: ['entities'] })),
+        'no vocabulary block in the prompt');
 });
 
-test('vocabulary: case-typed entries can never reach the prompt, and the cap holds', () => {
-    const many = Array.from({ length: SUGGEST_VOCAB_MAX + 15 },
-        (_, i) => ({ name: `Vocab${i}`, type: 'person' }));
-    const p = buildSystemPrompt({ tasks: ['entities'], entityVocabulary: [
-        { name: 'Egg Investigation', type: 'case' }, ...many
-    ] });
-    assert.ok(!/Egg Investigation/.test(p), 'the workspace itself is never vocabulary');
-    const listed = (p.match(/Vocab\d+ \(person\)/g) || []).length;
-    assert.equal(listed, SUGGEST_VOCAB_MAX, 'defense-in-depth cap in the prompt builder');
-});
-
-test('vocabularyFromRegistry: registry dict → capped, recency-ordered, case-free {name,type} list', () => {
-    const records = {
-        a: { id: 'a', name: '  Bob   Smith ', type: 'person', updated: 300 },
-        b: { id: 'b', name: 'WHO', type: 'organization', created: 100 },
-        c: { id: 'c', name: 'Egg Investigation', type: 'case', updated: 999 },
-        d: { id: 'd', name: '   ', type: 'person', updated: 500 },
-        e: { id: 'e', name: 'Framingham Study', type: 'thing', updated: 200 }
-    };
-    assert.deepEqual(vocabularyFromRegistry(records), [
-        { name: 'Bob Smith', type: 'person' },
-        { name: 'Framingham Study', type: 'thing' },
-        { name: 'WHO', type: 'organization' }
-    ], 'whitespace collapsed, case excluded, blank names dropped, recency order');
-    // The cap keeps the MOST RECENT names — the live vocabulary.
-    const big = {};
-    for (let i = 0; i < SUGGEST_VOCAB_MAX + 20; i++) {
-        big[`e${i}`] = { id: `e${i}`, name: `E${i}`, type: 'thing', updated: i };
-    }
-    const capped = vocabularyFromRegistry(big);
-    assert.equal(capped.length, SUGGEST_VOCAB_MAX);
-    assert.equal(capped[0].name, `E${SUGGEST_VOCAB_MAX + 19}`);
-    // Degenerate inputs are calm.
-    assert.deepEqual(vocabularyFromRegistry(null), []);
-    assert.deepEqual(vocabularyFromRegistry({}), []);
+test('map entity types stay wire-consistent: the v9 enum is ENTITY_TYPES minus case (drift guard)', async () => {
+    // corpus-prompts INLINES the list to stay chrome-free at module
+    // load; this pin is what keeps the inline copy honest.
+    const { ENTITY_TYPES } = await import('../src/shared/entity-model.js');
+    const CP = await import('../src/shared/corpus-prompts.js');
+    const enumTypes = CP.buildMapTool().input_schema.properties.entities.items.properties.type.enum;
+    assert.deepEqual([...enumTypes], ENTITY_TYPES.filter((t) => t !== 'case'));
 });
 
 // ---- UA.1: the slim (supplied-claims) suggest mode -------------------------

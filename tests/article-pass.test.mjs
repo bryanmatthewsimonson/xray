@@ -25,7 +25,7 @@ globalThis.chrome = globalThis.chrome || {
 
 const {
     ensureArticleExtract, articleSourceForExtract, claimProposalsFromExtract,
-    claimIndexForSuggest, mergeSuggestProposals
+    entityProposalsFromExtract, claimIndexForSuggest, mergeSuggestProposals
 } = await import('../src/shared/article-pass.js');
 const { buildMemberUnits, corpusMapRequest, corpusExtractKey, articleMemberUnit } =
     await import('../src/shared/case-synthesis.js');
@@ -316,4 +316,44 @@ test('GUARD (source pin): the reader routes the unified pass through the archive
     assert.ok(fn.includes('groundingText: canonicalText'),
         'the modal grounds the unified pass against the canonical text the extract read');
     assert.ok(!/is_key/.test(fn), 'the article pass flow never touches is_key (guard rail 6)');
+});
+
+// ---- corpus-v9 (UA.2): entities from the one reading ------------------------
+
+const V9_EXTRACT = {
+    position: { summary: 'what A argues', side_label: null },
+    entities: [
+        { ref: 'E1', name: 'Alice Chen', type: 'person', mention: 'Alice Chen' },
+        { ref: 'E2', name: 'Acme Lab', type: 'organization', mention: 'Acme Lab' },
+        { ref: 'E3', name: 'No Mention', type: 'person', mention: '   ' },   // ungroundable → dropped
+        { name: 'Ref-free Corp', type: 'organization', mention: 'Ref-free Corp' }
+    ],
+    key_assertions: [
+        { quote: 'Body A text', text: 'A claim.', load_bearing: true, why_load_bearing: 'w',
+          about: ['E1', 'E2', 'E9'] },                      // E9 unknown → filtered
+        { quote: 'enough words', text: 'Another.', load_bearing: false, about: 'not-an-array' }
+    ]
+};
+
+test('entityProposalsFromExtract: modal-shaped entity rows; mention-less entries drop', () => {
+    const rows = entityProposalsFromExtract(V9_EXTRACT);
+    assert.equal(rows.length, 3);
+    assert.deepEqual(rows.map((r) => r.kind), ['entity', 'entity', 'entity']);
+    assert.equal(rows[0].ref, 'E1');
+    assert.equal(rows[0].name, 'Alice Chen');
+    assert.equal(rows[0].entity_type, 'person');
+    assert.equal(rows[0].mention, 'Alice Chen');
+    assert.equal(rows[0].from_extract, true);
+    assert.equal(rows[2].ref, '', 'a ref-free entry still rides (nothing links to it)');
+    assert.ok(!rows.some((r) => r.name === 'No Mention'), 'nothing to ground ⇒ not a proposal');
+    for (const r of rows) assert.ok(!('is_key' in r));
+});
+
+test('claimProposalsFromExtract: v9 about refs ride, filtered to entities the extract proposes', () => {
+    const rows = claimProposalsFromExtract(V9_EXTRACT);
+    assert.deepEqual(rows[0].about, ['E1', 'E2'], 'the unknown E9 never dangles into the modal');
+    assert.deepEqual(rows[1].about, [], 'a malformed about is calm');
+    // v8 extracts (no entities list) keep working: every ref filters out.
+    const v8rows = claimProposalsFromExtract(V8_EXTRACT);
+    assert.deepEqual(v8rows[0].about ?? [], []);
 });

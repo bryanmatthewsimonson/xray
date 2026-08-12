@@ -4,7 +4,8 @@
 and start UA.1"): build the slices, riskiest first. Drafted the same
 day at the maintainer's request after the 2026-08-12 reconciliation
 review of corpus pre-analysis vs. article-level Suggest
-(CONSTITUTION Art. 11). UA.1 in progress.
+(CONSTITUTION Art. 11). UA.1 merged 2026-08-12 (PR #326; its
+acceptance walk — §5 — is still owed). UA.2 in progress.
 
 Related: `docs/CASE_SYNTHESIS_DESIGN.md` (the map/reduce this
 extends), `docs/MAP_ARTIFACT_KICKOFF.md` (the durable layer both
@@ -238,5 +239,9 @@ Options copy, and CLAUDE.md updated. Review-only slice.
    chip on Suggest-found atoms now honestly reads as the map's.
 3. Nickname table: ship the small curated list in UA.2 or skip it and
    lean on dedupe-review.
+   **SETTLED at UA.2 review: SKIPPED.** The ladder ships with exact /
+   alias / token-subset / surname-initial rungs only; a nickname miss
+   costs one human click and dedupe-review backstops (§8's own
+   posture). Revisit only if the UA.2 walk's fragment counts say so.
 4. Whether the portal's "Pre-analyze" button copy changes once
    Suggest is the same pass (naming sweep belongs to UA.3).

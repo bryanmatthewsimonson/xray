@@ -44,8 +44,12 @@ import { ROLES, BASIS_VALUES } from '../shared/forensic-taxonomy.js';
 import {
     normalizeProposals, validateProposal, subjectLabelOf, PROPOSAL_ORDER,
     buildEntityInput, buildClaimInput, buildAssessmentInput, buildLinkInput,
-    buildFindingInput, buildBaselineInput, findEntityMatches
+    buildFindingInput, buildBaselineInput
 } from '../shared/llm-proposals.js';
+// UA.2 — the resolution ladder: ranked link-or-create candidates
+// (identity rungs pre-select; near-name rungs need the human's pick),
+// replacing both the prompt-time vocabulary and the flat token match.
+import { rankEntityCandidates, defaultEntityChoice, rungLabel } from '../shared/entity-resolution.js';
 import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { pageFragmentSelector } from '../shared/pdf-layout.js';
 import { timeFragmentSelector } from '../shared/diarized-transcript.js';
@@ -157,12 +161,12 @@ export async function openLlmReview(opts) {
                   entityLabelByRef: norm.entityLabelByRef,
                   entityTypeByRef: norm.entityTypeByRef, grounding };
 
-    // The existing registry, for accept-time dedupe: a proposed entity
-    // whose name token-matches an existing one (same type) is offered
-    // as "use existing" instead of minting a near-duplicate id.
-    let registry = [];
-    try { registry = Object.values(await EntityModel.getAll() || {}); }
-    catch (_) { registry = []; }
+    // The existing registry, for accept-time resolution: the ladder
+    // ranks the records a proposed entity might already be, offered as
+    // "use existing" instead of minting a near-duplicate id.
+    let recordsById = {};
+    try { recordsById = (await EntityModel.getAll()) || {}; }
+    catch (_) { recordsById = {}; }
 
     // Nice summaries: claim text by ref.
     const claimTextByRef = {};
@@ -173,28 +177,29 @@ export async function openLlmReview(opts) {
     const claimIdByRef = {};
 
     // One mutable row per proposal.
-    const rows = norm.all.map((p) => {
-        const row = {
-            pid: p.pid, kind: p.kind, ref: p.ref,
-            prop: { ...p },
-            status: 'pending',         // pending | accepted | rejected
-            suggestedBy: suggestedByLlm,
-            editing: false,
-            message: '',
-            messageKind: ''
-        };
-        if (p.kind === 'entity') refreshEntityMatches(row);
-        return row;
-    });
+    const rows = norm.all.map((p) => ({
+        pid: p.pid, kind: p.kind, ref: p.ref,
+        prop: { ...p },
+        status: 'pending',         // pending | accepted | rejected
+        suggestedBy: suggestedByLlm,
+        editing: false,
+        message: '',
+        messageKind: ''
+    }));
 
-    // Dedupe candidates for an entity row; a SINGLE candidate defaults
-    // the accept action to "use existing" (the accumulation problem),
-    // multiple candidates default to "create new" (the human picks).
-    function refreshEntityMatches(row) {
-        row.entityMatches = findEntityMatches(
-            String(row.prop.name || ''), row.prop.entity_type, registry);
-        row.entityChoice = row.entityMatches.length === 1 ? row.entityMatches[0].id : 'new';
+    // Ladder candidates for an entity row (UA.2). The pre-selection
+    // policy lives in defaultEntityChoice: an identity-rung top
+    // candidate (what the registry would merge anyway) or a single
+    // near-name candidate pre-selects "use existing"; multiple
+    // near-name candidates default to "create new" — the human picks.
+    async function refreshEntityMatches(row) {
+        row.entityMatches = await rankEntityCandidates(
+            { name: String(row.prop.name || ''), type: row.prop.entity_type }, recordsById);
+        row.entityChoice = defaultEntityChoice(row.entityMatches);
     }
+    // The ladder's id rung hashes asynchronously — resolve every entity
+    // row before the first render so pre-selections never pop in late.
+    await Promise.all(rows.filter((r) => r.kind === 'entity').map(refreshEntityMatches));
     const rowByPid = new Map(rows.map((r) => [r.pid, r]));
 
     return new Promise((resolve) => {
@@ -258,12 +263,16 @@ export async function openLlmReview(opts) {
                     const mention = quoteHtml(p.mention, { max: 80 });
                     let dedupe = '';
                     if (row.status === 'pending' && row.entityMatches && row.entityMatches.length) {
+                        // Ranked ladder candidates (UA.2): rung wording
+                        // rides each option's tooltip; the chip reflects
+                        // the TOP rung so an identity match reads
+                        // differently from a near-name guess.
                         const options = [
                             `<option value="new" ${row.entityChoice === 'new' ? 'selected' : ''}>Create new entity</option>`
                         ].concat(row.entityMatches.map((e) =>
-                            `<option value="${escapeHtml(e.id)}" ${row.entityChoice === e.id ? 'selected' : ''}>Use existing: ${escapeHtml(e.name)}</option>`
+                            `<option value="${escapeHtml(e.id)}" ${row.entityChoice === e.id ? 'selected' : ''} title="${escapeHtml(rungLabel(e.rung))}">Use existing: ${escapeHtml(e.name)}</option>`
                         )).join('');
-                        dedupe = `<div class="xr-llm__dedupe"><span class="xr-llm__anchor xr-llm__anchor--warn" title="An entity with a token-matching name of the same type already exists — link it instead of minting a duplicate">≈ may already exist</span> <select data-act="entity-choice">${options}</select></div>`;
+                        dedupe = `<div class="xr-llm__dedupe"><span class="xr-llm__anchor xr-llm__anchor--warn" title="${escapeHtml(rungLabel(row.entityMatches[0].rung))} — link it instead of minting a duplicate">≈ may already exist</span> <select data-act="entity-choice">${options}</select></div>`;
                     }
                     return base + mention + dedupe;
                 }
@@ -453,7 +462,7 @@ export async function openLlmReview(opts) {
                     // record so rows referencing it re-validate.
                     if (row.ref) {
                         const existing = choice.value !== 'new'
-                            ? registry.find((e) => e.id === choice.value) : null;
+                            ? recordsById[choice.value] : null;
                         ctx.entityTypeByRef[row.ref] = existing ? existing.type : (row.prop.entity_type || null);
                         render();
                     }
@@ -461,7 +470,7 @@ export async function openLlmReview(opts) {
             });
         }
 
-        function applyEdit(row, el) {
+        async function applyEdit(row, el) {
             const fields = EDIT_FIELDS[row.kind] || [];
             const changed = new Set();
             for (const f of fields) {
@@ -503,9 +512,10 @@ export async function openLlmReview(opts) {
             const quoteOnly = changed.size > 0
                 && [...changed].every((k) => k === 'quote' || k === 'anchors' || k === 'mention');
             if (changed.size > 0 && !quoteOnly) row.suggestedBy = 'user';
-            // Name/type edits change what the proposal duplicates.
+            // Name/type edits change what the proposal duplicates —
+            // re-run the ladder (async: the identity rung hashes).
             if (row.kind === 'entity' && (changed.has('name') || changed.has('entity_type'))) {
-                refreshEntityMatches(row);
+                await refreshEntityMatches(row);
             }
             row.editing = false;
             row.message = quoteOnly ? 'Quote re-checked against the article.' : '';
