@@ -1,4 +1,5 @@
-// Auto pre-analyze on capture — Phase 28 (flag `autoPreAnalyze`).
+// Auto pre-analyze riding the Suggest click — Phase 28, retriggered
+// 2026-08-11 (flag `autoPreAnalyze`).
 //
 // The load-bearing pin here is IDENTITY: the auto path must produce a
 // map request — and therefore a corpus-extracts cache key — that is
@@ -7,9 +8,17 @@
 // drift silently orphans every prepaid extract: Analyze would find no
 // hit and quietly pay again, which is precisely the failure mode this
 // feature exists to prevent.
+//
+// The second pin is the TRIGGER SITE: the prepay fires from the
+// reader's Suggest click (a per-article spend the user just
+// authorized), never from the reader-open pipeline — the archive-save
+// tail runs on EVERY writable open (portal case-view opens included),
+// so wiring the prepay there turned a per-capture authorization into a
+// per-open spend (JOURNAL 2026-08-11).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 // case-dossier pulls the model modules, which read chrome.storage at
 // module load — stub before importing (the standard LLM-test idiom).
@@ -17,7 +26,7 @@ globalThis.chrome = globalThis.chrome || {
     storage: { local: { get(_k, cb) { cb({}); }, set(_o, cb) { cb && cb(); }, remove(_k, cb) { cb && cb(); } } }
 };
 
-const { autoPreAnalyzeCapture } = await import('../src/shared/auto-preanalyze.js');
+const { autoPreAnalyzeArticle } = await import('../src/shared/auto-preanalyze.js');
 const { caseScopeQuestion } = await import('../src/shared/case-dossier.js');
 const { buildMemberUnits, corpusMapRequest, corpusExtractKey } =
     await import('../src/shared/case-synthesis.js');
@@ -77,7 +86,7 @@ test('autoPreAnalyze defaults OFF — a standing spend authorization must be opt
 
 test('flag off → status "off" with NO dossier load and NO call', async () => {
     let collected = 0, sent = 0;
-    const out = await autoPreAnalyzeCapture(
+    const out = await autoPreAnalyzeArticle(
         { caseEntityId: CASE, url: URL_A, sendMessage: async () => { sent++; return { ok: true }; } },
         io({ isEnabled: () => false, collectData: async () => { collected++; return fixtureData(); } }));
     assert.equal(out.status, 'off');
@@ -87,7 +96,7 @@ test('flag off → status "off" with NO dossier load and NO call', async () => {
 
 test('caseSynthesis/llmAssist off → "gated" before the dossier load', async () => {
     let collected = 0;
-    const out = await autoPreAnalyzeCapture(
+    const out = await autoPreAnalyzeArticle(
         { caseEntityId: CASE, url: URL_A, sendMessage: async () => ({ ok: true }) },
         io({ isEnabled: (f) => f === 'autoPreAnalyze',
              collectData: async () => { collected++; return fixtureData(); } }));
@@ -96,7 +105,7 @@ test('caseSynthesis/llmAssist off → "gated" before the dossier load', async ()
 });
 
 test('missing case or url → "no-case"', async () => {
-    const out = await autoPreAnalyzeCapture(
+    const out = await autoPreAnalyzeArticle(
         { caseEntityId: null, url: URL_A, sendMessage: async () => ({ ok: true }) }, io());
     assert.equal(out.status, 'no-case');
 });
@@ -115,7 +124,7 @@ test('the auto request and cache key are BYTE-IDENTICAL to the Analyze path\'s',
     const analyzeKey = await corpusExtractKey(analyzeReq);
 
     let sentReq = null, saved = null;
-    const out = await autoPreAnalyzeCapture(
+    const out = await autoPreAnalyzeArticle(
         { caseEntityId: CASE, url: URL_A,
           sendMessage: async (msg) => {
               assert.equal(msg.type, 'xray:llm:corpus-map');
@@ -139,7 +148,7 @@ test('the auto request and cache key are BYTE-IDENTICAL to the Analyze path\'s',
 
 test('a fresh run folds the extract into the durable record (MA.1)', async () => {
     let folded = null;
-    const out = await autoPreAnalyzeCapture(
+    const out = await autoPreAnalyzeArticle(
         { caseEntityId: CASE, url: URL_A,
           sendMessage: async () => ({ ok: true, extract: VALID_EXTRACT, model: 'test-model' }) },
         io({ record: async (r) => { folded = r; return { status: 'saved' }; } }));
@@ -153,7 +162,7 @@ test('a fresh run folds the extract into the durable record (MA.1)', async () =>
 
 test('a CACHED hit still folds — hit-folding backfills durable records (MA.1)', async () => {
     let folded = null;
-    const out = await autoPreAnalyzeCapture(
+    const out = await autoPreAnalyzeArticle(
         { caseEntityId: CASE, url: URL_A, sendMessage: async () => ({ ok: true }) },
         io({ getExtract: async () => ({ extract: VALID_EXTRACT, model: 'cached-model' }),
              record: async (r) => { folded = r; return { status: 'unchanged' }; } }));
@@ -163,7 +172,7 @@ test('a CACHED hit still folds — hit-folding backfills durable records (MA.1)'
 });
 
 test('a fold failure never disturbs the capture — status is unchanged', async () => {
-    const out = await autoPreAnalyzeCapture(
+    const out = await autoPreAnalyzeArticle(
         { caseEntityId: CASE, url: URL_A,
           sendMessage: async () => ({ ok: true, extract: VALID_EXTRACT, model: 'm' }) },
         io({ record: async () => { throw new Error('idb down'); } }));
@@ -174,7 +183,7 @@ test('a fold failure never disturbs the capture — status is unchanged', async 
 
 test('a VALID cached extract short-circuits: status "cached", no LLM call', async () => {
     let sent = 0;
-    const out = await autoPreAnalyzeCapture(
+    const out = await autoPreAnalyzeArticle(
         { caseEntityId: CASE, url: URL_A, sendMessage: async () => { sent++; return { ok: true }; } },
         io({ getExtract: async () => ({ extract: VALID_EXTRACT, model: 'm' }) }));
     assert.equal(out.status, 'cached');
@@ -183,7 +192,7 @@ test('a VALID cached extract short-circuits: status "cached", no LLM call', asyn
 
 test('an INVALID cached extract does not count as a hit — the pass still runs', async () => {
     let sent = 0;
-    const out = await autoPreAnalyzeCapture(
+    const out = await autoPreAnalyzeArticle(
         { caseEntityId: CASE, url: URL_A,
           sendMessage: async () => { sent++; return { ok: true, extract: VALID_EXTRACT, model: 'm' }; } },
         io({ getExtract: async () => ({ extract: { not: 'an extract' }, model: 'm' }) }));
@@ -195,13 +204,13 @@ test('an INVALID cached extract does not count as a hit — the pass still runs'
 
 test('a failed or invalid map response → "failed", NOTHING saved, never a throw', async () => {
     let saved = 0;
-    const failed = await autoPreAnalyzeCapture(
+    const failed = await autoPreAnalyzeArticle(
         { caseEntityId: CASE, url: URL_A, sendMessage: async () => ({ ok: false, error: 'boom' }) },
         io({ saveExtract: async () => { saved++; } }));
     assert.equal(failed.status, 'failed');
     assert.equal(failed.error, 'boom');
 
-    const invalid = await autoPreAnalyzeCapture(
+    const invalid = await autoPreAnalyzeArticle(
         { caseEntityId: CASE, url: URL_A,
           sendMessage: async () => ({ ok: true, extract: { wrong: true }, model: 'm' }) },
         io({ saveExtract: async () => { saved++; } }));
@@ -212,7 +221,7 @@ test('a failed or invalid map response → "failed", NOTHING saved, never a thro
 
 test('a URL that is not a member of the case → "no-member" with no call', async () => {
     let sent = 0;
-    const out = await autoPreAnalyzeCapture(
+    const out = await autoPreAnalyzeArticle(
         { caseEntityId: CASE, url: 'https://elsewhere.com/x',
           sendMessage: async () => { sent++; return { ok: true }; } },
         io());
@@ -228,4 +237,26 @@ test('caseScopeQuestion: trims the authored field and defaults to "" — the ONE
     delete noField.entitiesById[CASE].authored_fields;
     assert.equal(caseScopeQuestion(noField), '');
     assert.equal(caseScopeQuestion({ case: { id: 'missing' }, entitiesById: {} }), '');
+});
+
+// ---- the trigger-site pin (2026-08-11) -------------------------------------
+
+test('the prepay rides the Suggest click, never the reader-open pipeline', async () => {
+    const src = await readFile(new URL('../src/reader/index.js', import.meta.url), 'utf8');
+    // Exactly one invocation beside the definition: the Suggest path's.
+    const calls = (src.match(/maybeAutoPreAnalyze\(/g) || []).length;
+    assert.equal(calls, 2, 'one definition + one call site — a second call site '
+        + 'means the prepay grew a trigger the Suggest click never authorized');
+    const suggestFn = src.slice(
+        src.indexOf('async function runSuggestPass'),
+        src.indexOf('function reviewSuggestions'));
+    assert.ok(suggestFn.includes('maybeAutoPreAnalyze()'),
+        'the one call site lives in runSuggestPass — the click IS the spend consent');
+    // The archive-save tail runs on EVERY writable reader open (portal
+    // case-view opens included) — the prepay must never fire from it.
+    const saveTail = src.slice(
+        src.indexOf('ArchiveCache.saveArticle({'),
+        src.indexOf('checkArchiveAvailability'));
+    assert.ok(!saveTail.includes('maybeAutoPreAnalyze'),
+        'the reader-open save pipeline must not trigger the prepay (JOURNAL 2026-08-11)');
 });

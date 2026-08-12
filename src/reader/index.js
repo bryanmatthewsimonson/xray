@@ -93,7 +93,7 @@ import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { resolveActiveCaseRef, describeActiveContext, memberUrlSets } from '../shared/case-membership.js';
 import { gatherCorpusSources, corpusSourcesChars } from '../shared/audit/corpus-sources.js';
-import { autoPreAnalyzeCapture } from '../shared/auto-preanalyze.js';
+import { autoPreAnalyzeArticle } from '../shared/auto-preanalyze.js';
 import { Utils } from '../shared/utils.js';
 import {
     buildMentionNoteEvent, selectMentionQuote, mentionKey,
@@ -437,11 +437,9 @@ async function adoptArticle(article, stored) {
             // this article carries it and no archive-side write can be
             // clobbered by a reader-side save. Same ref shape as the
             // case-membership writer; idempotent on re-opens.
-            let caseBinding = null;
             try {
                 const binding = await resolveActiveCaseRef();
                 if (binding) {
-                    caseBinding = binding;
                     if (!Array.isArray(state.article.entities)) state.article.entities = [];
                     if (!state.article.entities.some((e) => e && e.entity_id === binding.ref.entity_id)) {
                         state.article.entities.push(binding.ref);
@@ -461,12 +459,6 @@ async function adoptArticle(article, stored) {
                     ? { ...state.article, _articleHash: state.articleHash }
                     : state.article,
                 source: 'capture'
-            }).then(() => {
-                // Phase 28 — opt-in per-capture map prepay. Fires only
-                // AFTER the archive save (the member unit reads the
-                // archived record) and only into a bound case; every
-                // gate and outcome is handled inside.
-                maybeAutoPreAnalyze(caseBinding);
             }).catch((err) => console.warn('[X-Ray Reader] archive cache save failed:', err));
         })();
     } else if (stored && stored.readOnly && state.article && state.article._articleHash) {
@@ -492,16 +484,23 @@ async function adoptArticle(article, stored) {
         console.warn('[X-Ray Reader] archive check failed:', err)), 100);
 }
 
-// Phase 28 — opt-in per-capture map prepay (flag `autoPreAnalyze`,
-// default off). Fire-and-forget after the capture's archive save: run
-// the ONE synthesis map call for this member so the case's next
-// Analyze finds its extract cached. Quiet by design — skips and
-// failures are log-only and never disturb the capture flow; an actual
-// SPEND gets a small toast so per-capture cost stays visible.
-async function maybeAutoPreAnalyze(binding) {
-    if (!binding || state.readOnlyOpen || !state.article || !state.article.url) return;
+// Phase 28 — opt-in map prepay riding the Suggest click (flag
+// `autoPreAnalyze`, default off). The Suggest button is the spend
+// consent: the click that authorizes the suggest pass also authorizes
+// the ONE synthesis map call for this member, so the case's next
+// Analyze finds its extract cached. This used to fire from the
+// archive-save tail instead, which runs on EVERY writable reader open
+// (the portal's case-view opens land in the same pipeline) — a
+// per-open spend nobody authorized (JOURNAL 2026-08-11); do not move
+// it back there. Quiet by design — skips and failures are log-only
+// and never disturb the suggest flow; an actual SPEND gets a small
+// toast so the added cost stays visible.
+async function maybeAutoPreAnalyze() {
+    if (state.readOnlyOpen || !state.article || !state.article.url) return;
     try {
-        const out = await autoPreAnalyzeCapture({
+        const binding = await resolveActiveCaseRef();
+        if (!binding) return;
+        const out = await autoPreAnalyzeArticle({
             caseEntityId: binding.caseId,
             url: state.article.url,
             sendMessage: (msg) => browserApi.runtime.sendMessage(msg)
@@ -3733,6 +3732,13 @@ async function runSuggestPass() {
         toast('Suggest failed: ' + ((resp && resp.error) || 'unknown error'), 'error', 6000);
         return;
     }
+    // The opt-in map prepay rides THIS click (every gate — flag,
+    // synthesis, case binding, cache — is handled inside). Fires even
+    // when the pass returned zero proposals: the suggest spend
+    // happened, and the prepaid extract is what makes the case's next
+    // Analyze reduce-only. Fire-and-forget — the review modal must
+    // never wait on it.
+    maybeAutoPreAnalyze();
     if (!Array.isArray(resp.proposals) || resp.proposals.length === 0) {
         toast('The model returned no suggestions for this article.', 'success', 4000);
         return;
