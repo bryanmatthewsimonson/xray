@@ -29,6 +29,15 @@
 
 import { CLAIM_RELATIONSHIPS } from './assessment-taxonomy.js';
 
+// The entity types the MAP may propose (corpus-v9): everything but
+// `case` — the researcher's workspace is never named inside an article
+// (CW.1; the same subset the suggest tool offers). INLINED rather than
+// imported: entity-model.js pulls the chrome.storage bridge at module
+// load, and this file's purity contract ("no chrome") is load-bearing
+// for its consumers and tests. Drift-guarded — a test pins this enum
+// to ENTITY_TYPES minus `case`.
+const MAP_ENTITY_TYPES = Object.freeze(['person', 'organization', 'place', 'thing']);
+
 // DISCIPLINE (the 20.6 lesson, institutionalized 27 S.1): a prompt /
 // tool / digest change must bump a version so stored briefs correctly go
 // stale. The version is SPLIT so reduce-side iteration does not throw
@@ -84,8 +93,19 @@ import { CLAIM_RELATIONSHIPS } from './assessment-taxonomy.js';
 // guard test pins them — so pay-once economics hold; the version bump
 // is the output-contract change. One-time cost: every corpus-v7
 // cached extract is orphaned (knowledge survives via MA.1, as ever).
-export const MAP_PROMPT_VERSION = 'corpus-v8';
-export const CORPUS_PROMPT_VERSION = 'corpus-v8';
+// corpus-v9 (UA.2, one call): ENTITIES join the extract — surface
+// name + type + verbatim mention, with native claim→entity refs
+// (`about` on each atom) — so the ONE reading serves the whole
+// Suggest surface and the separate entities call retires. Naming
+// consistency moves to the ACCEPT-TIME resolution ladder
+// (shared/entity-resolution.js): the registry vocabulary never rides
+// this prompt — it would poison the content-only cache key — and the
+// map input/key shape stay UNCHANGED (same guard tests). Entities
+// ride the cached extract and the review modal ONLY; the durable
+// layer keeps claim-shaped atoms (MA.4 scope, guard rail 4). One-time
+// cost: every corpus-v8 cached extract is orphaned (MA.1, as ever).
+export const MAP_PROMPT_VERSION = 'corpus-v9';
+export const CORPUS_PROMPT_VERSION = 'corpus-v9';
 export const MAP_TOOL_NAME = 'emit_corpus_extract';
 export const REDUCE_TOOL_NAME = 'emit_case_brief';
 export const HYPOTHESIS_EDGE_PROMPT_VERSION = 'hyp-edges-v1';
@@ -142,9 +162,29 @@ export function buildMapTool() {
                             quote: { type: 'string', description: 'ONE contiguous VERBATIM span copied from THIS article, character for character. Machine-checked — an unlocatable quote is dropped.' },
                             text: { type: 'string', description: 'The atomized assertion in clear, standalone words — your paraphrase, not a copy of the quote.' },
                             load_bearing: { type: 'boolean', description: 'True ONLY if the article\'s position rests on this assertion. Set it on every atom (false for the rest).' },
-                            why_load_bearing: { type: 'string', description: 'Only when load_bearing: why this assertion carries weight for the position.' }
+                            why_load_bearing: { type: 'string', description: 'Only when load_bearing: why this assertion carries weight for the position.' },
+                            about: {
+                                type: 'array', items: { type: 'string' },
+                                description: 'Refs ("E1") of the entities this assertion concerns, from your entities list.'
+                            }
                         },
                         required: ['quote', 'text', 'load_bearing']
+                    }
+                },
+                entities: {
+                    type: 'array',
+                    description: 'The named entities this article mentions — people, organizations, '
+                        + 'places, things. Reuse the same ref for the same real-world entity across '
+                        + 'assertions.',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            ref: { type: 'string', description: 'A short local id you assign ("E1", "E2", …) so assertions can reference it via about.' },
+                            name: { type: 'string', description: 'Display name. May add disambiguation beyond the article\'s wording ("Elena Vargas", not "the mayor").' },
+                            type: { type: 'string', enum: [...MAP_ENTITY_TYPES], description: 'Papers, lawsuits, books, products, reports, and named studies/cohorts are "thing". If unsure, use "thing".' },
+                            mention: { type: 'string', description: 'REQUIRED: ONE contiguous VERBATIM span where the article names this entity, copied character for character. Machine-checked — an entity whose mention cannot be located is dropped.' }
+                        },
+                        required: ['ref', 'name', 'type', 'mention']
                     }
                 },
                 source_references: {
@@ -180,10 +220,10 @@ export function buildMapSystemPrompt() {
     return [
         'You are analyzing ONE article from an evidence corpus.',
         'Report only what THIS article argues — the position it takes on its own central',
-        'question, EVERY discrete claim it makes (with the load-bearing ones flagged), and',
-        'the outside sources it cites.',
+        'question, EVERY discrete claim it makes (with the load-bearing ones flagged), the',
+        'named entities it mentions, and the outside sources it cites.',
         'RULES:',
-        '- ATOMIZE COMPREHENSIVELY (corpus-v8): key_assertions is every discrete assertion the',
+        '- ATOMIZE COMPREHENSIVELY: key_assertions is every discrete assertion the',
         '  article makes or reports, one atom per claim — a person reviews each as a claim',
         '  proposal. If a conclusion rests on several passages, anchor each passage as its own',
         '  atom rather than stitching quotes together.',
@@ -192,6 +232,13 @@ export function buildMapSystemPrompt() {
         '- Set `load_bearing` on EVERY atom, and set it true ONLY where the article\'s position',
         '  rests on that assertion — give those a short why_load_bearing. Flagging everything',
         '  (or nothing that matters) makes the flag useless downstream.',
+        '- ENTITIES: list the people, organizations, places, and things this article',
+        '  names. `mention` is REQUIRED — the single verbatim span where the text names it; the',
+        '  display name may disambiguate, the mention may not. Reuse one ref ("E1") for one',
+        '  real-world entity, and set each atom\'s `about` to the refs it concerns. A scientific',
+        '  paper, lawsuit, book, study, product, or report is a "thing"; when in doubt, "thing".',
+        '  In X-Ray a "case" names the researcher\'s own workspace, never something an article',
+        '  mentions — it is not in your type list; never propose one.',
         '- Every quote must be ONE contiguous span copied VERBATIM from this article, character',
         '  for character (keep punctuation, capitalization, typos). It is machine-checked; a quote',
         '  that cannot be located in the article is dropped.',

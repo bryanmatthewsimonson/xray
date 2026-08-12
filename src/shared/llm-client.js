@@ -21,9 +21,8 @@ import {
     ANTHROPIC_API_URL, ANTHROPIC_VERSION, resolveModel,
     LLM_KEY_STORAGE, LLM_MODEL_STORAGE, LLM_SUGGEST_KINDS_STORAGE,
     buildSuggestTool, buildSystemPrompt, buildUserPrompt,
-    normalizeSuggestKinds, categoryOfProposalKind, vocabularyFromRegistry
+    normalizeSuggestKinds, categoryOfProposalKind
 } from './llm-prompts.js';
-import { Storage } from './storage.js';
 import {
     AUDIT_TOOL_NAME, STANDING_SINGLE_SHOT_CAVEAT, opinionStandingCaveat, STANDING_OPINION_CAVEAT,
     buildAuditTool, buildAuditSystemPrompt, buildAuditUserPrompt, assembleAudit,
@@ -335,26 +334,17 @@ export async function runSuggestionPass(req = {}) {
         return { ok: true, model: null, proposals: [] };
     }
 
-    // Vocabulary injection (Phase 28): the active workspace's entity
-    // registry rides the prompt as naming vocabulary, so re-mentioned
-    // entities are proposed under their established names and merge on
-    // accept instead of fragmenting. Assembled HERE, not by callers, so
-    // the reader's Suggest button and the import panel's
-    // suggest-after-import share one path. Storage resolves the active
-    // workspace, so under a case-bound workspace this IS the case's
-    // registry — and we read the raw dict rather than
-    // EntityModel.getAll(): the vocabulary needs names, never keypairs.
-    let entityVocabulary = [];
-    try { entityVocabulary = vocabularyFromRegistry(await Storage.get('entities', {})); }
-    catch (_) { entityVocabulary = []; }
-
+    // (The Phase-28 vocabulary injection retired in UA.2 — naming
+    // consistency lives in the accept-time resolution ladder now,
+    // shared/entity-resolution.js, so the registry never rides THIS
+    // prompt. The E2 entity-audit pass still sends the registry
+    // digest — that is its purpose.)
     const model = await readModel();
     const system = buildSystemPrompt({
         tasks: effectiveKinds, url: req.articleUrl || '', title: req.articleTitle || '',
         // 28.3 — the reader resolves the active workspace's case frame
         // and sends it along; absent → the prompt stays frame-free.
         caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '',
-        entityVocabulary,
         suppliedClaims
     });
     const userContent = buildUserPrompt({ articleText, context: req.context || '', claimIndex });
@@ -370,7 +360,7 @@ export async function runSuggestionPass(req = {}) {
         messages: [{ role: 'user', content: userContent }]
     };
 
-    Utils.log('[X-Ray LLM] suggestion pass:', { kinds: effectiveKinds, model, chars: articleText.length, vocab: entityVocabulary.length, suppliedClaims: suppliedClaims ? claimIndex.length : null });
+    Utils.log('[X-Ray LLM] suggestion pass:', { kinds: effectiveKinds, model, chars: articleText.length, suppliedClaims: suppliedClaims ? claimIndex.length : null });
 
     const res = await postMessages(payload, apiKey);
     if (!res.ok) return res;

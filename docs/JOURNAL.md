@@ -19,6 +19,77 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-12 — UA.2: one call (corpus-v9) — entities join the extract, the vocabulary retires, the ladder ships
+
+**Tags:** design
+
+**What shipped.** The One Article Pass slice UA.2: the map extract
+gains `entities` (ref + display name + type + verbatim mention) and
+native per-atom `about` refs (corpus-v9 — an output-contract bump;
+every v8 cached extract orphans, records survive per MA.1). The
+reader's Suggest is now literally ONE call — `ensureArticleExtract`,
+zero on a cache hit — with the separate `xray:llm:suggest` entities
+call gone from the live path (it still serves the import-time batch
+until UA.3). The Phase-28 prompt vocabulary (`SUGGEST_VOCAB_MAX` /
+`vocabularyFromRegistry`) is RETIRED: prompt-time vocabulary would
+poison the content-only cache key, so naming consistency moved to the
+accept-time **resolution ladder** (`shared/entity-resolution.js`).
+(Scope of the retirement: the SUGGEST surface. The E2 entity-audit
+pass still sends the registry digest — reviewing the registry is that
+pass's whole purpose.)
+
+**The ladder, per never-merge (Art. 6 / kickoff rail 3):** identity
+rungs — `exact` (the deterministic id hash the registry would merge
+with anyway) and `alias` (a recorded alias, offered as its canonical
+root) — pre-select "use existing"; near-name rungs only ever rank.
+A lone `token-subset` candidate pre-selects (that IS the pre-UA.2
+findEntityMatches behavior, exactly); a lone `surname-initial`
+candidate deliberately does NOT — it is a NEW rung with no pre-UA.2
+precedent, and "Accept all entities" ratifies pre-selections without
+a per-item click, so an initial-match pre-link would widen the
+auto-link surface past what rail 3 licenses (the adversarial review
+caught the first draft doing exactly that). No numeric score exists
+anywhere on a candidate (guard-tested); rungs are labels.
+
+**Second-guessable calls, on the record:**
+
+- **Nickname table skipped** (kickoff open question 3): a miss costs
+  one human click and dedupe-review backstops. Revisit only if the
+  UA.2 walk's fragment counts demand it.
+- **Entities-only configs now read the canonical 60k unit** (they
+  used to send the rendered 120k body to the suggest pass) — the
+  same bound-disclosure toast covers them.
+- **The modal's multi-candidate default stays "create new"**: the
+  kickoff's "pre-selected link-to-existing default" is implemented
+  for identity rungs and single candidates; a default guess among
+  MULTIPLE plausible roots is exactly where silent mis-linking would
+  creep in, so the human picks from the ranked list.
+- **`MAP_ENTITY_TYPES` is inlined in corpus-prompts.js** rather than
+  imported: entity-model pulls the chrome.storage bridge at module
+  load and corpus-prompts' "no chrome" purity is load-bearing. A
+  drift guard pins the inline enum to `ENTITY_TYPES` minus `case`.
+- **The UA.1 slim-mode machinery stays** (claimIndex / claim_refs /
+  supplied-claims rules): it is the kill-revert surface if UA.2's
+  fragment measurement fails, and UA.3 sweeps it if UA.2 survives.
+
+**Review-round catches, fixed in the same PR:** (1) the v9
+decorations (entities, about) now validate against a sanitized VIEW —
+one nameless entity row or a wrong-typed `about` prunes instead of
+voiding the whole paid extract (the consumers were already tolerant;
+the validator contradicted them); (2) a NON-EMPTY entities list where
+no row carries a name + mention is refused as malformed rather than
+cached forever entity-blind (the load_bearing refusal's sibling);
+(3) the lone-surname-initial pre-select above; (4) the live prompt
+text carries no "(corpus-vN)" labels (they go stale each bump, and
+editing them later IS a prompt change — pinned).
+
+**Measured at the walk (§5/§6):** re-mention resolution counts and
+new-fragment counts vs the vocabulary era; if meaningfully worse,
+revert to the vocabulary-aware entities call and stop at UA.1
+permanently.
+
+---
+
 ## 2026-08-12 — UA.1: one reading per article (corpus-v8), and is_key loses its article-pass writer
 
 **Tags:** design

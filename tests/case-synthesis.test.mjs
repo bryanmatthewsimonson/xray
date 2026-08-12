@@ -565,3 +565,47 @@ test('case-synthesis: foldMemberAliases collapses same-hash captures to one entr
     // hashless/null units are skipped, never grouped together.
     assert.equal(CS.foldMemberAliases([{ url: 'https://x.example' }, null]).size, 0);
 });
+
+// ---- UA.2 review round: v9 decorations are lenient; systematic blindness refuses ----
+
+test('v9 decorations: one malformed entity row or a wrong-typed about NEVER voids a paid extract', () => {
+    const extract = {
+        position: { summary: 's' },
+        key_assertions: [
+            { quote: 'q1', text: 't1', load_bearing: true, about: 'not-an-array' },
+            { quote: 'q2', text: 't2', load_bearing: false, about: ['E1', 42] }
+        ],
+        entities: [
+            { ref: 'E1', name: 'Alice', type: 'person', mention: 'Alice' },
+            { name: '', type: 'person', mention: 'x' },     // nameless → pruned, not fatal
+            null,                                            // junk row → pruned
+            'not-an-object'
+        ]
+    };
+    assert.equal(CS.validateCorpusExtract(extract).ok, true,
+        'decorations prune; the core contract alone decides validity');
+    // Even entities-as-non-array degrades to "no entities", not failure.
+    assert.equal(CS.validateCorpusExtract({
+        position: { summary: 's' }, key_assertions: [], entities: 'garbage'
+    }).ok, true);
+});
+
+test('v9 blindness refusal: a non-empty entities list with NO usable row is malformed (never cached)', () => {
+    // All rows mention-less → Suggest would be permanently entity-blind
+    // for this article behind a forever cache hit. Refuse; re-run.
+    const blind = { position: { summary: 's' }, key_assertions: [], entities: [
+        { ref: 'E1', name: 'Alice', type: 'person', mention: '  ' },
+        { ref: 'E2', name: 'Bob', type: 'person' }
+    ] };
+    const v = CS.validateCorpusExtract(blind);
+    assert.equal(v.ok, false);
+    assert.match(v.errors.join(' '), /entities/);
+    // One usable row among bad ones → valid (the bad ones prune).
+    const mixed = { position: { summary: 's' }, key_assertions: [], entities: [
+        { ref: 'E1', name: 'Alice', type: 'person', mention: 'Alice' },
+        { ref: 'E2', name: 'Bob', type: 'person' }
+    ] };
+    assert.equal(CS.validateCorpusExtract(mixed).ok, true);
+    // An EMPTY list stays valid — an article can name nothing.
+    assert.equal(CS.validateCorpusExtract({ position: { summary: 's' }, entities: [] }).ok, true);
+});

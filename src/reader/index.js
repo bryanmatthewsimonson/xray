@@ -96,7 +96,7 @@ import { gatherCorpusSources, corpusSourcesChars } from '../shared/audit/corpus-
 import { autoPreAnalyzeArticle } from '../shared/auto-preanalyze.js';
 import {
     ensureArticleExtract, articleSourceForExtract, claimProposalsFromExtract,
-    claimIndexForSuggest, mergeSuggestProposals
+    entityProposalsFromExtract
 } from '../shared/article-pass.js';
 import { normalizeSuggestKinds, LLM_SUGGEST_KINDS_STORAGE } from '../shared/llm-prompts.js';
 import { Utils } from '../shared/utils.js';
@@ -3732,90 +3732,61 @@ async function runSuggestPass() {
 
     const original = btn.textContent;
     btn.disabled = true;
-    let resp = null;
-    let claimProposals = [];
+    let proposals = [];
     let usedExtract = false;
     let extractModel = '';
     let canonicalText = '';
     try {
-        // 28.3 — the active workspace's case frames the extraction.
+        // 28.3 — the active workspace's case frames the fold provenance.
         const binding = await resolveActiveCaseRef().catch(() => null);
 
-        // UA.1 — the One Article Pass: the CLAIM half comes from THE
-        // article extract (cache-first fetch-or-run of the corpus map —
-        // one reading per article, ever), never from a second LLM
-        // reading. On an already-analyzed article this half is free.
-        if (kinds.includes('claims')) {
-            btn.textContent = '✨ Reading…';
-            // The ARCHIVE ROW's article feeds the unit whenever one
-            // exists — the same object buildMemberUnits assembles from —
-            // so the cache key cannot fork from the Analyze path's on
-            // markdown-canonical captures (see articleSourceForExtract).
-            const src = await articleSourceForExtract({
-                url: state.article.url || '',
-                fallbackArticle: hashableArticle(state.article),
-                fallbackHash: claimArticleHash(),
-                fallbackTitle: state.article.title || ''
-            });
-            const out = await ensureArticleExtract({
-                article: src.article,
-                articleHash: src.articleHash,
-                url: state.article.url || '',
-                title: src.title,
-                frame: binding
-                    ? { caseName: binding.caseName || '', scopeQuestion: binding.scopeQuestion || '' }
-                    : {},
-                sendMessage: (msg) => browserApi.runtime.sendMessage(msg)
-            });
-            if (out.status !== 'cached' && out.status !== 'ran') {
-                toast('Suggest failed: ' + (out.error || 'could not analyze the article'), 'error', 6000);
-                return;
-            }
-            usedExtract = true;
-            extractModel = out.model || '';
-            // The substrate the extract READ — the slim call and the
-            // review modal both ground against THIS text, so extract
-            // quotes (canonical markdown, links/emphasis included)
-            // anchor in the text they were copied from instead of
-            // failing against the rendered DOM.
-            canonicalText = out.text || '';
-            claimProposals = claimProposalsFromExtract(out.extract);
-            // Honest coverage: the article pass reads the map's 60k-char
-            // bound (the old suggest pass read 120k) — on a very long
-            // capture the claim half covers the head only. Disclosed,
-            // never silent.
-            if (out.truncated) {
-                toast('Long capture: claim suggestions read the first 60k characters.', 'info', 4000);
-            }
+        // UA.2 — ONE call: the article extract (cache-first fetch-or-run
+        // of the corpus map, corpus-v9) carries claims AND entities with
+        // native about-links, so the whole Suggest surface is one
+        // reading — free on an already-analyzed article. The enabled
+        // kinds gate which proposals derive, never what is read.
+        btn.textContent = '✨ Reading…';
+        // The ARCHIVE ROW's article feeds the unit whenever one exists —
+        // the same object buildMemberUnits assembles from — so the cache
+        // key cannot fork from the Analyze path's on markdown-canonical
+        // captures (see articleSourceForExtract).
+        const src = await articleSourceForExtract({
+            url: state.article.url || '',
+            fallbackArticle: hashableArticle(state.article),
+            fallbackHash: claimArticleHash(),
+            fallbackTitle: state.article.title || ''
+        });
+        const out = await ensureArticleExtract({
+            article: src.article,
+            articleHash: src.articleHash,
+            url: state.article.url || '',
+            title: src.title,
+            frame: binding
+                ? { caseName: binding.caseName || '', scopeQuestion: binding.scopeQuestion || '' }
+                : {},
+            sendMessage: (msg) => browserApi.runtime.sendMessage(msg)
+        });
+        if (out.status !== 'cached' && out.status !== 'ran') {
+            toast('Suggest failed: ' + (out.error || 'could not analyze the article'), 'error', 6000);
+            return;
         }
-
-        // The remaining LLM call: entities + claim→entity links (the
-        // extract's claim index rides the request), or — with claims
-        // disabled — exactly the pre-UA.1 pass. In unified mode the
-        // call reads the SAME canonical text the extract read (one
-        // substrate end to end); the legacy path keeps the rendered
-        // body it always sent.
-        if (kinds.includes('entities')) {
-            btn.textContent = '✨ Thinking…';
-            try {
-                resp = await browserApi.runtime.sendMessage({
-                    type: 'xray:llm:suggest',
-                    request: {
-                        articleText: usedExtract && canonicalText ? canonicalText : articleText,
-                        articleUrl: state.article.url || '',
-                        articleTitle: state.article.title || '',
-                        caseName: binding ? binding.caseName : '',
-                        scopeQuestion: binding ? binding.scopeQuestion : '',
-                        ...(usedExtract ? { claimIndex: claimIndexForSuggest(claimProposals) } : {})
-                    }
-                });
-            } catch (err) {
-                resp = { ok: false, error: (err && err.message) || String(err) };
-            }
-            if (!resp || !resp.ok) {
-                toast('Suggest failed: ' + ((resp && resp.error) || 'unknown error'), 'error', 6000);
-                return;
-            }
+        usedExtract = true;
+        extractModel = out.model || '';
+        // The substrate the extract READ — the review modal grounds
+        // against THIS text, so quotes and mentions (canonical
+        // markdown, links/emphasis included) anchor in the text they
+        // were copied from instead of failing against the rendered DOM.
+        canonicalText = out.text || '';
+        proposals = [
+            ...(kinds.includes('entities') ? entityProposalsFromExtract(out.extract) : []),
+            ...(kinds.includes('claims') ? claimProposalsFromExtract(out.extract) : [])
+        ];
+        // Honest coverage: the article pass reads the map's 60k-char
+        // bound (the old suggest pass read 120k) — on a very long
+        // capture the pass covers the head only. Disclosed, never
+        // silent.
+        if (out.truncated) {
+            toast('Long capture: suggestions read the first 60k characters.', 'info', 4000);
         }
     } catch (err) {
         // Belt over the per-call braces: NOTHING in this flow may
@@ -3828,20 +3799,19 @@ async function runSuggestPass() {
         btn.disabled = false;
     }
 
-    // The opt-in map prepay (flag `autoPreAnalyze`) still rides the
-    // click for configs whose unified path did NOT run the extract
-    // (claims disabled). When it did, the extract above IS the prepay —
-    // rerunning would only re-walk the cache. Fire-and-forget — the
-    // review modal must never wait on it.
+    // The opt-in map prepay (flag `autoPreAnalyze`) predates the
+    // unified pass; with the extract now running on EVERY Suggest
+    // click this is unreachable, and the flag retires in UA.3. Kept
+    // for the interim so a future kinds-gating change cannot silently
+    // drop the prepay behavior.
     if (!usedExtract) maybeAutoPreAnalyze();
 
-    const proposals = mergeSuggestProposals((resp && resp.proposals) || [], claimProposals);
     if (proposals.length === 0) {
         toast('The model returned no suggestions for this article.', 'success', 4000);
         return;
     }
-    await reviewSuggestions(proposals, (resp && resp.model) || extractModel || 'unknown',
-        usedExtract && canonicalText ? { groundingText: canonicalText } : {});
+    await reviewSuggestions(proposals, extractModel || 'unknown',
+        canonicalText ? { groundingText: canonicalText } : {});
 }
 
 /**

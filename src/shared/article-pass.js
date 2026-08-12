@@ -157,6 +157,11 @@ export async function ensureArticleExtract({ article, articleHash = null, url = 
  */
 export function claimProposalsFromExtract(extract) {
     const atoms = (extract && extract.key_assertions) || [];
+    // Refs of entities the extract actually proposes — an atom's
+    // `about` may only point at those (an unknown ref would dangle in
+    // the modal and silently drop at accept; filter it here instead).
+    const knownRefs = new Set(((extract && extract.entities) || [])
+        .map((e) => e && e.ref).filter(Boolean));
     const proposals = [];
     atoms.forEach((a, i) => {
         const quote = (a && typeof a.quote === 'string') ? a.quote.trim() : '';
@@ -170,9 +175,40 @@ export function claimProposalsFromExtract(extract) {
             load_bearing: !!(a && a.load_bearing === true),
             why_load_bearing: (a && a.load_bearing === true && typeof a.why_load_bearing === 'string')
                 ? a.why_load_bearing : '',
+            // corpus-v9: native claim→entity refs from the one reading.
+            about: (Array.isArray(a && a.about) ? a.about : [])
+                .map((r) => String(r)).filter((r) => knownRefs.has(r)),
             from_extract: true
         });
     });
+    return proposals;
+}
+
+/**
+ * The extract's entities as review-modal proposals (corpus-v9 / UA.2)
+ * — the same shape the suggest pass's kind='entity' proposals carried,
+ * so the modal, its mention-grounding firewall, the ladder's
+ * link-or-create affordance, and the accept path need no new branch.
+ * Entries without a mention are dropped, like quote-less atoms: there
+ * is nothing to ground, so nothing could ever be accepted. The model's
+ * refs ride through verbatim (the atoms' `about` points at them).
+ */
+export function entityProposalsFromExtract(extract) {
+    const rows = (extract && extract.entities) || [];
+    const proposals = [];
+    for (const e of rows) {
+        const name = (e && typeof e.name === 'string') ? e.name.trim() : '';
+        const mention = (e && typeof e.mention === 'string') ? e.mention.trim() : '';
+        if (!name || !mention) continue;
+        proposals.push({
+            kind: 'entity',
+            ref: (e.ref && typeof e.ref === 'string') ? e.ref : '',
+            name,
+            entity_type: (typeof e.type === 'string') ? e.type : '',
+            mention,
+            from_extract: true
+        });
+    }
     return proposals;
 }
 
