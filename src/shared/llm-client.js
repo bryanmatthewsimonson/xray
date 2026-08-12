@@ -336,8 +336,9 @@ export async function runSuggestionPass(req = {}) {
 
     // (The Phase-28 vocabulary injection retired in UA.2 — naming
     // consistency lives in the accept-time resolution ladder now,
-    // shared/entity-resolution.js, so the registry never rides a
-    // prompt.)
+    // shared/entity-resolution.js, so the registry never rides THIS
+    // prompt. The E2 entity-audit pass still sends the registry
+    // digest — that is its purpose.)
     const model = await readModel();
     const system = buildSystemPrompt({
         tasks: effectiveKinds, url: req.articleUrl || '', title: req.articleTitle || '',

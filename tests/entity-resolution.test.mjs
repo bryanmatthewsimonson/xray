@@ -128,3 +128,38 @@ test('degenerate inputs are calm; every rung has human wording', async () => {
         assert.ok(rungLabel(r).length > 10, `rung ${r} explains itself`);
     }
 });
+
+// ---- UA.2 review round additions -------------------------------------------
+
+test('the candidate cap holds and cross-type canonical roots are dropped', async () => {
+    // Cap: many token matches → at most MAX_ENTITY_CANDIDATES.
+    const rows = [];
+    for (let i = 0; i < MAX_ENTITY_CANDIDATES + 3; i++) {
+        rows.push({ name: `Elena Vargas ${'X'.repeat(i + 1)}`, type: 'person' });
+    }
+    rows.push({ name: 'Elena Vargas', type: 'person' });
+    const reg = await registryOf(rows);
+    const out = await rankEntityCandidates({ name: 'Elena Vargas', type: 'person' }, reg);
+    assert.equal(out.length, MAX_ENTITY_CANDIDATES);
+    assert.equal(out[0].rung, 'exact', 'identity survives the cap at the top');
+
+    // Cross-type root: a hand-built (corrupt) snapshot whose alias chain
+    // crosses types must drop the candidate, never offer a wrong-typed
+    // root. (EntityModel.create forbids this; the ladder still guards.)
+    const aliasId = await generateEntityId('person', 'RFK');
+    const corrupt = {
+        org_root: { id: 'org_root', name: 'RFK Media', type: 'organization' },
+        [aliasId]: { id: aliasId, name: 'RFK', type: 'person', canonical_id: 'org_root' }
+    };
+    const crossed = await rankEntityCandidates({ name: 'RFK', type: 'person' }, corrupt);
+    assert.ok(!crossed.some((c) => c.id === 'org_root'), 'a wrong-typed root is never offered');
+});
+
+test('a lone surname-initial candidate does NOT pre-select (rail 3 — Accept-all must not ratify a new-rung guess)', async () => {
+    const reg = await registryOf([{ name: 'John Smith', type: 'person' }]);
+    const out = await rankEntityCandidates({ name: 'J. Smith', type: 'person' }, reg);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].rung, 'surname-initial');
+    assert.equal(defaultEntityChoice(out), 'new',
+        'ranked and offered — but the human must actively pick it');
+});

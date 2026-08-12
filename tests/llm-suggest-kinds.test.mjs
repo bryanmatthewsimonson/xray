@@ -125,7 +125,7 @@ test('case frame: the active case names the extraction context without licensing
 
 // --- Vocabulary injection: RETIRED (UA.2) -----------------------------------
 
-test('vocabulary retirement (UA.2): the registry never rides a prompt again', async () => {
+test('vocabulary retirement (UA.2): the registry never rides the SUGGEST prompt again', async () => {
     // Prompt-time vocabulary would poison the article pass's
     // content-only cache key; naming consistency lives in the
     // accept-time resolution ladder (shared/entity-resolution.js).

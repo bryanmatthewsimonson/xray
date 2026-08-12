@@ -102,7 +102,11 @@ test('corpus-prompts: the v9 map extracts entities with verbatim mentions and no
     assert.equal(ka.properties.about.type, 'array');
     // The prompt half: entity rules + the workspace refusal.
     const sys = CP.buildMapSystemPrompt();
-    assert.match(sys, /ENTITIES \(corpus-v9\)/);
+    // Deliberately version-label-free prompt text: a "(corpus-vN)" tag
+    // inside the prompt goes stale on every bump (and editing it then
+    // IS a prompt change) — the version lives in the constants only.
+    assert.ok(!/corpus-v\d/.test(sys), 'no version labels inside the live prompt text');
+    assert.match(sys, /ENTITIES: list the people/);
     assert.match(sys, /`mention` is REQUIRED/);
     assert.match(sys, /never propose one/);
 });

@@ -357,3 +357,27 @@ test('claimProposalsFromExtract: v9 about refs ride, filtered to entities the ex
     const v8rows = claimProposalsFromExtract(V8_EXTRACT);
     assert.deepEqual(v8rows[0].about ?? [], []);
 });
+
+test('GUARD (UA.2 rail 4): a v9 fold stores NO entities and NO about — the layer stays claim-shaped', () => {
+    const member = { article_hash: 'a'.repeat(64), url: URL_A, title: 'A title',
+        text: 'Body A text with enough words.' };
+    const { record } = mergeExtractIntoRecord(null, {
+        member, extract: V9_EXTRACT, key: 'k-v9', model: 'm', now: 1234
+    });
+    assert.ok(!('entities' in record), 'the record has no entities list');
+    for (const a of record.assertions) {
+        assert.ok(!('about' in a), 'atom refs never persist — coverage is computed on read');
+        assert.ok(!('load_bearing' in a) && !('is_key' in a));
+    }
+});
+
+test('GUARD (UA.2, source pin): the live Suggest path is ONE call — no xray:llm:suggest, one ensureArticleExtract', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const src = await readFile(new URL('../src/reader/index.js', import.meta.url), 'utf8');
+    const fn = src.slice(src.indexOf('async function runSuggestPass'), src.indexOf('function reviewSuggestions'));
+    assert.ok(!fn.includes('xray:llm:suggest'),
+        'UA.2: the separate entities call must never return to the live path');
+    assert.equal((fn.match(/ensureArticleExtract\(/g) || []).length, 1,
+        'exactly one extract fetch-or-run — the whole spend of a Suggest click');
+    assert.ok(fn.includes('entityProposalsFromExtract('), 'entities derive from the one reading');
+});

@@ -510,20 +510,71 @@ const BRIEF_SCHEMA = obj({
     }, ['kind']))
 }, ['summary']);
 
+/**
+ * The v9 DECORATIONS (entities, per-atom about refs) are lenient to
+ * the point of pruning: consumers already drop a nameless entity row
+ * and coerce a wrong-typed about (entityProposalsFromExtract /
+ * claimProposalsFromExtract), so ONE malformed decoration must never
+ * void a whole paid extract — validation walks this sanitized VIEW of
+ * the decorations while the extract's CORE (position, atoms, sources,
+ * open questions) keeps its strict contract. The stored extract stays
+ * raw; tolerance lives in the consumers, exactly as tested.
+ */
+function decorationTolerantView(input) {
+    if (!input || typeof input !== 'object') return input;
+    const view = { ...input };
+    if ('entities' in view) {
+        view.entities = Array.isArray(view.entities)
+            ? view.entities
+                .filter((e) => e && typeof e === 'object'
+                    && typeof e.name === 'string' && e.name.trim())
+                .map((e) => ({
+                    ref: typeof e.ref === 'string' ? e.ref : '',
+                    name: e.name,
+                    type: typeof e.type === 'string' ? e.type : '',
+                    mention: typeof e.mention === 'string' ? e.mention : ''
+                }))
+            : [];
+    }
+    if (Array.isArray(view.key_assertions)) {
+        view.key_assertions = view.key_assertions.map((a) => {
+            if (!a || typeof a !== 'object' || !('about' in a)) return a;
+            const copy = { ...a };
+            if (Array.isArray(a.about)) copy.about = a.about.filter((r) => typeof r === 'string');
+            else delete copy.about;
+            return copy;
+        });
+    }
+    return view;
+}
+
 export function validateCorpusExtract(input) {
     const errors = [];
-    walk(input, MAP_SCHEMA, '$', errors);
-    // corpus-v8: per-atom leniency must not become whole-extract
-    // blindness. One atom missing `load_bearing` is tolerated (absent
-    // means not load-bearing); a NON-EMPTY assertion list where NO atom
-    // carries the key at all is malformed v8 output — caching it would
-    // make the article permanently position-only for the reduce and the
-    // entity page (loadBearingSubset strips everything), with the cache
-    // hit forever masking the loss. Refuse so the pass re-runs. An
-    // all-`false` extract (a real model judgment) stays valid.
+    walk(decorationTolerantView(input), MAP_SCHEMA, '$', errors);
+    // Per-row leniency must not become whole-extract blindness — the
+    // two systematic-malformation refusals (an extract that would cache
+    // forever with a capability silently missing re-runs instead; the
+    // cache hit would mask the loss permanently):
+    //
+    // 1. A NON-EMPTY assertion list where NO atom carries load_bearing
+    //    would be permanently position-only for the reduce and the
+    //    entity page (loadBearingSubset strips everything). One missing
+    //    flag is tolerated (absent = not load-bearing); all-`false` is
+    //    a real model judgment and stays valid.
     const atoms = (input && Array.isArray(input.key_assertions)) ? input.key_assertions : [];
     if (atoms.length > 0 && atoms.every((a) => !a || !('load_bearing' in a))) {
-        errors.push('$.key_assertions: no atom carries load_bearing — malformed corpus-v8 output');
+        errors.push('$.key_assertions: no atom carries load_bearing — malformed map output');
+    }
+    // 2. A NON-EMPTY entities list where NO row carries both a name and
+    //    a mention would be permanently entity-blind for Suggest (every
+    //    row drops at the converter). One bad row is pruned above; a
+    //    wholesale-unusable list means the call malformed — re-run. An
+    //    EMPTY list (an article naming nothing) stays valid.
+    const ents = (input && Array.isArray(input.entities)) ? input.entities : [];
+    if (ents.length > 0 && ents.every((e) => !e
+            || typeof e.name !== 'string' || !e.name.trim()
+            || typeof e.mention !== 'string' || !e.mention.trim())) {
+        errors.push('$.entities: no row carries a name and mention — malformed map output');
     }
     return { ok: errors.length === 0, errors };
 }

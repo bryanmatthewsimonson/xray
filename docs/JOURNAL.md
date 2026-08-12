@@ -34,14 +34,21 @@ until UA.3). The Phase-28 prompt vocabulary (`SUGGEST_VOCAB_MAX` /
 `vocabularyFromRegistry`) is RETIRED: prompt-time vocabulary would
 poison the content-only cache key, so naming consistency moved to the
 accept-time **resolution ladder** (`shared/entity-resolution.js`).
+(Scope of the retirement: the SUGGEST surface. The E2 entity-audit
+pass still sends the registry digest — reviewing the registry is that
+pass's whole purpose.)
 
 **The ladder, per never-merge (Art. 6 / kickoff rail 3):** identity
 rungs — `exact` (the deterministic id hash the registry would merge
 with anyway) and `alias` (a recorded alias, offered as its canonical
-root) — pre-select "use existing"; near-name rungs — `token-subset`
-and `surname-initial` (persons, "J. Smith" ↔ "John Smith") — only
-ever rank candidates, pre-selecting solely when the candidate is
-single (the pre-UA.2 behavior, unchanged). No numeric score exists
+root) — pre-select "use existing"; near-name rungs only ever rank.
+A lone `token-subset` candidate pre-selects (that IS the pre-UA.2
+findEntityMatches behavior, exactly); a lone `surname-initial`
+candidate deliberately does NOT — it is a NEW rung with no pre-UA.2
+precedent, and "Accept all entities" ratifies pre-selections without
+a per-item click, so an initial-match pre-link would widen the
+auto-link surface past what rail 3 licenses (the adversarial review
+caught the first draft doing exactly that). No numeric score exists
 anywhere on a candidate (guard-tested); rungs are labels.
 
 **Second-guessable calls, on the record:**
@@ -64,6 +71,17 @@ anywhere on a candidate (guard-tested); rungs are labels.
 - **The UA.1 slim-mode machinery stays** (claimIndex / claim_refs /
   supplied-claims rules): it is the kill-revert surface if UA.2's
   fragment measurement fails, and UA.3 sweeps it if UA.2 survives.
+
+**Review-round catches, fixed in the same PR:** (1) the v9
+decorations (entities, about) now validate against a sanitized VIEW —
+one nameless entity row or a wrong-typed `about` prunes instead of
+voiding the whole paid extract (the consumers were already tolerant;
+the validator contradicted them); (2) a NON-EMPTY entities list where
+no row carries a name + mention is refused as malformed rather than
+cached forever entity-blind (the load_bearing refusal's sibling);
+(3) the lone-surname-initial pre-select above; (4) the live prompt
+text carries no "(corpus-vN)" labels (they go stale each bump, and
+editing them later IS a prompt change — pinned).
 
 **Measured at the walk (§5/§6):** re-mention resolution counts and
 new-fragment counts vs the vocabulary era; if meaningfully worse,

@@ -125,17 +125,21 @@ export async function rankEntityCandidates({ name, type } = {}, recordsById = {}
  * affordance policy):
  *   - identity-class top candidate → pre-select it (the registry
  *     would merge that create anyway; the Accept ratifies);
- *   - a SINGLE near-name candidate → pre-select it (the pre-UA.2
- *     single-token-match behavior, unchanged);
- *   - multiple near-name candidates → 'new' (the human picks from
- *     the ranked list — a default guess among plausible roots is
- *     where silent mis-linking would creep in).
+ *   - a SINGLE token-subset candidate → pre-select it (the pre-UA.2
+ *     single-token-match behavior, EXACTLY — that rung is the old
+ *     findEntityMatches affordance);
+ *   - anything else — multiple candidates, or a lone
+ *     surname-initial — → 'new'. surname-initial is a NEW rung with
+ *     no pre-UA.2 precedent, and "Accept all entities" ratifies a
+ *     pre-selection without a per-item click, so a lone initial
+ *     match pre-linking would widen the auto-link surface past what
+ *     rail 3 licenses. It ranks in the dropdown; the human picks it.
  */
 export function defaultEntityChoice(candidates) {
     const list = Array.isArray(candidates) ? candidates : [];
     if (list.length === 0) return 'new';
     if (isIdentityRung(list[0].rung)) return list[0].id;
-    if (list.length === 1) return list[0].id;
+    if (list.length === 1 && list[0].rung === 'token-subset') return list[0].id;
     return 'new';
 }
 
