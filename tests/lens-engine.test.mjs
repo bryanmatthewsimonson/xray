@@ -10,6 +10,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { sseResponse } from './helpers/sse.mjs';
 
 const _stateStore = new Map();
 const _sessionStore = new Map();
@@ -111,13 +112,10 @@ function mockModelResponse(input, { stopReason = 'tool_use', model = 'claude-opu
     fetchCalls = [];
     globalThis.fetch = async (url, opts) => {
         fetchCalls.push({ url, payload: JSON.parse((opts && opts.body) || '{}') });
-        return {
-            ok: true,
-            json: async () => ({
-                model, stop_reason: stopReason,
-                content: input === null ? [] : [{ type: 'tool_use', name: LENS_TOOL_NAME, input }]
-            })
-        };
+        return sseResponse({
+            model, stop_reason: stopReason,
+            content: input === null ? [] : [{ type: 'tool_use', name: LENS_TOOL_NAME, input }]
+        });
     };
 }
 

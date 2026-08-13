@@ -19,8 +19,9 @@
 
 import { Utils } from './utils.js';
 import { loadFlags, isEnabled } from './metadata/feature-flags.js';
+import { createSseParser, createMessageAssembler } from './llm-stream.js';
 import {
-    ANTHROPIC_API_URL, ANTHROPIC_VERSION, resolveModel,
+    ANTHROPIC_API_URL, ANTHROPIC_VERSION, resolveModel, outputBudget,
     LLM_KEY_STORAGE, LLM_MODEL_STORAGE
 } from './llm-prompts.js';
 import {
@@ -77,26 +78,32 @@ export { LLM_KEY_STORAGE, LLM_MODEL_STORAGE };
 // SW-side slice is a defensive no-op on the audit path (the hash gate
 // covers exactly the text that was scored).
 const MAX_ARTICLE_CHARS = MAX_AUDIT_INPUT_CHARS;
-// A full eight-module audit is much larger than a proposal set (eight
-// nested findings payloads in one tool call), so it gets its own cap.
-const MAX_AUDIT_OUTPUT_TOKENS = 16384;
-// The per-module ("thorough") path emits ONE module's findings per call,
-// so a smaller cap is plenty and keeps each call cheap.
-const MAX_MODULE_OUTPUT_TOKENS = 8192;
-// A lens pass emits ONE jurisdiction's readings per call (§6 call
-// topology), so the per-module cap size is right for it too.
-const MAX_LENS_OUTPUT_TOKENS = 8192;
-// Audit call bounds. A single-shot (quick) audit emits up to 16384
-// output tokens — the lens's 120s would abort legitimate calls, so it
-// gets a generous cap; a per-module call emits one module and fits the
-// lens-sized window. Both exist so a hung request can never wedge the
-// reader's audit controls (the reader races its own slightly-longer
-// timeout on top).
-const AUDIT_TIMEOUT_MS = 300000;
-const MODULE_TIMEOUT_MS = 120000;
-// Each lens call is bounded so a hung request cannot permanently
-// disable the reader's lens control (§6).
-const LENS_TIMEOUT_MS = 120000;
+// OUTPUT CAPS (raised 2026-08-13). These were each guessed at "how much
+// will this pass need", and every guess was a silent quality ceiling: a
+// cap that binds does not shorten the analysis, it DISCARDS a fully paid
+// call (`stop_reason: 'max_tokens'` → the partial tool JSON is
+// unparseable, so the pass reports failure and the spend is gone).
+// `max_tokens` is a ceiling, never a target — unproduced tokens are not
+// billed — so a cap that is too high costs nothing and a cap that is too
+// low costs everything. They now sit high and are clamped per model by
+// outputBudget(); the timeouts below own the only real cost of headroom.
+const MAX_AUDIT_OUTPUT_TOKENS = 32768;
+const MAX_MODULE_OUTPUT_TOKENS = 32768;
+const MAX_LENS_OUTPUT_TOKENS = 32768;
+
+// Timeouts DERIVED from the cap they guard, not hand-set beside it.
+// Hand-set pairs drift: the map cap moved twice while its 120s timeout
+// sat still, which would have traded a token-cap failure for an abort
+// (JOURNAL 2026-07-18). ~50 tok/s is the conservative Opus-tier
+// generation rate; the floor covers latency on small calls and the slack
+// covers a slow first token.
+const TOKENS_PER_SEC = 50;
+function timeoutForBudget(maxTokens) {
+    return Math.max(120000, Math.ceil(maxTokens / TOKENS_PER_SEC) * 1000 + 60000);
+}
+const AUDIT_TIMEOUT_MS  = timeoutForBudget(MAX_AUDIT_OUTPUT_TOKENS);
+const MODULE_TIMEOUT_MS = timeoutForBudget(MAX_MODULE_OUTPUT_TOKENS);
+const LENS_TIMEOUT_MS   = timeoutForBudget(MAX_LENS_OUTPUT_TOKENS);
 
 // ------------------------------------------------------------------
 // Storage helpers (callback → promise; SW-safe)
@@ -168,9 +175,24 @@ function mapHttpError(status, bodyText) {
  * network failure, HTTP errors, and unreadable bodies; the caller checks
  * stop_reason and pulls its tool out. NEVER logs the key or request body.
  *
- * @returns {Promise<{ok:true, data:object} | {ok:false, error:string, status?:number, timeout?:boolean}>}
+ * ALWAYS STREAMS (`stream: true`), and reassembles the events into the
+ * SAME object shape the non-streaming endpoint returns — callers are
+ * unchanged by design (shared/llm-stream.js). Streaming is what makes
+ * the raised output caps safe: a whole-response fetch must arrive
+ * complete before it resolves, so a bigger cap raised the odds of a
+ * timeout with nothing to show; a stream delivers continuously and the
+ * AbortController stays the sole limiter.
+ *
+ * @param {object} [opts]
+ * @param {AbortSignal} [opts.signal]
+ * @param {boolean} [opts.salvage]  recover a truncated tool call to its
+ *        last COMPLETE element. Only for list-shaped payloads, and the
+ *        caller MUST disclose the loss (`res.salvaged`).
+ * @param {function} [opts.onProgress]
+ * @returns {Promise<{ok:true, data:object, salvaged:boolean}
+ *                  | {ok:false, error:string, status?:number, timeout?:boolean}>}
  */
-async function postMessages(payload, apiKey, { signal } = {}) {
+async function postMessages(payload, apiKey, { signal, salvage = false, onProgress = null } = {}) {
     let resp;
     try {
         resp = await fetch(ANTHROPIC_API_URL, {
@@ -183,7 +205,7 @@ async function postMessages(payload, apiKey, { signal } = {}) {
                 // for it. The fetch runs in the SW, not a page with site CSP.
                 'anthropic-dangerous-direct-browser-access': 'true'
             },
-            body: JSON.stringify(payload),
+            body: JSON.stringify({ ...payload, stream: true }),
             signal
         });
     } catch (err) {
@@ -195,6 +217,7 @@ async function postMessages(payload, apiKey, { signal } = {}) {
         return { ok: false, error: 'Could not reach the Anthropic API (network error). Check your connection and host permissions.' };
     }
 
+    // An error response is JSON, not SSE — read it whole, as before.
     if (!resp.ok) {
         let bodyText = '';
         try { bodyText = await resp.text(); } catch (_) { /* ignore */ }
@@ -202,19 +225,38 @@ async function postMessages(payload, apiKey, { signal } = {}) {
         Utils.error('[X-Ray LLM] HTTP', resp.status, error);
         return { ok: false, error, status: resp.status };
     }
+    if (!resp.body || typeof resp.body.getReader !== 'function') {
+        return { ok: false, error: 'Anthropic returned an unreadable response (no stream body).' };
+    }
 
-    let data;
+    const parser = createSseParser();
+    const asm = createMessageAssembler({ salvage, onProgress });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
     try {
-        data = await resp.json();
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            // stream:true keeps multi-byte characters whole across chunks.
+            for (const ev of parser.push(decoder.decode(value, { stream: true }))) asm.handle(ev);
+        }
+        for (const ev of parser.push(decoder.decode())) asm.handle(ev);
     } catch (err) {
-        // The abort can also fire mid-body — that is still a timeout,
-        // not a malformed response.
+        // An abort mid-body is a timeout, not a malformed response.
         if (err && err.name === 'AbortError') {
             return { ok: false, timeout: true, error: 'The Anthropic call was aborted before completing (timeout).' };
         }
-        return { ok: false, error: 'Anthropic returned an unreadable response.' };
+        Utils.error('[X-Ray LLM] stream error:', err && err.message);
+        return { ok: false, error: 'The Anthropic response ended early (stream error). Try again.' };
+    } finally {
+        try { reader.releaseLock(); } catch (_) { /* already released */ }
     }
-    return { ok: true, data };
+
+    const { message, error, salvaged } = asm.result();
+    // A mid-stream `error` frame is the API reporting failure AFTER a
+    // 200 — surface it as an error, never as an empty success.
+    if (error) return { ok: false, error: `Anthropic stream error: ${error}` };
+    return { ok: true, data: message, salvaged };
 }
 
 /**
@@ -299,7 +341,7 @@ export async function runEntityAuditPass(req = {}) {
     const tool = buildEntityAuditTool();
     const payload = {
         model,
-        max_tokens: MAX_ENTITY_AUDIT_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_ENTITY_AUDIT_OUTPUT_TOKENS, model),
         system: buildEntityAuditSystemPrompt(),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
@@ -345,7 +387,7 @@ export async function runForensicCorpusPass(req = {}) {
     const tool = buildForensicCorpusTool();
     const payload = {
         model,
-        max_tokens: MAX_FORENSIC_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_FORENSIC_OUTPUT_TOKENS, model),
         system: buildForensicCorpusSystemPrompt(),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
@@ -418,7 +460,7 @@ export async function runAuditPass(req = {}) {
 
     const payload = {
         model,
-        max_tokens: MAX_AUDIT_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_AUDIT_OUTPUT_TOKENS, model),
         system,
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
@@ -521,7 +563,7 @@ export async function runAuditModulePass(req = {}) {
         : '';
     const payload = {
         model,
-        max_tokens: MAX_MODULE_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_MODULE_OUTPUT_TOKENS, model),
         system: buildModuleSystemPrompt(name, { url: req.articleUrl || '', title: req.articleTitle || '' }),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
@@ -570,16 +612,15 @@ export async function runAuditModulePass(req = {}) {
 // stay portal-side (the SW stays thin, the lens/audit pattern).
 // ------------------------------------------------------------------
 
-const CORPUS_MAP_TIMEOUT_MS = 120000;
-// The reduce is the ONE long single fetch in the corpus flow (the map phase
-// is many short calls). With MAX_REDUCE_OUTPUT_TOKENS raised to 32768, a
-// full breadth brief can generate ~20-25k tokens, which on the slower
-// (Opus-tier) models runs ~350-455s. The portal keeps the service worker
-// alive across the whole run (synthesis-block startSwKeepalive), so this
-// AbortController — not the SW lifetime — is the limiter; 8 min gives the
-// largest breadth briefs headroom rather than trading a token-cap failure
-// for an abort or an SW teardown ("no response").
-const CORPUS_REDUCE_TIMEOUT_MS = 480000;
+// Both derived from the cap they guard (timeoutForBudget) rather than
+// hand-set: a full-budget emission must be able to FINISH, or a raised
+// cap just converts a token-cap failure into an AbortError — the trade
+// JOURNAL 2026-07-18 warned about, and the drift that hand-set pairs
+// invite. Neither call is bounded by the MV3 lifetime: the map's two
+// callers and the portal's synthesis run each hold a keepalive, so this
+// AbortController is the sole limiter.
+const CORPUS_MAP_TIMEOUT_MS = timeoutForBudget(MAX_MAP_OUTPUT_TOKENS);
+const CORPUS_REDUCE_TIMEOUT_MS = timeoutForBudget(MAX_REDUCE_OUTPUT_TOKENS);
 
 /** Gating snapshot for the portal's "Analyze corpus" control. */
 export async function getCorpusConfig() {
@@ -634,7 +675,7 @@ export async function runCorpusMapPass(req = {}) {
     const tool = buildMapTool();
     const payload = {
         model,
-        max_tokens: MAX_MAP_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_MAP_OUTPUT_TOKENS, model),
         system: buildMapSystemPrompt(),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
@@ -646,18 +687,40 @@ export async function runCorpusMapPass(req = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), CORPUS_MAP_TIMEOUT_MS);
     let res;
-    try { res = await postMessages(payload, gate.apiKey, { signal: controller.signal }); }
-    finally { clearTimeout(timer); }
+    // SALVAGE, map only. The extract is a LIST of independent atoms, so
+    // "the first N of them" is a true statement about the article — a
+    // partial audit or brief would instead read as a complete judgment
+    // and those passes keep the honest failure. A cut-off call is
+    // otherwise a total loss: fully paid, unparseable, discarded.
+    try {
+        res = await postMessages(payload, gate.apiKey, { signal: controller.signal, salvage: true });
+    } finally { clearTimeout(timer); }
     if (!res.ok) return { ...res, member_id: req.member_id };
 
     const data = res.data;
     { const r = refusalResult(data, 'an extract for this article'); if (r) return { ...r, member_id: req.member_id }; }
-    if (data && data.stop_reason === 'max_tokens') {
-        return { ok: false, member_id: req.member_id, error: 'The map call hit its output limit before finishing.' };
-    }
     const extract = extractToolInput(data, tool.name);
-    if (extract === null) return { ok: false, member_id: req.member_id, error: 'The model did not return a structured extract.' };
-    return { ok: true, member_id: req.member_id, extract, model: (data && data.model) || model, usage: data && data.usage };
+    const cutShort = !!(data && data.stop_reason === 'max_tokens');
+    if (extract === null) {
+        return {
+            ok: false, member_id: req.member_id,
+            error: cutShort
+                // Nothing survived the cut — the caps sit at the model
+                // ceiling, so this means the article genuinely outruns
+                // one call, not that a number needs nudging.
+                ? 'The map call hit its output limit before a single complete assertion. This article is too long to atomize in one pass.'
+                : 'The model did not return a structured extract.'
+        };
+    }
+    // Disclosed, never silent: `partial` rides to the caller so the
+    // review surface can say the extract stops early rather than
+    // presenting it as the whole article.
+    return {
+        ok: true, member_id: req.member_id, extract,
+        partial: cutShort || !!res.salvaged,
+        model: (data && data.model) || model,
+        usage: data && data.usage
+    };
 }
 
 /**
@@ -677,7 +740,7 @@ export async function runCorpusReducePass(req = {}) {
     const tool = buildReduceTool();
     const payload = {
         model,
-        max_tokens: MAX_REDUCE_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_REDUCE_OUTPUT_TOKENS, model),
         system: buildReduceSystemPrompt({ caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '' }),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
@@ -723,7 +786,7 @@ export async function runEntityPagePass(req = {}) {
     const tool = buildEntityPageTool();
     const payload = {
         model,
-        max_tokens: MAX_ENTITY_PAGE_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_ENTITY_PAGE_OUTPUT_TOKENS, model),
         system: buildEntityPageSystemPrompt({
             entityName: req.entityName || '', entityType: req.entityType || '',
             caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || ''
@@ -773,7 +836,7 @@ export async function runHypothesisEdgePass(req = {}) {
     const tool = buildHypothesisEdgeTool();
     const payload = {
         model,
-        max_tokens: MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS, model),
         system: buildHypothesisEdgeSystemPrompt({ caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '' }),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
@@ -820,7 +883,7 @@ export async function runClaimLinksPass(req = {}) {
     const tool = buildClaimLinksTool();
     const payload = {
         model,
-        max_tokens: MAX_CLAIM_LINKS_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_CLAIM_LINKS_OUTPUT_TOKENS, model),
         system: buildClaimLinksSystemPrompt({ caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '' }),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
@@ -850,11 +913,12 @@ export async function runClaimLinksPass(req = {}) {
 // AI vision pass — the "Describe images" surface
 // ------------------------------------------------------------------
 
-// One image, one caption, at most one page of transcription — the
-// per-module window fits with room; a dense scanned magazine page runs
-// ~3k output tokens.
-const VISION_TIMEOUT_MS = 120000;
-const MAX_VISION_OUTPUT_TOKENS = 8192;
+// One image, one caption, at most one page of transcription — a dense
+// scanned magazine page runs ~3k output tokens, so the cap is pure
+// headroom (unproduced tokens are never billed) and only exists so a
+// full-page transcription can never be the thing that truncates.
+const MAX_VISION_OUTPUT_TOKENS = 32768;
+const VISION_TIMEOUT_MS = timeoutForBudget(MAX_VISION_OUTPUT_TOKENS);
 
 /**
  * Non-secret gating snapshot for the reader's "Describe images"
@@ -911,7 +975,7 @@ export async function runVisionPass(req = {}) {
     const tool = buildVisionTool();
     const payload = {
         model,
-        max_tokens: MAX_VISION_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_VISION_OUTPUT_TOKENS, model),
         system: buildVisionSystemPrompt(),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
@@ -1067,7 +1131,7 @@ export async function runLensPass(req = {}) {
     const tool = buildLensTool();
     const payload = {
         model,
-        max_tokens: MAX_LENS_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_LENS_OUTPUT_TOKENS, model),
         system: buildLensSystemPrompt({
             jurisdiction,
             authorities: admissibleAuthorities(jurisdiction),
@@ -1142,10 +1206,11 @@ export async function runLensPass(req = {}) {
 // LLM extraction assist (Phase 18 C5 — COMPLEX_CONTENT_DESIGN.md §6)
 // ------------------------------------------------------------------
 
-// PDF vision over up to 100 pages is the slowest pass this client
-// runs — same ceiling as the audit, no lower.
-const EXTRACT_TIMEOUT_MS = 300000;
-const MAX_EXTRACT_OUTPUT_TOKENS = 32768;
+// PDF vision over up to 100 pages is the slowest pass this client runs,
+// and a 100-page transcription is genuinely large output — this is the
+// pass most likely to want the whole budget.
+const MAX_EXTRACT_OUTPUT_TOKENS = 64000;
+const EXTRACT_TIMEOUT_MS = timeoutForBudget(MAX_EXTRACT_OUTPUT_TOKENS);
 
 /**
  * One extraction pass over an archived PDF's bytes. RETURNS RAW SPANS —
@@ -1180,7 +1245,7 @@ export async function runExtractPass(req = {}) {
 
     const payload = {
         model,
-        max_tokens: MAX_EXTRACT_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_EXTRACT_OUTPUT_TOKENS, model),
         system: buildExtractSystemPrompt(mode),
         tools: [buildExtractTool()],
         tool_choice: { type: 'tool', name: EXTRACT_TOOL_NAME },

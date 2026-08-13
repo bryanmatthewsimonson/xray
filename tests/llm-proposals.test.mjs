@@ -36,7 +36,7 @@ globalThis.chrome = {
 };
 
 const P = await import('../src/shared/llm-proposals.js');
-const { resolveModel, DEFAULT_LLM_MODEL } =
+const { resolveModel, DEFAULT_LLM_MODEL, outputBudget, modelOutputCeiling, SAFE_OUTPUT_CEILING } =
     await import('../src/shared/llm-prompts.js');
 const { EntityModel } = await import('../src/shared/entity-model.js');
 const { ClaimModel } = await import('../src/shared/claim-model.js');
@@ -457,18 +457,68 @@ test('resolveModel defaults unknown ids to the latest capable model', () => {
     assert.equal(resolveModel('claude-sonnet-4-6'), 'claude-sonnet-4-6');
 });
 
-test('the model picker offers Fable 5 and Sonnet 5, and every id resolves', async () => {
+test('the model picker offers Opus 5, Fable 5 and Sonnet 5, and every id resolves', async () => {
     const { LLM_MODELS } = await import('../src/shared/llm-prompts.js');
     const ids = LLM_MODELS.map((m) => m.id);
     assert.deepEqual(ids, [
-        'claude-fable-5', 'claude-opus-4-8', 'claude-opus-4-7',
+        'claude-fable-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-opus-4-7',
         'claude-sonnet-5', 'claude-sonnet-4-6', 'claude-haiku-4-5'
     ]);
+    // The default is chosen for the dominant workload (long-form
+    // transcripts, where input price dominates), not by roster position.
+    assert.equal(DEFAULT_LLM_MODEL, 'claude-sonnet-5');
     // Every offered id must survive resolveModel — a picker entry that
     // silently falls back to the default is a lie to the user.
     for (const id of ids) assert.equal(resolveModel(id), id);
     for (const m of LLM_MODELS) assert.ok(m.label && m.label.length > 3, m.id);
     assert.ok(ids.includes(DEFAULT_LLM_MODEL), 'the default is offered');
+});
+
+// The clamp is what stops a raised pass cap from becoming a 400 on the
+// model with the smallest window. Over-asking kills the call outright;
+// under-asking only risks a truncation the pass already reports. So the
+// clamp must bind, and an UNKNOWN id must fall to the safe floor rather
+// than the optimistic ceiling.
+test('outputBudget clamps every pass cap to the model that will serve it', async () => {
+    const { LLM_MODELS } = await import('../src/shared/llm-prompts.js');
+
+    // Every offered model declares a ceiling, and none is below the floor.
+    for (const m of LLM_MODELS) {
+        assert.ok(Number.isInteger(m.max_output) && m.max_output > 0, `${m.id} declares max_output`);
+        assert.ok(m.max_output >= SAFE_OUTPUT_CEILING, `${m.id} is not below the safe floor`);
+    }
+
+    // SAFE_OUTPUT_CEILING really is the roster minimum — a pass cap at or
+    // below it can never 400 on a model switch.
+    assert.equal(SAFE_OUTPUT_CEILING, Math.min(...LLM_MODELS.map((m) => m.max_output)));
+
+    // The clamp binds on the smallest window and passes through elsewhere.
+    assert.equal(outputBudget(128000, 'claude-haiku-4-5'), 64000, 'clamped to Haiku 4.5');
+    assert.equal(outputBudget(128000, 'claude-sonnet-5'), 128000, 'Sonnet 5 takes the full ask');
+    assert.equal(outputBudget(8192, 'claude-haiku-4-5'), 8192, 'a cap under the ceiling is untouched');
+
+    // An unknown id (a stale stored preference, a model we retired) must
+    // not optimistically assume 128k — that is the request that 400s.
+    assert.equal(modelOutputCeiling('claude-from-the-future'), SAFE_OUTPUT_CEILING);
+    assert.equal(outputBudget(128000, 'claude-from-the-future'), SAFE_OUTPUT_CEILING);
+});
+
+test('every pass asks for a budget that fits the smallest model in the roster', async () => {
+    // A cap above SAFE_OUTPUT_CEILING is legal (outputBudget clamps it),
+    // but a cap that RELIES on the clamp silently gives Haiku users a
+    // different analysis. This pins what each pass asks for so that
+    // divergence is a deliberate, visible edit.
+    const corpus = await import('../src/shared/corpus-prompts.js');
+    const caps = {
+        map:       corpus.MAX_MAP_OUTPUT_TOKENS,
+        reduce:    corpus.MAX_REDUCE_OUTPUT_TOKENS,
+        hypEdges:  corpus.MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS,
+        links:     corpus.MAX_CLAIM_LINKS_OUTPUT_TOKENS
+    };
+    for (const [name, cap] of Object.entries(caps)) {
+        assert.ok(cap <= SAFE_OUTPUT_CEILING,
+            `${name} asks ${cap}, above the ${SAFE_OUTPUT_CEILING} every model can serve`);
+    }
 });
 
 test('a model refusal is its own disclosed state, never a malformed-output error', async () => {

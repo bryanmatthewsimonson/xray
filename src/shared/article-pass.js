@@ -64,6 +64,24 @@ export async function articleSourceForExtract({ url = '', fallbackArticle = null
 }
 
 /**
+ * Render validateCorpusExtract's errors as one short human clause.
+ *
+ * The list mixes two shapes — schema walker entries (`{path, message}`)
+ * and the whole-extract refusal strings — so a naive join prints
+ * "[object Object]". Capped at two: the first is almost always the
+ * cause, and a toast is not a log.
+ */
+export function describeExtractErrors(errors) {
+    const parts = (Array.isArray(errors) ? errors : []).slice(0, 2).map((e) => {
+        if (typeof e === 'string') return e;
+        if (e && e.path && e.message) return `${e.path} ${e.message}`;
+        if (e && e.message) return e.message;
+        return 'unrecognized shape';
+    });
+    return parts.length ? parts.join('; ') : 'no reason reported';
+}
+
+/**
  * Ensure THE extract exists for one article: cache hit → free; miss →
  * one `xray:llm:corpus-map` call, saved under its content-only key.
  * Either way the extract folds into the durable article-extractions
@@ -83,11 +101,17 @@ export async function articleSourceForExtract({ url = '', fallbackArticle = null
  *                                   only the fold's provenance, never
  *                                   the request or the key
  * @param {function} opts.sendMessage  ({type,request}) → Promise
+ * @param {function} [opts.keepalive]  () → {stop()} — pings the SW while
+ *                                   the map call is in flight. Injected
+ *                                   (not imported) so this module stays
+ *                                   chrome-free and testable; omitting
+ *                                   it only risks an MV3 teardown on a
+ *                                   long call, never correctness.
  * @param {object} [io]  injectable: getExtract, saveExtract, record, now
  * @returns {Promise<{status:'cached'|'ran'|'failed'|'no-text',
  *                    key?:string, extract?:object, model?:string, error?:string}>}
  */
-export async function ensureArticleExtract({ article, articleHash = null, url = '', title = '', frame = {}, sendMessage }, io = {}) {
+export async function ensureArticleExtract({ article, articleHash = null, url = '', title = '', frame = {}, sendMessage, keepalive = null }, io = {}) {
     const d = {
         getExtract:  getCorpusExtract,
         saveExtract: saveCorpusExtract,
@@ -115,34 +139,78 @@ export async function ensureArticleExtract({ article, articleHash = null, url = 
     const hit = await Promise.resolve(d.getExtract(key)).catch(() => null);
     if (hit && hit.extract && validateCorpusExtract(hit.extract).ok) {
         await fold(hit.extract, hit.model);
-        return { status: 'cached', key, extract: hit.extract, model: hit.model || '', truncated: unit.truncated, text: unit.text };
+        // `partial` is STORED with the extract, not recomputed: an
+        // extract that was salvaged from a cut-off call is short
+        // forever, and a cache hit that dropped the flag would present
+        // it as the whole article on every later view.
+        return { status: 'cached', key, extract: hit.extract, model: hit.model || '',
+                 truncated: unit.truncated, partial: !!hit.partial, text: unit.text };
     }
 
     // The wire call can REJECT, not just return {ok:false} — an MV3
     // service-worker teardown mid-call surfaces as "the message port
     // closed". A rejection here must become a reportable failure, never
     // an unhandled rejection past the caller's toast.
+    //
+    // This is ONE long cold call — a long-form transcript at the raised
+    // map bound can run minutes with nothing else messaging the SW,
+    // which is precisely the teardown that produced "Synthesis failed:
+    // no response" (JOURNAL 2026-07-18). The keepalive spans exactly the
+    // fetch and stops on every exit path.
     let res;
+    const ka = typeof keepalive === 'function' ? keepalive() : null;
     try { res = await sendMessage({ type: 'xray:llm:corpus-map', request }); }
     catch (err) { res = { ok: false, error: (err && err.message) || String(err) }; }
+    finally { if (ka && typeof ka.stop === 'function') ka.stop(); }
     if (!res || !res.ok) return { status: 'failed', key, error: (res && res.error) || 'no response' };
     const v = validateCorpusExtract(res.extract);
-    if (!v.ok) return { status: 'failed', key, error: 'invalid extract' };
+    if (!v.ok) {
+        // NEVER a bare "invalid extract". That message cost a debugging
+        // round trip: it names the symptom, discards `v.errors` (which
+        // says exactly which field), and hides WHICH of two very
+        // different causes fired.
+        //
+        // Cause 1 — the call was cut off at the output ceiling and the
+        // salvage recovered only part of the payload. A salvaged object
+        // is valid ONLY if the fields the schema requires happened to be
+        // emitted before the cut; a model that emits `position` after
+        // `key_assertions` loses it. That is a truncation, and it must
+        // read as one.
+        const detail = describeExtractErrors(v.errors);
+        const atoms = (res.extract && Array.isArray(res.extract.key_assertions))
+            ? res.extract.key_assertions.length : 0;
+        return {
+            status: 'failed', key,
+            error: res.partial
+                ? `The analysis hit its output limit partway through. ${atoms} complete assertion(s) `
+                  + `were recovered, but the cut lost a field the extract needs (${detail}), so none `
+                  + 'could be used. This article needs more than one pass.'
+                // Cause 2 — a complete response whose shape X-Ray cannot
+                // consume. Rarer, and a genuinely different fix.
+                : `The model returned an extract X-Ray cannot use: ${detail}. Try Suggest again.`
+        };
+    }
 
     // A cache-save failure must not lose the paid extract — the modal
     // can still consume it; the next run simply re-pays the cache miss.
     await Promise.resolve(d.saveExtract({
-        key, extract: res.extract, model: res.model, cachedAt: d.now()
+        key, extract: res.extract, model: res.model, cachedAt: d.now(),
+        partial: !!res.partial
     })).catch(() => {});
     await fold(res.extract, res.model);
-    // `truncated` disclosed: the map bound (MAX_MEMBER_INPUT_CHARS, 60k)
-    // is tighter than the old suggest bound (120k), so on a very long
-    // capture the claim half reads the head only — the caller says so
+    // `truncated` disclosed: the map bound (MAX_MEMBER_INPUT_CHARS,
+    // 400k — ~6.5h of transcript) still cuts a long enough capture, so
+    // on one the claim half reads the head only — the caller says so
     // rather than letting coverage shrink silently. `text` is the unit
     // text the extract READ: the caller reuses it as the slim call's
     // input and the modal's grounding substrate, so quotes anchor in
     // the text they were copied from.
-    return { status: 'ran', key, extract: res.extract, model: res.model || '', truncated: unit.truncated, text: unit.text };
+    // `partial`: the call was cut off at the output ceiling and the
+    // extract was salvaged to its last COMPLETE assertion. Distinct from
+    // `truncated` (the INPUT was sliced) — one says we read less of the
+    // article, the other says we reported less of what we read.
+    return { status: 'ran', key, extract: res.extract, model: res.model || '',
+             truncated: unit.truncated, partial: !!res.partial, text: unit.text };
 }
 
 /**

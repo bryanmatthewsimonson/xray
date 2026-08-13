@@ -111,11 +111,39 @@ export const REDUCE_TOOL_NAME = 'emit_case_brief';
 export const HYPOTHESIS_EDGE_PROMPT_VERSION = 'hyp-edges-v1';
 export const HYPOTHESIS_EDGE_TOOL_NAME = 'propose_hypothesis_edges';
 
-// Per-article map input bound — half the audit's 120k: 10–30 members
-// make cost linear, and position/assertion extraction doesn't need the
-// tail of a very long capture. Truncation is disclosed per member.
-export const MAX_MEMBER_INPUT_CHARS = 60000;
-export const MAX_MAP_OUTPUT_TOKENS = 8192;
+// Per-article map input bound. Was 60k (half the audit's 120k) on the
+// reasoning that assertion extraction doesn't need the tail of a very
+// long capture. LONG-FORM TRANSCRIPTS broke that: a four-hour podcast
+// episode is ~240-265k chars of diarized markdown (≈36k words of speech
+// at ~150 wpm, plus per-turn speaker labels and timestamp deep-links),
+// so a 60k bound read its first ~55 minutes and disclosed the rest as
+// truncated. 400k covers ~6.5 hours end to end. Context was never the
+// limit — 400k chars is ~100k tokens, 10% of the 1M window and inside
+// Haiku 4.5's 200k — this bound is a SPEND DIAL, and cost is linear in
+// it (~$0.32 input per 4h episode on Opus 5, ~$0.19 on Sonnet 5, paid
+// once per article ever). Truncation is still disclosed per member.
+//
+// KEY CONSEQUENCE: corpusExtractKey hashes the SLICED text, so moving
+// this bound orphans the cached extract of every capture longer than
+// the OLD bound — they re-pay once. That is the point for the long
+// captures (their extracts only ever covered the head); everything
+// under 60k keeps its cache, and the article-extractions record merges
+// by span-dedup rather than replacing, so no reviewed atom is lost.
+export const MAX_MEMBER_INPUT_CHARS = 400000;
+// Sized to the input bound above. Per assertion atom the map emits a
+// verbatim quote + paraphrase + flags + `about` refs ≈ 80-100 tokens;
+// per entity ≈ 40-50. A comprehensively atomized four-hour episode runs
+// ~150-350 atoms and ~60-150 entities ≈ 18-38k tokens, and on Opus 5 /
+// Sonnet 5 / Fable 5 adaptive thinking shares this same budget. 32768
+// covers the typical episode and is the largest value valid across the
+// whole roster: Haiku 4.5 caps output at 64k (every other offered model
+// 128k). A denser episode still clips honestly —
+// `stop_reason: 'max_tokens'` surfaces as "The map call hit its output
+// limit before finishing", never a silent short extract. Past ~6 hours
+// the fix is chunking a transcript into several map units, which is a
+// design change (it breaks one-extract-per-article keying, the
+// span-dedup merge, and the record shape), not a constant bump.
+export const MAX_MAP_OUTPUT_TOKENS = 64000;
 // The reduce emits the WHOLE-corpus brief: every position's holders, ALL
 // cruxes, the load-bearing claims, and the proposal queue (the corpus-v3
 // breadth nudge above). For a large case (~125 members) that legitimately
@@ -125,8 +153,8 @@ export const MAX_MAP_OUTPUT_TOKENS = 8192;
 // 32768 fits the breadth brief with headroom and stays far under every
 // current model's 128k output ceiling. NOT a prompt/tool/digest change, so
 // no version bump — the map cache and brief staleness are unaffected.
-export const MAX_REDUCE_OUTPUT_TOKENS = 32768;
-export const MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS = 8192;
+export const MAX_REDUCE_OUTPUT_TOKENS = 64000;
+export const MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS = 32768;
 
 // ------------------------------------------------------------------
 // MAP — one article's position + load-bearing assertions
@@ -502,7 +530,7 @@ export function buildHypothesisEdgeUserPrompt({ dossierDigest = '', hypotheses =
 
 export const CLAIM_LINKS_PROMPT_VERSION = 'claim-links-v1';
 export const CLAIM_LINKS_TOOL_NAME = 'propose_claim_links';
-export const MAX_CLAIM_LINKS_OUTPUT_TOKENS = 8192;
+export const MAX_CLAIM_LINKS_OUTPUT_TOKENS = 32768;
 // The claims-index cap, matching digestDossier's 150-claim bound.
 export const MAX_CLAIM_LINKS_CLAIMS = 150;
 

@@ -155,6 +155,117 @@ test('a failed or invalid live call reports "failed" and saves nothing', async (
     assert.equal(savedCount, 0);
 });
 
+// The keepalive spans exactly the one long cold map call: a long-form
+// transcript at the 400k bound can hold it for minutes with nothing else
+// messaging the SW, which is the MV3 teardown that reads as bare "no
+// response". It must stop on EVERY exit path — a leaked interval pings
+// the service worker forever, and a rejecting call is the path most
+// likely to leak.
+test('keepalive: started around the live call, stopped on success, failure, AND rejection', async () => {
+    const trace = [];
+    const keepalive = () => { trace.push('start'); return { stop: () => trace.push('stop') }; };
+
+    await ensureArticleExtract(
+        { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title', keepalive,
+          sendMessage: async () => ({ ok: true, extract: V8_EXTRACT, model: 'm' }) }, io());
+    assert.deepEqual(trace, ['start', 'stop'], 'success stops it');
+
+    trace.length = 0;
+    await ensureArticleExtract(
+        { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title', keepalive,
+          sendMessage: async () => ({ ok: false, error: 'rate limit' }) }, io());
+    assert.deepEqual(trace, ['start', 'stop'], 'a failed call stops it');
+
+    trace.length = 0;
+    const rejected = await ensureArticleExtract(
+        { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title', keepalive,
+          sendMessage: async () => { throw new Error('message port closed'); } }, io());
+    assert.equal(rejected.status, 'failed');
+    assert.deepEqual(trace, ['start', 'stop'], 'an SW teardown mid-call stops it');
+});
+
+test('keepalive: a cache hit never starts one (no call, nothing to keep alive)', async () => {
+    let started = 0;
+    const out = await ensureArticleExtract(
+        { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
+          keepalive: () => { started++; return { stop: () => {} }; },
+          sendMessage: async () => ({ ok: true, extract: V8_EXTRACT, model: 'm' }) },
+        io({ getExtract: async () => ({ extract: V8_EXTRACT, model: 'cached-model' }) }));
+    assert.equal(out.status, 'cached');
+    assert.equal(started, 0);
+});
+
+test('keepalive: omitting it is legal — the pass runs unchanged (injection, not a dependency)', async () => {
+    const out = await ensureArticleExtract(
+        { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
+          sendMessage: async () => ({ ok: true, extract: V8_EXTRACT, model: 'm' }) }, io());
+    assert.equal(out.status, 'ran');
+});
+
+// A salvaged extract is valid ONLY if the schema's required fields were
+// emitted before the cut. Nothing forces the model to emit `position`
+// first, so a truncated call can hand back complete atoms and no
+// position — which the schema rejects. That must read as the truncation
+// it is: reporting it as a shape problem ("invalid extract") sends the
+// reader hunting a parser bug that does not exist, and drops the count
+// of what was actually recovered.
+// A salvaged extract is valid ONLY if the schema's required fields were
+// emitted before the cut. Nothing forces the model to emit `position`
+// first, so a truncated call can hand back complete atoms and no
+// position — which the schema rejects. That must read as the truncation
+// it is: reporting it as a shape problem ("invalid extract") sends the
+// reader hunting a parser bug that does not exist, and drops the count
+// of what was actually recovered.
+test('a truncation that loses a required field reports TRUNCATION, not a shape error', async () => {
+    const salvagedNoPosition = {
+        key_assertions: [
+            { quote: 'a', text: 'A.', load_bearing: true },
+            { quote: 'b', text: 'B.', load_bearing: false }
+        ]
+    };
+    const out = await ensureArticleExtract(
+        { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
+          sendMessage: async () => ({ ok: true, extract: salvagedNoPosition, model: 'm', partial: true }) },
+        io());
+    assert.equal(out.status, 'failed');
+    assert.match(out.error, /hit its output limit/, 'named as a truncation');
+    assert.match(out.error, /2 complete assertion/, 'says how much was actually recovered');
+    assert.match(out.error, /\$\.position/, 'names the field the cut lost');
+    assert.doesNotMatch(out.error, /^invalid extract$/);
+});
+
+test('a COMPLETE response with an unusable shape is a different message, and still names the field', async () => {
+    const out = await ensureArticleExtract(
+        { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
+          sendMessage: async () => ({ ok: true, extract: { key_assertions: [] }, model: 'm' }) },
+        io());
+    assert.equal(out.status, 'failed');
+    assert.match(out.error, /cannot use/);
+    assert.match(out.error, /\$\.position/);
+    assert.doesNotMatch(out.error, /output limit/, 'not blamed on truncation');
+});
+
+test('describeExtractErrors renders both error shapes, never [object Object]', async () => {
+    const { describeExtractErrors } = await import('../src/shared/article-pass.js');
+    const rendered = describeExtractErrors([
+        { path: '$.position', message: 'required field missing' },
+        '$.entities: no row carries a name and mention — malformed map output',
+        { path: '$.x', message: 'ignored — capped at two' }
+    ]);
+    assert.match(rendered, /\$\.position required field missing/);
+    assert.match(rendered, /no row carries a name and mention/);
+    assert.doesNotMatch(rendered, /object Object/);
+    assert.doesNotMatch(rendered, /capped at two/, 'a toast is not a log');
+    assert.equal(describeExtractErrors([]), 'no reason reported');
+    assert.equal(describeExtractErrors(null), 'no reason reported');
+});
+
+// The live crash: a 48-minute transcript came back with a non-array
+// `entities`, and `(x || [])` rescues only FALSY values — a truthy wrong
+// type sails through to .map. The tool is not strict:true, so the API
+// guarantees nothing; and validateCorpusExtract does not catch it,
+// because it walks a normalized COPY and discards it. Every wrong type
+// the model can emit is exercised here, for both converters.
 test('no articleHash (edited body) → the extract still runs, the fold is skipped', async () => {
     let folded = 0;
     const out = await ensureArticleExtract(

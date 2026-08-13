@@ -4,6 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { sseResponse } from './helpers/sse.mjs';
 
 await import('fake-indexeddb/auto');
 // Stateful storage stub: the consent-gate tests (aiVision flag + API
@@ -213,15 +214,12 @@ function stubFetch(response) {
 }
 
 function toolResponse(input, extra = {}) {
-    return {
-        ok: true,
-        json: async () => ({
-            model: MODEL, stop_reason: 'tool_use',
-            content: [{ type: 'tool_use', name: VISION_TOOL_NAME, input }],
-            usage: { input_tokens: 10, output_tokens: 20 },
-            ...extra
-        })
-    };
+    return sseResponse({
+        model: MODEL, stop_reason: 'tool_use',
+        content: [{ type: 'tool_use', name: VISION_TOOL_NAME, input }],
+        usage: { input_tokens: 10, output_tokens: 20 },
+        ...extra
+    });
 }
 
 test('runVisionPass: request carries the image block and the forced tool', async () => {
@@ -261,7 +259,7 @@ test('runVisionPass: request carries the image block and the forced tool', async
 test('runVisionPass: model refusal is its own state', async () => {
     enableVision();
     const original = globalThis.fetch;
-    stubFetch({ ok: true, json: async () => ({ model: MODEL, stop_reason: 'refusal', content: [] }) });
+    stubFetch(sseResponse({ model: MODEL, stop_reason: 'refusal', content: [] }));
     let res;
     try { res = await runVisionPass({ imageBase64: 'AAAA', mediaType: 'image/png' }); }
     finally { globalThis.fetch = original; }
@@ -274,7 +272,7 @@ test('runVisionPass: max_tokens and malformed output are distinct errors', async
     enableVision();
     const original = globalThis.fetch;
     try {
-        stubFetch({ ok: true, json: async () => ({ model: MODEL, stop_reason: 'max_tokens', content: [] }) });
+        stubFetch(sseResponse({ model: MODEL, stop_reason: 'max_tokens', content: [] }));
         let res = await runVisionPass({ imageBase64: 'AAAA', mediaType: 'image/png' });
         assert.equal(res.ok, false);
         assert.match(res.error, /output limit/);

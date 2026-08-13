@@ -98,6 +98,7 @@ import {
     entityProposalsFromExtract
 } from '../shared/article-pass.js';
 import { normalizeSuggestKinds, LLM_SUGGEST_KINDS_STORAGE } from '../shared/llm-prompts.js';
+import { MAX_MEMBER_INPUT_CHARS } from '../shared/corpus-prompts.js';
 import { Utils } from '../shared/utils.js';
 import {
     buildMentionNoteEvent, selectMentionQuote, mentionKey,
@@ -3740,7 +3741,10 @@ async function runSuggestPass() {
             frame: binding
                 ? { caseName: binding.caseName || '', scopeQuestion: binding.scopeQuestion || '' }
                 : {},
-            sendMessage: (msg) => browserApi.runtime.sendMessage(msg)
+            sendMessage: (msg) => browserApi.runtime.sendMessage(msg),
+            // A long-form capture (transcript, book) can hold this one
+            // call for minutes — keep the SW alive for its duration.
+            keepalive: startSwKeepalive
         });
         if (out.status !== 'cached' && out.status !== 'ran') {
             toast('Suggest failed: ' + (out.error || 'could not analyze the article'), 'error', 6000);
@@ -3756,12 +3760,23 @@ async function runSuggestPass() {
             ...(kinds.includes('entities') ? entityProposalsFromExtract(out.extract) : []),
             ...(kinds.includes('claims') ? claimProposalsFromExtract(out.extract) : [])
         ];
-        // Honest coverage: the article pass reads the map's 60k-char
-        // bound (the old suggest pass read 120k) — on a very long
-        // capture the pass covers the head only. Disclosed, never
-        // silent.
+        // Honest coverage: the article pass reads the map's input bound
+        // — on a capture longer than it the pass covers the head only.
+        // Disclosed, never silent. The number comes FROM the constant:
+        // it moved once (60k → 400k for long-form transcripts) and a
+        // hardcoded copy here would have quietly started lying.
         if (out.truncated) {
-            toast('Long capture: suggestions read the first 60k characters.', 'info', 4000);
+            const kchars = Math.round(MAX_MEMBER_INPUT_CHARS / 1000);
+            toast(`Long capture: suggestions read the first ${kchars}k characters.`, 'info', 4000);
+        }
+        // A DIFFERENT loss from `truncated`: the whole article was read,
+        // but the model hit its output ceiling and the extract was
+        // salvaged to its last complete assertion. Never silent — the
+        // proposals below are a prefix, not the article's full set.
+        if (out.partial) {
+            toast('The analysis hit its output limit — these proposals stop partway '
+                + `through the article (${(out.extract.key_assertions || []).length} complete assertions kept).`,
+            'info', 8000);
         }
     } catch (err) {
         // Belt over the per-call braces: NOTHING in this flow may
