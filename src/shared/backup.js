@@ -75,6 +75,7 @@ import { openEventJournalDb, normalizeImportedRow } from './event-journal.js';
 // directly — it needs the local article body, which lives in another
 // IndexedDB database and so must be resolved before any transaction.
 import { mergeExtractionRows } from './extraction-import.js';
+import { normalizeExtractionRecord } from './map-artifacts.js';
 
 // Per-store row normalizers, applied to every INCOMING row on BOTH
 // restore (clearAndFill) and merge (mergeRows). A backup written by an
@@ -86,7 +87,14 @@ import { mergeExtractionRows } from './extraction-import.js';
 // normalizer is the owning module's — schemas are never reinvented
 // here (the DB_OPENERS principle, applied to rows).
 const ROW_NORMALIZERS = {
-    'xray-events': { published_events: normalizeImportedRow }
+    'xray-events': { published_events: normalizeImportedRow },
+    // `article-extractions` rows are the peer-data trust boundary: a
+    // backup file is arbitrary JSON from another machine, and a wholesale
+    // restore used to `put()` them raw — so a wrong-typed list landed in
+    // IndexedDB and threw later, on read, in the portal paint and in the
+    // merge (inside a transaction, where a throw aborts everything).
+    // The normalizer is the owning module's, per the rule above.
+    'xray-audits': { 'article-extractions': normalizeExtractionRecord }
 };
 
 export const BACKUP_FORMAT = 'xray-backup/1';
@@ -237,16 +245,25 @@ export async function dumpDatabase(name, { skipStores = [] } = {}) {
     return out;
 }
 
-function clearAndFill(db, storeName, rows, normalize = null) {
+function clearAndFill(db, storeName, rows, normalize = null, warn = () => {}) {
+    let dropped = 0;
     return new Promise((resolve, reject) => {
         const tx = db.transaction(storeName, 'readwrite');
         const store = tx.objectStore(storeName);
         store.clear();
         for (const row of rows) {
             const decoded = fromSerializable(row);
-            store.put(normalize ? normalize(decoded) : decoded);
+            const out = normalize ? normalize(decoded) : decoded;
+            // A normalizer returning null means "this is not a record" —
+            // drop it. put(null) would throw and abort the whole restore
+            // for one unusable row.
+            if (out === null || out === undefined) { dropped += 1; continue; }
+            store.put(out);
         }
-        tx.oncomplete = () => resolve();
+        tx.oncomplete = () => {
+            if (dropped) warn(`backup restore: ${storeName} — ${dropped} unusable row(s) dropped`);
+            resolve();
+        };
         tx.onerror = () => reject(tx.error || new Error(`fill ${storeName} failed`));
         tx.onabort = () => reject(tx.error || new Error(`fill ${storeName} aborted`));
     });
@@ -269,7 +286,7 @@ export async function restoreDatabase(name, dump, { warn = () => {} } = {}) {
             warn(`backup restore: store ${name}/${storeName} not in current schema — skipped`);
             continue;
         }
-        await clearAndFill(db, storeName, rows === null ? [] : rows, normalizers[storeName] || null);
+        await clearAndFill(db, storeName, rows === null ? [] : rows, normalizers[storeName] || null, warn);
     }
 }
 
