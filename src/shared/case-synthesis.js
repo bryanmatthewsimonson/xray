@@ -519,13 +519,32 @@ const BRIEF_SCHEMA = obj({
  * the decorations while the extract's CORE (position, atoms, sources,
  * open questions) keeps its strict contract. The stored extract stays
  * raw; tolerance lives in the consumers, exactly as tested.
+ *
+ * PER-ROW ONLY (2026-08-13). The tolerance covers malformed ROWS INSIDE
+ * a list. It must NOT cover a wrong-typed LIST, and it silently did:
+ * a non-array `entities` was coerced to `[]` here, the walk passed, and
+ * the RAW wrong-typed extract was then cached and folded into the
+ * durable record. The result was an article that is entity-blind
+ * FOREVER — the content-keyed cache re-serves it on every later
+ * Suggest, and the loss reads as "this article names nobody" rather
+ * than "this extract is broken". That is exactly the whole-extract
+ * blindness the two refusals below exist to prevent; they just never
+ * checked the type. A wrong-typed list is now left RAW so the walk
+ * rejects it ("expected array, got object"), which re-runs the pass —
+ * and, because the cache-hit path re-validates, retroactively
+ * invalidates any poisoned entry already stored.
+ *
+ * `null` stays tolerated as "none": a model writing `"entities": null`
+ * is saying nothing was found, which is a real and benign answer.
  */
 function decorationTolerantView(input) {
     if (!input || typeof input !== 'object') return input;
     const view = { ...input };
     if ('entities' in view) {
-        view.entities = Array.isArray(view.entities)
-            ? view.entities
+        if (view.entities === null || view.entities === undefined) view.entities = [];
+        else if (!Array.isArray(view.entities)) { /* leave raw — the walk must reject it */ }
+        else {
+            view.entities = view.entities
                 .filter((e) => e && typeof e === 'object'
                     && typeof e.name === 'string' && e.name.trim())
                 .map((e) => ({
@@ -533,8 +552,8 @@ function decorationTolerantView(input) {
                     name: e.name,
                     type: typeof e.type === 'string' ? e.type : '',
                     mention: typeof e.mention === 'string' ? e.mention : ''
-                }))
-            : [];
+                }));
+        }
     }
     if (Array.isArray(view.key_assertions)) {
         view.key_assertions = view.key_assertions.map((a) => {

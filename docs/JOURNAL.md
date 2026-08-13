@@ -19,6 +19,141 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-13 — Two audits over model-output consumers: 17 confirmed wrong-type defects, mostly SILENT
+
+**Tags:** bug, pattern
+
+After the entities crash, two multi-agent audits (115 agents, every
+finding adversarially verified — several reproduced by executing the
+real modules) swept every consumer of model-produced or peer-imported
+data for the same class. The crash was the least of it: most instances
+corrupt silently.
+
+**Fixed here (the reachable-now set):**
+
+- **claim→entity links were being dropped silently, two ways.**
+  (1) TYPE ASYMMETRY: the `about` side stringified refs while the
+  `knownRefs` side stored raw values, so a model emitting `"ref": 1` —
+  legal, the tool is not strict — put the NUMBER 1 in the set and
+  `has("1")` failed for every atom pointing at it. `filter(Boolean)`
+  additionally swallowed a `ref: 0`. (2) PREDICATE DISAGREEMENT:
+  `knownRefs` admitted any row with a truthy ref, while the entity
+  converter keeps only rows with a usable name AND mention — so a
+  dropped row's ref stayed admissible, the chip vanished at render, and
+  the link died at accept with no message. Both sides now normalize
+  through one `refKey()`, and `knownRefs` is built FROM THE PROPOSALS,
+  so the two predicates cannot drift again.
+- **One malformed field could lose an entire review batch.**
+  `summarize()` in llm-review.js did `(p.about || []).map` (also
+  `labels`, `anchors`) — and it runs inside `render()`, which runs
+  synchronously inside `openLlmReview`'s Promise executor. A truthy
+  non-array therefore REJECTED the promise: the modal never opened and
+  every proposal in the batch was lost. The inline editor in the same
+  file already used `Array.isArray`; the summary path never got it.
+- **"Run Suggest again" was advice that could not work** — shipped
+  hours earlier in this same session. An entity-less extract is
+  schema-valid, so the content-keyed cache re-serves it forever; only
+  the wrong-type case self-heals. Added `force` to
+  `ensureArticleExtract` and wired **Alt-click on Suggest** to discard
+  the cached reading. Without it, a valid-but-poor extract was permanent.
+
+**Open, ranked** (audit output in the run transcripts):
+
+1. **Import/restore is the least-guarded surface in the codebase, and
+   it is the peer-data trust boundary.** `map-artifacts.js` does
+   `for...of` over incoming `assertions`/`positions` — a wrong type
+   throws INSIDE an IndexedDB `onsuccess` handler, aborting the whole
+   `xray-audits` transaction with a bare AbortError; `backup.js`
+   `clearAndFill` has no row normalizer for `article-extractions` at
+   all; `extraction-import.js` validates nothing beyond `articleHash`.
+2. `map-artifacts.js` `Math.max(…|| 0)` writes **NaN** to IndexedDB,
+   after which `changed` is true on every re-import forever.
+3. `corpus-publish.js` — `JSON.parse('null')` returns null without
+   throwing, so a peer's kind-30068 CaseBrief with `content: "null"`
+   throws past the try/catch.
+4. `extraction-block.js` — a string `first_seen.at` gives
+   `new Date(NaN).toISOString()` → RangeError mid-paint, half-rendered
+   panel, no error shown.
+5. `llm-client.js` vision — `transcription_complete !== false` turns the
+   STRING `"false"` into `true`, silently corrupting an honesty
+   disclosure.
+
+**Two structural findings worth more than any single fix.** (a)
+`entities` is OPTIONAL in the map tool (`required: ['position']`), so
+omitting it entirely is a legal, cacheable, non-self-healing response —
+making it required only forces the key to exist, not to be populated.
+(b) `strict: true` would close this whole class at the API, but it is
+NOT a one-line change: `buildMapTool` sets no `additionalProperties:
+false`, and the roster still offers models outside the structured-outputs
+set. Worth doing deliberately, with a MAP_PROMPT_VERSION bump.
+
+**The pattern, stated once:** `(x || [])` is not a type guard, and every
+place this codebase treats model or peer output as trusted-by-shape is a
+defect waiting for one unusual response. The tell is an asymmetry — one
+side normalizing, the other not.
+
+## 2026-08-13 — A validator that NORMALIZED what it would not REJECT poisoned the extract cache
+
+**Tags:** bug, pattern
+
+Suggest on a 48-minute YouTube capture crashed with
+`((extract && extract.entities) || []).map is not a function`, then —
+once the crash was guarded — returned 38 claims and zero entities
+instantly, forever. Root cause, confirmed by a clean re-run after the
+fix:
+
+The model returned `entities` as a truthy NON-ARRAY on one call. Three
+things then compounded:
+
+1. **`(x || [])` is not a type guard.** It rescues only FALSY values; a
+   truthy wrong type sails through to `.map` / `for...of`. Note
+   `atom.about` was already guarded with `Array.isArray` in the same
+   function — the hazard was known and simply never applied to the
+   top-level lists.
+2. **The validator normalized instead of rejecting.**
+   `decorationTolerantView` coerced the non-array to `[]`, `walk` passed
+   the sanitized COPY, and the RAW wrong-typed extract was what got
+   cached and folded into the durable record. Validation said yes to an
+   object no consumer could read.
+3. **The cache is content-keyed and permanent.** So one malformed
+   response made that article entity-blind for good, and the loss read
+   as "this article names nobody" rather than "this extract is broken".
+
+**The general lesson, worth more than the fix:** a validator that
+sanitizes its input for checking and then hands the RAW value onward
+has not validated anything — it has only moved the failure downstream
+and vouched for it on the way. Either the normalized value is what gets
+used, or the wrong type is an error. Doing neither is the worst of both.
+
+Fixes: `listField()` guards the converters (a wrong-typed list must not
+take valid atoms down with it — pinned by test); a wrong-typed LIST is
+now a validation error while per-ROW leniency is untouched; and because
+the cache-hit path re-validates, that tightening retroactively
+invalidates entries already poisoned — no migration, verified by test.
+
+**A tested decision was REVERSED here**, deliberately and with the
+maintainer told: `tests/case-synthesis.test.mjs` asserted "even
+entities-as-non-array degrades to 'no entities', not failure". Its
+sibling test refuses an all-unusable entities list because that would be
+"permanently entity-blind for this article behind a forever cache hit.
+Refuse; re-run." Those are the same harm; the rules contradicted, and
+the wrong-type case now follows the sibling's rule. The reasoning lives
+in the test, not in a commit message.
+
+**Also landed: entity loss is never silent.** "No entity suggestions"
+had four causes wearing one silence — kind switched off in Options,
+malformed list, model named nobody, rows arrived but every one lacked
+the verbatim `mention` the converter requires. `entityYield()` counts
+them and the reader names the actual one. The last case stays a live
+risk for transcripts specifically: `mention` must be a contiguous
+verbatim span, and the body is timestamp-decorated markdown
+(`[0:05](…&t=5s) Jane Doe said…`), so a typed name fails where a
+carefully copied long quote succeeds.
+
+See `src/shared/article-pass.js`, `src/shared/case-synthesis.js`,
+`src/reader/index.js`, `tests/article-pass.test.mjs`,
+`tests/case-synthesis.test.mjs`.
+
 ## 2026-08-13 — Every LLM call streams; a cut-off map extract is salvaged instead of discarded
 
 **Tags:** design, pattern

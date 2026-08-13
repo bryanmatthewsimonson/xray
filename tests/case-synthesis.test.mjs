@@ -584,10 +584,73 @@ test('v9 decorations: one malformed entity row or a wrong-typed about NEVER void
     };
     assert.equal(CS.validateCorpusExtract(extract).ok, true,
         'decorations prune; the core contract alone decides validity');
-    // Even entities-as-non-array degrades to "no entities", not failure.
-    assert.equal(CS.validateCorpusExtract({
-        position: { summary: 's' }, key_assertions: [], entities: 'garbage'
-    }).ok, true);
+});
+
+// REVERSED 2026-08-13, after the harm was observed live. This file used
+// to assert the opposite — "even entities-as-non-array degrades to 'no
+// entities', not failure" — which reads reasonable until you follow it
+// through the cache:
+//
+//   model emits a non-array `entities` → decorationTolerantView coerced
+//   it to [] FOR VALIDATION → the walk passed → the RAW wrong-typed
+//   extract was cached under its content key and folded into the
+//   durable record → the converter then threw
+//   (".map is not a function"), and once that crash was guarded, every
+//   later Suggest served the poisoned cache entry instantly with zero
+//   entities. The article reads as "names nobody" rather than "this
+//   extract is broken", forever.
+//
+// That is precisely the outcome the blindness refusal below exists to
+// prevent — its own comment says "permanently entity-blind for this
+// article behind a forever cache hit. Refuse; re-run." The two rules
+// were in contradiction; a WRONG-TYPED list is at least as broken as a
+// list of unusable rows, so it gets the same answer.
+//
+// The distinction that survives: per-ROW leniency (a nameless row, a
+// junk row, a wrong-typed `about`) still prunes and never voids a paid
+// extract. Only a wrong-typed LIST is fatal.
+test('v9 blindness refusal EXTENDS to a wrong-typed list — not just unusable rows', () => {
+    const core = { position: { summary: 's' }, key_assertions: [] };
+    for (const [label, bad] of [
+        ['object', { E1: { name: 'Alice' } }],
+        ['string', 'Alice, Bob'],
+        ['number', 7],
+        ['boolean', true]
+    ]) {
+        const v = CS.validateCorpusExtract({ ...core, entities: bad });
+        assert.equal(v.ok, false, `entities as ${label} must not validate`);
+        assert.match(JSON.stringify(v.errors), /expected array/,
+            `entities as ${label} names the type problem`);
+    }
+
+    // `null` and absent stay VALID — a model saying "entities": null is
+    // reporting that it found none, which is a real answer, not damage.
+    assert.equal(CS.validateCorpusExtract({ ...core, entities: null }).ok, true);
+    assert.equal(CS.validateCorpusExtract(core).ok, true);
+    assert.equal(CS.validateCorpusExtract({ ...core, entities: [] }).ok, true);
+});
+
+test('a poisoned cache entry SELF-HEALS: the cache-hit path revalidates', async () => {
+    // Why the reversal is retroactive and needs no migration: the
+    // already-stored bad extract now fails validation on READ, so
+    // ensureArticleExtract falls through to a fresh pass instead of
+    // serving it. Without this, tightening the validator would fix new
+    // captures and leave every poisoned entry in place.
+    const { ensureArticleExtract } = await import('../src/shared/article-pass.js');
+    const POISONED = { position: { summary: 's' }, key_assertions: [{ quote: 'q', load_bearing: true }],
+                       entities: { E1: { name: 'Alice' } } };
+    const GOOD = { position: { summary: 's' }, key_assertions: [{ quote: 'q', load_bearing: true }],
+                   entities: [{ ref: 'E1', name: 'Alice', type: 'person', mention: 'Alice' }] };
+    let called = 0;
+    const out = await ensureArticleExtract(
+        { article: { title: 'T', content: '<p>Body text long enough to matter.</p>', url: 'https://e.com/a' },
+          articleHash: 'a'.repeat(64), url: 'https://e.com/a', title: 'T',
+          sendMessage: async () => { called += 1; return { ok: true, extract: GOOD, model: 'm' }; } },
+        { getExtract: async () => ({ extract: POISONED, model: 'old' }),
+          saveExtract: async () => {}, record: async () => ({ status: 'unchanged' }), now: () => 0 });
+    assert.equal(called, 1, 'the poisoned hit was rejected and the pass re-ran');
+    assert.equal(out.status, 'ran');
+    assert.deepEqual(out.extract.entities, GOOD.entities);
 });
 
 test('v9 blindness refusal: a non-empty entities list with NO usable row is malformed (never cached)', () => {
