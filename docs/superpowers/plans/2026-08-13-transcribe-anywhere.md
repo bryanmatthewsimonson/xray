@@ -922,7 +922,7 @@ export function youtubeVideoId(url) {
             }
         }
     }
-    return VIDEO_ID_RE.test(id) ? id : '';
+    return VIDEO_ID_RE.test(id) ? id : null;
 }
 
 /** Stable identity for the media behind `url`. */
@@ -951,7 +951,7 @@ export async function mediaKeyForArticle(article) {
 }
 ```
 
-**Note:** `youtubeVideoId` returns `''` (falsy) rather than `null` when the host is YouTube but no id parses — the test asserts `null` only for non-YouTube hosts, and every caller treats both as "no id". Keep the empty string; do not "tidy" it into `null` without updating the test.
+**Note:** `youtubeVideoId` returns `null` for every "no id here" case — a non-YouTube host, and a YouTube host whose path carries no parseable id. One sentinel, not two. `mediaKeyForUrl`'s `if (videoId)` and `transcriber-client.js`'s `if (!youtubeVideoId(...))` both read it as falsy, and the Python side's `youtube_video_id` returns `None` the same way.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
@@ -2067,7 +2067,16 @@ Match the exact class names already used by the neighbouring buttons in that fil
 
 - [ ] **Step 2: Wire its handler**
 
-In the same file, beside the existing Save handler, add:
+First declare the intent flag next to the modal's other mutable state
+(beside `let lastParse = null;`, around line 216):
+
+```javascript
+        // "Transcribe from source" sets this, then delegates to the ONE
+        // save path so metadata and intent travel in a single result.
+        let transcribeRequested = false;
+```
+
+Then, beside the existing Save handler, add:
 
 ```javascript
         // "Transcribe from source": the same save, plus a request to
@@ -2084,13 +2093,16 @@ In the same file, beside the existing Save handler, add:
                 showError('This capture has no web URL to fetch media from.');
                 return;
             }
-            $('#xr-media-save').click();   // reuse the one save path
-            // The save handler closes with its own result; re-close is
-            // a no-op, so stamp the intent before delegating instead.
+            // Stamp the intent BEFORE delegating: the save handler is the
+            // only path that calls close(), so the flag must already be
+            // set when it builds its result. Delegating (rather than
+            // duplicating the save body) keeps one validation path.
+            transcribeRequested = true;
+            $('#xr-media-save').click();
         });
 ```
 
-**Implementation note:** the delegate-to-save trick above must not double-resolve. Implement it as a flag instead: declare `let transcribeRequested = false;` next to `let lastParse = null;`, set it to `true` in this handler **before** calling the save path, and have the save handler's `close({…})` include `transcribe: transcribeRequested`. Verify by reading the save handler you are editing — there is exactly one `close({…})` call for the save path (around line 391).
+**Why a flag and not a second `close()`:** `close()` resolves the modal's promise and removes the host node. Calling it from both handlers would resolve twice — the second resolve is silently ignored by the promise, so the bug would present as "the metadata saved but the job never started", which is exactly the failure mode hardest to trace. There is exactly one `close({…})` for the save path (around line 391); verify that before editing.
 
 - [ ] **Step 3: Include the field in the result**
 
