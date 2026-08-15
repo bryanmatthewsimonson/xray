@@ -10,8 +10,56 @@ import assert from 'node:assert/strict';
 import {
     JOB_RECORD_PREFIX, JOB_RECORD_TTL_MS, MAX_UNREACHABLE_POLLS,
     jobRecordKey, isRecordStale, describeProgress, providerPhrase, decideResume,
-    reapStaleJobRecords, runTranscriptionJob
+    reapStaleJobRecords, runTranscriptionJob, transcribeSourceUrl
 } from '../src/reader/transcribe-flow.js';
+
+// transcribeSourceUrl — smoke-failure diagnosis B2. A KNOWN platform
+// (one with a src/shared/platforms/index.js handler) keeps sending its
+// page URL always, because that's what yt-dlp resolves best and the
+// signed-URL hazard (IG/FB) is real there. Anything else prefers a
+// discovered mediaHints.fileUrl when it's https, falling back to the
+// page URL otherwise. article.url itself is never touched by this
+// function — only what gets POSTed to the job.
+test('transcribeSourceUrl: a known platform (YouTube) always sends the page URL, fileUrl or not', () => {
+    assert.equal(transcribeSourceUrl({
+        url: 'https://www.youtube.com/watch?v=abc123DEF45',
+        platform: 'youtube',
+        mediaHints: { audio: false, video: true, embeds: [], fileUrl: 'https://cdn.example.com/decoy.mp4' }
+    }), 'https://www.youtube.com/watch?v=abc123DEF45');
+});
+
+test('transcribeSourceUrl: a known platform with no fileUrl still sends the page URL', () => {
+    assert.equal(transcribeSourceUrl({
+        url: 'https://www.instagram.com/reel/abc/',
+        platform: 'instagram'
+    }), 'https://www.instagram.com/reel/abc/');
+});
+
+test('transcribeSourceUrl: an unknown platform with a discovered fileUrl sends the fileUrl', () => {
+    assert.equal(transcribeSourceUrl({
+        url: 'https://mormondiscussionpodcast.org/2026/08/some-episode/',
+        platform: null,
+        mediaHints: { audio: true, video: false, embeds: [], fileUrl: 'https://media.blubrry.com/x/ep.mp3' }
+    }), 'https://media.blubrry.com/x/ep.mp3');
+});
+
+test('transcribeSourceUrl: an unknown platform with no fileUrl falls back to the page URL', () => {
+    assert.equal(transcribeSourceUrl({
+        url: 'https://example.com/some-article',
+        platform: null
+    }), 'https://example.com/some-article');
+});
+
+test('transcribeSourceUrl: an http:// fileUrl is not fetchable — falls back to the page URL', () => {
+    assert.equal(transcribeSourceUrl({
+        url: 'https://example.com/some-article',
+        mediaHints: { audio: true, video: false, embeds: [], fileUrl: 'http://cdn.example.com/ep.mp3' }
+    }), 'https://example.com/some-article');
+});
+
+test('transcribeSourceUrl: no article at all does not throw', () => {
+    assert.equal(transcribeSourceUrl(null), undefined);
+});
 
 const NOW = 1_750_000_000_000;
 

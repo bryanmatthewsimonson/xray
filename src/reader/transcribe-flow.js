@@ -231,6 +231,43 @@ export function isFetchableMediaUrl(url) {
     return /^https:\/\//i.test(String(url || ''));
 }
 
+// Platform ids with a dedicated capture handler (src/shared/platforms/
+// index.js HANDLERS). Mirrored here as a literal list rather than
+// imported — this module is deliberately import-free (its tests run
+// with no chrome stub) — so keep it in sync with that file's HANDLERS
+// keys when a platform handler is added or removed.
+const KNOWN_PLATFORMS = new Set([
+    'substack', 'youtube', 'twitter', 'tiktok', 'instagram', 'facebook', 'pmc', 'arxiv'
+]);
+
+/**
+ * The URL to hand the companion for THIS transcription — smoke-failure
+ * diagnosis B2 (.superpowers/sdd/2026-08-13-transcribe-anywhere/
+ * smoke-failure-diagnosis.md). The wave sends the PAGE url on purpose
+ * (kickoff Approach A): IG/FB media URLs are signed and expire, so the
+ * page is the only stable address there, and yt-dlp resolves it. A
+ * podcast CDN file is the opposite case — the page itself often can't
+ * be resolved by yt-dlp at all (PowerPress/Blubrry sites 403 non-browser
+ * agents), but the direct file URL is both stable AND fetchable.
+ *
+ * Deterministic, no trial-and-error: a KNOWN platform (one with a
+ * capture handler — yt-dlp handles those best, and the signed-URL
+ * hazard is real there, YouTube included) always keeps sending its page
+ * URL; anything else falls back to a discovered `mediaHints.fileUrl`
+ * when there is one and it's https, else the page URL as before.
+ *
+ * Never touches `article.url` itself — that stays the article's
+ * identity (archive keying, re-capture dedup, the `a` tag on anything
+ * published). This only decides what gets POSTed to the transcription
+ * job.
+ */
+export function transcribeSourceUrl(article) {
+    const a = article || {};
+    if (a.platform && KNOWN_PLATFORMS.has(a.platform)) return a.url;
+    const fileUrl = a.mediaHints && a.mediaHints.fileUrl;
+    return isFetchableMediaUrl(fileUrl) ? fileUrl : a.url;
+}
+
 /**
  * Does this capture look like it has media a transcriber could fetch?
  *
@@ -255,7 +292,9 @@ export function hasMediaSignal(article) {
     if (a.media === 'video' || a.media === 'podcast') return true;
     if (a.podcast && Object.keys(a.podcast).length > 0) return true;
     const h = a.mediaHints;
-    if (h && (h.audio || h.video || (Array.isArray(h.embeds) && h.embeds.length > 0))) return true;
+    // fileUrl (B1's PowerPress signal) qualifies on its own — a page can
+    // expose only a direct download anchor with no <audio>/<video>/embed.
+    if (h && (h.audio || h.video || (Array.isArray(h.embeds) && h.embeds.length > 0) || h.fileUrl)) return true;
     return false;
 }
 

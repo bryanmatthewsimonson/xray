@@ -11,15 +11,91 @@ URLs), so yt-dlp cookies/throttling behavior is identical across
 providers.
 """
 
+import json
 import logging
+import shutil
+import subprocess
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
 
 from . import config, media_url
 
 log = logging.getLogger("xray-transcriber.download")
 
 Emit = Callable[[dict], None]
+
+
+def _check_duration_before_download(duration: Optional[float], max_duration_s: int) -> None:
+    """The pre-download guard. Only refuses when the probe DOES know the
+    duration and it's over the cap — a falsy duration (None or 0) is the
+    NORMAL case for a direct media-file URL (verified against a real
+    Blubrry .mp3: yt-dlp's pre-download probe returns duration: None for
+    it, filesize: None too), not a reason to refuse. Refusing here for
+    every unknown-duration URL, as this guard originally did, killed the
+    whole "transcribe anywhere" path for exactly the files it exists to
+    serve (smoke-failure diagnosis B3). The real duration gets
+    established and enforced AFTER download instead — see
+    _check_duration_after_download.
+    """
+    if duration and duration > max_duration_s:
+        raise RuntimeError(
+            f"video is {int(duration)} s long, over the limit of "
+            f"{max_duration_s} s (raise TRANSCRIBER_MAX_DURATION_S to allow it)"
+        )
+
+
+def _check_duration_after_download(
+    real_duration: Optional[float], max_duration_s: int, audio_path: Path
+) -> None:
+    """The post-download guard, reached only when the pre-download probe
+    had no duration to check. Enforces the cap against the REAL duration
+    BEFORE returning, so an over-long file still fails before any GPU
+    work — the wasted cost is one download, not a wasted transcribe. When
+    the real duration still can't be determined, proceeds rather than
+    refuses (the file exists and WhisperX will decode it regardless), but
+    says so loudly: the cap could not be enforced for this file.
+    """
+    if not real_duration:
+        log.warning(
+            "could not determine duration for %s after download -- the %s s "
+            "cap could not be enforced for this file; proceeding anyway",
+            audio_path, max_duration_s,
+        )
+        return
+    if real_duration > max_duration_s:
+        raise RuntimeError(
+            f"downloaded audio is {int(real_duration)} s long, over the limit of "
+            f"{max_duration_s} s (raise TRANSCRIBER_MAX_DURATION_S to allow it)"
+        )
+
+
+def _ffprobe_duration(path: Path) -> Optional[float]:
+    """Best-effort duration via ffprobe for a file on disk, for when
+    neither the pre-download probe nor yt-dlp's own download info knew
+    it (the case for a plain, non-yt-dlp-native media file). ffmpeg is
+    already a hard startup requirement (server.py exits without it), so
+    ffprobe should be right alongside it on PATH -- but this must never
+    raise; any failure just means the cap can't be enforced, handled by
+    the caller.
+    """
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        log.warning("ffprobe not found on PATH; cannot establish duration for %s", path)
+        return None
+    try:
+        proc = subprocess.run(
+            [
+                ffprobe, "-v", "error", "-show_entries", "format=duration",
+                "-of", "json", str(path),
+            ],
+            capture_output=True, text=True, timeout=30, check=True,
+        )
+        data = json.loads(proc.stdout)
+        duration = float(data["format"]["duration"])
+        return duration if duration > 0 else None
+    except Exception as exc:  # noqa: BLE001 - best-effort probe, never fatal
+        log.warning("ffprobe failed for %s: %s", path, exc)
+        return None
 
 
 def download_audio(url: str, tmp_dir: Path, emit: Emit) -> "tuple[dict, Path]":
@@ -45,13 +121,7 @@ def download_audio(url: str, tmp_dir: Path, emit: Emit) -> "tuple[dict, Path]":
     if info.get("is_live"):
         raise RuntimeError("live streams are not supported")
     duration = info.get("duration")
-    if not duration:
-        raise RuntimeError("could not determine video duration; refusing to download")
-    if duration > config.MAX_DURATION_S:
-        raise RuntimeError(
-            f"video is {int(duration)} s long, over the limit of "
-            f"{config.MAX_DURATION_S} s (raise TRANSCRIBER_MAX_DURATION_S to allow it)"
-        )
+    _check_duration_before_download(duration, config.MAX_DURATION_S)
 
     last_emitted = {"progress": -1.0}
 
@@ -89,6 +159,14 @@ def download_audio(url: str, tmp_dir: Path, emit: Emit) -> "tuple[dict, Path]":
         if not candidates:
             raise RuntimeError("download produced no audio file")
         audio_path = candidates[0]
+
+    # The pre-download probe already enforced the cap when it knew the
+    # duration. When it didn't (the normal case for a direct media-file
+    # URL), establish the REAL duration now that the file exists and
+    # enforce the cap against it before any GPU work runs.
+    if not duration:
+        real_duration = dl_info.get("duration") or _ffprobe_duration(audio_path)
+        _check_duration_after_download(real_duration, config.MAX_DURATION_S, audio_path)
 
     emit({"stage": "downloading", "progress": 0.15})
     return info, audio_path

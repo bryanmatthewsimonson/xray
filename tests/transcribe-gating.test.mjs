@@ -52,6 +52,13 @@ test('hasMediaSignal: capture-time media hints qualify', () => {
     }), true);
 });
 
+test('hasMediaSignal: a fileUrl-only hint qualifies (B1 — PowerPress download anchor, no <audio>/embed)', () => {
+    assert.equal(hasMediaSignal({
+        url: 'https://mormondiscussionpodcast.org/2026/08/some-episode/',
+        mediaHints: { audio: true, video: false, embeds: [], fileUrl: 'https://media.blubrry.com/x/ep.mp3' }
+    }), true);
+});
+
 test('hasMediaSignal: a plain article does not', () => {
     assert.equal(hasMediaSignal({
         url: 'https://example.substack.com/p/plain-post',

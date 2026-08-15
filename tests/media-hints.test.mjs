@@ -100,6 +100,89 @@ test('detectMediaHints: every iframe on the page is scanned, not just the first 
     assert.deepEqual(hints.embeds, ['megaphone']);
 });
 
+test('detectMediaHints: a PowerPress-shaped page (mp3 download anchor, no player) yields a fileUrl hint', () => {
+    // The smoke-failure fixture: no <audio>, no player iframe, no
+    // og:audio/og:video — only "Play in new window" / "Download" anchors
+    // pointing at the CDN file. B1 in
+    // .superpowers/sdd/2026-08-13-transcribe-anywhere/smoke-failure-diagnosis.md.
+    const mp3 = 'https://media.blubrry.com/mormondiscussions/ins.blubrry.com/mormondiscussions/EP.mp3';
+    const hints = detectMediaHints(docWith({
+        'a[href]': [
+            { getAttribute: () => mp3, href: mp3, className: 'powerpress_link_pinw' },
+            { getAttribute: () => mp3, href: mp3, className: 'powerpress_link_d' }
+        ]
+    }));
+    assert.deepEqual(hints, { audio: true, video: false, embeds: [], fileUrl: mp3 });
+});
+
+test('detectMediaHints: an mp4 anchor is a video signal', () => {
+    const mp4 = 'https://cdn.example.com/clip.mp4';
+    const hints = detectMediaHints(docWith({
+        'a[href]': [{ getAttribute: () => mp4, href: mp4 }]
+    }));
+    assert.deepEqual(hints, { audio: false, video: true, embeds: [], fileUrl: mp4 });
+});
+
+test('detectMediaHints: a query-stringed mp3 link still matches', () => {
+    const url = 'https://cdn.example.com/ep.mp3?_=1';
+    const hints = detectMediaHints(docWith({
+        'a[href]': [{ getAttribute: () => url, href: url }]
+    }));
+    assert.equal(hints.audio, true);
+    assert.equal(hints.fileUrl, url);
+});
+
+test('detectMediaHints: a plain .html link is not a media file', () => {
+    const url = 'https://example.com/episode/transcript.html';
+    assert.equal(detectMediaHints(docWith({
+        'a[href]': [{ getAttribute: () => url, href: url }]
+    })), null);
+});
+
+test('detectMediaHints: a link to a page merely mentioning media (mp3 in the query, not the path) does not match', () => {
+    const url = 'https://example.com/watch?video=file.mp3';
+    assert.equal(detectMediaHints(docWith({
+        'a[href]': [{ getAttribute: () => url, href: url }]
+    })), null);
+});
+
+test('detectMediaHints: a relative-only href (no absolute .href, stub getAttribute) is skipped, not guessed at', () => {
+    assert.equal(detectMediaHints(docWith({
+        'a[href]': [{ getAttribute: () => '/episode.mp3' }]
+    })), null);
+});
+
+test('detectMediaHints: every anchor on the page is scanned — a late real link past many unmatched ones is still found', () => {
+    // Equivalent of the iframe "35 ads then the real player" regression:
+    // an ad-heavy podcast page's real download link can sit well past
+    // whatever nav/social/tracker anchors precede it in the DOM. A
+    // pre-slice cap here would reproduce exactly the B1 false negative.
+    const decoys = Array.from({ length: 40 }, (_, i) => ({
+        getAttribute: () => `https://example.com/page${i}.html`,
+        href: `https://example.com/page${i}.html`
+    }));
+    const mp3 = 'https://media.blubrry.com/mormondiscussions/late-link.mp3';
+    const real = { getAttribute: () => mp3, href: mp3 };
+    const hints = detectMediaHints(docWith({ 'a[href]': [...decoys, real] }));
+    assert.notEqual(hints, null);
+    assert.equal(hints.audio, true);
+    assert.equal(hints.fileUrl, mp3);
+});
+
+test('detectMediaHints: fileUrl records the FIRST match, not a later one', () => {
+    const first = 'https://cdn.example.com/first.mp3';
+    const second = 'https://cdn.example.com/second.mp4';
+    const hints = detectMediaHints(docWith({
+        'a[href]': [
+            { getAttribute: () => first, href: first },
+            { getAttribute: () => second, href: second }
+        ]
+    }));
+    assert.equal(hints.audio, true);
+    assert.equal(hints.video, true);
+    assert.equal(hints.fileUrl, first);
+});
+
 test('detectMediaHints: many DISTINCT known players are all found, none masked by an earlier match', () => {
     // A page can legitimately embed several different players (a video
     // essay quoting a podcast clip, a roundup post, etc.). Every known

@@ -84,7 +84,7 @@ import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/len
 import { speakerFromParagraphText } from '../shared/transcript-parse.js';
 import { buildTranscriptSection, upsertTranscriptSection } from '../shared/transcript-article.js';
 import { buildDiarizedBody, timeFragmentSelector, timeRangeOfSpan, diarizedTrackEntry, extractionMethodFor } from '../shared/diarized-transcript.js';
-import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey, hasMediaSignal, isFetchableMediaUrl } from './transcribe-flow.js';
+import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey, hasMediaSignal, isFetchableMediaUrl, transcribeSourceUrl } from './transcribe-flow.js';
 import { mediaKeyForArticle } from '../shared/media-key.js';
 import { openMediaModal } from './media-modal.js';
 import { scanPodcastSignals } from '../shared/podcast-identity.js';
@@ -2143,7 +2143,16 @@ async function runTranscribeFlow(provider) {
         toast('This capture has no https media URL to transcribe (the companion only fetches https:// sources).', 'error');
         return;
     }
-    const mediaKey = await mediaKeyForArticle(a);
+    // The URL actually handed to the companion — B2: article.url stays
+    // the article's identity (archive keying, publish `a` tag) unchanged;
+    // this only decides what the transcription job fetches. Known
+    // platforms (YouTube included — byte-identical behavior preserved)
+    // keep sending the page URL; anything else prefers a discovered
+    // mediaHints.fileUrl. The media key is derived from THIS url (not
+    // a.url) so a re-run of the same source resumes the same job record
+    // instead of orphaning it.
+    const sourceUrl = transcribeSourceUrl(a);
+    const mediaKey = await mediaKeyForArticle(a, sourceUrl);
     if (_transcribeRunning) {
         // Never swallow a click silently (the Suggest-local precedent).
         toast('A transcription is already running for this capture — wait for it to finish.', 'error');
@@ -2208,7 +2217,7 @@ async function runTranscribeFlow(provider) {
             // Honest wording: a cloud-provider job is not "locally".
             renderTranscribeBanner(`Transcribing ${providerPhrase(job && job.provider)} — ${describeProgress(job)}`);
         });
-        const out = await runTranscriptionJob({ mediaUrl: a.url, mediaKey, provider, io });
+        const out = await runTranscriptionJob({ mediaUrl: sourceUrl, mediaKey, provider, io });
         if (!out.ok) {
             renderTranscribeBanner(out.error, 'error', { docsHint: !!(out.error || '').includes('not reachable') });
             // A cloud engine without its key: the picker is the fastest

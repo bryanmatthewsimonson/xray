@@ -279,6 +279,23 @@ async function routeCaptureFallback(tab, err) {
         return;
     }
     console.warn('[X-Ray] xray:capture delivery failed, opening Settings:', err && err.message);
+    // Settings opening with no explanation reads as a broken click — this
+    // is the common case (a tab that predates the extension load, or an
+    // origin that blocks content scripts, e.g. the Chrome Web Store or a
+    // chrome:// page), not a PDF. Name the real cause and the remedy so
+    // the user isn't left guessing why the toolbar/context-menu capture
+    // silently redirected them. Both context-menu items ("Capture" and
+    // "Capture & transcribe") and the toolbar/keyboard path share this
+    // fallback, so one fix covers all of them.
+    try {
+        chrome.notifications.create({
+            type: 'basic',
+            iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
+            title: 'X-Ray — Could not capture this page',
+            message: "X-Ray couldn't reach this page — it may predate the extension load or "
+                + 'block extensions. Reload the page and try again.'
+        });
+    } catch (_) { /* notifications permission may be declined */ }
     chrome.runtime.openOptionsPage?.();
 }
 

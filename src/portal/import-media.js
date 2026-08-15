@@ -149,6 +149,14 @@ export function mountMediaTranscribe(host, { caseEntityId = null, onDone } = {})
             const result = out.result || {};
             const turns = turnsFromSegments(result.segments);
             if (!turns.length) {
+                // Reap here too (mirrors the success-path reap below): the
+                // job DID finish (out.ok true), so runTranscriptionJob
+                // deliberately left the record for the caller to remove.
+                // Without this, retrying the same URL inside the 7-day TTL
+                // takes decideResume's `adopt` branch and instantly
+                // re-serves this same empty result with no way to force a
+                // fresh run (smoke-fix FIX 5).
+                await io.storageRemove([jobRecordKey(mediaKey)]).catch(() => {});
                 if (panel.isConnected) {
                     status.textContent = 'The transcription returned no usable segments.';
                     refresh();

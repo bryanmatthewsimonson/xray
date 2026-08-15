@@ -76,9 +76,19 @@ export async function mediaKeyForUrl(url) {
     return `u_${(await Crypto.sha256(normalized)).slice(0, 16)}`;
 }
 
-/** The media key for a captured article. */
-export async function mediaKeyForArticle(article) {
+/**
+ * The media key for a captured article.
+ *
+ * @param {object} article
+ * @param {string} [sourceUrl] the URL actually being transcribed, when it
+ *   differs from `article.url` (reader/transcribe-flow.js
+ *   transcribeSourceUrl — B2: a podcast CDN file URL rather than the
+ *   page). Defaults to `article.url` so every other caller is unchanged.
+ *   Keying off the URL actually sent to the job (not the article's
+ *   identity URL) is what lets a re-run resume the SAME job record.
+ */
+export async function mediaKeyForArticle(article, sourceUrl) {
     const a = article || {};
     if (a.youtube && a.youtube.videoId) return String(a.youtube.videoId);
-    return mediaKeyForUrl(a.url);
+    return mediaKeyForUrl(sourceUrl || a.url);
 }

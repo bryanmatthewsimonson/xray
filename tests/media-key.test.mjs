@@ -60,6 +60,30 @@ test('mediaKeyForArticle: youtube.videoId wins, else the URL rule', async () => 
     );
 });
 
+test('mediaKeyForArticle: an explicit sourceUrl override keys off the URL actually transcribed, not article.url', async () => {
+    // B2 (transcribe-flow.js transcribeSourceUrl): when the companion is
+    // sent a discovered mediaHints.fileUrl instead of the page URL, the
+    // job record must key off THAT url — otherwise a re-run recomputes a
+    // different key from article.url and can never resume the same job.
+    const article = { url: 'https://mormondiscussionpodcast.org/2026/08/some-episode/' };
+    const pageKey = await mediaKeyForArticle(article);
+    const fileKey = await mediaKeyForArticle(article, 'https://media.blubrry.com/x/ep.mp3');
+    assert.notEqual(pageKey, fileKey);
+    assert.equal(fileKey, await mediaKeyForUrl('https://media.blubrry.com/x/ep.mp3'));
+    // Repeating the same override is stable (resumability).
+    assert.equal(await mediaKeyForArticle(article, 'https://media.blubrry.com/x/ep.mp3'), fileKey);
+});
+
+test('mediaKeyForArticle: youtube.videoId still wins over a sourceUrl override (never orphan a YouTube job record)', async () => {
+    assert.equal(
+        await mediaKeyForArticle(
+            { url: 'https://www.youtube.com/watch?v=abc123DEF45', youtube: { videoId: 'abc123DEF45' } },
+            'https://some-other-cdn.example.com/decoy.mp4'
+        ),
+        'abc123DEF45'
+    );
+});
+
 test('mediaKeyForUrl: query encoding matches Python quote_plus (companion agreement)', async () => {
     // Empirically verified agreement: both sides produce identical keys
     // for the same URLs. JS encodeURIComponent → quote_plus transformation.
