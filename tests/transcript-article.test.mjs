@@ -134,6 +134,30 @@ test('syntheticTranscriptUrl: stable per text, differs across text, slug from ti
     assert.match(a, /^file:\/\/\/imported\/[0-9a-f]{16}\/my-episode\.transcript$/);
 });
 
+test('buildTranscriptArticle: platform and sourceLabel default to the Phase-21 shape', () => {
+    const article = buildTranscriptArticle({
+        turns: [{ speaker: 'A', startMs: 0, endMs: 1000, text: 'hello' }],
+        speakers: ['A'], format: 'plain',
+        meta: { title: 'Ep 1', url: 'https://example.com/ep1' }
+    });
+    assert.equal(article.platform, 'podcast');
+    assert.ok(article.markdown.includes('**Podcast**: [Ep 1](https://example.com/ep1)'));
+});
+
+test('buildTranscriptArticle: a non-podcast source labels itself honestly', () => {
+    const article = buildTranscriptArticle({
+        turns: [{ speaker: 'A', startMs: 0, endMs: 1000, text: 'hello' }],
+        speakers: ['A'], format: 'diarized',
+        meta: {
+            title: 'Rally speech', url: 'https://rumble.com/v123',
+            platform: 'media', sourceLabel: 'Media'
+        }
+    });
+    assert.equal(article.platform, 'media');
+    assert.ok(article.markdown.includes('**Media**: [Rally speech](https://rumble.com/v123)'));
+    assert.ok(!article.markdown.includes('**Podcast**:'));
+});
+
 test('computeTranscriptArticleHash: stable, and changes when the body changes', async () => {
     const art1 = buildTranscriptArticle({ turns: TURNS, speakers: ['Alice Smith', 'Bob Jones'],
         format: 'speaker-lines', meta: { title: 'T', url: 'https://x/y' } });

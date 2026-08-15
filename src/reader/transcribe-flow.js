@@ -6,9 +6,11 @@
 // resetting the SW idle timer — never one long-lived SW call. The job
 // itself runs in the loopback companion service and survives everything
 // on our side; a job record in chrome.storage.local
-// (`xray:transcribe:job:<videoId>`) lets a closed reader, an SW
-// restart, or a re-capture RESUME polling instead of double-submitting
-// (the companion also dedupes active jobs by video as a backstop).
+// (`xray:transcribe:job:<mediaKey>` — a YouTube video id, or the
+// shared/media-key.js hash for any other media URL) lets a closed
+// reader, an SW restart, or a re-capture RESUME polling instead of
+// double-submitting (the companion also dedupes active jobs by media
+// key as a backstop).
 //
 // Pure decision logic + injectable IO (the autoPreAnalyzeArticle test
 // seam): everything chrome-flavored arrives via `io`, so node tests
@@ -28,8 +30,8 @@ export const POLL_INTERVAL_MS = 3000;
 // so the button resumes the same job once the service is back).
 export const MAX_UNREACHABLE_POLLS = 5;
 
-export function jobRecordKey(videoId) {
-    return JOB_RECORD_PREFIX + String(videoId || '');
+export function jobRecordKey(mediaKey) {
+    return JOB_RECORD_PREFIX + String(mediaKey || '');
 }
 
 /** True when a stored job record is too old to trust. */
@@ -115,7 +117,7 @@ export async function reapStaleJobRecords(io, now = Date.now()) {
 }
 
 /**
- * Run (or resume) the transcription job for a video, polling until a
+ * Run (or resume) the transcription job for one media URL, polling until a
  * terminal state. Resolves {ok: true, result} on success and
  * {ok: false, error, resumable?} on failure — never throws, never
  * leaves the UI hanging (the acceptance's no-silent-hang rule).
@@ -130,8 +132,8 @@ export async function reapStaleJobRecords(io, now = Date.now()) {
  *   now() → epoch ms
  *   onProgress(job|null) → void            (banner repaint)
  */
-export async function runTranscriptionJob({ videoUrl, videoId, provider, io }) {
-    const key = jobRecordKey(videoId);
+export async function runTranscriptionJob({ mediaUrl, mediaKey, provider, io }) {
+    const key = jobRecordKey(mediaKey);
     const record = await io.storageGet(key);
 
     // Resume decision: ask the server about a remembered job first —
@@ -162,7 +164,7 @@ export async function runTranscriptionJob({ videoUrl, videoId, provider, io }) {
     if (!jobId) {
         const started = await io.sendMessage({
             type: 'xray:transcribe:start',
-            url: videoUrl,
+            url: mediaUrl,
             // Engine for THIS job (picker choice / stored preference);
             // undefined lets the SW fall back to the stored preference.
             ...(provider ? { provider } : {})
@@ -172,7 +174,7 @@ export async function runTranscriptionJob({ videoUrl, videoId, provider, io }) {
         }
         jobId = started.jobId;
         await io.storageSet(key, {
-            jobId, url: videoUrl, videoId, startedAt: io.now(),
+            jobId, url: mediaUrl, mediaKey, startedAt: io.now(),
             ...(started.provider ? { provider: started.provider } : {})
         });
     }
@@ -216,6 +218,84 @@ export async function runTranscriptionJob({ videoUrl, videoId, provider, io }) {
         }
         await io.sleep(POLL_INTERVAL_MS);
     }
+}
+
+/** Is `url` something the companion could actually fetch? The companion's
+ *  validate_media_url (media_url.py) admits https:// only — not http,
+ *  not file:// — so this is a plain scheme check, never a URL parse
+ *  (keeps this module import-free). Shared by hasMediaSignal (the
+ *  button's show/hide gate) and runTranscribeFlow's own guard (the
+ *  path the auto-start / re-run flow reaches independent of the
+ *  button), so the two can never disagree. */
+export function isFetchableMediaUrl(url) {
+    return /^https:\/\//i.test(String(url || ''));
+}
+
+// Platform ids with a dedicated capture handler (src/shared/platforms/
+// index.js HANDLERS). Mirrored here as a literal list rather than
+// imported — this module is deliberately import-free (its tests run
+// with no chrome stub) — so keep it in sync with that file's HANDLERS
+// keys when a platform handler is added or removed.
+const KNOWN_PLATFORMS = new Set([
+    'substack', 'youtube', 'twitter', 'tiktok', 'instagram', 'facebook', 'pmc', 'arxiv'
+]);
+
+/**
+ * The URL to hand the companion for THIS transcription — smoke-failure
+ * diagnosis B2 (.superpowers/sdd/2026-08-13-transcribe-anywhere/
+ * smoke-failure-diagnosis.md). The wave sends the PAGE url on purpose
+ * (kickoff Approach A): IG/FB media URLs are signed and expire, so the
+ * page is the only stable address there, and yt-dlp resolves it. A
+ * podcast CDN file is the opposite case — the page itself often can't
+ * be resolved by yt-dlp at all (PowerPress/Blubrry sites 403 non-browser
+ * agents), but the direct file URL is both stable AND fetchable.
+ *
+ * Deterministic, no trial-and-error: a KNOWN platform (one with a
+ * capture handler — yt-dlp handles those best, and the signed-URL
+ * hazard is real there, YouTube included) always keeps sending its page
+ * URL; anything else falls back to a discovered `mediaHints.fileUrl`
+ * when there is one and it's https, else the page URL as before.
+ *
+ * Never touches `article.url` itself — that stays the article's
+ * identity (archive keying, re-capture dedup, the `a` tag on anything
+ * published). This only decides what gets POSTed to the transcription
+ * job.
+ */
+export function transcribeSourceUrl(article) {
+    const a = article || {};
+    if (a.platform && KNOWN_PLATFORMS.has(a.platform)) return a.url;
+    const fileUrl = a.mediaHints && a.mediaHints.fileUrl;
+    return isFetchableMediaUrl(fileUrl) ? fileUrl : a.url;
+}
+
+/**
+ * Does this capture look like it has media a transcriber could fetch?
+ *
+ * Deliberately GENEROUS. A false positive costs one clear error from
+ * the companion ("no media found at this URL"); a false negative hides
+ * the feature on exactly the long-tail pages this exists for. The
+ * escape hatch for anything missed is the 🎙 Media & source modal's
+ * "Transcribe from source", offered on every capture.
+ */
+export function hasMediaSignal(article) {
+    const a = article || {};
+    // Only a fetchable web address qualifies. A Phase-21 transcript
+    // import with no episode URL carries a synthetic file:///imported/
+    // identity (transcript-article.js syntheticTranscriptUrl) — truthy,
+    // but the companion admits https only, so offering Transcribe there
+    // (or on an http:// source) is a button that cannot ever succeed.
+    // An import WITH a real https episode URL still qualifies, which is
+    // the case we want.
+    if (!isFetchableMediaUrl(a.url)) return false;
+    if (a.platform === 'youtube' && a.youtube && a.youtube.videoId) return true;
+    if (a.contentType === 'video' || a.contentType === 'audio') return true;
+    if (a.media === 'video' || a.media === 'podcast') return true;
+    if (a.podcast && Object.keys(a.podcast).length > 0) return true;
+    const h = a.mediaHints;
+    // fileUrl (B1's PowerPress signal) qualifies on its own — a page can
+    // expose only a direct download anchor with no <audio>/<video>/embed.
+    if (h && (h.audio || h.video || (Array.isArray(h.embeds) && h.embeds.length > 0) || h.fileUrl)) return true;
+    return false;
 }
 
 /** The chrome-backed io used by the reader (kept here so index.js just

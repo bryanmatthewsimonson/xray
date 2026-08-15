@@ -189,6 +189,8 @@ gate your **publish** paths and some panel tabs, not what you can read.
 | `reviewCoordination` | off | The portal "Request review" label + the Network "re-broadcast follows" button |
 | `followListPublishing` | off | Publishing a NIP-02 kind-3 mirror of who you follow (global scope only; consent dialog on first enable) |
 | `captureAutomation` | off | The `#xray:capture` URL marker a driving agent can navigate to (capture only) |
+| `localTranscription` | off | The "Transcribe" surfaces: a "Capture & transcribe" right-click item on https pages, the reader's 🎙 button on captures with media, and the portal's "Transcribe a URL" panel. All of them talk to the loopback companion service (`companion/transcriber/`), which downloads audio with yt-dlp and transcribes it locally (WhisperX) or — only if you pick a cloud engine and save its key — by uploading the audio to AssemblyAI or Deepgram. |
+| `transcriptClaimDrafts` | off | The optional LM Studio pass over a finished transcript: drafts claim candidates through a loopback endpoint (localhost:1234). Local-only and free; every suggestion still needs your Accept. |
 
 The rule of thumb: **local analysis is never gated** (capturing,
 tagging, claims, verdicts, audits you import, the dossier) — flags gate

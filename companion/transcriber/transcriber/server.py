@@ -20,14 +20,12 @@ import json
 import logging
 import os
 import queue
-import re
 import shutil
 import subprocess
 import sys
 import threading
 import uuid
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
@@ -35,7 +33,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from . import __version__, config, providers
+from . import __version__, config, media_url, providers
 from .jobs import STAGES, Job, JobStore
 
 log = logging.getLogger("xray-transcriber")
@@ -99,42 +97,11 @@ app.add_middleware(
 
 
 # --- URL validation ------------------------------------------------------
-
-_ALLOWED_HOSTS = {
-    "youtube.com",
-    "www.youtube.com",
-    "m.youtube.com",
-    "music.youtube.com",
-    "youtu.be",
-}
-_VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,20}$")
-_PATH_PREFIXES = ("/shorts/", "/live/", "/embed/")
-
-
-def extract_video_id(url: str) -> str:
-    """Return the YouTube video id for ``url``, or raise ValueError."""
-    parsed = urlparse(url)
-    if parsed.scheme != "https":
-        raise ValueError("only https:// YouTube URLs are supported")
-    host = (parsed.hostname or "").lower()
-    if host not in _ALLOWED_HOSTS:
-        raise ValueError(
-            "unsupported host; expected youtube.com / youtu.be (and variants)"
-        )
-    if host == "youtu.be":
-        video_id = parsed.path.lstrip("/").split("/")[0]
-    elif parsed.path == "/watch":
-        video_id = (parse_qs(parsed.query).get("v") or [""])[0]
-    else:
-        for prefix in _PATH_PREFIXES:
-            if parsed.path.startswith(prefix):
-                video_id = parsed.path[len(prefix):].split("/")[0]
-                break
-        else:
-            raise ValueError("could not find a video id in that URL")
-    if not _VIDEO_ID_RE.match(video_id):
-        raise ValueError("could not find a video id in that URL")
-    return video_id
+# Admission and media identity live in media_url.py (import kept module-
+# level so tests can patch `server.media_url.<fn>`).  The funnel accepts
+# any public https URL: yt-dlp resolves page URLs, embedded players, and
+# direct media files alike.  See that module's docstring for the honest
+# SSRF statement.
 
 
 # --- endpoints -----------------------------------------------------------
@@ -154,9 +121,10 @@ class TranscribeRequest(BaseModel):
 @app.post("/transcribe", status_code=202)
 def transcribe(body: TranscribeRequest) -> dict:
     try:
-        video_id = extract_video_id(body.url.strip())
+        url = media_url.validate_media_url(body.url)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    media_key = media_url.media_key_for(url)
 
     provider = (body.provider or config.PROVIDER).strip().lower()
     api_key = (body.api_key or "").strip() or None
@@ -166,15 +134,15 @@ def transcribe(body: TranscribeRequest) -> dict:
 
     job = Job(
         job_id=str(uuid.uuid4()),
-        url=body.url.strip(),
-        video_id=video_id,
+        url=url,
+        media_key=media_key,
         provider=provider,
         api_key=api_key if providers.is_cloud(provider) else None,
     )
     job, created = store.add_or_get_active(job)
     if not created:
-        # An active (queued/running) job for this video already exists —
-        # whatever engine it was started with wins (dedupe by video).
+        # An active (queued/running) job for this media already exists —
+        # whatever engine it was started with wins (dedupe by media).
         # The response names that engine so the client can tell the
         # user the truth instead of assuming its request was honored.
         return {"job_id": job.job_id, "provider": job.provider}
@@ -194,7 +162,7 @@ def transcribe(body: TranscribeRequest) -> dict:
             ),
         )
     _queue_for(provider).put(job.job_id)
-    log.info("queued job %s for video %s (%s)", job.job_id, video_id, job.provider)
+    log.info("queued job %s for media %s (%s)", job.job_id, media_key, job.provider)
     return {"job_id": job.job_id, "provider": job.provider}
 
 
@@ -243,6 +211,10 @@ def health() -> dict:
         # Capability flag: this build honors per-request provider/api_key
         # on POST /transcribe (older builds silently ignore the fields).
         "request_provider": True,
+        # Capability flag: this build admits ANY public https media URL
+        # (yt-dlp resolves it), not just YouTube.  The extension refuses
+        # to send a non-YouTube URL to a build without this.
+        "generic_urls": True,
     }
 
 
@@ -307,7 +279,7 @@ def _run_job(job: Job) -> None:
             {
                 "job_id": job.job_id,
                 "url": job.url,
-                "video_id": job.video_id,
+                "media_key": job.media_key,
                 "provider": job.provider,
             }
         ),
@@ -320,7 +292,7 @@ def _run_job(job: Job) -> None:
         shutil.rmtree(job_tmp, ignore_errors=True)
         log.info("job %s cancelled before start", job.job_id)
         return
-    log.info("starting job %s (%s)", job.job_id, job.video_id)
+    log.info("starting job %s (%s)", job.job_id, job.media_key)
 
     proc = subprocess.Popen(
         [sys.executable, "-m", "transcriber.worker", str(spec_path)],

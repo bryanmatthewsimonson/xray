@@ -581,7 +581,7 @@
 
       <label class="xr-opt__field xr-opt__field--inline">
         <input type="checkbox" id="pref-local-transcription" />
-        <span>Enable "Transcribe" for YouTube captures</span>
+        <span>Enable "Transcribe" for media captures</span>
       </label>
       <p class="xr-opt__hint" style="margin-top:-8px">
         Off by default. Transcribing needs the companion service from
@@ -589,9 +589,12 @@
         this machine — <strong>including for the AssemblyAI and Deepgram
         engines</strong>, which skip the GPU but still download the audio
         locally through it. Adds a "Capture &amp; transcribe" right-click
-        item on YouTube videos and a Transcribe button in the reader (the
-        ▾ next to it picks an engine per video, with time and cost
-        estimates). Full setup:
+        item on any https page and a Transcribe button in the reader
+        wherever a capture shows media (the ▾ next to it picks an
+        engine, with time and cost estimates). The companion hands the
+        URL to yt-dlp, so podcast episodes, off-platform video, and
+        pages with embedded players all work — not only YouTube. Full
+        setup:
         <a href="https://github.com/bryanmatthewsimonson/xray/blob/main/companion/transcriber/README.md"
            target="_blank" rel="noreferrer">companion/transcriber/README.md</a>.
       </p>

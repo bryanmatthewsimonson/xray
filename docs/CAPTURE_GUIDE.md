@@ -195,19 +195,28 @@ These "just work" without special handling:
   available, language selection for origin + user language, per-cue
   clickable timestamps that link back into the video.
   - **Transcribe locally** (optional, flag `localTranscription` +
-    the `companion/transcriber/` service): right-click → "Capture &
-    transcribe locally with X-Ray" (or the reader's 🎙 Transcribe
-    button on any YouTube capture) runs yt-dlp + WhisperX + speaker
-    diarization on your own machine and makes the speaker-labeled,
-    timestamped transcript the capture body. Claims marked on it carry
-    the video URL plus start–end offsets (`t=start,end` on the anchor).
-    Long videos take minutes — the reader shows progress, survives tab
-    closes/restarts, and resumes the same job. Setup:
-    `companion/transcriber/README.md`. After transcription, **🗣
-    Speakers…** binds each detected voice to a person entity (pick the
-    same person for two labels when diarization split one voice) — that
-    binding is the claim provenance for everything they said, and it
-    publishes with the capture.
+    the `companion/transcriber/` service) — **not YouTube-specific.**
+    Trigger it three ways: right-click **any https page** → "Capture &
+    transcribe locally with X-Ray"; the reader's 🎙 Transcribe button
+    on any capture where X-Ray found a media signal (embedded player,
+    declared podcast/video, or capture-time hints); or the portal's
+    "Transcribe a URL" panel, for a URL you haven't captured at all.
+    All three run yt-dlp + WhisperX + speaker diarization on your own
+    machine and make the speaker-labeled, timestamped transcript the
+    capture body. Claims marked on it carry the media URL plus
+    start–end offsets (`t=start,end` on a YouTube anchor, `#t=<s>` on
+    everything else). Long jobs take minutes — the reader (or portal
+    panel) shows progress, survives tab closes/restarts, and resumes
+    the same job. **Anti-bot sites** may refuse the companion's
+    unauthenticated download the same way they'd refuse a logged-out
+    browser — point the companion's `TRANSCRIBER_COOKIES_FILE` (scoped
+    to specific hosts via `TRANSCRIBER_COOKIES_HOSTS`) at an exported
+    cookie jar. Setup: `companion/transcriber/README.md`. After
+    transcription, **🗣 Speakers…** binds each detected voice to a
+    person entity (pick the same person for two labels when
+    diarization split one voice) — that binding is the claim
+    provenance for everything they said, and it publishes with the
+    capture.
   - **To capture comments, scroll down to the comments first.** YouTube
     loads comments lazily — they don't exist on the page until you
     scroll them into view. X-Ray captures whatever has loaded at the

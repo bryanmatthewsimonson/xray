@@ -109,7 +109,7 @@ async function registerContextMenus() {
             contexts: ['page', 'action']
         });
         if (transcribeOn) {
-            // YouTube video pages only. `page` context, not `action` —
+            // Any https page. `page` context, not `action` —
             // documentUrlPatterns is unreliable on the action context.
             // SPA navigation is fine: matching happens at menu-open time
             // against the frame's current URL.
@@ -122,8 +122,14 @@ async function registerContextMenus() {
                 title: 'Capture & transcribe with X-Ray',
                 contexts: ['page'],
                 documentUrlPatterns: [
-                    '*://*.youtube.com/watch*',
-                    '*://*.youtube.com/shorts/*'
+                    // Any https page: the companion hands the URL to
+                    // yt-dlp, which resolves page URLs, embedded players
+                    // and direct media files alike. https only — the
+                    // companion admits nothing else. A page with no
+                    // media fails the job with a named error, which is
+                    // cheaper than hiding the item on the long-tail
+                    // sites this exists for.
+                    'https://*/*'
                 ]
             });
             refreshTranscribeMenuTitle();
@@ -273,6 +279,23 @@ async function routeCaptureFallback(tab, err) {
         return;
     }
     console.warn('[X-Ray] xray:capture delivery failed, opening Settings:', err && err.message);
+    // Settings opening with no explanation reads as a broken click — this
+    // is the common case (a tab that predates the extension load, or an
+    // origin that blocks content scripts, e.g. the Chrome Web Store or a
+    // chrome:// page), not a PDF. Name the real cause and the remedy so
+    // the user isn't left guessing why the toolbar/context-menu capture
+    // silently redirected them. Both context-menu items ("Capture" and
+    // "Capture & transcribe") and the toolbar/keyboard path share this
+    // fallback, so one fix covers all of them.
+    try {
+        chrome.notifications.create({
+            type: 'basic',
+            iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
+            title: 'X-Ray — Could not capture this page',
+            message: "X-Ray couldn't reach this page — it may predate the extension load or "
+                + 'block extensions. Reload the page and try again.'
+        });
+    } catch (_) { /* notifications permission may be declined */ }
     chrome.runtime.openOptionsPage?.();
 }
 
@@ -387,18 +410,25 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         // URLs — or a PDF tab, which routes to the PDF reader exactly
         // like the toolbar path instead of dead-ending at Settings).
         console.warn('[X-Ray] Failed to deliver context-menu command:', err);
-        if (message.type === 'xray:capture') {
+        if (message.type === 'xray:capture' || message.type === 'xray:capture:transcribe') {
+            // Same fallback for both menu items. TRANSCRIBE_CAPTURE's
+            // documentUrlPatterns (`https://*/*`) now matches PDF tabs
+            // and any other https page a content script can't reach
+            // (e.g. a browser-blocked origin like the Web Store) — a
+            // regression review found the old branch here just told the
+            // user to "reload the page and try again", which can never
+            // work on either: browsers never inject content scripts into
+            // their native PDF viewer, and a policy-blocked origin stays
+            // blocked after a reload. routeCaptureFallback already
+            // solves exactly this for the plain capture item (PDF →
+            // reader's PDF capture path; local file PDF → the import
+            // picker; anything else → Settings, a visible landing rather
+            // than a silent no-op) — reusing it here means a PDF capture
+            // still lands somewhere useful, and the Media & source
+            // modal's "Transcribe from source" escape hatch (offered on
+            // every capture) is reachable from there for anything that
+            // does turn out to have fetchable media.
             routeCaptureFallback(tab, err);
-        } else if (message.type === 'xray:capture:transcribe') {
-            // Menu only appears on YouTube pages, so a delivery failure
-            // means the content script isn't injected yet (tab predates
-            // the extension load). Say so instead of failing silently.
-            chrome.notifications?.create({
-                type: 'basic',
-                iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
-                title: 'X-Ray',
-                message: 'Could not reach this tab — reload the YouTube page and try again.'
-            });
         }
     });
 });

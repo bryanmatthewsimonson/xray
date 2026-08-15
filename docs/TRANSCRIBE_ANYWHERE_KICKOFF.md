@@ -1,7 +1,26 @@
 # Transcribe Anywhere — generalize the media transcribe funnel (kickoff)
 
-**Status: PROPOSED 2026-08-12 — design approved in maintainer
-dialogue; ratification is the maintainer's merge (Art. 11).**
+**Status: CODE-COMPLETE 2026-08-15 — §5 acceptance walks outstanding.**
+Delivered across 13 tasks in one dispatch (companion: `media_url.py`'s
+admission gate + `TRANSCRIBER_COOKIES_HOSTS` cookie scoping; extension:
+media-key mirroring, platform-neutral diarized-body composition,
+capture-time media-signal detection, the any-https context menu +
+reader 🎙 gate, the Media-modal "Transcribe from source" escape hatch,
+and the portal "Transcribe a URL" panel; docs: this file, the
+THREAT_MODEL delta, the flag table, and the SMOKE_TEST rows below) —
+every task reviewed clean before merge, `tests/diarized-wire.test.mjs`
+machine-checking that no new tag NAME appears in the diarized-transcript
+wire path (§9 has the corrected overall classification — additive, not
+"none": the portal panel mints one new `platform` tag VALUE, `media`).
+WHAT REMAINS is the maintainer's: the §5 acceptance walk (a real
+non-YouTube transcript, Mormon Stories among them, feeding a claim or
+entity page) and the
+`docs/SMOKE_TEST.md` §Local transcription rows (LT.1–LT.14) — both
+unrun as of this status line, per `docs/SMOKE_TEST.md`'s own rule that
+a walk not recorded is a walk not performed. The §5 check date
+(2026-09-15, or the next release tag) is unaffected by code landing
+early; only real casework use resets it.
+
 Drafted from a brainstorming dialogue with the maintainer
 (2026-08-12) over a six-surface code map (companion contract,
 extension flow, capture surfaces, Phases 21/22, docs history,
@@ -86,9 +105,11 @@ capture-first (reader Transcribe button on media signals, plus a
 "Transcribe from source" action in the 🎙 Media & source modal on
 *every* capture as the zero-noise escape hatch) and a portal
 "Transcribe a URL" panel beside the Phase-21 import that creates a
-transcript-canonical article bound to the active case. Zero wire
-changes; local files follow in wave 2 via an upload endpoint, only
-after wave 1's success criterion is met.
+transcript-canonical article bound to the active case. No new kinds
+or tags — the one wire footprint is that panel minting `media` as a
+new VALUE of the existing `platform` tag (§9, additive, not "zero");
+local files follow in wave 2 via an upload endpoint, only after wave
+1's success criterion is met.
 
 ## 3. Guard rails (the mistakes that must not return)
 
@@ -96,11 +117,13 @@ after wave 1's success criterion is met.
    pinned to loopback literals; only port/path configurable
    (`transcriber-client.js:1-16`). No new remote fetch target for
    transcript text, ever.
-2. **Wire format: none.** The `media` whitelist stays exactly
+2. **The `media` tag's whitelist is closed.** It stays exactly
    `podcast`|`video` (`event-builder.js:374-376`); time provenance
    keeps riding the existing anchor tag as Media-Fragments
    selectors; `extraction-method` keeps naming the real engine. The
    diarized-wire guard test must stay green with no new tag names.
+   (This is narrower than "wire format: none" overall — §9 has the
+   full classification: additive, via one new `platform` tag VALUE.)
 3. **The absent-companion degradation contract is tested, not
    aspirational.** Flag off → no surface exists. Companion absent →
    `{ok:false, unreachable}` with the fix named. Old companion +
@@ -223,8 +246,15 @@ JOURNAL rationale, git-recoverable, re-arguable (Art. 11).
 
 ## 9. Wire, schema, and discipline routing
 
-- **Wire format: none.** No new kinds, tags, or values; ecosystem-pm
-  reviews the TA.1/TA.3 PRs to certify the callout.
+- **Wire format: additive.** No new kinds and no new tags, and no
+  existing tag's semantics change — but the portal's "Transcribe a
+  URL" panel mints one new VALUE of the existing free-form `platform`
+  tag, `media` (`transcript-article.js:257-259`,
+  `portal/import-media.js:126`), alongside the platform strings
+  already emitted for other capture kinds. Per ecosystem-pm's
+  classification (none / additive / breaking / new-kind / retirement)
+  this is additive, not none — say so plainly rather than rounding it
+  down. ecosystem-pm reviews the TA.1/TA.3 PRs to certify the callout.
 - **Schema (schema-evolution review, same PRs):** job-record key
   `xray:transcribe:job:<mediaKey>` (YouTube records unchanged —
   videoId *is* their mediaKey); neutral `article.transcripts` slot

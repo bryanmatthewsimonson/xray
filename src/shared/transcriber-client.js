@@ -17,6 +17,7 @@
 
 import { loadFlags, isEnabled } from './metadata/feature-flags.js';
 import { SUGGESTABLE_ENTITY_TYPES, LLM_SUGGEST_KINDS_STORAGE, normalizeSuggestKinds } from './llm-prompts.js';
+import { youtubeVideoId } from './media-key.js';
 
 export const TRANSCRIBER_DEFAULT_PORT = 8756;
 export const TRANSCRIBER_PORT_STORAGE = 'xray:transcriber:port';
@@ -186,6 +187,32 @@ export async function startTranscription(videoUrl, { port, fetchFn = fetch, prov
     if (engine === 'ask') engine = null;
 
     const body = { url: String(videoUrl || '') };
+    // Generic-URL capability gate. The companion admitted YouTube URLs
+    // only until the Transcribe Anywhere wave; an older build would 400
+    // with its own wording, which reads like a broken feature rather
+    // than an out-of-date service. A YouTube URL with no parseable id
+    // is deliberately treated as generic (likely a typo; the companion
+    // cannot run it either). Probe /health and name the fix. Unreachable
+    // falls through — the POST below fails with the normal reachable
+    // error, the one that already carries the setup hint.
+    if (!youtubeVideoId(body.url)) {
+        const probe = await companionFetch('/health', { port, fetchFn, timeoutMs: 3000 });
+        if (probe.ok && !(probe.body && probe.body.generic_urls)) {
+            return {
+                ok: false,
+                // Two different causes, and the common one is the cheap
+                // one — field-found 2026-08-15: a service that had been
+                // up for days was still serving pre-update code from
+                // memory while the repo on disk was already current, and
+                // the old wording sent the maintainer to git pull for a
+                // problem a restart fixed. Lead with the restart.
+                error: 'This companion service does not support non-YouTube URLs yet. '
+                    + 'If you have already updated X-Ray, just RESTART the service — a running '
+                    + 'service keeps serving the code it started with. If you have not: git pull '
+                    + 'in the X-Ray repo, run `uv sync` in companion/transcriber/, then restart it.'
+            };
+        }
+    }
     if (engine) {
         body.provider = engine;
         if (engine !== 'local') {

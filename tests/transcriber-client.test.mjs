@@ -79,7 +79,7 @@ test('getLmStudioConfig: loopback custom kept, non-loopback stored value → def
 test('startTranscription: 202 → jobId; unreachable names the fix; HTTP error carries detail', async () => {
     resetStore();
     const calls = [];
-    const res = await startTranscription('https://www.youtube.com/watch?v=x', {
+    const res = await startTranscription('https://www.youtube.com/watch?v=abc123DEF45', {
         port: 8756,
         fetchFn: async (url, init) => { calls.push({ url, init }); return okJson({ job_id: 'j-1' }, 202); }
     });
@@ -87,7 +87,7 @@ test('startTranscription: 202 → jobId; unreachable names the fix; HTTP error c
     assert.equal(calls.length, 1, 'no engine sent ⇒ no capability ping either');
     assert.equal(calls[0].url, 'http://127.0.0.1:8756/transcribe');
     const body = JSON.parse(calls[0].init.body);
-    assert.equal(body.url, 'https://www.youtube.com/watch?v=x');
+    assert.equal(body.url, 'https://www.youtube.com/watch?v=abc123DEF45');
     // NO preference ever stored: no provider is sent at all — the
     // companion's env default rules, byte-identical to the
     // pre-engine-choice contract (review finding).
@@ -118,7 +118,7 @@ test('normalizeEngine: engines + ask pass, junk → local', () => {
 
 // fetch stub for engine-carrying starts: answers /health (new-build
 // shape) then /transcribe.
-function engineFetch({ health = { request_provider: true, provider: 'local' }, job = {} } = {}) {
+function engineFetch({ health = { request_provider: true, provider: 'local', generic_urls: true }, job = {} } = {}) {
     const seen = { health: 0, bodies: [] };
     const fetchFn = async (url, init) => {
         if (String(url).includes('/health')) { seen.health += 1; return okJson(health); }
@@ -133,7 +133,7 @@ test('startTranscription: stored cloud engine sends provider + saved key (after 
     _store[TRANSCRIBER_ENGINE_STORAGE] = 'assemblyai';
     _store[ASSEMBLYAI_KEY_STORAGE] = 'aai-key-123';
     const { fetchFn, seen } = engineFetch({ job: { job_id: 'j-2', provider: 'assemblyai' } });
-    const res = await startTranscription('https://www.youtube.com/watch?v=x', { port: 8756, fetchFn });
+    const res = await startTranscription('https://www.youtube.com/watch?v=abc123DEF45', { port: 8756, fetchFn });
     assert.equal(res.ok, true);
     assert.equal(res.jobId, 'j-2');
     assert.equal(res.provider, 'assemblyai');
@@ -147,7 +147,7 @@ test('startTranscription: an OLD companion with a mismatched default is REFUSED,
     _store[ASSEMBLYAI_KEY_STORAGE] = 'k';
     // Old build: /health lacks request_provider; env default assemblyai.
     const { fetchFn, seen } = engineFetch({ health: { provider: 'assemblyai' } });
-    const res = await startTranscription('https://y', { port: 8756, provider: 'local', fetchFn });
+    const res = await startTranscription('https://www.youtube.com/watch?v=abc123DEF45', { port: 8756, provider: 'local', fetchFn });
     assert.equal(res.ok, false);
     assert.match(res.error, /too old/);
     assert.match(res.error, /assemblyai/);
@@ -155,7 +155,7 @@ test('startTranscription: an OLD companion with a mismatched default is REFUSED,
     // Same old build, but the choice MATCHES its default: no misroute
     // is possible, so the job proceeds.
     const match = engineFetch({ health: { provider: 'assemblyai' }, job: { job_id: 'j-ok' } });
-    const res2 = await startTranscription('https://y', { port: 8756, provider: 'assemblyai', fetchFn: match.fetchFn });
+    const res2 = await startTranscription('https://www.youtube.com/watch?v=abc123DEF45', { port: 8756, provider: 'assemblyai', fetchFn: match.fetchFn });
     assert.equal(res2.ok, true);
 });
 
@@ -191,7 +191,7 @@ test('startTranscription: cloud engine without a saved key fails BEFORE any netw
     resetStore();
     _store[TRANSCRIBER_ENGINE_STORAGE] = 'deepgram';
     let fetched = 0;
-    const res = await startTranscription('https://y', {
+    const res = await startTranscription('https://www.youtube.com/watch?v=abc123DEF45', {
         port: 8756,
         fetchFn: async () => { fetched += 1; return okJson({ job_id: 'nope' }, 202); }
     });
@@ -448,4 +448,102 @@ test('draftClaimCandidates: gated by the flag; unreachable degrades to a clear e
     assert.equal(good.proposals.length, 1);
     assert.equal(good.model, LMSTUDIO_DEFAULT_MODEL);
     resetStore();
+});
+
+test('startTranscription: a non-YouTube URL is refused on a companion without generic_urls', async () => {
+    const calls = [];
+    const fetchFn = async (url, init) => {
+        calls.push(url);
+        if (url.endsWith('/health')) {
+            return { ok: true, json: async () => ({ status: 'ok', request_provider: true }) };
+        }
+        return { ok: true, json: async () => ({ job_id: 'j1' }) };
+    };
+    const out = await startTranscription('https://mormonstories.org/podcast/ep-1/', { port: 8756, fetchFn });
+    assert.equal(out.ok, false);
+    // The refusal must lead with RESTART: the field-found cause is a
+    // long-running service still serving pre-update code, not stale code
+    // on disk (JOURNAL 2026-08-15).
+    assert.match(out.error, /non-YouTube/i);
+    assert.match(out.error, /restart/i);
+    assert.ok(!calls.some((u) => u.endsWith('/transcribe')), 'never POSTs to an incapable companion');
+});
+
+test('startTranscription: a non-YouTube URL posts when generic_urls is advertised', async () => {
+    const fetchFn = async (url) => {
+        if (url.endsWith('/health')) {
+            return { ok: true, json: async () => ({ status: 'ok', request_provider: true, generic_urls: true }) };
+        }
+        return { ok: true, json: async () => ({ job_id: 'j2', provider: 'local' }) };
+    };
+    const out = await startTranscription('https://mormonstories.org/podcast/ep-1/', { port: 8756, fetchFn });
+    assert.equal(out.ok, true);
+    assert.equal(out.jobId, 'j2');
+});
+
+test('startTranscription: a YouTube URL never pays the generic capability probe', async () => {
+    const calls = [];
+    const fetchFn = async (url) => {
+        calls.push(url);
+        return { ok: true, json: async () => ({ job_id: 'j3' }) };
+    };
+    const out = await startTranscription('https://www.youtube.com/watch?v=abc123DEF45', { port: 8756, fetchFn });
+    assert.equal(out.ok, true);
+    assert.ok(!calls.some((u) => u.endsWith('/health')), 'no health probe for the YouTube path with no engine chosen');
+});
+
+test('startTranscription: an unreachable companion falls through to the normal error', async () => {
+    const fetchFn = async () => { throw new Error('ECONNREFUSED'); };
+    const out = await startTranscription('https://mormonstories.org/podcast/ep-1/', { port: 8756, fetchFn });
+    assert.equal(out.ok, false);
+    assert.equal(out.unreachable, true);
+    assert.match(out.error, /not reachable/i);
+});
+
+test('startTranscription: generic URL with stored engine is refused on old companion', async () => {
+    resetStore();
+    _store[TRANSCRIBER_ENGINE_STORAGE] = 'local';
+    const calls = [];
+    const fetchFn = async (url, init) => {
+        calls.push(url);
+        if (url.endsWith('/health')) {
+            return { ok: true, json: async () => ({ status: 'ok', provider: 'local', request_provider: true }) };
+        }
+        return { ok: true, json: async () => ({ job_id: 'j-blocked' }) };
+    };
+    const out = await startTranscription('https://mormonstories.org/podcast/ep-1/', { port: 8756, fetchFn });
+    assert.equal(out.ok, false);
+    assert.match(out.error, /restart/i);
+    assert.ok(!calls.some((u) => u.endsWith('/transcribe')), 'never POSTs when generic_urls missing');
+});
+
+test('startTranscription: generic URL with stored engine posts when generic_urls advertised', async () => {
+    resetStore();
+    _store[TRANSCRIBER_ENGINE_STORAGE] = 'local';
+    const calls = [];
+    const fetchFn = async (url, init) => {
+        calls.push(url);
+        if (url.endsWith('/health')) {
+            return { ok: true, json: async () => ({ status: 'ok', provider: 'local', request_provider: true, generic_urls: true }) };
+        }
+        return { ok: true, json: async () => ({ job_id: 'j-allowed' }) };
+    };
+    const out = await startTranscription('https://mormonstories.org/podcast/ep-1/', { port: 8756, fetchFn });
+    assert.equal(out.ok, true);
+    assert.equal(out.jobId, 'j-allowed');
+});
+
+test('startTranscription: malformed YouTube URL is treated as generic (no parseable id)', async () => {
+    const calls = [];
+    const fetchFn = async (url, init) => {
+        calls.push(url);
+        if (url.endsWith('/health')) {
+            return { ok: true, json: async () => ({ status: 'ok', request_provider: true }) };
+        }
+        return { ok: true, json: async () => ({ job_id: 'j-youtube-malformed' }) };
+    };
+    const out = await startTranscription('https://www.youtube.com/watch?v=x', { port: 8756, fetchFn });
+    assert.equal(out.ok, false);
+    assert.match(out.error, /restart/i, 'malformed YT URL treated as generic and refused on old companion');
+    assert.ok(!calls.some((u) => u.endsWith('/transcribe')), 'never POSTs a malformed YT URL to an incapable companion');
 });

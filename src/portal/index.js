@@ -24,6 +24,7 @@ import {
 import { buildBuckets, brushRange } from './timeline.js';
 import { el, svgEl, clear, truncate, shortKey } from './dom.js';
 import { mountTranscriptImport } from './import-transcript.js';
+import { mountMediaTranscribe } from './import-media.js';
 import { mountUrlImport } from './import-urls.js';
 import { mountBookImport } from './import-book.js';
 import { renderEntityView } from './entity-view.js';
@@ -51,6 +52,7 @@ import { listRuns, listPredictions, listResolutions } from '../shared/audit/audi
 import { PredictionModel } from '../shared/audit/audit-model.js';
 import { listArticles as listArchiveArticles } from '../shared/archive-cache.js';
 import { openResolveForm } from './resolve-form.js';
+import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -1217,6 +1219,35 @@ async function renderCaseSwitcher() {
     }
 }
 
+// 🎙 Transcribe a URL — hidden entirely when localTranscription is off
+// (the flag gates SURFACES; the button would only ever error). Split
+// out from wireChrome so the async flag load can't delay wiring the
+// rest of the header's synchronous handlers.
+async function wireTranscribeUrlButton() {
+    await loadFlags();
+    const transcribeUrlBtn = $('#xr-transcribe-url');
+    if (!transcribeUrlBtn) return;
+    if (!isEnabled('localTranscription')) {
+        // Defensive no-op: the HTML ships `hidden` already. Kept explicit
+        // (mirroring the ON branch's explicit `hidden = false` below) so
+        // this function's two branches are symmetric and a future default
+        // flip in the HTML can't silently leave the button visible with
+        // the flag off.
+        transcribeUrlBtn.hidden = true;
+        return;
+    }
+    // Reveal it — the HTML ships `hidden` by default (flag-off / not-yet
+    // -loaded posture); this is the ONLY place that clears it. Missing
+    // this line was Fix Round 1's Critical finding: the button attached
+    // its click listener but never became visible, flag on or off.
+    transcribeUrlBtn.hidden = false;
+    transcribeUrlBtn.addEventListener('click', () => {
+        const importHost = $('#xr-import-host');
+        if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
+        mountMediaTranscribe(importHost, { onDone: null });
+    });
+}
+
 function wireChrome() {
     renderCaseSwitcher();
     $('#xr-refresh').addEventListener('click', () => { boot(); });
@@ -1229,6 +1260,14 @@ function wireChrome() {
         if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
         mountTranscriptImport(importHost, { onDone: null });
     });
+
+    // 🎙 Transcribe a URL — the companion-backed sibling of the paste
+    // import (Transcribe Anywhere wave). Flag-gated: the portal has no
+    // other flag plumbing yet, so this loads it itself and awaits
+    // before the gate is evaluated — a gate read before flags load
+    // would silently read defaults (localTranscription off) and hide
+    // the button even when the user turned it on.
+    wireTranscribeUrlButton();
 
     // Import an EPUB book — each chapter becomes a capture grouped under a
     // book `thing` entity. Toggle-close like the transcript import; a

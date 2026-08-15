@@ -13,6 +13,7 @@ import { Storage } from '../shared/storage.js';
 import { ContentExtractor } from '../shared/content-extractor.js';
 import { ContentDetector } from '../shared/content-detector.js';
 import { googleDrivePdfUrl } from '../shared/pdf-detect.js';
+import { detectMediaHints } from '../shared/media-hints.js';
 import { captureForPlatform, enrichArticleForPlatform, detectPlatformFromDom } from '../shared/platforms/index.js';
 
 export const UI = {
@@ -28,11 +29,11 @@ export const UI = {
   // every trigger (toolbar icon, keyboard shortcut, context menu) routes
   // here via the `xray:capture` message.
   //
-  // `transcribe: true` (the "Capture & transcribe locally" menu item,
-  // YouTube only) skips the native transcript strategies — the diarized
-  // companion transcript supersedes them — and rides the flag to the SW
-  // on the session record (NOT on the article, which persists into
-  // archive rows) so the reader knows to start the job.
+  // `transcribe: true` (the "Capture & transcribe" menu item) skips the
+  // native transcript strategies where a platform has them — the
+  // diarized companion transcript supersedes them — and rides the flag
+  // to the SW on the session record (NOT on the article, which persists
+  // into archive rows) so the reader knows to start the job.
   openReader: async ({ transcribe = false } = {}) => {
     try {
       // 0. PDF viewer shells that DO host content scripts. The PDF
@@ -63,7 +64,7 @@ export const UI = {
       const detection = ContentDetector.detect();
       const platform = detection?.platform || detectPlatformFromDom();
 
-      const wantsTranscription = transcribe && platform === 'youtube';
+      const wantsTranscription = transcribe;
       let enriched = await captureForPlatform(
         platform,
         wantsTranscription ? { skipTranscripts: true } : undefined
@@ -78,6 +79,17 @@ export const UI = {
           return;
         }
         enriched = await enrichArticleForPlatform(article, platform);
+      }
+
+      // 2b. Media signals for the reader's Transcribe affordance —
+      //     LOCAL-ONLY (no builder reads mediaHints). Absent = the page
+      //     showed no playable media; the 🎙 Media modal's "Transcribe
+      //     from source" is the fallback for anything this misses.
+      try {
+        const hints = detectMediaHints(document);
+        if (hints) enriched.mediaHints = hints;
+      } catch (err) {
+        Utils.error('media hint detection failed', err);
       }
 
       // 3. Hand off to the reader via the background SW.

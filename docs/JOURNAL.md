@@ -19,6 +19,77 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-15 — Transcribe Anywhere: the YouTube lock was gating, not machinery
+
+**Tags:** design, security
+
+The local-transcription companion (`companion/transcriber/`) always ran
+yt-dlp generically — `download.py` called `extract_info(url)` with no
+site-specific code. The YouTube-only restriction lived entirely in
+admission checks layered on top: the companion's URL validator, and
+five independent extension-side gates that all had to open before a
+non-YouTube URL could ever reach it (the context menu's
+`documentUrlPatterns`, `content/ui.js`'s menu-availability check, the
+background service worker's pre-POST gate, the reader's `hasMediaSignal`
+button-visibility gate, and `isFetchableMediaUrl` as the last-mile guard
+inside `runTranscribeFlow` — reused unchanged by the Media-modal escape
+hatch and the portal panel). Widening the funnel (`docs/
+TRANSCRIBE_ANYWHERE_KICKOFF.md`) was therefore a gating change, not new
+plumbing: `transcriber/media_url.py` replaced the YouTube host allowlist
+with https-only + public-unicast-only admission, and each extension gate
+opened in its own task with its own tests.
+
+**Job identity, kept back-compatible.** `media_key_for(url)` keeps
+YouTube's bare video id — exactly what `xray:transcribe:job:<videoId>`
+records and the companion's own dedupe already keyed on — so an
+in-flight job survives the funnel widening untouched. Everything else
+gets a normalized-URL hash (`u_<16 hex>`). The extension mirrors the same
+rule in `shared/media-key.js`; a JS/Python encoding divergence
+(`encodeURIComponent` vs. Python's `quote_plus` differ on `! * ' ( )` and
+space) was caught and fixed before it could fork the two sides' idea of
+"the same media."
+
+**Wire format: none, on purpose.** A non-YouTube diarized capture writes
+its transcript into a neutral, LOCAL-ONLY `article.transcripts` slot that
+no event builder reads — `transcript_lang` continues to emit only from
+`article.youtube.transcripts`. That's the whole reason this wave is
+"Wire format: none": nothing about how a claim's provenance is published
+changes, and `tests/diarized-wire.test.mjs` machine-checks that a
+generic-media capture never grows a `transcript_lang` tag.
+
+**The residual risk, stated plainly: blind SSRF, not closed.**
+`media_url.py`'s admission check resolves the hostname once and denies
+any private/loopback/reserved address — including addresses embedded in
+an RFC 6052 NAT64 or IPv4-mapped IPv6 wrapper, so a NAT64-wrapped
+`169.254.169.254` (cloud metadata) is caught. But yt-dlp re-resolves DNS
+and follows redirects on its own, entirely after admission, so DNS
+rebinding is NOT closed by this check. Accepted, bounded by: the service
+is loopback-only and single-user, no response body ever reaches a third
+party, and the URL is always one the user personally chose to
+transcribe. Recorded in `docs/THREAT_MODEL.md` (B10, gap G8) rather than
+argued away.
+
+**The finding this wave produced on its own: the cookie jar was a
+second, undocumented gate.** `download.py` handed
+`TRANSCRIBER_COOKIES_FILE` to yt-dlp for *every* URL, unconditionally —
+safe only because the YouTube-only host allowlist meant "every URL" was
+in practice always YouTube. `TRANSCRIBER_COOKIES_FILE` is typically a
+full browser cookie export; widening admission without also scoping it
+would have silently turned that export into a credential offered to
+whatever host a user pasted. `TRANSCRIBER_COOKIES_HOSTS` (new, default:
+the five YouTube hosts, exact-match, no subdomain wildcard) landed in
+the same change as the admission widening, not as a follow-up. Worth
+recording past this one instance: it's the general shape of the trap — a
+control that was load-bearing for a second, undocumented reason, invisible
+until the first reason it was built for goes away.
+
+Related: `docs/TRANSCRIBE_ANYWHERE_KICKOFF.md`, `docs/THREAT_MODEL.md`
+(B10/B12, gap G8), `docs/SMOKE_TEST.md` §Local transcription
+(LT.1–LT.14, not yet walked), `companion/transcriber/README.md` ("What
+URLs are accepted").
+
+---
+
 ## 2026-08-15 — Normalize-at-the-boundary was tried and WITHDRAWN; the fixture set is what survived
 
 **Tags:** design, pattern

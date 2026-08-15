@@ -34,6 +34,18 @@ export function engineName(id) {
 }
 
 /**
+ * Whether a /health snapshot rules out running local jobs right now.
+ * Currently just the missing-HF_TOKEN case — pyannote diarization can't
+ * load without it, so the companion fails local jobs immediately
+ * (pipeline.py). One definition shared by the Options status panel and
+ * the reader's engine picker, so "local is blocked" never drifts
+ * between the two surfaces.
+ */
+export function localBlockedByHealth(health) {
+    return !!(health && health.hf_token === false);
+}
+
+/**
  * @param {object}  opts
  * @param {object=} opts.resp        the xray:transcribe:ping reply, or null while in flight
  * @param {string=} opts.enginePref  '' (companion default) | 'ask' | 'local' | 'assemblyai' | 'deepgram'
@@ -119,7 +131,7 @@ export function deriveCompanionState({ resp, enginePref = '', port = 8756 } = {}
 
     // Local jobs need HF_TOKEN or they fail before the download.
     const willRunLocal = enginePref === 'local' || (!enginePref && companionDefault === 'local');
-    if (willRunLocal && h.hf_token === false) {
+    if (willRunLocal && localBlockedByHealth(h)) {
         return {
             level: 'warn',
             state: 'Running, but local jobs will fail',

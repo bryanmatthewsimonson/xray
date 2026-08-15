@@ -47,16 +47,17 @@
         🎙 Media…
       </button>
       <!-- Transcription: hidden unless the localTranscription flag is
-           on AND this is a YouTube capture. The companion service runs
-           the chosen ENGINE — local WhisperX or a cloud provider; the
-           diarized transcript becomes the capture body. Split control:
-           the main button runs the preferred engine, the chevron opens
-           the engine picker (cost/time per choice). -->
+           on AND this capture shows a media signal (or you asked for it
+           explicitly). The companion service runs the chosen ENGINE —
+           local WhisperX or a cloud provider; the diarized transcript
+           becomes the capture body. Split control: the main button runs
+           the preferred engine, the chevron opens the engine picker
+           (cost/time per choice). -->
       <button class="xr-reader__btn xr-reader__btn--ghost" id="xr-transcribe" hidden>
         🎙 Transcribe
       </button>
       <button class="xr-reader__btn xr-reader__btn--ghost xr-engine-caret" id="xr-transcribe-engine" hidden
-              title="Choose the transcription engine for this video">▾</button>
+              title="Choose the transcription engine for this media">▾</button>
       <!-- Speaker identification: visible on any capture with transcript
            speakers. Binds each detected voice to a person entity (the
            claim provenance for spoken words); same entity on two labels

@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { deriveCompanionState, engineName } from '../src/shared/companion-status.js';
+import { deriveCompanionState, engineName, localBlockedByHealth } from '../src/shared/companion-status.js';
 
 const healthy = (over = {}) => ({
     ok: true,
@@ -130,6 +130,18 @@ test('no branch leaks a secret', () => {
         assert.doesNotMatch(blob, /hf_[A-Za-z0-9]{8,}/, 'no Hugging Face token shape');
         assert.doesNotMatch(blob, /\bsk-[A-Za-z0-9]{8,}/, 'no API-key shape');
     }
+});
+
+// localBlockedByHealth is the standalone predicate the reader's engine
+// picker uses to mark Local (WhisperX) unavailable — same fact
+// deriveCompanionState's local-token branch reads, extracted so the two
+// surfaces (Options status panel, reader picker) can never disagree.
+test('localBlockedByHealth: true only when health explicitly says hf_token is false', () => {
+    assert.equal(localBlockedByHealth({ hf_token: false }), true);
+    assert.equal(localBlockedByHealth({ hf_token: true }), false);
+    assert.equal(localBlockedByHealth({}), false, 'unset/unknown never blocks');
+    assert.equal(localBlockedByHealth(null), false, 'a missing/failed probe never blocks');
+    assert.equal(localBlockedByHealth(undefined), false);
 });
 
 test('engineName maps ids to display names', () => {

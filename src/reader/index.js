@@ -84,11 +84,13 @@ import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/len
 import { speakerFromParagraphText } from '../shared/transcript-parse.js';
 import { buildTranscriptSection, upsertTranscriptSection } from '../shared/transcript-article.js';
 import { buildDiarizedBody, timeFragmentSelector, timeRangeOfSpan, diarizedTrackEntry, extractionMethodFor } from '../shared/diarized-transcript.js';
-import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey } from './transcribe-flow.js';
+import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey, hasMediaSignal, isFetchableMediaUrl, transcribeSourceUrl } from './transcribe-flow.js';
+import { mediaKeyForArticle } from '../shared/media-key.js';
 import { openMediaModal } from './media-modal.js';
 import { scanPodcastSignals } from '../shared/podcast-identity.js';
 import { openSpeakersModal, speakerEntityId, decorateSpeakerLabels } from './speakers-modal.js';
 import { runDraftPass } from '../shared/transcriber-client.js';
+import { localBlockedByHealth } from '../shared/companion-status.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { resolveActiveCaseRef, describeActiveContext, memberUrlSets } from '../shared/case-membership.js';
@@ -2012,7 +2014,7 @@ function removeTranscribeBanner() {
  */
 async function adoptDiarizedTranscript(result) {
     const a = state.article;
-    if (!a || !a.youtube) throw new Error('Not a YouTube capture.');
+    if (!a || !a.url) throw new Error('This capture has no source URL to transcribe.');
 
     // The job ran for minutes on an editable page. Adopting over the
     // user's edits would silently discard them — their state wins.
@@ -2029,20 +2031,26 @@ async function adoptDiarizedTranscript(result) {
 
     const { markdown, timeMap, transcriptMeta } = buildDiarizedBody({
         capturedMarkdown: a.markdown || '',
-        watchUrl: a.url,
+        mediaUrl: a.url,
+        platform: a.platform,
         result
     });
 
     // contentType flips BEFORE hashing: 'transcript' joins the
     // markdown-canonical set, so the hash covers the markdown substrate
     // (the ordering trap — hashing first would cover the old turndown
-    // side). platform stays 'youtube' (header + tag block unaffected).
+    // side). platform is untouched (header + tag block unaffected).
     a.contentType = 'transcript';
-    // The Phase 22 whitelisted user-declared media tag: choosing
-    // "Transcribe locally" on a video IS the declaration, and it keeps
-    // these captures findable by consumers filtering on video-ness now
-    // that content_format reads 'transcript'.
-    a.media = 'video';
+    // The Phase 22 whitelisted user-declared media tag. Choosing
+    // "Transcribe" on a platform that IS video is the declaration, and
+    // it keeps those captures findable by consumers filtering on
+    // video-ness now that content_format reads 'transcript'. OFF those
+    // platforms we declare NOTHING: media type is the user's to state
+    // (the 🎙 Media modal), and a podcast episode is not a video. The
+    // post-adoption refreshMediaNudge() surfaces that prompt.
+    if (!a.media && (a.platform === 'youtube' || a.platform === 'tiktok')) {
+        a.media = 'video';
+    }
     a.markdown = markdown;
     a.content = ContentExtractor.markdownToHtml(markdown);
     a.transcript_meta = transcriptMeta;
@@ -2058,8 +2066,13 @@ async function adoptDiarizedTranscript(result) {
     a.extraction = { ...(a.extraction || {}), method: extractionMethodFor(result.model_info) };
     // The transcript_lang manifest + header chip both gate on non-empty
     // events — the diarized track carries them (locally; never as tags).
-    a.youtube.transcripts = [
-        ...(Array.isArray(a.youtube.transcripts) ? a.youtube.transcripts : [])
+    // YOUTUBE keeps the youtube-nested slot, which is the ONLY slot
+    // event-builder reads: writing the neutral slot below for other
+    // platforms is deliberately wire-inert (tests/diarized-wire.test.mjs
+    // pins that a non-YouTube diarized capture emits no transcript_lang).
+    const trackSlot = a.platform === 'youtube' && a.youtube ? a.youtube : a;
+    trackSlot.transcripts = [
+        ...(Array.isArray(trackSlot.transcripts) ? trackSlot.transcripts : [])
             .filter((t) => t && t.role !== 'local-diarized'),
         diarizedTrackEntry(result)
     ];
@@ -2106,12 +2119,41 @@ let _transcribeRunning = false;
 /** Start (or resume) the companion job and adopt the result. The whole
  *  loop is page-driven — each poll message resets the SW idle timer.
  *  `provider` is the engine for THIS run (picker choice); undefined
- *  defers to the stored engine preference in the SW. */
+ *  defers to the stored engine preference in the SW.
+ *
+ *  'ask' handling is HOISTED here (review fix) rather than left to each
+ *  caller: every caller below resolves its provider argument as
+ *  `_transcribeCfg.engine || undefined`, so an 'ask' preference arrives
+ *  here as the literal string 'ask' — never a real engine id (those are
+ *  always 'local'/'assemblyai'/'deepgram'). Catching it in one place
+ *  means no caller can forget to open the picker and accidentally let
+ *  the request fall through with no provider field, at which point
+ *  transcriber-client.js's startTranscription collapses 'ask' to null
+ *  and the companion's env default silently rules — no picker, no cost
+ *  estimate. The picker's own engine-item clicks pass a concrete engine
+ *  string, so they always bypass this branch. */
 async function runTranscribeFlow(provider) {
     if (typeof provider !== 'string') provider = undefined; // onclick passes an event
+    if (provider === 'ask') { openEnginePicker(); return; }
     const a = state.article;
-    const videoId = a && a.youtube && a.youtube.videoId;
-    if (!a || !videoId) { toast('Not a YouTube capture.', 'error'); return; }
+    if (!a || !isFetchableMediaUrl(a.url)) {
+        // Same gate hasMediaSignal enforces for the button — the
+        // companion's validate_media_url admits https:// only, so an
+        // http:// or file:// (the Phase-21 synthetic-import identity)
+        // source would fail there every time.
+        toast('This capture has no https media URL to transcribe (the companion only fetches https:// sources).', 'error');
+        return;
+    }
+    // The URL actually handed to the companion — B2: article.url stays
+    // the article's identity (archive keying, publish `a` tag) unchanged;
+    // this only decides what the transcription job fetches. Known
+    // platforms (YouTube included — byte-identical behavior preserved)
+    // keep sending the page URL; anything else prefers a discovered
+    // mediaHints.fileUrl. The media key is derived from THIS url (not
+    // a.url) so a re-run of the same source resumes the same job record
+    // instead of orphaning it.
+    const sourceUrl = transcribeSourceUrl(a);
+    const mediaKey = await mediaKeyForArticle(a, sourceUrl);
     if (_transcribeRunning) {
         // Never swallow a click silently (the Suggest-local precedent).
         toast('A transcription is already running for this capture — wait for it to finish.', 'error');
@@ -2142,7 +2184,7 @@ async function runTranscribeFlow(provider) {
                 const arch = hit.article;
                 const segs = arch.transcription.segments.length;
                 if (confirm(
-                    `This video already has a local transcription in your archive (${segs} segments`
+                    `This capture already has a local transcription in your archive (${segs} segments`
                     + `${arch.transcript_meta ? `, ${arch.transcript_meta.speaker_count} speaker(s)` : ''}`
                     + `${hit.prior ? ' — from a prior version; a later re-capture replaced it' : ''}).\n\n`
                     + 'OK — load the archived transcript (instant).\n'
@@ -2176,7 +2218,7 @@ async function runTranscribeFlow(provider) {
             // Honest wording: a cloud-provider job is not "locally".
             renderTranscribeBanner(`Transcribing ${providerPhrase(job && job.provider)} — ${describeProgress(job)}`);
         });
-        const out = await runTranscriptionJob({ videoUrl: a.url, videoId, provider, io });
+        const out = await runTranscriptionJob({ mediaUrl: sourceUrl, mediaKey, provider, io });
         if (!out.ok) {
             renderTranscribeBanner(out.error, 'error', { docsHint: !!(out.error || '').includes('not reachable') });
             // A cloud engine without its key: the picker is the fastest
@@ -2188,7 +2230,7 @@ async function runTranscribeFlow(provider) {
         // Adoption succeeded — NOW the finished job's record can go
         // (kept until here so an adoption refusal keeps a handle to the
         // server-side result instead of re-running the whole job).
-        await io.storageRemove([jobRecordKey(videoId)]).catch(() => {});
+        await io.storageRemove([jobRecordKey(mediaKey)]).catch(() => {});
         // Reload safety: fold the adopted article + a cleared transcribe
         // flag back into the session record. Without this, F5 (or a
         // Memory-Saver tab restore) re-reads the ORIGINAL transcript-less
@@ -2223,13 +2265,15 @@ async function runTranscribeFlow(provider) {
 // or changes the engine in Options with readers already open, and a
 // stale snapshot would loop the "add a key in Settings" path forever
 // (review finding, 2026-08-02). `engine: null` = no preference chosen:
-// jobs carry no provider and the companion default rules.
-let _transcribeCfg = { engine: null, keys: {} };
+// jobs carry no provider and the companion default rules. `enabled`
+// mirrors the localTranscription flag — the Media modal's "Transcribe
+// from source" button reads it to decide whether to render at all.
+let _transcribeCfg = { engine: null, keys: {}, enabled: false };
 
 async function refreshTranscribeCfg() {
     try {
         const cfg = await browserApi.runtime.sendMessage({ type: 'xray:transcribe:config' }) || {};
-        _transcribeCfg = { engine: cfg.engine || null, keys: cfg.keys || {} };
+        _transcribeCfg = { engine: cfg.engine || null, keys: cfg.keys || {}, enabled: !!cfg.enabled };
     } catch (_) { /* keep the previous snapshot */ }
     const btn = $('#xr-transcribe');
     if (btn && !btn.hidden) btn.title = transcribeTooltip();
@@ -2261,7 +2305,7 @@ function transcribeTooltip() {
     const rerun = !!(state.article && state.article.transcription);
     const head = rerun
         ? 'Re-run the diarized transcription (replaces the current transcript section)'
-        : 'Transcribe this video';
+        : 'Transcribe the media at this URL';
     const e = _transcribeCfg.engine;
     if (e === 'ask') return `${head} — you'll choose the engine (▾ also opens the choices)`;
     if (!e) return `${head} — with the companion service's default engine (local unless its env says otherwise; pick per video with ▾, or set a default in Settings)`;
@@ -2271,19 +2315,23 @@ function transcribeTooltip() {
         : `${head} — via ${meta.label} (cloud: the episode audio leaves this machine, ${meta.badge.replace('cloud — ', '')})`;
 }
 
-/** Per-engine time/cost line for the picker, from the video duration. */
+/** Per-engine time/cost line for the picker. Duration is only known
+ *  before the job on platforms that report it (YouTube, TikTok);
+ *  elsewhere we say so rather than invent a number — the companion
+ *  probes the real duration and enforces the 4-hour cap. */
 function engineEstimate(engine) {
-    const secs = Number(state.article && state.article.youtube
-        && state.article.youtube.durationSeconds) || 0;
+    const a = state.article || {};
+    const secs = Number((a.youtube && a.youtube.durationSeconds)
+        || (a.tiktok && a.tiktok.durationSeconds)) || 0;
     const meta = ENGINE_META[engine];
     if (engine === 'local') {
-        if (!secs) return 'Runs on your GPU; speed depends on the card.';
+        if (!secs) return 'Runs on your GPU; speed depends on the card and the length of the media.';
         const mins = Math.max(1, Math.ceil(secs / 900 + secs / 3600 * 2));
         return `~${mins} min on your GPU (transcribe + diarize) — free.`;
     }
-    if (!secs) return 'Usually 2–5 minutes, metered per audio-hour.';
+    if (!secs) return 'Usually 2–5 minutes, metered per audio-hour (length unknown until the companion probes it).';
     const cost = Math.max(0.01, (secs / 3600) * meta.rate);
-    return `~2–5 min — about $${cost.toFixed(2)} for this video.`;
+    return `~2–5 min — about $${cost.toFixed(2)} for this media.`;
 }
 
 function closeEnginePicker() {
@@ -2303,7 +2351,10 @@ function _pickerEscape(ev) { if (ev.key === 'Escape') closeEnginePicker(); }
  * video — a 10-minute clip is fine on the GPU, a 2-hour episode wants
  * cloud speed. Shows real time/cost estimates from the capture's
  * duration and each engine's availability; a cloud engine without a
- * saved key routes to Settings instead of failing later.
+ * saved key routes to Settings instead of failing later, and — a
+ * best-effort companion health probe, 2026-08-14 — local is marked
+ * unavailable (with the real fix named) when HF_TOKEN is missing on
+ * the companion, instead of presenting a choice that fails on click.
  */
 async function openEnginePicker() {
     // Toggle: a second chevron click closes instead of flickering
@@ -2314,6 +2365,22 @@ async function openEnginePicker() {
     // saved a key in Options (review finding: the stale snapshot made
     // "add a key in Settings" a dead loop).
     await refreshTranscribeCfg();
+    // Best-effort: does the companion's OWN health say local jobs will
+    // fail (HF_TOKEN unset — pyannote diarization can't load)? Local was
+    // otherwise shown as unconditionally available, which is dishonest —
+    // a cloud engine with no saved key correctly routes to Settings, but
+    // picking local just fails. A short self-imposed race, not the
+    // probe's own ~3s timeout, keeps a dead/slow companion from ever
+    // delaying the menu: on failure or timeout, local stays available
+    // exactly as before (never wrongly block a working setup).
+    let localBlocked = false;
+    try {
+        const probe = await Promise.race([
+            browserApi.runtime.sendMessage({ type: 'xray:transcribe:ping' }),
+            new Promise((resolve) => setTimeout(() => resolve(null), 1500))
+        ]);
+        if (probe && probe.ok) localBlocked = localBlockedByHealth(probe.health);
+    } catch (_) { /* best-effort only — local stays available */ }
     const anchor = $('#xr-transcribe');
     if (!anchor) return;
     const menu = document.createElement('div');
@@ -2322,7 +2389,9 @@ async function openEnginePicker() {
 
     for (const engine of ['local', 'assemblyai', 'deepgram']) {
         const meta = ENGINE_META[engine];
-        const keyed = engine === 'local' || !!(_transcribeCfg.keys && _transcribeCfg.keys[engine]);
+        const blockedLocal = engine === 'local' && localBlocked;
+        const keyed = !blockedLocal
+            && (engine === 'local' || !!(_transcribeCfg.keys && _transcribeCfg.keys[engine]));
         const item = document.createElement('button');
         item.type = 'button';
         item.className = 'xr-engine-menu__item';
@@ -2346,11 +2415,17 @@ async function openEnginePicker() {
         sub.className = 'xr-engine-menu__sub' + (keyed ? '' : ' xr-engine-menu__sub--warn');
         sub.textContent = keyed
             ? engineEstimate(engine)
-            : 'No API key saved — click to add one in Settings.';
+            : blockedLocal
+                ? 'Needs HF_TOKEN on the companion service — see companion/transcriber/README.md.'
+                : 'No API key saved — click to add one in Settings.';
         item.appendChild(sub);
 
         item.addEventListener('click', () => {
             closeEnginePicker();
+            if (blockedLocal) {
+                toast('Local transcription needs HF_TOKEN set on the companion service — see companion/transcriber/README.md, then restart the service.', 'error', 6000);
+                return;
+            }
             if (!keyed) {
                 try { browserApi.runtime.openOptionsPage(); } catch (_) { /* page-open denied */ }
                 return;
@@ -2396,9 +2471,10 @@ async function setupTranscribeControl() {
     const btn = $('#xr-transcribe');
     const caret = $('#xr-transcribe-engine');
     if (!btn) return;
-    const isYouTube = !!(state.article && state.article.platform === 'youtube'
-        && state.article.youtube && state.article.youtube.videoId);
-    if (!isYouTube || state.readOnlyOpen) {
+    // An explicit "Capture & transcribe" gesture IS the signal — show
+    // the control even when the page's media hints came back empty.
+    const qualifies = hasMediaSignal(state.article) || state.transcribeRequested;
+    if (!qualifies || state.readOnlyOpen) {
         btn.hidden = true;
         if (caret) caret.hidden = true;
         return;
@@ -2411,7 +2487,7 @@ async function setupTranscribeControl() {
         if (caret) caret.hidden = true;
         return;
     }
-    _transcribeCfg = { engine: cfg.engine || null, keys: cfg.keys || {} };
+    _transcribeCfg = { engine: cfg.engine || null, keys: cfg.keys || {}, enabled: !!cfg.enabled };
     btn.hidden = false;
     btn.disabled = false;
     btn.title = transcribeTooltip();
@@ -2420,21 +2496,23 @@ async function setupTranscribeControl() {
     // and must never stack duplicate handlers. Every click re-reads the
     // CURRENT preference (Options may have changed it since page load);
     // a null preference passes no engine — the SW then omits the
-    // provider and the companion default rules.
+    // provider and the companion default rules. 'ask' handling lives in
+    // runTranscribeFlow itself now (hoisted, review fix) — this call
+    // site no longer branches on it, which also rules out a double-open
+    // of the picker.
     btn.onclick = async () => {
         await refreshTranscribeCfg();
-        if (_transcribeCfg.engine === 'ask') { openEnginePicker(); return; }
         runTranscribeFlow(_transcribeCfg.engine || undefined);
     };
     if (caret) caret.onclick = openEnginePicker;
 
     // The "Capture & transcribe" path: the session record said to start
     // immediately. An 'ask' preference opens the picker instead of
-    // silently picking an engine the user never chose.
+    // silently picking an engine the user never chose — runTranscribeFlow
+    // resolves that itself now.
     if (state.transcribeRequested && !state.article.transcription) {
         state.transcribeRequested = false;
-        if (_transcribeCfg.engine === 'ask') openEnginePicker();
-        else runTranscribeFlow(_transcribeCfg.engine || undefined);
+        runTranscribeFlow(_transcribeCfg.engine || undefined);
     }
 }
 
@@ -3187,8 +3265,19 @@ function setupMediaControl() {
     if (state.readOnlyOpen) { btn.hidden = true; return; }
     btn.addEventListener('click', async () => {
         if (!state.article) return;
-        const result = await openMediaModal(state.article);
-        if (result) await applyMediaResult(result);
+        // Fresh flag read every open (Options may have flipped it since
+        // page load) — the modal renders its "Transcribe from source"
+        // button ONLY when true, so an off flag means the affordance
+        // never exists rather than existing-but-erroring on click.
+        await refreshTranscribeCfg();
+        const result = await openMediaModal(state.article, { canTranscribe: _transcribeCfg.enabled });
+        if (result) {
+            await applyMediaResult(result);
+            // Metadata first, THEN the job: adoption re-hashes, and a
+            // half-applied declaration would be lost by the reload the
+            // adoption performs.
+            if (result.transcribe) await runTranscribeFlow(_transcribeCfg.engine || undefined);
+        }
     });
     refreshMediaNudge();
 }
@@ -3226,8 +3315,17 @@ function refreshMediaNudge() {
         hint.addEventListener('click', async (ev) => {
             ev.stopPropagation();
             if (!state.article) return;
-            const result = await openMediaModal(state.article, { autoFind: true });
-            if (result) await applyMediaResult(result);
+            // Same fresh flag read as the plain Media button — the nudge
+            // opens the same modal and must gate the same button.
+            await refreshTranscribeCfg();
+            const result = await openMediaModal(state.article, { autoFind: true, canTranscribe: _transcribeCfg.enabled });
+            if (result) {
+                await applyMediaResult(result);
+                // Metadata first, THEN the job — same ordering as the
+                // plain Media button (applyMediaResult's re-hash must
+                // land before adoption's reload).
+                if (result.transcribe) await runTranscribeFlow(_transcribeCfg.engine || undefined);
+            }
         });
         btn.appendChild(hint);
     }
