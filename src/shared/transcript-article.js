@@ -137,7 +137,8 @@ export function buildTranscriptMarkdown({ turns = [], meta = {} } = {}) {
     const lines = ['---'];
     const title = headerField(meta.title);
     const isHttp = /^https?:\/\//i.test(meta.url || '');
-    lines.push(isHttp ? `**Podcast**: [${title}](${meta.url})` : `**Podcast**: ${title}`);
+    const sourceLabel = String(meta.sourceLabel || 'Podcast').trim() || 'Podcast';
+    lines.push(isHttp ? `**${sourceLabel}**: [${title}](${meta.url})` : `**${sourceLabel}**: ${title}`);
     if (meta.show) lines.push(`**Show**: ${headerField(meta.show)}`);
     if (meta.byline) lines.push(`**Host**: ${headerField(meta.byline)}`);
     if (meta.publishedAt) {
@@ -253,7 +254,9 @@ export function buildTranscriptArticle({ turns = [], speakers = [], format = 'pl
         excerpt: firstTurn ? firstTurn.text.replace(/\s+/g, ' ').trim().slice(0, 200) : '',
         wordCount: markdown.split(/\s+/).filter(Boolean).length,
         contentType: 'transcript',
-        platform: 'podcast',
+        // 'podcast' unless the caller states otherwise (the Transcribe-a-URL
+        // panel builds records for video and generic media too).
+        platform: String(meta.platform || 'podcast'),
         entities: [],
         ...(Object.keys(podcast).length ? { podcast } : {}),
         transcript_meta: {
