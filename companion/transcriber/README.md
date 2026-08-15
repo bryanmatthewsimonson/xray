@@ -217,8 +217,12 @@ auth token.
 
 ### What URLs are accepted
 
-`POST /transcribe` admits a URL when **all** of the following hold
-(`transcriber/media_url.py`, `validate_media_url`):
+Two stages, at two different points in the job's life — worth
+separating precisely, because only the first one gates the `202`:
+
+**Admission** (`transcriber/media_url.py`, `validate_media_url` —
+synchronous, inside the `POST /transcribe` request; failure is an
+immediate `400`, no job is ever created):
 
 - **Scheme is `https`.** No `http://`, no `file://`, no anything else.
 - **No embedded credentials** (`https://user:pass@host/...` is
@@ -229,9 +233,20 @@ auth token.
   (`64:ff9b::/96`) or IPv4-mapped (`::ffff:0:0/96`) IPv6 address, so a
   hostname whose AAAA record smuggles `169.254.169.254` (the cloud
   metadata address) inside a NAT64 wrapper is still caught.
+
+**Post-admission probe** (`transcriber/download.py`,
+`download_audio` — runs *after* the `202`, inside the worker child,
+once yt-dlp has actually resolved the URL; failure surfaces
+asynchronously as `job.status == "failed"`, never as a `400`):
+
 - **Not a live stream** — refused rather than run unbounded.
-- **Under the duration cap** — `TRANSCRIBER_MAX_DURATION_S` (default
-  `14400`, 4 hours); raise it to allow longer media.
+- **Duration must be determinable and under the cap** —
+  `TRANSCRIBER_MAX_DURATION_S` (default `14400`, 4 hours); raise it to
+  allow longer media. yt-dlp cannot report a duration until it has
+  resolved the URL, which is why this can't be an admission-time check:
+  a URL can pass admission and still fail the job a few seconds later
+  for being a live stream or too long — poll `GET /jobs/{job_id}` for
+  the `failed` status and its `error` message.
 
 Once admitted, the URL goes to yt-dlp exactly as given — yt-dlp
 resolves page URLs, embedded players, and direct media files alike,
