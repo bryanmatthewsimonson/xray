@@ -220,6 +220,17 @@ export async function runTranscriptionJob({ mediaUrl, mediaKey, provider, io }) 
     }
 }
 
+/** Is `url` something the companion could actually fetch? The companion's
+ *  validate_media_url (media_url.py) admits https:// only — not http,
+ *  not file:// — so this is a plain scheme check, never a URL parse
+ *  (keeps this module import-free). Shared by hasMediaSignal (the
+ *  button's show/hide gate) and runTranscribeFlow's own guard (the
+ *  path the auto-start / re-run flow reaches independent of the
+ *  button), so the two can never disagree. */
+export function isFetchableMediaUrl(url) {
+    return /^https:\/\//i.test(String(url || ''));
+}
+
 /**
  * Does this capture look like it has media a transcriber could fetch?
  *
@@ -231,11 +242,14 @@ export async function runTranscriptionJob({ mediaUrl, mediaKey, provider, io }) 
  */
 export function hasMediaSignal(article) {
     const a = article || {};
-    // Nothing to send: a URL-less capture (a pasted transcript import)
-    // has no source for the companion to fetch. Only an EXPLICITLY
-    // empty/falsy url disqualifies — every real capture sets url, so
-    // this only fires for a deliberately source-less article.
-    if ('url' in a && !a.url) return false;
+    // Only a fetchable web address qualifies. A Phase-21 transcript
+    // import with no episode URL carries a synthetic file:///imported/
+    // identity (transcript-article.js syntheticTranscriptUrl) — truthy,
+    // but the companion admits https only, so offering Transcribe there
+    // (or on an http:// source) is a button that cannot ever succeed.
+    // An import WITH a real https episode URL still qualifies, which is
+    // the case we want.
+    if (!isFetchableMediaUrl(a.url)) return false;
     if (a.platform === 'youtube' && a.youtube && a.youtube.videoId) return true;
     if (a.contentType === 'video' || a.contentType === 'audio') return true;
     if (a.media === 'video' || a.media === 'podcast') return true;

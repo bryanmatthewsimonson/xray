@@ -84,7 +84,7 @@ import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/len
 import { speakerFromParagraphText } from '../shared/transcript-parse.js';
 import { buildTranscriptSection, upsertTranscriptSection } from '../shared/transcript-article.js';
 import { buildDiarizedBody, timeFragmentSelector, timeRangeOfSpan, diarizedTrackEntry, extractionMethodFor } from '../shared/diarized-transcript.js';
-import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey, hasMediaSignal } from './transcribe-flow.js';
+import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey, hasMediaSignal, isFetchableMediaUrl } from './transcribe-flow.js';
 import { mediaKeyForArticle } from '../shared/media-key.js';
 import { openMediaModal } from './media-modal.js';
 import { scanPodcastSignals } from '../shared/podcast-identity.js';
@@ -2122,7 +2122,14 @@ let _transcribeRunning = false;
 async function runTranscribeFlow(provider) {
     if (typeof provider !== 'string') provider = undefined; // onclick passes an event
     const a = state.article;
-    if (!a || !a.url) { toast('This capture has no source URL to transcribe.', 'error'); return; }
+    if (!a || !isFetchableMediaUrl(a.url)) {
+        // Same gate hasMediaSignal enforces for the button — the
+        // companion's validate_media_url admits https:// only, so an
+        // http:// or file:// (the Phase-21 synthetic-import identity)
+        // source would fail there every time.
+        toast('This capture has no https media URL to transcribe (the companion only fetches https:// sources).', 'error');
+        return;
+    }
     const mediaKey = await mediaKeyForArticle(a);
     if (_transcribeRunning) {
         // Never swallow a click silently (the Suggest-local precedent).
@@ -2284,14 +2291,13 @@ function transcribeTooltip() {
 }
 
 /** Per-engine time/cost line for the picker. Duration is only known
- *  before the job on platforms that report it (YouTube, TikTok) or from
- *  a podcast feed; elsewhere we say so rather than invent a number —
- *  the companion probes the real duration and enforces the 4-hour cap. */
+ *  before the job on platforms that report it (YouTube, TikTok);
+ *  elsewhere we say so rather than invent a number — the companion
+ *  probes the real duration and enforces the 4-hour cap. */
 function engineEstimate(engine) {
     const a = state.article || {};
     const secs = Number((a.youtube && a.youtube.durationSeconds)
-        || (a.video && a.video.durationSeconds)
-        || (a.podcast && a.podcast.duration_seconds)) || 0;
+        || (a.tiktok && a.tiktok.durationSeconds)) || 0;
     const meta = ENGINE_META[engine];
     if (engine === 'local') {
         if (!secs) return 'Runs on your GPU; speed depends on the card and the length of the media.';
