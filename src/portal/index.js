@@ -1228,9 +1228,19 @@ async function wireTranscribeUrlButton() {
     const transcribeUrlBtn = $('#xr-transcribe-url');
     if (!transcribeUrlBtn) return;
     if (!isEnabled('localTranscription')) {
+        // Defensive no-op: the HTML ships `hidden` already. Kept explicit
+        // (mirroring the ON branch's explicit `hidden = false` below) so
+        // this function's two branches are symmetric and a future default
+        // flip in the HTML can't silently leave the button visible with
+        // the flag off.
         transcribeUrlBtn.hidden = true;
         return;
     }
+    // Reveal it — the HTML ships `hidden` by default (flag-off / not-yet
+    // -loaded posture); this is the ONLY place that clears it. Missing
+    // this line was Fix Round 1's Critical finding: the button attached
+    // its click listener but never became visible, flag on or off.
+    transcribeUrlBtn.hidden = false;
     transcribeUrlBtn.addEventListener('click', () => {
         const importHost = $('#xr-import-host');
         if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }

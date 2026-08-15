@@ -89,19 +89,25 @@ export function mountMediaTranscribe(host, { caseEntityId = null, onDone } = {})
         try {
             const mediaKey = await mediaKeyForUrl(url);
             const io = chromeIo(chrome, (job) => {
-                status.textContent = describeProgress(job);
+                // `panel.isConnected` is false once the panel is gone —
+                // Close, re-toggling the header button, or switching to a
+                // sibling importer all remove it from the DOM by whatever
+                // path they use, so this one check covers every removal
+                // site without this module needing to know about them.
+                if (panel.isConnected) status.textContent = describeProgress(job);
             });
             const out = await runTranscriptionJob({ mediaUrl: url, mediaKey, io });
             if (!out.ok) {
-                status.textContent = out.error;
-                refresh();
+                if (panel.isConnected) { status.textContent = out.error; refresh(); }
                 return;
             }
             const result = out.result || {};
             const turns = turnsFromSegments(result.segments);
             if (!turns.length) {
-                status.textContent = 'The transcription returned no usable segments.';
-                refresh();
+                if (panel.isConnected) {
+                    status.textContent = 'The transcription returned no usable segments.';
+                    refresh();
+                }
                 return;
             }
             const speakers = [...new Set(turns.map((t) => t.speaker).filter(Boolean))];
@@ -129,20 +135,28 @@ export function mountMediaTranscribe(host, { caseEntityId = null, onDone } = {})
             };
             // The ONE hash recipe — never forked (transcript-article.js).
             article._articleHash = await computeTranscriptArticleHash(article);
+            // Saved UNCONDITIONALLY, even if the panel was dismissed
+            // mid-job: the companion minutes are already spent, so the
+            // finished transcript is kept rather than thrown away. It
+            // lands in the portal's local-artifacts list like any other
+            // unpublished capture. Only the surprise reader tab-open below
+            // is skipped once nobody is watching the panel to have asked
+            // for it.
             await saveArticle({ article, source: 'capture' });
             if (caseEntityId) await addArticlesToCase(caseEntityId, [article.url]);
 
-            const id = crypto.randomUUID();
-            chrome.runtime.sendMessage({ type: 'xray:reader:open', id, article, readOnly: false }, (resp) => {
-                if (!resp || !resp.ok) Utils.error('Transcribe a URL: reader open failed', resp && resp.error);
-            });
-            status.textContent = `Transcribed ${via ? `via ${via}` : 'locally'} · ${turns.length} turns · `
-                + `${speakers.length} speaker(s)` + (caseEntityId ? ' · added to case' : '') + ' · opened in the reader.';
+            if (panel.isConnected) {
+                const id = crypto.randomUUID();
+                chrome.runtime.sendMessage({ type: 'xray:reader:open', id, article, readOnly: false }, (resp) => {
+                    if (!resp || !resp.ok) Utils.error('Transcribe a URL: reader open failed', resp && resp.error);
+                });
+                status.textContent = `Transcribed ${via ? `via ${via}` : 'locally'} · ${turns.length} turns · `
+                    + `${speakers.length} speaker(s)` + (caseEntityId ? ' · added to case' : '') + ' · opened in the reader.';
+            }
             if (typeof onDone === 'function') onDone();
         } catch (err) {
             Utils.error('Transcribe a URL failed', err);
-            status.textContent = `Transcription failed: ${err.message || err}`;
-            refresh();
+            if (panel.isConnected) { status.textContent = `Transcription failed: ${err.message || err}`; refresh(); }
         }
     });
 }
