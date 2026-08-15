@@ -90,6 +90,7 @@ import { openMediaModal } from './media-modal.js';
 import { scanPodcastSignals } from '../shared/podcast-identity.js';
 import { openSpeakersModal, speakerEntityId, decorateSpeakerLabels } from './speakers-modal.js';
 import { runDraftPass } from '../shared/transcriber-client.js';
+import { localBlockedByHealth } from '../shared/companion-status.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { resolveActiveCaseRef, describeActiveContext, memberUrlSets } from '../shared/case-membership.js';
@@ -2350,7 +2351,10 @@ function _pickerEscape(ev) { if (ev.key === 'Escape') closeEnginePicker(); }
  * video — a 10-minute clip is fine on the GPU, a 2-hour episode wants
  * cloud speed. Shows real time/cost estimates from the capture's
  * duration and each engine's availability; a cloud engine without a
- * saved key routes to Settings instead of failing later.
+ * saved key routes to Settings instead of failing later, and — a
+ * best-effort companion health probe, 2026-08-14 — local is marked
+ * unavailable (with the real fix named) when HF_TOKEN is missing on
+ * the companion, instead of presenting a choice that fails on click.
  */
 async function openEnginePicker() {
     // Toggle: a second chevron click closes instead of flickering
@@ -2361,6 +2365,22 @@ async function openEnginePicker() {
     // saved a key in Options (review finding: the stale snapshot made
     // "add a key in Settings" a dead loop).
     await refreshTranscribeCfg();
+    // Best-effort: does the companion's OWN health say local jobs will
+    // fail (HF_TOKEN unset — pyannote diarization can't load)? Local was
+    // otherwise shown as unconditionally available, which is dishonest —
+    // a cloud engine with no saved key correctly routes to Settings, but
+    // picking local just fails. A short self-imposed race, not the
+    // probe's own ~3s timeout, keeps a dead/slow companion from ever
+    // delaying the menu: on failure or timeout, local stays available
+    // exactly as before (never wrongly block a working setup).
+    let localBlocked = false;
+    try {
+        const probe = await Promise.race([
+            browserApi.runtime.sendMessage({ type: 'xray:transcribe:ping' }),
+            new Promise((resolve) => setTimeout(() => resolve(null), 1500))
+        ]);
+        if (probe && probe.ok) localBlocked = localBlockedByHealth(probe.health);
+    } catch (_) { /* best-effort only — local stays available */ }
     const anchor = $('#xr-transcribe');
     if (!anchor) return;
     const menu = document.createElement('div');
@@ -2369,7 +2389,9 @@ async function openEnginePicker() {
 
     for (const engine of ['local', 'assemblyai', 'deepgram']) {
         const meta = ENGINE_META[engine];
-        const keyed = engine === 'local' || !!(_transcribeCfg.keys && _transcribeCfg.keys[engine]);
+        const blockedLocal = engine === 'local' && localBlocked;
+        const keyed = !blockedLocal
+            && (engine === 'local' || !!(_transcribeCfg.keys && _transcribeCfg.keys[engine]));
         const item = document.createElement('button');
         item.type = 'button';
         item.className = 'xr-engine-menu__item';
@@ -2393,11 +2415,17 @@ async function openEnginePicker() {
         sub.className = 'xr-engine-menu__sub' + (keyed ? '' : ' xr-engine-menu__sub--warn');
         sub.textContent = keyed
             ? engineEstimate(engine)
-            : 'No API key saved — click to add one in Settings.';
+            : blockedLocal
+                ? 'Needs HF_TOKEN on the companion service — see companion/transcriber/README.md.'
+                : 'No API key saved — click to add one in Settings.';
         item.appendChild(sub);
 
         item.addEventListener('click', () => {
             closeEnginePicker();
+            if (blockedLocal) {
+                toast('Local transcription needs HF_TOKEN set on the companion service — see companion/transcriber/README.md, then restart the service.', 'error', 6000);
+                return;
+            }
             if (!keyed) {
                 try { browserApi.runtime.openOptionsPage(); } catch (_) { /* page-open denied */ }
                 return;
