@@ -40,10 +40,6 @@ const PLAYER_HOSTS = [
     ['fireside.fm', 'fireside', 'audio']
 ];
 
-// Scanning every iframe on a heavy page is wasteful; a page with more
-// players than this is not a page whose media we can identify anyway.
-const MAX_IFRAMES = 30;
-
 function metaHasValue(doc, selector) {
     for (const node of doc.querySelectorAll(selector) || []) {
         const value = node && typeof node.getAttribute === 'function'
@@ -72,7 +68,17 @@ export function detectMediaHints(doc) {
         else if (tag === 'VIDEO') video = true;
     }
 
-    const iframes = [...(doc.querySelectorAll('iframe[src]') || [])].slice(0, MAX_IFRAMES);
+    // No cap on how many iframes get scanned: a fixed slice here (the
+    // pre-fix MAX_IFRAMES=30) silently dropped signal rather than
+    // bounding work — an ad-heavy page with 30+ throwaway ad iframes
+    // ahead of the real player iframe would scan only the ads and
+    // return null, hiding Transcribe on exactly the long-tail pages
+    // this exists for (review finding, reproduced against a
+    // 30-ad-iframes-then-megaphone fixture). The scan itself is cheap
+    // (a handful of substring checks per iframe against PLAYER_HOSTS),
+    // and the output is self-bounding regardless of input size — embeds
+    // dedupes into at most PLAYER_HOSTS.length distinct labels.
+    const iframes = [...(doc.querySelectorAll('iframe[src]') || [])];
     for (const frame of iframes) {
         const src = frame && typeof frame.getAttribute === 'function'
             ? String(frame.getAttribute('src') || '').toLowerCase() : '';

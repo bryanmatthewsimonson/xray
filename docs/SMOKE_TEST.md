@@ -1329,7 +1329,7 @@ run; a human (or a Chrome-driven agent) must click through them.
 
 | # | Test | Pass criteria |
 |---|---|---|
-| LT.1 | Flag off ⇒ no surface | With `localTranscription` off: no "Capture & transcribe" right-click item on any https page, no 🎙 Transcribe button in the reader on a YouTube capture, and no "Transcribe a URL" button in the portal — **hidden**, not merely disabled |
+| LT.1 | Flag off ⇒ no surface | With `localTranscription` off: no "Capture & transcribe" right-click item on any https page, no 🎙 Transcribe button in the reader on a YouTube capture, no "Transcribe a URL" button in the portal, **and** — open 🎙 Media & source on any capture — no "🎙 Transcribe from source" footer button either (only Cancel and Save) — **hidden**, not merely disabled |
 | LT.2 | Companion absent ⇒ named fix | Flag on, service stopped. Click Transcribe: the banner says the service is not reachable and **names `uv run xray-transcriber`**. Nothing hangs |
 | LT.3 | YouTube — the unchanged path | Capture a short YouTube video, press 🎙 Transcribe. Result: diarized body with `**Speaker 1:**` labels, `&t=Ns` links, a `## Description — YouTube` heading, and a transcript chip in the header |
 | LT.4 | Engine picker | The ▾ shows three engines with time/cost estimates; a cloud engine with no saved key routes to Settings |

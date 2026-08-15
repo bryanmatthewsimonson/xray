@@ -2118,9 +2118,22 @@ let _transcribeRunning = false;
 /** Start (or resume) the companion job and adopt the result. The whole
  *  loop is page-driven — each poll message resets the SW idle timer.
  *  `provider` is the engine for THIS run (picker choice); undefined
- *  defers to the stored engine preference in the SW. */
+ *  defers to the stored engine preference in the SW.
+ *
+ *  'ask' handling is HOISTED here (review fix) rather than left to each
+ *  caller: every caller below resolves its provider argument as
+ *  `_transcribeCfg.engine || undefined`, so an 'ask' preference arrives
+ *  here as the literal string 'ask' — never a real engine id (those are
+ *  always 'local'/'assemblyai'/'deepgram'). Catching it in one place
+ *  means no caller can forget to open the picker and accidentally let
+ *  the request fall through with no provider field, at which point
+ *  transcriber-client.js's startTranscription collapses 'ask' to null
+ *  and the companion's env default silently rules — no picker, no cost
+ *  estimate. The picker's own engine-item clicks pass a concrete engine
+ *  string, so they always bypass this branch. */
 async function runTranscribeFlow(provider) {
     if (typeof provider !== 'string') provider = undefined; // onclick passes an event
+    if (provider === 'ask') { openEnginePicker(); return; }
     const a = state.article;
     if (!a || !isFetchableMediaUrl(a.url)) {
         // Same gate hasMediaSignal enforces for the button — the
@@ -2242,13 +2255,15 @@ async function runTranscribeFlow(provider) {
 // or changes the engine in Options with readers already open, and a
 // stale snapshot would loop the "add a key in Settings" path forever
 // (review finding, 2026-08-02). `engine: null` = no preference chosen:
-// jobs carry no provider and the companion default rules.
-let _transcribeCfg = { engine: null, keys: {} };
+// jobs carry no provider and the companion default rules. `enabled`
+// mirrors the localTranscription flag — the Media modal's "Transcribe
+// from source" button reads it to decide whether to render at all.
+let _transcribeCfg = { engine: null, keys: {}, enabled: false };
 
 async function refreshTranscribeCfg() {
     try {
         const cfg = await browserApi.runtime.sendMessage({ type: 'xray:transcribe:config' }) || {};
-        _transcribeCfg = { engine: cfg.engine || null, keys: cfg.keys || {} };
+        _transcribeCfg = { engine: cfg.engine || null, keys: cfg.keys || {}, enabled: !!cfg.enabled };
     } catch (_) { /* keep the previous snapshot */ }
     const btn = $('#xr-transcribe');
     if (btn && !btn.hidden) btn.title = transcribeTooltip();
@@ -2435,7 +2450,7 @@ async function setupTranscribeControl() {
         if (caret) caret.hidden = true;
         return;
     }
-    _transcribeCfg = { engine: cfg.engine || null, keys: cfg.keys || {} };
+    _transcribeCfg = { engine: cfg.engine || null, keys: cfg.keys || {}, enabled: !!cfg.enabled };
     btn.hidden = false;
     btn.disabled = false;
     btn.title = transcribeTooltip();
@@ -2444,21 +2459,23 @@ async function setupTranscribeControl() {
     // and must never stack duplicate handlers. Every click re-reads the
     // CURRENT preference (Options may have changed it since page load);
     // a null preference passes no engine — the SW then omits the
-    // provider and the companion default rules.
+    // provider and the companion default rules. 'ask' handling lives in
+    // runTranscribeFlow itself now (hoisted, review fix) — this call
+    // site no longer branches on it, which also rules out a double-open
+    // of the picker.
     btn.onclick = async () => {
         await refreshTranscribeCfg();
-        if (_transcribeCfg.engine === 'ask') { openEnginePicker(); return; }
         runTranscribeFlow(_transcribeCfg.engine || undefined);
     };
     if (caret) caret.onclick = openEnginePicker;
 
     // The "Capture & transcribe" path: the session record said to start
     // immediately. An 'ask' preference opens the picker instead of
-    // silently picking an engine the user never chose.
+    // silently picking an engine the user never chose — runTranscribeFlow
+    // resolves that itself now.
     if (state.transcribeRequested && !state.article.transcription) {
         state.transcribeRequested = false;
-        if (_transcribeCfg.engine === 'ask') openEnginePicker();
-        else runTranscribeFlow(_transcribeCfg.engine || undefined);
+        runTranscribeFlow(_transcribeCfg.engine || undefined);
     }
 }
 
@@ -3211,7 +3228,12 @@ function setupMediaControl() {
     if (state.readOnlyOpen) { btn.hidden = true; return; }
     btn.addEventListener('click', async () => {
         if (!state.article) return;
-        const result = await openMediaModal(state.article);
+        // Fresh flag read every open (Options may have flipped it since
+        // page load) — the modal renders its "Transcribe from source"
+        // button ONLY when true, so an off flag means the affordance
+        // never exists rather than existing-but-erroring on click.
+        await refreshTranscribeCfg();
+        const result = await openMediaModal(state.article, { canTranscribe: _transcribeCfg.enabled });
         if (result) {
             await applyMediaResult(result);
             // Metadata first, THEN the job: adoption re-hashes, and a
@@ -3256,7 +3278,10 @@ function refreshMediaNudge() {
         hint.addEventListener('click', async (ev) => {
             ev.stopPropagation();
             if (!state.article) return;
-            const result = await openMediaModal(state.article, { autoFind: true });
+            // Same fresh flag read as the plain Media button — the nudge
+            // opens the same modal and must gate the same button.
+            await refreshTranscribeCfg();
+            const result = await openMediaModal(state.article, { autoFind: true, canTranscribe: _transcribeCfg.enabled });
             if (result) {
                 await applyMediaResult(result);
                 // Metadata first, THEN the job — same ordering as the

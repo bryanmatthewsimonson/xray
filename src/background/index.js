@@ -393,18 +393,25 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         // URLs — or a PDF tab, which routes to the PDF reader exactly
         // like the toolbar path instead of dead-ending at Settings).
         console.warn('[X-Ray] Failed to deliver context-menu command:', err);
-        if (message.type === 'xray:capture') {
+        if (message.type === 'xray:capture' || message.type === 'xray:capture:transcribe') {
+            // Same fallback for both menu items. TRANSCRIBE_CAPTURE's
+            // documentUrlPatterns (`https://*/*`) now matches PDF tabs
+            // and any other https page a content script can't reach
+            // (e.g. a browser-blocked origin like the Web Store) — a
+            // regression review found the old branch here just told the
+            // user to "reload the page and try again", which can never
+            // work on either: browsers never inject content scripts into
+            // their native PDF viewer, and a policy-blocked origin stays
+            // blocked after a reload. routeCaptureFallback already
+            // solves exactly this for the plain capture item (PDF →
+            // reader's PDF capture path; local file PDF → the import
+            // picker; anything else → Settings, a visible landing rather
+            // than a silent no-op) — reusing it here means a PDF capture
+            // still lands somewhere useful, and the Media & source
+            // modal's "Transcribe from source" escape hatch (offered on
+            // every capture) is reachable from there for anything that
+            // does turn out to have fetchable media.
             routeCaptureFallback(tab, err);
-        } else if (message.type === 'xray:capture:transcribe') {
-            // The menu appears on any https page, so a delivery failure
-            // means the content script isn't injected yet (tab predates
-            // the extension load). Say so instead of failing silently.
-            chrome.notifications?.create({
-                type: 'basic',
-                iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
-                title: 'X-Ray',
-                message: 'Could not reach this tab — reload the page and try again.'
-            });
         }
     });
 });

@@ -19,8 +19,19 @@ import { saveArticle } from '../shared/archive-cache.js';
 import { addArticlesToCase } from '../shared/case-membership.js';
 import { buildTranscriptArticle, computeTranscriptArticleHash } from '../shared/transcript-article.js';
 import { turnsFromSegments, providerDisplayName } from '../shared/diarized-transcript.js';
-import { runTranscriptionJob, chromeIo, describeProgress, isFetchableMediaUrl } from '../reader/transcribe-flow.js';
+import { runTranscriptionJob, chromeIo, describeProgress, isFetchableMediaUrl, jobRecordKey } from '../reader/transcribe-flow.js';
 import { mediaKeyForUrl } from '../shared/media-key.js';
+
+// Engine display names — mirrors providerDisplayName's cloud names but
+// also names 'local' (providerDisplayName returns null for it, since
+// its OTHER callers are labeling a FINISHED job's transcript, where
+// "local" is the unlabeled default). This panel needs to say so
+// up front, before the job exists, because there is no engine picker
+// here — the reader's openEnginePicker() has no portal equivalent.
+function engineLabel(engine) {
+    const via = providerDisplayName(engine);
+    return via ? `via ${via}` : 'locally';
+}
 
 function labelField(labelText, input, hint) {
     const wrap = el('label', 'xr-import__field');
@@ -87,6 +98,40 @@ export function mountMediaTranscribe(host, { caseEntityId = null, onDone } = {})
         runBtn.disabled = true;
         status.textContent = 'Contacting the transcription service…';
         try {
+            // There is no engine picker here (that's a reader-only UI),
+            // so an 'ask' or never-set preference can't be resolved by
+            // asking the user — the honest move is to say plainly which
+            // engine will run instead of silently sending no provider
+            // and letting the companion's env default decide unnamed
+            // (the same class of bug the reader's picker exists to
+            // prevent). A concrete stored preference is both named AND
+            // sent explicitly, so it can never be silently overridden by
+            // a companion env default that disagrees.
+            let provider;
+            let engineNote;
+            try {
+                const cfg = await chrome.runtime.sendMessage({ type: 'xray:transcribe:config' });
+                const pref = cfg && cfg.engine;
+                if (pref && pref !== 'ask') {
+                    provider = pref;
+                    engineNote = `Transcribing ${engineLabel(pref)}…`;
+                } else {
+                    let namedDefault = null;
+                    try {
+                        const ping = await chrome.runtime.sendMessage({ type: 'xray:transcribe:ping' });
+                        const def = ping && ping.ok && ping.health
+                            && String(ping.health.provider || '').trim().toLowerCase();
+                        if (def) namedDefault = engineLabel(def);
+                    } catch (_) { /* health probe is best-effort naming only */ }
+                    engineNote = pref === 'ask'
+                        ? `No engine picker here — transcribing ${namedDefault || 'with the companion’s default engine (unconfirmed)'}…`
+                        : `No engine chosen in Settings — transcribing ${namedDefault || 'with the companion’s default engine (unconfirmed)'}…`;
+                }
+            } catch (_) {
+                engineNote = 'Transcribing with the companion’s default engine (unconfirmed — could not read Settings)…';
+            }
+            status.textContent = engineNote;
+
             const mediaKey = await mediaKeyForUrl(url);
             const io = chromeIo(chrome, (job) => {
                 // `panel.isConnected` is false once the panel is gone —
@@ -96,7 +141,7 @@ export function mountMediaTranscribe(host, { caseEntityId = null, onDone } = {})
                 // site without this module needing to know about them.
                 if (panel.isConnected) status.textContent = describeProgress(job);
             });
-            const out = await runTranscriptionJob({ mediaUrl: url, mediaKey, io });
+            const out = await runTranscriptionJob({ mediaUrl: url, mediaKey, provider, io });
             if (!out.ok) {
                 if (panel.isConnected) { status.textContent = out.error; refresh(); }
                 return;
@@ -143,6 +188,14 @@ export function mountMediaTranscribe(host, { caseEntityId = null, onDone } = {})
             // is skipped once nobody is watching the panel to have asked
             // for it.
             await saveArticle({ article, source: 'capture' });
+            // Reap the finished job's record now that it's been adopted —
+            // mirrors the reader (reader/index.js, after adoptDiarizedTranscript).
+            // Without this, re-transcribing the same URL within the 7-day
+            // TTL takes decideResume's `adopt` branch and instantly
+            // returns THIS same cached transcript with no indication it
+            // is stale/cached — silently wrong data for anything that
+            // changed since (a corrected upload, a different engine).
+            await io.storageRemove([jobRecordKey(mediaKey)]).catch(() => {});
             if (caseEntityId) await addArticlesToCase(caseEntityId, [article.url]);
 
             if (panel.isConnected) {
