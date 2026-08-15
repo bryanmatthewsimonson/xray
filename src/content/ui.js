@@ -29,11 +29,11 @@ export const UI = {
   // every trigger (toolbar icon, keyboard shortcut, context menu) routes
   // here via the `xray:capture` message.
   //
-  // `transcribe: true` (the "Capture & transcribe locally" menu item,
-  // YouTube only) skips the native transcript strategies — the diarized
-  // companion transcript supersedes them — and rides the flag to the SW
-  // on the session record (NOT on the article, which persists into
-  // archive rows) so the reader knows to start the job.
+  // `transcribe: true` (the "Capture & transcribe" menu item) skips the
+  // native transcript strategies where a platform has them — the
+  // diarized companion transcript supersedes them — and rides the flag
+  // to the SW on the session record (NOT on the article, which persists
+  // into archive rows) so the reader knows to start the job.
   openReader: async ({ transcribe = false } = {}) => {
     try {
       // 0. PDF viewer shells that DO host content scripts. The PDF
@@ -64,7 +64,7 @@ export const UI = {
       const detection = ContentDetector.detect();
       const platform = detection?.platform || detectPlatformFromDom();
 
-      const wantsTranscription = transcribe && platform === 'youtube';
+      const wantsTranscription = transcribe;
       let enriched = await captureForPlatform(
         platform,
         wantsTranscription ? { skipTranscripts: true } : undefined

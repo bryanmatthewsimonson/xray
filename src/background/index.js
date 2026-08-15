@@ -109,7 +109,7 @@ async function registerContextMenus() {
             contexts: ['page', 'action']
         });
         if (transcribeOn) {
-            // YouTube video pages only. `page` context, not `action` —
+            // Any https page. `page` context, not `action` —
             // documentUrlPatterns is unreliable on the action context.
             // SPA navigation is fine: matching happens at menu-open time
             // against the frame's current URL.
@@ -122,8 +122,14 @@ async function registerContextMenus() {
                 title: 'Capture & transcribe with X-Ray',
                 contexts: ['page'],
                 documentUrlPatterns: [
-                    '*://*.youtube.com/watch*',
-                    '*://*.youtube.com/shorts/*'
+                    // Any https page: the companion hands the URL to
+                    // yt-dlp, which resolves page URLs, embedded players
+                    // and direct media files alike. https only — the
+                    // companion admits nothing else. A page with no
+                    // media fails the job with a named error, which is
+                    // cheaper than hiding the item on the long-tail
+                    // sites this exists for.
+                    'https://*/*'
                 ]
             });
             refreshTranscribeMenuTitle();
