@@ -195,6 +195,23 @@ Phase 29 ███░░░░░░░░░░░░░░░░░  in progre
                                 (docs/EVENT_STORE_DESIGN.md);
                                 29.1 SHIPPED 2026-08-02 (PR #279),
                                 29.2–29.6 open
+TxAny    ████████████████████  CODE-COMPLETE (2026-08-15) —
+                                Transcribe Anywhere: the companion's
+                                URL admission widened from a YouTube
+                                allowlist to any public https media
+                                URL (`media_url.py`'s validator +
+                                `TRANSCRIBER_COOKIES_HOSTS` cookie
+                                scoping — the funnel-widening's own
+                                credential-exposure finding), extension
+                                un-gating (any-https right-click
+                                capture + the reader 🎙 gate + the
+                                Media-modal "Transcribe from source"
+                                escape hatch), and the portal's
+                                "Transcribe a URL" panel. Wire format:
+                                none (docs/TRANSCRIBE_ANYWHERE_KICKOFF.md);
+                                §5 acceptance walks outstanding
+                                (SMOKE_TEST §Local transcription,
+                                LT.1–LT.14)
 ```
 
 Parity with the v4.2 userscript is long reached; the project now ships
@@ -212,12 +229,19 @@ COMPLETE as of 2026-07-20 (PRs #223–#231): one workspace per corpus,
 fail-closed namespace isolation, and cross-workspace visibility only
 through the deliberate read-only graph. The **FLF Epistack entry has
 been submitted** (deadline was 2026-07-19; docs/EPISTACK_ENTRY.md); the
-tool continues to be tailored maintainer-driven from real casework. The 0.8.0 release smoke walk
-passed 2026-07-20, and the Phase 11–15 section walks were completed with
-it. **The Phase 16 and 19 section walks are also complete** (maintainer,
+tool continues to be tailored maintainer-driven from real casework. The
+**Transcribe Anywhere** wave (`docs/TRANSCRIBE_ANYWHERE_KICKOFF.md`) is
+CODE-COMPLETE as of 2026-08-15 — the local-transcription companion and
+its extension surfaces now work on any public https media URL, not
+only YouTube — with its §5 acceptance walks still outstanding (tracked
+in `docs/SMOKE_TEST.md`'s §Local transcription, rows LT.1–LT.14). The
+0.8.0 release smoke walk passed 2026-07-20, and the Phase 11–15
+section walks were completed with it. **The Phase 16 and 19 section
+walks are also complete** (maintainer,
 2026-08-02 correction — the walks were run well before this date but
 never recorded, so this file carried "pending" long after the fact). No
-section walk is outstanding.
+section walk is outstanding, aside from the Transcribe Anywhere wave
+noted above (code-complete, its own walks not yet run).
 
 ---
 

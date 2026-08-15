@@ -1,7 +1,23 @@
 # Transcribe Anywhere — generalize the media transcribe funnel (kickoff)
 
-**Status: PROPOSED 2026-08-12 — design approved in maintainer
-dialogue; ratification is the maintainer's merge (Art. 11).**
+**Status: CODE-COMPLETE 2026-08-15 — §5 acceptance walks outstanding.**
+Delivered across 13 tasks in one dispatch (companion: `media_url.py`'s
+admission gate + `TRANSCRIBER_COOKIES_HOSTS` cookie scoping; extension:
+media-key mirroring, platform-neutral diarized-body composition,
+capture-time media-signal detection, the any-https context menu +
+reader 🎙 gate, the Media-modal "Transcribe from source" escape hatch,
+and the portal "Transcribe a URL" panel; docs: this file, the
+THREAT_MODEL delta, the flag table, and the SMOKE_TEST rows below) —
+every task reviewed clean before merge, `tests/diarized-wire.test.mjs`
+machine-checking the "Wire format: none" promise. WHAT REMAINS is the
+maintainer's: the §5 acceptance walk (a real non-YouTube transcript,
+Mormon Stories among them, feeding a claim or entity page) and the
+`docs/SMOKE_TEST.md` §Local transcription rows (LT.1–LT.14) — both
+unrun as of this status line, per `docs/SMOKE_TEST.md`'s own rule that
+a walk not recorded is a walk not performed. The §5 check date
+(2026-09-15, or the next release tag) is unaffected by code landing
+early; only real casework use resets it.
+
 Drafted from a brainstorming dialogue with the maintainer
 (2026-08-12) over a six-surface code map (companion contract,
 extension flow, capture surfaces, Phases 21/22, docs history,

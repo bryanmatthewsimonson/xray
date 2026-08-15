@@ -25,7 +25,10 @@ how `ROADMAP.md` came to advertise finished walks as pending for weeks.
 a NIP-46 bunker signer — the only realistic provider that might restamp
 `created_at`, the sole case the T2 equality check would reject; the K9
 entity-create surfaces; the K15 portal fold; the Settings "Capture
-Page" button (known broken, pre-existing).
+Page" button (known broken, pre-existing); and the whole **Transcribe
+Anywhere** §Local transcription (LT.1–LT.14) — code-complete but
+unwalked, including the Media-modal escape hatch and the portal panel,
+both surfaces with zero automated coverage.
 
 > **Capture model (no FAB).** There is no in-page floating button or
 > capture panel. Trigger capture by **clicking the toolbar icon**,
@@ -1310,6 +1313,36 @@ check the panel exists for; C.5 is the misconfiguration that a
 | C.5 | Set `TRANSCRIBER_TOKEN=whatever` on the service, leave the extension's auth-token field blank, restart the service | ✅ **Running, but rejecting this extension** — *not* a green "Running". `/health` is exempt from the token middleware, so a naive probe would report healthy while every transcribe call 401s |
 | C.6 | Paste the matching token into **Companion auth token** → **Recheck now** | ✅ returns to green |
 | C.7 | With the local engine selected and `HF_TOKEN` unset, restart the service | ✅ amber, **Running, but local jobs will fail**, stating no transcript is produced at all (not "no speaker labels"), and offering the cloud engines as the way out |
+
+---
+
+## Local transcription — Transcribe Anywhere (flag `localTranscription`)
+
+Needs the companion running: from `companion/transcriber/`,
+`uv run xray-transcriber`. **Not yet walked** — every row below is
+unobserved (see the "Not yet walked" note near the top of this
+file). Rows LT.7–LT.10 (`src/reader/media-modal.js`) and LT.11–LT.13
+(`src/portal/import-media.js`) cover surfaces with **zero automated
+test coverage** — this repo has no jsdom/DOM-stub harness, so these
+were reviewed by hand-trace during implementation, not by a test
+run; a human (or a Chrome-driven agent) must click through them.
+
+| # | Test | Pass criteria |
+|---|---|---|
+| LT.1 | Flag off ⇒ no surface | With `localTranscription` off: no "Capture & transcribe" right-click item on any https page, no 🎙 Transcribe button in the reader on a YouTube capture, and no "Transcribe a URL" button in the portal — **hidden**, not merely disabled |
+| LT.2 | Companion absent ⇒ named fix | Flag on, service stopped. Click Transcribe: the banner says the service is not reachable and **names `uv run xray-transcriber`**. Nothing hangs |
+| LT.3 | YouTube — the unchanged path | Capture a short YouTube video, press 🎙 Transcribe. Result: diarized body with `**Speaker 1:**` labels, `&t=Ns` links, a `## Description — YouTube` heading, and a transcript chip in the header |
+| LT.4 | Engine picker | The ▾ shows three engines with time/cost estimates; a cloud engine with no saved key routes to Settings |
+| LT.5 | Speakers modal | On a diarized capture, 🎙 Speakers binds a voice to a person entity and the label decorates in the body |
+| LT.6 | Transcribe Anywhere — the wave's acceptance walk | Capture a **Mormon Stories episode page**, confirm the 🎙 Transcribe button appears (media hints found the embedded player), run it, and confirm: a diarized transcript adopts as the body, timestamps deep-link as `<url>#t=<s>`, **no** `## Description — YouTube` heading was invented, and the capture publishes without a `transcript_lang` tag |
+| LT.7 | Media modal escape hatch — happy path | On a capture with no media hints, open 🎙 Media & source: the footer's "🎙 Transcribe from source" button appears between Cancel and Save, styled like the plain secondary buttons (not the blue primary Save). Leave the transcript textarea empty on a capture whose `article.url` is `https://…`, click it: the modal closes, a save toast fires, and immediately after the Transcribe banner appears and a job starts — same as the main 🎙 Transcribe button |
+| LT.8 | Media modal escape hatch — exclusivity guard | Paste any text into the transcript textarea, then click "Transcribe from source": the error "Attach a pasted transcript OR transcribe from source — not both in one save." appears and the modal stays open (no save, no job) |
+| LT.9 | Media modal escape hatch — non-https capture | On a capture whose `article.url` is not `https://` (an `http://` page, or a synthetic `file:///imported/...` transcript-import URL), click "Transcribe from source": the error "This capture has no https:// URL to fetch media from…" appears and no job starts |
+| LT.10 | Media modal — stale-intent regressions | Open the modal, leave the transcript empty, type an **invalid** Feed URL, click "Transcribe from source" (delegates to Save's own validation: the Feed-URL error appears, modal stays open). Fix the Feed URL and click the **plain Save** button (not Transcribe from source again): metadata saves and **no companion job starts**. Repeat, but instead of fixing the Feed URL alone, also paste a transcript before the plain Save: **no job starts**, and the pasted transcript **is** attached (not later overwritten by an unrequested job) — the intent flag is single-use, consumed at Save entry, so a validation bail can't leave it armed for an unrelated later Save |
+| LT.11 | Portal panel — flag gating | `localTranscription` off: the portal header's "🎙 Transcribe a URL" button is absent — **hidden**, not disabled. Turn the flag on, reload the portal tab: the button appears next to "Import transcript…" |
+| LT.12 | Portal panel — run | Click the button: the panel mounts below the header (a second click collapses it via the header toggle). A non-https or malformed URL keeps Transcribe disabled; a well-formed `https://` URL enables it. With the companion **not** running, click Transcribe: a clear failure message appears in the status line — no silent hang, no uncaught console exception. With the companion running against a real podcast-episode (or off-platform video) URL: the status line updates through the companion's progress stages, then reads "Transcribed via <provider>/locally · N turns · M speaker(s) · opened in the reader.", and a new reader tab opens with the diarized transcript. In a case context, the record is added to the case. Inspect the result: `article.platform === 'media'` and the header reads `**Media**: [<title>](<url>)`, not `**Podcast**:` |
+| LT.13 | Portal panel — close mid-job | Start a job, then click **Close** before it finishes. The panel unmounts immediately. When the job later completes: the transcript is still **saved** (and added to the case, if one was active) — but **no surprise reader tab opens** and the closed panel shows no further status updates. Re-open the panel (or switch to a sibling importer) afterward: no orphaned second instance, no duplicate job |
+| LT.14 | Old-companion refusal | With a pre-wave companion running (its `/health` carries no `generic_urls`), attempt a non-YouTube URL: refused **client-side**, naming `git pull` + `uv sync`, and **no POST** is made to the companion |
 
 ---
 

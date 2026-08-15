@@ -396,14 +396,14 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         if (message.type === 'xray:capture') {
             routeCaptureFallback(tab, err);
         } else if (message.type === 'xray:capture:transcribe') {
-            // Menu only appears on YouTube pages, so a delivery failure
+            // The menu appears on any https page, so a delivery failure
             // means the content script isn't injected yet (tab predates
             // the extension load). Say so instead of failing silently.
             chrome.notifications?.create({
                 type: 'basic',
                 iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
                 title: 'X-Ray',
-                message: 'Could not reach this tab — reload the YouTube page and try again.'
+                message: 'Could not reach this tab — reload the page and try again.'
             });
         }
     });

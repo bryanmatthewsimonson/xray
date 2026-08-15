@@ -1,11 +1,14 @@
 # X-Ray Transcriber (local companion service)
 
-A small local HTTP service that turns a YouTube URL into a
-speaker-labelled transcript, entirely on your own machine: yt-dlp
-downloads the audio, WhisperX (faster-whisper `large-v3`) transcribes and
-word-aligns it, and pyannote diarization labels the speakers. It listens
-on `127.0.0.1:8756` and serves the X-Ray extension's **"Transcribe
-locally"** capture — nothing ever leaves your computer.
+A small local HTTP service that turns a media URL — a YouTube video, a
+podcast episode, or any other public **https** page or direct media
+file yt-dlp can resolve — into a speaker-labelled transcript, entirely
+on your own machine: yt-dlp downloads the audio, WhisperX
+(faster-whisper `large-v3`) transcribes and word-aligns it, and
+pyannote diarization labels the speakers. It listens on
+`127.0.0.1:8756` and serves the X-Ray extension's **"Transcribe"**
+capture (not YouTube-only since the Transcribe Anywhere wave,
+2026-08) — nothing ever leaves your computer.
 
 Optionally, the service can hand transcription to a **cloud provider**
 (AssemblyAI or Deepgram) instead of the local GPU — minutes per episode
@@ -137,7 +140,8 @@ All endpoints are JSON over `http://127.0.0.1:8756`.
 
 ### `POST /transcribe`
 
-Body: `{"url": "https://www.youtube.com/watch?v=...",
+Body: `{"url": "https://www.youtube.com/watch?v=..." (or any admitted
+media URL — see "What URLs are accepted" below),
 "provider": "local" | "assemblyai" | "deepgram" (optional),
 "api_key": "..." (optional)}`
 
@@ -149,12 +153,15 @@ Body: `{"url": "https://www.youtube.com/watch?v=...",
   env-configured key for the same provider. A cloud job with no key
   from either source is refused with `400` naming the fix.
 - `202` → `{"job_id": "<uuid4>"}`. If an **active** (queued or running)
-  job already exists for the same video id, that job's id is returned
-  instead of enqueueing a duplicate — whatever engine it started with
-  wins.
-- `400` — invalid/unsupported URL (https YouTube URLs only:
-  `youtube.com`, `www.`/`m.`/`music.youtube.com`, `youtu.be`), unknown
-  provider, or a cloud provider with no API key available
+  job already exists for the same media (same `media_key` — see
+  "What URLs are accepted" below), that job's id is returned instead
+  of enqueueing a duplicate — whatever engine it started with wins.
+- `400` — the URL fails admission (see "What URLs are accepted"
+  below), unknown provider, or a cloud provider with no API key
+  available
+- `400` detail names the specific admission failure: not https, an
+  embedded credential (`user:pass@host`), or a hostname that resolves
+  to a private/loopback/reserved address
 - `429` — that engine's queue is full (10 jobs per pool; the local and
   cloud pools are capped independently)
 
@@ -197,12 +204,55 @@ terminal status for a job that already finished.
 
 `{"status": "ok", "device": "cuda"|"cpu"|"unknown", "queue_depth": n,
 "version": "...", "ffmpeg": true|false, "hf_token": true|false,
-"provider": "...", "providers": {...}, "request_provider": true}` —
-`queue_depth` counts queued + running jobs; `request_provider: true`
-marks a build that honors per-request `provider`/`api_key` on
-`POST /transcribe`. `/health` never requires the auth token.
+"provider": "...", "providers": {...}, "request_provider": true,
+"generic_urls": true}` — `queue_depth` counts queued + running jobs;
+`request_provider: true` marks a build that honors per-request
+`provider`/`api_key` on `POST /transcribe`; `generic_urls: true`
+marks a build that admits any public https media URL, not only
+YouTube (see "What URLs are accepted" below) — the extension checks
+this flag before sending a non-YouTube URL, and refuses client-side
+(naming `git pull` + `uv sync`) against an older service that lacks
+it, rather than let the request 400. `/health` never requires the
+auth token.
+
+### What URLs are accepted
+
+`POST /transcribe` admits a URL when **all** of the following hold
+(`transcriber/media_url.py`, `validate_media_url`):
+
+- **Scheme is `https`.** No `http://`, no `file://`, no anything else.
+- **No embedded credentials** (`https://user:pass@host/...` is
+  refused outright).
+- **Every address the hostname resolves to is public unicast.**
+  Private, loopback, link-local, reserved, and multicast ranges are
+  all refused — including addresses embedded in an RFC 6052 NAT64
+  (`64:ff9b::/96`) or IPv4-mapped (`::ffff:0:0/96`) IPv6 address, so a
+  hostname whose AAAA record smuggles `169.254.169.254` (the cloud
+  metadata address) inside a NAT64 wrapper is still caught.
+- **Not a live stream** — refused rather than run unbounded.
+- **Under the duration cap** — `TRANSCRIBER_MAX_DURATION_S` (default
+  `14400`, 4 hours); raise it to allow longer media.
+
+Once admitted, the URL goes to yt-dlp exactly as given — yt-dlp
+resolves page URLs, embedded players, and direct media files alike,
+so a podcast episode page, an off-platform video page, or a link
+straight to an `.mp3`/`.mp4` file all work the same way. **This
+admission check is best-effort, not a closed SSRF gate**: it resolves
+DNS once, at admission time, but yt-dlp re-resolves DNS and follows
+redirects on its own afterward, so DNS rebinding is not closed. See
+`docs/THREAT_MODEL.md` (B10, gap G8) for the full accounting of what
+bounds that residual risk and what doesn't.
 
 ### Result object
+
+`video_id` keeps its name for every media source, not only YouTube —
+it is whatever yt-dlp's `info.get("id")` returns for the resolved
+media (an extension-facing field, unchanged by the Transcribe
+Anywhere wave so no client code needed to change). Job identity
+(`media_key`, used for dedupe and the extension's resume records) is
+a separate value: the bare YouTube video id for a YouTube URL, or
+`u_<16 hex>` — a hash of a normalized form of the URL — for
+everything else.
 
 ```json
 {
@@ -275,9 +325,10 @@ a **new** terminal):
 | `TRANSCRIBER_PORT` | `8756` | Listen port (`--port` CLI flag overrides) |
 | `TRANSCRIBER_COMPUTE_TYPE` | `float16` | ctranslate2 compute type for the ASR model (falls back to `int8` when no CUDA device) |
 | `TRANSCRIBER_BATCH_SIZE` | `8` | WhisperX transcription batch size |
-| `TRANSCRIBER_MAX_DURATION_S` | `14400` | Refuse videos longer than this (seconds) |
+| `TRANSCRIBER_MAX_DURATION_S` | `14400` | Refuse media longer than this (seconds) |
 | `TRANSCRIBER_DIARIZE_MODEL` | `pyannote/speaker-diarization-community-1` | Diarization pipeline name |
-| `TRANSCRIBER_COOKIES_FILE` | *(unset)* | Path to a Netscape-format cookies.txt for yt-dlp (see Troubleshooting) |
+| `TRANSCRIBER_COOKIES_FILE` | *(unset)* | Path to a Netscape-format cookies.txt for yt-dlp (see Troubleshooting). **This is a credential** — typically a full browser cookie export — so it is only ever sent to the hosts `TRANSCRIBER_COOKIES_HOSTS` names, never to every URL this service fetches |
+| `TRANSCRIBER_COOKIES_HOSTS` | the five YouTube hosts (`youtube.com,www.youtube.com,m.youtube.com,music.youtube.com,youtu.be`) | Comma-separated, **exact-hostname-match** allowlist of which hosts `TRANSCRIBER_COOKIES_FILE` may be sent to (`example.com` never authorizes `evil.example.com`). Before the Transcribe Anywhere wave, cookies went to yt-dlp unconditionally — safe only because the URL admission gate was YouTube-only. Once any public https URL is admitted, an unscoped cookie jar would hand your session cookies to whatever host you paste, so this now defaults to exactly the old YouTube-only behavior. **Widening this list is a deliberate decision to trust those hosts with those cookies** — only add a host whose session you're comfortable handing to whatever URL you transcribe from it |
 | `TRANSCRIBER_TOKEN` | *(unset)* | When set, require `X-Transcriber-Token` on all endpoints except `/health` |
 | `HF_TOKEN` | *(unset)* | Hugging Face read token; required for local diarization |
 | `TRANSCRIBER_PROVIDER` | `local` | Transcription engine: `local`, `assemblyai`, or `deepgram` (see Cloud providers) |
@@ -298,9 +349,10 @@ away for speed and zero GPU load:
 
 - **What leaves your machine**: the episode's downloaded AUDIO is
   uploaded to the provider's API, which processes it under *their*
-  terms and retention policies. The YouTube download itself still
-  happens locally via yt-dlp (cloud APIs take audio files, not URLs) —
-  cookies, if configured, are never sent anywhere.
+  terms and retention policies. The download itself still happens
+  locally via yt-dlp, whatever the source (cloud APIs take audio
+  files, not URLs) — cookies, if configured, are never sent to the
+  cloud provider, only to the hosts `TRANSCRIBER_COOKIES_HOSTS` names.
 - **What it costs**: both providers meter per audio-hour, in the
   **~$0.15–0.40 / hour** range at 2026 list prices (AssemblyAI
   `universal` and Deepgram `nova-3` both sit near the low end; check
@@ -367,6 +419,11 @@ loaded on the same card. One job runs at a time; further requests queue
 - Any local process can use the API; set `TRANSCRIBER_TOKEN` if that
   matters on your machine.
 - CORS never allows plain-web origins (see above).
+- This service fetches whatever public https URL you (or the
+  extension, on your behalf) hand it — see "What URLs are accepted"
+  above for the admission rule, and `docs/THREAT_MODEL.md` (B10/B12,
+  gap G8) for the full accounting, including the honest statement
+  that the admission check does not close DNS rebinding.
 
 ## Development
 
