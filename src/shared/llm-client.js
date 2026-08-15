@@ -20,6 +20,7 @@
 import { Utils } from './utils.js';
 import { loadFlags, isEnabled } from './metadata/feature-flags.js';
 import { createSseParser, createMessageAssembler } from './llm-stream.js';
+import { coerceToSchema } from './schema-walker.js';
 import {
     ANTHROPIC_API_URL, ANTHROPIC_VERSION, resolveModel, outputBudget,
     LLM_KEY_STORAGE, LLM_MODEL_STORAGE
@@ -303,6 +304,48 @@ export function extractToolInput(data, toolName) {
     return null;
 }
 
+/**
+ * The SAME extraction, NORMALIZED against the tool's own declared
+ * `input_schema` — the single place model output enters this codebase.
+ *
+ * The tools are not `strict`, so the API guarantees nothing about the
+ * shape; every consumer downstream was left to guard for itself, and the
+ * 2026-08-13 audits found 38 places that did not. Normalizing here makes
+ * the containers total ONCE, using declarations that already exist —
+ * every pass already builds a tool with a full input_schema — instead of
+ * a guard per consumer per field.
+ *
+ * `coercions` rides back deliberately. A silent fix is what made a
+ * wrong-typed `entities` list into an article that was permanently
+ * entity-blind behind a cache hit: the shape looked fine, so nothing
+ * re-ran. Callers decide what a given coercion means — a top-level
+ * container coercion says the response was malformed and the pass should
+ * fail; a row-level drop is the per-row leniency the extract layer has
+ * always had.
+ *
+ * @returns {{input: object|null, coercions: Array, topLevel: boolean}}
+ */
+export function toolInputOf(data, tool) {
+    const name = (tool && tool.name) || tool;
+    const raw = extractToolInput(data, name);
+    if (raw === null) return { input: null, coercions: [], topLevel: false };
+    const schema = tool && tool.input_schema;
+    if (!schema) return { input: raw, coercions: [], topLevel: false };
+    const { value, coercions } = coerceToSchema(raw, schema);
+    if (coercions.length) {
+        // Shape only — never the content (an extract carries article text).
+        Utils.log('[X-Ray LLM] coerced model output:',
+            coercions.map((c) => `${c.path.join('.') || '$'}: ${c.got}→${c.expected}`).join(', '));
+    }
+    return {
+        input: value,
+        coercions,
+        // A coercion at depth 1 rewrote a whole declared field of the
+        // answer — that is a malformed response, not model colour.
+        topLevel: coercions.some((c) => c.path.length === 1)
+    };
+}
+
 // ------------------------------------------------------------------
 // (runSuggestionPass — the standalone suggestion pass — RETIRED in
 // UA.3 with its xray:llm:suggest message: every Suggest surface now
@@ -356,7 +399,7 @@ export async function runEntityAuditPass(req = {}) {
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, error: 'The audit hit its output limit before finishing.' };
     }
-    const input = extractToolInput(data, tool.name);
+    const input = toolInputOf(data, tool).input;
     if (input === null || !Array.isArray(input.ops)) {
         return { ok: false, error: 'The model did not return a structured op list.' };
     }
@@ -401,7 +444,7 @@ export async function runForensicCorpusPass(req = {}) {
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, error: 'The pass hit its output limit before finishing.' };
     }
-    const input = extractToolInput(data, tool.name);
+    const input = toolInputOf(data, tool).input;
     if (input === null || !Array.isArray(input.findings)) {
         return { ok: false, error: 'The model did not return a structured finding list.' };
     }
@@ -486,7 +529,7 @@ export async function runAuditPass(req = {}) {
         return { ok: false, error: 'The model hit its output limit before finishing the audit. Try a shorter article.' };
     }
 
-    const toolInput = extractToolInput(data, AUDIT_TOOL_NAME);
+    const toolInput = toolInputOf(data, tool).input;
     if (toolInput === null) {
         return { ok: false, error: 'The model did not return a structured audit. Try again.' };
     }
@@ -590,7 +633,7 @@ export async function runAuditModulePass(req = {}) {
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, module: name, error: `The ${name} module hit its output limit before finishing.` };
     }
-    const findings = extractToolInput(data, tool.name);
+    const findings = toolInputOf(data, tool).input;
     if (findings === null) {
         return { ok: false, module: name, error: `The model did not return structured ${name} findings.` };
     }
@@ -699,7 +742,23 @@ export async function runCorpusMapPass(req = {}) {
 
     const data = res.data;
     { const r = refusalResult(data, 'an extract for this article'); if (r) return { ...r, member_id: req.member_id }; }
-    const extract = extractToolInput(data, tool.name);
+    // Normalized against the map tool's own schema, so no consumer can be
+    // handed a wrong-typed container. But a TOP-LEVEL coercion is not a
+    // tidy-up to swallow: it means a whole declared field of the answer
+    // arrived as the wrong type, and quietly turning that into an empty
+    // list is exactly how one bad response made an article permanently
+    // entity-blind behind a content-keyed cache hit (JOURNAL 2026-08-13).
+    // Fail so the pass re-runs and nothing is cached.
+    const { input: extract, topLevel, coercions } = toolInputOf(data, tool);
+    if (extract !== null && topLevel) {
+        const which = coercions.filter((c) => c.path.length === 1)
+            .map((c) => `${c.path[0]} (${c.got}, expected ${c.expected})`).join(', ');
+        return {
+            ok: false, member_id: req.member_id,
+            error: `The model returned a malformed extract — ${which}. `
+                 + 'Nothing was cached; run Suggest again.'
+        };
+    }
     const cutShort = !!(data && data.stop_reason === 'max_tokens');
     if (extract === null) {
         return {
@@ -759,7 +818,7 @@ export async function runCorpusReducePass(req = {}) {
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, error: 'The synthesis hit its output limit before finishing.' };
     }
-    const briefInput = extractToolInput(data, tool.name);
+    const briefInput = toolInputOf(data, tool).input;
     if (briefInput === null) return { ok: false, error: 'The model did not return a structured brief.' };
     return { ok: true, briefInput, model: (data && data.model) || model, usage: data && data.usage };
 }
@@ -810,7 +869,7 @@ export async function runEntityPagePass(req = {}) {
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, error: 'The page synthesis hit its output limit before finishing.' };
     }
-    const pageInput = extractToolInput(data, tool.name);
+    const pageInput = toolInputOf(data, tool).input;
     if (pageInput === null) return { ok: false, error: 'The model did not return a structured page.' };
     return { ok: true, pageInput, model: (data && data.model) || model, usage: data && data.usage };
 }
@@ -857,7 +916,7 @@ export async function runHypothesisEdgePass(req = {}) {
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, error: 'The edge-suggestion call hit its output limit before finishing.' };
     }
-    const edgesInput = extractToolInput(data, tool.name);
+    const edgesInput = toolInputOf(data, tool).input;
     if (edgesInput === null) return { ok: false, error: 'The model did not return structured edge proposals.' };
     return { ok: true, edgesInput, model: (data && data.model) || model, usage: data && data.usage };
 }
@@ -904,7 +963,7 @@ export async function runClaimLinksPass(req = {}) {
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, error: 'The link-suggestion call hit its output limit before finishing.' };
     }
-    const linksInput = extractToolInput(data, tool.name);
+    const linksInput = toolInputOf(data, tool).input;
     if (linksInput === null) return { ok: false, error: 'The model did not return structured link proposals.' };
     return { ok: true, linksInput, model: (data && data.model) || model, usage: data && data.usage };
 }
@@ -1004,7 +1063,7 @@ export async function runVisionPass(req = {}) {
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, error: 'The model hit its output limit before finishing this image.' };
     }
-    const input = extractToolInput(data, VISION_TOOL_NAME);
+    const input = toolInputOf(data, tool).input;
     if (input === null || typeof input.caption !== 'string' || !input.caption.trim()) {
         return { ok: false, error: 'The model did not return a structured image description. Try again.' };
     }
@@ -1181,7 +1240,7 @@ export async function runLensPass(req = {}) {
         return { ok: false, error: 'The model hit its output limit before finishing this reading. Select fewer claims and try again.' };
     }
 
-    const toolInput = extractToolInput(data, LENS_TOOL_NAME);
+    const toolInput = toolInputOf(data, tool).input;
     if (toolInput === null) {
         return { ok: false, error: 'The model did not return a structured reading for this jurisdiction. Run the pass again.' };
     }
@@ -1242,12 +1301,13 @@ export async function runExtractPass(req = {}) {
     }
     const mode = req.mode === 'transcription' ? 'transcription' : 'structure';
     const model = await readModel();
+    const extractTool = buildExtractTool();
 
     const payload = {
         model,
         max_tokens: outputBudget(MAX_EXTRACT_OUTPUT_TOKENS, model),
         system: buildExtractSystemPrompt(mode),
-        tools: [buildExtractTool()],
+        tools: [extractTool],
         tool_choice: { type: 'tool', name: EXTRACT_TOOL_NAME },
         messages: [{ role: 'user', content: buildExtractUserContent(pdfBase64) }]
     };
@@ -1269,7 +1329,7 @@ export async function runExtractPass(req = {}) {
     if (data && data.stop_reason === 'max_tokens') {
         return { ok: false, error: 'The model hit its output limit before finishing the document. This document is too long for a single extraction pass.' };
     }
-    const toolInput = extractToolInput(data, EXTRACT_TOOL_NAME);
+    const toolInput = toolInputOf(data, extractTool).input;
     if (toolInput === null || !Array.isArray(toolInput.spans)) {
         return { ok: false, error: 'The model did not return structured spans. Try again.' };
     }
