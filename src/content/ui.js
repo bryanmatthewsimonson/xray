@@ -13,6 +13,7 @@ import { Storage } from '../shared/storage.js';
 import { ContentExtractor } from '../shared/content-extractor.js';
 import { ContentDetector } from '../shared/content-detector.js';
 import { googleDrivePdfUrl } from '../shared/pdf-detect.js';
+import { detectMediaHints } from '../shared/media-hints.js';
 import { captureForPlatform, enrichArticleForPlatform, detectPlatformFromDom } from '../shared/platforms/index.js';
 
 export const UI = {
@@ -78,6 +79,17 @@ export const UI = {
           return;
         }
         enriched = await enrichArticleForPlatform(article, platform);
+      }
+
+      // 2b. Media signals for the reader's Transcribe affordance —
+      //     LOCAL-ONLY (no builder reads mediaHints). Absent = the page
+      //     showed no playable media; the 🎙 Media modal's "Transcribe
+      //     from source" is the fallback for anything this misses.
+      try {
+        const hints = detectMediaHints(document);
+        if (hints) enriched.mediaHints = hints;
+      } catch (err) {
+        Utils.error('media hint detection failed', err);
       }
 
       // 3. Hand off to the reader via the background SW.
