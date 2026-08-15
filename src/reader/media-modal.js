@@ -367,6 +367,14 @@ export function openMediaModal(article, opts = {}) {
         $('[data-action="save"]').addEventListener('click', () => {
             $('.xr-media__err').hidden = true;
 
+            // Single-use: consume the intent immediately so a Save that
+            // bails on validation cannot leave it armed for a later,
+            // ordinary Save click. Any of this handler's early returns
+            // below (bad feed URL, bad iTunes id, unparseable transcript)
+            // must land on a Save that no longer carries the request.
+            const wantsTranscribe = transcribeRequested;
+            transcribeRequested = false;
+
             const media = $('#xr-media-type').value || null;
             // The confirm gate: machine-discovered values are only a
             // declaration when saved VISIBLY. If the user switched the
@@ -427,7 +435,7 @@ export function openMediaModal(article, opts = {}) {
                 linkRoles,
                 podcast: Object.keys(podcast).length ? podcast : null,
                 parse,
-                transcribe: transcribeRequested
+                transcribe: wantsTranscribe
             });
         });
     });
