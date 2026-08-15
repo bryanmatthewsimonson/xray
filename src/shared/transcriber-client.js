@@ -200,9 +200,16 @@ export async function startTranscription(videoUrl, { port, fetchFn = fetch, prov
         if (probe.ok && !(probe.body && probe.body.generic_urls)) {
             return {
                 ok: false,
-                error: 'The companion service is too old to transcribe anything but YouTube. '
-                    + 'Update it: git pull in the X-Ray repo, run `uv sync` in companion/transcriber/, '
-                    + 'then restart the service.'
+                // Two different causes, and the common one is the cheap
+                // one — field-found 2026-08-15: a service that had been
+                // up for days was still serving pre-update code from
+                // memory while the repo on disk was already current, and
+                // the old wording sent the maintainer to git pull for a
+                // problem a restart fixed. Lead with the restart.
+                error: 'This companion service does not support non-YouTube URLs yet. '
+                    + 'If you have already updated X-Ray, just RESTART the service — a running '
+                    + 'service keeps serving the code it started with. If you have not: git pull '
+                    + 'in the X-Ray repo, run `uv sync` in companion/transcriber/, then restart it.'
             };
         }
     }

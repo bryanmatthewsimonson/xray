@@ -461,7 +461,11 @@ test('startTranscription: a non-YouTube URL is refused on a companion without ge
     };
     const out = await startTranscription('https://mormonstories.org/podcast/ep-1/', { port: 8756, fetchFn });
     assert.equal(out.ok, false);
-    assert.match(out.error, /too old/i);
+    // The refusal must lead with RESTART: the field-found cause is a
+    // long-running service still serving pre-update code, not stale code
+    // on disk (JOURNAL 2026-08-15).
+    assert.match(out.error, /non-YouTube/i);
+    assert.match(out.error, /restart/i);
     assert.ok(!calls.some((u) => u.endsWith('/transcribe')), 'never POSTs to an incapable companion');
 });
 
@@ -509,7 +513,7 @@ test('startTranscription: generic URL with stored engine is refused on old compa
     };
     const out = await startTranscription('https://mormonstories.org/podcast/ep-1/', { port: 8756, fetchFn });
     assert.equal(out.ok, false);
-    assert.match(out.error, /too old/i);
+    assert.match(out.error, /restart/i);
     assert.ok(!calls.some((u) => u.endsWith('/transcribe')), 'never POSTs when generic_urls missing');
 });
 
@@ -540,6 +544,6 @@ test('startTranscription: malformed YouTube URL is treated as generic (no parsea
     };
     const out = await startTranscription('https://www.youtube.com/watch?v=x', { port: 8756, fetchFn });
     assert.equal(out.ok, false);
-    assert.match(out.error, /too old/i, 'malformed YT URL treated as generic and refused on old companion');
+    assert.match(out.error, /restart/i, 'malformed YT URL treated as generic and refused on old companion');
     assert.ok(!calls.some((u) => u.endsWith('/transcribe')), 'never POSTs a malformed YT URL to an incapable companion');
 });
