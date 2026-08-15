@@ -19,66 +19,64 @@ or files, and the "so-what" for future readers.
 
 ---
 
-## 2026-08-15 — Model output is normalized ONCE, on entry, and every fix is REPORTED
+## 2026-08-15 — Normalize-at-the-boundary was tried and WITHDRAWN; the fixture set is what survived
 
 **Tags:** design, pattern
 
-The model-side twin of the peer-side work below. Thirty-eight confirmed
-defects came from consumers reading model output as if its shape were
-guaranteed; guarding each consumer treats instances. This closes the
-boundary.
+The audits below recommended closing the model-output boundary by
+normalizing once on entry, rather than guarding each consumer. It was
+implemented — `coerceToSchema` driven by each pass's own declared
+`input_schema`, applied at the single point where model output enters —
+and an adversarial review (24 agents, findings verified by EXECUTING the
+code) returned **16 confirmed defects, four blockers**. It is withdrawn.
+Recording why, because the idea is attractive and someone will propose
+it again.
 
-**Driven by declarations that already existed.** Every pass already
-builds a tool with a full `input_schema`, and the tools are not
-`strict`, so the schema was a description nothing enforced.
-`coerceToSchema` (schema-walker.js, beside the validator that shares its
-vocabulary) now normalizes each pass's tool output against that same
-schema, applied in `toolInputOf` — the ONE place model output enters
-this codebase. Thirteen call sites, no new schemas written.
+**1. Coercion before validation destroys the evidence validation exists
+to detect.** This is the SAME error as the original bug, inverted. That
+one validated a normalized copy and used the raw value; this one coerced
+the raw value and validated the copy. Both leave the validator looking at
+something other than what the model sent. Concretely: an `entities` list
+whose rows were all non-objects coerced to `[]`, and the blindness
+refusal is gated on `ents.length > 0` — computed AFTER the emptying — so
+it could never fire, and the article cached entity-blind forever. That is
+precisely the defect of 2026-08-13, reintroduced by a different route.
+The same mechanism killed the `key_assertions` refusal and made three
+pre-existing `!Array.isArray(...)` malformed-response guards unreachable.
 
-**The contract is deliberately narrow**, and every clause is a lesson
-from the 13th:
-- CONTAINERS coerce (a non-array where an array is declared becomes
-  `[]`), which is what makes downstream `.map` / `for...of` total.
-- SCALARS DROP rather than default. A number where a string was declared
-  is REMOVED, not turned into `''` — fabricating a value the model never
-  sent would make a missing field look supplied, and the validator could
-  no longer fail it.
-- ABSENT stays absent. Nothing is invented to satisfy `required`; that
-  is still the validator's business.
-- A row that was ITSELF the wrong type is dropped, not kept as `{}`. A
-  string where an object was declared is not "a row with no fields" — it
-  is not a row, and an empty husk inflates every count taken over the
-  list. (A test caught this; the first implementation kept the husks.)
-- UNKNOWN keys ride through — models add colour, and the walker has
-  always tolerated it.
+**2. The declared schemas disagree with their consumers, in at least two
+places, and nothing enforced them so nobody noticed.** Making the
+declaration authoritative turned documentation into behavior:
+- **Table cells are POSITIONAL.** `llm-extract-prompts.js` declares row
+  cells as strings; `llm-extract.js` deliberately maps a non-string cell
+  to `''` to HOLD ITS COLUMN. Coercion deleted the cell instead, shifting
+  every cell right of it one column left — a verified
+  `| Brazil |  | 42% |` becoming `| Brazil | 42% |  |`, publishing a
+  death rate under the Cases column. The scalar-drop rule reasoned about
+  lists as SETS; a table row is a TUPLE, where index is identity.
+- **The audit `score` was declared `integer`** while `validateFindings`
+  walks it as `number` and `clampScore` exists so "a recoverable model
+  quirk must degrade a number, never discard the whole eight-module
+  audit". A model answering `82.5` was always meant to be clamped and
+  kept. Coercion dropped it, the module imported as FAILED at weight 0,
+  and the reader's re-run SKIPS it — sticky until the draft is cleared.
 
-**Every change is REPORTED, and that is the load-bearing half.** A
-silent fix is precisely how a wrong-typed `entities` list became an
-article that was permanently entity-blind behind a content-keyed cache
-hit: the shape looked fine afterwards, so nothing ever re-ran. Naive
-coercion would have UNDONE the previous day's fix. So coercions carry a
-path, and depth is meaning: a TOP-LEVEL coercion means a whole declared
-field of the answer arrived wrong — the map pass refuses it, names the
-field, and caches nothing — while a row-level drop is the per-row
-leniency the extract layer has always had. A right-typed list holding
-wrong rows is row-level, never top-level; a test pins that distinction
-because the two must never collapse.
+**The declaration fix is kept** (`score` is now `number`), because that
+one was simply wrong regardless. The coercer is not.
 
-**And the fixture set.** `tests/helpers/hostile.mjs` is one shared source
-of malformed output — every wrong type a JSON field can arrive as, the
-truthy subset that `(x || [])` fails to rescue, and the row-level junk
-that appears inside otherwise-good lists. The suite had ~2,540 tests when
-the class was found and **not one fed a malformed response**: every
-fixture was well-formed, so the tests pinned intent and never the
-boundary. That is why the class survived review by its own author. The
-guards fix the 38; this is for the 39th. The rule is one line: a consumer
-of model or peer output may reject, drop, or report — it may not throw,
-and it may not invent.
+**What survives, and is the point:** `tests/helpers/hostile.mjs` — one
+shared fixture set of malformed output, now applied to the model-output
+consumers (the article-pass converters, entityYield) AND to the peer
+import boundary (mergeExtractionRecords, both sides). The suite had
+~2,540 tests when this class was found and not one fed a malformed
+response; the fixtures are the permanent observer. A fixture set used
+only by its own test would have been a fixture set in name only.
 
-See `src/shared/schema-walker.js`, `src/shared/llm-client.js`,
-`tests/schema-coerce.test.mjs`, `tests/helpers/hostile.mjs`,
-`tests/llm-corpus-gates.test.mjs`.
+**The transferable lesson:** a normalizer and a validator must never
+disagree about what they are looking at. Either the normalized value is
+the one that gets validated AND used, or the raw value is. Any design
+where one layer sees a repaired copy and another sees the original will
+reproduce this class, in whichever direction it is arranged.
 
 ## 2026-08-13 — Two audits over model-output consumers: 17 confirmed wrong-type defects, mostly SILENT
 

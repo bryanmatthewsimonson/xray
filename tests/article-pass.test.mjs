@@ -16,6 +16,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { WRONG_TYPES, WRONG_ROWS, assertTotal } from './helpers/hostile.mjs';
 
 // case-dossier pulls the model modules, which read chrome.storage at
 // module load — stub before importing (the standard LLM-test idiom).
@@ -25,7 +26,7 @@ globalThis.chrome = globalThis.chrome || {
 
 const {
     ensureArticleExtract, articleSourceForExtract, claimProposalsFromExtract,
-    entityProposalsFromExtract
+    entityProposalsFromExtract, entityYield
 } = await import('../src/shared/article-pass.js');
 const { buildMemberUnits, corpusMapRequest, corpusExtractKey, articleMemberUnit } =
     await import('../src/shared/case-synthesis.js');
@@ -423,6 +424,51 @@ test('force bypasses the cache — the only escape from a valid-but-poor reading
     assert.equal(forced.status, 'ran', 'force re-reads at full price');
     assert.equal(calls, 1);
     assert.equal(forced.extract.position.summary, 'fresh');
+});
+
+// ---- the shared hostile set, applied to THIS consumer -----------------
+//
+// tests/helpers/hostile.mjs is the one source of malformed model output.
+// A fixture set used only by its own test is a fixture set in name only,
+// so every consumer of model output runs against it. The contract is one
+// line: reject, drop, or report — never throw, never invent.
+
+test('HOSTILE: both converters survive every wrong type in every field', () => {
+    const GOOD = {
+        position: { summary: 's', side_label: null },
+        key_assertions: [{ quote: 'q', text: 'T', load_bearing: true, about: ['E1'] }],
+        entities: [{ ref: 'E1', name: 'Alice', type: 'person', mention: 'Alice' }],
+        source_references: [{ quote: 'c', target_hint: 'h' }],
+        open_questions: ['why?']
+    };
+    for (const field of Object.keys(GOOD)) {
+        assertTotal(assert, GOOD, field, (o) => claimProposalsFromExtract(o));
+        assertTotal(assert, GOOD, field, (o) => entityProposalsFromExtract(o));
+        assertTotal(assert, GOOD, field, (o) => entityYield(o));
+    }
+    // And the extract itself being the wrong type, not just its fields.
+    for (const [label, bad] of WRONG_TYPES) {
+        assert.doesNotThrow(() => claimProposalsFromExtract(bad), `whole extract as ${label}`);
+        assert.doesNotThrow(() => entityProposalsFromExtract(bad), `whole extract as ${label}`);
+        assert.doesNotThrow(() => entityYield(bad), `whole extract as ${label}`);
+    }
+});
+
+test('HOSTILE: junk ROWS inside good lists drop without taking the good rows', () => {
+    const extract = {
+        position: { summary: 's' },
+        key_assertions: [...WRONG_ROWS, { quote: 'real', text: 'R', load_bearing: true }],
+        entities: [...WRONG_ROWS, { ref: 'E1', name: 'Alice', type: 'person', mention: 'Alice' }]
+    };
+    const claims = claimProposalsFromExtract(extract);
+    const ents = entityProposalsFromExtract(extract);
+    assert.equal(claims.length, 1, 'exactly the one real atom');
+    assert.equal(claims[0].quote, 'real');
+    assert.equal(ents.length, 1, 'exactly the one real entity');
+    assert.equal(ents[0].name, 'Alice');
+    // The counts must agree with what the converters actually returned —
+    // a message that overstates the yield is worse than no message.
+    assert.equal(entityYield(extract).proposed, ents.length);
 });
 
 test('no articleHash (edited body) → the extract still runs, the fold is skipped', async () => {

@@ -10,6 +10,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { WRONG_TYPES, WRONG_ROWS } from './helpers/hostile.mjs';
 
 // Utils.log/error read CONFIG.debug at call time; stub chrome so the
 // module graph loads headless (the standard idiom).
@@ -456,6 +457,34 @@ const TEXT_TWIN = TEXT.replace(/\n/g, '\r\n').replace(/ /g, '  ');
 // a throw there does not lose one row, it aborts the transaction and
 // fails the WHOLE restore with a bare AbortError. So the merge must be
 // TOTAL — never throwing, for any input a file can contain.
+
+// The shared hostile set, applied to the IMPORT boundary as well — the
+// same fixtures the model-output consumers run against, because a peer's
+// backup file is no more trustworthy than a model response.
+test('HOSTILE (shared set): every wrong type in every list field, both sides', () => {
+    const FIELDS = ['assertions', 'sources', 'open_questions', 'positions', 'merged_keys',
+                    'imported_unlocated', 'updatedAt', 'dropped_ungrounded'];
+    for (const field of FIELDS) {
+        for (const [label, bad] of WRONG_TYPES) {
+            const over = {};
+            if (bad !== undefined) over[field] = bad;
+            const incoming = { ...storedRecord(), ...over };
+            if (bad === undefined) delete incoming[field];
+            assert.doesNotThrow(
+                () => mergeExtractionRecords(storedRecord(), incoming, { localText: TEXT, now: 1 }),
+                `incoming ${field} as ${label}`);
+            assert.doesNotThrow(
+                () => mergeExtractionRecords(incoming, storedRecord(), { localText: TEXT, now: 1 }),
+                `LOCAL ${field} as ${label}`);
+        }
+        // Junk rows inside an otherwise-good list, on both sides.
+        const rowy = { ...storedRecord(), [field]: [...WRONG_ROWS] };
+        assert.doesNotThrow(() => mergeExtractionRecords(storedRecord(), rowy, { localText: TEXT, now: 1 }),
+            `incoming ${field} of junk rows`);
+        assert.doesNotThrow(() => mergeExtractionRecords(rowy, storedRecord(), { localText: TEXT, now: 1 }),
+            `LOCAL ${field} of junk rows`);
+    }
+});
 
 test('the merge never throws on a hostile incoming record (a throw aborts the whole restore)', () => {
     const local = storedRecord();
