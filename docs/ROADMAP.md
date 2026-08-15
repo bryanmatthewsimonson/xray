@@ -208,8 +208,11 @@ TxAny    ████████████████████  CODE-COMP
                                 Media-modal "Transcribe from source"
                                 escape hatch), and the portal's
                                 "Transcribe a URL" panel. Wire format:
-                                none (docs/TRANSCRIBE_ANYWHERE_KICKOFF.md);
-                                §5 acceptance walks outstanding
+                                additive — no new kinds/tags, but one
+                                new `platform` tag value, `media`, from
+                                the portal panel
+                                (docs/TRANSCRIBE_ANYWHERE_KICKOFF.md
+                                §9); §5 acceptance walks outstanding
                                 (SMOKE_TEST §Local transcription,
                                 LT.1–LT.14)
 ```
