@@ -209,13 +209,6 @@ test('keepalive: omitting it is legal — the pass runs unchanged (injection, no
 // it is: reporting it as a shape problem ("invalid extract") sends the
 // reader hunting a parser bug that does not exist, and drops the count
 // of what was actually recovered.
-// A salvaged extract is valid ONLY if the schema's required fields were
-// emitted before the cut. Nothing forces the model to emit `position`
-// first, so a truncated call can hand back complete atoms and no
-// position — which the schema rejects. That must read as the truncation
-// it is: reporting it as a shape problem ("invalid extract") sends the
-// reader hunting a parser bug that does not exist, and drops the count
-// of what was actually recovered.
 test('a truncation that loses a required field reports TRUNCATION, not a shape error', async () => {
     const salvagedNoPosition = {
         key_assertions: [
@@ -266,6 +259,172 @@ test('describeExtractErrors renders both error shapes, never [object Object]', a
 // guarantees nothing; and validateCorpusExtract does not catch it,
 // because it walks a normalized COPY and discards it. Every wrong type
 // the model can emit is exercised here, for both converters.
+test('a wrong-typed list field never crashes a converter (the live .map TypeError)', async () => {
+    const WRONG = [
+        ['object',  { E1: { ref: 'E1', name: 'Jane' } }],
+        ['string',  'Jane Doe, Acme Corp'],
+        ['number',  7],
+        ['boolean', true],
+        ['null',    null],
+        ['absent',  undefined]
+    ];
+    for (const [label, bad] of WRONG) {
+        const extract = { position: { summary: 's' }, key_assertions: [], entities: bad };
+        assert.doesNotThrow(() => entityProposalsFromExtract(extract), `entities as ${label}`);
+        assert.doesNotThrow(() => claimProposalsFromExtract(extract), `entities as ${label} (claim side)`);
+        assert.deepEqual(entityProposalsFromExtract(extract), [], `entities as ${label} yields nothing`);
+
+        const atomsBad = { position: { summary: 's' }, key_assertions: bad, entities: [] };
+        assert.doesNotThrow(() => claimProposalsFromExtract(atomsBad), `key_assertions as ${label}`);
+        assert.deepEqual(claimProposalsFromExtract(atomsBad), [], `key_assertions as ${label} yields nothing`);
+    }
+});
+
+test('a wrong-typed entities list does not silently drop VALID atoms', async () => {
+    // The failure mode to avoid while fixing the crash: bailing out of
+    // the whole converter. The atoms are independently well-formed and
+    // must still become proposals — only their entity refs are lost.
+    const extract = {
+        position: { summary: 's' },
+        key_assertions: [{ quote: 'a real span', text: 'A.', load_bearing: true, about: ['E1'] }],
+        entities: { E1: { name: 'Jane' } }        // wrong type
+    };
+    const claims = claimProposalsFromExtract(extract);
+    assert.equal(claims.length, 1, 'the atom survives');
+    assert.equal(claims[0].quote, 'a real span');
+    assert.deepEqual(claims[0].about, [], 'its ref drops, since no entity list could be read');
+});
+
+test('listField is the guard, and it is exported so other consumers can share it', async () => {
+    const { listField } = await import('../src/shared/article-pass.js');
+    assert.deepEqual(listField({ a: [1, 2] }, 'a'), [1, 2]);
+    assert.deepEqual(listField({ a: { not: 'an array' } }, 'a'), []);
+    assert.deepEqual(listField({ a: 'string' }, 'a'), []);
+    assert.deepEqual(listField(null, 'a'), []);
+    assert.deepEqual(listField(undefined, 'a'), []);
+});
+
+// "No entity suggestions" had four different causes wearing one
+// silence. entityYield is what lets the reader tell them apart, so each
+// cause must be distinguishable from the counts alone.
+test('entityYield distinguishes every reason entities can come back empty', async () => {
+    const { entityYield } = await import('../src/shared/article-pass.js');
+    const core = { position: { summary: 's' }, key_assertions: [] };
+
+    const absent = entityYield(core);
+    assert.equal(absent.absent, true);
+    assert.equal(absent.wrongType, false);
+    assert.equal(absent.rows, 0);
+
+    const wrong = entityYield({ ...core, entities: { E1: { name: 'Alice' } } });
+    assert.equal(wrong.wrongType, true, 'the poisoned-cache failure is its own state');
+    assert.equal(wrong.absent, false);
+    assert.equal(wrong.rows, 0);
+
+    const empty = entityYield({ ...core, entities: [] });
+    assert.equal(empty.rows, 0);
+    assert.equal(empty.absent, false, 'an empty list is a real answer, not an absent one');
+    assert.equal(empty.wrongType, false);
+
+    // The transcript-suspect case: rows arrive, every one lacks the
+    // verbatim mention the converter requires.
+    const noMentions = entityYield({ ...core, entities: [
+        { ref: 'E1', name: 'Alice', type: 'person' },
+        { ref: 'E2', name: 'Bob', type: 'person', mention: '   ' }
+    ] });
+    assert.equal(noMentions.rows, 2);
+    assert.equal(noMentions.proposed, 0);
+    assert.equal(noMentions.noMention, 2, 'names the rule that refused them');
+    assert.equal(noMentions.noName, 0);
+
+    const mixed = entityYield({ ...core, entities: [
+        { ref: 'E1', name: 'Alice', type: 'person', mention: 'Alice' },
+        { ref: 'E2', name: '', type: 'person', mention: 'x' },
+        { ref: 'E3', name: 'Carol', type: 'person' }
+    ] });
+    assert.deepEqual(
+        { rows: mixed.rows, proposed: mixed.proposed, noName: mixed.noName, noMention: mixed.noMention },
+        { rows: 3, proposed: 1, noName: 1, noMention: 1 });
+});
+
+test('entityYield.proposed always equals what the converter actually returns', async () => {
+    const { entityYield } = await import('../src/shared/article-pass.js');
+    // The count and the converter must never disagree — a message that
+    // says "3 proposed" over a list of 1 is worse than no message.
+    for (const entities of [
+        undefined, null, [], { bad: 1 }, 'nope',
+        [{ ref: 'E1', name: 'A', type: 'person', mention: 'A' }],
+        [{ ref: 'E1', name: 'A', type: 'person', mention: 'A' }, { name: 'B' }, null, 'junk']
+    ]) {
+        const extract = { position: { summary: 's' }, key_assertions: [], entities };
+        assert.equal(entityYield(extract).proposed, entityProposalsFromExtract(extract).length,
+            `count matches converter for ${JSON.stringify(entities)}`);
+    }
+});
+
+// Both halves of the claim→entity link are model-produced through a
+// non-strict tool, and the two sides used to normalize DIFFERENTLY — the
+// `about` side stringified, the knownRefs side stored the raw value. A
+// model emitting integer refs then lost every link, silently.
+test('claim→entity links survive a non-string ref (the type-asymmetry corruption)', async () => {
+    const extract = {
+        position: { summary: 's' },
+        key_assertions: [{ quote: 'q1', text: 'A.', load_bearing: true, about: [1] }],
+        entities: [{ ref: 1, name: 'WHO', type: 'organization', mention: 'WHO' }]
+    };
+    const claims = claimProposalsFromExtract(extract);
+    assert.equal(claims.length, 1);
+    assert.deepEqual(claims[0].about, ['1'], 'the link survives; both sides normalize the same way');
+});
+
+test('a ref of 0 is a real ref, not a falsy one to be swallowed', async () => {
+    const extract = {
+        position: { summary: 's' },
+        key_assertions: [{ quote: 'q', text: 'A.', load_bearing: true, about: [0] }],
+        entities: [{ ref: 0, name: 'Zero Corp', type: 'organization', mention: 'Zero Corp' }]
+    };
+    assert.deepEqual(claimProposalsFromExtract(extract)[0].about, ['0']);
+});
+
+// The invariant the comment claims: `about` may only point at entities
+// that ACTUALLY reach the modal. The two predicates used to differ, so a
+// row dropped by the converter still had its ref admitted here — the
+// chip vanished at render and the link died at accept, with no message.
+test('a ref whose entity row was DROPPED is not admitted as a link', async () => {
+    const extract = {
+        position: { summary: 's' },
+        key_assertions: [{ quote: 'q', text: 'A.', load_bearing: true, about: ['E1', 'E2'] }],
+        entities: [
+            { ref: 'E1', name: 'Kept', type: 'person', mention: 'Kept' },
+            { ref: 'E2', name: 'Dropped', type: 'person' }        // no mention → refused
+        ]
+    };
+    const claims = claimProposalsFromExtract(extract);
+    assert.deepEqual(claims[0].about, ['E1'],
+        'E2 never reaches the modal, so no claim may claim to be about it');
+    assert.deepEqual(entityProposalsFromExtract(extract).map((e) => e.ref), ['E1'],
+        'and the two functions agree on which rows survived');
+});
+
+test('force bypasses the cache — the only escape from a valid-but-poor reading', async () => {
+    const CACHED = { position: { summary: 'cached' }, key_assertions: [{ quote: 'q', load_bearing: true }] };
+    const FRESH = { position: { summary: 'fresh' }, key_assertions: [{ quote: 'q2', load_bearing: true }] };
+    let calls = 0;
+    const io_ = { getExtract: async () => ({ extract: CACHED, model: 'old' }),
+                  saveExtract: async () => {}, record: async () => ({ status: 'unchanged' }), now: () => 0 };
+    const args = { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
+                   sendMessage: async () => { calls += 1; return { ok: true, extract: FRESH, model: 'm' }; } };
+
+    const cached = await ensureArticleExtract(args, io_);
+    assert.equal(cached.status, 'cached');
+    assert.equal(calls, 0, 'the default path still pays nothing on a hit');
+
+    const forced = await ensureArticleExtract({ ...args, force: true }, io_);
+    assert.equal(forced.status, 'ran', 'force re-reads at full price');
+    assert.equal(calls, 1);
+    assert.equal(forced.extract.position.summary, 'fresh');
+});
+
 test('no articleHash (edited body) → the extract still runs, the fold is skipped', async () => {
     let folded = 0;
     const out = await ensureArticleExtract(

@@ -95,7 +95,7 @@ import { resolveActiveCaseRef, describeActiveContext, memberUrlSets } from '../s
 import { gatherCorpusSources, corpusSourcesChars } from '../shared/audit/corpus-sources.js';
 import {
     ensureArticleExtract, articleSourceForExtract, claimProposalsFromExtract,
-    entityProposalsFromExtract
+    entityProposalsFromExtract, entityYield
 } from '../shared/article-pass.js';
 import { normalizeSuggestKinds, LLM_SUGGEST_KINDS_STORAGE } from '../shared/llm-prompts.js';
 import { MAX_MEMBER_INPUT_CHARS } from '../shared/corpus-prompts.js';
@@ -3685,11 +3685,17 @@ async function setupSuggestControl() {
         return;
     }
     btn.disabled = false;
-    btn.title = 'Suggest capture artifacts with an LLM (sends the article text to Anthropic)';
-    btn.addEventListener('click', runSuggestPass);
+    // Alt/Option-click FORCES a fresh reading. Discoverable from the
+    // title and from the toast that needs it: an extract that is
+    // schema-valid but poor (no entities named, thin atomization) is
+    // cached under a content-only key and re-served forever, so a plain
+    // re-click is a guaranteed no-op. This is the only escape.
+    btn.title = 'Suggest capture artifacts with an LLM (sends the article text to Anthropic).'
+        + '\nAlt-click to discard the cached reading and re-analyze at full price.';
+    btn.addEventListener('click', (ev) => runSuggestPass({ force: !!(ev && ev.altKey) }));
 }
 
-async function runSuggestPass() {
+async function runSuggestPass({ force = false } = {}) {
     const btn = $('#xr-suggest');
     if (!btn || btn.disabled || !state.article) return;
     const articleText = articleBodyText();
@@ -3744,7 +3750,8 @@ async function runSuggestPass() {
             sendMessage: (msg) => browserApi.runtime.sendMessage(msg),
             // A long-form capture (transcript, book) can hold this one
             // call for minutes — keep the SW alive for its duration.
-            keepalive: startSwKeepalive
+            keepalive: startSwKeepalive,
+            force
         });
         if (out.status !== 'cached' && out.status !== 'ran') {
             toast('Suggest failed: ' + (out.error || 'could not analyze the article'), 'error', 6000);
@@ -3777,6 +3784,40 @@ async function runSuggestPass() {
             toast('The analysis hit its output limit — these proposals stop partway '
                 + `through the article (${(out.extract.key_assertions || []).length} complete assertions kept).`,
             'info', 8000);
+        }
+        // ENTITY YIELD — never silent again. "No entity suggestions" had
+        // four completely different causes wearing one silence, and the
+        // silence is what made the feature read as broken. Each gets its
+        // own sentence naming the actual fix.
+        if (!kinds.includes('entities')) {
+            toast('Entity suggestions are switched OFF for this pass — turn them on in '
+                + 'Options → Advanced → LLM assist → "Suggest these artifact types".', 'info', 9000);
+        } else {
+            const y = entityYield(out.extract);
+            if (y.wrongType) {
+                toast('The model returned a malformed entity list for this article, so no entities '
+                    + 'could be proposed. Run Suggest again — the extract will be re-read.', 'error', 9000);
+            } else if (y.rows === 0) {
+                // NOT "run Suggest again" — that was advice that could not
+                // work. An entity-less extract is schema-valid, so the
+                // content-keyed cache re-serves it forever; only a forced
+                // re-read escapes it. Say the thing that actually works.
+                toast('The model named no entities in this article. This reading is cached — if that '
+                    + 'looks wrong, Alt-click Suggest to discard it and re-analyze.', 'info', 10000);
+            } else if (y.proposed === 0) {
+                // Rows arrived and every one was refused by the converter.
+                // Naming WHICH rule refused them is the difference between
+                // a bug report and a shrug.
+                const why = y.noMention > y.noName
+                    ? `${y.noMention} had no verbatim mention to anchor to`
+                    : `${y.noName} had no name`;
+                toast(`The model named ${y.rows} entit${y.rows === 1 ? 'y' : 'ies'}, but none could be `
+                    + `proposed — ${why}. Alt-click Suggest to re-analyze.`, 'error', 10000);
+            } else if (y.noName + y.noMention > 0) {
+                toast(`${y.proposed} entit${y.proposed === 1 ? 'y' : 'ies'} proposed; `
+                    + `${y.noName + y.noMention} dropped for a missing name or verbatim mention.`,
+                'info', 7000);
+            }
         }
     } catch (err) {
         // Belt over the per-call braces: NOTHING in this flow may

@@ -64,6 +64,44 @@ export async function articleSourceForExtract({ url = '', fallbackArticle = null
 }
 
 /**
+ * A list field of MODEL-PRODUCED output, as an array — always.
+ *
+ * `(extract && extract.field) || []` is NOT this: `||` rescues only
+ * FALSY values, so a truthy wrong type (the model emitting `entities`
+ * as an object, a string, a number) passes straight through and throws
+ * at the first `.map` / `.forEach` / `for...of`. That is a live crash,
+ * not a hypothetical — "((extract && extract.entities) || []).map is not
+ * a function" came back from a 48-minute transcript.
+ *
+ * The tool schema is not `strict`, so the API guarantees nothing about
+ * the shape. validateCorpusExtract now rejects a wrong-typed LIST (it
+ * used to normalize one to `[]` for the walk and hand the raw value on),
+ * but it deliberately still tolerates malformed ROWS inside a good list
+ * — so a consumer can trust that a list IS a list and nothing about what
+ * is in it. Guard here anyway: this converter also runs against extracts
+ * read back from cache, and defense at a pure boundary is free.
+ *
+ * Note `about` at the atom level was already guarded this way; the
+ * top-level lists simply were not.
+ */
+export function listField(extract, field) {
+    const v = extract && extract[field];
+    return Array.isArray(v) ? v : [];
+}
+
+/**
+ * A model-supplied entity ref, normalized to the ONE form both sides of
+ * the claim→entity link compare against. Strings and numbers are real
+ * refs (the tool is not strict, so `1` is a legal answer for a field
+ * documented as "E1"); anything else is not a ref, and must not become
+ * the string "[object Object]" — that would look like a ref and link
+ * nothing. Empty string means "no usable ref".
+ */
+export function refKey(v) {
+    return (typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v))) ? String(v) : '';
+}
+
+/**
  * Render validateCorpusExtract's errors as one short human clause.
  *
  * The list mixes two shapes — schema walker entries (`{path, message}`)
@@ -111,7 +149,7 @@ export function describeExtractErrors(errors) {
  * @returns {Promise<{status:'cached'|'ran'|'failed'|'no-text',
  *                    key?:string, extract?:object, model?:string, error?:string}>}
  */
-export async function ensureArticleExtract({ article, articleHash = null, url = '', title = '', frame = {}, sendMessage, keepalive = null }, io = {}) {
+export async function ensureArticleExtract({ article, articleHash = null, url = '', title = '', frame = {}, sendMessage, keepalive = null, force = false }, io = {}) {
     const d = {
         getExtract:  getCorpusExtract,
         saveExtract: saveCorpusExtract,
@@ -136,7 +174,17 @@ export async function ensureArticleExtract({ article, articleHash = null, url = 
         })).catch(() => {});
     };
 
-    const hit = await Promise.resolve(d.getExtract(key)).catch(() => null);
+    // FORCE re-reads the article at full price, bypassing the cache.
+    //
+    // Not a convenience — without it some bad readings are PERMANENT.
+    // The wrong-type failure self-heals, because a poisoned extract now
+    // fails validation on read and falls through here. But an extract
+    // that is merely POOR — no entities named, thin atomization — is
+    // perfectly schema-valid, so it re-validates forever and every later
+    // Suggest re-serves it. "Run Suggest again" was advice that could
+    // not work: same article text → same content-only key → same cached
+    // reading, at no cost and to no effect.
+    const hit = force ? null : await Promise.resolve(d.getExtract(key)).catch(() => null);
     if (hit && hit.extract && validateCorpusExtract(hit.extract).ok) {
         await fold(hit.extract, hit.model);
         // `partial` is STORED with the extract, not recomputed: an
@@ -175,7 +223,8 @@ export async function ensureArticleExtract({ article, articleHash = null, url = 
         // is valid ONLY if the fields the schema requires happened to be
         // emitted before the cut; a model that emits `position` after
         // `key_assertions` loses it. That is a truncation, and it must
-        // read as one.
+        // read as one: an invalid-shape message sends the reader hunting
+        // a parser bug that isn't there.
         const detail = describeExtractErrors(v.errors);
         const atoms = (res.extract && Array.isArray(res.extract.key_assertions))
             ? res.extract.key_assertions.length : 0;
@@ -208,7 +257,8 @@ export async function ensureArticleExtract({ article, articleHash = null, url = 
     // `partial`: the call was cut off at the output ceiling and the
     // extract was salvaged to its last COMPLETE assertion. Distinct from
     // `truncated` (the INPUT was sliced) — one says we read less of the
-    // article, the other says we reported less of what we read.
+    // article, the other says we reported less of what we read. Both are
+    // the caller's to disclose.
     return { status: 'ran', key, extract: res.extract, model: res.model || '',
              truncated: unit.truncated, partial: !!res.partial, text: unit.text };
 }
@@ -224,12 +274,33 @@ export async function ensureArticleExtract({ article, articleHash = null, url = 
  * (they already folded through the map record path).
  */
 export function claimProposalsFromExtract(extract) {
-    const atoms = (extract && extract.key_assertions) || [];
-    // Refs of entities the extract actually proposes — an atom's
-    // `about` may only point at those (an unknown ref would dangle in
-    // the modal and silently drop at accept; filter it here instead).
-    const knownRefs = new Set(((extract && extract.entities) || [])
-        .map((e) => e && e.ref).filter(Boolean));
+    const atoms = listField(extract, 'key_assertions');
+    // Refs of entities the extract actually PROPOSES — an atom's `about`
+    // may only point at those (an unknown ref would dangle in the modal
+    // and silently drop at accept; filter it here instead).
+    //
+    // Two ways this set used to disagree with reality, both SILENT and
+    // both costing claim→entity links — the knowledge graph, not a
+    // cosmetic detail:
+    //
+    //  1. TYPE ASYMMETRY. The `about` side stringifies every ref
+    //     (`String(r)`, below) while this side stored the RAW value, so
+    //     a model emitting `"ref": 1` put the NUMBER 1 in the set and
+    //     `has("1")` was false for every atom pointing at it. The tool
+    //     is not strict, so an integer ref is a legal response. Both
+    //     sides now normalize through the same String(). (`filter(Boolean)`
+    //     also silently swallowed a `ref: 0`; the emptiness test is now
+    //     on the stringified value.)
+    //  2. PREDICATE DISAGREEMENT. This set admitted a ref from ANY row
+    //     with a truthy `ref`, but entityProposalsFromExtract keeps only
+    //     rows with a usable name AND mention. A malformed row therefore
+    //     left its ref admissible here while no entity proposal for it
+    //     ever reached the modal: the chip silently vanished at render
+    //     and the link was dropped at accept, with no message. The set
+    //     is now built from the PROPOSALS themselves, so the two can
+    //     never drift again.
+    const knownRefs = new Set(entityProposalsFromExtract(extract)
+        .map((p) => p.ref).filter((r) => r !== ''));
     const proposals = [];
     atoms.forEach((a, i) => {
         const quote = (a && typeof a.quote === 'string') ? a.quote.trim() : '';
@@ -245,7 +316,7 @@ export function claimProposalsFromExtract(extract) {
                 ? a.why_load_bearing : '',
             // corpus-v9: native claim→entity refs from the one reading.
             about: (Array.isArray(a && a.about) ? a.about : [])
-                .map((r) => String(r)).filter((r) => knownRefs.has(r)),
+                .map(refKey).filter((r) => r !== '' && knownRefs.has(r)),
             from_extract: true
         });
     });
@@ -261,8 +332,43 @@ export function claimProposalsFromExtract(extract) {
  * is nothing to ground, so nothing could ever be accepted. The model's
  * refs ride through verbatim (the atoms' `about` points at them).
  */
+/**
+ * WHY the entity converter yielded what it yielded.
+ *
+ * "No entity suggestions" was indistinguishable from "this article names
+ * nobody", "the model returned rows the converter dropped", and "the
+ * kind is switched off in Options" — three completely different
+ * problems wearing the same silence, and the silence is what made the
+ * feature read as broken. Every row the converter refuses is counted
+ * here so the reader can say which one happened.
+ *
+ * Kept separate from entityProposalsFromExtract rather than changing its
+ * return shape: that function is called from the reader and pinned by
+ * tests, and a converter is the wrong place to own a message.
+ */
+export function entityYield(extract) {
+    const rows = listField(extract, 'entities');
+    const raw = extract && extract.entities;
+    let proposed = 0, noName = 0, noMention = 0;
+    for (const e of rows) {
+        const name = (e && typeof e.name === 'string') ? e.name.trim() : '';
+        const mention = (e && typeof e.mention === 'string') ? e.mention.trim() : '';
+        if (!name) noName += 1;
+        else if (!mention) noMention += 1;
+        else proposed += 1;
+    }
+    return {
+        rows: rows.length,
+        proposed, noName, noMention,
+        // The model emitted the key but as the wrong type — the failure
+        // that shipped a poisoned cache entry. Distinct from "absent".
+        wrongType: raw !== undefined && raw !== null && !Array.isArray(raw),
+        absent: raw === undefined || raw === null
+    };
+}
+
 export function entityProposalsFromExtract(extract) {
-    const rows = (extract && extract.entities) || [];
+    const rows = listField(extract, 'entities');
     const proposals = [];
     for (const e of rows) {
         const name = (e && typeof e.name === 'string') ? e.name.trim() : '';
@@ -270,7 +376,13 @@ export function entityProposalsFromExtract(extract) {
         if (!name || !mention) continue;
         proposals.push({
             kind: 'entity',
-            ref: (e.ref && typeof e.ref === 'string') ? e.ref : '',
+            // ONE normalization for a ref, shared with the `about` side
+            // (refKey) — the two used to disagree, which cost every
+            // claim→entity link whenever the model emitted integer refs.
+            // A number is a legitimate ref the model may choose; an
+            // object is not (String({}) is "[object Object]", which would
+            // look like a ref and link nothing).
+            ref: refKey(e.ref),
             name,
             entity_type: (typeof e.type === 'string') ? e.type : '',
             mention,

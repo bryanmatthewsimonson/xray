@@ -56,6 +56,24 @@ import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { pageFragmentSelector } from '../shared/pdf-layout.js';
 import { timeFragmentSelector } from '../shared/diarized-transcript.js';
 
+/**
+ * A proposal's list field, as a list — always.
+ *
+ * `(p.field || [])` rescues only FALSY values, so a truthy wrong type
+ * (the model emitting `about` as an object, `labels` as a string) reaches
+ * `.map`/`.filter` and throws. Here that is the WORST place for it:
+ * summarize() runs inside render(), render() runs synchronously inside
+ * openLlmReview's Promise executor, so the throw REJECTS the promise —
+ * the modal never opens and every proposal in the batch is lost, for one
+ * malformed field on one row. The proposals are model-produced through a
+ * non-strict forced tool, so no layer upstream guarantees the type.
+ *
+ * Note the inline editor further down this file already did
+ * `Array.isArray(...)` for the same fields; the summary path simply
+ * never got the same treatment.
+ */
+function asList(v) { return Array.isArray(v) ? v : []; }
+
 const KIND_TITLES = {
     entity: 'Entities', claim: 'Claims', assessment: 'Assessments',
     relationship: 'Relationships', revision: 'Revisions',
@@ -279,7 +297,7 @@ export async function openLlmReview(opts) {
                     return base + mention + dedupe;
                 }
                 case 'claim': {
-                    const about = (p.about || []).map((r) => norm.entityLabelByRef[r]).filter(Boolean);
+                    const about = asList(p.about).map((r) => norm.entityLabelByRef[String(r)]).filter(Boolean);
                     // ⭐ is display-only: `load_bearing` from the article
                     // extract (UA.1) — with its why as the tooltip — or
                     // the legacy is_key on parked pre-UA.1 batches.
@@ -292,11 +310,11 @@ export async function openLlmReview(opts) {
                 }
                 case 'assessment': {
                     const st = (p.stance === null || p.stance === undefined) ? '' : `stance: ${escapeHtml(STANCE_LABELS[String(p.stance)] || String(p.stance))}`;
-                    const labels = (p.labels || []).map((l) => l.label).filter(Boolean);
+                    const labels = asList(p.labels).map((l) => l && l.label).filter(Boolean);
                     const lb = labels.length ? `labels: ${escapeHtml(labels.join(', '))}` : '';
                     // Label quotes are optional anchors: an unlocatable one
                     // is saved WITHOUT an anchor (never fabricated) — say so.
-                    const lost = (p.labels || []).filter((l) => l && String(l.quote || '').trim()
+                    const lost = asList(p.labels).filter((l) => l && String(l.quote || '').trim()
                         && grounding.ground(String(l.quote).trim()).status === 'missing').length;
                     const warn = lost ? `<br><small class="xr-llm__anchor xr-llm__anchor--warn">⚓ ${lost} label quote${lost > 1 ? 's' : ''} not found — those labels save without an anchor</small>` : '';
                     return `<span class="xr-llm__dim">on</span> ${escapeHtml(truncate(claimTextByRef[p.claim_ref] || p.claim_ref, 90))}<br><small>${[st, lb].filter(Boolean).join(' · ')}</small>${warn}`;
@@ -305,7 +323,7 @@ export async function openLlmReview(opts) {
                 case 'revision':
                     return `${escapeHtml(truncate(claimTextByRef[p.source_claim_ref] || p.source_claim_ref, 60))} <strong>${escapeHtml(p.relationship)}</strong> ${escapeHtml(truncate(claimTextByRef[p.target_claim_ref] || p.target_claim_ref, 60))}`;
                 case 'finding': {
-                    const anchors = (p.anchors || []).filter((a) => a && String(a.quote || '').trim());
+                    const anchors = asList(p.anchors).filter((a) => a && String(a.quote || '').trim());
                     const quotes = anchors.map((a) => quoteHtml(a.quote)).join('');
                     return `<strong>${escapeHtml(subjectLabelOf(p, ctx) || '(subject)')}</strong> — <span class="xr-llm__man">${escapeHtml(p.maneuver || '?')}</span> <span class="xr-llm__dim">(${escapeHtml(p.role || '?')}, ${escapeHtml(p.basis || '?')})</span>${quotes}<small class="xr-llm__counter">↔ ${escapeHtml(truncate(p.counter_note || '(no counter-read)', 140))}</small>`;
                 }
