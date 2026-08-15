@@ -6,9 +6,11 @@
 // resetting the SW idle timer — never one long-lived SW call. The job
 // itself runs in the loopback companion service and survives everything
 // on our side; a job record in chrome.storage.local
-// (`xray:transcribe:job:<videoId>`) lets a closed reader, an SW
-// restart, or a re-capture RESUME polling instead of double-submitting
-// (the companion also dedupes active jobs by video as a backstop).
+// (`xray:transcribe:job:<mediaKey>` — a YouTube video id, or the
+// shared/media-key.js hash for any other media URL) lets a closed
+// reader, an SW restart, or a re-capture RESUME polling instead of
+// double-submitting (the companion also dedupes active jobs by media
+// key as a backstop).
 //
 // Pure decision logic + injectable IO (the autoPreAnalyzeArticle test
 // seam): everything chrome-flavored arrives via `io`, so node tests
@@ -28,8 +30,8 @@ export const POLL_INTERVAL_MS = 3000;
 // so the button resumes the same job once the service is back).
 export const MAX_UNREACHABLE_POLLS = 5;
 
-export function jobRecordKey(videoId) {
-    return JOB_RECORD_PREFIX + String(videoId || '');
+export function jobRecordKey(mediaKey) {
+    return JOB_RECORD_PREFIX + String(mediaKey || '');
 }
 
 /** True when a stored job record is too old to trust. */
@@ -115,7 +117,7 @@ export async function reapStaleJobRecords(io, now = Date.now()) {
 }
 
 /**
- * Run (or resume) the transcription job for a video, polling until a
+ * Run (or resume) the transcription job for one media URL, polling until a
  * terminal state. Resolves {ok: true, result} on success and
  * {ok: false, error, resumable?} on failure — never throws, never
  * leaves the UI hanging (the acceptance's no-silent-hang rule).
@@ -130,8 +132,8 @@ export async function reapStaleJobRecords(io, now = Date.now()) {
  *   now() → epoch ms
  *   onProgress(job|null) → void            (banner repaint)
  */
-export async function runTranscriptionJob({ videoUrl, videoId, provider, io }) {
-    const key = jobRecordKey(videoId);
+export async function runTranscriptionJob({ mediaUrl, mediaKey, provider, io }) {
+    const key = jobRecordKey(mediaKey);
     const record = await io.storageGet(key);
 
     // Resume decision: ask the server about a remembered job first —
@@ -162,7 +164,7 @@ export async function runTranscriptionJob({ videoUrl, videoId, provider, io }) {
     if (!jobId) {
         const started = await io.sendMessage({
             type: 'xray:transcribe:start',
-            url: videoUrl,
+            url: mediaUrl,
             // Engine for THIS job (picker choice / stored preference);
             // undefined lets the SW fall back to the stored preference.
             ...(provider ? { provider } : {})
@@ -172,7 +174,7 @@ export async function runTranscriptionJob({ videoUrl, videoId, provider, io }) {
         }
         jobId = started.jobId;
         await io.storageSet(key, {
-            jobId, url: videoUrl, videoId, startedAt: io.now(),
+            jobId, url: mediaUrl, mediaKey, startedAt: io.now(),
             ...(started.provider ? { provider: started.provider } : {})
         });
     }

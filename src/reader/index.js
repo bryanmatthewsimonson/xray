@@ -2176,7 +2176,7 @@ async function runTranscribeFlow(provider) {
             // Honest wording: a cloud-provider job is not "locally".
             renderTranscribeBanner(`Transcribing ${providerPhrase(job && job.provider)} — ${describeProgress(job)}`);
         });
-        const out = await runTranscriptionJob({ videoUrl: a.url, videoId, provider, io });
+        const out = await runTranscriptionJob({ mediaUrl: a.url, mediaKey: videoId, provider, io });
         if (!out.ok) {
             renderTranscribeBanner(out.error, 'error', { docsHint: !!(out.error || '').includes('not reachable') });
             // A cloud engine without its key: the picker is the fastest

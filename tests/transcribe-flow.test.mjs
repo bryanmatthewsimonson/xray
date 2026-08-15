@@ -90,7 +90,7 @@ test('runTranscriptionJob: the picked engine rides the start message and the job
         startResp: { ok: true, jobId: 'j-cloud', provider: 'assemblyai' },
         statusScript: [{ ok: true, job: { status: 'done', result: { segments: [1] } } }]
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://v', videoId: 'vid9', provider: 'assemblyai', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://v', mediaKey: 'vid9', provider: 'assemblyai', io });
     assert.equal(out.ok, true);
     const start = sent.find((m) => m.type === 'xray:transcribe:start');
     assert.equal(start.provider, 'assemblyai');
@@ -101,7 +101,7 @@ test('runTranscriptionJob: no provider given → none sent (SW resolves the stor
     const { io, sent } = makeIo({
         statusScript: [{ ok: true, job: { status: 'done', result: { segments: [1] } } }]
     });
-    await runTranscriptionJob({ videoUrl: 'https://v', videoId: 'vid10', io });
+    await runTranscriptionJob({ mediaUrl: 'https://v', mediaKey: 'vid10', io });
     const start = sent.find((m) => m.type === 'xray:transcribe:start');
     assert.ok(!('provider' in start), 'absent means the stored preference decides');
 });
@@ -110,7 +110,7 @@ test('runTranscriptionJob: a missing cloud key surfaces missingKey for the picke
     const { io } = makeIo({
         startResp: { ok: false, missingKey: 'deepgram', error: 'No Deepgram API key saved.' }
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://v', videoId: 'vid11', provider: 'deepgram', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://v', mediaKey: 'vid11', provider: 'deepgram', io });
     assert.equal(out.ok, false);
     assert.equal(out.missingKey, 'deepgram');
     assert.match(out.error, /Deepgram/);
@@ -138,7 +138,7 @@ test('runTranscriptionJob: mismatched record skips the status probe and starts f
         statusScript: [{ ok: true, job: { status: 'done', result: { segments: [1] } } }],
         store: { [jobRecordKey('vidM')]: { jobId: 'j-aai', startedAt: NOW - 1000, provider: 'assemblyai' } }
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://v', videoId: 'vidM', provider: 'local', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://v', mediaKey: 'vidM', provider: 'local', io });
     assert.equal(out.ok, true);
     // The old AssemblyAI job was never even asked about…
     const statusTargets = sent.filter((m) => m.type === 'xray:transcribe:status').map((m) => m.jobId);
@@ -184,7 +184,7 @@ test('fresh run: start → persist record → poll to done; record KEPT for the 
             { ok: true, job: { status: 'done', result } }
         ]
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://w', videoId: 'v', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://w', mediaKey: 'v', io });
     assert.equal(out.ok, true);
     assert.deepEqual(out.result, result);
     assert.equal(sent.filter((m) => m.type === 'xray:transcribe:start').length, 1);
@@ -202,7 +202,7 @@ test('resume: live record + running job → NO second start message', async () =
             { ok: true, job: { status: 'done', result: { segments: [1] } } }
         ]
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://w', videoId: 'v', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://w', mediaKey: 'v', io });
     assert.equal(out.ok, true);
     assert.equal(sent.filter((m) => m.type === 'xray:transcribe:start').length, 0, 'never double-submits');
 });
@@ -213,7 +213,7 @@ test('done-while-away: reopening adopts the finished job without polling, record
         store: { [jobRecordKey('v')]: { jobId: 'j-1', startedAt: NOW - 1000 } },
         statusScript: [{ ok: true, job: { status: 'done', result } }]
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://w', videoId: 'v', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://w', mediaKey: 'v', io });
     assert.equal(out.ok, true);
     assert.deepEqual(out.result, result);
     assert.equal(sent.length, 1, 'one status call, no start, no poll loop');
@@ -224,7 +224,7 @@ test('service down at start: clear error, nothing persisted', async () => {
     const { io, store } = makeIo({
         startResp: { ok: false, unreachable: true, error: 'Companion transcription service not reachable at http://127.0.0.1:8756. …' }
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://w', videoId: 'v', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://w', mediaKey: 'v', io });
     assert.equal(out.ok, false);
     assert.match(out.error, /not reachable/);
     assert.ok(!(jobRecordKey('v') in store));
@@ -234,7 +234,7 @@ test('unreachable mid-poll: tolerated briefly, then resumable failure that KEEPS
     const { io, store } = makeIo({
         statusScript: [{ ok: false, unreachable: true, error: 'Companion transcription service not reachable…' }]
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://w', videoId: 'v', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://w', mediaKey: 'v', io });
     assert.equal(out.ok, false);
     assert.equal(out.resumable, true);
     assert.ok(jobRecordKey('v') in store, 'the record survives — a later click resumes the same job');
@@ -249,7 +249,7 @@ test('unreachable blips under the threshold recover', async () => {
         ]
     });
     assert.ok(MAX_UNREACHABLE_POLLS > 2, 'precondition for this fixture');
-    const out = await runTranscriptionJob({ videoUrl: 'https://w', videoId: 'v', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://w', mediaKey: 'v', io });
     assert.equal(out.ok, true);
 });
 
@@ -257,7 +257,7 @@ test('failed job: error surfaced, record reaped so the next click starts fresh',
     const { io, store } = makeIo({
         statusScript: [{ ok: true, job: { status: 'failed', error: 'HF_TOKEN is not set. …' } }]
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://w', videoId: 'v', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://w', mediaKey: 'v', io });
     assert.equal(out.ok, false);
     assert.match(out.error, /HF_TOKEN/);
     assert.ok(!(jobRecordKey('v') in store));
@@ -270,8 +270,26 @@ test('404 mid-poll (server restarted past retention): record reaped, clear error
             { ok: false, status: 404, error: 'Transcriber request failed: unknown job' }
         ]
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://w', videoId: 'v', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://w', mediaKey: 'v', io });
     assert.equal(out.ok, false);
     assert.match(out.error, /no longer knows this job/);
     assert.ok(!(jobRecordKey('v') in store));
+});
+
+test('runTranscriptionJob: a generic media key stores and resumes its own record', async () => {
+    const KEY = 'u_0123456789abcdef';
+    const { io, store, sent } = makeIo({
+        startResp: { ok: true, jobId: 'j-generic', provider: 'local' },
+        statusScript: [{ ok: true, job: { status: 'done', result: { segments: [{ start: 0, end: 1, text: 'hi' }] } } }]
+    });
+    const out = await runTranscriptionJob({
+        mediaUrl: 'https://mormonstories.org/podcast/ep-1/', mediaKey: KEY, io
+    });
+    assert.equal(out.ok, true);
+    // The record is keyed by the media key and SURVIVES success — the
+    // caller drops it only after a successful adoption.
+    assert.ok(store[JOB_RECORD_PREFIX + KEY], 'record kept under the media key');
+    assert.equal(store[JOB_RECORD_PREFIX + KEY].jobId, 'j-generic');
+    const start = sent.find((m) => m.type === 'xray:transcribe:start');
+    assert.equal(start.url, 'https://mormonstories.org/podcast/ep-1/');
 });
