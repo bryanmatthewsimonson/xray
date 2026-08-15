@@ -220,6 +220,31 @@ export async function runTranscriptionJob({ mediaUrl, mediaKey, provider, io }) 
     }
 }
 
+/**
+ * Does this capture look like it has media a transcriber could fetch?
+ *
+ * Deliberately GENEROUS. A false positive costs one clear error from
+ * the companion ("no media found at this URL"); a false negative hides
+ * the feature on exactly the long-tail pages this exists for. The
+ * escape hatch for anything missed is the 🎙 Media & source modal's
+ * "Transcribe from source", offered on every capture.
+ */
+export function hasMediaSignal(article) {
+    const a = article || {};
+    // Nothing to send: a URL-less capture (a pasted transcript import)
+    // has no source for the companion to fetch. Only an EXPLICITLY
+    // empty/falsy url disqualifies — every real capture sets url, so
+    // this only fires for a deliberately source-less article.
+    if ('url' in a && !a.url) return false;
+    if (a.platform === 'youtube' && a.youtube && a.youtube.videoId) return true;
+    if (a.contentType === 'video' || a.contentType === 'audio') return true;
+    if (a.media === 'video' || a.media === 'podcast') return true;
+    if (a.podcast && Object.keys(a.podcast).length > 0) return true;
+    const h = a.mediaHints;
+    if (h && (h.audio || h.video || (Array.isArray(h.embeds) && h.embeds.length > 0))) return true;
+    return false;
+}
+
 /** The chrome-backed io used by the reader (kept here so index.js just
  *  wires callbacks; node tests build their own). */
 export function chromeIo(browserApi, onProgress) {

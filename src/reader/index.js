@@ -84,7 +84,8 @@ import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/len
 import { speakerFromParagraphText } from '../shared/transcript-parse.js';
 import { buildTranscriptSection, upsertTranscriptSection } from '../shared/transcript-article.js';
 import { buildDiarizedBody, timeFragmentSelector, timeRangeOfSpan, diarizedTrackEntry, extractionMethodFor } from '../shared/diarized-transcript.js';
-import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey } from './transcribe-flow.js';
+import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey, hasMediaSignal } from './transcribe-flow.js';
+import { mediaKeyForArticle } from '../shared/media-key.js';
 import { openMediaModal } from './media-modal.js';
 import { scanPodcastSignals } from '../shared/podcast-identity.js';
 import { openSpeakersModal, speakerEntityId, decorateSpeakerLabels } from './speakers-modal.js';
@@ -2121,8 +2122,8 @@ let _transcribeRunning = false;
 async function runTranscribeFlow(provider) {
     if (typeof provider !== 'string') provider = undefined; // onclick passes an event
     const a = state.article;
-    const videoId = a && a.youtube && a.youtube.videoId;
-    if (!a || !videoId) { toast('Not a YouTube capture.', 'error'); return; }
+    if (!a || !a.url) { toast('This capture has no source URL to transcribe.', 'error'); return; }
+    const mediaKey = await mediaKeyForArticle(a);
     if (_transcribeRunning) {
         // Never swallow a click silently (the Suggest-local precedent).
         toast('A transcription is already running for this capture — wait for it to finish.', 'error');
@@ -2153,7 +2154,7 @@ async function runTranscribeFlow(provider) {
                 const arch = hit.article;
                 const segs = arch.transcription.segments.length;
                 if (confirm(
-                    `This video already has a local transcription in your archive (${segs} segments`
+                    `This capture already has a local transcription in your archive (${segs} segments`
                     + `${arch.transcript_meta ? `, ${arch.transcript_meta.speaker_count} speaker(s)` : ''}`
                     + `${hit.prior ? ' — from a prior version; a later re-capture replaced it' : ''}).\n\n`
                     + 'OK — load the archived transcript (instant).\n'
@@ -2187,7 +2188,7 @@ async function runTranscribeFlow(provider) {
             // Honest wording: a cloud-provider job is not "locally".
             renderTranscribeBanner(`Transcribing ${providerPhrase(job && job.provider)} — ${describeProgress(job)}`);
         });
-        const out = await runTranscriptionJob({ mediaUrl: a.url, mediaKey: videoId, provider, io });
+        const out = await runTranscriptionJob({ mediaUrl: a.url, mediaKey, provider, io });
         if (!out.ok) {
             renderTranscribeBanner(out.error, 'error', { docsHint: !!(out.error || '').includes('not reachable') });
             // A cloud engine without its key: the picker is the fastest
@@ -2199,7 +2200,7 @@ async function runTranscribeFlow(provider) {
         // Adoption succeeded — NOW the finished job's record can go
         // (kept until here so an adoption refusal keeps a handle to the
         // server-side result instead of re-running the whole job).
-        await io.storageRemove([jobRecordKey(videoId)]).catch(() => {});
+        await io.storageRemove([jobRecordKey(mediaKey)]).catch(() => {});
         // Reload safety: fold the adopted article + a cleared transcribe
         // flag back into the session record. Without this, F5 (or a
         // Memory-Saver tab restore) re-reads the ORIGINAL transcript-less
@@ -2272,7 +2273,7 @@ function transcribeTooltip() {
     const rerun = !!(state.article && state.article.transcription);
     const head = rerun
         ? 'Re-run the diarized transcription (replaces the current transcript section)'
-        : 'Transcribe this video';
+        : 'Transcribe the media at this URL';
     const e = _transcribeCfg.engine;
     if (e === 'ask') return `${head} — you'll choose the engine (▾ also opens the choices)`;
     if (!e) return `${head} — with the companion service's default engine (local unless its env says otherwise; pick per video with ▾, or set a default in Settings)`;
@@ -2282,19 +2283,24 @@ function transcribeTooltip() {
         : `${head} — via ${meta.label} (cloud: the episode audio leaves this machine, ${meta.badge.replace('cloud — ', '')})`;
 }
 
-/** Per-engine time/cost line for the picker, from the video duration. */
+/** Per-engine time/cost line for the picker. Duration is only known
+ *  before the job on platforms that report it (YouTube, TikTok) or from
+ *  a podcast feed; elsewhere we say so rather than invent a number —
+ *  the companion probes the real duration and enforces the 4-hour cap. */
 function engineEstimate(engine) {
-    const secs = Number(state.article && state.article.youtube
-        && state.article.youtube.durationSeconds) || 0;
+    const a = state.article || {};
+    const secs = Number((a.youtube && a.youtube.durationSeconds)
+        || (a.video && a.video.durationSeconds)
+        || (a.podcast && a.podcast.duration_seconds)) || 0;
     const meta = ENGINE_META[engine];
     if (engine === 'local') {
-        if (!secs) return 'Runs on your GPU; speed depends on the card.';
+        if (!secs) return 'Runs on your GPU; speed depends on the card and the length of the media.';
         const mins = Math.max(1, Math.ceil(secs / 900 + secs / 3600 * 2));
         return `~${mins} min on your GPU (transcribe + diarize) — free.`;
     }
-    if (!secs) return 'Usually 2–5 minutes, metered per audio-hour.';
+    if (!secs) return 'Usually 2–5 minutes, metered per audio-hour (length unknown until the companion probes it).';
     const cost = Math.max(0.01, (secs / 3600) * meta.rate);
-    return `~2–5 min — about $${cost.toFixed(2)} for this video.`;
+    return `~2–5 min — about $${cost.toFixed(2)} for this media.`;
 }
 
 function closeEnginePicker() {
@@ -2407,9 +2413,10 @@ async function setupTranscribeControl() {
     const btn = $('#xr-transcribe');
     const caret = $('#xr-transcribe-engine');
     if (!btn) return;
-    const isYouTube = !!(state.article && state.article.platform === 'youtube'
-        && state.article.youtube && state.article.youtube.videoId);
-    if (!isYouTube || state.readOnlyOpen) {
+    // An explicit "Capture & transcribe" gesture IS the signal — show
+    // the control even when the page's media hints came back empty.
+    const qualifies = hasMediaSignal(state.article) || state.transcribeRequested;
+    if (!qualifies || state.readOnlyOpen) {
         btn.hidden = true;
         if (caret) caret.hidden = true;
         return;
