@@ -190,10 +190,12 @@ export async function startTranscription(videoUrl, { port, fetchFn = fetch, prov
     // Generic-URL capability gate. The companion admitted YouTube URLs
     // only until the Transcribe Anywhere wave; an older build would 400
     // with its own wording, which reads like a broken feature rather
-    // than an out-of-date service. Probe /health and name the fix.
-    // Unreachable falls through — the POST below fails with the normal
-    // reachable error, the one that already carries the setup hint.
-    if (!youtubeVideoId(body.url) && !engine) {
+    // than an out-of-date service. A YouTube URL with no parseable id
+    // is deliberately treated as generic (likely a typo; the companion
+    // cannot run it either). Probe /health and name the fix. Unreachable
+    // falls through — the POST below fails with the normal reachable
+    // error, the one that already carries the setup hint.
+    if (!youtubeVideoId(body.url)) {
         const probe = await companionFetch('/health', { port, fetchFn, timeoutMs: 3000 });
         if (probe.ok && !(probe.body && probe.body.generic_urls)) {
             return {
