@@ -79,6 +79,16 @@ class QueueRouting(unittest.TestCase):
 class TranscribeEndpoint(unittest.TestCase):
     """POST /transcribe called as a plain function (no TestClient dep)."""
 
+    def setUp(self):
+        # Admission must never hit the network (README: unit tests are
+        # "no network, no GPU") — these tests predate media_url.py's
+        # DNS-resolving admission gate and only ever cared about
+        # provider/key routing, not the resolver.
+        resolve = mock.patch.object(
+            server.media_url, "_addresses_are_global", return_value=True)
+        self.addCleanup(resolve.stop)
+        resolve.start()
+
     def test_response_names_the_engine_and_dedupe_tells_the_truth(self):
         req = server.TranscribeRequest(
             url="https://www.youtube.com/watch?v=dEdUpE00001",
