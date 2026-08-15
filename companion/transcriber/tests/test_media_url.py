@@ -94,6 +94,34 @@ class Admission(unittest.TestCase):
             with self.assertRaises(ValueError, msg=bad):
                 validate_media_url(bad, resolver=PUBLIC)
 
+    def test_rejects_nat64_embedded_link_local(self):
+        # 64:ff9b::a9fe:a9fe embeds 169.254.169.254 (cloud metadata).
+        with self.assertRaises(ValueError):
+            validate_media_url(
+                "https://nat64.example/a.mp3",
+                resolver=fake_resolver(["64:ff9b::a9fe:a9fe"]))
+
+    def test_rejects_nat64_embedded_loopback(self):
+        # 64:ff9b::7f00:1 embeds 127.0.0.1.
+        with self.assertRaises(ValueError):
+            validate_media_url(
+                "https://nat64.example/a.mp3",
+                resolver=fake_resolver(["64:ff9b::7f00:1"]))
+
+    def test_accepts_nat64_embedded_public_address(self):
+        # 64:ff9b::5db8:d822 embeds 93.184.216.34 (public).
+        url = "https://nat64.example/a.mp3"
+        self.assertEqual(
+            validate_media_url(url, resolver=fake_resolver(["64:ff9b::5db8:d822"])),
+            url,
+        )
+
+    def test_rejects_ipv4_mapped_private_address(self):
+        with self.assertRaises(ValueError):
+            validate_media_url(
+                "https://mapped.example/a.mp3",
+                resolver=fake_resolver(["::ffff:10.0.0.5"]))
+
 
 class MediaKey(unittest.TestCase):
     def test_youtube_keeps_the_bare_video_id(self):
@@ -131,6 +159,42 @@ class MediaKey(unittest.TestCase):
         a = media_key_for("https://example.com/p?a=1&b=2")
         b = media_key_for("https://example.com/p?b=2&a=1")
         self.assertEqual(a, b)
+
+
+class MalformedUrlSafety(unittest.TestCase):
+    """Only validate_media_url communicates rejection, via ValueError.
+    media_key_for and cookies_allowed_for are called on URLs that have
+    not (yet, or ever) passed admission, so they must degrade instead
+    of raising: media_key_for still returns a usable key, and
+    cookies_allowed_for fails closed (False)."""
+
+    MALFORMED = (
+        "https://[::1/x",              # invalid IPv6 host literal
+        "https://example.com:99999999/x",  # port out of range
+        "https://example.com:abc/x",   # non-numeric port
+    )
+
+    def test_media_key_for_does_not_raise(self):
+        for bad in self.MALFORMED:
+            key = media_key_for(bad)
+            self.assertTrue(key.startswith("u_"), bad)
+            self.assertEqual(len(key), 18, bad)
+
+    def test_media_key_for_is_stable_on_malformed_input(self):
+        # Same malformed URL -> same fallback key, twice.
+        for bad in self.MALFORMED:
+            self.assertEqual(media_key_for(bad), media_key_for(bad), bad)
+
+    def test_cookies_allowed_for_does_not_raise_and_fails_closed(self):
+        for bad in self.MALFORMED:
+            self.assertFalse(cookies_allowed_for(bad, "youtube.com"), bad)
+
+    def test_validate_media_url_still_raises_cleanly(self):
+        # validate_media_url's job is to raise ValueError (not some
+        # other uncaught exception) on all of the same malformed input.
+        for bad in self.MALFORMED:
+            with self.assertRaises(ValueError, msg=bad):
+                validate_media_url(bad, resolver=PUBLIC)
 
 
 class CookieScope(unittest.TestCase):

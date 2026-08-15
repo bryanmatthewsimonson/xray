@@ -14,6 +14,9 @@ NOT closed.  What bounds the residual risk: the service binds loopback
 only, CORS admits browser-extension origins only, an optional shared
 token guards every non-/health endpoint, responses never reach a third
 party, and the URL is always one the user personally chose to transcribe.
+Resolved addresses that embed a v4 address (NAT64 ``64:ff9b::/96`` and
+IPv4-mapped ``::ffff:0:0/96``) are decoded and the same is_global test
+is applied to the embedded address, not just the outer one.
 
 This module never imports heavy dependencies — server.py imports it.
 """
@@ -42,12 +45,37 @@ _TRACKING_PARAMS = {
     "si", "ref", "ref_src", "ref_url", "source",
 }
 
+# RFC 6052 NAT64 well-known prefix.  ipaddress.IPv6Address.is_global
+# does NOT decode this — it only inspects the outer /128 — so a
+# hostname whose AAAA record lives in this block can smuggle an
+# arbitrary embedded IPv4 address (e.g. 169.254.169.254, the
+# cloud-metadata address) past the outer-address check.
+_NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
+
+
+def _safe_parse(url):
+    """Parse ``url``, returning None instead of raising on bad input.
+
+    ``urlparse()`` itself raises ``ValueError`` for malformed IPv6 host
+    literals (e.g. an unterminated ``[``), and the ``.port`` property
+    raises lazily, on access, for a non-numeric or out-of-range port —
+    so a parse is not actually "safe" until ``.port`` has been touched
+    too.  Every public function in this module routes through here so
+    malformed input is handled identically everywhere, rather than
+    each call site guarding (or not) on its own.
+    """
+    try:
+        parsed = urlparse(str(url or "").strip())
+        parsed.port
+    except ValueError:
+        return None
+    return parsed
+
 
 def youtube_video_id(url: str) -> "str | None":
     """The YouTube video id for ``url``, or None when it is not one."""
-    try:
-        parsed = urlparse(str(url or "").strip())
-    except ValueError:
+    parsed = _safe_parse(url)
+    if parsed is None:
         return None
     host = (parsed.hostname or "").lower()
     if host not in _YOUTUBE_HOSTS:
@@ -63,6 +91,20 @@ def youtube_video_id(url: str) -> "str | None":
                 video_id = parsed.path[len(prefix):].split("/")[0]
                 break
     return video_id if _VIDEO_ID_RE.match(video_id) else None
+
+
+def _embedded_ipv4(ip):
+    """The IPv4 address embedded in ``ip``, or None.
+
+    Covers the RFC 6052 NAT64 well-known prefix explicitly (Python's
+    ``ipaddress`` does not decode it).  IPv4-mapped addresses
+    (``::ffff:0:0/96``) are already handled by
+    ``IPv6Address.is_global`` itself via ``ipv4_mapped``, so they are
+    not special-cased here — this only fills the NAT64 gap.
+    """
+    if isinstance(ip, ipaddress.IPv6Address) and ip in _NAT64_PREFIX:
+        return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    return None
 
 
 def _addresses_are_global(host: str, resolver) -> bool:
@@ -83,6 +125,9 @@ def _addresses_are_global(host: str, resolver) -> bool:
         # reserved, and multicast ranges — exactly the deny set.
         if not ip.is_global:
             return False
+        embedded = _embedded_ipv4(ip)
+        if embedded is not None and not embedded.is_global:
+            return False
     return True
 
 
@@ -94,9 +139,8 @@ def validate_media_url(url: str, resolver=socket.getaddrinfo) -> str:
     candidate = str(url or "").strip()
     if not candidate:
         raise ValueError("no URL given")
-    try:
-        parsed = urlparse(candidate)
-    except ValueError:
+    parsed = _safe_parse(candidate)
+    if parsed is None:
         raise ValueError("that does not look like a URL")
     if parsed.scheme != "https":
         raise ValueError("only https:// media URLs are supported")
@@ -123,11 +167,20 @@ def media_key_for(url: str) -> str:
     dropped, tracking parameters removed, remaining parameters sorted.
     Deliberately UNDER-normalized otherwise — merging two distinct
     episodes into one job is worse than running two jobs.
+
+    Never raises: this key is computed before (and independent of)
+    admission, so a malformed URL still needs a usable — if
+    unnormalized — key.  On unparseable input this falls back to
+    hashing the raw trimmed string.
     """
     video_id = youtube_video_id(url)
     if video_id:
         return video_id
-    parsed = urlparse(str(url or "").strip())
+    raw = str(url or "").strip()
+    parsed = _safe_parse(raw)
+    if parsed is None:
+        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        return f"u_{digest[:16]}"
     host = (parsed.hostname or "").lower()
     if parsed.port and not ((parsed.scheme == "https" and parsed.port == 443)
                             or (parsed.scheme == "http" and parsed.port == 80)):
@@ -158,8 +211,14 @@ def cookies_allowed_for(url: str, allowed_hosts: str) -> bool:
     identical behavior to before the funnel widened.  Exact hostname
     match only — a named ``example.com`` must never authorize
     ``evil.example.com``.
+
+    Fails closed: a URL this module cannot even parse gets no cookies,
+    never an exception — the caller should not need to guard this call.
     """
-    host = (urlparse(str(url or "").strip()).hostname or "").lower()
+    parsed = _safe_parse(url)
+    if parsed is None:
+        return False
+    host = (parsed.hostname or "").lower()
     if not host:
         return False
     allowed = {
