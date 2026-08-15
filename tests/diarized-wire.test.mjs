@@ -73,7 +73,7 @@ const RESULT = {
  *  its article mutations exactly). */
 function diarizedArticle() {
     const { markdown, transcriptMeta } = buildDiarizedBody({
-        capturedMarkdown: CAPTURED, watchUrl: WATCH, result: RESULT
+        capturedMarkdown: CAPTURED, mediaUrl: WATCH, platform: 'youtube', result: RESULT
     });
     return {
         url: WATCH,

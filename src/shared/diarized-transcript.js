@@ -152,43 +152,60 @@ export function diarizedHeading(language, provider) {
 
 /**
  * Compose the diarized capture body from the captured (transcript-less)
- * YouTube markdown plus the companion result. Returns the new canonical
+ * markdown plus the companion result. Returns the new canonical
  * markdown, the offset→time map over it, and the transcript_meta the
  * article needs for the speaker→claim prefill.
  *
- * Three transforms over the captured markdown:
- * 1. `## Description` → `## Description — YouTube`. MANDATORY:
+ * Two transforms are UNIVERSAL:
+ * 1. Any native `## Transcript — …` sections are dropped — unlabeled
+ *    auto-cues are superseded by the diarized transcript (the archive's
+ *    prior-version snapshot keeps them, honest versioning).
+ * 2. The diarized section is appended under the suffixed heading, so a
+ *    later Phase-22 paste-attach (which replaces only the BARE
+ *    `## Transcript`) can never clobber it.
+ *
+ * One is YOUTUBE-ONLY (`platform === 'youtube'`):
+ * 3. `## Description` → `## Description — YouTube`. MANDATORY there:
  *    reconstructArticleFromEvent cuts any bare `## Description` section
  *    and assembleArticleBody re-appends it only for contentType
  *    'video' — on a 'transcript' capture the bytes would vanish on
  *    relay round-trip and fork the x-hash (the JOURNAL
- *    markdown-canonical trap).
- * 2. Any native `## Transcript — …` sections are dropped — unlabeled
- *    auto-cues are superseded by the diarized transcript (the archive's
- *    prior-version snapshot keeps them, honest versioning).
- * 3. The diarized section is appended under the suffixed heading with
- *    YouTube `&t=<s>s` deep links on the watch URL.
+ *    markdown-canonical trap). Off YouTube there is no such section to
+ *    rename, and renaming one that a site happened to author would be
+ *    a lie.
  *
- * @param {{capturedMarkdown: string, watchUrl: string,
- *          result: {language?: string, segments: Array}}} p
+ * Deep links follow the same split: YouTube gets its `&t=<s>s` watch-URL
+ * form, everything else the generic W3C Media-Fragments `<url>#t=<s>`
+ * that buildTranscriptSection already emits for an http(s) meta.url.
+ *
+ * @param {{capturedMarkdown: string, mediaUrl?: string, watchUrl?: string,
+ *          platform?: string, result: {language?: string, segments: Array}}} p
  * @returns {{markdown: string, timeMap: Array, transcriptMeta: object, heading: string}}
  */
-export function buildDiarizedBody({ capturedMarkdown = '', watchUrl = '', result = {} } = {}) {
+export function buildDiarizedBody({
+    capturedMarkdown = '', mediaUrl = '', watchUrl = '', platform = '', result = {}
+} = {}) {
+    const url = mediaUrl || watchUrl;   // watchUrl: the pre-wave name
+    const isYouTube = String(platform || '').toLowerCase() === 'youtube';
     const segments = Array.isArray(result.segments) ? result.segments : [];
     const turns = turnsFromSegments(segments);
     if (turns.length === 0) throw new Error('Transcription returned no usable segments');
 
     let base = String(capturedMarkdown || '').replace(/\s+$/, '');
 
-    // (1) Rename the bare Description heading (round-trip safety).
-    base = base.replace(/^## Description[ \t]*$/m, '## Description — YouTube');
+    // (3) YouTube only — the round-trip rename.
+    if (isYouTube) {
+        base = base.replace(/^## Description[ \t]*$/m, '## Description — YouTube');
+    }
 
-    // (2) Drop native transcript sections (start-of-line suffixed
+    // (1) Drop native transcript sections (start-of-line suffixed
     // heading through the next same-level heading or EOF).
     base = base.replace(/^## Transcript — [^\n]*$[\s\S]*?(?=^## |$(?![\s\S]))/gm, '').replace(/\s+$/, '');
 
     const heading = diarizedHeading(result.language, result.model_info && result.model_info.provider);
-    const linkFor = (secs) => `${watchUrl}&t=${secs}s`;
+    // linkFor is YouTube's watch-URL form; null lets buildTranscriptSection
+    // fall back to the generic Media-Fragments `<url>#t=<s>`.
+    const linkFor = isYouTube ? (secs) => `${url}&t=${secs}s` : null;
 
     // Assemble first WITHOUT offsets to learn where the section lands,
     // then re-render with the observer to place each paragraph. Cheaper:
@@ -198,7 +215,7 @@ export function buildDiarizedBody({ capturedMarkdown = '', watchUrl = '', result
     const paras = [];
     const section = buildTranscriptSection({
         turns,
-        meta: { url: watchUrl },
+        meta: { url },
         heading,
         linkFor,
         onParagraph: (p, rendered) => paras.push({ p, rendered })

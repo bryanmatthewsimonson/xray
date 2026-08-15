@@ -112,7 +112,7 @@ test('diarizedHeading: language label when known, bare local form otherwise', ()
 
 test('buildDiarizedBody: Description renamed, suffixed heading, &t=Ns links, speakers bolded', () => {
     const { markdown, transcriptMeta, heading } = buildDiarizedBody({
-        capturedMarkdown: CAPTURED, watchUrl: WATCH,
+        capturedMarkdown: CAPTURED, mediaUrl: WATCH, platform: 'youtube',
         result: { language: 'en', segments: segs() }
     });
     // 1. The relay round-trip trap: the bare heading must be GONE
@@ -140,7 +140,7 @@ test('buildDiarizedBody: native transcript sections are dropped, prior versions 
     const withNative = CAPTURED + '\n\n## Transcript — English (auto-generated, origin language)\n\n'
         + '[`0:00`](https://www.youtube.com/watch?v=abc123DEF45&t=0s) old unlabeled cues here\n';
     const { markdown } = buildDiarizedBody({
-        capturedMarkdown: withNative, watchUrl: WATCH,
+        capturedMarkdown: withNative, mediaUrl: WATCH, platform: 'youtube',
         result: { language: 'en', segments: segs() }
     });
     assert.ok(!markdown.includes('old unlabeled cues here'), 'native auto-cue section superseded');
@@ -149,7 +149,7 @@ test('buildDiarizedBody: native transcript sections are dropped, prior versions 
 
 test('buildDiarizedBody: timeMap offsets index the FINAL markdown exactly', () => {
     const { markdown, timeMap } = buildDiarizedBody({
-        capturedMarkdown: CAPTURED, watchUrl: WATCH,
+        capturedMarkdown: CAPTURED, mediaUrl: WATCH, platform: 'youtube',
         result: { language: 'en', segments: segs() }
     });
     assert.ok(timeMap.length > 0);
@@ -165,13 +165,13 @@ test('buildDiarizedBody: timeMap offsets index the FINAL markdown exactly', () =
 
 test('buildDiarizedBody: throws on empty segments (never adopt an empty body)', () => {
     assert.throws(() => buildDiarizedBody({
-        capturedMarkdown: CAPTURED, watchUrl: WATCH, result: { segments: [] }
+        capturedMarkdown: CAPTURED, mediaUrl: WATCH, platform: 'youtube', result: { segments: [] }
     }), /no usable segments/);
 });
 
 test('the Phase 22 bare-heading upsert can never clobber the diarized section', () => {
     const { markdown } = buildDiarizedBody({
-        capturedMarkdown: CAPTURED, watchUrl: WATCH,
+        capturedMarkdown: CAPTURED, mediaUrl: WATCH, platform: 'youtube',
         result: { language: 'en', segments: segs() }
     });
     const attached = upsertTranscriptSection(markdown, '## Transcript\n\npasted attach\n');
@@ -245,7 +245,7 @@ test('diarizedHeading: cloud providers are named — the body is durable, "local
 
 test('buildDiarizedBody: a cloud result names its provider in the heading', () => {
     const { markdown, heading } = buildDiarizedBody({
-        capturedMarkdown: CAPTURED, watchUrl: WATCH,
+        capturedMarkdown: CAPTURED, mediaUrl: WATCH, platform: 'youtube',
         result: {
             language: 'en', segments: segs(),
             model_info: { provider: 'assemblyai', asr_model: 'universal' }
@@ -264,4 +264,30 @@ test('diarizedTrackEntry: cloud runs name the engine, keep the replace-slot role
     assert.equal(entry.displayName, 'Deepgram (diarized, en)');
     assert.equal(entry.role, 'local-diarized');
     assert.equal(entry.events.length, 4);
+});
+
+test('buildDiarizedBody: a generic media URL gets #t= links and no Description rename', () => {
+    const EPISODE = 'https://mormonstories.org/podcast/ep-1/';
+    const captured = '# Episode 1\n\n## Description\n\nShow notes here.\n';
+    const { markdown, heading } = buildDiarizedBody({
+        capturedMarkdown: captured, mediaUrl: EPISODE, platform: 'podcast',
+        result: { language: 'en', segments: segs() }
+    });
+    // The YouTube-only round-trip rename must NOT fire off YouTube.
+    assert.ok(/^## Description$/m.test(markdown), 'bare Description heading left alone');
+    assert.ok(!markdown.includes('## Description — YouTube'), 'no YouTube rename off YouTube');
+    // Generic Media-Fragments deep links, never the &t=Ns form.
+    assert.ok(markdown.includes(`](${EPISODE}#t=0)`), 'generic #t= link form');
+    assert.ok(!markdown.includes('&t=0s'), 'no YouTube &t=Ns links off YouTube');
+    // The suffixed heading still protects against a later paste-attach.
+    assert.equal(heading, 'Transcript — English (local, diarized)');
+    assert.ok(markdown.includes(`## ${heading}`));
+});
+
+test('buildDiarizedBody: the legacy watchUrl parameter still works', () => {
+    const { markdown } = buildDiarizedBody({
+        capturedMarkdown: CAPTURED, watchUrl: WATCH, platform: 'youtube',
+        result: { language: 'en', segments: segs() }
+    });
+    assert.ok(markdown.includes(`](${WATCH}&t=0s)`));
 });
