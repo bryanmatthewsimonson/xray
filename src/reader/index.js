@@ -2012,7 +2012,7 @@ function removeTranscribeBanner() {
  */
 async function adoptDiarizedTranscript(result) {
     const a = state.article;
-    if (!a || !a.youtube) throw new Error('Not a YouTube capture.');
+    if (!a || !a.url) throw new Error('This capture has no source URL to transcribe.');
 
     // The job ran for minutes on an editable page. Adopting over the
     // user's edits would silently discard them — their state wins.
@@ -2029,20 +2029,26 @@ async function adoptDiarizedTranscript(result) {
 
     const { markdown, timeMap, transcriptMeta } = buildDiarizedBody({
         capturedMarkdown: a.markdown || '',
-        watchUrl: a.url,
+        mediaUrl: a.url,
+        platform: a.platform,
         result
     });
 
     // contentType flips BEFORE hashing: 'transcript' joins the
     // markdown-canonical set, so the hash covers the markdown substrate
     // (the ordering trap — hashing first would cover the old turndown
-    // side). platform stays 'youtube' (header + tag block unaffected).
+    // side). platform is untouched (header + tag block unaffected).
     a.contentType = 'transcript';
-    // The Phase 22 whitelisted user-declared media tag: choosing
-    // "Transcribe locally" on a video IS the declaration, and it keeps
-    // these captures findable by consumers filtering on video-ness now
-    // that content_format reads 'transcript'.
-    a.media = 'video';
+    // The Phase 22 whitelisted user-declared media tag. Choosing
+    // "Transcribe" on a platform that IS video is the declaration, and
+    // it keeps those captures findable by consumers filtering on
+    // video-ness now that content_format reads 'transcript'. OFF those
+    // platforms we declare NOTHING: media type is the user's to state
+    // (the 🎙 Media modal), and a podcast episode is not a video. The
+    // post-adoption refreshMediaNudge() surfaces that prompt.
+    if (!a.media && (a.platform === 'youtube' || a.platform === 'tiktok')) {
+        a.media = 'video';
+    }
     a.markdown = markdown;
     a.content = ContentExtractor.markdownToHtml(markdown);
     a.transcript_meta = transcriptMeta;
@@ -2058,8 +2064,13 @@ async function adoptDiarizedTranscript(result) {
     a.extraction = { ...(a.extraction || {}), method: extractionMethodFor(result.model_info) };
     // The transcript_lang manifest + header chip both gate on non-empty
     // events — the diarized track carries them (locally; never as tags).
-    a.youtube.transcripts = [
-        ...(Array.isArray(a.youtube.transcripts) ? a.youtube.transcripts : [])
+    // YOUTUBE keeps the youtube-nested slot, which is the ONLY slot
+    // event-builder reads: writing the neutral slot below for other
+    // platforms is deliberately wire-inert (tests/diarized-wire.test.mjs
+    // pins that a non-YouTube diarized capture emits no transcript_lang).
+    const trackSlot = a.platform === 'youtube' && a.youtube ? a.youtube : a;
+    trackSlot.transcripts = [
+        ...(Array.isArray(trackSlot.transcripts) ? trackSlot.transcripts : [])
             .filter((t) => t && t.role !== 'local-diarized'),
         diarizedTrackEntry(result)
     ];

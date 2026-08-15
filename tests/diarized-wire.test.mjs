@@ -221,3 +221,43 @@ test('speaker identification: label-context entity refs ride the EXISTING p/pers
 
     await Storage.set('entities', {});
 });
+
+test('a NON-YouTube diarized capture emits no transcript_lang tag (wire promise)', async () => {
+    // The neutral `article.transcripts` slot is LOCAL-ONLY. If a future
+    // change teaches event-builder to read it, this test fails — which
+    // is the point: that would be a wire-format change needing the
+    // ecosystem-pm callout, not a silent additive tag on a new class of
+    // events.
+    const EPISODE = 'https://mormonstories.org/podcast/ep-1/';
+    const { markdown, transcriptMeta } = buildDiarizedBody({
+        capturedMarkdown: '# Episode 1\n\nShow notes.\n',
+        mediaUrl: EPISODE, platform: 'podcast', result: RESULT
+    });
+    const article = {
+        url: EPISODE,
+        title: 'Episode 1',
+        byline: '',
+        domain: 'mormonstories.org',
+        siteName: 'Mormon Stories',
+        contentType: 'transcript',
+        platform: 'podcast',
+        markdown,
+        content: ContentExtractor.markdownToHtml(markdown),
+        _contentIsMarkdown: false,
+        transcript_meta: transcriptMeta,
+        extraction: { method: extractionMethodFor(RESULT.model_info) },
+        // The neutral slot the reader writes off YouTube.
+        transcripts: [diarizedTrackEntry(RESULT)],
+        entities: []
+    };
+    const { ev } = await publish(article);
+    const names = ev.tags.map((t) => t[0]);
+    assert.ok(!names.includes('transcript_lang'),
+        'no transcript_lang off YouTube — the neutral slot is local-only');
+    // The manifest that DOES publish is unchanged and honest.
+    assert.ok(names.includes('transcript_meta'), 'transcript_meta still emits');
+    assert.ok(names.includes('extraction-method'), 'extraction-method still emits');
+    // And no `media` tag, because adoption never declares it off a
+    // genuinely-video platform.
+    assert.ok(!names.includes('media'), 'media stays user-declared off video platforms');
+});
