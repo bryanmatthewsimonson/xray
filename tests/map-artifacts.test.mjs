@@ -18,7 +18,7 @@ globalThis.chrome = globalThis.chrome || {
 };
 
 const {
-    mergeExtractIntoRecord, assertionClaimCoverage, partitionAssertions,
+    mergeExtractIntoRecord, assertionClaimCoverage, partitionAssertions, normalizeExtractionRecord,
     setAssertionTriage, recordArticleExtraction, ASSERTION_OVERLAP_MIN,
     unionExtractWithRecord, reduceExtractFromRecord, mergeExtractionRecords,
     MAX_REDUCE_ASSERTIONS_PER_MEMBER, isTextPinnedKey, suggestExtractFromProposals,
@@ -448,6 +448,80 @@ test('reduceExtractFromRecord: recovery for a failed member — latest position 
 // same articleHash class, different offsets. This is the exact shape of
 // the bug, and every atom below must still land correctly.
 const TEXT_TWIN = TEXT.replace(/\n/g, '\r\n').replace(/ /g, '  ');
+
+// ---- the import boundary is a TRUST boundary --------------------------
+//
+// A backup file is arbitrary JSON authored on another machine, and
+// mergeExtractionRecords runs INSIDE an IndexedDB transaction handler:
+// a throw there does not lose one row, it aborts the transaction and
+// fails the WHOLE restore with a bare AbortError. So the merge must be
+// TOTAL — never throwing, for any input a file can contain.
+
+test('the merge never throws on a hostile incoming record (a throw aborts the whole restore)', () => {
+    const local = storedRecord();
+    const HOSTILE = [
+        ['assertions as object',      { assertions: { 0: { quote: 'x' } } }],
+        ['assertions as string',      { assertions: 'not a list' }],
+        ['positions as object',       { positions: { a: 1 } }],
+        ['positions as string',       { positions: 'xyz' }],
+        ['sources as number',         { sources: 7 }],
+        ['open_questions as bool',    { open_questions: true }],
+        ['merged_keys as object',     { merged_keys: { k: 1 } }],
+        ['null rows inside lists',    { assertions: [null, 'junk'], sources: [null], positions: [null] }],
+        ['updatedAt as object',       { updatedAt: {} }],
+        ['dropped_ungrounded string', { dropped_ungrounded: 'soon' }],
+        ['everything at once',        { assertions: 'a', positions: 1, sources: {}, open_questions: null,
+                                        merged_keys: 3, updatedAt: [], dropped_ungrounded: {} }]
+    ];
+    for (const [label, over] of HOSTILE) {
+        const incoming = { ...storedRecord(), ...over };
+        assert.doesNotThrow(() => mergeExtractionRecords(local, incoming, { localText: TEXT, now: 1 }), label);
+        // And the LOCAL side too — a row written by an earlier restore,
+        // before this guard existed, is already sitting in IndexedDB.
+        assert.doesNotThrow(
+            () => mergeExtractionRecords({ ...storedRecord(), ...over }, storedRecord(), { localText: TEXT, now: 1 }),
+            label + ' (local side)');
+    }
+});
+
+test('a string list is not iterated as CHARACTERS (worse than a throw)', () => {
+    // `for (const x of "abc")` yields "a","b","c" — each non-empty, so
+    // each survives the row guards and could be pushed as a row.
+    const out = mergeExtractionRecords(storedRecord(),
+        { ...storedRecord(), open_questions: 'abc', sources: 'xyz' },
+        { localText: TEXT, now: 1 });
+    for (const row of out.record.open_questions) assert.equal(typeof row, 'object');
+    for (const row of out.record.sources) assert.equal(typeof row, 'object');
+});
+
+test('a non-numeric updatedAt does not persist NaN (which would make `changed` true forever)', () => {
+    const out = mergeExtractionRecords(storedRecord(),
+        { ...storedRecord(), updatedAt: {}, dropped_ungrounded: 'soon' },
+        { localText: TEXT, now: 1 });
+    assert.ok(Number.isFinite(out.record.updatedAt), 'updatedAt stays a real number');
+    assert.ok(Number.isFinite(out.record.dropped_ungrounded));
+    // NaN !== NaN would flip `changed` on every re-import, forever.
+    const again = mergeExtractionRecords(out.record, out.record, { localText: TEXT, now: 1 });
+    assert.equal(again.changed, false, 're-merging an identical record is a no-op');
+});
+
+test('normalizeExtractionRecord drops what carries no meaning and invents nothing', () => {
+    assert.equal(normalizeExtractionRecord(null), null);
+    assert.equal(normalizeExtractionRecord('a row'), null);
+    assert.equal(normalizeExtractionRecord([]), null, 'an array is not a record');
+
+    const n = normalizeExtractionRecord({
+        articleHash: 'h', url: 5, title: {}, assertions: [null, { quote: 'q' }, 'junk'],
+        sources: 'nope', merged_keys: ['ok', 7], updatedAt: 'later', extra_field: 'kept'
+    });
+    assert.deepEqual(n.assertions, [{ quote: 'q' }], 'unusable rows drop, the good one survives');
+    assert.deepEqual(n.sources, []);
+    assert.deepEqual(n.merged_keys, ['ok'], 'merged_keys are strings');
+    assert.equal(n.url, null, 'a non-string url is no url, not "5"');
+    assert.equal(n.title, null);
+    assert.equal(n.updatedAt, 0);
+    assert.equal(n.extra_field, 'kept', 'unknown fields ride through — this is not a whitelist');
+});
 
 test('MA.7: the merge REFUSES without local text — there is no degraded mode', () => {
     const local = storedRecord();
