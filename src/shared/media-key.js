@@ -1,7 +1,7 @@
 // Media identity — the extension-side MIRROR of the companion's
-// transcriber/media_url.py `media_key_for`. Both sides must agree: the
-// companion dedupes active jobs by this key and the reader stores its
-// resumable job record under `xray:transcribe:job:<mediaKey>`.
+// transcriber/media_url.py `media_key_for`. For absolute http(s) URLs,
+// both sides produce identical keys; this is cheap to hold and useful for
+// debugging a job across logs and future features that correlate them.
 //
 // The one rule that is not merely aesthetic: a YouTube URL yields its
 // BARE video id, because that is what existing job records are keyed
@@ -27,6 +27,15 @@ const TRACKING_PARAMS = new Set([
 
 function parse(url) {
     try { return new URL(String(url || '').trim()); } catch (_) { return null; }
+}
+
+// Python's urlencode uses quote_plus; encodeURIComponent leaves
+// !*'() unescaped and spells a space %20. Match quote_plus exactly
+// so a key computed here equals the companion's for the same URL.
+function quotePlus(s) {
+    return encodeURIComponent(s)
+        .replace(/[!'()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase())
+        .replace(/%20/g, '+');
 }
 
 /** The YouTube video id for `url`, or null when it is not one. */
@@ -59,7 +68,7 @@ export async function mediaKeyForUrl(url) {
         .filter(([k]) => !TRACKING_PARAMS.has(k.toLowerCase()))
         .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
     const query = params.length
-        ? `?${params.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')}`
+        ? `?${params.map(([k, v]) => `${quotePlus(k)}=${quotePlus(v)}`).join('&')}`
         : '';
     const port = (u.port && !((u.protocol === 'https:' && u.port === '443')
         || (u.protocol === 'http:' && u.port === '80'))) ? `:${u.port}` : '';

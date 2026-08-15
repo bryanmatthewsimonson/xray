@@ -59,3 +59,28 @@ test('mediaKeyForArticle: youtube.videoId wins, else the URL rule', async () => 
         /^u_[0-9a-f]{16}$/
     );
 });
+
+test('mediaKeyForUrl: query encoding matches Python quote_plus (companion agreement)', async () => {
+    // Empirically verified agreement: both sides produce identical keys
+    // for the same URLs. JS encodeURIComponent → quote_plus transformation.
+    assert.equal(
+        await mediaKeyForUrl('https://example.com/player?q=a!b'),
+        'u_65849da18f09412c'
+    );
+    assert.equal(
+        await mediaKeyForUrl('https://example.com/player?q=a*b'),
+        'u_18aab5f759da9ef5'
+    );
+    assert.equal(
+        await mediaKeyForUrl('https://example.com/player?q=a\'b'),
+        'u_5d99c50f93fe4046'
+    );
+    assert.equal(
+        await mediaKeyForUrl('https://example.com/player?q=a(b)c'),
+        'u_53190519058ce30b'
+    );
+    assert.equal(
+        await mediaKeyForUrl('https://example.com/player?q=hello world'),
+        'u_b9a286078770daaf'
+    );
+});
