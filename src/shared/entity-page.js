@@ -44,7 +44,7 @@ export const ENTITY_PAGE_PROMPT_VERSION = 'entity-page-v2';
 export const ENTITY_PAGE_TOOL_NAME = 'emit_entity_page';
 // A page is narrower than a whole-case brief (one subject, not every
 // position in a corpus) — half the reduce budget fits with headroom.
-export const MAX_ENTITY_PAGE_OUTPUT_TOKENS = 16384;
+export const MAX_ENTITY_PAGE_OUTPUT_TOKENS = 64000;
 
 // Digest caps — same economics as digestDossier's claim cap: the
 // index must span the corpus, not drown the prompt.

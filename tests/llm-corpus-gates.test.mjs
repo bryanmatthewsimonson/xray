@@ -9,6 +9,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { sseResponse } from './helpers/sse.mjs';
 
 await import('fake-indexeddb/auto');
 const _store = {};
@@ -32,10 +33,10 @@ let sentPayloads = [];
 let cannedContent = [];
 globalThis.fetch = async (_url, init) => {
     sentPayloads.push(JSON.parse(init.body));
-    return { ok: true, json: async () => ({
+    return sseResponse({
         stop_reason: 'tool_use', model: 'claude-test',
         content: cannedContent, usage: { input_tokens: 1, output_tokens: 1 }
-    }) };
+    });
 };
 
 function arm({ flags }) {

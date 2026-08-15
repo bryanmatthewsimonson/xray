@@ -32,6 +32,23 @@ function sendMessage(msg) {
     });
 }
 
+// Per-surface keepalive, the portal's convention (synthesis-block.js,
+// corpus-audit-block.js). Analyze-after-import runs ONE article pass per
+// URL and a long-form capture can hold that call for minutes with
+// nothing else messaging the SW — the teardown that reads as a bare
+// "no response". Pinging a zero-cost handler resets the MV3 idle timer.
+const SW_KEEPALIVE_MS = 20000;
+function startSwKeepalive() {
+    const timer = setInterval(() => {
+        try {
+            chrome.runtime.sendMessage({ type: 'xray:llm:config' }, () => {
+                void chrome.runtime.lastError;
+            });
+        } catch (_) { /* SW restarting — the next ping lands */ }
+    }, SW_KEEPALIVE_MS);
+    return { stop: () => clearInterval(timer) };
+}
+
 /**
  * @param {HTMLElement} host
  * @param {object} opts
@@ -163,7 +180,8 @@ export function mountUrlImport(host, { caseEntityId = null, onDone } = {}) {
                         articleHash: src.articleHash,
                         url: article.url || '',
                         title: src.title,
-                        sendMessage
+                        sendMessage,
+                        keepalive: startSwKeepalive
                     });
                     // A body-less page is a quiet skip (the pre-UA.3
                     // semantics): there is nothing to analyze, which is

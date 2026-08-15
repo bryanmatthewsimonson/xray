@@ -31,18 +31,67 @@ export const SUGGESTABLE_ENTITY_TYPES = Object.freeze(
 // Ordered most-capable-first; the Options picker renders this verbatim.
 // Adding a model is this line + nothing else — every caller resolves
 // through resolveModel(), and the corpus/lens/audit passes all read the
-// user's stored choice. Cost note (per MTok in/out, 2026-07): Fable 5
-// $10/$50 · Opus 4.8 $5/$25 · Sonnet 5 $3/$15 · Haiku 4.5 $1/$5.
+// user's stored choice. Cost note (per MTok in/out, 2026-08): Fable 5
+// $10/$50 · Opus 5 and Opus 4.8 $5/$25 · Sonnet 5 $3/$15 · Haiku 4.5
+// $1/$5.
+//
+// THINKING BUDGET (2026-08-12): every pass omits the `thinking` param,
+// and what that means now varies by model — on Opus 4.8/4.7 it means
+// no thinking, but on Opus 5, Sonnet 5, and Fable 5 adaptive thinking
+// is ON and its tokens share the pass's `max_tokens`. That is why
+// MAX_REDUCE_OUTPUT_TOKENS is 32768 (JOURNAL 2026-07-18); the 8192-cap
+// passes (map, lens, audit module, vision, forensic, links) have not
+// been re-measured against a thinking-on default.
+//
+// `max_output` is the model's HARD per-response ceiling — sending a
+// larger `max_tokens` is a 400, so every pass clamps to it
+// (modelOutputCeiling). It is not a spend estimate: `max_tokens` is a
+// ceiling, never a target, and unproduced tokens are never billed. That
+// asymmetry is why the pass caps should sit HIGH — the only real cost of
+// headroom is how long a call may run, which the timeouts own.
 export const LLM_MODELS = Object.freeze([
-    { id: 'claude-fable-5',    label: 'Claude Fable 5 (most capable — highest cost)' },
-    { id: 'claude-opus-4-8',   label: 'Claude Opus 4.8 (most capable Opus)' },
-    { id: 'claude-opus-4-7',   label: 'Claude Opus 4.7' },
-    { id: 'claude-sonnet-5',   label: 'Claude Sonnet 5 (near-Opus quality, Sonnet cost)' },
-    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (balanced)' },
-    { id: 'claude-haiku-4-5',  label: 'Claude Haiku 4.5 (fastest / cheapest)' }
+    { id: 'claude-fable-5',    max_output: 128000, label: 'Claude Fable 5 (most capable — highest cost)' },
+    { id: 'claude-opus-5',     max_output: 128000, label: 'Claude Opus 5 (most capable Opus)' },
+    { id: 'claude-opus-4-8',   max_output: 128000, label: 'Claude Opus 4.8' },
+    { id: 'claude-opus-4-7',   max_output: 128000, label: 'Claude Opus 4.7' },
+    { id: 'claude-sonnet-5',   max_output: 128000, label: 'Claude Sonnet 5 (near-Opus quality, Sonnet cost)' },
+    { id: 'claude-sonnet-4-6', max_output: 128000, label: 'Claude Sonnet 4.6 (balanced)' },
+    { id: 'claude-haiku-4-5',  max_output:  64000, label: 'Claude Haiku 4.5 (fastest / cheapest)' }
 ]);
 
-export const DEFAULT_LLM_MODEL = 'claude-opus-4-8';
+// The lowest ceiling in the roster — the largest `max_tokens` that is
+// valid on EVERY offered model. A pass cap at or below this can never
+// 400 on a model switch.
+export const SAFE_OUTPUT_CEILING = 64000;
+
+/**
+ * The model's hard output ceiling, for clamping a pass's `max_tokens`.
+ * Unknown ids fall back to the safe floor rather than the optimistic
+ * 128k: over-asking is a 400 that kills the call, under-asking only
+ * risks a truncation the caller already reports honestly.
+ */
+export function modelOutputCeiling(id) {
+    const m = LLM_MODELS.find((x) => x.id === id);
+    return (m && m.max_output) || SAFE_OUTPUT_CEILING;
+}
+
+/** A pass's `max_tokens`: what it asks for, clamped to what the model allows. */
+export function outputBudget(passCap, modelId) {
+    return Math.min(passCap, modelOutputCeiling(modelId));
+}
+
+// Sonnet 5, not the top of the roster — a deliberate departure from
+// "the latest capable Claude". The default has to be right for the
+// DOMINANT workload, and that is now long-form: at the 400k map bound a
+// four-hour transcript is ~63k INPUT tokens against ~20k output, so
+// input price dominates the pass and Sonnet 5's $3/MTok against Opus
+// 5's $5 is where the saving actually lands (~$0.50 vs ~$0.80 per
+// episode). Sonnet 5 is near-Opus on exactly this shape of work —
+// extraction against a supplied text, not open-ended reasoning. Opus 5
+// and Fable 5 stay one click away for the passes that earn them
+// (corpus reduce, forensic, lens). Only unset/unknown stored values
+// land here; a user who has already picked a model keeps it.
+export const DEFAULT_LLM_MODEL = 'claude-sonnet-5';
 
 // Dedicated chrome.storage.local keys. The API key is a SECRET (its own
 // key, never `preferences`, never exported, never logged); the model is

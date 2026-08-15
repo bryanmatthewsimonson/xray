@@ -19,6 +19,233 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-13 — Every LLM call streams; a cut-off map extract is salvaged instead of discarded
+
+**Tags:** design, pattern
+
+Follows the cap raise below. Raising a ceiling against a whole-response
+`fetch` + `await resp.json()` only moves the failure: the response must
+arrive complete before the promise resolves, so a bigger cap raises the
+odds of a timeout with nothing to show for the spend. `postMessages` now
+sends `stream: true` and reassembles the SSE events.
+
+**Shape compatibility is the whole design constraint.**
+`shared/llm-stream.js` rebuilds the events into the SAME object the
+non-streaming endpoint returns — `{id, model, content, stop_reason,
+stop_details, usage}` — so `extractToolInput`, every `stop_reason`
+check, and `refusalResult` are untouched. Streaming is a transport
+change, not a contract change. The module is pure (no chrome, no fetch)
+because the reassembly is where the edge cases live: chunk boundaries
+land mid-line and mid-UTF8, and a forced tool call arrives as a stream
+of JSON fragments that mean nothing until concatenated.
+
+**Salvage — the part that changes economics.** A forced `tool_choice`
+plus `stop_reason: 'max_tokens'` used to mean total loss: partial,
+unparseable tool JSON, so the pass reported failure and a fully paid
+call was thrown away. `salvagePartialJson` walks the partial text
+tracking string/escape state and the open-container stack, truncates at
+the last point where every value is complete, and closes the still-open
+containers. It never repairs a value — only drops an incomplete one.
+
+**Enabled for the MAP pass only, deliberately.** The extract is a LIST
+of independent atoms, so "the first N of them" is a true statement about
+the article. A truncated audit or case brief would instead read as a
+complete judgment, so those keep the honest failure. The loss is
+disclosed end to end: `partial` rides the SW result → `ensureArticleExtract`
+→ the reader toast, and it is STORED with the cached extract, because a
+salvaged extract is short forever and a cache hit that dropped the flag
+would present it as the whole article on every later view. Note the two
+different losses now surfaced separately: `truncated` = we read less of
+the article (input bound); `partial` = we reported less of what we read
+(output ceiling).
+
+**Test-stub consequence worth remembering.** Four suites stubbed fetch
+with `{ok, json()}`. Those stubs would now exercise a path production
+never takes — green and meaningless. They were converted to
+`tests/helpers/sse.mjs`, which frames a canned response as real SSE and
+delivers it in small chunks, so the stubs exercise the same framing and
+reassembly the live call does. A stub that outlives the transport it
+mocked is a false green, not a passing test.
+
+**Same-day follow-up — salvage made an error message WORSE before it
+made anything better.** First live run came back "Suggest failed:
+Invalid Extract". Reassembly was innocent (a realistic extract with a
+thinking block round-trips byte-exact and validates); the cause is that
+a salvaged object is valid **only if the schema's required fields
+happened to be emitted before the cut**. `MAP_SCHEMA` requires
+`position`, and nothing forces the model to emit it before
+`key_assertions` — so a truncated call can hand back complete atoms and
+no position, and the strict validator rejects the lot. A truncation was
+being reported as a shape problem, which sends the reader hunting a
+parser bug that does not exist.
+
+Two fixes, and the second is the more general lesson. (1) The truncation
+case now says so, with the count of assertions actually recovered and
+the field the cut lost. (2) `article-pass.js` was calling
+`validateCorpusExtract` and **discarding `v.errors`** to emit the
+constant string `'invalid extract'` — a validator that knows exactly
+which field is wrong, wired to a message that says nothing. That cost a
+full debugging round trip. Any error path that throws away a reason it
+already holds is a latent round trip; `describeExtractErrors` now
+renders both error shapes (walker entries and whole-extract refusal
+strings) into the message.
+
+**Not yet verified live.** SSE over CORS with
+`anthropic-dangerous-direct-browser-access` inside an MV3 service worker
+is exactly the combination that can pass unit tests and fail in the
+browser. `dist/` carries it; a real capture is the check.
+
+See `src/shared/llm-stream.js`, `src/shared/llm-client.js`,
+`src/shared/article-pass.js`, `tests/llm-stream.test.mjs`,
+`tests/helpers/sse.mjs`.
+
+## 2026-08-13 — Output caps were quality ceilings, not budgets — raised, clamped per model, timeouts derived
+
+**Tags:** bug, design, pattern
+
+Suggest on a **50-minute YouTube video** failed with "hit its output
+limit". Not an edge case — 50 minutes is not long — which exposed the
+whole class of bug rather than one number.
+
+**What the caps actually were.** Each `MAX_*_OUTPUT_TOKENS` was a guess
+at "how much will this pass need", written when passes were sized for
+articles. Three things make that shape wrong:
+
+1. **`max_tokens` is a ceiling, never a target.** Unproduced tokens are
+   not billed, so a cap set too high costs nothing. The caps were never
+   buying anything.
+2. **A binding cap does not shorten the analysis — it DISCARDS a fully
+   paid call.** With a forced `tool_choice`, `stop_reason: 'max_tokens'`
+   leaves partial, unparseable tool JSON; the pass reports failure and
+   the spend is gone. Too-low costs everything, too-high costs nothing.
+3. **The map's atomization instruction is unbounded by construction.**
+   "ATOMIZE COMPREHENSIVELY: every discrete assertion" scales linearly
+   with content, so no *fixed* cap can be correct — it can only be
+   correct for a given length. A 50-minute talking-head video is ~7.5k
+   words of continuous assertion; ~150-400 atoms at ~90 tokens each
+   overran 8192 without being anywhere near "long".
+
+**The fix, three parts.** Caps raised (map/reduce/entity-page/extract to
+64000; audit/module/lens/vision/forensic/entity-audit/hypothesis-edges/
+links to 32768). Every pass now sends `outputBudget(cap, model)`, which
+clamps to a per-model `max_output` declared on the roster — **Haiku 4.5
+caps output at 64k where every other offered model allows 128k**, and
+over-asking is a 400 that kills the call outright, so an unknown id
+falls to the safe floor rather than assuming the optimistic ceiling.
+Timeouts are now **derived** from the cap they guard
+(`timeoutForBudget`, ~50 tok/s + slack) instead of hand-set beside it:
+the hand-set pairs are exactly what drifted — the map cap moved twice
+while its 120s timeout sat still, which would have converted a
+token-cap failure into an AbortError (the trade JOURNAL 2026-07-18
+warned about).
+
+**The framing correction that drove this** (maintainer, 2026-08-13): the
+efficiency pressure across X-Ray's design was about eliminating
+**redundancy**, not saving money — the Suggest+map unification mattered
+because the article was being READ TWICE, not because reading twice was
+expensive. Defensive caps were never part of that argument; they are the
+same single reading, done worse. Quality is the objective. Cost
+arguments belong to duplicate work, not to ceilings.
+
+**Still open:** these numbers are still constants, and the maintainer
+should not have to file a request to change one — they are headed for
+Options → Advanced. And the honest limit is now wall-clock, not tokens:
+a full 64k emission is ~21 minutes against a non-streaming `fetch` +
+`await resp.json()`. Streaming (SSE, accumulating `input_json_delta`) is
+what would make high ceilings genuinely safe, let a truncated call be
+salvaged, and give the reader real progress instead of a spinner.
+
+See `src/shared/llm-prompts.js`, `src/shared/llm-client.js`,
+`src/shared/corpus-prompts.js`, `tests/llm-proposals.test.mjs`.
+
+## 2026-08-12 — The article pass sized for four-hour transcripts (and Sonnet 5 as the default)
+
+**Tags:** design, external
+
+Two things landed together because the second is only defensible given
+the first.
+
+**1. Claude Opus 5 joined the roster.** More capable than Opus 4.8 at the
+same $5/$25 per MTok, 1M context, 128k output. Added to `LLM_MODELS`
+second (after Fable 5); Opus 4.8 and 4.7 stay offered. No wire-format
+change — model ids only ever ride as free-form `llm:<model>` provenance
+strings (`isValidSuggestedBy` accepts any non-blank `llm:` value), so a
+new id is additive for every consumer.
+
+**2. The map bound was the real ceiling on long-form work, not the
+output cap.** The maintainer routinely ingests podcast episodes up to
+four hours. A four-hour episode is ~240-265k chars of diarized markdown
+(~36k words at ~150 wpm, plus per-turn speaker labels and timestamp
+deep-links). `MAX_MEMBER_INPUT_CHARS` was 60,000 — so the One Article
+Pass read roughly **the first 55 minutes** of every long episode and
+disclosed the rest as `truncated`. Honest, but a quarter of the
+material. Context was never the constraint: a full episode is ~65k
+tokens against a 1M window. The bound was a spend dial set for
+articles.
+
+The matched set, all four moved together because moving one alone just
+trades failure modes:
+
+- `MAX_MEMBER_INPUT_CHARS` 60,000 → **400,000** (~6.5h end to end;
+  ~100k tokens, 10% of the window, inside Haiku 4.5's 200k)
+- `MAX_MAP_OUTPUT_TOKENS` 8,192 → **32,768**. Sizing: ~80-100 output
+  tokens per assertion atom (verbatim quote + paraphrase + flags +
+  `about` refs), ~40-50 per entity; a comprehensively atomized four-hour
+  episode is ~150-350 atoms and ~60-150 entities ≈ 18-38k tokens, with
+  adaptive thinking sharing the budget on Opus 5 / Sonnet 5 / Fable 5.
+  32,768 is also the largest value valid across the whole roster —
+  Haiku 4.5 caps output at 64k.
+- `CORPUS_MAP_TIMEOUT_MS` 120,000 → **600,000**. At ~55 tok/s Opus-tier
+  a full 32k emission is ~590s; leaving this at 2 min would abort
+  exactly the passes the raised bound exists to serve (the
+  token-cap-for-AbortError trade JOURNAL 2026-07-18 warned about).
+- **SW keepalive on the one article pass.** `ensureArticleExtract` now
+  takes an injected `keepalive` (the module stays chrome-free and
+  testable) and both callers supply one — the reader's Suggest and the
+  portal's analyze-after-import were each firing a single bare
+  `sendMessage`. A cold multi-minute call is precisely the MV3 teardown
+  that reads as "no response".
+
+**Cache consequence, accepted deliberately:** `corpusExtractKey` hashes
+the *sliced* text, so raising the bound orphans the cached extract of
+every capture over 60k chars — they re-pay once. For the long captures
+that is the point (their extracts only ever covered the head). Anything
+under 60k keeps its cache, and the `article-extractions` record merges
+by span-dedup rather than replacing, so no reviewed atom is lost.
+
+**3. `DEFAULT_LLM_MODEL` → `claude-sonnet-5`,** departing from the
+roster header's "latest capable Claude" rule. The default should suit
+the dominant workload, and at the 400k bound that workload is
+input-heavy: a four-hour episode is ~63k input tokens against ~20k
+output, so input price dominates and Sonnet 5's $3/MTok against Opus
+5's $5 is where the saving lands (~$0.50 vs ~$0.80 per episode, paid
+once per article ever). Sonnet 5 is near-Opus on this exact shape —
+extraction against a supplied text, not open-ended reasoning. Opus 5
+and Fable 5 remain one click away for the passes that earn them.
+
+**Still true and still unmeasured:** every pass omits the `thinking`
+param, and what that means varies by model — no thinking on Opus
+4.8/4.7, adaptive thinking ON (sharing `max_tokens`) on Opus 5, Sonnet
+5, and Fable 5. That is what forced `MAX_REDUCE_OUTPUT_TOKENS` to 32768
+(JOURNAL 2026-07-18) and it now applies to the default path. The
+remaining 8192-cap passes — lens, audit module, vision, forensic,
+entity audit, claim links — have not been re-measured against it. The
+symptom would be the existing honest `stop_reason: 'max_tokens'` error,
+never silent truncation. Raise the offending cap first; do **not** reach
+for `thinking: {type:'disabled'}` as a blanket fix — Fable 5 rejects it
+with a 400 at any effort and Opus 5 rejects it above `high` effort, so a
+disable would have to be per-model.
+
+**Where this stops.** Input is not the wall (1M tokens ≈ 60+ hours of
+speech); output is — 128k hard, 64k on Haiku, less with thinking. This
+set reaches ~6 hours. Past that a transcript has to be chunked into
+several map units, which breaks one-extract-per-article keying, the
+span-dedup merge, and the record shape — a kickoff, not a constant bump.
+
+See `src/shared/corpus-prompts.js`, `src/shared/llm-client.js`,
+`src/shared/article-pass.js`, `src/shared/llm-prompts.js`,
+`src/reader/index.js`, `src/portal/import-urls.js`.
+
 ## 2026-08-12 — UA.3: the retirements — autoPreAnalyze, the standalone suggest pass, one vocabulary
 
 **Tags:** design
