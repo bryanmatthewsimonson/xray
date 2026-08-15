@@ -3212,7 +3212,13 @@ function setupMediaControl() {
     btn.addEventListener('click', async () => {
         if (!state.article) return;
         const result = await openMediaModal(state.article);
-        if (result) await applyMediaResult(result);
+        if (result) {
+            await applyMediaResult(result);
+            // Metadata first, THEN the job: adoption re-hashes, and a
+            // half-applied declaration would be lost by the reload the
+            // adoption performs.
+            if (result.transcribe) await runTranscribeFlow(_transcribeCfg.engine || undefined);
+        }
     });
     refreshMediaNudge();
 }
@@ -3251,7 +3257,13 @@ function refreshMediaNudge() {
             ev.stopPropagation();
             if (!state.article) return;
             const result = await openMediaModal(state.article, { autoFind: true });
-            if (result) await applyMediaResult(result);
+            if (result) {
+                await applyMediaResult(result);
+                // Metadata first, THEN the job — same ordering as the
+                // plain Media button (applyMediaResult's re-hash must
+                // land before adoption's reload).
+                if (result.transcribe) await runTranscribeFlow(_transcribeCfg.engine || undefined);
+            }
         });
         btn.appendChild(hint);
     }
