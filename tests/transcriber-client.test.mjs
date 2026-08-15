@@ -79,7 +79,7 @@ test('getLmStudioConfig: loopback custom kept, non-loopback stored value → def
 test('startTranscription: 202 → jobId; unreachable names the fix; HTTP error carries detail', async () => {
     resetStore();
     const calls = [];
-    const res = await startTranscription('https://www.youtube.com/watch?v=x', {
+    const res = await startTranscription('https://www.youtube.com/watch?v=abc123DEF45', {
         port: 8756,
         fetchFn: async (url, init) => { calls.push({ url, init }); return okJson({ job_id: 'j-1' }, 202); }
     });
@@ -87,7 +87,7 @@ test('startTranscription: 202 → jobId; unreachable names the fix; HTTP error c
     assert.equal(calls.length, 1, 'no engine sent ⇒ no capability ping either');
     assert.equal(calls[0].url, 'http://127.0.0.1:8756/transcribe');
     const body = JSON.parse(calls[0].init.body);
-    assert.equal(body.url, 'https://www.youtube.com/watch?v=x');
+    assert.equal(body.url, 'https://www.youtube.com/watch?v=abc123DEF45');
     // NO preference ever stored: no provider is sent at all — the
     // companion's env default rules, byte-identical to the
     // pre-engine-choice contract (review finding).
@@ -448,4 +448,50 @@ test('draftClaimCandidates: gated by the flag; unreachable degrades to a clear e
     assert.equal(good.proposals.length, 1);
     assert.equal(good.model, LMSTUDIO_DEFAULT_MODEL);
     resetStore();
+});
+
+test('startTranscription: a non-YouTube URL is refused on a companion without generic_urls', async () => {
+    const calls = [];
+    const fetchFn = async (url, init) => {
+        calls.push(url);
+        if (url.endsWith('/health')) {
+            return { ok: true, json: async () => ({ status: 'ok', request_provider: true }) };
+        }
+        return { ok: true, json: async () => ({ job_id: 'j1' }) };
+    };
+    const out = await startTranscription('https://mormonstories.org/podcast/ep-1/', { port: 8756, fetchFn });
+    assert.equal(out.ok, false);
+    assert.match(out.error, /too old/i);
+    assert.ok(!calls.some((u) => u.endsWith('/transcribe')), 'never POSTs to an incapable companion');
+});
+
+test('startTranscription: a non-YouTube URL posts when generic_urls is advertised', async () => {
+    const fetchFn = async (url) => {
+        if (url.endsWith('/health')) {
+            return { ok: true, json: async () => ({ status: 'ok', request_provider: true, generic_urls: true }) };
+        }
+        return { ok: true, json: async () => ({ job_id: 'j2', provider: 'local' }) };
+    };
+    const out = await startTranscription('https://mormonstories.org/podcast/ep-1/', { port: 8756, fetchFn });
+    assert.equal(out.ok, true);
+    assert.equal(out.jobId, 'j2');
+});
+
+test('startTranscription: a YouTube URL never pays the generic capability probe', async () => {
+    const calls = [];
+    const fetchFn = async (url) => {
+        calls.push(url);
+        return { ok: true, json: async () => ({ job_id: 'j3' }) };
+    };
+    const out = await startTranscription('https://www.youtube.com/watch?v=abc123DEF45', { port: 8756, fetchFn });
+    assert.equal(out.ok, true);
+    assert.ok(!calls.some((u) => u.endsWith('/health')), 'no health probe for the YouTube path with no engine chosen');
+});
+
+test('startTranscription: an unreachable companion falls through to the normal error', async () => {
+    const fetchFn = async () => { throw new Error('ECONNREFUSED'); };
+    const out = await startTranscription('https://mormonstories.org/podcast/ep-1/', { port: 8756, fetchFn });
+    assert.equal(out.ok, false);
+    assert.equal(out.unreachable, true);
+    assert.match(out.error, /not reachable/i);
 });

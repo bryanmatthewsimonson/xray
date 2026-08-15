@@ -17,6 +17,7 @@
 
 import { loadFlags, isEnabled } from './metadata/feature-flags.js';
 import { SUGGESTABLE_ENTITY_TYPES, LLM_SUGGEST_KINDS_STORAGE, normalizeSuggestKinds } from './llm-prompts.js';
+import { youtubeVideoId } from './media-key.js';
 
 export const TRANSCRIBER_DEFAULT_PORT = 8756;
 export const TRANSCRIBER_PORT_STORAGE = 'xray:transcriber:port';
@@ -186,6 +187,23 @@ export async function startTranscription(videoUrl, { port, fetchFn = fetch, prov
     if (engine === 'ask') engine = null;
 
     const body = { url: String(videoUrl || '') };
+    // Generic-URL capability gate. The companion admitted YouTube URLs
+    // only until the Transcribe Anywhere wave; an older build would 400
+    // with its own wording, which reads like a broken feature rather
+    // than an out-of-date service. Probe /health and name the fix.
+    // Unreachable falls through — the POST below fails with the normal
+    // reachable error, the one that already carries the setup hint.
+    if (!youtubeVideoId(body.url) && !engine) {
+        const probe = await companionFetch('/health', { port, fetchFn, timeoutMs: 3000 });
+        if (probe.ok && !(probe.body && probe.body.generic_urls)) {
+            return {
+                ok: false,
+                error: 'The companion service is too old to transcribe anything but YouTube. '
+                    + 'Update it: git pull in the X-Ray repo, run `uv sync` in companion/transcriber/, '
+                    + 'then restart the service.'
+            };
+        }
+    }
     if (engine) {
         body.provider = engine;
         if (engine !== 'local') {
