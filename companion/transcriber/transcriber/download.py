@@ -15,7 +15,7 @@ import logging
 from pathlib import Path
 from typing import Callable
 
-from . import config
+from . import config, media_url
 
 log = logging.getLogger("xray-transcriber.download")
 
@@ -33,7 +33,10 @@ def download_audio(url: str, tmp_dir: Path, emit: Emit) -> "tuple[dict, Path]":
     emit({"stage": "downloading", "progress": 0.0})
 
     base_opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
-    if config.COOKIES_FILE:
+    # Cookies are a credential: only for hosts the user named
+    # (TRANSCRIBER_COOKIES_HOSTS, default YouTube) — never for every URL
+    # the widened funnel now admits.  See media_url.cookies_allowed_for.
+    if config.COOKIES_FILE and media_url.cookies_allowed_for(url, config.COOKIES_HOSTS):
         base_opts["cookiefile"] = config.COOKIES_FILE
 
     with yt_dlp.YoutubeDL(dict(base_opts)) as ydl:

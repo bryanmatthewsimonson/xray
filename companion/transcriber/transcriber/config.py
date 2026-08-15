@@ -34,6 +34,16 @@ DIARIZE_MODEL: str = os.environ.get(
     "TRANSCRIBER_DIARIZE_MODEL", "pyannote/speaker-diarization-community-1"
 )
 COOKIES_FILE: str = os.environ.get("TRANSCRIBER_COOKIES_FILE", "")
+# WHICH HOSTS the cookie file may be used for.  yt-dlp sends whatever
+# cookies match the host it fetches, and TRANSCRIBER_COOKIES_FILE is
+# normally a full browser export — so once the service admits arbitrary
+# URLs (the Transcribe Anywhere wave), an unscoped jar would offer the
+# user's sessions to any host they paste.  Default = the YouTube hosts,
+# i.e. exactly the pre-wave behavior.  Comma-separated, exact hostnames.
+COOKIES_HOSTS: str = os.environ.get(
+    "TRANSCRIBER_COOKIES_HOSTS",
+    "youtube.com,www.youtube.com,m.youtube.com,music.youtube.com,youtu.be",
+)
 
 # --- auth ----------------------------------------------------------------
 TOKEN: str = os.environ.get("TRANSCRIBER_TOKEN", "")

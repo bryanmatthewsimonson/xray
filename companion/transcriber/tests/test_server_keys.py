@@ -20,7 +20,7 @@ from transcriber.jobs import Job, JobStore
 def make_job(**kw):
     defaults = dict(job_id="6a3ce607-0000-4000-8000-000000000001",
                     url="https://www.youtube.com/watch?v=abc123DEF45",
-                    video_id="abc123DEF45")
+                    media_key="abc123DEF45")
     defaults.update(kw)
     return Job(**defaults)
 
@@ -61,7 +61,7 @@ class KeyHygiene(unittest.TestCase):
         spec = {
             "job_id": job.job_id,
             "url": job.url,
-            "video_id": job.video_id,
+            "media_key": job.media_key,
             "provider": job.provider,
         }
         self.assertNotIn("sekrit", json.dumps(spec))
@@ -139,7 +139,7 @@ class PoolFairness(unittest.TestCase):
         jobs = []
         for i in range(n):
             j = Job(job_id=f"6a3ce607-0000-4000-8000-{tag}{i:011d}"[:36],
-                    url="https://youtu.be/x", video_id=f"{tag}{i}", provider=provider)
+                    url="https://youtu.be/x", media_key=f"{tag}{i}", provider=provider)
             store.add_or_get_active(j)
             jobs.append(j)
         return jobs

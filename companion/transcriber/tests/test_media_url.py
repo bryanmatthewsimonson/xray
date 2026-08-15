@@ -231,6 +231,13 @@ class CookieScope(unittest.TestCase):
     def test_empty_list_means_no_cookies_anywhere(self):
         self.assertFalse(cookies_allowed_for("https://www.youtube.com/watch?v=a", ""))
 
+    def test_the_shipped_default_authorizes_youtube_only(self):
+        from transcriber import config
+        self.assertTrue(cookies_allowed_for(
+            "https://www.youtube.com/watch?v=abc123DEF45", config.COOKIES_HOSTS))
+        self.assertFalse(cookies_allowed_for(
+            "https://mormonstories.org/podcast/ep-1/", config.COOKIES_HOSTS))
+
 
 if __name__ == "__main__":
     unittest.main()
