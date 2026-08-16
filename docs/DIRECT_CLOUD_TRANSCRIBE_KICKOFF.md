@@ -6,8 +6,8 @@ through the direct route on 2026-08-15 (PodBean and Mormon Discussions),
 after the first attempt exposed a URL-discovery gap — the media-hint
 detector did not read schema.org JSON-LD, so a page URL was submitted
 and the provider returned "File type text/html" (fixed in `22d9d94`).
-DC-2 PASSED with the companion service stopped, from a FRESH BROWSER
-PROFILE — so §5's load-bearing "never been installed" clause is
+DC-2, DC-3, DC-4's mechanism and DC-6 all PASSED, from a FRESH BROWSER
+PROFILE with the companion service stopped — so §5's load-bearing "never been installed" clause is
 satisfied too, and the direct-only configuration was the one exercised.
 The one clause still open is a transcript feeding a claim or entity
 page, deferred to real corpus work because that is better evidence than
