@@ -6,13 +6,12 @@ through the direct route on 2026-08-15 (PodBean and Mormon Discussions),
 after the first attempt exposed a URL-discovery gap — the media-hint
 detector did not read schema.org JSON-LD, so a page URL was submitted
 and the provider returned "File type text/html" (fixed in `22d9d94`).
-DC-2 PASSED with the companion service stopped — the observation that
-establishes the path has no hidden companion dependency. §5 still needs
-a run on a machine where the companion was never installed (a fresh
-browser profile; the load-bearing half) and one transcript feeding a
-claim or entity page (deferred to real corpus work, which is better
-evidence than a staged run). See the walk ledger in
-`docs/SMOKE_TEST.md`. Approved by the maintainer the same day. DC.1's §5 criterion is
+DC-2 PASSED with the companion service stopped, from a FRESH BROWSER
+PROFILE — so §5's load-bearing "never been installed" clause is
+satisfied too, and the direct-only configuration was the one exercised.
+The one clause still open is a transcript feeding a claim or entity
+page, deferred to real corpus work because that is better evidence than
+a staged run. See the walk ledger in `docs/SMOKE_TEST.md`. Approved by the maintainer the same day. DC.1's §5 criterion is
 NOT met and cannot be met from a desk: it requires transcripts produced
 with no companion running, at least one on a machine where the companion
 has never been installed (`docs/SMOKE_TEST.md` §Direct cloud
