@@ -22,6 +22,9 @@ how `ROADMAP.md` came to advertise finished walks as pending for weeks.
 | 2026-08-11 | Options → Signing load + method switch, after the `web_accessible_resources` restore | **PASS** (same session). Settings renders, tabs work, method selectable and saveable. |
 | 2026-08-15 | **Transcribe Anywhere — LT.6 acceptance walk, AssemblyAI engine** — a PowerPress/Blubrry podcast episode page (`mormondiscussionpodcast.org`, the same site family as the named slice-1 target), captured and transcribed end to end | **PASS**, on the second attempt. The first attempt found the wave's headline case broken: no Transcribe button, and three stacked blockers behind it — the media-hint detector was blind to `<a href="….mp3">` PowerPress links, yt-dlp could not resolve the page URL at all (only the direct file URL), and the pre-download duration guard refused any file whose duration a probe could not establish, which is every direct `.mp3`. Fixed in `b9d4976`; the walk then passed with the AssemblyAI engine. **Local (WhisperX) was NOT exercised** — this machine has no `HF_TOKEN` and reports `device: cpu`. LT.1–LT.5 and LT.7–LT.14 remain unwalked. |
 
+| 2026-08-15 | **Direct cloud transcription — DC.1 acceptance walk (DC-2, DC-3, DC-4, DC-6)** | **PASS.** Three episodes transcribed end to end through the direct route on the maintainer's Mac, **from a fresh browser profile** (no companion-era extension storage: no engine preference, no port, no token, `localTranscription` off — so the direct-ONLY code paths were the ones exercised) — `architectureofabuse.com` (PodBean) and Mormon Discussions with the companion service RUNNING, then a rerun with the service **STOPPED**, which also passed. The stopped run is the one that matters: it is the only observation that can establish the direct path has no hidden companion dependency, and no unit test can reach it (the module imports no function from `transcriber-client.js`, but that is an argument, not evidence). The URL-consent dialog fired and named the address being sent — DC-5's disclosure clause and THREAT_MODEL G8's corrected bounding claim observed working rather than asserted. First attempt on the PodBean page FAILED ("Transcoding failed. File type text/html" — the mp3 was in schema.org JSON-LD the detector did not read; fixed in `22d9d94`, which also made the direct route refuse a page URL before spending an API call). **Not a hotlink failure** — `mcdn.podbean.com` serves a non-browser agent a 302 and no 403, so kill criterion 2 still has no evidence against it. **DC-3 PASS** — a job survived a service-worker teardown mid-run and RESUMED the same provider transcript id rather than submitting a second billable one. Observable by no automated layer, and the reason the background handler answers one request and returns instead of looping. **DC-6 PASS** — the published event carries `extraction-method: assemblyai-<model>`, byte-identical to what a companion-routed AssemblyAI run publishes, with no transport in it; the "Wire format: none" claim is now observed on a real signed event rather than argued from unit tests. **DC-4 mechanism PASS** — the provider's own failure text surfaced verbatim ("Transcoding failed. File type text/html") and nothing silently fell back to the companion, which is the behavior the row tests; the specific hotlink-protected case was not exercised, and DC-4 stays a STANDING measurement for kill criterion 2 rather than a one-time pass. **Not confirmed: DC-1** (flag-off ⇒ the engine absent from the picker) **and DC-5's picker sub-line wording** — both cheap, neither blocking. |
+| | **DC.1 §5 acceptance criterion** | **MET except one clause, deliberately deferred.** Three transcripts by the direct route, **on a FRESH BROWSER PROFILE** — the never-configured state — and **one of them with the companion service verifiably stopped**. **(a) "A machine where the companion has never been installed" — SATISFIED.** The fresh profile is the faithful reproduction and is what the criterion can actually test: the extension has no filesystem check anywhere, it probes `127.0.0.1:<port>/health` and gets connection refused whether a companion is absent or merely stopped, so what distinguishes a newcomer is the EXTENSION's own storage — empty flags, no engine preference, no port or token. The host machine still carries the companion on disk, which the extension has no way to know and never asks; the direct path touches no part of it (`uv`, Python, GPU, `HF_TOKEN` are all unreachable from it). Worth more than the criterion: this is the direct-ONLY configuration (`localTranscription` off), which is where BOTH defects found on 2026-08-15 were reachable and where a walk on the maintainer's configured profile would have sailed past them. **(b) One transcript feeding a claim or an entity page — DEFERRED by the maintainer 2026-08-15**, to be satisfied during real corpus-building rather than manufactured for the walk. That is the better evidence: the clause exists to test whether these transcripts are USEFUL, and casework answers that where a staged run would not. Revisit at the §5 check date (2026-10-01, or the release tag after DC.1, whichever comes first). Transcript-count reading recorded rather than assumed: §5 says "three transcripts produced with no companion service running" and a strict count of runs-while-stopped is 1; taking all three as qualifying, because the stopped run establishes the independence that qualifier exists to test. Disagree with the arithmetic here rather than rediscover it. |
+
 **Not yet walked** (each blocks nothing on its own, but is unobserved):
 a NIP-46 bunker signer — the only realistic provider that might restamp
 `created_at`, the sole case the T2 equality check would reject; the K9
@@ -29,7 +32,9 @@ entity-create surfaces; the K15 portal fold; the Settings "Capture
 Page" button (known broken, pre-existing); and the whole **Transcribe
 Anywhere** §Local transcription (LT.1–LT.14) — code-complete but
 unwalked, including the Media-modal escape hatch and the portal panel,
-both surfaces with zero automated coverage.
+both surfaces with zero automated coverage; and, for **DC.1 direct
+cloud transcription**, only DC-1 (flag-off absence) and DC-5's picker
+sub-line wording — the section is otherwise walked.
 
 > **Capture model (no FAB).** There is no in-page floating button or
 > capture panel. Trigger capture by **clicking the toolbar icon**,
@@ -45,8 +50,8 @@ both surfaces with zero automated coverage.
 git clone …
 cd xray
 npm install
-npm run build           # produces dist/*.bundle.js (7 bundles)
-npm test                # 1277/1277 should pass
+npm run build           # produces dist/*.bundle.js (ten entry points)
+npm test                # must exit 0 — a hardcoded count here rots silently
 ```
 
 ### Chrome / Chromium / Brave / Edge
@@ -1612,3 +1617,67 @@ When the smoke test passes end-to-end, post a comment on issue #1
 with the date + git SHA + browser / OS / version triple. That's
 the closest thing X-Ray currently has to a release-blocker
 checklist.
+
+## Direct cloud transcription (DC.1)
+
+Transcription with **nothing installed**: the service worker submits the
+media URL straight to AssemblyAI, who fetch the audio themselves.
+`docs/DIRECT_CLOUD_TRANSCRIBE_KICKOFF.md`.
+
+Everything mechanical — request shape, missing-key refusal, URL
+admission, flag gating, normalizer output, error mapping, host pinning —
+is covered by `tests/direct-transcribe.test.mjs`,
+`tests/provider-host-pin.test.mjs`, `tests/engine-vocabulary.test.mjs`
+and `tests/provider-normalize.test.mjs`, and must NOT consume the
+human's twenty minutes. These six rows are what no automated layer can
+observe.
+
+**Setup:** Options → Advanced → enable **Direct cloud transcription**;
+save an AssemblyAI key under Settings → Advanced → Transcription.
+**Then STOP the companion service** — that is the whole point of the
+walk, and leaving it running invalidates DC-2 silently.
+
+**On §5's "a machine where the companion has never been installed":
+do NOT uninstall anything — use a fresh browser profile.** Uninstalling
+is neither necessary nor sufficient, and it costs you the A/B that DC-4
+wants.
+
+*Not necessary:* the extension cannot tell a stopped service from an
+absent one. It probes `127.0.0.1:<port>/health` and gets connection
+refused either way — there is no filesystem check anywhere. Stopping
+the service is therefore indistinguishable, from the extension's side,
+from never having installed it.
+
+*Not sufficient:* the direct path never touches `uv`, Python, the GPU,
+or `HF_TOKEN`, so removing them changes nothing it depends on. What
+actually differs on a newcomer's machine is the EXTENSION's own
+configuration, which no uninstall clears: `xray:flags`
+(`localTranscription` still on), `xray:transcriber:engine` (a stored
+companion engine), `xray:transcriber:port`, `xray:transcriber:token`.
+That distinction is not theoretical — both DC.1 defects found on
+2026-08-15 (a leftover engine preference dead-ending the button; the
+button gate requiring the companion flag) manifest ONLY in the
+direct-only configuration. A box with the companion uninstalled but
+`localTranscription` still ticked sails past both and proves nothing.
+
+So: new Chrome profile → `chrome://extensions` → Developer mode → Load
+unpacked → the repo root. Storage is per-profile, so everything starts
+empty. Leave "Enable Transcribe for media captures" OFF, tick "Enable
+AssemblyAI (direct)", paste an AssemblyAI key. That is the newcomer
+state for everything this feature touches, on whatever machine you
+already have.
+
+| # | Step | Expect | Class |
+|---|---|---|---|
+| DC-1 | With `directCloudTranscription` OFF (and `localTranscription` ON), open a podcast capture and press ▾ | "AssemblyAI (direct)" is **absent** from the picker — hidden, not greyed. With BOTH flags off the Transcribe button itself is absent. | agent-verifiable |
+| DC-2 | **Companion STOPPED.** Capture a PowerPress/Blubrry episode page, press ▾ → AssemblyAI (direct), approve the URL dialog | The job runs and the transcript is adopted into the reader — diarized, speaker-labelled. No error mentions a companion, `uv run`, or "not reachable". | needs-human-eyes |
+| DC-3 | During DC-2, leave the reader tab idle past the MV3 idle window (or close and reopen the reader) before the job finishes | Polling RESUMES the same provider job rather than submitting a second one. **No automated layer can observe this** — the whole reason the SW handler returns after one request instead of looping. | needs-human-eyes |
+| DC-4 | Point a capture at a hotlink-protected file (a CDN that rejects non-browser agents) and run the direct engine | AssemblyAI's own failure text surfaces **verbatim** ("Download error, the hostname could not be resolved" or similar). Nothing silently falls back to the companion. **This row is the instrument for kill criterion 2** — if providers cannot fetch a majority of real episode URLs, the premise fails on contact. | needs-human-eyes |
+| DC-5 | Read the "AssemblyAI (direct)" sub-line in the picker before clicking | It does NOT say "the episode audio leaves this machine" (false here). It says the audio never touches this machine AND that AssemblyAI learns the address. Both halves. | needs-human-eyes |
+| DC-6 | Publish the adopted transcript; inspect the event | `extraction-method` is `assemblyai-<model>` — the SAME token a companion-routed AssemblyAI run publishes, with no `direct` in it. The banner and toast say "via AssemblyAI", never "locally". | agent-verifiable |
+
+**If DC-2 fails on the URL rather than the transport** (the provider
+cannot fetch it), that is DC-4's finding, not a DC-2 failure — record
+which, because they falsify different things: DC-2 tests whether the
+companion is really unnecessary, DC-4 whether real episode URLs are
+really fetchable by a third party.

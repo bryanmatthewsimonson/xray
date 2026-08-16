@@ -84,7 +84,7 @@ import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/len
 import { speakerFromParagraphText } from '../shared/transcript-parse.js';
 import { buildTranscriptSection, upsertTranscriptSection } from '../shared/transcript-article.js';
 import { buildDiarizedBody, timeFragmentSelector, timeRangeOfSpan, diarizedTrackEntry, extractionMethodFor } from '../shared/diarized-transcript.js';
-import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey, hasMediaSignal, isFetchableMediaUrl, transcribeSourceUrl } from './transcribe-flow.js';
+import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey, hasMediaSignal, isFetchableMediaUrl, transcribeSourceUrl, directSubmissionProblem } from './transcribe-flow.js';
 import { mediaKeyForArticle } from '../shared/media-key.js';
 import { openMediaModal } from './media-modal.js';
 import { scanPodcastSignals } from '../shared/podcast-identity.js';
@@ -2074,7 +2074,13 @@ async function adoptDiarizedTranscript(result) {
     trackSlot.transcripts = [
         ...(Array.isArray(trackSlot.transcripts) ? trackSlot.transcripts : [])
             .filter((t) => t && t.role !== 'local-diarized'),
-        diarizedTrackEntry(result)
+        // Local-only provenance: which transport produced these
+        // segments. Read off the result rather than threaded through
+        // the call chain, so it stays correct however adoption is
+        // reached (job finish, resume, archive reload).
+        diarizedTrackEntry(result, {
+            source: (result.model_info && result.model_info.route) === 'direct' ? 'direct' : 'companion'
+        })
     ];
 
     state.markdownDraft = a.markdown;
@@ -2132,16 +2138,76 @@ let _transcribeRunning = false;
  *  and the companion's env default silently rules — no picker, no cost
  *  estimate. The picker's own engine-item clicks pass a concrete engine
  *  string, so they always bypass this branch. */
+/** Which transport carries this engine, and the message pair + poll
+ *  cadence it speaks. Companion defaults are returned unchanged for
+ *  every engine but the direct one, so the driver behaves exactly as
+ *  before on every pre-existing path. */
+function transcribeRouting(provider) {
+    if (provider !== DIRECT_ENGINE_ID) return {};
+    return {
+        route: 'direct',
+        startType: 'xray:transcribe:direct:start',
+        statusType: 'xray:transcribe:direct:status',
+        // A provider job has no queue position and no progress to
+        // report, so a 3s cadence just burns requests against a rate
+        // limit. Their own client polls on a similar interval.
+        pollMs: 5000
+    };
+}
+
+/**
+ * Consent for handing a third party a media address.
+ *
+ * The URL submitted is NOT always one the user typed or can see: off
+ * the known platforms, transcribeSourceUrl prefers a
+ * `mediaHints.fileUrl` discovered in the captured page's DOM, and the
+ * reader never displays it. So a hostile page can choose which address
+ * X-Ray hands AssemblyAI under the user's paid key.
+ *
+ * Confirm exactly when that divergence exists — i.e. when the submitted
+ * URL is not the page the user is looking at. When they match, the
+ * picker click already IS the informed gesture and a second dialog
+ * would be noise on every ordinary run.
+ *
+ * Returns true to proceed.
+ */
+function confirmDirectSubmission(sourceUrl, articleUrl) {
+    if (sourceUrl === articleUrl) return true;
+    let host = sourceUrl;
+    try { host = new URL(sourceUrl).host; } catch (_) { /* show the raw string */ }
+    return window.confirm(
+        'Send this media address to AssemblyAI?\n\n'
+        + `${sourceUrl}\n\n`
+        + `AssemblyAI will download the audio directly from ${host}. `
+        + 'The audio never touches this machine — but AssemblyAI learns the address '
+        + 'of what you are transcribing.\n\n'
+        + 'This address was found in the captured page, not typed by you.'
+    );
+}
+
 async function runTranscribeFlow(provider) {
     if (typeof provider !== 'string') provider = undefined; // onclick passes an event
     if (provider === 'ask') { openEnginePicker(); return; }
+    // Direct-only setup (companion flag off): ANY companion engine is a
+    // dead end here — the SW refuses with 'Local transcription is off',
+    // which pushes a user who deliberately installed nothing toward the
+    // companion. Adversarial review found the first version of this
+    // guard tested `!provider` alone, so a leftover engine preference
+    // ('local'/'assemblyai'/'deepgram' — the Options select is never
+    // cleared when the flag goes off) sailed past it and bricked the
+    // main button. Test the RESOLVED engine instead.
+    if (!_transcribeCfg.enabled && _transcribeCfg.directEnabled
+            && (provider || _transcribeCfg.engine) !== DIRECT_ENGINE_ID) {
+        openEnginePicker();
+        return;
+    }
     const a = state.article;
     if (!a || !isFetchableMediaUrl(a.url)) {
         // Same gate hasMediaSignal enforces for the button — the
         // companion's validate_media_url admits https:// only, so an
         // http:// or file:// (the Phase-21 synthetic-import identity)
         // source would fail there every time.
-        toast('This capture has no https media URL to transcribe (the companion only fetches https:// sources).', 'error');
+        toast('This capture has no https media URL to transcribe (only https:// sources can be fetched).', 'error');
         return;
     }
     // The URL actually handed to the companion — B2: article.url stays
@@ -2153,6 +2219,13 @@ async function runTranscribeFlow(provider) {
     // a.url) so a re-run of the same source resumes the same job record
     // instead of orphaning it.
     const sourceUrl = transcribeSourceUrl(a);
+    if (provider === DIRECT_ENGINE_ID) {
+        // Refuse a page URL locally rather than pay a provider to
+        // discover it was handed HTML (field failure 2026-08-15).
+        const problem = directSubmissionProblem(a, sourceUrl);
+        if (problem) { toast(problem, 'error', 10000); return; }
+        if (!confirmDirectSubmission(sourceUrl, a.url)) return;
+    }
     const mediaKey = await mediaKeyForArticle(a, sourceUrl);
     if (_transcribeRunning) {
         // Never swallow a click silently (the Suggest-local precedent).
@@ -2198,6 +2271,9 @@ async function runTranscribeFlow(provider) {
         } catch (_) { /* archive miss — proceed to transcribe */ }
     }
 
+    // Resolved once: the record key is transport-scoped, so the
+    // cleanup after adoption must remove the SAME key the job wrote.
+    const routing = transcribeRouting(provider);
     _transcribeRunning = true;
     const btn = $('#xr-transcribe');
     const caretBtn = $('#xr-transcribe-engine');
@@ -2218,7 +2294,7 @@ async function runTranscribeFlow(provider) {
             // Honest wording: a cloud-provider job is not "locally".
             renderTranscribeBanner(`Transcribing ${providerPhrase(job && job.provider)} — ${describeProgress(job)}`);
         });
-        const out = await runTranscriptionJob({ mediaUrl: sourceUrl, mediaKey, provider, io });
+        const out = await runTranscriptionJob({ mediaUrl: sourceUrl, mediaKey, provider, io, ...routing });
         if (!out.ok) {
             renderTranscribeBanner(out.error, 'error', { docsHint: !!(out.error || '').includes('not reachable') });
             // A cloud engine without its key: the picker is the fastest
@@ -2230,7 +2306,7 @@ async function runTranscribeFlow(provider) {
         // Adoption succeeded — NOW the finished job's record can go
         // (kept until here so an adoption refusal keeps a handle to the
         // server-side result instead of re-running the whole job).
-        await io.storageRemove([jobRecordKey(mediaKey)]).catch(() => {});
+        await io.storageRemove([jobRecordKey(mediaKey, routing.route)]).catch(() => {});
         // Reload safety: fold the adopted article + a cleared transcribe
         // flag back into the session record. Without this, F5 (or a
         // Memory-Saver tab restore) re-reads the ORIGINAL transcript-less
@@ -2268,17 +2344,31 @@ async function runTranscribeFlow(provider) {
 // jobs carry no provider and the companion default rules. `enabled`
 // mirrors the localTranscription flag — the Media modal's "Transcribe
 // from source" button reads it to decide whether to render at all.
-let _transcribeCfg = { engine: null, keys: {}, enabled: false };
+let _transcribeCfg = { engine: null, keys: {}, enabled: false, directEnabled: false };
 
 async function refreshTranscribeCfg() {
     try {
         const cfg = await browserApi.runtime.sendMessage({ type: 'xray:transcribe:config' }) || {};
-        _transcribeCfg = { engine: cfg.engine || null, keys: cfg.keys || {}, enabled: !!cfg.enabled };
+        _transcribeCfg = {
+            engine: cfg.engine || null,
+            keys: cfg.keys || {},
+            enabled: !!cfg.enabled,
+            directEnabled: !!(cfg.direct && cfg.direct.enabled)
+        };
     } catch (_) { /* keep the previous snapshot */ }
     const btn = $('#xr-transcribe');
     if (btn && !btn.hidden) btn.title = transcribeTooltip();
     return _transcribeCfg;
 }
+
+// The picker id for the companion-free transport. Declared as a LITERAL
+// rather than imported from shared/direct-transcribe.js on purpose: that
+// module performs credentialed egress and reads the API key from
+// storage, and it is service-worker-only by design. Importing it here
+// would bundle a key-reading helper into a page context for the sake of
+// one string. tests/engine-vocabulary.test.mjs asserts this literal
+// still equals the module's DIRECT_ENGINE_ID export.
+const DIRECT_ENGINE_ID = 'assemblyai-direct';
 
 const ENGINE_META = {
     local: {
@@ -2297,8 +2387,39 @@ const ENGINE_META = {
         badge: 'cloud — ≈$0.26/hr',
         detail: 'Uploads the episode audio to Deepgram. Fast, no GPU use.',
         rate: 0.26
+    },
+    // The companion-free transport. The disclosure here is deliberately
+    // NOT the cloud engines' "the episode audio leaves this machine" —
+    // on this path the audio never touches this machine at all. What
+    // leaves is the media's ADDRESS, which is a different disclosure
+    // and, in one direction, a worse one: uploading bytes never told
+    // the provider where the audio came from.
+    [DIRECT_ENGINE_ID]: {
+        label: 'AssemblyAI (direct)',
+        badge: 'cloud — nothing to install',
+        detail: 'X-Ray sends AssemblyAI the media\u2019s web address and your API key; '
+            + 'AssemblyAI downloads the audio itself. No companion service, no Python, no GPU.',
+        rate: 0.28,
+        direct: true
     }
 };
+
+// Engine id → the PROVIDER whose saved API key it needs. Distinct from
+// the id itself because two engines can share one provider account:
+// 'assemblyai-direct' spends the same key as 'assemblyai'. The picker's
+// availability mark reads keys by PROVIDER for that reason — testing
+// keys['assemblyai-direct'] against a provider-keyed map would render
+// "No API key saved" forever with the key sitting right there.
+const ENGINE_PROVIDER = {
+    local: null,
+    assemblyai: 'assemblyai',
+    deepgram: 'deepgram',
+    [DIRECT_ENGINE_ID]: 'assemblyai'
+};
+
+/** Every engine the picker offers, in display order. Availability and
+ *  flag gating are applied per item inside openEnginePicker. */
+const PICKER_ENGINES = ['local', 'assemblyai', 'deepgram', DIRECT_ENGINE_ID];
 
 /** Human tooltip for the main Transcribe button, from the preference. */
 function transcribeTooltip() {
@@ -2308,8 +2429,16 @@ function transcribeTooltip() {
         : 'Transcribe the media at this URL';
     const e = _transcribeCfg.engine;
     if (e === 'ask') return `${head} — you'll choose the engine (▾ also opens the choices)`;
+    // Direct-only install: there is no companion default to fall back
+    // on, and the direct engine is picker-only in DC.1. Covers a stored
+    // companion engine too — saying "locally" for a preference that
+    // cannot run would be the same dead end the click guard closes.
+    if (!_transcribeCfg.enabled && _transcribeCfg.directEnabled && e !== DIRECT_ENGINE_ID) {
+        return `${head} — choose AssemblyAI (direct) with ▾; no companion service needed`;
+    }
     if (!e) return `${head} — with the companion service's default engine (local unless its env says otherwise; pick per video with ▾, or set a default in Settings)`;
     const meta = ENGINE_META[e] || ENGINE_META.local;
+    if (meta.direct) return `${head} — via ${meta.label} (${meta.detail})`;
     return e === 'local'
         ? `${head} — locally (${meta.detail})`
         : `${head} — via ${meta.label} (cloud: the episode audio leaves this machine, ${meta.badge.replace('cloud — ', '')})`;
@@ -2324,6 +2453,18 @@ function engineEstimate(engine) {
     const secs = Number((a.youtube && a.youtube.durationSeconds)
         || (a.tiktok && a.tiktok.durationSeconds)) || 0;
     const meta = ENGINE_META[engine];
+    if (meta && meta.direct) {
+        // No duration probe on this path — nothing is downloaded, so
+        // nothing measures the length. Saying so is the only honest
+        // answer; a guessed figure on a consent surface is worse than
+        // "unknown". Never name the companion here: this route exists
+        // precisely for users who have not installed one.
+        return secs
+            ? `~2–5 min — about $${Math.max(0.01, (secs / 3600) * meta.rate).toFixed(2)} for this media. `
+              + 'The audio never touches this machine; AssemblyAI learns the address.'
+            : 'Usually 2–5 minutes, metered per audio-hour — length unknown until AssemblyAI '
+              + 'fetches it. The audio never touches this machine; AssemblyAI learns the address.';
+    }
     if (engine === 'local') {
         if (!secs) return 'Runs on your GPU; speed depends on the card and the length of the media.';
         const mins = Math.max(1, Math.ceil(secs / 900 + secs / 3600 * 2));
@@ -2373,25 +2514,39 @@ async function openEnginePicker() {
     // probe's own ~3s timeout, keeps a dead/slow companion from ever
     // delaying the menu: on failure or timeout, local stays available
     // exactly as before (never wrongly block a working setup).
+    const companionEnabled = !!_transcribeCfg.enabled;
+    const directEnabled = !!_transcribeCfg.directEnabled;
     let localBlocked = false;
-    try {
-        const probe = await Promise.race([
-            browserApi.runtime.sendMessage({ type: 'xray:transcribe:ping' }),
-            new Promise((resolve) => setTimeout(() => resolve(null), 1500))
-        ]);
-        if (probe && probe.ok) localBlocked = localBlockedByHealth(probe.health);
-    } catch (_) { /* best-effort only — local stays available */ }
+    // ...but ONLY when a companion engine is actually on the menu. In a
+    // direct-only configuration there is no companion to ask and no
+    // local item to mark, so the probe is a round trip to a socket
+    // nothing is listening on, on the one path whose whole premise is
+    // that nothing is installed.
+    if (companionEnabled) {
+        try {
+            const probe = await Promise.race([
+                browserApi.runtime.sendMessage({ type: 'xray:transcribe:ping' }),
+                new Promise((resolve) => setTimeout(() => resolve(null), 1500))
+            ]);
+            if (probe && probe.ok) localBlocked = localBlockedByHealth(probe.health);
+        } catch (_) { /* best-effort only — local stays available */ }
+    }
     const anchor = $('#xr-transcribe');
     if (!anchor) return;
     const menu = document.createElement('div');
     menu.id = 'xr-engine-menu';
     menu.className = 'xr-engine-menu';
 
-    for (const engine of ['local', 'assemblyai', 'deepgram']) {
+    for (const engine of PICKER_ENGINES) {
         const meta = ENGINE_META[engine];
+        // The direct engine is ABSENT (not disabled) when its flag
+        // is off, and the companion engines are absent when theirs
+        // is — with both flags off the picker never opens at all.
+        if (meta.direct ? !directEnabled : !companionEnabled) continue;
         const blockedLocal = engine === 'local' && localBlocked;
+        const provider = ENGINE_PROVIDER[engine];
         const keyed = !blockedLocal
-            && (engine === 'local' || !!(_transcribeCfg.keys && _transcribeCfg.keys[engine]));
+            && (!provider || !!(_transcribeCfg.keys && _transcribeCfg.keys[provider]));
         const item = document.createElement('button');
         item.type = 'button';
         item.className = 'xr-engine-menu__item';
@@ -2482,12 +2637,22 @@ async function setupTranscribeControl() {
     let cfg = {};
     try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:transcribe:config' }) || {}; }
     catch (_) { cfg = {}; }
-    if (!cfg.enabled) {   // flag off ⇒ absent
+    // EITHER transport is enough to offer the button. The direct
+    // route needs no companion at all — that is its entire point —
+    // so gating this on localTranscription alone would make the
+    // feature unreachable for exactly the users it exists for.
+    const directEnabled = !!(cfg.direct && cfg.direct.enabled);
+    if (!cfg.enabled && !directEnabled) {   // both flags off ⇒ absent
         btn.hidden = true;
         if (caret) caret.hidden = true;
         return;
     }
-    _transcribeCfg = { engine: cfg.engine || null, keys: cfg.keys || {}, enabled: !!cfg.enabled };
+    _transcribeCfg = {
+        engine: cfg.engine || null,
+        keys: cfg.keys || {},
+        enabled: !!cfg.enabled,
+        directEnabled
+    };
     btn.hidden = false;
     btn.disabled = false;
     btn.title = transcribeTooltip();

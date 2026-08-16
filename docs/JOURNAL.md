@@ -19,6 +19,252 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-15 — DC.1 field failure: the media URL was on the page, in JSON-LD
+
+**Tags:** bug, external
+
+First real run of the direct cloud path, on a PodBean-hosted episode
+(`architectureofabuse.com/e/episode1`), came back with AssemblyAI's own
+error: *"Transcoding failed. File type text/html (HTML document…)"*.
+The provider had been handed the PAGE url and dutifully downloaded the
+HTML.
+
+**Root cause, and it is not the transport.** `detectMediaHints` records
+a `fileUrl` only from a direct media-file `<a href>` — the
+PowerPress/Blubrry shape the Transcribe Anywhere wave was built
+against. This page has no such anchor, no `<audio>`, and no `og:audio`.
+The mp3 was on the page the whole time, in schema.org JSON-LD:
+
+    "associatedMedia": {"@type": "MediaObject",
+                        "contentUrl": "https://mcdn.podbean.com/mf/web/…/AoA-Episode1-Jun9.mp3"}
+
+With no `fileUrl`, `transcribeSourceUrl` fell back to the page URL —
+correct behavior, and exactly what it is documented to do.
+
+**Fix 1 — read the places that actually carry a URL.** `detectMediaHints`
+now also reads JSON-LD `contentUrl` (walking `@graph`/arrays,
+depth-bounded, malformed JSON skipped), the `src` of `<audio>`/`<video>`
+and their `<source>` children, and the `content` of `og:audio`/`og:video`
+— all of which it previously detected as BOOLEANS while throwing the URL
+away. Every candidate must still pass the media-extension test, so a
+`contentUrl` pointing at a page (some publishers do that) can never be
+submitted as if it were audio. The download anchor keeps priority, so no
+page that already worked can regress. JSON-LD is the standards-based
+place to look, so this fixes the class rather than one host. Verified
+against the live page's real bytes, not a fixture.
+
+**Fix 2 — the direct path must never submit a page at all.** This is the
+durable half, because no detector will cover every site. The asymmetry
+had been sitting in plain sight: the companion resolves pages *because
+yt-dlp does*, so the page-URL fallback is right for it and
+guaranteed-useless for a provider that only fetches URLs. New
+`directSubmissionProblem()` refuses locally, before the API call, when
+the URL about to be submitted is the captured page's own address —
+non-heuristic, with the one exception of a capture that IS a media file.
+It names the escape hatch (paste the file URL in the 🎙 Media modal) and
+the alternative (the companion, which can resolve the page).
+
+**For the DC-4 ledger — this was NOT a hotlink-protection failure**, and
+the SMOKE_TEST row exists to keep the two apart. The CDN file was checked
+directly: `mcdn.podbean.com` answers a non-browser user agent with a 302
+to a signed URL and no 403, so it is fetchable by a third party. Kill
+criterion 2 ("providers cannot fetch a majority of real episode URLs")
+has no evidence against it yet; what failed was our URL DISCOVERY.
+
+**The general lesson**, worth more than either fix: the first slice
+shipped with a URL-discovery path tested against exactly one podcast
+host's markup, and a provider-side error message was the thing that
+found the gap. A page that says "Download" is one publishing convention
+among several, and the machine-readable one was there all along.
+
+---
+
+## 2026-08-15 — Two gaps the direct-transcribe work surfaced elsewhere
+
+**Tags:** bug, security
+
+Both were found while building DC.1 and both live in code DC.1 does not
+own. They were flagged rather than fixed inside that slice — changing
+another feature's security surface under a transcription change is how
+review gets skipped — and are fixed here on their own.
+
+**1. A trailing root label bypassed `blockedImageUrl`'s host checks**
+(`shared/vision-image.js`). That function keeps the `xray:vision:describe`
+service-worker fetch off the operator's own network, and its image ref
+comes from untrusted captured article HTML. The WHATWG URL parser
+normalizes the numeric host forms for us — `https://2130706433/`,
+`https://0x7f000001/` and `https://127.1/` all arrive as `127.0.0.1`,
+and an IPv4 literal with a trailing dot is normalized too — so the
+dotted-quad matcher was never the weak spot. But the parser does NOT
+strip a trailing root label from a NAMED host, so `localhost.` and
+`box.local.` reached `host === 'localhost'` as misses and were
+admitted, while resolving to exactly the hosts the check exists to
+refuse. One line, normalizing the hostname before the comparisons.
+
+The general lesson, worth more than the fix: the check was written
+against the threats someone imagined (private ranges, v4-mapped v6) and
+the hole was in the part that looked too simple to check — string
+equality on a name. It was found by running candidate URLs through the
+real parser rather than reading the function.
+
+**2. `transcript_lang` joined three untrusted components with `:`**
+(`shared/event-builder.js`). The tag is `<lang>:<kind>:<role>`, and all
+three originate outside this codebase — the language from a
+transcription provider, the kind from a provider id, the role from a
+track record a backup import or a network incorporation can carry in.
+A component containing a colon forged tag structure for anyone
+filtering on it: a language of `en:forged:role` produced a tag that
+satisfies `startsWith("en:")` while meaning something else. Now routed
+through an exported `transcriptLangValue()` that clamps each component
+to `[A-Za-z0-9._-]`. `extractionMethodFor`'s LOCAL branch got the same
+treatment — its cloud branch had always clamped, and one rule is better
+than two.
+
+**Wire format: none.** Every genuine value already lies inside that
+charset — BCP-47 subtags (`pt-BR`, `zh-Hans`), engine ids, role names —
+so the clamp is byte-identical for real data and no published event
+changes shape. `docs/NIP_DRAFT.md` now states the charset so consumers
+can rely on the separators being unambiguous, which documents existing
+behavior rather than constraining producers.
+
+Note what was NOT done: `shared/provider-normalize.js` (the JS twin of
+the companion's `normalize.py`) was deliberately left alone. Narrowing
+it would have made the same audio compose a different body on the
+direct path than on the companion path, forking the `x` content
+address — the twin's job is parity with its reference, and sanitization
+belongs at the emitter, which is where it now is.
+
+---
+
+## 2026-08-15 — Direct cloud transcription: the transport is not wire-visible
+
+**Tags:** design, security
+
+DC.1 of `docs/DIRECT_CLOUD_TRANSCRIBE_KICKOFF.md` — transcribe with
+nothing installed. AssemblyAI's `audio_url` field takes a URL they fetch
+themselves and `speaker_labels` gives provider-side diarization, so the
+companion service is unnecessary for cloud engines given a direct media
+URL (which the Transcribe Anywhere wave made available). New module
+`shared/direct-transcribe.js`, new default-off flag
+`directCloudTranscription`, new `xray:transcribe:direct:{start,status}`
+pair. Four decisions worth recording, because each was contested or
+counter-intuitive.
+
+**1. The published provenance id does NOT name the transport.** The
+picker's selection id is `assemblyai-direct`; `model_info.provider` is
+the plain literal `assemblyai`. This is the slice's one irreversible
+choice. `model_info.provider` flows into `diarizedHeading()`, which is
+composed into `article.markdown` BEFORE the content hash is taken
+(`reader/index.js` `adoptDiarizedTranscript` flips `contentType` to
+`transcript` first), so a transport-suffixed id would have permanently
+forked every direct transcript's `x` content address from its
+companion-routed twin **for the same audio**, and published an
+`extraction-method` token no consumer has seen. The rule: the tag
+documents how the text was PRODUCED, not who downloaded the bytes.
+Pinned at both the module (`tests/direct-transcribe.test.mjs`) and the
+wire (`tests/diarized-wire.test.mjs`, which now asserts the two
+transports compose byte-identical markdown). This is precedent for DC.3
+and for any future transport change.
+
+**2. `host_permissions` was NOT a one-way door, and the kickoff was
+wrong to price it as one.** `manifest.json` has declared `<all_urls>`
+since long before this wave, and three of the four third-party hosts the
+service worker already fetches (ar5iv, api.crossref.org, arbitrary image
+hosts) have no manifest entry at all and work fine. Adding
+`https://api.assemblyai.com/*` changes the granted host set by zero and
+adds no install-prompt warning. It is kept anyway as DOCUMENTATION for
+the `ROAD_TO_1_0` T5 permission-narrowing sweep, which would otherwise
+have to rediscover the dependency from source — and
+`tests/provider-host-pin.test.mjs` now asserts the manifest entry and
+the module's allowlist agree in both directions. The real technical gate
+is the code-side pinned host constant; the real consent gates are the
+flag and the key. This is the third time this correction has been
+recorded (see `EPISTEMIC_AUDIT_DESIGN.md`); it keeps being re-derived
+because "adding a permission is scary" is a good instinct attached to
+the wrong mechanism here.
+
+**3. The privacy trade is two-sided, not an improvement.** Better: the
+audio never touches this machine, and the origin site never sees the
+operator's IP or cookies (B12's cookie-jar exposure does not arise).
+Worse: the provider learns the ADDRESS of what is being transcribed,
+which uploading bytes never revealed. The picker sub-line says both
+halves, and the old cloud disclosure ("the episode audio leaves this
+machine") is simply false here and was rewritten rather than reused.
+
+**4. A gap found while writing the threat model, not while writing the
+code.** `THREAT_MODEL.md` G8 claimed "the URL is always one the user
+personally chose to transcribe." That was **already false** before this
+wave: off the known platforms, `transcribeSourceUrl` prefers a
+`mediaHints.fileUrl` scraped from the captured page's DOM, and the
+reader never displays it — so a hostile page chooses the address. On the
+direct path that address goes to a third party under the operator's paid
+key, so the direct submit now shows a confirm dialog with the exact URL
+and host whenever it differs from the page URL (new gap G9). The
+companion path still has no such prompt; that is recorded, not fixed
+here.
+
+**Also:** the JS twin of `providers/normalize.py`
+(`shared/provider-normalize.js`) is the design's most likely long-term
+defect — two implementations of one contract in two languages. Both
+suites now read `tests/fixtures/normalizer-parity.json`, whose expected
+values were OBSERVED by running the Python (not transcribed by hand),
+the JS side pins the reference's sha256, and CI runs the Python half on
+bare `python3`. Six of fifteen rounding cases diverge from a naive
+`Math.round` port — Python's `round()` is round-half-to-even over the
+exact double, so `round(1.0625, 3)` is `1.062` and the naive JS answer
+is `1.063`. Latent for AssemblyAI (integer ms) and live for Deepgram's
+float seconds, and those values are published inside kind-30040 claim
+anchors, so it is settled now rather than at DC.3.
+
+**Three defects an adversarial review of the finished diff found, all
+in the seams rather than in the new module:**
+
+1. **A companion run destroyed the record of an in-flight, already-PAID
+   direct job.** The job record was keyed by media alone, so the two
+   transports shared one slot. `decideResume`'s new cross-route clause
+   correctly refused to RESUME a direct record on the companion
+   transport — but the companion job's own record write then overwrote
+   it, and the provider transcript id is the only handle to a job the
+   user has been billed for. Refusing to resume was never enough; the
+   handle has to survive. Fixed by scoping the key to the transport
+   (`jobRecordKey(mediaKey, route)`), with the companion form left
+   unsuffixed so every pre-DC.1 record still resolves. Reproduced
+   before and after.
+2. **A leftover engine preference bricked the Transcribe button for a
+   direct-only user.** The guard that routes an implicit run to the
+   picker tested `!provider` alone, so a stored `'assemblyai'` (the
+   Options engine `<select>` is independent of the localTranscription
+   checkbox and is never cleared when that flag goes off) sailed past
+   it into the companion path and failed with "Local transcription is
+   off" — pushing a user who deliberately installed nothing toward
+   installing a companion. The guard now tests the RESOLVED engine, and
+   the tooltip widened the same way rather than promising a local run
+   it cannot perform.
+3. **The flag shipped with no Options control.** `SMOKE_TEST.md`'s own
+   setup line and the runtime refusal string both said "Options →
+   Advanced", and there was nothing there — the feature was reachable
+   only by hand-editing `xray:flags` from a devtools console. There is
+   in-repo precedent for console-only flags (`storeFirstPublish`), but
+   writing a walk against a control that does not exist is a different
+   thing, so the checkbox was built. Guard added; note that four other
+   flags still have no control, which is pre-existing and not addressed
+   here.
+
+The pattern worth keeping: every one of these lives where two correct
+pieces meet, and none is visible from inside either piece. The unit
+tests for the new module were green throughout.
+
+**Scope cut, on the record:** the direct engine is PICKER-ONLY in DC.1 —
+never written to `xray:transcriber:engine`. `normalizeEngine` collapses
+any unrecognized id to `'local'` and Options re-persists the result, so a
+stored `assemblyai-direct` would be silently destroyed on the next
+Settings save. Making it a storable default needs all six vocabulary
+copies moved together with a round-trip migration test; that is DC.2's
+job. Side effect worth having: the right-click auto-start path
+structurally cannot reach a third party in DC.1.
+
+---
+
 ## 2026-08-15 — Transcribe Anywhere: the YouTube lock was gating, not machinery
 
 **Tags:** design, security

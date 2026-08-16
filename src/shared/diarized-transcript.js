@@ -258,7 +258,7 @@ export function buildDiarizedBody({
  * the reader's track chip gate on non-empty `events` (bodies still
  * never publish as tags — the builder only counts them).
  */
-export function diarizedTrackEntry(result) {
+export function diarizedTrackEntry(result, { source = 'companion' } = {}) {
     const segments = Array.isArray(result && result.segments) ? result.segments : [];
     const provider = String((result && result.model_info && result.model_info.provider) || '').trim().toLowerCase();
     const via = providerDisplayName(provider);
@@ -281,7 +281,14 @@ export function diarizedTrackEntry(result) {
                 text: String(s.text).trim()
             })),
         error: null,
-        source: 'companion'
+        // LOCAL-ONLY provenance (the event builder never reads it):
+        // which transport produced these segments. 'companion' for a
+        // loopback-service run, 'direct' for the companion-free cloud
+        // path — hardcoding 'companion' there would be a small, silent
+        // lie in the archive row. `role` stays 'local-diarized' for
+        // both: it is the replace-slot key the reader filters on, so
+        // one diarized track per capture whatever the engine.
+        source
     };
 }
 
@@ -299,8 +306,16 @@ export function extractionMethodFor(modelInfo) {
         return `${provider}-${model}`.toLowerCase()
             .replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
     }
-    const asr = (modelInfo && modelInfo.asr_model) || 'large-v3';
-    const diar = String((modelInfo && modelInfo.diarization_model) || 'pyannote')
-        .replace(/^pyannote\/(speaker-diarization-)?/, 'pyannote-');
+    // The LOCAL branch clamps too. It long did not, on the reasoning
+    // that these names come from the companion's own WhisperX config —
+    // but `extraction-method` is a published tag, the values reach it
+    // through a result object that a backup import can carry, and the
+    // cloud branch three lines up has always clamped. One rule.
+    // `+` is part of the documented two-model grammar and is preserved.
+    const token = (v) => String(v || '').toLowerCase()
+        .replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+    const asr = token((modelInfo && modelInfo.asr_model) || 'large-v3') || 'unknown';
+    const diar = token(String((modelInfo && modelInfo.diarization_model) || 'pyannote')
+        .replace(/^pyannote\/(speaker-diarization-)?/, 'pyannote-')) || 'pyannote';
     return `whisperx-${asr}+${diar}`;
 }

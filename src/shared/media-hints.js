@@ -86,6 +86,53 @@ function absoluteAnchorHref(node) {
     return null;
 }
 
+// Media-file URLs hide in more places than the PowerPress anchor.
+// Field failure 2026-08-15: a PodBean episode page carried its mp3 ONLY
+// in schema.org JSON-LD (`associatedMedia.contentUrl`) — no anchor, no
+// <audio>, no og:audio — so no fileUrl was recorded, transcribeSourceUrl
+// fell back to the PAGE url, and the direct cloud path asked AssemblyAI
+// to transcribe an HTML document.
+//
+// JSON-LD is the standards-based place to look (schema.org
+// PodcastEpisode / AudioObject / VideoObject), so reading it fixes the
+// whole class rather than one host. Every candidate still has to pass
+// mediaKindForHref — a `contentUrl` pointing at a PAGE (some publishers
+// do that) must never be submitted as if it were audio, which is the
+// very failure being fixed.
+
+/** Walk an arbitrarily-nested JSON-LD value, yielding every string
+ *  under a `contentUrl` key. Depth-bounded: JSON-LD is
+ *  publisher-controlled input. */
+function contentUrlsFromLd(value, out = [], depth = 0) {
+    if (!value || depth > 6) return out;
+    if (Array.isArray(value)) {
+        for (const item of value) contentUrlsFromLd(item, out, depth + 1);
+        return out;
+    }
+    if (typeof value !== 'object') return out;
+    for (const [key, child] of Object.entries(value)) {
+        if (key === 'contentUrl' && typeof child === 'string') out.push(child);
+        else contentUrlsFromLd(child, out, depth + 1);
+    }
+    return out;
+}
+
+/** Every absolute media-file URL declared in the page's JSON-LD blocks,
+ *  in document order. Malformed JSON is skipped, never thrown. */
+function jsonLdMediaUrls(doc) {
+    const urls = [];
+    for (const node of doc.querySelectorAll('script[type="application/ld+json"]') || []) {
+        const raw = node && typeof node.textContent === 'string' ? node.textContent.trim() : '';
+        if (!raw) continue;
+        let parsed;
+        try { parsed = JSON.parse(raw); } catch (_) { continue; }
+        for (const url of contentUrlsFromLd(parsed)) {
+            if (/^https?:\/\//i.test(url) && mediaKindForHref(url)) urls.push(url);
+        }
+    }
+    return urls;
+}
+
 /**
  * Media signals on a captured page.
  *
@@ -102,10 +149,22 @@ export function detectMediaHints(doc) {
     const embeds = [];
     let fileUrl = null;
 
+    // Candidate file URLs from every source EXCEPT the download anchor,
+    // in fallback order. The anchor stays the winner (see below).
+    const fallbackUrls = [];
+    const noteCandidate = (raw) => {
+        const url = String(raw || '').trim();
+        if (/^https?:\/\//i.test(url) && mediaKindForHref(url)) fallbackUrls.push(url);
+    };
+
     for (const node of doc.querySelectorAll('audio, video') || []) {
         const tag = String((node && node.tagName) || '').toUpperCase();
         if (tag === 'AUDIO') audio = true;
         else if (tag === 'VIDEO') video = true;
+        if (node && typeof node.getAttribute === 'function') noteCandidate(node.getAttribute('src'));
+    }
+    for (const node of doc.querySelectorAll('audio source[src], video source[src]') || []) {
+        if (node && typeof node.getAttribute === 'function') noteCandidate(node.getAttribute('src'));
     }
 
     // No cap on how many iframes get scanned: a fixed slice here (the
@@ -133,6 +192,13 @@ export function detectMediaHints(doc) {
 
     if (metaHasValue(doc, 'meta[property="og:video"], meta[property="og:video:url"]')) video = true;
     if (metaHasValue(doc, 'meta[property="og:audio"], meta[property="og:audio:url"]')) audio = true;
+    for (const sel of ['meta[property="og:audio"], meta[property="og:audio:url"]',
+        'meta[property="og:video"], meta[property="og:video:url"]']) {
+        for (const node of doc.querySelectorAll(sel) || []) {
+            if (node && typeof node.getAttribute === 'function') noteCandidate(node.getAttribute('content'));
+        }
+    }
+    for (const url of jsonLdMediaUrls(doc)) fallbackUrls.push(url);
 
     // No pre-slice here either, same reasoning and same regression shape
     // as the iframe scan above: a fixed cap applied BEFORE matching would
@@ -149,6 +215,19 @@ export function detectMediaHints(doc) {
         if (!kind) continue;
         if (kind === 'audio') audio = true; else video = true;
         if (!fileUrl) fileUrl = href;
+    }
+
+    // The explicit download ANCHOR wins when a page offers several — it
+    // is the most direct answer, it is the case the PowerPress fix was
+    // built and tested against, and keeping it first means adding the
+    // sources above cannot regress any page that already worked.
+    if (!fileUrl && fallbackUrls.length) {
+        fileUrl = fallbackUrls[0];
+        // A page can declare media only in JSON-LD or og: tags, with no
+        // element and no player iframe — that is the PodBean shape, and
+        // it must still register as a media signal or hasMediaSignal
+        // hides Transcribe on exactly the pages this exists for.
+        if (mediaKindForHref(fileUrl) === 'audio') audio = true; else video = true;
     }
 
     if (!audio && !video && embeds.length === 0) return null;

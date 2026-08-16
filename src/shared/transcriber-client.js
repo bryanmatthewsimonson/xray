@@ -325,7 +325,14 @@ export async function getTranscribeConfig() {
             assemblyai: String(res[ASSEMBLYAI_KEY_STORAGE] || '').trim().length > 0,
             deepgram: String(res[DEEPGRAM_KEY_STORAGE] || '').trim().length > 0
         },
-        drafts: { enabled: isEnabled('transcriptClaimDrafts'), url: lm.url, model: lm.model }
+        drafts: { enabled: isEnabled('transcriptClaimDrafts'), url: lm.url, model: lm.model },
+        // The companion-free transport (shared/direct-transcribe.js).
+        // Its own flag, reported separately, because it is reachable
+        // with NO companion installed — the reader's Transcribe button
+        // gates on `enabled || direct.enabled` for exactly that reason.
+        // Consumers that predate this field see `undefined`, which is
+        // falsy, so flag-off behavior is byte-identical to before.
+        direct: { enabled: isEnabled('directCloudTranscription') }
     };
 }
 

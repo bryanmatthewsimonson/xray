@@ -261,3 +261,160 @@ test('a NON-YouTube diarized capture emits no transcript_lang tag (wire promise)
     // genuinely-video platform.
     assert.ok(!names.includes('media'), 'media stays user-declared off video platforms');
 });
+
+// ------------------------------------------------------------------
+// Direct cloud transcription (DC.1) — the wire must NOT be able to tell
+// which transport ran.
+//
+// This is the slice's one irreversible decision, so it is pinned at the
+// wire observer as well as at the module. `model_info.provider` reaches
+// diarizedHeading(), which is composed into article.markdown BEFORE the
+// content hash is taken — so a transport-suffixed provider id would
+// permanently fork every direct transcript's `x` content address from
+// its companion-routed twin for the SAME audio, and publish an
+// extraction-method token no consumer has seen.
+//
+// The tag documents how the text was PRODUCED, not who downloaded the
+// bytes: AssemblyAI's model produced it either way.
+// ------------------------------------------------------------------
+
+const { buildDirectResult, DIRECT_ENGINE_ID, DIRECT_PROVIDER } =
+    await import('../src/shared/direct-transcribe.js');
+
+const AAI_PAYLOAD = {
+    status: 'completed',
+    language_code: 'en_us',
+    speech_model_used: 'universal-3-5-pro',
+    utterances: [{
+        speaker: 'A', start: 0, end: 1500, text: 'Hello there.',
+        words: [{ text: 'Hello', start: 0, end: 700 }, { text: 'there.', start: 700, end: 1500 }]
+    }]
+};
+
+const COMPANION_MODEL_INFO = {
+    provider: 'assemblyai',
+    asr_model: 'universal-3-5-pro',
+    diarization_model: 'assemblyai-native',
+    device: 'cloud',
+    aligned: true,
+    yt_dlp_version: '2026.08.01'
+};
+
+test('a direct run and a companion run publish the same extraction-method', () => {
+    const direct = buildDirectResult(AAI_PAYLOAD).model_info;
+    assert.equal(extractionMethodFor(direct), extractionMethodFor(COMPANION_MODEL_INFO));
+    assert.equal(extractionMethodFor(direct), 'assemblyai-universal-3-5-pro');
+    // The selection id must never leak into the published token.
+    assert.ok(!extractionMethodFor(direct).includes('direct'),
+        'the transport is not wire-visible — see DIRECT_PROVIDER in shared/direct-transcribe.js');
+    assert.equal(direct.provider, DIRECT_PROVIDER);
+    assert.notEqual(direct.provider, DIRECT_ENGINE_ID);
+});
+
+test('a direct run composes byte-identical markdown to a companion run', () => {
+    // The `x` content address is a hash of these bytes. If the two
+    // transports ever compose different markdown for the same audio,
+    // the same episode carries two different content addresses.
+    const result = buildDirectResult(AAI_PAYLOAD);
+    const companionTwin = { ...result, model_info: COMPANION_MODEL_INFO };
+    const args = {
+        capturedMarkdown: '# Episode\n\nBody.',
+        mediaUrl: 'https://cdn.example.com/ep.mp3',
+        platform: ''
+    };
+    const a = buildDiarizedBody({ ...args, result });
+    const b = buildDiarizedBody({ ...args, result: companionTwin });
+    assert.equal(a.markdown, b.markdown);
+    assert.equal(a.heading, b.heading);
+    assert.deepEqual(a.timeMap, b.timeMap);
+    assert.match(a.heading, /\(AssemblyAI, diarized\)/);
+});
+
+test('the track entry records the transport locally without changing the published role', () => {
+    const result = buildDirectResult(AAI_PAYLOAD);
+    const direct = diarizedTrackEntry(result, { source: 'direct' });
+    const companion = diarizedTrackEntry(result);
+    // `role` is the reader's replace-slot key AND a published enum
+    // value — one diarized track per capture, whatever the engine.
+    assert.equal(direct.role, 'local-diarized');
+    assert.equal(direct.role, companion.role);
+    assert.equal(direct.kind, companion.kind);
+    // `source` is local-only provenance; hardcoding 'companion' on a
+    // companion-free run would be a small silent lie in the archive row.
+    assert.equal(direct.source, 'direct');
+    assert.equal(companion.source, 'companion');
+});
+
+// ------------------------------------------------------------------
+// Tag-component hygiene at the EMITTER.
+//
+// `transcript_lang` is built by joining three values with ':' —
+// `<lang>:<kind>:<role>` — and every one of them originates outside
+// this codebase: the language from the transcription provider, the kind
+// from the provider id, the role from a track record that a backup
+// import or a network incorporation can carry in. Joined unescaped, a
+// value containing ':' forges tag structure for anyone filtering on it.
+//
+// Found while building direct cloud transcription: the direct path
+// clamps its own language at the module boundary, but that protects one
+// producer. The durable fix is here, where it protects every path —
+// including the companion, whose provider could return the same thing.
+//
+// The clamp is byte-identical for every real value, which is why this
+// is a robustness fix and not a wire change.
+// ------------------------------------------------------------------
+
+test('transcript_lang components cannot forge tag structure', async () => {
+    // End-to-end: prove the EMITTER routes through the clamp, not just
+    // that the clamp exists.
+    const built = diarizedArticle();
+    built.youtube.transcripts = built.youtube.transcripts.map((t) => ({
+        ...t,
+        languageCode: 'en:forged:role',
+        kind: 'whisperx:evil',
+        role: 'local-diarized:extra'
+    }));
+    const ev = await EventBuilder.buildArticleEvent(built, [], PUBKEY, []);
+    const rows = ev.tags.filter((t) => t[0] === 'transcript_lang').map((t) => t[1]);
+    assert.equal(rows.length, 1);
+    // Exactly two separators — the ones the format defines.
+    assert.equal(rows[0].split(':').length, 3,
+        `a component smuggled a separator into the tag: ${rows[0]}`);
+    // The clamp neutralizes the SEPARATOR, not the characters — the
+    // forged text survives as one inert component, which is the point.
+    assert.equal(rows[0], 'en-forged-role:whisperx-evil:local-diarized-extra');
+    // The attack this closes: a consumer filtering on the language
+    // component must no longer match a value that only LOOKS like one.
+    assert.ok(!rows[0].startsWith('en:'),
+        'a forged language must not satisfy a startsWith("en:") filter');
+});
+
+test('every real transcript_lang value is emitted byte-for-byte unchanged', () => {
+    // The clamp must be invisible to genuine data, or it is a wire
+    // change rather than a robustness fix.
+    for (const [lang, kind, role] of [
+        ['en', 'whisperx', 'local-diarized'],
+        ['en-US', 'asr', 'origin-asr'],
+        ['pt-BR', 'human', 'translation'],
+        ['zh-Hans', 'assemblyai', 'local-diarized'],
+        ['en', 'deepgram', 'local-diarized']
+    ]) {
+        assert.equal(EventBuilder.transcriptLangValue(lang, kind, role), `${lang}:${kind}:${role}`);
+    }
+});
+
+test('extractionMethodFor clamps the LOCAL branch too, not only the cloud one', () => {
+    // The cloud branch has always clamped; the local branch interpolated
+    // model names straight into the published token.
+    const method = extractionMethodFor({
+        asr_model: 'large v3:evil',
+        diarization_model: 'pyannote/speaker-diarization-3.1 oops'
+    });
+    assert.ok(!method.includes(':'), `local branch leaked a separator: ${method}`);
+    assert.ok(/^[a-z0-9._+-]+$/.test(method), `local branch not clamped: ${method}`);
+    // The documented two-model form and its '+' joiner survive.
+    assert.equal(
+        extractionMethodFor({ asr_model: 'large-v3', diarization_model: 'pyannote/speaker-diarization-3.1' }),
+        'whisperx-large-v3+pyannote-3.1');
+    assert.equal(extractionMethodFor(null), 'whisperx-large-v3+pyannote');
+});

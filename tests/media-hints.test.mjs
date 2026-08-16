@@ -200,3 +200,121 @@ test('detectMediaHints: many DISTINCT known players are all found, none masked b
     assert.notEqual(hints, null);
     assert.deepEqual(hints.embeds, ['vimeo', 'rumble', 'spotify', 'megaphone', 'podbean']);
 });
+
+// ------------------------------------------------------------------
+// fileUrl beyond the anchor — the field failure of 2026-08-15.
+//
+// A PodBean-hosted episode page (architectureofabuse.com/e/episode1)
+// exposed its audio through NONE of the signals that yield a fileUrl:
+// no <a href="….mp3">, no <audio>, no og:audio. The mp3 was on the
+// page the whole time, in schema.org JSON-LD as
+// associatedMedia.contentUrl. With no fileUrl, transcribeSourceUrl
+// fell back to the PAGE url, and the direct cloud path handed
+// AssemblyAI an HTML document to transcribe ("Transcoding failed.
+// File type text/html").
+//
+// So: read the places that actually carry a URL, not only the one that
+// happened to be the PowerPress shape. JSON-LD is the standards-based
+// answer (schema.org PodcastEpisode / AudioObject), so this is general
+// across hosts rather than a per-site patch.
+// ------------------------------------------------------------------
+
+const jsonLd = (obj) => ({ textContent: JSON.stringify(obj) });
+
+test('detectMediaHints: JSON-LD associatedMedia.contentUrl yields a fileUrl', () => {
+    const hints = detectMediaHints(docWith({
+        'script[type="application/ld+json"]': [jsonLd({
+            '@type': 'PodcastEpisode',
+            name: 'Episode 1',
+            associatedMedia: {
+                '@type': 'MediaObject',
+                contentUrl: 'https://mcdn.podbean.com/mf/web/abc/Ep1.mp3'
+            }
+        })]
+    }));
+    assert.equal(hints.fileUrl, 'https://mcdn.podbean.com/mf/web/abc/Ep1.mp3');
+    assert.equal(hints.audio, true);
+});
+
+test('detectMediaHints: a top-level AudioObject contentUrl also counts', () => {
+    const hints = detectMediaHints(docWith({
+        'script[type="application/ld+json"]': [jsonLd({
+            '@type': 'AudioObject',
+            contentUrl: 'https://cdn.example.com/ep.m4a'
+        })]
+    }));
+    assert.equal(hints.fileUrl, 'https://cdn.example.com/ep.m4a');
+    assert.equal(hints.audio, true);
+});
+
+test('detectMediaHints: JSON-LD in a @graph or an array is searched too', () => {
+    const hints = detectMediaHints(docWith({
+        'script[type="application/ld+json"]': [jsonLd({
+            '@context': 'https://schema.org',
+            '@graph': [
+                { '@type': 'WebSite', name: 'irrelevant' },
+                { '@type': 'VideoObject', contentUrl: 'https://cdn.example.com/clip.mp4' }
+            ]
+        })]
+    }));
+    assert.equal(hints.fileUrl, 'https://cdn.example.com/clip.mp4');
+    assert.equal(hints.video, true);
+});
+
+test('detectMediaHints: malformed JSON-LD is ignored, never thrown', () => {
+    assert.equal(detectMediaHints(docWith({
+        'script[type="application/ld+json"]': [{ textContent: '{not json' }]
+    })), null);
+    assert.equal(detectMediaHints(docWith({
+        'script[type="application/ld+json"]': [{ textContent: '' }, { textContent: 'null' }]
+    })), null);
+});
+
+test('detectMediaHints: a contentUrl that is not a media file is not a fileUrl', () => {
+    // A PAGE url in contentUrl (some publishers do this) must not be
+    // submitted as if it were audio — that is the exact failure mode.
+    const hints = detectMediaHints(docWith({
+        'script[type="application/ld+json"]': [jsonLd({
+            '@type': 'PodcastEpisode',
+            associatedMedia: { '@type': 'MediaObject', contentUrl: 'https://example.com/e/episode1' }
+        })]
+    }));
+    assert.equal(hints, null);
+});
+
+test('detectMediaHints: an <audio src> and a <source src> yield a fileUrl', () => {
+    const el = (tag, src) => ({ tagName: tag, getAttribute: (a) => (a === 'src' ? src : null) });
+    const hints = detectMediaHints(docWith({
+        'audio, video': [el('AUDIO', 'https://cdn.example.com/ep.mp3')]
+    }));
+    assert.equal(hints.fileUrl, 'https://cdn.example.com/ep.mp3');
+
+    const nested = detectMediaHints(docWith({
+        'audio, video': [el('AUDIO', null)],
+        'audio source[src], video source[src]': [el('SOURCE', 'https://cdn.example.com/ep.ogg')]
+    }));
+    assert.equal(nested.fileUrl, 'https://cdn.example.com/ep.ogg');
+});
+
+test('detectMediaHints: og:audio carries a URL, not just a boolean', () => {
+    const meta = (content) => ({ getAttribute: (a) => (a === 'content' ? content : null) });
+    const hints = detectMediaHints(docWith({
+        'meta[property="og:audio"], meta[property="og:audio:url"]':
+            [meta('https://cdn.example.com/ep.mp3')]
+    }));
+    assert.equal(hints.audio, true);
+    assert.equal(hints.fileUrl, 'https://cdn.example.com/ep.mp3');
+});
+
+test('detectMediaHints: a download ANCHOR still wins over the other sources', () => {
+    // Existing tested behavior (the PowerPress case) must not regress:
+    // the explicit "Download" link is the most direct answer when a page
+    // offers several.
+    const hints = detectMediaHints(docWith({
+        'a[href]': [{ href: 'https://cdn.example.com/from-anchor.mp3' }],
+        'script[type="application/ld+json"]': [jsonLd({
+            '@type': 'AudioObject', contentUrl: 'https://cdn.example.com/from-jsonld.mp3'
+        })]
+    }));
+    assert.equal(hints.fileUrl, 'https://cdn.example.com/from-anchor.mp3');
+});
