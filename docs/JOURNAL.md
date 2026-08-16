@@ -19,6 +19,63 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-15 — Two gaps the direct-transcribe work surfaced elsewhere
+
+**Tags:** bug, security
+
+Both were found while building DC.1 and both live in code DC.1 does not
+own. They were flagged rather than fixed inside that slice — changing
+another feature's security surface under a transcription change is how
+review gets skipped — and are fixed here on their own.
+
+**1. A trailing root label bypassed `blockedImageUrl`'s host checks**
+(`shared/vision-image.js`). That function keeps the `xray:vision:describe`
+service-worker fetch off the operator's own network, and its image ref
+comes from untrusted captured article HTML. The WHATWG URL parser
+normalizes the numeric host forms for us — `https://2130706433/`,
+`https://0x7f000001/` and `https://127.1/` all arrive as `127.0.0.1`,
+and an IPv4 literal with a trailing dot is normalized too — so the
+dotted-quad matcher was never the weak spot. But the parser does NOT
+strip a trailing root label from a NAMED host, so `localhost.` and
+`box.local.` reached `host === 'localhost'` as misses and were
+admitted, while resolving to exactly the hosts the check exists to
+refuse. One line, normalizing the hostname before the comparisons.
+
+The general lesson, worth more than the fix: the check was written
+against the threats someone imagined (private ranges, v4-mapped v6) and
+the hole was in the part that looked too simple to check — string
+equality on a name. It was found by running candidate URLs through the
+real parser rather than reading the function.
+
+**2. `transcript_lang` joined three untrusted components with `:`**
+(`shared/event-builder.js`). The tag is `<lang>:<kind>:<role>`, and all
+three originate outside this codebase — the language from a
+transcription provider, the kind from a provider id, the role from a
+track record a backup import or a network incorporation can carry in.
+A component containing a colon forged tag structure for anyone
+filtering on it: a language of `en:forged:role` produced a tag that
+satisfies `startsWith("en:")` while meaning something else. Now routed
+through an exported `transcriptLangValue()` that clamps each component
+to `[A-Za-z0-9._-]`. `extractionMethodFor`'s LOCAL branch got the same
+treatment — its cloud branch had always clamped, and one rule is better
+than two.
+
+**Wire format: none.** Every genuine value already lies inside that
+charset — BCP-47 subtags (`pt-BR`, `zh-Hans`), engine ids, role names —
+so the clamp is byte-identical for real data and no published event
+changes shape. `docs/NIP_DRAFT.md` now states the charset so consumers
+can rely on the separators being unambiguous, which documents existing
+behavior rather than constraining producers.
+
+Note what was NOT done: `shared/provider-normalize.js` (the JS twin of
+the companion's `normalize.py`) was deliberately left alone. Narrowing
+it would have made the same audio compose a different body on the
+direct path than on the companion path, forking the `x` content
+address — the twin's job is parity with its reference, and sanitization
+belongs at the emitter, which is where it now is.
+
+---
+
 ## 2026-08-15 — Direct cloud transcription: the transport is not wire-visible
 
 **Tags:** design, security

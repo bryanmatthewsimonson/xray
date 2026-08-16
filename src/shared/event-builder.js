@@ -33,7 +33,33 @@ const EVIDENCE_ROLES = new Set([
 // `event-builder.js` don't need a second import path. See spec §6.4.
 export { buildRespondsToTag, RESPONDS_TO_RELATIONSHIPS } from './metadata/builders.js';
 
+/**
+ * The `transcript_lang` tag value: `<lang>:<kind>:<role>`.
+ *
+ * All three components originate OUTSIDE this codebase — the language
+ * from a transcription provider, the kind from a provider id, the role
+ * from a track record a backup import or a network incorporation can
+ * carry in — and they are joined with `:`, so a component containing a
+ * colon forges tag structure for anyone filtering on the tag.
+ *
+ * Clamped to the charset every genuine value already uses
+ * (`A-Za-z0-9._-`, which covers BCP-47 subtags like `pt-BR` and
+ * `zh-Hans`), so this is byte-identical for real data and therefore a
+ * robustness fix, NOT a wire change. Empty components stay empty —
+ * `en::origin-asr` was already possible and consumers parse
+ * positionally.
+ *
+ * Exported so the guard test can assert the byte-identity directly
+ * rather than through a whole event build.
+ */
+export function transcriptLangValue(lang, kind, role) {
+  const clean = (v) => String(v == null ? '' : v).replace(/[^A-Za-z0-9._-]+/g, '-');
+  return `${clean(lang)}:${clean(kind)}:${clean(role)}`;
+}
+
 export const EventBuilder = {
+  transcriptLangValue,
+
   // Assemble the publish-path article BODY — the markdown that follows
   // the metadata header in a published 30023's content. This is the
   // canonical-article-hash input (Phase 13.4): the audited text is the
@@ -425,10 +451,8 @@ export const EventBuilder = {
       if (Array.isArray(y.transcripts)) {
         for (const t of y.transcripts) {
           if (!t || !Array.isArray(t.events) || t.events.length === 0) continue;
-          const lang = t.languageCode || '';
-          const kind = t.kind || 'human';
-          const role = t.role || '';
-          tags.push(['transcript_lang', `${lang}:${kind}:${role}`]);
+          tags.push(['transcript_lang',
+            transcriptLangValue(t.languageCode, t.kind || 'human', t.role)]);
         }
       }
     }

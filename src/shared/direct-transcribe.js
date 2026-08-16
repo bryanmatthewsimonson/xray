@@ -211,10 +211,12 @@ export function blockedDirectMediaUrl(raw) {
     // FULLY-QUALIFIED trailing dot. The WHATWG parser canonicalizes the
     // numeric host forms for us — https://2130706433/, https://0x7f000001/
     // and https://127.1/ all arrive as "127.0.0.1" — but it does NOT
-    // strip a trailing root label, so "localhost." reaches
-    // blockedImageUrl's `host === 'localhost'` check as a miss and is
-    // admitted. Resolvers treat the two as the same host. Verified
-    // against the parser, not assumed.
+    // strip a trailing root label, so "localhost." resolves to the host
+    // we mean to refuse while missing an equality check on it.
+    // blockedImageUrl now normalizes this itself (fixed there after this
+    // path found it), so this line is belt-and-braces: a credentialed
+    // egress gate should not depend on another module's internals for a
+    // refusal it states as its own.
     if (/\.$/.test(u.hostname)) u.hostname = u.hostname.replace(/\.+$/, '');
 
     const embedded = nat64EmbeddedV4(u.hostname.toLowerCase());
@@ -249,9 +251,12 @@ export function blockedDirectMediaUrl(raw) {
  * be a genuine language code, and the two paths therefore agree on
  * every real provider response.
  *
- * The underlying gap is not ours alone: the companion path is equally
- * exposed, and the durable fix belongs at the tag emitter. Flagged
- * separately rather than fixed quietly under a transcription change.
+ * The tag emitter now clamps its components too (event-builder.js
+ * transcriptLangValue), which is the durable fix and covers the
+ * companion path as well. This stays as a boundary check: it keeps a
+ * junk language out of the composed HEADING (which the content hash
+ * covers) and not merely out of the tag, and it fails closed at the
+ * point the value enters the extension.
  */
 function safeLanguageCode(code) {
     const normalized = normalizeLanguage(code);

@@ -344,3 +344,77 @@ test('the track entry records the transport locally without changing the publish
     assert.equal(direct.source, 'direct');
     assert.equal(companion.source, 'companion');
 });
+
+// ------------------------------------------------------------------
+// Tag-component hygiene at the EMITTER.
+//
+// `transcript_lang` is built by joining three values with ':' —
+// `<lang>:<kind>:<role>` — and every one of them originates outside
+// this codebase: the language from the transcription provider, the kind
+// from the provider id, the role from a track record that a backup
+// import or a network incorporation can carry in. Joined unescaped, a
+// value containing ':' forges tag structure for anyone filtering on it.
+//
+// Found while building direct cloud transcription: the direct path
+// clamps its own language at the module boundary, but that protects one
+// producer. The durable fix is here, where it protects every path —
+// including the companion, whose provider could return the same thing.
+//
+// The clamp is byte-identical for every real value, which is why this
+// is a robustness fix and not a wire change.
+// ------------------------------------------------------------------
+
+test('transcript_lang components cannot forge tag structure', async () => {
+    // End-to-end: prove the EMITTER routes through the clamp, not just
+    // that the clamp exists.
+    const built = diarizedArticle();
+    built.youtube.transcripts = built.youtube.transcripts.map((t) => ({
+        ...t,
+        languageCode: 'en:forged:role',
+        kind: 'whisperx:evil',
+        role: 'local-diarized:extra'
+    }));
+    const ev = await EventBuilder.buildArticleEvent(built, [], PUBKEY, []);
+    const rows = ev.tags.filter((t) => t[0] === 'transcript_lang').map((t) => t[1]);
+    assert.equal(rows.length, 1);
+    // Exactly two separators — the ones the format defines.
+    assert.equal(rows[0].split(':').length, 3,
+        `a component smuggled a separator into the tag: ${rows[0]}`);
+    // The clamp neutralizes the SEPARATOR, not the characters — the
+    // forged text survives as one inert component, which is the point.
+    assert.equal(rows[0], 'en-forged-role:whisperx-evil:local-diarized-extra');
+    // The attack this closes: a consumer filtering on the language
+    // component must no longer match a value that only LOOKS like one.
+    assert.ok(!rows[0].startsWith('en:'),
+        'a forged language must not satisfy a startsWith("en:") filter');
+});
+
+test('every real transcript_lang value is emitted byte-for-byte unchanged', () => {
+    // The clamp must be invisible to genuine data, or it is a wire
+    // change rather than a robustness fix.
+    for (const [lang, kind, role] of [
+        ['en', 'whisperx', 'local-diarized'],
+        ['en-US', 'asr', 'origin-asr'],
+        ['pt-BR', 'human', 'translation'],
+        ['zh-Hans', 'assemblyai', 'local-diarized'],
+        ['en', 'deepgram', 'local-diarized']
+    ]) {
+        assert.equal(EventBuilder.transcriptLangValue(lang, kind, role), `${lang}:${kind}:${role}`);
+    }
+});
+
+test('extractionMethodFor clamps the LOCAL branch too, not only the cloud one', () => {
+    // The cloud branch has always clamped; the local branch interpolated
+    // model names straight into the published token.
+    const method = extractionMethodFor({
+        asr_model: 'large v3:evil',
+        diarization_model: 'pyannote/speaker-diarization-3.1 oops'
+    });
+    assert.ok(!method.includes(':'), `local branch leaked a separator: ${method}`);
+    assert.ok(/^[a-z0-9._+-]+$/.test(method), `local branch not clamped: ${method}`);
+    // The documented two-model form and its '+' joiner survive.
+    assert.equal(
+        extractionMethodFor({ asr_model: 'large-v3', diarization_model: 'pyannote/speaker-diarization-3.1' }),
+        'whisperx-large-v3+pyannote-3.1');
+    assert.equal(extractionMethodFor(null), 'whisperx-large-v3+pyannote');
+});

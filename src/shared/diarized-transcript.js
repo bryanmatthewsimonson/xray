@@ -306,8 +306,16 @@ export function extractionMethodFor(modelInfo) {
         return `${provider}-${model}`.toLowerCase()
             .replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
     }
-    const asr = (modelInfo && modelInfo.asr_model) || 'large-v3';
-    const diar = String((modelInfo && modelInfo.diarization_model) || 'pyannote')
-        .replace(/^pyannote\/(speaker-diarization-)?/, 'pyannote-');
+    // The LOCAL branch clamps too. It long did not, on the reasoning
+    // that these names come from the companion's own WhisperX config —
+    // but `extraction-method` is a published tag, the values reach it
+    // through a result object that a backup import can carry, and the
+    // cloud branch three lines up has always clamped. One rule.
+    // `+` is part of the documented two-model grammar and is preserved.
+    const token = (v) => String(v || '').toLowerCase()
+        .replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+    const asr = token((modelInfo && modelInfo.asr_model) || 'large-v3') || 'unknown';
+    const diar = token(String((modelInfo && modelInfo.diarization_model) || 'pyannote')
+        .replace(/^pyannote\/(speaker-diarization-)?/, 'pyannote-')) || 'pyannote';
     return `whisperx-${asr}+${diar}`;
 }

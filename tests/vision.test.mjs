@@ -591,6 +591,31 @@ test('upsertVisionNoteHtml: attribute-less round-tripped note is replaced, not s
     assert.equal((out.match(/Image description \(AI/g) || []).length, 1);
 });
 
+test('blockedImageUrl: a trailing root label does not bypass the host checks', () => {
+    // Found 2026-08-15 while building direct cloud transcription. The
+    // WHATWG parser normalizes the numeric host forms for us —
+    // https://2130706433/, https://0x7f000001/ and https://127.1/ all
+    // arrive as "127.0.0.1", and an IPv4 literal with a trailing dot is
+    // normalized too — but it does NOT strip a trailing root label from
+    // a NAMED host, so "localhost." reached the `host === 'localhost'`
+    // comparison as a miss and was admitted. Resolvers treat the two as
+    // the same host.
+    assert.equal(new URL('https://localhost./x').hostname, 'localhost.',
+        'if the parser ever starts stripping this, the normalization below is redundant, not wrong');
+    assert.ok(blockedImageUrl('http://localhost./x.png'), 'localhost. must be refused');
+    assert.ok(blockedImageUrl('http://box.local./x.png'), 'a trailing-dot mDNS name must be refused');
+    assert.ok(blockedImageUrl('http://sub.localhost./x.png'));
+    assert.ok(blockedImageUrl('http://localhost../x.png'), 'repeated root labels too');
+    // The numeric forms, asserted so the parser's help is observed
+    // rather than assumed.
+    assert.ok(blockedImageUrl('http://2130706433/x.png'), '127.0.0.1 as a decimal integer');
+    assert.ok(blockedImageUrl('http://0x7f000001/x.png'), 'as hex');
+    assert.ok(blockedImageUrl('http://127.1/x.png'), 'the short form');
+    assert.ok(blockedImageUrl('http://127.0.0.1./x.png'), 'v4 literal with a trailing dot');
+    // A legitimate fully-qualified CDN name still passes.
+    assert.equal(blockedImageUrl('https://cdn.example.com./img.jpg'), null);
+});
+
 test('blockedImageUrl: refuses local/private/link-local, allows public hosts', () => {
     assert.equal(blockedImageUrl('https://cdn.example.com/img.jpg'), null);
     assert.equal(blockedImageUrl('http://8.8.8.8/x.png'), null);
