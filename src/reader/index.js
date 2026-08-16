@@ -2508,16 +2508,23 @@ async function openEnginePicker() {
     // probe's own ~3s timeout, keeps a dead/slow companion from ever
     // delaying the menu: on failure or timeout, local stays available
     // exactly as before (never wrongly block a working setup).
-    let localBlocked = false;
-    try {
-        const probe = await Promise.race([
-            browserApi.runtime.sendMessage({ type: 'xray:transcribe:ping' }),
-            new Promise((resolve) => setTimeout(() => resolve(null), 1500))
-        ]);
-        if (probe && probe.ok) localBlocked = localBlockedByHealth(probe.health);
-    } catch (_) { /* best-effort only — local stays available */ }
     const companionEnabled = !!_transcribeCfg.enabled;
     const directEnabled = !!_transcribeCfg.directEnabled;
+    let localBlocked = false;
+    // ...but ONLY when a companion engine is actually on the menu. In a
+    // direct-only configuration there is no companion to ask and no
+    // local item to mark, so the probe is a round trip to a socket
+    // nothing is listening on, on the one path whose whole premise is
+    // that nothing is installed.
+    if (companionEnabled) {
+        try {
+            const probe = await Promise.race([
+                browserApi.runtime.sendMessage({ type: 'xray:transcribe:ping' }),
+                new Promise((resolve) => setTimeout(() => resolve(null), 1500))
+            ]);
+            if (probe && probe.ok) localBlocked = localBlockedByHealth(probe.health);
+        } catch (_) { /* best-effort only — local stays available */ }
+    }
     const anchor = $('#xr-transcribe');
     if (!anchor) return;
     const menu = document.createElement('div');

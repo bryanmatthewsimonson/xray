@@ -271,3 +271,18 @@ test('the direct flag has a real Options control, matching what the docs and err
     assert.match(hint, /never\s+touches\s+this\s+machine/i);
     assert.match(hint, /learns\s+the\s+address/i);
 });
+
+test('a direct-only picker never probes the companion', () => {
+    // The health probe exists to mark Local unavailable when HF_TOKEN is
+    // missing. With the companion flag off, Local is not on the menu at
+    // all — so the probe is a round trip to a socket nothing is
+    // listening on, on the one path whose premise is that nothing is
+    // installed. It must be gated on the companion actually being shown.
+    const picker = /async function openEnginePicker\(\)[\s\S]*?\n}/.exec(READER_CODE);
+    assert.ok(picker, 'openEnginePicker moved');
+    const probeAt = picker[0].indexOf("'xray:transcribe:ping'");
+    assert.ok(probeAt > 0, 'the health probe moved');
+    const gateAt = picker[0].indexOf('if (companionEnabled) {');
+    assert.ok(gateAt > 0 && gateAt < probeAt,
+        'the companion health probe must be gated on companionEnabled');
+});
