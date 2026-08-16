@@ -1,7 +1,14 @@
 # Direct cloud transcription — transcribe with nothing installed (kickoff)
 
-**Status: DC.1 IMPLEMENTED 2026-08-15 — code complete, acceptance walk
-OWED.** Approved by the maintainer the same day. DC.1's §5 criterion is
+**Status: DC.1 IMPLEMENTED 2026-08-15 — code complete, first real runs
+PASSED, §5 criterion NOT yet met.** Two episodes transcribed end to end
+through the direct route on 2026-08-15 (PodBean and Mormon Discussions),
+after the first attempt exposed a URL-discovery gap — the media-hint
+detector did not read schema.org JSON-LD, so a page URL was submitted
+and the provider returned "File type text/html" (fixed in `22d9d94`).
+§5 needs three transcripts, one on a never-installed machine, and one
+feeding a claim or entity page; see the walk ledger in
+`docs/SMOKE_TEST.md` for exactly what remains. Approved by the maintainer the same day. DC.1's §5 criterion is
 NOT met and cannot be met from a desk: it requires transcripts produced
 with no companion running, at least one on a machine where the companion
 has never been installed (`docs/SMOKE_TEST.md` §Direct cloud

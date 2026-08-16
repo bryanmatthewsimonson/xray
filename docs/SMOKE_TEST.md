@@ -22,7 +22,8 @@ how `ROADMAP.md` came to advertise finished walks as pending for weeks.
 | 2026-08-11 | Options → Signing load + method switch, after the `web_accessible_resources` restore | **PASS** (same session). Settings renders, tabs work, method selectable and saveable. |
 | 2026-08-15 | **Transcribe Anywhere — LT.6 acceptance walk, AssemblyAI engine** — a PowerPress/Blubrry podcast episode page (`mormondiscussionpodcast.org`, the same site family as the named slice-1 target), captured and transcribed end to end | **PASS**, on the second attempt. The first attempt found the wave's headline case broken: no Transcribe button, and three stacked blockers behind it — the media-hint detector was blind to `<a href="….mp3">` PowerPress links, yt-dlp could not resolve the page URL at all (only the direct file URL), and the pre-download duration guard refused any file whose duration a probe could not establish, which is every direct `.mp3`. Fixed in `b9d4976`; the walk then passed with the AssemblyAI engine. **Local (WhisperX) was NOT exercised** — this machine has no `HF_TOKEN` and reports `device: cpu`. LT.1–LT.5 and LT.7–LT.14 remain unwalked. |
 
-| | **Direct cloud transcription — DC.1 acceptance walk** (`## Direct cloud transcription`, DC-1..DC-6) | **OWED.** Code-complete, unwalked. DC-2 and DC-3 are the load-bearing rows and no automated layer can observe either: DC-2 requires the companion service STOPPED, and DC-3 requires surviving an MV3 service-worker teardown mid-job. Per §5 of the kickoff the criterion needs a machine where the companion has NEVER been installed — a walk on the maintainer's already-configured box confirms nothing about the thesis. |
+| 2026-08-15 | **Direct cloud transcription — DC.1, first real runs** (`## Direct cloud transcription`) | **PARTIAL PASS.** Two episodes transcribed end to end through the direct route on the maintainer's Mac: `architectureofabuse.com` (PodBean) and a Mormon Discussions episode. The first attempt on the PodBean page FAILED — AssemblyAI was handed the page URL and answered "Transcoding failed. File type text/html"; the mp3 was in schema.org JSON-LD, which the media-hint detector did not read (fixed in `22d9d94`, which also made the direct route refuse a page URL locally before spending an API call). Both then passed. The URL-consent dialog fired and named the address being sent — DC-5's disclosure clause and THREAT_MODEL G8's corrected bounding claim both observed working, not merely asserted. **Still owed: DC-2's companion-STOPPED clause (unconfirmed for these runs), DC-3 (MV3 teardown mid-job), DC-1 (flag-off absence), DC-6 (published `extraction-method`).** |
+| | **DC.1 §5 acceptance criterion** | **NOT MET — 2 of 3 transcripts, and the two load-bearing clauses outstanding.** §5 needs three transcripts with no companion running, at least one on a machine where the companion has NEVER been installed, and at least one feeding a claim or an entity page rather than sitting in the archive. The never-installed clause is the half that tests the thesis; it needs a fresh browser profile (see the section's Setup note — do NOT uninstall). The feeds-a-claim clause is the half that tests whether the transcripts are USEFUL, and neither run has satisfied it yet. |
 
 **Not yet walked** (each blocks nothing on its own, but is unobserved):
 a NIP-46 bunker signer — the only realistic provider that might restamp
@@ -31,9 +32,9 @@ entity-create surfaces; the K15 portal fold; the Settings "Capture
 Page" button (known broken, pre-existing); and the whole **Transcribe
 Anywhere** §Local transcription (LT.1–LT.14) — code-complete but
 unwalked, including the Media-modal escape hatch and the portal panel,
-both surfaces with zero automated coverage; and **DC.1 direct cloud
-transcription** (DC-1..DC-6), whose acceptance criterion is explicitly
-unobservable from this machine's usual configuration.
+both surfaces with zero automated coverage; and, for **DC.1 direct
+cloud transcription**, the rows the 2026-08-15 partial pass did not
+cover — DC-1, DC-3, DC-6, and DC-2's companion-stopped clause.
 
 > **Capture model (no FAB).** There is no in-page floating button or
 > capture panel. Trigger capture by **clicking the toolbar icon**,
