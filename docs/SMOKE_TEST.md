@@ -1636,6 +1636,36 @@ save an AssemblyAI key under Settings → Advanced → Transcription.
 **Then STOP the companion service** — that is the whole point of the
 walk, and leaving it running invalidates DC-2 silently.
 
+**On §5's "a machine where the companion has never been installed":
+do NOT uninstall anything — use a fresh browser profile.** Uninstalling
+is neither necessary nor sufficient, and it costs you the A/B that DC-4
+wants.
+
+*Not necessary:* the extension cannot tell a stopped service from an
+absent one. It probes `127.0.0.1:<port>/health` and gets connection
+refused either way — there is no filesystem check anywhere. Stopping
+the service is therefore indistinguishable, from the extension's side,
+from never having installed it.
+
+*Not sufficient:* the direct path never touches `uv`, Python, the GPU,
+or `HF_TOKEN`, so removing them changes nothing it depends on. What
+actually differs on a newcomer's machine is the EXTENSION's own
+configuration, which no uninstall clears: `xray:flags`
+(`localTranscription` still on), `xray:transcriber:engine` (a stored
+companion engine), `xray:transcriber:port`, `xray:transcriber:token`.
+That distinction is not theoretical — both DC.1 defects found on
+2026-08-15 (a leftover engine preference dead-ending the button; the
+button gate requiring the companion flag) manifest ONLY in the
+direct-only configuration. A box with the companion uninstalled but
+`localTranscription` still ticked sails past both and proves nothing.
+
+So: new Chrome profile → `chrome://extensions` → Developer mode → Load
+unpacked → the repo root. Storage is per-profile, so everything starts
+empty. Leave "Enable Transcribe for media captures" OFF, tick "Enable
+AssemblyAI (direct)", paste an AssemblyAI key. That is the newcomer
+state for everything this feature touches, on whatever machine you
+already have.
+
 | # | Step | Expect | Class |
 |---|---|---|---|
 | DC-1 | With `directCloudTranscription` OFF (and `localTranscription` ON), open a podcast capture and press ▾ | "AssemblyAI (direct)" is **absent** from the picker — hidden, not greyed. With BOTH flags off the Transcribe button itself is absent. | agent-verifiable |
