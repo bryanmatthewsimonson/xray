@@ -22,6 +22,8 @@ how `ROADMAP.md` came to advertise finished walks as pending for weeks.
 | 2026-08-11 | Options → Signing load + method switch, after the `web_accessible_resources` restore | **PASS** (same session). Settings renders, tabs work, method selectable and saveable. |
 | 2026-08-15 | **Transcribe Anywhere — LT.6 acceptance walk, AssemblyAI engine** — a PowerPress/Blubrry podcast episode page (`mormondiscussionpodcast.org`, the same site family as the named slice-1 target), captured and transcribed end to end | **PASS**, on the second attempt. The first attempt found the wave's headline case broken: no Transcribe button, and three stacked blockers behind it — the media-hint detector was blind to `<a href="….mp3">` PowerPress links, yt-dlp could not resolve the page URL at all (only the direct file URL), and the pre-download duration guard refused any file whose duration a probe could not establish, which is every direct `.mp3`. Fixed in `b9d4976`; the walk then passed with the AssemblyAI engine. **Local (WhisperX) was NOT exercised** — this machine has no `HF_TOKEN` and reports `device: cpu`. LT.1–LT.5 and LT.7–LT.14 remain unwalked. |
 
+| | **Direct cloud transcription — DC.1 acceptance walk** (`## Direct cloud transcription`, DC-1..DC-6) | **OWED.** Code-complete, unwalked. DC-2 and DC-3 are the load-bearing rows and no automated layer can observe either: DC-2 requires the companion service STOPPED, and DC-3 requires surviving an MV3 service-worker teardown mid-job. Per §5 of the kickoff the criterion needs a machine where the companion has NEVER been installed — a walk on the maintainer's already-configured box confirms nothing about the thesis. |
+
 **Not yet walked** (each blocks nothing on its own, but is unobserved):
 a NIP-46 bunker signer — the only realistic provider that might restamp
 `created_at`, the sole case the T2 equality check would reject; the K9
@@ -29,7 +31,9 @@ entity-create surfaces; the K15 portal fold; the Settings "Capture
 Page" button (known broken, pre-existing); and the whole **Transcribe
 Anywhere** §Local transcription (LT.1–LT.14) — code-complete but
 unwalked, including the Media-modal escape hatch and the portal panel,
-both surfaces with zero automated coverage.
+both surfaces with zero automated coverage; and **DC.1 direct cloud
+transcription** (DC-1..DC-6), whose acceptance criterion is explicitly
+unobservable from this machine's usual configuration.
 
 > **Capture model (no FAB).** There is no in-page floating button or
 > capture panel. Trigger capture by **clicking the toolbar icon**,
@@ -45,8 +49,8 @@ both surfaces with zero automated coverage.
 git clone …
 cd xray
 npm install
-npm run build           # produces dist/*.bundle.js (7 bundles)
-npm test                # 1277/1277 should pass
+npm run build           # produces dist/*.bundle.js (ten entry points)
+npm test                # must exit 0 — a hardcoded count here rots silently
 ```
 
 ### Chrome / Chromium / Brave / Edge
@@ -1612,3 +1616,37 @@ When the smoke test passes end-to-end, post a comment on issue #1
 with the date + git SHA + browser / OS / version triple. That's
 the closest thing X-Ray currently has to a release-blocker
 checklist.
+
+## Direct cloud transcription (DC.1)
+
+Transcription with **nothing installed**: the service worker submits the
+media URL straight to AssemblyAI, who fetch the audio themselves.
+`docs/DIRECT_CLOUD_TRANSCRIBE_KICKOFF.md`.
+
+Everything mechanical — request shape, missing-key refusal, URL
+admission, flag gating, normalizer output, error mapping, host pinning —
+is covered by `tests/direct-transcribe.test.mjs`,
+`tests/provider-host-pin.test.mjs`, `tests/engine-vocabulary.test.mjs`
+and `tests/provider-normalize.test.mjs`, and must NOT consume the
+human's twenty minutes. These six rows are what no automated layer can
+observe.
+
+**Setup:** Options → Advanced → enable **Direct cloud transcription**;
+save an AssemblyAI key under Settings → Advanced → Transcription.
+**Then STOP the companion service** — that is the whole point of the
+walk, and leaving it running invalidates DC-2 silently.
+
+| # | Step | Expect | Class |
+|---|---|---|---|
+| DC-1 | With `directCloudTranscription` OFF (and `localTranscription` ON), open a podcast capture and press ▾ | "AssemblyAI (direct)" is **absent** from the picker — hidden, not greyed. With BOTH flags off the Transcribe button itself is absent. | agent-verifiable |
+| DC-2 | **Companion STOPPED.** Capture a PowerPress/Blubrry episode page, press ▾ → AssemblyAI (direct), approve the URL dialog | The job runs and the transcript is adopted into the reader — diarized, speaker-labelled. No error mentions a companion, `uv run`, or "not reachable". | needs-human-eyes |
+| DC-3 | During DC-2, leave the reader tab idle past the MV3 idle window (or close and reopen the reader) before the job finishes | Polling RESUMES the same provider job rather than submitting a second one. **No automated layer can observe this** — the whole reason the SW handler returns after one request instead of looping. | needs-human-eyes |
+| DC-4 | Point a capture at a hotlink-protected file (a CDN that rejects non-browser agents) and run the direct engine | AssemblyAI's own failure text surfaces **verbatim** ("Download error, the hostname could not be resolved" or similar). Nothing silently falls back to the companion. **This row is the instrument for kill criterion 2** — if providers cannot fetch a majority of real episode URLs, the premise fails on contact. | needs-human-eyes |
+| DC-5 | Read the "AssemblyAI (direct)" sub-line in the picker before clicking | It does NOT say "the episode audio leaves this machine" (false here). It says the audio never touches this machine AND that AssemblyAI learns the address. Both halves. | needs-human-eyes |
+| DC-6 | Publish the adopted transcript; inspect the event | `extraction-method` is `assemblyai-<model>` — the SAME token a companion-routed AssemblyAI run publishes, with no `direct` in it. The banner and toast say "via AssemblyAI", never "locally". | agent-verifiable |
+
+**If DC-2 fails on the URL rather than the transport** (the provider
+cannot fetch it), that is DC-4's finding, not a DC-2 failure — record
+which, because they falsify different things: DC-2 tests whether the
+companion is really unnecessary, DC-4 whether real episode URLs are
+really fetchable by a third party.

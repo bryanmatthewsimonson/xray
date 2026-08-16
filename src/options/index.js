@@ -1319,6 +1319,7 @@ async function loadAdvanced() {
     // Port / URL / model live under their own storage keys (the LLM-key
     // pattern); blank fields mean "use the default".
     document.getElementById('pref-local-transcription').checked = isEnabled('localTranscription');
+    document.getElementById('pref-direct-cloud-transcription').checked = isEnabled('directCloudTranscription');
     document.getElementById('pref-transcript-claim-drafts').checked = isEnabled('transcriptClaimDrafts');
     const rawPort = await new Promise((resolve) => {
         browserApi.storage.local.get([TRANSCRIBER_PORT_STORAGE],
@@ -1468,6 +1469,10 @@ async function saveAdvanced() {
     // with a visible message rather than silently ignored later.
     const transcribeOn = document.getElementById('pref-local-transcription').checked;
     await setOverride('localTranscription', transcribeOn ? true : null);
+    // The companion-free route has its OWN flag: it is reachable with
+    // the companion checkbox off, which is the entire point of it.
+    const directOn = document.getElementById('pref-direct-cloud-transcription').checked;
+    await setOverride('directCloudTranscription', directOn ? true : null);
     const draftsOn = document.getElementById('pref-transcript-claim-drafts').checked;
     await setOverride('transcriptClaimDrafts', draftsOn ? true : null);
     const portField = (document.getElementById('pref-transcriber-port').value || '').trim();

@@ -39,6 +39,7 @@ import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { publishConfirmed, IDENTITY_KINDS } from '../shared/confirmed-publish.js';
 import { gatePublish } from '../shared/publish-gate.js';
 import { getTranscribeConfig, getTranscriberPort, pingTranscriber, startTranscription, getJobStatus, draftClaimCandidates } from '../shared/transcriber-client.js';
+import { startDirectTranscription, getDirectJobStatus, resolveTranscribeRoute, DIRECT_ENGINE_ID } from '../shared/direct-transcribe.js';
 
 // Pull the debug preference on SW startup. MV3 service workers sleep
 // and wake, so this runs each time the SW reloads. A chrome.storage
@@ -913,6 +914,52 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         })().catch((err) => sendResponse({ ok: false, error: (err && err.message) || 'transcribe status failed' }));
         return true; // async sendResponse
     }
+    // ------------------------------------------------------------------
+    // Direct cloud transcription — the xray:transcribe:direct:* pair.
+    // DELIBERATELY SEPARATE MESSAGE TYPES rather than a provider value on
+    // the companion messages: transcriber-client.js's normalizeEngine
+    // collapses any engine id it does not recognize to 'local', so a
+    // direct payload arriving on xray:transcribe:start would become a
+    // SILENT local companion job — the durable-lie failure mode, and a
+    // credentialed one. A stale sender instead gets ordinary
+    // unhandled-message behavior.
+    //
+    // Both handlers re-check the flag, including the poll: an MV3 worker
+    // wakes mid-job, and a credentialed request to a third party must
+    // not outlive the flag that authorized it. Neither loops — the
+    // reader drives the job, one short message per step.
+    // ------------------------------------------------------------------
+    if (message.type === 'xray:transcribe:direct:start') {
+        (async () => {
+            await loadFlags();
+            const gate = resolveTranscribeRoute({
+                engine: DIRECT_ENGINE_ID,
+                flags: { directCloudTranscription: isEnabled('directCloudTranscription') }
+            });
+            if (gate.route !== 'direct') {
+                sendResponse({ ok: false, error: gate.error });
+                return;
+            }
+            sendResponse(await startDirectTranscription(message.url));
+        })().catch((err) => sendResponse({ ok: false, error: (err && err.message) || 'direct transcribe start failed' }));
+        return true; // async sendResponse
+    }
+    if (message.type === 'xray:transcribe:direct:status') {
+        (async () => {
+            await loadFlags();
+            const gate = resolveTranscribeRoute({
+                engine: DIRECT_ENGINE_ID,
+                flags: { directCloudTranscription: isEnabled('directCloudTranscription') }
+            });
+            if (gate.route !== 'direct') {
+                sendResponse({ ok: false, error: gate.error });
+                return;
+            }
+            sendResponse(await getDirectJobStatus(message.jobId));
+        })().catch((err) => sendResponse({ ok: false, error: (err && err.message) || 'direct transcribe status failed' }));
+        return true; // async sendResponse
+    }
+
     if (message.type === 'xray:transcribe:claims') {
         // The optional LM Studio post-pass. Deliberately NOT xray:llm:* —
         // that namespace means "Anthropic via llm-client.js, gated by

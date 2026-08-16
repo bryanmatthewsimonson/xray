@@ -70,10 +70,11 @@ installed. Both already hold the assets.
 | B6 | imported file → storage | backup / case bundle / entity sync | shape validation; `local_keys` **never** accrues on merge (`MERGE_EXCLUDED_KEYS`); import verifies rather than trusts |
 | B7 | captured content → LLM prompt | article text (the one article pass; the UA.1 supplied-claim-index loop existed only for the UA.1–UA.2 bridge and retired with the standalone pass) | attacker-authored by definition; grounding rules treat model quotes as search keys, never evidence; **no model output is ever auto-applied**. Extract entity mentions are machine-grounded, per-atom `about` refs resolve only against the extract's own ref set, and every artifact still passes the human Accept |
 | B8 | LLM → extension state | proposals, briefs | every suggestion is human-accepted; nothing durable without an explicit Accept |
-| B9 | extension → cloud provider | prompts, audio, API keys | user-initiated only; keys memory-only in the companion child process, never written to its disk or logs. The audio may now come from any URL the companion admitted (Transcribe Anywhere), not only a YouTube video — the admission gate is B10's, not this row's |
-| B10 | extension → companion | transcription jobs, incl. the target media URL | pinned to `127.0.0.1`/`localhost`; optional shared token on every path except `/health`. The companion accepts any user-designated public https URL, not a YouTube allowlist (Transcribe Anywhere), and shells out to yt-dlp with it. Two enforcement points, not one: SYNCHRONOUS admission (`media_url.validate_media_url`, 400 on failure, no job created) requires https-only, refuses embedded credentials, and resolves the hostname to deny any non-global address (including NAT64/IPv4-mapped decoding so a wrapped `169.254.169.254` is caught); a separate ASYNCHRONOUS probe inside the worker child (`download.download_audio`, after the `202`, once yt-dlp has resolved the URL) refuses live streams and enforces the `TRANSCRIBER_MAX_DURATION_S` cap (4h default) — a too-long or live URL is admitted, then fails the job, never a `400`. **See gap G8**: the admission check is best-effort, not a closed SSRF gate |
+| B9 | extension → cloud provider (**via the companion**) | prompts, audio, API keys | user-initiated only; keys memory-only in the companion child process, never written to its disk or logs. **This row covers the COMPANION-MEDIATED path only** — its central control (keys held in a child process) does not exist when there is no companion; see B13. The audio may now come from any URL the companion admitted (Transcribe Anywhere), not only a YouTube video — the admission gate is B10's, not this row's |
+| B10 | extension → companion | transcription jobs, incl. the target media URL | **Companion-mediated path only** — the direct path (B13) never reaches this admission gate and ports it extension-side instead.  pinned to `127.0.0.1`/`localhost`; optional shared token on every path except `/health`. The companion accepts any user-designated public https URL, not a YouTube allowlist (Transcribe Anywhere), and shells out to yt-dlp with it. Two enforcement points, not one: SYNCHRONOUS admission (`media_url.validate_media_url`, 400 on failure, no job created) requires https-only, refuses embedded credentials, and resolves the hostname to deny any non-global address (including NAT64/IPv4-mapped decoding so a wrapped `169.254.169.254` is caught); a separate ASYNCHRONOUS probe inside the worker child (`download.download_audio`, after the `202`, once yt-dlp has resolved the URL) refuses live streams and enforces the `TRANSCRIBER_MAX_DURATION_S` cap (4h default) — a too-long or live URL is admitted, then fails the job, never a `400`. **See gap G8**: the admission check is best-effort, not a closed SSRF gate |
 | B11 | storage → screen | keys and tokens | presence-only rendering; credential inputs are `type="password"` and never repopulate a secret into a visible field |
 | B12 | companion → target host | the configured `TRANSCRIBER_COOKIES_FILE` (a full browser cookie export) | opt-in **per host** via `TRANSCRIBER_COOKIES_HOSTS` (default: the five YouTube hosts, exact-match, no subdomain wildcard) — `media_url.cookies_allowed_for`. Before Transcribe Anywhere this was unconditional, safe only because B10's admission gate was YouTube-only; a user who widens `TRANSCRIBER_COOKIES_HOSTS` is deliberately trusting those hosts with those cookies |
+| B13 | **extension → cloud provider (direct, no companion)** | a media URL and an API key | `shared/direct-transcribe.js`, service worker only, behind the default-off `directCloudTranscription` flag **re-checked on every call including the poll** (an MV3 worker wakes mid-job; a credentialed request must not outlive the flag that authorized it). Origin PINNED to an `https://api.assemblyai.com` literal — no base-URL preference, no request URL built from stored state or from a response body (`tests/provider-host-pin.test.mjs`). The module imports NO function from `transcriber-client.js`, only the credential key name: `companionFetch` attaches `X-Transcriber-Token` to every request, so reuse would send the companion secret to AssemblyAI. B10's admission gate is ported extension-side as `blockedDirectMediaUrl` — https-only, embedded-credential refusal, non-global-address deny with v4-mapped and NAT64 decoding — refusing before any network call. Key never leaves the SW, is scrubbed from every returned error, and pages see presence booleans only. `model_info` is CONSTRUCTED, never echoed, so a provider response cannot dictate published provenance. **See gap G9** |
 
 ---
 
@@ -144,8 +145,15 @@ accepted with its consequence stated.
   wave does not close it. What bounds the residual risk: the service
   binds loopback only and is single-user, no response body ever
   reaches a third party (the job's output is transcript text, not the
-  fetched bytes), and the URL is always one the user personally chose
-  to transcribe. A malicious captured **page** cannot reach the
+  fetched bytes), and the URL is one the user chose to transcribe — **with the
+  correction recorded 2026-08-15 below**: off the known platforms
+  `transcribeSourceUrl` prefers a `mediaHints.fileUrl` discovered in
+  the captured page's DOM, which the reader never displays, so on
+  those captures the URL is chosen by the PAGE and merely approved
+  by the user. On the direct path (B13) that approval is now
+  explicit: a confirm dialog shows the exact URL and host whenever
+  the submitted address differs from the page the user is looking
+  at. The companion path still has no such prompt. A malicious captured **page** cannot reach the
   companion at all (CORS + optional token, B10) — but a user who
   pastes a hostile URL into the portal panel or the Media modal is
   trusting that URL exactly as they trust any URL they capture.
@@ -153,6 +161,24 @@ accepted with its consequence stated.
   serves more than one local, trusted user.*
 
 ---
+- **G9 — on the direct cloud path, the captured PAGE influences which
+  address is disclosed to a third party.** B13 sends AssemblyAI a media
+  URL that, off the known platforms, comes from the page's own DOM
+  (`mediaHints.fileUrl`). A hostile page can therefore choose what
+  address is transcribed under the operator's paid API key: a billing
+  cost, and a disclosure of that address to the provider. What bounds
+  it: the flag is default-off; a run needs an explicit picker click
+  (the direct engine is picker-only in DC.1, so the right-click
+  auto-start path cannot reach it at all); the submitted URL is shown in
+  a confirm dialog whenever it differs from the page URL; embedded
+  credentials are refused before submission, so a private-feed token in
+  a `user:pass@` URL is never disclosed. What remains: a token carried
+  in a QUERY STRING is disclosed to the provider verbatim, and the
+  provider learns the source address in a way the companion path — which
+  uploads bytes — never revealed. Accepted, and stated in the picker's
+  own sub-line rather than only here. *Smaller than G8: the fetch is the
+  provider's, from the provider's network, so there is no path to the
+  operator's LAN; a service worker cannot pin DNS in any case.*
 
 ## 6. Changes recorded here
 
@@ -164,3 +190,4 @@ accepted with its consequence stated.
 | 2026-08-12 | UA.2: the Phase-28 vocabulary injection REMOVED — the entity registry no longer rides the SUGGEST prompt (data minimization on B7's outbound side for the per-article pass; naming moved to the accept-time resolution ladder, which is local and score-free). The registry digest still legitimately rides the user-invoked E2 entity-audit prompt (`runEntityAuditPass`) — that pass's whole purpose is registry review, unchanged. The map extract additionally carries entities + about refs (same B7 posture: model output, human-accepted per item across B8; entity mentions are machine-grounded, `about` refs resolve only against the extract's own ref set). The reader's live Suggest no longer sends `xray:llm:suggest` (one fewer prompt surface per click; the message remains for the import-time batch until UA.3). |
 | 2026-08-12 | UA.3: the `xray:llm:suggest` message type, `runSuggestionPass`, and the `propose_capture` tool schema REMOVED outright — one fewer B4 message type and one fewer B7 prompt surface; a stale sender gets unhandled-message behavior, never an LLM spend. The batch import's analyze-after-import now runs the same `xray:llm:corpus-map` pass every other surface uses (no new boundary; proposals are no longer parked — the pending-suggestions store stops accruing but existing records still render). `autoPreAnalyze` flag removed (the unknown-flag read fail-closes). |
 | 2026-08-15 | Transcribe Anywhere: B10's admission gate widened from a YouTube host allowlist to any user-designated public https URL — https-only, embedded-credential refusal, non-global-address deny with NAT64/IPv4-mapped decoding (all synchronous, `media_url.validate_media_url`, 400 on failure). Live-stream refusal and the `TRANSCRIBER_MAX_DURATION_S` cap (unchanged, 4h default) are a SEPARATE, asynchronous check in the worker child (`download.download_audio`, after the `202`) — a too-long or live URL is admitted, then fails the job, never a 400. New B12: `TRANSCRIBER_COOKIES_FILE`, previously handed to yt-dlp unconditionally (safe only because B10 admitted YouTube alone), is now opt-in per host via `TRANSCRIBER_COOKIES_HOSTS` (default: the YouTube hosts, exact-match). New gap G8: DNS rebinding is not closed — yt-dlp re-resolves and redirects on its own after admission — bounded by loopback-only + single-user + no third-party response exposure + user-chosen URLs. No wire-format change (`docs/TRANSCRIBE_ANYWHERE_KICKOFF.md`). |
+| 2026-08-15 | Direct cloud transcription (DC.1): new boundary **B13**, the extension itself sending a media URL and an API key to a third-party host with no companion in the loop — default-off `directCloudTranscription`, re-checked on the poll as well as the start; origin pinned to an `https://api.assemblyai.com` literal and guarded by `tests/provider-host-pin.test.mjs`; B10's admission gate ported extension-side (`blockedDirectMediaUrl`) since the direct path never reaches the companion's; key scrubbed from every error and never sent to a page. **B9 and B10 narrowed** to say explicitly that they cover the companion-mediated path only — B9's central control (keys held in the companion child process) does not exist without a companion. **G8's bounding claim corrected**: "the URL is always one the user personally chose" was already false for every non-known-platform capture, where `transcribeSourceUrl` prefers a `mediaHints.fileUrl` read from the page's DOM that the reader never displays. New gap **G9** for the residual on the direct path, mitigated by a confirm dialog showing the exact URL and host whenever it differs from the page URL. `host_permissions` gained `https://api.assemblyai.com/*`, which grants nothing (`<all_urls>` is already declared) and is documentary for the T5 narrowing sweep. No wire-format change (`docs/DIRECT_CLOUD_TRANSCRIBE_KICKOFF.md`). |

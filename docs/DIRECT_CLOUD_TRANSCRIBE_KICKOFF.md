@@ -1,6 +1,12 @@
 # Direct cloud transcription — transcribe with nothing installed (kickoff)
 
-**Status: PROPOSED 2026-08-15 — not started, not approved.** Drafted at
+**Status: DC.1 IMPLEMENTED 2026-08-15 — code complete, acceptance walk
+OWED.** Approved by the maintainer the same day. DC.1's §5 criterion is
+NOT met and cannot be met from a desk: it requires transcripts produced
+with no companion running, at least one on a machine where the companion
+has never been installed (`docs/SMOKE_TEST.md` §Direct cloud
+transcription, rows DC-1..DC-6). DC.2 and DC.3 are not started.
+Originally drafted at
 the maintainer's request after the Transcribe Anywhere smoke walk
 (PR #334), during which the maintainer asked the question this document
 exists to answer: "is it possible to transcribe anything without running
@@ -165,11 +171,18 @@ git-recoverable, re-arguable on merits (CONSTITUTION Art. 11).
 
 ## 7. Costs (maintainer attention — the scope budget)
 
-- **A manifest `host_permissions` entry is a one-way door.** Adding
-  provider hosts widens what the extension may reach and shows up in
-  the install prompt. This needs `architect` (reversibility) and
-  `security-threat-modeler` (new network destination, credential
-  egress) before DC.1 closes, not after.
+- ~~**A manifest `host_permissions` entry is a one-way door.**~~
+  **CORRECTED 2026-08-15, before DC.1 closed — this bullet was wrong
+  and it mispriced the review.** `manifest.json` already declares
+  `<all_urls>`, and three of the four third-party hosts the service
+  worker fetches today (ar5iv, api.crossref.org, arbitrary image hosts)
+  have no manifest entry at all. Adding `https://api.assemblyai.com/*`
+  changes the granted host set by ZERO and adds no install-prompt
+  warning; it is documentary, kept for the `ROAD_TO_1_0` T5 narrowing
+  sweep. The real technical gate is the code-side pinned host constant
+  (`tests/provider-host-pin.test.mjs`); the real consent gates are the
+  flag and the API key. **The actual one-way door in DC.1 is
+  `model_info.provider`** — see the §10 rulings.
 - **The second normalizer is permanent carrying surface.** Two
   implementations of one contract, in two languages, maintained
   forever. This is the cost most likely to be underestimated.
@@ -221,7 +234,45 @@ git-recoverable, re-arguable on merits (CONSTITUTION Art. 11).
 - **product-manager:** §5 check date enters the sweep; outcome recorded
   in JOURNAL at the date — used / parked / killed.
 
-## 10. Open questions (settle at DC.1 design review, not here)
+## 10. Open questions — SETTLED at the DC.1 design review, 2026-08-15
+
+Recorded as rulings. Each was decided before code, most against a
+discipline review's written recommendation being unanimous; where two
+reviews disagreed, both positions and the resolution are in
+`docs/JOURNAL.md`.
+
+- **The published provenance id does not name the transport.** The
+  picker id is `assemblyai-direct`; `model_info.provider` is the literal
+  `assemblyai`. This is DC.1's one irreversible decision: the value
+  reaches `diarizedHeading()` and therefore the hashed body, so a
+  transport-suffixed id would fork the `x` content address of every
+  direct transcript from its companion twin for the same audio.
+- **`transcribeSourceUrl` is NOT inverted** (question 1 below). Changing
+  it would re-key every in-flight job record via `media-key.js` and
+  break resume, and would extend the page-chooses-the-URL surface to the
+  eight platforms that currently escape it. Instead the direct submit
+  shows a confirm dialog with the exact URL and host whenever the
+  submitted address differs from the page URL.
+- **Provider-cannot-fetch reports and stops** (question 2 below). No
+  fallback to the companion, silent or otherwise — a fallback would
+  convert the evidence kill criterion 2 depends on into a success, and
+  would make "which engine ran" unanswerable at a glance. The
+  provider's own error text surfaces verbatim.
+- **Cost says "unknown" without a duration** (question 3 below). There
+  is no probe on this path because nothing is downloaded; the picker
+  already had honest wording for unknown-duration media and gained a
+  direct-path variant that does not name the companion.
+- **Companion vocabulary stays as-is in DC.1** (question 4 below),
+  deferred to DC.2. DC.1's only obligation: no direct-path string
+  contains "not reachable" (which makes the reader attach companion
+  setup advice) or instructs the user to install or start a companion —
+  machine-checked in `tests/engine-vocabulary.test.mjs`.
+- **The direct engine is picker-only** (a scope cut, not in the original
+  questions). It is never written to `xray:transcriber:engine`, because
+  `normalizeEngine` would collapse it to `'local'` and Options would
+  re-persist that. Cost: no "set direct as my default" until DC.2.
+
+The original questions, kept for the record:
 
 - Which URL to submit when a page yields both a direct file and a
   platform identity — today `transcribeSourceUrl` prefers the page URL

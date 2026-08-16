@@ -1113,7 +1113,7 @@ A transcript also carries a structure manifest:
 ["transcript_meta", "<format>:<turn_count>:<speaker_count>"]
 ```
 
-`format ∈ {vtt, srt, speaker-lines, plain}`. This is a MANIFEST, not a substrate: the transcript's speaker names and turn bodies live in the event **content** (the speaker-labeled markdown the `x` hash covers), never in tags — a full transcript would blow the event-size budget. `transcript_meta` is distinct from `transcript_lang` (Kind 30023 YouTube captures): that one is a per-track language manifest with different positional semantics.
+`format ∈ {vtt, srt, speaker-lines, plain, diarized}`. `diarized` means the transcript was produced by a speaker-diarizing engine and carries machine-assigned speaker turns — it has been emitted since diarized transcripts shipped (the companion's WhisperX+pyannote path and the cloud engines alike, whether the audio was routed through the local companion or fetched by the provider directly); this line documents already-published behavior rather than introducing a value. This is a MANIFEST, not a substrate: the transcript's speaker names and turn bodies live in the event **content** (the speaker-labeled markdown the `x` hash covers), never in tags — a full transcript would blow the event-size budget. `transcript_meta` is distinct from `transcript_lang` (Kind 30023 YouTube captures): that one is a per-track language manifest with different positional semantics.
 
 ## Kind 30023 — `media` tag (extension)
 

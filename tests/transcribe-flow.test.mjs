@@ -341,3 +341,205 @@ test('runTranscriptionJob: a generic media key stores and resumes its own record
     const start = sent.find((m) => m.type === 'xray:transcribe:start');
     assert.equal(start.url, 'https://mormonstories.org/podcast/ep-1/');
 });
+
+// ------------------------------------------------------------------
+// Direct cloud transcription (DC.1) — routing the SAME driver at a
+// different transport.
+//
+// The point of these tests is that runTranscriptionJob was NOT forked:
+// one job driver, one page-driven poll loop, one tested lifecycle. The
+// only things that vary are which message types it speaks and how often
+// it polls. Every assertion above this line is the regression net for
+// the companion path — none of them were modified.
+// ------------------------------------------------------------------
+
+const DIRECT_START = 'xray:transcribe:direct:start';
+const DIRECT_STATUS = 'xray:transcribe:direct:status';
+
+/** Scripted io for the direct message pair. */
+function makeDirectIo({ statusScript = [], startResp = { ok: true, jobId: 'aai-1', provider: 'assemblyai-direct' }, store = {} } = {}) {
+    const sent = [];
+    let statusIdx = 0;
+    return {
+        sent,
+        store,
+        io: {
+            sendMessage: async (msg) => {
+                sent.push(msg);
+                if (msg.type === DIRECT_START) return startResp;
+                if (msg.type === DIRECT_STATUS) {
+                    const r = statusScript[Math.min(statusIdx, statusScript.length - 1)];
+                    statusIdx += 1;
+                    return typeof r === 'function' ? r() : r;
+                }
+                return { ok: false, error: 'unknown' };
+            },
+            storageGet: async (key) => store[key],
+            storageSet: async (key, value) => { store[key] = value; },
+            storageRemove: async (keys) => { for (const k of [].concat(keys)) delete store[k]; },
+            storageGetAll: async () => ({ ...store }),
+            sleep: async () => {},
+            now: () => NOW,
+            onProgress: () => {}
+        }
+    };
+}
+
+test('runTranscriptionJob defaults to the companion message types', async () => {
+    // The parameterization must be invisible to every existing caller.
+    const { sent, io } = makeIo({ statusScript: [{ ok: true, job: { status: 'done', result: { segments: [1] } } }] });
+    await runTranscriptionJob({ mediaUrl: 'https://x/a.mp3', mediaKey: 'k', io });
+    assert.deepEqual([...new Set(sent.map((m) => m.type))],
+        ['xray:transcribe:start', 'xray:transcribe:status']);
+});
+
+test('runTranscriptionJob routes to the direct message types when asked', async () => {
+    const { sent, store, io } = makeDirectIo({
+        statusScript: [{ ok: true, job: { status: 'done', result: { segments: [1] }, provider: 'assemblyai-direct' } }]
+    });
+    const out = await runTranscriptionJob({
+        mediaUrl: 'https://cdn.example.com/ep.mp3',
+        mediaKey: 'k',
+        provider: 'assemblyai-direct',
+        route: 'direct',
+        startType: DIRECT_START,
+        statusType: DIRECT_STATUS,
+        io
+    });
+    assert.equal(out.ok, true);
+    assert.deepEqual([...new Set(sent.map((m) => m.type))], [DIRECT_START, DIRECT_STATUS]);
+    // The provider transcript id must be persisted BEFORE the first
+    // poll — it is the only handle to an already-paid job.
+    assert.equal(store[jobRecordKey('k', 'direct')].jobId, 'aai-1');
+    assert.equal(store[jobRecordKey('k', 'direct')].route, 'direct');
+    // ...and it does NOT occupy the companion key.
+    assert.equal(store[jobRecordKey('k')], undefined);
+});
+
+test('a companion job record never resumes on the direct transport, or vice versa', () => {
+    // Routes are not interchangeable: a companion job id means nothing
+    // to AssemblyAI, and polling the wrong one with a credential is
+    // worse than starting fresh.
+    const live = { ok: true, job: { status: 'running' } };
+    const companionRecord = { jobId: 'j1', startedAt: NOW, route: 'companion' };
+    const directRecord = { jobId: 'aai-1', startedAt: NOW, route: 'direct' };
+
+    assert.equal(decideResume(companionRecord, live, NOW, null, 'companion').action, 'resume');
+    assert.equal(decideResume(companionRecord, live, NOW, null, 'direct').action, 'start');
+    assert.equal(decideResume(directRecord, live, NOW, null, 'direct').action, 'resume');
+    assert.equal(decideResume(directRecord, live, NOW, null, 'companion').action, 'start');
+
+    // Cross-route refusal must hold for a FINISHED job too — adopting a
+    // companion result on a direct run would misreport which engine ran.
+    const done = { ok: true, job: { status: 'done', result: { segments: [1] } } };
+    assert.equal(decideResume(directRecord, done, NOW, null, 'direct').action, 'adopt');
+    assert.equal(decideResume(directRecord, done, NOW, null, 'companion').action, 'start');
+});
+
+test('a pre-DC.1 record with no route still resumes on the companion path', () => {
+    // Records written before this slice carry neither route nor
+    // provider. They must behave exactly as they did.
+    const legacy = { jobId: 'j1', startedAt: NOW };
+    const live = { ok: true, job: { status: 'running' } };
+    assert.equal(decideResume(legacy, live, NOW).action, 'resume');
+    assert.equal(decideResume(legacy, live, NOW, null, 'companion').action, 'resume');
+    // ...but it is not a direct job, so a direct run starts fresh.
+    assert.equal(decideResume(legacy, live, NOW, null, 'direct').action, 'start');
+});
+
+test('a stored record for a DIFFERENT url starts fresh', () => {
+    // The media key is a hash of the submitted URL, but a record can
+    // outlive a page edit that changes which file URL is discovered.
+    // Submitting job A's id against URL B would bill the wrong audio.
+    const record = { jobId: 'aai-1', startedAt: NOW, route: 'direct', url: 'https://cdn/a.mp3' };
+    const live = { ok: true, job: { status: 'running' } };
+    assert.equal(decideResume(record, live, NOW, null, 'direct', 'https://cdn/a.mp3').action, 'resume');
+    assert.equal(decideResume(record, live, NOW, null, 'direct', 'https://cdn/b.mp3').action, 'start');
+});
+
+test('describeProgress omits the percentage when there is no honest one', () => {
+    // The direct path has no duration probe and no provider-reported
+    // percentage, so "0%" would be a fabricated number that also reads
+    // as a stuck job. Absent progress is not zero progress.
+    assert.equal(
+        describeProgress({ status: 'running', stage: 'transcribing', provider: 'assemblyai-direct' }),
+        'Transcribing (AssemblyAI)…'
+    );
+    assert.equal(
+        describeProgress({ status: 'running', stage: 'transcribing' }),
+        'Transcribing (WhisperX)…'
+    );
+    // An EXPLICIT zero is still a real reading and still renders.
+    assert.equal(
+        describeProgress({ status: 'running', stage: 'downloading', progress: 0 }),
+        'Downloading audio… 0%'
+    );
+});
+
+test('the direct engine never announces itself as local', () => {
+    // providerPhrase renders both the in-flight banner and the success
+    // toast. Any engine it does not know says "locally" — which for a
+    // run that handed a third party a URL is exactly the durable lie
+    // the JOURNAL ruled against on 2026-08-02.
+    assert.equal(providerPhrase('assemblyai-direct'), 'via AssemblyAI');
+    assert.notEqual(providerPhrase('assemblyai-direct'), 'locally');
+});
+
+test('a companion run cannot clobber the record of an in-flight PAID direct job', async () => {
+    // Found by adversarial review and REPRODUCED before this fix: the
+    // cross-route guard correctly refuses to RESUME a direct record on
+    // the companion transport, but the new companion job's record write
+    // then overwrote it under the same key — destroying the only handle
+    // to an already-paid provider job. Route-scoped keys make the two
+    // records coexist.
+    const store = {};
+    const io = (startResp) => ({
+        sendMessage: async (msg) => (msg.type.endsWith(':start')
+            ? startResp
+            : { ok: true, job: { status: 'done', result: { segments: [1] } } }),
+        storageGet: async (k) => store[k],
+        storageSet: async (k, v) => { store[k] = v; },
+        storageRemove: async (ks) => { for (const k of [].concat(ks)) delete store[k]; },
+        storageGetAll: async () => ({ ...store }),
+        sleep: async () => {}, now: () => NOW, onProgress: () => {}
+    });
+
+    await runTranscriptionJob({
+        mediaUrl: 'https://cdn/ep.mp3', mediaKey: 'K', provider: 'assemblyai-direct',
+        route: 'direct', startType: DIRECT_START, statusType: DIRECT_STATUS,
+        io: io({ ok: true, jobId: 'aai-PAID', provider: 'assemblyai-direct' })
+    });
+    await runTranscriptionJob({
+        mediaUrl: 'https://cdn/ep.mp3', mediaKey: 'K',
+        io: io({ ok: true, jobId: 'companion-99' })
+    });
+
+    assert.equal(store[jobRecordKey('K', 'direct')].jobId, 'aai-PAID',
+        'the paid provider job id must survive an unrelated companion run');
+    assert.equal(store[jobRecordKey('K')].jobId, 'companion-99');
+});
+
+test('the companion record key is unchanged, so pre-DC.1 records still resolve', () => {
+    // Route-scoping must not re-key existing records: a companion job
+    // recorded by a build that predates this slice has to keep resuming.
+    assert.equal(jobRecordKey('K'), JOB_RECORD_PREFIX + 'K');
+    assert.equal(jobRecordKey('K', 'companion'), JOB_RECORD_PREFIX + 'K');
+    assert.equal(jobRecordKey('K', undefined), JOB_RECORD_PREFIX + 'K');
+    assert.notEqual(jobRecordKey('K', 'direct'), jobRecordKey('K'));
+    // Both still start with the reaper's prefix, so neither leaks past TTL.
+    assert.ok(jobRecordKey('K', 'direct').startsWith(JOB_RECORD_PREFIX));
+});
+
+test('the stale reaper collects direct records too', async () => {
+    const store = {
+        [jobRecordKey('K')]: { jobId: 'a', startedAt: NOW - JOB_RECORD_TTL_MS - 1 },
+        [jobRecordKey('K', 'direct')]: { jobId: 'b', startedAt: NOW - JOB_RECORD_TTL_MS - 1 },
+        [jobRecordKey('L', 'direct')]: { jobId: 'c', startedAt: NOW }
+    };
+    const io = {
+        storageGetAll: async () => ({ ...store }),
+        storageRemove: async (ks) => { for (const k of [].concat(ks)) delete store[k]; }
+    };
+    assert.equal(await reapStaleJobRecords(io, NOW), 2);
+    assert.deepEqual(Object.keys(store), [jobRecordKey('L', 'direct')]);
+});

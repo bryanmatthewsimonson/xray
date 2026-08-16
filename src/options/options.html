@@ -598,6 +598,25 @@
         <a href="https://github.com/bryanmatthewsimonson/xray/blob/main/companion/transcriber/README.md"
            target="_blank" rel="noreferrer">companion/transcriber/README.md</a>.
       </p>
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-direct-cloud-transcription" />
+        <span>Enable "AssemblyAI (direct)" — transcribe with nothing installed</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Off by default, and <strong>independent of the checkbox above</strong>
+        — this route needs no companion service at all. X-Ray sends
+        AssemblyAI the media's web address and your API key, and
+        AssemblyAI downloads the audio itself. Stated plainly, because
+        it is a <em>different</em> trade rather than a smaller one:
+        <strong>the audio never touches this machine</strong> and the
+        site never sees your IP — but <strong>AssemblyAI learns the
+        address of what you are transcribing</strong>, which uploading
+        audio through the companion never revealed. Pick it per capture
+        from the ▾ next to Transcribe; it cannot be set as the default
+        engine below yet. Works only where the captured page exposes a
+        direct media file (most podcast pages do; YouTube and the other
+        signed-URL platforms do not).
+      </p>
       <label class="xr-opt__field">
         <span>Transcription engine</span>
         <select id="pref-transcribe-engine">

@@ -100,7 +100,7 @@ extension approves in-context.
 `xray:relay:publish`, `xray:relay:query`, `xray:sign`,
 `xray:youtube:fetchTranscript`, `xray:screenshot:capture`,
 `xray:llm:corpus-map`, `xray:audit:run`, `xray:transcribe:{start,status,
-config,ping,claims}`, `xray:vision:describe`). When adding a cross-context
+config,ping,claims}`, `xray:transcribe:direct:{start,status}`, `xray:vision:describe`). When adding a cross-context
 call, add an `xray:*` message rather than reaching across contexts directly.
 
 ### Shared layer (`src/shared/`)
@@ -211,6 +211,23 @@ it; CI's `node --check`/tests never touch it). Setup + API contract:
 `companion/transcriber/README.md`. The extension must behave exactly
 as before whenever the service is absent — that degradation is a
 tested contract, not an aspiration.
+
+Since DC.1 (`docs/DIRECT_CLOUD_TRANSCRIBE_KICKOFF.md`) that sentence
+carries TWO meanings, and both hold. The old one: with no companion and
+no direct flag, every transcription surface degrades exactly as before.
+The new one: with the default-off `directCloudTranscription` flag on,
+`shared/direct-transcribe.js` transcribes with **no companion at all** —
+the service worker hands AssemblyAI the media URL and they fetch the
+audio themselves. That module is a SIBLING of `transcriber-client.js`,
+never an extension of it: it imports only the credential key NAME, since
+`companionFetch` attaches the companion's shared token to every request.
+Its provider origin is a pinned https literal (guard:
+`tests/provider-host-pin.test.mjs`), and its result normalizer
+(`shared/provider-normalize.js`) is a JS twin of the companion's
+`providers/normalize.py` held in parity by a fixture BOTH suites read
+(`tests/fixtures/normalizer-parity.json`; regenerate with
+`tests/tools/regen-normalizer-fixture.py`). Changing either normalizer
+without the other is the design's named long-term risk.
 
 ## Conventions
 

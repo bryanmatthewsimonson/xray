@@ -258,7 +258,7 @@ export function buildDiarizedBody({
  * the reader's track chip gate on non-empty `events` (bodies still
  * never publish as tags — the builder only counts them).
  */
-export function diarizedTrackEntry(result) {
+export function diarizedTrackEntry(result, { source = 'companion' } = {}) {
     const segments = Array.isArray(result && result.segments) ? result.segments : [];
     const provider = String((result && result.model_info && result.model_info.provider) || '').trim().toLowerCase();
     const via = providerDisplayName(provider);
@@ -281,7 +281,14 @@ export function diarizedTrackEntry(result) {
                 text: String(s.text).trim()
             })),
         error: null,
-        source: 'companion'
+        // LOCAL-ONLY provenance (the event builder never reads it):
+        // which transport produced these segments. 'companion' for a
+        // loopback-service run, 'direct' for the companion-free cloud
+        // path — hardcoding 'companion' there would be a small, silent
+        // lie in the archive row. `role` stays 'local-diarized' for
+        // both: it is the replace-slot key the reader filters on, so
+        // one diarized track per capture whatever the engine.
+        source
     };
 }
 

@@ -261,3 +261,86 @@ test('a NON-YouTube diarized capture emits no transcript_lang tag (wire promise)
     // genuinely-video platform.
     assert.ok(!names.includes('media'), 'media stays user-declared off video platforms');
 });
+
+// ------------------------------------------------------------------
+// Direct cloud transcription (DC.1) — the wire must NOT be able to tell
+// which transport ran.
+//
+// This is the slice's one irreversible decision, so it is pinned at the
+// wire observer as well as at the module. `model_info.provider` reaches
+// diarizedHeading(), which is composed into article.markdown BEFORE the
+// content hash is taken — so a transport-suffixed provider id would
+// permanently fork every direct transcript's `x` content address from
+// its companion-routed twin for the SAME audio, and publish an
+// extraction-method token no consumer has seen.
+//
+// The tag documents how the text was PRODUCED, not who downloaded the
+// bytes: AssemblyAI's model produced it either way.
+// ------------------------------------------------------------------
+
+const { buildDirectResult, DIRECT_ENGINE_ID, DIRECT_PROVIDER } =
+    await import('../src/shared/direct-transcribe.js');
+
+const AAI_PAYLOAD = {
+    status: 'completed',
+    language_code: 'en_us',
+    speech_model_used: 'universal-3-5-pro',
+    utterances: [{
+        speaker: 'A', start: 0, end: 1500, text: 'Hello there.',
+        words: [{ text: 'Hello', start: 0, end: 700 }, { text: 'there.', start: 700, end: 1500 }]
+    }]
+};
+
+const COMPANION_MODEL_INFO = {
+    provider: 'assemblyai',
+    asr_model: 'universal-3-5-pro',
+    diarization_model: 'assemblyai-native',
+    device: 'cloud',
+    aligned: true,
+    yt_dlp_version: '2026.08.01'
+};
+
+test('a direct run and a companion run publish the same extraction-method', () => {
+    const direct = buildDirectResult(AAI_PAYLOAD).model_info;
+    assert.equal(extractionMethodFor(direct), extractionMethodFor(COMPANION_MODEL_INFO));
+    assert.equal(extractionMethodFor(direct), 'assemblyai-universal-3-5-pro');
+    // The selection id must never leak into the published token.
+    assert.ok(!extractionMethodFor(direct).includes('direct'),
+        'the transport is not wire-visible — see DIRECT_PROVIDER in shared/direct-transcribe.js');
+    assert.equal(direct.provider, DIRECT_PROVIDER);
+    assert.notEqual(direct.provider, DIRECT_ENGINE_ID);
+});
+
+test('a direct run composes byte-identical markdown to a companion run', () => {
+    // The `x` content address is a hash of these bytes. If the two
+    // transports ever compose different markdown for the same audio,
+    // the same episode carries two different content addresses.
+    const result = buildDirectResult(AAI_PAYLOAD);
+    const companionTwin = { ...result, model_info: COMPANION_MODEL_INFO };
+    const args = {
+        capturedMarkdown: '# Episode\n\nBody.',
+        mediaUrl: 'https://cdn.example.com/ep.mp3',
+        platform: ''
+    };
+    const a = buildDiarizedBody({ ...args, result });
+    const b = buildDiarizedBody({ ...args, result: companionTwin });
+    assert.equal(a.markdown, b.markdown);
+    assert.equal(a.heading, b.heading);
+    assert.deepEqual(a.timeMap, b.timeMap);
+    assert.match(a.heading, /\(AssemblyAI, diarized\)/);
+});
+
+test('the track entry records the transport locally without changing the published role', () => {
+    const result = buildDirectResult(AAI_PAYLOAD);
+    const direct = diarizedTrackEntry(result, { source: 'direct' });
+    const companion = diarizedTrackEntry(result);
+    // `role` is the reader's replace-slot key AND a published enum
+    // value — one diarized track per capture, whatever the engine.
+    assert.equal(direct.role, 'local-diarized');
+    assert.equal(direct.role, companion.role);
+    assert.equal(direct.kind, companion.kind);
+    // `source` is local-only provenance; hardcoding 'companion' on a
+    // companion-free run would be a small silent lie in the archive row.
+    assert.equal(direct.source, 'direct');
+    assert.equal(companion.source, 'companion');
+});

@@ -30,8 +30,24 @@ export const POLL_INTERVAL_MS = 3000;
 // so the button resumes the same job once the service is back).
 export const MAX_UNREACHABLE_POLLS = 5;
 
-export function jobRecordKey(mediaKey) {
-    return JOB_RECORD_PREFIX + String(mediaKey || '');
+/**
+ * The storage key for one media's job record, SCOPED BY TRANSPORT.
+ *
+ * The companion form is unsuffixed and therefore byte-identical to what
+ * every pre-DC.1 build wrote — those records must keep resuming.
+ * A direct job gets its own key so the two can coexist.
+ *
+ * That separation is not tidiness. Found by adversarial review and
+ * reproduced: with one key per media, starting a companion job after a
+ * direct one OVERWROTE the record holding the provider transcript id.
+ * decideResume correctly refused to resume across transports, but the
+ * new job's record write still destroyed the only handle to a job the
+ * user had ALREADY PAID FOR. Refusing to resume it is not enough —
+ * the handle has to survive.
+ */
+export function jobRecordKey(mediaKey, route) {
+    const base = JOB_RECORD_PREFIX + String(mediaKey || '');
+    return (route && route !== 'companion') ? `${base}:${route}` : base;
 }
 
 /** True when a stored job record is too old to trust. */
@@ -52,7 +68,25 @@ const STAGE_LABELS = {
 // Mirror of providerDisplayName in shared/diarized-transcript.js — kept
 // inline because this module deliberately imports nothing (its tests
 // run without a chrome stub).
-const PROVIDER_LABELS = { assemblyai: 'AssemblyAI', deepgram: 'Deepgram' };
+//
+// EVERY selectable engine id must appear here. An id that is missing
+// falls through to 'locally' in providerPhrase below, which renders the
+// in-flight banner and the success toast — so a run that handed a third
+// party a URL would announce itself as local. That is the durable lie
+// the JOURNAL ruled against on 2026-08-02, and
+// tests/engine-vocabulary.test.mjs machine-checks it now rather than
+// trusting this comment.
+//
+// 'assemblyai-direct' is the SELECTION id for the companion-free
+// transport; it maps to the same human label as the companion-routed
+// AssemblyAI engine because it is the same provider doing the same
+// work. (The wire-visible provenance id is plain 'assemblyai' for both
+// — see DIRECT_PROVIDER in shared/direct-transcribe.js.)
+const PROVIDER_LABELS = {
+    assemblyai: 'AssemblyAI',
+    deepgram: 'Deepgram',
+    'assemblyai-direct': 'AssemblyAI'
+};
 
 /** 'locally' / 'via AssemblyAI' — the banner + toast wording for a
  *  job/model_info provider field. Absent provider = older companion =
@@ -72,6 +106,13 @@ export function describeProgress(job) {
     let label = STAGE_LABELS[job.stage] || 'Working';
     const via = PROVIDER_LABELS[String(job.provider || '').trim().toLowerCase()];
     if (via && job.stage === 'transcribing') label = `Transcribing (${via})`;
+    // ABSENT progress is not zero progress. The companion reports real
+    // stages plus a wall-clock estimate from a probed duration; the
+    // direct path has neither (nothing is downloaded, so nothing probes
+    // the length, and the provider reports no percentage). Rendering
+    // "0%" there would be a fabricated number that also reads as a
+    // stuck job. An explicit 0 still renders — that is a real reading.
+    if (job.progress == null) return `${label}…`;
     const pct = Math.round(Math.min(1, Math.max(0, Number(job.progress) || 0)) * 100);
     return `${label}… ${pct}%`;
 }
@@ -89,10 +130,25 @@ export function describeProgress(job) {
  * explicit choice — field-found 2026-08-02: picking Local silently
  * adopted an earlier AssemblyAI job's record. Records without a
  * provider stamp (pre-engine-choice builds) keep the old behavior.
+ *
+ * `route`: which TRANSPORT this run uses — 'companion' (a job id the
+ * loopback service issued) or 'direct' (a provider transcript id).
+ * Checked INDEPENDENTLY of the provider clause, because the two ids
+ * are not interchangeable in either direction: polling AssemblyAI with
+ * a companion job id spends a credential on a meaningless request, and
+ * adopting a companion result on a direct run would misreport which
+ * engine ran. A record with no route stamp is a pre-DC.1 companion
+ * record and resumes on the companion path exactly as before.
+ *
+ * `mediaUrl`: the URL THIS run would submit. A record can outlive a
+ * re-capture that discovers a different `mediaHints.fileUrl`, and
+ * resuming then would adopt a transcript of different audio.
  */
-export function decideResume(record, statusResp, now = Date.now(), provider) {
+export function decideResume(record, statusResp, now = Date.now(), provider, route, mediaUrl) {
     if (!record || isRecordStale(record, now) || !record.jobId) return { action: 'start' };
     if (provider && record.provider && record.provider !== provider) return { action: 'start' };
+    if (route && (record.route || 'companion') !== route) return { action: 'start' };
+    if (mediaUrl && record.url && record.url !== mediaUrl) return { action: 'start' };
     if (!statusResp || !statusResp.ok) {
         // Unknown job (server restarted past its disk retention) or the
         // service is down — the caller distinguishes: unreachable keeps
@@ -132,17 +188,32 @@ export async function reapStaleJobRecords(io, now = Date.now()) {
  *   now() → epoch ms
  *   onProgress(job|null) → void            (banner repaint)
  */
-export async function runTranscriptionJob({ mediaUrl, mediaKey, provider, io }) {
-    const key = jobRecordKey(mediaKey);
+export async function runTranscriptionJob({
+    mediaUrl, mediaKey, provider, io,
+    // The TRANSPORT this run speaks. Defaults reproduce the companion
+    // path byte-for-byte, so every pre-DC.1 call site is unchanged and
+    // its tests stay green unmodified. The driver itself is NOT forked:
+    // one job loop, one resume policy, one tested lifecycle — the only
+    // things that vary are which messages it sends and how often.
+    route = 'companion',
+    startType = 'xray:transcribe:start',
+    statusType = 'xray:transcribe:status',
+    pollMs = POLL_INTERVAL_MS
+}) {
+    const key = jobRecordKey(mediaKey, route);
     const record = await io.storageGet(key);
 
     // Resume decision: ask the server about a remembered job first —
     // unless an explicit engine choice already disqualifies the record
-    // (different engine), in which case the status is irrelevant.
+    // (different engine, different transport, or a different source
+    // URL), in which case the status is irrelevant and asking would
+    // spend a credential on a meaningless request.
     let statusResp = null;
-    const mismatched = provider && record && record.provider && record.provider !== provider;
+    const mismatched = (provider && record && record.provider && record.provider !== provider)
+        || (record && (record.route || 'companion') !== route)
+        || (record && record.url && mediaUrl && record.url !== mediaUrl);
     if (record && !mismatched && !isRecordStale(record, io.now()) && record.jobId) {
-        statusResp = await io.sendMessage({ type: 'xray:transcribe:status', jobId: record.jobId });
+        statusResp = await io.sendMessage({ type: statusType, jobId: record.jobId });
         if (statusResp && !statusResp.ok && statusResp.unreachable) {
             return {
                 ok: false,
@@ -155,7 +226,7 @@ export async function runTranscriptionJob({ mediaUrl, mediaKey, provider, io }) 
     // can still refuse (edit conflict), and the record is the only
     // handle to the finished server-side result. The CALLER removes it
     // after a successful adoption; failed/cancelled/404 reap here.
-    const decision = decideResume(record, statusResp, io.now(), provider);
+    const decision = decideResume(record, statusResp, io.now(), provider, route, mediaUrl);
     if (decision.action === 'adopt') {
         return { ok: true, result: decision.result };
     }
@@ -163,7 +234,7 @@ export async function runTranscriptionJob({ mediaUrl, mediaKey, provider, io }) 
     let jobId = decision.action === 'resume' ? decision.jobId : null;
     if (!jobId) {
         const started = await io.sendMessage({
-            type: 'xray:transcribe:start',
+            type: startType,
             url: mediaUrl,
             // Engine for THIS job (picker choice / stored preference);
             // undefined lets the SW fall back to the stored preference.
@@ -173,8 +244,12 @@ export async function runTranscriptionJob({ mediaUrl, mediaKey, provider, io }) 
             return { ok: false, missingKey: started && started.missingKey, error: (started && started.error) || 'Could not start the transcription job.' };
         }
         jobId = started.jobId;
+        // Written BEFORE the first poll on purpose: on the direct
+        // transport this id is the only handle to an already-paid
+        // provider job, and an MV3 worker can be torn down between the
+        // submit and the next tick.
         await io.storageSet(key, {
-            jobId, url: mediaUrl, mediaKey, startedAt: io.now(),
+            jobId, url: mediaUrl, mediaKey, startedAt: io.now(), route,
             ...(started.provider ? { provider: started.provider } : {})
         });
     }
@@ -182,7 +257,7 @@ export async function runTranscriptionJob({ mediaUrl, mediaKey, provider, io }) 
     // Poll until terminal. Each message doubles as the SW keepalive.
     let unreachable = 0;
     for (;;) {
-        const resp = await io.sendMessage({ type: 'xray:transcribe:status', jobId });
+        const resp = await io.sendMessage({ type: statusType, jobId });
         if (!resp || !resp.ok) {
             if (resp && resp.status === 404) {
                 await io.storageRemove([key]);
@@ -198,7 +273,7 @@ export async function runTranscriptionJob({ mediaUrl, mediaKey, provider, io }) 
                     error: (resp && resp.error) || 'Lost contact with the transcription service mid-job. The job may still be running — try again once the service is back.'
                 };
             }
-            await io.sleep(POLL_INTERVAL_MS);
+            await io.sleep(pollMs);
             continue;
         }
         unreachable = 0;
@@ -216,7 +291,7 @@ export async function runTranscriptionJob({ mediaUrl, mediaKey, provider, io }) 
             await io.storageRemove([key]);
             return { ok: false, error: job.error || `Transcription ${job.status}.` };
         }
-        await io.sleep(POLL_INTERVAL_MS);
+        await io.sleep(pollMs);
     }
 }
 
