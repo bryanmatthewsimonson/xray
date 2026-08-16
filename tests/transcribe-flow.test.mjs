@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import {
     JOB_RECORD_PREFIX, JOB_RECORD_TTL_MS, MAX_UNREACHABLE_POLLS,
     jobRecordKey, isRecordStale, describeProgress, providerPhrase, decideResume,
-    reapStaleJobRecords, runTranscriptionJob, transcribeSourceUrl
+    reapStaleJobRecords, runTranscriptionJob, transcribeSourceUrl, directSubmissionProblem
 } from '../src/reader/transcribe-flow.js';
 
 // transcribeSourceUrl — smoke-failure diagnosis B2. A KNOWN platform
@@ -542,4 +542,61 @@ test('the stale reaper collects direct records too', async () => {
     };
     assert.equal(await reapStaleJobRecords(io, NOW), 2);
     assert.deepEqual(Object.keys(store), [jobRecordKey('L', 'direct')]);
+});
+
+// ------------------------------------------------------------------
+// The direct path cannot resolve a PAGE.
+//
+// Field failure 2026-08-15 (architectureofabuse.com/e/episode1, a
+// PodBean-hosted episode): no fileUrl was discovered, transcribeSourceUrl
+// fell back to the page URL as designed, and the direct route handed
+// AssemblyAI an HTML document — "Transcoding failed. File type
+// text/html". The user paid an API call to be told the obvious.
+//
+// The asymmetry is the point: the companion resolves pages, because
+// yt-dlp does. A provider fetching a URL cannot. So the same fallback
+// that is correct for the companion is guaranteed-useless for direct,
+// and this refuses it locally instead of spending the call.
+//
+// The test is non-heuristic: the article's OWN url is definitionally a
+// page, not a media file — unless the capture is itself a media file,
+// which is why the extension check is there.
+// ------------------------------------------------------------------
+
+test('directSubmissionProblem: refuses to submit the captured page itself', () => {
+    const article = { url: 'https://architectureofabuse.com/e/episode1' };
+    const problem = directSubmissionProblem(article, article.url);
+    assert.ok(problem, 'a page URL must be refused before the API call');
+    assert.match(problem, /no direct media file/i);
+    // It must name the way forward, and must NOT read as a companion
+    // problem (the reader attaches companion setup advice to anything
+    // containing "not reachable").
+    assert.ok(!/not reachable/i.test(problem));
+    assert.match(problem, /Media/i, 'the Media modal is the escape hatch — name it');
+});
+
+test('directSubmissionProblem: a discovered media file is admitted', () => {
+    const article = {
+        url: 'https://architectureofabuse.com/e/episode1',
+        mediaHints: { fileUrl: 'https://mcdn.podbean.com/mf/web/abc/Ep1.mp3' }
+    };
+    assert.equal(directSubmissionProblem(article, transcribeSourceUrl(article)), null);
+});
+
+test('directSubmissionProblem: a capture whose own URL IS the media file is admitted', () => {
+    // Navigating straight to an .mp3 and capturing it: sourceUrl equals
+    // article.url, but it is a media file, so refusing would be wrong.
+    const article = { url: 'https://cdn.example.com/ep.mp3' };
+    assert.equal(directSubmissionProblem(article, article.url), null);
+    const q = { url: 'https://cdn.example.com/ep.m4a?token=abc' };
+    assert.equal(directSubmissionProblem(q, q.url), null);
+});
+
+test('directSubmissionProblem: a known platform page is refused with the right reason', () => {
+    // YouTube et al. always send the page URL by design (signed media
+    // URLs expire). The companion resolves those; direct cannot.
+    const article = { url: 'https://www.youtube.com/watch?v=abc123DEF45', platform: 'youtube' };
+    const problem = directSubmissionProblem(article, transcribeSourceUrl(article));
+    assert.ok(problem);
+    assert.match(problem, /youtube/i, 'name the platform so the reason is obvious');
 });

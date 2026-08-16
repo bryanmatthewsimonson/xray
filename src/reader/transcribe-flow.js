@@ -343,6 +343,46 @@ export function transcribeSourceUrl(article) {
     return isFetchableMediaUrl(fileUrl) ? fileUrl : a.url;
 }
 
+// Media-file extensions, mirrored from shared/media-hints.js
+// mediaKindForHref — this module deliberately imports nothing (its
+// tests run with no chrome stub), so keep the two in sync.
+const MEDIA_EXT_RE = /\.(mp3|m4a|aac|ogg|oga|opus|wav|flac|mp4|m4v|webm|mov)$/i;
+
+/**
+ * Why THIS url cannot be submitted to a direct cloud provider, or null.
+ *
+ * The direct route's one structural limit: a provider fetches a URL, it
+ * does not resolve a page. The companion has yt-dlp and genuinely can,
+ * which is why transcribeSourceUrl falls back to the page URL — correct
+ * there, guaranteed-useless here.
+ *
+ * Field-found 2026-08-15 on a PodBean episode page that exposed no
+ * discoverable media file: the fallback fired, AssemblyAI was handed an
+ * HTML document, and the answer came back as a paid API error
+ * ("Transcoding failed. File type text/html") rather than as something
+ * X-Ray could have said for free.
+ *
+ * Deliberately NOT a heuristic about what a media URL looks like: the
+ * test is whether we are about to submit the CAPTURED PAGE'S OWN
+ * address, which is definitionally a page — unless the capture is
+ * itself a media file, which is the one exception.
+ */
+export function directSubmissionProblem(article, sourceUrl) {
+    const a = article || {};
+    const url = String(sourceUrl || '');
+    if (!url || url !== a.url) return null;
+    if (MEDIA_EXT_RE.test(url.split(/[?#]/)[0])) return null;
+
+    const platform = a.platform && KNOWN_PLATFORMS.has(a.platform) ? a.platform : '';
+    const because = platform
+        ? `${platform} serves signed, expiring media URLs, so this capture sends its page address`
+        : 'no direct media file was found on this page, so this capture falls back to its page address';
+    return `AssemblyAI (direct) needs a media file, and ${because}. `
+        + 'A cloud provider downloads a URL; it cannot open a page and find the audio. '
+        + 'Use the \u{1F399} Media & source modal to paste the episode\u2019s direct file URL, '
+        + 'or run this one through the companion service, which resolves pages with yt-dlp.';
+}
+
 /**
  * Does this capture look like it has media a transcriber could fetch?
  *

@@ -19,6 +19,66 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-15 — DC.1 field failure: the media URL was on the page, in JSON-LD
+
+**Tags:** bug, external
+
+First real run of the direct cloud path, on a PodBean-hosted episode
+(`architectureofabuse.com/e/episode1`), came back with AssemblyAI's own
+error: *"Transcoding failed. File type text/html (HTML document…)"*.
+The provider had been handed the PAGE url and dutifully downloaded the
+HTML.
+
+**Root cause, and it is not the transport.** `detectMediaHints` records
+a `fileUrl` only from a direct media-file `<a href>` — the
+PowerPress/Blubrry shape the Transcribe Anywhere wave was built
+against. This page has no such anchor, no `<audio>`, and no `og:audio`.
+The mp3 was on the page the whole time, in schema.org JSON-LD:
+
+    "associatedMedia": {"@type": "MediaObject",
+                        "contentUrl": "https://mcdn.podbean.com/mf/web/…/AoA-Episode1-Jun9.mp3"}
+
+With no `fileUrl`, `transcribeSourceUrl` fell back to the page URL —
+correct behavior, and exactly what it is documented to do.
+
+**Fix 1 — read the places that actually carry a URL.** `detectMediaHints`
+now also reads JSON-LD `contentUrl` (walking `@graph`/arrays,
+depth-bounded, malformed JSON skipped), the `src` of `<audio>`/`<video>`
+and their `<source>` children, and the `content` of `og:audio`/`og:video`
+— all of which it previously detected as BOOLEANS while throwing the URL
+away. Every candidate must still pass the media-extension test, so a
+`contentUrl` pointing at a page (some publishers do that) can never be
+submitted as if it were audio. The download anchor keeps priority, so no
+page that already worked can regress. JSON-LD is the standards-based
+place to look, so this fixes the class rather than one host. Verified
+against the live page's real bytes, not a fixture.
+
+**Fix 2 — the direct path must never submit a page at all.** This is the
+durable half, because no detector will cover every site. The asymmetry
+had been sitting in plain sight: the companion resolves pages *because
+yt-dlp does*, so the page-URL fallback is right for it and
+guaranteed-useless for a provider that only fetches URLs. New
+`directSubmissionProblem()` refuses locally, before the API call, when
+the URL about to be submitted is the captured page's own address —
+non-heuristic, with the one exception of a capture that IS a media file.
+It names the escape hatch (paste the file URL in the 🎙 Media modal) and
+the alternative (the companion, which can resolve the page).
+
+**For the DC-4 ledger — this was NOT a hotlink-protection failure**, and
+the SMOKE_TEST row exists to keep the two apart. The CDN file was checked
+directly: `mcdn.podbean.com` answers a non-browser user agent with a 302
+to a signed URL and no 403, so it is fetchable by a third party. Kill
+criterion 2 ("providers cannot fetch a majority of real episode URLs")
+has no evidence against it yet; what failed was our URL DISCOVERY.
+
+**The general lesson**, worth more than either fix: the first slice
+shipped with a URL-discovery path tested against exactly one podcast
+host's markup, and a provider-side error message was the thing that
+found the gap. A page that says "Download" is one publishing convention
+among several, and the machine-readable one was there all along.
+
+---
+
 ## 2026-08-15 — Two gaps the direct-transcribe work surfaced elsewhere
 
 **Tags:** bug, security

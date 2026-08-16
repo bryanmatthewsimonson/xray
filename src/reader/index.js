@@ -84,7 +84,7 @@ import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/len
 import { speakerFromParagraphText } from '../shared/transcript-parse.js';
 import { buildTranscriptSection, upsertTranscriptSection } from '../shared/transcript-article.js';
 import { buildDiarizedBody, timeFragmentSelector, timeRangeOfSpan, diarizedTrackEntry, extractionMethodFor } from '../shared/diarized-transcript.js';
-import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey, hasMediaSignal, isFetchableMediaUrl, transcribeSourceUrl } from './transcribe-flow.js';
+import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey, hasMediaSignal, isFetchableMediaUrl, transcribeSourceUrl, directSubmissionProblem } from './transcribe-flow.js';
 import { mediaKeyForArticle } from '../shared/media-key.js';
 import { openMediaModal } from './media-modal.js';
 import { scanPodcastSignals } from '../shared/podcast-identity.js';
@@ -2219,7 +2219,13 @@ async function runTranscribeFlow(provider) {
     // a.url) so a re-run of the same source resumes the same job record
     // instead of orphaning it.
     const sourceUrl = transcribeSourceUrl(a);
-    if (provider === DIRECT_ENGINE_ID && !confirmDirectSubmission(sourceUrl, a.url)) return;
+    if (provider === DIRECT_ENGINE_ID) {
+        // Refuse a page URL locally rather than pay a provider to
+        // discover it was handed HTML (field failure 2026-08-15).
+        const problem = directSubmissionProblem(a, sourceUrl);
+        if (problem) { toast(problem, 'error', 10000); return; }
+        if (!confirmDirectSubmission(sourceUrl, a.url)) return;
+    }
     const mediaKey = await mediaKeyForArticle(a, sourceUrl);
     if (_transcribeRunning) {
         // Never swallow a click silently (the Suggest-local precedent).

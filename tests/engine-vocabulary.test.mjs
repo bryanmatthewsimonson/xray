@@ -286,3 +286,18 @@ test('a direct-only picker never probes the companion', () => {
     assert.ok(gateAt > 0 && gateAt < probeAt,
         'the companion health probe must be gated on companionEnabled');
 });
+
+test('the direct route refuses a page URL before spending an API call', () => {
+    // Field failure 2026-08-15: AssemblyAI was handed an HTML page and
+    // answered with a paid error. The refusal must run BEFORE the
+    // confirm dialog (no point asking the user to approve something
+    // that cannot work) and before the job starts.
+    const flow = /async function runTranscribeFlow\(provider\)[\s\S]*?_transcribeRunning = true;/.exec(READER_CODE);
+    assert.ok(flow, 'runTranscribeFlow moved');
+    const refuseAt = flow[0].indexOf('directSubmissionProblem(');
+    const confirmAt = flow[0].indexOf('confirmDirectSubmission(');
+    const startAt = flow[0].indexOf('runTranscriptionJob(');
+    assert.ok(refuseAt > 0, 'the direct route must consult directSubmissionProblem');
+    assert.ok(confirmAt > refuseAt, 'refuse an impossible submission before asking the user to approve it');
+    assert.ok(startAt === -1 || startAt > refuseAt);
+});
