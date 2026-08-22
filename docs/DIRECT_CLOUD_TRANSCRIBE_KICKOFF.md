@@ -144,8 +144,21 @@ companion-routed engines, so the user can always see which one ran, and
   availability marks, and several error strings all describe a service.
   Make "no companion installed, direct cloud configured" a coherent,
   self-explaining state rather than a wall of setup errors.
-- **DC.3 — Deepgram parity**, if and only if DC.1's criterion is met
-  and the API confirms a remote-URL mode.
+- **DC.3 — Deepgram parity.** **GATE OPENED by maintainer ruling
+  2026-08-16** (CONSTITUTION Art. 11). The §4 gate as written was a
+  conjunction — DC.1's criterion met AND the API confirmed — and the
+  `product-manager` review read the criterion half as unmet, because
+  §5's third clause (a transcript feeding a claim or entity page) is
+  deferred to corpus work. It also raised a stronger objection than the
+  gate: DC.3 had **no problem statement in the maintainer's terms**,
+  since the §1 job-to-be-hired is already served by AssemblyAI direct.
+  That objection is now answered, and by the only authority that could
+  answer it: *"I also now have a Deepgram API key, and I do want to be
+  able to use Deepgram if I want."* A maintainer who holds a key and
+  wants to spend it is a problem statement; price parity and provider
+  redundancy were not. The deferred §5 clause remains deferred and is
+  NOT treated as satisfied — the ruling overrides the gate rather than
+  pretending the gate passed.
 - **Deferred, not scheduled:** local-file upload direct to a provider;
   any attempt at platform pages (see §8).
 
