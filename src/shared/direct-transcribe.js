@@ -133,9 +133,14 @@ async function storedApiKey() {
  * start: an MV3 worker wakes mid-job, and a credentialed GET to a third
  * party must not outlive the flag that authorized it.
  */
+/** Every companion-free engine id. Both live behind the SAME flag —
+ *  one consent decision covers "may X talk to a transcription provider
+ *  directly", not one per vendor. */
+export const DIRECT_ENGINE_IDS = Object.freeze(['assemblyai-direct', 'deepgram-direct']);
+
 export function resolveTranscribeRoute({ engine, flags } = {}) {
     const f = flags || {};
-    if (engine === DIRECT_ENGINE_ID) {
+    if (DIRECT_ENGINE_IDS.includes(engine)) {
         if (!f.directCloudTranscription) {
             return {
                 route: 'refused',

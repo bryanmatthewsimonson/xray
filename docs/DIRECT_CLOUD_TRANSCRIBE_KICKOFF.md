@@ -144,7 +144,8 @@ companion-routed engines, so the user can always see which one ran, and
   availability marks, and several error strings all describe a service.
   Make "no companion installed, direct cloud configured" a coherent,
   self-explaining state rather than a wall of setup errors.
-- **DC.3 — Deepgram parity.** **GATE OPENED by maintainer ruling
+- **DC.3 — Deepgram parity.** COMPLETE 2026-08-16 (smoke rows
+  DC-10, DC-11 owed). **GATE OPENED by maintainer ruling
   2026-08-16** (CONSTITUTION Art. 11). The §4 gate as written was a
   conjunction — DC.1's criterion met AND the API confirmed — and the
   `product-manager` review read the criterion half as unmet, because

@@ -116,3 +116,58 @@ class RoundingParity(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProviderMappingParity(unittest.TestCase):
+    """DC.3: the per-provider mapping layer, cross-checked.
+
+    The shared normalizer is only half the contract. Each provider has
+    its own layer turning a raw API payload into the common utterance
+    shape, and that is where the UNITS differ — AssemblyAI sends integer
+    milliseconds, Deepgram sends float seconds. Until DC.3 this layer was
+    tested independently in each language against hand-built payloads and
+    cross-checked nowhere.
+    """
+
+    def _cases(self, provider):
+        return [c for c in load_fixture().get("provider_cases", []) if c["provider"] == provider]
+
+    def test_deepgram_mapping_matches_this_implementation(self):
+        from transcriber.providers import deepgram as dg
+
+        cases = self._cases("deepgram")
+        self.assertGreater(len(cases), 0, "fixture carries no Deepgram provider cases")
+        for case in cases:
+            with self.subTest(case=case["name"]):
+                self.assertEqual(
+                    dg._common_utterances(case["payload"]),
+                    case["expected_utterances"],
+                    f'case "{case["name"]}" diverged.\nWhy this case exists: '
+                    f'{case["why"]}{REGEN_HINT}',
+                )
+                self.assertEqual(
+                    dg._detected_language(case["payload"]),
+                    case["expected_language"],
+                    f'case "{case["name"]}" language diverged{REGEN_HINT}',
+                )
+
+    def test_deepgram_end_to_end_segments_match(self):
+        """Mapping THEN the shared normalizer — what the extension adopts."""
+        from transcriber.providers import deepgram as dg
+
+        for case in self._cases("deepgram"):
+            with self.subTest(case=case["name"]):
+                self.assertEqual(
+                    utterances_to_segments(dg._common_utterances(case["payload"])),
+                    case["expected_segments"],
+                    f'case "{case["name"]}" end-to-end diverged{REGEN_HINT}',
+                )
+
+    def test_deepgram_sends_float_seconds_not_milliseconds(self):
+        """The trap named explicitly, on real data: a value like 1.1999999
+        must survive the mapping undivided."""
+        from transcriber.providers import deepgram as dg
+
+        real = next(c for c in self._cases("deepgram") if c["name"] == "deepgram_real_response_slice")
+        first = dg._common_utterances(real["payload"])[0]
+        self.assertGreater(first["start"], 1.0, "a divided value would be ~0.001")

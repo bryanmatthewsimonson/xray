@@ -709,3 +709,116 @@ test('DC.2: the COMPANION route keeps its wording exactly', async () => {
     });
     assert.match(lost.error, /once the service is back/);
 });
+
+// ------------------------------------------------------------------
+// DC.3 — the SYNCHRONOUS transport.
+//
+// Deepgram returns the transcript from the submit itself: no job id, no
+// polling, and (their docs) no stored copy to retrieve later. So the
+// driver must NOT poll, and a torn-down worker mid-request is an
+// unrecoverable loss of that request rather than a resumable job.
+//
+// Bounded, not catastrophic — measured 12.9s for a 48-minute episode —
+// but real, so a pre-flight record is written BEFORE the request and
+// removed on any resolved outcome. A record that survives means the
+// request never resolved, and the next run says so rather than
+// pretending nothing happened. It NEVER auto-retries.
+// ------------------------------------------------------------------
+
+const SYNC_START = 'xray:transcribe:direct:deepgram';
+
+function syncIo(startResp, store = {}) {
+    const sent = [];
+    return {
+        sent,
+        store,
+        io: {
+            sendMessage: async (msg) => { sent.push(msg); return startResp; },
+            storageGet: async (k) => store[k],
+            storageSet: async (k, v) => { store[k] = v; },
+            storageRemove: async (ks) => { for (const k of [].concat(ks)) delete store[k]; },
+            storageGetAll: async () => ({ ...store }),
+            sleep: async () => {}, now: () => NOW, onProgress: () => {}
+        }
+    };
+}
+
+const runSync = (io, store) => runTranscriptionJob({
+    mediaUrl: 'https://cdn/ep.mp3', mediaKey: 'K', provider: 'deepgram-direct',
+    route: 'deepgram-direct', startType: SYNC_START, synchronous: true, io, ...(store ? {} : {})
+});
+
+test('DC.3: a synchronous run takes the result from the submit and never polls', async () => {
+    const { sent, io } = syncIo({ ok: true, result: { segments: [{ start: 0, end: 1, speaker: null, text: 'hi' }] } });
+    const out = await runSync(io);
+    assert.equal(out.ok, true);
+    assert.equal(out.result.segments.length, 1);
+    assert.deepEqual(sent.map((m) => m.type), [SYNC_START],
+        'exactly one message — there is nothing to poll');
+});
+
+test('DC.3: the pre-flight record is written BEFORE the request and cleared after', async () => {
+    const store = {};
+    let seenDuringRequest;
+    const io = {
+        sendMessage: async () => {
+            // Observe storage AT THE MOMENT the request is in flight —
+            // this is the window a teardown would freeze.
+            seenDuringRequest = { ...store };
+            return { ok: true, result: { segments: [{ start: 0, end: 1, speaker: null, text: 'hi' }] } };
+        },
+        storageGet: async (k) => store[k],
+        storageSet: async (k, v) => { store[k] = v; },
+        storageRemove: async (ks) => { for (const k of [].concat(ks)) delete store[k]; },
+        storageGetAll: async () => ({ ...store }),
+        sleep: async () => {}, now: () => NOW, onProgress: () => {}
+    };
+    await runTranscriptionJob({
+        mediaUrl: 'https://cdn/ep.mp3', mediaKey: 'K', provider: 'deepgram-direct',
+        route: 'deepgram-direct', startType: SYNC_START, synchronous: true, io
+    });
+    const key = jobRecordKey('K', 'deepgram-direct');
+    assert.ok(seenDuringRequest[key], 'no pre-flight record existed while the request was in flight');
+    assert.equal(seenDuringRequest[key].pending, true);
+    assert.equal(seenDuringRequest[key].url, 'https://cdn/ep.mp3');
+    assert.equal(store[key], undefined, 'a resolved request must clear its pre-flight record');
+});
+
+test('DC.3: a resolved FAILURE also clears the record — only a teardown leaves one', async () => {
+    const store = {};
+    const { io } = syncIo({ ok: false, error: 'Deepgram request failed: HTTP 415' }, store);
+    const out = await runTranscriptionJob({
+        mediaUrl: 'https://cdn/ep.mp3', mediaKey: 'K', provider: 'deepgram-direct',
+        route: 'deepgram-direct', startType: SYNC_START, synchronous: true, io
+    });
+    assert.equal(out.ok, false);
+    assert.match(out.error, /415/);
+    assert.equal(store[jobRecordKey('K', 'deepgram-direct')], undefined,
+        'an answered request is not a lost one, whatever the answer');
+});
+
+test('DC.3: a surviving pre-flight record reports a possible charge, and never auto-retries', async () => {
+    // The teardown case: the previous run's record is still pending.
+    const key = jobRecordKey('K', 'deepgram-direct');
+    const store = { [key]: { pending: true, url: 'https://cdn/ep.mp3', mediaKey: 'K', startedAt: NOW - 1000 } };
+    const { sent, io } = syncIo({ ok: true, result: { segments: [{ start: 0, end: 1, speaker: null, text: 'hi' }] } }, store);
+    const out = await runTranscriptionJob({
+        mediaUrl: 'https://cdn/ep.mp3', mediaKey: 'K', provider: 'deepgram-direct',
+        route: 'deepgram-direct', startType: SYNC_START, synchronous: true, io
+    });
+    assert.equal(out.priorSubmission, true,
+        'the caller must be able to tell the user a previous submission may have been charged');
+    // It ran because the USER pressed the button — not because the code
+    // decided to retry on their behalf.
+    assert.equal(sent.length, 1);
+    assert.equal(out.ok, true);
+});
+
+test('DC.3: a synchronous run leaves the ASYNC transports untouched', async () => {
+    // Regression net: adding the branch must not perturb either polling
+    // path. Both still start-then-poll.
+    const { sent, io } = makeIo({ statusScript: [{ ok: true, job: { status: 'done', result: { segments: [1] } } }] });
+    await runTranscriptionJob({ mediaUrl: 'https://x/a.mp3', mediaKey: 'k', io });
+    assert.deepEqual([...new Set(sent.map((m) => m.type))],
+        ['xray:transcribe:start', 'xray:transcribe:status']);
+});

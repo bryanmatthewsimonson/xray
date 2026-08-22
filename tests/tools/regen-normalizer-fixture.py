@@ -18,12 +18,40 @@ import sys
 REPO = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "companion" / "transcriber"))
 
+from transcriber.providers import deepgram as dg  # noqa: E402
 from transcriber.providers.normalize import (  # noqa: E402
     normalize_language,
     utterances_to_segments,
 )
 
 REF = REPO / "companion/transcriber/transcriber/providers/normalize.py"
+
+
+def _extract_function(source: str, name: str) -> str:
+    """Slice one top-level function out of a source file, TEXTUALLY.
+
+    Deliberately not inspect.getsource: the JavaScript parity test has to
+    compute the identical bytes, and a text rule is the only thing both
+    languages can implement the same way. From `def <name>(` up to the
+    next line that starts in column 0, trailing whitespace stripped.
+    """
+    at = source.index(f"def {name}(")
+    rest = source[at:]
+    out = []
+    for i, line in enumerate(rest.split("\n")):
+        if i > 0 and line and not line[0].isspace():
+            break
+        out.append(line)
+    return "\n".join(out).rstrip()
+
+
+def _mapping_sha() -> str:
+    """Pin the MAPPING functions only, not the whole deepgram.py — an edit
+    to the request URL or the progress ticker must not red the JS parity
+    suite, while an edit to the payload mapping must."""
+    src = (REPO / "companion/transcriber/transcriber/providers/deepgram.py").read_text(encoding="utf-8")
+    joined = "".join(_extract_function(src, n) for n in ("_common_utterances", "_detected_language"))
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
 
 
 def w(text, start=None, end=None):
@@ -209,6 +237,184 @@ for c in LANGUAGE_CASES:
 for c in ROUNDING_CASES:
     c["expected"] = round(c["value"], c["digits"])
 
+# ---------------------------------------------------------------------
+# Provider MAPPING cases (DC.3).
+#
+# The shared normalizer above is only half the contract. Each provider
+# has its own layer turning a raw API payload into the common utterance
+# shape, and THAT is where the units differ — AssemblyAI sends integer
+# milliseconds, Deepgram sends float seconds. Before DC.3 that layer was
+# tested independently in each language against hand-built payloads and
+# cross-checked nowhere, which is exactly the drift guard-rail 2 exists
+# to prevent.
+#
+# The first case is a REAL slice of a live 48-minute Deepgram response,
+# not an invention: float seconds with visible precision noise
+# (1.1999999), an integer speaker 0, and a punctuated_word.
+# ---------------------------------------------------------------------
+
+DEEPGRAM_REAL_SLICE = {
+    "results": {
+        "channels": [
+            {
+                "detected_language": "en",
+                "alternatives": [
+                    {
+                        "transcript": "unused when utterances are present",
+                        "words": []
+                    }
+                ]
+            }
+        ],
+        "utterances": [
+            {
+                "start": 1.1999999,
+                "end": 10.16,
+                "transcript": "Hi. I'm your host, Alyssa Grenfell. Before the episode begins, we have a few notes for listeners. This podcast is hosted by me and veteran attorney Tim Kosnoff.",
+                "words": [
+                    {
+                        "word": "hi",
+                        "start": 1.1999999,
+                        "end": 1.5999999,
+                        "confidence": 0.95410156,
+                        "speaker": 0,
+                        "speaker_confidence": 0.37427926,
+                        "punctuated_word": "Hi."
+                    },
+                    {
+                        "word": "i'm",
+                        "start": 1.5999999,
+                        "end": 1.8399999,
+                        "confidence": 0.9995117,
+                        "speaker": 0,
+                        "speaker_confidence": 0.37427926,
+                        "punctuated_word": "I'm"
+                    },
+                    {
+                        "word": "your",
+                        "start": 1.8399999,
+                        "end": 1.92,
+                        "confidence": 0.99902344,
+                        "speaker": 0,
+                        "speaker_confidence": 0.37427926,
+                        "punctuated_word": "your"
+                    }
+                ],
+                "speaker": 0
+            },
+            {
+                "start": 10.24,
+                "end": 32.35,
+                "transcript": "But you'll also hear other voices from our production team introducing topics and guests. Our team produced this podcast with the mission to educate people on the issue of child abuse in the LDS community, help victims of abuse, and encourage us all to work together to help fix this issue. We occasionally use excerpts of speeches by leaders of The Church of Jesus Christ of Latter day Saints publicly available on their website.",
+                "words": [
+                    {
+                        "word": "but",
+                        "start": 10.24,
+                        "end": 10.4,
+                        "confidence": 0.99902344,
+                        "speaker": 0,
+                        "speaker_confidence": 0.3667938,
+                        "punctuated_word": "But"
+                    },
+                    {
+                        "word": "you'll",
+                        "start": 10.4,
+                        "end": 10.719999,
+                        "confidence": 0.9838867,
+                        "speaker": 0,
+                        "speaker_confidence": 0.3667938,
+                        "punctuated_word": "you'll"
+                    },
+                    {
+                        "word": "also",
+                        "start": 10.719999,
+                        "end": 10.88,
+                        "confidence": 1.0,
+                        "speaker": 0,
+                        "speaker_confidence": 0.3667938,
+                        "punctuated_word": "also"
+                    }
+                ],
+                "speaker": 1
+            }
+        ]
+    }
+}
+
+PROVIDER_CASES = [
+    {
+        "name": "deepgram_real_response_slice",
+        "provider": "deepgram",
+        "why": "A real slice of a live Deepgram run. Float seconds pass through with NO division "
+               "(copy-pasting AssemblyAI's msToSeconds is the single most likely port error), text "
+               "comes from `transcript` not `text`, and the integer speaker 0 must survive.",
+        "payload": DEEPGRAM_REAL_SLICE,
+    },
+    {
+        "name": "deepgram_speaker_one_before_zero",
+        "provider": "deepgram",
+        "why": "Speaker labels are assigned by GLOBAL first appearance, so 1 -> SPEAKER_00 and "
+               "0 -> SPEAKER_01. Pins the ordering and the `0 == \"\"` trap at the payload level.",
+        "payload": {"results": {"channels": [{"detected_language": "en", "alternatives": []}],
+                    "utterances": [
+                        {"speaker": 1, "start": 0.0, "end": 1.0, "transcript": "Second speaker first.",
+                         "words": [{"word": "Second", "start": 0.0, "end": 1.0}]},
+                        {"speaker": 0, "start": 1.0, "end": 2.0, "transcript": "Then zero.",
+                         "words": [{"word": "Then", "start": 1.0, "end": 2.0}]}]}},
+    },
+    {
+        "name": "deepgram_empty_utterances_falls_through_to_channels",
+        "provider": "deepgram",
+        "why": "The reference branches on TRUTHINESS (`if utterances:`), so an empty list falls "
+               "through to the channels fallback. A twin using Array.isArray() returns [] and "
+               "refuses a transcript that exists.",
+        "payload": {"results": {"utterances": [], "channels": [{"detected_language": "en",
+                    "alternatives": [{"transcript": "From the flat stream.",
+                    "words": [{"word": "From", "start": 0.0, "end": 0.5},
+                              {"word": "stream.", "start": 0.5, "end": 1.0}]}]}]}},
+    },
+    {
+        "name": "deepgram_empty_punctuated_word_falls_back",
+        "provider": "deepgram",
+        "why": "`punctuated_word or word` — Python `or`, so an EMPTY punctuated_word falls back to "
+               "`word`. A twin using `??` keeps the empty string and splitWordsIntoSegments then "
+               "silently drops the word.",
+        "payload": {"results": {"channels": [{"detected_language": "en", "alternatives": []}],
+                    "utterances": [{"speaker": 0, "start": 0.0, "end": 1.0, "transcript": "Kept.",
+                    "words": [{"word": "kept", "punctuated_word": "", "start": 0.0, "end": 1.0}]}]}},
+    },
+    {
+        "name": "deepgram_language_comes_from_channels",
+        "provider": "deepgram",
+        "why": "Language is read from channels[0].detected_language EVEN on the utterances branch.",
+        "payload": {"results": {"channels": [{"detected_language": "pt-BR", "alternatives": []}],
+                    "utterances": [{"speaker": 0, "start": 0.0, "end": 1.0, "transcript": "Ola.",
+                    "words": [{"word": "Ola.", "start": 0.0, "end": 1.0}]}]}},
+    },
+    {
+        "name": "deepgram_channels_fallback_with_no_words",
+        "provider": "deepgram",
+        "why": "No utterances and no words -> [] -> the caller's 'no usable segments' refusal, "
+               "rather than adopting an empty transcript.",
+        "payload": {"results": {"utterances": [], "channels": [{"detected_language": "en",
+                    "alternatives": [{"transcript": "", "words": []}]}]}},
+    },
+    {
+        "name": "deepgram_unlabelled_speaker_stays_null",
+        "provider": "deepgram",
+        "why": "A null speaker is never given an invented label.",
+        "payload": {"results": {"channels": [{"detected_language": "en", "alternatives": []}],
+                    "utterances": [{"speaker": None, "start": 0.0, "end": 1.0, "transcript": "Nobody.",
+                    "words": [{"word": "Nobody.", "start": 0.0, "end": 1.0}]}]}},
+    },
+]
+
+for c in PROVIDER_CASES:
+    c["expected_utterances"] = dg._common_utterances(c["payload"])
+    c["expected_language"] = dg._detected_language(c["payload"])
+    # Mapping THEN the shared normalizer — what the extension adopts.
+    c["expected_segments"] = utterances_to_segments(c["expected_utterances"])
+
 doc = {
     "_comment": (
         "GENERATED from the reference implementation, then checked in. The expected values "
@@ -227,6 +433,14 @@ doc = {
     },
     "max_segment_s": 30.0,
     "cases": CASES,
+    "provider_cases": PROVIDER_CASES,
+    "provider_reference": {
+        "deepgram": {
+            "file": "companion/transcriber/transcriber/providers/deepgram.py",
+            "functions": ["_common_utterances", "_detected_language"],
+            "sha256": _mapping_sha(),
+        }
+    },
     "language_cases": LANGUAGE_CASES,
     "rounding_cases": ROUNDING_CASES,
 }
@@ -234,5 +448,5 @@ doc = {
 out = REPO / "tests/fixtures/normalizer-parity.json"
 out.write_text(json.dumps(doc, indent=2) + "\n")
 print(f"wrote {out} — {len(CASES)} segment, {len(LANGUAGE_CASES)} language, "
-      f"{len(ROUNDING_CASES)} rounding cases")
+      f"{len(ROUNDING_CASES)} rounding, {len(PROVIDER_CASES)} provider-mapping cases")
 print(f"reference sha256 {doc['reference']['sha256']}")

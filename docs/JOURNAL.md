@@ -19,6 +19,88 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-16 — DC.3: the second provider is synchronous, and that is the whole design
+
+**Tags:** design, external
+
+Deepgram direct, behind the same `directCloudTranscription` flag. The
+gate in §4 was opened by maintainer ruling: the `product-manager` review
+had found DC.3 lacked a problem statement in the maintainer's terms, and
+the maintainer supplied one — a Deepgram key they want to use. Price
+parity and provider redundancy were not that; wanting to spend a key you
+hold is.
+
+**Two measurements decided the design, and neither was a research
+question.** Deepgram's pre-recorded call takes a remote URL — confirmed
+— and it is SYNCHRONOUS: the HTTP response IS the transcript, there is
+no job id, no polling endpoint, and their documentation states they do
+not store transcripts, so the response is the only chance to receive it.
+That inverts the property DC.1 spent its budget establishing, and smoke
+row DC-3 had just observed working: an AssemblyAI run survives a
+service-worker teardown because the transcript id is on disk.
+
+The obvious fear was a multi-minute synchronous fetch inside an MV3
+worker — the shape that gets killed mid-flight. So it was measured
+rather than argued: **a live 48-minute episode returned in 12.9 seconds,
+HTTP 200 — about 225x realtime**, against the companion's assumed 10x.
+That collapsed the concern and, with it, an entire apparatus of
+keepalives, abort timers and hidden-tab warnings that had been proposed
+for a problem that does not exist at this speed.
+
+What survives is proportionate: a **pre-flight record** written before
+the request and cleared on any resolved outcome — success or failure
+alike, because an answered request is not a lost one. Only an
+*unresolved* request leaves the marker, which is exactly the teardown
+case, and the next run then says a previous submission may have been
+charged. It never auto-retries. The maintainer's own framing set the
+bar here: X-Ray already stores adopted transcripts and already refuses
+to re-transcribe an episode it has, so the residual is one episode, one
+charge, once — annoying, not dangerous, and the earlier "loses money
+invisibly" framing was overstated.
+
+**Written as a SIBLING module, not an abstraction.** §8 forbids a
+provider-agnostic layer until a third provider arrives, so
+`direct-transcribe-deepgram.js` carries its own request shape, mapping
+and error strings, and duplicates two small helpers. Exactly one thing
+is shared: `blockedDirectMediaUrl`. It is genuinely provider-neutral and
+it is a security gate, and a second copy of a security gate drifts.
+
+**The mapping layer turned out to be the untested seam.** The parity
+fixture covered only the SHARED normalizer; each provider's payload
+mapping — where the units actually differ — was tested independently in
+each language and cross-checked nowhere. Deepgram sends FLOAT SECONDS
+where AssemblyAI sends integer milliseconds, so copy-pasting
+`msToSeconds` would have put every segment at a thousandth of its true
+offset. The fixture now carries `provider_cases` generated from the
+reference, and the first one is a **real slice of the live 48-minute
+response** rather than an invention — float seconds with visible
+precision noise (`1.1999999`), an integer speaker `0`, a
+`punctuated_word`. Four traps are pinned that hand-built payloads had
+not exercised: the truthiness branch on `utterances` (an empty array
+falls through to the channels stream), `punctuated_word || word` where
+`??` would keep an empty string and silently drop the word, `transcript`
+rather than `text`, and language read from `channels[0]` even on the
+utterances branch.
+
+Two deliberate non-improvements, both because parity beats currency:
+`diarize=true` is sent although Deepgram deprecated the flag — it routes
+to their v1 diarizer, which is what the companion gets, and switching
+would change speaker segmentation for identical audio. And `asr_model`
+stamps the REQUESTED model, matching `deepgram.py`, although the live
+response reports `general-nova-3` for a requested `nova-3`. Reading the
+reported model here would publish a different `extraction-method` than
+the companion twin for the same audio — the fork DC.1 exists to prevent.
+Preferring the reported model is a joint change to both implementations,
+recorded here so it is a known divergence rather than a discovered one.
+
+**The staleness pin got sharper.** It hashes only `_common_utterances`
+and `_detected_language`, extracted by a TEXTUAL rule both languages
+implement identically — not `inspect.getsource`, which JavaScript cannot
+reproduce. An edit to the request URL or the progress ticker no longer
+reds the JS suite spuriously; an edit to the mapping still does.
+
+---
+
 ## 2026-08-16 — DC.2: the companion-free state stops being an error
 
 **Tags:** design

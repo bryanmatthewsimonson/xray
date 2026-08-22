@@ -40,7 +40,12 @@ const {
     ASSEMBLYAI_API_BASE, DIRECT_PROVIDER_ORIGINS,
     startDirectTranscription, getDirectJobStatus
 } = await import('../src/shared/direct-transcribe.js');
+const { DEEPGRAM_ORIGIN, DEEPGRAM_API_URL } = await import('../src/shared/direct-transcribe-deepgram.js');
 const { ASSEMBLYAI_KEY_STORAGE } = await import('../src/shared/transcriber-client.js');
+
+/** Every origin ANY direct-cloud module may reach. Aggregated here so
+ *  adding a provider without declaring it fails this file. */
+const ALL_DIRECT_ORIGINS = [...DIRECT_PROVIDER_ORIGINS, DEEPGRAM_ORIGIN];
 
 const repoUrl = (p) => new URL(`../${p}`, import.meta.url);
 const readRepo = (p) => readFileSync(repoUrl(p), 'utf8');
@@ -168,8 +173,57 @@ test('the manifest declaration and the module allowlist agree in both directions
     const declared = manifest.host_permissions
         .filter((h) => /assemblyai|deepgram/.test(h))
         .map((h) => new URL(h.replace(/\*$/, '')).origin);
-    assert.deepEqual(declared.sort(), [...DIRECT_PROVIDER_ORIGINS].sort());
+    assert.deepEqual(declared.sort(), [...ALL_DIRECT_ORIGINS].sort());
     assert.ok(manifest.host_permissions.includes('<all_urls>'),
         'if <all_urls> is ever dropped, the provider entry stops being documentary and becomes load-bearing — '
         + 'revisit docs/JOURNAL.md on this ruling before changing it');
+});
+
+// ------------------------------------------------------------------
+// 4. The SECOND provider (DC.3) is pinned the same way
+// ------------------------------------------------------------------
+
+const DG_SRC = readRepo('src/shared/direct-transcribe-deepgram.js');
+const DG_CODE = stripComments(DG_SRC);
+
+test('the Deepgram endpoint is a literal, and its origin agrees with the URL', () => {
+    const line = DG_CODE.split('\n').find((l) => l.includes('export const DEEPGRAM_API_URL'));
+    assert.ok(line, 'DEEPGRAM_API_URL is no longer declared where the guard can see it');
+    assert.match(line, /=\s*'https:\/\/api\.deepgram\.com\/v1\/listen'\s*;/,
+        'the pinned endpoint must stay a plain string literal');
+    assert.equal(new URL(DEEPGRAM_API_URL).origin, DEEPGRAM_ORIGIN);
+});
+
+test('the Deepgram module reads only its credential key from storage', () => {
+    const reads = [...DG_CODE.matchAll(/storageGet\(\[([^\]]*)\]\)/g)].map((m) => m[1].trim());
+    assert.deepEqual(reads, ['DEEPGRAM_KEY_STORAGE']);
+    assert.ok(!/TRANSCRIBER_TOKEN_STORAGE|companionFetch|transcriberBaseUrl/.test(DG_CODE),
+        'the companion transport and its shared secret must not appear on a third-party path');
+});
+
+test('the Deepgram module shares the admission gate rather than copying it', () => {
+    // The one provider-neutral piece. A second copy would drift, and the
+    // drift would be a security gate.
+    assert.match(DG_CODE, /import \{[^}]*blockedDirectMediaUrl[^}]*\} from '\.\/direct-transcribe\.js'/);
+    assert.ok(!/NAT64_PREFIX|nat64EmbeddedV4|blockedImageUrl/.test(DG_CODE),
+        'the address table belongs to one module only');
+});
+
+test('only the service worker reaches either direct module', () => {
+    for (const entry of ['src/content/index.js', 'src/reader/index.js', 'src/options/index.js',
+        'src/sidepanel/index.js', 'src/portal/index.js', 'src/network/index.js']) {
+        assert.ok(!stripComments(readRepo(entry)).includes('direct-transcribe-deepgram.js'),
+            `${entry} imports the Deepgram module; it belongs to the background worker`);
+    }
+    assert.ok(stripComments(readRepo('src/background/index.js')).includes('direct-transcribe-deepgram.js'));
+});
+
+test('the provider hosts appear only where they are pinned or declared', () => {
+    assert.equal((readRepo('manifest.json').match(/api\.deepgram\.com/g) || []).length, 1);
+    // deepgram.py is the COMPANION's own client — a different process,
+    // not part of the extension's pinned surface.
+    for (const file of ['src/shared/direct-transcribe.js', 'src/shared/transcriber-client.js']) {
+        assert.ok(!/api\.deepgram\.com/.test(readRepo(file)),
+            `${file} must not name the Deepgram host`);
+    }
 });

@@ -40,6 +40,7 @@ import { publishConfirmed, IDENTITY_KINDS } from '../shared/confirmed-publish.js
 import { gatePublish } from '../shared/publish-gate.js';
 import { getTranscribeConfig, getTranscriberPort, pingTranscriber, startTranscription, getJobStatus, draftClaimCandidates } from '../shared/transcriber-client.js';
 import { startDirectTranscription, getDirectJobStatus, resolveTranscribeRoute, DIRECT_ENGINE_ID } from '../shared/direct-transcribe.js';
+import { transcribeDirectDeepgram, DEEPGRAM_ENGINE_ID } from '../shared/direct-transcribe-deepgram.js';
 
 // Pull the debug preference on SW startup. MV3 service workers sleep
 // and wake, so this runs each time the SW reloads. A chrome.storage
@@ -957,6 +958,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             }
             sendResponse(await getDirectJobStatus(message.jobId));
         })().catch((err) => sendResponse({ ok: false, error: (err && err.message) || 'direct transcribe status failed' }));
+        return true; // async sendResponse
+    }
+
+    // Deepgram direct (DC.3). ONE handler, not a start/status pair: the
+    // pre-recorded call is synchronous, so this returns the transcript
+    // itself. Measured 12.9s for a 48-minute episode, which is why a
+    // single awaited fetch is tolerable here where it would not be for a
+    // minutes-long job — and why there is deliberately no poll loop.
+    if (message.type === 'xray:transcribe:direct:deepgram') {
+        (async () => {
+            await loadFlags();
+            const gate = resolveTranscribeRoute({
+                engine: DEEPGRAM_ENGINE_ID,
+                flags: { directCloudTranscription: isEnabled('directCloudTranscription') }
+            });
+            if (gate.route !== 'direct') {
+                sendResponse({ ok: false, error: gate.error });
+                return;
+            }
+            sendResponse(await transcribeDirectDeepgram(message.url));
+        })().catch((err) => sendResponse({ ok: false, error: (err && err.message) || 'deepgram transcribe failed' }));
         return true; // async sendResponse
     }
 

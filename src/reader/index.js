@@ -2143,6 +2143,14 @@ let _transcribeRunning = false;
  *  every engine but the direct one, so the driver behaves exactly as
  *  before on every pre-existing path. */
 function transcribeRouting(provider) {
+    if (provider === DEEPGRAM_DIRECT_ENGINE_ID) {
+        // No job id, no polling — the submit returns the transcript.
+        return {
+            route: 'deepgram-direct',
+            startType: 'xray:transcribe:direct:deepgram',
+            synchronous: true
+        };
+    }
     if (provider !== DIRECT_ENGINE_ID) return {};
     return {
         route: 'direct',
@@ -2377,6 +2385,7 @@ async function refreshTranscribeCfg() {
 // one string. tests/engine-vocabulary.test.mjs asserts this literal
 // still equals the module's DIRECT_ENGINE_ID export.
 const DIRECT_ENGINE_ID = 'assemblyai-direct';
+const DEEPGRAM_DIRECT_ENGINE_ID = 'deepgram-direct';
 
 const ENGINE_META = {
     local: {
@@ -2409,6 +2418,21 @@ const ENGINE_META = {
             + 'AssemblyAI downloads the audio itself. No companion service, no Python, no GPU.',
         rate: 0.28,
         direct: true
+    },
+    // The second companion-free provider (DC.3). Measured 2026-08-16 on
+    // a live 48-minute episode: 12.9s end to end. Its structural
+    // difference from AssemblyAI is stated in the sub-line, because it
+    // is the one thing a user could not otherwise know: this route
+    // cannot resume if it is interrupted.
+    [DEEPGRAM_DIRECT_ENGINE_ID]: {
+        label: 'Deepgram (direct)',
+        badge: 'cloud — nothing to install',
+        detail: 'X-Ray sends Deepgram the media\u2019s web address and your API key; '
+            + 'Deepgram downloads the audio itself and returns the transcript in one call. '
+            + 'Fast, but it cannot resume if interrupted.',
+        rate: 0.26,
+        direct: true,
+        synchronous: true
     }
 };
 
@@ -2422,12 +2446,13 @@ const ENGINE_PROVIDER = {
     local: null,
     assemblyai: 'assemblyai',
     deepgram: 'deepgram',
-    [DIRECT_ENGINE_ID]: 'assemblyai'
+    [DIRECT_ENGINE_ID]: 'assemblyai',
+    [DEEPGRAM_DIRECT_ENGINE_ID]: 'deepgram'
 };
 
 /** Every engine the picker offers, in display order. Availability and
  *  flag gating are applied per item inside openEnginePicker. */
-const PICKER_ENGINES = ['local', 'assemblyai', 'deepgram', DIRECT_ENGINE_ID];
+const PICKER_ENGINES = ['local', 'assemblyai', 'deepgram', DIRECT_ENGINE_ID, DEEPGRAM_DIRECT_ENGINE_ID];
 
 /** Human tooltip for the main Transcribe button, from the preference. */
 function transcribeTooltip() {

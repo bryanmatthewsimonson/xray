@@ -85,7 +85,8 @@ const STAGE_LABELS = {
 const PROVIDER_LABELS = {
     assemblyai: 'AssemblyAI',
     deepgram: 'Deepgram',
-    'assemblyai-direct': 'AssemblyAI'
+    'assemblyai-direct': 'AssemblyAI',
+    'deepgram-direct': 'Deepgram'
 };
 
 /** 'locally' / 'via AssemblyAI' — the banner + toast wording for a
@@ -216,9 +217,49 @@ export async function runTranscriptionJob({
     route = 'companion',
     startType = 'xray:transcribe:start',
     statusType = 'xray:transcribe:status',
-    pollMs = POLL_INTERVAL_MS
+    pollMs = POLL_INTERVAL_MS,
+    // DC.3: a transport whose SUBMIT returns the transcript. Deepgram's
+    // pre-recorded call has no job id and no polling endpoint, and their
+    // docs say they do not store transcripts — so the response is the
+    // only chance to receive it.
+    synchronous = false
 }) {
     const key = jobRecordKey(mediaKey, route);
+
+    if (synchronous) {
+        // There is nothing to resume, so the record is not a resume
+        // handle — it is a PRE-FLIGHT marker. Written before the request
+        // and cleared on any resolved outcome, so a record that survives
+        // means the request never came back (a torn-down worker), which
+        // is the one case where money may have been spent with nothing
+        // to show. We report that and let the USER decide; auto-retrying
+        // would spend again on their behalf.
+        const prior = await io.storageGet(key);
+        const priorSubmission = !!(prior && prior.pending && !isRecordStale(prior, io.now()));
+        await io.storageSet(key, {
+            pending: true, url: mediaUrl, mediaKey, startedAt: io.now(), route,
+            ...(provider ? { provider } : {})
+        });
+        const started = await io.sendMessage({
+            type: startType, url: mediaUrl, ...(provider ? { provider } : {})
+        });
+        // Answered is answered, whatever the answer — only an unresolved
+        // request leaves the marker behind.
+        await io.storageRemove([key]);
+        if (!started || !started.ok) {
+            return {
+                ok: false,
+                priorSubmission,
+                missingKey: started && started.missingKey,
+                error: (started && started.error) || 'Could not start the transcription.'
+            };
+        }
+        if (!started.result) {
+            return { ok: false, priorSubmission, error: 'The transcription finished but returned no result.' };
+        }
+        return { ok: true, priorSubmission, result: started.result };
+    }
+
     const record = await io.storageGet(key);
 
     // Resume decision: ask the server about a remembered job first —
@@ -418,7 +459,7 @@ export function directSubmissionProblem(article, sourceUrl) {
     if (platform === 'youtube') {
         return {
             short: 'YouTube media URLs are signed and expire — a provider cannot fetch them.',
-            detail: 'AssemblyAI (direct) cannot transcribe this YouTube page: a cloud provider '
+            detail: 'A direct cloud engine cannot transcribe this YouTube page: a cloud provider '
                 + 'downloads a URL, and YouTube\u2019s media URLs are signed and expire. '
                 + 'You are not missing a transcript, though \u2014 YouTube\u2019s own captions '
                 + 'are captured with the page. Transcribing would only add diarized speaker '
@@ -429,7 +470,7 @@ export function directSubmissionProblem(article, sourceUrl) {
     if (platform) {
         return {
             short: `${label} media URLs are signed and expire — a provider cannot fetch them.`,
-            detail: `AssemblyAI (direct) cannot transcribe this ${label} page: a cloud provider `
+            detail: `A direct cloud engine cannot transcribe this ${label} page: a cloud provider `
                 + `downloads a URL, and ${label}\u2019s media URLs are signed and expire. `
                 + 'The companion service resolves these pages with yt-dlp; the direct route '
                 + 'cannot.'
@@ -437,7 +478,7 @@ export function directSubmissionProblem(article, sourceUrl) {
     }
     return {
         short: 'No direct media file was found on this page.',
-        detail: 'AssemblyAI (direct) needs a media file, and no direct media file was found on '
+        detail: 'A direct cloud engine needs a media file, and no direct media file was found on '
             + 'this page, so this capture falls back to its page address. A cloud provider '
             + 'downloads a URL; it cannot open a page and find the audio. Use the '
             + '\u{1F399} Media & source modal to paste the episode\u2019s direct file URL.'

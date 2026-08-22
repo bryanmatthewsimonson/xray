@@ -51,7 +51,8 @@ const READER_SRC = readRepo('src/reader/index.js');
 const READER_CODE = stripComments(READER_SRC);
 const { providerPhrase } = await import('../src/reader/transcribe-flow.js');
 const { providerDisplayName } = await import('../src/shared/diarized-transcript.js');
-const { DIRECT_ENGINE_ID, DIRECT_PROVIDER } = await import('../src/shared/direct-transcribe.js');
+const { DIRECT_ENGINE_ID, DIRECT_PROVIDER, DIRECT_ENGINE_IDS } = await import('../src/shared/direct-transcribe.js');
+const { DEEPGRAM_ENGINE_ID, DEEPGRAM_PROVIDER } = await import('../src/shared/direct-transcribe-deepgram.js');
 const { TRANSCRIBE_ENGINES, normalizeEngine, getTranscribeConfig } = await import('../src/shared/transcriber-client.js');
 const { FLAGS_DEFAULTS } = await import('../src/shared/metadata/feature-flags.js');
 
@@ -62,7 +63,9 @@ function pickerEngines() {
     const m = /const PICKER_ENGINES = \[([^\]]*)\]/.exec(READER_SRC);
     assert.ok(m, 'PICKER_ENGINES is no longer declared where the guard can find it');
     return m[1].split(',').map((s) => s.trim()).filter(Boolean).map((token) => (
-        token === 'DIRECT_ENGINE_ID' ? DIRECT_ENGINE_ID : token.replace(/^['"]|['"]$/g, '')
+        token === 'DIRECT_ENGINE_ID' ? DIRECT_ENGINE_ID
+            : token === 'DEEPGRAM_DIRECT_ENGINE_ID' ? DEEPGRAM_ENGINE_ID
+                : token.replace(/^['"]|['"]$/g, '')
     ));
 }
 
@@ -79,7 +82,9 @@ test('every picker engine has a human label everywhere it is rendered', () => {
 
 test('every picker engine has ENGINE_META and an ENGINE_PROVIDER mapping', () => {
     for (const engine of pickerEngines()) {
-        const key = engine === DIRECT_ENGINE_ID ? '\\[DIRECT_ENGINE_ID\\]' : engine;
+        const key = engine === DIRECT_ENGINE_ID ? '\\[DIRECT_ENGINE_ID\\]'
+            : engine === DEEPGRAM_ENGINE_ID ? '\\[DEEPGRAM_DIRECT_ENGINE_ID\\]'
+                : engine;
         assert.match(READER_SRC, new RegExp(`ENGINE_META = \\{[\\s\\S]*?${key}:`),
             `${engine} is iterated by the picker but has no ENGINE_META entry`);
         assert.match(READER_SRC, new RegExp(`ENGINE_PROVIDER = \\{[\\s\\S]*?${key}:`),
@@ -171,11 +176,14 @@ test('the direct route resolver and the direct handlers agree on the flag name',
     // A typo'd flag name in isEnabled() returns undefined — falsy —
     // which would silently disable the feature rather than failing.
     const bg = readRepo('src/background/index.js');
-    const handlers = bg.match(/xray:transcribe:direct:(start|status)/g) || [];
-    assert.equal(handlers.length, 2, 'both direct message handlers must exist');
+    // The invariant is one flag check PER handler, not a fixed count —
+    // DC.3 added a third handler and a hardcoded 2 would have hidden a
+    // missing gate rather than catching it.
+    const handlers = bg.match(/if \(message\.type === 'xray:transcribe:direct:[a-z]+'\)/g) || [];
+    assert.ok(handlers.length >= 3, `expected every direct handler, found ${handlers.length}`);
     const gates = bg.match(/isEnabled\('directCloudTranscription'\)/g) || [];
-    assert.equal(gates.length, 2,
-        'BOTH direct handlers must check the flag — including the poll, which an MV3 worker '
+    assert.equal(gates.length, handlers.length,
+        'EVERY direct handler must check the flag — including the poll, which an MV3 worker '
         + 'reaches after waking, potentially after the flag was turned off');
 });
 
@@ -354,4 +362,35 @@ test('DC.2: companion setup advice is structurally unreachable on the direct rou
 test('DC.2: the opening banner names who is actually being contacted', () => {
     assert.match(READER_CODE, /routing\.route === 'direct'\s*\n?\s*\? 'Contacting AssemblyAI…'/,
         'a direct run contacts AssemblyAI, not "the transcription service"');
+});
+
+test('DC.3: both direct engines share one flag and one admission gate', () => {
+    // One consent decision covers "may X talk to a transcription
+    // provider directly" — not one per vendor. A second flag would let
+    // a user believe they had turned the capability off while another
+    // vendor still had it.
+    assert.deepEqual([...DIRECT_ENGINE_IDS].sort(), [DEEPGRAM_ENGINE_ID, DIRECT_ENGINE_ID].sort());
+    for (const id of DIRECT_ENGINE_IDS) {
+        assert.ok(pickerEngines().includes(id), `${id} is not offered by the picker`);
+    }
+});
+
+test('DC.3: the Deepgram selection id stays out of the persisted enum too', () => {
+    assert.ok(!TRANSCRIBE_ENGINES.includes(DEEPGRAM_ENGINE_ID));
+    assert.equal(normalizeEngine(DEEPGRAM_ENGINE_ID), 'local',
+        'the same collapse that keeps the AssemblyAI id picker-only');
+    assert.ok(!readRepo('src/options/index.js').includes(DEEPGRAM_ENGINE_ID));
+    assert.notEqual(DEEPGRAM_ENGINE_ID, DEEPGRAM_PROVIDER);
+});
+
+test('DC.3: the Deepgram picker line states the property a user could not guess', () => {
+    // Its one meaningful difference from AssemblyAI direct: a torn-down
+    // worker loses the request outright, because Deepgram issues no id
+    // and does not store transcripts.
+    const meta = /\[DEEPGRAM_DIRECT_ENGINE_ID\]: \{([\s\S]*?)\n    \}/.exec(READER_SRC);
+    assert.ok(meta, 'the Deepgram ENGINE_META entry moved');
+    assert.match(meta[1], /cannot resume|interrupt/i,
+        'say that this route cannot resume if interrupted');
+    assert.ok(!/audio leaves your machine/i.test(meta[1]),
+        'that is the companion cloud disclosure and it is false here');
 });
