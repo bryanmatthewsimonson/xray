@@ -2289,14 +2289,22 @@ async function runTranscribeFlow(provider) {
     if (draftsBtn) draftsBtn.disabled = true;
     try {
         reapStaleJobRecords(transcribeChromeIo(browserApi, () => {})).catch(() => {});
-        renderTranscribeBanner('Contacting the transcription service…');
+        renderTranscribeBanner(routing.route === 'direct'
+            ? 'Contacting AssemblyAI…'
+            : 'Contacting the transcription service…');
         const io = transcribeChromeIo(browserApi, (job) => {
             // Honest wording: a cloud-provider job is not "locally".
             renderTranscribeBanner(`Transcribing ${providerPhrase(job && job.provider)} — ${describeProgress(job)}`);
         });
         const out = await runTranscriptionJob({ mediaUrl: sourceUrl, mediaKey, provider, io, ...routing });
         if (!out.ok) {
-            renderTranscribeBanner(out.error, 'error', { docsHint: !!(out.error || '').includes('not reachable') });
+            renderTranscribeBanner(out.error, 'error', {
+                // Companion setup advice on a companion-free route is
+                // noise at best. Gate it on the ROUTE, not on a
+                // substring that a future direct-path string might
+                // happen to contain.
+                docsHint: routing.route !== 'direct' && !!(out.error || '').includes('not reachable')
+            });
             // A cloud engine without its key: the picker is the fastest
             // path to either the key field or another engine.
             if (out.missingKey) openEnginePicker();

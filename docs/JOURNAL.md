@@ -19,6 +19,67 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-16 — DC.2: the companion-free state stops being an error
+
+**Tags:** design
+
+DC.2's brief was one sentence — make "no companion installed, direct
+cloud configured" a coherent, self-explaining state rather than a wall
+of setup errors. The work list came from asking one question of every
+user-visible transcription string: **is it reachable when
+`localTranscription` is OFF and `directCloudTranscription` is ON, and is
+it TRUE in that state?** Only strings failing both got touched. That
+question is also what bounded the slice, because "self-explaining" has
+no natural limit and this does.
+
+**The Options status panel was the worst of it, and the first thing such
+a user reads.** `setupCompanionStatus` has no flag gate at all — it
+polls on load for everyone — and its absent-companion state was red
+"Not running", opening with terminal instructions and the claim that
+"Transcribing stays unavailable until the service is started —
+including for the AssemblyAI and Deepgram engines". For a direct-only
+user every clause of that is false. `deriveCompanionState` now takes
+`directEnabled` and reports amber "Not installed": expected if you never
+installed it, the direct route works without it, and here is what
+installing it would ADD (local/private transcription, and the platform
+pages a cloud provider cannot fetch). Every OTHER state is byte-identical
+— a companion that is running, outdated, rejecting auth or missing
+`HF_TOKEN` is misbehaving whether or not another route exists, and a
+test pins that the flag perturbs none of them. The panel reads the live
+CHECKBOX, not the stored flag, so it tracks an unsaved toggle the way
+the rest of the form does.
+
+**The shared job driver's failure strings were route-blind.**
+`runTranscriptionJob` serves both transports and its text was written
+when only the companion existed: "The transcription service no longer
+knows this job (it may have restarted)", "try again once the service is
+back". On the direct route that names something the user does not run.
+Now a small route-keyed vocabulary, with the companion strings preserved
+byte-for-byte behind a regression test — a companion user must keep
+reading exactly what they always read.
+
+**One fix worth naming separately, because it kills a class of bug
+rather than a string.** The reader attached companion setup advice
+("install the companion, `uv run xray-transcriber`") by testing whether
+the error text contained `not reachable`. That left the advice one
+careless string away from firing on the one route whose premise is that
+nothing is installed. It is now gated on the ROUTE. Substring-triggered
+UI is a latent coupling between wording and behavior; the route is the
+fact being tested, so test the fact.
+
+**Deliberately out of scope**, recorded so the omission is a decision
+and not an oversight: making the direct engine a STORABLE default. It is
+a persisted-enum widening needing a schema-evolution review, a
+round-trip migration test, and a coordinated edit across seven sites — a
+schema slice wearing a UI slice's clothes. It would also spend a banked
+safety property: while the engine is picker-only, the right-click
+auto-start path structurally cannot reach a third party. Three
+transcripts went through the picker on the DC.1 walk with no friction
+recorded, so there is no observed problem to solve. If it is wanted it
+belongs after DC.2, with its own criteria.
+
+---
+
 ## 2026-08-16 — A choice that cannot succeed should not look like a choice
 
 **Tags:** bug, design

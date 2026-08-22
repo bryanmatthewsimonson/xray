@@ -644,3 +644,68 @@ test('directSubmissionProblem: platform names are human, and the grammar holds',
         assert.match(detail, new RegExp(`cannot transcribe this ${label} page`));
     }
 });
+
+// ------------------------------------------------------------------
+// DC.2 — the job driver's failure strings are ROUTE-AWARE.
+//
+// runTranscriptionJob is shared by both transports, and its error text
+// was written when only the companion existed. On the direct route
+// "the transcription service" means AssemblyAI, and advice like "try
+// again once the service is back" is meaningless — there is no service
+// of the user's to bring back. `route` is already in scope at every one
+// of these, so this is a wording fix, not a restructure.
+// ------------------------------------------------------------------
+
+const directIo = (statusScript, store = {}) => ({
+    sendMessage: async (msg) => (msg.type.endsWith(':start')
+        ? { ok: true, jobId: 'aai-1', provider: 'assemblyai-direct' }
+        : statusScript),
+    storageGet: async (k) => store[k],
+    storageSet: async (k, v) => { store[k] = v; },
+    storageRemove: async (ks) => { for (const k of [].concat(ks)) delete store[k]; },
+    storageGetAll: async () => ({ ...store }),
+    sleep: async () => {}, now: () => NOW, onProgress: () => {}
+});
+
+const runDirect = (statusScript, store) => runTranscriptionJob({
+    mediaUrl: 'https://cdn/ep.mp3', mediaKey: 'K', provider: 'assemblyai-direct',
+    route: 'direct', startType: DIRECT_START, statusType: DIRECT_STATUS,
+    io: directIo(statusScript, store)
+});
+
+test('DC.2: a direct job that the provider no longer knows does not blame a service restart', async () => {
+    const out = await runDirect({ ok: false, status: 404 });
+    assert.equal(out.ok, false);
+    assert.ok(!/service.*restarted|once the service is back/i.test(out.error),
+        `companion wording on the direct route: ${out.error}`);
+    assert.match(out.error, /AssemblyAI/,
+        'name who no longer knows the job');
+});
+
+test('DC.2: losing contact on the direct route does not say "once the service is back"', async () => {
+    const out = await runDirect({ ok: false, unreachable: true });
+    assert.equal(out.ok, false);
+    assert.ok(!/once the service is back/i.test(out.error),
+        `there is no service of the user’s to bring back: ${out.error}`);
+    assert.ok(!/\bcompanion\b/i.test(out.error), `companion named on a companion-free route: ${out.error}`);
+});
+
+test('DC.2: the COMPANION route keeps its wording exactly', async () => {
+    // Byte-identical regression net: these strings are what a companion
+    // user has been reading, and nothing about DC.2 should change them.
+    const io = (script) => ({
+        sendMessage: async (msg) => (msg.type.endsWith(':start') ? { ok: true, jobId: 'j' } : script),
+        storageGet: async () => undefined, storageSet: async () => {},
+        storageRemove: async () => {}, storageGetAll: async () => ({}),
+        sleep: async () => {}, now: () => NOW, onProgress: () => {}
+    });
+    const four04 = await runTranscriptionJob({
+        mediaUrl: 'https://x/a.mp3', mediaKey: 'K', io: io({ ok: false, status: 404 })
+    });
+    assert.equal(four04.error,
+        'The transcription service no longer knows this job (it may have restarted). Try again.');
+    const lost = await runTranscriptionJob({
+        mediaUrl: 'https://x/a.mp3', mediaKey: 'K', io: io({ ok: false, unreachable: true })
+    });
+    assert.match(lost.error, /once the service is back/);
+});

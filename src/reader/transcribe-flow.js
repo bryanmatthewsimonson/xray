@@ -172,6 +172,24 @@ export async function reapStaleJobRecords(io, now = Date.now()) {
     return dead.length;
 }
 
+// DC.2: the driver is shared, its failure strings were not. On the
+// direct route "the transcription service" is AssemblyAI, and "try
+// again once the service is back" names something the user does not
+// run. Companion wording is preserved byte-for-byte — a companion user
+// must read exactly what they always did.
+const JOB_LOST_MESSAGE = {
+    companion: 'The transcription service no longer knows this job (it may have restarted). Try again.',
+    direct: 'AssemblyAI no longer knows this transcript (their record of it may have expired). Start a new transcription.'
+};
+const CONTACT_LOST_MESSAGE = {
+    companion: 'Lost contact with the transcription service mid-job. The job may still be running — try again once the service is back.',
+    direct: 'Lost contact with AssemblyAI mid-job. The transcription may still be running on their side — try again in a moment; it will resume rather than start over.'
+};
+const UNREACHABLE_MESSAGE = {
+    companion: 'Companion transcription service not reachable.',
+    direct: 'Could not reach AssemblyAI.'
+};
+
 /**
  * Run (or resume) the transcription job for one media URL, polling until a
  * terminal state. Resolves {ok: true, result} on success and
@@ -218,7 +236,7 @@ export async function runTranscriptionJob({
             return {
                 ok: false,
                 resumable: true,
-                error: statusResp.error || 'Companion transcription service not reachable.'
+                error: statusResp.error || UNREACHABLE_MESSAGE[route] || UNREACHABLE_MESSAGE.companion
             };
         }
     }
@@ -261,7 +279,7 @@ export async function runTranscriptionJob({
         if (!resp || !resp.ok) {
             if (resp && resp.status === 404) {
                 await io.storageRemove([key]);
-                return { ok: false, error: 'The transcription service no longer knows this job (it may have restarted). Try again.' };
+                return { ok: false, error: JOB_LOST_MESSAGE[route] || JOB_LOST_MESSAGE.companion };
             }
             unreachable += 1;
             if (unreachable >= MAX_UNREACHABLE_POLLS) {
@@ -270,7 +288,7 @@ export async function runTranscriptionJob({
                 return {
                     ok: false,
                     resumable: true,
-                    error: (resp && resp.error) || 'Lost contact with the transcription service mid-job. The job may still be running — try again once the service is back.'
+                    error: (resp && resp.error) || CONTACT_LOST_MESSAGE[route] || CONTACT_LOST_MESSAGE.companion
                 };
             }
             await io.sleep(pollMs);

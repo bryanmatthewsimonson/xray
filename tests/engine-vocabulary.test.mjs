@@ -330,3 +330,28 @@ test('the refusal toast uses the detail half of the problem', () => {
     assert.match(READER_CODE, /toast\(problem\.detail,/);
     assert.ok(!/toast\(problem,/.test(READER_CODE));
 });
+
+test('DC.2: the Options status panel is told whether direct cloud is configured', () => {
+    // deriveCompanionState cannot know on its own, and the panel has no
+    // flag gate — it polls on load for every user. Wiring it to the
+    // live CHECKBOX rather than the stored flag keeps it honest while
+    // the user is still deciding, before they hit Save.
+    const opts = readRepo('src/options/index.js');
+    assert.match(opts, /directEnabled: !!document\.getElementById\('pref-direct-cloud-transcription'\)\?\.checked/,
+        'the status panel must reflect the direct-cloud checkbox');
+});
+
+test('DC.2: companion setup advice is structurally unreachable on the direct route', () => {
+    // renderTranscribeBanner's docsHint tells the user to install the
+    // companion and run `uv run xray-transcriber`. Gating it on a
+    // substring ("not reachable") left it one careless string away from
+    // firing on the one route whose premise is that nothing is
+    // installed. Gate on the route itself.
+    assert.match(READER_CODE, /docsHint: routing\.route !== 'direct' &&/,
+        'the docs hint must be gated on the route, not only on error text');
+});
+
+test('DC.2: the opening banner names who is actually being contacted', () => {
+    assert.match(READER_CODE, /routing\.route === 'direct'\s*\n?\s*\? 'Contacting AssemblyAI…'/,
+        'a direct run contacts AssemblyAI, not "the transcription service"');
+});

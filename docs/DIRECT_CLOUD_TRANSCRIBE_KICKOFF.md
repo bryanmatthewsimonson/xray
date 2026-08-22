@@ -138,7 +138,8 @@ companion-routed engines, so the user can always see which one ran, and
   the companion service stopped**. Acceptance: the same PowerPress
   episode from the 2026-08-15 walk, transcribed end to end with nothing
   running locally, adopted into the reader.
-- **DC.2 — the no-companion state becomes first-class.** Today the UI
+- **DC.2 — the no-companion state becomes first-class.** COMPLETE
+  2026-08-16 (smoke rows DC-7..DC-9 owed). Today the UI
   assumes a companion exists: the status panel, the picker's
   availability marks, and several error strings all describe a service.
   Make "no companion installed, direct cloud configured" a coherent,
