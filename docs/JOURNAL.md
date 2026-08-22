@@ -19,6 +19,59 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-16 — A choice that cannot succeed should not look like a choice
+
+**Tags:** bug, design
+
+Field report on the first post-merge use of direct cloud transcription:
+the user opened a YouTube capture, the picker offered "AssemblyAI
+(direct)", they chose it, and got a refusal explaining that YouTube
+serves signed, expiring media URLs. The refusal was CORRECT — kickoff §8
+lists YouTube as an explicit non-goal for this route — and it was still
+a bad experience, for two independent reasons.
+
+**1. The engine was offered where it structurally cannot work.** The
+picker already had an availability idiom for exactly this: a cloud
+engine with no saved key routes to Settings instead of failing later,
+and Local is marked unavailable when the companion has no `HF_TOKEN`.
+The direct engine's structural limit — it cannot resolve a page — is the
+same shape of fact and was simply not wired into it, so the only place
+the limit appeared was after the click. `openEnginePicker` now computes
+`directSubmissionProblem` per capture and marks the row unavailable with
+the reason, which is why that function now returns `{short, detail}`:
+`short` is a menu row, `detail` is the toast.
+
+**2. The advice was true in general and wrong on the page in front of
+the user.** The DC.1 message offered two remedies — paste a direct file
+URL in the Media modal, or run it through the companion. On YouTube
+BOTH are wrong. You cannot paste a stable direct file URL, because the
+signed ones expire (that is the same fact the refusal opens with). And
+"use the companion" is empty advice to the direct-only user this whole
+feature exists for. What is actually true on YouTube is better news than
+the error implied: the captions are already fetched with the capture
+(`platforms/youtube.js` fetchTranscript), so nothing is missing except
+diarized speaker labels. The message now says that, and the off-platform
+case keeps the Media-modal advice, where it is both true and reachable.
+
+**The general lesson**, and it is not about YouTube: an error can be
+accurate, well-worded, and still be a design failure, because the design
+question is not "is this message true" but "should the user ever have
+been able to get here". Refusals that are reachable by a click the UI
+invited are a signal that an availability check is missing upstream.
+DC.2's brief is exactly this — make "no companion installed, direct
+cloud configured" a coherent state rather than a wall of errors — and
+this is the first item of it, found by use rather than by review.
+
+Two smaller things fixed by READING the rendered output rather than
+asserting substrings: the platform id leaked raw into user-visible text
+("cannot transcribe a instagram page"), so there is now a
+`PLATFORM_LABELS` map, and the sentence was rephrased to "this
+<Platform> page" to remove the a/an problem structurally rather than
+trying to spell-check English articles — a naive vowel rule flags "a
+URL", which is correct.
+
+---
+
 ## 2026-08-15 — DC.1 field failure: the media URL was on the page, in JSON-LD
 
 **Tags:** bug, external

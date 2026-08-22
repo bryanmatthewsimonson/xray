@@ -567,12 +567,11 @@ test('directSubmissionProblem: refuses to submit the captured page itself', () =
     const article = { url: 'https://architectureofabuse.com/e/episode1' };
     const problem = directSubmissionProblem(article, article.url);
     assert.ok(problem, 'a page URL must be refused before the API call');
-    assert.match(problem, /no direct media file/i);
-    // It must name the way forward, and must NOT read as a companion
-    // problem (the reader attaches companion setup advice to anything
-    // containing "not reachable").
-    assert.ok(!/not reachable/i.test(problem));
-    assert.match(problem, /Media/i, 'the Media modal is the escape hatch — name it');
+    assert.match(problem.short, /no direct media file/i);
+    assert.match(problem.detail, /Media/i, 'the Media modal is the escape hatch off-platform — name it');
+    // Must not read as a companion problem: the reader attaches
+    // companion setup advice to anything containing "not reachable".
+    assert.ok(!/not reachable/i.test(problem.short + problem.detail));
 });
 
 test('directSubmissionProblem: a discovered media file is admitted', () => {
@@ -584,19 +583,64 @@ test('directSubmissionProblem: a discovered media file is admitted', () => {
 });
 
 test('directSubmissionProblem: a capture whose own URL IS the media file is admitted', () => {
-    // Navigating straight to an .mp3 and capturing it: sourceUrl equals
-    // article.url, but it is a media file, so refusing would be wrong.
     const article = { url: 'https://cdn.example.com/ep.mp3' };
     assert.equal(directSubmissionProblem(article, article.url), null);
     const q = { url: 'https://cdn.example.com/ep.m4a?token=abc' };
     assert.equal(directSubmissionProblem(q, q.url), null);
 });
 
-test('directSubmissionProblem: a known platform page is refused with the right reason', () => {
-    // YouTube et al. always send the page URL by design (signed media
-    // URLs expire). The companion resolves those; direct cannot.
+test('directSubmissionProblem: YouTube gets the remedy that actually applies', () => {
+    // Field report 2026-08-16. The DC.1 message advised two remedies,
+    // and on YouTube BOTH are wrong: you cannot paste a stable direct
+    // file URL (they are signed and expire — kickoff §8), and "run it
+    // through the companion" is useless advice to the direct-only user
+    // this feature exists for. What is TRUE on YouTube is that the
+    // captions are already captured with the page, so the user is not
+    // missing a transcript at all — only diarized speaker labels.
     const article = { url: 'https://www.youtube.com/watch?v=abc123DEF45', platform: 'youtube' };
     const problem = directSubmissionProblem(article, transcribeSourceUrl(article));
     assert.ok(problem);
-    assert.match(problem, /youtube/i, 'name the platform so the reason is obvious');
+    assert.match(problem.detail, /caption/i, 'say the captions are already captured');
+    assert.match(problem.detail, /speaker label/i, 'say what transcribing would actually add');
+    assert.ok(!/paste/i.test(problem.detail),
+        'never advise pasting a direct file URL for a platform whose URLs are signed and expire');
+});
+
+test('directSubmissionProblem: other known platforms say signed URLs, not "no file found"', () => {
+    const article = { url: 'https://www.instagram.com/reel/abc/', platform: 'instagram' };
+    const problem = directSubmissionProblem(article, transcribeSourceUrl(article));
+    assert.ok(problem);
+    assert.match(problem.short, /sign|expir/i);
+    assert.ok(!/caption/i.test(problem.detail), 'the captions line is YouTube-specific');
+});
+
+test('directSubmissionProblem: the short form is one line, fit for a menu row', () => {
+    for (const article of [
+        { url: 'https://example.com/e/1' },
+        { url: 'https://www.youtube.com/watch?v=abc123DEF45', platform: 'youtube' }
+    ]) {
+        const { short } = directSubmissionProblem(article, transcribeSourceUrl(article));
+        assert.ok(short.length <= 90, `too long for a menu row (${short.length}): ${short}`);
+        assert.ok(!short.includes('\n'));
+    }
+});
+
+
+test('directSubmissionProblem: platform names are human, and the grammar holds', () => {
+    // Read the output, do not just assert a substring: the first cut
+    // produced "cannot transcribe a instagram page" — lowercase id and
+    // a broken article. Sentences are phrased to avoid a/an entirely.
+    const cases = [['instagram', 'Instagram'], ['tiktok', 'TikTok'], ['twitter', 'X'], ['youtube', 'YouTube']];
+    for (const [id, label] of cases) {
+        const article = { url: `https://${id}.example/x`, platform: id };
+        const { short, detail } = directSubmissionProblem(article, transcribeSourceUrl(article));
+        assert.ok(short.startsWith(label), `menu row should lead with "${label}": ${short}`);
+        assert.ok(!new RegExp(`\\\\b${id}\\\\b`).test(short + detail),
+            `the raw platform id "${id}" leaked into user-visible text`);
+        // The a/an problem is removed STRUCTURALLY — the sentence says
+        // "this <Platform> page", never "a <Platform> page" — so pin the
+        // phrasing rather than trying to spell-check English articles
+        // ("a URL" is correct; a naive vowel rule flags it).
+        assert.match(detail, new RegExp(`cannot transcribe this ${label} page`));
+    }
 });

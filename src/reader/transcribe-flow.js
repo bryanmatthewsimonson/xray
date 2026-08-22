@@ -346,26 +346,47 @@ export function transcribeSourceUrl(article) {
 // Media-file extensions, mirrored from shared/media-hints.js
 // mediaKindForHref — this module deliberately imports nothing (its
 // tests run with no chrome stub), so keep the two in sync.
+// Human names for the KNOWN_PLATFORMS ids. Inline for the same reason
+// PROVIDER_LABELS is: this module deliberately imports nothing. Keep in
+// sync with KNOWN_PLATFORMS above.
+const PLATFORM_LABELS = {
+    substack: 'Substack', youtube: 'YouTube', twitter: 'X', tiktok: 'TikTok',
+    instagram: 'Instagram', facebook: 'Facebook', pmc: 'PMC', arxiv: 'arXiv'
+};
+
 const MEDIA_EXT_RE = /\.(mp3|m4a|aac|ogg|oga|opus|wav|flac|mp4|m4v|webm|mov)$/i;
 
 /**
  * Why THIS url cannot be submitted to a direct cloud provider, or null.
+ *
+ * Returns `{short, detail}` — `short` is a menu-row reason so the picker
+ * can mark the engine unavailable BEFORE the user clicks, `detail` is
+ * the full explanation for the refusal toast.
  *
  * The direct route's one structural limit: a provider fetches a URL, it
  * does not resolve a page. The companion has yt-dlp and genuinely can,
  * which is why transcribeSourceUrl falls back to the page URL — correct
  * there, guaranteed-useless here.
  *
- * Field-found 2026-08-15 on a PodBean episode page that exposed no
- * discoverable media file: the fallback fired, AssemblyAI was handed an
- * HTML document, and the answer came back as a paid API error
- * ("Transcoding failed. File type text/html") rather than as something
- * X-Ray could have said for free.
- *
  * Deliberately NOT a heuristic about what a media URL looks like: the
  * test is whether we are about to submit the CAPTURED PAGE'S OWN
  * address, which is definitionally a page — unless the capture is
  * itself a media file, which is the one exception.
+ *
+ * The REMEDY is platform-specific, which the first version got wrong
+ * (field report 2026-08-16, on YouTube). Advice has to be true for the
+ * page in front of the user AND reachable in their configuration:
+ *
+ *  - YouTube: do not suggest pasting a direct file URL — those are
+ *    signed and expire (kickoff §8). And do not lead with "use the
+ *    companion" to the direct-only user this feature exists for. What
+ *    is actually true is better news: YouTube captions are already
+ *    fetched with the capture (platforms/youtube.js fetchTranscript),
+ *    so nothing is missing except diarized speaker labels.
+ *  - Other known platforms: signed, expiring URLs; the companion is
+ *    genuinely the only path, so say that plainly.
+ *  - Off-platform: a direct file URL exists somewhere and simply was
+ *    not discovered — the Media modal is a real, reachable fix.
  */
 export function directSubmissionProblem(article, sourceUrl) {
     const a = article || {};
@@ -374,13 +395,35 @@ export function directSubmissionProblem(article, sourceUrl) {
     if (MEDIA_EXT_RE.test(url.split(/[?#]/)[0])) return null;
 
     const platform = a.platform && KNOWN_PLATFORMS.has(a.platform) ? a.platform : '';
-    const because = platform
-        ? `${platform} serves signed, expiring media URLs, so this capture sends its page address`
-        : 'no direct media file was found on this page, so this capture falls back to its page address';
-    return `AssemblyAI (direct) needs a media file, and ${because}. `
-        + 'A cloud provider downloads a URL; it cannot open a page and find the audio. '
-        + 'Use the \u{1F399} Media & source modal to paste the episode\u2019s direct file URL, '
-        + 'or run this one through the companion service, which resolves pages with yt-dlp.';
+    const label = PLATFORM_LABELS[platform] || platform;
+
+    if (platform === 'youtube') {
+        return {
+            short: 'YouTube media URLs are signed and expire — a provider cannot fetch them.',
+            detail: 'AssemblyAI (direct) cannot transcribe this YouTube page: a cloud provider '
+                + 'downloads a URL, and YouTube\u2019s media URLs are signed and expire. '
+                + 'You are not missing a transcript, though \u2014 YouTube\u2019s own captions '
+                + 'are captured with the page. Transcribing would only add diarized speaker '
+                + 'labels, and on YouTube that needs the companion service, which resolves the '
+                + 'page with yt-dlp.'
+        };
+    }
+    if (platform) {
+        return {
+            short: `${label} media URLs are signed and expire — a provider cannot fetch them.`,
+            detail: `AssemblyAI (direct) cannot transcribe this ${label} page: a cloud provider `
+                + `downloads a URL, and ${label}\u2019s media URLs are signed and expire. `
+                + 'The companion service resolves these pages with yt-dlp; the direct route '
+                + 'cannot.'
+        };
+    }
+    return {
+        short: 'No direct media file was found on this page.',
+        detail: 'AssemblyAI (direct) needs a media file, and no direct media file was found on '
+            + 'this page, so this capture falls back to its page address. A cloud provider '
+            + 'downloads a URL; it cannot open a page and find the audio. Use the '
+            + '\u{1F399} Media & source modal to paste the episode\u2019s direct file URL.'
+    };
 }
 
 /**

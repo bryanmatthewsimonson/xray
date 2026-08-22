@@ -2223,7 +2223,7 @@ async function runTranscribeFlow(provider) {
         // Refuse a page URL locally rather than pay a provider to
         // discover it was handed HTML (field failure 2026-08-15).
         const problem = directSubmissionProblem(a, sourceUrl);
-        if (problem) { toast(problem, 'error', 10000); return; }
+        if (problem) { toast(problem.detail, 'error', 10000); return; }
         if (!confirmDirectSubmission(sourceUrl, a.url)) return;
     }
     const mediaKey = await mediaKeyForArticle(a, sourceUrl);
@@ -2544,8 +2544,17 @@ async function openEnginePicker() {
         // is — with both flags off the picker never opens at all.
         if (meta.direct ? !directEnabled : !companionEnabled) continue;
         const blockedLocal = engine === 'local' && localBlocked;
+        // Field report 2026-08-16: the direct engine was OFFERED on a
+        // YouTube capture and only refused after the click, on a page
+        // where it structurally cannot work. Availability marks are the
+        // picker's existing idiom for exactly this (missing key,
+        // HF_TOKEN) — a choice that cannot succeed should never look
+        // like a choice.
+        const blockedDirect = meta.direct
+            ? directSubmissionProblem(state.article, transcribeSourceUrl(state.article || {}))
+            : null;
         const provider = ENGINE_PROVIDER[engine];
-        const keyed = !blockedLocal
+        const keyed = !blockedLocal && !blockedDirect
             && (!provider || !!(_transcribeCfg.keys && _transcribeCfg.keys[provider]));
         const item = document.createElement('button');
         item.type = 'button';
@@ -2570,13 +2579,19 @@ async function openEnginePicker() {
         sub.className = 'xr-engine-menu__sub' + (keyed ? '' : ' xr-engine-menu__sub--warn');
         sub.textContent = keyed
             ? engineEstimate(engine)
-            : blockedLocal
-                ? 'Needs HF_TOKEN on the companion service — see companion/transcriber/README.md.'
-                : 'No API key saved — click to add one in Settings.';
+            : blockedDirect
+                ? blockedDirect.short
+                : blockedLocal
+                    ? 'Needs HF_TOKEN on the companion service — see companion/transcriber/README.md.'
+                    : 'No API key saved — click to add one in Settings.';
         item.appendChild(sub);
 
         item.addEventListener('click', () => {
             closeEnginePicker();
+            if (blockedDirect) {
+                toast(blockedDirect.detail, 'error', 10000);
+                return;
+            }
             if (blockedLocal) {
                 toast('Local transcription needs HF_TOKEN set on the companion service — see companion/transcriber/README.md, then restart the service.', 'error', 6000);
                 return;

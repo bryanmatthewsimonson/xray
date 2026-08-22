@@ -301,3 +301,32 @@ test('the direct route refuses a page URL before spending an API call', () => {
     assert.ok(confirmAt > refuseAt, 'refuse an impossible submission before asking the user to approve it');
     assert.ok(startAt === -1 || startAt > refuseAt);
 });
+
+test('the picker marks the direct engine unavailable before the click, not after', () => {
+    // Field report 2026-08-16: "AssemblyAI (direct)" was offered on a
+    // YouTube capture and only refused once clicked, on a page where it
+    // structurally cannot work. The picker already had an availability
+    // idiom for choices that cannot succeed (missing API key, missing
+    // HF_TOKEN); the direct engine's structural limit has to use it too.
+    const picker = /async function openEnginePicker\(\)[\s\S]*?\n}/.exec(READER_CODE);
+    assert.ok(picker, 'openEnginePicker moved');
+    assert.match(picker[0], /const blockedDirect = meta\.direct/,
+        'the picker must compute the direct engine\'s structural availability');
+    assert.match(picker[0], /blockedDirect\s*\n?\s*\?\s*blockedDirect\.short/,
+        'an unavailable direct engine must show its reason on the menu row');
+    // And the row must not be clickable into a doomed job.
+    const clickAt = picker[0].indexOf('runTranscribeFlow(engine)');
+    const guardAt = picker[0].indexOf('if (blockedDirect) {');
+    assert.ok(guardAt > 0 && guardAt < clickAt,
+        'clicking an unavailable direct row must explain, never start a job');
+    // keyed gates the estimate line; blockedDirect must suppress it too,
+    // or the row would advertise a cost for a run that cannot happen.
+    assert.match(picker[0], /const keyed = !blockedLocal && !blockedDirect/);
+});
+
+test('the refusal toast uses the detail half of the problem', () => {
+    // directSubmissionProblem returns {short, detail}; passing the
+    // object to toast() would render "[object Object]".
+    assert.match(READER_CODE, /toast\(problem\.detail,/);
+    assert.ok(!/toast\(problem,/.test(READER_CODE));
+});
