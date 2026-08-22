@@ -19,6 +19,54 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-16 — A guard that pins a string passes while the behavior is wrong
+
+**Tags:** bug, pattern
+
+Deepgram shipped broken and the maintainer found it in the first click:
+selecting "Deepgram (direct)" did nothing at all. Two bugs, one root
+cause, and the second was worse than the one reported.
+
+`runTranscribeFlow` compared against a single engine id in two places.
+The click guard read `(provider || _transcribeCfg.engine) !==
+DIRECT_ENGINE_ID`, so on a direct-only profile a Deepgram selection
+failed the test and simply re-opened the picker — the observed "nothing
+happens". And the consent block read `provider === DIRECT_ENGINE_ID`, so
+Deepgram skipped BOTH the page-URL refusal and the confirm dialog: it
+would have submitted a YouTube page with no refusal and sent a URL to a
+third party with no confirmation. That one was only hidden because the
+first bug blocked the path before it.
+
+**The part worth remembering is why the tests did not catch it.** The
+guard written the day before asserted the LITERAL source string:
+
+    assert.match(READER_CODE, /!== DIRECT_ENGINE_ID/)
+
+That passes with a second engine present and every gate wrong for it,
+because it pins the IMPLEMENTATION rather than the INVARIANT. It was
+written while there was exactly one direct engine, when the literal and
+the invariant were indistinguishable — and it silently stopped being a
+test of anything the moment that stopped being true.
+
+The replacement asserts the property instead: **no `=== DIRECT_ENGINE_ID`
+comparison may appear in the flow at all** — comparisons go through
+`isDirectEngine()` over a `DIRECT_ENGINE_IDS` set — plus a cross-check
+that `ENGINE_META`'s `direct: true` entries and that set name the same
+engines, so an engine can never render as companion-free while skipping
+the gates that exist because it is. A third provider inherits every gate
+for free. Negative-controlled: reintroducing the single-id comparison
+reds the suite.
+
+The general rule, and it applies to every source-grep guard in this
+repo: **grep for the shape that generalizes, not the shape that is
+currently there.** If a guard would still pass after adding a second
+member to the set it describes, it is testing a snapshot, not a rule.
+(A smaller instance of the same lesson landed in the same fix: an
+unscoped `ENGINE_META` regex matched a computed key from an unrelated
+object and then scanned forward for `direct: true`.)
+
+---
+
 ## 2026-08-16 — DC.3: the second provider is synchronous, and that is the whole design
 
 **Tags:** design, external

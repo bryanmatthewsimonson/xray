@@ -2205,7 +2205,7 @@ async function runTranscribeFlow(provider) {
     // cleared when the flag goes off) sailed past it and bricked the
     // main button. Test the RESOLVED engine instead.
     if (!_transcribeCfg.enabled && _transcribeCfg.directEnabled
-            && (provider || _transcribeCfg.engine) !== DIRECT_ENGINE_ID) {
+            && !isDirectEngine(provider || _transcribeCfg.engine)) {
         openEnginePicker();
         return;
     }
@@ -2227,7 +2227,7 @@ async function runTranscribeFlow(provider) {
     // a.url) so a re-run of the same source resumes the same job record
     // instead of orphaning it.
     const sourceUrl = transcribeSourceUrl(a);
-    if (provider === DIRECT_ENGINE_ID) {
+    if (isDirectEngine(provider)) {
         // Refuse a page URL locally rather than pay a provider to
         // discover it was handed HTML (field failure 2026-08-15).
         const problem = directSubmissionProblem(a, sourceUrl);
@@ -2387,6 +2387,15 @@ async function refreshTranscribeCfg() {
 const DIRECT_ENGINE_ID = 'assemblyai-direct';
 const DEEPGRAM_DIRECT_ENGINE_ID = 'deepgram-direct';
 
+// EVERY companion-free engine. Scattered `=== DIRECT_ENGINE_ID` checks
+// are what broke Deepgram on arrival (2026-08-16): the click guard and
+// the consent block each compared against ONE id, so selecting Deepgram
+// silently re-opened the picker, and — worse — skipped both the page-URL
+// refusal and the confirm dialog. Comparisons go through this set, and
+// tests/engine-vocabulary.test.mjs fails any that do not.
+const DIRECT_ENGINE_IDS = [DIRECT_ENGINE_ID, DEEPGRAM_DIRECT_ENGINE_ID];
+const isDirectEngine = (id) => DIRECT_ENGINE_IDS.includes(id);
+
 const ENGINE_META = {
     local: {
         label: 'Local (WhisperX)',
@@ -2466,7 +2475,7 @@ function transcribeTooltip() {
     // on, and the direct engine is picker-only in DC.1. Covers a stored
     // companion engine too — saying "locally" for a preference that
     // cannot run would be the same dead end the click guard closes.
-    if (!_transcribeCfg.enabled && _transcribeCfg.directEnabled && e !== DIRECT_ENGINE_ID) {
+    if (!_transcribeCfg.enabled && _transcribeCfg.directEnabled && !isDirectEngine(e)) {
         return `${head} — choose AssemblyAI (direct) with ▾; no companion service needed`;
     }
     if (!e) return `${head} — with the companion service's default engine (local unless its env says otherwise; pick per video with ▾, or set a default in Settings)`;

@@ -238,22 +238,66 @@ test('only the service worker reaches the direct transcription module', () => {
 });
 
 test('a direct-only install never dead-ends on a leftover companion engine', () => {
-    // The Options engine <select> is independent of the
-    // localTranscription checkbox and is never cleared when that flag
-    // goes off, so 'local'/'assemblyai'/'deepgram' can outlive it. With
-    // the companion flag off, every one of those is refused by the SW
-    // with "Local transcription is off" — pushing a user who
-    // deliberately installed nothing toward installing a companion.
-    // The guard must test the RESOLVED engine, not just its absence.
-    const guard = /if \(!_transcribeCfg\.enabled && _transcribeCfg\.directEnabled\s*\n\s*&& \(provider \|\| _transcribeCfg\.engine\) !== DIRECT_ENGINE_ID\)/;
-    assert.match(READER_CODE, guard,
-        'runTranscribeFlow must route ANY non-direct engine to the picker when the companion flag is off');
-    assert.ok(!/if \(!provider && !_transcribeCfg\.enabled && _transcribeCfg\.directEnabled\)/.test(READER_CODE),
-        'the `!provider`-only form let a stored engine preference brick the button');
-    // The tooltip must not promise a local run it cannot perform.
+    // The Options engine <select> is independent of the localTranscription
+    // checkbox and is never cleared when that flag goes off, so
+    // 'local'/'assemblyai'/'deepgram' can outlive it. With the companion
+    // flag off every one of those is refused by the SW, so the click
+    // guard must route them to the picker instead of a dead end.
     assert.match(READER_CODE,
-        /if \(!_transcribeCfg\.enabled && _transcribeCfg\.directEnabled && e !== DIRECT_ENGINE_ID\)/,
+        /if \(!_transcribeCfg\.enabled && _transcribeCfg\.directEnabled\s*\n?\s*&& !isDirectEngine\(provider \|\| _transcribeCfg\.engine\)\) \{/,
+        'the click guard must test the RESOLVED engine against the direct SET');
+    assert.match(READER_CODE,
+        /if \(!_transcribeCfg\.enabled && _transcribeCfg\.directEnabled && !isDirectEngine\(e\)\)/,
         'transcribeTooltip must widen the same way as the click guard');
+});
+
+test('no direct-engine comparison in the flow tests a SINGLE id', () => {
+    // The bug this replaces, field-found 2026-08-16 the moment Deepgram
+    // shipped: both the click guard and the consent block compared
+    // against DIRECT_ENGINE_ID alone. Selecting Deepgram therefore
+    // silently re-opened the picker ("nothing happens"), and — worse —
+    // skipped the page-URL refusal and the confirm dialog entirely.
+    //
+    // The previous version of this guard asserted the LITERAL string
+    // `!== DIRECT_ENGINE_ID`, so it passed while the behavior was wrong
+    // for the second engine: it pinned the implementation instead of the
+    // invariant. Pin the invariant — comparisons go through the set, and
+    // a third engine inherits every gate for free.
+    const flow = /async function runTranscribeFlow\(provider\)[\s\S]*?\n}/.exec(READER_CODE);
+    assert.ok(flow, 'runTranscribeFlow moved');
+    const bare = [...flow[0].matchAll(/[!=]== ?DIRECT_ENGINE_ID|[!=]== ?DEEPGRAM_DIRECT_ENGINE_ID/g)];
+    assert.deepEqual(bare.map((m) => m[0]), [],
+        'compare against DIRECT_ENGINE_IDS via isDirectEngine(), never one id');
+    assert.match(flow[0], /isDirectEngine\(/, 'the flow must consult the set');
+});
+
+test('every engine the picker marks `direct` is a member of the direct set', () => {
+    // ENGINE_META.direct drives the picker's availability branch; the
+    // DIRECT_ENGINE_IDS set drives the consent and refusal gates. If the
+    // two ever disagree, an engine renders as companion-free while
+    // skipping the gates that exist because it is.
+    // Scope to the ENGINE_META object — an unscoped scan matches any
+    // computed key in the file and then runs forward looking for
+    // `direct: true`, which found `[skey]` from an unrelated object.
+    const metaBody = /const ENGINE_META = \{([\s\S]*?)\n\};/.exec(READER_SRC);
+    assert.ok(metaBody, 'ENGINE_META moved');
+    const metaDirect = [...metaBody[1].matchAll(/\[(\w+)\]: \{(?:(?!\n    \},?)[\s\S])*?direct: true/g)]
+        .map((m) => m[1]);
+    const setBody = /const DIRECT_ENGINE_IDS = \[([^\]]*)\]/.exec(READER_CODE);
+    assert.ok(setBody, 'DIRECT_ENGINE_IDS moved');
+    const inSet = setBody[1].split(',').map((x) => x.trim()).filter(Boolean);
+    assert.deepEqual(metaDirect.sort(), inSet.sort(),
+        'ENGINE_META `direct: true` and DIRECT_ENGINE_IDS must name the same engines');
+});
+
+test('the consent dialog and the page refusal cover EVERY direct engine', () => {
+    const flow = /async function runTranscribeFlow\(provider\)[\s\S]*?\n}/.exec(READER_CODE)[0];
+    const gate = flow.indexOf('if (isDirectEngine(provider)) {');
+    const refuse = flow.indexOf('directSubmissionProblem(');
+    const confirmAt = flow.indexOf('confirmDirectSubmission(');
+    assert.ok(gate > -1, 'the direct consent block must gate on the set');
+    assert.ok(refuse > gate && confirmAt > refuse,
+        'refuse an impossible submission, then ask the user to approve a possible one');
 });
 
 test('the direct flag has a real Options control, matching what the docs and errors promise', () => {
@@ -295,7 +339,7 @@ test('a direct-only picker never probes the companion', () => {
         'the companion health probe must be gated on companionEnabled');
 });
 
-test('the direct route refuses a page URL before spending an API call', () => {
+test('the direct route refuses a page URL before starting the job', () => {
     // Field failure 2026-08-15: AssemblyAI was handed an HTML page and
     // answered with a paid error. The refusal must run BEFORE the
     // confirm dialog (no point asking the user to approve something
