@@ -4,7 +4,7 @@
 // Values written by the Storage wrapper are JSON-stringified, so we
 // match that here: parse on read, stringify on write.
 
-import { readDiagnostics, clearDiagnostics, formatDiagnostics } from '../shared/diagnostics.js';
+import { readDiagnostics, clearDiagnostics, formatDiagnostics, recordDiagnostic, flushDiagnostics } from '../shared/diagnostics.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
@@ -1940,6 +1940,20 @@ function setupDiagnostics() {
             await navigator.clipboard.writeText(text);
             say(`Copied ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}.`);
         } catch (err) { say('Copy failed: ' + ((err && err.message) || err)); }
+    });
+    // Self-test: the feature must be verifiable without contriving a
+    // real failure. Field-found 2026-08-23: the walk instruction "clear
+    // a key and let a transcribe refuse" was impossible — the DC.1
+    // picker deliberately routes a keyless engine to Settings instead
+    // of letting it fail. A diagnostics surface you can only verify by
+    // breaking something is itself unverifiable.
+    const testBtn = document.getElementById('diagnostics-test');
+    if (testBtn) testBtn.addEventListener('click', async () => {
+        try {
+            recordDiagnostic('options', 'diagnostics self-test — this entry confirms capture and copy work');
+            await flushDiagnostics();
+            say('Test entry recorded — press Copy diagnostics to see it.');
+        } catch (err) { say('Test failed: ' + ((err && err.message) || err)); }
     });
     if (clear) clear.addEventListener('click', async () => {
         try { await clearDiagnostics(); say('Cleared.'); }

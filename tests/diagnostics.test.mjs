@@ -136,6 +136,13 @@ test('the Options page can READ the buffer out — copy and clear affordances ex
     assert.match(html, /id="diagnostics-clear"/, 'a Clear button exists');
     assert.match(js, /formatDiagnostics\(/, 'copy composes the formatted report');
     assert.match(js, /clearDiagnostics\(/);
+    // Self-verification without contriving a failure (field-found
+    // 2026-08-23: the suggested error-trigger was unreachable because
+    // the DC.1 picker routes a keyless engine to Settings instead of
+    // letting it fail).
+    assert.match(html, /id="diagnostics-test"/, 'a self-test button exists');
+    assert.match(js, /recordDiagnostic\('options', 'diagnostics self-test/,
+        'the self-test records a real entry through the real path');
 });
 
 test('the buffer never travels: excluded from backups', async () => {
