@@ -291,3 +291,61 @@ test('buildDiarizedBody: the legacy watchUrl parameter still works', () => {
     });
     assert.ok(markdown.includes(`](${WATCH}&t=0s)`));
 });
+
+test('adoption APPENDS the transcript — the captured body survives verbatim', () => {
+    // Field question 2026-08-16: "the transcription appears to completely
+    // replace the article content rather than being added to it."
+    // The composer does not: base is preserved and the section appended.
+    // Locked explicitly, because the show notes on a podcast capture are
+    // the only human-written context the transcript sits in, and losing
+    // them silently would be a content-loss bug rather than a display one.
+    const base = [
+        '# Episode 6: Healing',
+        '',
+        'What does healing look like after childhood sexual abuse?',
+        '',
+        'Episode Transcript: https://drive.google.com/file/d/abc/view',
+        '',
+        'Additional resources at ArchitectureOfAbuse.com'
+    ].join('\n');
+    const { markdown } = buildDiarizedBody({
+        capturedMarkdown: base,
+        mediaUrl: 'https://cdn.example.com/ep.mp3',
+        platform: '',
+        result: {
+            language: 'en',
+            segments: [{ start: 1, end: 2, speaker: 'SPEAKER_00', text: 'Hi.' }],
+            model_info: { provider: 'deepgram' }
+        }
+    });
+    // Every line of the capture is still there, in order, before the
+    // transcript heading.
+    const cut = markdown.indexOf('## Transcript');
+    assert.ok(cut > 0, 'the transcript section must be appended, not prepended');
+    const head = markdown.slice(0, cut);
+    for (const line of base.split('\n').filter(Boolean)) {
+        assert.ok(head.includes(line), `the capture lost: ${line}`);
+    }
+    assert.match(markdown, /## Transcript — English \(Deepgram, diarized\)/);
+});
+
+test('a RE-transcription replaces only the prior transcript section', () => {
+    // The one thing adoption is allowed to remove. Everything above the
+    // old heading must survive a second run.
+    const base = '# Ep\n\nShow notes that must survive.\n\n'
+        + '## Transcript — English (AssemblyAI, diarized)\n\nold turn text\n';
+    const { markdown } = buildDiarizedBody({
+        capturedMarkdown: base,
+        mediaUrl: 'https://cdn.example.com/ep.mp3',
+        platform: '',
+        result: {
+            language: 'en',
+            segments: [{ start: 1, end: 2, speaker: 'SPEAKER_00', text: 'New.' }],
+            model_info: { provider: 'deepgram' }
+        }
+    });
+    assert.ok(markdown.includes('Show notes that must survive.'), 'the capture was dropped');
+    assert.ok(!markdown.includes('old turn text'), 'the prior transcript should be replaced');
+    assert.ok(!markdown.includes('(AssemblyAI, diarized)'));
+    assert.match(markdown, /\(Deepgram, diarized\)/);
+});
