@@ -4,6 +4,7 @@
 // Values written by the Storage wrapper are JSON-stringified, so we
 // match that here: parse on read, stringify on write.
 
+import { readDiagnostics, clearDiagnostics, formatDiagnostics } from '../shared/diagnostics.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
@@ -14,7 +15,7 @@ import {
     LMSTUDIO_URL_STORAGE, LMSTUDIO_MODEL_STORAGE, sanitizePort, loopbackUrl
 } from '../shared/transcriber-client.js';
 import { deriveCompanionState } from '../shared/companion-status.js';
-import { formatBuildInfo } from '../shared/build-info.js';
+import { formatBuildInfo, getBuildInfo } from '../shared/build-info.js';
 import {
     LLM_MODELS, DEFAULT_LLM_MODEL, resolveModel, LLM_KEY_STORAGE, LLM_MODEL_STORAGE,
     LLM_SUGGEST_KINDS_STORAGE, SUGGEST_KIND_LABELS, normalizeSuggestKinds
@@ -1344,6 +1345,7 @@ async function loadAdvanced() {
     document.getElementById('pref-aai-key').value = '';
     document.getElementById('pref-dg-key').value = '';
     setupCompanionStatus();
+    setupDiagnostics();
     document.getElementById('pref-lmstudio-url').value = await llmRawGet(LMSTUDIO_URL_STORAGE);
     document.getElementById('pref-lmstudio-model').value = await llmRawGet(LMSTUDIO_MODEL_STORAGE);
 
@@ -1918,3 +1920,29 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 // Re-export for tests / debugging.
 export { Storage, Crypto };
+
+
+// Diagnostics (shared/diagnostics.js): copy the local error ring with
+// the build identity, so a report is diagnosable without a console.
+function setupDiagnostics() {
+    const copy = document.getElementById('diagnostics-copy');
+    const clear = document.getElementById('diagnostics-clear');
+    const status = document.getElementById('diagnostics-status');
+    if (!copy || copy.dataset.wired) return;
+    copy.dataset.wired = '1';
+    const say = (msg) => { if (status) status.textContent = msg; };
+    copy.addEventListener('click', async () => {
+        try {
+            const entries = await readDiagnostics();
+            const manifest = browserApi.runtime.getManifest ? browserApi.runtime.getManifest() : {};
+            const info = getBuildInfo();
+            const text = formatDiagnostics(entries, { version: manifest.version, commit: info && info.commit });
+            await navigator.clipboard.writeText(text);
+            say(`Copied ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}.`);
+        } catch (err) { say('Copy failed: ' + ((err && err.message) || err)); }
+    });
+    if (clear) clear.addEventListener('click', async () => {
+        try { await clearDiagnostics(); say('Cleared.'); }
+        catch (err) { say('Clear failed: ' + ((err && err.message) || err)); }
+    });
+}

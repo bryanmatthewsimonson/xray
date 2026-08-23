@@ -118,7 +118,11 @@ export const CREDENTIAL_STORAGE_KEYS = Object.freeze([
 // restorable into whatever workspace is active at apply time; carrying
 // the registry/pointer would let one workspace's file stomp every
 // other workspace on restore).
-const EXCLUDED_STORAGE_KEYS = [...CREDENTIAL_STORAGE_KEYS, 'workspaces', 'active_workspace'];
+// 'xray:diagnostics' (the local error ring, shared/diagnostics.js) is
+// excluded because backups TRAVEL: error text can carry URLs the user
+// never chose to export, and a diagnostic aid must stay on the machine
+// that produced it.
+const EXCLUDED_STORAGE_KEYS = [...CREDENTIAL_STORAGE_KEYS, 'workspaces', 'active_workspace', 'xray:diagnostics'];
 
 // Keys holding PRIVATE KEY material, dropped from a shareable copy.
 // `local_primary_identity` and `identity_profiles` carry the primary
