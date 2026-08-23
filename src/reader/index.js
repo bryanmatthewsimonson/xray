@@ -173,6 +173,13 @@ function escapeHtml(s) {
 }
 
 function toast(message, type = 'success', timeoutMs = 3200) {
+    // Error-toned toasts feed the diagnostics ring. Field-found
+    // 2026-08-23, by the ring's FIRST real use: a failed Substack
+    // transcription produced a visible error and an empty diagnostics
+    // copy — user-facing failures surfaced here and in the banner, and
+    // neither called Utils.error, so the exact evidence the ring exists
+    // for never reached it.
+    if (type === 'error') { try { Utils.error('reader:', message); } catch (_) { /* never the failure */ } }
     const el = $('#xr-toast');
     el.textContent = message;
     el.className = 'xr-reader__toast xr-reader__toast--' + type;
@@ -1976,6 +1983,10 @@ async function reconstructWithLlmFlow() {
 
 /** The transcription progress/status banner (hash-banner chrome). */
 function renderTranscribeBanner(text, tone = 'info', { docsHint = false } = {}) {
+    // Same rule as toast(): an error banner is evidence (see the
+    // 2026-08-23 note there). 'warning' stays unrecorded — the
+    // prior-submission notice is a disclosure, not a failure.
+    if (tone === 'error') { try { Utils.error('transcribe:', text); } catch (_) { /* never the failure */ } }
     let banner = $('#xr-transcribe-banner');
     if (!banner) {
         banner = document.createElement('aside');

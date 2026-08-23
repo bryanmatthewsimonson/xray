@@ -215,6 +215,21 @@ def health() -> dict:
         # (yt-dlp resolves it), not just YouTube.  The extension refuses
         # to send a non-YouTube URL to a build without this.
         "generic_urls": True,
+        # Cookie-jar CONFIG visibility (2026-08-23: a paid-Substack
+        # session failed identically with and without the env set, and
+        # nothing anywhere showed whether the service had even loaded
+        # it).  Presence + readability + host count only — never the
+        # cookie values, and the path only in the startup log where the
+        # operator already is.
+        "cookies": {
+            "configured": bool(config.COOKIES_FILE),
+            "readable": bool(config.COOKIES_FILE) and os.path.isfile(config.COOKIES_FILE),
+            "hosts": sorted(
+                h.strip().lower()
+                for h in str(config.COOKIES_HOSTS or "").split(",")
+                if h.strip()
+            ),
+        },
     }
 
 
@@ -452,6 +467,15 @@ def main() -> None:
         _CLOUD_WORKERS,
         config.PROVIDER,
     )
+    if config.COOKIES_FILE:
+        log.info(
+            "cookies: %s (%s) for hosts: %s",
+            config.COOKIES_FILE,
+            "readable" if os.path.isfile(config.COOKIES_FILE) else "NOT FOUND — check the path",
+            config.COOKIES_HOSTS,
+        )
+    else:
+        log.info("cookies: none configured (TRANSCRIBER_COOKIES_FILE unset)")
     log.info("X-Ray transcriber %s listening on http://%s:%d", __version__, config.HOST, args.port)
     uvicorn.run(app, host=config.HOST, port=args.port, log_level="info")
 
