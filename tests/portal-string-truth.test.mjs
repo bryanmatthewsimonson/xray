@@ -70,3 +70,39 @@ test('PR-9 vocabulary is deliberately UNTOUCHED (sequenced behind Phase 29.5)', 
     assert.match(PORTAL, /Local ledger says/, 'the summary line vocabulary is C1, not PR-2');
     assert.match(readRepo('src/portal/index.html'), /No ledger/, 'the facet vocabulary is C1, not PR-2');
 });
+
+// ------------------------------------------------------------------
+// The Settings signing banner (field-found 2026-08-23, same A-class:
+// the interface lying about its own state).
+// ------------------------------------------------------------------
+
+test('signing "configured" is derived from state, not from a button press', () => {
+    const src = stripComments(readRepo('src/options/index.js'));
+
+    // The two surfaces that were wrong — the active-method line and the
+    // first-run welcome banner — must both consult the derivation.
+    assert.match(src, /async function signingIsConfigured\(prefs\)/);
+    assert.match(src, /if \(!\(await signingIsConfigured\(prefs\)\)\) \{[\s\S]{0,120}not configured yet/,
+        'the active-method line must derive, not read the flag');
+    assert.match(src, /banner\.style\.display = \(await signingIsConfigured\(prefs\)\) \? 'none' : ''/,
+        'the first-run banner must derive too — it showed "Welcome to X-Ray" on an archive with 68 published events');
+
+    // The raw flag must no longer decide either surface on its own.
+    assert.ok(!/if \(!prefs\.signing_method_configured\)/.test(src),
+        'the active-method line still branches on the raw button-press flag');
+    assert.ok(!/prefs\.signing_method_configured \? 'none' : ''/.test(src),
+        'the banner still branches on the raw button-press flag');
+
+    // Third surface, same root cause: Settings force-opened the Signing
+    // tab on EVERY visit for a user who never pressed Save.
+    assert.match(src, /if \(!\(await signingIsConfigured\(prefs\)\)\) activateTab\('signing'\)/,
+        'the auto-activate must derive too');
+
+    // A local key IS the configuration — that is the case the flag missed.
+    assert.match(src, /storageGet\('local_primary_identity'\)[\s\S]{0,80}return !!\(id && id\.npub\)/,
+        'a Local user with a primary identity must count as configured');
+
+    // And the flag stays authoritative when it IS set — this only adds
+    // the cases it misses, so no existing setup regresses.
+    assert.match(src, /if \(prefs\.signing_method_configured\) return true;/);
+});
