@@ -46,7 +46,16 @@ export function buildChapterArticle({ chapter, meta, epubHash, bookEntityId, boo
     const idPart = encodeURIComponent(String((chapter && chapter.id) || index));
     return {
         url: `file:///imported/epub/${epubHash.slice(0, 16)}/${idPart}`,
-        title: (chapter && chapter.title) || `Chapter ${index + 1}`,
+        // The BOOK name leads the title (field feedback 2026-08-23: bare
+        // "Chapter 2" in a 600-item archive list identifies nothing, and
+        // pirated EPUBs carry junk spine pages whose fallback titles
+        // collide with real chapters). Untitled spine items fall back to
+        // their spine id — "SS_recommendpage" is honest where an
+        // invented "Chapter 28" was misleading. Title feeds the hash, so
+        // this shapes NEW imports; a re-import updates rows in place
+        // (same content-derived URLs) and picks the new names up.
+        title: `${(meta && meta.title) || 'Untitled book'} — ${(chapter && chapter.title)
+            || (chapter && chapter.id ? String(chapter.id) : `Chapter ${index + 1}`)}`,
         byline: (meta && meta.author) || '',
         siteName: (meta && meta.title) || '',              // Publisher = book title
         publishedAt: (meta && meta.date) || null,           // release date (unix s)
