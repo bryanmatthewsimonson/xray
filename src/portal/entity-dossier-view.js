@@ -35,7 +35,7 @@ export function renderEntityDossierView(host, params) {
     // Skeleton first (the router's render() is synchronous); fill when
     // the assembler resolves; the caller guards stale view-state.
     const head = el('div', 'xr-view__head');
-    const back = el('button', 'xr-portal__btn xr-portal__btn--ghost', '← Library');
+    const back = el('button', 'xr-portal__btn xr-portal__btn--ghost', '← Back');
     back.type = 'button';
     back.addEventListener('click', () => callbacks.onBack());
     head.appendChild(back);
