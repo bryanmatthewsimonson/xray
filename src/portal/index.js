@@ -40,6 +40,7 @@ import { getByEventId as journalGetByEventId } from '../shared/event-journal.js'
 import { rebroadcastEvent } from '../shared/publish-gate.js';
 import { renderInspector } from './inspector.js';
 import { openArchivedInReader } from './open-archived.js';
+import { createNavStack } from './nav-stack.js';
 import {
     buildAuditIndex, mergeLocalRuns, mergeLocalResolutions, auditsForArticle,
     latestAuditFor, dossierInputsForEntity, computeEntityDossier,
@@ -873,23 +874,45 @@ function setAnalysisState(running, token) {
     }
 }
 
+// PR-6 (docs/PORTAL_UX_REVIEW.md B1): navigation MEMORY. Every "back"
+// used to hard-code the library, so case → person → dossier → back lost
+// the case and the dominant casework loop paid a re-find on every
+// exploration. Forward navigation pushes the view being left;
+// navigateBack retraces it; the empty-stack floor is the library — the
+// old behavior, now the floor instead of the whole story.
+const navStack = createNavStack();
+
+function navigateTo(view, { resetExpanded = false } = {}) {
+    navStack.push(state.view);
+    state.view = view;
+    if (resetExpanded) state.expandedTypes = new Set();
+    closeInspector();
+    render();
+}
+
+function navigateBack() {
+    state.view = navStack.pop();
+    closeInspector();
+    render();
+}
+
 const viewCallbacks = {
-    onBack: () => { state.view = { name: 'library' }; closeInspector(); render(); },
-    onFocusEntity: (pubkey) => { state.view = { name: 'entity', pubkey }; state.expandedTypes = new Set(); closeInspector(); render(); },
-    onOpenCase: (pubkey) => { state.view = { name: 'case', pubkey }; closeInspector(); render(); },
+    onBack: () => { navigateBack(); },
+    onFocusEntity: (pubkey) => { navigateTo({ name: 'entity', pubkey }, { resetExpanded: true }); },
+    onOpenCase: (pubkey) => { navigateTo({ name: 'case', pubkey }); },
     // 20.2: re-render the current case view after a local membership
     // change (add/remove sources). An explicit edit, so it defers during
     // a run and flushes on completion (scheduleUserRender) rather than
     // orphaning the run (direct render) or being dropped (scheduleRender).
     onReloadCase: () => { scheduleUserRender(); },
-    onOpenGraph: (pubkey) => { state.view = { name: 'entity', pubkey }; state.expandedTypes = new Set(); closeInspector(); render(); },
+    onOpenGraph: (pubkey) => { navigateTo({ name: 'entity', pubkey }, { resetExpanded: true }); },
     onExpand: (type) => { state.expandedTypes.add(type); render(); },
     onOpenItem: (item) => { openInspector(item); },
     // 19.4: the entity dossier is LOCAL-id addressed (local-first view
     // — the subject need not be published).
-    onOpenEntityDossier: (entityId) => { state.view = { name: 'entity-dossier', entityId }; closeInspector(); render(); },
+    onOpenEntityDossier: (entityId) => { navigateTo({ name: 'entity-dossier', entityId }); },
     // E5: the wire-first corpus view — works on any pubkey.
-    onOpenEntityCorpus: (pubkey) => { state.view = { name: 'entity-corpus', pubkey }; closeInspector(); render(); },
+    onOpenEntityCorpus: (pubkey) => { navigateTo({ name: 'entity-corpus', pubkey }); },
     // The synthesis block signals its run boundaries (with a per-run
     // token) so background re-renders defer while it runs (scheduleRender).
     onAnalysisState: (running, token) => setAnalysisState(running, token),
@@ -1305,9 +1328,7 @@ function wireChrome() {
 
     // 28.6 — the read-only cross-workspace graph.
     $('#xr-cross-ws').addEventListener('click', () => {
-        state.view = { name: 'cross-workspace' };
-        closeInspector();
-        render();
+        navigateTo({ name: 'cross-workspace' });
     });
 
     $('#xr-resync').addEventListener('click', async () => {

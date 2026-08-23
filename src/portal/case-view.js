@@ -141,7 +141,7 @@ export function renderCaseView(host, params) {
     const caseName = caseEnt ? caseEnt.name : null;
 
     const head = el('div', 'xr-view__head');
-    const back = el('button', 'xr-portal__btn xr-portal__btn--ghost', '← Library');
+    const back = el('button', 'xr-portal__btn xr-portal__btn--ghost', '← Back');
     back.type = 'button';
     back.addEventListener('click', () => callbacks.onBack());
     head.appendChild(back);
