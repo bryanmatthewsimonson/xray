@@ -452,6 +452,34 @@ const PLATFORM_LABELS = {
 
 const MEDIA_EXT_RE = /\.(mp3|m4a|aac|ogg|oga|opus|wav|flac|mp4|m4v|webm|mov)$/i;
 
+
+/**
+ * Which engines the picker OFFERS, by flag. The direct engines are
+ * ABSENT (not disabled) when the direct flag is off, and the companion
+ * engines are absent when theirs is — with both flags off the picker
+ * never opens at all (the button is hidden upstream; this returns []).
+ * An engine with no META entry is never offered.
+ *
+ * Lifted out of the render loop (SMOKE_TEST DC-1, 2026-08-23) so the
+ * rule is unit-tested instead of walked by a human through the reader
+ * — which is an extension page no agent connector can reach. Pure.
+ *
+ * @param {string[]} engines   picker order
+ * @param {object}   metaById  ENGINE_META
+ * @param {{companionEnabled:boolean, directEnabled:boolean}} flags
+ * @returns {string[]}
+ */
+export function visiblePickerEngines(engines, metaById, { companionEnabled, directEnabled }) {
+    const out = [];
+    for (const engine of engines || []) {
+        const meta = metaById && metaById[engine];
+        if (!meta) continue;
+        if (meta.direct ? !directEnabled : !companionEnabled) continue;
+        out.push(engine);
+    }
+    return out;
+}
+
 /**
  * Why THIS url cannot be submitted to a direct cloud provider, or null.
  *

@@ -84,7 +84,7 @@ import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/len
 import { speakerFromParagraphText } from '../shared/transcript-parse.js';
 import { buildTranscriptSection, upsertTranscriptSection } from '../shared/transcript-article.js';
 import { buildDiarizedBody, timeFragmentSelector, timeRangeOfSpan, diarizedTrackEntry, extractionMethodFor, capturedBodyFor } from '../shared/diarized-transcript.js';
-import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey, hasMediaSignal, isFetchableMediaUrl, transcribeSourceUrl, directSubmissionProblem } from './transcribe-flow.js';
+import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey, hasMediaSignal, isFetchableMediaUrl, transcribeSourceUrl, directSubmissionProblem, visiblePickerEngines } from './transcribe-flow.js';
 import { mediaKeyForArticle } from '../shared/media-key.js';
 import { openMediaModal } from './media-modal.js';
 import { scanPodcastSignals } from '../shared/podcast-identity.js';
@@ -2638,12 +2638,11 @@ async function openEnginePicker() {
     menu.id = 'xr-engine-menu';
     menu.className = 'xr-engine-menu';
 
-    for (const engine of PICKER_ENGINES) {
+    // Visibility by flag is a pure, unit-tested rule (transcribe-flow.js
+    // visiblePickerEngines — SMOKE_TEST DC-1): direct engines absent when
+    // the direct flag is off, companion engines absent when theirs is.
+    for (const engine of visiblePickerEngines(PICKER_ENGINES, ENGINE_META, { companionEnabled, directEnabled })) {
         const meta = ENGINE_META[engine];
-        // The direct engine is ABSENT (not disabled) when its flag
-        // is off, and the companion engines are absent when theirs
-        // is — with both flags off the picker never opens at all.
-        if (meta.direct ? !directEnabled : !companionEnabled) continue;
         const blockedLocal = engine === 'local' && localBlocked;
         // Field report 2026-08-16: the direct engine was OFFERED on a
         // YouTube capture and only refused after the click, on a page

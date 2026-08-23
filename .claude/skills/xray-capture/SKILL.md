@@ -155,6 +155,21 @@ release tag.
 them, do not mark them, and never report a row you did not run
 (`hand-to-maintainer` owns the human handoff and the honesty rules).
 
+**What may carry the tag (the criterion — added 2026-08-23 after the
+first walk found both tagged rows unrunnable):** a row is
+`agent-verifiable` ONLY if (a) its Do is an ordinary-page navigation
+and (b) its Expect is readable on that same ordinary page — the
+`dataset.xrayCaptured` stamp, `document.title`,
+`document.body.innerText.length`, or the console. The reader, Options,
+the portal and every other extension page are unreachable to the
+connector (see Connector limits) — a row that needs one of them is
+not agent-verifiable however mechanical it looks, and a row that
+needs a publish never is. If a row's invariant is actually a pure
+rule, the right move is to LIFT it into a unit test and retag it
+`unit` (DC-1 is the worked example: `tests/picker-visibility.test.mjs`)
+— that takes it off every list, human and agent. The runnable set
+today is `docs/SMOKE_TEST.md` § "Agent walk — the capture marker (AW)".
+
 **How:**
 1. Confirm the extension is loaded and which branch built `dist/`
    (`git rev-parse --abbrev-ref HEAD` + the Options build stamp).

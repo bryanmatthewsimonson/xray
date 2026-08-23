@@ -1628,6 +1628,42 @@ with the date + git SHA + browser / OS / version triple. That's
 the closest thing X-Ray currently has to a release-blocker
 checklist.
 
+## Agent walk — the capture marker (AW)
+
+**Who runs this: the agent**, via the claude-in-chrome connector, per
+`.claude/skills/xray-capture/SKILL.md` § Agent smoke walk. These are
+the rows a machine can observe without a human, because they satisfy
+the only two conditions under which that is true: the **Do** is an
+ordinary-page navigation and the **Expect** is readable on that same
+ordinary page (`document.documentElement.dataset.xrayCaptured`,
+`document.title`, `document.body.innerText.length`, the console). The
+reader, Options, the portal and every other extension page are
+unreachable to the connector (it cannot navigate `chrome-extension://`
+or attach there) — a row that needs one of them is NOT agent-verifiable
+no matter how mechanical it looks. Publishing is out of scope for any
+agent walk.
+
+Preconditions: the extension card reloaded on the build under test
+(state the `dist/` stamp — `version · branch · commit` — in the ledger
+row); **Options → Advanced → Capture automation** ON for AW-2 onward
+(the human flips it; the agent cannot reach Options), and back OFF
+when the walk ends. Every capture opens a reader tab the connector
+cannot close — tell the human how many to expect.
+
+| # | Step | Expect | Class |
+|---|---|---|---|
+| AW-1 | Capture automation **OFF** (the default): navigate a plain article URL with `#xray:capture` appended; after ~3s read the stamp | `xrayCaptured === "flag-off"` — the marker is inert by default and says so; no reader tab opens | agent-verifiable |
+| AW-2 | Flag **ON**: navigate a plain Readability-clean article (BBC / Vox / a blog post) with `#xray:capture`; wait ~5s; read `{stamp, title, len}` in ONE probe | `stamp === "ok"`, `title` is the real headline (not a hostname, not "Just a moment…"), `len` > 2000; console filtered `X-Ray` shows no error. A reader tab opened outside the group | agent-verifiable |
+| AW-3 | Flag ON: a **Substack** post URL with `#xray:capture` (wait ~5s) | `stamp === "ok"`; title is the post title — the platform handler path fires through the same marker | agent-verifiable |
+| AW-4 | Flag ON: a **YouTube** watch URL with `#xray:capture` (wait ~8s — the SPA settles late) | `stamp === "ok"`; title is the video title with the " - YouTube" suffix. (The transcript fetch happens in the reader and is NOT observable here — that is DC-9 / 2.x territory, human.) | agent-verifiable |
+| AW-5 | Flag ON: **re-capture** AW-2's URL by a FULL navigation (go to `https://example.com` first, then back to `<url>#xray:capture`) | `stamp === "ok"` a second time — re-capture is safe, the archive keys by URL and keeps the prior version. A same-document `<url>` → `<url>#xray:capture` hop is covered by the `hashchange` listener but the full navigation is the reliable path | agent-verifiable |
+| AW-6 | Flag ON: a URL whose page the content script never runs on — a direct **PDF** link (Chrome's PDF viewer) | `stamp` is `undefined` after a reload: uncapturable, and the skill reports it as such rather than working around it (PDFs go through the reader's `?pdf=` path by hand) | agent-verifiable |
+
+Ledger rows for this walk are labelled **(agent)** — never to be
+mistaken for human eyes. An agent FAIL stops the walk at that row.
+
+---
+
 ## Direct cloud transcription (DC.1)
 
 Transcription with **nothing installed**: the service worker submits the
@@ -1679,12 +1715,12 @@ already have.
 
 | # | Step | Expect | Class |
 |---|---|---|---|
-| DC-1 | With `directCloudTranscription` OFF (and `localTranscription` ON), open a podcast capture and press ▾ | "AssemblyAI (direct)" is **absent** from the picker — hidden, not greyed. With BOTH flags off the Transcribe button itself is absent. | agent-verifiable |
+| DC-1 | With `directCloudTranscription` OFF (and `localTranscription` ON), open a podcast capture and press ▾ | "AssemblyAI (direct)" is **absent** from the picker — hidden, not greyed. With BOTH flags off the Transcribe button itself is absent. | **unit** — `tests/picker-visibility.test.mjs` (hidden-not-greyed, both-off ⇒ empty, and the render SEAM) + `tests/engine-vocabulary.test.mjs` ("Transcribe button reachable with companion flag OFF"). Retagged 2026-08-23: it had been `agent-verifiable`, but the picker is in the reader — an extension page no connector can attach to — so no agent could ever run it; the rule was lifted out of the render loop and is now machine-run on every `npm test`. Off every human list. |
 | DC-2 | **Companion STOPPED.** Capture a PowerPress/Blubrry episode page, press ▾ → AssemblyAI (direct), approve the URL dialog | The job runs and the transcript is adopted into the reader — diarized, speaker-labelled. No error mentions a companion, `uv run`, or "not reachable". | needs-human-eyes |
 | DC-3 | During DC-2, leave the reader tab idle past the MV3 idle window (or close and reopen the reader) before the job finishes | Polling RESUMES the same provider job rather than submitting a second one. **No automated layer can observe this** — the whole reason the SW handler returns after one request instead of looping. | needs-human-eyes |
 | DC-4 | Point a capture at a hotlink-protected file (a CDN that rejects non-browser agents) and run the direct engine | AssemblyAI's own failure text surfaces **verbatim** ("Download error, the hostname could not be resolved" or similar). Nothing silently falls back to the companion. **This row is the instrument for kill criterion 2** — if providers cannot fetch a majority of real episode URLs, the premise fails on contact. | needs-human-eyes |
 | DC-5 | Read the "AssemblyAI (direct)" sub-line in the picker before clicking | It does NOT say "the episode audio leaves this machine" (false here). It says the audio never touches this machine AND that AssemblyAI learns the address. Both halves. | needs-human-eyes |
-| DC-6 | Publish the adopted transcript; inspect the event | `extraction-method` is `assemblyai-<model>` — the SAME token a companion-routed AssemblyAI run publishes, with no `direct` in it. The banner and toast say "via AssemblyAI", never "locally". | agent-verifiable |
+| DC-6 | Publish the adopted transcript; inspect the event | `extraction-method` is `assemblyai-<model>` — the SAME token a companion-routed AssemblyAI run publishes, with no `direct` in it. The banner and toast say "via AssemblyAI", never "locally". | **unit** for the wire half — `tests/direct-transcribe.test.mjs` ("a direct run publishes the SAME extraction-method … as a companion run", pinned to `assemblyai-universal-3-5-pro`); **needs-human-eyes** for the banner/toast wording. Retagged 2026-08-23: it had been `agent-verifiable`, which was wrong twice over — it requires a PUBLISH, which the agent walk forbids, and the reader is unreachable to the connector anyway. |
 | DC-7 | **Direct-only config** (`directCloudTranscription` ON, `localTranscription` OFF): open Options → Advanced → Transcription | The companion panel reads **"Not installed"** in amber, says the direct route works without it, and says what installing it would ADD (local/private; the signed-URL platforms). NOT a red "Not running" opening with terminal commands. | needs-human-eyes |
 | DC-8 | In that same config, walk every transcription surface: Options, the reader picker, a failed job | Nothing instructs you to install or start a companion. No `uv run xray-transcriber`, no "once the service is back", no "transcribing stays unavailable". | needs-human-eyes |
 | DC-9 | Open a **YouTube** capture and press ▾ | "AssemblyAI (direct)" is present but marked unavailable with its reason ("YouTube media URLs are signed and expire…"), and clicking it explains rather than starting a job — saying the captions are already captured and that transcribing would only add speaker labels. | needs-human-eyes |
