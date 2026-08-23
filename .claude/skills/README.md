@@ -47,6 +47,7 @@ which is exactly how `ROADMAP.md` went stale. That one is a human read.
 | [`automator`](automator/SKILL.md) | Advance every recurring task up the documentation → checklist → script → CI gate → guard test → agent skill ladder exactly as far as its proven payback licenses, while the manual path stays alive and human judgment gates stay human. |
 | [`ecosystem-pm`](ecosystem-pm/SKILL.md) | Ensure every event X-Ray publishes stays parseable, ignorable, or renderable by strangers' clients forever; mint kinds only when cross-client value is demonstrated; keep `docs/NIP_DRAFT.md` complete enough to implement a second client from. |
 | [`verification-engineer`](verification-engineer/SKILL.md) | Make every change name which verification layer actually observes its principal risk, convert every escaped bug into a new observer, and spend the one scarce resource — human browser time — only where machines cannot look. |
+| [`seam-and-invariant-check`](seam-and-invariant-check/SKILL.md) | Pre-commit checklist targeting the green-tests-wrong-behavior class: every returned field has a tested consumer, second members sweep for first-member comparisons, guards assert invariants and are negative-controlled, rendered strings get read. |
 | [`hand-to-maintainer`](hand-to-maintainer/SKILL.md) | Hand manual verification over as runnable steps the maintainer can act on from the terminal alone, and record what comes back. Exists because naming a smoke row id is not handing over work, and because asserting a row's status without evidence turns an unknown into a false record. |
 | [`security-threat-modeler`](security-threat-modeler/SKILL.md) | Enumerate the assets and trust boundaries of a key-holding, page-injecting, cloud-talking extension in one living document, and make every new surface justify itself against that map before it ships. |
 | [`schema-evolution`](schema-evolution/SKILL.md) | Guarantee that every record any shipped version ever wrote stays readable and every kind ever emitted stays parseable — migration, fixtures, and rollback story in the same PR. |
@@ -65,6 +66,7 @@ which is exactly how `ROADMAP.md` went stale. That one is a human read.
 | A new surface touches keys, page injection, or a network destination | `security-threat-modeler` |
 | A bug escapes to a live run | `verification-engineer` (which layer should have seen it) |
 | Work is done and something needs human eyes | `hand-to-maintainer` (steps in the message, not a row id) |
+| About to commit a new field, set member, guard, or user-visible string | `seam-and-invariant-check` (the green-tests-wrong-behavior checklist) |
 | The same manual sequence runs a second time in a session | `automator` |
 | Friction recurs, or a pain class appears twice in `JOURNAL` | `continuous-improvement` |
 | Before a `v*` tag | all eight, in the order below |
