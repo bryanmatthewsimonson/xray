@@ -138,3 +138,36 @@ outside the group — you cannot close them), which URLs failed and why,
 and which captured content you are UNSURE about. An honest "this one
 may have caught a loading page" is worth more than a green checkmark
 they later discover was empty.
+
+## Agent smoke walk (added 2026-08-23, maintainer directive)
+
+Beyond capture, this skill drives the loaded extension through the
+**agent-verifiable subset of `docs/SMOKE_TEST.md`** so machine-checkable
+rows stop consuming the maintainer's twenty minutes and stop shipping
+unwalked.
+
+**When:** after any behavior-changing branch is loaded (the soak rule's
+companion), before asking the maintainer to walk anything, and before a
+release tag.
+
+**What:** only rows tagged `agent-verifiable`. Rows tagged
+`needs-human-eyes` are out of scope BY DEFINITION — do not attempt
+them, do not mark them, and never report a row you did not run
+(`hand-to-maintainer` owns the human handoff and the honesty rules).
+
+**How:**
+1. Confirm the extension is loaded and which branch built `dist/`
+   (`git rev-parse --abbrev-ref HEAD` + the Options build stamp).
+2. Walk each agent-verifiable row via the claude-in-chrome connector:
+   perform the row's Do column, observe its Expect column literally —
+   read rendered text, not DOM presence alone.
+3. Record results in the walk ledger the same way a human walk is
+   recorded: date, rows, PASS/FAIL **with what was observed**, and the
+   build hash. An agent walk is labelled `(agent)` so it is never
+   mistaken for human eyes.
+4. On any FAIL: stop, report with the observation, do not continue to
+   dependent rows.
+
+**Boundaries:** never publish to relays during a smoke walk; never
+spend a paid API call unless the row explicitly requires it and the
+maintainer approved the spend; never mark a `needs-human-eyes` row.
