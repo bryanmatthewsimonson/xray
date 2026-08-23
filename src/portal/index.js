@@ -41,6 +41,7 @@ import { rebroadcastEvent } from '../shared/publish-gate.js';
 import { renderInspector } from './inspector.js';
 import { openArchivedInReader } from './open-archived.js';
 import { createNavStack } from './nav-stack.js';
+import { resolveActiveCaseRef } from '../shared/case-membership.js';
 import {
     buildAuditIndex, mergeLocalRuns, mergeLocalResolutions, auditsForArticle,
     latestAuditFor, dossierInputsForEntity, computeEntityDossier,
@@ -1281,24 +1282,37 @@ async function wireTranscribeUrlButton() {
     // this line was Fix Round 1's Critical finding: the button attached
     // its click listener but never became visible, flag on or off.
     transcribeUrlBtn.hidden = false;
-    transcribeUrlBtn.addEventListener('click', () => {
+    const mediaCaseId = resolveActiveCaseRef()
+        .then((ref) => (ref ? ref.caseId : null))
+        .catch(() => null);
+    transcribeUrlBtn.addEventListener('click', async () => {
         const importHost = $('#xr-import-host');
         if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
-        mountMediaTranscribe(importHost, { onDone: null });
+        mountMediaTranscribe(importHost, { caseEntityId: await mediaCaseId, onDone: () => { boot(); } });
     });
 }
 
 function wireChrome() {
     renderCaseSwitcher();
+    // PR-4 (docs/PORTAL_UX_REVIEW.md A2, maintainer ruling 2026-08-23):
+    // header imports INHERIT the active case. The header announces
+    // "🗂 <caseName>" — chrome asserting a context the actions must
+    // honor. Resolved ONCE per page: a case switch always reloads
+    // (renderCaseSwitcher → location.reload()), so this cannot go
+    // stale. Fails closed to null (unbound workspace = the old
+    // untagged behavior, byte-identical).
+    const activeCaseId = resolveActiveCaseRef()
+        .then((ref) => (ref ? ref.caseId : null))
+        .catch(() => null);
     $('#xr-refresh').addEventListener('click', () => { boot(); });
 
     // 21.2 — import a podcast transcript into the archive (standalone;
     // it appears in case views + the local-artifacts list, not the relay
     // library, so no corpus reload). Toggle: a second click closes it.
-    $('#xr-import-transcript').addEventListener('click', () => {
+    $('#xr-import-transcript').addEventListener('click', async () => {
         const importHost = $('#xr-import-host');
         if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
-        mountTranscriptImport(importHost, { onDone: null });
+        mountTranscriptImport(importHost, { caseEntityId: await activeCaseId, onDone: () => { boot(); } });
     });
 
     // 🎙 Transcribe a URL — the companion-backed sibling of the paste
@@ -1312,18 +1326,21 @@ function wireChrome() {
     // Import an EPUB book — each chapter becomes a capture grouped under a
     // book `thing` entity. Toggle-close like the transcript import; a
     // successful import refreshes the library so the book appears.
-    $('#xr-import-book').addEventListener('click', () => {
+    // Books JOIN the active case (maintainer ruling 2026-08-23,
+    // superseding the same-day flag): every chapter becomes a member,
+    // so the book feeds the case dashboard and corpus analysis.
+    $('#xr-import-book').addEventListener('click', async () => {
         const importHost = $('#xr-import-host');
         if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
-        mountBookImport(importHost, { onDone: () => { boot(); } });
+        mountBookImport(importHost, { caseEntityId: await activeCaseId, onDone: () => { boot(); } });
     });
 
     // 28.1 — batch-import a pasted URL list (standalone; the case-view
     // mount tags into the case). Toggle-close like the others.
-    $('#xr-import-urls').addEventListener('click', () => {
+    $('#xr-import-urls').addEventListener('click', async () => {
         const importHost = $('#xr-import-host');
         if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
-        mountUrlImport(importHost, { onDone: null });
+        mountUrlImport(importHost, { caseEntityId: await activeCaseId, onDone: () => { boot(); } });
     });
 
     // 28.6 — the read-only cross-workspace graph.
