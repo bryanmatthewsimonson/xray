@@ -40,7 +40,7 @@ test('the header resolves the active case ONCE and every import mount inherits i
                 `${mount} must not hardcode caseEntityId: null — the header chrome names a case`);
         }
     }
-    for (const mount of ['mountTranscriptImport', 'mountUrlImport', 'mountMediaTranscribe']) {
+    for (const mount of ['mountTranscriptImport', 'mountUrlImport', 'mountMediaTranscribe', 'mountBookImport']) {
         const calls = [...PORTAL.matchAll(new RegExp(`${mount}\\(([^;]*?)\\);`, 'g'))];
         for (const c of calls) {
             assert.match(c[1], /caseEntityId/, `${mount} must pass the inherited case`);
@@ -55,7 +55,11 @@ test('the consumer side is real: every panel tags the case it is given', () => {
     for (const [file, marker] of [
         ['src/portal/import-transcript.js', /addArticlesToCase\(caseEntityId/],
         ['src/portal/import-urls.js', /caseEntityId/],
-        ['src/portal/import-media.js', /addArticlesToCase\(caseEntityId/]
+        ['src/portal/import-media.js', /addArticlesToCase\(caseEntityId/],
+        // Books: maintainer ruling 2026-08-23 — every chapter joins the
+        // active case, in ONE tagging call, degrading to a disclosed
+        // caseTagged: false rather than voiding the import.
+        ['src/portal/import-book.js', /addArticlesToCase\(caseEntityId, savedUrls\)/]
     ]) {
         assert.match(readRepo(file), marker, `${file} does not consume caseEntityId`);
     }

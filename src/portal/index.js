@@ -1303,14 +1303,13 @@ function wireChrome() {
     // Import an EPUB book — each chapter becomes a capture grouped under a
     // book `thing` entity. Toggle-close like the transcript import; a
     // successful import refreshes the library so the book appears.
-    // Book import stays case-UNSCOPED for now (its panel does not
-    // accept caseEntityId, and silently auto-adding 31 chapters to the
-    // active case is a behavior decision, not a wiring fix — flagged
-    // for the maintainer rather than smuggled in).
-    $('#xr-import-book').addEventListener('click', () => {
+    // Books JOIN the active case (maintainer ruling 2026-08-23,
+    // superseding the same-day flag): every chapter becomes a member,
+    // so the book feeds the case dashboard and corpus analysis.
+    $('#xr-import-book').addEventListener('click', async () => {
         const importHost = $('#xr-import-host');
         if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
-        mountBookImport(importHost, { onDone: () => { boot(); } });
+        mountBookImport(importHost, { caseEntityId: await activeCaseId, onDone: () => { boot(); } });
     });
 
     // 28.1 — batch-import a pasted URL list (standalone; the case-view
