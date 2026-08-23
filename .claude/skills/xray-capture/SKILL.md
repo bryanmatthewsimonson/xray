@@ -90,10 +90,11 @@ or not at all.
    connector cannot close (they're outside the group). Tell the user
    at the end how many reader tabs they'll find and that each shows a
    captured article ready for claim extraction.
-6. **PDFs:** the reader's `?pdf=` path is an extension-page URL the
-   connector cannot open. Give the user the exact
-   `chrome-extension://<ID>/src/reader/index.html?pdf=<ENCODED_URL>`
-   link to open by hand instead.
+6. **PDFs:** a direct PDF URL with `#xray:capture` WORKS (verified
+   2026-08-23): the content script runs inside Chrome's PDF viewer
+   document and hands off to the reader's `?pdf=` path, stamping `ok`.
+   You cannot open that reader page yourself (extension page), so the
+   stamp is your whole observation; the reader side is the human's.
 
 ## Enumerate the frontier
 
@@ -123,7 +124,7 @@ backup export** the user hands you:
 | Symptom | Meaning | Do |
 |---|---|---|
 | `dataset.xrayCaptured === "flag-off"` | Capture automation off | Ask the user to enable it in Options → Advanced |
-| `dataset.xrayCaptured` undefined after reload | content script absent (blocked page, chrome://, PDF viewer) | Report uncapturable; PDFs → hand the user the `?pdf=` reader link |
+| `dataset.xrayCaptured` undefined after reload, or the page cannot be scripted at all and the `#xray:capture` marker is STILL in the tab URL after the settle time | content script absent (chrome://, the Chrome Web Store, other gallery/blocked pages). **NOT PDFs** — verified 2026-08-23: the content script runs inside Chrome's PDF viewer and the marker hands off through the Phase 18 `xray:pdf:open` route, stamping `ok` | Report uncapturable, never work around it |
 | `"error"` stamp | the marker branch threw | Read the console (`pattern: "X-Ray"`) — it logs the reason verbatim |
 | Stamp `"ok"` but the title is `archive.is` / `Just a moment…` / `Medium` | captured an interstitial, not the article | Wait for the real title, then re-capture via a full navigation |
 | Stamp never appears on one specific host | the content script may be throwing before the marker runs | Console first, guess never — this is how the archive.is `<base href>` bug was found (JOURNAL 2026-07-17) |
