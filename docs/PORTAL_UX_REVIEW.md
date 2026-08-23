@@ -15,6 +15,24 @@ lines, seam-guarded). §7's **PR-1 is therefore done**, and **PR-10**
 shrinks to the relationship-chip half plus the K15 sequencing. Nothing
 else in this report is started.
 
+**Status annotations (2026-08-23, end of day):** §7's **PR-1 through
+PR-8 are MERGED**, each behind a maintainer soak walk recorded in
+`docs/SMOKE_TEST.md`: #341 (PR-1), #349 (PR-2, plus a signing-banner
+defect the walk surfaced), #353 (PR-3), #346 (PR-4), #354 (PR-5), #347
+(PR-6), #350 (PR-7), #355 (PR-8). Two findings outside this report
+landed alongside, both field-found by the maintainer on the walks:
+#351 (the case view's People & organizations section was relay-only;
+now local-first) and the Settings signing banner (it branched on
+whether Save had ever been pressed, not on whether signing worked).
+**Still open:** PR-9 (C1 vocabulary) stays sequenced behind Phase
+29.5's reconcile repoint — the walks confirmed a third costume for it
+(the summary line's "778 item(s)" beside a filtered "All 629", both
+true, neither labelled); PR-10 (B2 relationship chips) waits on the
+K15 fold ruling; the §2 D3 dead-label kills need Art. 11 ratification.
+The pointer/touch brush (B3's second half), C5 (repeat the confirm()
+line in the panel) and C6 (silent background transcript completion)
+were never in §7 and remain unstarted.
+
 ---
 
 ## 1. The surface's tasks (from real use, not the feature list)
