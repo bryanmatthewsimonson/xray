@@ -97,6 +97,29 @@ export function providerPhrase(provider) {
     return label ? `via ${label}` : 'locally';
 }
 
+/**
+ * Strip ANSI colour debris from provider/companion error text.
+ *
+ * yt-dlp writes coloured output to stderr, the companion forwards the
+ * message verbatim, and JSON transport drops the ESC byte — so what
+ * reached the reader's banner on 2026-08-16 was:
+ *
+ *   [0;31mERROR: [0m unable to download video data: HTTP Error 403
+ *
+ * The diagnosis in there is exactly what the user needs (and DC-4
+ * depends on provider errors surviving verbatim), so this removes ONLY
+ * the escape sequences — with ESC or without, since either can arrive —
+ * and nothing else. The pattern is deliberately narrow (digits and
+ * semicolons then `m`) so real bracketed prose like "[step 3]" and URLs
+ * containing brackets are untouched.
+ */
+export function cleanProviderError(text) {
+    return String(text == null ? '' : text)
+        .replace(/\u001b?\[\d{1,3}(?:;\d{1,3})*m/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+}
+
 /** Human progress line for the banner: stage + honest %. */
 export function describeProgress(job) {
     if (!job || typeof job !== 'object') return 'Contacting the transcription service…';
@@ -251,7 +274,7 @@ export async function runTranscriptionJob({
                 ok: false,
                 priorSubmission,
                 missingKey: started && started.missingKey,
-                error: (started && started.error) || 'Could not start the transcription.'
+                error: cleanProviderError(started && started.error) || 'Could not start the transcription.'
             };
         }
         if (!started.result) {
@@ -277,7 +300,8 @@ export async function runTranscriptionJob({
             return {
                 ok: false,
                 resumable: true,
-                error: statusResp.error || UNREACHABLE_MESSAGE[route] || UNREACHABLE_MESSAGE.companion
+                error: cleanProviderError(statusResp.error)
+                    || UNREACHABLE_MESSAGE[route] || UNREACHABLE_MESSAGE.companion
             };
         }
     }
@@ -300,7 +324,11 @@ export async function runTranscriptionJob({
             ...(provider ? { provider } : {})
         });
         if (!started || !started.ok) {
-            return { ok: false, missingKey: started && started.missingKey, error: (started && started.error) || 'Could not start the transcription job.' };
+            return {
+                ok: false,
+                missingKey: started && started.missingKey,
+                error: cleanProviderError(started && started.error) || 'Could not start the transcription job.'
+            };
         }
         jobId = started.jobId;
         // Written BEFORE the first poll on purpose: on the direct
@@ -329,7 +357,8 @@ export async function runTranscriptionJob({
                 return {
                     ok: false,
                     resumable: true,
-                    error: (resp && resp.error) || CONTACT_LOST_MESSAGE[route] || CONTACT_LOST_MESSAGE.companion
+                    error: cleanProviderError(resp && resp.error)
+                    || CONTACT_LOST_MESSAGE[route] || CONTACT_LOST_MESSAGE.companion
                 };
             }
             await io.sleep(pollMs);
@@ -348,7 +377,7 @@ export async function runTranscriptionJob({
         }
         if (job.status === 'failed' || job.status === 'cancelled') {
             await io.storageRemove([key]);
-            return { ok: false, error: job.error || `Transcription ${job.status}.` };
+            return { ok: false, error: cleanProviderError(job.error) || `Transcription ${job.status}.` };
         }
         await io.sleep(pollMs);
     }

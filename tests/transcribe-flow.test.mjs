@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import {
     JOB_RECORD_PREFIX, JOB_RECORD_TTL_MS, MAX_UNREACHABLE_POLLS,
     jobRecordKey, isRecordStale, describeProgress, providerPhrase, decideResume,
-    reapStaleJobRecords, runTranscriptionJob, transcribeSourceUrl, directSubmissionProblem
+    reapStaleJobRecords, runTranscriptionJob, transcribeSourceUrl, directSubmissionProblem, cleanProviderError
 } from '../src/reader/transcribe-flow.js';
 
 // transcribeSourceUrl — smoke-failure diagnosis B2. A KNOWN platform
@@ -821,4 +821,52 @@ test('DC.3: a synchronous run leaves the ASYNC transports untouched', async () =
     await runTranscriptionJob({ mediaUrl: 'https://x/a.mp3', mediaKey: 'k', io });
     assert.deepEqual([...new Set(sent.map((m) => m.type))],
         ['xray:transcribe:start', 'xray:transcribe:status']);
+});
+
+// ------------------------------------------------------------------
+// Companion/provider error text reaches a USER-FACING banner verbatim.
+// yt-dlp writes ANSI colour codes to stderr, the companion forwards the
+// message, and JSON transport strips the ESC byte — leaving the bare
+// "[0;31m" fragments that appeared in the field on 2026-08-16:
+//
+//   [0;31mERROR: [0m unable to download video data: HTTP Error 403
+//
+// The diagnosis inside it is exactly right and must survive; only the
+// escape debris goes.
+// ------------------------------------------------------------------
+
+test('cleanProviderError strips ANSI debris and keeps the diagnosis', () => {
+    // The bare form, ESC already lost in transport — what the field saw.
+    assert.equal(
+        cleanProviderError('[0;31mERROR: [0m unable to download video data: HTTP Error 403: Forbidden'),
+        'ERROR: unable to download video data: HTTP Error 403: Forbidden');
+    // And the real escape form, when ESC survives.
+    assert.equal(cleanProviderError('\u001b[0;31mERROR:\u001b[0m nope'), 'ERROR: nope');
+    assert.equal(cleanProviderError('\u001b[33mwarn\u001b[0m'), 'warn');
+});
+
+test('cleanProviderError leaves ordinary prose and real brackets alone', () => {
+    // It must not eat legitimate text — provider errors carry URLs,
+    // quotes and bracketed detail a greedy strip would damage.
+    for (const s of [
+        'Deepgram request failed: unsupported media type',
+        'AssemblyAI no longer knows this transcript (their record may have expired).',
+        'failed at [step 3] of the pipeline',
+        'see https://example.com/a[b]c for detail',
+        ''
+    ]) {
+        assert.equal(cleanProviderError(s), s.trim());
+    }
+    assert.equal(cleanProviderError(null), '');
+});
+
+test('a companion job failure reaches the caller cleaned', async () => {
+    const { io } = makeIo({
+        statusScript: [{ ok: true, job: { status: 'failed',
+            error: '[0;31mERROR: [0m unable to download video data: HTTP Error 403: Forbidden' } }]
+    });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://x/a.mp3', mediaKey: 'k', io });
+    assert.equal(out.ok, false);
+    assert.ok(!out.error.includes('[0;31m'), `ANSI debris survived: ${out.error}`);
+    assert.match(out.error, /403: Forbidden/, 'the diagnosis must survive');
 });
