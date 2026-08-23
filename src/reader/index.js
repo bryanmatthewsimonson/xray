@@ -83,7 +83,7 @@ import { lensTypeForPropositionClass } from '../shared/lens-taxonomy.js';
 import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/lens-engine.js';
 import { speakerFromParagraphText } from '../shared/transcript-parse.js';
 import { buildTranscriptSection, upsertTranscriptSection } from '../shared/transcript-article.js';
-import { buildDiarizedBody, timeFragmentSelector, timeRangeOfSpan, diarizedTrackEntry, extractionMethodFor } from '../shared/diarized-transcript.js';
+import { buildDiarizedBody, timeFragmentSelector, timeRangeOfSpan, diarizedTrackEntry, extractionMethodFor, capturedBodyFor } from '../shared/diarized-transcript.js';
 import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey, hasMediaSignal, isFetchableMediaUrl, transcribeSourceUrl, directSubmissionProblem } from './transcribe-flow.js';
 import { mediaKeyForArticle } from '../shared/media-key.js';
 import { openMediaModal } from './media-modal.js';
@@ -2030,7 +2030,11 @@ async function adoptDiarizedTranscript(result) {
     }
 
     const { markdown, timeMap, transcriptMeta } = buildDiarizedBody({
-        capturedMarkdown: a.markdown || '',
+        // NOT `a.markdown || ''`. A generic capture carries only HTML —
+        // markdown happens downstream — so that form composed the
+        // transcript onto an empty base and discarded the article
+        // (field-found 2026-08-16 on a podcast episode).
+        capturedMarkdown: capturedBodyFor(a, ContentExtractor.htmlToMarkdown),
         mediaUrl: a.url,
         platform: a.platform,
         result
@@ -2118,6 +2122,30 @@ async function adoptDiarizedTranscript(result) {
     // changed too.
     setupSpeakersControl();
     try { refreshMediaNudge(); } catch (_) { /* cosmetic */ }
+}
+
+/**
+ * A previous submission on a synchronous route never came back — money
+ * may have been spent with nothing to show.
+ *
+ * Deliberately a BANNER, not a toast. Field-found 2026-08-16: the first
+ * version used toast(), and the reader has exactly ONE toast element
+ * whose every call overwrites the last — so the warning was posted and
+ * then obliterated by the success toast milliseconds later. The
+ * maintainer correctly reported seeing nothing. A possible-charge notice
+ * must also outlive a 12-second timeout, which a toast cannot.
+ *
+ * Rendered LAST on both the success and failure paths, after the
+ * in-flight banner has been removed, so nothing can clear it but the
+ * user.
+ */
+function warnPriorSubmission() {
+    renderTranscribeBanner(
+        'A previous submission for this media never came back. It may still have been charged, '
+        + 'and this provider does not store transcripts, so that one cannot be retrieved. '
+        + 'Nothing was retried automatically.',
+        'warning'
+    );
 }
 
 let _transcribeRunning = false;
@@ -2312,10 +2340,6 @@ async function runTranscribeFlow(provider) {
         });
         const out = await runTranscriptionJob({ mediaUrl: sourceUrl, mediaKey, provider, io, ...routing });
         if (!out.ok) {
-            if (out.priorSubmission) {
-                toast('A previous submission for this media never returned — it may still have '
-                    + 'been charged and cannot be retrieved.', 'warning', 12000);
-            }
             renderTranscribeBanner(out.error, 'error', {
                 // Companion setup advice on a companion-free route is
                 // noise at best. Gate it on the ROUTE, not on a
@@ -2326,16 +2350,8 @@ async function runTranscribeFlow(provider) {
             // A cloud engine without its key: the picker is the fastest
             // path to either the key field or another engine.
             if (out.missingKey) openEnginePicker();
+            if (out.priorSubmission) warnPriorSubmission();
             return;
-        }
-        if (out.priorSubmission) {
-            // A pre-flight record survived, so an earlier submission on
-            // this synchronous route never came back — the one case
-            // where money may have been spent with nothing to show.
-            // Said on success too: this run does not undo that charge.
-            toast('A previous submission for this media never returned — it may still have been '
-                + 'charged, and that provider does not store transcripts, so it cannot be '
-                + 'retrieved. This run is a fresh transcription.', 'warning', 12000);
         }
         await adoptDiarizedTranscript(out.result);
         // Adoption succeeded — NOW the finished job's record can go
@@ -2361,6 +2377,10 @@ async function runTranscribeFlow(provider) {
         removeTranscribeBanner();
         toast(`Transcribed ${providerPhrase(meta.provider)} — ${segs} segments, ${state.article.transcript_meta.speaker_count} speaker(s)`
             + (meta.asr_model ? ` (${meta.asr_model})` : ''), 'success', 6000);
+        // LAST, after the in-flight banner is gone: a possible-charge
+        // notice must outlive the success toast rather than be erased by
+        // it (the single toast slot is last-write-wins).
+        if (out.priorSubmission) warnPriorSubmission();
     } catch (err) {
         renderTranscribeBanner((err && err.message) || String(err), 'error');
     } finally {

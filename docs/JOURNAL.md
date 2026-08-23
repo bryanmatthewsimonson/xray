@@ -19,6 +19,53 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-16 — A transcript was replacing the article, and it was never the transcript's fault
+
+**Tags:** bug
+
+Field report: a transcribed podcast episode showed only the transcript —
+the show notes were gone from the **Markdown tab**, not merely the
+render, which ruled out a display problem.
+
+`buildDiarizedBody` was innocent; a direct test confirmed it preserves
+the captured body and appends the section. The cause is upstream of
+every transcript path and older than all of them.
+`content-extractor.js:376` says it plainly in its own comment: *"content
+stays HTML at capture time (markdown happens downstream)"*. So a GENERIC
+capture — Readability, which is every podcast page — carries `content`
+HTML and **no `.markdown` at all**. `adoptDiarizedTranscript` read
+`a.markdown || ''`, composed the transcript onto an EMPTY base, and the
+article was silently replaced by its own transcript.
+
+The reader already knew about this: `state.markdownDraft` falls back to
+`article.markdown || article.content || ''`. Adoption simply never got
+the same fallback. Now shared through `capturedBodyFor()`, with
+`htmlToMarkdown` injected so it stays pure and testable.
+
+**Why it hid for so long.** The companion path was YouTube-first, and
+the YouTube handler composes its own markdown, so `a.markdown` was
+always populated there. Direct cloud transcription made podcast pages
+the primary case, and the bug surfaced on the first real one. It was
+never a DC.1/DC.2/DC.3 bug — those waves only changed which pages people
+pointed it at.
+
+**A second thing in the same report, and a mistake worth naming.** The
+"a previous submission may have been charged" warning was implemented as
+`toast()`. The reader has exactly ONE toast element and every call
+overwrites the last, so the warning was posted and then obliterated by
+the success toast milliseconds later. The maintainer reported seeing
+nothing and was exactly right. It is now a dismissible BANNER rendered
+LAST on both paths — which it should have been regardless, since a
+notice about money possibly spent has no business auto-clearing after
+twelve seconds.
+
+Both of these were found because a maintainer looked at the result and
+said "that doesn't look right", twice, about things every test was green
+on. The composer had tests. The warning had tests. Neither had a test
+that observed what a person would see.
+
+---
+
 ## 2026-08-16 — The consent dialog named the wrong recipient
 
 **Tags:** bug, security

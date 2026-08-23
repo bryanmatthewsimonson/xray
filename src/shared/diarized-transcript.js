@@ -151,6 +151,34 @@ export function diarizedHeading(language, provider) {
 }
 
 /**
+ * The captured body a transcript should compose ONTO.
+ *
+ * Field-found 2026-08-16: a transcribed podcast episode lost its entire
+ * show notes, in the Markdown tab and not merely the render.
+ *
+ * The cause is upstream of every transcript path. `content-extractor.js`
+ * keeps `content` as HTML at capture time and lets markdown "happen
+ * downstream" (its own comment), so a GENERIC capture — Readability,
+ * which is every podcast page — carries no `.markdown` at all. Adoption
+ * read `a.markdown || ''`, composed onto an empty base, and the article
+ * was silently replaced by its own transcript.
+ *
+ * It stayed invisible because the companion path was YouTube-first and
+ * the YouTube handler composes its own markdown; direct cloud
+ * transcription made podcast pages the main case.
+ *
+ * `htmlToMarkdown` is injected rather than imported so this stays pure
+ * and testable — content-extractor.js pulls in Readability and Turndown.
+ */
+export function capturedBodyFor(article, htmlToMarkdown) {
+    const a = article || {};
+    if (a.markdown) return a.markdown;
+    const html = a.content || '';
+    if (!html || typeof htmlToMarkdown !== 'function') return '';
+    return htmlToMarkdown(html) || '';
+}
+
+/**
  * Compose the diarized capture body from the captured (transcript-less)
  * markdown plus the companion result. Returns the new canonical
  * markdown, the offset→time map over it, and the transcript_meta the

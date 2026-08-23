@@ -494,3 +494,26 @@ test('an unresolved prior submission is SURFACED, not just returned', () => {
     assert.equal(hits.length, 2,
         'surface it on BOTH outcomes — a later success does not undo an earlier charge');
 });
+
+test('the possible-charge notice is a banner, and is rendered LAST', () => {
+    // Field-found 2026-08-16: the first version used toast(). The reader
+    // has exactly ONE toast element and every call overwrites the last,
+    // so the warning was posted and then erased by the success toast
+    // milliseconds later — the maintainer correctly saw nothing. It also
+    // must outlive a timeout, which a toast cannot.
+    assert.match(READER_CODE, /function warnPriorSubmission\(\)[\s\S]*?renderTranscribeBanner\(/,
+        'the notice must render a dismissible banner, not a toast');
+    const fn = /function warnPriorSubmission\(\)[\s\S]*?\n}/.exec(READER_CODE)[0];
+    assert.ok(!/\btoast\(/.test(fn), 'a toast auto-clears and is single-slot — wrong for this');
+
+    const flow = /async function runTranscribeFlow\(provider\)[\s\S]*?\n}/.exec(READER_CODE)[0];
+    const calls = [...flow.matchAll(/warnPriorSubmission\(\)/g)];
+    assert.equal(calls.length, 2, 'surface it on BOTH outcomes — a success does not undo a charge');
+
+    // On the success path it must come AFTER the success toast, or the
+    // banner-vs-toast fix buys nothing.
+    const success = flow.indexOf("toast(`Transcribed ");
+    const warnAfter = flow.indexOf('warnPriorSubmission()', success);
+    assert.ok(success > -1 && warnAfter > success,
+        'the notice must be the last thing rendered on a successful run');
+});
