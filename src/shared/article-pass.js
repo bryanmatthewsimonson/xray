@@ -24,7 +24,8 @@
 
 import { Utils } from './utils.js';
 import {
-    articleMemberUnit, corpusMapRequest, corpusExtractKey, validateCorpusExtract
+    articleMemberUnit, corpusMapRequest, corpusExtractKey, validateCorpusExtract,
+    repairCorpusExtract
 } from './case-synthesis.js';
 import { getCorpusExtract, saveCorpusExtract } from './audit/audit-cache.js';
 import { recordArticleExtraction } from './map-artifacts.js';
@@ -211,6 +212,12 @@ export async function ensureArticleExtract({ article, articleHash = null, url = 
     catch (err) { res = { ok: false, error: (err && err.message) || String(err) }; }
     finally { if (ka && typeof ka.stop === 'function') ka.stop(); }
     if (!res || !res.ok) return { status: 'failed', key, error: (res && res.error) || 'no response' };
+    // Repair BEFORE validate — and use the repaired object for the save
+    // and the fold below, so a double-encoded field never reaches the
+    // cache (the 2026-08-13 poison was exactly a raw value cached behind
+    // a lenient validation view; repair replaces the value itself).
+    const { extract: repairedExtract } = repairCorpusExtract(res.extract);
+    res = { ...res, extract: repairedExtract };
     const v = validateCorpusExtract(res.extract);
     if (!v.ok) {
         // NEVER a bare "invalid extract". That message cost a debugging

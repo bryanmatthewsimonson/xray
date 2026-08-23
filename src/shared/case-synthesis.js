@@ -537,6 +537,44 @@ const BRIEF_SCHEMA = obj({
  * `null` stays tolerated as "none": a model writing `"entities": null`
  * is saying nothing was found, which is a real and benign answer.
  */
+/**
+ * Losslessly repair a corpus extract whose top-level list fields the
+ * model DOUBLE-ENCODED — the JSON text of an array where the array
+ * should be. Field-found 2026-08-22: a live Suggest failed with
+ * "$.entities expected array, got string" on a payload that was sitting
+ * right there inside the string.
+ *
+ * Tool input schemas are advisory to the model, so this shape arrives
+ * occasionally on long outputs. One JSON.parse recovers the exact rows;
+ * anything that does not parse to an array is LEFT ALONE for the
+ * validator's honest type error — no guessing, no coercion to [].
+ *
+ * The distinction from the 2026-08-13 reversal (see the test file's
+ * history note) is load-bearing: that harm was validation-VIEW leniency
+ * over a raw cached value, which poisoned the cache forever. This
+ * returns a repaired EXTRACT the caller validates, caches and folds —
+ * the string never survives into storage — and every parsed row then
+ * faces the same walk, pruning and blindness refusals as a native list.
+ *
+ * @returns {{extract: object, repaired: string[]}} repaired field names,
+ *   for the caller's logging; empty when nothing needed repair.
+ */
+export function repairCorpusExtract(input) {
+    if (!input || typeof input !== 'object') return { extract: input, repaired: [] };
+    const extract = { ...input };
+    const repaired = [];
+    for (const field of ['key_assertions', 'entities', 'source_references', 'open_questions']) {
+        const value = extract[field];
+        if (typeof value !== 'string' || value.trim()[0] !== '[') continue;
+        let parsed;
+        try { parsed = JSON.parse(value); } catch (_) { continue; }
+        if (!Array.isArray(parsed)) continue;
+        extract[field] = parsed;
+        repaired.push(field);
+    }
+    return { extract, repaired };
+}
+
 function decorationTolerantView(input) {
     if (!input || typeof input !== 'object') return input;
     const view = { ...input };
