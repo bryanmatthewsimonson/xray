@@ -19,6 +19,42 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-23 — Paid-Substack transcription works, and the blocker was invisibility, not capability
+
+**Tags:** external, design
+
+A members-only Substack post (custom domain, wethefifth.com) now
+transcribes end to end through the companion: browser cookie export →
+`TRANSCRIBER_COOKIES_FILE` + both host forms in
+`TRANSCRIBER_COOKIES_HOSTS` → yt-dlp fetches the page as the subscriber
+→ Deepgram, ~26s. For future capture targets: custom-domain Substack
+rides yt-dlp's GENERIC extractor (the Substack extractor matches
+*.substack.com only), and that is sufficient once authenticated; the
+audio lands on substackcdn.com with a per-user `podcast_rss_token` in
+the query string, needing no cookies of its own. The README's
+use-Firefox caveat is Windows-specific — a Chrome/Edge cookies.txt
+export extension works on macOS.
+
+The two failed rounds on the way in were both INVISIBILITY, not
+capability. `url must be a string` (yt-dlp raising on the None a
+paywalled page yields) looked identical whether the cookie env was
+loaded or not, and nothing anywhere showed which state the service was
+in — the isolation test (`yt-dlp --cookies` directly) succeeded while
+the companion path failed, and the delta could not be observed. The
+companion now announces its cookie config at startup (path, readability,
+hosts — with a NOT FOUND warning) and reports presence/readability/hosts
+in /health, never values.
+
+Same session, same lesson one layer up: the maintainer's failed attempt
+produced a visible error banner and an EMPTY diagnostics copy — the
+ring's first real use found that the reader's error surfaces (banners,
+error toasts) never fed it. Fixed; verified by the maintainer's own
+paste showing both failures captured. The pattern now has five
+instances in the JOURNAL: build the recorder AND walk every surface
+that should feed it.
+
+---
+
 ## 2026-08-23 — Imported book chapters were unreachable, and the row said so itself
 
 **Tags:** bug, design
