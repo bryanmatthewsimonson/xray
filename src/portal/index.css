@@ -191,6 +191,20 @@ body.xr-portal {
   cursor: pointer;
 }
 
+/* The "More" overflow (PR-7): a <select> dressed as a tab, so the
+   folded types keep their live counts and one click reaches any of
+   them. Same idiom as the case view's "Sources" menu. */
+.xr-tab-more {
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 10px;
+}
+
+.xr-tab-more:hover {
+  color: var(--xr-text);
+}
+
 .xr-tab--active {
   color: var(--xr-text);
   background: var(--xr-surface-2);

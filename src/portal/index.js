@@ -19,8 +19,7 @@ import { fetchCorpus, FALLBACK_RELAYS } from './corpus.js';
 import { saveRecords, loadRecords, getMeta, setMeta, clearAll } from './portal-cache.js';
 import {
     buildItems, applyFilters, typeCounts, facetValues, isOtherClient,
-    kindLabel, pageWindow, TYPE_DEFS, EMPTY_FILTERS
-} from './library.js';
+    kindLabel, pageWindow, TYPE_DEFS, CORE_TAB_KEYS, EMPTY_FILTERS } from './library.js';
 import { buildBuckets, brushRange } from './timeline.js';
 import { el, svgEl, clear, truncate, shortKey } from './dom.js';
 import { mountTranscriptImport } from './import-transcript.js';
@@ -183,10 +182,8 @@ function renderTabs() {
     const counted = applyFilters(state.items, { ...state.filters, type: 'all' });
     const counts = typeCounts(counted);
 
-    const defs = [{ key: 'all', label: 'All' }, ...TYPE_DEFS];
-    for (const def of defs) {
+    const tabButton = (def) => {
         const count = counts[def.key] || 0;
-        if (count === 0 && def.key !== 'all' && state.filters.type !== def.key) continue;
         const btn = el('button', 'xr-tab', `${def.label} `);
         btn.type = 'button';
         btn.appendChild(el('span', 'xr-tab__count', String(count)));
@@ -196,7 +193,45 @@ function renderTabs() {
             state.rowLimit = ROW_PAGE_SIZE;
             renderLibrary();
         });
-        host.appendChild(btn);
+        return btn;
+    };
+
+    // The strip: All + the core types. A core tab holds its place even at
+    // zero — a stable strip is the point; a shifting one was half the
+    // complaint.
+    const core = TYPE_DEFS.filter((d) => CORE_TAB_KEYS.includes(d.key));
+    for (const def of [{ key: 'all', label: 'All' }, ...core]) host.appendChild(tabButton(def));
+
+    // Everything else: reachable, counted, folded. Empty types stay out
+    // of the menu (as they always did), but a type you are CURRENTLY
+    // filtered to is never hidden from you — it renders as a real tab
+    // beside the menu so the active selection is always visible.
+    const overflow = TYPE_DEFS.filter((d) => !CORE_TAB_KEYS.includes(d.key));
+    const activeInOverflow = overflow.find((d) => d.key === state.filters.type);
+    if (activeInOverflow) host.appendChild(tabButton(activeInOverflow));
+
+    const menu = overflow.filter((d) => (counts[d.key] || 0) > 0 || d.key === state.filters.type);
+    if (menu.length) {
+        const moreSel = el('select', 'xr-tab xr-tab-more');
+        moreSel.title = 'The remaining event types — same live counts, one menu';
+        const head = el('option', null, activeInOverflow ? 'More \u25be' : `More \u25be (${menu.length})`);
+        head.value = '';
+        moreSel.appendChild(head);
+        for (const def of menu) {
+            const opt = el('option', null, `${def.label} (${counts[def.key] || 0})`);
+            opt.value = def.key;
+            moreSel.appendChild(opt);
+        }
+        moreSel.value = '';
+        moreSel.addEventListener('change', () => {
+            const picked = moreSel.value;
+            moreSel.value = '';
+            if (!picked) return;
+            state.filters.type = picked;
+            state.rowLimit = ROW_PAGE_SIZE;
+            renderLibrary();
+        });
+        host.appendChild(moreSel);
     }
 }
 
