@@ -40,6 +40,7 @@ import { rebroadcastEvent } from '../shared/publish-gate.js';
 import { renderInspector } from './inspector.js';
 import { openArchivedInReader } from './open-archived.js';
 import { createNavStack } from './nav-stack.js';
+import { inspectButton, TIMELINE_HINT } from './row-controls.js';
 import { resolveActiveCaseRef } from '../shared/case-membership.js';
 import {
     buildAuditIndex, mergeLocalRuns, mergeLocalResolutions, auditsForArticle,
@@ -312,6 +313,9 @@ function buildRow(item) {
     titleEl.title = 'Inspect — raw event, relays holding it, ledger status';
     titleEl.addEventListener('click', () => openInspector(item));
     head.appendChild(titleEl);
+    // PR-5 (C2): the opener was a hover-only secret — a visible ⓘ bound
+    // to the same handler; the title click stays.
+    head.appendChild(inspectButton(() => openInspector(item)));
 
     const badges = el('span', 'xr-row__badges');
     const status = state.reconciliation && state.reconciliation.statusByEventId[item.id];
@@ -651,6 +655,13 @@ function renderTimeline() {
     svg.addEventListener('mouseleave', () => { dragStart = null; });
 
     host.appendChild(svg);
+    // PR-5 (B3): time-scoping is a founding door and was invisible —
+    // the affordance lived in mouse handlers and an HTML comment. One
+    // caption while unbrushed; once a range is active the ✕ chip in the
+    // head carries the affordance instead.
+    if (!brushed) {
+        host.appendChild(el('div', 'xr-portal__timeline-hint', TIMELINE_HINT));
+    }
 }
 
 // ------------------------------------------------------------------

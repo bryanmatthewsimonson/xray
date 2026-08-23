@@ -8,6 +8,7 @@
 // library items whose case facet carries this case's name.
 
 import { el, svgEl, clear, truncate } from './dom.js';
+import { inspectButton } from './row-controls.js';
 import { kindLabel, TYPE_DEFS } from './library.js';
 import { buildBuckets } from './timeline.js';
 import { renderDossierBlock } from './dossier-block.js';
@@ -467,6 +468,7 @@ export function renderCaseView(host, params) {
         titleEl.title = 'Inspect — raw event, relays holding it, ledger status';
         titleEl.addEventListener('click', () => callbacks.onOpenItem(item));
         headRow.appendChild(titleEl);
+        headRow.appendChild(inspectButton(() => callbacks.onOpenItem(item)));   // PR-5 (C2)
         const badges = el('span', 'xr-row__badges');
         const assessment = item.claimCoord ? assessments.get(item.claimCoord) : null;
         if (assessment && assessment.stance !== null && assessment.stance !== undefined) {
@@ -588,6 +590,7 @@ export function renderCaseView(host, params) {
             titleEl.title = 'Inspect — raw event, relays holding it, ledger status';
             titleEl.addEventListener('click', () => callbacks.onOpenItem(item));
             headRow.appendChild(titleEl);
+            headRow.appendChild(inspectButton(() => callbacks.onOpenItem(item)));   // PR-5 (C2)
             if (item.created_at) {
                 headRow.appendChild(el('span', 'xr-row__date', new Date(item.created_at * 1000).toLocaleString()));
             }
