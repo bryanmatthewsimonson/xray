@@ -26,6 +26,7 @@ import { mountTranscriptImport } from './import-transcript.js';
 import { mountMediaTranscribe } from './import-media.js';
 import { mountUrlImport } from './import-urls.js';
 import { mountBookImport } from './import-book.js';
+import { createImportPanelSwitch } from './import-panel.js';
 import { renderEntityView } from './entity-view.js';
 import { renderCaseView } from './case-view.js';
 import { renderEntityDossierView } from './entity-dossier-view.js';
@@ -1314,6 +1315,15 @@ async function renderCaseSwitcher() {
 // (the flag gates SURFACES; the button would only ever error). Split
 // out from wireChrome so the async flag load can't delay wiring the
 // rest of the header's synchronous handlers.
+// One switch over the shared #xr-import-host (PR-3): same button
+// toggles, a different button swaps in one click. Created on first use
+// so it binds after the DOM exists.
+let _importPanels = null;
+function importPanels() {
+    if (!_importPanels) _importPanels = createImportPanelSwitch($('#xr-import-host'));
+    return _importPanels;
+}
+
 async function wireTranscribeUrlButton() {
     await loadFlags();
     const transcribeUrlBtn = $('#xr-transcribe-url');
@@ -1336,9 +1346,8 @@ async function wireTranscribeUrlButton() {
         .then((ref) => (ref ? ref.caseId : null))
         .catch(() => null);
     transcribeUrlBtn.addEventListener('click', async () => {
-        const importHost = $('#xr-import-host');
-        if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
-        mountMediaTranscribe(importHost, { caseEntityId: await mediaCaseId, onDone: () => { boot(); } });
+        const caseEntityId = await mediaCaseId;
+        importPanels().open('media', (host) => mountMediaTranscribe(host, { caseEntityId, onDone: () => { boot(); } }));
     });
 }
 
@@ -1358,11 +1367,11 @@ function wireChrome() {
 
     // 21.2 — import a podcast transcript into the archive (standalone;
     // it appears in case views + the local-artifacts list, not the relay
-    // library, so no corpus reload). Toggle: a second click closes it.
+    // library, so no corpus reload). Same button again closes it; a
+    // different importer swaps in one click (import-panel.js).
     $('#xr-import-transcript').addEventListener('click', async () => {
-        const importHost = $('#xr-import-host');
-        if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
-        mountTranscriptImport(importHost, { caseEntityId: await activeCaseId, onDone: () => { boot(); } });
+        const caseEntityId = await activeCaseId;
+        importPanels().open('transcript', (host) => mountTranscriptImport(host, { caseEntityId, onDone: () => { boot(); } }));
     });
 
     // 🎙 Transcribe a URL — the companion-backed sibling of the paste
@@ -1374,23 +1383,21 @@ function wireChrome() {
     wireTranscribeUrlButton();
 
     // Import an EPUB book — each chapter becomes a capture grouped under a
-    // book `thing` entity. Toggle-close like the transcript import; a
+    // book `thing` entity. Same toggle/swap rule as the others; a
     // successful import refreshes the library so the book appears.
     // Books JOIN the active case (maintainer ruling 2026-08-23,
     // superseding the same-day flag): every chapter becomes a member,
     // so the book feeds the case dashboard and corpus analysis.
     $('#xr-import-book').addEventListener('click', async () => {
-        const importHost = $('#xr-import-host');
-        if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
-        mountBookImport(importHost, { caseEntityId: await activeCaseId, onDone: () => { boot(); } });
+        const caseEntityId = await activeCaseId;
+        importPanels().open('book', (host) => mountBookImport(host, { caseEntityId, onDone: () => { boot(); } }));
     });
 
     // 28.1 — batch-import a pasted URL list (standalone; the case-view
-    // mount tags into the case). Toggle-close like the others.
+    // mount tags into the case). Same toggle/swap rule as the others.
     $('#xr-import-urls').addEventListener('click', async () => {
-        const importHost = $('#xr-import-host');
-        if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
-        mountUrlImport(importHost, { caseEntityId: await activeCaseId, onDone: () => { boot(); } });
+        const caseEntityId = await activeCaseId;
+        importPanels().open('urls', (host) => mountUrlImport(host, { caseEntityId, onDone: () => { boot(); } }));
     });
 
     // 28.6 — the read-only cross-workspace graph.
