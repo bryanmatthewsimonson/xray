@@ -16,34 +16,34 @@
               title="The active case — everything shown, captured, and published belongs to it. Switching moves the storage namespace and signing identity together."></select>
     </div>
     <div class="xr-portal__chrome-right">
-      <button class="xr-portal__btn xr-portal__btn--ghost" id="xr-import-transcript"
-              title="Paste or upload a podcast transcript into the archive">Import transcript…</button>
-      <button type="button" id="xr-transcribe-url" class="xr-portal__btn xr-portal__btn--ghost" hidden
-              title="Paste any https media URL and run the companion transcription service">🎙 Transcribe a URL</button>
-      <button class="xr-portal__btn xr-portal__btn--ghost" id="xr-import-book"
-              title="Import an EPUB book — each chapter becomes a capture, grouped under the book">Import book…</button>
-      <button class="xr-portal__btn xr-portal__btn--ghost" id="xr-import-urls"
-              title="Paste a URL list — each page is fetched, extracted, and archived">Import URLs…</button>
-      <button class="xr-portal__btn xr-portal__btn--ghost" id="xr-cross-ws"
-              title="Read-only graph across workspaces — shared names as cross-case signal">Across workspaces</button>
+      <!-- PR-8 (docs/PORTAL_UX_REVIEW.md D1): one "Add ▾" menu for the
+           importers (options composed in index.js from header-chrome.js
+           once flags load — "Transcribe a URL" is flag-gated), Refresh
+           visible, everything else under "⋯". -->
+      <select id="xr-add-menu" class="xr-portal__case xr-portal__menu" aria-label="Add to the archive"></select>
       <button class="xr-portal__btn" id="xr-refresh" title="Fetch what's new since the last sync">↻ Refresh</button>
-      <button class="xr-portal__btn xr-portal__btn--ghost" id="xr-resync"
-              title="Drop the local cache and re-fetch everything from the relays">Full resync</button>
+      <select id="xr-more-menu" class="xr-portal__case xr-portal__menu" aria-label="More actions"></select>
     </div>
   </header>
   <div id="xr-import-host"></div>
 
   <!-- Identity strip: who "me" is, with provenance chips, plus a
        read-only viewer input for OTHER archives (the NIP-07 story —
-       see identity.js). Identity is MANAGED in Settings ▸ Signing. -->
-  <section class="xr-portal__identity" id="xr-identity">
-    <div class="xr-portal__chips" id="xr-identity-chips"></div>
-    <form class="xr-portal__add" id="xr-identity-form">
-      <input type="text" id="xr-identity-input" placeholder="View another archive: npub1… or hex pubkey" autocomplete="off" />
-      <button type="submit" class="xr-portal__btn xr-portal__btn--ghost">Add viewer npub</button>
-      <button type="button" class="xr-portal__btn xr-portal__btn--ghost" id="xr-identity-settings" title="Identity is managed in Settings ▸ Signing">Identity settings</button>
-    </form>
-  </section>
+       see identity.js). Identity is MANAGED in Settings ▸ Signing.
+       PR-8 (D2): folded behind one summary line — "Showing events
+       signed by <key> ▸" — rendered by index.js; open it for the
+       chips, the viewer box, and the settings button. -->
+  <details class="xr-portal__identity" id="xr-identity">
+    <summary class="xr-portal__identity-summary" id="xr-identity-summary">Showing events signed by …</summary>
+    <div class="xr-portal__identity-body">
+      <div class="xr-portal__chips" id="xr-identity-chips"></div>
+      <form class="xr-portal__add" id="xr-identity-form">
+        <input type="text" id="xr-identity-input" placeholder="View another archive: npub1… or hex pubkey" autocomplete="off" />
+        <button type="submit" class="xr-portal__btn xr-portal__btn--ghost">Add viewer npub</button>
+        <button type="button" class="xr-portal__btn xr-portal__btn--ghost" id="xr-identity-settings" title="Identity is managed in Settings ▸ Signing">Identity settings</button>
+      </form>
+    </div>
+  </details>
 
   <!-- Library chrome (Phase 12.2): type tabs + facet bar + search.
        Hidden until a corpus is loaded. -->
