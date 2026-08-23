@@ -39,6 +39,7 @@ import { renderLinksBlock } from './links-block.js';
 import { renderHypothesesBlock } from './hypothesis-block.js';
 import { collectHypothesisEdgeJoins } from '../shared/hypothesis-map.js';
 import { openArchivedInReader } from './open-archived.js';
+import { buildCasePeople, renderCasePeople } from './case-people.js';
 import { Utils } from '../shared/utils.js';
 
 
@@ -249,6 +250,12 @@ export function renderCaseView(host, params) {
     let analysisHost = el('div');
     let hypothesesHost = el('div');
     let timelineHost = el('div');
+    // The local dossier `data`, handed to consumers that render OUTSIDE
+    // the block sequence below (the People section). Resolves null for
+    // a case with no local record, or if collection fails — consumers
+    // then degrade to their published-only reading.
+    let resolveLocalData = () => {};
+    const localData = new Promise((resolve) => { resolveLocalData = resolve; });
     if (caseEnt && caseEnt.entityId) {
         host.appendChild(localCountsHost);
         // The workflow order, as sections: evidence (open — the daily
@@ -277,6 +284,7 @@ export function renderCaseView(host, params) {
             // from the same `data` (the graph needs entitiesById/articles
             // that only the collector output carries).
             const data = await collectCaseDossierData(caseEnt.entityId);
+            resolveLocalData(data);
             const dossier = buildCaseDossier(data, null);
             // 26 CF.2 — the hypothesis-edge joins the per-claim trace
             // expander folds into its deltas (one read, shared below).
@@ -382,7 +390,10 @@ export function renderCaseView(host, params) {
         })().catch((err) => {
             Utils.error('Case dossier assembly failed', err);
             localCountsHost.remove();
+            resolveLocalData(null);
         });
+    } else {
+        resolveLocalData(null);
     }
 
     // --- publish-density strip (network publish activity over wire) ---
@@ -412,44 +423,29 @@ export function renderCaseView(host, params) {
     // (The four-axis timeline renders into its section body, created
     // above — the density strip lands in the same section.)
 
-    // --- members: people/orgs tagged alongside the case ---
-    const members = new Map(); // pubkey → {name, type, count}
-    for (const item of caseItems) {
-        if (item.typeKey !== 'claim') continue;
-        for (const t of (item.event.tags || [])) {
-            if (t[0] !== 'p' || t[1] === casePubkey) continue;
-            const ent = entityIndex[t[1]];
-            if (!ent || ent.type === 'case') continue;
-            const cur = members.get(t[1]) || { name: ent.name, type: ent.type, count: 0 };
-            cur.count++;
-            members.set(t[1], cur);
-        }
-    }
-    if (members.size > 0) {
+    // --- members: people/orgs across the case — LOCAL-FIRST (2026-08-23,
+    // case-people.js): everyone tagged on / named by a claim on a member
+    // source, unioned with the p-tags on published claim events, counted
+    // separately. The section's slot is claimed here (order-stable) and
+    // filled once the local dossier data lands; it removes itself when
+    // nobody appears.
+    const peopleBody = collapsibleSection(host, { id: 'people', casePubkey, title: 'People & organizations', open: false });
+    const peopleDetails = peopleBody.parentElement;
+    localData.then((data) => {
+        const rows = buildCasePeople({ caseItems, casePubkey, entityIndex, data });
+        if (rows.length === 0) { peopleDetails.remove(); return; }
+        const sum = peopleDetails.querySelector('summary');
+        if (sum) sum.textContent = `People & organizations (${rows.length})`;
         const section = el('div', 'xr-case__members');
-        section.appendChild(el('h3', 'xr-case__heading', 'People & organizations'));
-        const wrap = el('div', 'xr-portal__chips');
-        for (const [pk, m] of [...members.entries()].sort((a, b) => b[1].count - a[1].count)) {
-            const chip = el('button', 'xr-chip xr-chip--clickable', `${m.name} · ${m.count}`);
-            chip.type = 'button';
-            chip.title = `${m.type} — open spokes graph`;
-            chip.addEventListener('click', () => callbacks.onFocusEntity(pk));
-            wrap.appendChild(chip);
-            // 19.8 (§7.3): the case surfaces each orbit entity as a
-            // LINK into its own dossier — routing, never inlining.
-            const entRec = entityIndex[pk];
-            if (entRec && entRec.entityId && callbacks.onOpenEntityDossier) {
-                const dossierLink = el('button', 'xr-chip xr-chip--clickable', 'dossier →');
-                dossierLink.type = 'button';
-                dossierLink.title = `Open ${m.name}'s full dossier (claims, evidence, history)`;
-                dossierLink.addEventListener('click', () => callbacks.onOpenEntityDossier(entRec.entityId));
-                wrap.appendChild(dossierLink);
-            }
-        }
-        section.appendChild(wrap);
-        collapsibleSection(host, { id: 'people', casePubkey, title: 'People & organizations', open: false })
-            .appendChild(section);
-    }
+        section.appendChild(el('div', 'xr-view__dossier-line xr-view__dossier-line--dim',
+            'Counts per person or organization: the case sources they appear on (tagged, or named by one of its claims) '
+            + 'and the published claims that name them.'));
+        renderCasePeople(section, rows, { callbacks });
+        peopleBody.appendChild(section);
+    }).catch((err) => {
+        Utils.error('People section failed', err);
+        peopleDetails.remove();
+    });
 
     // --- claims with stance/⚠ badges ---
     const assessments = latestAssessmentByCoord(items);

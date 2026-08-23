@@ -19,6 +19,55 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-23 — Portal case view: "People & organizations" made local-first
+
+**Tags:** bug, design
+
+**Field report (PR #347 soak walk, step 4):** a case with several
+people entities — tagged on its member articles the normal way — showed
+NO "People & organizations" section at all. The section was built ONLY
+from `p` tags on PUBLISHED claim events (`case-view.js`, the old
+`members` Map), so nobody appeared until a claim naming them had been
+published. A local-first case dashboard with a relay-only people
+section: `docs/PORTAL_UX_REVIEW.md` finding C1's local-vs-relay split in
+another form, and the two-hop person path (case → person → dossier →
+Back) could not be walked.
+
+**Fix (`src/portal/case-people.js`):** one row per entity, unioned from
+two readings and counted SEPARATELY so the number never lies about where
+it came from — `sources` (how many of the case's member sources the
+entity appears on) and `mentions` (how many published claim events
+p-tag it). Chip text speaks one vocabulary, matching the "Local corpus:
+N sources" line and the "Published claims (N)" section: `Dr P · 3
+sources · 1 published claim` — never a bare count.
+
+**Two second-guessable choices:**
+
+- *"Appears on a source" is the case GRAPH's presence rule, verbatim* —
+  tagged on the archive record ∪ named by an orbit claim on it (about /
+  source). Extracted from `buildCaseGraph` as
+  `sourceEntityPresence(data)` (`shared/case-graph.js`) and consumed by
+  both, so the graph's entity degree and the people section's "N
+  sources" cannot disagree. The brief asked for entity TAGS only; claim
+  about-refs were included because a person named only by an extracted
+  claim is just as locally real and just as invisible otherwise.
+- *Degradation by what the portal can actually do:* the name chip opens
+  the spokes graph by pubkey (local key, else foreign key); the entity
+  view already owns the "nothing published yet → Open dossier" empty
+  state, so no new state was added here. A KEYLESS entity has no spokes
+  graph to draw, so its name is a plain chip whose tooltip points at
+  "dossier →" — which works for every local entity (it needs only an
+  entity id). Wire-only cases (no local record) degrade to exactly the
+  old published-only reading; `buildCasePeople` with `data: null` is
+  the old loop.
+
+**So-what:** the People section now renders for a freshly tagged case
+with zero publishes — the 1.0 reality, not the relay-first 12.5
+assumption. Seam-tested (`tests/portal-case-people.test.mjs`): the
+builder over tag-only data, the rendered chip strings through a DOM
+stub, and the case-view wiring actually passing the local `data`.
+Positioned for the walk the maintainer filed; not self-merged.
+
 ## 2026-08-23 — Paid-Substack transcription works, and the blocker was invisibility, not capability
 
 **Tags:** external, design

@@ -1305,3 +1305,7 @@ button.xr-badge--case { cursor: pointer; background: transparent; }
 /* MA.7 — an imported review decision, shown but never mistaken for the
    user's own (the merge records it attributed and applies nothing). */
 .xr-extr__imported { border-left: 2px solid var(--xr-warning); padding-left: 8px; }
+
+/* Case view — People & organizations (local-first, 2026-08-23): the
+   counting legend above the chips. */
+.xr-case__members .xr-view__dossier-line { margin: 8px 0 6px; font-size: 12px; }
