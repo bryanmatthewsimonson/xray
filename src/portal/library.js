@@ -135,7 +135,7 @@ function buildItem(record, entityIndex) {
             const isBrief = tagValues(event, 't').includes('xray-case-brief');
             typeKey = isBrief ? 'brief' : 'article';
             title = firstTag(event, 'title') || (isBrief ? 'Case brief' : '(untitled capture)');
-            sub = isBrief ? 'readable corpus brief' : (domainOf(url) || url);
+            sub = isBrief ? 'case summary (readable article)' : (domainOf(url) || url);
             // 13.7: the canonical article hash (13.4's x tag) — the
             // join key audit events anchor on. Null on pre-13.4 events.
             extra.articleHash = firstTag(event, 'x') || null;
@@ -239,7 +239,7 @@ function buildItem(record, entityIndex) {
         }
         case 30078: {
             title = firstTag(event, 'd') || '(entity sync)';
-            sub = 'encrypted — listed, not decrypted';
+            sub = 'encrypted backup entry (contents not shown)';
             haystack.push(title);
             break;
         }
@@ -378,7 +378,7 @@ function buildItem(record, entityIndex) {
             const follows = (event.tags || []).filter((t) => Array.isArray(t) && t[0] === 'p' && /^[0-9a-f]{64}$/i.test(t[1] || ''));
             typeKey = 'other';   // infrastructure, not content
             title = `Follows — ${follows.length} key${follows.length === 1 ? '' : 's'}`;
-            sub = 'NIP-02 follow list (opt-in mirror)';
+            sub = 'your follow list';
             haystack.push(title, ...follows.map((t) => t[3] || ''));
             break;
         }
@@ -388,7 +388,7 @@ function buildItem(record, entityIndex) {
             if (m) {
                 typeKey = 'other';   // infrastructure, not content
                 title = `Owned keys — ${m.owned.length} entit${m.owned.length === 1 ? 'y' : 'ies'}`;
-                sub = 'creator-binding manifest';
+                sub = 'key ownership proof';
                 haystack.push(title, ...m.owned.map((o) => o.name || ''));
             }
             break;

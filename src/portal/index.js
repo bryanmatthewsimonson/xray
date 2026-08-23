@@ -93,6 +93,15 @@ function setStatus(text, isError) {
     node.classList.toggle('xr-portal__status--error', !!isError);
 }
 
+// How an identity was established, in words a first-session user can
+// read. The raw tokens stay as tooltips and CSS hooks.
+const IDENTITY_SOURCE_LABELS = {
+    signer: 'your signer',
+    'sync-key': 'backup key',
+    'publish-history': 'seen in your published events',
+    manual: 'added by you'
+};
+
 function renderIdentityChips() {
     const host = $('#xr-identity-chips');
     clear(host);
@@ -101,7 +110,12 @@ function renderIdentityChips() {
         chip.appendChild(el('span', 'xr-chip__key', shortKey(id.pubkey)));
         chip.title = id.pubkey;
         for (const src of id.sources) {
-            chip.appendChild(el('span', `xr-chip__src xr-chip__src--${src}`, src));
+            // Plain label, raw token kept as the tooltip and the CSS hook
+            // (docs/PORTAL_UX_REVIEW.md §5 — provenance tokens were
+            // rendering verbatim as UI).
+            const srcEl = el('span', `xr-chip__src xr-chip__src--${src}`, IDENTITY_SOURCE_LABELS[src] || src);
+            srcEl.title = src;
+            chip.appendChild(srcEl);
         }
         if (id.sources.includes('manual')) {
             const btn = el('button', 'xr-chip__remove', '✕');
@@ -365,7 +379,7 @@ function buildRow(item) {
             && item.event.pubkey && state.creatorBinding) {
         const level = state.creatorBinding.get(item.event.pubkey);
         if (level === 'full') {
-            const b = el('span', 'xr-badge xr-badge--agree', '✓ creator-bound');
+            const b = el('span', 'xr-badge xr-badge--agree', '✓ key ownership proof');
             b.title = 'Listed in your signed OwnedKeys manifest AND carries a valid NIP-26 delegation token';
             badges.appendChild(b);
         } else if (level === 'partial') {
@@ -379,7 +393,7 @@ function buildRow(item) {
             item.typeKey === 'case' ? '☰ Dashboard' : '✳ Spokes');
         btn.type = 'button';
         btn.title = item.typeKey === 'case'
-            ? 'Open this case\'s published-artifact dashboard'
+            ? 'Open this case\'s published-items dashboard'
             : 'Open this entity\'s spokes graph';
         btn.addEventListener('click', () => {
             if (item.typeKey === 'case') viewCallbacks.onOpenCase(item.event.pubkey);
@@ -528,7 +542,7 @@ function renderPredictionsStrip(host) {
                     } catch (err) {
                         Utils.error('Portal: resolution refresh failed', err);
                     }
-                    setStatus(`Resolution filed (${record.outcome}) — publishes with the 13.8 batch.`);
+                    setStatus(`Resolution filed (${record.outcome}) — publishes with your next audit publish.`);
                     renderLibrary();
                 }
             });
@@ -777,7 +791,7 @@ function renderReconPanel() {
     const locals = state.localArtifacts || [];
     if (locals.length > 0) {
         const details = el('details');
-        details.appendChild(el('summary', null, `Unpublished local artifacts (${locals.length})`));
+        details.appendChild(el('summary', null, `Unpublished local items (${locals.length})`));
         const ul = el('ol', 'xr-portal__list');
         for (const it of locals.slice(0, 200)) {
             const row = el('li', 'xr-row');
@@ -1156,7 +1170,8 @@ async function boot({ full = false } = {}) {
                     : 'No signing identity, sync key, publish history, or manual identity found.';
                 renderEmpty('No identity resolved', [
                     reason,
-                    'Paste your npub above, configure signing in Settings, or publish a capture once — then refresh.'
+                    'No archive identity yet. Configure signing in Settings, or publish a capture once — then Refresh. '
+                    + '(The box above is for LOOKING AT someone else\u2019s archive by their npub; pasting your own there only views it read-only.)'
                 ]);
             } else {
                 setStatus(`${state.items.length} cached item(s) — no identity resolved, refresh skipped`, true);
