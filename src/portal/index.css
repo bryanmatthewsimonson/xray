@@ -105,13 +105,48 @@ body.xr-portal {
 
 /* ---------------- identity strip ---------------- */
 
+/* PR-8 (D2): a <details> — one summary line visible, the chips + viewer
+   box + settings button behind it. */
 .xr-portal__identity {
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--xr-border);
+}
+
+.xr-portal__identity-summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--xr-text-dim);
+  list-style: none;
+}
+
+.xr-portal__identity-summary::-webkit-details-marker { display: none; }
+
+.xr-portal__identity-summary::after {
+  content: ' ▸';
+}
+
+.xr-portal__identity[open] .xr-portal__identity-summary::after {
+  content: ' ▾';
+}
+
+.xr-portal__identity-summary:hover {
+  color: var(--xr-text);
+}
+
+.xr-portal__identity-body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--xr-border);
+  padding: 8px 0 4px;
+}
+
+/* PR-8 (D1): the header's two select-as-menus — the case switcher's
+   pill, borrowed; neutral border so the ACTIVE CASE pill stays the one
+   accent-bordered element in the header. */
+.xr-portal__menu {
+  border-color: var(--xr-border);
+  cursor: pointer;
 }
 
 .xr-portal__chips {

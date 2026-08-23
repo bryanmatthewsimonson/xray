@@ -80,7 +80,9 @@ test('every forward navigation in the portal pushes, and onBack pops', () => {
 
 test('the cross-workspace button and deep link participate correctly', () => {
     const src = stripComments(readRepo('src/portal/index.js'));
-    const crossWs = /'#xr-cross-ws'[\s\S]{0,220}/.exec(src);
+    // PR-8 moved the jump from its own button into the "⋯" overflow; the
+    // seam is the overflow's 'cross-ws' branch.
+    const crossWs = /picked === 'cross-ws'[\s\S]{0,120}/.exec(src);
     assert.ok(crossWs && /navigateTo\(/.test(crossWs[0]),
         'the cross-workspace jump must be re-traceable too');
     // The boot deep-link SEEDS the view (nothing to go back to), so a

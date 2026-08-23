@@ -42,6 +42,7 @@ import { renderInspector } from './inspector.js';
 import { openArchivedInReader } from './open-archived.js';
 import { createNavStack } from './nav-stack.js';
 import { inspectButton, TIMELINE_HINT } from './row-controls.js';
+import { addMenuOptions, moreMenuOptions, identitySummaryLine } from './header-chrome.js';
 import { resolveActiveCaseRef } from '../shared/case-membership.js';
 import {
     buildAuditIndex, mergeLocalRuns, mergeLocalResolutions, auditsForArticle,
@@ -105,6 +106,11 @@ const IDENTITY_SOURCE_LABELS = {
 };
 
 function renderIdentityChips() {
+    // PR-8 (D2): the one line that stays visible when the strip is
+    // folded. Identities listed, viewers named as viewing — the words
+    // keep identity.js's fence visible.
+    const summary = $('#xr-identity-summary');
+    if (summary) summary.textContent = identitySummaryLine({ identities: state.identities, viewers: state.viewers });
     const host = $('#xr-identity-chips');
     clear(host);
     for (const id of state.identities) {
@@ -1125,7 +1131,7 @@ function rebuildItems(records) {
 function setBusy(busy) {
     state.loading = busy;
     $('#xr-refresh').disabled = busy;
-    $('#xr-resync').disabled = busy;
+    $('#xr-more-menu').disabled = busy;   // Full resync lives in the overflow (PR-8)
     // The identity form re-boots on submit; mid-refresh that submit
     // would silently no-op (boot() early-returns while loading), so
     // make the unavailability visible instead (12.7 review fix).
@@ -1183,7 +1189,7 @@ async function boot({ full = false } = {}) {
                 renderEmpty('No identity resolved', [
                     reason,
                     'No archive identity yet. Configure signing in Settings, or publish a capture once — then Refresh. '
-                    + '(The box above is for LOOKING AT someone else\u2019s archive by their npub; pasting your own there only views it read-only.)'
+                    + '(The viewer box — under "Showing events signed by…" above — is for LOOKING AT someone else\u2019s archive by their npub; pasting your own there only views it read-only.)'
                 ]);
             } else {
                 setStatus(`${state.items.length} cached item(s) — no identity resolved, refresh skipped`, true);
@@ -1322,10 +1328,6 @@ async function renderCaseSwitcher() {
     }
 }
 
-// 🎙 Transcribe a URL — hidden entirely when localTranscription is off
-// (the flag gates SURFACES; the button would only ever error). Split
-// out from wireChrome so the async flag load can't delay wiring the
-// rest of the header's synchronous handlers.
 // One switch over the shared #xr-import-host (PR-3): same button
 // toggles, a different button swaps in one click. Created on first use
 // so it binds after the DOM exists.
@@ -1335,30 +1337,47 @@ function importPanels() {
     return _importPanels;
 }
 
-async function wireTranscribeUrlButton() {
+/** Mount the importer a menu value names. onDone reboots the library. */
+function mountImporter(name, host, caseEntityId) {
+    const onDone = () => { boot(); };
+    if (name === 'transcript') return mountTranscriptImport(host, { caseEntityId, onDone });
+    if (name === 'media') return mountMediaTranscribe(host, { caseEntityId, onDone });
+    if (name === 'book') return mountBookImport(host, { caseEntityId, onDone });
+    if (name === 'urls') return mountUrlImport(host, { caseEntityId, onDone });
+    return undefined;
+}
+
+// The "Add ▾" menu (PR-8, docs/PORTAL_UX_REVIEW.md D1) — the four
+// header import buttons folded into one select, the case view's
+// "Sources ▾" idiom. Split out from wireChrome because "Transcribe a
+// URL" is flag-gated (localTranscription) and the options must be
+// composed AFTER flags load: a gate read before they load would read
+// the default (off) and hide the option even when the user turned it
+// on. Every option mounts through the PR-3 switch, so picking the same
+// entry again closes its panel and a different entry swaps in one
+// click. Imports INHERIT the active case (PR-4).
+async function wireAddMenu(activeCaseId) {
     await loadFlags();
-    const transcribeUrlBtn = $('#xr-transcribe-url');
-    if (!transcribeUrlBtn) return;
-    if (!isEnabled('localTranscription')) {
-        // Defensive no-op: the HTML ships `hidden` already. Kept explicit
-        // (mirroring the ON branch's explicit `hidden = false` below) so
-        // this function's two branches are symmetric and a future default
-        // flip in the HTML can't silently leave the button visible with
-        // the flag off.
-        transcribeUrlBtn.hidden = true;
-        return;
+    const sel = $('#xr-add-menu');
+    if (!sel) return;
+    clear(sel);
+    for (const o of addMenuOptions({ transcribeEnabled: isEnabled('localTranscription') })) {
+        const opt = new Option(o.label, o.value);
+        opt.title = o.title;
+        sel.appendChild(opt);
     }
-    // Reveal it — the HTML ships `hidden` by default (flag-off / not-yet
-    // -loaded posture); this is the ONLY place that clears it. Missing
-    // this line was Fix Round 1's Critical finding: the button attached
-    // its click listener but never became visible, flag on or off.
-    transcribeUrlBtn.hidden = false;
-    const mediaCaseId = resolveActiveCaseRef()
-        .then((ref) => (ref ? ref.caseId : null))
-        .catch(() => null);
-    transcribeUrlBtn.addEventListener('click', async () => {
-        const caseEntityId = await mediaCaseId;
-        importPanels().open('media', (host) => mountMediaTranscribe(host, { caseEntityId, onDone: () => { boot(); } }));
+    sel.value = '';
+    sel.addEventListener('change', async () => {
+        const picked = sel.value;
+        sel.value = '';
+        if (!picked) return;
+        const caseEntityId = await activeCaseId;
+        // Named per entry (not a single dynamic call) so the seam guards
+        // can see every importer still routes through the switch.
+        if (picked === 'transcript') importPanels().open('transcript', (host) => mountImporter('transcript', host, caseEntityId));
+        else if (picked === 'media') importPanels().open('media', (host) => mountImporter('media', host, caseEntityId));
+        else if (picked === 'book') importPanels().open('book', (host) => mountImporter('book', host, caseEntityId));
+        else if (picked === 'urls') importPanels().open('urls', (host) => mountImporter('urls', host, caseEntityId));
     });
 }
 
@@ -1376,60 +1395,41 @@ function wireChrome() {
         .catch(() => null);
     $('#xr-refresh').addEventListener('click', () => { boot(); });
 
-    // 21.2 — import a podcast transcript into the archive (standalone;
-    // it appears in case views + the local-artifacts list, not the relay
-    // library, so no corpus reload). Same button again closes it; a
-    // different importer swaps in one click (import-panel.js).
-    $('#xr-import-transcript').addEventListener('click', async () => {
-        const caseEntityId = await activeCaseId;
-        importPanels().open('transcript', (host) => mountTranscriptImport(host, { caseEntityId, onDone: () => { boot(); } }));
-    });
+    // The importers — one "Add ▾" menu (PR-8). Async because the menu
+    // waits for flags; nothing else here depends on it.
+    wireAddMenu(activeCaseId);
 
-    // 🎙 Transcribe a URL — the companion-backed sibling of the paste
-    // import (Transcribe Anywhere wave). Flag-gated: the portal has no
-    // other flag plumbing yet, so this loads it itself and awaits
-    // before the gate is evaluated — a gate read before flags load
-    // would silently read defaults (localTranscription off) and hide
-    // the button even when the user turned it on.
-    wireTranscribeUrlButton();
-
-    // Import an EPUB book — each chapter becomes a capture grouped under a
-    // book `thing` entity. Same toggle/swap rule as the others; a
-    // successful import refreshes the library so the book appears.
-    // Books JOIN the active case (maintainer ruling 2026-08-23,
-    // superseding the same-day flag): every chapter becomes a member,
-    // so the book feeds the case dashboard and corpus analysis.
-    $('#xr-import-book').addEventListener('click', async () => {
-        const caseEntityId = await activeCaseId;
-        importPanels().open('book', (host) => mountBookImport(host, { caseEntityId, onDone: () => { boot(); } }));
-    });
-
-    // 28.1 — batch-import a pasted URL list (standalone; the case-view
-    // mount tags into the case). Same toggle/swap rule as the others.
-    $('#xr-import-urls').addEventListener('click', async () => {
-        const caseEntityId = await activeCaseId;
-        importPanels().open('urls', (host) => mountUrlImport(host, { caseEntityId, onDone: () => { boot(); } }));
-    });
-
-    // 28.6 — the read-only cross-workspace graph.
-    $('#xr-cross-ws').addEventListener('click', () => {
-        navigateTo({ name: 'cross-workspace' });
-    });
-
-    $('#xr-resync').addEventListener('click', async () => {
-        if (state.loading) return;
-        try {
-            await clearAll();
-        } catch (err) {
-            // A failed clear means the refetch would MERGE into the stale
-            // cache and render the old corpus as if the resync worked —
-            // say so on the page and stop, never silently (console-only
-            // was how a fresh workspace kept showing the prior project).
-            Utils.error('Portal resync: cache clear failed', err);
-            setStatus('Cache clear failed — close every other X-Ray tab and retry Full resync', true);
-            return;
+    // The "⋯" overflow (PR-8): the two actions that are neither daily
+    // nor first-paint. 28.6's read-only cross-workspace graph joins the
+    // nav stack (PR-6); Full resync keeps its clear-then-refetch
+    // contract and its fail-loud path.
+    const more = $('#xr-more-menu');
+    for (const o of moreMenuOptions()) {
+        const opt = new Option(o.label, o.value);
+        opt.title = o.title;
+        more.appendChild(opt);
+    }
+    more.value = '';
+    more.addEventListener('change', async () => {
+        const picked = more.value;
+        more.value = '';
+        if (picked === 'cross-ws') {
+            navigateTo({ name: 'cross-workspace' });
+        } else if (picked === 'resync') {
+            if (state.loading) return;
+            try {
+                await clearAll();
+            } catch (err) {
+                // A failed clear means the refetch would MERGE into the stale
+                // cache and render the old corpus as if the resync worked —
+                // say so on the page and stop, never silently (console-only
+                // was how a fresh workspace kept showing the prior project).
+                Utils.error('Portal resync: cache clear failed', err);
+                setStatus('Cache clear failed — close every other X-Ray tab and retry Full resync', true);
+                return;
+            }
+            boot({ full: true });
         }
-        boot({ full: true });
     });
 
     $('#xr-identity-form').addEventListener('submit', async (e) => {
