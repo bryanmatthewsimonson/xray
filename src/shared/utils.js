@@ -1,5 +1,6 @@
 // Utility helpers. API-compatible with the userscript's Utils object.
 
+import { recordDiagnostic } from './diagnostics.js';
 import { CONFIG } from './config.js';
 import { normalize as _normalize } from './metadata/url-normalizer.js';
 
@@ -108,5 +109,11 @@ export const Utils = {
     _debug: CONFIG.debug,
     setDebug: (v) => { Utils._debug = !!v; },
     log:   (...args) => { if (Utils._debug) console.log('[X-Ray]', ...args); },
-    error: (...args) => { console.error('[X-Ray]', ...args); }
+    // Errors also feed the local diagnostics ring (Options → Advanced →
+    // Copy diagnostics) so a bug report can carry its own evidence.
+    // Errors ONLY — log() above stays debug console output, unrecorded.
+    error: (...args) => {
+        console.error('[X-Ray]', ...args);
+        try { recordDiagnostic('', ...args); } catch (_) { /* never the failure */ }
+    }
 };
