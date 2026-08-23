@@ -155,3 +155,22 @@ test('the buffer never travels: excluded from backups', async () => {
     // Structural check is the greppable one above; the module-level
     // exclusion list is not exported, which is fine — the grep pins it.
 });
+
+test('the reader ERROR SURFACES feed the ring — banners and error toasts', () => {
+    // Field-found 2026-08-23 by the ring's first real use: a failed
+    // Substack transcription showed an error banner while Copy
+    // diagnostics came back empty. The recorder existed; the surfaces a
+    // user actually SEES failures on did not feed it — the seam lesson,
+    // fourth appearance.
+    const reader = readRepo('src/reader/index.js');
+    const toastFn = /function toast\(message[\s\S]*?\n}/.exec(reader);
+    assert.ok(toastFn, 'toast moved');
+    assert.match(toastFn[0], /type === 'error'[\s\S]*?Utils\.error\(/,
+        'an error-toned toast must record');
+    const banner = /function renderTranscribeBanner\([\s\S]*?\n}/.exec(reader);
+    assert.ok(banner, 'renderTranscribeBanner moved');
+    assert.match(banner[0], /tone === 'error'[\s\S]*?Utils\.error\(/,
+        'an error banner must record');
+    assert.ok(!/tone === 'warning'[\s\S]{0,80}Utils\.error/.test(banner[0]),
+        'warnings are disclosures, not failures — unrecorded by design');
+});
