@@ -703,3 +703,31 @@ test('fold and cache-save failures never disturb the paid run', async () => {
     assert.equal(out.status, 'ran', 'the extract still reaches the caller');
     assert.deepEqual(out.extract, V8_EXTRACT);
 });
+
+test('a double-encoded field is repaired IN THE CACHED EXTRACT, not just for validation', async () => {
+    // The seam, not the helper — this session's repeated lesson. If only
+    // a validation view were repaired, the raw string would be cached
+    // and every later Suggest would serve it to the converter: exactly
+    // the 2026-08-13 poison with a fresh coat of paint.
+    const { ensureArticleExtract } = await import('../src/shared/article-pass.js');
+    const rows = [{ ref: 'E1', name: 'Alice', type: 'person', mention: 'Alice said' }];
+    const DOUBLE_ENCODED = {
+        position: { summary: 's' },
+        key_assertions: [{ quote: 'q', text: 't', load_bearing: true }],
+        entities: JSON.stringify(rows)
+    };
+    let saved = null;
+    const out = await ensureArticleExtract(
+        { article: { title: 'T', content: '<p>Body text long enough to matter.</p>', url: 'https://e.com/a' },
+          articleHash: 'a'.repeat(64), url: 'https://e.com/a', title: 'T',
+          sendMessage: async () => ({ ok: true, extract: DOUBLE_ENCODED, model: 'm' }) },
+        { getExtract: async () => null,
+          saveExtract: async (row) => { saved = row; },
+          record: async () => ({ status: 'unchanged' }), now: () => 0 });
+    assert.equal(out.status, 'ran', 'a recoverable payload must not fail the pass');
+    assert.deepEqual(out.extract.entities, rows);
+    assert.ok(saved, 'the extract was cached');
+    assert.ok(Array.isArray(saved.extract.entities),
+        'the CACHED extract carries the repaired array, never the raw string');
+    assert.deepEqual(saved.extract.entities, rows);
+});

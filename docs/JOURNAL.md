@@ -19,6 +19,38 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-22 — Suggest rejected a paid extract whose payload was sitting inside a string
+
+**Tags:** bug, external
+
+A live Suggest on a transcript failed with "The model returned an
+extract X-Ray cannot use: $.entities expected array, got string." The
+model had DOUBLE-ENCODED the field — the JSON text of the entities
+array where the array should be. Tool input schemas are advisory to the
+model, so this arrives occasionally on long outputs; rejecting it burns
+a paid map call whose payload is losslessly recoverable with one
+JSON.parse.
+
+`repairCorpusExtract` now recovers exactly that case, for all four
+top-level list fields, and nothing else: a string that parses to an
+array is replaced by the parsed rows; prose, non-array JSON, and junk
+are left alone for the validator's honest type error. Every recovered
+row then faces the same walk, pruning and blindness refusals as a
+native list.
+
+**Why this does not reopen the 2026-08-13 reversal**, and the
+distinction is the entire design: that harm was validation-VIEW
+leniency — a wrong-typed list coerced to [] for the walk while the RAW
+value was cached and folded, leaving the article permanently
+entity-blind behind a forever cache hit. Repair is the opposite shape.
+It rewrites the EXTRACT ITSELF before validation, and the caller caches
+and folds the repaired object; the string never survives into storage.
+The new article-pass test asserts the SEAM — the cached row carries the
+parsed array — because this session already produced three bugs where
+the helper was tested and the seam was not.
+
+---
+
 ## 2026-08-16 — "url must be a string" is yt-dlp with no session, and one claim of ours was unbacked
 
 **Tags:** external, bug

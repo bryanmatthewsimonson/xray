@@ -630,6 +630,86 @@ test('v9 blindness refusal EXTENDS to a wrong-typed list — not just unusable r
     assert.equal(CS.validateCorpusExtract({ ...core, entities: [] }).ok, true);
 });
 
+// ------------------------------------------------------------------
+// Stringified-array repair (field-found 2026-08-22).
+//
+// A live Suggest failed with "$.entities expected array, got string" —
+// the model DOUBLE-ENCODED the field, emitting the JSON text of the
+// array instead of the array. Tool schemas are advisory to the model,
+// so this arrives occasionally on long outputs, and rejecting it burns
+// a paid call whose payload is sitting right there, losslessly
+// recoverable by one JSON.parse.
+//
+// This does NOT reopen the 2026-08-13 reversal above. That harm was
+// coercing a wrong-typed list to [] — VALIDATION-VIEW blindness over a
+// raw cached value. Repair is the opposite shape: the parsed rows
+// replace the string IN THE EXTRACT ITSELF (the caller validates and
+// caches the repaired object, never the raw one), and every parsed row
+// then faces the same walk, pruning and blindness refusals as a
+// natively-typed list. A string that does not parse to an array is
+// left alone and still rejected with the type error.
+// ------------------------------------------------------------------
+
+test('repairCorpusExtract: a JSON-stringified array field is recovered losslessly', () => {
+    const rows = [{ ref: 'E1', name: 'Alice', type: 'person', mention: 'Alice said' }];
+    const { extract, repaired } = CS.repairCorpusExtract({
+        position: { summary: 's' },
+        key_assertions: [{ quote: 'q', text: 't', load_bearing: true }],
+        entities: JSON.stringify(rows)
+    });
+    assert.deepEqual(extract.entities, rows, 'the parsed rows replace the string');
+    assert.deepEqual(repaired, ['entities'], 'the repair is reported, not silent');
+    assert.equal(CS.validateCorpusExtract(extract).ok, true);
+});
+
+test('repairCorpusExtract: every top-level list field gets the same recovery', () => {
+    const { extract, repaired } = CS.repairCorpusExtract({
+        position: { summary: 's' },
+        key_assertions: JSON.stringify([{ quote: 'q', text: 't', load_bearing: false }]),
+        entities: JSON.stringify([]),
+        source_references: JSON.stringify([{ quote: 'q2', target_hint: 'h' }]),
+        open_questions: JSON.stringify(['why?'])
+    });
+    assert.deepEqual(repaired.sort(),
+        ['entities', 'key_assertions', 'open_questions', 'source_references']);
+    assert.equal(CS.validateCorpusExtract(extract).ok, true);
+    assert.equal(extract.key_assertions[0].quote, 'q');
+    assert.deepEqual(extract.open_questions, ['why?']);
+});
+
+test('repairCorpusExtract: what cannot be recovered losslessly is left for the validator', () => {
+    // Prose, JSON that is not an array, junk — no guessing. The string
+    // stays, the walk still rejects it, and the user still sees the
+    // honest type error rather than a silently emptied field.
+    for (const bad of ['Alice, Bob and Carol', '"just a string"', '{"E1":{}}', '[unclosed', 7, true]) {
+        const { extract, repaired } = CS.repairCorpusExtract({
+            position: { summary: 's' }, key_assertions: [], entities: bad
+        });
+        assert.deepEqual(repaired, [], `no repair claimed for ${JSON.stringify(bad)}`);
+        assert.equal(extract.entities, bad, 'the raw value is preserved for the rejection');
+        assert.equal(CS.validateCorpusExtract(extract).ok, false);
+    }
+    // And parsed rows face the SAME refusals a native list would: a
+    // stringified list of unusable rows is still the blindness refusal.
+    const { extract } = CS.repairCorpusExtract({
+        position: { summary: 's' }, key_assertions: [],
+        entities: JSON.stringify([{ junk: true }, { alsoJunk: 1 }])
+    });
+    assert.equal(CS.validateCorpusExtract(extract).ok, false,
+        'repair must not smuggle unusable rows past the blindness refusal');
+});
+
+test('repairCorpusExtract: a healthy extract passes through untouched', () => {
+    const good = {
+        position: { summary: 's' },
+        key_assertions: [{ quote: 'q', text: 't', load_bearing: true }],
+        entities: [{ ref: 'E1', name: 'A', type: 'person', mention: 'A' }]
+    };
+    const { extract, repaired } = CS.repairCorpusExtract(good);
+    assert.deepEqual(repaired, []);
+    assert.deepEqual(extract, good);
+});
+
 test('a poisoned cache entry SELF-HEALS: the cache-hit path revalidates', async () => {
     // Why the reversal is retroactive and needs no migration: the
     // already-stored bad extract now fails validation on READ, so
