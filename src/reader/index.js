@@ -2179,15 +2179,20 @@ function transcribeRouting(provider) {
  *
  * Returns true to proceed.
  */
-function confirmDirectSubmission(sourceUrl, articleUrl) {
+function confirmDirectSubmission(sourceUrl, articleUrl, engine) {
     if (sourceUrl === articleUrl) return true;
     let host = sourceUrl;
     try { host = new URL(sourceUrl).host; } catch (_) { /* show the raw string */ }
+    // Name the vendor THIS run will actually reach. Hardcoding one was a
+    // field-found consent defect (2026-08-16): the dialog asked to send
+    // an address to AssemblyAI while the run went to Deepgram, so the
+    // user approved a disclosure to a party that was not the recipient.
+    const vendor = (ENGINE_META[engine] && ENGINE_META[engine].vendor) || 'the transcription provider';
     return window.confirm(
-        'Send this media address to AssemblyAI?\n\n'
+        `Send this media address to ${vendor}?\n\n`
         + `${sourceUrl}\n\n`
-        + `AssemblyAI will download the audio directly from ${host}. `
-        + 'The audio never touches this machine — but AssemblyAI learns the address '
+        + `${vendor} will download the audio directly from ${host}. `
+        + `The audio never touches this machine — but ${vendor} learns the address `
         + 'of what you are transcribing.\n\n'
         + 'This address was found in the captured page, not typed by you.'
     );
@@ -2232,7 +2237,7 @@ async function runTranscribeFlow(provider) {
         // discover it was handed HTML (field failure 2026-08-15).
         const problem = directSubmissionProblem(a, sourceUrl);
         if (problem) { toast(problem.detail, 'error', 10000); return; }
-        if (!confirmDirectSubmission(sourceUrl, a.url)) return;
+        if (!confirmDirectSubmission(sourceUrl, a.url, provider)) return;
     }
     const mediaKey = await mediaKeyForArticle(a, sourceUrl);
     if (_transcribeRunning) {
@@ -2297,8 +2302,9 @@ async function runTranscribeFlow(provider) {
     if (draftsBtn) draftsBtn.disabled = true;
     try {
         reapStaleJobRecords(transcribeChromeIo(browserApi, () => {})).catch(() => {});
-        renderTranscribeBanner(routing.route === 'direct'
-            ? 'Contacting AssemblyAI…'
+        const vendor = (ENGINE_META[provider] && ENGINE_META[provider].vendor) || null;
+        renderTranscribeBanner(vendor
+            ? `Contacting ${vendor}…`
             : 'Contacting the transcription service…');
         const io = transcribeChromeIo(browserApi, (job) => {
             // Honest wording: a cloud-provider job is not "locally".
@@ -2306,6 +2312,10 @@ async function runTranscribeFlow(provider) {
         });
         const out = await runTranscriptionJob({ mediaUrl: sourceUrl, mediaKey, provider, io, ...routing });
         if (!out.ok) {
+            if (out.priorSubmission) {
+                toast('A previous submission for this media never returned — it may still have '
+                    + 'been charged and cannot be retrieved.', 'warning', 12000);
+            }
             renderTranscribeBanner(out.error, 'error', {
                 // Companion setup advice on a companion-free route is
                 // noise at best. Gate it on the ROUTE, not on a
@@ -2317,6 +2327,15 @@ async function runTranscribeFlow(provider) {
             // path to either the key field or another engine.
             if (out.missingKey) openEnginePicker();
             return;
+        }
+        if (out.priorSubmission) {
+            // A pre-flight record survived, so an earlier submission on
+            // this synchronous route never came back — the one case
+            // where money may have been spent with nothing to show.
+            // Said on success too: this run does not undo that charge.
+            toast('A previous submission for this media never returned — it may still have been '
+                + 'charged, and that provider does not store transcripts, so it cannot be '
+                + 'retrieved. This run is a fresh transcription.', 'warning', 12000);
         }
         await adoptDiarizedTranscript(out.result);
         // Adoption succeeded — NOW the finished job's record can go
@@ -2426,7 +2445,12 @@ const ENGINE_META = {
         detail: 'X-Ray sends AssemblyAI the media\u2019s web address and your API key; '
             + 'AssemblyAI downloads the audio itself. No companion service, no Python, no GPU.',
         rate: 0.28,
-        direct: true
+        direct: true,
+        // The bare vendor name, for sentences. `label` carries the
+        // "(direct)" transport suffix, which reads wrong mid-prose and —
+        // field-found 2026-08-16 — was not the bug: the consent dialog
+        // hardcoded "AssemblyAI" and said it while running Deepgram.
+        vendor: 'AssemblyAI'
     },
     // The second companion-free provider (DC.3). Measured 2026-08-16 on
     // a live 48-minute episode: 12.9s end to end. Its structural
@@ -2441,7 +2465,8 @@ const ENGINE_META = {
             + 'Fast, but it cannot resume if interrupted.',
         rate: 0.26,
         direct: true,
-        synchronous: true
+        synchronous: true,
+        vendor: 'Deepgram'
     }
 };
 
@@ -2501,11 +2526,14 @@ function engineEstimate(engine) {
         // answer; a guessed figure on a consent surface is worse than
         // "unknown". Never name the companion here: this route exists
         // precisely for users who have not installed one.
+        const vendor = meta.vendor || 'the provider';
+        const speed = meta.synchronous ? 'Usually well under a minute' : 'Usually 2–5 minutes';
         return secs
-            ? `~2–5 min — about $${Math.max(0.01, (secs / 3600) * meta.rate).toFixed(2)} for this media. `
-              + 'The audio never touches this machine; AssemblyAI learns the address.'
-            : 'Usually 2–5 minutes, metered per audio-hour — length unknown until AssemblyAI '
-              + 'fetches it. The audio never touches this machine; AssemblyAI learns the address.';
+            ? `~${meta.synchronous ? 'under a minute' : '2–5 min'} — about `
+              + `$${Math.max(0.01, (secs / 3600) * meta.rate).toFixed(2)} for this media. `
+              + `The audio never touches this machine; ${vendor} learns the address.`
+            : `${speed}, metered per audio-hour — length unknown until ${vendor} `
+              + `fetches it. The audio never touches this machine; ${vendor} learns the address.`;
     }
     if (engine === 'local') {
         if (!secs) return 'Runs on your GPU; speed depends on the card and the length of the media.';

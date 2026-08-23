@@ -404,8 +404,13 @@ test('DC.2: companion setup advice is structurally unreachable on the direct rou
 });
 
 test('DC.2: the opening banner names who is actually being contacted', () => {
-    assert.match(READER_CODE, /routing\.route === 'direct'\s*\n?\s*\? 'Contacting AssemblyAI…'/,
-        'a direct run contacts AssemblyAI, not "the transcription service"');
+    // Originally pinned the literal 'Contacting AssemblyAI…' — which
+    // became wrong the moment a second vendor shipped. Same lesson as
+    // the DIRECT_ENGINE_ID guard: assert the rule, not the snapshot.
+    assert.match(READER_CODE, /`Contacting \$\{vendor\}…`/,
+        'a direct run must name the vendor it is actually contacting');
+    assert.ok(!/'Contacting AssemblyAI/.test(READER_CODE),
+        'no vendor may be hardcoded into the in-flight banner');
 });
 
 test('DC.3: both direct engines share one flag and one admission gate', () => {
@@ -437,4 +442,55 @@ test('DC.3: the Deepgram picker line states the property a user could not guess'
         'say that this route cannot resume if interrupted');
     assert.ok(!/audio leaves your machine/i.test(meta[1]),
         'that is the companion cloud disclosure and it is false here');
+});
+
+test('the consent dialog names the vendor THIS run will reach', () => {
+    // Field-found 2026-08-16: the dialog hardcoded "AssemblyAI" and said
+    // it while the run went to Deepgram. A consent surface that names
+    // the wrong recipient is worse than no dialog — the user approved a
+    // disclosure to a party that was not the one receiving it.
+    const fn = /function confirmDirectSubmission\([\s\S]*?\n}/.exec(READER_CODE);
+    assert.ok(fn, 'confirmDirectSubmission moved');
+    assert.match(fn[0], /function confirmDirectSubmission\(sourceUrl, articleUrl, engine\)/,
+        'it must be told which engine is running');
+    assert.match(fn[0], /ENGINE_META\[engine\][\s\S]*?\.vendor/, 'and read the vendor from it');
+    assert.ok(!/AssemblyAI|Deepgram/.test(fn[0]),
+        'no vendor may be hardcoded in a consent string');
+    // The call site must pass it.
+    assert.match(READER_CODE, /confirmDirectSubmission\(sourceUrl, a\.url, provider\)/);
+});
+
+test('no user-facing direct-path string hardcodes one vendor', () => {
+    // The whole class, not the three instances that were found: the
+    // in-flight banner and the picker cost line had the same defect.
+    const flow = /async function runTranscribeFlow\(provider\)[\s\S]*?\n}/.exec(READER_CODE)[0];
+    assert.ok(!/'Contacting AssemblyAI/.test(flow), 'the banner must name the running vendor');
+    assert.match(READER_CODE, /renderTranscribeBanner\(vendor\s*\n?\s*\?\s*`Contacting \$\{vendor\}/);
+
+    const estimate = /if \(meta && meta\.direct\) \{([\s\S]*?)\n    \}/.exec(READER_CODE);
+    assert.ok(estimate, 'the direct branch of engineEstimate moved');
+    assert.ok(!/AssemblyAI|Deepgram/.test(estimate[1]),
+        'the picker cost line must not hardcode a vendor — both direct rows render from it');
+    assert.match(estimate[1], /meta\.vendor/);
+});
+
+test('every direct engine declares the vendor name its prose needs', () => {
+    const metaBody = /const ENGINE_META = \{([\s\S]*?)\n\};/.exec(READER_SRC)[1];
+    const directEntries = [...metaBody.matchAll(/\[(\w+)\]: \{((?:(?!\n    \},?)[\s\S])*?direct: true(?:(?!\n    \},?)[\s\S])*)/g)];
+    assert.ok(directEntries.length >= 2, 'expected both direct engines');
+    for (const [, key, body] of directEntries) {
+        assert.match(body, /vendor: '/, `${key} has no vendor name for prose`);
+    }
+});
+
+test('an unresolved prior submission is SURFACED, not just returned', () => {
+    // runTranscriptionJob returns priorSubmission; before this fix
+    // nothing consumed it, so the one case that can cost money with no
+    // result was reported to no one. The unit test asserted the flag;
+    // nothing asserted the seam.
+    assert.match(READER_CODE, /if \(out\.priorSubmission\)/,
+        'the reader must consume the flag');
+    const hits = [...READER_CODE.matchAll(/if \(out\.priorSubmission\)/g)];
+    assert.equal(hits.length, 2,
+        'surface it on BOTH outcomes — a later success does not undo an earlier charge');
 });

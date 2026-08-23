@@ -19,6 +19,55 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-16 — The consent dialog named the wrong recipient
+
+**Tags:** bug, security
+
+Field report on the first working Deepgram run: the picker row, the
+in-flight banner and — worst — the CONSENT DIALOG all said "AssemblyAI"
+while the run went to Deepgram. The user was asked to approve sending a
+media address to one company and it was sent to another.
+
+That is not a wording bug. A consent surface that names the wrong
+recipient is worse than no dialog at all: it manufactures a record of
+informed approval for a disclosure that did not happen as described.
+Guard-rail 4 of the kickoff is about honest ENGINE naming in published
+provenance; this is the same principle one step earlier, at the moment
+of consent.
+
+Three strings had the vendor baked in. `ENGINE_META` now carries a
+`vendor` field per direct engine — deliberately separate from `label`,
+which holds the "(direct)" transport suffix and reads wrong mid-sentence
+— and the dialog, the banner and the picker's cost line all render from
+it. The guard asserts the CLASS rather than the three instances: no
+vendor name may appear as a literal in any of those strings, and every
+`direct: true` engine must declare a vendor.
+
+**A second defect in the same report, and the same root as yesterday's.**
+`runTranscriptionJob` returns `priorSubmission` when a pre-flight record
+survived — the one case where a synchronous Deepgram run may have been
+charged with nothing to show. Nothing consumed it. The flag was built,
+unit-tested, and wired to no UI, so the case it exists for was reported
+to no one; the maintainer closing the tab mid-run correctly got no
+warning because there was no code to give one. The unit test asserted
+the FLAG; nothing asserted the SEAM. It is now surfaced on both
+outcomes — a later success does not undo an earlier charge — and the
+guard counts both call sites.
+
+**And a third instance of the snapshot-guard problem**, one day after
+writing it up: the DC.2 guard pinned the literal `'Contacting
+AssemblyAI…'`, so it went red when that string correctly became
+`Contacting ${vendor}…`. A guard that fails when you fix the thing it
+was meant to protect was testing the implementation. Rewritten to assert
+that no vendor is hardcoded.
+
+The pattern across all three: **a test that names today's only value
+stops being a test the moment there are two.** Worth checking the
+remaining source-grep guards in this repo against that question rather
+than waiting for each to be found by use.
+
+---
+
 ## 2026-08-16 — A guard that pins a string passes while the behavior is wrong
 
 **Tags:** bug, pattern
