@@ -83,7 +83,7 @@ import { lensTypeForPropositionClass } from '../shared/lens-taxonomy.js';
 import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/lens-engine.js';
 import { speakerFromParagraphText } from '../shared/transcript-parse.js';
 import { buildTranscriptSection, upsertTranscriptSection } from '../shared/transcript-article.js';
-import { buildDiarizedBody, timeFragmentSelector, timeRangeOfSpan, diarizedTrackEntry, extractionMethodFor } from '../shared/diarized-transcript.js';
+import { buildDiarizedBody, timeFragmentSelector, timeRangeOfSpan, diarizedTrackEntry, extractionMethodFor, capturedBodyFor } from '../shared/diarized-transcript.js';
 import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey, hasMediaSignal, isFetchableMediaUrl, transcribeSourceUrl, directSubmissionProblem } from './transcribe-flow.js';
 import { mediaKeyForArticle } from '../shared/media-key.js';
 import { openMediaModal } from './media-modal.js';
@@ -2030,7 +2030,11 @@ async function adoptDiarizedTranscript(result) {
     }
 
     const { markdown, timeMap, transcriptMeta } = buildDiarizedBody({
-        capturedMarkdown: a.markdown || '',
+        // NOT `a.markdown || ''`. A generic capture carries only HTML —
+        // markdown happens downstream — so that form composed the
+        // transcript onto an empty base and discarded the article
+        // (field-found 2026-08-16 on a podcast episode).
+        capturedMarkdown: capturedBodyFor(a, ContentExtractor.htmlToMarkdown),
         mediaUrl: a.url,
         platform: a.platform,
         result
@@ -2120,6 +2124,30 @@ async function adoptDiarizedTranscript(result) {
     try { refreshMediaNudge(); } catch (_) { /* cosmetic */ }
 }
 
+/**
+ * A previous submission on a synchronous route never came back — money
+ * may have been spent with nothing to show.
+ *
+ * Deliberately a BANNER, not a toast. Field-found 2026-08-16: the first
+ * version used toast(), and the reader has exactly ONE toast element
+ * whose every call overwrites the last — so the warning was posted and
+ * then obliterated by the success toast milliseconds later. The
+ * maintainer correctly reported seeing nothing. A possible-charge notice
+ * must also outlive a 12-second timeout, which a toast cannot.
+ *
+ * Rendered LAST on both the success and failure paths, after the
+ * in-flight banner has been removed, so nothing can clear it but the
+ * user.
+ */
+function warnPriorSubmission() {
+    renderTranscribeBanner(
+        'A previous submission for this media never came back. It may still have been charged, '
+        + 'and this provider does not store transcripts, so that one cannot be retrieved. '
+        + 'Nothing was retried automatically.',
+        'warning'
+    );
+}
+
 let _transcribeRunning = false;
 
 /** Start (or resume) the companion job and adopt the result. The whole
@@ -2143,6 +2171,14 @@ let _transcribeRunning = false;
  *  every engine but the direct one, so the driver behaves exactly as
  *  before on every pre-existing path. */
 function transcribeRouting(provider) {
+    if (provider === DEEPGRAM_DIRECT_ENGINE_ID) {
+        // No job id, no polling — the submit returns the transcript.
+        return {
+            route: 'deepgram-direct',
+            startType: 'xray:transcribe:direct:deepgram',
+            synchronous: true
+        };
+    }
     if (provider !== DIRECT_ENGINE_ID) return {};
     return {
         route: 'direct',
@@ -2171,15 +2207,20 @@ function transcribeRouting(provider) {
  *
  * Returns true to proceed.
  */
-function confirmDirectSubmission(sourceUrl, articleUrl) {
+function confirmDirectSubmission(sourceUrl, articleUrl, engine) {
     if (sourceUrl === articleUrl) return true;
     let host = sourceUrl;
     try { host = new URL(sourceUrl).host; } catch (_) { /* show the raw string */ }
+    // Name the vendor THIS run will actually reach. Hardcoding one was a
+    // field-found consent defect (2026-08-16): the dialog asked to send
+    // an address to AssemblyAI while the run went to Deepgram, so the
+    // user approved a disclosure to a party that was not the recipient.
+    const vendor = (ENGINE_META[engine] && ENGINE_META[engine].vendor) || 'the transcription provider';
     return window.confirm(
-        'Send this media address to AssemblyAI?\n\n'
+        `Send this media address to ${vendor}?\n\n`
         + `${sourceUrl}\n\n`
-        + `AssemblyAI will download the audio directly from ${host}. `
-        + 'The audio never touches this machine — but AssemblyAI learns the address '
+        + `${vendor} will download the audio directly from ${host}. `
+        + `The audio never touches this machine — but ${vendor} learns the address `
         + 'of what you are transcribing.\n\n'
         + 'This address was found in the captured page, not typed by you.'
     );
@@ -2197,7 +2238,7 @@ async function runTranscribeFlow(provider) {
     // cleared when the flag goes off) sailed past it and bricked the
     // main button. Test the RESOLVED engine instead.
     if (!_transcribeCfg.enabled && _transcribeCfg.directEnabled
-            && (provider || _transcribeCfg.engine) !== DIRECT_ENGINE_ID) {
+            && !isDirectEngine(provider || _transcribeCfg.engine)) {
         openEnginePicker();
         return;
     }
@@ -2219,12 +2260,12 @@ async function runTranscribeFlow(provider) {
     // a.url) so a re-run of the same source resumes the same job record
     // instead of orphaning it.
     const sourceUrl = transcribeSourceUrl(a);
-    if (provider === DIRECT_ENGINE_ID) {
+    if (isDirectEngine(provider)) {
         // Refuse a page URL locally rather than pay a provider to
         // discover it was handed HTML (field failure 2026-08-15).
         const problem = directSubmissionProblem(a, sourceUrl);
-        if (problem) { toast(problem, 'error', 10000); return; }
-        if (!confirmDirectSubmission(sourceUrl, a.url)) return;
+        if (problem) { toast(problem.detail, 'error', 10000); return; }
+        if (!confirmDirectSubmission(sourceUrl, a.url, provider)) return;
     }
     const mediaKey = await mediaKeyForArticle(a, sourceUrl);
     if (_transcribeRunning) {
@@ -2289,17 +2330,27 @@ async function runTranscribeFlow(provider) {
     if (draftsBtn) draftsBtn.disabled = true;
     try {
         reapStaleJobRecords(transcribeChromeIo(browserApi, () => {})).catch(() => {});
-        renderTranscribeBanner('Contacting the transcription service…');
+        const vendor = (ENGINE_META[provider] && ENGINE_META[provider].vendor) || null;
+        renderTranscribeBanner(vendor
+            ? `Contacting ${vendor}…`
+            : 'Contacting the transcription service…');
         const io = transcribeChromeIo(browserApi, (job) => {
             // Honest wording: a cloud-provider job is not "locally".
             renderTranscribeBanner(`Transcribing ${providerPhrase(job && job.provider)} — ${describeProgress(job)}`);
         });
         const out = await runTranscriptionJob({ mediaUrl: sourceUrl, mediaKey, provider, io, ...routing });
         if (!out.ok) {
-            renderTranscribeBanner(out.error, 'error', { docsHint: !!(out.error || '').includes('not reachable') });
+            renderTranscribeBanner(out.error, 'error', {
+                // Companion setup advice on a companion-free route is
+                // noise at best. Gate it on the ROUTE, not on a
+                // substring that a future direct-path string might
+                // happen to contain.
+                docsHint: routing.route !== 'direct' && !!(out.error || '').includes('not reachable')
+            });
             // A cloud engine without its key: the picker is the fastest
             // path to either the key field or another engine.
             if (out.missingKey) openEnginePicker();
+            if (out.priorSubmission) warnPriorSubmission();
             return;
         }
         await adoptDiarizedTranscript(out.result);
@@ -2326,6 +2377,10 @@ async function runTranscribeFlow(provider) {
         removeTranscribeBanner();
         toast(`Transcribed ${providerPhrase(meta.provider)} — ${segs} segments, ${state.article.transcript_meta.speaker_count} speaker(s)`
             + (meta.asr_model ? ` (${meta.asr_model})` : ''), 'success', 6000);
+        // LAST, after the in-flight banner is gone: a possible-charge
+        // notice must outlive the success toast rather than be erased by
+        // it (the single toast slot is last-write-wins).
+        if (out.priorSubmission) warnPriorSubmission();
     } catch (err) {
         renderTranscribeBanner((err && err.message) || String(err), 'error');
     } finally {
@@ -2369,6 +2424,16 @@ async function refreshTranscribeCfg() {
 // one string. tests/engine-vocabulary.test.mjs asserts this literal
 // still equals the module's DIRECT_ENGINE_ID export.
 const DIRECT_ENGINE_ID = 'assemblyai-direct';
+const DEEPGRAM_DIRECT_ENGINE_ID = 'deepgram-direct';
+
+// EVERY companion-free engine. Scattered `=== DIRECT_ENGINE_ID` checks
+// are what broke Deepgram on arrival (2026-08-16): the click guard and
+// the consent block each compared against ONE id, so selecting Deepgram
+// silently re-opened the picker, and — worse — skipped both the page-URL
+// refusal and the confirm dialog. Comparisons go through this set, and
+// tests/engine-vocabulary.test.mjs fails any that do not.
+const DIRECT_ENGINE_IDS = [DIRECT_ENGINE_ID, DEEPGRAM_DIRECT_ENGINE_ID];
+const isDirectEngine = (id) => DIRECT_ENGINE_IDS.includes(id);
 
 const ENGINE_META = {
     local: {
@@ -2400,7 +2465,28 @@ const ENGINE_META = {
         detail: 'X-Ray sends AssemblyAI the media\u2019s web address and your API key; '
             + 'AssemblyAI downloads the audio itself. No companion service, no Python, no GPU.',
         rate: 0.28,
-        direct: true
+        direct: true,
+        // The bare vendor name, for sentences. `label` carries the
+        // "(direct)" transport suffix, which reads wrong mid-prose and —
+        // field-found 2026-08-16 — was not the bug: the consent dialog
+        // hardcoded "AssemblyAI" and said it while running Deepgram.
+        vendor: 'AssemblyAI'
+    },
+    // The second companion-free provider (DC.3). Measured 2026-08-16 on
+    // a live 48-minute episode: 12.9s end to end. Its structural
+    // difference from AssemblyAI is stated in the sub-line, because it
+    // is the one thing a user could not otherwise know: this route
+    // cannot resume if it is interrupted.
+    [DEEPGRAM_DIRECT_ENGINE_ID]: {
+        label: 'Deepgram (direct)',
+        badge: 'cloud — nothing to install',
+        detail: 'X-Ray sends Deepgram the media\u2019s web address and your API key; '
+            + 'Deepgram downloads the audio itself and returns the transcript in one call. '
+            + 'Fast, but it cannot resume if interrupted.',
+        rate: 0.26,
+        direct: true,
+        synchronous: true,
+        vendor: 'Deepgram'
     }
 };
 
@@ -2414,12 +2500,13 @@ const ENGINE_PROVIDER = {
     local: null,
     assemblyai: 'assemblyai',
     deepgram: 'deepgram',
-    [DIRECT_ENGINE_ID]: 'assemblyai'
+    [DIRECT_ENGINE_ID]: 'assemblyai',
+    [DEEPGRAM_DIRECT_ENGINE_ID]: 'deepgram'
 };
 
 /** Every engine the picker offers, in display order. Availability and
  *  flag gating are applied per item inside openEnginePicker. */
-const PICKER_ENGINES = ['local', 'assemblyai', 'deepgram', DIRECT_ENGINE_ID];
+const PICKER_ENGINES = ['local', 'assemblyai', 'deepgram', DIRECT_ENGINE_ID, DEEPGRAM_DIRECT_ENGINE_ID];
 
 /** Human tooltip for the main Transcribe button, from the preference. */
 function transcribeTooltip() {
@@ -2433,7 +2520,7 @@ function transcribeTooltip() {
     // on, and the direct engine is picker-only in DC.1. Covers a stored
     // companion engine too — saying "locally" for a preference that
     // cannot run would be the same dead end the click guard closes.
-    if (!_transcribeCfg.enabled && _transcribeCfg.directEnabled && e !== DIRECT_ENGINE_ID) {
+    if (!_transcribeCfg.enabled && _transcribeCfg.directEnabled && !isDirectEngine(e)) {
         return `${head} — choose AssemblyAI (direct) with ▾; no companion service needed`;
     }
     if (!e) return `${head} — with the companion service's default engine (local unless its env says otherwise; pick per video with ▾, or set a default in Settings)`;
@@ -2459,11 +2546,14 @@ function engineEstimate(engine) {
         // answer; a guessed figure on a consent surface is worse than
         // "unknown". Never name the companion here: this route exists
         // precisely for users who have not installed one.
+        const vendor = meta.vendor || 'the provider';
+        const speed = meta.synchronous ? 'Usually well under a minute' : 'Usually 2–5 minutes';
         return secs
-            ? `~2–5 min — about $${Math.max(0.01, (secs / 3600) * meta.rate).toFixed(2)} for this media. `
-              + 'The audio never touches this machine; AssemblyAI learns the address.'
-            : 'Usually 2–5 minutes, metered per audio-hour — length unknown until AssemblyAI '
-              + 'fetches it. The audio never touches this machine; AssemblyAI learns the address.';
+            ? `~${meta.synchronous ? 'under a minute' : '2–5 min'} — about `
+              + `$${Math.max(0.01, (secs / 3600) * meta.rate).toFixed(2)} for this media. `
+              + `The audio never touches this machine; ${vendor} learns the address.`
+            : `${speed}, metered per audio-hour — length unknown until ${vendor} `
+              + `fetches it. The audio never touches this machine; ${vendor} learns the address.`;
     }
     if (engine === 'local') {
         if (!secs) return 'Runs on your GPU; speed depends on the card and the length of the media.';
@@ -2544,8 +2634,17 @@ async function openEnginePicker() {
         // is — with both flags off the picker never opens at all.
         if (meta.direct ? !directEnabled : !companionEnabled) continue;
         const blockedLocal = engine === 'local' && localBlocked;
+        // Field report 2026-08-16: the direct engine was OFFERED on a
+        // YouTube capture and only refused after the click, on a page
+        // where it structurally cannot work. Availability marks are the
+        // picker's existing idiom for exactly this (missing key,
+        // HF_TOKEN) — a choice that cannot succeed should never look
+        // like a choice.
+        const blockedDirect = meta.direct
+            ? directSubmissionProblem(state.article, transcribeSourceUrl(state.article || {}))
+            : null;
         const provider = ENGINE_PROVIDER[engine];
-        const keyed = !blockedLocal
+        const keyed = !blockedLocal && !blockedDirect
             && (!provider || !!(_transcribeCfg.keys && _transcribeCfg.keys[provider]));
         const item = document.createElement('button');
         item.type = 'button';
@@ -2570,13 +2669,19 @@ async function openEnginePicker() {
         sub.className = 'xr-engine-menu__sub' + (keyed ? '' : ' xr-engine-menu__sub--warn');
         sub.textContent = keyed
             ? engineEstimate(engine)
-            : blockedLocal
-                ? 'Needs HF_TOKEN on the companion service — see companion/transcriber/README.md.'
-                : 'No API key saved — click to add one in Settings.';
+            : blockedDirect
+                ? blockedDirect.short
+                : blockedLocal
+                    ? 'Needs HF_TOKEN on the companion service — see companion/transcriber/README.md.'
+                    : 'No API key saved — click to add one in Settings.';
         item.appendChild(sub);
 
         item.addEventListener('click', () => {
             closeEnginePicker();
+            if (blockedDirect) {
+                toast(blockedDirect.detail, 'error', 10000);
+                return;
+            }
             if (blockedLocal) {
                 toast('Local transcription needs HF_TOKEN set on the companion service — see companion/transcriber/README.md, then restart the service.', 'error', 6000);
                 return;

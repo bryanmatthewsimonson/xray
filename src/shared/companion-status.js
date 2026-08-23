@@ -52,13 +52,40 @@ export function localBlockedByHealth(health) {
  * @param {number=} opts.port        the port probed, for the recovery text
  * @returns {{level:string, state:string, detail:string, steps:string[], command:string}}
  */
-export function deriveCompanionState({ resp, enginePref = '', port = 8756 } = {}) {
+/**
+ * `directEnabled` (DC.2): can this install transcribe with NO companion
+ * at all? When it can, an absent companion is not a fault — it is a
+ * supported, working configuration, and the panel must stop opening
+ * with terminal instructions and a false "transcribing stays
+ * unavailable". Every OTHER state is unaffected: a companion that is
+ * running, outdated, rejecting auth, or missing HF_TOKEN is misbehaving
+ * whether or not another route exists, and the tests pin that.
+ */
+export function deriveCompanionState({ resp, enginePref = '', port = 8756, directEnabled = false } = {}) {
     const base = { level: 'checking', state: 'Checking…', detail: '', steps: [], command: '' };
     if (!resp) return base;
 
     const startCommand = 'cd companion\\transcriber\nuv run xray-transcriber';
 
     if (!resp.ok) {
+        // The companion-free configuration is a first-class state, not a
+        // failure. Saying "transcribing stays unavailable" to a user who
+        // can transcribe right now is simply false, and it was the first
+        // thing they read (this panel has no flag gate and polls on
+        // load).
+        if (directEnabled) {
+            return {
+                level: 'warn',
+                state: 'Not installed',
+                detail: `Nothing is answering on 127.0.0.1:${port} — expected if you never installed it. `
+                    + 'AssemblyAI (direct) transcribes without it. Installing the companion would add '
+                    + 'local, private transcription that never leaves this machine, and the platform '
+                    + 'pages a cloud provider cannot fetch (YouTube, Instagram, TikTok — their media '
+                    + 'URLs are signed and expire).',
+                steps: [],
+                command: ''
+            };
+        }
         return {
             level: 'err',
             state: 'Not running',

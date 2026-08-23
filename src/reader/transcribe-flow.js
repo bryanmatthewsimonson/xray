@@ -85,7 +85,8 @@ const STAGE_LABELS = {
 const PROVIDER_LABELS = {
     assemblyai: 'AssemblyAI',
     deepgram: 'Deepgram',
-    'assemblyai-direct': 'AssemblyAI'
+    'assemblyai-direct': 'AssemblyAI',
+    'deepgram-direct': 'Deepgram'
 };
 
 /** 'locally' / 'via AssemblyAI' — the banner + toast wording for a
@@ -94,6 +95,29 @@ const PROVIDER_LABELS = {
 export function providerPhrase(provider) {
     const label = PROVIDER_LABELS[String(provider || '').trim().toLowerCase()];
     return label ? `via ${label}` : 'locally';
+}
+
+/**
+ * Strip ANSI colour debris from provider/companion error text.
+ *
+ * yt-dlp writes coloured output to stderr, the companion forwards the
+ * message verbatim, and JSON transport drops the ESC byte — so what
+ * reached the reader's banner on 2026-08-16 was:
+ *
+ *   [0;31mERROR: [0m unable to download video data: HTTP Error 403
+ *
+ * The diagnosis in there is exactly what the user needs (and DC-4
+ * depends on provider errors surviving verbatim), so this removes ONLY
+ * the escape sequences — with ESC or without, since either can arrive —
+ * and nothing else. The pattern is deliberately narrow (digits and
+ * semicolons then `m`) so real bracketed prose like "[step 3]" and URLs
+ * containing brackets are untouched.
+ */
+export function cleanProviderError(text) {
+    return String(text == null ? '' : text)
+        .replace(/\u001b?\[\d{1,3}(?:;\d{1,3})*m/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
 }
 
 /** Human progress line for the banner: stage + honest %. */
@@ -172,6 +196,24 @@ export async function reapStaleJobRecords(io, now = Date.now()) {
     return dead.length;
 }
 
+// DC.2: the driver is shared, its failure strings were not. On the
+// direct route "the transcription service" is AssemblyAI, and "try
+// again once the service is back" names something the user does not
+// run. Companion wording is preserved byte-for-byte — a companion user
+// must read exactly what they always did.
+const JOB_LOST_MESSAGE = {
+    companion: 'The transcription service no longer knows this job (it may have restarted). Try again.',
+    direct: 'AssemblyAI no longer knows this transcript (their record of it may have expired). Start a new transcription.'
+};
+const CONTACT_LOST_MESSAGE = {
+    companion: 'Lost contact with the transcription service mid-job. The job may still be running — try again once the service is back.',
+    direct: 'Lost contact with AssemblyAI mid-job. The transcription may still be running on their side — try again in a moment; it will resume rather than start over.'
+};
+const UNREACHABLE_MESSAGE = {
+    companion: 'Companion transcription service not reachable.',
+    direct: 'Could not reach AssemblyAI.'
+};
+
 /**
  * Run (or resume) the transcription job for one media URL, polling until a
  * terminal state. Resolves {ok: true, result} on success and
@@ -198,9 +240,49 @@ export async function runTranscriptionJob({
     route = 'companion',
     startType = 'xray:transcribe:start',
     statusType = 'xray:transcribe:status',
-    pollMs = POLL_INTERVAL_MS
+    pollMs = POLL_INTERVAL_MS,
+    // DC.3: a transport whose SUBMIT returns the transcript. Deepgram's
+    // pre-recorded call has no job id and no polling endpoint, and their
+    // docs say they do not store transcripts — so the response is the
+    // only chance to receive it.
+    synchronous = false
 }) {
     const key = jobRecordKey(mediaKey, route);
+
+    if (synchronous) {
+        // There is nothing to resume, so the record is not a resume
+        // handle — it is a PRE-FLIGHT marker. Written before the request
+        // and cleared on any resolved outcome, so a record that survives
+        // means the request never came back (a torn-down worker), which
+        // is the one case where money may have been spent with nothing
+        // to show. We report that and let the USER decide; auto-retrying
+        // would spend again on their behalf.
+        const prior = await io.storageGet(key);
+        const priorSubmission = !!(prior && prior.pending && !isRecordStale(prior, io.now()));
+        await io.storageSet(key, {
+            pending: true, url: mediaUrl, mediaKey, startedAt: io.now(), route,
+            ...(provider ? { provider } : {})
+        });
+        const started = await io.sendMessage({
+            type: startType, url: mediaUrl, ...(provider ? { provider } : {})
+        });
+        // Answered is answered, whatever the answer — only an unresolved
+        // request leaves the marker behind.
+        await io.storageRemove([key]);
+        if (!started || !started.ok) {
+            return {
+                ok: false,
+                priorSubmission,
+                missingKey: started && started.missingKey,
+                error: cleanProviderError(started && started.error) || 'Could not start the transcription.'
+            };
+        }
+        if (!started.result) {
+            return { ok: false, priorSubmission, error: 'The transcription finished but returned no result.' };
+        }
+        return { ok: true, priorSubmission, result: started.result };
+    }
+
     const record = await io.storageGet(key);
 
     // Resume decision: ask the server about a remembered job first —
@@ -218,7 +300,8 @@ export async function runTranscriptionJob({
             return {
                 ok: false,
                 resumable: true,
-                error: statusResp.error || 'Companion transcription service not reachable.'
+                error: cleanProviderError(statusResp.error)
+                    || UNREACHABLE_MESSAGE[route] || UNREACHABLE_MESSAGE.companion
             };
         }
     }
@@ -241,7 +324,11 @@ export async function runTranscriptionJob({
             ...(provider ? { provider } : {})
         });
         if (!started || !started.ok) {
-            return { ok: false, missingKey: started && started.missingKey, error: (started && started.error) || 'Could not start the transcription job.' };
+            return {
+                ok: false,
+                missingKey: started && started.missingKey,
+                error: cleanProviderError(started && started.error) || 'Could not start the transcription job.'
+            };
         }
         jobId = started.jobId;
         // Written BEFORE the first poll on purpose: on the direct
@@ -261,7 +348,7 @@ export async function runTranscriptionJob({
         if (!resp || !resp.ok) {
             if (resp && resp.status === 404) {
                 await io.storageRemove([key]);
-                return { ok: false, error: 'The transcription service no longer knows this job (it may have restarted). Try again.' };
+                return { ok: false, error: JOB_LOST_MESSAGE[route] || JOB_LOST_MESSAGE.companion };
             }
             unreachable += 1;
             if (unreachable >= MAX_UNREACHABLE_POLLS) {
@@ -270,7 +357,8 @@ export async function runTranscriptionJob({
                 return {
                     ok: false,
                     resumable: true,
-                    error: (resp && resp.error) || 'Lost contact with the transcription service mid-job. The job may still be running — try again once the service is back.'
+                    error: cleanProviderError(resp && resp.error)
+                    || CONTACT_LOST_MESSAGE[route] || CONTACT_LOST_MESSAGE.companion
                 };
             }
             await io.sleep(pollMs);
@@ -289,7 +377,7 @@ export async function runTranscriptionJob({
         }
         if (job.status === 'failed' || job.status === 'cancelled') {
             await io.storageRemove([key]);
-            return { ok: false, error: job.error || `Transcription ${job.status}.` };
+            return { ok: false, error: cleanProviderError(job.error) || `Transcription ${job.status}.` };
         }
         await io.sleep(pollMs);
     }
@@ -346,26 +434,47 @@ export function transcribeSourceUrl(article) {
 // Media-file extensions, mirrored from shared/media-hints.js
 // mediaKindForHref — this module deliberately imports nothing (its
 // tests run with no chrome stub), so keep the two in sync.
+// Human names for the KNOWN_PLATFORMS ids. Inline for the same reason
+// PROVIDER_LABELS is: this module deliberately imports nothing. Keep in
+// sync with KNOWN_PLATFORMS above.
+const PLATFORM_LABELS = {
+    substack: 'Substack', youtube: 'YouTube', twitter: 'X', tiktok: 'TikTok',
+    instagram: 'Instagram', facebook: 'Facebook', pmc: 'PMC', arxiv: 'arXiv'
+};
+
 const MEDIA_EXT_RE = /\.(mp3|m4a|aac|ogg|oga|opus|wav|flac|mp4|m4v|webm|mov)$/i;
 
 /**
  * Why THIS url cannot be submitted to a direct cloud provider, or null.
+ *
+ * Returns `{short, detail}` — `short` is a menu-row reason so the picker
+ * can mark the engine unavailable BEFORE the user clicks, `detail` is
+ * the full explanation for the refusal toast.
  *
  * The direct route's one structural limit: a provider fetches a URL, it
  * does not resolve a page. The companion has yt-dlp and genuinely can,
  * which is why transcribeSourceUrl falls back to the page URL — correct
  * there, guaranteed-useless here.
  *
- * Field-found 2026-08-15 on a PodBean episode page that exposed no
- * discoverable media file: the fallback fired, AssemblyAI was handed an
- * HTML document, and the answer came back as a paid API error
- * ("Transcoding failed. File type text/html") rather than as something
- * X-Ray could have said for free.
- *
  * Deliberately NOT a heuristic about what a media URL looks like: the
  * test is whether we are about to submit the CAPTURED PAGE'S OWN
  * address, which is definitionally a page — unless the capture is
  * itself a media file, which is the one exception.
+ *
+ * The REMEDY is platform-specific, which the first version got wrong
+ * (field report 2026-08-16, on YouTube). Advice has to be true for the
+ * page in front of the user AND reachable in their configuration:
+ *
+ *  - YouTube: do not suggest pasting a direct file URL — those are
+ *    signed and expire (kickoff §8). And do not lead with "use the
+ *    companion" to the direct-only user this feature exists for. What
+ *    is actually true is better news: YouTube captions are already
+ *    fetched with the capture (platforms/youtube.js fetchTranscript),
+ *    so nothing is missing except diarized speaker labels.
+ *  - Other known platforms: signed, expiring URLs; the companion is
+ *    genuinely the only path, so say that plainly.
+ *  - Off-platform: a direct file URL exists somewhere and simply was
+ *    not discovered — the Media modal is a real, reachable fix.
  */
 export function directSubmissionProblem(article, sourceUrl) {
     const a = article || {};
@@ -374,13 +483,35 @@ export function directSubmissionProblem(article, sourceUrl) {
     if (MEDIA_EXT_RE.test(url.split(/[?#]/)[0])) return null;
 
     const platform = a.platform && KNOWN_PLATFORMS.has(a.platform) ? a.platform : '';
-    const because = platform
-        ? `${platform} serves signed, expiring media URLs, so this capture sends its page address`
-        : 'no direct media file was found on this page, so this capture falls back to its page address';
-    return `AssemblyAI (direct) needs a media file, and ${because}. `
-        + 'A cloud provider downloads a URL; it cannot open a page and find the audio. '
-        + 'Use the \u{1F399} Media & source modal to paste the episode\u2019s direct file URL, '
-        + 'or run this one through the companion service, which resolves pages with yt-dlp.';
+    const label = PLATFORM_LABELS[platform] || platform;
+
+    if (platform === 'youtube') {
+        return {
+            short: 'YouTube media URLs are signed and expire — a provider cannot fetch them.',
+            detail: 'A direct cloud engine cannot transcribe this YouTube page: a cloud provider '
+                + 'downloads a URL, and YouTube\u2019s media URLs are signed and expire. '
+                + 'You are not missing a transcript, though \u2014 YouTube\u2019s own captions '
+                + 'are captured with the page. Transcribing would only add diarized speaker '
+                + 'labels, and on YouTube that needs the companion service, which resolves the '
+                + 'page with yt-dlp.'
+        };
+    }
+    if (platform) {
+        return {
+            short: `${label} media URLs are signed and expire — a provider cannot fetch them.`,
+            detail: `A direct cloud engine cannot transcribe this ${label} page: a cloud provider `
+                + `downloads a URL, and ${label}\u2019s media URLs are signed and expire. `
+                + 'The companion service resolves these pages with yt-dlp; the direct route '
+                + 'cannot.'
+        };
+    }
+    return {
+        short: 'No direct media file was found on this page.',
+        detail: 'A direct cloud engine needs a media file, and no direct media file was found on '
+            + 'this page, so this capture falls back to its page address. A cloud provider '
+            + 'downloads a URL; it cannot open a page and find the audio. Use the '
+            + '\u{1F399} Media & source modal to paste the episode\u2019s direct file URL.'
+    };
 }
 
 /**

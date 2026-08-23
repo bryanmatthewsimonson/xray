@@ -150,3 +150,73 @@ test('engineName maps ids to display names', () => {
     assert.equal(engineName('local'), 'local');
     assert.equal(engineName(''), 'local');
 });
+
+// ------------------------------------------------------------------
+// DC.2 — "no companion installed, direct cloud configured" is a
+// COHERENT STATE, not a wall of setup errors.
+//
+// setupCompanionStatus has no flag gate: this panel polls and renders
+// on the Options page regardless of which transcription routes the user
+// has enabled. Before DC.2 its "Not running" state told a direct-only
+// user that "Transcribing stays unavailable until the service is
+// started — including for the AssemblyAI and Deepgram engines", which
+// is FALSE for them and is the first thing they would read.
+//
+// It is also the only surface in the inventory that fires BEFORE the
+// user attempts anything, which is why it leads DC.2's work list.
+// ------------------------------------------------------------------
+
+test('DC.2: an absent companion is not an ERROR when direct cloud can transcribe', () => {
+    const down = { ok: false, error: 'not reachable' };
+    const withoutDirect = deriveCompanionState({ resp: down, port: 8756 });
+    assert.equal(withoutDirect.level, 'err', 'unchanged when direct cloud is off');
+
+    const withDirect = deriveCompanionState({ resp: down, port: 8756, directEnabled: true });
+    assert.notEqual(withDirect.level, 'err',
+        'an absent companion is an expected, working configuration for a direct-only user');
+});
+
+test('DC.2: the absent-companion detail is TRUE for a direct-only user', () => {
+    const state = deriveCompanionState({
+        resp: { ok: false }, port: 8756, directEnabled: true
+    });
+    const text = `${state.state} ${state.detail}`;
+    assert.ok(!/stays unavailable/i.test(text),
+        'transcribing does NOT stay unavailable — the direct route works without this service');
+    assert.ok(!/including for the AssemblyAI and Deepgram engines/i.test(text),
+        'that clause predates the direct route and is now false');
+    assert.match(text, /direct/i, 'name the route that does work');
+});
+
+test('DC.2: it still says what the companion would ADD, without demanding it', () => {
+    // Honest, not dismissive: the companion is not obsolete — it is the
+    // local/private option and the only path for signed platform media.
+    const state = deriveCompanionState({
+        resp: { ok: false }, port: 8756, directEnabled: true
+    });
+    const text = `${state.detail} ${state.steps.join(' ')}`;
+    assert.match(text, /local|private|YouTube|platform/i,
+        'say what installing it would buy, so the choice is informed');
+    // No imperative setup steps: nothing is broken in this state.
+    assert.ok(state.steps.length === 0 || !/^Open a terminal/.test(state.steps[0]),
+        'do not open with terminal instructions for a configuration that is working');
+});
+
+test('DC.2: a RUNNING companion renders identically whether or not direct is on', () => {
+    // The flag must not perturb any state but the absent one.
+    const up = { ok: true, health: { version: '1.2', device: 'cpu', request_provider: true, hf_token: true } };
+    for (const enginePref of ['', 'local', 'assemblyai', 'ask']) {
+        assert.deepEqual(
+            deriveCompanionState({ resp: up, enginePref, directEnabled: true }),
+            deriveCompanionState({ resp: up, enginePref }),
+            `the direct flag changed a running-companion state (enginePref=${enginePref || 'none'})`
+        );
+    }
+});
+
+test('DC.2: an auth-rejecting companion is still an error, direct or not', () => {
+    // Reachable-but-rejecting is a genuine misconfiguration the user
+    // asked for by setting a token. Direct cloud does not excuse it.
+    const rejecting = { ok: true, authOk: false, health: {} };
+    assert.equal(deriveCompanionState({ resp: rejecting, directEnabled: true }).level, 'err');
+});

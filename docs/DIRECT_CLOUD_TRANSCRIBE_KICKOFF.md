@@ -138,13 +138,28 @@ companion-routed engines, so the user can always see which one ran, and
   the companion service stopped**. Acceptance: the same PowerPress
   episode from the 2026-08-15 walk, transcribed end to end with nothing
   running locally, adopted into the reader.
-- **DC.2 — the no-companion state becomes first-class.** Today the UI
+- **DC.2 — the no-companion state becomes first-class.** COMPLETE
+  2026-08-16 (smoke rows DC-7..DC-9 owed). Today the UI
   assumes a companion exists: the status panel, the picker's
   availability marks, and several error strings all describe a service.
   Make "no companion installed, direct cloud configured" a coherent,
   self-explaining state rather than a wall of setup errors.
-- **DC.3 — Deepgram parity**, if and only if DC.1's criterion is met
-  and the API confirms a remote-URL mode.
+- **DC.3 — Deepgram parity.** COMPLETE 2026-08-16 (smoke rows
+  DC-10, DC-11 owed). **GATE OPENED by maintainer ruling
+  2026-08-16** (CONSTITUTION Art. 11). The §4 gate as written was a
+  conjunction — DC.1's criterion met AND the API confirmed — and the
+  `product-manager` review read the criterion half as unmet, because
+  §5's third clause (a transcript feeding a claim or entity page) is
+  deferred to corpus work. It also raised a stronger objection than the
+  gate: DC.3 had **no problem statement in the maintainer's terms**,
+  since the §1 job-to-be-hired is already served by AssemblyAI direct.
+  That objection is now answered, and by the only authority that could
+  answer it: *"I also now have a Deepgram API key, and I do want to be
+  able to use Deepgram if I want."* A maintainer who holds a key and
+  wants to spend it is a problem statement; price parity and provider
+  redundancy were not. The deferred §5 clause remains deferred and is
+  NOT treated as satisfied — the ruling overrides the gate rather than
+  pretending the gate passed.
 - **Deferred, not scheduled:** local-file upload direct to a provider;
   any attempt at platform pages (see §8).
 

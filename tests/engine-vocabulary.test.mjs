@@ -51,7 +51,8 @@ const READER_SRC = readRepo('src/reader/index.js');
 const READER_CODE = stripComments(READER_SRC);
 const { providerPhrase } = await import('../src/reader/transcribe-flow.js');
 const { providerDisplayName } = await import('../src/shared/diarized-transcript.js');
-const { DIRECT_ENGINE_ID, DIRECT_PROVIDER } = await import('../src/shared/direct-transcribe.js');
+const { DIRECT_ENGINE_ID, DIRECT_PROVIDER, DIRECT_ENGINE_IDS } = await import('../src/shared/direct-transcribe.js');
+const { DEEPGRAM_ENGINE_ID, DEEPGRAM_PROVIDER } = await import('../src/shared/direct-transcribe-deepgram.js');
 const { TRANSCRIBE_ENGINES, normalizeEngine, getTranscribeConfig } = await import('../src/shared/transcriber-client.js');
 const { FLAGS_DEFAULTS } = await import('../src/shared/metadata/feature-flags.js');
 
@@ -62,7 +63,9 @@ function pickerEngines() {
     const m = /const PICKER_ENGINES = \[([^\]]*)\]/.exec(READER_SRC);
     assert.ok(m, 'PICKER_ENGINES is no longer declared where the guard can find it');
     return m[1].split(',').map((s) => s.trim()).filter(Boolean).map((token) => (
-        token === 'DIRECT_ENGINE_ID' ? DIRECT_ENGINE_ID : token.replace(/^['"]|['"]$/g, '')
+        token === 'DIRECT_ENGINE_ID' ? DIRECT_ENGINE_ID
+            : token === 'DEEPGRAM_DIRECT_ENGINE_ID' ? DEEPGRAM_ENGINE_ID
+                : token.replace(/^['"]|['"]$/g, '')
     ));
 }
 
@@ -79,7 +82,9 @@ test('every picker engine has a human label everywhere it is rendered', () => {
 
 test('every picker engine has ENGINE_META and an ENGINE_PROVIDER mapping', () => {
     for (const engine of pickerEngines()) {
-        const key = engine === DIRECT_ENGINE_ID ? '\\[DIRECT_ENGINE_ID\\]' : engine;
+        const key = engine === DIRECT_ENGINE_ID ? '\\[DIRECT_ENGINE_ID\\]'
+            : engine === DEEPGRAM_ENGINE_ID ? '\\[DEEPGRAM_DIRECT_ENGINE_ID\\]'
+                : engine;
         assert.match(READER_SRC, new RegExp(`ENGINE_META = \\{[\\s\\S]*?${key}:`),
             `${engine} is iterated by the picker but has no ENGINE_META entry`);
         assert.match(READER_SRC, new RegExp(`ENGINE_PROVIDER = \\{[\\s\\S]*?${key}:`),
@@ -171,11 +176,14 @@ test('the direct route resolver and the direct handlers agree on the flag name',
     // A typo'd flag name in isEnabled() returns undefined — falsy —
     // which would silently disable the feature rather than failing.
     const bg = readRepo('src/background/index.js');
-    const handlers = bg.match(/xray:transcribe:direct:(start|status)/g) || [];
-    assert.equal(handlers.length, 2, 'both direct message handlers must exist');
+    // The invariant is one flag check PER handler, not a fixed count —
+    // DC.3 added a third handler and a hardcoded 2 would have hidden a
+    // missing gate rather than catching it.
+    const handlers = bg.match(/if \(message\.type === 'xray:transcribe:direct:[a-z]+'\)/g) || [];
+    assert.ok(handlers.length >= 3, `expected every direct handler, found ${handlers.length}`);
     const gates = bg.match(/isEnabled\('directCloudTranscription'\)/g) || [];
-    assert.equal(gates.length, 2,
-        'BOTH direct handlers must check the flag — including the poll, which an MV3 worker '
+    assert.equal(gates.length, handlers.length,
+        'EVERY direct handler must check the flag — including the poll, which an MV3 worker '
         + 'reaches after waking, potentially after the flag was turned off');
 });
 
@@ -230,22 +238,66 @@ test('only the service worker reaches the direct transcription module', () => {
 });
 
 test('a direct-only install never dead-ends on a leftover companion engine', () => {
-    // The Options engine <select> is independent of the
-    // localTranscription checkbox and is never cleared when that flag
-    // goes off, so 'local'/'assemblyai'/'deepgram' can outlive it. With
-    // the companion flag off, every one of those is refused by the SW
-    // with "Local transcription is off" — pushing a user who
-    // deliberately installed nothing toward installing a companion.
-    // The guard must test the RESOLVED engine, not just its absence.
-    const guard = /if \(!_transcribeCfg\.enabled && _transcribeCfg\.directEnabled\s*\n\s*&& \(provider \|\| _transcribeCfg\.engine\) !== DIRECT_ENGINE_ID\)/;
-    assert.match(READER_CODE, guard,
-        'runTranscribeFlow must route ANY non-direct engine to the picker when the companion flag is off');
-    assert.ok(!/if \(!provider && !_transcribeCfg\.enabled && _transcribeCfg\.directEnabled\)/.test(READER_CODE),
-        'the `!provider`-only form let a stored engine preference brick the button');
-    // The tooltip must not promise a local run it cannot perform.
+    // The Options engine <select> is independent of the localTranscription
+    // checkbox and is never cleared when that flag goes off, so
+    // 'local'/'assemblyai'/'deepgram' can outlive it. With the companion
+    // flag off every one of those is refused by the SW, so the click
+    // guard must route them to the picker instead of a dead end.
     assert.match(READER_CODE,
-        /if \(!_transcribeCfg\.enabled && _transcribeCfg\.directEnabled && e !== DIRECT_ENGINE_ID\)/,
+        /if \(!_transcribeCfg\.enabled && _transcribeCfg\.directEnabled\s*\n?\s*&& !isDirectEngine\(provider \|\| _transcribeCfg\.engine\)\) \{/,
+        'the click guard must test the RESOLVED engine against the direct SET');
+    assert.match(READER_CODE,
+        /if \(!_transcribeCfg\.enabled && _transcribeCfg\.directEnabled && !isDirectEngine\(e\)\)/,
         'transcribeTooltip must widen the same way as the click guard');
+});
+
+test('no direct-engine comparison in the flow tests a SINGLE id', () => {
+    // The bug this replaces, field-found 2026-08-16 the moment Deepgram
+    // shipped: both the click guard and the consent block compared
+    // against DIRECT_ENGINE_ID alone. Selecting Deepgram therefore
+    // silently re-opened the picker ("nothing happens"), and — worse —
+    // skipped the page-URL refusal and the confirm dialog entirely.
+    //
+    // The previous version of this guard asserted the LITERAL string
+    // `!== DIRECT_ENGINE_ID`, so it passed while the behavior was wrong
+    // for the second engine: it pinned the implementation instead of the
+    // invariant. Pin the invariant — comparisons go through the set, and
+    // a third engine inherits every gate for free.
+    const flow = /async function runTranscribeFlow\(provider\)[\s\S]*?\n}/.exec(READER_CODE);
+    assert.ok(flow, 'runTranscribeFlow moved');
+    const bare = [...flow[0].matchAll(/[!=]== ?DIRECT_ENGINE_ID|[!=]== ?DEEPGRAM_DIRECT_ENGINE_ID/g)];
+    assert.deepEqual(bare.map((m) => m[0]), [],
+        'compare against DIRECT_ENGINE_IDS via isDirectEngine(), never one id');
+    assert.match(flow[0], /isDirectEngine\(/, 'the flow must consult the set');
+});
+
+test('every engine the picker marks `direct` is a member of the direct set', () => {
+    // ENGINE_META.direct drives the picker's availability branch; the
+    // DIRECT_ENGINE_IDS set drives the consent and refusal gates. If the
+    // two ever disagree, an engine renders as companion-free while
+    // skipping the gates that exist because it is.
+    // Scope to the ENGINE_META object — an unscoped scan matches any
+    // computed key in the file and then runs forward looking for
+    // `direct: true`, which found `[skey]` from an unrelated object.
+    const metaBody = /const ENGINE_META = \{([\s\S]*?)\n\};/.exec(READER_SRC);
+    assert.ok(metaBody, 'ENGINE_META moved');
+    const metaDirect = [...metaBody[1].matchAll(/\[(\w+)\]: \{(?:(?!\n    \},?)[\s\S])*?direct: true/g)]
+        .map((m) => m[1]);
+    const setBody = /const DIRECT_ENGINE_IDS = \[([^\]]*)\]/.exec(READER_CODE);
+    assert.ok(setBody, 'DIRECT_ENGINE_IDS moved');
+    const inSet = setBody[1].split(',').map((x) => x.trim()).filter(Boolean);
+    assert.deepEqual(metaDirect.sort(), inSet.sort(),
+        'ENGINE_META `direct: true` and DIRECT_ENGINE_IDS must name the same engines');
+});
+
+test('the consent dialog and the page refusal cover EVERY direct engine', () => {
+    const flow = /async function runTranscribeFlow\(provider\)[\s\S]*?\n}/.exec(READER_CODE)[0];
+    const gate = flow.indexOf('if (isDirectEngine(provider)) {');
+    const refuse = flow.indexOf('directSubmissionProblem(');
+    const confirmAt = flow.indexOf('confirmDirectSubmission(');
+    assert.ok(gate > -1, 'the direct consent block must gate on the set');
+    assert.ok(refuse > gate && confirmAt > refuse,
+        'refuse an impossible submission, then ask the user to approve a possible one');
 });
 
 test('the direct flag has a real Options control, matching what the docs and errors promise', () => {
@@ -287,7 +339,7 @@ test('a direct-only picker never probes the companion', () => {
         'the companion health probe must be gated on companionEnabled');
 });
 
-test('the direct route refuses a page URL before spending an API call', () => {
+test('the direct route refuses a page URL before starting the job', () => {
     // Field failure 2026-08-15: AssemblyAI was handed an HTML page and
     // answered with a paid error. The refusal must run BEFORE the
     // confirm dialog (no point asking the user to approve something
@@ -300,4 +352,168 @@ test('the direct route refuses a page URL before spending an API call', () => {
     assert.ok(refuseAt > 0, 'the direct route must consult directSubmissionProblem');
     assert.ok(confirmAt > refuseAt, 'refuse an impossible submission before asking the user to approve it');
     assert.ok(startAt === -1 || startAt > refuseAt);
+});
+
+test('the picker marks the direct engine unavailable before the click, not after', () => {
+    // Field report 2026-08-16: "AssemblyAI (direct)" was offered on a
+    // YouTube capture and only refused once clicked, on a page where it
+    // structurally cannot work. The picker already had an availability
+    // idiom for choices that cannot succeed (missing API key, missing
+    // HF_TOKEN); the direct engine's structural limit has to use it too.
+    const picker = /async function openEnginePicker\(\)[\s\S]*?\n}/.exec(READER_CODE);
+    assert.ok(picker, 'openEnginePicker moved');
+    assert.match(picker[0], /const blockedDirect = meta\.direct/,
+        'the picker must compute the direct engine\'s structural availability');
+    assert.match(picker[0], /blockedDirect\s*\n?\s*\?\s*blockedDirect\.short/,
+        'an unavailable direct engine must show its reason on the menu row');
+    // And the row must not be clickable into a doomed job.
+    const clickAt = picker[0].indexOf('runTranscribeFlow(engine)');
+    const guardAt = picker[0].indexOf('if (blockedDirect) {');
+    assert.ok(guardAt > 0 && guardAt < clickAt,
+        'clicking an unavailable direct row must explain, never start a job');
+    // keyed gates the estimate line; blockedDirect must suppress it too,
+    // or the row would advertise a cost for a run that cannot happen.
+    assert.match(picker[0], /const keyed = !blockedLocal && !blockedDirect/);
+});
+
+test('the refusal toast uses the detail half of the problem', () => {
+    // directSubmissionProblem returns {short, detail}; passing the
+    // object to toast() would render "[object Object]".
+    assert.match(READER_CODE, /toast\(problem\.detail,/);
+    assert.ok(!/toast\(problem,/.test(READER_CODE));
+});
+
+test('DC.2: the Options status panel is told whether direct cloud is configured', () => {
+    // deriveCompanionState cannot know on its own, and the panel has no
+    // flag gate — it polls on load for every user. Wiring it to the
+    // live CHECKBOX rather than the stored flag keeps it honest while
+    // the user is still deciding, before they hit Save.
+    const opts = readRepo('src/options/index.js');
+    assert.match(opts, /directEnabled: !!document\.getElementById\('pref-direct-cloud-transcription'\)\?\.checked/,
+        'the status panel must reflect the direct-cloud checkbox');
+});
+
+test('DC.2: companion setup advice is structurally unreachable on the direct route', () => {
+    // renderTranscribeBanner's docsHint tells the user to install the
+    // companion and run `uv run xray-transcriber`. Gating it on a
+    // substring ("not reachable") left it one careless string away from
+    // firing on the one route whose premise is that nothing is
+    // installed. Gate on the route itself.
+    assert.match(READER_CODE, /docsHint: routing\.route !== 'direct' &&/,
+        'the docs hint must be gated on the route, not only on error text');
+});
+
+test('DC.2: the opening banner names who is actually being contacted', () => {
+    // Originally pinned the literal 'Contacting AssemblyAI…' — which
+    // became wrong the moment a second vendor shipped. Same lesson as
+    // the DIRECT_ENGINE_ID guard: assert the rule, not the snapshot.
+    assert.match(READER_CODE, /`Contacting \$\{vendor\}…`/,
+        'a direct run must name the vendor it is actually contacting');
+    assert.ok(!/'Contacting AssemblyAI/.test(READER_CODE),
+        'no vendor may be hardcoded into the in-flight banner');
+});
+
+test('DC.3: both direct engines share one flag and one admission gate', () => {
+    // One consent decision covers "may X talk to a transcription
+    // provider directly" — not one per vendor. A second flag would let
+    // a user believe they had turned the capability off while another
+    // vendor still had it.
+    assert.deepEqual([...DIRECT_ENGINE_IDS].sort(), [DEEPGRAM_ENGINE_ID, DIRECT_ENGINE_ID].sort());
+    for (const id of DIRECT_ENGINE_IDS) {
+        assert.ok(pickerEngines().includes(id), `${id} is not offered by the picker`);
+    }
+});
+
+test('DC.3: the Deepgram selection id stays out of the persisted enum too', () => {
+    assert.ok(!TRANSCRIBE_ENGINES.includes(DEEPGRAM_ENGINE_ID));
+    assert.equal(normalizeEngine(DEEPGRAM_ENGINE_ID), 'local',
+        'the same collapse that keeps the AssemblyAI id picker-only');
+    assert.ok(!readRepo('src/options/index.js').includes(DEEPGRAM_ENGINE_ID));
+    assert.notEqual(DEEPGRAM_ENGINE_ID, DEEPGRAM_PROVIDER);
+});
+
+test('DC.3: the Deepgram picker line states the property a user could not guess', () => {
+    // Its one meaningful difference from AssemblyAI direct: a torn-down
+    // worker loses the request outright, because Deepgram issues no id
+    // and does not store transcripts.
+    const meta = /\[DEEPGRAM_DIRECT_ENGINE_ID\]: \{([\s\S]*?)\n    \}/.exec(READER_SRC);
+    assert.ok(meta, 'the Deepgram ENGINE_META entry moved');
+    assert.match(meta[1], /cannot resume|interrupt/i,
+        'say that this route cannot resume if interrupted');
+    assert.ok(!/audio leaves your machine/i.test(meta[1]),
+        'that is the companion cloud disclosure and it is false here');
+});
+
+test('the consent dialog names the vendor THIS run will reach', () => {
+    // Field-found 2026-08-16: the dialog hardcoded "AssemblyAI" and said
+    // it while the run went to Deepgram. A consent surface that names
+    // the wrong recipient is worse than no dialog — the user approved a
+    // disclosure to a party that was not the one receiving it.
+    const fn = /function confirmDirectSubmission\([\s\S]*?\n}/.exec(READER_CODE);
+    assert.ok(fn, 'confirmDirectSubmission moved');
+    assert.match(fn[0], /function confirmDirectSubmission\(sourceUrl, articleUrl, engine\)/,
+        'it must be told which engine is running');
+    assert.match(fn[0], /ENGINE_META\[engine\][\s\S]*?\.vendor/, 'and read the vendor from it');
+    assert.ok(!/AssemblyAI|Deepgram/.test(fn[0]),
+        'no vendor may be hardcoded in a consent string');
+    // The call site must pass it.
+    assert.match(READER_CODE, /confirmDirectSubmission\(sourceUrl, a\.url, provider\)/);
+});
+
+test('no user-facing direct-path string hardcodes one vendor', () => {
+    // The whole class, not the three instances that were found: the
+    // in-flight banner and the picker cost line had the same defect.
+    const flow = /async function runTranscribeFlow\(provider\)[\s\S]*?\n}/.exec(READER_CODE)[0];
+    assert.ok(!/'Contacting AssemblyAI/.test(flow), 'the banner must name the running vendor');
+    assert.match(READER_CODE, /renderTranscribeBanner\(vendor\s*\n?\s*\?\s*`Contacting \$\{vendor\}/);
+
+    const estimate = /if \(meta && meta\.direct\) \{([\s\S]*?)\n    \}/.exec(READER_CODE);
+    assert.ok(estimate, 'the direct branch of engineEstimate moved');
+    assert.ok(!/AssemblyAI|Deepgram/.test(estimate[1]),
+        'the picker cost line must not hardcode a vendor — both direct rows render from it');
+    assert.match(estimate[1], /meta\.vendor/);
+});
+
+test('every direct engine declares the vendor name its prose needs', () => {
+    const metaBody = /const ENGINE_META = \{([\s\S]*?)\n\};/.exec(READER_SRC)[1];
+    const directEntries = [...metaBody.matchAll(/\[(\w+)\]: \{((?:(?!\n    \},?)[\s\S])*?direct: true(?:(?!\n    \},?)[\s\S])*)/g)];
+    assert.ok(directEntries.length >= 2, 'expected both direct engines');
+    for (const [, key, body] of directEntries) {
+        assert.match(body, /vendor: '/, `${key} has no vendor name for prose`);
+    }
+});
+
+test('an unresolved prior submission is SURFACED, not just returned', () => {
+    // runTranscriptionJob returns priorSubmission; before this fix
+    // nothing consumed it, so the one case that can cost money with no
+    // result was reported to no one. The unit test asserted the flag;
+    // nothing asserted the seam.
+    assert.match(READER_CODE, /if \(out\.priorSubmission\)/,
+        'the reader must consume the flag');
+    const hits = [...READER_CODE.matchAll(/if \(out\.priorSubmission\)/g)];
+    assert.equal(hits.length, 2,
+        'surface it on BOTH outcomes — a later success does not undo an earlier charge');
+});
+
+test('the possible-charge notice is a banner, and is rendered LAST', () => {
+    // Field-found 2026-08-16: the first version used toast(). The reader
+    // has exactly ONE toast element and every call overwrites the last,
+    // so the warning was posted and then erased by the success toast
+    // milliseconds later — the maintainer correctly saw nothing. It also
+    // must outlive a timeout, which a toast cannot.
+    assert.match(READER_CODE, /function warnPriorSubmission\(\)[\s\S]*?renderTranscribeBanner\(/,
+        'the notice must render a dismissible banner, not a toast');
+    const fn = /function warnPriorSubmission\(\)[\s\S]*?\n}/.exec(READER_CODE)[0];
+    assert.ok(!/\btoast\(/.test(fn), 'a toast auto-clears and is single-slot — wrong for this');
+
+    const flow = /async function runTranscribeFlow\(provider\)[\s\S]*?\n}/.exec(READER_CODE)[0];
+    const calls = [...flow.matchAll(/warnPriorSubmission\(\)/g)];
+    assert.equal(calls.length, 2, 'surface it on BOTH outcomes — a success does not undo a charge');
+
+    // On the success path it must come AFTER the success toast, or the
+    // banner-vs-toast fix buys nothing.
+    const success = flow.indexOf("toast(`Transcribed ");
+    const warnAfter = flow.indexOf('warnPriorSubmission()', success);
+    assert.ok(success > -1 && warnAfter > success,
+        'the notice must be the last thing rendered on a successful run');
 });

@@ -19,6 +19,346 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-16 — A transcript was replacing the article, and it was never the transcript's fault
+
+**Tags:** bug
+
+Field report: a transcribed podcast episode showed only the transcript —
+the show notes were gone from the **Markdown tab**, not merely the
+render, which ruled out a display problem.
+
+`buildDiarizedBody` was innocent; a direct test confirmed it preserves
+the captured body and appends the section. The cause is upstream of
+every transcript path and older than all of them.
+`content-extractor.js:376` says it plainly in its own comment: *"content
+stays HTML at capture time (markdown happens downstream)"*. So a GENERIC
+capture — Readability, which is every podcast page — carries `content`
+HTML and **no `.markdown` at all**. `adoptDiarizedTranscript` read
+`a.markdown || ''`, composed the transcript onto an EMPTY base, and the
+article was silently replaced by its own transcript.
+
+The reader already knew about this: `state.markdownDraft` falls back to
+`article.markdown || article.content || ''`. Adoption simply never got
+the same fallback. Now shared through `capturedBodyFor()`, with
+`htmlToMarkdown` injected so it stays pure and testable.
+
+**Why it hid for so long.** The companion path was YouTube-first, and
+the YouTube handler composes its own markdown, so `a.markdown` was
+always populated there. Direct cloud transcription made podcast pages
+the primary case, and the bug surfaced on the first real one. It was
+never a DC.1/DC.2/DC.3 bug — those waves only changed which pages people
+pointed it at.
+
+**A second thing in the same report, and a mistake worth naming.** The
+"a previous submission may have been charged" warning was implemented as
+`toast()`. The reader has exactly ONE toast element and every call
+overwrites the last, so the warning was posted and then obliterated by
+the success toast milliseconds later. The maintainer reported seeing
+nothing and was exactly right. It is now a dismissible BANNER rendered
+LAST on both paths — which it should have been regardless, since a
+notice about money possibly spent has no business auto-clearing after
+twelve seconds.
+
+Both of these were found because a maintainer looked at the result and
+said "that doesn't look right", twice, about things every test was green
+on. The composer had tests. The warning had tests. Neither had a test
+that observed what a person would see.
+
+---
+
+## 2026-08-16 — The consent dialog named the wrong recipient
+
+**Tags:** bug, security
+
+Field report on the first working Deepgram run: the picker row, the
+in-flight banner and — worst — the CONSENT DIALOG all said "AssemblyAI"
+while the run went to Deepgram. The user was asked to approve sending a
+media address to one company and it was sent to another.
+
+That is not a wording bug. A consent surface that names the wrong
+recipient is worse than no dialog at all: it manufactures a record of
+informed approval for a disclosure that did not happen as described.
+Guard-rail 4 of the kickoff is about honest ENGINE naming in published
+provenance; this is the same principle one step earlier, at the moment
+of consent.
+
+Three strings had the vendor baked in. `ENGINE_META` now carries a
+`vendor` field per direct engine — deliberately separate from `label`,
+which holds the "(direct)" transport suffix and reads wrong mid-sentence
+— and the dialog, the banner and the picker's cost line all render from
+it. The guard asserts the CLASS rather than the three instances: no
+vendor name may appear as a literal in any of those strings, and every
+`direct: true` engine must declare a vendor.
+
+**A second defect in the same report, and the same root as yesterday's.**
+`runTranscriptionJob` returns `priorSubmission` when a pre-flight record
+survived — the one case where a synchronous Deepgram run may have been
+charged with nothing to show. Nothing consumed it. The flag was built,
+unit-tested, and wired to no UI, so the case it exists for was reported
+to no one; the maintainer closing the tab mid-run correctly got no
+warning because there was no code to give one. The unit test asserted
+the FLAG; nothing asserted the SEAM. It is now surfaced on both
+outcomes — a later success does not undo an earlier charge — and the
+guard counts both call sites.
+
+**And a third instance of the snapshot-guard problem**, one day after
+writing it up: the DC.2 guard pinned the literal `'Contacting
+AssemblyAI…'`, so it went red when that string correctly became
+`Contacting ${vendor}…`. A guard that fails when you fix the thing it
+was meant to protect was testing the implementation. Rewritten to assert
+that no vendor is hardcoded.
+
+The pattern across all three: **a test that names today's only value
+stops being a test the moment there are two.** Worth checking the
+remaining source-grep guards in this repo against that question rather
+than waiting for each to be found by use.
+
+---
+
+## 2026-08-16 — A guard that pins a string passes while the behavior is wrong
+
+**Tags:** bug, pattern
+
+Deepgram shipped broken and the maintainer found it in the first click:
+selecting "Deepgram (direct)" did nothing at all. Two bugs, one root
+cause, and the second was worse than the one reported.
+
+`runTranscribeFlow` compared against a single engine id in two places.
+The click guard read `(provider || _transcribeCfg.engine) !==
+DIRECT_ENGINE_ID`, so on a direct-only profile a Deepgram selection
+failed the test and simply re-opened the picker — the observed "nothing
+happens". And the consent block read `provider === DIRECT_ENGINE_ID`, so
+Deepgram skipped BOTH the page-URL refusal and the confirm dialog: it
+would have submitted a YouTube page with no refusal and sent a URL to a
+third party with no confirmation. That one was only hidden because the
+first bug blocked the path before it.
+
+**The part worth remembering is why the tests did not catch it.** The
+guard written the day before asserted the LITERAL source string:
+
+    assert.match(READER_CODE, /!== DIRECT_ENGINE_ID/)
+
+That passes with a second engine present and every gate wrong for it,
+because it pins the IMPLEMENTATION rather than the INVARIANT. It was
+written while there was exactly one direct engine, when the literal and
+the invariant were indistinguishable — and it silently stopped being a
+test of anything the moment that stopped being true.
+
+The replacement asserts the property instead: **no `=== DIRECT_ENGINE_ID`
+comparison may appear in the flow at all** — comparisons go through
+`isDirectEngine()` over a `DIRECT_ENGINE_IDS` set — plus a cross-check
+that `ENGINE_META`'s `direct: true` entries and that set name the same
+engines, so an engine can never render as companion-free while skipping
+the gates that exist because it is. A third provider inherits every gate
+for free. Negative-controlled: reintroducing the single-id comparison
+reds the suite.
+
+The general rule, and it applies to every source-grep guard in this
+repo: **grep for the shape that generalizes, not the shape that is
+currently there.** If a guard would still pass after adding a second
+member to the set it describes, it is testing a snapshot, not a rule.
+(A smaller instance of the same lesson landed in the same fix: an
+unscoped `ENGINE_META` regex matched a computed key from an unrelated
+object and then scanned forward for `direct: true`.)
+
+---
+
+## 2026-08-16 — DC.3: the second provider is synchronous, and that is the whole design
+
+**Tags:** design, external
+
+Deepgram direct, behind the same `directCloudTranscription` flag. The
+gate in §4 was opened by maintainer ruling: the `product-manager` review
+had found DC.3 lacked a problem statement in the maintainer's terms, and
+the maintainer supplied one — a Deepgram key they want to use. Price
+parity and provider redundancy were not that; wanting to spend a key you
+hold is.
+
+**Two measurements decided the design, and neither was a research
+question.** Deepgram's pre-recorded call takes a remote URL — confirmed
+— and it is SYNCHRONOUS: the HTTP response IS the transcript, there is
+no job id, no polling endpoint, and their documentation states they do
+not store transcripts, so the response is the only chance to receive it.
+That inverts the property DC.1 spent its budget establishing, and smoke
+row DC-3 had just observed working: an AssemblyAI run survives a
+service-worker teardown because the transcript id is on disk.
+
+The obvious fear was a multi-minute synchronous fetch inside an MV3
+worker — the shape that gets killed mid-flight. So it was measured
+rather than argued: **a live 48-minute episode returned in 12.9 seconds,
+HTTP 200 — about 225x realtime**, against the companion's assumed 10x.
+That collapsed the concern and, with it, an entire apparatus of
+keepalives, abort timers and hidden-tab warnings that had been proposed
+for a problem that does not exist at this speed.
+
+What survives is proportionate: a **pre-flight record** written before
+the request and cleared on any resolved outcome — success or failure
+alike, because an answered request is not a lost one. Only an
+*unresolved* request leaves the marker, which is exactly the teardown
+case, and the next run then says a previous submission may have been
+charged. It never auto-retries. The maintainer's own framing set the
+bar here: X-Ray already stores adopted transcripts and already refuses
+to re-transcribe an episode it has, so the residual is one episode, one
+charge, once — annoying, not dangerous, and the earlier "loses money
+invisibly" framing was overstated.
+
+**Written as a SIBLING module, not an abstraction.** §8 forbids a
+provider-agnostic layer until a third provider arrives, so
+`direct-transcribe-deepgram.js` carries its own request shape, mapping
+and error strings, and duplicates two small helpers. Exactly one thing
+is shared: `blockedDirectMediaUrl`. It is genuinely provider-neutral and
+it is a security gate, and a second copy of a security gate drifts.
+
+**The mapping layer turned out to be the untested seam.** The parity
+fixture covered only the SHARED normalizer; each provider's payload
+mapping — where the units actually differ — was tested independently in
+each language and cross-checked nowhere. Deepgram sends FLOAT SECONDS
+where AssemblyAI sends integer milliseconds, so copy-pasting
+`msToSeconds` would have put every segment at a thousandth of its true
+offset. The fixture now carries `provider_cases` generated from the
+reference, and the first one is a **real slice of the live 48-minute
+response** rather than an invention — float seconds with visible
+precision noise (`1.1999999`), an integer speaker `0`, a
+`punctuated_word`. Four traps are pinned that hand-built payloads had
+not exercised: the truthiness branch on `utterances` (an empty array
+falls through to the channels stream), `punctuated_word || word` where
+`??` would keep an empty string and silently drop the word, `transcript`
+rather than `text`, and language read from `channels[0]` even on the
+utterances branch.
+
+Two deliberate non-improvements, both because parity beats currency:
+`diarize=true` is sent although Deepgram deprecated the flag — it routes
+to their v1 diarizer, which is what the companion gets, and switching
+would change speaker segmentation for identical audio. And `asr_model`
+stamps the REQUESTED model, matching `deepgram.py`, although the live
+response reports `general-nova-3` for a requested `nova-3`. Reading the
+reported model here would publish a different `extraction-method` than
+the companion twin for the same audio — the fork DC.1 exists to prevent.
+Preferring the reported model is a joint change to both implementations,
+recorded here so it is a known divergence rather than a discovered one.
+
+**The staleness pin got sharper.** It hashes only `_common_utterances`
+and `_detected_language`, extracted by a TEXTUAL rule both languages
+implement identically — not `inspect.getsource`, which JavaScript cannot
+reproduce. An edit to the request URL or the progress ticker no longer
+reds the JS suite spuriously; an edit to the mapping still does.
+
+---
+
+## 2026-08-16 — DC.2: the companion-free state stops being an error
+
+**Tags:** design
+
+DC.2's brief was one sentence — make "no companion installed, direct
+cloud configured" a coherent, self-explaining state rather than a wall
+of setup errors. The work list came from asking one question of every
+user-visible transcription string: **is it reachable when
+`localTranscription` is OFF and `directCloudTranscription` is ON, and is
+it TRUE in that state?** Only strings failing both got touched. That
+question is also what bounded the slice, because "self-explaining" has
+no natural limit and this does.
+
+**The Options status panel was the worst of it, and the first thing such
+a user reads.** `setupCompanionStatus` has no flag gate at all — it
+polls on load for everyone — and its absent-companion state was red
+"Not running", opening with terminal instructions and the claim that
+"Transcribing stays unavailable until the service is started —
+including for the AssemblyAI and Deepgram engines". For a direct-only
+user every clause of that is false. `deriveCompanionState` now takes
+`directEnabled` and reports amber "Not installed": expected if you never
+installed it, the direct route works without it, and here is what
+installing it would ADD (local/private transcription, and the platform
+pages a cloud provider cannot fetch). Every OTHER state is byte-identical
+— a companion that is running, outdated, rejecting auth or missing
+`HF_TOKEN` is misbehaving whether or not another route exists, and a
+test pins that the flag perturbs none of them. The panel reads the live
+CHECKBOX, not the stored flag, so it tracks an unsaved toggle the way
+the rest of the form does.
+
+**The shared job driver's failure strings were route-blind.**
+`runTranscriptionJob` serves both transports and its text was written
+when only the companion existed: "The transcription service no longer
+knows this job (it may have restarted)", "try again once the service is
+back". On the direct route that names something the user does not run.
+Now a small route-keyed vocabulary, with the companion strings preserved
+byte-for-byte behind a regression test — a companion user must keep
+reading exactly what they always read.
+
+**One fix worth naming separately, because it kills a class of bug
+rather than a string.** The reader attached companion setup advice
+("install the companion, `uv run xray-transcriber`") by testing whether
+the error text contained `not reachable`. That left the advice one
+careless string away from firing on the one route whose premise is that
+nothing is installed. It is now gated on the ROUTE. Substring-triggered
+UI is a latent coupling between wording and behavior; the route is the
+fact being tested, so test the fact.
+
+**Deliberately out of scope**, recorded so the omission is a decision
+and not an oversight: making the direct engine a STORABLE default. It is
+a persisted-enum widening needing a schema-evolution review, a
+round-trip migration test, and a coordinated edit across seven sites — a
+schema slice wearing a UI slice's clothes. It would also spend a banked
+safety property: while the engine is picker-only, the right-click
+auto-start path structurally cannot reach a third party. Three
+transcripts went through the picker on the DC.1 walk with no friction
+recorded, so there is no observed problem to solve. If it is wanted it
+belongs after DC.2, with its own criteria.
+
+---
+
+## 2026-08-16 — A choice that cannot succeed should not look like a choice
+
+**Tags:** bug, design
+
+Field report on the first post-merge use of direct cloud transcription:
+the user opened a YouTube capture, the picker offered "AssemblyAI
+(direct)", they chose it, and got a refusal explaining that YouTube
+serves signed, expiring media URLs. The refusal was CORRECT — kickoff §8
+lists YouTube as an explicit non-goal for this route — and it was still
+a bad experience, for two independent reasons.
+
+**1. The engine was offered where it structurally cannot work.** The
+picker already had an availability idiom for exactly this: a cloud
+engine with no saved key routes to Settings instead of failing later,
+and Local is marked unavailable when the companion has no `HF_TOKEN`.
+The direct engine's structural limit — it cannot resolve a page — is the
+same shape of fact and was simply not wired into it, so the only place
+the limit appeared was after the click. `openEnginePicker` now computes
+`directSubmissionProblem` per capture and marks the row unavailable with
+the reason, which is why that function now returns `{short, detail}`:
+`short` is a menu row, `detail` is the toast.
+
+**2. The advice was true in general and wrong on the page in front of
+the user.** The DC.1 message offered two remedies — paste a direct file
+URL in the Media modal, or run it through the companion. On YouTube
+BOTH are wrong. You cannot paste a stable direct file URL, because the
+signed ones expire (that is the same fact the refusal opens with). And
+"use the companion" is empty advice to the direct-only user this whole
+feature exists for. What is actually true on YouTube is better news than
+the error implied: the captions are already fetched with the capture
+(`platforms/youtube.js` fetchTranscript), so nothing is missing except
+diarized speaker labels. The message now says that, and the off-platform
+case keeps the Media-modal advice, where it is both true and reachable.
+
+**The general lesson**, and it is not about YouTube: an error can be
+accurate, well-worded, and still be a design failure, because the design
+question is not "is this message true" but "should the user ever have
+been able to get here". Refusals that are reachable by a click the UI
+invited are a signal that an availability check is missing upstream.
+DC.2's brief is exactly this — make "no companion installed, direct
+cloud configured" a coherent state rather than a wall of errors — and
+this is the first item of it, found by use rather than by review.
+
+Two smaller things fixed by READING the rendered output rather than
+asserting substrings: the platform id leaked raw into user-visible text
+("cannot transcribe a instagram page"), so there is now a
+`PLATFORM_LABELS` map, and the sentence was rephrased to "this
+<Platform> page" to remove the a/an problem structurally rather than
+trying to spell-check English articles — a naive vowel rule flags "a
+URL", which is correct.
+
+---
+
 ## 2026-08-15 — DC.1 field failure: the media URL was on the page, in JSON-LD
 
 **Tags:** bug, external

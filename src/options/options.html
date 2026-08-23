@@ -565,7 +565,7 @@
       </p>
 
       <hr />
-      <h3 class="xr-opt__subhead">Transcription (companion service)</h3>
+      <h3 class="xr-opt__subhead">Transcription</h3>
 
       <!-- Live service state. One stable container, repainted in place
            (never re-created) so the aria-live announcement survives —
@@ -584,11 +584,13 @@
         <span>Enable "Transcribe" for media captures</span>
       </label>
       <p class="xr-opt__hint" style="margin-top:-8px">
-        Off by default. Transcribing needs the companion service from
-        <code>companion/transcriber/</code> in the X-Ray repo running on
-        this machine — <strong>including for the AssemblyAI and Deepgram
-        engines</strong>, which skip the GPU but still download the audio
-        locally through it. Adds a "Capture &amp; transcribe" right-click
+        Off by default. <strong>The engines this checkbox enables</strong>
+        — Local, and the companion-routed AssemblyAI and Deepgram — need
+        the companion service from <code>companion/transcriber/</code> in
+        the X-Ray repo running on this machine; the two cloud ones skip
+        the GPU but still download the audio locally through it. If you
+        want to transcribe with <em>nothing installed</em>, you want the
+        direct option below instead. Adds a "Capture &amp; transcribe" right-click
         item on any https page and a Transcribe button in the reader
         wherever a capture shows media (the ▾ next to it picks an
         engine, with time and cost estimates). The companion hands the
@@ -618,7 +620,7 @@
         signed-URL platforms do not).
       </p>
       <label class="xr-opt__field">
-        <span>Transcription engine</span>
+        <span>Transcription engine <span class="xr-opt__hint">(companion only)</span></span>
         <select id="pref-transcribe-engine">
           <option value="">Companion default — whatever the service's own configuration says (local unless set)</option>
           <option value="local">Local — on this device, free (WhisperX + diarization, GPU recommended)</option>
@@ -632,8 +634,12 @@
         <strong>Cloud engines upload the episode audio</strong> to that
         provider and transcribe a 2-hour episode in minutes for tens of
         cents — paste the provider's API key below. Keys are stored on
-        this device only (like the LLM assist key), sent per job to your
-        loopback companion service, and never written to its disk. The
+        this device only (like the LLM assist key) and never written to
+        disk by any service. Where a key GOES depends on the route: a
+        companion-routed job sends it to your loopback service, which
+        holds it in memory only; an <strong>AssemblyAI (direct)</strong>
+        job sends it straight from this extension to AssemblyAI, because
+        there is no companion in the loop. The
         companion's own <code>TRANSCRIBER_PROVIDER</code> /
         <code>*_API_KEY</code> environment variables still work as
         server-side defaults when nothing is chosen here.

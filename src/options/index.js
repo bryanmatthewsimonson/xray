@@ -1664,7 +1664,13 @@ function setupCompanionStatus() {
         renderCompanionStatus(deriveCompanionState({
             resp,
             enginePref: enginePrefEl ? enginePrefEl.value : '',
-            port: port || 8756
+            port: port || 8756,
+            // DC.2: with a companion-free route configured, an absent
+            // companion is a working state, not a fault to shout about.
+            // Read the CHECKBOX, not the stored flag — the panel polls
+            // live and must track an unsaved toggle the way the rest of
+            // this form does.
+            directEnabled: !!document.getElementById('pref-direct-cloud-transcription')?.checked
         }));
     };
 
