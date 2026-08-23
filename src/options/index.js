@@ -290,7 +290,7 @@ async function loadSigning() {
 
     // First-run banner
     const banner = document.getElementById('signing-firstrun');
-    banner.style.display = prefs.signing_method_configured ? 'none' : '';
+    banner.style.display = (await signingIsConfigured(prefs)) ? 'none' : '';
 }
 
 function selectedMethod() {
@@ -323,13 +323,38 @@ async function saveSigning() {
     await refreshActiveLine();
 }
 
+/** Is signing actually set up? Derived from STATE, not from whether the
+ *  Save button on this tab was ever pressed.
+ *
+ *  `signing_method_configured` records a button press. A user who
+ *  imported an nsec, restored a backup, switched workspaces, or upgraded
+ *  from a build that predates the flag has a working signer and has
+ *  never touched Save — and the page told them "not configured yet" and
+ *  showed the first-run welcome banner, beside an ACTIVE identity with
+ *  published events. Field-found 2026-08-23 on an archive with 68
+ *  published events. (docs/PORTAL_UX_REVIEW.md's A-class: the interface
+ *  lying about its own state.)
+ *
+ *  The flag stays authoritative when set — this only ADDS the cases it
+ *  misses. */
+async function signingIsConfigured(prefs) {
+    if (prefs.signing_method_configured) return true;
+    const method = (prefs.signing_method === 'nip07' || prefs.signing_method === 'nsecbunker')
+        ? prefs.signing_method
+        : 'local';
+    if (method === 'nip07') return true;                     // only ever set deliberately
+    if (method === 'nsecbunker') return !!prefs.nsecbunker_url;
+    const id = await storageGet('local_primary_identity');   // Local: a key IS the configuration
+    return !!(id && id.npub);
+}
+
 async function refreshActiveLine() {
     const el = document.getElementById('signing-active');
     const prefs = (await storageGet('preferences')) || {};
     const method = (prefs.signing_method === 'nip07' || prefs.signing_method === 'nsecbunker')
         ? prefs.signing_method
         : 'local';
-    if (!prefs.signing_method_configured) {
+    if (!(await signingIsConfigured(prefs))) {
         el.textContent = 'Active method: not configured yet — pick one below.';
         return;
     }
@@ -1826,9 +1851,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         loadAdvanced()
     ]);
 
-    // Auto-activate Signing tab if not yet configured.
+    // Auto-activate Signing tab if not yet configured. Same derivation
+    // as the banner and the active line — otherwise every visit to
+    // Settings yanks a working user to Signing forever.
     const prefs = (await storageGet('preferences')) || {};
-    if (!prefs.signing_method_configured) activateTab('signing');
+    if (!(await signingIsConfigured(prefs))) activateTab('signing');
 
     // Quick-action header buttons (replace the old popup's role).
     document.getElementById('qa-toggle-capture').addEventListener('click', () => {

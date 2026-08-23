@@ -358,7 +358,7 @@ export function renderInspector(host, item, { status = 'no-ledger', onClose, aud
     };
     field('Published', item.created_at ? new Date(item.created_at * 1000).toLocaleString() : '');
     const addr = replaceableKey(item.event);
-    field('Coordinate', addr, true);
+    field('Event address', addr, true);
     field('Event id', item.event.id, true);
     field('Author', shortKey(item.event.pubkey || ''), true);
     if (item.cases.length) field('Cases', item.cases.join(', '));
@@ -485,7 +485,11 @@ export function renderInspector(host, item, { status = 'no-ledger', onClose, aud
     }
 
     if (item.kind === 30023) {
-        const open = el('button', 'xr-portal__btn', 'Open in reader');
+        // Named for what it IS (docs/PORTAL_UX_REVIEW.md C4): a read-only
+        // relay reconstruction. The case view's evidence path opens the
+        // WRITABLE archive record; two same-looking 'Open in reader'
+        // buttons with opposite write semantics lost claim work-intent.
+        const open = el('button', 'xr-portal__btn', 'View published copy (read-only)');
         open.type = 'button';
         open.title = 'Reconstruct this capture from its signed event and open it read-only in the reader';
         open.addEventListener('click', async () => {
