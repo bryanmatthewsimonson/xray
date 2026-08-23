@@ -437,6 +437,29 @@ body.xr-portal {
   overflow-wrap: anywhere;
 }
 
+/* PR-5 (C2): the visible inspector opener beside each row title. */
+.xr-row__inspect {
+  border: none;
+  background: transparent;
+  color: var(--xr-text-dim);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+}
+
+.xr-row__inspect:hover,
+.xr-row__inspect:focus-visible {
+  color: var(--xr-accent);
+}
+
+/* PR-5 (B3): the timeline's one-line affordance, shown while unbrushed. */
+.xr-portal__timeline-hint {
+  font-size: 11px;
+  color: var(--xr-text-dim);
+  margin-top: 4px;
+}
+
 .xr-row__badges {
   display: inline-flex;
   gap: 6px;
