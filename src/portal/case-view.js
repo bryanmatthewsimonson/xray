@@ -442,6 +442,9 @@ export function renderCaseView(host, params) {
             + 'and the published claims that name them.'));
         renderCasePeople(section, rows, { callbacks });
         peopleBody.appendChild(section);
+    }).catch((err) => {
+        Utils.error('People section failed', err);
+        peopleDetails.remove();
     });
 
     // --- claims with stance/⚠ badges ---
