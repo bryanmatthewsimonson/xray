@@ -19,6 +19,48 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-16 — "url must be a string" is yt-dlp with no session, and one claim of ours was unbacked
+
+**Tags:** external, bug
+
+A companion-routed Deepgram job on a paid Substack post
+(`wethefifth.com/p/special-dispatch-77-…`) failed two seconds in with
+`url must be a string` in the reader banner.
+
+**Not ours.** The string is
+`yt_dlp/networking/common.py:431` — `raise TypeError('url must be a
+string')` — thrown when yt-dlp builds a `Request` with a non-string URL.
+Fetching the post unauthenticated confirms why: the public HTML carries
+**no audio URL at all**, and the page is marked
+`"audience":"only_paid"`. The Substack extractor found no media, passed
+`None` onward, and yt-dlp raised inside its own networking layer.
+
+Same shape as the YouTube 403 the day before, and the same root: **the
+browser has a session and the companion does not.** The remedy is also
+the same — `TRANSCRIBER_COOKIES_FILE` — except that cookies only go to
+hosts in `TRANSCRIBER_COOKIES_HOSTS`, which defaults to the five YouTube
+hosts, so reaching a Substack post means deliberately adding that host
+and accepting what the README says about handing a session to whatever
+you transcribe from it.
+
+Worth stating for the DC-4 ledger: this is NOT evidence against kill
+criterion 2. Nothing was refused by a CDN; there was no media to fetch.
+
+**What WAS ours, found while investigating.** `directSubmissionProblem`
+told every KNOWN_PLATFORM that "media URLs are signed and expire". True
+of YouTube, Instagram, TikTok, Facebook and X. Not true of Substack, PMC
+or arXiv — those send a page URL because they have a capture handler,
+not because their media expires. Putting an unbacked technical claim in
+front of the user is the same defect class as the consent dialog naming
+the wrong vendor: both assert something the code cannot support. Now
+split by `SIGNED_MEDIA_PLATFORMS`, with a second reason that is true for
+the rest, and both branches pinned.
+
+The pattern that keeps producing these: a sentence written while one
+case existed, generalized to a set it was never checked against.
+
+---
+
 ## 2026-08-16 — A transcript was replacing the article, and it was never the transcript's fault
 
 **Tags:** bug

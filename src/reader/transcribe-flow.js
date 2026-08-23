@@ -437,6 +437,14 @@ export function transcribeSourceUrl(article) {
 // Human names for the KNOWN_PLATFORMS ids. Inline for the same reason
 // PROVIDER_LABELS is: this module deliberately imports nothing. Keep in
 // sync with KNOWN_PLATFORMS above.
+// Platforms whose media URLs really ARE signed and short-lived. Claimed
+// of all KNOWN_PLATFORMS until 2026-08-16, which was wrong: Substack,
+// PMC and arXiv serve ordinary public files. They send their page URL
+// because they have a capture handler, not because their media expires,
+// and asserting otherwise put an unbacked technical claim in front of
+// the user.
+const SIGNED_MEDIA_PLATFORMS = new Set(['youtube', 'instagram', 'tiktok', 'facebook', 'twitter']);
+
 const PLATFORM_LABELS = {
     substack: 'Substack', youtube: 'YouTube', twitter: 'X', tiktok: 'TikTok',
     instagram: 'Instagram', facebook: 'Facebook', pmc: 'PMC', arxiv: 'arXiv'
@@ -497,10 +505,16 @@ export function directSubmissionProblem(article, sourceUrl) {
         };
     }
     if (platform) {
+        // Two different true reasons; say whichever one applies.
+        const why = SIGNED_MEDIA_PLATFORMS.has(platform)
+            ? `${label}\u2019s media URLs are signed and expire`
+            : `this capture sends its ${label} page address, and a page is not a media file`;
         return {
-            short: `${label} media URLs are signed and expire — a provider cannot fetch them.`,
+            short: SIGNED_MEDIA_PLATFORMS.has(platform)
+                ? `${label} media URLs are signed and expire — a provider cannot fetch them.`
+                : `${label} captures send a page address — a provider cannot open a page.`,
             detail: `A direct cloud engine cannot transcribe this ${label} page: a cloud provider `
-                + `downloads a URL, and ${label}\u2019s media URLs are signed and expire. `
+                + `downloads a URL, and ${why}. `
                 + 'The companion service resolves these pages with yt-dlp; the direct route '
                 + 'cannot.'
         };

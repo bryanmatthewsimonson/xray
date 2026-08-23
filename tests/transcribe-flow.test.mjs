@@ -870,3 +870,26 @@ test('a companion job failure reaches the caller cleaned', async () => {
     assert.ok(!out.error.includes('[0;31m'), `ANSI debris survived: ${out.error}`);
     assert.match(out.error, /403: Forbidden/, 'the diagnosis must survive');
 });
+
+test('directSubmissionProblem: the signed-URL claim is made only where it is true', () => {
+    // Field-found 2026-08-16 on a Substack post. Every KNOWN_PLATFORM got
+    // "media URLs are signed and expire", which is true of YouTube and
+    // the social platforms and NOT of Substack, PMC or arXiv — they send
+    // a page URL because they have a capture handler, not because their
+    // media expires. An unbacked technical claim in front of the user is
+    // the same defect class as naming the wrong vendor.
+    for (const id of ['youtube', 'instagram', 'tiktok', 'facebook', 'twitter']) {
+        const a = { url: `https://${id}.example/x`, platform: id };
+        const { short, detail } = directSubmissionProblem(a, transcribeSourceUrl(a));
+        assert.match(short, /signed and expire/, `${id} genuinely serves signed URLs`);
+        assert.match(detail, /signed and expire/);
+    }
+    for (const id of ['substack', 'pmc', 'arxiv']) {
+        const a = { url: `https://${id}.example/x`, platform: id };
+        const { short, detail } = directSubmissionProblem(a, transcribeSourceUrl(a));
+        assert.ok(!/signed and expire/.test(short + detail),
+            `${id} does not serve signed media URLs — do not claim it does`);
+        // Still refused, and still for a TRUE reason.
+        assert.match(short + detail, /page/i);
+    }
+});
