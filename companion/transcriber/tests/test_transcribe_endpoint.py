@@ -76,6 +76,34 @@ class TranscribeEndpoint(unittest.TestCase):
         self.assertIs(body["generic_urls"], True)
         self.assertIs(body["request_provider"], True)  # unchanged
 
+    def test_health_reports_cookie_config_without_leaking_values(self):
+        """2026-08-23: a paid-Substack session failed identically with
+        and without TRANSCRIBER_COOKIES_FILE set, and nothing showed
+        whether the service had loaded it.  Presence + readability +
+        the host list only — never the file path, never cookie values."""
+        import tempfile
+        from transcriber import config
+
+        body = server.health()
+        self.assertIn("cookies", body)
+        self.assertFalse(body["cookies"]["configured"])
+
+        with tempfile.NamedTemporaryFile(suffix=".txt") as f:
+            old_file, old_hosts = config.COOKIES_FILE, config.COOKIES_HOSTS
+            try:
+                config.COOKIES_FILE = f.name
+                config.COOKIES_HOSTS = "youtube.com, WWW.WeTheFifth.com"
+                body = server.health()
+                self.assertTrue(body["cookies"]["configured"])
+                self.assertTrue(body["cookies"]["readable"])
+                self.assertEqual(body["cookies"]["hosts"],
+                                 ["www.wethefifth.com", "youtube.com"])
+                self.assertNotIn(f.name, str(body), "the file path never rides /health")
+                config.COOKIES_FILE = "/nonexistent/cookies.txt"
+                self.assertFalse(server.health()["cookies"]["readable"])
+            finally:
+                config.COOKIES_FILE, config.COOKIES_HOSTS = old_file, old_hosts
+
 
 if __name__ == "__main__":
     unittest.main()
