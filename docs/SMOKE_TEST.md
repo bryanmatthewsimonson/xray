@@ -547,7 +547,7 @@ deletes, or writes the local publish ledger.
 | 12.17 | Click a co-tagged entity node | ✅ graph refocuses on it |
 | 12.18 | Locate box + pan/zoom | ✅ typing pulses the first match; drag pans; wheel zooms |
 | 12.19 | More than 24 claims → "+K more" node | ✅ clicking expands the sector |
-| 12.20 | A case badge or case row → **☰ Dashboard** | ✅ artifact rollup by type, density strip, member chips (click → spokes), claims with stance + ⚠ contradicted badges |
+| 12.20 | A case badge or case row → **☰ Dashboard** | ✅ artifact rollup by type, density strip, **People & organizations (N)** — LOCAL-FIRST (2026-08-23): everyone on the case's member sources appears even with nothing published, each chip reading `Name · N sources · M published claims` (click → spokes; **dossier →** beside each; a keyless entity's name is a plain chip), claims with stance + ⚠ contradicted badges |
 
 **Inspector + reconciliation**
 
