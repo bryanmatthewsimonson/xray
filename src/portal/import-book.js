@@ -178,10 +178,15 @@ export function mountBookImport(host, { caseEntityId = null, onDone } = {}) {
     go.type = 'button';
     go.disabled = true;
     input.addEventListener('change', () => { go.disabled = !(input.files && input.files[0]); });
+    // PR-3: a way out, same idiom as the transcript / URL importers —
+    // this panel had none.
+    const closeBtn = el('button', 'xr-portal__btn xr-portal__btn--ghost', 'Close');
+    closeBtn.type = 'button';
+    closeBtn.addEventListener('click', () => card.remove());
 
     const status = el('div', 'xr-bookimport__status');
     const row = el('div', 'xr-bookimport__row');
-    row.append(input, go);
+    row.append(input, go, closeBtn);
     card.append(row, status);
     host.appendChild(card);
 
