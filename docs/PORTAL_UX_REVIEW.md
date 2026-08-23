@@ -28,7 +28,8 @@ whether Save had ever been pressed, not on whether signing worked).
 29.5's reconcile repoint — the walks confirmed a third costume for it
 (the summary line's "778 item(s)" beside a filtered "All 629", both
 true, neither labelled); PR-10 (B2 relationship chips) waits on the
-K15 fold ruling; the §2 D3 dead-label kills need Art. 11 ratification.
+K15 fold ruling. (D3 was found to be already done — see its correction; the
+previous sentence here that said it "needs Art. 11 ratification" was wrong.)
 The pointer/touch brush (B3's second half), C5 (repeat the confirm()
 line in the panel) and C6 (silent background transcript completion)
 were never in §7 and remain unstarted.
@@ -97,7 +98,7 @@ were never in §7 and remain unstarted.
 
 **D2. The identity strip renders internal provenance tokens as UI.** Chips print `sync-key`, `publish-history`, `manual` verbatim (index.js:102,122). *Damages T1.* **Fix:** one token→label map (see §5) and fold the whole identity strip (chips + viewer input + settings button) behind a one-line summary: "Showing events signed by <shortKey> ▸".
 
-**D3. Dead kind labels no user can populate.** Annotation / Fact-check / Rating / Topic trust / Vote (library.js:69-73) — already kill candidates (ROAD_TO_1_0.md:1975-1978). Removal is product-manager's call, not this discipline's; noted here only as clutter evidence supporting that ratification.
+**D3. Dead kind labels no user can populate.** Annotation / Fact-check / Rating / Topic trust / Vote (library.js:69-73) — already kill candidates (ROAD_TO_1_0.md:1975-1978). Removal is product-manager's call, not this discipline's; noted here only as clutter evidence supporting that ratification. **CORRECTION (2026-08-23, same day, on attempting to present it for ratification):** this finding was STALE AT FILING. The kill is ROAD_TO_1_0 **K1**, ratified by the maintainer on **2026-08-09** ("kill them all" — Art. 11) and EXECUTED the same day in commit `bd0396d` (JOURNAL 2026-08-09 "T3: the Phase-9a scaffold retired"), which removed exactly these five labels from `library.js`. The review cited line numbers from a tree fourteen days old without re-reading the file. Nothing remains to ratify or remove for D3.
 
 ### Class (e) — polish
 
