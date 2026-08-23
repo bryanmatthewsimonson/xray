@@ -38,25 +38,9 @@ import { renderForensicCorpusBlock } from './forensic-corpus-block.js';
 import { renderLinksBlock } from './links-block.js';
 import { renderHypothesesBlock } from './hypothesis-block.js';
 import { collectHypothesisEdgeJoins } from '../shared/hypothesis-map.js';
+import { openArchivedInReader } from './open-archived.js';
 import { Utils } from '../shared/utils.js';
 
-// Open a LOCAL archived record in the reader to extract claims from a
-// claimless case member (20.1). Unlike the inspector's read-only relay
-// reconstruction, this opens the real archive record writable so tags
-// and newly-extracted claims save back.
-async function openArchivedInReader(url) {
-    try {
-        const rec = await getArticle(url);
-        if (!rec || !rec.article) { Utils.error('Extract claims: no archive record', url); return; }
-        const article = { ...rec.article, _articleHash: rec.articleHash };
-        const id = crypto.randomUUID();
-        chrome.runtime.sendMessage({ type: 'xray:reader:open', id, article, readOnly: false }, (resp) => {
-            if (!resp || !resp.ok) Utils.error('Extract claims: reader open failed', resp && resp.error);
-        });
-    } catch (err) {
-        Utils.error('Extract claims: open failed', err);
-    }
-}
 
 function latestAssessmentByCoord(items) {
     const map = new Map();

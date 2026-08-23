@@ -39,6 +39,7 @@ import { loadLocalLedger, reconcile, countLocalOnly, listLocalArtifacts } from '
 import { getByEventId as journalGetByEventId } from '../shared/event-journal.js';
 import { rebroadcastEvent } from '../shared/publish-gate.js';
 import { renderInspector } from './inspector.js';
+import { openArchivedInReader } from './open-archived.js';
 import {
     buildAuditIndex, mergeLocalRuns, mergeLocalResolutions, auditsForArticle,
     latestAuditFor, dossierInputsForEntity, computeEntityDossier,
@@ -745,14 +746,30 @@ function renderReconPanel() {
             const row = el('li', 'xr-row');
             const head = el('div', 'xr-row__head');
             head.appendChild(el('span', 'xr-row__kind', it.type));
-            head.appendChild(el('span', 'xr-row__title', truncate(it.label || it.id, 140)));
+            // Field-found 2026-08-23: this row used to RENDER the
+            // instruction "open this article in the reader" as plain
+            // text with no way to do it — imported book chapters were
+            // unreachable. A row that names an archived article opens
+            // it; the prose describes what opening is FOR.
+            if (it.url) {
+                const link = el('a', 'xr-row__title xr-row__title--link', truncate(it.label || it.id, 140));
+                link.href = '#';
+                link.addEventListener('click', async (ev) => {
+                    ev.preventDefault();
+                    const out = await openArchivedInReader(it.url);
+                    if (!out.ok) Utils.error('open artifact:', out.error);
+                });
+                head.appendChild(link);
+            } else {
+                head.appendChild(el('span', 'xr-row__title', truncate(it.label || it.id, 140)));
+            }
             if (it.created) {
                 head.appendChild(el('span', 'xr-row__date', new Date(it.created * 1000).toLocaleDateString()));
             }
             row.appendChild(head);
             if (it.url) {
                 row.appendChild(el('div', 'xr-row__sub',
-                    `${it.url} — open this article in the reader and Publish to emit it (and its judgments).`));
+                    `${it.url} — opens in the reader; Publish there emits it (and its judgments).`));
             }
             ul.appendChild(row);
         }

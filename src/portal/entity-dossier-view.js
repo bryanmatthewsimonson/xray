@@ -9,6 +9,7 @@
 // DISTRIBUTIONS — no score, no person-grade, nothing fused.
 
 import { el, clear } from './dom.js';
+import { openArchivedInReader } from './open-archived.js';
 import { assembleEntityDossier } from '../shared/entity-dossier.js';
 import { renderIntegrityBlock } from './integrity-block.js';
 import { Utils } from '../shared/utils.js';
@@ -267,8 +268,19 @@ function renderContentBlock(host, dossier) {
     block.appendChild(el('h3', 'xr-case__heading', 'Captured content'));
     for (const row of articles) {
         const line = el('div', 'xr-view__dossier-line');
-        line.appendChild(el('span', '', `${row.title || hostOf(row.url)} · ${row.claims.length} claim(s)`
-            + (row.published ? ` · ${bandText(row.published.at, row.published.precision)}` : '')));
+        // Clickable into the reader (field-found 2026-08-23: a book's
+        // whole chapter list was inert text).
+        const link = el('a', 'xr-view__dossier-link', `${row.title || hostOf(row.url)} · ${row.claims.length} claim(s)`
+            + (row.published ? ` · ${bandText(row.published.at, row.published.precision)}` : ''));
+        link.href = '#';
+        link.addEventListener('click', async (ev) => {
+            ev.preventDefault();
+            const out = await openArchivedInReader(row.url);
+            // Surface the refusal — a click that silently does nothing
+            // is the exact bug this link replaces.
+            if (!out.ok) { Utils.error('open chapter:', out.error); alert(out.error); }
+        });
+        line.appendChild(link);
         block.appendChild(line);
     }
     if (unprocessed.length > 0) {

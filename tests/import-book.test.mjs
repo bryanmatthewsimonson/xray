@@ -34,7 +34,7 @@ test('import-book: buildChapterArticle — metadata mapping + identity', () => {
     assert.equal(a.byline, 'Jane Roe', 'author → byline');
     assert.equal(a.siteName, 'The Whole Book', 'book title → siteName (Publisher)');
     assert.equal(a.publishedAt, D2021, 'release date → publishedAt');
-    assert.equal(a.title, 'Chapter One');
+    assert.equal(a.title, 'The Whole Book — Chapter One');
     assert.equal(a.contentType, 'epub');
     assert.equal(a.url, 'file:///imported/epub/aaaaaaaaaaaaaaaa/ch1', 'url = epubHash16 + spine id');
     assert.ok(a.markdown.includes('Hello there.'));
@@ -51,10 +51,41 @@ test('import-book: buildChapterArticle — title/id fallbacks', () => {
         chapter: { markdown: 'body only' }, meta: {}, epubHash: 'b'.repeat(64),
         bookEntityId: 'entity_x', bookName: 'X', index: 4
     });
-    assert.equal(a.title, 'Chapter 5', 'no title → numbered');
+    // Book name leads even with no metadata (field feedback 2026-08-23:
+    // bare chapter titles identify nothing in a 600-item archive list),
+    // and an untitled chapter with no spine id falls back to numbering.
+    assert.equal(a.title, 'Untitled book — Chapter 5', 'no title, no id → book + number');
     assert.equal(a.url, 'file:///imported/epub/bbbbbbbbbbbbbbbb/4', 'no id → index');
     assert.equal(a.byline, '', 'no author → empty byline');
     assert.equal(a.publishedAt, null);
+});
+
+test('import-book: an untitled spine item falls back to its spine id, honestly', () => {
+    // Pirated EPUBs carry junk pages (SS_recommendpage, adcard) with no
+    // title; the old fallback invented "Chapter 28" for them, which
+    // collided with real chapters and read as duplicates in the field
+    // (2026-08-23). The spine id is what the thing actually is.
+    const a = buildChapterArticle({
+        chapter: { id: 'SS_recommendpage', markdown: 'ad' },
+        meta: { title: 'The Truth Detector' }, epubHash: 'c'.repeat(64),
+        bookEntityId: 'entity_x', bookName: 'The Truth Detector', index: 27
+    });
+    assert.equal(a.title, 'The Truth Detector — SS_recommendpage');
+    assert.ok(!/Chapter 28/.test(a.title), 'never invent a chapter number for a junk page');
+});
+
+test('import-book: identity is content-derived, so a re-import cannot duplicate', () => {
+    // The duplicate question, answered structurally: same bytes → same
+    // epubHash → same chapter URLs (archive rows overwrite in place),
+    // and the book entity id is deterministic from type+name
+    // (EntityModel.create is idempotent — same book, same entity).
+    const mk = () => buildChapterArticle({
+        chapter: { id: 'ch02', title: 'Ch 2', markdown: 'text' },
+        meta: { title: 'B' }, epubHash: 'd'.repeat(64),
+        bookEntityId: 'entity_b', bookName: 'B', index: 1
+    });
+    assert.equal(mk().url, mk().url);
+    assert.equal(mk().title, mk().title);
 });
 
 test('import-book: chapterArticleHash is markdown-canonical + deterministic', async () => {

@@ -19,6 +19,42 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-23 — Imported book chapters were unreachable, and the row said so itself
+
+**Tags:** bug, design
+
+Field report: a 31-chapter EPUB imported cleanly and then could not be
+opened at all. The "Unpublished local artifacts" rows rendered the
+INSTRUCTION — "open this article in the reader and Publish to emit it" —
+as plain text with no affordance, and the book entity's "Captured
+content" list was equally inert. The only working opener was a private
+function inside case-view.js. A row that tells the user to do something
+the UI cannot do is a broken promise, not a hint.
+
+Fix: one shared opener (`portal/open-archived.js`, injectable deps, the
+transcribe-flow io pattern), routed through by the artifacts rows, the
+dossier chapter lines, and case-view. Guarded at the seam: the tests
+grep that every surface naming an archived article calls it, and that
+the instruction-as-prose string is gone.
+
+**The "duplicates" were not duplicates.** Import identity is
+content-derived end to end — same bytes → same epubHash → same chapter
+URLs (archive rows overwrite in place), and `EntityModel.create` is
+idempotent by type+name, so re-importing the same file updates rather
+than duplicates; a test now pins the structure. What LOOKED like
+duplicates: pirated EPUBs carry junk spine pages (SS_recommendpage,
+adcard) with no title, and the fallback invented "Chapter 28" for them —
+colliding with real chapters. The fallback now uses the spine id, which
+is what the thing actually is.
+
+**Naming:** bare "Chapter 2" identifies nothing in a 600-item archive
+list, so chapter titles now lead with the book name ("The Truth
+Detector — Chapter 2: Building Rapport"). Title feeds the hash, so this
+shapes new imports; a re-import updates existing rows in place and picks
+the new names up.
+
+---
+
 ## 2026-08-22 — Suggest rejected a paid extract whose payload was sitting inside a string
 
 **Tags:** bug, external
