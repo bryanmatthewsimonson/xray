@@ -54,6 +54,15 @@ export const TYPE_DEFS = [
     { key: 'other',      label: 'Other' }
 ];
 
+// The tabs a first session sees (docs/PORTAL_UX_REVIEW.md C3). Every
+// other type stays REACHABLE under one "More" overflow with its live
+// count — layering, not amputation. The judgment kinds (assessments,
+// audits, predictions, findings, verdicts, integrity, extractions) are
+// meaningless on day one and were pricing expert density into entry;
+// they are exactly what folds. 'all' is not a TYPE_DEF and always
+// renders first.
+export const CORE_TAB_KEYS = ['article', 'claim', 'case', 'entity'];
+
 const KIND_LABELS = {
     30023: 'Article',
     30040: 'Claim',
