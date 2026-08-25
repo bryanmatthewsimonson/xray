@@ -19,6 +19,35 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-25 — the session-record leak: every capture registered, nothing ever evicted
+
+**Tags:** bug
+
+Field find via the maintainer's screenshots: "Could not register this
+capture for publishing (Session storage quota bytes exceeded) — publish
+will fail until the browser is restarted."
+
+Every capture writes `xray:article:<id>` into chrome.storage.session
+(the reader and the sign-time flows look the capture up by id), and NO
+code path ever removed one — grep found writes and reads, zero removes.
+The record must outlive its reads (a reader reload re-reads it; publish
+reads it again at sign time), so nobody could delete on read, and
+nobody ever deleted at all. The ~10MB session area absorbed a heavy
+casework day — long diarized transcripts, an EPUB, court-filing PDFs —
+until it was full, after which every NEW capture failed to register
+while looking perfectly captured on screen.
+
+`shared/session-articles.js` owns the rule now: write; on a QUOTA
+failure only, evict oldest-first within the one namespace (never the
+newest KEEP_NEWEST=5, never another namespace — the lens session cache
+shares the area), retry ONCE, then fail honestly. An evicted record's
+reader tab (necessarily hours old) publishes as "Session record
+missing" and recovers by re-capture — strictly better than the leak,
+which failed every new capture instead. Both write sites (the
+background capture handler and the reader's tabless PDF registration)
+route through it, seam-guarded; the reader's failure toast no longer
+prescribes a browser restart as the only cure.
+
 ## 2026-08-23 — Portal case view: "People & organizations" made local-first
 
 **Tags:** bug, design
