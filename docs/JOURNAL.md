@@ -19,6 +19,43 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-25 — Suggest's shape failures get ONE paid repair round; the dossier's bandText ghost
+
+**Tags:** bug, llm
+
+Two from the maintainer's diagnostics ring — its first real catches
+since it shipped (PR #343).
+
+**1. Six Suggest failures in ~30 minutes, all shape errors.**
+"$.position required field missing", "$.key_assertions expected array,
+got string", "$.entities expected array, got string" — the map call's
+tool input schema declares all of that, but input schemas are ADVISORY
+to the model, and `runCorpusMapPass` took the first answer or failed.
+The error text said "Try Suggest again", and because the same content
+produces the same wrong shape, the human WAS the retry loop — the
+maintainer clicked six times. Now a complete-but-invalid extract earns
+one repair round: the model's own tool_use goes back with an
+`is_error` tool_result naming the exact violations, the tool stays
+forced, and the second answer is adopted only if it validates (or is
+honestly partial). Never on a truncated/salvaged payload — that is the
+output ceiling, cause 1, and a retry would pay full price for the same
+cut. Never more than once. The lossless double-encoding repair
+(2026-08-22) stays free — validation probes the repaired view, so only
+shapes it cannot fix reach the paid round. tests/corpus-map-retry.
+test.mjs pins all five behaviors, including no-retry-on-happy-path.
+
+**2. "Entity dossier render failed bandText is not defined."**
+`bandText` was deleted with the Phase-19 fact layer (7fe79df), but one
+call survived in `renderContentBlock`, so any dossier whose captured-
+content rows carried a published date threw a ReferenceError and the
+whole content block vanished. `node --check` cannot see a
+ReferenceError; nothing else exercised that branch (it needs a row
+with `published` set). Fixed with `dossier-time.js`'s surviving
+`bandISO` (sliced to the date — byte-identical display to the deleted
+helper), and a grep guard now holds the ghost out. The lesson is the
+map-artifact one again: a partial deletion leaves live callers of dead
+names, and only a runtime path or a source guard notices.
+
 ## 2026-08-23 — Portal case view: "People & organizations" made local-first
 
 **Tags:** bug, design
