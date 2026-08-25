@@ -52,3 +52,28 @@ test('an atom triaged by its own row is never re-processed by the batch (double-
     assert.match(PAINT, /'dismissed'\);\s*\n\s*row\.dataset\.xrDone = '1';/, 'dismiss marks done');
     assert.match(PAINT, /row\.dataset\.xrDone\) continue/, 'the batch skips done rows');
 });
+
+// ------------------------------------------------------------------
+// The covered fold (the second half of the 2026-08-25 field report:
+// after reader Accept-alls, EVERY atom was covered and the block showed
+// no controls at all — "every fold is similarly devoid of Accept").
+// ------------------------------------------------------------------
+
+test('covered atoms get LINK controls — resolution without duplicate minting', () => {
+    assert.match(PAINT, /Link all covered \(\$\{openCovered\.length\}\)/, 'the batch link exists and counts');
+    assert.match(PAINT, /const linkOne = async/, 'one shared link path');
+    // Link resolves triage to the COVERING claim and must not mint:
+    const linkFn = /const linkOne = async[\s\S]{0,400}/.exec(PAINT)[0];
+    assert.match(linkFn, /persistTriage\(a\.key, 'accepted', coverage\[a\.key\]\)/);
+    assert.ok(!/ClaimModel\.create/.test(linkFn), 'linking must never mint a claim');
+    // The single-create invariant of the whole painter still holds:
+    assert.equal((PAINT.match(/ClaimModel\.create/g) || []).length, 1);
+});
+
+test('an all-covered fold opens itself — the invisible case is the one that must be seen', () => {
+    assert.match(PAINT, /if \(openUncovered\.length === 0\) cov\.open = true/);
+});
+
+test('the covered fold explains WHY accepting again is refused', () => {
+    assert.match(PAINT, /duplicate/i, 'the refusal must be stated, not silent');
+});

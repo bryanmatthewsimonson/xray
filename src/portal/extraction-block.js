@@ -508,9 +508,57 @@ function paintMember(body, { member, rec, caseId, noteAccepted, publisher = null
     }
 
     if (openCovered.length) {
+        // Field-found 2026-08-25: after the maintainer Accept-all'd in
+        // the READER, every atom here was covered — and this fold showed
+        // them with NO controls and left them "open" forever, so the
+        // fold header said "54 open" while nothing was acceptable. The
+        // refusal to re-mint is correct (a duplicate claim); the silence
+        // was not. LINK resolves a covered atom to the claim that covers
+        // it — triage 'accepted' with that claim's id, no new claim.
         const cov = el('details', 'xr-synth__sec');
         cov.appendChild(el('summary', null,
             `Already covered by existing claims (${openCovered.length})`));
+        cov.appendChild(el('p', 'xr-case__explainer',
+            'These proposals overlap a claim that already exists (accepted in the reader, or minted '
+            + 'earlier). Accepting again would create a duplicate — LINK records each one as covered '
+            + 'by its claim and clears it from the open count.'));
+        const covRowByKey = new Map();
+        const linkOne = async (a) => {
+            await persistTriage(a.key, 'accepted', coverage[a.key]);
+            const row = covRowByKey.get(a.key);
+            if (row) {
+                row.dataset.xrDone = '1';
+                row.replaceChildren(el('span', 'xr-synth__prop-desc',
+                    `✓ linked to: ${truncate(claimText[coverage[a.key]] || coverage[a.key], 120)}`));
+            }
+        };
+        const covBar = el('div', 'xr-synth__controls');
+        const linkAllBtn = el('button', 'xr-portal__btn', `Link all covered (${openCovered.length})`);
+        linkAllBtn.type = 'button';
+        linkAllBtn.title = 'Record every covered proposal as accepted-by its existing claim. Mints nothing.';
+        const covStatus = el('span', 'xr-synth__status');
+        linkAllBtn.addEventListener('click', async () => {
+            linkAllBtn.disabled = true;
+            let linked = 0; let failed = 0;
+            for (const a of openCovered) {
+                const row = covRowByKey.get(a.key);
+                if (row && row.dataset.xrDone) continue;
+                try { await linkOne(a); linked += 1; }
+                catch (err) {
+                    failed += 1;
+                    Utils.error('Link-covered failed for one proposal', err);
+                    if (row) row.appendChild(el('span', 'xr-synth__prop-note',
+                        `link failed: ${(err && err.message) || err}`));
+                }
+                covStatus.textContent = `${linked} linked${failed ? `, ${failed} failed` : ''}\u2026`;
+            }
+            covStatus.textContent = `${linked} linked${failed ? `, ${failed} FAILED (left on their rows)` : ''}.`;
+            if (failed === 0) linkAllBtn.remove();
+            else linkAllBtn.disabled = false;
+        });
+        covBar.appendChild(linkAllBtn);
+        covBar.appendChild(covStatus);
+        cov.appendChild(covBar);
         for (const a of openCovered) {
             const row = el('div', 'xr-synth__prop');
             const main = el('div', 'xr-synth__prop-desc');
@@ -518,8 +566,25 @@ function paintMember(body, { member, rec, caseId, noteAccepted, publisher = null
             main.appendChild(el('div', 'xr-synth__prop-note',
                 `covers claim: ${truncate(claimText[coverage[a.key]] || coverage[a.key], 120)}`));
             row.appendChild(main);
+            const linkBtn = el('button', 'xr-portal__btn xr-portal__btn--ghost', 'Link');
+            linkBtn.type = 'button';
+            linkBtn.title = 'Record as accepted-by this existing claim (mints nothing)';
+            linkBtn.addEventListener('click', async () => {
+                linkBtn.disabled = true;
+                try { await linkOne(a); }
+                catch (err) {
+                    Utils.error('Link failed', err);
+                    linkBtn.disabled = false;
+                    row.appendChild(el('span', 'xr-synth__prop-note', `link failed: ${(err && err.message) || err}`));
+                }
+            });
+            row.appendChild(linkBtn);
+            covRowByKey.set(a.key, row);
             cov.appendChild(row);
         }
+        // All-covered folds were the invisible case — open it so the
+        // controls are seen.
+        if (openUncovered.length === 0) cov.open = true;
         body.appendChild(cov);
     }
 
