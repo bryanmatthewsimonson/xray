@@ -364,6 +364,31 @@ function paintMember(body, { member, rec, caseId, noteAccepted, publisher = null
         relabel();
     };
 
+    // ONE minting path for the row button and the batch — two copies of
+    // create+triage would drift, and the drift would be a claims bug.
+    // `text` defaults to the pass's authored paraphrase (or the quote),
+    // exactly what the row's input prefills with.
+    const acceptOne = async (a, row, text) => {
+        const finalText = (typeof text === 'string' && text.trim()) || a.text || a.quote;
+        const claim = await ClaimModel.create({
+            text: finalText,
+            quote: a.quote,
+            source_url: member.url,
+            article_hash: member.article_hash,
+            about: [caseId].filter(Boolean),
+            suggested_by: `llm:${(a.first_seen && a.first_seen.model) || 'unknown'}`
+        });
+        await persistTriage(a.key, 'accepted', claim.id);
+        if (row) {
+            // The done-mark is the batch's skip signal: without it, an
+            // atom accepted (or dismissed) by its own row before the
+            // batch runs would be re-triaged AND minted a second time.
+            row.dataset.xrDone = '1';
+            row.replaceChildren(el('span', 'xr-synth__prop-desc', `✓ ${truncate(finalText, 120)}`));
+        }
+        noteAccepted();
+    };
+
     const assertionRow = (a, { undismiss = false } = {}) => {
         const row = el('div', 'xr-synth__prop xr-extr__row');
         const main = el('div', 'xr-synth__prop-desc');
@@ -403,17 +428,7 @@ function paintMember(body, { member, rec, caseId, noteAccepted, publisher = null
         acceptBtn.addEventListener('click', async () => {
             acceptBtn.disabled = true;
             try {
-                const claim = await ClaimModel.create({
-                    text: input.value.trim() || a.quote,
-                    quote: a.quote,
-                    source_url: member.url,
-                    article_hash: member.article_hash,
-                    about: [caseId].filter(Boolean),
-                    suggested_by: `llm:${(a.first_seen && a.first_seen.model) || 'unknown'}`
-                });
-                await persistTriage(a.key, 'accepted', claim.id);
-                row.replaceChildren(el('span', 'xr-synth__prop-desc', `✓ ${truncate(input.value.trim() || a.quote, 120)}`));
-                noteAccepted();
+                await acceptOne(a, row, input.value);
             } catch (err) {
                 Utils.error('Assertion accept failed', err);
                 acceptBtn.disabled = false;
@@ -428,6 +443,7 @@ function paintMember(body, { member, rec, caseId, noteAccepted, publisher = null
             dismissBtn.addEventListener('click', async () => {
                 try {
                     await persistTriage(a.key, 'dismissed');
+                    row.dataset.xrDone = '1';   // the batch must skip it
                     row.remove();
                 } catch (err) {
                     // On the ROW, not only in the console: a Dismiss that
@@ -444,7 +460,52 @@ function paintMember(body, { member, rec, caseId, noteAccepted, publisher = null
         return row;
     };
 
-    for (const a of openUncovered) body.appendChild(assertionRow(a));
+    // The batch path (field-found 2026-08-25: 1931 open proposals across
+    // 28 articles with only per-row Accept — no path at corpus scale).
+    // Scoped to ONE article, like the reader's "Accept all valid (N)";
+    // accepts exactly the rows per-row Accept offers (the covered fold
+    // would mint duplicates); uses each atom's suggested text; runs
+    // sequentially because persistTriage is read-modify-write against
+    // the store. Failures are counted and left on their rows — the
+    // batch never stops and never reloads the case.
+    const rowByKey = new Map();
+    if (openUncovered.length) {
+        const bar = el('div', 'xr-synth__controls');
+        const acceptAllBtn = el('button', 'xr-portal__btn', `Accept all open (${openUncovered.length})`);
+        acceptAllBtn.type = 'button';
+        acceptAllBtn.title = 'Mint a claim from every open proposal below, using each one\u2019s suggested text. '
+            + 'Per-row Edit-then-Accept remains for the ones you want to word yourself.';
+        const barStatus = el('span', 'xr-synth__status');
+        acceptAllBtn.addEventListener('click', async () => {
+            acceptAllBtn.disabled = true;
+            let minted = 0; let failed = 0;
+            for (const a of openUncovered) {
+                const row = rowByKey.get(a.key);
+                if (row && row.dataset.xrDone) continue;   // row-accepted mid-batch
+                try {
+                    await acceptOne(a, row);
+                    minted += 1;
+                } catch (err) {
+                    failed += 1;
+                    Utils.error('Batch accept failed for one proposal', err);
+                    if (row) row.appendChild(el('span', 'xr-synth__prop-note',
+                        `accept failed: ${(err && err.message) || err}`));
+                }
+                barStatus.textContent = `${minted} minted${failed ? `, ${failed} failed` : ''}\u2026`;
+            }
+            barStatus.textContent = `${minted} minted${failed ? `, ${failed} FAILED (left on their rows)` : ''}.`;
+            if (failed === 0) acceptAllBtn.remove();
+            else acceptAllBtn.disabled = false;
+        });
+        bar.appendChild(acceptAllBtn);
+        bar.appendChild(barStatus);
+        body.appendChild(bar);
+    }
+    for (const a of openUncovered) {
+        const row = assertionRow(a);
+        rowByKey.set(a.key, row);
+        body.appendChild(row);
+    }
 
     if (openCovered.length) {
         const cov = el('details', 'xr-synth__sec');
