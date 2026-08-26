@@ -27,6 +27,7 @@ import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
 import { runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, runHypothesisEdgePass, runClaimLinksPass, getCorpusConfig, runExtractPass, runEntityAuditPass, runForensicCorpusPass, runEntityPagePass, runVisionPass, getVisionConfig } from '../shared/llm-client.js';
+import { putSessionArticle } from '../shared/session-articles.js';
 import { getSourceDocument } from '../shared/archive-cache.js';
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prompts.js';
 import { prepareImageForVision, decodeDataUrl, blockedImageUrl } from '../shared/vision-image.js';
@@ -552,7 +553,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             transcribe: !!message.transcribe
         };
         const area = chrome.storage.session || chrome.storage.local;
-        area.set({ ['xray:article:' + id]: record }, () => {
+        // Quota-evicting write (session-articles.js, field-found
+        // 2026-08-25): records were never removed, so a heavy day filled
+        // the ~10MB session area and every NEW capture failed to
+        // register. The reader still opens on a failed write — the
+        // capture is readable, only publish lacks its record — and the
+        // reader's own load path says so.
+        putSessionArticle(area, 'xray:article:' + id, record).then((put) => {
+            if (!put.ok) Utils.error('capture: session record write failed:', put.error);
+            else if (put.evicted.length) Utils.log('capture: evicted', put.evicted.length, 'stale session records');
             const url = chrome.runtime.getURL('src/reader/index.html') + '?id=' + encodeURIComponent(id);
             chrome.tabs.create({ url }).then(
                 () => sendResponse({ ok: true }),

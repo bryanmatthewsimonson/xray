@@ -85,6 +85,7 @@ import { speakerFromParagraphText } from '../shared/transcript-parse.js';
 import { buildTranscriptSection, upsertTranscriptSection } from '../shared/transcript-article.js';
 import { buildDiarizedBody, timeFragmentSelector, timeRangeOfSpan, diarizedTrackEntry, extractionMethodFor, capturedBodyFor } from '../shared/diarized-transcript.js';
 import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey, hasMediaSignal, isFetchableMediaUrl, transcribeSourceUrl, directSubmissionProblem, visiblePickerEngines } from './transcribe-flow.js';
+import { putSessionArticle } from '../shared/session-articles.js';
 import { mediaKeyForArticle } from '../shared/media-key.js';
 import { openMediaModal } from './media-modal.js';
 import { scanPodcastSignals } from '../shared/podcast-identity.js';
@@ -231,26 +232,27 @@ async function loadArticle() {
         // sourceTabId is null by construction — there is no source tab
         // (content scripts never run in PDF viewers) — which routes
         // signing through the worker's Signer façade instead of a tab.
-        await new Promise((resolve) => {
+        {
             const area = browserApi.storage.session || browserApi.storage.local;
-            area.set({
-                ['xray:article:' + state.id]:
-                    { article, sourceTabId: null, createdAt: Date.now(), readOnly: false }
-            }, () => {
-                // A quota-full session store fails SILENTLY here and
-                // surfaces minutes later as a baffling "Session record
-                // missing" at publish — say so now, while the user can
-                // still connect cause and effect.
-                const err = browserApi.runtime && browserApi.runtime.lastError;
-                if (err) {
-                    console.warn('[X-Ray Reader] session record write failed:', err.message);
-                    toast('Could not register this capture for publishing ('
-                        + err.message + ') — publish will fail until the browser is restarted.',
-                    'error', 8000);
-                }
-                resolve();
-            });
-        });
+            // Quota-evicting write (session-articles.js): the leak that
+            // filled this area is fixed at both write sites, so the
+            // failure toast below should now be rare — it means the
+            // area is full of RECENT records eviction refuses to touch.
+            const put = await putSessionArticle(area,
+                'xray:article:' + state.id,
+                { article, sourceTabId: null, createdAt: Date.now(), readOnly: false });
+            if (!put.ok) {
+                // Surfaced NOW, while the user can still connect cause
+                // and effect — a silent failure here resurfaces minutes
+                // later as a baffling "Session record missing" at
+                // publish.
+                Utils.error('Reader: session record write failed:', put.error);
+                toast('Could not register this capture for publishing ('
+                    + put.error + ') — close some X-Ray reader tabs and reload this one, '
+                    + 'or restart the browser.',
+                'error', 8000);
+            }
+        }
         return adoptArticle(article, null);
     }
 
