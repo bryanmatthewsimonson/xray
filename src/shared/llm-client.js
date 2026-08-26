@@ -39,6 +39,7 @@ import {
     buildLensTool, buildLensSystemPrompt, buildLensUserPrompt
 } from './lens-prompt.js';
 import { lensPreflightRefusal, assembleJurisdictionReading } from './lens-engine.js';
+import { validateCorpusExtract, repairCorpusExtract } from './case-synthesis.js';
 import {
     MAX_ENTITY_AUDIT_OUTPUT_TOKENS,
     buildEntityAuditTool, buildEntityAuditSystemPrompt, buildEntityAuditUserPrompt
@@ -697,10 +698,11 @@ export async function runCorpusMapPass(req = {}) {
     } finally { clearTimeout(timer); }
     if (!res.ok) return { ...res, member_id: req.member_id };
 
-    const data = res.data;
+    let data = res.data;
     { const r = refusalResult(data, 'an extract for this article'); if (r) return { ...r, member_id: req.member_id }; }
-    const extract = extractToolInput(data, tool.name);
-    const cutShort = !!(data && data.stop_reason === 'max_tokens');
+    let extract = extractToolInput(data, tool.name);
+    let cutShort = !!(data && data.stop_reason === 'max_tokens');
+    let partial = cutShort || !!res.salvaged;
     if (extract === null) {
         return {
             ok: false, member_id: req.member_id,
@@ -712,15 +714,92 @@ export async function runCorpusMapPass(req = {}) {
                 : 'The model did not return a structured extract.'
         };
     }
+
+    // ONE shape-repair round — field-found 2026-08-25: six Suggest
+    // failures in ~30 minutes ("$.position required field missing",
+    // "$.entities expected array, got string"). Tool input schemas are
+    // advisory to the model, and taking the first answer made the HUMAN
+    // the retry loop — same content, same wrong shape, every click.
+    // A complete-but-invalid extract goes back to the model ONCE as an
+    // is_error tool_result naming the exact violations. Never on a
+    // truncated/salvaged payload (that is the output ceiling — cause 1 —
+    // and a retry would pay full price for the same cut), and never
+    // more than once. The lossless double-encoding repair stays free:
+    // validation probes the REPAIRED view, so only shapes repair cannot
+    // fix reach the paid round.
+    if (!partial) {
+        const probe = validateCorpusExtract(repairCorpusExtract(extract).extract);
+        if (!probe.ok) {
+            const detail = shapeErrorText(probe.errors);
+            Utils.log('Corpus map: invalid extract shape, one repair round:', detail);
+            const toolUseBlock = ((data && data.content) || []).find(
+                (b) => b && b.type === 'tool_use' && b.name === tool.name);
+            const retryPayload = {
+                ...payload,
+                messages: [
+                    ...payload.messages,
+                    { role: 'assistant', content: data.content },
+                    { role: 'user', content: [{
+                        type: 'tool_result', tool_use_id: toolUseBlock ? toolUseBlock.id : '',
+                        is_error: true,
+                        content: `Schema validation failed: ${detail}. Call ${tool.name} again with the SAME `
+                            + 'analysis in a valid shape: position is a REQUIRED object ({summary, side_label}); '
+                            + 'key_assertions, entities, source_references and open_questions are ARRAYS of '
+                            + 'objects per the schema — never strings or prose.'
+                    }] }
+                ]
+            };
+            const c2 = new AbortController();
+            const t2 = setTimeout(() => c2.abort(), CORPUS_MAP_TIMEOUT_MS);
+            let res2;
+            try { res2 = await postMessages(retryPayload, gate.apiKey, { signal: c2.signal, salvage: true }); }
+            catch (_) { res2 = { ok: false }; }
+            finally { clearTimeout(t2); }
+            const data2 = res2 && res2.ok ? res2.data : null;
+            const extract2 = data2 ? extractToolInput(data2, tool.name) : null;
+            if (extract2 !== null) {
+                const cut2 = !!(data2 && data2.stop_reason === 'max_tokens');
+                const v2 = validateCorpusExtract(repairCorpusExtract(extract2).extract);
+                if (v2.ok || cut2 || res2.salvaged) {
+                    // Adopt the repaired answer (a cut-off repair rides
+                    // through as partial — article-pass reads that as
+                    // cause 1 exactly like a cut-off first answer).
+                    data = data2; extract = extract2;
+                    cutShort = cut2; partial = cut2 || !!res2.salvaged;
+                } else {
+                    return {
+                        ok: false, member_id: req.member_id,
+                        error: 'The model returned an extract X-Ray cannot use: '
+                            + `${shapeErrorText(v2.errors)}. A repair round was already attempted.`
+                    };
+                }
+            } else {
+                return {
+                    ok: false, member_id: req.member_id,
+                    error: `The model returned an extract X-Ray cannot use: ${detail}. `
+                        + 'A repair round was attempted and did not return a structured extract.'
+                };
+            }
+        }
+    }
+
     // Disclosed, never silent: `partial` rides to the caller so the
     // review surface can say the extract stops early rather than
     // presenting it as the whole article.
     return {
         ok: true, member_id: req.member_id, extract,
-        partial: cutShort || !!res.salvaged,
+        partial,
         model: (data && data.model) || model,
         usage: data && data.usage
     };
+}
+
+/** Two violations, tersely — the model (and the toast) need WHICH
+ *  fields, not the whole walk. Mirrors article-pass's describer. */
+function shapeErrorText(errors) {
+    const parts = (Array.isArray(errors) ? errors : []).slice(0, 2).map(
+        (e) => (e && e.path && e.message) ? `${e.path} ${e.message}` : String((e && e.message) || e));
+    return parts.length ? parts.join('; ') : 'no reason reported';
 }
 
 /**

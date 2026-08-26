@@ -10,6 +10,7 @@
 
 import { el, clear } from './dom.js';
 import { openArchivedInReader } from './open-archived.js';
+import { bandISO } from '../shared/dossier-time.js';
 import { assembleEntityDossier } from '../shared/entity-dossier.js';
 import { renderIntegrityBlock } from './integrity-block.js';
 import { Utils } from '../shared/utils.js';
@@ -271,7 +272,7 @@ function renderContentBlock(host, dossier) {
         // Clickable into the reader (field-found 2026-08-23: a book's
         // whole chapter list was inert text).
         const link = el('a', 'xr-view__dossier-link', `${row.title || hostOf(row.url)} · ${row.claims.length} claim(s)`
-            + (row.published ? ` · ${bandText(row.published.at, row.published.precision)}` : ''));
+            + (row.published ? ` · ${bandISO(row.published.at, row.published.precision).slice(0, 10)}` : ''));
         link.href = '#';
         link.addEventListener('click', async (ev) => {
             ev.preventDefault();

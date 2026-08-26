@@ -231,3 +231,15 @@ test('people: case-view builds the section through the shared builder AND hands 
     assert.doesNotMatch(CASE_VIEW, /const members = new Map\(\)/,
         'a second, relay-only people loop would reintroduce the split');
 });
+
+test('the dossier view calls no ghost of the retired fact layer (bandText, 2026-08-23 diagnostics)', () => {
+    // bandText was deleted with the Phase-19 fact layer (7fe79df) but a
+    // call survived in renderContentBlock, so every dossier whose
+    // content rows carried a published date threw "bandText is not
+    // defined" and the block vanished. node --check cannot catch a
+    // ReferenceError; this grep can.
+    const src = readFileSync(new URL('../src/portal/entity-dossier-view.js', import.meta.url), 'utf8');
+    assert.ok(!/bandText\(/.test(src), 'the deleted helper must not be called');
+    assert.match(src, /bandISO\(row\.published\.at, row\.published\.precision\)/,
+        'the surviving dossier-time band formatter renders the date honestly');
+});
