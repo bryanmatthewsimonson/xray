@@ -19,6 +19,33 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-28 — the designer answers to the constitution: governance checklist in ux-designer
+
+**Tags:** design
+
+Maintainer directive: "We also need to have the designer look at the
+constitution and all governance docs." The `ux-designer` skill now
+runs an eight-item governance checklist on every review, with exact
+citations: filter state visible and reader-controlled (CONSTITUTION
+Art. 3), no fused number renders (Arts. 4.4/5.4/6), estimate labels
+travel with the number (Art. 5.2), no badge on an identity (Art. 7),
+operator pages get the same instruments (Art. 8), no belief-optimized
+presentation (TS H-7), absence of data says what it means (TS H-5;
+Art. 4.6), and layout must not assert what the system refuses to
+(TS S-4). Governance findings outrank every usability class in the
+harm ranking.
+
+Second-guessable calls, recorded: (1) the design derivations live in
+the skill itself rather than a separate governance discipline — none
+exists, the corpus rules on its own authority, and the skill cites
+articles rather than restating them (the seam rule); if a governance
+discipline is later chartered, it takes the corpus reading and the
+checklist cites it. (2) The checklist section deliberately avoids a
+literal `## Standards` heading — that heading is
+`tools/gen-discipline-docs.mjs`'s discipline marker, and adding it
+would conscript the skill into the eight-discipline render set (a
+roster change nobody ordered).
+
 ## 2026-08-25 — Suggest's shape failures get ONE paid repair round; the dossier's bandText ghost
 
 **Tags:** bug, llm
