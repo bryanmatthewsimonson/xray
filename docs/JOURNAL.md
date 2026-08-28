@@ -19,6 +19,42 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-28 — The governance skill: a corpus expert that asks instead of arbitrating
+
+**Tags:** design
+
+`.claude/skills/governance/` added by maintainer directive ("We need
+to have a governance skill that knows the project's governance
+thoroughly and is an expert on it"). It holds the working map of the
+whole governance corpus — CONSTITUTION, PHILOSOPHY,
+TRUTH_ADJUDICATION §1/§5, TRUTH_SYSTEMS (I-/S-/H-clauses),
+DISCIPLINES, the non-normative tier with the FOUNDING_TRANSCRIPT
+supersession log, ROAD_TO_1_0's kill/ratification state, and the
+guard tests that pin them — and reviews rank, citation form, Art. 13
+tier/ceremony, and Art. 5/Art. 2 license conditions for anything that
+touches or invokes them.
+
+Three second-guessable calls, recorded:
+
+1. **Not added to `tools/gen-discipline-docs.mjs` IDS.** It follows
+   the ux-designer / seam-and-invariant-check / hand-to-maintainer
+   precedent for post-eight skills (no literal `## Standards`
+   heading, so the generator's discipline marker doesn't claim it);
+   the rendered page stays the original eight. Promoting it into the
+   rendered set is a separate, reversible decision.
+2. **The red-guard seam moved.** The bug-vs-unratified-amendment
+   ruling on a red `constitution-guards` / `disciplines` test —
+   previously architect's bullet — is now governance's; architect
+   cites it and keeps the structural verdict (README seam map).
+   One owner per contested call, per the seam rules.
+3. **Divergence posture.** When governance documents conflict, the
+   skill frames the divergence as a question for the maintainer with
+   a marked recommendation — never auto-arbitrates (standing
+   maintainer instruction, 2026-08-28). The constitution's own
+   "document the tension, cite both, preserve auditability" clause
+   still governs in-flight implementation choices; the skill states
+   both so neither swallows the other.
+
 ## 2026-08-25 — Suggest's shape failures get ONE paid repair round; the dossier's bandText ghost
 
 **Tags:** bug, llm

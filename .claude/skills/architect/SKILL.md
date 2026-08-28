@@ -242,8 +242,9 @@ check does not bind.
   signer.js, nostr-client.js, crypto.js, or platforms/index.js
   dispatch.
 - tests/constitution-guards.test.mjs or tests/disciplines.test.mjs
-  goes red — adjudicate bug versus unratified amendment (Art. 12:
-  those are the only two possibilities).
+  goes red — the bug-versus-unratified-amendment ruling is
+  governance's (Art. 12: those are the only two possibilities);
+  this review supplies the structural verdict beside it.
 - Before a release tag, alongside docs/SMOKE_TEST.md, and after any
   cross-cutting refactor — a whole-tree pass, not a diff pass. The
   tag-time report feeds the automator-aggregated release preflight,
@@ -281,8 +282,8 @@ check does not bind.
    architecture section and message list, and any governing design
    doc — superseded designs get banners (standard 8).
 8. Run npm test. A red guard is a bug or an unratified amendment,
-   never a test to edit green; state which it is and what
-   ratification would require (Art. 12).
+   never a test to edit green; cite governance's ruling on which it
+   is and what ratification would require (Art. 12).
 9. State the quality trade in one sentence, or state "no quality
    trade" explicitly (standard 9).
 10. Produce the review report. Required sections: (a) per-standard
