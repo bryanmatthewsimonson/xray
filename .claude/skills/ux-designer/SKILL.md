@@ -94,6 +94,12 @@ derivations: cite the articles, never restate them (the README seam
 rule). If a governance discipline is later chartered, it owns the
 corpus reading and this checklist cites it.
 
+Worked example: `docs/MARGIN_UX_REVIEW.md` (2026-08-28) — a pre-code
+review of a design document, with its findings, the maintainer's
+dispositions, and one finding overruled. Two of its rulings are folded
+into items 2 and 7 below. Read it for the report's shape before
+writing a new one.
+
 Run every surface, mock, or diff under review through all eight:
 
 1. **Filter state is visible and reader-controlled** (CONSTITUTION
@@ -108,7 +114,13 @@ Run every surface, mock, or diff under review through all eight:
    per-entity score, ever; counts and spreads only, and signal
    families render side by side, never merged. A meter, gauge, star
    rating, or traffic-light color computed across families is a
-   fused score wearing design clothes.
+   fused score wearing design clothes. What the rule forbids is a
+   fused *judgment* figure: a labeled coverage or lane-membership
+   count spanning families (how many records anchored, how many
+   could not) is a plumbing measurement and is permitted when
+   labeled as coverage — the ratified carve-out at
+   `docs/MARGIN_DESIGN.md` §5.4 guard 2 and §10 row 1. Don't reopen
+   it; check that the label is actually there.
 3. **Estimates carry label and spread wherever they render**
    (CONSTITUTION Art. 5.2, conditions 1–3). A licensed estimate is
    labeled an estimate at every surface where it appears; the label
@@ -141,7 +153,13 @@ Run every surface, mock, or diff under review through all eight:
    disclosed ("sample, not census"); `unresolved` and
    declined-to-judge render as first-class honest outputs, not as
    blank cells. This is principle 6 with its constitutional floor
-   under it.
+   under it. The constraint binds the **semantics, not the
+   vocabulary**: the three-way distinction must survive, but which
+   noun carries it is a copy call the maintainer owns — the
+   2026-08-28 ruling that kept "relay" over a review's proposed
+   "server" (`docs/MARGIN_DESIGN.md` §10 row 6) is the standing
+   precedent. Citing a governance clause to win a wording argument
+   is the corpus-cosplay failure below.
 8. **Layout must not assert what the system refuses to** (TS S-4;
    CONSTITUTION Art. 6). Readers fuse in their heads — "supporting
    (12)" beside "(3)" reads as a score no matter the caption — so
