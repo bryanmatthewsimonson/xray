@@ -840,7 +840,7 @@ export async function synthesizeArticle() {
     const handle  = (profile && profile.username) || desc_handle;
     const verified = (profile && profile.verified) || verified_dom;
 
-    const canonicalUrl = meta.url || canonicalUrlFor(postKind, shortcode, handle);
+    const canonicalUrl = canonicalPostUrl({ metaUrl: meta.url, postKind, shortcode });
     const titleLine = composeTitle(author, handle, caption, postKind);
 
     // Content media — Instagram CDN images visible inside the post
@@ -1042,9 +1042,53 @@ function extractHandleFromMeta(meta) {
     return null;
 }
 
-function canonicalUrlFor(postKind, shortcode, handle) {
+function canonicalUrlFor(postKind, shortcode) {
     const path = postKind === 'reel' ? 'reel' : (postKind === 'igtv' ? 'tv' : 'p');
     return `https://www.instagram.com/${path}/${shortcode}/`;
+}
+
+/**
+ * The address this capture IS — field-found 2026-08-28.
+ *
+ * A reel by @thecougchron captured while the head's `og:url` named
+ * `https://www.instagram.com/latterdailysaints/reels/` was filed under
+ * that OTHER account's listing page: the reader showed one account's
+ * content at another account's address, and publishing it would have
+ * written that pairing into the `d` and `r` tags of a signed, public,
+ * machine-queryable kind-30023 (event-builder.js:178,181).
+ *
+ * The cause was precedence: `meta.url || canonicalUrlFor(...)` trusted
+ * a page-controlled meta tag over the URL X-Ray derives itself. og:url
+ * is not validated for host, scheme, or agreement with the shortcode
+ * the handler just resolved from `window.location` — so a stale head on
+ * an SPA navigation (the field case) or a hostile page (the general
+ * case) chooses the identity of the published event.
+ *
+ * Construct FIRST, which is the order the sibling Facebook handler has
+ * always used (facebook.js:970). The constructed value is derived from
+ * the path the user actually navigated to and is self-consistent by
+ * derivation, so it cannot disagree with the content. og:url survives
+ * ONLY as a fallback for the shortcode-less case — unreachable from
+ * synthesizeArticle, which early-returns unless isInstagramPostPage()
+ * found one — and even then only if it is a real instagram.com https
+ * URL, never a foreign host.
+ *
+ * Pure — exported so the precedence is unit-pinned rather than walked.
+ *
+ * @param {{metaUrl: string, postKind: string, shortcode: ?string}} args
+ * @returns {?string}
+ */
+export function canonicalPostUrl({ metaUrl, postKind, shortcode }) {
+    if (shortcode) return canonicalUrlFor(postKind, shortcode);
+    if (!metaUrl) return null;
+    try {
+        const u = new URL(metaUrl);
+        if (u.protocol !== 'https:') return null;
+        if (u.hostname !== 'instagram.com' && u.hostname !== 'www.instagram.com') return null;
+        return metaUrl;
+    } catch (_) {
+        return null;
+    }
 }
 
 function composeTitle(author, handle, caption, postKind) {

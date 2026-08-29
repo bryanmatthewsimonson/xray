@@ -19,6 +19,49 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-28 — Instagram filed one account's reel under another account's URL
+
+**Tags:** bug, capture, wire
+
+Field-found from a maintainer screenshot: a reader showing
+`URL https://www.instagram.com/latterdailysaints/reels/` above
+`AUTHOR The Cougar Chronicle (@thecougchron)` — one account's content
+at another account's address. The `reel` chip proved the path the
+handler matched contained `/reel/`, so the CONTENT was captured
+correctly; the ADDRESS was wrong.
+
+`instagram.js:843` read `const canonicalUrl = meta.url ||
+canonicalUrlFor(postKind, shortcode, handle)` — the page's `og:url`
+outranked the URL X-Ray derives from `window.location`, and og:url was
+validated for nothing: not host, not scheme, not whether it names the
+shortcode just resolved. A stale head across an Instagram SPA
+navigation (the field case) or a hostile page (the general case)
+therefore chose the identity of the capture.
+
+That value is not cosmetic: it becomes the `d` and `r` tags of a signed
+kind-30023 (`event-builder.js:178,181`) and the local publish-ledger
+key. Published, it is a machine-queryable assertion — from an
+evidentiary tool, over the maintainer's own signature — that content at
+address A is the content of address B, discoverable by exactly the
+`#r` filter a stranger would use. The general case is worse than the
+field case: og:url is page-controlled, so any page could have named any
+third-party URL.
+
+Fixed by adopting the precedence the sibling Facebook handler has
+always used (`facebook.js:970`): construct first. `canonicalPostUrl()`
+returns the derived `https://www.instagram.com/{p|reel|tv}/<shortcode>/`
+whenever a shortcode exists — which `isInstagramPostPage()` guarantees
+before `synthesizeArticle` runs — and admits og:url only in the
+shortcode-less case, and only when it is a real https instagram.com
+URL. Pure and exported, so the precedence is unit-pinned (including a
+hostile-og:url case and a seam guard) rather than left to a smoke walk.
+
+Found by a four-line investigation over one screenshot; the same pass
+also established that the "ERROR: Unsupported URL" banner beside it is
+yt-dlp's own text, forwarded verbatim by the companion and rendered in
+capture-provenance chrome with no mention of transcription — filed
+separately.
+
 ## 2026-08-25 — Suggest's shape failures get ONE paid repair round; the dossier's bandText ghost
 
 **Tags:** bug, llm
