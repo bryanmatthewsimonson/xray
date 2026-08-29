@@ -19,6 +19,51 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-28 — the designer answers to the constitution: governance checklist in ux-designer
+
+**Tags:** design
+
+Maintainer directive: "We also need to have the designer look at the
+constitution and all governance docs." The `ux-designer` skill now
+runs an eight-item governance checklist on every review, with exact
+citations: filter state visible and reader-controlled (CONSTITUTION
+Art. 3), no fused number renders (Arts. 4.4/5.4/6), estimate labels
+travel with the number (Art. 5.2), no badge on an identity (Art. 7),
+operator pages get the same instruments (Art. 8), no belief-optimized
+presentation (TS H-7), absence of data says what it means (TS H-5;
+Art. 4.6), and layout must not assert what the system refuses to
+(TS S-4). Governance findings outrank every usability class in the
+harm ranking.
+
+Second-guessable calls, recorded: (1) the checklist carries only the
+design-specific derivations — how the corpus constrains what a surface
+may **render** — and cites articles rather than restating them (the
+seam rule). The corpus reading itself belongs to the `governance`
+skill chartered the same day (PR #365): rank, citation form,
+amendment tier, license conditions, and doc-vs-doc divergences route
+there, not into a design review. The two were authored in parallel
+sessions and neither blocks the other; the ux-designer text is written
+to read correctly whichever merges first. (2) The checklist section
+deliberately avoids a literal `## Standards` heading — that heading is
+`tools/gen-discipline-docs.mjs`'s discipline marker, and adding it
+would conscript the skill into the eight-discipline render set (a
+roster change nobody ordered).
+
+**Folded in from the Margin review, same day.** `MARGIN_UX_REVIEW.md`
+(PR #367) landed on main while this branch was open — a ux-designer
+review run in a parallel session, before this checklist existed, whose
+dispositions the maintainer ratified. Two of them bound the checklist
+directly, so items 2 and 7 now carry them rather than leaving the next
+review to re-litigate settled questions: a labeled cross-family
+**coverage** count is a plumbing measurement, not a fused judgment
+(the A1 carve-out, `MARGIN_DESIGN.md` §5.4 guard 2 / §10 row 1); and
+the absence-semantics constraint binds semantics, **not vocabulary** —
+the C5 "server" swap was overruled and the copy keeps "relay" (§10
+row 6). The second is the sharper lesson and is why the corpus-cosplay
+failure mode earns its place: a governance citation deployed to win a
+wording argument is exactly the over-reach the standard names. The
+review is also cited as the checklist's worked example.
+
 ## 2026-08-25 — Suggest's shape failures get ONE paid repair round; the dossier's bandText ghost
 
 **Tags:** bug, llm
