@@ -35,13 +35,16 @@ Art. 4.6), and layout must not assert what the system refuses to
 (TS S-4). Governance findings outrank every usability class in the
 harm ranking.
 
-Second-guessable calls, recorded: (1) the design derivations live in
-the skill itself rather than a separate governance discipline — none
-exists, the corpus rules on its own authority, and the skill cites
-articles rather than restating them (the seam rule); if a governance
-discipline is later chartered, it takes the corpus reading and the
-checklist cites it. (2) The checklist section deliberately avoids a
-literal `## Standards` heading — that heading is
+Second-guessable calls, recorded: (1) the checklist carries only the
+design-specific derivations — how the corpus constrains what a surface
+may **render** — and cites articles rather than restating them (the
+seam rule). The corpus reading itself belongs to the `governance`
+skill chartered the same day (PR #365): rank, citation form,
+amendment tier, license conditions, and doc-vs-doc divergences route
+there, not into a design review. The two were authored in parallel
+sessions and neither blocks the other; the ux-designer text is written
+to read correctly whichever merges first. (2) The checklist section
+deliberately avoids a literal `## Standards` heading — that heading is
 `tools/gen-discipline-docs.mjs`'s discipline marker, and adding it
 would conscript the skill into the eight-discipline render set (a
 roster change nobody ordered).

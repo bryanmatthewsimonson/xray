@@ -87,12 +87,21 @@ honest-limits clauses H-1–H-7 and subversion modes S-1–S-9 are cited
 here as "TS H-n" / "TS S-n"), and `docs/TRUTH_INFRASTRUCTURE.md`
 (non-normative expansion map). Where a usability fix and a governance
 constraint conflict, the constraint governs; document the tension and
-cite both (CONSTITUTION, "How to use this document"). No separate
-governance discipline exists as of 2026-08-28 — the corpus rules on
-its own authority, and this section carries ONLY the design-specific
-derivations: cite the articles, never restate them (the README seam
-rule). If a governance discipline is later chartered, it owns the
-corpus reading and this checklist cites it.
+cite both (CONSTITUTION, "How to use this document").
+
+**Seam with `governance`.** The `governance` skill (chartered
+2026-08-28, `.claude/skills/governance/SKILL.md`) is the resident
+expert on that corpus and owns the reading of it: rank order,
+citation form, amendment tier and ceremony, license conditions, and
+any doc-vs-doc divergence — which it frames as a question for the
+maintainer rather than settling. This checklist carries ONLY the
+design-specific derivations: how the corpus constrains **what a
+surface may render**. Cite the articles, never restate them (the
+README seam rule), and route an interpretation question — does this
+clause even reach this case, is this an amendment — to `governance`
+instead of ruling on it inside a design review. If that skill is not
+present in your checkout, the corpus still rules on its own
+authority and the same cite-never-restate rule applies.
 
 Worked example: `docs/MARGIN_UX_REVIEW.md` (2026-08-28) — a pre-code
 review of a design document, with its findings, the maintainer's
