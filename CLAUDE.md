@@ -300,24 +300,30 @@ without the other is the design's named long-term risk.
   (`// Standards: <id> — docs/DISCIPLINES.md §n.`) —
   `tests/disciplines.test.mjs` fails any "You are" prompt file without
   one.
-- **`.claude/skills/`** — eight of the nine skills here are the
+- **`.claude/skills/`** — all but one of the thirteen skills here are
   **dev-process** disciplines (distinct from DISCIPLINES.md, which
-  governs the disciplines the *product* draws on); the ninth,
+  governs the disciplines the *product* draws on); the exception,
   `xray-capture`, is an operational skill that drives the loaded
   extension through the claude-in-chrome connector to capture URLs.
-  The disciplines — `product-manager`, `architect`,
+  The original eight — `product-manager`, `architect`,
   `continuous-improvement`, `automator`, `ecosystem-pm`,
   `verification-engineer`, `security-threat-modeler`,
-  `schema-evolution` — are written in the same §0 method. Each produces
+  `schema-evolution` — are written in the same §0 method; the later
+  additions (`ux-designer`, `seam-and-invariant-check`,
+  `hand-to-maintainer`, and `governance` — the resident expert on the
+  governance corpus: rank order, citations, Art. 13 amendment tiers,
+  Art. 5 license checks, red-guard adjudication) carry the same
+  advisory posture. Each produces
   a review report; the maintainer decides and merges (Art. 11), and
   nothing is merge-blocking until a standard graduates to a guard test
   by its own clause. `.claude/skills/README.md` carries the trigger
   routing, the shared release-preflight ordering, and the seam map
   (who owns a contested call — e.g. `ecosystem-pm` declares the
   canonical `Wire format:` PR callout). Read the governing skill before
-  a wire change, a schema change, a new surface, or a release tag.
-  `docs/discipline-standards.html` renders all eight on one page
-  (GENERATED — `npm run docs:disciplines`, drift-guarded by
+  a wire change, a schema change, a new surface, a release tag, or any
+  change touching a normative document (`governance`).
+  `docs/discipline-standards.html` renders the original eight on one
+  page (GENERATED — `npm run docs:disciplines`, drift-guarded by
   `tests/discipline-docs.test.mjs`).
 - **`docs/TRUTH_SYSTEMS.md`** — the constitution's evidentiary annex:
   16 truth-adjudication systems surveyed, invariants I-1–I-18 (the gap

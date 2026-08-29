@@ -1,6 +1,6 @@
 # Dev-process discipline skills
 
-Eight review disciplines for **how the software gets built**, written
+Review disciplines for **how the software gets built**, written
 in the `docs/DISCIPLINES.md` §0 method: the idealized-practitioner
 question as elicitation scaffolding, first principles extracted,
 numbered checkable standards, and each discipline's characteristic
@@ -52,6 +52,7 @@ which is exactly how `ROADMAP.md` went stale. That one is a human read.
 | [`hand-to-maintainer`](hand-to-maintainer/SKILL.md) | Hand manual verification over as runnable steps the maintainer can act on from the terminal alone, and record what comes back. Exists because naming a smoke row id is not handing over work, and because asserting a row's status without evidence turns an unknown into a false record. |
 | [`security-threat-modeler`](security-threat-modeler/SKILL.md) | Enumerate the assets and trust boundaries of a key-holding, page-injecting, cloud-talking extension in one living document, and make every new surface justify itself against that map before it ships. |
 | [`schema-evolution`](schema-evolution/SKILL.md) | Guarantee that every record any shipped version ever wrote stays readable and every kind ever emitted stays parseable — migration, fixtures, and rollback story in the same PR. |
+| [`governance`](governance/SKILL.md) | Resident expert on the governance corpus — the constitution, the organic statutes, the annexes, the non-normative tier, and their guard tests. Reads rank, citation form, amendment tier, and license conditions for any change that touches or invokes them; frames doc-vs-doc divergences as questions for the maintainer, never rulings. |
 
 ## Routing — which skill for which moment
 
@@ -72,6 +73,11 @@ which is exactly how `ROADMAP.md` went stale. That one is a human read.
 | About to commit a new field, set member, guard, or user-visible string | `seam-and-invariant-check` (the green-tests-wrong-behavior checklist) |
 | The same manual sequence runs a second time in a session | `automator` |
 | Friction recurs, or a pain class appears twice in `JOURNAL` | `continuous-improvement` |
+| A diff touches `docs/CONSTITUTION.md`, `PHILOSOPHY.md`, `DISCIPLINES.md`, `TRUTH_SYSTEMS.md`, or any normative doc section | `governance` |
+| An amendment is drafted, or a change needs its Art. 13 tier and ceremony | `governance` |
+| `tests/constitution-guards.test.mjs` or `tests/disciplines.test.mjs` goes red | `governance` (bug-vs-unratified-amendment ruling) + `architect` (structural verdict) |
+| A proposal needs a standing-law license check — Art. 5 estimation, aggregation, a capability without a design doc, a kill or resurrection | `governance` |
+| Two governance documents appear to conflict | `governance` — frames the divergence as a question for the maintainer; no skill arbitrates |
 | Before a `v*` tag | all eight, in the order below |
 
 ## Release preflight — the shared ordering
@@ -141,6 +147,18 @@ that restates a neighbor's rule instead of citing it is a defect.
   vocabulary — every step is **agent-verifiable** or **needs-human-eyes**
   — and the check; `automator` moves steps into the agent-verifiable
   column.
+- **Governance corpus.** `governance` owns the reading of standing
+  law: rank order (CONSTITUTION Art. 1–2), canonical citation form,
+  Art. 13 tier classification with its drafted ceremony, Art. 5 /
+  Art. 2 license checks, and the bug-vs-unratified-amendment ruling
+  when a normative guard goes red — `architect` supplies the
+  structural verdict beside that ruling and keeps the one-way-door
+  record. `product-manager` still owns whether an artifact should
+  exist; `ecosystem-pm` still owns stranger-facing wire semantics.
+  `governance` rules only on what the corpus permits, forbids, or
+  requires — and presents doc-vs-doc divergences to the maintainer
+  as framed questions with a marked recommendation, never as
+  rulings.
 
 **Never restated anywhere:** the reserved and retired kind numbers.
 Cite the kind table in `docs/CONSTITUTION.md` Art. 10 (the wire
