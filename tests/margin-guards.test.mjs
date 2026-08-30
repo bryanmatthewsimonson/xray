@@ -38,6 +38,14 @@ test('guard (draft-leak): the annotated shell is read-only and the module never 
     assert.doesNotMatch(src, /htmlDraft\s*=/, 'annotated-view.js never assigns the draft');
 });
 
+test('guard (escape-interpolation): hostile action ids and reviewState never break out of an attribute', () => {
+    const hostile = mkNote('h1', 'claim', { actions: ['locate', '" onmouseover="x'], reviewState: '"><img src=x>' });
+    const html = AV.renderCard(hostile);
+    assert.match(html, /xr-ann-act--/, 'scanner sanity: the action class still renders');
+    assert.doesNotMatch(html, /" onmouseover=/, 'the hostile action id cannot break out of the class/data-action attribute or its label text');
+    assert.doesNotMatch(html, /"><img src=x>/, 'the hostile reviewState cannot break out of the review class attribute');
+});
+
 test('guard (no-fused-number): the strip renders per-family counts and coverage, never a summed insight total', () => {
     // 3 claims + 2 audit + 1 forensic = 6 total; "6" must not appear.
     const notes = [
@@ -73,4 +81,21 @@ test('guard (audit-fence): audit cards render inside one fenced group, last, nev
         'no other family renders inside or after the audit fence');
     const beforeFence = html.slice(0, fenceStart);
     assert.doesNotMatch(beforeFence, /data-family="audit"/, 'no audit card escapes the fence');
+
+    // The page-notes lane fences audit too (MARGIN_DESIGN §5.3 — "a
+    // fenced block in EVERY layout"), not just the anchored cards panel.
+    const pageNotes = [
+        mkNote('pc1', 'claim', { pageReason: 'no anchor' }),
+        mkNote('pa1', 'audit', { pageReason: 'no anchor' })
+    ];
+    const pageHtml = AV.renderPageNotes(pageNotes);
+    const pageFenceStart = pageHtml.indexOf('xr-ann-group--audit');
+    assert.ok(pageFenceStart > -1, 'scanner sanity: the page-notes audit fence exists');
+    const pageFence = pageHtml.slice(pageFenceStart);
+    assert.ok(pageFence.includes('data-note="pa1"'), 'the audit page note is inside the fence');
+    assert.doesNotMatch(pageFence, /data-family="claim"|data-family="extraction"|data-family="forensic"|data-family="prediction"/,
+        'no other family renders inside or after the page-notes audit fence');
+    const pageBeforeFence = pageHtml.slice(0, pageFenceStart);
+    assert.ok(pageBeforeFence.includes('data-note="pc1"'), 'the non-audit page note renders before the fence');
+    assert.doesNotMatch(pageBeforeFence, /data-family="audit"/, 'no audit page note escapes the page-notes fence');
 });

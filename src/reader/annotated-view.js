@@ -78,10 +78,10 @@ function subCardHtml(sub) {
 
 export function renderCard(note) {
     const actions = (note.actions || [])
-        .map((a) => `<button type="button" class="xr-ann-act xr-ann-act--${a}" data-action="${a}" data-note="${esc(note.id)}">${ACTION_LABELS[a] || a}</button>`)
+        .map((a) => `<button type="button" class="xr-ann-act xr-ann-act--${esc(a)}" data-action="${esc(a)}" data-note="${esc(note.id)}">${esc(ACTION_LABELS[a] || a)}</button>`)
         .join('');
     const review = note.reviewState
-        ? `<span class="xr-ann-review xr-ann-review--${note.reviewState}">${note.reviewState === 'open' ? 'Unreviewed' : note.reviewState === 'accepted' ? 'Accepted' : 'Dismissed'}</span>`
+        ? `<span class="xr-ann-review xr-ann-review--${esc(note.reviewState)}">${note.reviewState === 'open' ? 'Unreviewed' : note.reviewState === 'accepted' ? 'Accepted' : 'Dismissed'}</span>`
         : '';
     const reason = note.pageReason
         ? `<span class="xr-ann-reason">${esc(note.pageReason)}</span>` : '';
@@ -121,9 +121,20 @@ export function renderCardsPanel(notes = []) {
 export function renderPageNotes(notes = []) {
     const rows = notes.filter((n) => n.pageReason);
     if (!rows.length) return '';
+    // The audit family stays fenced in EVERY layout (MARGIN_DESIGN
+    // §5.3), not just the anchored cards panel — a note demoted to the
+    // page lane must not interleave with other families here either.
+    const nonAudit = rows.filter((n) => n.family !== 'audit');
+    const auditRows = rows.filter((n) => n.family === 'audit');
+    const auditGroup = auditRows.length
+        ? `<section class="xr-ann-group xr-ann-group--audit" data-family="audit">
+            <h3 class="xr-ann-group-title">${esc(FAMILY_LABELS.audit)}</h3>
+            ${auditRows.map(renderCard).join('')}
+        </section>` : '';
     return `<section class="xr-ann-pagenotes">
         <h3 class="xr-ann-group-title">Page notes · ${rows.length}</h3>
-        ${rows.map(renderCard).join('')}
+        ${nonAudit.map(renderCard).join('')}
+        ${auditGroup}
     </section>`;
 }
 
