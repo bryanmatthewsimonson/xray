@@ -42,6 +42,7 @@ how `ROADMAP.md` came to advertise finished walks as pending for weeks.
 | 2026-08-25 | **Claim proposals — Accept all + Link all covered** (PR #361 soak walk) | **PASS** (second round; the first walk failed and diagnosed the covered-fold dead end). On an all-covered article fold: the covered section opened itself, explained the duplicate refusal, and "Link all covered (N)" resolved the atoms to their existing claims with a running count — no minting, no reload. The first-round observation is the design input of record: after reader Accept-alls, every fold was covered and the block offered no controls at all ("every fold is similarly devoid of Accept"). |
 | 2026-08-25 | **Suggest shape-repair round + dossier bandText fix** (PR #358 soak walk) | **PASS, both halves.** Retry half by field evidence: the morning's six consecutive shape failures gave way to three completed Suggest runs — 72, 60 and 86 proposals on a long diarized transcript (screenshots on record). Dossier half confirmed post-merge on the main build: the LDS-church dossier (269 claims · 22 articles) assembled with its Captured content dates after a stale pre-fix bundle first reproduced the crash — the maintainer's walk path (People & organizations → chip → dossier →) is now the documented route, recorded here after the initial "I don't know how to find an entity dossier" report. |
 | | **DC.1 §5 acceptance criterion** | **MET except one clause, deliberately deferred.** Three transcripts by the direct route, **on a FRESH BROWSER PROFILE** — the never-configured state — and **one of them with the companion service verifiably stopped**. **(a) "A machine where the companion has never been installed" — SATISFIED.** The fresh profile is the faithful reproduction and is what the criterion can actually test: the extension has no filesystem check anywhere, it probes `127.0.0.1:<port>/health` and gets connection refused whether a companion is absent or merely stopped, so what distinguishes a newcomer is the EXTENSION's own storage — empty flags, no engine preference, no port or token. The host machine still carries the companion on disk, which the extension has no way to know and never asks; the direct path touches no part of it (`uv`, Python, GPU, `HF_TOKEN` are all unreachable from it). Worth more than the criterion: this is the direct-ONLY configuration (`localTranscription` off), which is where BOTH defects found on 2026-08-15 were reachable and where a walk on the maintainer's configured profile would have sailed past them. **(b) One transcript feeding a claim or an entity page — DEFERRED by the maintainer 2026-08-15**, to be satisfied during real corpus-building rather than manufactured for the walk. That is the better evidence: the clause exists to test whether these transcripts are USEFUL, and casework answers that where a staged run would not. Revisit at the §5 check date (2026-10-01, or the release tag after DC.1, whichever comes first). Transcript-count reading recorded rather than assumed: §5 says "three transcripts produced with no companion service running" and a strict count of runs-while-stopped is 1; taking all three as qualifying, because the stopped run establishes the independence that qualifier exists to test. Disagree with the arithmetic here rather than rediscover it. |
+| 2026-08-30 | Margin S1 (M.1–M.10) | pending |
 
 **Not yet walked** (each blocks nothing on its own, but is unobserved):
 a NIP-46 bunker signer — the only realistic provider that might restamp
@@ -1741,3 +1742,20 @@ cannot fetch it), that is DC-4's finding, not a DC-2 failure — record
 which, because they falsify different things: DC-2 tests whether the
 companion is really unnecessary, DC-4 whether real episode URLs are
 really fetchable by a third party.
+
+---
+
+## Margin S1 — Annotated view (flag `marginView`, default OFF)
+
+| # | Test | Pass criteria |
+|---|---|---|
+| M.1 | Flag OFF (default): open an archived article | ✅ no Annotated tab; reader behaves exactly as before |
+| M.2 | Flag ON: open an archived article that has claims + an extraction record | ✅ lands in Annotated; tinted spans over the anchored passages; strip shows per-family chips and "N anchored · M page notes"; no combined insight total anywhere |
+| M.3 | Collapsed click on a tinted span | ✅ the side panel focuses that span's card; no authoring popover |
+| M.4 | Drag-select, double-click, AND triple-click on tinted text | ✅ the select→tag popover opens each time (never the card focus); Escape dismisses |
+| M.5 | Click a rail marker of each shape (● ▷ ▢) | ✅ body scrolls to the span with the flash; ▢ focuses its card inside the fenced Audit evidence group, visually separate |
+| M.6 | Switch to Reader, edit a grounded sentence, switch back to Annotated | ✅ the orphaned note sits in Page notes with a stated reason; nothing silently vanishes |
+| M.7 | Accept one claim proposal (modal → save) and dismiss another, then reload the tab | ✅ accepted row shows Accepted, dismissed shows Dismissed; both survive reload; the accepted claim appears in the Claims group |
+| M.8 | Tag an entity + add a claim from a selection IN the annotated view, then Publish from Reader mode | ✅ published markdown contains no `xr-ann` markup; the new claim carries a quote and a TextQuoteSelector-only anchor |
+| M.9 | Keyboard: Tab to a tinted span, press Enter; Tab to a rail marker, press Enter | ✅ both focus the card, focus ring visible |
+| M.10 | Family chip toggle (e.g. Claim proposals off) | ✅ chip shows struck-through state; that family's cards hide and its tints mute; nothing else changes; toggling back restores |
