@@ -166,6 +166,8 @@ const MARK_SHAPES = Object.freeze({
 // a display-only span. Safe HERE and only here: this container is a
 // read-only sibling — nothing syncs it back to any draft.
 function wrapSegments(bodyEl, segments, notesById) {
+    // hydrate expects a freshly-set body; refuse to double-wrap.
+    if (bodyEl.querySelector('.xr-ann-seg')) return;
     let segIdx = 0;
     let offset = 0;
     const walker = document.createTreeWalker(bodyEl, NodeFilter.SHOW_TEXT);
@@ -180,17 +182,17 @@ function wrapSegments(bodyEl, segments, notesById) {
         const sliceStart = Math.max(seg.start, nodeStart) - nodeStart;
         const sliceEnd = Math.min(seg.end, nodeEnd) - nodeStart;
         let target = node;
-        if (sliceStart > 0) target = target.splitText(sliceStart);
-        const rest = (sliceEnd - sliceStart < target.nodeValue.length)
-            ? target.splitText(sliceEnd - sliceStart) : null;
+        if (sliceStart > 0) target = node.splitText(sliceStart);
+        if (sliceEnd - sliceStart < target.nodeValue.length) target.splitText(sliceEnd - sliceStart);
         const span = document.createElement('span');
         span.className = segClass(seg, notesById);
         span.dataset.ids = seg.ids.join(' ');
         span.setAttribute('tabindex', '0');
         target.parentNode.insertBefore(span, target);
         span.appendChild(target);
-        offset = nodeStart + sliceStart + (sliceEnd - sliceStart);
-        node = rest || walker.nextNode();
+        offset = nodeStart + sliceEnd;
+        walker.currentNode = target;
+        node = walker.nextNode();
         if (seg.end <= offset) segIdx += 1;
     }
 }
