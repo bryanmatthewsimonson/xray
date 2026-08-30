@@ -225,7 +225,13 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // as a coordinate to a separately signed claim), not a narrow
   // projection. So the default stays off, and turning it on is a
   // decision about disclosure rather than a convenience.
-  extractionAnalysisPublishing: false
+  extractionAnalysisPublishing: false,
+
+  // The Margin S1 (docs/MARGIN_DESIGN.md §9): the read-only Annotated
+  // reader view — span-anchored insight cards over the user's own
+  // records. Display-only; no publish path and no wire kind rides
+  // this flag. Default off until the maintainer's S1 soak walk.
+  marginView: false
 });
 
 /**

@@ -16,6 +16,10 @@
               title="The active case — this capture and its tags belong to it. Manage cases in Settings."></button>
     </div>
     <nav class="xr-reader__modes" role="tablist" aria-label="View mode">
+      <!-- Annotated view (Margin S1, docs/MARGIN_DESIGN.md §3): the
+           read-only annotated render. Hidden until the marginView flag
+           reveals it in init(). -->
+      <button class="xr-reader__mode-btn" data-mode="annotated" role="tab" aria-selected="false" hidden>Annotated</button>
       <button class="xr-reader__mode-btn xr-reader__mode-btn--active" data-mode="reader"   role="tab" aria-selected="true">Reader</button>
       <button class="xr-reader__mode-btn"                              data-mode="markdown" role="tab" aria-selected="false">Markdown</button>
       <button class="xr-reader__mode-btn"                              data-mode="preview"  role="tab" aria-selected="false">Preview</button>

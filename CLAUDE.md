@@ -78,12 +78,14 @@ the single most important thing here.
    `chrome.storage.onChanged` listener every wake.
 3. **Extension pages** (`src/options/`, `src/reader/`, `src/sidepanel/`,
    `src/portal/`, `src/network/`) — options is the single settings hub
-   (Relays / Signing / Advanced); reader renders the captured
-   article + publish flow; sidepanel is the entity browser + per-entity
+   (Relays / Signing / Advanced); reader renders the captured article +
+   publish flow, plus a flag-gated read-only Annotated view mode
+   (`marginView`, default off) that renders span-anchored insight cards per
+   docs/MARGIN_DESIGN.md; sidepanel is the entity browser + per-entity
    dossier; portal is the full-tab "My Archive" page (Phase 12) — a
-   read-mostly view of everything published, reconciled against relays,
-   with per-case dashboards; network is the flag-gated "truth-seeker"
-   client (Phase 25) — Feed / Queue / Follows over the people you follow.
+   read-mostly view of everything published, reconciled against relays, with
+   per-case dashboards; network is the flag-gated "truth-seeker" client
+   (Phase 25) — Feed / Queue / Follows over the people you follow.
 4. **MAIN world page scripts** (`src/page/`) — `nip07-bridge.js` exposes
    `window.nostr` to the extension via tagged `postMessage` envelopes;
    `api-interceptor.js` hooks `fetch`/XHR on FB/IG/YouTube to capture
@@ -193,6 +195,11 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   independent of `llmAssist`. **No wire kind** — 30066 stays free and
   the 16.4 guards machine-check it; "Verdict/Ruling/Opinion/Court/
   Integrity" never appear in lens exports, storage keys, or UI strings.
+- **`annotations/`** (Margin S1) — the derived MarginNote projection over
+  existing stores (`notes.js` pure projectors, `collect.js` the sole
+  store-toucher, `segments.js` grounding + disjoint-segment partition).
+  Computed on read; no wire kind, no persistence. Feeds the reader's
+  flag-gated Annotated view (`marginView`, docs/MARGIN_DESIGN.md).
 - Also: `nostr-client.js` (relay pool, used from background),
   `archive-cache.js` (IndexedDB + paywall reconstruction),
   `build-info.js` (the build stamp shown on the Options page),

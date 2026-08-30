@@ -19,6 +19,29 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-30 — Margin S1: the Annotated view lands behind `marginView`
+
+**Tags:** design
+
+Slice S1 of docs/MARGIN_DESIGN.md (ratified 2026-08-28). One derived
+MarginNote projection over the existing stores (src/shared/annotations/),
+grounding by verbatim quote against the annotated container's own text
+(offsets never cross substrates — the reader/index.js:3308 invariant),
+disjoint-segment painting in a read-only sibling of the draft body (no
+CSS Highlight API — Firefox 128 parity), and four permanent guards
+(draft-leak, no-fused-number, reserved-vocabulary, audit-fence) in
+tests/margin-guards.test.mjs. Second-guessable calls worth recording:
+paraphrase-only claims ground with the strict locate() tiers and demote
+to Page notes on a miss (visible degradation over silent misattribution);
+audit evidence never tints the body — its rail channel is the visual
+firewall's carrier; the annotated entity-tagger keeps only the
+TextQuoteSelector from captured anchors (the annotated DOM is the wrong
+substrate for positional selectors); fragment selectors (PDF page/media
+time) are deliberately KEPT on margin-authored claims — they derive from
+quote text, not DOM position, so nothing about the annotated substrate
+undermines them (adjudicated during review). Bars untouched — S2 is the
+consolidation slice.
+
 ## 2026-08-25 — Suggest's shape failures get ONE paid repair round; the dossier's bandText ghost
 
 **Tags:** bug, llm

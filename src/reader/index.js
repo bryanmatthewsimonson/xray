@@ -24,6 +24,11 @@ import { HypothesisEdgeModel } from '../shared/hypothesis-model.js';
 import * as ArchiveCache from '../shared/archive-cache.js';
 import { recordAlias, resolveAlias, loadAliasMap, resolveWithMap } from '../shared/url-aliases.js';
 import { installEntityTagger, rehydrateEntityMarks, renderEntitiesBar, extractParagraphContext } from './entity-tagger.js';
+// Margin S1 (docs/MARGIN_DESIGN.md §3/§6): the Annotated view's
+// collector + renderers. Flag-gated by `marginView`; purely additive —
+// the existing bars are untouched.
+import { collectMineNotes } from '../shared/annotations/collect.js';
+import { annotatedShellHtml, hydrateAnnotatedView } from './annotated-view.js';
 import { openClaimModal, openEvidenceLinkModal, openOthersClaimsModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
 import { openAssessModal } from '../shared/assess-modal.js';
 import { openAdjudicateModal } from '../shared/adjudicate-modal.js';
@@ -43,7 +48,8 @@ import { openFindingModal, openBaselineModal } from '../shared/forensic-modal.js
 import { renderFindingsBar } from './findings-section.js';
 import { renderExtractionBar } from './extraction-bar.js';
 import {
-    recordArticleExtraction, suggestExtractFromProposals, assertionClaimCoverage
+    recordArticleExtraction, suggestExtractFromProposals, assertionClaimCoverage,
+    setAssertionTriage
 } from '../shared/map-artifacts.js';
 import { shouldOfferArchive, describeMetric } from './archive-banner.js';
 import { archivedDraftIsCanonical, archivedDraftSource } from '../shared/archive-draft.js';
@@ -63,7 +69,7 @@ import { AuditRunModel, PredictionModel, ResolutionModel, staleModules } from '.
 import {
     listResolutions as listAuditResolutions,
     getPendingSuggestions, deletePendingSuggestions,
-    getArticleExtraction
+    getArticleExtraction, saveArticleExtraction
 } from '../shared/audit/audit-cache.js';
 import { assembleAuditBatch } from '../shared/audit/publish-batch.js';
 import { CURRENT_MODULE_VERSIONS, MODULE_NAMES, OPINION_RUN_MODULES } from '../shared/audit/findings-schemas.js';
@@ -121,7 +127,7 @@ const browserApi = typeof browser !== 'undefined' && browser.runtime ? browser :
 const state = {
     id: null,            // session-storage id for this article
     article: null,       // the article object as extracted
-    viewMode: 'reader',  // 'reader' | 'markdown' | 'preview'
+    viewMode: 'reader',  // 'reader' | 'markdown' | 'preview' | 'annotated'
     // Working copies. Reader mode edits `htmlDraft`. Markdown mode edits
     // `markdownDraft`. Whichever was last edited is the source of truth
     // on publish.
@@ -396,9 +402,11 @@ async function adoptArticle(article, stored) {
                 const slicedHash = slice.truncated
                     ? await canonicalArticleHash(slice.text)
                     : fullHash;
-                state.articleHash = fullHash;
-                state.auditableTotalChars = slice.totalChars;
-                state.auditableHash = slicedHash;
+                applyArticleHashes({
+                    articleHash: fullHash,
+                    auditableTotalChars: slice.totalChars,
+                    auditableHash: slicedHash
+                });
                 updateHashLine();
                 // The audit bar keys on the hash — refresh it now that
                 // the hash is known (init wired it before this resolved).
@@ -483,7 +491,7 @@ async function adoptArticle(article, stored) {
         // PUBLISHED hash (the event's own x tag) is the view's
         // identity, and the audit panel keys on it. Display-only:
         // nothing is recomputed, nothing is saved.
-        state.articleHash = state.article._articleHash;
+        applyArticleHashes({ articleHash: state.article._articleHash });
         updateHashLine();
         refreshAuditStatus().catch((err) =>
             console.warn('[X-Ray Reader] audit status failed:', err));
@@ -1265,8 +1273,11 @@ async function loadArchivedArticle(archived, provenance) {
     // is different text, so the load-time hash is wrong for it. Relay
     // archives carry the PUBLISHED hash (carry, don't recompute: the
     // HTML round trip doesn't byte-match); cache archives recompute.
-    state.articleHash = archived._articleHash || null;
-    state.hashDirty = false;
+    // `render: false` — this function repaints the current view itself a
+    // few statements below (the switch on state.viewMode), so letting the
+    // seam paint here too would give an archive load two or three
+    // annotated renders for one user action.
+    applyArticleHashes({ articleHash: archived._articleHash || null, hashDirty: false, render: false });
     // PERSIST the restore (writable opens only): adopting in memory
     // alone left the archive ROW on whatever version it held — after a
     // prior-version restore every other surface (portal opens, case
@@ -1285,7 +1296,7 @@ async function loadArchivedArticle(archived, provenance) {
     if (!state.articleHash) {
         canonicalArticleHash(EventBuilder.assembleArticleBody(hashableArticle(state.article)))
             .then((h) => {
-                state.articleHash = h;
+                applyArticleHashes({ articleHash: h });
                 updateHashLine();
                 // The extraction record keys on this hash (MA.2b).
                 refreshExtractionBar().catch(() => { /* display refresh only */ });
@@ -1301,6 +1312,7 @@ async function loadArchivedArticle(archived, provenance) {
         case 'reader':   renderReader();   break;
         case 'markdown': renderMarkdown(); break;
         case 'preview':  renderPreview();  break;
+        case 'annotated': renderAnnotatedSafely(); break;
     }
     // The adopted copy may be machine-transcribed or LLM-reconstructed
     // — its provenance banner must follow it in. The only other call
@@ -1327,6 +1339,51 @@ async function loadArchivedArticle(archived, provenance) {
 // ------------------------------------------------------------------
 // Canonical article hash (Phase 13.4)
 // ------------------------------------------------------------------
+
+/**
+ * The ONE writer of this capture's hash identity — the seam, not a
+ * convenience. Eight paths recompute or carry a hash (adopt, read-only
+ * carry, archive load, archive rehash, PDF reconstruction, transcription,
+ * transcript attach, vision merge, publish stamp), and the Annotated
+ * view's ENTIRE note set is keyed on these two hashes: the extraction
+ * record, the audit runs, the predictions. Before this, each site had to
+ * remember to re-render the margin, three did, and the rest silently
+ * served a stale family set beside bars that had already refreshed.
+ * Routing every write through here makes forgetting impossible.
+ *
+ * Only keys actually PASSED are assigned — `undefined` means "leave it
+ * alone", which is what lets the carried-hash sites set `articleHash`
+ * without clobbering the auditable pair.
+ *
+ * The re-render fires only when a passed field actually CHANGES value.
+ * Several paths re-assert the hash they already hold (a rehash that
+ * lands on the same bytes, a publish stamping the hash it just derived),
+ * and repainting the margin for a no-op costs a full collect + hydrate
+ * and steals the reader's scroll position. `render: false` is the one
+ * opt-out, for the single caller that repaints unconditionally two
+ * statements later — assignments are always unconditional and cheap;
+ * only the paint is gated.
+ */
+function applyArticleHashes({ articleHash, auditableHash, auditableTotalChars, hashDirty, render = true } = {}) {
+    let changed = false;
+    if (articleHash !== undefined) {
+        changed = changed || state.articleHash !== articleHash;
+        state.articleHash = articleHash;
+    }
+    if (auditableHash !== undefined) {
+        changed = changed || state.auditableHash !== auditableHash;
+        state.auditableHash = auditableHash;
+    }
+    if (auditableTotalChars !== undefined) {
+        changed = changed || state.auditableTotalChars !== auditableTotalChars;
+        state.auditableTotalChars = auditableTotalChars;
+    }
+    if (hashDirty !== undefined) {
+        changed = changed || state.hashDirty !== hashDirty;
+        state.hashDirty = hashDirty;
+    }
+    if (changed && render && state.viewMode === 'annotated') renderAnnotatedSafely();
+}
 
 // Fill (or refresh) the small hash line under the article meta. The
 // hash computes async after first render, and mode switches re-render
@@ -1943,11 +2000,12 @@ async function reconstructWithLlmFlow() {
         // Both audit keys move with the body — leaving auditableHash
         // stale made prior audit runs claim they scored "this capture".
         const slice = auditableSlice(fullBody);
-        state.articleHash = fullHash;
-        state.auditableTotalChars = slice.totalChars;
-        state.auditableHash = slice.truncated
-            ? await canonicalArticleHash(slice.text) : fullHash;
-        state.hashDirty = false;
+        applyArticleHashes({
+            articleHash: fullHash,
+            auditableTotalChars: slice.totalChars,
+            auditableHash: slice.truncated ? await canonicalArticleHash(slice.text) : fullHash,
+            hashDirty: false
+        });
         updateHashLine();
         refreshAuditStatus().catch(() => { /* display refresh only */ });
         refreshExtractionBar().catch(() => { /* display refresh only */ });
@@ -2110,11 +2168,12 @@ async function adoptDiarizedTranscript(result) {
         const fullBody = EventBuilder.assembleArticleBody(hashableArticle(a));
         const fullHash = await canonicalArticleHash(fullBody);
         const slice = auditableSlice(fullBody);
-        state.articleHash = fullHash;
-        state.auditableTotalChars = slice.totalChars;
-        state.auditableHash = slice.truncated
-            ? await canonicalArticleHash(slice.text) : fullHash;
-        state.hashDirty = false;
+        applyArticleHashes({
+            articleHash: fullHash,
+            auditableTotalChars: slice.totalChars,
+            auditableHash: slice.truncated ? await canonicalArticleHash(slice.text) : fullHash,
+            hashDirty: false
+        });
         updateHashLine();
         refreshAuditStatus().catch(() => { /* display refresh only */ });
         refreshExtractionBar().catch(() => { /* display refresh only */ });
@@ -3775,9 +3834,11 @@ async function applyMediaResult(result) {
         const slice = auditableSlice(fullBody);
         const slicedHash = slice.truncated
             ? await canonicalArticleHash(slice.text) : fullHash;
-        state.articleHash = fullHash;
-        state.auditableTotalChars = slice.totalChars;
-        state.auditableHash = slicedHash;
+        applyArticleHashes({
+            articleHash: fullHash,
+            auditableTotalChars: slice.totalChars,
+            auditableHash: slicedHash
+        });
         updateHashLine();
         refreshAuditStatus().catch(() => {});
         // Attaching a transcript CHANGES the canonical text, so the old
@@ -4021,9 +4082,11 @@ async function applyVisionNotes(accepted) {
         const slice = auditableSlice(fullBody);
         const slicedHash = slice.truncated
             ? await canonicalArticleHash(slice.text) : fullHash;
-        state.articleHash = fullHash;
-        state.auditableTotalChars = slice.totalChars;
-        state.auditableHash = slicedHash;
+        applyArticleHashes({
+            articleHash: fullHash,
+            auditableTotalChars: slice.totalChars,
+            auditableHash: slicedHash
+        });
         updateHashLine();
         refreshAuditStatus().catch(() => {});
     } catch (err) {
@@ -4042,6 +4105,7 @@ async function applyVisionNotes(accepted) {
     switch (state.viewMode) {
         case 'markdown': renderMarkdown(); break;
         case 'preview': renderPreview(); break;
+        case 'annotated': renderAnnotatedSafely(); break;
         default: renderReader(); break;
     }
     toast(missed
@@ -5522,7 +5586,11 @@ function onReaderFieldInput(ev) {
     // Honest display beats live recomputation against a half-synced
     // draft: flag dirty, recompute at publish (13.4).
     if (ev && ev.target && ev.target.dataset.field === 'content' && !state.hashDirty) {
-        state.hashDirty = true;
+        // Through the seam like every other hash-identity write. The
+        // re-render it fires is a no-op here by construction (the
+        // annotated body is not editable, so this only runs in Reader),
+        // but routing it keeps the "one writer" rule literally true.
+        applyArticleHashes({ hashDirty: true });
         // The body is no longer the one that hashes to the anchor, so the
         // draft is no longer proven and publish must re-derive it. Scoped
         // to the CONTENT field on purpose: the unconditional
@@ -5647,6 +5715,360 @@ function previewField(label, value) {
 }
 
 // ------------------------------------------------------------------
+// Render — ANNOTATED mode (Margin S1 — docs/MARGIN_DESIGN.md §3/§4)
+// ------------------------------------------------------------------
+// A read-only sibling render into #xr-main. It never touches
+// `.xr-article__body` or `state.htmlDraft` (§5.4 draft-leak guard):
+// the annotated body is a DISPLAY COPY, seeded from the draft and
+// never synced back. The existing bars below #xr-main are untouched
+// (§9 — S1 is purely additive), so triage done here refreshes them.
+
+// `gen` is the render generation: every renderAnnotated call claims one
+// and abandons itself if another render (or a mode switch) happened
+// while it awaited the collector.
+// `visibility` is the chip state, deliberately OUTSIDE the render: an
+// accept, an assessment, a hash settling — all re-render, and a family
+// the user put away must stay away across every one of them.
+const annState = { byId: new Map(), extractionKey: null, gen: 0, visibility: {} };
+
+/** Fire-and-forget entry point for the synchronous mode switches. */
+function renderAnnotatedSafely() {
+    renderAnnotated().catch((err) =>
+        console.warn('[X-Ray Reader] annotated render failed:', err));
+}
+
+async function renderAnnotated() {
+    const main = $('#xr-main');
+    if (!main || !state.article) return;
+    const gen = ++annState.gen;
+    main.innerHTML = annotatedShellHtml({ title: state.article.title });
+    const container = $('#xr-ann');
+    const body = container.querySelector('[data-role="body"]');
+    // Same Readability-sanitized-fragment idiom as renderReader — the
+    // fragment is already safe HTML. hydrateAnnotatedView requires a
+    // FRESHLY set body (it refuses to double-wrap), so this assignment
+    // must stay immediately before the hydrate call.
+    body.innerHTML = state.htmlDraft;
+    // Render fidelity (§3): the annotated body is the SAME capture the
+    // Reader shows, so it needs the Reader's two display-layer passes —
+    // otherwise an archived PDF opens by default into broken figures and
+    // a diarized transcript loses its speaker names. Both are
+    // TEXT-NEUTRAL (speaker decoration only sets class/attrs on existing
+    // <strong>/<b>; figure hydration only swaps img srcs), so neither
+    // perturbs the grounding index or the segment offsets below.
+    try { decorateSpeakerLabels(body, state.article); }
+    catch (err) { console.warn('[X-Ray Reader] speaker decoration failed:', err); }
+    // Deliberately OUTSIDE the generation guard below: it resolves
+    // against whatever body it was handed, and swapping img srcs on a
+    // body that has since been detached is benign — no state, no text.
+    hydrateFigureImages(body)
+        .catch((err) => console.warn('[X-Ray Reader] figure hydrate failed:', err));
+    // S1: platform comments stay in #xr-comments (MARGIN_DESIGN §8); the
+    // comment family joins the margin in S2.
+    const { notes, extractionKey } = await collectMineNotes({
+        url: state.article.url,
+        articleHash: claimArticleHash(),
+        auditableHash: state.auditableHash || null
+    });
+    // A render that lost the race is DEAD here: another render already
+    // owns the container, or the user left for the Reader. Continuing
+    // would (a) hand installEntityTagger the annotated body and tear
+    // down the READER's tagger — silently killing all text-selection
+    // authoring — and (b) overwrite byId/extractionKey under the cards
+    // the newer render painted.
+    if (gen !== annState.gen || state.viewMode !== 'annotated') return;
+    annState.extractionKey = extractionKey;
+    const { grounded } = hydrateAnnotatedView(container, notes, {
+        visibility: annState.visibility,
+        // A hand-edited body explains its own misses — say "after your
+        // edit" rather than blaming the source (§5.1).
+        edited: !!state.hashDirty
+    });
+    annState.byId = new Map(grounded.map((n) => [n.id, n]));
+    // Keyboard: Enter on a focused segment behaves like a click (§9 —
+    // the S1 accessibility baseline; segments carry tabindex).
+    container.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && e.target.classList && e.target.classList.contains('xr-ann-seg')) {
+            e.preventDefault();
+            focusStackFor(e.target.dataset.ids.split(' '), container);
+            return;
+        }
+        // Typing into a read-only body answers nothing on its own (§3/C3):
+        // flash the mode label so the silence is explained and the way
+        // out — "edit in Reader" — is the thing that lights up.
+        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey
+                && e.target.closest && e.target.closest('[data-role="body"]')) {
+            const label = container.querySelector('.xr-ann-modelabel');
+            if (!label) return;
+            label.classList.add('xr-ann-modelabel--flash');
+            setTimeout(() => label.classList.remove('xr-ann-modelabel--flash'), 1600);
+        }
+    });
+    container.addEventListener('click', (e) => {
+        onAnnotatedClick(e).catch((err) => {
+            // A rejection here can mean a HUMAN DECISION was lost — the
+            // accept path mints a claim and then writes triage, so a
+            // failed write leaves the proposal open with a claim already
+            // minted. A console line is invisible to the person who
+            // clicked; say it out loud.
+            console.warn('[X-Ray Reader] annotated action failed:', err);
+            toast('X-Ray could not finish that action — the claim may exist but the proposal is unchanged. Re-open the proposal and re-triage.', 'error', 10000);
+        });
+    });
+    installAnnotatedTagger(body);
+}
+
+/**
+ * Focus the WHOLE stack a span carries, not its first note. A tinted
+ * span is tinted precisely because notes overlap there, so surfacing one
+ * card and dropping the rest hides exactly what the overlap was pointing
+ * at — a claim and the forensic finding about it are the interesting
+ * case, and it was the one the old first-id-only version lost.
+ * Accepts an id or an id list; the first card that exists is scrolled to.
+ */
+function focusStackFor(noteIds, container) {
+    const ids = Array.isArray(noteIds) ? noteIds : [noteIds];
+    container.querySelectorAll('.xr-ann-card--focus').forEach((c) => c.classList.remove('xr-ann-card--focus'));
+    let first = null;
+    let firstVisible = null;
+    for (const id of ids) {
+        const card = container.querySelector(`.xr-ann-card[data-note="${CSS.escape(id)}"]`);
+        if (!card) continue;
+        card.classList.add('xr-ann-card--focus');
+        if (!first) first = card;
+        if (!firstVisible && !card.hidden) firstVisible = card;
+    }
+    // Scroll to the first card the user can actually SEE — a chip-hidden
+    // card is display:none, so scrolling to it moves the panel to a blank
+    // spot. Falls back to the first card when the whole stack is hidden,
+    // which keeps the focus marks meaningful once a chip is toggled back.
+    const target = firstVisible || first;
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function locateNoteInAnnotated(noteId) {
+    const container = $('#xr-ann');
+    const seg = container && container.querySelector(`.xr-ann-seg[data-ids~="${CSS.escape(noteId)}"]`);
+    if (!seg) return;
+    seg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    seg.classList.add('xr-ann-seg--flash');
+    setTimeout(() => seg.classList.remove('xr-ann-seg--flash'), 1600);
+}
+
+async function onAnnotatedClick(e) {
+    const container = $('#xr-ann');
+    if (!container) return;
+    const actEl = e.target.closest('[data-action]');
+    if (actEl) {
+        const action = actEl.dataset.action;
+        const note = annState.byId.get(actEl.dataset.note || '') || null;
+        if (action === 'switch-reader') { setViewMode('reader'); return; }
+        if (action === 'legend') {
+            const legend = container.querySelector('[data-role="legend"]');
+            if (legend) legend.hidden = !legend.hidden;
+            return;
+        }
+        if (!note) return;
+        if (action === 'locate') { locateNoteInAnnotated(note.id); return; }
+        if (action === 'edit' && note.family === 'claim') {
+            // The claims bar's edit flow (openEditClaim), rendered here.
+            // Re-read from the STORE, never the render snapshot: the
+            // cards may have been painted before an edit elsewhere, and
+            // editing from a stale record would revert the newer text.
+            const fresh = await ClaimModel.get(note.meta.id);
+            if (!fresh) { toast('Claim not found — it may have been deleted.', 'error'); return; }
+            const saved = await openClaimModal({
+                sourceUrl:    state.article.url,
+                initialClaim: fresh
+            });
+            if (saved) {
+                toast('Claim updated', 'success', 2000);
+                refreshClaimsBar().catch(() => { /* display refresh only */ });
+                renderAnnotatedSafely();
+            }
+            return;
+        }
+        if (action === 'assess' && note.family === 'claim') {
+            // The claims-bar assess call site, with the annotated body
+            // as the anchor container (the claim's quote lives there).
+            // Claim text comes from the STORE, like the bar's own row
+            // lookup — a snapshot paints once and can go stale.
+            const fresh = await ClaimModel.get(note.meta.id);
+            if (!fresh) { toast('Claim not found — it may have been deleted.', 'error'); return; }
+            const annBody = container.querySelector('[data-role="body"]');
+            const result = await openAssessModal({
+                claimRef:  { claim_id: fresh.id },
+                claimText: fresh.text || '',
+                anchorContext: { container: annBody }
+            });
+            if (result) {
+                toast(result.deleted ? 'Assessment removed' : 'Assessment saved', 'success', 1500);
+                refreshClaimsBar().catch(() => { /* display refresh only */ });
+                renderAnnotatedSafely();
+            }
+            return;
+        }
+        if (action === 'adjudicate' && note.family === 'claim') {
+            // The claims-bar adjudicate call site, verbatim — and, like
+            // the lens route (wireLensActions), off a freshly read
+            // record: `publishedPubkey` in particular changes when the
+            // claim publishes, and a stale null misroutes the mirror.
+            const fresh = await ClaimModel.get(note.meta.id);
+            if (!fresh) { toast('Claim not found — it may have been deleted.', 'error'); return; }
+            const result = await openAdjudicateModal({
+                claimId:     fresh.id,
+                claimText:   fresh.text || '',
+                relays:      await getConfiguredRelays(),
+                claimPubkey: fresh.publishedPubkey || null
+            });
+            if (result) {
+                toast(result.verdict
+                    ? `Ruled: ${result.verdict.verdict}${result.verdict.supersedes ? ' (supersedes prior ruling)' : ''}`
+                    : 'Proposition saved', 'success', 2000);
+                refreshClaimsBar().catch(() => { /* display refresh only */ });
+                renderAnnotatedSafely();
+            }
+            return;
+        }
+        if ((action === 'accept' || action === 'dismiss') && note.family === 'extraction') {
+            if (!annState.extractionKey) return;
+            let claimId = null;
+            if (action === 'accept') {
+                const row = note.meta;
+                const saved = await openClaimModal({
+                    sourceUrl:   state.article.url,
+                    initialText: row.text || row.quote,
+                    quote:       row.quote,
+                    articleHash: claimArticleHash()
+                });
+                if (!saved) return;
+                claimId = saved.id;
+            }
+            // Read-modify-write against the STORE, never the render's
+            // snapshot, and FAIL CLOSED on a key that matched nothing —
+            // the portal's triage convention (extraction-block.js:346).
+            const rec = await getArticleExtraction(annState.extractionKey);
+            const updated = setAssertionTriage(rec, note.meta.key,
+                action === 'accept' ? 'accepted' : 'dismissed',
+                { claimId, now: Date.now() });
+            if (updated.matched === 0) {
+                toast('This claim proposal is no longer on the record — reload and try again', 'error', 5000);
+                return;
+            }
+            await saveArticleExtraction(updated);
+            refreshClaimsBar().catch(() => { /* display refresh only */ });
+            refreshExtractionBar().catch(() => { /* display refresh only */ });
+            renderAnnotatedSafely();
+            return;
+        }
+        return;
+    }
+    const chip = e.target.closest('.xr-ann-chip');
+    if (chip) {
+        const family = chip.dataset.family;
+        const off = chip.classList.toggle('xr-ann-chip--off');
+        chip.setAttribute('aria-pressed', String(!off));
+        // Persisted, so the next re-render (an accept, a settling hash)
+        // repaints the same state instead of quietly restoring what the
+        // user hid.
+        annState.visibility[family] = !off;
+        container.querySelectorAll(`.xr-ann-card[data-family="${family}"]`).forEach((c) => { c.hidden = off; });
+        container.querySelectorAll('.xr-ann-seg').forEach((seg) => {
+            const fams = seg.dataset.ids.split(' ').map((id) => (annState.byId.get(id) || {}).family);
+            seg.classList.toggle('xr-ann-seg--muted', fams.every((f) => annState.visibility[f] === false));
+        });
+        // The rail moves with its family. A marker still standing for a
+        // hidden family points at a card that is no longer there.
+        container.querySelectorAll('.xr-ann-mark').forEach((m) => {
+            const note = annState.byId.get(m.dataset.note);
+            if (note && note.family === family) m.hidden = off;
+        });
+        return;
+    }
+    const mark = e.target.closest('.xr-ann-mark');
+    if (mark) { locateNoteInAnnotated(mark.dataset.note); focusStackFor(mark.dataset.note, container); return; }
+    const seg = e.target.closest('.xr-ann-seg');
+    if (seg) {
+        // Gesture arbitration by SELECTION STATE (§4, ruled): a
+        // collapsed selection opens cards; any non-collapsed selection
+        // (drag, double-click, triple-click) belongs to the tagger.
+        const sel = window.getSelection();
+        if (sel && !sel.isCollapsed) return;
+        focusStackFor(seg.dataset.ids.split(' '), container);
+    }
+}
+
+function installAnnotatedTagger(annBody) {
+    if (state._taggerUninstall) state._taggerUninstall();
+    state._taggerUninstall = installEntityTagger({
+        container: annBody,
+        // renderReader's onTag, MINUS the `state.htmlDraft = body.innerHTML`
+        // sync and the dirtySource flip: this container is a display copy,
+        // so syncing it back would be the §5.4 draft leak, and claiming the
+        // reader draft as newly-canonical would be a lie about a body that
+        // never changed. The ref itself is what publishes (the p-tag).
+        onTag: (ref) => {
+            const dup = state.article.entities.find(
+                (e) => e.entity_id === ref.entity_id && e.context === ref.context
+            );
+            if (!dup) state.article.entities.push(ref);
+            refreshEntitiesBar().catch(() => { /* display refresh only */ });
+            scheduleTagSave();
+        },
+        onClaim: async ({ text, context, anchor, quoteMode }) => {
+            // Quote-first capture (§4, ruled): the annotated DOM is the
+            // wrong substrate for POSITIONAL selectors — segment spans
+            // shift every offset — so keep only the TextQuoteSelector
+            // out of the captured array.
+            const quoteOnly = (anchor || []).filter((s) => s && s.type === 'TextQuoteSelector');
+            // The PDF-page and media-time fragment selectors are derived
+            // from the quote TEXT, not from DOM offsets (adjudicated
+            // 2026-08-30), so the ruling does not reach them and they
+            // must survive: dropping them would silently strip page and
+            // timestamp provenance from every margin-captured claim.
+            const page = pdfPageOfQuote(text);
+            const trange = timeRangeOfQuote(text);
+            let anchorOut = quoteOnly.length ? quoteOnly : null;
+            if (page) anchorOut = [...(anchorOut || []), pageFragmentSelector(page)];
+            if (trange) anchorOut = [...(anchorOut || []), timeFragmentSelector(trange.startSec, trange.endSec)];
+            const saved = await openClaimModal({
+                sourceUrl:   state.article.url,
+                initialText: text,
+                context,
+                anchor:      anchorOut,
+                quote:       text,
+                articleHash: claimArticleHash(),
+                initialAbout: state.lastClaimAbout || [],
+                quoteMode:   !!quoteMode,
+                defaultSource: (await resolveTranscriptSpeaker(context)) || (await resolveDefaultSpeaker())
+            });
+            if (saved) {
+                state.lastClaimAbout = saved.about || [];
+                toast(quoteMode ? 'Quote saved' : 'Claim saved', 'success', 2000);
+                refreshClaimsBar().catch(() => { /* display refresh only */ });
+                renderAnnotatedSafely();
+            }
+        },
+        onFinding: async ({ text, anchor }) => {
+            // renderReader's onFinding flow, with the quote-only anchor
+            // and the annotated body as the anchor container.
+            const quoteOnly = (anchor || []).filter((s) => s && s.type === 'TextQuoteSelector');
+            const result = await openFindingModal({
+                subjectChoices: subjectChoicesFromArticle(),
+                anchorContext:  { container: annBody },
+                seedAnchor:     { quote: text, selector: quoteOnly.length ? quoteOnly : null },
+                sourceRef:      { url: state.article.url, title: state.article.title || '' }
+            });
+            if (result) {
+                toast(result.deleted ? 'Finding removed' : 'Finding saved', 'success', 1500);
+                refreshFindingsBar().catch(() => { /* display refresh only */ });
+                renderAnnotatedSafely();
+            }
+        }
+    });
+}
+
+// ------------------------------------------------------------------
 // View mode controller
 // ------------------------------------------------------------------
 
@@ -5664,6 +6086,7 @@ function setViewMode(mode) {
         case 'reader':   renderReader();   break;
         case 'markdown': renderMarkdown(); break;
         case 'preview':  renderPreview();  break;
+        case 'annotated': renderAnnotatedSafely(); break;
     }
 }
 
@@ -5826,6 +6249,7 @@ function mergeSubstackPost(post) {
         case 'reader':   renderReader();   break;
         case 'markdown': renderMarkdown(); break;
         case 'preview':  renderPreview();  break;
+        case 'annotated': renderAnnotatedSafely(); break;
     }
 }
 
@@ -6206,8 +6630,7 @@ async function publish() {
         const publishedXTag = unsignedArticle.tags.find((t) => t[0] === 'x');
         if (publishedXTag && publishedXTag[1]) {
             article._articleHash = publishedXTag[1];
-            state.articleHash = publishedXTag[1];
-            state.hashDirty = false;
+            applyArticleHashes({ articleHash: publishedXTag[1], hashDirty: false });
             updateHashLine();
             refreshExtractionBar().catch(() => { /* display refresh only */ });
         }
@@ -8110,7 +8533,28 @@ async function init() {
     // the defaults.
     try { await loadFlags(); } catch (_) { /* falls back to defaults */ }
 
-    renderReader();
+    // Margin S1: the Annotated tab ships hidden and is revealed only by
+    // its own default-off flag (MARGIN_DESIGN §9).
+    if (isEnabled('marginView')) {
+        const annBtn = document.querySelector('.xr-reader__mode-btn[data-mode="annotated"]');
+        if (annBtn) annBtn.hidden = false;
+    }
+    // MARGIN_DESIGN §3 (ruled 2026-08-28): archived opens land in the
+    // Annotated view; fresh captures keep the editable Reader.
+    if (isEnabled('marginView')
+            && (state.readOnlyOpen || (state.article && state.article._archiveSource))) {
+        setViewMode('annotated');
+        // renderReader() is the only OPEN-TIME loader of the three
+        // sibling bars (they live outside #xr-main and stay visible in
+        // every mode — MARGIN_DESIGN §9). Skipping it would leave them
+        // empty until some later action refreshed them, so they'd pop
+        // into existence mid-session. Same fire-and-forget pattern.
+        refreshClaimsBar().catch((err) => console.warn('[X-Ray Reader] claims-bar render failed:', err));
+        refreshEntitiesBar().catch((err) => console.warn('[X-Ray Reader] entities-bar render failed:', err));
+        refreshFindingsBar().catch((err) => console.warn('[X-Ray Reader] findings-bar render failed:', err));
+    } else {
+        renderReader();
+    }
 
     document.querySelectorAll('.xr-reader__mode-btn').forEach((btn) => {
         btn.addEventListener('click', () => setViewMode(btn.dataset.mode));
