@@ -24,9 +24,9 @@
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
-    "esbuild": "^0.28.1",
+    "esbuild": "^0.28.2",
     "fake-indexeddb": "^6.2.5",
-    "web-ext": "^10.4.0"
+    "web-ext": "^10.6.0"
   },
   "engines": {
     "node": ">=20"
