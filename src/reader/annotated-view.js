@@ -81,6 +81,11 @@ function subCardHtml(sub) {
 
 export function renderCard(note) {
     const actions = (note.actions || [])
+        // A page note has no passage to show: "Show in text" on one is an
+        // offer the view cannot keep, and clicking it would fail silently.
+        // Dropped HERE rather than at each projector so no future producer
+        // can reintroduce it (the clickable quote is gated the same way).
+        .filter((a) => !(a === 'locate' && note.pageReason))
         .map((a) => `<button type="button" class="xr-ann-act xr-ann-act--${esc(a)}" data-action="${esc(a)}" data-note="${esc(note.id)}">${esc(ACTION_LABELS[a] || a)}</button>`)
         .join('');
     const review = note.reviewState
@@ -100,15 +105,28 @@ export function renderCard(note) {
 const byStart = (a, b) =>
     ((a.grounding && a.grounding.start) ?? Infinity) - ((b.grounding && b.grounding.start) ?? Infinity);
 
+const groupHtml = (f, rows) => `<section class="xr-ann-group" data-family="${esc(f)}">
+            <h3 class="xr-ann-group-title">${esc(FAMILY_LABELS[f] || f)}</h3>
+            ${rows.map(renderCard).join('')}
+        </section>`;
+
 export function renderCardsPanel(notes = []) {
     const anchored = notes.filter((n) => !n.pageReason && n.grounding);
     const groups = FAMILY_ORDER
         .map((f) => ({ f, rows: anchored.filter((n) => n.family === f).sort(byStart) }))
         .filter((g) => g.rows.length)
-        .map((g) => `<section class="xr-ann-group" data-family="${g.f}">
-            <h3 class="xr-ann-group-title">${esc(FAMILY_LABELS[g.f])}</h3>
-            ${g.rows.map(renderCard).join('')}
-        </section>`).join('');
+        .map((g) => groupHtml(g.f, g.rows)).join('');
+    // The invariant is "every anchored note has a reachable card", NOT
+    // "every note is in FAMILY_ORDER". An anchored note of an unlisted
+    // family (S2's comments, S3's foreign ring) already gets a tinted
+    // clickable span and a rail marker, so without this fallback its
+    // click would resolve to nothing and fail in silence. Rendered after
+    // the ordered groups and BEFORE the audit fence, so the fence stays
+    // last (§5.3) whatever new families arrive.
+    const extras = [...new Set(anchored.map((n) => n.family))]
+        .filter((f) => f !== 'audit' && !FAMILY_ORDER.includes(f))
+        .map((f) => groupHtml(f, anchored.filter((n) => n.family === f).sort(byStart)))
+        .join('');
     // The audit family renders LAST inside its own fenced block —
     // never interleaved (the reader's visual firewall, MARGIN_DESIGN
     // §5.3 / index.html:119-131 carried forward; Task 6 guard).
@@ -118,7 +136,7 @@ export function renderCardsPanel(notes = []) {
             <h3 class="xr-ann-group-title">${esc(FAMILY_LABELS.audit)}</h3>
             ${auditRows.map(renderCard).join('')}
         </section>` : '';
-    return `<div class="xr-ann-panel">${groups}${auditGroup}</div>`;
+    return `<div class="xr-ann-panel">${groups}${extras}${auditGroup}</div>`;
 }
 
 export function renderPageNotes(notes = []) {
@@ -197,12 +215,20 @@ function wrapSegments(bodyEl, segments, notesById) {
     }
 }
 
-function segClass(seg, notesById) {
+export function segClass(seg, notesById) {
     const families = seg.ids.map((id) => (notesById.get(id) || {}).family);
     const cls = ['xr-ann-seg'];
     // Audit never tints the body (the firewall carrier is the rail);
-    // a segment covered ONLY by audit notes stays visually silent.
-    if (families.every((f) => f === 'audit')) cls.push('xr-ann-seg--silent');
+    // a segment covered ONLY by audit notes stays visually silent — and
+    // RETURNS here, so the density step below can never re-tint it.
+    // Silent beats dense STRUCTURALLY, not by stylesheet ordering: the
+    // body-tint firewall is constitutional (§5.3), and a rule whose only
+    // enforcement was CSS cascade order would fall to any later edit of
+    // the stylesheet, silently and invisibly.
+    if (families.every((f) => f === 'audit')) {
+        cls.push('xr-ann-seg--silent');
+        return cls.join(' ');
+    }
     // Darker step where >=3 notes of ONE family overlap — never a
     // cross-family density number (§10 row 1).
     const perFamily = {};
@@ -239,19 +265,46 @@ function placeRailMarkers(container, grounded) {
 // outlive the substrate it indexes.
 let _indexMemo = null;
 
-export function hydrateAnnotatedView(container, notes) {
+// Re-apply the chip state to a freshly painted container. Every carrier
+// of a family moves together — cards, body tint, AND rail markers: a
+// marker left behind by a hidden family is an insight the user asked to
+// put away still pointing at the page (§2, hide-with-disclosure).
+function applyVisibility(container, notesById, visibility) {
+    const off = (f) => visibility[f] === false;
+    container.querySelectorAll('.xr-ann-card').forEach((c) => { c.hidden = off(c.dataset.family); });
+    container.querySelectorAll('.xr-ann-seg').forEach((seg) => {
+        const fams = seg.dataset.ids.split(' ').map((id) => (notesById.get(id) || {}).family);
+        seg.classList.toggle('xr-ann-seg--muted', fams.every(off));
+    });
+    container.querySelectorAll('.xr-ann-mark').forEach((m) => {
+        const n = notesById.get(m.dataset.note);
+        m.hidden = !!(n && off(n.family));
+    });
+}
+
+/**
+ * @param {object} opts
+ *   visibility — the caller's persisted chip state, so a re-render (an
+ *     accept, an assessment) does not silently un-hide a family the user
+ *     put away.
+ *   edited — the body has been hand-edited since its hash was taken, so a
+ *     verbatim miss is explained by the edit rather than blamed on the
+ *     source (§5.1's honest page reasons).
+ */
+export function hydrateAnnotatedView(container, notes, { visibility = {}, edited = false } = {}) {
     const body = container.querySelector('[data-role="body"]');
     const text = body ? body.textContent : '';
     const index = (_indexMemo && _indexMemo.text === text)
         ? _indexMemo.index : createGroundingIndex(text);
     _indexMemo = { text, index };
-    const grounded = groundNotes(notes, index);
+    const grounded = groundNotes(notes, index, { edited });
     const notesById = new Map(grounded.map((n) => [n.id, n]));
     if (body) wrapSegments(body, partitionSegments(grounded), notesById);
     const striphost = container.querySelector('[data-role="striphost"]');
-    if (striphost) striphost.innerHTML = renderStrip({ notes: grounded, visibility: {} });
+    if (striphost) striphost.innerHTML = renderStrip({ notes: grounded, visibility });
     const side = container.querySelector('[data-role="side"]');
     if (side) side.innerHTML = renderCardsPanel(grounded) + renderPageNotes(grounded);
     placeRailMarkers(container, grounded);
+    applyVisibility(container, notesById, visibility);
     return { grounded };
 }

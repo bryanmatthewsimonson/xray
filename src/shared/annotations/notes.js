@@ -4,13 +4,16 @@
 // shape. Family separation is structural — each projector emits one
 // family and the renderer keys templates off it (§5.3).
 import { collectEvidenceFindings } from '../audit/assemble.js';
+import { prettyModule } from '../audit/display.js';
 import { normalize } from '../metadata/url-normalizer.js';
 
 export const PAGE_REASONS = Object.freeze({
     pageLevelByDesign: 'About the whole page, not a passage',
     couldNotLocate: 'Could not find this text in your copy — the article may have changed',
     noAnchorRecorded: 'No anchor was recorded when this was made',
-    sourceNotCaptured: 'From a source you have not captured here',
+    // `sourceNotCaptured` was removed 2026-08-30: S1 has no producer for
+    // it, and a reason string nothing can emit is a promise the UI cannot
+    // keep. S3's foreign ring reintroduces it WITH its producer.
     editedAway: 'No longer matches the text after your edit'
 });
 
@@ -102,8 +105,12 @@ export function projectAuditNotes(runs = []) {
                     id: 'audit:' + run.id + ':' + (mr.module || 'm') + ':' + i,
                     family: 'audit',
                     quote: String(found[i].quote || ''),
-                    title: 'Audit evidence — ' + String(mr.module || ''),
-                    body: String(found[i].kind || ''),
+                    // Module ids and finding kinds are snake_case storage
+                    // keys; the card is prose read by a person. prettyModule
+                    // is the repo's one de-snaking helper — reuse it rather
+                    // than growing a second spelling of the same rule.
+                    title: 'Audit evidence — ' + prettyModule(mr.module || ''),
+                    body: String(found[i].kind || '').replace(/_/g, ' '),
                     meta: { runId: run.id, module: mr.module, severity: found[i].severity || null }
                 }));
             }
