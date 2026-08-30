@@ -70,15 +70,21 @@ export function projectForensicNotes(findings, pageUrl) {
             const a = f.anchors[i];
             const anchorUrl = a && a.source_ref && a.source_ref.url ? normalize(a.source_ref.url) : null;
             if (!anchorUrl || anchorUrl !== wanted) continue;
+            // Maneuver is user-authored and lives in body (the user-content region).
+            // Title stays closed-vocabulary for CONSTITUTION Art. 7 compliance.
+            const maneuverLabel = String(f.maneuver || '').replace(/_/g, ' ');
+            const parts = [];
+            if (maneuverLabel) parts.push(maneuverLabel);
+            if (f.note) parts.push(f.note);
+            if (f.counter_note) parts.push('Counter-read: ' + f.counter_note);
             out.push(note({
                 id: 'forensic:' + f.id + ':' + i,
                 family: 'forensic',
                 quote: String(a.quote || ''),
-                title: 'Forensic finding — ' + String(f.maneuver || '').replace(/_/g, ' '),
+                title: 'Forensic finding',
                 // Structural observation with its counter-read beside it
                 // (CONSTITUTION Art. 7; the counter_note discipline).
-                body: [f.note, f.counter_note ? ('Counter-read: ' + f.counter_note) : '']
-                    .filter(Boolean).join(' — '),
+                body: parts.filter(Boolean).join(' — '),
                 meta: { finding: f, anchor: a }
             }));
         }

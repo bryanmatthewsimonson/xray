@@ -103,9 +103,25 @@ test('prediction and comment projections', () => {
 
 test('no projector title/family smuggles reserved vocabulary outside truth sub-cards', () => {
     const RESERVED = /verdict|ruling|opinion|court|integrity/i;
+    // Hostile forensic fixture with custom maneuver containing reserved word
+    const findings = {
+        f_hostile: {
+            id: 'f_hostile',
+            maneuver: 'opinion-laundering',
+            note: 'observation',
+            counter_note: 'counter',
+            anchors: [
+                { quote: 'hostile quote', selector: null, source_ref: { url: 'https://example.com/story' }, timestamp: null, step_note: '' }
+            ]
+        }
+    };
     const notes = [
-        ...projectExtractionNotes({ articleHash: 'a'.repeat(64), assertions: [{ key: 'a:1-2', quote: 'q', start: 1, end: 2, why: '', text: null, status: 'open', accepted_claim_id: null, first_seen: {} }] }),
-        ...projectAuditNotes([{ id: 'r', moduleResults: [{ module: 'm', findings: { f: [{ evidence_quote: 'q' }] } }] }])
+        ...projectClaimNotes({ claims: [CLAIM], assessmentsByClaimId: {}, verdictsByClaimId: {} }),
+        ...projectExtractionNotes({ articleHash: 'a'.repeat(64), url: 'https://example.com/story', assertions: [{ key: 'a:1-2', quote: 'q', start: 1, end: 2, why: '', text: null, status: 'open', accepted_claim_id: null, first_seen: {} }] }),
+        ...projectForensicNotes(findings, 'https://example.com/story'),
+        ...projectAuditNotes([{ id: 'r', moduleResults: [{ module: 'm', findings: { f: [{ evidence_quote: 'q' }] } }] }]),
+        ...projectPredictionNotes([{ id: 'p', text: 'pred text', evidence_quote: 'pred quote', anchor: null, resolution_status: 'open' }]),
+        ...projectCommentNotes([{ author: 'auth', text: 'comment text' }])
     ];
     for (const n of notes) {
         assert.doesNotMatch(n.title, RESERVED, `title of ${n.id}`);
