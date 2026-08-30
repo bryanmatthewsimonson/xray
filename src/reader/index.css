@@ -2847,6 +2847,9 @@ body {
 .xr-ann-seg--silent { background: transparent; border-bottom: none; }
 .xr-ann-seg--muted { background: transparent; border-bottom-color: color-mix(in srgb, var(--xr-accent) 12%, transparent); }
 .xr-ann-seg--flash { animation: xr-claim-flash 1.5s ease-out; }
+/* Typing into the read-only body flashes the mode label instead of
+   swallowing the keystroke silently (§3/C3). */
+.xr-ann-modelabel--flash { animation: xr-claim-flash 1.5s ease-out; }
 .xr-ann-seg:focus-visible { outline: 2px solid var(--xr-accent); outline-offset: 1px; }
 
 /* The rail — three shapes, one per channel. */

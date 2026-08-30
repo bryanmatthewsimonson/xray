@@ -5700,6 +5700,19 @@ async function renderAnnotated() {
     // FRESHLY set body (it refuses to double-wrap), so this assignment
     // must stay immediately before the hydrate call.
     body.innerHTML = state.htmlDraft;
+    // Render fidelity (§3): the annotated body is the SAME capture the
+    // Reader shows, so it needs the Reader's two display-layer passes —
+    // otherwise an archived PDF opens by default into broken figures and
+    // a diarized transcript loses its speaker names. Both are
+    // TEXT-NEUTRAL (speaker decoration only sets class/attrs on existing
+    // <strong>/<b>; figure hydration only swaps img srcs), so neither
+    // perturbs the grounding index or the segment offsets below.
+    try { decorateSpeakerLabels(body, state.article); }
+    catch (err) { console.warn('[X-Ray Reader] speaker decoration failed:', err); }
+    hydrateFigureImages(body)
+        .catch((err) => console.warn('[X-Ray Reader] figure hydrate failed:', err));
+    // S1: platform comments stay in #xr-comments (MARGIN_DESIGN §8); the
+    // comment family joins the margin in S2.
     const { notes, extractionKey } = await collectMineNotes({
         url: state.article.url,
         articleHash: claimArticleHash(),
@@ -5721,11 +5734,29 @@ async function renderAnnotated() {
         if (e.key === 'Enter' && e.target.classList && e.target.classList.contains('xr-ann-seg')) {
             e.preventDefault();
             focusStackFor(e.target.dataset.ids.split(' ')[0], container);
+            return;
+        }
+        // Typing into a read-only body answers nothing on its own (§3/C3):
+        // flash the mode label so the silence is explained and the way
+        // out — "edit in Reader" — is the thing that lights up.
+        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey
+                && e.target.closest && e.target.closest('[data-role="body"]')) {
+            const label = container.querySelector('.xr-ann-modelabel');
+            if (!label) return;
+            label.classList.add('xr-ann-modelabel--flash');
+            setTimeout(() => label.classList.remove('xr-ann-modelabel--flash'), 1600);
         }
     });
     container.addEventListener('click', (e) => {
-        onAnnotatedClick(e).catch((err) =>
-            console.warn('[X-Ray Reader] annotated action failed:', err));
+        onAnnotatedClick(e).catch((err) => {
+            // A rejection here can mean a HUMAN DECISION was lost — the
+            // accept path mints a claim and then writes triage, so a
+            // failed write leaves the proposal open with a claim already
+            // minted. A console line is invisible to the person who
+            // clicked; say it out loud.
+            console.warn('[X-Ray Reader] annotated action failed:', err);
+            toast('X-Ray could not finish that action — the record may be unchanged. See the console for details.', 'error');
+        });
     });
     installAnnotatedTagger(body);
 }

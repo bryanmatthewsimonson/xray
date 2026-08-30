@@ -61,7 +61,12 @@ test('guard (no-fused-number): the strip renders per-family counts and coverage,
 
 test('guard (reserved-vocabulary): non-truth chrome carries no reserved word; the truth sub-card lawfully does', () => {
     const notes = [mkNote('c1', 'claim'), mkNote('x1', 'extraction'), mkNote('a1', 'audit'), mkNote('f1', 'forensic'), mkNote('p1', 'prediction')];
-    for (const html of [AV.renderStrip({ notes, visibility: {} }), AV.renderCardsPanel(notes), AV.legendHtml()]) {
+    // Every projector that renders chrome is swept — the page-notes lane
+    // and the shell included: a reserved word introduced in either would
+    // have slipped past a sweep of only the strip/cards/legend.
+    const pageNotes = notes.map((n) => ({ ...n, grounding: null, pageReason: 'no anchor' }));
+    for (const html of [AV.renderStrip({ notes, visibility: {} }), AV.renderCardsPanel(notes),
+        AV.legendHtml(), AV.renderPageNotes(pageNotes), AV.annotatedShellHtml({ title: 't' })]) {
         assert.doesNotMatch(html, RESERVED);
     }
     const withTruth = AV.renderCard(mkNote('c9', 'claim', { sub: [{ kind: 'verdict', record: { verdict: 'supported', standard_of_proof: 'clear' } }] }));

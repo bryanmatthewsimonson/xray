@@ -34,6 +34,27 @@ test('groundNotes: paraphrase-only claims use the strict tiers (locate, never fu
     assert.equal(out.pageReason, PAGE_REASONS.noAnchorRecorded);
 });
 
+test('groundNotes: a paraphrase that locate() DOES find grounds normally (the success half)', () => {
+    // The mirror of the test above: same strict-tier routing, but this
+    // time locate hits. Without this the suite only ever proved the
+    // demotion path, so a locate() that silently stopped returning
+    // grounding would still look green.
+    const hit = 'The transaction was completed in March.';
+    const spy = {
+        text: TEXT,
+        ground() { throw new Error('ground() must not run for paraphrase claims'); },
+        locate(q) {
+            const start = TEXT.indexOf(q);
+            return { status: 'exact', score: 1, start, end: start + q.length, exact: q };
+        }
+    };
+    const [out] = groundNotes([mk('c2', 'claim', hit, { quote: '' })], spy);
+    assert.equal(out.pageReason, null, 'a located paraphrase is NOT demoted to the page lane');
+    assert.equal(out.grounding.status, 'exact');
+    assert.equal(TEXT.slice(out.grounding.start, out.grounding.end), hit);
+    assert.equal(out.grounding.exact, hit);
+});
+
 test('groundNotes: empty quotes and pre-set page reasons pass through untouched', () => {
     const preset = { ...mk('d', 'comment', ''), pageReason: PAGE_REASONS.pageLevelByDesign };
     const out = groundNotes([preset, mk('e', 'audit', '')], idx);

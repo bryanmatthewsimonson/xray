@@ -231,9 +231,20 @@ function placeRailMarkers(container, grounded) {
     }
 }
 
+// One-slot memo of the grounding index, keyed by the exact body text it
+// was built over (§11.1). Card actions re-render an UNCHANGED body, so
+// without this every accept/dismiss/assess rebuilt the whole index —
+// and its per-quote memos with it. A body edit changes the text and the
+// key misses, which is the correct invalidation: the index must never
+// outlive the substrate it indexes.
+let _indexMemo = null;
+
 export function hydrateAnnotatedView(container, notes) {
     const body = container.querySelector('[data-role="body"]');
-    const index = createGroundingIndex(body ? body.textContent : '');
+    const text = body ? body.textContent : '';
+    const index = (_indexMemo && _indexMemo.text === text)
+        ? _indexMemo.index : createGroundingIndex(text);
+    _indexMemo = { text, index };
     const grounded = groundNotes(notes, index);
     const notesById = new Map(grounded.map((n) => [n.id, n]));
     if (body) wrapSegments(body, partitionSegments(grounded), notesById);
