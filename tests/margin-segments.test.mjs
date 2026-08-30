@@ -55,6 +55,28 @@ test('groundNotes: a paraphrase that locate() DOES find grounds normally (the su
     assert.equal(out.grounding.exact, hit);
 });
 
+test('groundNotes: an edited body explains its own misses (editedAway, not couldNotLocate)', () => {
+    const gone = mk('g', 'extraction', 'text that is nowhere');
+    const [plain] = groundNotes([gone], idx);
+    assert.equal(plain.pageReason, PAGE_REASONS.couldNotLocate,
+        'unedited: the honest reason is that the text is not in this copy');
+    const [edited] = groundNotes([gone], idx, { edited: true });
+    assert.equal(edited.pageReason, PAGE_REASONS.editedAway,
+        'edited: blame the edit, not the source');
+    // A paraphrase miss has the same cause either way — only the
+    // verbatim branch shifts.
+    const para = mk('p', 'claim', 'a paraphrase of something', { quote: '' });
+    assert.equal(groundNotes([para], idx, { edited: true })[0].pageReason, PAGE_REASONS.noAnchorRecorded);
+});
+
+test('PAGE_REASONS carries no reason string without a producer', () => {
+    // `sourceNotCaptured` was removed with the S3 foreign ring that would
+    // have emitted it: a reason nothing can produce is dead UI copy that
+    // reads as a supported state.
+    assert.equal(PAGE_REASONS.sourceNotCaptured, undefined);
+    assert.ok(PAGE_REASONS.editedAway && PAGE_REASONS.couldNotLocate && PAGE_REASONS.noAnchorRecorded);
+});
+
 test('groundNotes: empty quotes and pre-set page reasons pass through untouched', () => {
     const preset = { ...mk('d', 'comment', ''), pageReason: PAGE_REASONS.pageLevelByDesign };
     const out = groundNotes([preset, mk('e', 'audit', '')], idx);

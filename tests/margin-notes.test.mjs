@@ -90,6 +90,35 @@ test('audit notes are read-only (locate only) and carry module context', () => {
     assert.deepEqual(notes[0].actions, ['locate']);
 });
 
+test('audit note prose is prose: no snake_case storage keys reach the card', () => {
+    // The card is read by a person. `hidden_premises` / `module_03` are
+    // storage keys leaking through a display surface.
+    const runs = [{ id: 'r1', moduleResults: [
+        { module: 'source_quality', findings: { hidden_premises: [{ premise: 'x', evidence_quote: 'q' }] } }
+    ] }];
+    const [n] = projectAuditNotes(runs);
+    assert.match(n.title, /source quality/, 'the module id is de-snaked through the repo\'s prettyModule helper');
+    assert.doesNotMatch(n.title, /_/, 'no underscore survives into the title');
+    assert.doesNotMatch(n.body, /_/, 'nor into the finding-kind body');
+    assert.match(n.body, /hidden premises/);
+});
+
+test('every projected note id is a single token (data-ids is space-joined)', () => {
+    // Segment ids ride in `data-ids="a b c"` and are read back by
+    // splitting on spaces — an id containing whitespace would silently
+    // split into two lookups that both miss, and the card would vanish.
+    const notes = [
+        ...projectClaimNotes({ claims: [CLAIM], assessmentsByClaimId: {}, verdictsByClaimId: {} }),
+        ...projectExtractionNotes({ articleHash: 'a'.repeat(64), url: 'https://example.com/story', assertions: [{ key: 'a:1-2', quote: 'q', start: 1, end: 2, why: '', text: null, status: 'open', accepted_claim_id: null, first_seen: {} }] }),
+        ...projectForensicNotes({ f1: { id: 'f1', maneuver: 'selective_omission', note: 'n', counter_note: 'c', anchors: [{ quote: 'q', source_ref: { url: 'https://example.com/story' } }] } }, 'https://example.com/story'),
+        ...projectAuditNotes([{ id: 'r', moduleResults: [{ module: 'source_quality', findings: { f: [{ evidence_quote: 'q' }] } }] }]),
+        ...projectPredictionNotes([{ id: 'p', text: 't', evidence_quote: 'q', anchor: null, resolution_status: 'open' }]),
+        ...projectCommentNotes([{ author: 'a', text: 't' }])
+    ];
+    assert.ok(notes.length >= 6, 'scanner sanity: every projector produced a note');
+    for (const n of notes) assert.match(n.id, /^\S+$/, `id of ${n.family} note must be one whitespace-free token`);
+});
+
 test('prediction and comment projections', () => {
     const preds = [{ id: 'p1', text: 'X will happen', evidence_quote: 'will happen by June', anchor: null, resolution_status: 'open' }];
     const [pn] = projectPredictionNotes(preds);
