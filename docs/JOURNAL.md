@@ -19,6 +19,40 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-08-28 — a missing session record stopped being a publish refusal
+
+**Tags:** bug, capture
+
+Field-found mid-corpus-capture: a reader tab holding hours of extracted
+claims failed with "Publish failed: Session record missing". The
+record had been evicted by the quota discipline PR #359 added three days
+earlier — correct behaviour for a full session area, wrong consequence.
+
+When that eviction shipped I wrote the tradeoff down as "an evicted
+record's reader tab publishes as 'Session record missing' and recovers
+by re-capture — strictly better than every NEW capture failing." The
+first half was accurate and the second half was lazy: re-capture is not
+a recovery when the tab carries a session's claim work, and the premise
+was wrong anyway. The record is not load-bearing. `handleCapturePublish`
+reads exactly ONE field from it — `record.sourceTabId` — and that field
+matters for exactly one signing method, NIP-07, whose `window.nostr`
+lives in the source page. Local and NSecBunker sign in the worker
+through the Signer façade, which is precisely why PDFs, imported EPUB
+chapters, transcript imports and portal reconstructions have always
+published with `sourceTabId: null`.
+
+So both handlers refused on a missing record and then, two lines later,
+branched correctly on `sourceTabId == null`. The refusal was redundant
+for every method but NIP-07, and for NIP-07 the null branch already
+raises the actionable "needs a web page — switch to Local" error. A
+missing record now degrades to that tabless path in both
+`handleCapturePublish` and the `xray:capture:getPubkey` handler.
+
+The lesson is about the earlier entry, not this one: when a design note
+says a failure mode is acceptable, the note has to be re-read once the
+failure actually happens to someone. Eviction was the right call; the
+price I priced it at was not the price it charged.
+
 ## 2026-08-25 — Suggest's shape failures get ONE paid repair round; the dossier's bandText ghost
 
 **Tags:** bug, llm
