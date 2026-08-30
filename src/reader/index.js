@@ -1303,6 +1303,12 @@ async function loadArchivedArticle(archived, provenance) {
                 updateHashLine();
                 // The extraction record keys on this hash (MA.2b).
                 refreshExtractionBar().catch(() => { /* display refresh only */ });
+                // Margin S1: same reason the adopt path re-renders once
+                // the hash settles — the annotated collector keys on it,
+                // so a load that resolved its hash AFTER the switch below
+                // would leave the margin missing every hash-keyed family
+                // while the extraction bar underneath showed them.
+                if (state.viewMode === 'annotated') renderAnnotatedSafely();
                 persistRestore();
             })
             .catch((err) => console.warn('[X-Ray Reader] archive hash failed:', err));
@@ -5671,7 +5677,10 @@ function previewField(label, value) {
 // never synced back. The existing bars below #xr-main are untouched
 // (§9 — S1 is purely additive), so triage done here refreshes them.
 
-const annState = { byId: new Map(), extractionKey: null };
+// `gen` is the render generation: every renderAnnotated call claims one
+// and abandons itself if another render (or a mode switch) happened
+// while it awaited the collector.
+const annState = { byId: new Map(), extractionKey: null, gen: 0 };
 
 /** Fire-and-forget entry point for the synchronous mode switches. */
 function renderAnnotatedSafely() {
@@ -5682,6 +5691,7 @@ function renderAnnotatedSafely() {
 async function renderAnnotated() {
     const main = $('#xr-main');
     if (!main || !state.article) return;
+    const gen = ++annState.gen;
     main.innerHTML = annotatedShellHtml({ title: state.article.title });
     const container = $('#xr-ann');
     const body = container.querySelector('[data-role="body"]');
@@ -5695,6 +5705,13 @@ async function renderAnnotated() {
         articleHash: claimArticleHash(),
         auditableHash: state.auditableHash || null
     });
+    // A render that lost the race is DEAD here: another render already
+    // owns the container, or the user left for the Reader. Continuing
+    // would (a) hand installEntityTagger the annotated body and tear
+    // down the READER's tagger — silently killing all text-selection
+    // authoring — and (b) overwrite byId/extractionKey under the cards
+    // the newer render painted.
+    if (gen !== annState.gen || state.viewMode !== 'annotated') return;
     annState.extractionKey = extractionKey;
     const { grounded } = hydrateAnnotatedView(container, notes);
     annState.byId = new Map(grounded.map((n) => [n.id, n]));
@@ -5747,9 +5764,14 @@ async function onAnnotatedClick(e) {
         if (action === 'locate') { locateNoteInAnnotated(note.id); return; }
         if (action === 'edit' && note.family === 'claim') {
             // The claims bar's edit flow (openEditClaim), rendered here.
+            // Re-read from the STORE, never the render snapshot: the
+            // cards may have been painted before an edit elsewhere, and
+            // editing from a stale record would revert the newer text.
+            const fresh = await ClaimModel.get(note.meta.id);
+            if (!fresh) { toast('Claim not found — it may have been deleted.', 'error'); return; }
             const saved = await openClaimModal({
                 sourceUrl:    state.article.url,
-                initialClaim: note.meta
+                initialClaim: fresh
             });
             if (saved) {
                 toast('Claim updated', 'success', 2000);
@@ -5761,10 +5783,14 @@ async function onAnnotatedClick(e) {
         if (action === 'assess' && note.family === 'claim') {
             // The claims-bar assess call site, with the annotated body
             // as the anchor container (the claim's quote lives there).
+            // Claim text comes from the STORE, like the bar's own row
+            // lookup — a snapshot paints once and can go stale.
+            const fresh = await ClaimModel.get(note.meta.id);
+            if (!fresh) { toast('Claim not found — it may have been deleted.', 'error'); return; }
             const annBody = container.querySelector('[data-role="body"]');
             const result = await openAssessModal({
-                claimRef:  { claim_id: note.meta.id },
-                claimText: note.meta.text || '',
+                claimRef:  { claim_id: fresh.id },
+                claimText: fresh.text || '',
                 anchorContext: { container: annBody }
             });
             if (result) {
@@ -5775,12 +5801,17 @@ async function onAnnotatedClick(e) {
             return;
         }
         if (action === 'adjudicate' && note.family === 'claim') {
-            // The claims-bar adjudicate call site, verbatim.
+            // The claims-bar adjudicate call site, verbatim — and, like
+            // the lens route (wireLensActions), off a freshly read
+            // record: `publishedPubkey` in particular changes when the
+            // claim publishes, and a stale null misroutes the mirror.
+            const fresh = await ClaimModel.get(note.meta.id);
+            if (!fresh) { toast('Claim not found — it may have been deleted.', 'error'); return; }
             const result = await openAdjudicateModal({
-                claimId:     note.meta.id,
-                claimText:   note.meta.text || '',
+                claimId:     fresh.id,
+                claimText:   fresh.text || '',
                 relays:      await getConfiguredRelays(),
-                claimPubkey: note.meta.publishedPubkey || null
+                claimPubkey: fresh.publishedPubkey || null
             });
             if (result) {
                 toast(result.verdict
@@ -5871,14 +5902,25 @@ function installAnnotatedTagger(annBody) {
         },
         onClaim: async ({ text, context, anchor, quoteMode }) => {
             // Quote-first capture (§4, ruled): the annotated DOM is the
-            // wrong substrate for positional selectors — segment spans
-            // shift every offset — so keep ONLY the TextQuoteSelector.
+            // wrong substrate for POSITIONAL selectors — segment spans
+            // shift every offset — so keep only the TextQuoteSelector
+            // out of the captured array.
             const quoteOnly = (anchor || []).filter((s) => s && s.type === 'TextQuoteSelector');
+            // The PDF-page and media-time fragment selectors are derived
+            // from the quote TEXT, not from DOM offsets (adjudicated
+            // 2026-08-30), so the ruling does not reach them and they
+            // must survive: dropping them would silently strip page and
+            // timestamp provenance from every margin-captured claim.
+            const page = pdfPageOfQuote(text);
+            const trange = timeRangeOfQuote(text);
+            let anchorOut = quoteOnly.length ? quoteOnly : null;
+            if (page) anchorOut = [...(anchorOut || []), pageFragmentSelector(page)];
+            if (trange) anchorOut = [...(anchorOut || []), timeFragmentSelector(trange.startSec, trange.endSec)];
             const saved = await openClaimModal({
                 sourceUrl:   state.article.url,
                 initialText: text,
                 context,
-                anchor:      quoteOnly.length ? quoteOnly : null,
+                anchor:      anchorOut,
                 quote:       text,
                 articleHash: claimArticleHash(),
                 initialAbout: state.lastClaimAbout || [],
@@ -8388,6 +8430,14 @@ async function init() {
     if (isEnabled('marginView')
             && (state.readOnlyOpen || (state.article && state.article._archiveSource))) {
         setViewMode('annotated');
+        // renderReader() is the only OPEN-TIME loader of the three
+        // sibling bars (they live outside #xr-main and stay visible in
+        // every mode — MARGIN_DESIGN §9). Skipping it would leave them
+        // empty until some later action refreshed them, so they'd pop
+        // into existence mid-session. Same fire-and-forget pattern.
+        refreshClaimsBar().catch((err) => console.warn('[X-Ray Reader] claims-bar render failed:', err));
+        refreshEntitiesBar().catch((err) => console.warn('[X-Ray Reader] entities-bar render failed:', err));
+        refreshFindingsBar().catch((err) => console.warn('[X-Ray Reader] findings-bar render failed:', err));
     } else {
         renderReader();
     }
