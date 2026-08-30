@@ -2901,9 +2901,12 @@ body {
 .xr-ann-sub, .xr-ann-truth { margin: 6px 0 0; padding: 6px 10px; border-radius: 4px; background: var(--xr-surface-2); }
 .xr-ann-truth { border-left: 3px solid var(--xr-primary); }
 .xr-ann-sub-kind { font-weight: 600; }
-/* Every class the renderers emit has a rule here. A class with no rule
-   is a silent gap between renderer and stylesheet — the next reader of
-   either file cannot tell "deliberately unstyled" from "forgotten". */
+/* The three classes below had no rule at all, which reads the same as a
+   forgotten one. Not every emitted class needs its own: `.xr-ann-act`
+   above styles every action button, and only `--assess` takes the
+   emphasis step the §4 ladder calls for — `--locate`, `--adjudicate`,
+   `--edit`, `--accept` and `--dismiss` inherit the base on purpose,
+   because the ladder gets quieter left to right. */
 .xr-ann { display: block; }
 .xr-ann-panel { display: block; }
 .xr-ann-sub--assessment { border-left: 3px solid var(--xr-border); }

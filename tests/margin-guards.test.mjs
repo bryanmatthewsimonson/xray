@@ -61,8 +61,16 @@ test('guard (draft-leak): the annotated shell is read-only and the module never 
         : taggerAt + endMarker.length + nextFnOffset;
     const blockSrc = readerSrc.slice(start, end);
     assert.ok(blockSrc.includes('async function renderAnnotated('), 'scanner sanity: the slice captures renderAnnotated');
-    assert.ok(blockSrc.includes('onAnnotatedClick'), 'scanner sanity: the slice captures the click handler');
     assert.ok(blockSrc.includes('onTag:'), 'scanner sanity: the slice captures installAnnotatedTagger\'s onTag');
+    // Line-order pin: `onAnnotatedClick` appears as a CALL SITE inside
+    // renderAnnotated, so a mere substring check would still pass if the
+    // handler itself had been moved out of the slice — which is exactly
+    // the way this guard would silently stop watching the code that can
+    // reintroduce the leak. Require its DEFINITION, before the tagger.
+    const clickDefAt = blockSrc.indexOf('function onAnnotatedClick');
+    const taggerDefAt = blockSrc.indexOf('function installAnnotatedTagger');
+    assert.ok(clickDefAt > -1, 'scanner sanity: onAnnotatedClick is DEFINED inside the slice, not merely called');
+    assert.ok(clickDefAt < taggerDefAt, 'the slice spans the whole block: click handler, then the tagger');
     // Strip `//` comments before matching: the paragraphs explaining this
     // guard deliberately name `state.htmlDraft = body.innerHTML` as the
     // line that must stay absent, which would otherwise self-trigger the
@@ -163,6 +171,20 @@ test('guard (audit body-tint firewall): an audit-only segment is silent, and den
     // audit ALONE, not about suppressing every span audit touches.
     const mixed = AV.segClass({ start: 0, end: 5, ids: ['a1', 'c1'] }, byId);
     assert.doesNotMatch(mixed, /xr-ann-seg--silent/, 'audit + claim tints normally');
+    // …and audit drives no part of the DENSITY step either. Three audit
+    // notes beside one claim used to trip the darker tint — audit
+    // reaching the body through the back door (§4 / §10 row 7).
+    const auditHeavy = AV.segClass({ start: 0, end: 5, ids: ['a1', 'a2', 'a3', 'c1'] }, byId);
+    assert.doesNotMatch(auditHeavy, /xr-ann-seg--silent/, 'the claim still tints the span');
+    assert.doesNotMatch(auditHeavy, /xr-ann-seg--dense/,
+        'but three audit notes must not darken it — audit contributes to neither tint nor density');
+    // The density step still works for the families that DO tint.
+    const byId2 = new Map([
+        ['c1', { family: 'claim' }], ['c2', { family: 'claim' }], ['c3', { family: 'claim' }],
+        ['a1', { family: 'audit' }]
+    ]);
+    assert.match(AV.segClass({ start: 0, end: 5, ids: ['c1', 'c2', 'c3', 'a1'] }, byId2),
+        /xr-ann-seg--dense/, 'three overlapping CLAIMS still earn the darker step');
 });
 
 test('guard (every anchored note has a card): an unlisted family still renders, before the audit fence', () => {

@@ -1273,7 +1273,11 @@ async function loadArchivedArticle(archived, provenance) {
     // is different text, so the load-time hash is wrong for it. Relay
     // archives carry the PUBLISHED hash (carry, don't recompute: the
     // HTML round trip doesn't byte-match); cache archives recompute.
-    applyArticleHashes({ articleHash: archived._articleHash || null, hashDirty: false });
+    // `render: false` — this function repaints the current view itself a
+    // few statements below (the switch on state.viewMode), so letting the
+    // seam paint here too would give an archive load two or three
+    // annotated renders for one user action.
+    applyArticleHashes({ articleHash: archived._articleHash || null, hashDirty: false, render: false });
     // PERSIST the restore (writable opens only): adopting in memory
     // alone left the archive ROW on whatever version it held — after a
     // prior-version restore every other surface (portal opens, case
@@ -1350,13 +1354,35 @@ async function loadArchivedArticle(archived, provenance) {
  * Only keys actually PASSED are assigned — `undefined` means "leave it
  * alone", which is what lets the carried-hash sites set `articleHash`
  * without clobbering the auditable pair.
+ *
+ * The re-render fires only when a passed field actually CHANGES value.
+ * Several paths re-assert the hash they already hold (a rehash that
+ * lands on the same bytes, a publish stamping the hash it just derived),
+ * and repainting the margin for a no-op costs a full collect + hydrate
+ * and steals the reader's scroll position. `render: false` is the one
+ * opt-out, for the single caller that repaints unconditionally two
+ * statements later — assignments are always unconditional and cheap;
+ * only the paint is gated.
  */
-function applyArticleHashes({ articleHash, auditableHash, auditableTotalChars, hashDirty } = {}) {
-    if (articleHash !== undefined) state.articleHash = articleHash;
-    if (auditableHash !== undefined) state.auditableHash = auditableHash;
-    if (auditableTotalChars !== undefined) state.auditableTotalChars = auditableTotalChars;
-    if (hashDirty !== undefined) state.hashDirty = hashDirty;
-    if (state.viewMode === 'annotated') renderAnnotatedSafely();
+function applyArticleHashes({ articleHash, auditableHash, auditableTotalChars, hashDirty, render = true } = {}) {
+    let changed = false;
+    if (articleHash !== undefined) {
+        changed = changed || state.articleHash !== articleHash;
+        state.articleHash = articleHash;
+    }
+    if (auditableHash !== undefined) {
+        changed = changed || state.auditableHash !== auditableHash;
+        state.auditableHash = auditableHash;
+    }
+    if (auditableTotalChars !== undefined) {
+        changed = changed || state.auditableTotalChars !== auditableTotalChars;
+        state.auditableTotalChars = auditableTotalChars;
+    }
+    if (hashDirty !== undefined) {
+        changed = changed || state.hashDirty !== hashDirty;
+        state.hashDirty = hashDirty;
+    }
+    if (changed && render && state.viewMode === 'annotated') renderAnnotatedSafely();
 }
 
 // Fill (or refresh) the small hash line under the article meta. The
@@ -5804,13 +5830,20 @@ function focusStackFor(noteIds, container) {
     const ids = Array.isArray(noteIds) ? noteIds : [noteIds];
     container.querySelectorAll('.xr-ann-card--focus').forEach((c) => c.classList.remove('xr-ann-card--focus'));
     let first = null;
+    let firstVisible = null;
     for (const id of ids) {
         const card = container.querySelector(`.xr-ann-card[data-note="${CSS.escape(id)}"]`);
         if (!card) continue;
         card.classList.add('xr-ann-card--focus');
         if (!first) first = card;
+        if (!firstVisible && !card.hidden) firstVisible = card;
     }
-    if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Scroll to the first card the user can actually SEE — a chip-hidden
+    // card is display:none, so scrolling to it moves the panel to a blank
+    // spot. Falls back to the first card when the whole stack is hidden,
+    // which keeps the focus marks meaningful once a chip is toggled back.
+    const target = firstVisible || first;
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 function locateNoteInAnnotated(noteId) {

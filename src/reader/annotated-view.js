@@ -232,7 +232,16 @@ export function segClass(seg, notesById) {
     // Darker step where >=3 notes of ONE family overlap — never a
     // cross-family density number (§10 row 1).
     const perFamily = {};
-    for (const f of families) perFamily[f] = (perFamily[f] || 0) + 1;
+    for (const f of families) {
+        // Audit drives NEITHER tint nor density (§4 / §10 row 7): its
+        // carriers are the rail marker and the fenced group, full stop.
+        // Counting it here let three audit notes darken a span a single
+        // claim had tinted — audit reaching the body through the back
+        // door, which is the same firewall breach the --silent branch
+        // above refuses head-on.
+        if (f === 'audit') continue;
+        perFamily[f] = (perFamily[f] || 0) + 1;
+    }
     if (Object.values(perFamily).some((c) => c >= 3)) cls.push('xr-ann-seg--dense');
     return cls.join(' ');
 }
