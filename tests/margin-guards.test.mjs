@@ -36,6 +36,30 @@ test('guard (draft-leak): the annotated shell is read-only and the module never 
     assert.ok(src.includes('xr-ann-body'), 'scanner sanity: the module builds the annotated body');
     assert.doesNotMatch(src, /xr-article__body/, 'annotated-view.js never references the editable draft body');
     assert.doesNotMatch(src, /htmlDraft\s*=/, 'annotated-view.js never assigns the draft');
+
+    // annotated-view.js is a pure renderer; it never sees `state` at all,
+    // so the assertions above can't see a regression at the real seam —
+    // reader/index.js's installAnnotatedTagger, whose onTag deliberately
+    // omits renderReader's `state.htmlDraft = body.innerHTML` sync (the
+    // §3 draft-leak). Slice that function out (to the next top-level
+    // `function `, capped at 1500 chars — comfortably past onTag) and
+    // pin the same invariant there.
+    const readerSrc = await readFile(new URL('../src/reader/index.js', import.meta.url), 'utf8');
+    const marker = 'function installAnnotatedTagger';
+    const start = readerSrc.indexOf(marker);
+    assert.ok(start > -1, 'scanner sanity: installAnnotatedTagger exists in reader/index.js');
+    const afterMarker = readerSrc.slice(start + marker.length);
+    const nextFnOffset = afterMarker.search(/\nfunction /);
+    const sliceLen = marker.length + (nextFnOffset === -1 ? 1500 : Math.min(nextFnOffset, 1500));
+    const taggerSrc = readerSrc.slice(start, start + sliceLen);
+    assert.ok(taggerSrc.includes('onTag:'), 'scanner sanity: the slice captures installAnnotatedTagger\'s onTag');
+    // Strip `//` comments before matching: the paragraph explaining this
+    // guard deliberately names `state.htmlDraft = body.innerHTML` as the
+    // line that must stay absent, which would otherwise self-trigger the
+    // regex against the comment text rather than against real code.
+    const taggerCode = taggerSrc.replace(/\/\/.*$/gm, '');
+    assert.doesNotMatch(taggerCode, /htmlDraft\s*=/,
+        'the annotated onTag must never restore the reader draft-sync line (the §3 draft-leak, held structurally)');
 });
 
 test('guard (escape-interpolation): hostile action ids and reviewState never break out of an attribute', () => {
