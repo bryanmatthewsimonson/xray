@@ -402,9 +402,11 @@ async function adoptArticle(article, stored) {
                 const slicedHash = slice.truncated
                     ? await canonicalArticleHash(slice.text)
                     : fullHash;
-                state.articleHash = fullHash;
-                state.auditableTotalChars = slice.totalChars;
-                state.auditableHash = slicedHash;
+                applyArticleHashes({
+                    articleHash: fullHash,
+                    auditableTotalChars: slice.totalChars,
+                    auditableHash: slicedHash
+                });
                 updateHashLine();
                 // The audit bar keys on the hash — refresh it now that
                 // the hash is known (init wired it before this resolved).
@@ -413,14 +415,6 @@ async function adoptArticle(article, stored) {
                 // MA.2b — the extraction record keys on the same hash.
                 refreshExtractionBar().catch((err) =>
                     console.warn('[X-Ray Reader] extraction bar failed:', err));
-                // Margin S1: the Annotated view's collector keys on BOTH
-                // hashes (extraction record + truncated-audit runs), and
-                // the first paint may have run before they settled — so
-                // re-render it here, after both are assigned.
-                if (state.viewMode === 'annotated') {
-                    renderAnnotated().catch((err) =>
-                        console.warn('[X-Ray Reader] annotated re-render failed:', err));
-                }
             } catch (err) {
                 console.warn('[X-Ray Reader] article hash failed:', err);
             }
@@ -497,7 +491,7 @@ async function adoptArticle(article, stored) {
         // PUBLISHED hash (the event's own x tag) is the view's
         // identity, and the audit panel keys on it. Display-only:
         // nothing is recomputed, nothing is saved.
-        state.articleHash = state.article._articleHash;
+        applyArticleHashes({ articleHash: state.article._articleHash });
         updateHashLine();
         refreshAuditStatus().catch((err) =>
             console.warn('[X-Ray Reader] audit status failed:', err));
@@ -1279,8 +1273,7 @@ async function loadArchivedArticle(archived, provenance) {
     // is different text, so the load-time hash is wrong for it. Relay
     // archives carry the PUBLISHED hash (carry, don't recompute: the
     // HTML round trip doesn't byte-match); cache archives recompute.
-    state.articleHash = archived._articleHash || null;
-    state.hashDirty = false;
+    applyArticleHashes({ articleHash: archived._articleHash || null, hashDirty: false });
     // PERSIST the restore (writable opens only): adopting in memory
     // alone left the archive ROW on whatever version it held — after a
     // prior-version restore every other surface (portal opens, case
@@ -1299,16 +1292,10 @@ async function loadArchivedArticle(archived, provenance) {
     if (!state.articleHash) {
         canonicalArticleHash(EventBuilder.assembleArticleBody(hashableArticle(state.article)))
             .then((h) => {
-                state.articleHash = h;
+                applyArticleHashes({ articleHash: h });
                 updateHashLine();
                 // The extraction record keys on this hash (MA.2b).
                 refreshExtractionBar().catch(() => { /* display refresh only */ });
-                // Margin S1: same reason the adopt path re-renders once
-                // the hash settles — the annotated collector keys on it,
-                // so a load that resolved its hash AFTER the switch below
-                // would leave the margin missing every hash-keyed family
-                // while the extraction bar underneath showed them.
-                if (state.viewMode === 'annotated') renderAnnotatedSafely();
                 persistRestore();
             })
             .catch((err) => console.warn('[X-Ray Reader] archive hash failed:', err));
@@ -1348,6 +1335,29 @@ async function loadArchivedArticle(archived, provenance) {
 // ------------------------------------------------------------------
 // Canonical article hash (Phase 13.4)
 // ------------------------------------------------------------------
+
+/**
+ * The ONE writer of this capture's hash identity — the seam, not a
+ * convenience. Eight paths recompute or carry a hash (adopt, read-only
+ * carry, archive load, archive rehash, PDF reconstruction, transcription,
+ * transcript attach, vision merge, publish stamp), and the Annotated
+ * view's ENTIRE note set is keyed on these two hashes: the extraction
+ * record, the audit runs, the predictions. Before this, each site had to
+ * remember to re-render the margin, three did, and the rest silently
+ * served a stale family set beside bars that had already refreshed.
+ * Routing every write through here makes forgetting impossible.
+ *
+ * Only keys actually PASSED are assigned — `undefined` means "leave it
+ * alone", which is what lets the carried-hash sites set `articleHash`
+ * without clobbering the auditable pair.
+ */
+function applyArticleHashes({ articleHash, auditableHash, auditableTotalChars, hashDirty } = {}) {
+    if (articleHash !== undefined) state.articleHash = articleHash;
+    if (auditableHash !== undefined) state.auditableHash = auditableHash;
+    if (auditableTotalChars !== undefined) state.auditableTotalChars = auditableTotalChars;
+    if (hashDirty !== undefined) state.hashDirty = hashDirty;
+    if (state.viewMode === 'annotated') renderAnnotatedSafely();
+}
 
 // Fill (or refresh) the small hash line under the article meta. The
 // hash computes async after first render, and mode switches re-render
@@ -1964,11 +1974,12 @@ async function reconstructWithLlmFlow() {
         // Both audit keys move with the body — leaving auditableHash
         // stale made prior audit runs claim they scored "this capture".
         const slice = auditableSlice(fullBody);
-        state.articleHash = fullHash;
-        state.auditableTotalChars = slice.totalChars;
-        state.auditableHash = slice.truncated
-            ? await canonicalArticleHash(slice.text) : fullHash;
-        state.hashDirty = false;
+        applyArticleHashes({
+            articleHash: fullHash,
+            auditableTotalChars: slice.totalChars,
+            auditableHash: slice.truncated ? await canonicalArticleHash(slice.text) : fullHash,
+            hashDirty: false
+        });
         updateHashLine();
         refreshAuditStatus().catch(() => { /* display refresh only */ });
         refreshExtractionBar().catch(() => { /* display refresh only */ });
@@ -2131,11 +2142,12 @@ async function adoptDiarizedTranscript(result) {
         const fullBody = EventBuilder.assembleArticleBody(hashableArticle(a));
         const fullHash = await canonicalArticleHash(fullBody);
         const slice = auditableSlice(fullBody);
-        state.articleHash = fullHash;
-        state.auditableTotalChars = slice.totalChars;
-        state.auditableHash = slice.truncated
-            ? await canonicalArticleHash(slice.text) : fullHash;
-        state.hashDirty = false;
+        applyArticleHashes({
+            articleHash: fullHash,
+            auditableTotalChars: slice.totalChars,
+            auditableHash: slice.truncated ? await canonicalArticleHash(slice.text) : fullHash,
+            hashDirty: false
+        });
         updateHashLine();
         refreshAuditStatus().catch(() => { /* display refresh only */ });
         refreshExtractionBar().catch(() => { /* display refresh only */ });
@@ -3796,9 +3808,11 @@ async function applyMediaResult(result) {
         const slice = auditableSlice(fullBody);
         const slicedHash = slice.truncated
             ? await canonicalArticleHash(slice.text) : fullHash;
-        state.articleHash = fullHash;
-        state.auditableTotalChars = slice.totalChars;
-        state.auditableHash = slicedHash;
+        applyArticleHashes({
+            articleHash: fullHash,
+            auditableTotalChars: slice.totalChars,
+            auditableHash: slicedHash
+        });
         updateHashLine();
         refreshAuditStatus().catch(() => {});
         // Attaching a transcript CHANGES the canonical text, so the old
@@ -4042,9 +4056,11 @@ async function applyVisionNotes(accepted) {
         const slice = auditableSlice(fullBody);
         const slicedHash = slice.truncated
             ? await canonicalArticleHash(slice.text) : fullHash;
-        state.articleHash = fullHash;
-        state.auditableTotalChars = slice.totalChars;
-        state.auditableHash = slicedHash;
+        applyArticleHashes({
+            articleHash: fullHash,
+            auditableTotalChars: slice.totalChars,
+            auditableHash: slicedHash
+        });
         updateHashLine();
         refreshAuditStatus().catch(() => {});
     } catch (err) {
@@ -5544,7 +5560,11 @@ function onReaderFieldInput(ev) {
     // Honest display beats live recomputation against a half-synced
     // draft: flag dirty, recompute at publish (13.4).
     if (ev && ev.target && ev.target.dataset.field === 'content' && !state.hashDirty) {
-        state.hashDirty = true;
+        // Through the seam like every other hash-identity write. The
+        // re-render it fires is a no-op here by construction (the
+        // annotated body is not editable, so this only runs in Reader),
+        // but routing it keeps the "one writer" rule literally true.
+        applyArticleHashes({ hashDirty: true });
         // The body is no longer the one that hashes to the anchor, so the
         // draft is no longer proven and publish must re-derive it. Scoped
         // to the CONTENT field on purpose: the unconditional
@@ -5680,7 +5700,10 @@ function previewField(label, value) {
 // `gen` is the render generation: every renderAnnotated call claims one
 // and abandons itself if another render (or a mode switch) happened
 // while it awaited the collector.
-const annState = { byId: new Map(), extractionKey: null, gen: 0 };
+// `visibility` is the chip state, deliberately OUTSIDE the render: an
+// accept, an assessment, a hash settling — all re-render, and a family
+// the user put away must stay away across every one of them.
+const annState = { byId: new Map(), extractionKey: null, gen: 0, visibility: {} };
 
 /** Fire-and-forget entry point for the synchronous mode switches. */
 function renderAnnotatedSafely() {
@@ -5709,6 +5732,9 @@ async function renderAnnotated() {
     // perturbs the grounding index or the segment offsets below.
     try { decorateSpeakerLabels(body, state.article); }
     catch (err) { console.warn('[X-Ray Reader] speaker decoration failed:', err); }
+    // Deliberately OUTSIDE the generation guard below: it resolves
+    // against whatever body it was handed, and swapping img srcs on a
+    // body that has since been detached is benign — no state, no text.
     hydrateFigureImages(body)
         .catch((err) => console.warn('[X-Ray Reader] figure hydrate failed:', err));
     // S1: platform comments stay in #xr-comments (MARGIN_DESIGN §8); the
@@ -5726,14 +5752,19 @@ async function renderAnnotated() {
     // the newer render painted.
     if (gen !== annState.gen || state.viewMode !== 'annotated') return;
     annState.extractionKey = extractionKey;
-    const { grounded } = hydrateAnnotatedView(container, notes);
+    const { grounded } = hydrateAnnotatedView(container, notes, {
+        visibility: annState.visibility,
+        // A hand-edited body explains its own misses — say "after your
+        // edit" rather than blaming the source (§5.1).
+        edited: !!state.hashDirty
+    });
     annState.byId = new Map(grounded.map((n) => [n.id, n]));
     // Keyboard: Enter on a focused segment behaves like a click (§9 —
     // the S1 accessibility baseline; segments carry tabindex).
     container.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && e.target.classList && e.target.classList.contains('xr-ann-seg')) {
             e.preventDefault();
-            focusStackFor(e.target.dataset.ids.split(' ')[0], container);
+            focusStackFor(e.target.dataset.ids.split(' '), container);
             return;
         }
         // Typing into a read-only body answers nothing on its own (§3/C3):
@@ -5755,18 +5786,31 @@ async function renderAnnotated() {
             // minted. A console line is invisible to the person who
             // clicked; say it out loud.
             console.warn('[X-Ray Reader] annotated action failed:', err);
-            toast('X-Ray could not finish that action — the record may be unchanged. See the console for details.', 'error');
+            toast('X-Ray could not finish that action — the claim may exist but the proposal is unchanged. Re-open the proposal and re-triage.', 'error', 10000);
         });
     });
     installAnnotatedTagger(body);
 }
 
-function focusStackFor(noteId, container) {
-    const card = container.querySelector(`.xr-ann-card[data-note="${CSS.escape(noteId)}"]`);
-    if (!card) return;
+/**
+ * Focus the WHOLE stack a span carries, not its first note. A tinted
+ * span is tinted precisely because notes overlap there, so surfacing one
+ * card and dropping the rest hides exactly what the overlap was pointing
+ * at — a claim and the forensic finding about it are the interesting
+ * case, and it was the one the old first-id-only version lost.
+ * Accepts an id or an id list; the first card that exists is scrolled to.
+ */
+function focusStackFor(noteIds, container) {
+    const ids = Array.isArray(noteIds) ? noteIds : [noteIds];
     container.querySelectorAll('.xr-ann-card--focus').forEach((c) => c.classList.remove('xr-ann-card--focus'));
-    card.classList.add('xr-ann-card--focus');
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    let first = null;
+    for (const id of ids) {
+        const card = container.querySelector(`.xr-ann-card[data-note="${CSS.escape(id)}"]`);
+        if (!card) continue;
+        card.classList.add('xr-ann-card--focus');
+        if (!first) first = card;
+    }
+    if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 function locateNoteInAnnotated(noteId) {
@@ -5891,13 +5935,20 @@ async function onAnnotatedClick(e) {
         const family = chip.dataset.family;
         const off = chip.classList.toggle('xr-ann-chip--off');
         chip.setAttribute('aria-pressed', String(!off));
+        // Persisted, so the next re-render (an accept, a settling hash)
+        // repaints the same state instead of quietly restoring what the
+        // user hid.
+        annState.visibility[family] = !off;
         container.querySelectorAll(`.xr-ann-card[data-family="${family}"]`).forEach((c) => { c.hidden = off; });
         container.querySelectorAll('.xr-ann-seg').forEach((seg) => {
             const fams = seg.dataset.ids.split(' ').map((id) => (annState.byId.get(id) || {}).family);
-            seg.classList.toggle('xr-ann-seg--muted', fams.every((f) => {
-                const el = container.querySelector(`.xr-ann-chip[data-family="${f}"]`);
-                return el && el.classList.contains('xr-ann-chip--off');
-            }));
+            seg.classList.toggle('xr-ann-seg--muted', fams.every((f) => annState.visibility[f] === false));
+        });
+        // The rail moves with its family. A marker still standing for a
+        // hidden family points at a card that is no longer there.
+        container.querySelectorAll('.xr-ann-mark').forEach((m) => {
+            const note = annState.byId.get(m.dataset.note);
+            if (note && note.family === family) m.hidden = off;
         });
         return;
     }
@@ -5910,7 +5961,7 @@ async function onAnnotatedClick(e) {
         // (drag, double-click, triple-click) belongs to the tagger.
         const sel = window.getSelection();
         if (sel && !sel.isCollapsed) return;
-        focusStackFor(seg.dataset.ids.split(' ')[0], container);
+        focusStackFor(seg.dataset.ids.split(' '), container);
     }
 }
 
@@ -6546,8 +6597,7 @@ async function publish() {
         const publishedXTag = unsignedArticle.tags.find((t) => t[0] === 'x');
         if (publishedXTag && publishedXTag[1]) {
             article._articleHash = publishedXTag[1];
-            state.articleHash = publishedXTag[1];
-            state.hashDirty = false;
+            applyArticleHashes({ articleHash: publishedXTag[1], hashDirty: false });
             updateHashLine();
             refreshExtractionBar().catch(() => { /* display refresh only */ });
         }
