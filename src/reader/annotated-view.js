@@ -5,6 +5,9 @@
 // body element or state.htmlDraft — the annotated container is a
 // read-only sibling.
 
+import { createGroundingIndex } from '../shared/quote-grounding.js';
+import { groundNotes, partitionSegments } from '../shared/annotations/segments.js';
+
 const esc = (s) => String(s ?? '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
@@ -152,4 +155,90 @@ export function annotatedShellHtml({ title, bodyHtml }) {
             <aside class="xr-ann-side" data-role="side"></aside>
         </div>
     </div>`;
+}
+
+const MARK_SHAPES = Object.freeze({
+    claim: 'dot', extraction: 'dot', prediction: 'dot',
+    forensic: 'triangle', audit: 'square'
+});
+
+// Wrap each disjoint [start,end) segment of the body's textContent in
+// a display-only span. Safe HERE and only here: this container is a
+// read-only sibling — nothing syncs it back to any draft.
+function wrapSegments(bodyEl, segments, notesById) {
+    let segIdx = 0;
+    let offset = 0;
+    const walker = document.createTreeWalker(bodyEl, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node && segIdx < segments.length) {
+        const seg = segments[segIdx];
+        const nodeStart = offset;
+        const nodeEnd = offset + node.nodeValue.length;
+        if (seg.end <= nodeStart) { segIdx += 1; continue; }
+        if (seg.start >= nodeEnd) { offset = nodeEnd; node = walker.nextNode(); continue; }
+        // The segment intersects this text node — isolate the slice.
+        const sliceStart = Math.max(seg.start, nodeStart) - nodeStart;
+        const sliceEnd = Math.min(seg.end, nodeEnd) - nodeStart;
+        let target = node;
+        if (sliceStart > 0) target = target.splitText(sliceStart);
+        const rest = (sliceEnd - sliceStart < target.nodeValue.length)
+            ? target.splitText(sliceEnd - sliceStart) : null;
+        const span = document.createElement('span');
+        span.className = segClass(seg, notesById);
+        span.dataset.ids = seg.ids.join(' ');
+        span.setAttribute('tabindex', '0');
+        target.parentNode.insertBefore(span, target);
+        span.appendChild(target);
+        offset = nodeStart + sliceStart + (sliceEnd - sliceStart);
+        node = rest || walker.nextNode();
+        if (seg.end <= offset) segIdx += 1;
+    }
+}
+
+function segClass(seg, notesById) {
+    const families = seg.ids.map((id) => (notesById.get(id) || {}).family);
+    const cls = ['xr-ann-seg'];
+    // Audit never tints the body (the firewall carrier is the rail);
+    // a segment covered ONLY by audit notes stays visually silent.
+    if (families.every((f) => f === 'audit')) cls.push('xr-ann-seg--silent');
+    // Darker step where >=3 notes of ONE family overlap — never a
+    // cross-family density number (§10 row 1).
+    const perFamily = {};
+    for (const f of families) perFamily[f] = (perFamily[f] || 0) + 1;
+    if (Object.values(perFamily).some((c) => c >= 3)) cls.push('xr-ann-seg--dense');
+    return cls.join(' ');
+}
+
+function placeRailMarkers(container, grounded) {
+    const rail = container.querySelector('[data-role="rail"]');
+    const body = container.querySelector('[data-role="body"]');
+    if (!rail || !body) return;
+    rail.innerHTML = '';
+    const railTop = rail.getBoundingClientRect().top;
+    for (const n of grounded) {
+        if (!n.grounding || n.pageReason) continue;
+        const first = body.querySelector(`.xr-ann-seg[data-ids~="${CSS.escape(n.id)}"]`);
+        if (!first) continue;
+        const mark = document.createElement('button');
+        mark.type = 'button';
+        mark.className = `xr-ann-mark xr-ann-mark--${MARK_SHAPES[n.family] || 'dot'}`;
+        mark.dataset.note = n.id;
+        mark.title = n.title;
+        mark.style.top = Math.max(0, first.getBoundingClientRect().top - railTop) + 'px';
+        rail.appendChild(mark);
+    }
+}
+
+export function hydrateAnnotatedView(container, notes) {
+    const body = container.querySelector('[data-role="body"]');
+    const index = createGroundingIndex(body ? body.textContent : '');
+    const grounded = groundNotes(notes, index);
+    const notesById = new Map(grounded.map((n) => [n.id, n]));
+    if (body) wrapSegments(body, partitionSegments(grounded), notesById);
+    const striphost = container.querySelector('[data-role="striphost"]');
+    if (striphost) striphost.innerHTML = renderStrip({ notes: grounded, visibility: {} });
+    const side = container.querySelector('[data-role="side"]');
+    if (side) side.innerHTML = renderCardsPanel(grounded) + renderPageNotes(grounded);
+    placeRailMarkers(container, grounded);
+    return { grounded };
 }
