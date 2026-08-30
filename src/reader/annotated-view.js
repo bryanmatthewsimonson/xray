@@ -1,8 +1,9 @@
 // Margin S1 — the Annotated view's renderers (docs/MARGIN_DESIGN.md
 // §3/§4). String renderers here are pure (guard-testable in node);
 // hydrateAnnotatedView (DOM) joins below in Task 7. This module never
-// imports from index.js and never touches .xr-article__body or
-// state.htmlDraft — the annotated container is a read-only sibling.
+// imports from index.js and never touches the Reader's editable draft
+// body element or state.htmlDraft — the annotated container is a
+// read-only sibling.
 
 const esc = (s) => String(s ?? '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
