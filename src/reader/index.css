@@ -2821,6 +2821,7 @@ body {
   color: var(--xr-text); font-size: 12px; padding: 2px 10px; cursor: pointer;
 }
 .xr-ann-chip--off { background: transparent; color: var(--xr-text-dim); text-decoration: line-through; }
+.xr-ann-chip:focus-visible { outline: 2px solid var(--xr-accent); outline-offset: 1px; }
 .xr-ann-coverage { margin-left: auto; }
 .xr-ann-zero { color: var(--xr-text-dim); }
 .xr-ann-modelabel { white-space: nowrap; }
