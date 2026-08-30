@@ -24,6 +24,11 @@ import { HypothesisEdgeModel } from '../shared/hypothesis-model.js';
 import * as ArchiveCache from '../shared/archive-cache.js';
 import { recordAlias, resolveAlias, loadAliasMap, resolveWithMap } from '../shared/url-aliases.js';
 import { installEntityTagger, rehydrateEntityMarks, renderEntitiesBar, extractParagraphContext } from './entity-tagger.js';
+// Margin S1 (docs/MARGIN_DESIGN.md §3/§6): the Annotated view's
+// collector + renderers. Flag-gated by `marginView`; purely additive —
+// the existing bars are untouched.
+import { collectMineNotes } from '../shared/annotations/collect.js';
+import { annotatedShellHtml, hydrateAnnotatedView } from './annotated-view.js';
 import { openClaimModal, openEvidenceLinkModal, openOthersClaimsModal, renderClaimsBar, rehydrateClaimMarks } from './claim-extractor.js';
 import { openAssessModal } from '../shared/assess-modal.js';
 import { openAdjudicateModal } from '../shared/adjudicate-modal.js';
@@ -43,7 +48,8 @@ import { openFindingModal, openBaselineModal } from '../shared/forensic-modal.js
 import { renderFindingsBar } from './findings-section.js';
 import { renderExtractionBar } from './extraction-bar.js';
 import {
-    recordArticleExtraction, suggestExtractFromProposals, assertionClaimCoverage
+    recordArticleExtraction, suggestExtractFromProposals, assertionClaimCoverage,
+    setAssertionTriage
 } from '../shared/map-artifacts.js';
 import { shouldOfferArchive, describeMetric } from './archive-banner.js';
 import { archivedDraftIsCanonical, archivedDraftSource } from '../shared/archive-draft.js';
@@ -63,7 +69,7 @@ import { AuditRunModel, PredictionModel, ResolutionModel, staleModules } from '.
 import {
     listResolutions as listAuditResolutions,
     getPendingSuggestions, deletePendingSuggestions,
-    getArticleExtraction
+    getArticleExtraction, saveArticleExtraction
 } from '../shared/audit/audit-cache.js';
 import { assembleAuditBatch } from '../shared/audit/publish-batch.js';
 import { CURRENT_MODULE_VERSIONS, MODULE_NAMES, OPINION_RUN_MODULES } from '../shared/audit/findings-schemas.js';
@@ -121,7 +127,7 @@ const browserApi = typeof browser !== 'undefined' && browser.runtime ? browser :
 const state = {
     id: null,            // session-storage id for this article
     article: null,       // the article object as extracted
-    viewMode: 'reader',  // 'reader' | 'markdown' | 'preview'
+    viewMode: 'reader',  // 'reader' | 'markdown' | 'preview' | 'annotated'
     // Working copies. Reader mode edits `htmlDraft`. Markdown mode edits
     // `markdownDraft`. Whichever was last edited is the source of truth
     // on publish.
@@ -407,6 +413,14 @@ async function adoptArticle(article, stored) {
                 // MA.2b — the extraction record keys on the same hash.
                 refreshExtractionBar().catch((err) =>
                     console.warn('[X-Ray Reader] extraction bar failed:', err));
+                // Margin S1: the Annotated view's collector keys on BOTH
+                // hashes (extraction record + truncated-audit runs), and
+                // the first paint may have run before they settled — so
+                // re-render it here, after both are assigned.
+                if (state.viewMode === 'annotated') {
+                    renderAnnotated().catch((err) =>
+                        console.warn('[X-Ray Reader] annotated re-render failed:', err));
+                }
             } catch (err) {
                 console.warn('[X-Ray Reader] article hash failed:', err);
             }
@@ -1301,6 +1315,7 @@ async function loadArchivedArticle(archived, provenance) {
         case 'reader':   renderReader();   break;
         case 'markdown': renderMarkdown(); break;
         case 'preview':  renderPreview();  break;
+        case 'annotated': renderAnnotatedSafely(); break;
     }
     // The adopted copy may be machine-transcribed or LLM-reconstructed
     // — its provenance banner must follow it in. The only other call
@@ -4042,6 +4057,7 @@ async function applyVisionNotes(accepted) {
     switch (state.viewMode) {
         case 'markdown': renderMarkdown(); break;
         case 'preview': renderPreview(); break;
+        case 'annotated': renderAnnotatedSafely(); break;
         default: renderReader(); break;
     }
     toast(missed
@@ -5647,6 +5663,255 @@ function previewField(label, value) {
 }
 
 // ------------------------------------------------------------------
+// Render — ANNOTATED mode (Margin S1 — docs/MARGIN_DESIGN.md §3/§4)
+// ------------------------------------------------------------------
+// A read-only sibling render into #xr-main. It never touches
+// `.xr-article__body` or `state.htmlDraft` (§5.4 draft-leak guard):
+// the annotated body is a DISPLAY COPY, seeded from the draft and
+// never synced back. The existing bars below #xr-main are untouched
+// (§9 — S1 is purely additive), so triage done here refreshes them.
+
+const annState = { byId: new Map(), extractionKey: null };
+
+/** Fire-and-forget entry point for the synchronous mode switches. */
+function renderAnnotatedSafely() {
+    renderAnnotated().catch((err) =>
+        console.warn('[X-Ray Reader] annotated render failed:', err));
+}
+
+async function renderAnnotated() {
+    const main = $('#xr-main');
+    if (!main || !state.article) return;
+    main.innerHTML = annotatedShellHtml({ title: state.article.title });
+    const container = $('#xr-ann');
+    const body = container.querySelector('[data-role="body"]');
+    // Same Readability-sanitized-fragment idiom as renderReader — the
+    // fragment is already safe HTML. hydrateAnnotatedView requires a
+    // FRESHLY set body (it refuses to double-wrap), so this assignment
+    // must stay immediately before the hydrate call.
+    body.innerHTML = state.htmlDraft;
+    const { notes, extractionKey } = await collectMineNotes({
+        url: state.article.url,
+        articleHash: claimArticleHash(),
+        auditableHash: state.auditableHash || null
+    });
+    annState.extractionKey = extractionKey;
+    const { grounded } = hydrateAnnotatedView(container, notes);
+    annState.byId = new Map(grounded.map((n) => [n.id, n]));
+    // Keyboard: Enter on a focused segment behaves like a click (§9 —
+    // the S1 accessibility baseline; segments carry tabindex).
+    container.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && e.target.classList && e.target.classList.contains('xr-ann-seg')) {
+            e.preventDefault();
+            focusStackFor(e.target.dataset.ids.split(' ')[0], container);
+        }
+    });
+    container.addEventListener('click', (e) => {
+        onAnnotatedClick(e).catch((err) =>
+            console.warn('[X-Ray Reader] annotated action failed:', err));
+    });
+    installAnnotatedTagger(body);
+}
+
+function focusStackFor(noteId, container) {
+    const card = container.querySelector(`.xr-ann-card[data-note="${CSS.escape(noteId)}"]`);
+    if (!card) return;
+    container.querySelectorAll('.xr-ann-card--focus').forEach((c) => c.classList.remove('xr-ann-card--focus'));
+    card.classList.add('xr-ann-card--focus');
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function locateNoteInAnnotated(noteId) {
+    const container = $('#xr-ann');
+    const seg = container && container.querySelector(`.xr-ann-seg[data-ids~="${CSS.escape(noteId)}"]`);
+    if (!seg) return;
+    seg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    seg.classList.add('xr-ann-seg--flash');
+    setTimeout(() => seg.classList.remove('xr-ann-seg--flash'), 1600);
+}
+
+async function onAnnotatedClick(e) {
+    const container = $('#xr-ann');
+    if (!container) return;
+    const actEl = e.target.closest('[data-action]');
+    if (actEl) {
+        const action = actEl.dataset.action;
+        const note = annState.byId.get(actEl.dataset.note || '') || null;
+        if (action === 'switch-reader') { setViewMode('reader'); return; }
+        if (action === 'legend') {
+            const legend = container.querySelector('[data-role="legend"]');
+            if (legend) legend.hidden = !legend.hidden;
+            return;
+        }
+        if (!note) return;
+        if (action === 'locate') { locateNoteInAnnotated(note.id); return; }
+        if (action === 'edit' && note.family === 'claim') {
+            // The claims bar's edit flow (openEditClaim), rendered here.
+            const saved = await openClaimModal({
+                sourceUrl:    state.article.url,
+                initialClaim: note.meta
+            });
+            if (saved) {
+                toast('Claim updated', 'success', 2000);
+                refreshClaimsBar().catch(() => { /* display refresh only */ });
+                renderAnnotatedSafely();
+            }
+            return;
+        }
+        if (action === 'assess' && note.family === 'claim') {
+            // The claims-bar assess call site, with the annotated body
+            // as the anchor container (the claim's quote lives there).
+            const annBody = container.querySelector('[data-role="body"]');
+            const result = await openAssessModal({
+                claimRef:  { claim_id: note.meta.id },
+                claimText: note.meta.text || '',
+                anchorContext: { container: annBody }
+            });
+            if (result) {
+                toast(result.deleted ? 'Assessment removed' : 'Assessment saved', 'success', 1500);
+                refreshClaimsBar().catch(() => { /* display refresh only */ });
+                renderAnnotatedSafely();
+            }
+            return;
+        }
+        if (action === 'adjudicate' && note.family === 'claim') {
+            // The claims-bar adjudicate call site, verbatim.
+            const result = await openAdjudicateModal({
+                claimId:     note.meta.id,
+                claimText:   note.meta.text || '',
+                relays:      await getConfiguredRelays(),
+                claimPubkey: note.meta.publishedPubkey || null
+            });
+            if (result) {
+                toast(result.verdict
+                    ? `Ruled: ${result.verdict.verdict}${result.verdict.supersedes ? ' (supersedes prior ruling)' : ''}`
+                    : 'Proposition saved', 'success', 2000);
+                refreshClaimsBar().catch(() => { /* display refresh only */ });
+                renderAnnotatedSafely();
+            }
+            return;
+        }
+        if ((action === 'accept' || action === 'dismiss') && note.family === 'extraction') {
+            if (!annState.extractionKey) return;
+            let claimId = null;
+            if (action === 'accept') {
+                const row = note.meta;
+                const saved = await openClaimModal({
+                    sourceUrl:   state.article.url,
+                    initialText: row.text || row.quote,
+                    quote:       row.quote,
+                    articleHash: claimArticleHash()
+                });
+                if (!saved) return;
+                claimId = saved.id;
+            }
+            // Read-modify-write against the STORE, never the render's
+            // snapshot, and FAIL CLOSED on a key that matched nothing —
+            // the portal's triage convention (extraction-block.js:346).
+            const rec = await getArticleExtraction(annState.extractionKey);
+            const updated = setAssertionTriage(rec, note.meta.key,
+                action === 'accept' ? 'accepted' : 'dismissed',
+                { claimId, now: Date.now() });
+            if (updated.matched === 0) {
+                toast('This claim proposal is no longer on the record — reload and try again', 'error', 5000);
+                return;
+            }
+            await saveArticleExtraction(updated);
+            refreshClaimsBar().catch(() => { /* display refresh only */ });
+            refreshExtractionBar().catch(() => { /* display refresh only */ });
+            renderAnnotatedSafely();
+            return;
+        }
+        return;
+    }
+    const chip = e.target.closest('.xr-ann-chip');
+    if (chip) {
+        const family = chip.dataset.family;
+        const off = chip.classList.toggle('xr-ann-chip--off');
+        chip.setAttribute('aria-pressed', String(!off));
+        container.querySelectorAll(`.xr-ann-card[data-family="${family}"]`).forEach((c) => { c.hidden = off; });
+        container.querySelectorAll('.xr-ann-seg').forEach((seg) => {
+            const fams = seg.dataset.ids.split(' ').map((id) => (annState.byId.get(id) || {}).family);
+            seg.classList.toggle('xr-ann-seg--muted', fams.every((f) => {
+                const el = container.querySelector(`.xr-ann-chip[data-family="${f}"]`);
+                return el && el.classList.contains('xr-ann-chip--off');
+            }));
+        });
+        return;
+    }
+    const mark = e.target.closest('.xr-ann-mark');
+    if (mark) { locateNoteInAnnotated(mark.dataset.note); focusStackFor(mark.dataset.note, container); return; }
+    const seg = e.target.closest('.xr-ann-seg');
+    if (seg) {
+        // Gesture arbitration by SELECTION STATE (§4, ruled): a
+        // collapsed selection opens cards; any non-collapsed selection
+        // (drag, double-click, triple-click) belongs to the tagger.
+        const sel = window.getSelection();
+        if (sel && !sel.isCollapsed) return;
+        focusStackFor(seg.dataset.ids.split(' ')[0], container);
+    }
+}
+
+function installAnnotatedTagger(annBody) {
+    if (state._taggerUninstall) state._taggerUninstall();
+    state._taggerUninstall = installEntityTagger({
+        container: annBody,
+        // renderReader's onTag, MINUS the `state.htmlDraft = body.innerHTML`
+        // sync and the dirtySource flip: this container is a display copy,
+        // so syncing it back would be the §5.4 draft leak, and claiming the
+        // reader draft as newly-canonical would be a lie about a body that
+        // never changed. The ref itself is what publishes (the p-tag).
+        onTag: (ref) => {
+            const dup = state.article.entities.find(
+                (e) => e.entity_id === ref.entity_id && e.context === ref.context
+            );
+            if (!dup) state.article.entities.push(ref);
+            refreshEntitiesBar().catch(() => { /* display refresh only */ });
+            scheduleTagSave();
+        },
+        onClaim: async ({ text, context, anchor, quoteMode }) => {
+            // Quote-first capture (§4, ruled): the annotated DOM is the
+            // wrong substrate for positional selectors — segment spans
+            // shift every offset — so keep ONLY the TextQuoteSelector.
+            const quoteOnly = (anchor || []).filter((s) => s && s.type === 'TextQuoteSelector');
+            const saved = await openClaimModal({
+                sourceUrl:   state.article.url,
+                initialText: text,
+                context,
+                anchor:      quoteOnly.length ? quoteOnly : null,
+                quote:       text,
+                articleHash: claimArticleHash(),
+                initialAbout: state.lastClaimAbout || [],
+                quoteMode:   !!quoteMode,
+                defaultSource: (await resolveTranscriptSpeaker(context)) || (await resolveDefaultSpeaker())
+            });
+            if (saved) {
+                state.lastClaimAbout = saved.about || [];
+                toast(quoteMode ? 'Quote saved' : 'Claim saved', 'success', 2000);
+                refreshClaimsBar().catch(() => { /* display refresh only */ });
+                renderAnnotatedSafely();
+            }
+        },
+        onFinding: async ({ text, anchor }) => {
+            // renderReader's onFinding flow, with the quote-only anchor
+            // and the annotated body as the anchor container.
+            const quoteOnly = (anchor || []).filter((s) => s && s.type === 'TextQuoteSelector');
+            const result = await openFindingModal({
+                subjectChoices: subjectChoicesFromArticle(),
+                anchorContext:  { container: annBody },
+                seedAnchor:     { quote: text, selector: quoteOnly.length ? quoteOnly : null },
+                sourceRef:      { url: state.article.url, title: state.article.title || '' }
+            });
+            if (result) {
+                toast(result.deleted ? 'Finding removed' : 'Finding saved', 'success', 1500);
+                refreshFindingsBar().catch(() => { /* display refresh only */ });
+                renderAnnotatedSafely();
+            }
+        }
+    });
+}
+
+// ------------------------------------------------------------------
 // View mode controller
 // ------------------------------------------------------------------
 
@@ -5664,6 +5929,7 @@ function setViewMode(mode) {
         case 'reader':   renderReader();   break;
         case 'markdown': renderMarkdown(); break;
         case 'preview':  renderPreview();  break;
+        case 'annotated': renderAnnotatedSafely(); break;
     }
 }
 
@@ -5826,6 +6092,7 @@ function mergeSubstackPost(post) {
         case 'reader':   renderReader();   break;
         case 'markdown': renderMarkdown(); break;
         case 'preview':  renderPreview();  break;
+        case 'annotated': renderAnnotatedSafely(); break;
     }
 }
 
@@ -8110,7 +8377,20 @@ async function init() {
     // the defaults.
     try { await loadFlags(); } catch (_) { /* falls back to defaults */ }
 
-    renderReader();
+    // Margin S1: the Annotated tab ships hidden and is revealed only by
+    // its own default-off flag (MARGIN_DESIGN §9).
+    if (isEnabled('marginView')) {
+        const annBtn = document.querySelector('.xr-reader__mode-btn[data-mode="annotated"]');
+        if (annBtn) annBtn.hidden = false;
+    }
+    // MARGIN_DESIGN §3 (ruled 2026-08-28): archived opens land in the
+    // Annotated view; fresh captures keep the editable Reader.
+    if (isEnabled('marginView')
+            && (state.readOnlyOpen || (state.article && state.article._archiveSource))) {
+        setViewMode('annotated');
+    } else {
+        renderReader();
+    }
 
     document.querySelectorAll('.xr-reader__mode-btn').forEach((btn) => {
         btn.addEventListener('click', () => setViewMode(btn.dataset.mode));
