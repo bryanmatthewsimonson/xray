@@ -19,6 +19,53 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-09-05 — the designer reviews the governance corpus (and the first attempt had it backwards)
+
+**Tags:** design, process
+
+Maintainer directive, 2026-08-28: *"We also need to have the designer
+look at the constitution and all governance docs."* Recorded here with
+its reversal, because the reversal is the instructive half.
+
+**The misreading.** The first attempt (this branch, since reverted)
+read "look at" as *answer to*: it gave `ux-designer` an eight-item
+governance checklist citing CONSTITUTION Arts. 3–8 and TS H-5/H-7/S-4,
+ranked governance violations above every usability class, and routed
+corpus interpretation to the `governance` skill. Its JOURNAL entry was
+titled "the designer answers to the constitution." The maintainer
+corrected it on 2026-09-05: **governance docs are to be grounded in
+the design skill, not the other way around.** The skill and the skills
+README are reverted to their pre-change state; nothing of that
+direction ships.
+
+**Why it was wrong, in the corpus's own terms.** A discipline's
+standards are *derived* from its own first principles (DISCIPLINES
+§0 — the method that produced PHILOSOPHY.md); its authority does not
+come from citing a document one rank up. A design skill whose content
+is restated constitutional law is the College-of-Personas error in
+another costume: the scaffolding reified, the standards missing. The
+first attempt even named that failure mode ("corpus cosplay") while
+committing it.
+
+**What ships instead.** `docs/GOVERNANCE_UX_REVIEW.md` — the
+`ux-designer` protocol run ON the corpus, treating CONSTITUTION,
+PHILOSOPHY, TRUTH_SYSTEMS and TRUTH_INFRASTRUCTURE as artifacts people
+must read and act from. Eight findings, ranked by user harm, each with
+the reader task it damages and one additive fix; no renumbering and no
+principle touched. The load-bearing one (B1) is that no page assembles
+"what may a surface render" — it is spread over nine locations in two
+documents, so MARGIN_DESIGN had to build its own §10 provenance table
+and then needed a maintainer ruling for the coverage-count carve-out
+the corpus left ambiguous. That index belongs in the corpus, which is
+the directive's actual content: the governance docs absorbing what the
+design discipline knows. Two findings are authority-signalling defects
+the first attempt itself fell into — TS's `I-n`/`S-n` clauses are
+evidence, not law, and were cited as binding; and "red line n" resolves
+to two different rules across Art. 12 and PHILOSOPHY §10.
+
+Advisory, Art. 11 — the review amends nothing and the maintainer
+disposes of each finding.
+
 ## 2026-08-25 — Suggest's shape failures get ONE paid repair round; the dossier's bandText ghost
 
 **Tags:** bug, llm
