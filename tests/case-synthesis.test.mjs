@@ -5,6 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { jobSendMessage } from './helpers/llm-job-stub.mjs';
 
 globalThis.chrome = globalThis.chrome || {
     storage: { local: { get(_k, cb) { cb({}); }, set(_o, cb) { cb && cb(); }, remove(_k, cb) { cb && cb(); } } }
@@ -725,7 +726,7 @@ test('a poisoned cache entry SELF-HEALS: the cache-hit path revalidates', async 
     const out = await ensureArticleExtract(
         { article: { title: 'T', content: '<p>Body text long enough to matter.</p>', url: 'https://e.com/a' },
           articleHash: 'a'.repeat(64), url: 'https://e.com/a', title: 'T',
-          sendMessage: async () => { called += 1; return { ok: true, extract: GOOD, model: 'm' }; } },
+          sendMessage: jobSendMessage(async () => { called += 1; return { ok: true, extract: GOOD, model: 'm' }; }) },
         { getExtract: async () => ({ extract: POISONED, model: 'old' }),
           saveExtract: async () => {}, record: async () => ({ status: 'unchanged' }), now: () => 0 });
     assert.equal(called, 1, 'the poisoned hit was rejected and the pass re-ran');

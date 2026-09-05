@@ -27,6 +27,7 @@ import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
 import { runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, runHypothesisEdgePass, runClaimLinksPass, getCorpusConfig, runExtractPass, runEntityAuditPass, runForensicCorpusPass, runEntityPagePass, runVisionPass, getVisionConfig } from '../shared/llm-client.js';
+import { createLlmJobRunner } from '../shared/llm-jobs.js';
 import { putSessionArticle } from '../shared/session-articles.js';
 import { getSourceDocument } from '../shared/archive-cache.js';
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prompts.js';
@@ -42,6 +43,24 @@ import { gatePublish } from '../shared/publish-gate.js';
 import { getTranscribeConfig, getTranscriberPort, pingTranscriber, startTranscription, getJobStatus, draftClaimCandidates } from '../shared/transcriber-client.js';
 import { startDirectTranscription, getDirectJobStatus, resolveTranscribeRoute, DIRECT_ENGINE_ID } from '../shared/direct-transcribe.js';
 import { transcribeDirectDeepgram, DEEPGRAM_ENGINE_ID } from '../shared/direct-transcribe-deepgram.js';
+
+// ------------------------------------------------------------------
+// LLM job runner — the long in-worker LLM passes (JOURNAL 2026-09-05).
+// One runner per worker instance: its registry is exactly "the jobs
+// THIS worker is running", so a `running` record it does not know
+// belongs to a worker that died and reads as `lost`. The three passes
+// here are the ONLY way a page reaches them — never through a single
+// held-open message (see the xray:llm:job:* handlers). Each pass still
+// gates itself (flags + key) and still returns RAW model output; the
+// page validates, grounds, and human-gates exactly as before.
+// ------------------------------------------------------------------
+const llmJobs = createLlmJobRunner({
+    passes: {
+        'corpus-map': runCorpusMapPass,
+        'corpus-reduce': runCorpusReducePass,
+        'entity-page': runEntityPagePass
+    }
+});
 
 // Pull the debug preference on SW startup. MV3 service workers sleep
 // and wake, so this runs each time the SW reloads. A chrome.storage
@@ -814,35 +833,47 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // async sendResponse
     }
 
-    // Portal → worker: case-corpus synthesis (Phase 20.4). One MAP call
-    // per member article (the portal orchestrates them with bounded
-    // concurrency, the audit-module topology), then one REDUCE. Gated
-    // by `caseSynthesis` + `llmAssist` + key inside the passes; returns
-    // RAW tool output (the portal validates, grounds, and gates every
-    // mutation behind human Accept). Nothing is saved or published here.
-    if (message.type === 'xray:llm:corpus-map') {
-        runCorpusMapPass(message.request || {}).then(
+    // Page → worker: the LONG LLM passes as JOBS (JOURNAL 2026-09-05) —
+    // the corpus map (one per member article; the portal, the reader's
+    // Suggest, and the entity page all drive it), the corpus reduce
+    // (Phase 20.4, one synthesis call), and the entity-page reduce
+    // (EP.2). None of these may hold a message open across the model
+    // call: MV3 kills a worker whose single request outlives ~5
+    // minutes, and the paid result died with it. So `start` answers
+    // with a job id at once, the pass runs detached, its RAW result is
+    // persisted under the id BEFORE any response hop, and the page
+    // long-polls `status` (≤15s a message). `find` is a presence check
+    // by scope; `ack` clears a record the page has persisted itself.
+    // Validated at shared/llm-jobs.js: pass allowlist, object request,
+    // clamped scope key / job id / wait. The passes keep their own
+    // gates (flags + key) and the page keeps the whole firewall
+    // (validate → ground → human Accept); nothing is saved or
+    // published here.
+    if (message.type === 'xray:llm:job:start') {
+        llmJobs.start(message).then(
             (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Corpus map call failed' })
+            (err) => sendResponse({ ok: false, error: (err && err.message) || 'LLM job start failed' })
+        );
+        return true; // async sendResponse — resolves as soon as the record is written
+    }
+    if (message.type === 'xray:llm:job:status') {
+        llmJobs.status(message).then(
+            (result) => sendResponse(result),
+            (err) => sendResponse({ ok: false, error: (err && err.message) || 'LLM job status failed' })
+        );
+        return true; // async sendResponse — bounded by LLM_JOB_STATUS_WAIT_MAX_MS
+    }
+    if (message.type === 'xray:llm:job:find') {
+        llmJobs.find(message).then(
+            (result) => sendResponse(result),
+            (err) => sendResponse({ ok: false, error: (err && err.message) || 'LLM job lookup failed' })
         );
         return true; // async sendResponse
     }
-    if (message.type === 'xray:llm:corpus-reduce') {
-        runCorpusReducePass(message.request || {}).then(
+    if (message.type === 'xray:llm:job:ack') {
+        llmJobs.ack(message).then(
             (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Corpus reduce call failed' })
-        );
-        return true; // async sendResponse
-    }
-    // Portal → worker: the entity-page reduce (EP.2). One reduce-shaped
-    // call over the entity digest + member extracts; same triple gate
-    // inside the pass; returns RAW tool output (the portal validates,
-    // subset-filters key claims, grounds citations, and nothing
-    // persists without the human's Save).
-    if (message.type === 'xray:llm:entity-page') {
-        runEntityPagePass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Entity page call failed' })
+            (err) => sendResponse({ ok: false, error: (err && err.message) || 'LLM job ack failed' })
         );
         return true; // async sendResponse
     }
