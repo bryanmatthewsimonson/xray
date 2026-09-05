@@ -617,9 +617,10 @@ export async function runAuditModulePass(req = {}) {
 // hand-set: a full-budget emission must be able to FINISH, or a raised
 // cap just converts a token-cap failure into an AbortError — the trade
 // JOURNAL 2026-07-18 warned about, and the drift that hand-set pairs
-// invite. Neither call is bounded by the MV3 lifetime: the map's two
-// callers and the portal's synthesis run each hold a keepalive, so this
-// AbortController is the sole limiter.
+// invite. Neither call is bounded by the MV3 lifetime: both run as JOBS
+// (shared/llm-jobs.js — no held-open message, the worker heartbeats
+// itself while a job runs, the result is persisted before any response
+// hop), so this AbortController is the sole limiter.
 const CORPUS_MAP_TIMEOUT_MS = timeoutForBudget(MAX_MAP_OUTPUT_TOKENS);
 const CORPUS_REDUCE_TIMEOUT_MS = timeoutForBudget(MAX_REDUCE_OUTPUT_TOKENS);
 

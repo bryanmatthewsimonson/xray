@@ -19,6 +19,95 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-09-05 — Corpus reduce lost a ~$5 Fable run: the long LLM passes become JOBS
+
+**Tags:** bug, design, external
+
+**Report (maintainer, 2026-08-30).** Portal: *"Synthesis failed: A
+listener indicated an asynchronous response by returning true, but the
+message channel closed before a response was received."* An 87-member
+reduce on Fable 5 — minutes of generation, ~$5 — gone, nothing to show.
+
+**Root cause.** `xray:llm:corpus-reduce` (and `corpus-map`,
+`entity-page`) each held ONE `chrome.runtime` message open across the
+whole Anthropic call: `return true` + an async `sendResponse`. MV3 kills
+a worker whose **single request runs past ~5 minutes** — a separate rule
+from the 30-second idle timer that the 2026-07-18 keepalive fix
+addressed. The page's 20-second pings kept the worker *idle-alive* and
+could not help: the request itself was the thing over the limit. When
+the worker died, the in-flight fetch died with it; and even had the
+fetch finished, the result existed only as the argument to a
+`sendResponse` on a dead channel — nothing was persisted before the
+response hop. (The 2026-07-18 entry's "my 420s → teardown proved it"
+was this rule, misattributed to idle.)
+
+**Fix — the in-tree job pattern** (`xray:transcribe:{start,status}` is
+the precedent), now `shared/llm-jobs.js` + `xray:llm:job:{start,status,
+find,ack}`:
+
+- `start` answers with a job id **immediately**; the worker runs the
+  pass detached. No request ever waits on the model.
+- The RAW result is written to `chrome.storage.local` under
+  `xray:llm-job:<pass>:<scope>` **before any response hop** — the
+  running record lands first, the done record strictly after (ordered,
+  never raced).
+- The page long-polls `status` (≤15s a message, clamped at the
+  receiver). A poll after a worker restart reads the persisted record;
+  a dropped poll is retried without a second start. **A dropped channel
+  costs a refresh, never a re-spend.**
+- Jobs are scoped: the reduce by `caseId:inputHash`, the map by the
+  extract's content-only cache key, the entity page by
+  `entityId:inputHash`. A start whose scope has a **running** job
+  attaches to it; one whose scope has a **done, successful, un-acked**
+  result reuses it — the pass is not invoked. The page `ack`s (deletes)
+  only after ITS persist (`saveCaseBrief`, `saveCorpusExtract`,
+  `saveEntityPage`). Failed / lost / unsuccessful records never replay.
+- While a job runs the worker **heartbeats its own record** every 20s —
+  a `chrome.storage` write is an extension API call, which resets the
+  idle timer from inside the worker — so a job outlives a portal reload
+  gap the page-side keepalive could not cover. Bounded by the pass's
+  own AbortController timeout; a job can never hold the worker past the
+  call it was started for.
+- A `running` record no live worker knows (the registry is per worker
+  instance) reads as **`lost`** — the one case that IS a re-bill, and it
+  says so.
+- Records are **workspace-scoped** (`xray:llm-job:<ws>:<pass>:<scope>`),
+  the workspace resolved at the receiver from the active-workspace
+  pointer, never taken from the message — the security-threat-modeler
+  review's one finding: a global record would have let a case bundle
+  imported into two workspaces (same ids, same members) serve
+  workspace A's brief — with A's dossier digest — to workspace B.
+  Every other piece of casework state is workspace-isolated; this one
+  is too.
+
+**Honest copy.** The old failure line — *"try again; the cached
+extracts make the retry cheap"* — was true of the map and false of the
+reduce, which is the expensive call. It now names the stage that
+re-runs and that the synthesis call is billed again; the lost-contact
+case says the result is kept and the next Analyze picks it up. On open,
+the block reports a running or waiting synthesis for the case, and the
+confirm dialog says "no new synthesis call" when one will be reused.
+
+**Guards.** `tests/llm-jobs.test.mjs`: start-before-settle, on-disk
+before any poll (with the write order pinned), restart pickup / find /
+reuse with the pass NOT re-invoked, lost never reused, receiver-side
+validation fail-closed, dropped-poll retry with exactly one start, the
+copy pin, and a source pin that the three passes are referenced in the
+worker ONLY from the runner's table — never `run*Pass(message…)` into
+`sendResponse`. `tests/backup-hygiene.test.mjs`: job records never
+export, restore, or merge. Consumer tests run through the REAL runner via
+`tests/helpers/llm-job-stub.mjs` rather than a hand-rolled protocol.
+
+**Still on the held-open shape** (same class, shorter calls, not
+converted here): `xray:llm:hypothesis-edges`, `xray:llm:corpus-links`,
+`xray:llm:forensic-corpus`, `xray:llm:entity-audit`, `xray:audit:run`.
+Adding one to the runner is a pass-table line plus its caller; do it
+the first time any of them is reported over the limit. Wire format: none.
+See `src/shared/llm-jobs.js`, `src/background/index.js`,
+`src/portal/synthesis-block.js`, `src/portal/entity-page-block.js`,
+`src/shared/article-pass.js`, `src/shared/entity-page.js`,
+`src/shared/backup.js`, `docs/THREAT_MODEL.md` (2026-09-05 row).
+
 ## 2026-08-25 — Suggest's shape failures get ONE paid repair round; the dossier's bandText ghost
 
 **Tags:** bug, llm

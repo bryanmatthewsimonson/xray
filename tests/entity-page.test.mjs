@@ -8,6 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { jobSendMessage } from './helpers/llm-job-stub.mjs';
 
 // entity-page pulls case-synthesis → entity-model transitively, which
 // reads chrome.storage at module load — stub first (the LLM-test idiom).
@@ -189,11 +190,11 @@ test('ensureExtracts: valid cache hits cost nothing; misses call, validate, and 
     const sentRequests = [];
     const folded = [];
     const out = await EP.ensureExtracts([mA, mB], frame, {
-        sendMessage: async (msg) => {
+        sendMessage: jobSendMessage(async (msg) => {
             assert.equal(msg.type, 'xray:llm:corpus-map');
             sentRequests.push(msg.request);
             return { ok: true, extract: VALID_EXTRACT, model: 'm-test' };
-        }
+        })
     }, {
         getExtract: async (key) => key === keyA ? { extract: VALID_EXTRACT, model: 'm-cached' } : null,
         saveExtract: async (rec) => { saved.push(rec); },
@@ -223,11 +224,11 @@ test('ensureExtracts: an invalid cached extract re-runs; a failed member lands i
     const mB = member(HASH_B, 'Body B.');
     let calls = 0;
     const out = await EP.ensureExtracts([mA, mB], { caseName: '', scopeQuestion: '' }, {
-        sendMessage: async (msg) => {
+        sendMessage: jobSendMessage(async (msg) => {
             calls++;
             if (msg.request.member_id === HASH_B) return { ok: false, error: 'boom' };
             return { ok: true, extract: VALID_EXTRACT, model: 'm' };
-        }
+        })
     }, {
         getExtract: async () => ({ extract: { not: 'valid' }, model: 'm' }),   // invalid — never a hit
         saveExtract: async () => {},

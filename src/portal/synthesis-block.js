@@ -28,6 +28,7 @@ import {
     groundCaseBrief, filterProposals, computeEntitySummary, foldMemberAliases
 } from '../shared/case-synthesis.js';
 import { renderProposals } from './synthesis-review.js';
+import { runLlmJob, ackLlmJob, findLlmJob, llmJobScopeKey } from '../shared/llm-jobs.js';
 import {
     recordArticleExtraction, unionExtractWithRecord, reduceExtractFromRecord
 } from '../shared/map-artifacts.js';
@@ -118,14 +119,13 @@ function sendMessage(msg) {
     });
 }
 
-// The reduce is the ONE long single fetch in a synthesis run: after the
-// last map message lands, nothing messages the service worker for the
-// minutes the reduce takes, so the MV3 idle timer is never reset and the
-// SW is torn down mid-fetch — the "no response" failure. Pinging a
-// zero-cost handler every 20s resets that timer for the duration (the
-// mechanism the reader's single-shot audit relies on, index.js
-// startSwKeepalive). The map phase already messages frequently, but the
-// keepalive spans the whole run so a slow tail map call is covered too.
+// The reduce is the ONE long single fetch in a synthesis run. Since
+// JOURNAL 2026-09-05 it runs as a JOB (shared/llm-jobs.js): the status
+// long-polls reset the MV3 idle timer and the worker heartbeats itself,
+// so this page-side ping is belt-and-braces for the gaps between stages
+// (cache planning, grounding) rather than the thing keeping the reduce
+// alive — the old keepalive could not save a reduce anyway, because MV3
+// kills a worker whose single held-open request passes ~5 minutes.
 const SW_KEEPALIVE_MS = 20000;
 function startSwKeepalive() {
     const timer = setInterval(() => {
@@ -433,6 +433,11 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
         // on a member would never invalidate the stored brief.
         const memberClaimIds = members.flatMap((m) => m.claims.map((c) => c.id));
         const liveHash = await corpusInputHash(members, memberClaimIds);
+        // The reduce job's scope: this case at this input fingerprint.
+        // A reduce that finished after the tab died (or is still running
+        // in the worker) is found under it and reused — never re-billed.
+        const reduceScopeKey = llmJobScopeKey(caseId, liveHash);
+        const pendingReduce = () => findLlmJob(sendMessage, { pass: 'corpus-reduce', scopeKey: reduceScopeKey });
 
         const claimsById = {};
         // The claim index handed to the reduce stage — id + text +
@@ -530,11 +535,18 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                         fold(cached.extract, cached.model);
                         return { ok: true, findings: cached.extract, model: cached.model };
                     }
-                    const res = await sendMessage({ type: 'xray:llm:corpus-map', request: reqOf(unitById[id]) });
+                    // A job, not a held-open message (JOURNAL 2026-09-05);
+                    // scoped by the content-only cache key, so an extract
+                    // that finished after this tab went away is picked up
+                    // by the next run instead of paid for again.
+                    const res = await runLlmJob({
+                        sendMessage, pass: 'corpus-map', request: reqOf(unitById[id]), scopeKey: keyByHash[id]
+                    });
                     if (!res || !res.ok) return { ...(res || {}), ok: false };
                     const v = validateCorpusExtract(res.extract);
                     if (!v.ok) return { ok: false, error: 'invalid extract' };
                     saveCorpusExtract({ key: keyByHash[id], extract: res.extract, model: res.model, cachedAt: Math.floor(Date.now() / 1000) })
+                        .then(() => { if (res.jobId) ackLlmJob(sendMessage, res.jobId).catch(() => {}); })
                         .catch((err) => Utils.error('saveCorpusExtract failed', err));
                     fold(res.extract, res.model);
                     return { ok: true, findings: res.extract, model: res.model };
@@ -701,6 +713,20 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
         const existing = await getCaseBrief(caseId);
         if (existing) renderStored(existing);
 
+        // A synthesis this tab lost contact with (reload, navigation, a
+        // worker restart between polls) is not gone: the worker persists
+        // the result under the job id. Say so, and say what a click costs.
+        try {
+            const pending = await pendingReduce();
+            if (pending && pending.status === 'running') {
+                status.textContent = 'A synthesis for this corpus is still running in the background — '
+                    + '"Analyze corpus…" attaches to it instead of starting a new synthesis call.';
+            } else if (pending && pending.status === 'done') {
+                status.textContent = 'A finished synthesis from an interrupted run is waiting — '
+                    + '"Analyze corpus…" picks it up with no new synthesis call.';
+            }
+        } catch (_) { /* presence hint only */ }
+
         // Pre-analyze: the map stage alone. No brief is written and no
         // reduce is spent — the extracts land in the same cache the
         // Analyze run checks first.
@@ -798,10 +824,18 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                 const toSend = plan.toSend;
                 const cachedCount = members.length - toSend.length;
                 const approxChars = toSend.reduce((a, m) => a + m.text.length, 0);
+                // Honest cost line: a reduce already running or waiting
+                // for this exact corpus is reused, so no synthesis bill.
+                const pending = await pendingReduce().catch(() => null);
+                const reduceLine = pending && pending.status === 'running'
+                    ? 'then attaches to the synthesis call already running in the background (no new synthesis call).'
+                    : pending && pending.status === 'done'
+                        ? 'then picks up the waiting synthesis result (no new synthesis call).'
+                        : 'then one synthesis call.';
                 if (!confirm(`Analyze this corpus with the LLM?\n\n`
                     + (cachedCount ? `${cachedCount} of ${members.length} article${members.length === 1 ? '' : 's'} cached — reused for free.\n` : '')
                     + `This sends ${toSend.length} article${toSend.length === 1 ? '' : 's'} `
-                    + `(~${Math.round(approxChars / 1000)}k characters) to Anthropic, then one synthesis call.`)) {
+                    + `(~${Math.round(approxChars / 1000)}k characters) to Anthropic, ${reduceLine}`)) {
                     return;
                 }
 
@@ -873,26 +907,49 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                 // call (and before touching the persisted brief).
                 if (!stillCurrent()) return;
 
-                // REDUCE — one synthesis call over the extracts + dossier digest.
-                status.textContent = `Synthesizing ${extracts.length} extract${extracts.length === 1 ? '' : 's'}…`;
-                const reduce = await sendMessage({ type: 'xray:llm:corpus-reduce', request: {
-                    // CA.4 — the epistemics summary rides the digest
-                    // (distributions only; the prompt forbids using it
-                    // to adjudicate). Absent when nothing is audited.
-                    dossierDigest: digestDossier(dossier, {
-                        claims: claimIndex,
-                        auditRollup: corpusAuditRollup({
-                            rows: deriveArticleRows(data).rows,
-                            runs: data.auditRuns || []
-                        })
-                    }), extracts, caseName, scopeQuestion
-                } });
+                // REDUCE — one synthesis call over the extracts + dossier
+                // digest, as a JOB (JOURNAL 2026-09-05): the worker persists
+                // the raw brief under the job id before any response hop,
+                // and this tab long-polls for it. A dropped channel costs a
+                // refresh (the record is picked up by scope), never a
+                // re-spend; only a worker that died MID-CALL loses the run.
+                const synthLabel = `Synthesizing ${extracts.length} extract${extracts.length === 1 ? '' : 's'}…`;
+                status.textContent = synthLabel;
+                const reduceStartedAt = Date.now();
+                const reduce = await runLlmJob({
+                    sendMessage, pass: 'corpus-reduce', scopeKey: reduceScopeKey,
+                    request: {
+                        // CA.4 — the epistemics summary rides the digest
+                        // (distributions only; the prompt forbids using it
+                        // to adjudicate). Absent when nothing is audited.
+                        dossierDigest: digestDossier(dossier, {
+                            claims: claimIndex,
+                            auditRollup: corpusAuditRollup({
+                                rows: deriveArticleRows(data).rows,
+                                runs: data.auditRuns || []
+                            })
+                        }), extracts, caseName, scopeQuestion
+                    },
+                    onTick: (st) => {
+                        if (!stillCurrent() || st.status !== 'running') return;
+                        const secs = Math.round((Date.now() - reduceStartedAt) / 1000);
+                        status.textContent = `${synthLabel} ${secs}s — running in the background; `
+                            + 'a reload picks it up where it is.';
+                    }
+                });
                 if (!reduce || !reduce.ok) {
-                    const lost = reduce && reduce.swLost;
-                    const detail = (reduce && reduce.error)
-                        || 'no response — the run may have been lost to a service-worker restart';
-                    status.textContent = `Synthesis failed: ${detail}`
-                        + (lost ? ' — try again; the cached extracts make the retry cheap' : '');
+                    const detail = String((reduce && reduce.error) || 'no response from the service worker').replace(/\.$/, '');
+                    // Which stage a retry re-runs, and what it re-bills: the
+                    // per-article extracts are cached (the map is free), but
+                    // the synthesis call IS the expensive one — it is not.
+                    const retryNote = reduce && reduce.lost
+                        ? ' Retry re-runs only the synthesis stage — the per-article extracts are cached '
+                          + 'and free — but that synthesis call is billed again.'
+                        : reduce && reduce.swLost
+                            ? ' Lost contact with the service worker; if the call finished, its result is kept '
+                              + 'and "Analyze corpus…" picks it up with no new synthesis call.'
+                            : '';
+                    status.textContent = `Synthesis failed: ${detail}.${retryNote}`;
                     return;
                 }
                 const v = validateCaseBrief(reduce.briefInput);
@@ -933,6 +990,9 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                 let saved = true;
                 try { await saveCaseBrief(record); }
                 catch (err) { saved = false; Utils.error('saveCaseBrief failed', err); }
+                // The brief is in the precious store — release the job
+                // record. An unsaved brief keeps it (the TTL is the net).
+                if (saved && reduce.jobId) ackLlmJob(sendMessage, reduce.jobId).catch(() => {});
 
                 const coverageNote = failures.length
                     ? ` (${extracts.length} of ${members.length} members analyzed`

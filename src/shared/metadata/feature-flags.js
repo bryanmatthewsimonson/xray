@@ -58,8 +58,8 @@ export const FLAGS_DEFAULTS = Object.freeze({
 
   // Phase 14.5 (docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md): gates the
   // in-extension LLM-assist surface — the reader "Suggest…" control,
-  // which since the One Article Pass rides the `xray:llm:corpus-map`
-  // background call to the Anthropic Messages API (the standalone
+  // which since the One Article Pass rides the `corpus-map` background
+  // job (xray:llm:job:*) to the Anthropic Messages API (the standalone
   // suggest pass retired in UA.3). Off by default, AND requires a
   // user-supplied API key
   // (a second consent gate, since the article text leaves the device).
