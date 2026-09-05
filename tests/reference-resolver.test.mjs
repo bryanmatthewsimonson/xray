@@ -192,3 +192,33 @@ test('summary: counts by status and origin, never a score', () => {
     assert.deepEqual(sum.byOrigin, { link: 2, 'map-source': 1, 'audit-document': 1 });
     assert.ok(!('mean' in sum) && !('score' in sum), 'distributions only');
 });
+
+// ------------------------------------------------------------------
+// Data tolerance (field bug 2026-08-30, the known-unknowns crash):
+// module-04 primary_documents arrived as a STRING from a stored run.
+// The resolver reads the same field — and its destructuring defaults
+// cover only `undefined`, so a string iterated as characters and an
+// object (or null) threw "not iterable". Every substrate slot now
+// reads as empty when it is not an array.
+// ------------------------------------------------------------------
+
+test('tolerance: non-array substrates read as empty; the well-formed ones beside them still collect', () => {
+    let cands;
+    assert.doesNotThrow(() => {
+        cands = collectReferenceCandidates({
+            links: null,
+            references: 42,
+            mapSources: { quote: 'q', target_hint: 'https://x.example/a' },       // object, not list
+            auditDocuments: 'an internal memo the reporter never saw',            // the observed shape
+            auditSources: [{ label: 'the WHO report', type: 'document_cited', evidence_quote: 'the report found' }]
+        });
+    });
+    assert.equal(cands.length, 1, 'only the well-formed list contributes');
+    assert.deepEqual(cands[0].origins, ['audit-document']);
+    assert.equal(cands[0].display, 'the WHO report');
+
+    // Every slot hostile at once → empty, never a throw.
+    assert.deepEqual(collectReferenceCandidates({
+        links: 'x', references: {}, mapSources: null, auditDocuments: 7, auditSources: 'y'
+    }), []);
+});
