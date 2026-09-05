@@ -98,9 +98,18 @@ function normalizeUrlSafe(url) {
 // Candidate collection
 // ------------------------------------------------------------------
 
+// Stored-data coercion. Destructuring defaults cover only `undefined`;
+// the substrates arrive from stored records (archive rows, extraction
+// records, module-04 findings) where a malformed field can be null, a
+// string, or an object. A string would iterate as characters and an
+// object would throw "not iterable" — both read as empty instead
+// (known-unknowns.js carries the same rule; field bug 2026-08-30).
+const list = (v) => (Array.isArray(v) ? v : []);
+
 /**
  * Collect deduplicated reference candidates for ONE article from its
- * four substrates. Every input is optional; pass what exists.
+ * four substrates. Every input is optional; pass what exists. A
+ * non-array in any slot is tolerated as empty, never thrown on.
  *
  * @param {object} inputs
  * @param {Array}  [inputs.links]          article.links rows {url, text, internal}
@@ -147,20 +156,20 @@ export function collectReferenceCandidates({
         if (prior.retrievable === null && c.retrievable !== undefined) prior.retrievable = c.retrievable;
     };
 
-    for (const l of links) {
+    for (const l of list(links)) {
         if (!l || !l.url || l.internal) continue;
         add({ origin: 'link', url: l.url, doi: extractDoi(l.url),
             title: null, display: l.text || l.url });
     }
 
-    for (const r of references) {
+    for (const r of list(references)) {
         if (!r) continue;
         const doi = (r.doi && String(r.doi).toLowerCase()) || extractDoi(r.url) || extractDoi(r.raw);
         add({ origin: 'reference-list', url: r.url || null, doi,
             title: r.title || null, display: r.title || r.raw || r.url || '' });
     }
 
-    for (const s of mapSources) {
+    for (const s of list(mapSources)) {
         if (!s || !(s.target_hint || s.quote)) continue;
         const hint = String(s.target_hint || '').trim();
         add({
@@ -173,7 +182,7 @@ export function collectReferenceCandidates({
         });
     }
 
-    for (const d of auditDocuments) {
+    for (const d of list(auditDocuments)) {
         if (!d || !d.document) continue;
         add({
             origin: 'audit-document',
@@ -186,7 +195,7 @@ export function collectReferenceCandidates({
         });
     }
 
-    for (const s of auditSources) {
+    for (const s of list(auditSources)) {
         if (!s || !DOCUMENT_SOURCE_TYPES.includes(s.type) || !s.label) continue;
         add({
             origin: 'audit-document',

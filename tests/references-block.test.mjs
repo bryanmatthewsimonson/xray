@@ -141,3 +141,38 @@ test('R1 model: empty corpus → empty model, zero total', () => {
     assert.deepEqual(model.resolved, []);
     assert.deepEqual(model.capturable, []);
 });
+
+// ------------------------------------------------------------------
+// Data tolerance (field bug 2026-08-30): the block reads the same
+// stored module-04 findings that crashed the known-unknowns block. A
+// string primary_documents, a string findings payload, or a non-array
+// moduleResults must degrade to "no audit-cited documents", never
+// throw — the model builds and the other substrates still resolve.
+// ------------------------------------------------------------------
+
+test('R1 model tolerance: malformed audit runs degrade; link resolution beside them still works', () => {
+    const runs = [
+        // the observed crash shape
+        { articleHash: HASH_A, moduleResults: [{ module: 'source_quality', findings: {
+            primary_documents: 'an internal memo the reporter never saw', sources: 'a source'
+        } }] },
+        // findings payload is a string
+        { articleHash: HASH_B, moduleResults: [{ module: 'source_quality', findings: 'not an object' }] },
+        // moduleResults is an object, not an array
+        { articleHash: HASH_C, moduleResults: { module: 'source_quality', findings: {} } }
+    ];
+    let model;
+    assert.doesNotThrow(() => {
+        model = buildReferencesModel({
+            units: UNITS, archiveByUrl: makeArchive(), auditRuns: runs, extractionByHash: new Map()
+        });
+    });
+    // Identical to the no-audit baseline: the hostile runs contribute nothing.
+    const baseline = buildReferencesModel({
+        units: UNITS, archiveByUrl: makeArchive(), auditRuns: [], extractionByHash: new Map()
+    });
+    assert.deepEqual(model.summary, baseline.summary, 'malformed audit fields add no rows and remove none');
+    assert.equal(model.resolved.length, 1, 'the link-substrate resolution still lands');
+    assert.ok(!model.unknown.some((u) => u.display.length === 1),
+        'a string primary_documents never iterates into one-character unknowns');
+});
