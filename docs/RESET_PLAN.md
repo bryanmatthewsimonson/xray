@@ -108,6 +108,7 @@ evidence or by being the mechanism the plan builds on.
 | `mergeBackup` (accrual by id, local wins, identities never merged) | the one sharing path that is exercised and needs no relay | JOURNAL 2026-07-25; `tests/backup-merge.test.mjs` |
 | The reader's select-text popover (tag person / org / add as claim) | the quality bar every lens named | `reader/entity-tagger.js:1-25,142-158` |
 | The four-context separation; MAIN-world islands import nothing; kind emission confined to builders; `platforms/` handler + detector seam | load-bearing walls that hold | architect report, import graph |
+| The wire discipline itself: every addressable kind has a recomputable `d`; the audit family carries run identity in `d` so relay latest-wins cannot destroy history; verify-on-ingest; the kind-3 mirror fetches and unions; every wire-relevant PR carries the `Wire format:` callout; the reserved/retired distinction | the best-engineered part of the tree — keep exactly as is | wire-and-schema report; `docs/NIP_DRAFT.md:462` |
 | Registries that already exist: `FLAGS_DEFAULTS`, `WORKSPACE_CONTENT_KEYS`, `platforms/index.js` | the pattern the reset generalizes | `metadata/feature-flags.js:28`; `shared/workspace-keys.js:1-40` |
 | The guard-test culture and `discipline-docs.test.mjs`'s generator-plus-guard pattern | the mechanism that keeps the one generated doc current | `tests/discipline-docs.test.mjs` |
 | `tools/smoke/ma6-walk.mjs` | loads the unpacked extension headless, seeds state through the real modules, pins relays to loopback, reads IndexedDB after clicks; ran here 2026-09-05 in ~2 min | `tools/smoke/ma6-walk.mjs`; §6 |
@@ -389,6 +390,20 @@ looking where the bugs are.
       ratchet starting at 205) + version lockstep moved into `ci.yml` +
       a packaged-contents assertion + a bundle-size budget. (S each;
       VERI-07; T4-3/6 open.)
+- [ ] **Golden fixtures before any refactor thread starts.**
+      `tests/fixtures/idb/<db>-v<N>.json` (one dump per shipped version
+      per database, produced by seeding the historical rung and
+      exporting through `backup.js`'s own dumper), `tests/fixtures/wire/<kind>.json`
+      (one real signed event per emitted kind, sourced from the
+      maintainer's journal export), `tests/fixtures/backup/*.json`; three
+      generic tests: open-and-upgrade every IDB fixture and read every
+      row through the current API, re-verify id + signature and re-parse
+      every wire fixture, import → export → import every file fixture.
+      CI rule: a diff touching any `DB_VERSION` without a new fixture
+      fails. Today `tests/fixtures/` holds one normalizer file and two
+      PDF stubs; `xray-audits` is at v7 with no upgrade-from-v(n) test.
+      (M; WIRE-05.) This is what lets several refactor threads run
+      without one silently stranding the casework corpus.
 - [ ] **`tests/structure-guards.test.mjs`** pinning today's state with
       breaches allowlisted: import graph (no `nostr-client.js` outside
       `background/` except the three known breaches; no `document` in
@@ -457,6 +472,29 @@ looking where the bugs are.
 - [ ] Retire phase numbering for new work; existing numbers stay as
       historical labels; one-page kickoffs only until slice 1 has been
       used on a case. (Decision §11-8.)
+- [ ] **Make the kind schedule true.** Kind 30041 (captured comments)
+      goes local-only at 1.0 — today a "include comments" checkbox
+      republishes strangers' text, handles and profile URLs under the
+      user's key, on a number NKBIP-01 also uses, with no NIP_DRAFT
+      section and no flag (WIRE-01). 30060/30061 move from `active` to
+      `reserved — defined, never emitted` (no emit path exists;
+      WIRE-02/12). Art. 10 gains a `gated` status so 30070 and the
+      `xray/review` label stop reading as shipped (WIRE-11). Rows added
+      for kind 1 (mention notes) and kind 5 (deletion of the user's own
+      30078 blobs). The 30023 `d` derivation and the dual meaning of the
+      `x` tag (own body hash on captures; cited members on case briefs
+      and entity pages) get written down (WIRE-03/04). (S; B16;
+      decision §11-11.)
+- [ ] **Close the two workspace leaks:** `forensic_baselines`,
+      `owned_keys_manifest_hash` and the `xray:audit:draft:*` keys are
+      written outside the workspace classification lists, so they bleed
+      across cases and are never merged or reset; classify them and add
+      the guard "every storage key literal in `src/` is on exactly one
+      list." (S; WIRE-06.) Flip `storeFirstPublish` on with its smoke
+      rows walked once and drop the flag the release after — the journal
+      is the only local golden record of everything signed and it is
+      incomplete while the flag is off (WIRE-09; the maintainer's
+      2026-08-02 ruling said "flip early").
 
 ### R3 — Structure for parallel work (weeks 2–6, lanes in parallel)
 
@@ -784,20 +822,49 @@ script runs weekly.
   model's quote must be found verbatim in the stored body) and the
   human accept before anything publishes. §4.2's override (a) keeps
   both: unreviewed rows become *visible*, not *published*.
-- Kinds emitted today: 30023, 30040, 30041, 30054, 30055, 30056–30061,
-  30062, 30063, 30064, 30068, 30069, 30070, 32125, 32126, 10002, 30078,
-  0, 1, 3, and kind-1985 mirrors. Nine have `KIND_` constants; the rest
-  are literals in their builders and read filters in fifteen non-builder
-  files. R3 lane A's kinds registry is the single source Art. 10 and
-  NIP_DRAFT are checked against (B16).
-- Persisted shapes a refactor must preserve byte-for-byte: every
-  `chrome.storage.local` key and its JSON-string value convention; the
-  five IndexedDB database names and their version ladders
-  (`xray-archive` v3, `xray-audits` v7, `xray-events` v2, `xray-network`
-  v1, `xray-portal` v1); `xray-backup/1` with its `xrayVersion` and
-  `dbVersions` stamps; case bundles. Only the two *derived* caches may be
-  merged before 1.0. Golden fixtures per shipped store version are R3
-  lane C's first test.
+- **Kind census for 1.0** (the wire-and-schema report carries the full
+  table with emitter, gate, public-relay evidence and consumer per
+  kind). Ship: 30023 (article, case brief, entity page), 30040, 0, 1, 3,
+  5, 10002, 30078, 32125, 32126, 30054/30055 + 1985 mirrors, 30056–30059,
+  30062 + mirror, 30063 + mirror, 30064, 30068, 30069. Gated-unwalked:
+  30070 and the `xray/review` label (DevTools-only gates; 30070 has only
+  ever been built against a loopback relay). Reserved: 30060/30061
+  (never emitted), 30065, 30050–30053, 9803. Free: 30066. Retired
+  (parsers kept): 30043, 30067. Local-only at 1.0: 30041. Nine kinds
+  have `KIND_` constants; the rest are literals in their builders and in
+  read filters across fifteen non-builder files — R3 lane A's kinds
+  registry becomes the single source that Art. 10, NIP_DRAFT and the
+  guard are generated from (B16). NIP_DRAFT (108 KB) cannot pass the
+  second-client test today: 30041 and 30078 have no section, the 30023
+  `d` derivation is unwritten, and the `x` tag's dual meaning is
+  undocumented (WIRE-03/04/13).
+- **Six interchange envelopes** exist (`xray-backup/1`, the shareable
+  copy, `xray-case-bundle` v1 — which carries entity *private keys* by
+  design, `xray-audit-ledger/1`, the signed-event journal export, the
+  case export) with different trust properties and version gates. For
+  non-technical groups the file *is* the collaboration surface: collapse
+  to one `xray-export/2` envelope with a `contents` discriminator and
+  one importer; keep the old envelopes readable forever; private keys
+  travel only in the user's own backup, never in a case bundle —
+  creator binding (30069 + NIP-26) exists so collaborators need not
+  share an nsec. (WIRE-07; decision §11-11.) Kind 10002 relay-list push
+  is a blind overwrite while the kind-3 mirror fetches and unions; copy
+  the kind-3 pattern (WIRE-10).
+- **Persisted shapes a refactor must preserve byte-for-byte:** every
+  `chrome.storage.local` key and the façade's JSON-string value
+  convention; the five IndexedDB database names and their version
+  ladders (`xray-archive` v3, `xray-audits` v7, `xray-events` v2,
+  `xray-network` v1, `xray-portal` v1) and every rung on the upgrade
+  path; `generateDTag`, the article-hash normalization and
+  metadata-header strip, every `d` formula, the claim id formula, the
+  `xray-entity-v1` HKDF domain string (changing it re-keys every derived
+  entity), the `__xrayBytes` marker; `xray-backup/1` with its
+  `xrayVersion` and `dbVersions` stamps. Only the two *derived* caches
+  may be merged before 1.0 (delete-and-rebuild, not migrate). Ladders
+  collapse only on the fresh-install path: an `oldVersion === 0` branch
+  that mints just the live stores, while upgrades keep every frozen
+  rung (WIRE-08). Rows written after 1.0 carry a `v: N` stamp so a
+  normalizer can branch on vintage (WIRE-14).
 
 ---
 
@@ -849,11 +916,19 @@ follow PR #366's scale (E1 explicit ruling … E5 ratified-by-merge only).
     both. (Your 2026-09-05 ask; Phase 28 was agent-scoped to "paste a
     list and watch" at concurrency 2; the accept gate is E3, MA.6's
     whole-unit disclosure is E1.)
-11. **Which wire kinds does 1.0 promise as stable?** Default: 30023,
-    30040, 0, 10002, 30078 (+32125/32126 if entity publishing stays on);
-    everything else labelled experimental in NIP_DRAFT with its flag.
-    (Kinds were minted per phase by agents; the stability promise was
-    never scoped by you.)
+11. **Which wire kinds does 1.0 promise as stable, and four wire
+    housekeeping calls?** Default: promise 30023, 30040, 0, 10002,
+    30078 (+32125/32126 if entity publishing stays on); label every
+    other emitted kind experimental in NIP_DRAFT with its flag. Then:
+    30041 captured comments go local-only at 1.0 (they republish
+    strangers' text under your key with no documentation and no flag);
+    30060/30061 move to reserved; case bundles become key-free by
+    default with the key-carrying form behind the same typed confirm as
+    restore; `storeFirstPublish` flips on next release and the flag is
+    dropped the release after. (Kinds were minted per phase by agents;
+    the stability promise was never scoped by you; the comment opt-in
+    dates from the userscript port; the bundle predates creator binding;
+    the flip is your own 2026-08-02 "flip early" ruling.)
 12. **Docs:** generate CHANGELOG `[Unreleased]` from PR titles; split the
     JOURNAL per quarter with a rulings ledger; front matter on every
     doc; `docs/` `tests/` `tools/` `.claude/` out of the release zip;
@@ -907,6 +982,7 @@ follow PR #366's scale (E1 explicit ruling … E5 ratified-by-merge only).
 | verification + automation | [`audit-2026-09-05/verification-automation.md`](audit-2026-09-05/verification-automation.md) | VERI-01..17 |
 | continuous-improvement (doc currency) | [`audit-2026-09-05/doc-currency.md`](audit-2026-09-05/doc-currency.md) | DOCC-1..20 |
 | governance | [`audit-2026-09-05/governance.md`](audit-2026-09-05/governance.md) | GOVE-1..14, census C1–C22 |
+| ecosystem-pm + schema-evolution | [`audit-2026-09-05/wire-and-schema.md`](audit-2026-09-05/wire-and-schema.md) | WIRE-01..18, kind census, persisted-shape inventory |
 
 ## Appendix B — ROAD_TO_1_0 crosswalk (status on 2026-09-06)
 
