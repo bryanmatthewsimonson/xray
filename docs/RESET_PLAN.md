@@ -69,20 +69,28 @@ in two minutes with no display. The JOURNAL's habit of writing down why.
    surface, a flag, a smoke section, a kind, and a firewall behind.**
    Seven feature families are marked COMPLETE with zero casework
    evidence since design; 29 phases, 16 kickoffs, 20 design docs, 20
-   default-off flags; six surfaces for a three-surface product; twenty
+   flags of which 19 default off; six surfaces for a three-surface product; twenty
    header buttons in the reader (twelve flag-hidden) over seven stacked
    bars (§2, §7 R2).
 
 **Where to start — the first two weeks.** Not with a rewrite. (1) Put the
 existing browser harness in CI and make it required (the net). (2) Pin
-today's structure in a guard test so nothing gets worse while work runs
-in parallel. (3) Triage the 78 branches and 12 PRs by the table in §9.
-(4) Hold the ninety-minute governance reconciliation session with six
-batched decisions (§4.3) — it removes the constraints that are shaping
-the reader and the case dashboard. (5) Declare the 1.0 scope and park the
+today's structure in a guard test and take golden fixtures of every
+persisted shape so nothing gets worse while work runs in parallel.
+(3) Triage the 79 branches and 12 PRs by the table in §9 and split the
+JOURNAL so parallel branches stop conflicting. (4) Hold the
+ninety-minute governance reconciliation session with six batched
+decisions (§4.3) — it removes the constraints that are shaping the
+reader and the case dashboard. (5) Declare the 1.0 scope and park the
 rest behind one switch. Everything else in §7 follows from those five.
+What "too buggy / too hard / too manual / too incoherent" map to: buggy
+is the unexecuted surface layer and the untested prompts (R0, R3 lane
+F); hard is the first hour, the six surfaces and the fifty-five nouns
+(R4); manual is the soak rule and the tab-bound batch (R0's tiered
+soak, R5); incoherent is the firewall regime and the per-phase
+accretion (R1, R2).
 
-**What changes permanently (§8).** Trunk-based work in worktrees with a
+**What would change permanently, if the defaults in §11 are taken (§8).** Trunk-based work in worktrees with a
 module-ownership map and a structure guard as the collision detector; a
 CI gate every branch passes identically, including the browser smoke; a
 tiered soak (machine-observable classes merge on green, human-judgment
@@ -90,9 +98,41 @@ classes batch into one weekly session); a literal marker protocol so a
 human decision is a grep-able object; facts generated from registries
 and guarded; no new phase numbers; a check date on every flag; a PR cap.
 
-**What the maintainer must decide.** Twelve batched decisions in §11,
+**What the maintainer must decide.** Thirteen batched decisions in §11,
 each with a recommended default. The first six are the reconciliation
 session.
+
+**What this costs the maintainer, in his own time.** The reconciliation
+session (90 minutes, once). The weekly soak batch (30–45 minutes, on a
+real case, replacing the per-PR walks). Named one-off walks: one YouTube
+transcript capture before the CSP rules are deleted (~10 min); the
+Instagram row on #368 (~3 min); the money row on #374 (~5 min plus one
+paid reduce); the refusal row on #324 (~5 min); the two-person walk in
+R7 (~1 hour, with a colleague). Store work only the maintainer can do:
+a Chrome developer account, the privacy-practices form, an AMO account,
+and hosting an `update_url` (~2 hours, plus review lead time of days to
+weeks — start it in week 1). Everything else is agent work he reviews.
+
+**Casework never stops.** Before anything in R0 lands: take a full
+backup. `main` stays the daily build; every reset step is one PR that
+reverts on its own; nothing renames a storage key, a database, or a
+kind; parking hides views, never data; the derived caches that merge
+rebuild themselves. If a step breaks a case, Settings → Diagnostics →
+Copy diagnostics is the report, and the step is reverted, not patched
+forward.
+
+**A legend for the ids used below.** `B`, `T`, `K` are ROAD_TO_1_0's
+blockers, tracks and kills (2026-08-09). `C1–C22` are the firewall
+mechanisms the governance lens found in code (§4.2). `Q` and `F` are the
+questionnaire's questions and firewalls (PR #366). `E1–E5` grades how
+strong the evidence is that a rule was the maintainer's decision (E1 an
+explicit recorded ruling, E5 ratified only by merging a PR). `D1–D6` are
+the six batched decisions of the reconciliation session. `R0–R7` are
+this plan's tracks. A *guard* is a test that fails when a documented
+fact stops being true. A *lane* is a directory a thread owns. *Soak*
+is the maintainer using a build on a real case before it merges.
+*Strangler* means replacing a piece behind a switch while the old piece
+keeps running, then deleting the old piece later — never a rewrite.
 
 ---
 
@@ -105,7 +145,7 @@ evidence or by being the mechanism the plan builds on.
 |---|---|---|
 | Capture pipeline + platform breadth (Readability/Turndown core, YouTube transcript, Substack, PDF via pdf.js, EPUB, podcast transcription) | daily casework | JOURNAL 2026-08-25 "a heavy casework day"; walk ledger rows 08-15…08-25 |
 | Thin claims with the verbatim quote as identity, human-accepted; the one-call article pass; "Accept all / Link all covered" | the product's differentiator; makes hundreds of proposals reviewable | `shared/article-pass.js`; PR #361 walk (72/60/86 proposals) |
-| Cases + the corpus brief; the case dashboard's claim-proposal review | maintainer-named "the most wikipedia-like artifact" | `docs/LIBRARIAN_KICKOFF.md` §1; JOURNAL 4138 |
+| Cases + the corpus brief; the case dashboard's claim-proposal review | maintainer-named "the most wikipedia-like artifact" | `docs/LIBRARIAN_KICKOFF.md:23,34`; JOURNAL 2026-08-23 |
 | Direct cloud transcription (DC.1–DC.3) | walked on a fresh profile with the companion stopped | walk ledger 2026-08-15/16 |
 | Local-first signing; `local_primary_identity` outside `local_keys`; verify-on-ingest; `publish-gate.js` `confirmedOk` (B2 closed) | trust-preserving fundamentals | `shared/storage.js`; `shared/publish-gate.js`; all four portal callers read `confirmedOk` |
 | `mergeBackup` (accrual by id, local wins, identities never merged) | the one sharing path that is exercised and needs no relay | JOURNAL 2026-07-25; `tests/backup-merge.test.mjs` |
@@ -140,7 +180,7 @@ the code that implements it.
 | Three collaboration models (case bundle with keys; follow + incorporate; TEAM_CASE TC.3/TC.5 unbuilt) | designed ahead of any second user | B14 open: never exercised by two people on two machines |
 | The soak rule (one human casework session per behavior PR) | maintainer ruling 2026-08-23 after the DC wave's five same-day-merge escapes | its premise ("the suite cannot observe what a person sees") is true of `node --test` and false of the harness |
 | The reader as *the* publish orchestrator (`reader/index.js:6026-7600`) | Phase 2: capture → reader → publish, one article at a time | the portal also publishes now, through `publish-gate.js`; two orchestrators, two styles |
-| Five IndexedDB databases; `xray-audits` holding six non-audit stores | each phase opened its own (7, 12, 13, 25, journal) | nobody chose five; `xray-portal` and `xray-network` are byte-identical derived caches |
+| Five IndexedDB databases; `xray-audits` holding six non-audit stores | each phase opened its own (7, 12, 13, 25, journal) | nobody chose five; `xray-portal` and `xray-network` are near-duplicate derived caches (205 vs 209 lines; the network cache adds a last-looked key and a profile getter, the portal cache a `dTag`) that rebuild from relays and can merge without a migration |
 | `src/shared/` as one flat directory of 128 files | Phase-1 layout for ~10 modules | 57 modules have one importer (~18,200 LOC); "shared" now means "not sure where this goes" |
 | `preferences` as a JSON string in `chrome.storage.local`; the `Storage` façade's stringify | Phase 2 port for v4 userscript export compatibility | the userscript is retired; seven hand-rolled `JSON.parse` copies exist; keep the on-disk shape (one-way door), unify the reader |
 | Source-grep guard tests over the surfaces (about twenty test files read `src/` as text; some pin implementation token sequences and user-visible phrases) | the surfaces cannot be imported | the harness can observe them |
@@ -156,9 +196,9 @@ Cheap to remove; two-way doors unless marked.
 - **ROADMAP contradicts itself** on Phase 16 in one file (`ROADMAP.md:94` complete vs `:1500` "smoke run pending") a month after JOURNAL 2026-08-02 recorded fixing exactly that; `ROADMAP.md:2164-2174` prescribes a GitHub-issue mirror nobody has done since Phase 8.
 - **Ratified kills still in the tree:** K1 stores (`archive-cache.js:173-201` creates five dead stores on every fresh install; one-way, needs a v4 ladder), K3 reader bar (`reader/index.html:144-146`), K4 `xray:forward:*` (`background/index.js:477-495`, sender `options/index.js:1862`), K8 reader "Import audit JSON…" always visible (`reader/index.html:127`), K9 `case` as a creatable entity type (`sidepanel/index.js:1289-1320`, `entity-tagger.js:150`), K13 the EPISTACK cluster and shipped kickoffs, K14 `Storage.entities`/`articleCache` (`storage.js:354-360, 408-412`), K15 the entity-corpus destination.
 - **Dead code:** `src/shared/api-pattern.js` (zero importers; its test pins a copy that never runs); the `xray:scholar:crossref` handler (`background/index.js:1207`, no sender anywhere).
-- **Duplicated constants:** `AUDIT_DRAFT_PREFIX` declared in `audit/corpus-audit.js:24` and again in `reader/index.js:4383`; `'xray:user'` in `sidepanel/index.js:51` and `portal/identity.js:34`; `'local_primary_identity'` as a literal in five files; `options/index.js:57-125` re-implements the `Storage` façade; seven raw `chrome.storage.local.get(['preferences'])` + `JSON.parse` copies.
+- **Duplicated constants:** `AUDIT_DRAFT_PREFIX` declared in `audit/corpus-audit.js:24` and again in `reader/index.js:4383`; `'xray:user'` in `sidepanel/index.js:51` and `portal/identity.js:34`; `'local_primary_identity'` as a literal in four `src/` files; `options/index.js:57-125` re-implements the `Storage` façade; eight raw `chrome.storage.local.get(['preferences'])` + `JSON.parse` sites.
 - **Flags with no control:** `reviewCoordination`, `storeFirstPublish`, `extractionAnalysisPublishing` — the last gates a *wire* publish (kind 30070, whole-unit disclosure) and is reachable only by editing `xray:flags` in DevTools (B10 open).
-- **Guards that observe names, not behavior:** the export-name regex "never-merge at the export surface" (`tests/constitution-guards.test.mjs:241-261`); about two dozen test files with hand-rolled banned-word lists (`corpus-publish.test.mjs:83` bans `\d+\s*%` from a brief and goes red on a legitimately quoted "40%"; `hypothesis-block.test.mjs:130` bans "stronger"/"confidence" anywhere; `entity-dossier.test.mjs:185` bans "credibility" as a key); verbatim pins of agent-drafted clauses (`constitution-guards.test.mjs:98-115`; `lens-guards.test.mjs:196-207`); implementation snapshots written nine days after the JOURNAL said not to (`tests/extraction-accept-all.test.mjs:51-53`).
+- **Guards that observe names, not behavior:** the export-name regex "never-merge at the export surface" (`tests/constitution-guards.test.mjs:241-261`); about two dozen test files with hand-rolled banned-word lists (`corpus-publish.test.mjs:83` bans `\d+\s*%` from a brief and goes red on a legitimately quoted "40%"; `hypothesis-block.test.mjs:134` bans "stronger"/"confidence" anywhere; `entity-dossier.test.mjs:185` bans "credibility" as a key); verbatim pins of agent-drafted clauses (`constitution-guards.test.mjs:98-115`; `lens-guards.test.mjs:196-207`); implementation snapshots written nine days after the JOURNAL said not to (`tests/extraction-accept-all.test.mjs:51-53`).
 - **Four shipped controls lie about themselves:** the Options "Capture Page" button captures the Options tab itself (`options/index.js:1861` → `xray:forward:*`); `#xr-pending-suggest` can never show (no writer); the reader's "Import audit JSON…" is always visible for a format the user cannot produce; `xray:scholar:crossref` is handled and never sent. Each is a five-line deletion (NEWC-09).
 - **205 bare `console.*`** against the `Utils.log` convention (reader 103, youtube 18, instagram 16, background 9).
 - **Committed walk outputs and hardcoded container paths** in `tools/smoke/` (`ma6-walk.mjs:31-34`).
@@ -195,9 +235,9 @@ table has the `file:line` for each). Condensed:
 
 | Group | Mechanisms | Fresh-eyes disposition |
 |---|---|---|
-| **Seven that protect a maintainer decision — keep as law** | C3 truth-adjudicability gate (`interpretation`/`stated-value` never get true/false); C4 value firewall; C12 grounding + human-accept (the model's quote is a search key; paraphrase is a hard reject); C13 import consent/provenance (`mergeBackup`); C15 the membrane (viewing writes nothing); C16 forensic location-never-verdict, no intent, counter-read required; C17 opinion modules argue, never conclude; plus C14 no operator identity in `src/` and C21 the model never computes the audit aggregate | keep; two of them (C3 read-side, C12 accept) get an override described below |
-| **Eight agent generalizations that now block wanted capability — demote or split** | C2 export-name regex; C5 entity-record word-ban (the §3.5 commitments ratio is already computed in `truth-entity-record.js:255-275`; the ban constrains how it may be keyed and shown); C6/C22 case/corpus no-mean family (a range is allowed, a mean is not — while the audit subject dossier renders a mean); C7 visual firewall; C8 five-word vocabulary ban; C9 30066 "permanently free"; C10 lens session-only cache; C11 30064 no-mirror (keep as default) | split C6: keep "no fused case *verdict* as headline" (Art. 5.4 sentence 1), demote the rest to Art. 5.2's five conditions; demote C7/C8 to one line of surface guidance; amend C9 to "reserved"; remove C2/C10 |
-| **Seven prose pins that observe no behavior — remove or convert** | C19 verbatim pins of E5 clauses; the two dozen banned-word lists; C20 mandatory disclaimer sentences; C18 prompt-header requirement (keep as lint); C1 audit≠assessment tag grammar (keep — it is per-kind schema, i.e. the wire covenant, not a firewall) | replace with one exported predicate `isLicensedEstimate(obj)` (declared, method, spread, n) and one schema check; keep structural pins (headings, citations resolve, versions agree, kind schedule vs code) |
+| **Nine that protect a maintainer decision (seven firewalls plus two division-of-labor rules) — keep as law** | C3 truth-adjudicability gate (`interpretation`/`stated-value` never get true/false); C4 value firewall; C12 grounding + human-accept (the model's quote is a search key; paraphrase is a hard reject); C13 import consent/provenance (`mergeBackup`); C15 the membrane (viewing writes nothing); C16 forensic location-never-verdict, no intent, counter-read required; C17 opinion modules argue, never conclude; plus C14 no operator identity in `src/` and C21 the model never computes the audit aggregate | keep; two of them (C3 read-side, C12 accept) get an override described below |
+| **Nine agent generalizations that now block wanted capability — demote or split** | C2 export-name regex; C5 entity-record word-ban (the §3.5 commitments ratio is already computed in `truth-entity-record.js:255-275`; the ban constrains how it may be keyed and shown); C6/C22 case/corpus no-mean family (a range is allowed, a mean is not — while the audit subject dossier renders a mean); C7 visual firewall; C8 five-word vocabulary ban; C9 30066 "permanently free"; C10 lens session-only cache; C11 30064 no-mirror (keep as default) | split C6: keep "no fused case *verdict* as headline" (Art. 5.4 sentence 1), demote the rest to Art. 5.2's five conditions; demote C7/C8 to one line of surface guidance; amend C9 to "reserved"; remove C2/C10 |
+| **Four prose-pin classes, plus the banned-word lists, that observe no behavior — remove or convert** | C19 verbatim pins of E5 clauses; the two dozen banned-word lists; C20 mandatory disclaimer sentences; C18 prompt-header requirement (keep as lint); C1 audit≠assessment tag grammar (keep — it is per-kind schema, i.e. the wire covenant, not a firewall) | replace with one exported predicate `isLicensedEstimate(obj)` (declared, method, spread, n) and one schema check; keep structural pins (headings, citations resolve, versions agree, kind schedule vs code) |
 
 **What the current regime costs, measured.** 30 tests in four files exist
 to pin prose; eleven more test files carry banned-word lists; a Tier-1
@@ -209,16 +249,21 @@ case-level instruments (Art. 5.4's own door, unopened for six weeks); an
 entity-level summary; cross-family views; a durable lens cache; the
 bridging/trust seams left "open but unwired" since the descope.
 
-**Two overrides worth naming now, because they are the throughput lever
-for hundreds of URLs.** (a) C12's accept gate: the MA.6 posture
-(publish every row *with its review state*) already proves that
-"unreviewed but visible" is lawful; extend it locally so unreviewed
-extraction rows can render and feed the corpus reduce with their state
-shown, instead of being invisible until clicked. Grounding stays a hard
-reject. (b) C3's read side: `truth-builders.js:369` nulls a stranger's
-not-adjudicable verdict — a silent filter, which Art. 3 forbids; return
-a visible "not admitted" record instead (read-side only; no wire
-change).
+**Two recommended overrides, both the maintainer's call (§11-10 and
+D3), because they are the throughput lever for hundreds of URLs.**
+(a) C12's accept gate: the MA.6 posture (publish every row *with its
+review state*) already proves that "unreviewed but visible" is lawful;
+the recommended default extends it locally so unreviewed extraction rows
+can render and feed the corpus reduce with their state shown, instead of
+being invisible until clicked — with the corpus brief disclosing how
+many unreviewed atoms it drew on (Art. 4.7). Grounding stays a hard
+reject. This reverses DISCIPLINES §15 standard 3 ("one accept per
+artifact — bulk credulity is not review"); the failure mode accepted is
+that a brief can cite a grounded quote nobody has read, which the count
+makes visible. (b) C3's read side: `truth-builders.js:369` nulls a
+stranger's not-adjudicable verdict — a silent filter, which Art. 3
+forbids; return a visible "not admitted" record instead (read-side
+only; no wire change).
 
 ### 4.3 The reconciliation session — ninety minutes, six decisions
 
@@ -228,14 +273,19 @@ F0 table and the questionnaire's §1 headings (≤ 20 minutes). Output: six
 rows in a rulings ledger and one amendment PR. Everything else the
 agents execute.
 
-| # | Decision | Batches | Recommended default | Ceremony |
-|---|---|---|---|---|
-| D1 | The firewall's shape | Q1, Q4, Q5, Q14, Q17 (F2, F3, F4, F7) | Art. 6 becomes its one data-arm sentence plus "side-by-side composition is always lawful"; the linguistic arm becomes naming guidance ("verdict" stays the truth kind's *name*); the wire arm folds into Art. 10 (never-reuse kept; 30066 "reserved — lens, if ever ratified"); the visual arm becomes one guidance line ("scores and stances never share a color scale"). Remove C2; demote C7/C8 | Tier 1, one amendment-log entry; guard deletions in the same PR |
-| D2 | Aggregates and instruments | Q3, Q7, Q9 (C5, C6, C22) | Keep Art. 5.2's five conditions as the license; **define "fused"** ("a single number or state computed from more than one family's judgment, or presented without its inputs, method, spread and n"); declare the first licensed instruments: a corpus mean + range + n beside the subject dossier's existing one, the §3.5 commitments ratio that `truth-entity-record.js` already computes, a labeled case "evidence balance" rendered beside — never above — the dossier header; "does not appear" renders as "estimate withheld: <failed condition>" (Art. 3) | Tier 1 (the definition) + Tier 2 (PHILOSOPHY §13) |
-| D3 | The two person-protecting firewalls | Q2, Q6, Q13 (C3, C4, C5, C11) | Keep the §3.1 gate and no-auto-person-label as law; strike "permanently" from TS H-2; add "disclosure is not criticism" to Art. 7; 30064 no-mirror stays as a default; read-side null becomes visible not-admitted | Tier 1 (one Art. 7 sentence) |
-| D4 | What binds | Q8, Q10, Q11 (Art. 2; DISCIPLINES; H-7) | Narrow Art. 2's doc-governs-code to wire / schema / security; elsewhere a code-vs-doc conflict is a recorded question for the maintainer, not an automatic doc win; DISCIPLINES becomes guidance (prompt-header lint stays); rule §15.3: bulk-accept of individually grounded rows is lawful — the grounding is the review; H-7 scoped to judgment surfaces | Tier 1 (Art. 2) |
-| D5 | Process | Q12, Q16, Q18, Q19; GOVE-10 | Adopt the marker protocol (§4.4) verbatim; create and seed the rulings ledger; write "NOSTR stays invisible — interfaces never require NOSTR literacy; not a vocabulary ban", "high value solo first", "Apple-quality simplicity" down with their force stated; amend Art. 11 so that the maintainer's explicit recorded instruction is the ratification and who presses the merge button is mechanical (it has been waived twice on the record, JOURNAL 2026-08-04) | Tier 1 (Art. 11); Tier 3 for the rest |
-| D6 | The corpus reset and the three PRs | Q15 | Normative set of four documents (CONSTITUTION ≈450 lines; PHILOSOPHY; a rulings ledger; a one-page surface-constraints index); everything else guidance or archived with a banner (Art. 3, nothing deleted); #364 merge, #366 merge as the answered record, #365 fold to ≤120 lines; lens durable local cache is an ordinary feature | Tier 3, one PR |
+Art. 13 requires, for any weakening of a norm, an explicit statement of
+the failure mode the change accepts; each row carries one, so the R1
+amendment PR is valid under the constitution's own text if the defaults
+are taken.
+
+| # | Decision | Batches | Recommended default | Constitution text touched · failure mode accepted | Ceremony |
+|---|---|---|---|---|---|
+| D1 | The firewall's shape | Q1, Q4, Q5, Q14, Q17 (F2, F3, F4, F7) | Art. 6 becomes its one data-arm sentence plus "side-by-side composition is always lawful"; the linguistic arm becomes naming guidance ("verdict" stays the truth kind's *name*); the wire arm folds into Art. 10 (never-reuse kept; 30066 "reserved — lens, if ever ratified"); the visual arm becomes one guidance line ("scores and stances never share a color scale"). Remove C2; demote C7/C8 | Art. 6, Art. 10 row 30066, Art. 12 red line 4 (narrowed to the data arm) · a reader may see a stance and a score on one surface and confuse them; mitigated by the model-level fence (per-family cards) and the color-scale line | Tier 1, one amendment-log entry; guard deletions in the same PR |
+| D2 | Aggregates and instruments | Q3, Q7, Q9 (C5, C6, C22) | Keep Art. 5.2's five conditions as the license; **define "fused"** ("a single number or state computed from more than one family's judgment, or presented without its inputs, method, spread and n"); declare the first licensed instruments: a corpus mean + range + n beside the subject dossier's existing one, the §3.5 commitments ratio that `truth-entity-record.js` already computes, a labeled case "evidence balance" rendered beside — never above — the dossier header; "does not appear" renders as "estimate withheld: <failed condition>" (Art. 3) | Art. 4.4 ("no case, entity, or corpus ever carries a fused score" — narrowed by the definition), Art. 5.4's third sentence (the case-headline rule, kept), Art. 12 red line 2, PHILOSOPHY P8 (unchanged: inputs stay individually visible) · a labeled, spread-shown instrument beside the record can still be read as the verdict by a hurried reader; mitigated by the five conditions and by never rendering it above the record | Tier 1 (the definition and Art. 4.4) + Tier 2 (PHILOSOPHY §13) |
+| D3 | The two person-protecting firewalls | Q2, Q6, Q13 (C3, C4, C5, C11) | Keep the §3.1 gate and no-auto-person-label as law; strike "permanently" from TS H-2; add "disclosure is not criticism" to Art. 7; 30064 no-mirror stays as a default; read-side null becomes visible not-admitted | Art. 7 (one sentence added), TS H-2 (one word struck) · a future amendment could soften the adjudicability gate through ordinary ceremony rather than being blocked by rhetoric; that is the amendment process working, not a hole | Tier 1 (one Art. 7 sentence) |
+| D4 | What binds | Q8, Q10, Q11 (Art. 2; DISCIPLINES; H-7) | Narrow Art. 2's doc-governs-code to wire / schema / security; elsewhere a code-vs-doc conflict is a recorded question for the maintainer, not an automatic doc win; DISCIPLINES becomes guidance (prompt-header lint stays); rule on §15.3: bulk-accept of individually grounded rows is lawful — the grounding is the review; H-7 scoped to judgment surfaces | Art. 2 (narrowed), DISCIPLINES §15 standard 3 (reversed — named as such), TS H-7 (scoped) · a design doc's prose can lag the running product without forcing a fix, and a brief can cite a grounded quote nobody read; mitigated by the recorded-question rule and the unreviewed-count disclosure | Tier 1 (Art. 2) |
+| D5 | Process | Q12, Q16, Q18, Q19; GOVE-10 | Adopt, or amend and then adopt, the marker protocol (§4.4); create and seed the rulings ledger; write "NOSTR stays invisible — interfaces never require NOSTR literacy; not a vocabulary ban", "high value solo first", "Apple-quality simplicity" down with their force stated; amend Art. 11 so that the maintainer's explicit recorded instruction is the ratification and who presses the merge button is mechanical (it has been waived twice on the record, JOURNAL 2026-08-04) | Art. 11 (ratification wording; and its literal "recorded in `docs/JOURNAL.md`" — the ledger and the per-month split change where a decision is recorded) · an agent could misread a maintainer message as a ruling; mitigated by the requirement that a ledger row quotes the maintainer's own words | Tier 1 (Art. 11); Tier 3 for the rest |
+| D6 | The corpus reset and the three PRs | Q15 | Normative set of four documents (CONSTITUTION ≈450 lines; PHILOSOPHY; a rulings ledger; a one-page surface-constraints index); everything else guidance or archived with a banner (Art. 3, nothing deleted); #364 merge, #366 merge as the answered record, #365 fold to ≤120 lines; lens durable local cache is an ordinary feature | Art. 2's list of organic statutes and the non-normative tier (TS and DISCIPLINES move to guidance) · a guidance document can be ignored where a statute could not; mitigated by lifting the two clauses the maintainer actually wants (the §3.1 gate; the bridging line) into the constitution or the ledger | Tier 3, one PR (plus the Art. 2 line in D4's amendment) |
 
 ### 4.4 The decision-confirmation protocol — how this never re-accretes
 
@@ -261,8 +311,12 @@ interpretive step a literal object.
 3. **Guard provenance and expiry.** Every guard test and every
    doc-pinning assertion carries `// Provenance: R-…` or
    `// Provenance: INTERPRETATION (<date>) — expires <date+90d>`. A
-   meta-guard fails an expired INTERPRETATION guard with "renew (get an
-   R-id) or remove." Interpretations cannot become law by aging.
+   meta-check lists expired INTERPRETATION guards and opens an issue
+   ("renew — get an R-id — or remove"); it warns, it never fails the
+   gate, because a build that goes red on a calendar date with no diff
+   is an unexplained red build for a maintainer who does not code.
+   Interpretations cannot become law by aging; they can only be
+   renewed by a human or removed.
 4. **PR template section "Interpretive steps (n)"** — required, may be
    "0". Each step is one line with its recommended default.
    `hand-to-maintainer` carries them to the maintainer as questions,
@@ -282,8 +336,9 @@ interpretive step a literal object.
 
 ## 5. Why documentation is never up to date — measured — and the fix
 
-Docs are 0.75× the source in bytes (3.05 MB under `docs/` against 4.35 MB
-of `src/`) and they ship inside the release zip. Eight files carry 60%
+Docs were 0.75× the source in bytes before this audit added its own
+reports (3.05 MB under `docs/` against 4.35 MB of `src/`) and they ship
+inside the release zip. Eight files carry 60%
 of the mass. The per-PR ceremony prescribed by CONTRIBUTING, CLAUDE.md
 and ROADMAP is six documents wide; over the last sixty merges its
 measured compliance was JOURNAL 45%, SMOKE_TEST 55%, CHANGELOG 0%,
@@ -322,7 +377,7 @@ directory. The per-PR ceremony that remains is three lines in the PR
 body (verification layer · wire format · docs touched), a JOURNAL entry
 only under its three existing triggers, and a ledger row appended by
 `hand-to-maintainer` when the maintainer reports a walk. The JOURNAL
-splits per quarter and appends at the *bottom* (the prepend-at-top hunk
+splits per month and appends at the *bottom* (the prepend-at-top hunk
 is what every parallel branch conflicts on); its old path becomes a
 generated index so existing citations resolve; maintainer rulings are
 extracted into the ledger of §4.4. CLAUDE.md is capped at ~200 lines
@@ -404,12 +459,21 @@ looking where the bugs are.
       extension pages asserting zero `pageerror` and ten bundles, then
       run the MA.6 walk with its stale selector fixed and selectors moved
       to `data-xr` attributes; outputs to CI artifacts; committed PNG/JSON
-      deleted. (M; VERI-02; B8/T4-4 open.) The `pages` check is required
-      from day one; scenario walks advisory for two weeks, then required.
+      deleted. (M; VERI-02; B8 and T4's "Playwright devDependency + CI
+      job loading the extension" checkbox, open.) The `pages` check is
+      required from day one; scenario walks advisory for two weeks, then
+      required. Budget: the whole smoke job ≤ 5 minutes wall clock.
+      Flake policy: a scenario that fails without a code cause is fixed
+      or deleted within the week, on the record — never quarantined
+      silently; the automator kill rule (two false alarms, no true
+      positive) governs after that. Owner: the toolchain lane.
 - [ ] **ESLint minimal** (`no-undef`, `no-unused-vars`, a `console`
       ratchet starting at 205) + version lockstep moved into `ci.yml` +
       a packaged-contents assertion + a bundle-size budget. (S each;
-      VERI-07; T4-3/6 open.)
+      VERI-07; T4's lockstep and packaged-contents checkboxes, open.)
+      The packaged-contents assertion also names what must be *in* the
+      zip: pdf.js's cmaps, standard fonts and wasm under `dist/`, the
+      largest packaging risk the tree has.
 - [ ] **Golden fixtures before any refactor thread starts.**
       `tests/fixtures/idb/<db>-v<N>.json` (one dump per shipped version
       per database, produced by seeding the historical rung and
@@ -444,7 +508,9 @@ looking where the bugs are.
 - [ ] **PR template** gains the four body lines of §8 and loses the
       Firefox checkbox until Firefox parity is a stated goal; the CI
       PR-body checks and the JOURNAL-presence check for process-file PRs
-      land with it. (S; T4-9 was recorded done and is not.)
+      land with it. (S; T4's "PR template gains verification-layer and
+      wire-format sections" checkbox is ticked and the template has
+      neither.)
 - [ ] **`docs/STATUS.md`** (hand-maintained until R6 generates it): the
       1.0 blocker list; every default-off flag with its check date and
       last casework evidence; the parked shelf; the open PR cap. (S.)
@@ -458,10 +524,12 @@ looking where the bugs are.
       rows.
 - [ ] One amendment PR: Art. 6 to one sentence; "fused" defined; Art. 2
       narrowed; Art. 7 sentence; Art. 11 amended; Art. 10 30066 row;
-      TS H-2 "permanently" struck; PHILOSOPHY §13 entry. Delete C2, the
-      verbatim clause pins and the two dozen banned-word lists; add
-      `isLicensedEstimate()` + the schema guard; add `// Provenance:`
-      headers and the expiry meta-guard. (M.)
+      TS H-2 "permanently" struck; PHILOSOPHY §13 entry — each edit
+      conditional on the matching D-row's answer; "keep" on a row means
+      that edit is dropped. If D1/D2 are taken: delete C2, the verbatim
+      clause pins and the two dozen banned-word lists; add
+      `isLicensedEstimate()` + the schema guard. If D5 is taken: add
+      `// Provenance:` headers and the expiry check. (M.)
 - [ ] The corpus reset: four normative documents; guidance re-labelled;
       `docs/archive/` with banners for the EPISTACK cluster, the shipped
       kickoffs (K13, saving the two case-workspace kickoffs as a design
@@ -484,7 +552,13 @@ looking where the bugs are.
       their reader bars and portal blocks when parked; tests stay; each
       park gets a JOURNAL line with the revival condition "used on a real
       case." Epistemic audits and forensic findings stay visible (casework
-      has touched them) with the same check date. (M; PROD-02; K3
+      has touched them) with the same check date. Parking hides
+      *views*, never data (Art. 3): every verdict, lens reading and
+      hypothesis map the maintainer has already authored stays readable
+      in one "Archived analyses" list on the case page, and every
+      30068/30069/30070 event already published stays on the relays as
+      it is. Existing `xray:flags` overrides for a parked family are
+      read by the new switch, not silently dropped. (M; PROD-02; K3
       parked.)
 - [ ] **Execute the ratified kills** K4, K8, K9, K14, K15 in one chore
       PR; K1's on-disk stores via a v4 `deleteObjectStore` ladder under
@@ -525,7 +599,8 @@ looking where the bugs are.
       rows walked once and drop the flag the release after — the journal
       is the only local golden record of everything signed and it is
       incomplete while the flag is off (WIRE-09; the maintainer's
-      2026-08-02 ruling said "flip early").
+      2026-08-02 store-first decisions say flag flips gate on the smoke
+      rows alone, with no soak period).
 
 ### R3 — Structure for parallel work (weeks 2–6, lanes in parallel)
 
@@ -560,13 +635,27 @@ renamed (storage keys, DB names, JSON-string values are one-way doors).
       `publish-gate.js`; then peel transcribe / vision / lens / platform
       headers / Substack / comments into `reader/<area>.js`; sweep the
       103 bare `console.*` last. Surface line-count ceilings shrink
-      per PR. Do this **under the net** (R0 first). (L; ARCH-1/2; the
-      one track that needs maintainer soak per PR.)
+      per PR. Do this **under the net** (R0 first). (L; ARCH-1/2; its
+      PRs are human-class and clear through the weekly batch like any
+      other — there is no per-PR soak anywhere in this plan.)
 - [ ] **Lane E — moves.** `git mv` the 57 single-caller `shared/` modules
       to the surface or domain that owns them; the four DOM modals to
       `shared/ui/`; domain clusters `wire/ storage/ llm/ media/ domain/`.
-      Between waves, when open PRs are few. Bundle `api-pattern.js` into
-      the interceptor IIFE or delete it. (M; ARCH-8/11.)
+      Only when the count of open non-dependabot PRs is zero, because a
+      move conflicts with everything. Bundle `api-pattern.js` into the
+      interceptor's single-file build or delete it. (M; ARCH-8/11.)
+- [ ] **Lane F — prompt hygiene (the `llm` lane).** The eight audit
+      module prompts (`audit/module-prompts.js`, 1,329 lines) are
+      GENERATED from `docs/auditor-prototype/prompts` by
+      `tools/gen-module-prompts.mjs` with no drift guard; seven prompt
+      versions (`corpus-v9`, `entity-page-v2`, `vision-v1`, …) are
+      bumped by hand; no prompt wraps article text as data; the only
+      prompt test is a shape test; and the recorded shape failures and
+      paid repair rounds (JOURNAL 2026-08-22, 08-25) have no fixture. Add
+      the drift guard, the data-block wrapper (§10), a fixture set built
+      from the recorded failures that every prompt change runs against a
+      stubbed model, and a prompt-version registry beside the flags. This
+      is where "too buggy" mostly lives for the LLM features. (M.)
 - [ ] Route `entity-sync.js`, `confirmed-publish.js` and the bunker
       client through `xray:relay:*` / `xray:sign` so only the worker
       opens sockets; shrink the allowlist to empty. (M; ARCH-6;
@@ -578,17 +667,27 @@ renamed (storage keys, DB names, JSON-string values are one-way doors).
 
 Sequenced after R1 (the visual firewall and the vocabulary ban are
 removed or demoted there) and R2 (the shelf is parked, so four reader
-bars and ten portal blocks disappear for free).
+bars and ten portal blocks disappear for free). **Its first slice is
+subtractive** — park, hide, rename, delete the lying controls, ship the
+zero-state line, land the pre-flight — and needs no new Library surface;
+if the R1 session slips, that slice proceeds under today's constraints
+and only the reader fold and the Library wait. At most two of R3, R4
+and R5 run at once; the August wave is what running everything in
+parallel behind one human looks like.
 
 - [ ] **First run.** `onInstalled reason='install'` opens Settings on a
       three-step welcome: identity generated *for* the user with one
       button (public key shown once; "Show nsec" under Your data);
       default relays pre-filled; one paragraph on what becomes public.
       Settings lands on Identity whenever no identity exists. A "?" in
-      every header opens the guide section for that surface. Delivery
-      channel declared: unlisted Chrome Web Store + AMO-signed `.xpi`
-      with `update_url`, permission justifications from THREAT_MODEL.
-      (M + store lead time; B7/B13; UXDE-01.)
+      every header opens the guide section for that surface. The
+      generated local identity is also what makes PR #324's Option C
+      work for a newcomer: entity creation refuses without a local
+      primary, so a NIP-07-only user is not a 1.0 configuration unless
+      the maintainer says so (§11-9). Delivery channel declared: unlisted
+      Chrome Web Store + AMO-signed `.xpi` with `update_url`, permission
+      justifications from THREAT_MODEL. (M + store lead time; B7/B13;
+      UXDE-01.)
 - [ ] **Publish pre-flight.** One sheet assembled from the same selectors
       the loop calls — artifact class → count → signing key → relays →
       one irrevocability line — with Publish as its confirm. This is the
@@ -615,8 +714,12 @@ bars and ten portal blocks disappear for free).
       Claims / Analysis with headings that name the task ("Review 4
       proposals"); disclaimers move to "?" tooltips. "New case…" in the
       Library's Cases tab and the reader's case chip; K9 executed so
-      the two wrong doors close. (L, in slices; UXDE-04..08/13;
-      PROD-13; T8 seam collapse.)
+      the two wrong doors close. The side panel's verbs that exist
+      nowhere else — create a person or organization, merge two, import
+      an entities file, the compact dossier — move into Library ▸ People
+      & orgs before the panel retires; the panel survives one release as
+      a picker. (L, in slices; UXDE-04..08/13; PROD-13; T8 seam
+      collapse.)
 - [ ] Replace the eight "see console" terminations with remedies now
       that the diagnostics ring exists; remove the key-bearing export
       from beside routine exports. (S; UXDE-10/16.)
@@ -759,7 +862,7 @@ ruling (decision §11-10) is what makes every slice below lawful.
 ### R6 — The documentation system (weeks 3–6, lane parallel to R3)
 
 The system in §5: four registries → one generator → one guard file;
-JOURNAL split per quarter with a generated index; rulings ledger;
+JOURNAL split per month (done in R0) with a generated index; rulings ledger;
 CLAUDE.md ≤ 200 lines; ROAD_TO_1_0 archived and its open ids in a
 tracker; SMOKE_TEST split into a ≤30-row `GATE.md` (every row tagged
 `machine` / `agent-live` / `human`; every `machine` row names its
@@ -776,7 +879,12 @@ numbers out of user-facing text. (M in total; DOCC-1..20; K12/K13.)
       key-free share export + merge-import as the one supported group
       path; decide `networkPage` on that evidence. (B14/B15; T5.)
 - [ ] Decide Firefox: run the gate on 128 ESR once and record it, or
-      narrow the claim to "capture-only, community-supported."
+      narrow the claim to "capture-only, community-supported." Either
+      way one Firefox row joins the gate as a human row, because the
+      security bundle (on-demand MAIN-world injection, the
+      `web_accessible_resources` removal) is exactly where Firefox 128
+      differs from Chrome, and any Firefox install at all needs AMO
+      signing.
 - [ ] NIP_DRAFT labels every kind no default-on path emits as
       "experimental — may change" with its flag name; 1.0 promises
       30023, 30040, 0, 10002, 30078 (+32125/32126 if entity publishing
@@ -843,7 +951,7 @@ directory moves):
 | `llm` | `llm-*.js`, `llm-stream.js`, `corpus-prompts.js`, `lens-*.js`, `jurisdiction-model.js`, `audit/module-prompts.js`, `audit/audit-prompt.js`, `audit/assemble.js`, `audit/findings-schemas.js`, `audit/run-orchestrator.js`, `provider-normalize.js` | the shared queue, backoff, usage accounting |
 | `toolchain` | `.github/**`, `scripts/**`, `tools/**`, `esbuild.config.mjs`, `tests/helpers/**`, `tests/*-guards*.test.mjs`, the doc generators, `CLAUDE.md`, `CONTRIBUTING.md`, the journal index | the browser smoke, the hygiene script, the PR-body checks |
 
-Shared-hot files and their rule: the JOURNAL becomes `docs/journal/YYYY-MM.md`, append-at-bottom, `merge=union` in `.gitattributes`, with a generated index at the old path; `CLAUDE.md`'s module list becomes a generated block; `docs/SMOKE_TEST.md` splits per lane under one ledger; `feature-flags.js` takes one key per PR, appended. The structure guard is the collision detector: a PR that grows an allowlist or edits outside its lane fails review.
+Shared-hot files and their rule: the JOURNAL becomes `docs/journal/YYYY-MM.md`, append-at-bottom, `merge=union` in `.gitattributes`, with a generated index at the old path; `CLAUDE.md`'s module list becomes a generated block; `docs/SMOKE_TEST.md` splits per lane under one ledger; `feature-flags.js` takes one key per PR, appended. The lane rule binds *edits*, not imports: the reader may import `article-pass.js` and `corpus-prompts.js` from other lanes freely; it may not edit them without `Cross-lane:`. Agent sessions are told their branch name in the session prompt (`<lane>/<topic>`), and CLAUDE.md carries the lane table so a session can look its lane up. The structure guard is the collision detector: a PR that grows an allowlist or edits outside its lane fails review.
 
 **PR size and count.** ≤ 400 changed lines of `src/` per PR except pure
 `git mv` / re-export PRs (which claim zero behavior change and must pass
@@ -939,14 +1047,14 @@ Merge order to minimise rebases: #373 → #369 → #368 → dependabot → #366
 
 | PR | Branch | Disposition | Why / what it still needs |
 |---|---|---|---|
-| #373 | claude/kind-hypatia-fu8nqm | **Merge now** (+408, 288 of them tests) | tolerance fix for stored malformed records; no behavior change on well-formed data; machine-class |
+| #373 | claude/kind-hypatia-fu8nqm | **Mark ready and merge now** (+408, 288 of them tests; a draft today) | tolerance fix for stored malformed records; no behavior change on well-formed data; machine-class |
 | #369 | fix/publish-without-session-record | **Merge now** (+139) | removes a refusal; unit-tested; NIP-07 path unchanged by inspection; machine-class |
 | #368 | fix/instagram-url-identity | **Merge now after `git rm docs/superpowers/plans/2026-08-28-margin-s1-see.md`** (+608, of which 421 lines are an unrelated Margin plan file that rode along) | a wire-truth fix (wrong-account attribution on a signed public event). One human row: open a public Instagram reel by in-app navigation from a profile page, capture, expect the reader URL to be `instagram.com/reel/<shortcode>/` and never another account's path (~3 min). Already-published events whose `d` came from a stale `og:url` are not superseded — the right outcome; say so in its JOURNAL line |
 | #371, #372, #375, #376 | dependabot/* | **Merge now**; enable auto-merge for devDependencies and actions on green | lockfile bumps; CI is the test; runtime deps (`readability`, `pdfjs-dist`, `turndown`) stay manual because they ship in the bundles. #376 is the recut of #335 |
 | #366 | docs/governance-reconciliation-questionnaire | **Merge now** into `docs/ideas/` as the unanswered agenda (rebase five commits) | questions, no rulings; docs-only, soak-exempt; a held docs branch is the pattern that rots. Answers land in place, dated, after the R1 session (its own Q19) — the governance lens preferred merging only the answered record; the branch lens's timing wins because nothing in it binds anyone |
 | #364 | claude/practical-ramanujan-sk12k1 | **Merge now** (mark ready; docs only) | advisory review report; then execute its A1/A2/B2/C1/C2/D1/E1 as one small PR; its B1 (a surface-constraints index) is R1's fourth normative document |
 | #365 | claude/loving-gauss-k8gsta | **Fold** (+528; a 453-line skill that mirrors the corpus it governs) | keep the review standards (~50 lines) inside `architect` or as a ≤120-line skill; keep the README routing rows; do not merge the mirror — a second drifting copy is the doc-drift class the skills README itself names |
-| #374 | claude/eager-knuth-ipv3xd | **Rebase and merge after #369**, folded into R3 lane B's `job` handler shape (+1,580; `shared/llm-jobs.js` 534 lines; touches `background/index.js` beside #369 in non-overlapping hunks) | the job model is right and is the precedent for every long pass. One human row, money: with a case whose extracts are all cached, click Analyze corpus, reload the portal mid-run, reopen the case, click Analyze again — expect "(no new synthesis call)" and exactly one reduce request in the Anthropic console (~5 min + one paid reduce) |
+| #374 | claude/eager-knuth-ipv3xd | **Mark ready, rebase and merge after #369**, folded into R3 lane B's `job` handler shape (a draft today) (+1,580; `shared/llm-jobs.js` 534 lines; touches `background/index.js` beside #369 in non-overlapping hunks) | the job model is right and is the precedent for every long pass. One human row, money: with a case whose extracts are all cached, click Analyze corpus, reload the portal mid-run, reopen the case, click Analyze again — expect "(no new synthesis call)" and exactly one reduce request in the Anthropic console (~5 min + one paid reduce) |
 | #324 | claude/nip07-option-c | **Rebase and merge after the browser smoke exists** (+390/−57, 31 files; 26 days old; JOURNAL conflict only) | a ratified decision (Option C) with five adversarially found leaks already fixed; its live walk (entity creation under Local and under NIP-07 with no local primary; expect the named refusal) is one row in the weekly human batch. Once golden fixtures exist (R0), confirm legacy random-keyed entities (`derived_from: null`) still load and sign |
 | #370 | feat/margin-s1 | **Park** (close the PR, keep the branch, tag `archive/feat-margin-s1-20260906`) and re-cut as S1+S2 in R4 — or merge with a four-row walk | the direction is right; merging a flag-off fourth view adds a surface to a product whose problem is too many surfaces, and its fourteen-row walk is mostly guard carriers. If the maintainer will open archived articles in Annotated during real casework in the next two weeks: merge after M.1, M.2, M.7, M.8 (~10 min), the other ten recorded as accepted risk, check date 2026-09-30 |
 | #377 | claude/xray-audit-refactor-opxk01 | this plan | corrected per the branch lens before merge |
@@ -981,8 +1089,11 @@ remote code, the capture stash in `chrome.storage.session` — would pass
 a serious reviewer; keep all of it. What blocks a store listing is the
 shape the extension presents to a reviewer and to a target's website:
 
-- **Both `declarativeNetRequest` rules serve a fetch path the JOURNAL
-  declared dead on 2026-04-19.** Rule 1 removes four CSP headers from
+- **Both `declarativeNetRequest` rules serve a fetch path the service
+  worker's own handler comment declares dead** (`background/index.js:1023-1032`,
+  which also cites a rules file that does not exist; the 2026-04-19
+  JOURNAL entry records the PO-token gating that killed it). Rule 1
+  removes four CSP headers from
   every main frame and sub-frame on every site, with no domain
   condition; rule 2 rewrites `Referer`/`Origin` to youtube.com for any
   site's XHR to the timedtext endpoint. The live transcript fetch runs
@@ -1052,9 +1163,17 @@ shape the extension presents to a reviewer and to a target's website:
   merge-import) and fetches with credentials; URL import admits any
   `http(s)` URL with credentials. One `url-admission.js` in front of
   every worker fetch. (SECU-8.)
+- **The companion service** stays in the repo with its own dependency
+  stream; its Python tests join the CI gate (a T4 checkbox); its URL
+  admission is blind to DNS rebinding (THREAT_MODEL G8) and its
+  "audio leaves the machine" disclosure belongs in `PRIVACY.md`. It is
+  a developer tool for 1.0 (§11-7), so none of this blocks the store
+  listing; all of it is owed before the companion is offered to anyone
+  else.
 - **Kind census for 1.0** (the wire-and-schema report carries the full
   table with emitter, gate, public-relay evidence and consumer per
-  kind). Ship: 30023 (article, case brief, entity page), 30040, 0, 1, 3,
+  kind). Emitted by today's code — which is not the same as "ship in
+  1.0", see §11-11: 30023 (article, case brief, entity page), 30040, 0, 1, 3,
   5, 10002, 30078, 32125, 32126, 30054/30055 + 1985 mirrors, 30056–30059,
   30062 + mirror, 30063 + mirror, 30064, 30068, 30069. Gated-unwalked:
   30070 and the `xray/review` label (DevTools-only gates; 30070 has only
@@ -1112,9 +1231,13 @@ follow PR #366's scale (E1 explicit ruling … E5 ratified-by-merge only).
    was an agent synthesis; the maintainer's own LIBRARIAN seed says
    "useful and usable by more than just me — for now.")
 2. **Which judgment families ship in 1.0?** Default: claims (+ local
-   assessments as a stance on a claim). Park audits, forensic, verdicts,
-   integrity, lens, hypothesis maps, counterfactuals, AI vision behind
-   one switch with check date 2026-11-30. (E5 per family.)
+   assessments as a stance on a claim), with epistemic audits and
+   forensic findings kept visible because casework has touched them.
+   Park verdicts, integrity, lens, hypothesis maps, counterfactuals, AI
+   vision and the Network page behind one switch; every family,
+   visible or parked, gets the same check date 2026-11-30. (E5 per
+   family. The product-manager lens would park audits and forensics
+   too — §12 records the disagreement.)
 3. **The Margin:** merge S1 as a fourth view, or re-cut S1+S2 as the
    reader's single surface in R4? Default: re-cut, sequenced after the
    first hour; if merged now, the five-row walk. (E5 slice ladder; your
@@ -1181,10 +1304,13 @@ follow PR #366's scale (E1 explicit ruling … E5 ratified-by-merge only).
     30060/30061 move to reserved; case bundles become key-free by
     default with the key-carrying form behind the same typed confirm as
     restore; `storeFirstPublish` flips on next release and the flag is
-    dropped the release after. (Kinds were minted per phase by agents;
-    the stability promise was never scoped by you; the comment opt-in
-    dates from the userscript port; the bundle predates creator binding;
-    the flip is your own 2026-08-02 "flip early" ruling.)
+    dropped the release after; and decide the 30040 collision with
+    NKBIP-01 that NIP_DRAFT records (WIRE-18) before promising 30040 as
+    stable. (Kinds were minted per phase by agents; the stability
+    promise was never scoped by you; the comment opt-in dates from the
+    userscript port; the bundle predates creator binding; the flip
+    follows your own 2026-08-02 store-first decisions — flag flips gate
+    on the smoke rows alone.)
 12. **Docs:** generate CHANGELOG `[Unreleased]` from PR titles; split the
     JOURNAL per month with a rulings ledger; front matter on every
     doc; `docs/` `tests/` `tools/` `.claude/` out of the release zip;
