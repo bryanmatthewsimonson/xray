@@ -17,60 +17,37 @@
 // BUILT in-page and inspected rather than sent. Do not point this at a
 // real relay — a kind 30070 is permanent once accepted.
 //
-// Env: XR_CHROME / XR_PW override the browser and Playwright paths.
-import { mkdtempSync, writeFileSync, existsSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+// Browser, Playwright, the seed bundle, the profile and the output dir
+// all come from lib/browser.mjs (XR_CHROME / XR_PW / XR_SMOKE_OUT
+// override them). Run it through `npm run smoke`, or directly:
+//   node tools/smoke/ma6-walk.mjs
+import { writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
+import {
+    assertBuilt, ensureOut, launchExtension, loadPlaywright, resolveChrome, seedBundle
+} from './lib/browser.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO = join(HERE, '..', '..');
-const OUT = process.env.XR_SMOKE_OUT || HERE;
-const CHROME = process.env.XR_CHROME
-    || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
-const PW = process.env.XR_PW
-    || '/opt/node22/lib/node_modules/playwright/index.mjs';
-if (!existsSync(CHROME)) {
-    console.error(`No Chromium at ${CHROME} — set XR_CHROME. (The headless_shell build cannot load extensions.)`);
-    process.exit(2);
-}
-const { chromium } = await import(PW);
+const OUT = ensureOut();
+assertBuilt();
+const pw = await loadPlaywright();
+const CHROME = resolveChrome(pw);
 
-// Bundle the seed harness so the page can use the real models. It is
-// written into dist/ because only files inside the extension package are
-// loadable by an extension page — and REMOVED on the way out, because
-// `web-ext lint` scans dist/ and a leftover bundle inflates the warning
-// count for whoever lints next.
-const SEED_BUNDLE = join(REPO, 'dist', '_smoke-seed.bundle.js');
-createRequire(import.meta.url)('esbuild').buildSync({
-    entryPoints: [join(HERE, 'seed-entry.js')],
-    outfile: SEED_BUNDLE,
-    bundle: true, format: 'iife', platform: 'browser', target: 'chrome120'
-});
-const cleanup = () => { try { rmSync(SEED_BUNDLE, { force: true }); } catch (_) { /* best effort */ } };
-process.on('exit', cleanup);
-
-const profile = mkdtempSync(join(tmpdir(), 'xr-profile-'));
+// The seed harness, bundled into dist/ so the portal page can load it
+// as a same-origin script (removed on exit — see lib/browser.mjs).
+const seed_ = seedBundle(join(HERE, 'seed-entry.js'), '_smoke-seed.bundle.js');
 
 const findings = [];
 const note = (s) => console.log(s);
 const fail = (s) => { findings.push(s); console.log('  ✗ ' + s); };
 const ok = (s) => console.log('  ✓ ' + s);
 
-const ctx = await chromium.launchPersistentContext(profile, {
-    executablePath: CHROME,
-    args: ['--headless=new', '--no-sandbox',
-           `--disable-extensions-except=${REPO}`, `--load-extension=${REPO}`],
-    viewport: { width: 1400, height: 1100 }
-});
-let [sw] = ctx.serviceWorkers();
-if (!sw) sw = await ctx.waitForEvent('serviceworker', { timeout: 15000 });
-const extId = new URL(sw.url()).host;
+const { ctx, extId } = await launchExtension({ pw, chrome: CHROME });
 note(`extension ${extId}`);
 
 const PORTAL = `chrome-extension://${extId}/src/portal/index.html`;
-const SEED_JS = `chrome-extension://${extId}/dist/_smoke-seed.bundle.js`;
+const SEED_JS = `chrome-extension://${extId}/${seed_.urlPath}`;
 
 const page = await ctx.newPage();
 const pageErrors = [];
@@ -229,23 +206,24 @@ else {
 }
 await page.screenshot({ path: join(OUT, 'ma6-01-case.png'), fullPage: true });
 
-let blockText = await page.evaluate(() => {
-    const h = [...document.querySelectorAll('h3')].find((e) => /Extracted assertions/.test(e.textContent || ''));
-    if (!h) return null;
-    const box = h.closest('.xr-synth') || h.parentElement;
-    return box.innerText;
-});
+// The block is found by its data-xr anchor, never by heading copy — the
+// heading was renamed once (UA.3, 2026-08-12) and this walk went stale
+// for weeks. tests/smoke-selectors.test.mjs pins the anchor's existence.
+const BLOCK = '[data-xr="extraction-block"]';
+let blockText = await page.evaluate((sel) => {
+    const box = document.querySelector(sel);
+    return box ? box.innerText : null;
+}, BLOCK);
 if (!blockText) {
     // The block may live inside a collapsed section — open everything.
     await page.evaluate(() => {
         for (const d of document.querySelectorAll('details')) d.open = true;
     });
     await page.waitForTimeout(2000);
-    blockText = await page.evaluate(() => {
-        const h = [...document.querySelectorAll('h3')].find((e) => /Extracted assertions/.test(e.textContent || ''));
-        if (!h) return null;
-        return (h.closest('.xr-synth') || h.parentElement).innerText;
-    });
+    blockText = await page.evaluate((sel) => {
+        const box = document.querySelector(sel);
+        return box ? box.innerText : null;
+    }, BLOCK);
 }
 if (!blockText) {
     fail('the extraction block did not render on the case dashboard');
