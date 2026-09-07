@@ -115,6 +115,8 @@ evidence or by being the mechanism the plan builds on.
 | The walk ledger (walks performed, dated, with what they found) | the only honest verification record | `docs/SMOKE_TEST.md:12-53` |
 | The kill precedent and the rule "a parked feature keeps its tests; a killed feature does not" | the project knows how to remove things | JOURNAL 2026-07-20; ROAD_TO_1_0 K1–K15 |
 | The seven real firewalls (§4.2: grounding, human-accept, the membrane, no auto person-label, argument-not-conclusion, no intent, import consent) | each protects something the maintainer demonstrably decided | governance report F0, C3/C4/C12/C13/C15/C16/C17 |
+| The security fundamentals: NIP-07 return-path verification, verify-on-ingest on every relay read, the credential class excluded from every export and guarded, pinned cloud origins with key scrubbing, loopback pins for the companion and LM Studio, no telemetry, no remote code, the capture stash in `chrome.storage.session` | would pass a serious reviewer | `content/nip07-client.js:130-148`; `nostr-events.js:66-131`; `backup.js:108-132`; `direct-transcribe.js:54-58` |
+| The corpus pipeline's pure core: the one-unit-builder cache-key discipline, the grounding firewall, salvage-on-truncation, honest `truncated` vs `partial` disclosure, the durable proposal layer with a review state, MA.7 re-grounding merge-import | better engineered in the small than most of the tree; the driver is the problem, not the core | `case-synthesis.js:29-56`; `llm-stream.js:63-111`; `article-pass.js:257-270`; `extraction-import.js` |
 | The Margin's *diagnosis* ("the insight and the sentence it is about are never in the same place") | the correct fresh-eyes reading of the reader | `docs/MARGIN_DESIGN.md` §1 |
 | JOURNAL entries as institutional memory (the content rule, not the container) | it caught the 2026-07-21 misreading | `docs/JOURNAL.md:3527` |
 | No framework, no TypeScript, ten esbuild entries; 2-space indentation in ported files left alone | correct for one maintainer; tidying is astronautics | `esbuild.config.mjs` |
@@ -352,8 +354,11 @@ PR-1..8, Suggest fixes, the Margin, and three governance PRs.
 builders; every agent touching capture, transcription, publishing,
 audits, vision, the lens, or platform headers edits the same file, and
 no test can import it. The service worker is one 950-line `if`-chain of
-45 handlers. The JOURNAL prepends at the top, so every parallel branch
-conflicts on the same hunk.
+45 handlers. The JOURNAL prepends at the top, so thirty of the
+forty-five pairs of open PR branches conflict — every one of them in
+that file and nothing else — and `main` carries 54 back-merge commits
+whose only job was resolving that hunk. The result is measurable:
+`main` has had no commit since 2026-08-28 while six behavior PRs wait.
 
 **The fix:** the browser harness in CI as a required check (R0); a
 tiered soak — machine-observable classes merge on green, human-judgment
@@ -411,9 +416,20 @@ looking where the bugs are.
       `index.js` line-count ceilings, no `console.` outside `utils.js`
       and `page/`. Every later PR shrinks an allowlist; none may grow
       one. (S; ARCH-15.)
-- [ ] **Branch and PR triage** per §9: merge the four small fixes,
-      archive the ~30 pre-reset branches as tags, delete the ~35 merged
-      branches, park #324 and #370 as stated. (S.)
+- [ ] **Branch and PR triage** per §9: merge the small fixes and the
+      docs PRs in the order given, delete the 65 merged branches, park
+      #370, rebase #374 and #324; land `scripts/branch-hygiene.mjs` and
+      the weekly `hygiene.yml`; turn on auto-delete-on-merge and
+      Dependabot auto-merge for devDependencies. (S.)
+- [ ] **Split the JOURNAL now, not in R6.** `docs/journal/YYYY-MM.md`,
+      append-at-bottom, `merge=union`, a generated index at the old path
+      so every existing citation still resolves. It is the one file
+      thirty of the forty-five open-PR pairs conflict on; nothing else in
+      the reset can run in parallel until it moves. (S.)
+- [ ] **PR template** gains the four body lines of §8 and loses the
+      Firefox checkbox until Firefox parity is a stated goal; the CI
+      PR-body checks and the JOURNAL-presence check for process-file PRs
+      land with it. (S; T4-9 was recorded done and is not.)
 - [ ] **`docs/STATUS.md`** (hand-maintained until R6 generates it): the
       1.0 blocker list; every default-off flag with its check date and
       last casework evidence; the parked shelf; the open PR cap. (S.)
@@ -592,52 +608,115 @@ bars and ten portal blocks disappear for free).
 
 ### R5 — Corpus automation: hundreds of URLs → captured → claims and entities → reviewed (weeks 3–8)
 
-What exists: `shared/url-import.js` batch-captures a pasted list from
-the portal by fetch (no tab, so no JS-rendered pages and no platform
-handlers), concurrency 2, foreground in the portal tab;
-`shared/article-pass.js` runs ONE cached LLM call per article for
-claims + entities + about-links; "analyze after import" runs it per URL;
-the `#xray:capture` marker lets a driving agent capture one URL at a
-time through a real tab; PR #374 introduces `shared/llm-jobs.js` so long
-passes survive service-worker teardown; the Playwright harness can drive
-the real extension headless. What breaks at N=100–500 today: the portal
-tab must stay open; nothing resumes; platform URLs are skipped; every
-proposal is invisible until a human clicks its fold; cost and rate
-limits are unmanaged.
+**What works today, at N≈10.** Paste ordinary HTML article URLs into the
+portal's Import URLs panel with "Analyze each imported page" ticked:
+each page is fetched from the extension origin, run through
+Readability, archived with the canonical hash, tagged into the case,
+and — per page, in the same worker slot — passed through the ONE article
+pass, whose extract is cached under a content-only key and folded into
+the durable `article-extractions` record as open proposals; the case
+dashboard shows per-article folds with Accept all / Dismiss / Link all
+covered, and the reader's Suggest serves the cached extract instantly.
+The pure core is chrome-free and well tested. Keep it byte-for-byte.
 
-- [ ] **Slice 1 — a persisted job queue** (in the casework DB), driven by
-      `chrome.alarms`, states `queued → captured → extracted →
-      proposals-ready | failed`, with PR #374's job model as the
-      foundation and the portal as a progress viewer, not the runner.
-      Success criterion: **200 URLs from a text file → archive +
-      proposals overnight with the portal closed.** (L.)
-- [ ] **Slice 2 — a tab lane for platform URLs.** The background opens a
-      real tab with the `#xray:capture` marker for YouTube / Substack /
-      Twitter / FB / IG / TikTok URLs (no agent needed), bounded
-      concurrency per origin, and closes it on the reader's auto-archive.
-      Login-walled pages are reported uncapturable, never worked around.
-      (M.)
-- [ ] **Slice 3 — cost and rate control.** Per-run budget disclosed
-      before start (N articles × the article pass's known token shape);
-      per-model concurrency; exponential backoff on 429; the cache-first
-      rule means re-runs cost nothing. (S–M.)
-- [ ] **Slice 4 — review at scale.** Under §4.2's override (a):
-      unreviewed rows render and feed the corpus reduce with their state
-      shown; the case page's Claims tab opens on "Review N proposals"
-      sorted by load-bearing and by article, with Accept all / Link all
-      covered per fold (exists) and per case (new). No scores, no
-      confidence ordering. The constitution requires human review of
-      what *publishes* (and MA.6 publishes every row with its state);
-      local storage of grounded proposals is not gated by it. (M;
-      decision §11-10.)
-- [ ] **Slice 5 — the machine-runnable path.** A CI scenario runs the
-      queue against a local static server of fixture pages and a stubbed
-      model, asserting archive rows, extraction records and the job
-      ledger; the agent-driven `xray-capture` skill becomes the manual
-      fallback, not the plan. (M.)
+**What breaks at N=100, in harm order.** (1) The batch is a portal
+tab's click handler — nothing persists the URL queue, so a reload, a
+sleep, or a worker loss ends the run silently, and re-running the paste
+skips already-archived rows from analysis; PR #374 makes one in-flight
+result durable, which is the right primitive but not a queue. (2) The
+one review surface that scales — the portal's Accept all — drops the
+entity half of the pass: the durable record stores no entities and no
+per-atom `about` links (`map-artifacts.js:95-108`), the portal mints
+every claim with `about: [caseId]` only (`extraction-block.js:372-380`),
+and entity proposals exist only transiently in the reader modal, one
+article at a time. "Claims + entities for hundreds of URLs" is today
+"claims at scale, entities one tab at a time." (3) Rate limiting is one
+fixed 15-second retry with no `Retry-After` and no backoff, across three
+independent drivers each at concurrency 2. (4) Fetch import cannot see
+JS-rendered pages, bot walls, or any platform handler — YouTube,
+Twitter, TikTok, Instagram, Facebook and the Substack API all need a
+live tab — and the marker path opens an unclosable reader tab per
+capture, one URL at a time. (5) Cost and time are unmeasured: usage is
+returned by the API and dropped; the confirm counts calls, not dollars.
+
+**Cost, estimated and declared** (inputs: the measured ~1.4k-token
+prompt overhead, assumed article lengths, output roughly re-emitting the
+source once; Art. 5.2 conditions 1–3): 100 mixed articles through the
+one-article pass ≈ $9–12 on Sonnet 5, $23–30 on Opus 5, $48–65 on Fable
+5, in 25–40 minutes at two in flight if no 429s; N=500 ≈ $45–60 on
+Sonnet 5 and 2–3 hours. None of it is visible to the user before or
+after a run.
+
+**What the constitution actually gates.** Nothing in it requires a
+human click before a proposal is stored locally: Art. 4.1 asks for a
+followable citation (grounding satisfies it mechanically), Art. 4.7 for
+method and provenance (stored), Art. 6 for never-merge (the ladder never
+auto-merges), Art. 8 puts accountability on the *published* record
+"never as a gate on the pursuit of truth." The "every proposal is
+human-accepted" rule lives in four agent-authored places (questionnaire
+Q11, E5) and the maintainer's MA.6 ruling already publishes unreviewed
+atoms with their state. The human gates are **publish** and **entity
+merge**; "accept" becomes a review state a human can set in bulk. That
+ruling (decision §11-10) is what makes every slice below lawful.
+
+- [ ] **Slice 0 (S, CI).** The browser harness in CI (R0) — it is the
+      same asset this track builds on.
+- [ ] **Slice 1 — capture at scale (M).** One Playwright harness
+      (`tools/harness/capture.mjs`) reusing the smoke walk's launch
+      block, on a persistent profile so logins survive, fed by a URL
+      file: hosts with no platform handler go through fetch import first
+      and are accepted only if they pass the interstitial tells; every
+      other URL opens a tab at `<url>#xray:capture`, waits for the stamp,
+      reads the archive result from the extension page, closes both
+      tabs. It runs the content script, every platform handler, the
+      transcript fetch and the PDF route unchanged; a fixture-site CI
+      test captures one static page, one SPA and one PDF and asserts
+      archive rows. A native-messaging capture service was considered
+      and rejected: it re-implements what loading the extension gives
+      for free and adds an install step the companion already shows is a
+      support burden. The manual paths (toolbar, Import URLs) survive.
+- [ ] **Slice 2 — one queue (M).** Shared concurrency (a `maxConcurrent`
+      on #374's runner, so every driver queues through it),
+      `Retry-After`-aware exponential backoff with jitter for 429 only,
+      usage persisted on every cached extract and job record, a cost
+      line before a run (estimate, labelled as such) and after ("this
+      corpus has cost $X across N calls, M cached"); measure
+      `effort: "low"` on the map pass against current output — that, not
+      prompt caching, is the lever.
+- [ ] **Slice 3 — entities in the durable layer + triage (M; needs the
+      §11-10 ruling).** Fold `entities` and per-atom `about` refs into
+      the `article-extractions` record (additive; `xray-audits` v8 under
+      schema-evolution review) and give the portal an entity fold that
+      runs the same resolution ladder, so Accept all mints claims *with*
+      their links resolved by identity rungs and leaves near-name rungs
+      as the human's pick. Then one corpus-wide proposal table (quote /
+      paraphrase / article / load-bearing / entities / status), default
+      sort load-bearing-first, filters by entity and article, bulk state
+      changes with one batched write per record, "Accept all
+      load-bearing across the case" as the headline action. No scores,
+      no confidence ordering. Until it lands, label the portal's Accept
+      all honestly: "mints claims without entity links."
+- [ ] **Slice 4 — a resumable intake job in the worker (M).** A
+      `corpus-intake` job record `{urls[], cursor, perRow.status}` driven
+      from the service worker (fetch is legal there; the runner already
+      sweeps on boot), with Readability in an offscreen document
+      (`DOMParser` is unavailable in a worker) and the portal as a viewer
+      that can close. Success criterion: **200 URLs from a text file →
+      archive + proposals overnight with the portal closed.**
+- [ ] **Slice 5 — the pass outside the browser (M; security review of
+      key handling first).** Everything but the API-key read and the
+      message hop is node-runnable today. A CLI over an esbuild node
+      bundle of the shared modules takes a backup export, runs the same
+      unit builder → cache key → request → repair → validate → merge
+      chain with the key from an environment variable, and emits an
+      `xray-backup/1` file of `corpus-extracts` and
+      `article-extractions` rows that Import & merge ingests with quotes
+      re-grounded locally (the MA.7 seam). Cost, parallelism and resume
+      then live in a process the researcher or CI controls; the browser
+      stays the only publisher.
 - [ ] Frontier expansion (follow outbound links from captured articles)
       second, behind a per-case cap — only after the URL-list path has
-      been used on a real case. (Decision §11-10.)
+      been used on a real case.
 
 ### R6 — The documentation system (weeks 3–6, lane parallel to R3)
 
@@ -664,15 +743,20 @@ numbers out of user-facing text. (M in total; DOCC-1..20; K12/K13.)
       "experimental — may change" with its flag name; 1.0 promises
       30023, 30040, 0, 10002, 30078 (+32125/32126 if entity publishing
       stays). (Decision §11-11.)
-- [ ] The minimum security work before a store listing: re-derive
-      `rules/csp-strip.json` rule 1 empirically (today it strips CSP on
-      every main frame and sub-frame of every site — no domain
-      condition) and scope it to `youtube.com` or retire it;
-      authenticate the `xr:apihook:event` channel (G1); correct the
-      api-interceptor header; `referrerpolicy="no-referrer"` on reader
-      image emissions; the store listing's permission justifications and
-      privacy disclosure written from THREAT_MODEL. (M; B5, T2 open
-      items; G1/G3/G7 in THREAT_MODEL §5.)
+- [ ] The minimum security work before a store listing, mostly
+      subtractive (§10): delete both `declarativeNetRequest` rules and
+      the permission after one YouTube transcript walk; inject both
+      MAIN-world scripts on demand with a token in `args` and drop the
+      `ready` broadcast, the WAR entry and the `<all_urls>` CSS; one
+      `url-admission.js` in front of every worker fetch; the key-free
+      export as the default button and a passphrase on the recovery
+      backup's identity block; the data-block prompt wrapper and the
+      reviewed-rows-by-default 30070 publish; `PRIVACY.md`, an accurate
+      AMO data-collection declaration, and permission justifications
+      derived from THREAT_MODEL; the six threat-model corrections and
+      the CI diff check that keeps the map current;
+      `referrerpolicy="no-referrer"` on reader image emissions. (M; B5,
+      T2 and T5 open items; G1/G3/G4/G6/G7.)
 - [ ] `scripts/release-preflight.mjs` to the ordering the skills README
       already declares; the tag; the release-environment approval stays
       human.
@@ -690,24 +774,45 @@ which should start the day R0 lands.
 ## 8. Keeping it right — the operating model
 
 **Branching.** Trunk-based, short-lived branches, no long-lived
-integration branch: the reset is a strangler, not a big-bang, and every
-step keeps the suite green, so there is nothing to integrate later. An
-integration branch would re-create the pre-reset situation (thirty
-branches descending from a history that no longer exists).
+integration branch. Trunk-based fails when a half-done refactor on
+`main` breaks casework; the strangler pattern (new path behind a flag or
+a re-export, old path deleted in a later PR), the PR size cap, and the
+machine smoke on every PR counter it — `main` is always the build the
+maintainer uses. An integration branch fails the way PR #324 already did
+in miniature: it drifts for weeks while fixes keep landing on `main`
+(they must — casework never stops), every fix is double-landed, the
+final merge is one giant human soak nobody can run, and the JOURNAL
+conflicts multiply with the branch's lifetime.
 
-**Parallel threads.** One git worktree per thread. A **module ownership
-map** derived from the R3 target tree: a thread is assigned a directory
-(`background/` + `shared/bus`; `reader/publish`; `shared/storage` +
-kills; `shared/wire` + Art. 10 reconciliation; docs generators + guards;
-the queue; the first hour), never a feature. The structure guard is the
-collision detector: a PR that grows an allowlist or edits outside its
-directory fails review. The JOURNAL appends at the bottom of a quarterly
-file so threads stop conflicting on one hunk.
+**Parallel threads.** One `git worktree` per thread
+(`git worktree add ../xray-<lane> -b <lane>/<topic> origin/main`; `npm ci`
+once per worktree; never two threads in one checkout). A thread is
+assigned a **lane**, never a feature; a PR's `src/` paths must fall in one
+lane or its body carries `Cross-lane: <reason>`, and a CI path check
+enforces it. The lanes, derived from today's tree (they move with R3's
+directory moves):
 
-**PR size and count.** ≤ 400 changed lines of `src/` per PR except
-mechanical `git mv`; **at most four open PRs** (a new one is not opened
-until one merges or is parked); one concern per PR, as CONTRIBUTING
-already says.
+| Lane | Owns today | First job |
+|---|---|---|
+| `bus` | `background/index.js`, `nostr-client.js`, `session-articles.js`, `llm-jobs.js` (#374), `transcriber-client.js`, `direct-transcribe*.js`, `screenshot.js`, `companion-status.js` | dispatcher map + one handler file per family |
+| `capture` | `content/**`, `page/api-interceptor.js`, `platforms/**`, `content-detector.js`, `content-extractor.js`, `content-islands.js`, `url-import.js`, `url-identity.js`, `url-aliases.js`, `epub-parse.js`, `pdf-*.js`, `media-hints.js`, `html-snapshot.js`, `rules/` | platform fixtures + canary; the DNR removal |
+| `identity` | `page/nip07-bridge.js`, `crypto.js`, `signer.js`, `local-key-manager.js`, `nsecbunker-client.js`, `identity/**`, `identity-*.js`, `workspace-keys.js`, `media-key.js` | #324; on-demand bridge injection |
+| `wire` | `event-builder.js`, `nostr-events.js`, every `*-publish.js`, `truth-builders.js`, `audit/builders.js`, `audit/publish-batch.js`, `metadata/builders.js`, `publish-gate.js`, `confirmed-publish.js`, `wire-copy.js`, `docs/NIP_DRAFT.md`, the Art. 10 table | the kinds registry; every PR carries `Wire format:` |
+| `store` | `storage.js`, `archive-cache.js`, `audit/audit-cache.js`, `event-journal.js`, `backup.js`, `workspace-read.js`, `metadata/feature-flags.js`, `config.js`, `map-artifacts.js`, `case-bundle.js`, `extraction-import.js` | golden fixtures; the key registry; other lanes add a flag by a one-line PR here first |
+| `reader` | `reader/**`, `claim-*.js`, `quote-grounding.js`, the four modals, `transcript-*.js`, `diarized-transcript.js`, `vision-*.js`, `speakers-modal.js` | `publish()` → `reader/publish/*.js` |
+| `portal` | `portal/**`, `case-*.js`, `corpus-*.js`, `hypothesis-*.js`, `cross-case-graph.js`, `article-pass.js`, `entity-page*.js`, `entity-dossier.js`, `review-queue.js`, `audit/corpus-*.js`, `audit/known-unknowns.js`, `audit/cross-coverage.js`, `reference-resolver.js`, `scholar-refs.js`, `crossref.js` | the case page's three tabs; the triage table |
+| `surfaces` | `options/**`, `sidepanel/**`, `network/**`, `network-feed.js`, `network-trust.js`, `follow-*.js`, `incorporation.js`, `entity-model.js`, `entity-resolution.js`, `entity-equivalence.js` | the first hour |
+| `llm` | `llm-*.js`, `llm-stream.js`, `corpus-prompts.js`, `lens-*.js`, `jurisdiction-model.js`, `audit/module-prompts.js`, `audit/audit-prompt.js`, `audit/assemble.js`, `audit/findings-schemas.js`, `audit/run-orchestrator.js`, `provider-normalize.js` | the shared queue, backoff, usage accounting |
+| `toolchain` | `.github/**`, `scripts/**`, `tools/**`, `esbuild.config.mjs`, `tests/helpers/**`, `tests/*-guards*.test.mjs`, the doc generators, `CLAUDE.md`, `CONTRIBUTING.md`, the journal index | the browser smoke, the hygiene script, the PR-body checks |
+
+Shared-hot files and their rule: the JOURNAL becomes `docs/journal/YYYY-MM.md`, append-at-bottom, `merge=union` in `.gitattributes`, with a generated index at the old path; `CLAUDE.md`'s module list becomes a generated block; `docs/SMOKE_TEST.md` splits per lane under one ledger; `feature-flags.js` takes one key per PR, appended. The structure guard is the collision detector: a PR that grows an allowlist or edits outside its lane fails review.
+
+**PR size and count.** ≤ 400 changed lines of `src/` per PR except pure
+`git mv` / re-export PRs (which claim zero behavior change and must pass
+build, suite and smoke unchanged); **at most four open non-dependabot
+PRs** (a new one is not opened until one merges or is parked); one
+concern per PR, as CONTRIBUTING already says; never a PR that both moves
+and changes.
 
 **PR body contract** (template): `Verification layer: unit | guard |
 machine-smoke | human-soak | none-because <…>` · `Wire format: none |
@@ -729,11 +834,17 @@ it spends money against a real provider, publishes to a real relay,
 involves a NIP-07/NIP-46 popup, tears the service worker down mid-job,
 touches a live third-party site, or has a judgment pass criterion
 ("reads true"). Human-class PRs merge on green with a `soak:pending`
-label and are cleared in **one weekly 30–45 minute session** on a build
-of `main`, driven from a single `hand-to-maintainer` list ordered by what
-fails worst; the reply is numbers; the ledger row records minutes. The
-urgent waiver stays. The maintainer's merge instruction stays the
-ratifying act; the *waiting* stops being the gate.
+label and are cleared in **one weekly 30–45 minute session**: the
+toolchain lane cuts `rc/YYYY-WW` from `main`, one agent assembles a
+single `hand-to-maintainer` list from every pending PR (ordered by what
+fails worst, capped at about eight items, money items marked), the
+maintainer works a real case on that build and replies with numbers, one
+ledger row per week records the minutes, and each label flips to
+`soak:pass` or `soak:fail` (a fail is a `fix:` PR at the top of the
+queue, never a revert of a flag-off change). The urgent waiver stays.
+The maintainer's merge instruction stays the ratifying act; the *waiting*
+stops being the gate. Today's batch, if adopted now: #374's reduce row,
+#368's Instagram row, #324's refusal row — about 25 minutes.
 
 **Verification rules.** Every escaped bug gets a permanent observer at
 the cheapest layer that could have seen it. Source-grep guards are
@@ -766,62 +877,143 @@ release cycles is retired by its own kill rule.
 
 ## 9. Branches and pull requests — dispositions
 
-**Open PRs (12).** Conflict status against `main` was checked with
-`git merge-tree` on 2026-09-06; only #324 conflicts, and only in
-`docs/JOURNAL.md`.
+**A correction first.** The first draft of this plan described ~30
+"pre-reset" branches descending from a rewritten history. That was a
+clone artifact: the audit container's checkout was shallow (four graft
+points). After `git fetch --deepen`, `origin/main` has 904 commits back
+to 2026-04-19 and **65 of the 79 remote branches are plain ancestors of
+`main`** — merged content, nothing to archive. The only genuinely
+unmerged old branch is `feature/phase-9b-metadata-ui` (six commits,
+2026-05-29; JOURNAL 2026-07-03 kept it as the only copy of an unbuilt
+overlay whose ranker/trust-graph substrate K1 since killed). Every
+future audit starts with `git fetch --unshallow`.
+
+**Throughput today is zero.** `main` has had no commit since 2026-08-28.
+Six behavior PRs wait on the soak rule. Of the 45 pairs of open PR
+branches, 30 conflict — every one of them in `docs/JOURNAL.md` and
+nothing else, because the JOURNAL prepends at the top; `main` carries 54
+"Merge main into …" commits whose only job was resolving that hunk.
+
+**Open PRs.** Conflict status against `main` checked with
+`git merge-tree`; only #324 conflicts, and only in `docs/JOURNAL.md`.
+Merge order to minimise rebases: #373 → #369 → #368 → dependabot → #366
+→ #364 → then rebase #374 and #324.
 
 | PR | Branch | Disposition | Why / what it still needs |
 |---|---|---|---|
-| #368 | fix/instagram-url-identity | **Merge now** (+608, 4 files) | a wire-truth fix (wrong-account attribution); machine-class once the harness runs; until then one capture on a real IG post |
-| #369 | fix/publish-without-session-record | **Merge now** (+139) | a publish that refused on a missing session record; unit-tested; machine-class |
-| #373 | claude/kind-hypatia-fu8nqm | **Merge now** (+408) | tolerance fix for model output; unit-tested; machine-class |
-| #374 | claude/eager-knuth-ipv3xd | **Merge after fold into R3 lane B** (+1,580, `shared/llm-jobs.js` 534 lines) | the job model is right and is the foundation of R5; land it as the `job` handler shape in the dispatcher map rather than two more `if` branches in the 950-line chain |
-| #364 | claude/practical-ramanujan-sk12k1 | **Merge now** (docs only; soak-exempt) | then execute its A1/A2/B2/C1/C2/D1/E1 as one small PR; its B1 (a surface-constraints index) is R1's fourth normative document |
-| #366 | docs/governance-reconciliation-questionnaire | **Merge as the answered record** after the R1 session | becomes the rulings ledger's first section with a superseding banner; do not merge unanswered |
-| #365 | claude/loving-gauss-k8gsta | **Fold** (+528; a 453-line skill that mirrors the corpus it governs) | keep the review standards (~50 lines) inside `architect` or as a ≤120-line skill; keep the README routing rows; do not merge the mirror |
-| #370 | feat/margin-s1 | **Park; re-cut as S1+S2 in R4** (+1,872, 22 commits, `reader/index.js` +504) | the direction is right; merging a flag-off fourth view adds a surface to a product whose problem is too many surfaces, and its fourteen-row walk is mostly guard carriers. If the maintainer prefers to merge now: a five-row walk (M.1, M.2, M.7, M.8, M.14), the other nine recorded as accepted risk, check date 2026-09-30 on whether he opens archived articles in Annotated by choice |
-| #324 | claude/nip07-option-c | **Rebase and merge after the harness exists** (+390/−57, 31 files; base 164 commits stale; JOURNAL conflict only) | a ratified decision (Option C) with five adversarially found leaks already fixed; its live walk (entity creation under Local and under NIP-07 with no local primary) is human-class — one row in the weekly batch |
-| #372, #371, #335 | dependabot/* | **Merge now** | dependency bumps; CI green is the test |
+| #373 | claude/kind-hypatia-fu8nqm | **Merge now** (+408, 288 of them tests) | tolerance fix for stored malformed records; no behavior change on well-formed data; machine-class |
+| #369 | fix/publish-without-session-record | **Merge now** (+139) | removes a refusal; unit-tested; NIP-07 path unchanged by inspection; machine-class |
+| #368 | fix/instagram-url-identity | **Merge now after `git rm docs/superpowers/plans/2026-08-28-margin-s1-see.md`** (+608, of which 421 lines are an unrelated Margin plan file that rode along) | a wire-truth fix (wrong-account attribution on a signed public event). One human row: open a public Instagram reel by in-app navigation from a profile page, capture, expect the reader URL to be `instagram.com/reel/<shortcode>/` and never another account's path (~3 min). Already-published events whose `d` came from a stale `og:url` are not superseded — the right outcome; say so in its JOURNAL line |
+| #371, #372, #375, #376 | dependabot/* | **Merge now**; enable auto-merge for devDependencies and actions on green | lockfile bumps; CI is the test; runtime deps (`readability`, `pdfjs-dist`, `turndown`) stay manual because they ship in the bundles. #376 is the recut of #335 |
+| #366 | docs/governance-reconciliation-questionnaire | **Merge now** into `docs/ideas/` as the unanswered agenda (rebase five commits) | questions, no rulings; docs-only, soak-exempt; a held docs branch is the pattern that rots. Answers land in place, dated, after the R1 session (its own Q19) — the governance lens preferred merging only the answered record; the branch lens's timing wins because nothing in it binds anyone |
+| #364 | claude/practical-ramanujan-sk12k1 | **Merge now** (mark ready; docs only) | advisory review report; then execute its A1/A2/B2/C1/C2/D1/E1 as one small PR; its B1 (a surface-constraints index) is R1's fourth normative document |
+| #365 | claude/loving-gauss-k8gsta | **Fold** (+528; a 453-line skill that mirrors the corpus it governs) | keep the review standards (~50 lines) inside `architect` or as a ≤120-line skill; keep the README routing rows; do not merge the mirror — a second drifting copy is the doc-drift class the skills README itself names |
+| #374 | claude/eager-knuth-ipv3xd | **Rebase and merge after #369**, folded into R3 lane B's `job` handler shape (+1,580; `shared/llm-jobs.js` 534 lines; touches `background/index.js` beside #369 in non-overlapping hunks) | the job model is right and is the precedent for every long pass. One human row, money: with a case whose extracts are all cached, click Analyze corpus, reload the portal mid-run, reopen the case, click Analyze again — expect "(no new synthesis call)" and exactly one reduce request in the Anthropic console (~5 min + one paid reduce) |
+| #324 | claude/nip07-option-c | **Rebase and merge after the browser smoke exists** (+390/−57, 31 files; 26 days old; JOURNAL conflict only) | a ratified decision (Option C) with five adversarially found leaks already fixed; its live walk (entity creation under Local and under NIP-07 with no local primary; expect the named refusal) is one row in the weekly human batch. Once golden fixtures exist (R0), confirm legacy random-keyed entities (`derived_from: null`) still load and sign |
+| #370 | feat/margin-s1 | **Park** (close the PR, keep the branch, tag `archive/feat-margin-s1-20260906`) and re-cut as S1+S2 in R4 — or merge with a four-row walk | the direction is right; merging a flag-off fourth view adds a surface to a product whose problem is too many surfaces, and its fourteen-row walk is mostly guard carriers. If the maintainer will open archived articles in Annotated during real casework in the next two weeks: merge after M.1, M.2, M.7, M.8 (~10 min), the other ten recorded as accepted risk, check date 2026-09-30 |
+| #377 | claude/xray-audit-refactor-opxk01 | this plan | corrected per the branch lens before merge |
 
-**Pre-reset branches (~30, dated ≤ 2026-08-02, behind `main` by 187 and
-"ahead" by 400–690 because they descend from a rewritten history).**
-Sampled six: `feat/opinion-modules-op2`, `claude/personas-college`,
-`feat/reference-resolver`, `feat/known-unknowns-block`,
-`claude/ai-vision-image-text-*`, `claude/identity-rename-workspace-rebind`
-— every distinctive file or symbol is present on `main` (e.g.
-`identity-profiles.js:174 rename(pubkey, label)`; the opinion module,
-reference-resolver, known-unknowns and vision-notes files). They are
-merged content on an orphaned lineage. **Disposition:** tag each as
-`archive/<branch>` (git-recoverable, Art. 3) and delete the branch; a
-`scripts/branch-hygiene.mjs` does it and refuses to delete anything
-whose tip is not reachable from a tag.
+**The 65 merged branches:** delete, no tags — a tag on a commit already
+reachable from `main` adds nothing. **`feature/phase-9b-metadata-ui`:**
+tag `archive/feature-phase-9b-metadata-ui-20260529` and delete.
+`scripts/branch-hygiene.mjs` does both and never touches a branch with an
+open PR.
 
-**Already-merged branches (~35, `ahead 0`, 2026-08-11 → 08-28).**
-Delete. Same script.
-
-**The rule going forward:** a branch that is merged is deleted the same
-day; a branch with no PR for fourteen days is tagged and deleted; the
-script runs weekly.
+**The rules going forward** (enforced by the script, a weekly
+`hygiene.yml`, and two repo settings): auto-delete the head branch on
+merge; a branch whose tip is an ancestor of `main` is deleted; a branch
+with no open PR and no commit for fourteen days is tagged
+`archive/<name>-<yyyymmdd>` and deleted; branch names are
+`<lane>/<topic>` (agent sessions included — the lane prefix is what the
+path check reads); `main` is squash-merge only, linear history, force-push
+forbidden, required checks = the whole gate; at most four open
+non-dependabot PRs (the script opens an issue when exceeded); Dependabot
+devDependency and action bumps auto-merge on green.
 
 ---
 
 ## 10. Security and wire notes that the plan depends on
 
-- `rules/csp-strip.json` rule 1 removes four CSP headers from every
-  `main_frame` and `sub_frame` response on every site, with no domain
-  condition; only rule 2 (the timedtext Referer/Origin rewrite) is
-  scoped to YouTube. Three documents call the strip YouTube-scoped
-  (B5/G3, open). R7 re-derives it empirically before the store listing.
-- The `xr:apihook:event` channel carries a nonce but does not check it
-  on control messages (`api-interceptor.js:183-189`; G1, open).
-  `api-interceptor.js:14-19` still says the script is not manifest-
-  injected; `manifest.json:80-95` injects it on IG/FB/YT at
-  `document_start`.
-- Prompt injection from captured content into an LLM pass is possible
-  by design (G7); the defenses are the grounding firewall (C12 — the
-  model's quote must be found verbatim in the stored body) and the
-  human accept before anything publishes. §4.2's override (a) keeps
-  both: unreviewed rows become *visible*, not *published*.
+The security posture is better than its documentation and much better
+than its manifest. The parts attacked on paper and fixed — the NIP-07
+return path verification, verify-on-ingest on every relay read, the
+credential class excluded from every export and guarded, the pinned
+cloud origins with key scrubbing, the loopback pins, no telemetry, no
+remote code, the capture stash in `chrome.storage.session` — would pass
+a serious reviewer; keep all of it. What blocks a store listing is the
+shape the extension presents to a reviewer and to a target's website:
+
+- **Both `declarativeNetRequest` rules serve a fetch path the JOURNAL
+  declared dead on 2026-04-19.** Rule 1 removes four CSP headers from
+  every main frame and sub-frame on every site, with no domain
+  condition; rule 2 rewrites `Referer`/`Origin` to youtube.com for any
+  site's XHR to the timedtext endpoint. The live transcript fetch runs
+  in youtube.com's own MAIN world, which no youtube.com CSP could block
+  without breaking YouTube's player. Delete both rules, the `rules/`
+  directory, the manifest block and the permission in one PR, correct
+  the three documents that call the strip YouTube-scoped, add the guard
+  that any CSP-removing rule must carry a domain condition, and hand the
+  maintainer one YouTube transcript walk before merge; the fallback if
+  the walk fails is `enabled: false` plus `requestDomains`, not the
+  status quo. (SECU-1; B5, G3.)
+- **Every page can detect X-Ray.** `nip07-bridge.js` runs at
+  `document_start` on `<all_urls>` and announces itself by
+  `postMessage` to every page; the `web_accessible_resources` entry
+  makes the extension fetchable by its stable id from any site; on
+  Facebook, Instagram and YouTube `window.fetch` and `XMLHttpRequest`
+  are replaced with page-visible wrappers and three console lines are
+  logged unconditionally. Against the threat model's own asset list
+  ("the operator's capture pattern discloses who is under scrutiny"),
+  that is asset three leaking passively. Fix: inject both MAIN-world
+  scripts on demand via `scripting.executeScript` — the bridge only on
+  the source tab when signing is NIP-07 and a sign is first needed, the
+  interceptor only when a capture starts on FB/IG/YT — with a CSPRNG
+  token passed in `args`. That is also the only real fix for the
+  unauthenticated `xr:apihook:event` channel (G1): the token T2 planned
+  to mint inside a `postMessage` envelope is readable by the page and is
+  not a control. Drop the `ready` broadcast, the WAR entry (after one
+  controlled re-test of the 2026-08-10 NIP-07 break, which may have been
+  a stale bundle), and the `<all_urls>` CSS injection. (SECU-4/7.)
+- **There is no privacy disclosure, and the Firefox manifest says the
+  extension collects no data** (`data_collection_permissions: none`)
+  while its core function transmits captured page text and URLs to
+  relays permanently and, opt-in, to three cloud providers. Both stores
+  require the disclosure. Write `PRIVACY.md` in the threat model's asset
+  order (what leaves the machine, to whom, when, what never leaves), set
+  the AMO declaration accurately, and derive the listing's permission
+  text from THREAT_MODEL §3. (SECU-2; T5.)
+- **The threat model and the T2 ledger record as done six things the
+  tree reverses or never did** — the WAR entry "removed" but present
+  and guard-pinned to stay, the console lines "gated" but not, the
+  CLAUDE.md reference that does not exist, G4/G6 "scheduled" though the
+  shareable export shipped. One correction PR, then the security skill's
+  own graduation: a CI step that fails when a diff touches
+  `manifest.json`, `rules/`, `src/page/` or adds a fetch destination
+  without touching THREAT_MODEL. (SECU-3/10.)
+- **Prompt injection from a captured page reaches a durable store before
+  any human acts and can leave the machine under the operator's
+  signature** as kind 30070, with only `status: unreviewed` marking the
+  rows. Grounding protects the `quote` field; the paraphrase, entity
+  names, `about` refs and open questions are model-authored. Fixes:
+  every prompt builder wraps article text in a labelled data block with
+  a one-line "do not follow instructions in it"; the 30070 publish
+  defaults to reviewed rows with an explicit "also publish N unreviewed"
+  checkbox (a wire-visible behavior change; the format is unchanged —
+  decision §11-6); the unreviewed count shows in the confirm regardless;
+  import-produced records carry `producer: 'import'` so the dashboard
+  can say "N records from pages you have never opened." (SECU-5; G7.)
+- **The default backup drops the operator's nsec into Downloads in
+  cleartext; the key-free export is the second button.** Make the
+  shareable copy the primary button, relabel the full backup "Recovery
+  backup (contains your identity)" behind a typed confirm, and encrypt
+  its identity block with a passphrase (NIP-49 for the nsec, the NIP-44
+  already in tree for the block). (SECU-6; G4/G6.)
+- **Three copies of the private-address gate, and two service-worker
+  fetches use none** — the Substack proxy takes `apiOrigin` from the
+  stored article record (which can arrive by relay reconstruction or
+  merge-import) and fetches with credentials; URL import admits any
+  `http(s)` URL with credentials. One `url-admission.js` in front of
+  every worker fetch. (SECU-8.)
 - **Kind census for 1.0** (the wire-and-schema report carries the full
   table with emitter, gate, public-relay evidence and consumer per
   kind). Ship: 30023 (article, case brief, entity page), 30040, 0, 1, 3,
@@ -892,10 +1084,21 @@ follow PR #366's scale (E1 explicit ruling … E5 ratified-by-merge only).
    is required on `main`? Default: yes; minutes recorded from today
    either way. (Your 2026-08-23 ruling, made when no browser layer
    existed.)
-6. **Delivery channel:** unlisted Chrome Web Store + AMO-signed `.xpi`,
-   or a signed zip with a developer-mode caveat? Default: store + AMO;
-   Firefox "capture-only, community-supported" until the gate runs on
-   128 ESR. (B7; no ruling exists.)
+6. **Delivery channel and the security bundle it forces.** Unlisted
+   Chrome Web Store + AMO-signed `.xpi`, or a signed zip with a
+   developer-mode caveat? Default: store + AMO; Firefox "capture-only,
+   community-supported" until the gate runs on 128 ESR. On a store, all
+   of §10 becomes a hard gate; confirm the four calls inside it: delete
+   the CSP strip and the `declarativeNetRequest` permission (rather than
+   scope them); inject both MAIN-world scripts on demand (a NIP-07 user's
+   signer prompt then appears on the first sign instead of the bridge
+   being pre-warmed on every page); default the kind-30070 publish to
+   reviewed rows with unreviewed rows opt-in (a change to your
+   2026-07-29 whole-unit posture, made before batch import made hundreds
+   of unopened pages the normal input); passphrase-encrypt the recovery
+   backup's identity block. (B7; the CSP strip is v0.3.0 agent
+   housekeeping with no maintainer ruling; the AMO "collects no data"
+   value has no JOURNAL entry at all.)
 7. **The companion transcriber:** user feature or developer tool?
    Default: "Developer / self-hosted (Windows)"; direct cloud is the
    documented path. (The flag comment cites the 2026-04-19 arms race;
@@ -909,13 +1112,25 @@ follow PR #366's scale (E1 explicit ruling … E5 ratified-by-merge only).
    reader; "only the worker opens relay sockets" as a hard rule with a
    guard; `git mv` the `shared/` split; generate the description layer
    from registries. Default: yes to all five.
-10. **"Hundreds of URLs":** a pasted list first (resumable background
-    queue; platform URLs via a tab lane), frontier expansion second
-    behind a per-case cap; and may unreviewed grounded rows render and
-    feed the corpus reduce with their state visible? Default: yes to
-    both. (Your 2026-09-05 ask; Phase 28 was agent-scoped to "paste a
-    list and watch" at concurrency 2; the accept gate is E3, MA.6's
-    whole-unit disclosure is E1.)
+10. **"Hundreds of URLs" — four calls.** (a) Is a human click required
+    before an LLM proposal becomes a *locally stored* claim, or only
+    before it is *published* and before an entity is *merged*? Default:
+    publish and merge are the human gates; local proposals carry a
+    review state a human can set in bulk; DISCIPLINES §15.3 narrows to
+    "one publish decision per artifact." (b) A pasted URL list first,
+    with platform URLs captured by a Playwright harness that drives the
+    real extension; frontier expansion second behind a per-case cap.
+    Default: yes. (c) May the extraction pass run outside the browser as
+    a CLI over the same modules, key in an environment variable, results
+    ingested through Import & merge? Default: yes, after a security
+    review of key handling; the browser stays the only publisher. (d)
+    Should the durable extraction record become the review surface of
+    record, with a corpus-wide triage table, and should Accept all wait
+    for entities in the durable layer? Default: yes and yes; label the
+    button until then. (Your 2026-09-05 ask; the accept rule lives in
+    four agent-authored places, E5; MA.6's whole-unit disclosure is
+    yours; Phase 28 was agent-scoped to "paste a list and watch" at
+    concurrency 2.)
 11. **Which wire kinds does 1.0 promise as stable, and four wire
     housekeeping calls?** Default: promise 30023, 30040, 0, 10002,
     30078 (+32125/32126 if entity publishing stays on); label every
@@ -968,7 +1183,17 @@ follow PR #366's scale (E1 explicit ruling … E5 ratified-by-merge only).
   net. The doc-currency lens proposes a reorganized `docs/` tree; the
   governance lens proposes four normative documents. Both are adopted;
   the tree shape is secondary to the one-source rule and needs the
-  maintainer's answer to §11-12.
+  maintainer's answer to §11-12. The governance lens would merge PR #366
+  only as the answered record; the branch lens merges it now as the
+  unanswered agenda. Resolution: merge now — nothing in it binds anyone,
+  and held docs branches rot (§9). The doc-currency lens splits the
+  JOURNAL per quarter, the branch lens per month; either works, month
+  is chosen because the conflict rate is the cited friction.
+- **What the lenses corrected in this plan.** The first draft carried a
+  "pre-reset, unmergeable branches" premise inherited from a shallow
+  clone; the branch lens deepened the clone and showed 65 of 79 branches
+  are ancestors of `main`. §8 and §9 were rewritten. The lesson is
+  recorded in §9: an audit's first line is `git fetch --unshallow`.
 
 ---
 
@@ -983,6 +1208,9 @@ follow PR #366's scale (E1 explicit ruling … E5 ratified-by-merge only).
 | continuous-improvement (doc currency) | [`audit-2026-09-05/doc-currency.md`](audit-2026-09-05/doc-currency.md) | DOCC-1..20 |
 | governance | [`audit-2026-09-05/governance.md`](audit-2026-09-05/governance.md) | GOVE-1..14, census C1–C22 |
 | ecosystem-pm + schema-evolution | [`audit-2026-09-05/wire-and-schema.md`](audit-2026-09-05/wire-and-schema.md) | WIRE-01..18, kind census, persisted-shape inventory |
+| security-threat-modeler | [`audit-2026-09-05/security.md`](audit-2026-09-05/security.md) | SECU-1..12 |
+| corpus automation (automator + xray-capture) | [`audit-2026-09-05/corpus-automation.md`](audit-2026-09-05/corpus-automation.md) | CORP-1..15, cost table |
+| branch strategy (continuous-improvement + hand-to-maintainer) | [`audit-2026-09-05/branch-strategy.md`](audit-2026-09-05/branch-strategy.md) | BRAN-1..13, PR dispositions, lane map, hygiene rules |
 
 ## Appendix B — ROAD_TO_1_0 crosswalk (status on 2026-09-06)
 
