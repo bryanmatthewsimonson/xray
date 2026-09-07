@@ -19,6 +19,75 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-09-07 — The browser smoke joins CI: `npm run smoke`, a pages check, and the MA.6 walk un-rotted
+
+**Tags:** design, pattern
+
+**The friction, cited.** `tools/smoke/ma6-walk.mjs` — the one observer
+of the layer no unit test executes (built bundles loaded as a real
+unpacked extension) — was run by nothing: no npm script, no
+devDependency, container-only absolute paths, and a selector that
+matched heading copy (`/Extracted assertions/`). UA.3 renamed the
+heading on 2026-08-12 and the walk went red on its own selector within
+ten days while every product check inside it still passed. Meanwhile
+the 2026-08 record shows eighteen "suite green, behavior wrong" escapes,
+fourteen of them shaped navigate / click / read DOM — the class this
+walk observes (`docs/RESET_PLAN.md` §6, R0; the verification lens in
+`docs/audit-2026-09-05/`). The soak rule was carrying all of that on
+one person's browser.
+
+**What landed.** `playwright` as an exact-pinned devDependency (the
+browser revision rides the version). `tools/smoke/lib/browser.mjs`
+resolves the full Chromium (`XR_CHROME`, else Playwright's own — the
+headless_shell build cannot load extensions), launches the unpacked
+extension on a throwaway profile, reads the extension id off the
+service worker, and bundles seed harnesses into `dist/` and removes
+them on exit. Two scenarios: `pages` opens all five extension pages
+and fails on any uncaught exception, after asserting `dist/` holds
+every bundle `esbuild.config.mjs` declares (read from the config's own
+text, so a new entry point is checked without anyone editing the
+scenario); `ma6` is the existing walk, now anchored on
+`[data-xr="extraction-block"]` instead of heading text, with
+`tests/smoke-selectors.test.mjs` pinning that every `data-xr` a
+scenario references exists in `src/` — the walk cannot go stale on a
+rename again without the unit suite saying so first. `tools/smoke/run.mjs`
+runs each scenario in its own process under a hard timeout, enforces a
+five-minute budget, and writes `out/summary.json`; which scenarios are
+advisory is the caller's flag, never a date in code. The CI job
+`browser-smoke` installs Chromium, runs `npm run smoke --
+--advisory=ma6`, and uploads screenshots and reports as an artifact.
+
+**Second-guessable calls.** (1) `pages` gates from day one and `ma6`
+is advisory until 2026-09-21 — `pages` cannot false-alarm (zero
+`pageerror` on a page that has to load), the walk has one run in CI's
+environment so far; the flip is one workflow line, on the record.
+(2) `console.error` is reported, not failed on: a reader opened with no
+`?id` says "no article is open", which is behaving. (3) Text selectors
+for buttons ("Accept as claim", "Publish analysis…") stay — those ARE
+user-visible strings the walk legitimately asserts; only the block
+anchor moved to `data-xr`, because a heading is copy. (4) No browser
+cache in CI yet: the install costs ~40 s per run and a pinned
+`actions/cache` SHA is one more supply-chain pin — add it when the
+cost is felt.
+
+**Ladder and payback (automator).** Script → CI gate. Measured here:
+`pages` 11.5 s, `ma6` 30.7 s, whole run 42 s against a 300 s budget.
+Twelve of August's escapes were browser-class; each cost roughly a
+follow-up PR, a re-walk and a JOURNAL entry. The job pays for itself
+the first month it catches one.
+
+**So-what.** From this commit a PR that breaks any extension page's
+load, or the extraction-review surface, goes red without a human
+opening a browser. Next slices on the same harness (RESET_PLAN R0/R5):
+a loopback relay so a confirmed publish is machine-observed, a
+first-hour walk, and the capture harness.
+
+Files: `tools/smoke/{run,pages,ma6-walk}.mjs`, `tools/smoke/lib/browser.mjs`,
+`tests/smoke-selectors.test.mjs`, `src/portal/extraction-block.js`
+(one `dataset.xr`), `.github/workflows/ci.yml`, `package.json`.
+
+---
+
 ## 2026-08-25 — Suggest's shape failures get ONE paid repair round; the dossier's bandText ghost
 
 **Tags:** bug, llm

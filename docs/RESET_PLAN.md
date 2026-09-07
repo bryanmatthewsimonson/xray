@@ -452,17 +452,23 @@ dependency, not by importance; lanes inside a track run in parallel
 Goal: nothing gets worse while work runs in parallel, and machines start
 looking where the bugs are.
 
-- [ ] **The browser smoke in CI, required.** `npm run smoke` →
-      `tools/smoke/run.mjs`; `playwright` as a devDependency; browser
-      resolved from `PLAYWRIGHT_BROWSERS_PATH` with `XR_CHROME` override;
-      CI job after build: load the unpacked extension, open all five
-      extension pages asserting zero `pageerror` and ten bundles, then
-      run the MA.6 walk with its stale selector fixed and selectors moved
-      to `data-xr` attributes; outputs to CI artifacts; committed PNG/JSON
-      deleted. (M; VERI-02; B8 and T4's "Playwright devDependency + CI
-      job loading the extension" checkbox, open.) The `pages` check is
-      required from day one; scenario walks advisory for two weeks, then
-      required. Budget: the whole smoke job ≤ 5 minutes wall clock.
+- [x] **The browser smoke in CI, required.** *Landed 2026-09-07 on this
+      branch (JOURNAL entry of that date): `npm run smoke` →
+      `tools/smoke/run.mjs`; `playwright` pinned as a devDependency;
+      `lib/browser.mjs` resolves the full Chromium with `XR_CHROME`
+      override; the `browser-smoke` CI job builds, installs Chromium,
+      opens all five extension pages asserting zero `pageerror` and
+      every bundle `esbuild.config.mjs` declares, then runs the MA.6
+      walk anchored on `[data-xr="extraction-block"]` with
+      `tests/smoke-selectors.test.mjs` pinning the anchor; outputs
+      upload as a CI artifact. Measured locally: 42 s.* Remaining from
+      this bullet: move the walk's other selectors to `data-xr` as
+      surfaces are touched; add a browser cache to the job when its ~40 s
+      install is felt. (VERI-02; B8 and T4's "Playwright devDependency +
+      CI job loading the extension" checkbox — closed.) The `pages`
+      check is required from day one; the MA.6 walk is advisory until
+      2026-09-21, then required. Budget: the whole smoke job ≤ 5 minutes
+      wall clock.
       Flake policy: a scenario that fails without a code cause is fixed
       or deleted within the week, on the record — never quarantined
       silently; the automator kill rule (two false alarms, no true

@@ -116,6 +116,13 @@ Have these set up in the test browser:
 
 ## Agent-runnable subset
 
+> **Machine-run in CI since 2026-09-07:** `npm run smoke` loads the
+> built extension in headless Chromium and runs `pages` (every
+> extension page loads with zero uncaught errors) and the MA.6
+> extraction-review walk (`tools/smoke/`). Those rows never need a human
+> again; the sections below describe what an agent driving a real
+> browser can additionally cover.
+
 A subset of this checklist can be driven by a browser-aware agent
 (any tool that exposes Chrome MCP-shaped APIs against Edge or
 Chrome — see `docs/JOURNAL.md` 2026-04-21 entry for the proof of

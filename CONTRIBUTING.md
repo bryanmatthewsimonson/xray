@@ -81,6 +81,10 @@ web-ext build          # produces a .zip in web-ext-artifacts/
 
 - `npm test` green.
 - `npm run build` green (no errors, no new warnings).
+- `npm run smoke` green — the browser smoke loads the built extension
+  in headless Chromium (`npx playwright install chromium` once per
+  machine). CI runs the same scenarios; `pages` gates every PR, the
+  MA.6 walk is advisory until 2026-09-21.
 - Load in Chrome and smoke-test whatever path you touched end to
   end. For platform handlers: capture + publish on a live page, not
   just a static fixture.

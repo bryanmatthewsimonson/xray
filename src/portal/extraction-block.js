@@ -63,6 +63,9 @@ export function renderExtractionBlock(host, { data, callbacks = {} }) {
     const caseId = data.case && data.case.id;
     if (!caseId) return;
     const block = el('div', 'xr-synth');
+    // Stable anchor for the browser smoke (tools/smoke/ma6-walk.mjs):
+    // headings are copy and may change; this attribute is the seam.
+    block.dataset.xr = 'extraction-block';
     host.appendChild(block);
 
     (async () => {
