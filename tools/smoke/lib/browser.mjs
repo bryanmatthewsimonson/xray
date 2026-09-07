@@ -45,7 +45,9 @@ const require = createRequire(import.meta.url);
  * src/<dir>/ that loads a dist bundle. The id is the directory name —
  * the same string the page passes to `markReady()` (src/shared/
  * smoke-anchors.js) — so a new surface joins the `pages` scenario by
- * existing, and a shell that stops loading a bundle drops out of it.
+ * existing. tests/smoke-bundles.test.mjs pins this list to EVERY shell
+ * under src/, so a shell that stops loading a bundle by literal
+ * `<script src>` fails the unit suite rather than silently leaving.
  * @type {ReadonlyArray<{id: string, path: string}>}
  */
 export const EXTENSION_PAGES = Object.freeze(discoverPages());
@@ -81,12 +83,35 @@ export async function expectedBundles() {
     return out;
 }
 
-/** Fail fast, with the fix, when dist/ is not a complete build. */
+/** Newest mtime under a tree (ms). */
+function newestMtime(dir) {
+    let newest = 0;
+    for (const name of readdirSync(dir)) {
+        const p = join(dir, name);
+        const st = statSync(p);
+        newest = Math.max(newest, st.isDirectory() ? newestMtime(p) : st.mtimeMs);
+    }
+    return newest;
+}
+
+/**
+ * Fail fast, with the fix, when dist/ is not a complete, CURRENT build:
+ * every bundle present, and none older than the newest file under src/
+ * or the build config — a smoke run over stale bundles would stamp
+ * ready for code that no longer exists. (pdf.js runtime assets the build
+ * also copies are not checked here; R0's packaged-contents assertion
+ * owns those.)
+ */
 export async function assertBuilt() {
     const expected = await expectedBundles();
     const missing = expected.filter((f) => !existsSync(join(REPO, f)));
     if (missing.length) {
         throw new Error(`dist/ is incomplete — run \`npm run build\` first. Missing: ${missing.join(', ')}`);
+    }
+    const srcNewest = Math.max(newestMtime(join(REPO, 'src')), statSync(join(REPO, 'esbuild.config.mjs')).mtimeMs);
+    const stale = expected.filter((f) => statSync(join(REPO, f)).mtimeMs < srcNewest);
+    if (stale.length) {
+        throw new Error(`dist/ is older than src/ — run \`npm run build\` first. Stale: ${stale.join(', ')}`);
     }
     return expected;
 }
@@ -117,15 +142,48 @@ export function ensureOut() {
     return OUT;
 }
 
+const PROFILE_PREFIX = 'xr-profile-';
+
+/**
+ * A throwaway profile, removed on process exit whatever the exit path
+ * (an uncaught rejection included — the hook is synchronous). The walk
+ * generates a signing key into it, so a leak is key material on disk.
+ * XR_SMOKE_KEEP_PROFILE=1 keeps it for debugging.
+ */
 export function newProfile() {
-    return mkdtempSync(join(tmpdir(), 'xr-profile-'));
+    const profile = mkdtempSync(join(tmpdir(), PROFILE_PREFIX));
+    process.on('exit', () => removeProfile(profile));
+    return profile;
+}
+
+function removeProfile(profile) {
+    if (process.env.XR_SMOKE_KEEP_PROFILE) return;
+    try { rmSync(profile, { recursive: true, force: true }); } catch (_) { /* best effort */ }
+}
+
+/**
+ * Remove every throwaway profile created since `sinceMs` — the runner
+ * calls this after each scenario, which covers the one exit no hook can:
+ * SIGKILL. Older profiles are left alone in case another run owns them.
+ */
+export function sweepProfiles(sinceMs) {
+    const dir = tmpdir();
+    for (const name of readdirSync(dir)) {
+        if (!name.startsWith(PROFILE_PREFIX)) continue;
+        const p = join(dir, name);
+        let st;
+        try { st = statSync(p); } catch (_) { continue; }
+        if (st.isDirectory() && st.birthtimeMs >= sinceMs - 1000) {
+            try { rmSync(p, { recursive: true, force: true }); } catch (_) { /* best effort */ }
+        }
+    }
 }
 
 /**
  * Launch the unpacked extension on a fresh profile and resolve its id.
- * `close()` closes the browser AND deletes the profile — it holds a
- * generated signing key in the walk scenarios (XR_SMOKE_KEEP_PROFILE=1
- * keeps it for debugging).
+ * `close()` closes the browser AND deletes the profile (the exit hook
+ * from `newProfile()` covers every other exit path; the runner sweeps
+ * after a SIGKILL).
  * @returns {Promise<{ctx: import('playwright').BrowserContext, extId: string, profile: string, close: () => Promise<void>}>}
  */
 export async function launchExtension({ pw, chrome, profile = newProfile(), viewport = { width: 1400, height: 1100 } } = {}) {
@@ -138,9 +196,7 @@ export async function launchExtension({ pw, chrome, profile = newProfile(), view
     });
     const close = async () => {
         await ctx.close().catch(() => { /* already gone */ });
-        if (!process.env.XR_SMOKE_KEEP_PROFILE) {
-            try { rmSync(profile, { recursive: true, force: true }); } catch (_) { /* best effort */ }
-        }
+        removeProfile(profile);
     };
     let sw;
     try {

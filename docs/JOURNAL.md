@@ -99,8 +99,23 @@ misspelled script → red; a detached child that ignores SIGTERM and
 holds a grandchild dies by group SIGKILL after the grace period;
 `https://relay.damus.io` and `http://example.com` fail with
 `ERR_PROXY_CONNECTION_FAILED` while `ws://127.0.0.1:1` is refused in 2 ms
-unproxied. The pattern: a harness's own checks cannot tell it what it
-does not observe; only a control that SHOULD go red can.
+unproxied. A second round on the fixes then found the profile deletion
+covered only the clean exit (35 leaked profiles on the dev machine,
+eight holding a key), the egress kill was a launch flag nothing
+observed, the build's new main guard was false under a symlinked
+checkout (Node realpaths the ESM main; `npm run build` would have
+exited 0 producing nothing), the ready stamp was fail-open (a shell
+could carry it statically), a stale `dist/` passed `assertBuilt`, and
+the discovered page list could shrink silently. Closed in turn: a
+synchronous exit hook plus a runner sweep for profiles; an egress
+canary in `pages` step 3 (a public https navigation must fail with a
+proxy error); realpath on both sides of the guard; guards that no shell
+carries `data-xr-ready`, every page entry calls `markReady('<dir>')`
+exactly once and nothing else does, every shell under `src/` is a
+discovered page, and `dist/` is newer than `src/`. The pattern, twice:
+a harness's own checks cannot tell it what it does not observe; only a
+control that SHOULD go red can — and a control stated in a document is
+a claim until something observes it.
 
 **Second-guessable calls.** (1) `pages` gates from day one; `ma6` is
 advisory until the flip. Flip criterion, owner and mechanism: on
@@ -143,7 +158,11 @@ the gate pays for itself the first month it catches one of that class
 before merge. Rot list: the flip date; the ten remaining sleeps; the
 runner-image coupling; `web-ext lint` still scans `dist/`, so a seed
 bundle that survives a kill would inflate its warning count (swept
-three ways, and excluded from the zip by `webExt.ignoreFiles`).
+three ways, and excluded from the zip by `webExt.ignoreFiles`). Stated
+blind spots, not fixed: the service worker's own console is not
+observed by `pages`; the reader is observed in its URL-entry landing
+and the network page in its flag-off state (both rendered states — the
+deeper paths are the walks' job); screenshots are not key-scanned.
 
 **So-what.** From this branch a PR that leaves any extension page
 inert, throws during its init, mis-references a bundle, or breaks the

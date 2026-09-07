@@ -20,7 +20,16 @@
 // anchor is neither a definition nor a reference (review 2026-09-07,
 // VER-4 / CI-8). A consumer selector in src (`querySelector('[data-xr=…')`)
 // is not a definition either — the definition forms are attribute-set
-// forms only.
+// forms only. A scenario reading `dataset.xr` or `getAttribute('data-xr')`
+// without comparing to SMOKE_ANCHORS is banned for the same reason a
+// literal in any other spelling is: the scanner cannot resolve it.
+//
+// The READY STAMP is guarded here too, because it is fail-open by
+// construction: a shell that carried `data-xr-ready` statically, or a
+// page that never called markReady, would restore exactly the
+// green-on-an-inert-bundle the stamp exists to end. So: no HTML shell may
+// carry the attribute, every discovered page's entry file calls
+// `markReady('<dir>')` exactly once, and nothing else in src/ calls it.
 // Provenance: INTERPRETATION (2026-09-07) — the data-xr convention is an
 // agent choice under RESET_PLAN R0; the maintainer has not ruled on it.
 
@@ -30,6 +39,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SMOKE_ANCHORS } from '../src/shared/smoke-anchors.js';
+import { EXTENSION_PAGES } from '../tools/smoke/lib/browser.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -76,6 +86,12 @@ function scanScenarios() {
             } else {
                 other.push(`${spelled} (${rel(f)})`);
             }
+        }
+        // Property and getAttribute reads that the selector scan cannot see.
+        for (const line of text.split('\n')) {
+            if (!/\bdataset\.xr\b|getAttribute\(\s*["']data-xr["']\s*\)/.test(line)) continue;
+            if (/SMOKE_ANCHORS\./.test(line)) continue;
+            other.push(`${line.trim().slice(0, 60)} (${rel(f)})`);
         }
     }
     return { literal, tableRefs, other };
@@ -130,4 +146,24 @@ test('guard: every data-xr selector a scenario spells resolves — literals exis
     assert.deepEqual(other, [],
         'smoke scenarios spell data-xr selectors in a form this guard cannot resolve — use a quoted literal '
         + 'or `[data-xr="${SMOKE_ANCHORS.<key>}"]`: ' + other.join(', '));
+});
+
+test('guard: the ready stamp is set by code only — no shell carries it, every page calls markReady once, nothing else does', () => {
+    const shells = srcFiles.filter((f) => f.endsWith('.html'))
+        .filter((f) => /data-xr-ready/.test(stripComments(readFileSync(f, 'utf8'))));
+    assert.deepEqual(shells.map(rel), [], 'an HTML shell carries data-xr-ready statically — the stamp must be the last act of init, set by code');
+
+    assert.ok(EXTENSION_PAGES.length >= 1, 'no extension page discovered — the scanner is blind');
+    const wrong = [];
+    for (const { id } of EXTENSION_PAGES) {
+        const entry = join(REPO, 'src', id, 'index.js');
+        const text = stripComments(readFileSync(entry, 'utf8'));
+        const calls = [...text.matchAll(/\bmarkReady\(\s*['"]([a-z0-9-]+)['"]\s*\)/g)].map((m) => m[1]);
+        if (calls.length !== 1 || calls[0] !== id) wrong.push(`${id}: markReady calls ${JSON.stringify(calls)}`);
+    }
+    assert.deepEqual(wrong, [], 'each page entry must call markReady(\'<dir>\') exactly once: ' + wrong.join('; '));
+
+    const allowed = new Set([...EXTENSION_PAGES.map(({ id }) => join(REPO, 'src', id, 'index.js')), join(REPO, 'src', 'shared', 'smoke-anchors.js')]);
+    const strays = srcFiles.filter((f) => !allowed.has(f) && /\bmarkReady\b|data-xr-ready|dataset\.xrReady/.test(stripComments(readFileSync(f, 'utf8'))));
+    assert.deepEqual(strays.map(rel), [], 'the ready stamp is touched outside the page entries: ' + strays.map(rel).join(', '));
 });

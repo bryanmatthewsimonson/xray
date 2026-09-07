@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { expectedBundles } from '../tools/smoke/lib/browser.mjs';
+import { EXTENSION_PAGES, expectedBundles } from '../tools/smoke/lib/browser.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -52,4 +52,15 @@ test('guard: expectedBundles() is exactly the set the product loads', async () =
     const unloaded = expected.filter((f) => !loaded.has(f)).sort();
     assert.deepEqual(unbuilt, [], 'the product loads bundles esbuild.config.mjs does not build: ' + unbuilt.join(', '));
     assert.deepEqual(unloaded, [], 'esbuild.config.mjs builds bundles nothing in the product loads: ' + unloaded.join(', '));
+});
+
+test('guard: every HTML shell under src/ is a discovered extension page — none drops out of `pages` silently', () => {
+    const shells = walk(join(REPO, 'src'), ['.html']).map((f) => f.replace(REPO + '/', '')).sort();
+    const discovered = EXTENSION_PAGES.map((p) => p.path).sort();
+    assert.ok(shells.length >= 1, 'no HTML shell under src/ — the scanner is blind');
+    assert.deepEqual(discovered, shells,
+        'the smoke discovers pages by a literal dist/*.bundle.js in the shell; a shell that loads its bundle another way is not smoked');
+    for (const { id, path } of EXTENSION_PAGES) {
+        assert.ok(path.startsWith(`src/${id}/`), `page id ${id} must be its directory name — markReady('${id}') is matched against it`);
+    }
 });

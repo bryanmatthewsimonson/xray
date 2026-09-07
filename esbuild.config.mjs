@@ -28,7 +28,7 @@ import * as esbuild from 'esbuild';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
-import { readFileSync, cpSync } from 'node:fs';
+import { readFileSync, cpSync, realpathSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = __dirname;
@@ -164,9 +164,16 @@ async function build() {
 }
 
 // Build only when run as a script. An importer (the browser smoke, the
-// unit suite) gets `configs` and no side effects.
-const isMain = Boolean(process.argv[1])
-    && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+// unit suite) gets `configs` and no build — it does pay for the build
+// stamp above (three git calls, ~100 ms). Both sides are realpath'd:
+// Node resolves the ESM main through symlinks, argv[1] is as typed, and
+// a checkout under a symlinked directory must still build.
+const isMain = (() => {
+    if (!process.argv[1]) return false;
+    try {
+        return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(resolve(process.argv[1]));
+    } catch (_) { return false; }
+})();
 if (isMain) {
     build().catch((err) => {
         console.error('[xray] build failed:', err);

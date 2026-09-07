@@ -267,6 +267,11 @@ else {
 }
 await page.evaluate(() => { for (const d of document.querySelectorAll('details')) d.open = true; });
 await page.waitForTimeout(2500);
+// Attached is not shown: innerText of a hidden node falls back to its
+// textContent, so the block must also be VISIBLE once every fold is open.
+if (blockText && !(await page.locator(BLOCK).first().isVisible())) {
+    fail('the extraction block is in the DOM but not visible with every section open');
+}
 await page.screenshot({ path: join(OUT, 'ma6-02-expanded.png'), fullPage: true });
 
 // ------------------------------------------------- publish affordance
@@ -432,14 +437,19 @@ page.on('dialog', (d) => d.accept());   // accept the confirm; the relay is ws:/
 const pub = page.locator('button', { hasText: /^Publish analysis…$/ }).first();
 if (!(await pub.count())) fail('the per-article publish button vanished after review');
 else {
+    // Earlier steps leave status lines in the DOM; only a line that is NEW
+    // since the click counts, so a stale match cannot pass this step.
+    const statusTexts = () => page.evaluate(() =>
+        [...document.querySelectorAll('.xr-synth__status')].map((e) => e.textContent.trim()).filter(Boolean));
+    const before = await statusTexts();
     await pub.click();
     // The transport answers as soon as the dead relay refuses; wait for
     // the status line that reports it (either outcome) instead of sleeping.
-    await page.waitForFunction(() => [...document.querySelectorAll('.xr-synth__status')]
-        .some((e) => /Publish failed|No relays|not accept|No local identity|Published/i.test(e.textContent)),
-        null, { timeout: 30000 }).catch(() => { /* asserted below */ });
-    const status = await page.evaluate(() =>
-        [...document.querySelectorAll('.xr-synth__status')].map((e) => e.textContent.trim()).filter(Boolean));
+    await page.waitForFunction((prev) => [...document.querySelectorAll('.xr-synth__status')]
+        .map((e) => e.textContent.trim())
+        .some((t) => !prev.includes(t) && /Publish failed|No relays|not accept|No local identity|Published/i.test(t)),
+        before, { timeout: 30000 }).catch(() => { /* asserted below */ });
+    const status = (await statusTexts()).filter((t) => !before.includes(t));
     note('  status text: ' + JSON.stringify(status));
     if (status.some((t) => /No local identity/i.test(t))) {
         fail('the publish path stopped at the identity check — the transport was never exercised');

@@ -10,24 +10,28 @@
 // whatever way it ended. Writes tools/smoke/out/summary.json
 // (XR_SMOKE_OUT overrides the directory).
 //
-// Exit code 1 when any REQUIRED scenario fails or times out, when the
-// run exceeds BUDGET_MS, or when any output file carries key material
-// (the artifact scan — outputs upload as a public CI artifact).
-// Scenarios named in --advisory are run and reported but never fail the
-// run; which scenarios are advisory is the caller's call (the CI
-// workflow), never a date in this file. Exit 2 is a usage or setup
-// error: unknown flag, empty selection, dist/ not built.
+// Exit code 1 when any REQUIRED scenario fails, times out, or exits 2
+// (its own observers or setup failed — reported as `error`, not `fail`,
+// so a blind gate is distinguishable from a red one), when the run
+// exceeds BUDGET_MS, or when any text output file carries key material
+// (the artifact scan — outputs upload as a public CI artifact;
+// screenshots are not scanned, so no scenario may screenshot a surface
+// after revealing a key). Scenarios named in --advisory are run and
+// reported but never fail the run; which scenarios are advisory is the
+// caller's call (the CI workflow), never a date in this file. Exit 2 is
+// a usage or setup error of the runner itself: unknown flag, empty
+// selection, dist/ not built or stale.
 //
 // Budget: the whole run — advisory time included — must fit BUDGET_MS
-// wall clock; the per-scenario timeouts are sized so that even every
-// scenario timing out fits, so an advisory timeout can never fail the
-// run through the budget line. Exceeding the budget is itself a
-// finding, because a slow gate is a gate people stop running.
+// wall clock; the per-scenario timeouts plus their kill grace are sized
+// so that even every scenario timing out fits, so an advisory timeout
+// can never fail the run through the budget line. Exceeding the budget
+// is itself a finding, because a slow gate is a gate people stop running.
 
 import { spawn } from 'node:child_process';
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { assertBuilt, ensureOut, SMOKE_DIR, sweepSeeds } from './lib/browser.mjs';
+import { assertBuilt, ensureOut, SMOKE_DIR, sweepProfiles, sweepSeeds } from './lib/browser.mjs';
 
 const SCENARIOS = [
     { id: 'pages', file: 'pages.mjs',    timeoutMs: 90_000 },
@@ -42,8 +46,8 @@ const usage = (msg) => {
     process.exit(2);
 };
 
-const timeoutSum = SCENARIOS.reduce((a, s) => a + s.timeoutMs, 0);
-if (timeoutSum > BUDGET_MS) usage(`scenario timeouts sum to ${timeoutSum} ms, over the ${BUDGET_MS} ms budget — resize one on the record`);
+const worstCase = SCENARIOS.reduce((a, s) => a + s.timeoutMs + GRACE_MS, 0);
+if (worstCase > BUDGET_MS) usage(`scenario timeouts plus kill grace sum to ${worstCase} ms, over the ${BUDGET_MS} ms budget — resize one on the record`);
 
 const flags = new Map();
 for (const a of process.argv.slice(2)) {
@@ -53,7 +57,7 @@ for (const a of process.argv.slice(2)) {
     if (!ids.length) usage(`--${m[1]}= names no scenario`);
     const unknown = ids.filter((id) => !SCENARIOS.some((s) => s.id === id));
     if (unknown.length) usage(`unknown scenario(s): ${unknown.join(', ')}`);
-    flags.set(m[1], ids);
+    flags.set(m[1], [...(flags.get(m[1]) || []), ...ids]);   // a repeated flag accrues, never replaces
 }
 const only = flags.get('only') || null;
 const advisory = new Set(flags.get('advisory') || []);
@@ -71,10 +75,11 @@ const results = [];
 let current = null;   // pid of the running scenario's process group
 
 const killGroup = (pid, sig) => { try { process.kill(-pid, sig); } catch (_) { /* already gone */ } };
+const sweep = () => { sweepSeeds(); sweepProfiles(t0); };
 for (const sig of ['SIGINT', 'SIGTERM']) {
     process.on(sig, () => {
         if (current) killGroup(current, 'SIGKILL');
-        sweepSeeds();
+        sweep();
         process.exit(130);
     });
 }
@@ -98,7 +103,7 @@ function runScenario(s) {
             if (killer) clearTimeout(killer);
             killGroup(child.pid, 'SIGKILL');   // stragglers (an orphaned Chromium) die with the scenario
             current = null;
-            sweepSeeds();
+            sweep();                            // seed bundles and profiles, whatever way the child ended
             resolve(r);
         };
         child.on('error', (err) => done({ status: null, signal: null, timedOut, error: err }));
@@ -113,7 +118,7 @@ for (const s of SCENARIOS) {
     const t = Date.now();
     const r = await runScenario(s);
     const ms = Date.now() - t;
-    const status = r.timedOut ? 'timeout' : (r.status === 0 ? 'pass' : 'fail');
+    const status = r.timedOut ? 'timeout' : r.status === 0 ? 'pass' : r.status === 2 ? 'error' : 'fail';
     if (r.error) console.log(`  error: ${r.error.message}`);
     if (r.signal && !r.timedOut) console.log(`  killed by ${r.signal}`);
     results.push({ id: s.id, status, ms, advisory: isAdvisory, exitCode: r.status, signal: r.signal || null });
