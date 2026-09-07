@@ -23,6 +23,7 @@ import { getArticleExtraction, saveArticleExtraction } from '../shared/audit/aud
 import { gatePublish, relayPublishTransport } from '../shared/publish-gate.js';
 import { FALLBACK_RELAYS } from './corpus.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
+import { SMOKE_ANCHORS } from '../shared/smoke-anchors.js';
 import {
     assertionClaimCoverage, isTextPinnedKey, markRecordPublished,
     partitionAssertions, setAssertionTriage
@@ -64,8 +65,9 @@ export function renderExtractionBlock(host, { data, callbacks = {} }) {
     if (!caseId) return;
     const block = el('div', 'xr-synth');
     // Stable anchor for the browser smoke (tools/smoke/ma6-walk.mjs):
-    // headings are copy and may change; this attribute is the seam.
-    block.dataset.xr = 'extraction-block';
+    // headings are copy and may change; this attribute is the seam, and
+    // the value is the shared constant so the walk cannot drift from it.
+    block.dataset.xr = SMOKE_ANCHORS.extractionBlock;
     host.appendChild(block);
 
     (async () => {

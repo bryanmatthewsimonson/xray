@@ -5,6 +5,7 @@
 // match that here: parse on read, stringify on write.
 
 import { readDiagnostics, clearDiagnostics, formatDiagnostics, recordDiagnostic, flushDiagnostics } from '../shared/diagnostics.js';
+import { markReady } from '../shared/smoke-anchors.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
@@ -1944,6 +1945,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         clearTranscriberKey(TRANSCRIBER_TOKEN_STORAGE, 'pref-transcriber-token',
             'transcriber-token-status', 'token'));
     document.getElementById('clear-all').addEventListener('click', clearAll);
+
+    // Last act of init: the browser smoke waits for this stamp
+    // (src/shared/smoke-anchors.js). Keep it last.
+    markReady('options');
 });
 // Re-export for tests / debugging.
 export { Storage, Crypto };

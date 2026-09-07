@@ -83,8 +83,12 @@ web-ext build          # produces a .zip in web-ext-artifacts/
 - `npm run build` green (no errors, no new warnings).
 - `npm run smoke` green — the browser smoke loads the built extension
   in headless Chromium (`npx playwright install chromium` once per
-  machine). CI runs the same scenarios; `pages` gates every PR, the
-  MA.6 walk is advisory until 2026-09-21.
+  machine). CI runs the same scenarios; `pages` gates every PR (every
+  extension page must run its init to the ready stamp with no uncaught
+  exception and no product `console.error`), the MA.6 walk is advisory
+  until the flip recorded in `docs/JOURNAL.md` 2026-09-07. A new
+  extension page joins `pages` by ending its init with
+  `markReady('<dir>')` (`src/shared/smoke-anchors.js`).
 - Load in Chrome and smoke-test whatever path you touched end to
   end. For platform handlers: capture + publish on a live page, not
   just a static fixture.
