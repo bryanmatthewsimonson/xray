@@ -10,7 +10,9 @@ build, `web-ext lint` clean).
 Protocol over the whole tree with the same brief — the maintainer's
 2026-09-05 ask, verbatim, plus the rule that every finding cites
 `file:line` and classifies what it touches as KEEP / GRANDFATHERED /
-GARBAGE. The lens reports are the evidence and live beside this file in
+GARBAGE. Each lens's top findings were then handed to an independent
+verifier told to refute them (§12 records what that changed). The lens
+reports are the evidence and live beside this file in
 [`docs/audit-2026-09-05/`](audit-2026-09-05/); this document is the
 synthesis and the plan. It does not restate
 [`ROAD_TO_1_0.md`](ROAD_TO_1_0.md) (2026-08-09); it cites its ids
@@ -40,22 +42,23 @@ in two minutes with no display. The JOURNAL's habit of writing down why.
 
 **Four root causes, not forty symptoms.**
 
-1. **Governance cannot tell a ruling from a reading.** There are eleven
-   maintainer-decision markers in a 10,823-line JOURNAL and none in the
-   constitution's fourteen articles; the guard suite pins agent-drafted
-   prose and maintainer rulings identically. So "no aggregations" — a
+1. **Governance cannot tell a ruling from a reading.** A handful of ad
+   hoc "(maintainer, date)" notes in a 10,800-line JOURNAL and two design
+   docs are the only markers of a human decision; the constitution's
+   fourteen articles carry none; there is no protocol; and the guard
+   suite pins agent-drafted prose and maintainer rulings identically. So "no aggregations" — a
    sprint-scoped descope on 2026-07-03, clarified as never-doctrine on
    2026-07-21, narrowed on paper by Art. 5 on 2026-08-02 — still lives in
    code as 22 distinct "firewall" mechanisms, eight of which are agent
    generalizations and seven of which are prose pins that observe no
    behavior at all (§4).
 2. **The maintainer is the only verification layer for everything a user
-   touches.** 186 of 247 modules are executed by `npm test`; the five
-   surfaces, the service worker, the content script, and six platform
-   handlers are executed by nothing. All eighteen August "suite green,
-   behavior wrong" escapes lived in that unexecuted layer, and fourteen
-   are machine-observable today. The soak rule made one human the serial
-   gate for ~50 PRs a month (§6).
+   touches.** 199 of 247 modules are executed by `npm test`; every
+   surface's `index.js`, the service worker, the content script's entry,
+   both MAIN-world scripts, and 29 portal blocks are executed by nothing.
+   All eighteen August "suite green, behavior wrong" escapes lived in
+   that unexecuted layer, and fourteen are machine-observable today. The
+   soak rule made one human the serial gate for every behavior PR (§6).
 3. **Every fact that changes on a merge is hand-copied into three to nine
    places and none is machine-checked.** The version lives in four places
    (README still says v0.7.0), the test count in five with three
@@ -131,7 +134,7 @@ the code that implements it.
 |---|---|---|
 | The phase model (Phases 0–29 + named waves; ROADMAP status bars; per-phase kickoff docs) | issue #20 (2026-04): a parity-with-the-userscript plan whose only stop rule is parity-scoped (`ROADMAP.md:2153-2161`) | parity was reached at v0.5.x; twenty more phases ran with no product-level "no" |
 | "No aggregation" as territory in code and design docs (`audit/corpus-rollup.js:4-6` refuses a mean; `corpus-publish.test.mjs:83` bans any `%`; `KNOWLEDGE_SHARING_DESIGN.md:16`; `TEAM_CASE_DESIGN.md:21-23`) | the 2026-07-03 sprint descope, read as doctrine | maintainer 2026-07-21: sprint-scoped, "you have no way of knowing what's a work-in-progress plan versus ironclad"; Art. 5.2 itself: "refusing them wholesale was itself a form of false precision" |
-| Art. 6's linguistic arm (five reserved words), wire arm (30066 "permanently free"), and the reader's visual firewall | a two-kind wire-schema rule (NIP_DRAFT 30051 vs 30054) generalized per family in Phase 13, then constitutionalized 2026-07-22 by agents, ratified by merge | the questionnaire grades all three E5; the maintainer's 2026-08-28 reconciliation statement; the CSS does not even implement the visual rule (every bar shares `--xr-surface`) |
+| Art. 6's linguistic arm (five reserved words), wire arm (30066 "permanently free"), and the reader's visual firewall | a two-kind wire-schema rule (NIP_DRAFT 30051 vs 30054) generalized per family in Phase 13, then constitutionalized 2026-07-22 in an agent draft the maintainer reviewed (Art. 8 and 9 were revised on that review) and ratified by merge; the generalization itself was never individually recorded | the questionnaire grades all three E5; the maintainer's 2026-08-28 reconciliation statement; no bar has a distinct colour scale or surface treatment — the visual separation exists only in comments and stacking order |
 | Truth adjudication (30063/30064), hypothesis maps, counterfactuals, the moral lens, AI vision, the Network client, assessments publishing, kinds 30068/30069/30070 | the Epistack competition sprint (June–July 2026) and post-28 momentum | deadline passed 2026-07-19; zero JOURNAL casework mentions since design; no walk-ledger rows; flags never flipped |
 | The companion transcriber as a peer of direct cloud in Options | the 2026-04-19 YouTube DOM arms race | DC.1 removed the premise for newcomers; Windows-only, LT.1–LT.14 unwalked |
 | Three collaboration models (case bundle with keys; follow + incorporate; TEAM_CASE TC.3/TC.5 unbuilt) | designed ahead of any second user | B14 open: never exercised by two people on two machines |
@@ -140,22 +143,23 @@ the code that implements it.
 | Five IndexedDB databases; `xray-audits` holding six non-audit stores | each phase opened its own (7, 12, 13, 25, journal) | nobody chose five; `xray-portal` and `xray-network` are byte-identical derived caches |
 | `src/shared/` as one flat directory of 128 files | Phase-1 layout for ~10 modules | 57 modules have one importer (~18,200 LOC); "shared" now means "not sure where this goes" |
 | `preferences` as a JSON string in `chrome.storage.local`; the `Storage` façade's stringify | Phase 2 port for v4 userscript export compatibility | the userscript is retired; seven hand-rolled `JSON.parse` copies exist; keep the on-disk shape (one-way door), unify the reader |
-| Source-grep guard tests over the surfaces (32 files; 179 regexes pin user-visible phrases) | the surfaces cannot be imported | the harness can observe them |
+| Source-grep guard tests over the surfaces (about twenty test files read `src/` as text; some pin implementation token sequences and user-visible phrases) | the surfaces cannot be imported | the harness can observe them |
 | The per-PR six-document ceremony (JOURNAL + SMOKE row + CHANGELOG + ROADMAP + CLAUDE.md recap + design banner) | each added by the PR that first felt the pain, as prose | measured compliance 0–55%; 23% of commits are docs-only |
 | Options → Advanced as the product's control panel (18 subsections, 12 flag checkboxes, 47 hint paragraphs) | the Phase-9a flag policy: every family gets a publish flag with a disclosure paragraph | a researcher deciding what leaves their machine reads eleven near-identical paragraphs |
-| `xray:` prefix on 19 storage keys and 8 menu ids | early habit; the prefix began as the message namespace | a grep for messages returns 77 literals of which 49 are messages |
+| `xray:` prefix on 19 storage keys and 8 menu ids | early habit; the prefix began as the message namespace | a grep for messages returns ~79 literals of which roughly 45 are messages |
 
 ## 3. What is garbage — dead, duplicated, or misleading
 
 Cheap to remove; two-way doors unless marked.
 
-- **Front-door facts that are false:** `README.md:19` "v0.7.0" (tree is 0.8.0); `README.md:381,406` "2100 tests" (2878); `CHANGELOG.md:11-13` "Nothing yet" across 67 merges; `esbuild.config.mjs:3` "seven bundles" (ten); `src/page/api-interceptor.js:14-19` "NOT auto-injected via manifest" (`manifest.json:80-95` injects it at `document_start`); CLAUDE.md "eight of the nine skills" (twelve exist), "~2500 tests", "no section walk is outstanding". All four architect items were cited by `file:line` on 2026-08-09 and are still wrong.
+- **Front-door facts that are false:** `README.md:19` "v0.7.0" (tree is 0.8.0); `README.md:381,406` "2100 tests" (2878); `CHANGELOG.md:11-13` "Nothing yet" across 145 merges since v0.8.0 (the release workflow now fails loudly on an empty section, so the next tag cannot ship until someone reconstructs seven weeks); `esbuild.config.mjs:3` "seven bundles" (ten); `src/page/api-interceptor.js:14-19` "NOT auto-injected via manifest" (`manifest.json:80-95` injects it at `document_start`); CLAUDE.md "eight of the nine skills" (twelve exist), "~2500 tests", "no section walk is outstanding". All four architect items were cited by `file:line` on 2026-08-09 and are still wrong.
 - **ROADMAP contradicts itself** on Phase 16 in one file (`ROADMAP.md:94` complete vs `:1500` "smoke run pending") a month after JOURNAL 2026-08-02 recorded fixing exactly that; `ROADMAP.md:2164-2174` prescribes a GitHub-issue mirror nobody has done since Phase 8.
 - **Ratified kills still in the tree:** K1 stores (`archive-cache.js:173-201` creates five dead stores on every fresh install; one-way, needs a v4 ladder), K3 reader bar (`reader/index.html:144-146`), K4 `xray:forward:*` (`background/index.js:477-495`, sender `options/index.js:1862`), K8 reader "Import audit JSON…" always visible (`reader/index.html:127`), K9 `case` as a creatable entity type (`sidepanel/index.js:1289-1320`, `entity-tagger.js:150`), K13 the EPISTACK cluster and shipped kickoffs, K14 `Storage.entities`/`articleCache` (`storage.js:354-360, 408-412`), K15 the entity-corpus destination.
 - **Dead code:** `src/shared/api-pattern.js` (zero importers; its test pins a copy that never runs); the `xray:scholar:crossref` handler (`background/index.js:1207`, no sender anywhere).
 - **Duplicated constants:** `AUDIT_DRAFT_PREFIX` declared in `audit/corpus-audit.js:24` and again in `reader/index.js:4383`; `'xray:user'` in `sidepanel/index.js:51` and `portal/identity.js:34`; `'local_primary_identity'` as a literal in five files; `options/index.js:57-125` re-implements the `Storage` façade; seven raw `chrome.storage.local.get(['preferences'])` + `JSON.parse` copies.
 - **Flags with no control:** `reviewCoordination`, `storeFirstPublish`, `extractionAnalysisPublishing` — the last gates a *wire* publish (kind 30070, whole-unit disclosure) and is reachable only by editing `xray:flags` in DevTools (B10 open).
-- **Guards that observe names, not behavior:** the export-name regex "never-merge at the export surface" (`tests/constitution-guards.test.mjs:241-261`); eleven hand-rolled banned-word lists (`corpus-publish.test.mjs:83` bans `\d+\s*%` from a brief; `hypothesis-block.test.mjs:130` bans "stronger"/"confidence" anywhere; `entity-dossier.test.mjs:185` bans "credibility" as a key); verbatim pins of agent-drafted clauses (`constitution-guards.test.mjs:98-115`; `lens-guards.test.mjs:196-207`); implementation snapshots written nine days after the JOURNAL said not to (`tests/extraction-accept-all.test.mjs:51-53`).
+- **Guards that observe names, not behavior:** the export-name regex "never-merge at the export surface" (`tests/constitution-guards.test.mjs:241-261`); about two dozen test files with hand-rolled banned-word lists (`corpus-publish.test.mjs:83` bans `\d+\s*%` from a brief and goes red on a legitimately quoted "40%"; `hypothesis-block.test.mjs:130` bans "stronger"/"confidence" anywhere; `entity-dossier.test.mjs:185` bans "credibility" as a key); verbatim pins of agent-drafted clauses (`constitution-guards.test.mjs:98-115`; `lens-guards.test.mjs:196-207`); implementation snapshots written nine days after the JOURNAL said not to (`tests/extraction-accept-all.test.mjs:51-53`).
+- **Four shipped controls lie about themselves:** the Options "Capture Page" button captures the Options tab itself (`options/index.js:1861` → `xray:forward:*`); `#xr-pending-suggest` can never show (no writer); the reader's "Import audit JSON…" is always visible for a format the user cannot produce; `xray:scholar:crossref` is handled and never sent. Each is a five-line deletion (NEWC-09).
 - **205 bare `console.*`** against the `Utils.log` convention (reader 103, youtube 18, instagram 16, background 9).
 - **Committed walk outputs and hardcoded container paths** in `tools/smoke/` (`ma6-walk.mjs:31-34`).
 - **Phase numbers in shipped UI** (13 places across the reader, portal and options shells) and 17 in README.
@@ -170,10 +174,18 @@ Cheap to remove; two-way doors unless marked.
 1. **2026-07-03** — JOURNAL "Sprint descopes": the owner deleted `docs/ideas/CONSENSUS_PROTOCOLS_PLAN.md`; the entry says "the aggregation/web-of-trust/bridging direction is not being pursued."
 2. **July** — every subsequent design treated the *territory* as radioactive (`KNOWLEDGE_SHARING_DESIGN.md:16` hard-codes "no aggregation / consensus / reputation layer" as a substrate constraint; `ENTITY_CORPUS_DESIGN.md` §7 Q5 left undecided; trust-graph v2/v3 unbuilt).
 3. **2026-07-21** — JOURNAL: the maintainer clarified he scrapped the plan because "Claude was being too prescriptive about the project's direction," not because he rejected the technical direction — "you have no way of knowing what's a work in progress plan versus ironclad."
-4. **2026-07-22 / 08-02** — CONSTITUTION Art. 5 "narrows" the kill: estimates and cross-author aggregates are lawful *as instruments* under five conditions; Art. 5.2 closes with "refusing them wholesale was itself a form of false precision." Art. 6 (never-merge, with linguistic and wire arms) and Art. 12 red lines 2–4 landed in the same document, drafted by agents, ratified by merge.
+4. **2026-07-22 / 08-02** — CONSTITUTION Art. 5 "narrows" the kill: estimates and cross-author aggregates are lawful *as instruments* under five conditions; Art. 5.2 closes with "refusing them wholesale was itself a form of false precision." Art. 6 (never-merge, with linguistic and wire arms) and Art. 12 red lines 2–4 landed in the same document — an agent draft the maintainer reviewed (Art. 8 and 9 were revised on that review) and ratified by merge; the Art. 6 generalization itself was never individually recorded.
 5. **2026-08-28** — the maintainer: "there needs to be a reconciliation between my original intentions and what has been codified." PR #366 prepares the agenda (Q1–Q19, firewalls F1–F13, provenance graded E1–E5). Nothing in code has moved: `corpus-rollup.js:4-6` still refuses a mean while permitting a range; the Art. 5 functional guard is "deferred… when the first estimation surface ships" (`constitution-guards.test.mjs:316`) — none has.
 
-The narrowing happened on paper and nowhere in code. A researcher with three hundred audited articles cannot see a mean audit score with its spread. That is the concrete cost of the thorn.
+The narrowing happened on paper and nowhere in code. The incoherence is
+visible in one screen: the audit family's subject dossier already
+renders a shrunk mean with its standard deviation, n, and cohort means
+(`audit/dossier.js`, `portal/dossier-block.js`) — lawful under
+PHILOSOPHY §4, which always aggregated — while one block over, the case
+dashboard's corpus rollup refuses the same statistic across a case
+(`audit/corpus-rollup.js:4-6`, "no mean; a range is fine"). The same
+number is licensed in one family and banned in the next by rules nobody
+individually decided. That is the concrete cost of the thorn.
 
 ### 4.2 The firewall census as it exists in code
 
@@ -184,8 +196,8 @@ table has the `file:line` for each). Condensed:
 | Group | Mechanisms | Fresh-eyes disposition |
 |---|---|---|
 | **Seven that protect a maintainer decision — keep as law** | C3 truth-adjudicability gate (`interpretation`/`stated-value` never get true/false); C4 value firewall; C12 grounding + human-accept (the model's quote is a search key; paraphrase is a hard reject); C13 import consent/provenance (`mergeBackup`); C15 the membrane (viewing writes nothing); C16 forensic location-never-verdict, no intent, counter-read required; C17 opinion modules argue, never conclude; plus C14 no operator identity in `src/` and C21 the model never computes the audit aggregate | keep; two of them (C3 read-side, C12 accept) get an override described below |
-| **Eight agent generalizations that now block wanted capability — demote or split** | C2 export-name regex; C5 entity-record word-ban (blocks the §3.5 ratio TRUTH_ADJUDICATION itself licenses); C6/C22 case/corpus no-mean family (a range is allowed, a mean is not); C7 visual firewall; C8 five-word vocabulary ban; C9 30066 "permanently free"; C10 lens session-only cache; C11 30064 no-mirror (keep as default) | split C6: keep "no fused case *verdict* as headline" (Art. 5.4 sentence 1), demote the rest to Art. 5.2's five conditions; demote C7/C8 to one line of surface guidance; amend C9 to "reserved"; remove C2/C10 |
-| **Seven prose pins that observe no behavior — remove or convert** | C19 verbatim pins of E5 clauses; the eleven banned-word lists; C20 mandatory disclaimer sentences; C18 prompt-header requirement (keep as lint); C1 audit≠assessment tag grammar (keep — it is per-kind schema, i.e. the wire covenant, not a firewall) | replace with one exported predicate `isLicensedEstimate(obj)` (declared, method, spread, n) and one schema check; keep structural pins (headings, citations resolve, versions agree, kind schedule vs code) |
+| **Eight agent generalizations that now block wanted capability — demote or split** | C2 export-name regex; C5 entity-record word-ban (the §3.5 commitments ratio is already computed in `truth-entity-record.js:255-275`; the ban constrains how it may be keyed and shown); C6/C22 case/corpus no-mean family (a range is allowed, a mean is not — while the audit subject dossier renders a mean); C7 visual firewall; C8 five-word vocabulary ban; C9 30066 "permanently free"; C10 lens session-only cache; C11 30064 no-mirror (keep as default) | split C6: keep "no fused case *verdict* as headline" (Art. 5.4 sentence 1), demote the rest to Art. 5.2's five conditions; demote C7/C8 to one line of surface guidance; amend C9 to "reserved"; remove C2/C10 |
+| **Seven prose pins that observe no behavior — remove or convert** | C19 verbatim pins of E5 clauses; the two dozen banned-word lists; C20 mandatory disclaimer sentences; C18 prompt-header requirement (keep as lint); C1 audit≠assessment tag grammar (keep — it is per-kind schema, i.e. the wire covenant, not a firewall) | replace with one exported predicate `isLicensedEstimate(obj)` (declared, method, spread, n) and one schema check; keep structural pins (headings, citations resolve, versions agree, kind schedule vs code) |
 
 **What the current regime costs, measured.** 30 tests in four files exist
 to pin prose; eleven more test files carry banned-word lists; a Tier-1
@@ -219,7 +231,7 @@ agents execute.
 | # | Decision | Batches | Recommended default | Ceremony |
 |---|---|---|---|---|
 | D1 | The firewall's shape | Q1, Q4, Q5, Q14, Q17 (F2, F3, F4, F7) | Art. 6 becomes its one data-arm sentence plus "side-by-side composition is always lawful"; the linguistic arm becomes naming guidance ("verdict" stays the truth kind's *name*); the wire arm folds into Art. 10 (never-reuse kept; 30066 "reserved — lens, if ever ratified"); the visual arm becomes one guidance line ("scores and stances never share a color scale"). Remove C2; demote C7/C8 | Tier 1, one amendment-log entry; guard deletions in the same PR |
-| D2 | Aggregates and instruments | Q3, Q7, Q9 (C5, C6, C22) | Keep Art. 5.2's five conditions as the license; **define "fused"** ("a single number or state computed from more than one family's judgment, or presented without its inputs, method, spread and n"); declare the first licensed instruments: corpus mean + range + n, the §3.5 entity ratio, a labeled case "evidence balance" rendered beside — never above — the dossier header; "does not appear" renders as "estimate withheld: <failed condition>" (Art. 3) | Tier 1 (the definition) + Tier 2 (PHILOSOPHY §13) |
+| D2 | Aggregates and instruments | Q3, Q7, Q9 (C5, C6, C22) | Keep Art. 5.2's five conditions as the license; **define "fused"** ("a single number or state computed from more than one family's judgment, or presented without its inputs, method, spread and n"); declare the first licensed instruments: a corpus mean + range + n beside the subject dossier's existing one, the §3.5 commitments ratio that `truth-entity-record.js` already computes, a labeled case "evidence balance" rendered beside — never above — the dossier header; "does not appear" renders as "estimate withheld: <failed condition>" (Art. 3) | Tier 1 (the definition) + Tier 2 (PHILOSOPHY §13) |
 | D3 | The two person-protecting firewalls | Q2, Q6, Q13 (C3, C4, C5, C11) | Keep the §3.1 gate and no-auto-person-label as law; strike "permanently" from TS H-2; add "disclosure is not criticism" to Art. 7; 30064 no-mirror stays as a default; read-side null becomes visible not-admitted | Tier 1 (one Art. 7 sentence) |
 | D4 | What binds | Q8, Q10, Q11 (Art. 2; DISCIPLINES; H-7) | Narrow Art. 2's doc-governs-code to wire / schema / security; elsewhere a code-vs-doc conflict is a recorded question for the maintainer, not an automatic doc win; DISCIPLINES becomes guidance (prompt-header lint stays); rule §15.3: bulk-accept of individually grounded rows is lawful — the grounding is the review; H-7 scoped to judgment surfaces | Tier 1 (Art. 2) |
 | D5 | Process | Q12, Q16, Q18, Q19; GOVE-10 | Adopt the marker protocol (§4.4) verbatim; create and seed the rulings ledger; write "NOSTR stays invisible — interfaces never require NOSTR literacy; not a vocabulary ban", "high value solo first", "Apple-quality simplicity" down with their force stated; amend Art. 11 so that the maintainer's explicit recorded instruction is the ratification and who presses the merge button is mechanical (it has been waived twice on the record, JOURNAL 2026-08-04) | Tier 1 (Art. 11); Tier 3 for the rest |
@@ -243,7 +255,7 @@ interpretive step a literal object.
    `docs/decisions/R-NNN-<slug>.md`, ≤40 lines each): id · date · who
    ruled · the maintainer's own words (≤2 lines) · what it applies to ·
    what it supersedes · the guard that pins it. Seeded from the
-   questionnaire's §5 already-reconciled ledger (18 rows) plus the
+   questionnaire's §5 already-reconciled ledger (17 rows) plus the
    session's six. JOURNAL entries cite the R-id instead of restating.
    A guard asserts every `R-` id cited anywhere in the tree exists.
 3. **Guard provenance and expiry.** Every guard test and every
@@ -275,7 +287,8 @@ of `src/`) and they ship inside the release zip. Eight files carry 60%
 of the mass. The per-PR ceremony prescribed by CONTRIBUTING, CLAUDE.md
 and ROADMAP is six documents wide; over the last sixty merges its
 measured compliance was JOURNAL 45%, SMOKE_TEST 55%, CHANGELOG 0%,
-ROADMAP 2%, CLAUDE.md 12%. Forty-three of 187 commits are docs-only.
+ROADMAP 2%, CLAUDE.md 12%. Roughly a quarter of August's commits are
+docs-only, and a dozen of them exist only to record a soak walk.
 Meanwhile the *only* guarded documents are the ones that change least —
 the constitution's verbatim text and one generated HTML page. The
 project machine-enforces doctrine and hand-maintains facts, which is
@@ -326,10 +339,11 @@ Three mechanisms, all visible in the August record.
 **The soak rule made one human the serial merge gate.** Adopted
 2026-08-23 as the right emergency response to the direct-cloud wave's
 five same-day-merge escapes, it now costs one maintainer session per
-behavior PR regardless of size: fifteen `docs(smoke): record the PR
-#NNN soak walk` commits in five days, twelve open PRs, and the maintainer
-walking a fourteen-row checklist for a flag-off fourth reader view
-(PR #370) — "testing stuff I don't even care about." Its premise is
+behavior PR regardless of size: a dozen `docs(smoke): record the PR
+#NNN soak walk` commits covering fourteen PRs in a fortnight, twelve
+open PRs, and the maintainer walking a fourteen-row checklist for a
+flag-off fourth reader view (PR #370) — "testing stuff I don't even
+care about." Its premise is
 that the suite cannot observe what a person sees. That is true of
 `node --test` and false of the harness in `tools/smoke/`, which found
 the false "published" stamp on its first run (JOURNAL 2026-08-02) and
@@ -350,7 +364,7 @@ later, while August's attention went to transcription waves, portal UX
 PR-1..8, Suggest fixes, the Margin, and three governance PRs.
 
 **Structure forces collisions.** `reader/index.js` is 8,294 lines with a
-1,574-line `publish()` that reads seven flags inline and calls seventeen
+1,573-line `publish()` that reads its flags inline and calls seventeen
 builders; every agent touching capture, transcription, publishing,
 audits, vision, the lens, or platform headers edits the same file, and
 no test can import it. The service worker is one 950-line `if`-chain of
@@ -358,7 +372,8 @@ no test can import it. The service worker is one 950-line `if`-chain of
 forty-five pairs of open PR branches conflict — every one of them in
 that file and nothing else — and `main` carries 54 back-merge commits
 whose only job was resolving that hunk. The result is measurable:
-`main` has had no commit since 2026-08-28 while six behavior PRs wait.
+`main` has had no commit since 2026-08-28 while four ready behavior PRs
+(and two drafts) wait.
 
 **The fix:** the browser harness in CI as a required check (R0); a
 tiered soak — machine-observable classes merge on green, human-judgment
@@ -444,7 +459,7 @@ looking where the bugs are.
 - [ ] One amendment PR: Art. 6 to one sentence; "fused" defined; Art. 2
       narrowed; Art. 7 sentence; Art. 11 amended; Art. 10 30066 row;
       TS H-2 "permanently" struck; PHILOSOPHY §13 entry. Delete C2, the
-      verbatim clause pins and the eleven word-lists; add
+      verbatim clause pins and the two dozen banned-word lists; add
       `isLicensedEstimate()` + the schema guard; add `// Provenance:`
       headers and the expiry meta-guard. (M.)
 - [ ] The corpus reset: four normative documents; guidance re-labelled;
@@ -605,6 +620,29 @@ bars and ten portal blocks disappear for free).
 - [ ] Replace the eight "see console" terminations with remedies now
       that the diagnostics ring exists; remove the key-bearing export
       from beside routine exports. (S; UXDE-10/16.)
+- [ ] **Twenty import/export verbs across four surfaces become three
+      jobs plus Add ▾.** Settings → Your data: *Back up this machine*
+      (full, keys), *Share a copy* (no keys), *Bring in a colleague's
+      copy* (merge); content intake stays in the Library's Add ▾ (already
+      right); audit-JSON import, registry import/export and the
+      key-bearing case bundle move under Advanced with a red label.
+      (M; NEWC-06; T8's "~10 verbs" is now 20.)
+- [ ] **One AI verb per surface.** The same cached article pass is
+      reached today as "✨ Suggest…", "Pre-analyze…", "Analyze each
+      imported page" and the map stage of "Analyze corpus…", beside five
+      more AI buttons; a user cannot tell what costs money, what leaves
+      the machine, or what they already paid for. One **Analyze ▾** per
+      surface whose items are named by what leaves the machine and what
+      it costs ("Find claims & people — sends text to Anthropic, cached";
+      "…on this machine (LM Studio)"; "Audit this article — 1 call / 8
+      calls"); the consent strings survive verbatim (they carry a
+      maintainer ruling); retire "Pre-analyze…" and the dead
+      pending-suggest control. Transcription's two flags and three entry
+      points become one flag and one engine picker that greys out what
+      is unreachable. (S–M; NEWC-07/12; T8.)
+- [ ] **The four lying controls** (§3) deleted in one PR; a `SURFACES`
+      registry in `background/` so menu ids, `xray:open*` messages and
+      the quick actions read one table. (S; NEWC-09; K4/K8.)
 
 ### R5 — Corpus automation: hundreds of URLs → captured → claims and entities → reviewed (weeks 3–8)
 
@@ -889,7 +927,7 @@ overlay whose ranker/trust-graph substrate K1 since killed). Every
 future audit starts with `git fetch --unshallow`.
 
 **Throughput today is zero.** `main` has had no commit since 2026-08-28.
-Six behavior PRs wait on the soak rule. Of the 45 pairs of open PR
+Four ready behavior PRs wait on the soak rule and two more are drafts. Of the 45 pairs of open PR
 branches, 30 conflict — every one of them in `docs/JOURNAL.md` and
 nothing else, because the JOURNAL prepends at the top; `main` carries 54
 "Merge main into …" commits whose only job was resolving that hunk.
@@ -985,7 +1023,7 @@ shape the extension presents to a reviewer and to a target's website:
 - **The threat model and the T2 ledger record as done six things the
   tree reverses or never did** — the WAR entry "removed" but present
   and guard-pinned to stay, the console lines "gated" but not, the
-  CLAUDE.md reference that does not exist, G4/G6 "scheduled" though the
+  CLAUDE.md reference that does not exist, G4 "scheduled" though the
   shareable export shipped. One correction PR, then the security skill's
   own graduation: a CI step that fails when a diff touches
   `manifest.json`, `rules/`, `src/page/` or adds a fetch destination
@@ -1022,14 +1060,17 @@ shape the extension presents to a reviewer and to a target's website:
   30070 and the `xray/review` label (DevTools-only gates; 30070 has only
   ever been built against a loopback relay). Reserved: 30060/30061
   (never emitted), 30065, 30050–30053, 9803. Free: 30066. Retired
-  (parsers kept): 30043, 30067. Local-only at 1.0: 30041. Nine kinds
-  have `KIND_` constants; the rest are literals in their builders and in
-  read filters across fifteen non-builder files — R3 lane A's kinds
+  (parsers kept): 30043, 30067. Local-only at 1.0: 30041. Eleven kinds
+  have named constants under three naming conventions; thirteen are
+  literals in their builders and in read filters across fifteen
+  non-builder files — R3 lane A's kinds
   registry becomes the single source that Art. 10, NIP_DRAFT and the
   guard are generated from (B16). NIP_DRAFT (108 KB) cannot pass the
   second-client test today: 30041 and 30078 have no section, the 30023
-  `d` derivation is unwritten, and the `x` tag's dual meaning is
-  undocumented (WIRE-03/04/13).
+  `d` derivation is unwritten, and the `x`-tag section never
+  cross-references the second meaning that the entity-page and
+  case-brief sections give it — so no consumer rule says "filter by `t`
+  before treating `#x` on a 30023 as identity" (WIRE-03/04/13).
 - **Six interchange envelopes** exist (`xray-backup/1`, the shareable
   copy, `xray-case-bundle` v1 — which carries entity *private keys* by
   design, `xray-audit-ledger/1`, the signed-event journal export, the
@@ -1145,10 +1186,20 @@ follow PR #366's scale (E1 explicit ruling … E5 ratified-by-merge only).
     dates from the userscript port; the bundle predates creator binding;
     the flip is your own 2026-08-02 "flip early" ruling.)
 12. **Docs:** generate CHANGELOG `[Unreleased]` from PR titles; split the
-    JOURNAL per quarter with a rulings ledger; front matter on every
+    JOURNAL per month with a rulings ledger; front matter on every
     doc; `docs/` `tests/` `tools/` `.claude/` out of the release zip;
     archive ROAD_TO_1_0 with a tracker table; CLAUDE.md ≤ 200 lines
     without the phase recap. Default: yes to all. (All E5 conventions.)
+13. **Names and surfaces.** "Library" or "Archive" for the user's
+    holdings (default: Library — it holds unpublished things too; the
+    code name `portal` stays); does the side panel survive as a picker
+    for one release and then retire (default: yes); does the Network
+    page fold into the Library as a lane when the group workflow is first
+    exercised (default: yes, code kept); one Analyze verb per surface
+    with cost-named items (default: yes); one transcription flag with an
+    engine picker (default: yes — the two flags were an agent's choice;
+    the DC.1 split of the *code* stays). (Provenance: per-phase naming
+    with no naming pass; Phase 4 and Phase 25 designs never revisited.)
 
 ---
 
@@ -1194,6 +1245,27 @@ follow PR #366's scale (E1 explicit ruling … E5 ratified-by-merge only).
   clone; the branch lens deepened the clone and showed 65 of 79 branches
   are ancestors of `main`. §8 and §9 were rewritten. The lesson is
   recorded in §9: an audit's first line is `git fetch --unshallow`.
+- **What adversarial verification changed.** Each lens's top findings
+  (harm ≥ 3, up to four per lens) were handed to an independent
+  verifier told to refute them against the tree: 44 verdicts, 14
+  confirmed as stated, 30 confirmed in substance with a corrected
+  detail, none refuted. The corrections are applied above; the ones
+  that changed a claim rather than a number: the executed-module census
+  is 199 of 247 (not 186) and only one platform handler is dark; the
+  audit *subject* dossier already renders a shrunk mean with spread, so
+  the aggregation incoherence is between families, not an absence
+  (§4.1); the §3.5 commitments ratio is already computed, the ban
+  constrains its naming (§4.2); the maintainer did review the
+  constitution draft — the Art. 6 generalization was never
+  *individually* recorded, not never seen (§4.1); banned-word test files
+  number about two dozen, not eleven, and one goes red on a legitimate
+  quote; the `x` tag's second meaning is documented under entity pages
+  and case briefs but not cross-referenced from the tag's own section;
+  the release workflow already refuses an empty CHANGELOG section, so the
+  front door cannot ship blank — it cannot ship at all until seven weeks
+  are reconstructed; four ready behavior PRs (not six) wait on soak. The
+  130 lower-harm findings carried in the lens reports are unverified
+  and marked so there.
 
 ---
 
@@ -1211,6 +1283,11 @@ follow PR #366's scale (E1 explicit ruling … E5 ratified-by-merge only).
 | security-threat-modeler | [`audit-2026-09-05/security.md`](audit-2026-09-05/security.md) | SECU-1..12 |
 | corpus automation (automator + xray-capture) | [`audit-2026-09-05/corpus-automation.md`](audit-2026-09-05/corpus-automation.md) | CORP-1..15, cost table |
 | branch strategy (continuous-improvement + hand-to-maintainer) | [`audit-2026-09-05/branch-strategy.md`](audit-2026-09-05/branch-strategy.md) | BRAN-1..13, PR dispositions, lane map, hygiene rules |
+| newcomer + consolidation (ux-designer + product-manager) | [`audit-2026-09-05/newcomer-and-consolidation.md`](audit-2026-09-05/newcomer-and-consolidation.md) | NEWC-01..16, the first-hour surface map, the consolidation moves, the dead-code census |
+
+Verification verdicts (44 rows) are in the workflow journal and
+summarized in §12; the lens reports carry the unverified remainder
+with their original wording.
 
 ## Appendix B — ROAD_TO_1_0 crosswalk (status on 2026-09-06)
 
