@@ -116,6 +116,15 @@ Have these set up in the test browser:
 
 ## Agent-runnable subset
 
+> **Machine-run in CI since 2026-09-07** (`npm run smoke`, `tools/smoke/`):
+> `pages` — every extension page loads, runs its init to the ready
+> stamp, and throws nothing — is machine-run and GATING on every PR.
+> The MA.6 extraction-review walk is machine-run and ADVISORY until the
+> flip (criterion and date in `docs/JOURNAL.md` 2026-09-07); read its
+> artifact on any red. Until it gates, the MA.6 rows below still owe a
+> human at release time. The sections below describe what an agent
+> driving a real browser can additionally cover.
+
 A subset of this checklist can be driven by a browser-aware agent
 (any tool that exposes Chrome MCP-shaped APIs against Edge or
 Chrome — see `docs/JOURNAL.md` 2026-04-21 entry for the proof of

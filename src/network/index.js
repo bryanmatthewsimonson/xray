@@ -12,6 +12,7 @@
 // the "new since you last looked" strip is firstSeenAt > lastLookedAt.
 
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
+import { markReady } from '../shared/smoke-anchors.js';
 import { FollowModel } from '../shared/follow-model.js';
 import { NETWORK_FEED_KINDS, buildAuthorFilters, assembleNetworkFeed, widenRelays } from '../shared/network-feed.js';
 import { normalizeRelayUrl } from '../shared/entity-sync.js';
@@ -827,7 +828,9 @@ async function boot() {
     await renderFromCache();   // open populated; Refresh pulls fresh
 }
 
-boot().catch((err) => {
+// The ready stamp follows boot on its resolved path; a failed boot never
+// stamps (src/shared/smoke-anchors.js — the browser smoke waits for it).
+boot().then(() => markReady('network')).catch((err) => {
     console.warn('[X-Ray] Network page boot failed:', err);
     setStatus(`Boot failed: ${err.message || err}`);
 });

@@ -1,6 +1,6 @@
 // X-Ray build pipeline.
 //
-// Produces seven bundles under `dist/`:
+// Produces ten bundles under `dist/`:
 //
 //   dist/content.bundle.js          — content script (IIFE; runs in every tab)
 //   dist/background.bundle.js       — MV3 service worker (ESM per manifest)
@@ -8,7 +8,15 @@
 //   dist/sidepanel.bundle.js        — chrome.sidePanel target (entity browser)
 //   dist/reader.bundle.js           — extension-page reader view
 //   dist/portal.bundle.js           — "My Archive" data portal (Phase 12)
+//   dist/network.bundle.js          — the Network client (Phase 25)
 //   dist/api-interceptor.bundle.js  — MAIN-world fetch/XHR hook (Phase 8a)
+//   dist/pdf-engine.bundle.js       — pdf.js extractor (ESM, lazily imported by the reader)
+//   dist/pdf.worker.bundle.js       — pdf.js worker (IIFE)
+//
+// `configs` is exported: tools/smoke/lib/browser.mjs reads it to know
+// which bundles must exist, and tests/smoke-bundles.test.mjs pins that
+// list to what manifest.json and the HTML shells actually load. The
+// build runs only when this file is the entry script (`npm run build`).
 //
 // The toolbar-icon click captures the active tab into the reader — no
 // popup surface, so no popup bundle. HTML and CSS files stay in `src/`
@@ -17,10 +25,10 @@
 // `src/.../*.html` files unchanged.
 
 import * as esbuild from 'esbuild';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
-import { readFileSync, cpSync } from 'node:fs';
+import { readFileSync, cpSync, realpathSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = __dirname;
@@ -60,7 +68,7 @@ const shared = {
 };
 
 /** @type {esbuild.BuildOptions[]} */
-const configs = [
+export const configs = [
     // --- content script (isolated world, IIFE) ---
     {
         ...shared,
@@ -155,7 +163,20 @@ async function build() {
     }
 }
 
-build().catch((err) => {
-    console.error('[xray] build failed:', err);
-    process.exit(1);
-});
+// Build only when run as a script. An importer (the browser smoke, the
+// unit suite) gets `configs` and no build — it does pay for the build
+// stamp above (three git calls, ~100 ms). Both sides are realpath'd:
+// Node resolves the ESM main through symlinks, argv[1] is as typed, and
+// a checkout under a symlinked directory must still build.
+const isMain = (() => {
+    if (!process.argv[1]) return false;
+    try {
+        return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(resolve(process.argv[1]));
+    } catch (_) { return false; }
+})();
+if (isMain) {
+    build().catch((err) => {
+        console.error('[xray] build failed:', err);
+        process.exit(1);
+    });
+}

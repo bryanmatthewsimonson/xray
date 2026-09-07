@@ -19,6 +19,169 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-09-07 — The browser smoke joins CI: `npm run smoke`, a pages check, the MA.6 walk un-rotted — and the review that found the first cut green-while-wrong
+
+**Tags:** design, pattern, bug
+
+**The friction, cited.** `tools/smoke/ma6-walk.mjs` — the one observer
+of the layer no unit test executes (built bundles loaded as a real
+unpacked extension) — was run by nothing: no npm script, no
+devDependency, container-only absolute paths, and a selector that
+matched heading copy (`/Extracted assertions/`). UA.3 renamed the
+heading on 2026-08-12; the walk was observed red on its own selector
+on 2026-09-05 while every product check inside it still passed.
+Meanwhile the 2026-08 record shows eighteen "suite green, behavior
+wrong" escapes, fourteen of them shaped navigate / click / read DOM —
+the class this walk observes (`docs/RESET_PLAN.md` §6, R0; the
+verification lens in `docs/audit-2026-09-05/`). The soak rule was
+carrying all of that on one person's browser.
+
+**What landed.** `playwright` as an exact-pinned devDependency (the
+browser revision rides the version). `tools/smoke/lib/browser.mjs`
+resolves the full Chromium (`XR_CHROME`, else Playwright's own — the
+headless_shell build cannot load extensions), launches the unpacked
+extension on a throwaway profile with egress killed at the browser
+level (every launch proxies non-loopback traffic to a dead loopback
+port), reads the extension id off the service worker, discovers the
+extension pages from the HTML shells in `src/`, reads the bundle list
+from the `configs` `esbuild.config.mjs` now exports (the build runs
+only as the entry script), and bundles seed harnesses into `dist/`,
+sweeping them before, after and on exit. Two scenarios. `pages`: after
+proving its own observers on a canary page (an uncaught throw and a
+`[X-Ray]` console.error on `about:blank` must both be seen, or exit 2),
+it opens every page and waits for the page's READY STAMP —
+`<html data-xr-ready="<page>">`, set by each page as the last act of its
+init through `markReady()` in `src/shared/smoke-anchors.js` — then fails
+on any uncaught exception, any product `console.error` (`[X-Ray`, the
+`Utils.error` prefix) or failed local resource (`net::ERR_`), or an
+empty body. `ma6`: the existing walk, anchored on the SHARED constant
+`SMOKE_ANCHORS.extractionBlock` (the renderer sets it from the same
+table), waiting on the block and on the publish status line instead of
+sleeping, verifying the relay pin by read-back, and failing on every
+uncaught exception and every product console.error except the one it
+provokes on purpose. `tests/smoke-selectors.test.mjs` pins the seam
+(every table value is set in `src/`, comments stripped, consumer
+selectors excluded, any other spelling banned);
+`tests/smoke-bundles.test.mjs` pins the built set to the loaded set
+(manifest + shells + `getURL()`), both ways. `tools/smoke/run.mjs` runs
+each scenario in its own PROCESS GROUP — SIGTERM on timeout, SIGKILL
+five seconds later, the group so a hung Chromium dies with its scenario
+— sizes the per-scenario timeouts (90 s + 180 s) under the 300 s
+budget so an advisory timeout can never fail the run through the
+budget line, scans every output file for key material before it
+uploads, and treats an empty selection or an unknown flag as a usage
+error. The CI job `browser-smoke` runs on a PINNED `ubuntu-24.04`,
+installs Chromium, runs `npm run smoke -- --advisory=ma6`, and uploads
+screenshots and reports as an artifact. The THREAT_MODEL gained the CI
+surface and its written invariant (never a `release.yml` dependency,
+never a secret).
+
+**The review round, and why it is the point.** The first cut passed
+its own checks and CI (81 s). An adversarial review (three lenses,
+thirteen verified findings, `docs/RESET_PLAN.md` §12's method) then ran
+negative controls on it and found the gate GREEN-WHILE-WRONG in exactly
+the class R0 exists to catch: an emptied `portal.bundle.js` passed
+(`157 chars, 0 console errors` — the shell's static text), a misspelled
+`<script src>` passed (a missing resource is a console error, not a
+`pageerror`), and a caught init failure routed through `Utils.error`
+was reported, never failed on. The runner's "hard timeout" could not
+end a scenario whose Chromium was hung, because Playwright's SIGTERM
+handler awaited a `Browser.close` that never answered. "Nothing reaches
+the network" was an argument from the empty profile, not a control.
+The bundle list was scraped from the config's text and dropped all five
+page bundles under an ordinary refactor while still returning a
+non-empty list. The guard test counted a commented-out anchor as a
+definition. The throwaway profile — holding a generated nsec — was
+never deleted. Every one of those is now closed and has a negative
+control on the record: empty bundle → red ("no ready stamp"),
+synchronous throw → red, `[X-Ray]` console.error then stamp → red,
+misspelled script → red; a detached child that ignores SIGTERM and
+holds a grandchild dies by group SIGKILL after the grace period;
+`https://relay.damus.io` and `http://example.com` fail with
+`ERR_PROXY_CONNECTION_FAILED` while `ws://127.0.0.1:1` is refused in 2 ms
+unproxied. A second round on the fixes then found the profile deletion
+covered only the clean exit (35 leaked profiles on the dev machine,
+eight holding a key), the egress kill was a launch flag nothing
+observed, the build's new main guard was false under a symlinked
+checkout (Node realpaths the ESM main; `npm run build` would have
+exited 0 producing nothing), the ready stamp was fail-open (a shell
+could carry it statically), a stale `dist/` passed `assertBuilt`, and
+the discovered page list could shrink silently. Closed in turn: a
+synchronous exit hook plus a runner sweep for profiles; an egress
+canary in `pages` step 3 (a public https navigation must fail with a
+proxy error); realpath on both sides of the guard; guards that no shell
+carries `data-xr-ready`, every page entry calls `markReady('<dir>')`
+exactly once and nothing else does, every shell under `src/` is a
+discovered page, and `dist/` is newer than `src/`. The pattern, twice:
+a harness's own checks cannot tell it what it does not observe; only a
+control that SHOULD go red can — and a control stated in a document is
+a claim until something observes it.
+
+**Second-guessable calls.** (1) `pages` gates from day one; `ma6` is
+advisory until the flip. Flip criterion, owner and mechanism: on
+2026-09-21, if `ma6` has had ten green runs and every red run had a
+code cause, delete `--advisory=ma6` in its own PR; otherwise record why
+here and set a new date. Owner: the maintainer. "Required" is also a
+branch-protection setting on `main` that only the maintainer can set —
+owed, and not yet set. (2) A product `console.error` FAILS `pages`; the
+first cut's exemption ("a reader opened with no `?id` says no article
+is open") protected a case that does not occur — all five pages log
+zero console errors in the first-install state, measured. Other
+console.error lines (none today) are reported only. (3) Text selectors
+for buttons ("Accept as claim", "Publish analysis…") stay — those ARE
+user-visible strings the walk legitimately asserts; only the block
+anchor is a `data-xr`, because a heading is copy. Ten fixed sleeps
+(≈11 s on the passing path) remain in the walk; converting them to
+condition waits is the flip's precondition, not the first cut's job.
+(4) No browser cache in CI yet: the install measured 25 s in the first
+CI run — add a pinned `actions/cache` when the cost is felt. (5) The
+ready stamp is one line per page and zero user-visible behaviour, so
+the soak rule's exemption for CI-config changes is read to cover it.
+(6) Dependabot's weekly devDependency group rolls `playwright` and with
+it the browser: a smoke failure on a `chore(deps-dev)` PR is a
+browser-roll finding, reviewed as such, never a flake. (7) The runner
+image is pinned to `ubuntu-24.04` because Playwright's registry knows a
+fixed set of Ubuntu releases; bump the image only with the playwright
+bump — the two are coupled, and this entry is where that is written.
+
+**Ladder and payback (automator).** Script → CI gate. Measured, first
+CI run on the first cut: job 81 s (checkout 2 s, setup-node 4 s,
+`npm ci` 4 s, build 1 s, Chromium install 25 s, smoke 41 s: `pages`
+12.2 s, `ma6` 28.8 s). After the review round, locally: `pages` 5.6 s
+(the fixed 1.5 s settle per page became a ready wait of 63–173 ms),
+`ma6` 15.1 s, whole run 20.7 s against the 300 s budget. Cost: one
+agent session to build, one to review and fix; maintenance is selector
+upkeep, guarded by `tests/smoke-selectors.test.mjs`, and the
+playwright/image coupling above. Payback: the fourteen browser-class
+August escapes each cost a follow-up PR, a re-walk and a JOURNAL entry;
+the gate pays for itself the first month it catches one of that class
+before merge. Rot list: the flip date; the ten remaining sleeps; the
+runner-image coupling; `web-ext lint` still scans `dist/`, so a seed
+bundle that survives a kill would inflate its warning count (swept
+three ways, and excluded from the zip by `webExt.ignoreFiles`). Stated
+blind spots, not fixed: the service worker's own console is not
+observed by `pages`; the reader is observed in its URL-entry landing
+and the network page in its flag-off state (both rendered states — the
+deeper paths are the walks' job); screenshots are not key-scanned.
+
+**So-what.** From this branch a PR that leaves any extension page
+inert, throws during its init, mis-references a bundle, or breaks the
+extraction-review surface goes red without a human opening a browser —
+and the claim is backed by controls that went red, not by the gate's
+own green. A new extension page joins `pages` by ending its init with
+`markReady('<dir>')`; a new smoke anchor is a row in `SMOKE_ANCHORS`.
+Next slices on the same harness (RESET_PLAN R0/R5): the walk's sleeps
+→ condition waits (flip precondition), a loopback relay so a confirmed
+publish is machine-observed, a first-hour walk, and the capture harness.
+
+Files: `tools/smoke/{run,pages,ma6-walk}.mjs`, `tools/smoke/lib/browser.mjs`,
+`src/shared/smoke-anchors.js`, `tests/smoke-{selectors,bundles}.test.mjs`,
+`esbuild.config.mjs` (exported `configs`, main guard), the five page
+entry files (one `markReady` each), `src/portal/extraction-block.js`,
+`.github/workflows/ci.yml`, `package.json`, `docs/THREAT_MODEL.md`.
+
+---
+
 ## 2026-08-25 — Suggest's shape failures get ONE paid repair round; the dossier's bandText ghost
 
 **Tags:** bug, llm
