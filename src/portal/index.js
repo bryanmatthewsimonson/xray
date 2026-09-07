@@ -12,6 +12,7 @@
 // multiplying and makes escaping a non-issue).
 
 import { Storage } from '../shared/storage.js';
+import { markReady } from '../shared/smoke-anchors.js';
 import { Utils } from '../shared/utils.js';
 import { dedupeReplaceable } from '../shared/nostr-events.js';
 import { resolveIdentities, addManualIdentity, removeManualIdentity } from './identity.js';
@@ -1493,5 +1494,7 @@ document.addEventListener('DOMContentLoaded', () => {
         state.view = { name: 'entity-dossier', entityId: dossierMatch[1] };
         render();
     }
-    boot();
+    // The ready stamp follows the first boot on its resolved path; a throw
+    // never stamps (src/shared/smoke-anchors.js — the browser smoke waits).
+    boot().then(() => markReady('portal'));
 });

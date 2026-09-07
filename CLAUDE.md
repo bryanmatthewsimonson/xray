@@ -251,7 +251,17 @@ without the other is the design's named long-term risk.
   to build Markdown, not UI). The legacy `nac-*` / `nmd-*` prefixes are
   fully gone; don't reintroduce them.
 - **Logging:** use `Utils.log` / `Utils.error` (no-ops when `CONFIG.debug`
-  is false). Don't add bare `console.log`.
+  is false). Don't add bare `console.log`. Note `Utils.error` always
+  prints, and the browser smoke's `pages` scenario FAILS a page that
+  emits one during init — an error the product reports is a defect the
+  gate observes, not noise.
+- **Browser-smoke seams:** every extension page ends its init with
+  `markReady('<dir>')` from `src/shared/smoke-anchors.js` (the `pages`
+  scenario waits for the stamp; a new page under `src/<dir>/` whose
+  shell loads a `dist/` bundle is discovered automatically). Elements a
+  smoke scenario selects get a `data-xr` value from `SMOKE_ANCHORS` in
+  that module — never a literal — and `tests/smoke-selectors.test.mjs`
+  fails when a table value is set nowhere in `src/`.
 - **User-visible strings** use "X-Ray" (hyphenated). Avoid emoji in code
   unless it's genuinely part of the UI.
 - **Version lockstep:** `package.json` and `manifest.json` versions MUST

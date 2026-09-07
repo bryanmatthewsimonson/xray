@@ -100,18 +100,30 @@ jobs:
   browser-smoke:
     # The one observer of the layer no unit test executes: the built
     # bundles loaded as a real unpacked extension in headless Chromium.
-    # `npm run smoke` runs each scenario in its own process with a hard
-    # timeout (tools/smoke/run.mjs). Nothing here reaches the network —
-    # the scenarios pin relays to a dead loopback port before anything is
-    # clickable (docs/RESET_PLAN.md R0; JOURNAL 2026-09-07).
+    # `npm run smoke` runs each scenario in its own process group under a
+    # hard timeout (tools/smoke/run.mjs). The launcher kills egress at the
+    # browser level — every launch proxies non-loopback traffic to a dead
+    # loopback port — and the walk additionally pins relays to
+    # ws://127.0.0.1:1 before anything is clickable; the job's own
+    # downloads (npm, Chromium, apt) happen before any browser starts
+    # (docs/RESET_PLAN.md R0; docs/THREAT_MODEL.md 2026-09-07).
     #
-    #   pages — every extension page loads with zero uncaught errors.
-    #           REQUIRED from day one: it cannot false-alarm.
+    #   pages — every extension page loads, runs its init to the ready
+    #           stamp, and throws nothing; product console.error fails it.
+    #           REQUIRED from day one. Window: load → ready → 0.5 s settle.
     #   ma6   — the extraction-review / kind-30070 walk. ADVISORY (run and
-    #           reported, never gating) until 2026-09-21; flip it by
-    #           deleting `--advisory=ma6` below, on the record.
+    #           reported, never gating) until the flip. Flip criterion
+    #           (JOURNAL 2026-09-07): on 2026-09-21, if ma6 has had ten
+    #           green runs and every red run had a code cause, delete
+    #           `--advisory=ma6` below in its own PR; otherwise record why
+    #           and set a new date. Owner: the maintainer. "Required" for
+    #           either scenario is also a branch-protection setting on
+    #           main that only the maintainer can set.
     name: browser smoke
-    runs-on: ubuntu-latest
+    # Pinned, not `ubuntu-latest`: Playwright's registry knows a fixed set
+    # of Ubuntu releases and `--with-deps` fails on one it does not know.
+    # Bump the image only together with the playwright devDependency.
+    runs-on: ubuntu-24.04
     timeout-minutes: 12
 
     steps:
@@ -133,7 +145,10 @@ jobs:
       - name: Install Chromium for Playwright
         # The full Chromium, not headless_shell: only the full build can
         # load an extension. The revision is pinned by the playwright
-        # devDependency's exact version in package.json.
+        # devDependency's exact version in package.json — and Dependabot's
+        # weekly devDependency group rolls that pin, so a smoke failure on
+        # a `chore(deps-dev)` PR is a browser-roll finding, reviewed as
+        # such, never a flake. Measured 2026-09-07: ~25 s.
         run: npx --no-install playwright install --with-deps chromium
 
       - name: Browser smoke

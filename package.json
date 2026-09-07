@@ -40,7 +40,8 @@
   "webExt": {
     "ignoreFiles": [
       "companion",
-      "companion/**"
+      "companion/**",
+      "dist/_smoke-*"
     ]
   }
 }

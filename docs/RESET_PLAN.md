@@ -452,27 +452,43 @@ dependency, not by importance; lanes inside a track run in parallel
 Goal: nothing gets worse while work runs in parallel, and machines start
 looking where the bugs are.
 
-- [x] **The browser smoke in CI, required.** *Landed 2026-09-07 on this
-      branch (JOURNAL entry of that date): `npm run smoke` →
-      `tools/smoke/run.mjs`; `playwright` pinned as a devDependency;
-      `lib/browser.mjs` resolves the full Chromium with `XR_CHROME`
-      override; the `browser-smoke` CI job builds, installs Chromium,
-      opens all five extension pages asserting zero `pageerror` and
-      every bundle `esbuild.config.mjs` declares, then runs the MA.6
-      walk anchored on `[data-xr="extraction-block"]` with
-      `tests/smoke-selectors.test.mjs` pinning the anchor; outputs
-      upload as a CI artifact. Measured locally: 42 s.* Remaining from
-      this bullet: move the walk's other selectors to `data-xr` as
-      surfaces are touched; add a browser cache to the job when its ~40 s
-      install is felt. (VERI-02; B8 and T4's "Playwright devDependency +
-      CI job loading the extension" checkbox — closed.) The `pages`
-      check is required from day one; the MA.6 walk is advisory until
-      2026-09-21, then required. Budget: the whole smoke job ≤ 5 minutes
-      wall clock.
+- [x] **The browser smoke in CI — `pages` required.** *Landed
+      2026-09-07 on this branch (JOURNAL entry of that date): `npm run
+      smoke` → `tools/smoke/run.mjs`; `playwright` pinned as a
+      devDependency; `lib/browser.mjs` resolves the full Chromium
+      (`XR_CHROME` override), kills egress at the browser level, and
+      discovers the extension pages from the shells in `src/`; the
+      `browser-smoke` CI job (pinned `ubuntu-24.04`) builds, installs
+      Chromium, and runs `pages` — every page loads, runs its init to
+      the ready stamp (`markReady()` in `src/shared/smoke-anchors.js`),
+      and throws nothing, with product `console.error` failing it —
+      after proving its own observers on a canary; outputs upload as a
+      CI artifact after a key-material scan. An adversarial review of
+      the first cut found it green on an inert bundle and fixed that
+      before merge — the negative controls are in the JOURNAL entry.
+      Measured: CI job 81 s on the first cut; the run 20.7 s locally
+      after the review round.* (VERI-02; B8 and T4's "Playwright
+      devDependency + CI job loading the extension" checkbox — closed.)
+      **Owed to the maintainer:** mark the `browser smoke` check
+      required in `main`'s branch protection — the workflow cannot set
+      that. Budget: the whole smoke job ≤ 5 minutes wall clock.
+- [ ] **The MA.6 walk required.** It runs in the same job today,
+      ADVISORY, anchored on `SMOKE_ANCHORS.extractionBlock` with
+      `tests/smoke-selectors.test.mjs` pinning the seam and
+      `tests/smoke-bundles.test.mjs` pinning the bundle set. Flip
+      criterion (JOURNAL 2026-09-07): on 2026-09-21, if the walk has had
+      ten green runs and every red run had a code cause, delete
+      `--advisory=ma6` from `ci.yml` in its own PR; otherwise record why
+      and set a new date. Preconditions: its ten remaining fixed sleeps
+      (≈11 s) become condition waits; its text selectors that are copy
+      rather than user-visible strings move to `data-xr`. Owner: the
+      maintainer flips; the toolchain lane does the preconditions.
       Flake policy: a scenario that fails without a code cause is fixed
       or deleted within the week, on the record — never quarantined
-      silently; the automator kill rule (two false alarms, no true
-      positive) governs after that. Owner: the toolchain lane.
+      silently; a smoke failure on a Dependabot `chore(deps-dev)` PR is
+      a browser-roll finding (the playwright pin carries the Chromium
+      revision), not a flake; the automator kill rule (two false
+      alarms, no true positive) governs after that.
 - [ ] **ESLint minimal** (`no-undef`, `no-unused-vars`, a `console`
       ratchet starting at 205) + version lockstep moved into `ci.yml` +
       a packaged-contents assertion + a bundle-size budget. (S each;
