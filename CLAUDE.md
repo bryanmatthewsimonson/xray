@@ -18,7 +18,7 @@ modules still carry userscript-era idioms (see Conventions).
 npm install            # required first — a fresh clone has no node_modules
 npm run build          # esbuild → dist/*.bundle.js (+ .map). No transpile step.
 npm run watch          # incremental rebuild
-npm test               # node --test tests/*.test.mjs  (~2500 tests, must be green)
+npm test               # node --test tests/*.test.mjs  (~3000 tests, must be green)
 npm run smoke          # browser smoke: loads the built extension in headless Chromium
                        #   (needs `npx playwright install chromium` once); CI runs it too
 npm run lint           # web-ext lint --self-hosted (what CI gates on)
@@ -255,6 +255,19 @@ without the other is the design's named long-term risk.
   prints, and the browser smoke's `pages` scenario FAILS a page that
   emits one during init — an error the product reports is a defect the
   gate observes, not noise.
+- **Golden fixtures + structure guard (RESET_PLAN R0):**
+  `tests/fixtures/idb/` (one dump per shipped schema rung),
+  `tests/fixtures/wire/` (one signed event per emitted kind and shape),
+  and `tests/fixtures/backup/` (the `xray-backup/1` envelope) are
+  byte-deterministic outputs of `tests/tools/gen-{idb,wire,backup}-fixtures.mjs`
+  under the three BIP-340 vector keys in `tests/tools/fixture-keys.mjs`
+  — never any other key. A `DB_VERSION` bump, a builder tag/content
+  change, or an envelope change is red until you regenerate and commit
+  the diff (and call it out — `Wire format:` — in the PR).
+  `tests/structure-guards.test.mjs` pins the import graph, the
+  `xray:*` message registry, DOM use in `src/shared`, per-surface
+  `index.js` line ceilings, and a bare-`console` ratchet; every
+  allowlist and ceiling is **shrink-only** — extract, never raise.
 - **Browser-smoke seams:** every extension page ends its init with
   `markReady('<dir>')` from `src/shared/smoke-anchors.js` (the `pages`
   scenario waits for the stamp; a new page under `src/<dir>/` whose

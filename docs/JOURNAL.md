@@ -19,6 +19,101 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-09-14 — R0's net: the structure guard and three golden-fixture corpora, each verified by controls that had to go red
+
+**Tags:** design, pattern
+
+**What landed** (RESET_PLAN §7 R0, the "structure guard" and "golden
+fixtures" bullets; commits `bd94654` → `c4add66` → `9c453cc` →
+`40ea9db` → `f6b22b1` on PR #377):
+
+- `tests/structure-guards.test.mjs` — six shrink-only rules pinning
+  today's shape: the `nostr-client.js` import graph and `new WebSocket(`
+  openers outside `background/` (exact allowlists, set-equal both ways,
+  so a stale entry is as red as a new breach); bundle reach computed
+  from the exported esbuild `configs` (nostr-client never in `content`);
+  DOM globals in `src/shared` under per-module ceilings with unlisted
+  modules at zero; a closed `xray:*` message registry (exactly two
+  `onMessage` listeners, every send site handled, every handler sent,
+  every other `xray:` literal named as a storage key or menu id); a
+  line ceiling per surface `index.js`; and a bare `console.*` ratchet.
+  A comment/string/regex-aware stripper (self-tested) keeps prose
+  mentions from counting.
+- `tests/fixtures/idb/<db>-v<N>.json` × 14 + `tests/idb-fixtures.test.mjs`
+  — one self-describing dump per shipped schema rung of the five
+  databases, minted by `tests/tools/gen-idb-fixtures.mjs` from each
+  rung's historical write literals. The test seeds a rung raw under its
+  own workspace, upgrades through the module's real `onupgradeneeded`,
+  and reads every row back through the read API; xray-events v1 pins
+  the five address-rule cases of the v2 migration. CI rules: a
+  `DB_VERSION` bump without a fixture is red; the current-version
+  fixture's schema must equal the from-scratch mint; a stale file is red
+  via in-memory regeneration.
+- `tests/fixtures/wire/<kind>-<shape>.json` × 31 +
+  `tests/wire-fixtures.test.mjs` — every emitted kind and shape (three
+  `30023` shapes, the reader-shaped kind 0 with creator `p` tag and
+  NIP-26 delegation, four `1985` label shapes, `30078` with its
+  ciphertext pinned once, kinds 1 and 5). Per fixture: id + Schnorr
+  re-verify, re-parse with the current reader echoing the inputs, and
+  where the builder is deterministic an exact rebuild to the identical
+  id and sig. An emitted-kind rule scans the builder modules both
+  ways, and no retired/reserved/free kind may have a fixture.
+- `tests/fixtures/backup/{full,shareable,bytes-omitted}-v1.json` +
+  `legacy-prestamp.json` + `tests/backup-fixtures.test.mjs` — the
+  `xray-backup/1` envelope round-trip under invariants I1–I13 (empty
+  warn channel, `dbVersions` equal to the newest fixture per DB, store
+  set equal to the live `objectStoreNames`, byte-identical storage
+  values, normalizer identities, really-signed journal events, the
+  shareable refusal/merge paths, merge idempotence, credential
+  exclusion) plus a raw-text hygiene sweep.
+
+**Decisions worth second-guessing.**
+
+- *Fixtures carry only the three BIP-340 vector keys* (scalars 1, 2, 3
+  via `tests/tools/fixture-keys.mjs`), and every hygiene test asserts
+  it over the raw file text. RESET_PLAN's wording had the wire corpus
+  "sourced from the maintainer's journal export"; that would put real
+  signed events (real pubkeys, real content) in the tree, and the
+  generators had to be byte-deterministic anyway. Builder-minted under
+  test keys is the agent-realizable form; the plan text is amended to
+  say so. A maintainer-sourced corpus can be added later as a second
+  directory if the real-identity coverage (WIRE-09) is wanted.
+- *Every allowlist and ceiling is shrink-only, and the allowlists are
+  exact, not "at most".* A refactor that removes a breach must delete
+  its entry, so the guard never carries a dead exemption a later PR
+  could hide under.
+- *The IDB fixtures do not re-verify embedded signatures* — the
+  determinism check catches any byte edit, and the wire corpus owns
+  signature checks. Noted so nobody reads the events fixture as a
+  signature oracle.
+- *The pubkey of a derived platform account* (`deriveAccountPubkey`) is
+  the one non-vector 64-hex the wire hygiene admits, and only because
+  the test recomputes it from the fixture's inputs.
+
+**Verification on the record.** Each corpus was built by one agent
+and then attacked in an isolated worktree with restore-after negative
+controls — 15 for the structure guard (including string, comment, and
+regex mentions that must NOT trip the import rule), 8 for IDB (version
+bump, extra index, tampered row, missing rung, schema drift, two
+migration-logic breaks), 10 for backup, 11 for wire (client-tag change,
+extra tag, tag reorder, flipped sig, tampered content, ghost kind,
+dropped fixture, non-vector pubkey, plaintext in the 30078 slot, a
+`kind:` literal outside the builders, altered delegation conditions).
+Every control went red on the intended assertion. Three backup
+controls were green on the first run because the edit had not applied
+— the `privateKey` fields sit inside JSON-string storage values, so a
+raw-text edit must target the escaped form. That is the lesson for the
+next verifier: confirm the edit landed before reading the colour.
+
+**Regeneration.** `node tests/tools/gen-{idb,wire,backup}-fixtures.mjs`
+rewrites the corpus byte-for-byte; a diff in the output is the
+wire-format or schema change the PR must call out (`Wire format:` per
+`.claude/skills/ecosystem-pm`). The 30078 fixture's ciphertext is
+regenerated only from an empty directory (a fresh nonce), by design.
+
+**Provenance:** INTERPRETATION (2026-09-14) — an agent artifact under
+RESET_PLAN R0; the maintainer has not ruled on it.
+
 ## 2026-09-07 — The browser smoke joins CI: `npm run smoke`, a pages check, the MA.6 walk un-rotted — and the review that found the first cut green-while-wrong
 
 **Tags:** design, pattern, bug

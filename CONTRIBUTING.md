@@ -89,6 +89,16 @@ web-ext build          # produces a .zip in web-ext-artifacts/
   until the flip recorded in `docs/JOURNAL.md` 2026-09-07. A new
   extension page joins `pages` by ending its init with
   `markReady('<dir>')` (`src/shared/smoke-anchors.js`).
+- The golden fixtures still pass. `tests/fixtures/{idb,wire,backup}/`
+  pin every shipped IndexedDB schema rung, every emitted NOSTR kind,
+  and the backup envelope; `tests/structure-guards.test.mjs` pins the
+  import graph, the message set, and per-surface ceilings (all
+  shrink-only). If you bumped a `DB_VERSION`, changed a builder's
+  tags/content, or changed the backup envelope, regenerate with
+  `node tests/tools/gen-{idb,wire,backup}-fixtures.mjs`, commit the
+  diff, and call the change out in the PR (`Wire format:` for
+  anything a relay consumer would see). A fixture diff you did not
+  intend is a regression, not a fixture to refresh.
 - Load in Chrome and smoke-test whatever path you touched end to
   end. For platform handlers: capture + publish on a live page, not
   just a static fixture.
