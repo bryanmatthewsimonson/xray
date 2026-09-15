@@ -26,6 +26,7 @@ import {
     corpusMapRequest, corpusExtractKey, validateCorpusExtract
 } from './case-synthesis.js';
 import { orchestrateModuleRuns } from './audit/run-orchestrator.js';
+import { runLlmJob, ackLlmJob } from './llm-jobs.js';
 import { getCorpusExtract, saveCorpusExtract } from './audit/audit-cache.js';
 import { recordArticleExtraction } from './map-artifacts.js';
 
@@ -372,7 +373,7 @@ export async function entityPageInputHash(members, claimIds, version = ENTITY_PA
 
 /**
  * Ensure a valid map extract exists for every member: reuse cached
- * hits, call `xray:llm:corpus-map` only on misses, persist each new
+ * hits, run the `corpus-map` job only on misses, persist each new
  * extract under its `corpusExtractKey`. Requests come from
  * `corpusMapRequest` — CASE-FREE since corpus-v7 (MA.5), so the cache
  * is shared with Analyze / Pre-analyze / the capture prepay by
@@ -424,7 +425,13 @@ export async function ensureExtracts(members, frame, { sendMessage, onProgress =
                 return { ok: true, findings: cached.extract, model: cached.model };
             }
             calls++;
-            const res = await sendMessage({ type: 'xray:llm:corpus-map', request: corpusMapRequest(unitById[id]) });
+            // A job, not a held-open message (shared/llm-jobs.js): the
+            // scope key is the content-only cache key, so an extract that
+            // finished after the page went away is picked up, not re-bought.
+            const res = await runLlmJob({
+                sendMessage, pass: 'corpus-map',
+                request: corpusMapRequest(unitById[id]), scopeKey: keyById[id]
+            });
             if (!res || !res.ok) return { ...(res || {}), ok: false };
             const v = validateCorpusExtract(res.extract);
             if (!v.ok) return { ok: false, error: 'invalid extract' };
@@ -435,6 +442,7 @@ export async function ensureExtracts(members, frame, { sendMessage, onProgress =
                 member: unitById[id], extract: res.extract, frame,
                 key: keyById[id], model: res.model
             })).catch(() => {});
+            if (res.jobId) ackLlmJob(sendMessage, res.jobId).catch(() => {});
             return { ok: true, findings: res.extract, model: res.model };
         }
     });

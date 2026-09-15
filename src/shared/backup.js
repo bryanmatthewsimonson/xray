@@ -50,6 +50,7 @@
 import { WORKSPACE_DATABASES } from './identity-profiles.js';
 import { WORKSPACE_CONTENT_KEYS, activeWorkspaceId, workspaceDbName } from './workspace-keys.js';
 import { LLM_KEY_STORAGE } from './llm-prompts.js';
+import { isLlmJobKey } from './llm-jobs.js';
 import {
     TRANSCRIBER_TOKEN_STORAGE, ASSEMBLYAI_KEY_STORAGE, DEEPGRAM_KEY_STORAGE
 } from './transcriber-client.js';
@@ -123,6 +124,17 @@ export const CREDENTIAL_STORAGE_KEYS = Object.freeze([
 // never chose to export, and a diagnostic aid must stay on the machine
 // that produced it.
 const EXCLUDED_STORAGE_KEYS = [...CREDENTIAL_STORAGE_KEYS, 'workspaces', 'active_workspace', 'xray:diagnostics'];
+
+// LLM job records (`xray:llm-job:*`, shared/llm-jobs.js) are excluded
+// as a PREFIX class: each is a transient hand-off of raw model output
+// between the worker and the page that asked for it, sized by the
+// result (a corpus brief runs to ~100KB) and meaningful only on the
+// machine whose page will pick it up. They never restore or merge
+// either — a file can't smuggle a "finished" result into the pickup
+// path.
+function isExcludedStorageKey(key) {
+    return EXCLUDED_STORAGE_KEYS.includes(key) || isLlmJobKey(key);
+}
 
 // Keys holding PRIVATE KEY material, dropped from a shareable copy.
 // `local_primary_identity` and `identity_profiles` carry the primary
@@ -334,11 +346,11 @@ async function collectStorage() {
         if (k.startsWith('ws:')) {
             if (ws !== 'default' && k.startsWith(prefix)) {
                 const bare = k.slice(prefix.length);
-                if (!EXCLUDED_STORAGE_KEYS.includes(bare)) out[bare] = v;
+                if (!isExcludedStorageKey(bare)) out[bare] = v;
             }
             continue;
         }
-        if (EXCLUDED_STORAGE_KEYS.includes(k)) continue;
+        if (isExcludedStorageKey(k)) continue;
         if (ws !== 'default' && WORKSPACE_CONTENT.has(k)) continue;   // default ws's content
         out[k] = v;
     }
@@ -373,10 +385,10 @@ async function applyStorage(entries, warn = () => {}) {
     // keys plus (identity-carrying files only) install config. Other
     // workspaces are untouchable.
     const toRemove = Object.keys(current).filter((k) => {
-        if (EXCLUDED_STORAGE_KEYS.includes(k)) return false;
+        if (isExcludedStorageKey(k)) return false;
         if (k.startsWith('ws:')) {
             return ws !== 'default' && k.startsWith(prefix)
-                && !EXCLUDED_STORAGE_KEYS.includes(k.slice(prefix.length))
+                && !isExcludedStorageKey(k.slice(prefix.length))
                 && inScope(k.slice(prefix.length));
         }
         if (ws !== 'default' && WORKSPACE_CONTENT.has(k)) return false;   // default ws's content
@@ -386,7 +398,7 @@ async function applyStorage(entries, warn = () => {}) {
     // Never write the excluded keys even if a hand-edited file smuggles them in.
     const clean = {};
     for (const [k, v] of Object.entries(entries || {})) {
-        if (EXCLUDED_STORAGE_KEYS.includes(k)) {
+        if (isExcludedStorageKey(k)) {
             // Old backups (pre-B4) legitimately carry saved credentials.
             // Dropping one silently would read as "restored" — name it.
             if (CREDENTIAL_STORAGE_KEYS.includes(k)) {
@@ -499,7 +511,7 @@ export async function collectWorkspaceSnapshot(wsId) {
             if (WORKSPACE_CONTENT.has(k)) storage[k] = v;
         } else if (k.startsWith(prefix)) {
             const bare = k.slice(prefix.length);
-            if (!EXCLUDED_STORAGE_KEYS.includes(bare)) storage[bare] = v;
+            if (!isExcludedStorageKey(bare)) storage[bare] = v;
         }
     }
     const databases = {};
@@ -666,7 +678,7 @@ async function mergeStorage(entries) {
     const stats = { keysAdded: 0, keysMerged: 0, idsAdded: 0, keysUnchanged: 0, keysSkippedNonContent: 0 };
     const writes = {};
     for (const [k, v] of Object.entries(entries || {})) {
-        if (EXCLUDED_STORAGE_KEYS.includes(k) || MERGE_EXCLUDED_KEYS.has(k) || !WORKSPACE_CONTENT.has(k)) {
+        if (isExcludedStorageKey(k) || MERGE_EXCLUDED_KEYS.has(k) || !WORKSPACE_CONTENT.has(k)) {
             stats.keysSkippedNonContent += 1;   // config/identity/key material never merges
             continue;
         }
