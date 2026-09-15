@@ -19,6 +19,113 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-09-15 — R0 triage: every §9 disposition re-verified on the net, the hygiene script, and the one correction (#376)
+
+**Tags:** design, pattern
+
+**What this is.** RESET_PLAN §7 R0's "Branch and PR triage per §9",
+done to the line where an agent must stop: the classification, the
+evidence, the tooling, and the runbook are on the branch (§9.1 of the
+plan carries the dated table and the 65 names); the merges, the
+deletions, the rebases, and the two repo settings are outward or push
+to other branches and wait on the maintainer's go.
+
+**Method.** Full-history fetch (the container's clone was already
+complete: `origin/main` = 904 commits, still `c1e652c` of 2026-08-28).
+Every open PR merged onto this branch's head — which carries the R0
+net — in a throwaway worktree, then build, `npm test`, the guard
+suites, and `npm run smoke`; `git merge-tree` against `main`; every
+size claim in the §9 table re-counted with `git diff --numstat`.
+
+**What held, what did not.** Every "why" claim held on re-count (the
+288 test lines in #373, the 421-line stray Margin plan in #368, the
+534-line `llm-jobs.js`, the non-overlapping background hunks between
+#374 and #369, the JOURNAL-only conflict on #324, the five-behind
+#366 — which merges clean, so its "rebase" is unnecessary). One row was
+wrong: **#376 is not a lockfile-only dev bump** — it carries
+`pdfjs-dist` 6.2.108 → 6.3.289, a runtime dependency that ships in
+`pdf-engine.bundle.js` with the cmaps / fonts / wasm the build copies,
+because `dependabot.yml` grouped every minor+patch update regardless of
+type. It also conflicts with #377 on `package.json` + lockfile (this
+branch added `playwright`). The disposition changed: merge it before
+#377, only after the browser smoke and one human PDF row; the
+`dependabot.yml` group is now split by dependency type; and the new
+auto-merge workflow keeps a mixed group manual by construction —
+verified in `dependabot/fetch-metadata`'s own source, whose
+`dependency-type` output is the HIGHEST type across a group
+(production > development > indirect).
+
+**The net changes what the merge order means.** Four open PRs add net
+lines to a surface `index.js` (#369 +13 background, #374 +31
+background, #324 +8 sidepanel, #370 +444 reader) and #374 adds four
+`xray:llm:job:*` messages plus an `xray:llm-job:` storage prefix. On
+the net each is red exactly where the guard says (line ceiling;
+registry; #370 also trips the reader console ratchet with seven new
+bare calls). Merged BEFORE the guard — §9's order — they are
+grandfathered by #377's final rebase, which re-pins the ceilings and
+registry at the post-merge state; that rebase commit is the recorded
+grandfathering point. Merged after, each would have to extract. So the
+order §9 gave was right for a reason it did not yet state.
+
+**The tooling.** `scripts/branch-hygiene.mjs` classifies every remote
+branch with ONE label in priority order (protected → open-pr → merged →
+stale → active); dry-run is the default and zero-write by construction
+— one gate function, applied in the executor's wrapped api AND in the
+adapter's request layer for every non-GET; a stale branch is tagged
+`archive/<name>-<yyyymmdd>` BEFORE its delete and the delete is refused
+if the tag did not land at the same sha, if the branch moved since
+classification, or if it is protected or has an open PR. Today's real
+dry run: 82 heads → 1 protected, 15 open-pr, 65 merged, 1 stale
+(`feature/phase-9b-metadata-ui` → `archive/feature-phase-9b-metadata-ui-20260529`),
+0 active, 3 name violations (all merged), PR cap 10 > 4. The golden
+snapshot `tests/fixtures/hygiene/branches-2026-09-15.json` pins that
+classification. `hygiene.yml` runs it weekly as a REPORT; enforcement
+is a manual dispatch with `apply=true` — flipping the cron is a §11
+call. `dependabot-automerge.yml` queues `gh pr merge --auto --squash`
+for actions pins and npm `direct:development` only.
+
+**Decisions worth second-guessing.**
+
+- *The archive tag's date is the tip commit's recorded calendar date*
+  (the committer's own offset, what `git log --date=short` shows), not
+  UTC: it is the only derivation that yields §9's named
+  `…20260529` for a tip committed `2026-05-29T22:28:53-07:00`. The API
+  fallback (a tip missing locally) is UTC and can differ by a day; the
+  report labels the source.
+- *`--protected` adds to the defaults, never replaces them,* and the
+  executor refuses `main` unconditionally — the verifier showed
+  `--protected ''` planning DELETE main under the first cut. A safety
+  invariant that lives only in a default is not an invariant.
+- *Under `--apply`, a shallow checkout or a local `origin/main` that
+  differs from the remote is fatal,* not a note: a rewound remote main
+  would over-count "merged".
+- *The cron is report-only.* A weekly job that deletes branches is the
+  kind of persistence a maintainer should turn on by hand after reading
+  one report, not inherit from an agent's PR.
+
+**Verification on the record.** One builder, one adversarial verifier
+in an isolated worktree with restore-after controls (md5-verified):
+the verifier ran 22 controls (nine of the builder's re-run, the two the
+builder had skipped, eleven of its own) — every one red as intended
+except the three that exposed untested seams, which became findings.
+Findings: two major (`--protected` replacing the set; the non-zero exit
+on a refused apply asserted by a tautology), three minor (unencoded
+ref segments — a git-legal `#` would truncate the URL onto a sibling;
+raw PR titles interpolated into the issue body; drift only a note),
+three nits. All eight repaired in one round, each repair with its own
+test, and seven restore-after controls proved those tests observe the
+repair (F1a/F1b, F2, F3, F4, F5, F8 — all red). Suite 3072/3072.
+Zero writes to GitHub throughout; the live-API dry run (GET only) was
+byte-identical to the offline one.
+
+**The lesson for the next verifier**, twice now: three of the
+builder's controls in the fixture round and one here were green because
+the edit had not applied — confirm the edit landed (md5, grep) before
+reading the colour.
+
+**Provenance:** INTERPRETATION (2026-09-15) — an agent artifact under
+RESET_PLAN R0; the maintainer has not ruled on it.
+
 ## 2026-09-14 — R0's net: the structure guard and three golden-fixture corpora, each verified by controls that had to go red
 
 **Tags:** design, pattern

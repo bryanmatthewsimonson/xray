@@ -108,6 +108,31 @@ web-ext build          # produces a .zip in web-ext-artifacts/
 
 `web-ext lint` must pass. CI runs it on every push and PR.
 
+## Branch hygiene
+
+`scripts/branch-hygiene.mjs` enforces RESET_PLAN §9's branch rules
+(the weekly `hygiene.yml` runs it report-only; enforcement happens only
+when a human dispatches it with `--apply`):
+
+- `main` is never touched; neither is any branch with an open PR.
+- A branch whose tip is already an ancestor of `main` is deleted, no tag.
+- A branch with no open PR and no commit for fourteen days is tagged
+  `archive/<name-with-slashes-as-dashes>-<yyyymmdd of the tip>` and then
+  deleted — the tag lands first, and the delete is refused if it did not.
+- Branch names are `<lane>/<topic>` (`fix/…`, `feat/…`, `docs/…`,
+  `claude/…`); violations are reported, never acted on.
+- At most four open non-dependabot PRs (drafts count); over the cap the
+  apply run opens or updates one tracking issue.
+
+Local dry run (nothing is written without `--apply`; needs a full-history
+clone and an up-to-date `origin/main`):
+
+    node scripts/branch-hygiene.mjs --today YYYY-MM-DD --json /tmp/hygiene.json
+
+Restore an archived branch:
+
+    git fetch origin tag archive/<x> && git checkout -b <lane>/<topic> archive/<x>
+
 ## Signing key safety
 
 - The **keypair registry** in `chrome.storage.local` contains private
