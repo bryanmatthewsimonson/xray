@@ -452,21 +452,43 @@ dependency, not by importance; lanes inside a track run in parallel
 Goal: nothing gets worse while work runs in parallel, and machines start
 looking where the bugs are.
 
-- [ ] **The browser smoke in CI, required.** `npm run smoke` →
-      `tools/smoke/run.mjs`; `playwright` as a devDependency; browser
-      resolved from `PLAYWRIGHT_BROWSERS_PATH` with `XR_CHROME` override;
-      CI job after build: load the unpacked extension, open all five
-      extension pages asserting zero `pageerror` and ten bundles, then
-      run the MA.6 walk with its stale selector fixed and selectors moved
-      to `data-xr` attributes; outputs to CI artifacts; committed PNG/JSON
-      deleted. (M; VERI-02; B8 and T4's "Playwright devDependency + CI
-      job loading the extension" checkbox, open.) The `pages` check is
-      required from day one; scenario walks advisory for two weeks, then
-      required. Budget: the whole smoke job ≤ 5 minutes wall clock.
+- [x] **The browser smoke in CI — `pages` required.** *Landed
+      2026-09-07 on this branch (JOURNAL entry of that date): `npm run
+      smoke` → `tools/smoke/run.mjs`; `playwright` pinned as a
+      devDependency; `lib/browser.mjs` resolves the full Chromium
+      (`XR_CHROME` override), kills egress at the browser level, and
+      discovers the extension pages from the shells in `src/`; the
+      `browser-smoke` CI job (pinned `ubuntu-24.04`) builds, installs
+      Chromium, and runs `pages` — every page loads, runs its init to
+      the ready stamp (`markReady()` in `src/shared/smoke-anchors.js`),
+      and throws nothing, with product `console.error` failing it —
+      after proving its own observers on a canary; outputs upload as a
+      CI artifact after a key-material scan. An adversarial review of
+      the first cut found it green on an inert bundle and fixed that
+      before merge — the negative controls are in the JOURNAL entry.
+      Measured: CI job 81 s on the first cut; the run 20.7 s locally
+      after the review round.* (VERI-02; B8 and T4's "Playwright
+      devDependency + CI job loading the extension" checkbox — closed.)
+      **Owed to the maintainer:** mark the `browser smoke` check
+      required in `main`'s branch protection — the workflow cannot set
+      that. Budget: the whole smoke job ≤ 5 minutes wall clock.
+- [ ] **The MA.6 walk required.** It runs in the same job today,
+      ADVISORY, anchored on `SMOKE_ANCHORS.extractionBlock` with
+      `tests/smoke-selectors.test.mjs` pinning the seam and
+      `tests/smoke-bundles.test.mjs` pinning the bundle set. Flip
+      criterion (JOURNAL 2026-09-07): on 2026-09-21, if the walk has had
+      ten green runs and every red run had a code cause, delete
+      `--advisory=ma6` from `ci.yml` in its own PR; otherwise record why
+      and set a new date. Preconditions: its ten remaining fixed sleeps
+      (≈11 s) become condition waits; its text selectors that are copy
+      rather than user-visible strings move to `data-xr`. Owner: the
+      maintainer flips; the toolchain lane does the preconditions.
       Flake policy: a scenario that fails without a code cause is fixed
       or deleted within the week, on the record — never quarantined
-      silently; the automator kill rule (two false alarms, no true
-      positive) governs after that. Owner: the toolchain lane.
+      silently; a smoke failure on a Dependabot `chore(deps-dev)` PR is
+      a browser-roll finding (the playwright pin carries the Chromium
+      revision), not a flake; the automator kill rule (two false
+      alarms, no true positive) governs after that.
 - [ ] **ESLint minimal** (`no-undef`, `no-unused-vars`, a `console`
       ratchet starting at 205) + version lockstep moved into `ci.yml` +
       a packaged-contents assertion + a bundle-size budget. (S each;
@@ -474,8 +496,30 @@ looking where the bugs are.
       The packaged-contents assertion also names what must be *in* the
       zip: pdf.js's cmaps, standard fonts and wasm under `dist/`, the
       largest packaging risk the tree has.
-- [ ] **Golden fixtures before any refactor thread starts.**
-      `tests/fixtures/idb/<db>-v<N>.json` (one dump per shipped version
+- [x] **Golden fixtures before any refactor thread starts.** *Landed
+      2026-09-14 on this branch (JOURNAL entry of that date; commits
+      `9c453cc`, `40ea9db`, `f6b22b1`): `tests/fixtures/idb/<db>-v<N>.json`
+      × 14 (every shipped rung of the five databases) with
+      `tests/idb-fixtures.test.mjs` opening each rung raw, upgrading
+      through the module's real `onupgradeneeded`, and reading every
+      row through the current API; `tests/fixtures/wire/<kind>-<shape>.json`
+      × 31 (every emitted kind and shape) with `tests/wire-fixtures.test.mjs`
+      re-verifying id + signature, re-parsing, and rebuilding exactly
+      where the builder is deterministic, plus an emitted-kind rule
+      both ways; `tests/fixtures/backup/*.json` × 4 with
+      `tests/backup-fixtures.test.mjs` running import → export → import
+      under invariants I1–I13. CI rule: a `DB_VERSION` bump without a
+      regenerated fixture is red in both the IDB and backup suites; a
+      stale fixture is red via in-memory regeneration
+      (`node tests/tools/gen-{idb,wire,backup}-fixtures.mjs`). One
+      deviation from the text below: the wire corpus is builder-minted
+      under the three BIP-340 vector keys, not sourced from the
+      maintainer's journal export — real identities in the tree were
+      not worth the real-content leak, and the generators had to be
+      byte-deterministic anyway; a maintainer-sourced second directory
+      remains open under WIRE-09. Verified by 29 negative controls
+      across the three corpora, on the JOURNAL record.* Original
+      scope: `tests/fixtures/idb/<db>-v<N>.json` (one dump per shipped version
       per database, produced by seeding the historical rung and
       exporting through `backup.js`'s own dumper), `tests/fixtures/wire/<kind>.json`
       (one real signed event per emitted kind, sourced from the
@@ -484,22 +528,47 @@ looking where the bugs are.
       row through the current API, re-verify id + signature and re-parse
       every wire fixture, import → export → import every file fixture.
       CI rule: a diff touching any `DB_VERSION` without a new fixture
-      fails. Today `tests/fixtures/` holds one normalizer file and two
-      PDF stubs; `xray-audits` is at v7 with no upgrade-from-v(n) test.
-      (M; WIRE-05.) This is what lets several refactor threads run
+      fails. Before this slice `tests/fixtures/` held one normalizer file
+      and two PDF stubs; `xray-audits` was at v7 with no upgrade-from-v(n)
+      test. (M; WIRE-05.) This is what lets several refactor threads run
       without one silently stranding the casework corpus.
-- [ ] **`tests/structure-guards.test.mjs`** pinning today's state with
+- [x] **`tests/structure-guards.test.mjs`** *Landed 2026-09-14 on
+      this branch (commit `c4add66`; JOURNAL entry of that date): six
+      shrink-only rules — the `nostr-client.js` import graph and
+      `WebSocket` openers outside `background/` as EXACT allowlists
+      (set-equal both ways, so a stale entry is as red as a new
+      breach), bundle reach from the exported esbuild `configs`
+      (nostr-client never in `content`), DOM globals in `src/shared`
+      under per-module ceilings with unlisted modules at zero, a closed
+      `xray:*` message registry (two listeners; every send handled,
+      every handler sent), a line ceiling per surface `index.js`, and a
+      bare `console.*` ratchet at 200 outside `utils.js` and `page/`
+      (the 205 below counted those). Verified by 15 negative controls,
+      including string/comment/regex mentions that must NOT trip the
+      import rule.* Original scope: pinning today's state with
       breaches allowlisted: import graph (no `nostr-client.js` outside
       `background/` except the three known breaches; no `document` in
       `shared/` except the four modals), the message set, surface
       `index.js` line-count ceilings, no `console.` outside `utils.js`
       and `page/`. Every later PR shrinks an allowlist; none may grow
       one. (S; ARCH-15.)
-- [ ] **Branch and PR triage** per §9: merge the small fixes and the
-      docs PRs in the order given, delete the 65 merged branches, park
-      #370, rebase #374 and #324; land `scripts/branch-hygiene.mjs` and
-      the weekly `hygiene.yml`; turn on auto-delete-on-merge and
-      Dependabot auto-merge for devDependencies. (S.)
+- [ ] **Branch and PR triage** per §9. *Status 2026-09-15 (§9.1 —
+      the dated re-verification, the runbook, and the 65 names): every
+      disposition re-checked against the tree and against the R0 net;
+      one correction (#376 carries a runtime `pdfjs-dist` bump — not
+      machine-class); `scripts/branch-hygiene.mjs` + its tests + golden
+      snapshot, the report-only weekly `hygiene.yml`, the
+      `dependabot-automerge.yml` (actions + npm devDependencies only)
+      and the `dependabot.yml` group split LANDED on this branch. NOT
+      done, by design — they are outward or push to other branches and
+      wait on the maintainer's go: the merges in §9's order, the stray
+      file removal on #368, parking #370, rebasing #374/#324, the
+      hygiene `--apply` (65 deletes + 1 archive tag), and the two repo
+      settings.* Original scope: merge the small fixes and the docs PRs
+      in the order given, delete the 65 merged branches, park #370,
+      rebase #374 and #324; land `scripts/branch-hygiene.mjs` and the
+      weekly `hygiene.yml`; turn on auto-delete-on-merge and Dependabot
+      auto-merge for devDependencies. (S.)
 - [ ] **Split the JOURNAL now, not in R6.** `docs/journal/YYYY-MM.md`,
       append-at-bottom, `merge=union`, a generated index at the old path
       so every existing citation still resolves. It is the one file
@@ -1075,6 +1144,99 @@ path check reads); `main` is squash-merge only, linear history, force-push
 forbidden, required checks = the whole gate; at most four open
 non-dependabot PRs (the script opens an issue when exceeded); Dependabot
 devDependency and action bumps auto-merge on green.
+
+### 9.1 Status on 2026-09-15 — every disposition re-verified against the tree
+
+*Provenance: INTERPRETATION (2026-09-15) — an agent re-check under R0;
+nothing here is a ruling. Method: full-history fetch (`origin/main` is
+still at `c1e652c`, 2026-08-28 — throughput is still zero); every open
+PR's head merged onto this branch's head (which carries the R0 net:
+browser smoke, structure guard, golden fixtures) in a throwaway
+worktree, then `npm run build`, `npm test`, the guard suites, and
+`npm run smoke`; `git merge-tree` against `main`; the size claims of
+the table above re-counted with `git diff --numstat`. Logs and the
+per-PR records are in the session scratchpad, not the tree.*
+
+**What changed since §9 was written.** One new Dependabot PR (#378,
+js-yaml dev bump); #335 was closed unmerged as expected (#376 is its
+recut); the 65 merged branches are still exactly 65; the JOURNAL is
+still the only conflict anywhere. Every "why" claim in the table above
+held on re-count except one, on #376 (below).
+
+**The R0 net changes the merge order's meaning, not its order.** The
+structure guard pins today's line ceilings and message registry. Four
+open PRs add net lines to a surface `index.js` (#369 +13 in background,
+#374 +31 in background, #324 +8 in sidepanel, #370 +444 in reader) and
+#374 adds four `xray:llm:job:*` messages plus one `xray:llm-job:`
+storage prefix. Merged AFTER the guard, each would be red until it
+extracts (the rule is "never raise"). Merged BEFORE it — the order §9
+already gives — they are grandfathered: #377 rebases last and re-pins
+the ceilings and the registry at the post-merge state, and that rebase
+commit is the recorded grandfathering point. So: the small PRs first,
+#377 last, exactly as the table says; nothing about the order was
+wrong, but the reason it must hold is now mechanical.
+
+| PR | §9 said | Re-verified 2026-09-15 | On the R0 net (build / tests / guards / smoke) | Disposition now |
+|---|---|---|---|---|
+| #373 | mark ready, merge (machine-class) | still a draft; +408 with 288 test lines (125+98+30+35) — exact; clean vs main | green / 3041 pass / green / green | **unchanged** — the one PR that lands on the net with nothing to fix |
+| #369 | merge now (machine-class) | +139 exact; clean vs main; `background/index.js` 1875 → 1888 | green / 1 red = ceiling (background 1888 > 1875) / smoke green | **unchanged** — merge before #377; the +13 is re-pinned at #377's rebase |
+| #368 | merge after removing the stray plan file | the stray file is real: `docs/superpowers/plans/2026-08-28-margin-s1-see.md` (421 lines) is on this branch only — not on `main`, not in #370 | green / 3041 pass / green / green | **unchanged** — one `git rm` on its branch (a push to another branch: maintainer, or say go), then merge; the Instagram human row stands |
+| #371 | merge now (Dependabot) | nltk 3.10.1 → 3.10.3 in the companion's `uv.lock` only | n/a — CI never touches the companion; nothing here exercises it | **unchanged, with the honest note**: the only test is the next transcription run; the auto-merge workflow deliberately excludes uv |
+| #372, #378 | merge now (Dependabot) | fast-uri and js-yaml, dev/transitive, lockfile-only | CI is the test | **unchanged**; both become auto-merge-eligible once `dependabot-automerge.yml` is on `main` |
+| #375 | merge now (Dependabot) | `softprops/action-gh-release` 3.0.2 → 3.0.3, one SHA pin | CI is the test | **unchanged**; auto-merge-eligible |
+| #376 | merge now (Dependabot, "lockfile bumps") | **CORRECTION.** Not lockfile-only and not dev-only: it bumps `pdfjs-dist` 6.2.108 → 6.3.289 — a RUNTIME dependency that ships in `pdf-engine.bundle.js` and whose cmaps / fonts / wasm the build copies into `dist/` — alongside esbuild and web-ext. It also conflicts with #377 on `package.json` + lockfile (#377 added `playwright`) | not run: the lockfile needs a real `npm install` to mean anything | **changed**: merge it BEFORE #377 (then #377 regenerates the lock at rebase) and only after the browser smoke is green on it plus one human row — capture one PDF and open it in the reader (~3 min). `.github/dependabot.yml` now splits the npm group by dependency type so a runtime bump never rides with dev bumps again; the auto-merge workflow keeps mixed groups manual by construction (fetch-metadata reports the highest type) |
+| #366 | merge now into `docs/ideas/`, "rebase five commits" | 667 lines, one file; behind `main` by five commits but `merge-tree` is clean — no rebase needed | green / 3034 pass / green / n/a | **unchanged, minus the rebase** |
+| #364 | mark ready, merge (docs only) | `docs/GOVERNANCE_UX_REVIEW.md` +307 and a JOURNAL entry; draft | green / 3034 pass / green / n/a | **unchanged** |
+| #365 | fold (a 453-line skill mirroring the corpus) | 453 lines exact; also edits `architect/SKILL.md`, the skills README, `CLAUDE.md`, and the GENERATED `discipline-standards.html` (the drift guard stayed green on the net) | green / 3034 pass / green / n/a | **unchanged** |
+| #374 | mark ready, rebase and merge after #369; fold into R3 lane B | draft; +1,580; `shared/llm-jobs.js` 534 exact; vs #369 the `background/index.js` hunks do not overlap (`merge-tree` of the two heads conflicts only in the JOURNAL); vs #377 it conflicts in JOURNAL + THREAT_MODEL, both docs, both union-resolvable; also touches `feature-flags.js` and `backup.js` (the `store` lane) | green / 2 red = ceiling (background 1906 > 1875) + registry (four new `xray:llm:job:*` messages and the `xray:llm-job:` storage prefix are unregistered) / smoke green | **unchanged**, plus: when rebased onto the net, register the five literals in `tests/structure-guards.test.mjs` (handlers + non-message prefix) — the registry did exactly its job here; the money row stands |
+| #324 | rebase and merge after the browser smoke; confirm legacy random-keyed entities still load and sign once fixtures exist | +390/−57, 31 files, behind 172; conflict is the JOURNAL only (union-resolves cleanly); sidepanel 2245 → 2253 | green / 1 red = ceiling (sidepanel 2253 > 2245) / smoke green — and the backup golden fixture, whose `local_keys` are legacy-shaped (no `derived_from`), restores and merges under #324 unchanged: the LOAD half of the fixture check passes | **unchanged**; the SIGN half of the legacy-entity check stays the one human row (create an entity under Local and under NIP-07 with no local primary; expect the named refusal) |
+| #370 | park; or merge with a four-row walk | 22 commits, +1,872, 15 files; `reader/index.js` +474 of wiring although `annotated-view.js` exists | green / 2 red = ceiling (reader 8741 > 8297) + console ratchet (reader 110 bare calls > 103) / smoke green | **unchanged (park)**; if merged instead, the price is now stated by the guard: the +444 in `index.js` moves into `annotated-view.js` and the seven bare `console.*` calls route through `Utils.log` |
+| #377 | this plan, corrected before merge | carries the R0 net (four slices landed) | — | **merge last**: rebase after the small PRs, union the JOURNAL, regenerate the lock (after #376), re-pin the ceilings and registry at the post-merge state, re-run everything |
+
+**The 65 merged branches, re-verified today** (every tip an ancestor of
+`origin/main`; `scripts/branch-hygiene.mjs` deletes exactly this set and
+never a branch with an open PR): chore/security-bumps chore/security-hardening claude/ai-vision-image-text-dfbwt6 claude/amazing-hamilton-p67ln2 claude/analyze-corpus-map-artifacts-ozl7nh claude/assemblyai-speech-models claude/case-brief-render-fixes-ckfudq claude/cloud-transcription-providers claude/dazzling-dirac-ido41f claude/eloquent-tesla-q4v81l claude/epistack-plan-review-krh2wr claude/flf-competition-entry-1xeffq claude/identity-rename-workspace-rebind claude/journal-consensus-descope-revisit claude/local-transcription-diarization claude/nip07-trace-writeup claude/personas-college claude/pre-analysis-corpus-reconcile-mwwgqs claude/t1-finish-backup-hygiene claude/transcribe-engine-ui claude/truth-infrastructure-map claude/truth-systems-annex claude/unified-article-pass-kickoff direct-cloud-dc2 direct-cloud-transcribe docs/358-walk-complete docs/librarian-seed docs/margin-design docs/opinion-modules-kickoff docs/opinion-modules-op5 docs/portal-ux-review docs/portal-ux-review-status docs/seam-check-skill docs/soak-ux-agent-smoke docs/ux-review-d3-correction feat/agent-walk-honest-tags feat/cross-coverage-language feat/diagnostics-log feat/direction-and-run-delta feat/extraction-accept-all feat/known-unknowns-block feat/opinion-audit-caveat feat/opinion-modules-op2 feat/opinion-modules-op3 feat/opinion-modules-op4 feat/portal-back-stack feat/portal-case-imports feat/portal-header-regroup feat/portal-import-panel-switch feat/portal-inspector-opener feat/portal-people-local-first feat/portal-string-truth feat/portal-tab-layering feat/reach-and-cohort-views feat/reference-resolver fix/book-chapters-open fix/error-surface-capture fix/forensic-accept-in-place fix/platform-media-claim fix/session-article-quota fix/suggest-double-encoded fix/suggest-shape-retry fix/transcriber-ct2-cuda12-dlls fix/transcriber-nvidia-dep-markers worktree-transcribe-anywhere 
+
+**`feature/phase-9b-metadata-ui`** (tip 2026-05-29, six commits, real
+conflicts in five `src/` files and one deleted test): the script tags
+`archive/feature-phase-9b-metadata-ui-20260529` — the date is the tip
+commit's, so the tag says when the work stopped — then deletes.
+
+**What landed on this branch for the triage** (2026-09-15):
+`scripts/branch-hygiene.mjs` (dry-run by default; `--apply` gated
+behind one write function; tag-before-delete; refuses a moved branch, a
+protected branch, an open-PR branch), `tests/branch-hygiene.test.mjs`
+with a golden snapshot of today's classification, `.github/workflows/hygiene.yml`
+(weekly REPORT-ONLY cron + a manual dispatch with `apply=true` — the
+flip to enforcement is a §11 call), `.github/workflows/dependabot-automerge.yml`
+(actions pins and npm devDependencies only; runtime and uv bumps stay
+manual), and the `dependabot.yml` group split.
+
+**Runbook — the maintainer's part, in order** (or say "go" for the
+steps an agent may do with permission; none of these were executed):
+
+1. *Repo settings (~2 min, admin only).* Settings → General → Pull
+   Requests: squash merging ON, merge commits OFF, rebase merging OFF,
+   "Automatically delete head branches" ON, "Allow auto-merge" ON.
+   Settings → Branches → `main`: require a pull request, require the
+   status checks `build + lint + package` and `browser smoke`,
+   require linear history, block force pushes.
+2. *Merge, squash, in this order:* #373 (mark ready first) → #369 →
+   #368 (after the stray file is removed on its branch) → #372 → #375 →
+   #378 → #371 → #376 (after its smoke is green and the PDF row) → #366
+   → #364.
+3. *Park #370:* close the PR, keep the branch; the stale rule then
+   tags `archive/feat-margin-s1-20260830` and deletes it on the next
+   `--apply` (the tip date, not §9's `20260906`).
+4. *Rebase #374 and #324* onto the merged `main` (JOURNAL union;
+   #374 registers its five literals when the net is in), then merge.
+5. *Rebase and merge #377* last (step 2's grandfathering point).
+6. *Hygiene:* dispatch `branch hygiene` with `apply=true` once (or
+   `node scripts/branch-hygiene.mjs --apply` locally): 65 deletes, one
+   archive tag, and the PR-cap issue (10 open non-Dependabot PRs > 4
+   today; the cap starts binding once the queue above drains).
+7. *Fold #365* per its row, in a fresh ≤120-line PR.
+
 
 ---
 
