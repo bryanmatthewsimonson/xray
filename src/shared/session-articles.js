@@ -14,10 +14,17 @@
 // records in this one namespace — never the newest KEEP_NEWEST, never
 // another namespace (the lens session cache shares the area) — and
 // retry ONCE. A still-failing write, or any non-quota failure, returns
-// the honest error for the caller's toast. An evicted record's reader
-// tab (necessarily hours old) publishes as "Session record missing" and
-// recovers by re-capture — strictly better than every NEW capture
-// failing, which is what the leak produced.
+// the honest error for the caller's toast.
+//
+// Eviction is CHEAP because the record is not load-bearing: the publish
+// path reads exactly one field from it (`sourceTabId`), and that field
+// matters only for NIP-07 signing. Since 2026-08-28 a missing record
+// degrades to the tabless publish path — the same one PDFs and EPUB
+// chapters have always used — so an evicted reader tab still publishes
+// under Local or NSecBunker. (Before that it failed with "Session
+// record missing", which cost the maintainer a tab holding hours of
+// extracted claims; that was the eviction design's real price and it is
+// now paid.)
 
 /** How many of the newest records eviction must never touch — the
  *  captures the user is plausibly still working in. */

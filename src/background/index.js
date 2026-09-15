@@ -581,7 +581,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             const record = await new Promise((r) => {
                 area.get(['xray:article:' + id], (res) => r(res && res['xray:article:' + id]));
             });
-            if (!record) return sendResponse({ ok: false, error: 'Session record missing' });
             // Only NIP-07 needs the source tab (its `window.nostr` lives in
             // the page). Local and NSecBunker resolve the pubkey right here
             // in the worker — so tabless captures (PDFs, imported EPUB
@@ -589,8 +588,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             // whether a tab id was recorded. A NIP-07 method with no source
             // tab falls through to the façade, which throws the clear
             // "needs a web page — switch to Local" error.
+            //
+            // A MISSING record reads as "no tab" for the same reason the
+            // publish path treats it that way — see handleCapturePublish.
+            const sourceTabId = record && record.sourceTabId;
             const method = await Signer.getMethod();
-            if (!Signer.methodRequiresPageContext(method) || record.sourceTabId == null) {
+            if (!Signer.methodRequiresPageContext(method) || sourceTabId == null) {
                 try {
                     return sendResponse({ ok: true, pubkey: await Signer.getPublicKey() });
                 } catch (err) {
@@ -598,7 +601,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 }
             }
             try {
-                const resp = await chrome.tabs.sendMessage(record.sourceTabId, { type: 'xray:getPubkey' });
+                const resp = await chrome.tabs.sendMessage(sourceTabId, { type: 'xray:getPubkey' });
                 if (!resp || !resp.ok) {
                     return sendResponse({ ok: false, error: (resp && resp.error) || 'Source tab refused' });
                 }
@@ -1763,16 +1766,26 @@ function tablessSignError(err) {
 }
 
 async function handleCapturePublish(id, unsignedEvent, { ledger = null, articleUrl = null } = {}) {
-    // 1. Pull the source-tab id from the session-storage record the FAB
-    //    click saved. That's where the content script + NIP-07 bridge live.
+    // 1. Pull the source-tab id from the session-storage record the
+    //    capture saved. That's where the content script + NIP-07 bridge
+    //    live — and it is the ONLY thing this path reads from the
+    //    record.
+    //
+    //    A MISSING record is not a refusal (field-found 2026-08-28: a
+    //    reader tab holding hours of extracted claims failed to publish
+    //    after the quota discipline evicted its record). The record is
+    //    load-bearing for NIP-07 alone, whose `window.nostr` lives in
+    //    the source page; Local and NSecBunker sign right here through
+    //    the façade, which is why PDFs, EPUB chapters, transcript
+    //    imports and portal reconstructions already publish with a null
+    //    tab id. So a gone record degrades to exactly that tabless
+    //    path, and NIP-07 still reaches its honest "needs a web page"
+    //    error two lines below instead of a baffling one here.
     const area = chrome.storage.session || chrome.storage.local;
     const record = await new Promise((resolve) => {
         area.get(['xray:article:' + id], (res) => resolve(res && res['xray:article:' + id]));
     });
-    if (!record) {
-        return { ok: false, error: 'Session record missing (reader opened without a source tab)' };
-    }
-    const sourceTabId = record.sourceTabId;
+    const sourceTabId = record && record.sourceTabId;
 
     // 2. Sign. ONLY NIP-07 needs a page: its `window.nostr` bridge lives in
     //    the source tab, so a NIP-07 sign routes through that tab. Local and
